@@ -194,7 +194,7 @@ def fix_svg_opacity(svg: str) -> str:
 
 def main():
     os.chdir(Path(__file__).parent)
-    server = http.server.HTTPServer(("127.0.0.1", PORT), HiTeXeRHandler)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), HiTeXeRHandler)
     print(f"HiTeXeR server running at http://127.0.0.1:{PORT}")
     print("Press Ctrl+C to stop")
     try:
