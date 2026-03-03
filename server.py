@@ -2,8 +2,10 @@
 
 Compiles Asymptote code to SVG via: asy -> PDF -> dvisvgm -> SVG
 Serves the web frontend and handles compilation requests.
+AI features use Claude CLI for code generation and analysis.
 """
 
+import base64
 import http.server
 import json
 import os
@@ -25,8 +27,111 @@ PORT = 8080
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
 DVISVGM = "dvisvgm"
 
-# Asymptote packages that AoPS TeXeR supports
 AOPS_PREAMBLE = ""
+
+STYLE_GUIDE_PROMPT = """You are an expert educator with deep Asymptote experience. Follow the style guide at:
+https://docs.google.com/document/d/1D-VA4w4_fPGEvp8CJQnTJLaULzKBzl2cToYSbmM6x-0/edit
+
+Code organization: Structure in clear sections with comments (Define objects / Assign values / Draw / Label). This lets me quickly find what to modify.
+
+Make it tweakable: Use descriptive variable names, parameterize key values at the top, add brief inline comments for calculations, and group related commands together.
+
+Begin with a clearly marked section defining all "magic numbers" as variables (e.g., real radius = 3;, pen primaryColor = heavyblue;). Do not bury constants in drawing commands.
+
+Use boolean variables at the top (e.g., bool showLabels = true;) to control optional elements like labels, construction lines, or solution highlights.
+
+Add a brief comment explaining your choice of origin (0,0) and scale.
+
+Prioritize code readability. Use comments to explain the physics or geometry intent, not just the drawing command.
+
+If the diagram is complex, define functions (e.g., drawPulley()) rather than listing linear commands.
+
+Before providing code, verify: all objects defined before use, labels don't overlap, diagram matches description, proper scaling.
+
+Common pitfalls: Watch for N/E/S/W overwrites, sequence() nuances, importing markers, fill-then-draw order."""
+
+
+CLAUDE_CLI = os.path.join(os.environ.get("APPDATA", ""), "npm", "claude.cmd")
+if not os.path.exists(CLAUDE_CLI):
+    CLAUDE_CLI = "claude"  # fallback to PATH
+
+
+def call_claude(prompt, model="claude-opus-4-6", max_tokens=16000):
+    """Call Claude CLI and return the response text. Pipes prompt via stdin."""
+    try:
+        result = subprocess.run(
+            [CLAUDE_CLI, "-p", "--model", model, "--max-turns", "1"],
+            input=prompt,
+            capture_output=True, text=True, timeout=120,
+            cwd=tempfile.gettempdir(), shell=True,
+        )
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "Error: Claude CLI timed out"
+    except FileNotFoundError:
+        return "Error: Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def compile_to_png(code, tmpdir=None):
+    """Compile Asymptote code to PNG and return the file path."""
+    cleanup = False
+    if tmpdir is None:
+        tmpdir = tempfile.mkdtemp()
+        cleanup = False  # caller manages
+    asy_file = os.path.join(tmpdir, "diagram.asy")
+    png_file = os.path.join(tmpdir, "diagram.png")
+
+    # Strip [asy]/[/asy]
+    code = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+    code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
+
+    with open(asy_file, "w") as f:
+        f.write(AOPS_PREAMBLE + code)
+
+    result = subprocess.run(
+        [ASY_EXE, "-f", "png", "-noView", "-render", "4", "-o", "diagram", "diagram.asy"],
+        cwd=tmpdir, capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        return None
+    if os.path.exists(png_file):
+        return png_file
+    return None
+
+
+def images_match(png1_path, png2_path):
+    """Compare two PNG images pixel by pixel. Returns True if identical."""
+    try:
+        with open(png1_path, "rb") as f1, open(png2_path, "rb") as f2:
+            return f1.read() == f2.read()
+    except Exception:
+        return False
+
+
+def extract_asy_code(text):
+    """Extract Asymptote code from Claude's response."""
+    # Look for code blocks
+    m = re.search(r'```(?:asy|asymptote)?\s*\n(.*?)```', text, re.DOTALL)
+    if m:
+        code = m.group(1).strip()
+        # Remove [asy]/[/asy] wrappers if present
+        code = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+        code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
+        return code
+    # If no code block, try to find code-like content
+    lines = text.strip().split('\n')
+    code_lines = []
+    in_code = False
+    for line in lines:
+        if re.match(r'^\s*(import|unitsize|size|draw|fill|filldraw|label|dot|pair|real|int|pen|path)', line):
+            in_code = True
+        if in_code:
+            code_lines.append(line)
+    if code_lines:
+        return '\n'.join(code_lines)
+    return text.strip()
 
 
 class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
@@ -35,6 +140,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_compile()
         elif self.path == "/texer":
             self.handle_texer()
+        elif self.path == "/ai":
+            self.handle_ai()
         else:
             self.send_error(404)
 
@@ -48,7 +155,6 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         code = data.get("code", "")
-        # Strip [asy] / [/asy] delimiters if present
         code = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
         code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
 
@@ -83,7 +189,6 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
 
         parsed = urlparse(url)
         if not parsed.scheme and not parsed.netloc:
-            # Bare slug or path – prepend base URL
             url = "https://artofproblemsolving.com/texer/" + url.lstrip("/")
             parsed = urlparse(url)
         if "artofproblemsolving.com" not in parsed.netloc:
@@ -101,7 +206,6 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             textarea = soup.find("textarea", id="boomer")
             if textarea and textarea.text.strip():
                 code = textarea.text.strip()
-                # Strip [asy]/[/asy] if present
                 code = re.sub(r"^\s*\[asy\]\s*\n?", "", code)
                 code = re.sub(r"\n?\s*\[/asy\]\s*$", "", code)
                 self.send_json(200, {"code": code})
@@ -109,6 +213,201 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(200, {"error": "No Asymptote code found on that page (may be private)"})
         except Exception as e:
             self.send_json(200, {"error": f"Failed to fetch TeXeR page: {e}"})
+
+    def handle_ai(self):
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_json(400, {"error": "Invalid JSON"})
+            return
+
+        action = data.get("action", "")
+        code = data.get("code", "")
+
+        if action == "refactor":
+            self._handle_refactor(code)
+        elif action == "edit":
+            self._handle_edit(code, data.get("prompt", ""), data.get("image"))
+        elif action == "learn":
+            self._handle_learn(code)
+        else:
+            self.send_json(400, {"error": f"Unknown AI action: {action}"})
+
+    def _handle_refactor(self, code):
+        """AI Refactor: refactor code while keeping identical output."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Compile original to PNG
+            orig_png = compile_to_png(code, tmpdir)
+            if not orig_png:
+                self.send_json(200, {"error": "Original code failed to compile"})
+                return
+
+            prompt = (
+                f"{STYLE_GUIDE_PROMPT}\n\n"
+                f"Here is the Asymptote code:\n```asy\n{code}\n```\n\n"
+                "Refactor this drawing to meet the Asymptote style guide, making sure it's easy to edit "
+                "and maintain and well-commented. Strict requirement: the code must compile to give "
+                "exactly the same image. You are only refactoring the code's style, not the image it creates.\n\n"
+                "Return ONLY the refactored Asymptote code in a code block. No explanation outside the code block."
+            )
+
+            best_code = None
+            for attempt in range(5):
+                if attempt == 0:
+                    response = call_claude(prompt)
+                else:
+                    response = call_claude(
+                        f"{prompt}\n\nYour previous refactoring attempt #{attempt} produced a different image. "
+                        "Try again, being more careful to preserve exact visual output. "
+                        "Do not change any coordinates, sizes, colors, or pen properties. "
+                        "Only reorganize, rename variables, and add comments."
+                    )
+
+                new_code = extract_asy_code(response)
+                if not new_code:
+                    continue
+
+                # Compile new code and compare
+                new_tmpdir = os.path.join(tmpdir, f"attempt_{attempt}")
+                os.makedirs(new_tmpdir, exist_ok=True)
+                new_png = compile_to_png(new_code, new_tmpdir)
+                if not new_png:
+                    continue
+
+                best_code = new_code
+                if images_match(orig_png, new_png):
+                    wrapped = f"[asy]\n{new_code}\n[/asy]"
+                    self.send_json(200, {"code": wrapped, "imageMatch": True, "attempts": attempt + 1})
+                    return
+
+            # Failed to match after 5 attempts
+            if best_code:
+                wrapped = f"[asy]\n{best_code}\n[/asy]"
+                self.send_json(200, {
+                    "code": wrapped,
+                    "imageMatch": False,
+                    "message": "Perfect refactoring failed after 5 attempts. The images differ slightly. Accept approximate refactoring or revert?",
+                })
+            else:
+                self.send_json(200, {"error": "AI refactoring failed - could not generate valid code"})
+
+    def _handle_edit(self, code, prompt, image_data=None):
+        """AI Edit: create or modify Asymptote code based on text/image instructions."""
+        edit_prompt = f"{STYLE_GUIDE_PROMPT}\n\n"
+
+        if code.strip() and code.strip() not in ("[asy]\n\n[/asy]", "[asy]\n[/asy]"):
+            edit_prompt += f"Here is the current Asymptote code:\n```asy\n{code}\n```\n\n"
+
+        if image_data:
+            edit_prompt += "(An image has been provided as reference. Recreate it as accurately as possible in Asymptote.)\n\n"
+
+        if prompt:
+            edit_prompt += f"User request: {prompt}\n\n"
+        elif image_data:
+            edit_prompt += "Recreate this image as accurately as possible in Asymptote code.\n\n"
+
+        edit_prompt += (
+            "Return ONLY the Asymptote code in a code block. No explanation outside the code block. "
+            "The code should be complete and compilable."
+        )
+
+        # First pass: generate code
+        response = call_claude(edit_prompt)
+        new_code = extract_asy_code(response)
+        if not new_code:
+            self.send_json(200, {"error": "AI failed to generate code"})
+            return
+
+        # Compile to verify it works
+        with tempfile.TemporaryDirectory() as tmpdir:
+            png = compile_to_png(new_code, tmpdir)
+            if not png:
+                # Try to fix compilation errors
+                fix_prompt = (
+                    f"This Asymptote code failed to compile:\n```asy\n{new_code}\n```\n\n"
+                    "Fix the compilation errors. Return ONLY the corrected code in a code block."
+                )
+                response = call_claude(fix_prompt)
+                new_code = extract_asy_code(response) or new_code
+
+        # Critic loop (up to 5 rounds)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for round_num in range(5):
+                png_path = compile_to_png(new_code, tmpdir)
+                if not png_path:
+                    break
+
+                # Encode PNG for critic
+                with open(png_path, "rb") as f:
+                    png_b64 = base64.b64encode(f.read()).decode()
+
+                critic_prompt = (
+                    f"You are reviewing an Asymptote diagram.\n\n"
+                    f"Original request: {prompt or 'Recreate the provided image'}\n\n"
+                    f"The generated code:\n```asy\n{new_code}\n```\n\n"
+                    "Does this code fully meet all the requirements? "
+                    "If yes, respond with exactly: APPROVED\n"
+                    "If no, respond with specific notes for improvement."
+                )
+
+                critic_response = call_claude(critic_prompt, model="claude-sonnet-4-6")
+
+                if "APPROVED" in critic_response.upper()[:50]:
+                    break
+
+                # Send notes back to generator
+                revision_prompt = (
+                    f"{STYLE_GUIDE_PROMPT}\n\n"
+                    f"Original request: {prompt or 'Recreate the provided image'}\n\n"
+                    f"Current code:\n```asy\n{new_code}\n```\n\n"
+                    f"Critic feedback:\n{critic_response}\n\n"
+                    "Revise the code to address the feedback. Return ONLY the revised code in a code block."
+                )
+                response = call_claude(revision_prompt)
+                revised = extract_asy_code(response)
+                if revised:
+                    new_code = revised
+
+                # New tmpdir for next compile
+                sub = os.path.join(tmpdir, f"rev_{round_num}")
+                os.makedirs(sub, exist_ok=True)
+
+        wrapped = f"[asy]\n{new_code}\n[/asy]"
+        self.send_json(200, {"code": wrapped, "message": "AI edit complete."})
+
+    def _handle_learn(self, code):
+        """Learning mode: generate line-by-line explanations."""
+        # Strip wrappers
+        clean = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+        clean = re.sub(r'\n?\s*\[/asy\]\s*$', '', clean)
+
+        prompt = (
+            f"Here is Asymptote code for a diagram:\n```asy\n{clean}\n```\n\n"
+            "For each non-empty, non-comment line of code, provide a brief (1-2 sentence) explanation "
+            "of what that line does. Try to understand the overall context (is this a geometry diagram, "
+            "physics illustration, etc.) and explain in those terms.\n\n"
+            "Format your response as JSON: a single object where each key is a line number (0-indexed from "
+            "the start of the FULL code including [asy] wrapper) and each value is the explanation string. "
+            "Only include lines that have meaningful code. Skip blank lines and pure comment lines.\n\n"
+            "Example format:\n{\"1\": \"Imports the geometry module...\", \"2\": \"Sets scale...\"}\n\n"
+            "Return ONLY the JSON object, no markdown formatting."
+        )
+
+        response = call_claude(prompt, model="claude-sonnet-4-6")
+
+        # Parse JSON from response
+        try:
+            # Try to find JSON in the response
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+            if json_match:
+                explanations = json.loads(json_match.group())
+            else:
+                explanations = json.loads(response)
+            self.send_json(200, {"explanations": explanations})
+        except (json.JSONDecodeError, AttributeError):
+            self.send_json(200, {"error": "Failed to parse AI explanation", "raw": response[:500]})
 
     def send_json(self, status, obj):
         response = json.dumps(obj).encode("utf-8")

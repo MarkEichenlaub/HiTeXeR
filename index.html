@@ -131,6 +131,25 @@ body {
 #style-menu .go-deeper:hover { text-decoration: underline; }
 #style-menu .advanced { display: none; margin-top: 8px; }
 #style-menu .advanced.visible { display: block; }
+
+/* Toolbar button active state */
+#toolbar button.active { background: #e9c46a; color: #1a1a2e; border-color: #e9c46a; }
+#toolbar button.active:hover { background: #d4a83a; }
+
+/* Spin animation for AI progress */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Slide mode golden glow on free elements */
+.slide-free-glow { filter: url(#hitexer-slide-glow); cursor: grab !important; }
+.slide-free-glow:active { cursor: grabbing !important; }
+
+/* Add element menu items */
+#add-element-menu .ae-item {
+  padding: 6px 12px; cursor: pointer; border-radius: 4px; font-size: 13px; color: #ccc;
+  display: flex; align-items: center; gap: 8px;
+}
+#add-element-menu .ae-item:hover { background: #2a2a3e; }
+#add-element-menu .ae-item .ae-icon { font-size: 16px; width: 24px; text-align: center; }
 </style>
 </head>
 <body>
@@ -140,6 +159,14 @@ body {
   <button class="primary" id="btn-render" title="Ctrl+Enter">RENDER</button>
   <button id="btn-clear">CLEAR</button>
   <button id="btn-colorblind">COLOR BLIND MODE</button>
+  <button id="btn-zoom-out" title="Shrink image">&minus;</button>
+  <button id="btn-zoom-in" title="Enlarge image">+</button>
+  <button id="btn-highlight-toggle" title="Toggle highlighting">HIGHLIGHT: ON</button>
+  <button id="btn-slide">SLIDE</button>
+  <button id="btn-add-element">+ ELEMENT</button>
+  <button id="btn-ai-refactor">AI REFACTOR</button>
+  <button id="btn-ai-edit">AI EDIT</button>
+  <button id="btn-learn">LEARN</button>
   <span style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
     <span style="display:flex;align-items:center;gap:6px;">
       <input type="text" id="texer-url" placeholder="TeXeR URL or slug..." style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:5px 10px;border-radius:4px;font-size:12px;width:240px;">
@@ -187,6 +214,48 @@ label("$C$", C, N);
 </div>
 
 <div id="style-menu"></div>
+
+<!-- AI Edit Bar (hidden by default) -->
+<div id="ai-edit-bar" style="display:none;background:#16213e;border-top:2px solid #0f3460;padding:8px 16px;position:fixed;bottom:0;left:0;right:0;z-index:9999;display:none;">
+  <div style="display:flex;align-items:center;gap:8px;max-width:100%;">
+    <span style="color:#e9c46a;font-size:12px;font-weight:600;white-space:nowrap;">AI Edit:</span>
+    <input type="text" id="ai-edit-input" placeholder="Describe the image or changes you want..." style="flex:1;background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 12px;border-radius:4px;font-size:13px;">
+    <label id="ai-edit-upload-label" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Upload Image
+      <input type="file" id="ai-edit-file" accept="image/*" style="display:none;">
+    </label>
+    <span id="ai-edit-file-name" style="font-size:11px;color:#888;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    <button id="ai-edit-send" class="primary" style="white-space:nowrap;">SEND</button>
+    <button id="ai-edit-close">CLOSE</button>
+  </div>
+</div>
+
+<!-- Add Element Menu (floating) -->
+<div id="add-element-menu" style="display:none;position:fixed;z-index:10001;background:#1e1e2e;border:1px solid #555;border-radius:8px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,0.6);min-width:200px;">
+</div>
+
+<!-- Learning Mode Popup -->
+<div id="learn-popup" style="display:none;position:fixed;z-index:10002;background:#1e1e2e;border:1px solid #e9c46a;border-radius:8px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:420px;font-size:13px;color:#ccc;line-height:1.5;">
+  <div id="learn-popup-content"></div>
+  <div style="text-align:right;margin-top:8px;"><button id="learn-popup-close" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Close</button></div>
+</div>
+
+<!-- AI Progress Overlay -->
+<div id="ai-progress" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10003;background:#1e1e2e;border:2px solid #e9c46a;border-radius:12px;padding:24px 36px;box-shadow:0 12px 48px rgba(0,0,0,0.8);text-align:center;min-width:320px;">
+  <div style="font-size:16px;color:#e9c46a;font-weight:600;margin-bottom:12px;" id="ai-progress-title">AI Working...</div>
+  <div id="ai-progress-text" style="font-size:13px;color:#ccc;margin-bottom:12px;"></div>
+  <div id="ai-progress-spinner" style="color:#e9c46a;">
+    <svg width="32" height="32" viewBox="0 0 32 32" style="animation:spin 1s linear infinite;"><circle cx="16" cy="16" r="12" fill="none" stroke="#e9c46a" stroke-width="3" stroke-dasharray="60 20"/></svg>
+  </div>
+  <button id="ai-progress-cancel" style="margin-top:12px;background:#e94560;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Cancel</button>
+  <button id="ai-progress-revert" style="margin-top:8px;background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Revert</button>
+  <button id="ai-progress-accept" style="margin-top:8px;background:#2ecc71;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Accept</button>
+</div>
+
+<!-- Slide Mode Slider Panel -->
+<div id="slide-panel" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(30,30,46,0.95);border-top:2px solid #e9c46a;padding:8px 16px;z-index:5000;max-height:120px;overflow-y:auto;">
+  <div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:4px;">Variable Sliders</div>
+  <div id="slide-sliders"></div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
@@ -1265,6 +1334,7 @@ function clearHighlights() {
 
 function highlightLines(primaryLine, depLines) {
   clearHighlights();
+  if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   for (const lineIdx of depLines) {
     if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
     highlightMarks.push(editor.markText(
@@ -1305,6 +1375,7 @@ async function doRender() {
     previewEl.innerHTML = data.svg;
     setupSvgInteractivity(code);
     statusEl.textContent = 'Rendered (mapping...)'; statusEl.style.color = '#e9c46a';
+    document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
   } catch(err) {
     previewEl.innerHTML = `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py</div>`;
     statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
@@ -1415,6 +1486,7 @@ function ensureGlowFilter(svg) {
  * @param {'strong'|'soft'|'select'} intensity
  */
 function highlightSvgElement(el, intensity) {
+  if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   const svg = el.closest('svg');
   ensureGlowFilter(svg);
   const isSelect = intensity === 'select';
@@ -1881,6 +1953,595 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Track edits for "(modified)" indicator
   editor.on('change', () => { if (texerLoadedUrl) updateTexerModifiedIndicator(); });
+
+  // ============================================================
+  // Feature #6: Plus/Minus Zoom Buttons
+  // ============================================================
+  function adjustScale(factor) {
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    let found = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      // Match unitsize(X cm) or unitsize(X)
+      const usM = lines[i].match(/^(\s*unitsize\s*\(\s*)([\d.]+)(\s*(cm|mm|inch|pt|bp)?\s*\)\s*;)/);
+      if (usM) {
+        const newVal = Math.max(0.1, (parseFloat(usM[2]) * factor)).toFixed(2).replace(/\.?0+$/, '');
+        lines[i] = usM[1] + newVal + usM[3];
+        found = true; break;
+      }
+      // Match size(X cm) or size(X, X)
+      const szM = lines[i].match(/^(\s*size\s*\(\s*)([\d.]+)(\s*(cm|mm|inch|pt|bp)?)(\s*(?:,\s*([\d.]+)(\s*(?:cm|mm|inch|pt|bp)?))?\s*\)\s*;)/);
+      if (szM) {
+        const newW = Math.max(1, (parseFloat(szM[2]) * factor)).toFixed(2).replace(/\.?0+$/, '');
+        let rest = szM[5];
+        if (szM[6]) {
+          const newH = Math.max(1, (parseFloat(szM[6]) * factor)).toFixed(2).replace(/\.?0+$/, '');
+          rest = rest.replace(szM[6], newH);
+        }
+        lines[i] = szM[1] + newW + szM[3].replace(szM[4]||'', szM[4]||'') + rest;
+        // Simpler approach: just scale width, reconstruct
+        lines[i] = lines[i]; // already done above
+        found = true; break;
+      }
+    }
+
+    if (!found) {
+      // No unitsize/size found, insert unitsize after imports
+      const insertIdx = lines.findIndex(l => /^\s*\[asy\]/.test(l));
+      const base = factor > 1 ? 1.2 : 0.8;
+      lines.splice(insertIdx + 1, 0, `unitsize(${base} cm);`);
+    }
+
+    const cursor = editor.getCursor();
+    editor.setValue(lines.join('\n'));
+    editor.setCursor(cursor);
+    doRender();
+  }
+
+  document.getElementById('btn-zoom-in').addEventListener('click', () => adjustScale(1.25));
+  document.getElementById('btn-zoom-out').addEventListener('click', () => adjustScale(0.8));
+
+  // ============================================================
+  // Feature #7: Highlighting Toggle
+  // ============================================================
+  let highlightingEnabled = true;
+  const hlBtn = document.getElementById('btn-highlight-toggle');
+  hlBtn.addEventListener('click', () => {
+    highlightingEnabled = !highlightingEnabled;
+    hlBtn.textContent = 'HIGHLIGHT: ' + (highlightingEnabled ? 'ON' : 'OFF');
+    hlBtn.classList.toggle('active', !highlightingEnabled);
+    if (!highlightingEnabled) {
+      clearHighlights();
+      clearSvgHighlights();
+    }
+  });
+
+  // ============================================================
+  // Feature #8: Add Common Elements Menu
+  // ============================================================
+  const addElMenu = document.getElementById('add-element-menu');
+  const addElBtn = document.getElementById('btn-add-element');
+
+  const ELEMENT_TEMPLATES = [
+    { icon: '\u25CF', label: 'Point', code: 'pair P = ({x}, {y});\ndot(P);\nlabel("$P$", P, N);' },
+    { icon: '\u2014', label: 'Segment', code: 'draw({A}--{B});' },
+    { icon: '\u25CB', label: 'Circle', code: 'draw(circle({center}, {radius}));' },
+    { icon: '\u2B2D', label: 'Ellipse', code: 'draw(ellipse({center}, {a}, {b}));' },
+    { icon: '\u25AD', label: 'Rectangle', code: 'draw(box({corner1}, {corner2}));' },
+    { icon: '\u25B3', label: 'Triangle', code: 'pair P1 = ({x1}, {y1});\npair P2 = ({x2}, {y2});\npair P3 = ({x3}, {y3});\ndraw(P1--P2--P3--cycle);' },
+    { icon: '\u2229', label: 'Intersection', code: 'pair X = intersectionpoint({path1}, {path2});\ndot(X);\nlabel("$X$", X, N);' },
+    { icon: '\u27C2', label: 'Perpendicular foot', code: 'pair F = foot({point}, {lineA}, {lineB});\ndot(F);' },
+    { icon: '\u2220', label: 'Angle mark', code: 'markangle({A}, {vertex}, {B});' },
+    { icon: '\u22A5', label: 'Right angle mark', code: 'draw(rightanglemark({A}, {vertex}, {B}));' },
+  ];
+
+  addElBtn.addEventListener('click', (e) => {
+    if (addElMenu.style.display === 'block') { addElMenu.style.display = 'none'; return; }
+    let html = '<div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:6px;">Add Element</div>';
+    for (const t of ELEMENT_TEMPLATES) {
+      html += `<div class="ae-item" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}</div>`;
+    }
+    addElMenu.innerHTML = html;
+    const rect = addElBtn.getBoundingClientRect();
+    addElMenu.style.left = rect.left + 'px';
+    addElMenu.style.top = (rect.bottom + 4) + 'px';
+    addElMenu.style.display = 'block';
+
+    addElMenu.querySelectorAll('.ae-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const template = item.dataset.code;
+        // Find placeholders and prompt user for values
+        const placeholders = [...new Set(template.match(/\{[^}]+\}/g) || [])];
+        let code = template;
+        for (const ph of placeholders) {
+          const name = ph.slice(1, -1);
+          const val = prompt(`Enter value for ${name}:`, name === 'x' || name === 'y' ? '0' : name.includes('radius') ? '1' : name);
+          if (val === null) return; // cancelled
+          code = code.split(ph).join(val);
+        }
+        // Insert before [/asy]
+        const editorCode = editor.getValue();
+        const endTag = editorCode.lastIndexOf('[/asy]');
+        if (endTag >= 0) {
+          const before = editorCode.substring(0, endTag);
+          const after = editorCode.substring(endTag);
+          editor.setValue(before + code + '\n' + after);
+        } else {
+          editor.setValue(editorCode + '\n' + code);
+        }
+        addElMenu.style.display = 'none';
+        doRender();
+      });
+    });
+  });
+
+  // Close add-element menu on outside click
+  document.addEventListener('mousedown', (e) => {
+    if (addElMenu.style.display === 'block' && !addElMenu.contains(e.target) && e.target !== addElBtn) {
+      addElMenu.style.display = 'none';
+    }
+  });
+
+  // ============================================================
+  // Feature #1: Slide Mode
+  // ============================================================
+  let slideActive = false;
+  const slideBtn = document.getElementById('btn-slide');
+  const slidePanel = document.getElementById('slide-panel');
+  let slideDragState = null; // { lineIdx, varName, startX, startY, origX, origY }
+
+  slideBtn.addEventListener('click', () => {
+    slideActive = !slideActive;
+    slideBtn.classList.toggle('active', slideActive);
+    if (slideActive) {
+      activateSlideMode();
+    } else {
+      deactivateSlideMode();
+    }
+  });
+
+  function findFreePoints(code) {
+    // A "free point" is a pair variable assigned to a literal coordinate, not depending on other vars
+    const lines = code.split('\n');
+    const freePoints = [];
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
+      if (m) {
+        freePoints.push({ lineIdx: i, varName: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]) });
+      }
+    }
+    return freePoints;
+  }
+
+  function findFreeReals(code) {
+    const lines = code.split('\n');
+    const freeReals = [];
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^\s*real\s+([A-Za-z_]\w*)\s*=\s*([-\d.]+)\s*;/);
+      if (m) {
+        freeReals.push({ lineIdx: i, varName: m[1], value: parseFloat(m[2]) });
+      }
+    }
+    return freeReals;
+  }
+
+  function activateSlideMode() {
+    const code = editor.getValue();
+    const freePoints = findFreePoints(code);
+    const freeReals = findFreeReals(code);
+
+    // Add golden glow to SVG elements associated with free points
+    const svg = document.querySelector('#preview-container svg');
+    if (svg) {
+      ensureSlideGlowFilter(svg);
+      for (const fp of freePoints) {
+        // Find label/dot commands that reference this point
+        const ci = lineToCommandIdx.get(fp.lineIdx);
+        // Also find draw commands that reference the variable
+        for (const [cmdIdx, els] of svgElsByCommand) {
+          const cmd = currentMapping[cmdIdx];
+          if (cmd && cmd.commandText.includes(fp.varName)) {
+            // Check if it's a label or dot for this point
+            if (/\b(label|dot)\b/.test(cmd.commandText) && cmd.commandText.includes(fp.varName)) {
+              for (const el of els) {
+                el.classList.add('slide-free-glow');
+                el.dataset.slideVar = fp.varName;
+                el.dataset.slideLine = fp.lineIdx;
+                el.dataset.slideX = fp.x;
+                el.dataset.slideY = fp.y;
+              }
+            }
+          }
+        }
+      }
+      // Also apply to the assignment lines' dependent elements
+      for (const fp of freePoints) {
+        // Find any elements whose commands depend on this point
+        for (const [cmdIdx, els] of svgElsByCommand) {
+          const cmd = currentMapping[cmdIdx];
+          if (cmd && cmd.dependencyLines.includes(fp.lineIdx)) {
+            // These depend on the free point, they'll move when dragged
+          }
+        }
+      }
+
+      // Set up drag handling
+      svg.addEventListener('mousedown', slideMouseDown);
+      svg.addEventListener('mousemove', slideMouseMove);
+      window.addEventListener('mouseup', slideMouseUp);
+    }
+
+    // Show variable sliders
+    if (freeReals.length > 0) {
+      slidePanel.style.display = 'block';
+      const slidersDiv = document.getElementById('slide-sliders');
+      slidersDiv.innerHTML = '';
+      for (const fr of freeReals) {
+        const min = Math.min(-10, fr.value * 2);
+        const max = Math.max(10, fr.value * 2);
+        const step = Math.abs(fr.value) > 10 ? 1 : 0.1;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
+        row.innerHTML = `<label style="color:#e9c46a;font-size:12px;min-width:60px;">${fr.varName}</label>
+          <input type="range" min="${min}" max="${max}" step="${step}" value="${fr.value}" data-line="${fr.lineIdx}" data-var="${fr.varName}" style="flex:1;">
+          <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
+        slidersDiv.appendChild(row);
+        const slider = row.querySelector('input[type=range]');
+        slider.addEventListener('input', () => {
+          const val = parseFloat(slider.value);
+          row.querySelector('.slide-val').textContent = val.toFixed(1);
+          updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
+        });
+      }
+    }
+  }
+
+  function deactivateSlideMode() {
+    const svg = document.querySelector('#preview-container svg');
+    if (svg) {
+      svg.querySelectorAll('.slide-free-glow').forEach(el => {
+        el.classList.remove('slide-free-glow');
+        delete el.dataset.slideVar;
+        delete el.dataset.slideLine;
+      });
+      svg.removeEventListener('mousedown', slideMouseDown);
+      svg.removeEventListener('mousemove', slideMouseMove);
+      window.removeEventListener('mouseup', slideMouseUp);
+    }
+    slidePanel.style.display = 'none';
+    slideDragState = null;
+  }
+
+  function ensureSlideGlowFilter(svg) {
+    if (svg.querySelector('#hitexer-slide-glow')) return;
+    const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg','defs'), svg.firstChild);
+    const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+    f.setAttribute('id','hitexer-slide-glow');
+    f.setAttribute('filterUnits','userSpaceOnUse');
+    f.setAttribute('x','-10000'); f.setAttribute('y','-10000');
+    f.setAttribute('width','20000'); f.setAttribute('height','20000');
+    f.innerHTML = '<feGaussianBlur stdDeviation="4" result="blur"/><feFlood flood-color="#e9c46a" flood-opacity="0.7" result="color"/><feComposite in="color" in2="blur" operator="in" result="glow"/><feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>';
+    defs.appendChild(f);
+  }
+
+  function slideMouseDown(e) {
+    if (!slideActive) return;
+    const target = e.target.closest('.slide-free-glow');
+    if (!target) return;
+    e.preventDefault();
+    const svg = target.closest('svg');
+    const screenCTM = svg.getScreenCTM().inverse();
+    // Convert screen to SVG coords
+    const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+    slideDragState = {
+      lineIdx: parseInt(target.dataset.slideLine),
+      varName: target.dataset.slideVar,
+      origX: parseFloat(target.dataset.slideX),
+      origY: parseFloat(target.dataset.slideY),
+      startSvgX: svgX, startSvgY: svgY,
+      svg: svg,
+    };
+  }
+
+  let slideRenderPending = false;
+  function slideMouseMove(e) {
+    if (!slideDragState) return;
+    e.preventDefault();
+    const { svg, startSvgX, startSvgY, origX, origY, lineIdx, varName } = slideDragState;
+    const screenCTM = svg.getScreenCTM().inverse();
+    const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+
+    // Compute unit scale from unitsize
+    const code = editor.getValue();
+    const usMatch = code.match(/unitsize\s*\(\s*([\d.]+)\s*(cm|mm|inch|pt|bp)?\s*\)/);
+    let pxPerUnit = 28.35; // default 1cm in PDF points
+    if (usMatch) {
+      const val = parseFloat(usMatch[1]);
+      const unit = usMatch[2] || 'cm';
+      const unitToPt = { cm: 28.35, mm: 2.835, inch: 72, pt: 1, bp: 1 };
+      pxPerUnit = val * (unitToPt[unit] || 28.35);
+    }
+
+    const dx = (svgX - startSvgX) / pxPerUnit;
+    const dy = -(svgY - startSvgY) / pxPerUnit; // Y is inverted in SVG vs math coords
+    const newX = (origX + dx).toFixed(2).replace(/\.?0+$/, '');
+    const newY = (origY + dy).toFixed(2).replace(/\.?0+$/, '');
+
+    // Update code
+    const lines = code.split('\n');
+    lines[lineIdx] = lines[lineIdx].replace(
+      /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
+      `= (${newX}, ${newY})`
+    );
+    editor.setValue(lines.join('\n'));
+
+    // Debounce re-render
+    if (!slideRenderPending) {
+      slideRenderPending = true;
+      requestAnimationFrame(() => {
+        slideRenderPending = false;
+        doRender().then(() => {
+          if (slideActive && slideDragState) activateSlideMode();
+        });
+      });
+    }
+  }
+
+  function slideMouseUp() {
+    if (slideDragState) {
+      slideDragState = null;
+    }
+  }
+
+  function updateSlideReal(lineIdx, varName, value) {
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    lines[lineIdx] = lines[lineIdx].replace(
+      /=\s*[-\d.]+\s*;/,
+      `= ${value};`
+    );
+    editor.setValue(lines.join('\n'));
+    doRender().then(() => {
+      if (slideActive) activateSlideMode();
+    });
+  }
+
+  // ============================================================
+  // Feature #4: Learning Mode
+  // ============================================================
+  let learnActive = false;
+  let learnExplanations = null; // { lineExplanations: {lineIdx: text}, elementExplanations: {cmdIdx: text} }
+  const learnBtn = document.getElementById('btn-learn');
+  const learnPopup = document.getElementById('learn-popup');
+  const learnPopupContent = document.getElementById('learn-popup-content');
+
+  learnBtn.addEventListener('click', () => {
+    learnActive = !learnActive;
+    learnBtn.classList.toggle('active', learnActive);
+    if (!learnActive) {
+      learnExplanations = null;
+      learnPopup.style.display = 'none';
+    }
+  });
+
+  document.getElementById('learn-popup-close').addEventListener('click', () => {
+    learnPopup.style.display = 'none';
+  });
+
+  // Listen for render completion to fetch learning explanations
+  document.addEventListener('hitexer-rendered', () => {
+    if (learnActive) fetchLearnExplanations();
+  });
+
+  async function fetchLearnExplanations() {
+    const code = editor.getValue();
+    const statusEl = document.getElementById('status');
+    try {
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'learn',
+          code: code,
+        }),
+      });
+      const data = await resp.json();
+      if (data.explanations) {
+        learnExplanations = data.explanations;
+      }
+    } catch (e) {
+      console.warn('Learning mode fetch failed:', e);
+    }
+  }
+
+  // Double-click on code line -> show explanation
+  editor.getWrapperElement().addEventListener('dblclick', (e) => {
+    if (!learnActive || !learnExplanations) return;
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineIdx = pos.line;
+    const explanation = learnExplanations[String(lineIdx)];
+    if (explanation) {
+      showLearnPopup(e.clientX, e.clientY, explanation);
+    }
+  });
+
+  function showLearnPopup(x, y, text) {
+    learnPopupContent.innerHTML = text.replace(/\n/g, '<br>');
+    learnPopup.style.display = 'block';
+    learnPopup.style.left = Math.min(x, window.innerWidth - 440) + 'px';
+    learnPopup.style.top = Math.min(y, window.innerHeight - 200) + 'px';
+  }
+
+  // ============================================================
+  // Feature #2: AI Refactor
+  // ============================================================
+  let aiRevertCode = null;
+  const aiProgress = document.getElementById('ai-progress');
+  const aiProgressTitle = document.getElementById('ai-progress-title');
+  const aiProgressText = document.getElementById('ai-progress-text');
+  const aiProgressCancel = document.getElementById('ai-progress-cancel');
+  const aiProgressRevert = document.getElementById('ai-progress-revert');
+  const aiProgressAccept = document.getElementById('ai-progress-accept');
+  let aiAbortController = null;
+
+  document.getElementById('btn-ai-refactor').addEventListener('click', async () => {
+    const code = editor.getValue();
+    aiRevertCode = code;
+    aiAbortController = new AbortController();
+    showAiProgress('AI Refactoring...', 'Sending code to AI for style refactoring...', true);
+
+    try {
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refactor', code }),
+        signal: aiAbortController.signal,
+      });
+      const data = await resp.json();
+      if (data.error) {
+        showAiResult('Refactor Failed', data.error, true);
+        return;
+      }
+      if (data.code) {
+        editor.setValue(data.code);
+        if (data.imageMatch) {
+          showAiResult('Refactoring Complete', 'Code refactored successfully. Image verified identical.', true);
+        } else {
+          showAiResult('Approximate Refactoring', data.message || 'Could not achieve perfect match. Accept or revert?', true);
+        }
+        doRender();
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showAiResult('Error', 'AI refactoring failed: ' + e.message, true);
+      }
+    }
+  });
+
+  aiProgressCancel.addEventListener('click', () => {
+    if (aiAbortController) aiAbortController.abort();
+    hideAiProgress();
+  });
+
+  aiProgressRevert.addEventListener('click', () => {
+    if (aiRevertCode) {
+      editor.setValue(aiRevertCode);
+      doRender();
+    }
+    hideAiProgress();
+  });
+
+  aiProgressAccept.addEventListener('click', () => {
+    hideAiProgress();
+  });
+
+  function showAiProgress(title, text, cancelable) {
+    aiProgressTitle.textContent = title;
+    aiProgressText.textContent = text;
+    aiProgressCancel.style.display = cancelable ? '' : 'none';
+    aiProgressRevert.style.display = 'none';
+    aiProgressAccept.style.display = 'none';
+    document.getElementById('ai-progress-spinner').style.display = '';
+    aiProgress.style.display = '';
+  }
+
+  function showAiResult(title, text, showRevert) {
+    aiProgressTitle.textContent = title;
+    aiProgressText.textContent = text;
+    aiProgressCancel.style.display = 'none';
+    document.getElementById('ai-progress-spinner').style.display = 'none';
+    aiProgressRevert.style.display = showRevert ? '' : 'none';
+    aiProgressAccept.style.display = '';
+  }
+
+  function hideAiProgress() {
+    aiProgress.style.display = 'none';
+  }
+
+  // ============================================================
+  // Feature #3 + #5: AI Edit + Hand-drawn mode
+  // ============================================================
+  const aiEditBar = document.getElementById('ai-edit-bar');
+  const aiEditInput = document.getElementById('ai-edit-input');
+  const aiEditFile = document.getElementById('ai-edit-file');
+  const aiEditFileName = document.getElementById('ai-edit-file-name');
+  let aiEditImageData = null;
+
+  // Toggle AI edit bar with Ctrl+Shift+E or by clicking a button
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      toggleAiEditBar();
+    }
+  });
+
+  document.getElementById('btn-ai-edit').addEventListener('click', toggleAiEditBar);
+
+  function toggleAiEditBar() {
+    const visible = aiEditBar.style.display === 'flex';
+    aiEditBar.style.display = visible ? 'none' : 'flex';
+    if (!visible) aiEditInput.focus();
+  }
+
+  // Also open AI edit bar from the refactor button area - let's add a keyboard shortcut hint
+  // The AI Edit is triggered via Ctrl+Shift+E or we can add a toolbar button too.
+  // Let's reuse the existing UI - when user types in the text box in ai-edit-bar and hits send
+
+  aiEditFile.addEventListener('change', () => {
+    if (aiEditFile.files.length > 0) {
+      const file = aiEditFile.files[0];
+      aiEditFileName.textContent = file.name;
+      const reader = new FileReader();
+      reader.onload = () => { aiEditImageData = reader.result; };
+      reader.readAsDataURL(file);
+    } else {
+      aiEditFileName.textContent = '';
+      aiEditImageData = null;
+    }
+  });
+
+  document.getElementById('ai-edit-send').addEventListener('click', doAiEdit);
+  aiEditInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAiEdit(); });
+  document.getElementById('ai-edit-close').addEventListener('click', () => { aiEditBar.style.display = 'none'; });
+
+  async function doAiEdit() {
+    const prompt = aiEditInput.value.trim();
+    if (!prompt && !aiEditImageData) return;
+    const code = editor.getValue();
+    aiRevertCode = code;
+    aiAbortController = new AbortController();
+    aiEditBar.style.display = 'none';
+    showAiProgress('AI Editing...', 'Sending request to AI...', true);
+
+    try {
+      const body = { action: 'edit', code, prompt };
+      if (aiEditImageData) body.image = aiEditImageData;
+
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: aiAbortController.signal,
+      });
+      const data = await resp.json();
+      if (data.error) {
+        showAiResult('Edit Failed', data.error, true);
+        return;
+      }
+      if (data.code) {
+        editor.setValue(data.code);
+        showAiResult('AI Edit Complete', data.message || 'Code updated. Accept or revert?', true);
+        doRender();
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showAiResult('Error', 'AI edit failed: ' + e.message, true);
+      }
+    }
+    aiEditInput.value = '';
+    aiEditFileName.textContent = '';
+    aiEditImageData = null;
+  }
 });
 </script>
 </body>
