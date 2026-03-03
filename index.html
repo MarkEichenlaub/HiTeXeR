@@ -704,15 +704,19 @@ const StyleMenu = {
   },
 
   _change(property, value) {
-    const code = editor.getValue();
-    const cursor = editor.getCursor();
-    const newCode = PenParser.applyChange(this.lineIdx, property, value, code);
-    editor.setValue(newCode);
-    editor.setCursor(cursor);
-    this.dirty = true;
-    // Re-resolve to update the info for the menu
-    this.info = PenParser.resolvePen(this.lineIdx, newCode);
-    this._applyHighlights();
+    if (this._inChange) return; // guard against re-entrant calls from blur events
+    this._inChange = true;
+    try {
+      const code = editor.getValue();
+      const cursor = editor.getCursor();
+      const newCode = PenParser.applyChange(this.lineIdx, property, value, code);
+      editor.setValue(newCode);
+      editor.setCursor(cursor);
+      this.dirty = true;
+      // Re-resolve to update the info for the menu
+      this.info = PenParser.resolvePen(this.lineIdx, newCode);
+      this._applyHighlights();
+    } finally { this._inChange = false; }
   },
 
   _buildUI() {
@@ -956,6 +960,12 @@ const StyleMenu = {
   },
 
   _multiChange(property, value) {
+    if (this._inMultiChange) return; // guard against re-entrant calls from blur events
+    this._inMultiChange = true;
+    try { this._doMultiChange(property, value); } finally { this._inMultiChange = false; }
+  },
+
+  _doMultiChange(property, value) {
     let code = editor.getValue();
     const cursor = editor.getCursor();
     let codeLines = code.split('\n');
@@ -991,8 +1001,38 @@ const StyleMenu = {
       this.multiLines = this.multiLines.map(li => li >= insertIdx ? li + 1 : li);
 
       // Replace pen arg in each selected command with penName
+      // Done inline with verification to ensure robustness
       for (const li of this.multiLines) {
-        this._setPenArgOnLine(codeLines, li, penName);
+        if (!codeLines[li]) continue;
+        const before = codeLines[li];
+        try { this._setPenArgOnLine(codeLines, li, penName); } catch(e) { /* fallback below */ }
+        if (!codeLines[li].includes(penName)) {
+          // _setPenArgOnLine didn't apply; use direct approach
+          codeLines[li] = before; // restore in case of partial modification
+          const m = before.match(/^(\s*)(draw|fill|filldraw|label|dot)\s*\(/);
+          if (m) {
+            const after_open = before.substring(m[0].length);
+            let depth = 1, ci = 0;
+            while (ci < after_open.length && depth > 0) {
+              if (after_open[ci] === '(') depth++;
+              if (after_open[ci] === ')') depth--;
+              ci++;
+            }
+            const inner = after_open.substring(0, ci - 1);
+            const suffix = after_open.substring(ci);
+            const args = PenParser.splitArgs(inner);
+            const cmd = m[2];
+            if (cmd === 'label' || cmd === 'dot') {
+              args.push(penName);
+            } else {
+              // Use classifyDrawArgs to find correct pen position
+              const { penIdx, arrowIdx } = PenParser.classifyDrawArgs(args);
+              if (penIdx >= 0) args[penIdx] = penName;
+              else args.splice(arrowIdx >= 0 ? arrowIdx : Math.min(1, args.length), 0, penName);
+            }
+            codeLines[li] = `${m[1]}${cmd}(${args.join(', ')})${suffix}`;
+          }
+        }
       }
 
       this._sharedPenName = penName;
