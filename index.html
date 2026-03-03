@@ -119,25 +119,13 @@ body {
 
 /* Highlight styles for code lines - designed for dark editor theme */
 .cm-highlight-primary {
-  background-color: rgba(233, 69, 96, 0.35) !important;
-  outline: 1px solid rgba(233, 69, 96, 0.5);
+  background-color: rgba(233, 69, 96, 0.4) !important;
+  outline: 1px solid rgba(233, 69, 96, 0.6);
 }
 
 .cm-highlight-dependency {
-  background-color: rgba(15, 52, 96, 0.5) !important;
-  outline: 1px solid rgba(15, 52, 96, 0.4);
-}
-
-/* SVG hover effects */
-#preview-container svg path:hover,
-#preview-container svg circle:hover,
-#preview-container svg ellipse:hover,
-#preview-container svg line:hover,
-#preview-container svg polyline:hover,
-#preview-container svg polygon:hover,
-#preview-container svg rect:hover {
-  filter: drop-shadow(0 0 3px rgba(233, 69, 96, 0.6));
-  cursor: pointer;
+  background-color: rgba(233, 69, 96, 0.15) !important;
+  outline: 1px solid rgba(233, 69, 96, 0.25);
 }
 
 /* Resizer */
@@ -497,25 +485,64 @@ function escapeHtml(text) {
 }
 
 // ============================================================
-// SVG Interactivity
+// SVG Interactivity + Bidirectional Highlighting
 // ============================================================
+
+// Persistent state set after each render
+let currentMapping = [];          // [{primaryLine, dependencyLines, commandText}]
+let svgElsByCommand = new Map();  // cmdIdx -> [svgElements]
+let lineToCommandIdx = new Map(); // lineIndex -> cmdIdx (for draw commands only)
+let lineToDepCommands = new Map();// lineIndex -> Set<cmdIdx> (which draw cmds depend on this line)
+let svgHighlightOverlays = [];    // currently-visible SVG highlight clones
+
+function clearSvgHighlights() {
+  for (const ov of svgHighlightOverlays) ov.remove();
+  svgHighlightOverlays = [];
+}
+
+/** Add a bright highlight clone over an SVG element. intensity: 'strong' | 'soft' */
+function highlightSvgElement(el, intensity) {
+  const clone = el.cloneNode(false);
+  const color = intensity === 'strong'
+    ? 'rgba(233, 69, 96, 0.9)'
+    : 'rgba(233, 69, 96, 0.35)';
+  const width = intensity === 'strong' ? 3 : 2;
+  clone.setAttribute('stroke', color);
+  clone.setAttribute('stroke-width', String(width));
+  clone.setAttribute('fill', 'none');
+  clone.style.pointerEvents = 'none';
+  clone.removeAttribute('stroke-dasharray');
+  el.parentNode.appendChild(clone);
+  svgHighlightOverlays.push(clone);
+}
+
 function setupSvgInteractivity(code) {
-  const { mapping } = AsyParser.buildMapping(code);
+  const { mapping, parsed } = AsyParser.buildMapping(code);
+  currentMapping = mapping;
+  svgElsByCommand = new Map();
+  lineToCommandIdx = new Map();
+  lineToDepCommands = new Map();
+
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
 
-  // Find all drawable SVG elements (paths, circles, etc.)
-  // These appear in the same order as draw commands in the source
-  const svgElements = svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect');
+  // Build lineToCommandIdx
+  for (let ci = 0; ci < mapping.length; ci++) {
+    lineToCommandIdx.set(mapping[ci].primaryLine, ci);
+  }
 
-  // Group SVG elements by draw command.
-  // Each draw command may produce multiple SVG elements (e.g., label text = glyph paths).
-  // Draw commands produce stroked paths; labels produce filled paths.
-  // Strategy: match draw commands to SVG elements by type and order.
-  const drawElements = [];  // stroked or filled elements grouped by command
+  // Build lineToDepCommands (reverse map: assignment line -> which commands use it)
+  for (let ci = 0; ci < mapping.length; ci++) {
+    for (const depLine of mapping[ci].dependencyLines) {
+      if (!lineToDepCommands.has(depLine)) lineToDepCommands.set(depLine, new Set());
+      lineToDepCommands.get(depLine).add(ci);
+    }
+  }
+
+  // ---- Map SVG elements to draw commands ----
+  const svgElements = svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect');
   const elementToCommand = new Map();
 
-  // Separate SVG elements into stroked (draw/fill commands) and filled (labels)
   const strokedEls = [];
   const filledEls = [];
 
@@ -523,18 +550,13 @@ function setupSvgInteractivity(code) {
     const stroke = el.getAttribute('stroke');
     const fill = el.getAttribute('fill');
     const hasStroke = stroke && stroke !== 'none';
-    const hasFill = fill && fill !== 'none';
-
     if (hasStroke) {
       strokedEls.push(el);
-    } else if (hasFill || (!stroke && !fill)) {
-      // Default fill is black if neither specified
+    } else {
       filledEls.push(el);
     }
   }
 
-  // Match stroked elements to draw/fill/filldraw commands
-  // Match filled elements to label/dot commands
   let strokedIdx = 0;
   let filledIdx = 0;
 
@@ -543,16 +565,7 @@ function setupSvgInteractivity(code) {
     const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
 
     if (cmdType === 'label' || cmdType === 'dot') {
-      // Labels produce multiple filled paths (one per glyph).
-      // Group consecutive filled elements until we hit the next command boundary.
-      // Heuristic: labels produce paths that are close together spatially.
-      // Simple approach: assign a batch of filled elements to each label.
-      const batchStart = filledIdx;
-      // For labels, we look for a cluster of small filled paths.
-      // Grab elements until we've consumed a reasonable batch or run out.
       if (filledIdx < filledEls.length) {
-        // Find how many glyphs this label has.
-        // Simple heuristic: consume until a gap or until next label command.
         const remainingLabels = mapping.slice(cmdIdx + 1).filter(
           c => /^\s*(label|dot)/.test(c.commandText)
         ).length;
@@ -563,39 +576,47 @@ function setupSvgInteractivity(code) {
 
         for (let k = 0; k < elsPerLabel && filledIdx < filledEls.length; k++) {
           elementToCommand.set(filledEls[filledIdx], cmdIdx);
+          if (!svgElsByCommand.has(cmdIdx)) svgElsByCommand.set(cmdIdx, []);
+          svgElsByCommand.get(cmdIdx).push(filledEls[filledIdx]);
           filledIdx++;
         }
       }
     } else {
-      // draw/fill/filldraw commands produce stroked paths
       if (strokedIdx < strokedEls.length) {
         elementToCommand.set(strokedEls[strokedIdx], cmdIdx);
+        if (!svgElsByCommand.has(cmdIdx)) svgElsByCommand.set(cmdIdx, []);
+        svgElsByCommand.get(cmdIdx).push(strokedEls[strokedIdx]);
         strokedIdx++;
       }
     }
   }
 
-  // Add invisible wider hit-targets and hover listeners for each mapped element.
-  // We clone each path with a much wider transparent stroke so the user doesn't
-  // need pixel-perfect aim.
-  const NS = 'http://www.w3.org/2000/svg';
-
+  // ---- Create hit-targets & attach SVG hover ----
   for (const [el, cmdIdx] of elementToCommand) {
-    el.style.pointerEvents = 'all';
+    const cmd = mapping[cmdIdx];
+    const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
+    const isStrokedCmd = cmdType !== 'label' && cmdType !== 'dot';
+    const isFillCmd = cmdType === 'fill' || cmdType === 'filldraw';
 
-    // Create a wider invisible hit-target sitting behind the real element
+    // For stroked-only elements (draw, not fill/filldraw): pointer-events on stroke only
+    if (isStrokedCmd && !isFillCmd) {
+      el.style.pointerEvents = 'stroke';
+    } else {
+      el.style.pointerEvents = 'all';
+    }
+
+    // Create wider invisible hit target
     const hitTarget = el.cloneNode(false);
-    hitTarget.setAttribute('stroke', 'transparent');
-    hitTarget.setAttribute('fill', 'none');
-    // Use a generous stroke-width for the hit area
-    const origWidth = parseFloat(el.getAttribute('stroke-width') || '0.5');
-    hitTarget.setAttribute('stroke-width', String(Math.max(origWidth * 6, 4)));
-    hitTarget.setAttribute('stroke-linecap', 'round');
-    hitTarget.style.pointerEvents = 'stroke';
-    hitTarget.removeAttribute('stroke-miterlimit');
-    // For filled glyphs (labels), expand the hit area with a transparent fill instead
-    const hasFill = el.getAttribute('fill') && el.getAttribute('fill') !== 'none';
-    if (hasFill || (!el.getAttribute('stroke') || el.getAttribute('stroke') === 'none')) {
+    if (isStrokedCmd && !isFillCmd) {
+      // Stroke-only hit zone — no fill
+      hitTarget.setAttribute('stroke', 'transparent');
+      hitTarget.setAttribute('fill', 'none');
+      const origWidth = parseFloat(el.getAttribute('stroke-width') || '0.5');
+      hitTarget.setAttribute('stroke-width', String(Math.max(origWidth * 6, 4)));
+      hitTarget.setAttribute('stroke-linecap', 'round');
+      hitTarget.style.pointerEvents = 'stroke';
+    } else {
+      // Labels / fill commands — fill-based hit zone
       hitTarget.setAttribute('fill', 'transparent');
       hitTarget.setAttribute('stroke', 'transparent');
       hitTarget.setAttribute('stroke-width', '4');
@@ -604,21 +625,121 @@ function setupSvgInteractivity(code) {
     el.parentNode.insertBefore(hitTarget, el);
 
     function onEnter() {
-      const cmd = mapping[cmdIdx];
+      clearHighlights();
+      clearSvgHighlights();
       highlightLines(cmd.primaryLine, cmd.dependencyLines);
-      el.setAttribute('data-original-filter', el.style.filter || '');
-      el.style.filter = 'drop-shadow(0 0 4px rgba(233, 69, 96, 0.8))';
+      // Highlight this SVG element
+      for (const svgEl of (svgElsByCommand.get(cmdIdx) || [])) {
+        highlightSvgElement(svgEl, 'strong');
+      }
     }
     function onLeave() {
       clearHighlights();
-      el.style.filter = el.getAttribute('data-original-filter') || '';
+      clearSvgHighlights();
     }
 
-    // Attach to both the real element and the hit target
     el.addEventListener('mouseenter', onEnter);
     el.addEventListener('mouseleave', onLeave);
     hitTarget.addEventListener('mouseenter', onEnter);
     hitTarget.addEventListener('mouseleave', onLeave);
+  }
+
+  // ---- Code-side hover: highlight from editor to SVG ----
+  setupCodeHover();
+}
+
+/** Track mouse position over the editor and do bidirectional highlighting */
+function setupCodeHover() {
+  const cmWrapper = document.querySelector('.CodeMirror');
+  if (!cmWrapper) return;
+
+  let lastHoverLine = -1;
+
+  cmWrapper.addEventListener('mousemove', (e) => {
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    if (pos.line === lastHoverLine) return;
+    lastHoverLine = pos.line;
+    doCodeLineHover(pos.line);
+  });
+
+  cmWrapper.addEventListener('mouseleave', () => {
+    lastHoverLine = -1;
+    clearHighlights();
+    clearSvgHighlights();
+  });
+}
+
+function doCodeLineHover(lineIdx) {
+  clearHighlights();
+  clearSvgHighlights();
+
+  const depLines = new Set();
+  const drawnCommandsStrong = new Set(); // SVG commands drawn by this line (strong highlight)
+  const drawnCommandsSoft = new Set();   // SVG commands that depend on this line (soft highlight)
+
+  // Case 1: this line IS a draw command
+  const cmdIdx = lineToCommandIdx.get(lineIdx);
+  if (cmdIdx !== undefined) {
+    const cmd = currentMapping[cmdIdx];
+    drawnCommandsStrong.add(cmdIdx);
+    for (const dl of cmd.dependencyLines) depLines.add(dl);
+  }
+
+  // Case 2: this line is depended on by draw commands (it's an assignment they use)
+  const reverseSet = lineToDepCommands.get(lineIdx);
+  if (reverseSet) {
+    for (const ci of reverseSet) {
+      drawnCommandsSoft.add(ci);
+      depLines.add(currentMapping[ci].primaryLine);
+    }
+  }
+
+  // Case 3: find what this line depends on (if it's an assignment)
+  // Look up this line in assignments from the parser
+  const code = editor.getValue();
+  const { parsed } = AsyParser.buildMapping(code);
+  for (const assign of parsed.assignments) {
+    if (assign.lineIndex === lineIdx) {
+      // Find what this assignment's RHS depends on
+      const rhs = assign.lineText.split('=').slice(1).join('=');
+      const rhsVars = AsyParser.extractVariables(rhs, [rhs], 0);
+      const visited = new Set(rhsVars);
+      const queue = [...rhsVars];
+      while (queue.length > 0) {
+        const v = queue.shift();
+        for (const a of parsed.assignments) {
+          if (a.varName === v) {
+            depLines.add(a.lineIndex);
+            const innerRhs = a.lineText.split('=').slice(1).join('=');
+            const innerVars = AsyParser.extractVariables(innerRhs, [innerRhs], 0);
+            for (const iv of innerVars) {
+              if (!visited.has(iv)) { visited.add(iv); queue.push(iv); }
+            }
+          }
+        }
+      }
+      break;
+    }
+  }
+
+  // Remove the hovered line itself from dep set
+  depLines.delete(lineIdx);
+  // Don't double-count strong commands in soft
+  for (const ci of drawnCommandsStrong) drawnCommandsSoft.delete(ci);
+
+  // Apply code highlights
+  highlightLines(lineIdx, [...depLines]);
+
+  // Apply SVG highlights
+  for (const ci of drawnCommandsStrong) {
+    for (const el of (svgElsByCommand.get(ci) || [])) {
+      highlightSvgElement(el, 'strong');
+    }
+  }
+  for (const ci of drawnCommandsSoft) {
+    for (const el of (svgElsByCommand.get(ci) || [])) {
+      highlightSvgElement(el, 'soft');
+    }
   }
 }
 
