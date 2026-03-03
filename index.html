@@ -138,6 +138,11 @@ body {
   <h1>HiTeXeR</h1>
   <button class="primary" id="btn-render" title="Ctrl+Enter">RENDER</button>
   <button id="btn-clear">CLEAR</button>
+  <button id="btn-colorblind">COLOR BLIND MODE</button>
+  <span style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:6px;">
+    <input type="text" id="texer-url" placeholder="TeXeR URL..." style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:5px 10px;border-radius:4px;font-size:12px;width:240px;">
+    <button id="btn-texer-import">IMPORT</button>
+  </span>
   <span class="status" id="status">Ready</span>
 </div>
 
@@ -145,7 +150,7 @@ body {
   <div id="editor-panel">
     <textarea id="code-editor">[asy]
 import geometry;
-unitsize(1.0 cm);
+unitsize(2.0 cm);
 
 // Triangle vertices
 pair A, B, C;
@@ -611,7 +616,13 @@ const StyleMenu = {
       if (this.visible && !this.el.contains(e.target)) this.hide();
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key==='Escape' && this.visible) this.hide();
+      if (e.key==='Escape') {
+        if (this.visible) { this.hide(); return; }
+        if (multiSelected.size > 0) {
+          multiSelected.clear();
+          clearHighlights(); clearSvgHighlights();
+        }
+      }
     });
   },
 
@@ -638,6 +649,8 @@ const StyleMenu = {
     if (!this.visible) return;
     this.el.classList.remove('visible');
     this.visible = false;
+    this.multiLines = [];
+    multiSelected.clear();
     clearHighlights();
     clearSvgHighlights();
     if (this.dirty) {
@@ -865,6 +878,223 @@ const StyleMenu = {
     const ljSelect = this.el.querySelector('#sm-linejoin');
     if (ljSelect) ljSelect.addEventListener('change', () => this._change('linejoin', ljSelect.value||null));
   },
+
+  // ---- Multi-select support ----
+  multiLines: [],
+
+  showMulti(x, y, lineIndices) {
+    this.multiLines = lineIndices;
+    this.dirty = false;
+
+    const code = editor.getValue();
+    // Resolve pen info for each line, find common command types
+    const infos = lineIndices.map(li => PenParser.resolvePen(li, code)).filter(Boolean);
+    if (infos.length === 0) return;
+
+    const types = new Set(infos.map(i => i.cmdType));
+    const allPath = [...types].every(t => t==='draw'||t==='fill'||t==='filldraw');
+    const allLabel = types.size===1 && types.has('label');
+    const allDraw = types.size===1 && types.has('draw');
+
+    this._buildMultiUI(infos, { allPath, allLabel, allDraw });
+    this._applyMultiHighlights(lineIndices);
+
+    this.el.style.left = Math.min(x, window.innerWidth - 360) + 'px';
+    this.el.style.top = Math.min(y, window.innerHeight - 400) + 'px';
+    this.el.classList.add('visible');
+    this.visible = true;
+  },
+
+  _applyMultiHighlights(lineIndices) {
+    clearHighlights(); clearSvgHighlights();
+    for (const li of lineIndices) {
+      const ci = lineToCommandIdx.get(li);
+      if (ci !== undefined) {
+        for (const el of (svgElsByCommand.get(ci)||[])) highlightSvgElement(el, 'strong');
+      }
+      if (li >= 0 && li < editor.lineCount()) {
+        highlightMarks.push(editor.markText(
+          {line:li,ch:0}, {line:li,ch:editor.getLine(li).length},
+          {className:'cm-highlight-primary'}
+        ));
+      }
+    }
+  },
+
+  _multiChange(property, value) {
+    let code = editor.getValue();
+    const cursor = editor.getCursor();
+
+    // Generate a unique pen variable name
+    const lines = code.split('\n');
+    let penName = 'groupPen';
+    let suffix = 1;
+    while (lines.some(l => new RegExp('\\b'+penName+'\\b').test(l))) {
+      penName = 'groupPen' + (suffix++);
+    }
+
+    // Build the pen properties from the chosen change
+    const props = { color:null, colorHex:null, linewidth:null, linestyle:null,
+                    fontsize:null, opacity:null, linecap:null, linejoin:null, other:[] };
+    switch(property) {
+      case 'color':      props.color=value; break;
+      case 'colorCustom':
+        const hex=value;
+        const r=(parseInt(hex.slice(1,3),16)/255).toFixed(3);
+        const g=(parseInt(hex.slice(3,5),16)/255).toFixed(3);
+        const b=(parseInt(hex.slice(5,7),16)/255).toFixed(3);
+        props.color=`rgb(${r},${g},${b})`; break;
+      case 'linestyle':  props.linestyle=value||null; break;
+      case 'linewidth':  props.linewidth=value||null; break;
+      case 'fontsize':   props.fontsize=value||null; break;
+      case 'opacity':    props.opacity=value; break;
+    }
+    const penExpr = PenParser.buildPen(props);
+    if (!penExpr) return;
+
+    // Find where to insert the pen definition (after last import/unitsize, before first draw)
+    const codeLines = code.split('\n');
+    let insertIdx = 0;
+    const { parsed } = AsyParser.buildMapping(code);
+    for (const imp of parsed.imports) { if (imp.lineIndex >= insertIdx) insertIdx = imp.lineIndex + 1; }
+    // Also check for existing pen definitions
+    for (const a of parsed.assignments) {
+      if (/^\s*pen\b/.test(a.lineText) && a.lineIndex < (parsed.drawCommands[0]?.lineIndex ?? Infinity)) {
+        insertIdx = Math.max(insertIdx, a.lineIndex + 1);
+      }
+    }
+
+    // Insert pen definition
+    codeLines.splice(insertIdx, 0, `pen ${penName} = ${penExpr};`);
+
+    // Adjust line indices for the insertion
+    const adjustedLines = this.multiLines.map(li => li >= insertIdx ? li + 1 : li);
+
+    // For each selected command, set the pen argument to penName
+    let newCode = codeLines.join('\n');
+    for (const li of adjustedLines.sort((a,b)=>b-a)) { // reverse order to maintain line numbers
+      newCode = PenParser.applyChange(li, property, value, newCode);
+      // Actually, we need to replace the pen arg with penName instead
+    }
+
+    // Better approach: directly replace the pen argument in each command with penName
+    const finalLines = codeLines;
+    for (const li of adjustedLines) {
+      const parts = PenParser.extractCommandParts(finalLines[li]);
+      if (!parts) continue;
+
+      let penIdx = -1;
+      if (parts.cmd==='label'||parts.cmd==='dot') {
+        const c = PenParser.classifyLabelArgs(parts.args);
+        penIdx = c.penIdx;
+      } else {
+        const c = PenParser.classifyDrawArgs(parts.args);
+        penIdx = c.penIdx;
+      }
+
+      const newArgs = [...parts.args];
+      if (penIdx >= 0) {
+        newArgs[penIdx] = penName;
+      } else {
+        // Insert pen name
+        const insertAt = (parts.cmd==='label'||parts.cmd==='dot') ? newArgs.length : 1;
+        newArgs.splice(Math.min(insertAt, newArgs.length), 0, penName);
+      }
+      finalLines[li] = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+    }
+
+    editor.setValue(finalLines.join('\n'));
+    editor.setCursor(cursor);
+    this.dirty = true;
+    this._applyMultiHighlights(adjustedLines);
+  },
+
+  _buildMultiUI(infos, flags) {
+    let html = '';
+    const count = this.multiLines.length;
+    html += `<div class="pen-badge"><code>${count} elements selected</code><span class="pen-shared">A shared pen will be created for all</span></div>`;
+
+    // ---- Color ----
+    html += `<div class="sm-heading">Color</div>`;
+    html += `<div class="color-grid">`;
+    const mainColors = ['black','white','gray','red','blue','green','yellow','cyan','magenta','orange','purple','brown','pink'];
+    const extraColors = ['lightred','lightblue','lightgreen','darkred','darkblue','darkgreen','palered','paleblue','palegreen'];
+    for (const c of [...mainColors, ...extraColors]) {
+      const border = c==='white' ? ';border:1px solid #888' : '';
+      html += `<div class="color-swatch" data-color="${c}" style="background:${ASY_COLORS[c]}${border}" title="${c}"></div>`;
+    }
+    html += `</div>`;
+    html += `<div class="color-custom"><input type="color" id="sm-color-picker" value="#000000"><span>Custom color</span></div>`;
+
+    // ---- Line Style (if all paths) ----
+    if (flags.allPath) {
+      html += `<div class="sm-heading">Line Style</div>`;
+      for (const ls of LINE_STYLES) {
+        const dashStyle = ls.asy==='dotted' ? 'border-top-style:dotted' : ls.asy.includes('dash') ? 'border-top-style:dashed' : '';
+        html += `<div class="ls-option" data-linestyle="${ls.asy}"><div class="ls-preview" style="${dashStyle}"></div><span>${ls.label}</span></div>`;
+      }
+    }
+
+    // ---- Linewidth ----
+    if (flags.allPath) {
+      html += `<div class="sm-heading">Line Width</div>`;
+      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="" min="0.1" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
+    }
+
+    // ---- Opacity ----
+    html += `<div class="sm-heading">Opacity</div>`;
+    html += `<div class="opt-row"><label>Opacity</label><input type="number" id="sm-opacity" value="1" min="0" max="1" step="0.1"></div>`;
+
+    this.el.innerHTML = html;
+    this._bindMultiEvents();
+  },
+
+  _bindMultiEvents() {
+    // Color swatches
+    for (const sw of this.el.querySelectorAll('.color-swatch')) {
+      sw.addEventListener('click', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        sw.classList.add('active');
+        this._multiChange('color', sw.dataset.color);
+      });
+    }
+
+    // Custom color
+    const picker = this.el.querySelector('#sm-color-picker');
+    if (picker) {
+      picker.addEventListener('input', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        this._multiChange('colorCustom', picker.value);
+      });
+    }
+
+    // Line style
+    for (const lso of this.el.querySelectorAll('.ls-option')) {
+      lso.addEventListener('click', () => {
+        this.el.querySelectorAll('.ls-option').forEach(o=>o.classList.remove('active'));
+        lso.classList.add('active');
+        this._multiChange('linestyle', lso.dataset.linestyle);
+      });
+    }
+
+    // Linewidth
+    const lwInput = this.el.querySelector('#sm-linewidth');
+    if (lwInput) {
+      lwInput.addEventListener('change', () => {
+        const v = lwInput.value ? lwInput.value+'bp' : null;
+        this._multiChange('linewidth', v);
+      });
+    }
+
+    // Opacity
+    const opInput = this.el.querySelector('#sm-opacity');
+    if (opInput) {
+      opInput.addEventListener('change', () => {
+        const v = parseFloat(opInput.value);
+        this._multiChange('opacity', isNaN(v) ? null : v);
+      });
+    }
+  },
 };
 
 // ============================================================
@@ -890,10 +1120,38 @@ function initEditor() {
   editor.getWrapperElement().addEventListener('contextmenu', (e) => {
     const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
     const lineText = editor.getLine(pos.line);
-    // Only show menu if the line is a draw/fill/label/dot command
     if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
       e.preventDefault();
-      StyleMenu.show(e.clientX, e.clientY, pos.line);
+      // If multi-selected and this line is in the selection, show multi menu
+      if (multiSelected.size > 0 && multiSelected.has(pos.line)) {
+        StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
+      } else {
+        StyleMenu.show(e.clientX, e.clientY, pos.line);
+      }
+    }
+  });
+
+  // Left-click on code lines for multi-select (with Ctrl held or always in multi-select mode)
+  editor.getWrapperElement().addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineText = editor.getLine(pos.line);
+    if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
+      if (multiSelected.size > 0 || e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (multiSelected.has(pos.line)) {
+          multiSelected.delete(pos.line);
+        } else {
+          multiSelected.add(pos.line);
+        }
+        renderMultiSelection();
+      }
+    } else if (!e.ctrlKey && !e.metaKey) {
+      // Clicking on a non-draw line clears multi-selection
+      if (multiSelected.size > 0) {
+        multiSelected.clear();
+        clearHighlights(); clearSvgHighlights();
+      }
     }
   });
 }
@@ -961,23 +1219,104 @@ let svgElsByCommand = new Map();
 let lineToCommandIdx = new Map();
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
+let multiSelected = new Set(); // line indices of multi-selected commands
+
+/** Approximate distance from an SVG point to the nearest point on an SVG element. */
+function distToElement(svgPt, el) {
+  // Use getBBox for a quick bounding-box check, then refine for paths
+  try {
+    const bbox = el.getBBox();
+    // Clamp point to bbox
+    const cx = Math.max(bbox.x, Math.min(svgPt.x, bbox.x + bbox.width));
+    const cy = Math.max(bbox.y, Math.min(svgPt.y, bbox.y + bbox.height));
+    const bboxDist = Math.hypot(svgPt.x - cx, svgPt.y - cy);
+
+    // For paths/lines, try to get closer estimate using getPointAtLength
+    if (typeof el.getTotalLength === 'function') {
+      const len = el.getTotalLength();
+      const steps = Math.min(Math.max(20, Math.ceil(len / 2)), 100);
+      let minD = Infinity;
+      for (let i = 0; i <= steps; i++) {
+        const p = el.getPointAtLength((i / steps) * len);
+        const d = Math.hypot(svgPt.x - p.x, svgPt.y - p.y);
+        if (d < minD) minD = d;
+      }
+      return minD;
+    }
+
+    return bboxDist;
+  } catch (e) {
+    return Infinity;
+  }
+}
+
+/** Render multi-selection visual feedback. */
+function renderMultiSelection() {
+  clearHighlights(); clearSvgHighlights();
+  if (multiSelected.size === 0) return;
+  for (const lineIdx of multiSelected) {
+    const ci = lineToCommandIdx.get(lineIdx);
+    if (ci !== undefined) {
+      for (const el of (svgElsByCommand.get(ci) || [])) highlightSvgElement(el, 'strong');
+    }
+    if (lineIdx >= 0 && lineIdx < editor.lineCount()) {
+      highlightMarks.push(editor.markText(
+        {line: lineIdx, ch: 0}, {line: lineIdx, ch: editor.getLine(lineIdx).length},
+        {className: 'cm-highlight-primary'}
+      ));
+    }
+  }
+}
 
 function clearSvgHighlights() {
-  for (const ov of svgHighlightOverlays) ov.remove();
+  for (const el of svgHighlightOverlays) {
+    if (el._origFilter !== undefined) {
+      if (el._origFilter) el.setAttribute('filter', el._origFilter);
+      else el.removeAttribute('filter');
+      delete el._origFilter;
+    }
+  }
   svgHighlightOverlays = [];
 }
 
+function ensureGlowFilter(svg) {
+  if (!svg) return;
+  if (svg.querySelector('#hitexer-glow-strong')) return;
+  const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg','defs'), svg.firstChild);
+
+  // Strong glow filter
+  const f1 = document.createElementNS('http://www.w3.org/2000/svg','filter');
+  f1.setAttribute('id','hitexer-glow-strong');
+  f1.setAttribute('x','-50%'); f1.setAttribute('y','-50%');
+  f1.setAttribute('width','200%'); f1.setAttribute('height','200%');
+  f1.innerHTML = `
+    <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+    <feFlood flood-color="#e94560" flood-opacity="0.8" result="color"/>
+    <feComposite in="color" in2="blur" operator="in" result="glow"/>
+    <feMerge><feMergeNode in="glow"/><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>`;
+  defs.appendChild(f1);
+
+  // Soft glow filter
+  const f2 = document.createElementNS('http://www.w3.org/2000/svg','filter');
+  f2.setAttribute('id','hitexer-glow-soft');
+  f2.setAttribute('x','-50%'); f2.setAttribute('y','-50%');
+  f2.setAttribute('width','200%'); f2.setAttribute('height','200%');
+  f2.innerHTML = `
+    <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+    <feFlood flood-color="#e94560" flood-opacity="0.4" result="color"/>
+    <feComposite in="color" in2="blur" operator="in" result="glow"/>
+    <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>`;
+  defs.appendChild(f2);
+}
+
 function highlightSvgElement(el, intensity) {
-  const clone = el.cloneNode(false);
-  const color = intensity==='strong' ? 'rgba(233,69,96,0.9)' : 'rgba(233,69,96,0.35)';
-  const width = intensity==='strong' ? 3.5 : 2;
-  clone.setAttribute('stroke', color);
-  clone.setAttribute('stroke-width', String(width));
-  clone.setAttribute('fill', 'none');
-  clone.style.pointerEvents = 'none';
-  clone.removeAttribute('stroke-dasharray');
-  el.parentNode.appendChild(clone);
-  svgHighlightOverlays.push(clone);
+  const svg = el.closest('svg');
+  ensureGlowFilter(svg);
+  const filterId = intensity === 'strong' ? 'hitexer-glow-strong' : 'hitexer-glow-soft';
+  // Store original filter so we can restore
+  el._origFilter = el.getAttribute('filter') || '';
+  el.setAttribute('filter', `url(#${filterId})`);
+  svgHighlightOverlays.push(el);
 }
 
 function setupSvgInteractivity(code) {
@@ -986,6 +1325,7 @@ function setupSvgInteractivity(code) {
   svgElsByCommand = new Map();
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
+  multiSelected.clear();
 
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
@@ -1029,49 +1369,105 @@ function setupSvgInteractivity(code) {
     }
   }
 
-  // Hit targets & hover/right-click
+  // Build a flat list of {element, ci, cmdType} for proximity detection
+  const svgAllMapped = [];
   for (const [el, ci] of elementToCommand) {
     const cmd = mapping[ci];
     const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
+    svgAllMapped.push({ el, ci, cmdType });
+    // Ensure elements accept pointer events for right-click
     const isStrokeOnly = cmdType!=='label' && cmdType!=='dot' && cmdType!=='fill' && cmdType!=='filldraw';
-
     el.style.pointerEvents = isStrokeOnly ? 'stroke' : 'all';
-
-    const hitTarget = el.cloneNode(false);
-    if (isStrokeOnly) {
-      hitTarget.setAttribute('stroke','transparent'); hitTarget.setAttribute('fill','none');
-      const ow = parseFloat(el.getAttribute('stroke-width')||'0.5');
-      hitTarget.setAttribute('stroke-width', String(Math.max(ow*6,4)));
-      hitTarget.setAttribute('stroke-linecap','round');
-      hitTarget.style.pointerEvents = 'stroke';
-    } else {
-      hitTarget.setAttribute('fill','transparent'); hitTarget.setAttribute('stroke','transparent');
-      hitTarget.setAttribute('stroke-width','4'); hitTarget.style.pointerEvents = 'all';
-    }
-    el.parentNode.insertBefore(hitTarget, el);
-
-    function onEnter() {
-      if (StyleMenu.visible) return; // don't override menu highlights
-      clearHighlights(); clearSvgHighlights();
-      highlightLines(cmd.primaryLine, cmd.dependencyLines);
-      for (const svgEl of (svgElsByCommand.get(ci)||[])) highlightSvgElement(svgEl, 'strong');
-    }
-    function onLeave() {
-      if (StyleMenu.visible) return;
-      clearHighlights(); clearSvgHighlights();
-    }
-    function onContext(e) {
+    el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       StyleMenu.show(e.clientX, e.clientY, cmd.primaryLine);
+    });
+  }
+
+  // Single mousemove on SVG finds the closest element (no overlapping hit targets)
+  let lastHoveredCi = -1;
+  svg.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+    let bestCi = -1, bestDist = Infinity;
+    for (const { el, ci } of svgAllMapped) {
+      const d = distToElement(svgPt, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; }
     }
 
-    el.addEventListener('mouseenter', onEnter);
-    el.addEventListener('mouseleave', onLeave);
-    hitTarget.addEventListener('mouseenter', onEnter);
-    hitTarget.addEventListener('mouseleave', onLeave);
-    el.addEventListener('contextmenu', onContext);
-    hitTarget.addEventListener('contextmenu', onContext);
-  }
+    // Only highlight if within reasonable distance (20 SVG units)
+    if (bestDist > 20) bestCi = -1;
+
+    if (bestCi === lastHoveredCi) return;
+    lastHoveredCi = bestCi;
+
+    if (bestCi === -1) {
+      clearHighlights(); clearSvgHighlights();
+      return;
+    }
+    const cmd = mapping[bestCi];
+    clearHighlights(); clearSvgHighlights();
+    // Multi-select: if we have selected elements, don't override that highlight
+    if (multiSelected.size > 0) return;
+    highlightLines(cmd.primaryLine, cmd.dependencyLines);
+    for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
+  });
+
+  svg.addEventListener('mouseleave', () => {
+    if (StyleMenu.visible) return;
+    lastHoveredCi = -1;
+    if (multiSelected.size > 0) return;
+    clearHighlights(); clearSvgHighlights();
+  });
+
+  // Left-click on SVG for multi-select
+  svg.addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+    let bestCi = -1, bestDist = Infinity;
+    for (const { el, ci } of svgAllMapped) {
+      const d = distToElement(svgPt, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; }
+    }
+    if (bestDist > 20 || bestCi === -1) return;
+
+    const lineIdx = mapping[bestCi].primaryLine;
+    if (multiSelected.has(lineIdx)) {
+      multiSelected.delete(lineIdx);
+    } else {
+      multiSelected.add(lineIdx);
+    }
+    renderMultiSelection();
+  });
+
+  // Right-click on SVG for multi-select context menu
+  svg.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+    let bestCi = -1, bestDist = Infinity;
+    for (const { el, ci } of svgAllMapped) {
+      const d = distToElement(svgPt, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; }
+    }
+    if (bestDist > 20 || bestCi === -1) return;
+
+    const lineIdx = mapping[bestCi].primaryLine;
+    if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
+      // Show multi-select style menu
+      StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
+    } else {
+      StyleMenu.show(e.clientX, e.clientY, lineIdx);
+    }
+  });
 
   setupCodeHover();
 }
@@ -1089,12 +1485,13 @@ function setupCodeHover() {
     doCodeLineHover(pos.line);
   });
   cmWrapper.addEventListener('mouseleave', () => {
-    if (StyleMenu.visible) return;
+    if (StyleMenu.visible || multiSelected.size > 0) return;
     lastLine=-1; clearHighlights(); clearSvgHighlights();
   });
 }
 
 function doCodeLineHover(lineIdx) {
+  if (multiSelected.size > 0) return; // Don't override multi-selection highlights
   clearHighlights(); clearSvgHighlights();
   const depLines = new Set();
   const strongCmds = new Set(), softCmds = new Set();
@@ -1149,6 +1546,52 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizer();
   StyleMenu.init();
   document.getElementById('btn-render').addEventListener('click', doRender);
+
+  // Color blind mode toggle (deuteranopia simulation via Brettel/Viénot color matrix)
+  let colorBlindActive = false;
+  const cbBtn = document.getElementById('btn-colorblind');
+  cbBtn.addEventListener('click', () => {
+    colorBlindActive = !colorBlindActive;
+    cbBtn.classList.toggle('primary', colorBlindActive);
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
+    if (colorBlindActive) {
+      // Ensure defs exists
+      let defs = svg.querySelector('defs');
+      if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg','defs'); svg.insertBefore(defs, svg.firstChild); }
+      if (!svg.querySelector('#hitexer-deuteranopia')) {
+        const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+        f.setAttribute('id','hitexer-deuteranopia');
+        f.setAttribute('color-interpolation-filters','linearRGB');
+        // Deuteranopia color matrix (Brettel/Viénot/Mollon)
+        f.innerHTML = `<feColorMatrix type="matrix" values="
+          0.625  0.375  0.000  0  0
+          0.700  0.300  0.000  0  0
+          0.000  0.300  0.700  0  0
+          0      0      0      1  0"/>`;
+        defs.appendChild(f);
+      }
+      // Apply to entire SVG contents via a wrapper group
+      let wrapper = svg.querySelector('#hitexer-cb-wrapper');
+      if (!wrapper) {
+        wrapper = document.createElementNS('http://www.w3.org/2000/svg','g');
+        wrapper.setAttribute('id','hitexer-cb-wrapper');
+        // Move all children except defs into wrapper
+        const children = [...svg.childNodes].filter(n => n !== defs && n.nodeName !== 'defs');
+        for (const ch of children) wrapper.appendChild(ch);
+        svg.appendChild(wrapper);
+      }
+      wrapper.setAttribute('filter','url(#hitexer-deuteranopia)');
+    } else {
+      const svg = document.querySelector('#preview-container svg');
+      if (!svg) return;
+      const wrapper = svg.querySelector('#hitexer-cb-wrapper');
+      if (wrapper) {
+        wrapper.removeAttribute('filter');
+      }
+    }
+  });
+
   document.getElementById('btn-clear').addEventListener('click', () => {
     editor.setValue('[asy]\n\n[/asy]');
     document.getElementById('preview-container').innerHTML = '<div class="placeholder">Press <b>Ctrl+Enter</b> or click <b>RENDER</b> to compile</div>';
@@ -1156,6 +1599,36 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('status').textContent='Ready';
     document.getElementById('status').style.color='#888';
   });
+
+  // TeXeR import
+  const texerBtn = document.getElementById('btn-texer-import');
+  const texerInput = document.getElementById('texer-url');
+  async function doTexerImport() {
+    const url = texerInput.value.trim();
+    if (!url) return;
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = 'Fetching TeXeR...';
+    statusEl.style.color = '#e9c46a';
+    try {
+      const resp = await fetch(`${SERVER_URL}/texer`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        statusEl.textContent = data.error; statusEl.style.color = '#e94560';
+        return;
+      }
+      editor.setValue('[asy]\n' + data.code + '\n[/asy]');
+      statusEl.textContent = 'TeXeR code imported'; statusEl.style.color = '#2ecc71';
+      texerInput.value = '';
+      doRender();
+    } catch (err) {
+      statusEl.textContent = 'Import failed: ' + err.message; statusEl.style.color = '#e94560';
+    }
+  }
+  texerBtn.addEventListener('click', doTexerImport);
+  texerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doTexerImport(); });
 });
 </script>
 </body>
