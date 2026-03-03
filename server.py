@@ -82,6 +82,10 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         parsed = urlparse(url)
+        if not parsed.scheme and not parsed.netloc:
+            # Bare slug or path – prepend base URL
+            url = "https://artofproblemsolving.com/texer/" + url.lstrip("/")
+            parsed = urlparse(url)
         if "artofproblemsolving.com" not in parsed.netloc:
             self.send_json(400, {"error": "URL must be from artofproblemsolving.com"})
             return

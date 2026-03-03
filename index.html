@@ -140,9 +140,12 @@ body {
   <button class="primary" id="btn-render" title="Ctrl+Enter">RENDER</button>
   <button id="btn-clear">CLEAR</button>
   <button id="btn-colorblind">COLOR BLIND MODE</button>
-  <span style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:6px;">
-    <input type="text" id="texer-url" placeholder="TeXeR URL..." style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:5px 10px;border-radius:4px;font-size:12px;width:240px;">
-    <button id="btn-texer-import">IMPORT</button>
+  <span style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:6px;">
+      <input type="text" id="texer-url" placeholder="TeXeR URL or slug..." style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:5px 10px;border-radius:4px;font-size:12px;width:240px;">
+      <button id="btn-texer-import">IMPORT</button>
+    </span>
+    <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;"></span>
   </span>
   <span class="status" id="status">Ready</span>
 </div>
@@ -259,12 +262,17 @@ const AsyParser = {
     const sizeP = /^\s*(unitsize|size)\s*\(/;
     const commentP = /^\s*\/\//;
 
+    let braceDepth = 0;
     for (let i = 0; i < lines.length; i++) {
       const t = lines[i].trim();
       if (!t || commentP.test(t) || t === '[asy]' || t === '[/asy]') continue;
+      const lineDepth = braceDepth;
+      // Track brace depth (simple count, ignoring strings/comments)
+      for (const ch of t) { if (ch==='{') braceDepth++; if (ch==='}') braceDepth--; }
+      if (braceDepth < 0) braceDepth = 0;
       if (importP.test(t)) { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
       if (sizeP.test(t))   { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
-      if (drawP.test(t))   { drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i)}); continue; }
+      if (drawP.test(t))   { drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i),braceDepth:lineDepth}); continue; }
       const am = t.match(assignP);
       if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
       const mm = t.match(multiP);
@@ -1256,7 +1264,7 @@ async function doRender() {
     }
     previewEl.innerHTML = data.svg;
     setupSvgInteractivity(code);
-    statusEl.textContent = 'Rendered successfully'; statusEl.style.color = '#2ecc71';
+    statusEl.textContent = 'Rendered (mapping...)'; statusEl.style.color = '#e9c46a';
   } catch(err) {
     previewEl.innerHTML = `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py</div>`;
     statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
@@ -1271,6 +1279,7 @@ function escapeHtml(text) { const d=document.createElement('div'); d.textContent
 let currentMapping = [];
 let svgElsByCommand = new Map();
 let lineToCommandIdx = new Map();
+let probeGeneration = 0; // incremented each render to discard stale probes
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
@@ -1388,6 +1397,122 @@ function highlightSvgElement(el, intensity) {
   svgHighlightOverlays.push(clone);
 }
 
+/**
+ * Build SVG→command mapping via a "color probe" compilation.
+ * Rewrites each draw/fill/label/dot command to use a unique marker color,
+ * compiles, then reads the SVG colors to know exactly which elements
+ * correspond to which command.  Falls back to sequential mapping on failure.
+ */
+async function buildColorProbeMapping(code, mapping, parsed) {
+  const lines = code.split('\n');
+  const probeLines = [...lines]; // mutable copy
+
+  // Generate a unique RGB for each command index.
+  // Red = ci + 1 (1-based to avoid black), Green = 0, Blue = 127 (fixed sentinel).
+  // This ensures colors are far from any default and easily identifiable.
+  function ciToRgb(ci) {
+    const r = ci + 1;     // 1..N
+    const g = 0;
+    const b = 127;        // sentinel
+    return `rgb(${(r/255).toFixed(6)}, ${(g/255).toFixed(6)}, ${(b/255).toFixed(6)})`;
+  }
+
+  // For each draw command, replace/inject the marker color pen.
+  // Handle multi-line commands by joining continuation lines.
+  for (let ci = 0; ci < mapping.length; ci++) {
+    const lineIdx = mapping[ci].primaryLine;
+    let origLine = probeLines[lineIdx];
+
+    // Join continuation lines if parens aren't balanced
+    let endIdx = lineIdx;
+    let depth = 0;
+    for (const ch of origLine) { if (ch === '(') depth++; if (ch === ')') depth--; }
+    while (depth > 0 && endIdx + 1 < probeLines.length) {
+      endIdx++;
+      origLine += ' ' + probeLines[endIdx].trim();
+      for (const ch of probeLines[endIdx]) { if (ch === '(') depth++; if (ch === ')') depth--; }
+    }
+
+    const parts = PenParser.extractCommandParts(origLine);
+    if (!parts) continue;
+
+    const markerPen = ciToRgb(ci);
+    const cmdType = parts.cmd;
+    if (cmdType === 'clip') continue; // clip has no visible pen to mark
+
+    if (cmdType === 'label' || cmdType === 'dot') {
+      const c = PenParser.classifyLabelArgs(parts.args);
+      const newArgs = [...parts.args];
+      if (c.penIdx >= 0) newArgs[c.penIdx] = markerPen;
+      else newArgs.push(markerPen);
+      // Replace all lines this command spans with the single rebuilt line
+      const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+      probeLines[lineIdx] = rebuilt;
+      for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
+    } else {
+      const c = PenParser.classifyDrawArgs(parts.args);
+      const newArgs = [...parts.args];
+      if (c.penIdx >= 0) newArgs[c.penIdx] = markerPen;
+      else newArgs.splice(1, 0, markerPen);
+      const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+      probeLines[lineIdx] = rebuilt;
+      for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
+    }
+  }
+
+  // Compile the probe code
+  const probeCode = probeLines.join('\n');
+  try {
+    const resp = await fetch(`${SERVER_URL}/compile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: probeCode }),
+    });
+    const data = await resp.json();
+    if (data.error || !data.svg) return null; // fall back
+
+    // Parse the probe SVG
+    const parser = new DOMParser();
+    const probeDoc = parser.parseFromString(data.svg, 'image/svg+xml');
+    const probeSvg = probeDoc.querySelector('svg');
+    if (!probeSvg) return null;
+    const probeEls = [...probeSvg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, use')]
+      .filter(el => !el.closest('defs'));
+
+    // Build mapping: for each probe element, read its stroke/fill color to determine ci
+    const probeMap = []; // array of ci values, one per probe element
+    for (const el of probeEls) {
+      const stroke = el.getAttribute('stroke');
+      const fill = el.getAttribute('fill');
+      let ci = -1;
+      // Try stroke first, then fill
+      for (const color of [stroke, fill]) {
+        if (!color || color === 'none') continue;
+        const m = color.match(/^#([0-9a-f]{6})$/i);
+        if (m) {
+          const hex = m[1].toLowerCase();
+          const r = parseInt(hex.slice(0,2), 16);
+          const g = parseInt(hex.slice(2,4), 16);
+          const b = parseInt(hex.slice(4,6), 16);
+          // Our markers: green=0, blue=127 (sentinel), red=ci+1
+          if (g === 0 && (b >= 126 && b <= 128)) { // allow ±1 for rounding
+            const id = r;
+            if (id >= 1 && id <= mapping.length) {
+              ci = id - 1;
+              break;
+            }
+          }
+        }
+      }
+      probeMap.push(ci);
+    }
+
+    return probeMap;
+  } catch (e) {
+    console.error('Color probe compilation failed:', e);
+    return null;
+  }
+}
+
 function setupSvgInteractivity(code) {
   const { mapping, parsed } = AsyParser.buildMapping(code);
   currentMapping = mapping;
@@ -1395,6 +1520,7 @@ function setupSvgInteractivity(code) {
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
   multiSelected.clear();
+  const thisGen = ++probeGeneration;
 
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
@@ -1407,86 +1533,91 @@ function setupSvgInteractivity(code) {
     }
   }
 
-  // Map SVG elements to draw commands
-  const svgElements = svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect');
+  // Get ALL SVG graphical elements in document order
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, use')]
+    .filter(el => !el.closest('defs'));
   const elementToCommand = new Map();
-  const strokedEls = [], filledEls = [];
-  for (const el of svgElements) {
-    const stroke = el.getAttribute('stroke');
-    (stroke && stroke!=='none') ? strokedEls.push(el) : filledEls.push(el);
+
+  // Start with sequential 1:1 mapping (immediate, works for simple diagrams)
+  for (let i = 0; i < Math.min(svgElements.length, mapping.length); i++) {
+    elementToCommand.set(svgElements[i], i);
+    svgElsByCommand.set(i, [svgElements[i]]);
   }
 
-  let si=0, fi=0;
-  for (let ci=0; ci<mapping.length; ci++) {
-    const cmdType = mapping[ci].commandText.match(/^\s*(\w+)/)?.[1];
-    if (cmdType==='label'||cmdType==='dot') {
-      if (fi<filledEls.length) {
-        const rem = mapping.slice(ci+1).filter(c=>/^\s*(label|dot)/.test(c.commandText)).length;
-        const count = rem>0 ? Math.max(1,Math.floor((filledEls.length-fi)/(rem+1))) : filledEls.length-fi;
-        for (let k=0; k<count&&fi<filledEls.length; k++) {
-          elementToCommand.set(filledEls[fi], ci);
-          if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci,[]);
-          svgElsByCommand.get(ci).push(filledEls[fi]); fi++;
-        }
-      }
-    } else {
-      if (si<strokedEls.length) {
-        elementToCommand.set(strokedEls[si], ci);
-        if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci,[]);
-        svgElsByCommand.get(ci).push(strokedEls[si]); si++;
+  // Kick off color probe in background to get accurate mapping
+  const statusEl = document.getElementById('status');
+  buildColorProbeMapping(code, mapping, parsed).then(probeMap => {
+    if (probeGeneration !== thisGen) return; // stale probe, discard
+    if (!probeMap) {
+      statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
+      return;
+    }
+    if (probeMap.length !== svgElements.length) {
+      console.warn(`Probe element count (${probeMap.length}) != display count (${svgElements.length}), skipping`);
+      statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
+      return;
+    }
+    // Apply probe mapping
+    elementToCommand.clear();
+    svgElsByCommand.clear();
+    for (let i = 0; i < svgElements.length; i++) {
+      const ci = probeMap[i];
+      if (ci >= 0 && ci < mapping.length) {
+        elementToCommand.set(svgElements[i], ci);
+        if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci, []);
+        svgElsByCommand.get(ci).push(svgElements[i]);
       }
     }
+    statusEl.textContent = 'Rendered successfully'; statusEl.style.color = '#2ecc71';
+  }).catch(() => {
+    if (probeGeneration !== thisGen) return;
+    statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
+  });
+
+  // Make all SVG elements accept pointer events
+  for (const el of svgElements) el.style.pointerEvents = 'all';
+
+  // Helper: find nearest SVG element to mouse position.
+  // If onlyMapped is true, skip elements with no command mapping.
+  function findNearest(clientX, clientY, onlyMapped) {
+    let bestCi = -1, bestDist = Infinity, bestEl = null;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; bestEl = el; }
+    }
+    if (bestDist > 30) return { ci: -1, el: null }; // 30px threshold
+    return { ci: bestCi, el: bestEl };
   }
 
-  // Build a flat list of {element, ci, cmdType} for proximity detection
-  const svgAllMapped = [];
-  for (const [el, ci] of elementToCommand) {
-    const cmd = mapping[ci];
-    const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
-    svgAllMapped.push({ el, ci, cmdType });
-    // Make all elements accept pointer events so right-click works
-    el.style.pointerEvents = 'all';
-    el.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      StyleMenu.show(e.clientX, e.clientY, cmd.primaryLine);
-    });
-  }
-
-  // Hover threshold in screen pixels
-  const hoverThreshold = 30;
-
-  // Single mousemove on SVG finds the closest element (no overlapping hit targets)
+  // Hover
   let lastHoveredCi = -1;
+  let lastHoveredEl = null;
   svg.addEventListener('mousemove', (e) => {
     if (StyleMenu.visible) return;
+    const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
 
-    let bestCi = -1, bestDist = Infinity;
-    for (const { el, ci } of svgAllMapped) {
-      const d = distToElementScreen(e.clientX, e.clientY, el);
-      if (d < bestDist) { bestDist = d; bestCi = ci; }
-    }
-
-    // Only highlight if within reasonable distance (30 screen pixels)
-    if (bestDist > hoverThreshold) bestCi = -1;
-
-    if (bestCi === lastHoveredCi) return;
+    if (bestCi >= 0 && bestCi === lastHoveredCi) return;
+    if (bestCi < 0 && bestEl === lastHoveredEl) return;
     lastHoveredCi = bestCi;
+    lastHoveredEl = bestEl;
 
-    // Clear and re-render: selection (blue) first, then hover (red) on top
     clearHighlights(); clearSvgHighlights();
     if (multiSelected.size > 0) renderMultiSelection();
 
-    if (bestCi !== -1) {
+    if (bestCi >= 0) {
       const cmd = mapping[bestCi];
-      // Add red hover glow on top of any blue selection glow
       for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
       highlightLines(cmd.primaryLine, cmd.dependencyLines);
+    } else if (bestEl) {
+      highlightSvgElement(bestEl, 'strong');
     }
   });
 
   svg.addEventListener('mouseleave', () => {
     if (StyleMenu.visible) return;
-    lastHoveredCi = -1;
+    lastHoveredCi = -1; lastHoveredEl = null;
     clearHighlights(); clearSvgHighlights();
     if (multiSelected.size > 0) renderMultiSelection();
   });
@@ -1494,37 +1625,23 @@ function setupSvgInteractivity(code) {
   // Left-click on SVG for multi-select
   svg.addEventListener('click', (e) => {
     if (StyleMenu.visible) return;
-
-    let bestCi = -1, bestDist = Infinity;
-    for (const { el, ci } of svgAllMapped) {
-      const d = distToElementScreen(e.clientX, e.clientY, el);
-      if (d < bestDist) { bestDist = d; bestCi = ci; }
-    }
-    if (bestDist > hoverThreshold || bestCi === -1) return;
+    const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
+    if (bestCi < 0) return;
 
     const lineIdx = mapping[bestCi].primaryLine;
-    if (multiSelected.has(lineIdx)) {
-      multiSelected.delete(lineIdx);
-    } else {
-      multiSelected.add(lineIdx);
-    }
+    if (multiSelected.has(lineIdx)) multiSelected.delete(lineIdx);
+    else multiSelected.add(lineIdx);
     renderMultiSelection();
   });
 
-  // Right-click on SVG for multi-select context menu
+  // Right-click on SVG
   svg.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-
-    let bestCi = -1, bestDist = Infinity;
-    for (const { el, ci } of svgAllMapped) {
-      const d = distToElementScreen(e.clientX, e.clientY, el);
-      if (d < bestDist) { bestDist = d; bestCi = ci; }
-    }
-    if (bestDist > hoverThreshold || bestCi === -1) return;
+    const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
+    if (bestCi < 0) return;
 
     const lineIdx = mapping[bestCi].primaryLine;
     if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
-      // Show multi-select style menu
       StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
     } else {
       StyleMenu.show(e.clientX, e.clientY, lineIdx);
@@ -1666,8 +1783,33 @@ document.addEventListener('DOMContentLoaded', () => {
   // TeXeR import
   const texerBtn = document.getElementById('btn-texer-import');
   const texerInput = document.getElementById('texer-url');
+  const texerLoadedInfo = document.getElementById('texer-loaded-info');
+  let texerLoadedUrl = null;   // the URL we loaded from
+  let texerOriginalCode = null; // snapshot at load time, for "(modified)" detection
+
+  function normalizeTexerUrl(input) {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    // If it looks like a full URL, use as-is
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    // If it contains artofproblemsolving.com but no protocol
+    if (trimmed.includes('artofproblemsolving.com')) return 'https://' + trimmed;
+    // Otherwise treat as a slug
+    return 'https://artofproblemsolving.com/texer/' + trimmed;
+  }
+
+  function updateTexerModifiedIndicator() {
+    if (!texerLoadedUrl) { texerLoadedInfo.style.display = 'none'; return; }
+    texerLoadedInfo.style.display = '';
+    const modified = editor.getValue() !== texerOriginalCode;
+    const slug = texerLoadedUrl.replace(/.*\/texer\//, '');
+    texerLoadedInfo.innerHTML = `<a href="${escapeHtml(texerLoadedUrl)}" target="_blank" style="color:#e9c46a;text-decoration:none;">${escapeHtml(slug)}</a>${modified ? ' <span style="color:#e94560;">(modified)</span>' : ''}`;
+  }
+
   async function doTexerImport() {
-    const url = texerInput.value.trim();
+    const raw = texerInput.value.trim();
+    if (!raw) return;
+    const url = normalizeTexerUrl(raw);
     if (!url) return;
     const statusEl = document.getElementById('status');
     statusEl.textContent = 'Fetching TeXeR...';
@@ -1682,7 +1824,11 @@ document.addEventListener('DOMContentLoaded', () => {
         statusEl.textContent = data.error; statusEl.style.color = '#e94560';
         return;
       }
-      editor.setValue('[asy]\n' + data.code + '\n[/asy]');
+      const newCode = '[asy]\n' + data.code + '\n[/asy]';
+      editor.setValue(newCode);
+      texerLoadedUrl = url;
+      texerOriginalCode = newCode;
+      updateTexerModifiedIndicator();
       statusEl.textContent = 'TeXeR code imported'; statusEl.style.color = '#2ecc71';
       texerInput.value = '';
       doRender();
@@ -1692,6 +1838,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   texerBtn.addEventListener('click', doTexerImport);
   texerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doTexerImport(); });
+
+  // Track edits for "(modified)" indicator
+  editor.on('change', () => { if (texerLoadedUrl) updateTexerModifiedIndicator(); });
 });
 </script>
 </body>
