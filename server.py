@@ -88,7 +88,7 @@ def compile_to_png(code, tmpdir=None):
     code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
 
     with open(asy_file, "w") as f:
-        f.write(AOPS_PREAMBLE + code)
+        f.write(AOPS_PREAMBLE + auto_import(code))
 
     result = subprocess.run(
         [ASY_EXE, "-f", "png", "-noView", "-render", "4", "-o", "diagram", "diagram.asy"],
@@ -134,6 +134,46 @@ def extract_asy_code(text):
     return text.strip()
 
 
+# Identifiers from the olympiad package that aren't in the base language or geometry.
+# If any of these appear as a word boundary match, we auto-inject "import olympiad;".
+OLYMPIAD_IDENTIFIERS = {
+    'anglemark', 'rightanglemark', 'pathticks', 'markscalefactor',
+    'circumcenter', 'circumradius', 'circumcircle',
+    'foot', 'bisectorpoint', 'centroid', 'orthocenter',
+}
+
+# Identifiers from the cse5 package (abbreviated drawing helpers).
+CSE5_IDENTIFIERS = {
+    'MP', 'MC', 'MA', 'DPA', 'IP', 'OP', 'IPs', 'WP', 'CR', 'CP', 'CC',
+    'MarkPoint', 'MarkCurve', 'MarkAngle', 'Drawing', 'DrawPathArray',
+    'IntersectionPoint', 'OtherPoint', 'IntersectionPoints', 'WayPoint',
+    'CirclebyRadius', 'CirclebyPoint', 'CopyClean',
+}
+
+
+def auto_import(code: str) -> str:
+    """Auto-inject 'import olympiad;' and/or 'import cse5;' when code uses
+    identifiers from those packages but doesn't already import them.
+    This matches AoPS behaviour where these packages are implicitly available."""
+    imports_to_add = []
+
+    if not re.search(r'^\s*import\s+olympiad\b', code, re.MULTILINE):
+        for ident in OLYMPIAD_IDENTIFIERS:
+            if re.search(r'\b' + ident + r'\b', code):
+                imports_to_add.append('import olympiad;')
+                break
+
+    if not re.search(r'^\s*import\s+cse5\b', code, re.MULTILINE):
+        for ident in CSE5_IDENTIFIERS:
+            if re.search(r'\b' + ident + r'\b', code):
+                imports_to_add.append('import cse5;')
+                break
+
+    if imports_to_add:
+        return '\n'.join(imports_to_add) + '\n' + code
+    return code
+
+
 class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/compile":
@@ -162,7 +202,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(400, {"error": "No code provided"})
             return
 
-        full_code = AOPS_PREAMBLE + code
+        full_code = AOPS_PREAMBLE + auto_import(code)
 
         try:
             svg = compile_asy_to_svg(full_code)

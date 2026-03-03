@@ -1405,6 +1405,7 @@ let probeGeneration = 0; // incremented each render to discard stale probes
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
+let probeReady = Promise.resolve(); // resolves when color probe mapping completes
 
 /**
  * Distance from screen-space mouse coordinates to the nearest point on an SVG element.
@@ -1564,12 +1565,24 @@ async function buildColorProbeMapping(code, mapping, parsed) {
     const cmdType = parts.cmd;
     if (cmdType === 'clip') continue; // clip has no visible pen to mark
 
-    if (cmdType === 'label' || cmdType === 'dot') {
+    if (cmdType === 'dot') {
+      // dot(position, pen?) or dot(Label, position, pen?)
+      // Pen is the last arg if it looks like a pen; otherwise append
+      const newArgs = [...parts.args];
+      const lastIdx = newArgs.length - 1;
+      if (lastIdx >= 1 && PenParser.looksLikePen(newArgs[lastIdx].trim())) {
+        newArgs[lastIdx] = markerPen;
+      } else {
+        newArgs.push(markerPen);
+      }
+      const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+      probeLines[lineIdx] = rebuilt;
+      for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
+    } else if (cmdType === 'label') {
       const c = PenParser.classifyLabelArgs(parts.args);
       const newArgs = [...parts.args];
       if (c.penIdx >= 0) newArgs[c.penIdx] = markerPen;
       else newArgs.push(markerPen);
-      // Replace all lines this command spans with the single rebuilt line
       const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
       probeLines[lineIdx] = rebuilt;
       for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
@@ -1670,7 +1683,7 @@ function setupSvgInteractivity(code) {
 
   // Kick off color probe in background to get accurate mapping
   const statusEl = document.getElementById('status');
-  buildColorProbeMapping(code, mapping, parsed).then(probeMap => {
+  probeReady = buildColorProbeMapping(code, mapping, parsed).then(probeMap => {
     if (probeGeneration !== thisGen) return; // stale probe, discard
     if (!probeMap) {
       statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
@@ -2231,12 +2244,13 @@ document.addEventListener('DOMContentLoaded', () => {
         lines.splice(asyEndIdx, 0, ...dotLines);
         slideInjectedDots = undrawn.map(fp => fp.varName);
         editor.setValue(lines.join('\n'));
-        doRender().then(() => applySlideOverlay());
+        doRender().then(() => probeReady).then(() => applySlideOverlay());
         return;
       }
     }
 
-    applySlideOverlay();
+    // Wait for probe mapping to complete before building overlay
+    probeReady.then(() => applySlideOverlay());
   }
 
   function applySlideOverlay() {
@@ -2476,7 +2490,7 @@ document.addEventListener('DOMContentLoaded', () => {
     slideDragState = null;
 
     // Now do a single Asymptote re-render for full fidelity
-    doRender().then(() => {
+    doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
   }
@@ -2489,7 +2503,7 @@ document.addEventListener('DOMContentLoaded', () => {
       `= ${value};`
     );
     editor.setValue(lines.join('\n'));
-    doRender().then(() => {
+    doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
   }
