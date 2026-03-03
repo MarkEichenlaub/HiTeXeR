@@ -224,7 +224,7 @@ const ARROW_STYLES = [
 
 const ARROW_NAMES = new Set(ARROW_STYLES.map(a => a.asy).filter(Boolean));
 
-const FONT_SIZES = ['tiny','scriptsize','footnotesize','small','normalsize','large','Large','LARGE','huge','Huge'];
+const FONT_SIZES = ['6pt','7pt','8pt','9pt','10pt','11pt','12pt','14pt','16pt','18pt','20pt','24pt','28pt','32pt'];
 
 const LINE_CAPS = [
   { asy: '', label: 'Default' },
@@ -313,7 +313,6 @@ const BUILTINS = new Set([
   'bp','pt','cm','mm','inch','import','access','from','include',
   'geometry','olympiad','cse5','graph','math','markers','size','unitsize','defaultpen',
   'opacity','squarecap','roundcap','extendcap','miterjoin','roundjoin','beveljoin',
-  'tiny','scriptsize','footnotesize','small','normalsize','large','Large','LARGE','huge','Huge',
   'rgb','cmyk','gray','hsv',
 ]);
 
@@ -408,7 +407,6 @@ const PenParser = {
       // fontsize
       const fsM = part.match(/^fontsize\s*\(\s*([\d.]+)\s*(pt)?\s*\)/);
       if (fsM) { props.fontsize=fsM[1]+(fsM[2]||'pt'); continue; }
-      if (FONT_SIZES.includes(part)) { props.fontsize=part; continue; }
       // opacity
       const opM = part.match(/^opacity\s*\(\s*([\d.]+)\s*\)/);
       if (opM) { props.opacity=parseFloat(opM[1]); continue; }
@@ -428,10 +426,7 @@ const PenParser = {
     if (props.color) parts.push(props.color);
     if (props.linestyle && props.linestyle!=='solid') parts.push(props.linestyle);
     if (props.linewidth) parts.push('linewidth('+props.linewidth+')');
-    if (props.fontsize) {
-      if (FONT_SIZES.includes(props.fontsize)) parts.push(props.fontsize);
-      else parts.push('fontsize('+props.fontsize+')');
-    }
+    if (props.fontsize) parts.push('fontsize('+props.fontsize+')');
     if (props.opacity!=null && props.opacity!==1) parts.push('opacity('+props.opacity+')');
     if (props.linecap) parts.push(props.linecap);
     if (props.linejoin) parts.push(props.linejoin);
@@ -640,11 +635,15 @@ const StyleMenu = {
   },
 
   hide() {
+    if (!this.visible) return;
     this.el.classList.remove('visible');
     this.visible = false;
     clearHighlights();
     clearSvgHighlights();
-    if (this.dirty) doRender();
+    if (this.dirty) {
+      this.dirty = false;
+      doRender();
+    }
   },
 
   _applyHighlights() {
@@ -751,7 +750,7 @@ const StyleMenu = {
       html += `<div class="opt-row"><label>Size</label><select id="sm-fontsize"><option value="">Default</option>`;
       for (const fs of FONT_SIZES) {
         const sel = info.penProps.fontsize===fs ? ' selected' : '';
-        html += `<option value="${fs}"${sel}>${fs}</option>`;
+        html += `<option value="${fs}"${sel}>fontsize(${fs})</option>`;
       }
       html += `</select></div>`;
     }
