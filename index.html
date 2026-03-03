@@ -1404,6 +1404,8 @@ function setupSvgInteractivity(code) {
   let lastHoveredCi = -1;
   svg.addEventListener('mousemove', (e) => {
     if (StyleMenu.visible) return;
+    // If multi-selection active, keep those highlights and skip hover
+    if (multiSelected.size > 0) return;
 
     let bestCi = -1, bestDist = Infinity;
     for (const { el, ci } of svgAllMapped) {
@@ -1417,22 +1419,16 @@ function setupSvgInteractivity(code) {
     if (bestCi === lastHoveredCi) return;
     lastHoveredCi = bestCi;
 
-    if (bestCi === -1) {
-      clearHighlights(); clearSvgHighlights();
-      return;
-    }
-    const cmd = mapping[bestCi];
     clearHighlights(); clearSvgHighlights();
-    // Multi-select: if we have selected elements, don't override that highlight
-    if (multiSelected.size > 0) return;
+    if (bestCi === -1) return;
+    const cmd = mapping[bestCi];
     highlightLines(cmd.primaryLine, cmd.dependencyLines);
     for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
   });
 
   svg.addEventListener('mouseleave', () => {
-    if (StyleMenu.visible) return;
+    if (StyleMenu.visible || multiSelected.size > 0) return;
     lastHoveredCi = -1;
-    if (multiSelected.size > 0) return;
     clearHighlights(); clearSvgHighlights();
   });
 
