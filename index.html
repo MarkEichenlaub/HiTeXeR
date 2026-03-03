@@ -27,122 +27,109 @@ body {
   gap: 12px;
   flex-shrink: 0;
 }
-
-#toolbar h1 {
-  font-size: 18px;
-  font-weight: 700;
-  color: #e94560;
-  margin-right: 16px;
-  letter-spacing: 1px;
-}
-
+#toolbar h1 { font-size: 18px; font-weight: 700; color: #e94560; margin-right: 16px; letter-spacing: 1px; }
 #toolbar button {
-  background: #0f3460;
-  color: #eee;
-  border: 1px solid #1a1a5e;
-  padding: 6px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background 0.15s;
+  background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
+  padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background 0.15s;
 }
-
 #toolbar button:hover { background: #1a1a5e; }
 #toolbar button.primary { background: #e94560; border-color: #e94560; }
 #toolbar button.primary:hover { background: #c73e54; }
+#toolbar .status { margin-left: auto; font-size: 12px; color: #888; }
 
-#toolbar .status {
-  margin-left: auto;
-  font-size: 12px;
-  color: #888;
-}
-
-#main {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
+#main { display: flex; flex: 1; overflow: hidden; }
 
 #editor-panel {
-  width: 50%;
-  display: flex;
-  flex-direction: column;
-  border-right: 2px solid #0f3460;
+  width: 50%; display: flex; flex-direction: column; border-right: 2px solid #0f3460;
 }
+#editor-panel .CodeMirror { flex: 1; height: auto; font-size: 14px; line-height: 1.5; }
 
-#editor-panel .CodeMirror {
-  flex: 1;
-  height: auto;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-#preview-panel {
-  width: 50%;
-  display: flex;
-  flex-direction: column;
-  background: #fff;
-  position: relative;
-}
-
-#preview-container {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
-  padding: 20px;
-}
-
-#preview-container svg {
-  max-width: 100%;
-  max-height: 100%;
-}
-
+#preview-panel { width: 50%; display: flex; flex-direction: column; background: #fff; position: relative; }
+#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px; }
+#preview-container svg { max-width: 100%; max-height: 100%; }
 #preview-container .error {
-  color: #e94560;
-  font-family: monospace;
-  font-size: 13px;
-  white-space: pre-wrap;
-  padding: 20px;
-  background: #1a1a2e;
-  border-radius: 4px;
-  max-width: 90%;
+  color: #e94560; font-family: monospace; font-size: 13px; white-space: pre-wrap;
+  padding: 20px; background: #1a1a2e; border-radius: 4px; max-width: 90%;
 }
+#preview-container .placeholder { color: #999; font-size: 14px; text-align: center; }
 
-#preview-container .placeholder {
-  color: #999;
-  font-size: 14px;
-  text-align: center;
-}
-
-/* Highlight styles for code lines - designed for dark editor theme */
-.cm-highlight-primary {
-  background-color: rgba(233, 69, 96, 0.4) !important;
-  outline: 1px solid rgba(233, 69, 96, 0.6);
-}
-
-.cm-highlight-dependency {
-  background-color: rgba(233, 69, 96, 0.15) !important;
-  outline: 1px solid rgba(233, 69, 96, 0.25);
-}
+/* Highlight styles for code lines */
+.cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
+.cm-highlight-dependency { background-color: rgba(233, 69, 96, 0.15) !important; outline: 1px solid rgba(233, 69, 96, 0.25); }
 
 /* Resizer */
-#resizer {
-  width: 4px;
-  background: #0f3460;
-  cursor: col-resize;
-  flex-shrink: 0;
-}
+#resizer { width: 4px; background: #0f3460; cursor: col-resize; flex-shrink: 0; }
 #resizer:hover { background: #e94560; }
 
-/* Keyboard shortcut hint */
-.shortcut-hint {
-  font-size: 11px;
-  color: #666;
-  margin-left: 4px;
+/* ========== Style Context Menu ========== */
+#style-menu {
+  position: fixed; z-index: 10000;
+  background: #1e1e2e; border: 1px solid #555; border-radius: 8px;
+  padding: 14px; min-width: 290px; max-width: 350px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  font-size: 13px; color: #ccc; display: none;
+  max-height: 80vh; overflow-y: auto;
 }
+#style-menu.visible { display: block; }
+
+#style-menu .sm-heading {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: #888; margin: 10px 0 5px; padding-bottom: 3px; border-bottom: 1px solid #333;
+}
+#style-menu .sm-heading:first-child { margin-top: 0; }
+
+#style-menu .pen-badge {
+  background: #2a2a3e; padding: 5px 8px; border-radius: 4px;
+  font-family: monospace; font-size: 12px; color: #e9c46a; margin-bottom: 10px;
+  word-break: break-all;
+}
+#style-menu .pen-badge .pen-shared {
+  display: block; font-size: 10px; color: #888; margin-top: 3px; font-family: sans-serif;
+}
+
+/* Color grid */
+#style-menu .color-grid { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
+#style-menu .color-swatch {
+  width: 22px; height: 22px; border-radius: 3px; border: 2px solid transparent;
+  cursor: pointer; transition: transform 0.1s;
+}
+#style-menu .color-swatch:hover { transform: scale(1.2); }
+#style-menu .color-swatch.active { border-color: #e94560; box-shadow: 0 0 4px #e94560; }
+#style-menu .color-custom { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+#style-menu .color-custom input[type="color"] { width: 28px; height: 28px; border: none; cursor: pointer; background: none; padding: 0; }
+#style-menu .color-custom span { font-size: 11px; color: #888; }
+
+/* Option rows */
+#style-menu .opt-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+#style-menu .opt-row label { flex: 0 0 72px; font-size: 12px; color: #aaa; }
+#style-menu .opt-row > :last-child { flex: 1; }
+#style-menu select, #style-menu input[type="number"] {
+  background: #2a2a3e; color: #eee; border: 1px solid #444; border-radius: 4px;
+  padding: 4px 8px; font-size: 13px; width: 100%;
+}
+
+/* Line style options */
+#style-menu .ls-option {
+  display: flex; align-items: center; gap: 8px; padding: 3px 8px; cursor: pointer; border-radius: 3px;
+}
+#style-menu .ls-option:hover { background: #2a2a3e; }
+#style-menu .ls-option.active { background: #3a2040; }
+#style-menu .ls-preview { width: 50px; height: 0; border-top: 2px solid #ccc; flex-shrink: 0; }
+
+/* Arrow options */
+#style-menu .arrow-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+#style-menu .arrow-opt {
+  padding: 4px 10px; background: #2a2a3e; border-radius: 4px; cursor: pointer;
+  font-size: 12px; border: 1px solid transparent;
+}
+#style-menu .arrow-opt:hover { border-color: #666; }
+#style-menu .arrow-opt.active { border-color: #e94560; background: #3a2040; }
+
+/* Go deeper */
+#style-menu .go-deeper { font-size: 12px; color: #e94560; cursor: pointer; margin-top: 10px; user-select: none; }
+#style-menu .go-deeper:hover { text-decoration: underline; }
+#style-menu .advanced { display: none; margin-top: 8px; }
+#style-menu .advanced.visible { display: block; }
 </style>
 </head>
 <body>
@@ -190,194 +177,695 @@ label("$C$", C, N);
   </div>
 </div>
 
+<div id="style-menu"></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
 <script>
+'use strict';
+
 // ============================================================
-// Asymptote Parser - dependency tracking
+// Constants
+// ============================================================
+const ASY_COLORS = {
+  black:'#000000', white:'#ffffff', gray:'#808080', red:'#ff0000',
+  blue:'#0000ff', green:'#00b300', yellow:'#ffff00', cyan:'#00ffff',
+  magenta:'#ff00ff', orange:'#ff8c00', purple:'#8000bf', brown:'#804000',
+  pink:'#ffc0cb',
+  lightblue:'#87ceeb', lightgreen:'#90ee90', lightred:'#ff8080',
+  lightyellow:'#ffffe0', lightgray:'#bfbfbf',
+  darkblue:'#000080', darkgreen:'#006400', darkred:'#8b0000',
+  heavyblue:'#0000bf', heavygreen:'#005900', heavyred:'#bf0000',
+  paleblue:'#c0d0ff', palegreen:'#c0ffc0', palered:'#ffc0c0',
+  paleyellow:'#ffffc0', palecyan:'#c0ffff', palemagenta:'#ffc0ff',
+  deepblue:'#0000a0', deepgreen:'#004d00', deepred:'#a00000',
+};
+
+const LINE_STYLES = [
+  { asy: '',                label: 'Solid',            css: 'solid' },
+  { asy: 'dashed',          label: 'Dashed',           css: 'dashed' },
+  { asy: 'dotted',          label: 'Dotted',           css: 'dotted' },
+  { asy: 'longdashed',      label: 'Long dashed',      css: 'dashed' },
+  { asy: 'dashdotted',      label: 'Dash-dot',         css: 'dashed' },
+  { asy: 'longdashdotted',  label: 'Long dash-dot',    css: 'dashed' },
+];
+
+const ARROW_STYLES = [
+  { asy: '',             label: 'None',        symbol: '\u2014' },
+  { asy: 'Arrow',        label: 'Arrow',       symbol: '\u2192' },
+  { asy: 'MidArrow',     label: 'MidArrow',    symbol: '\u21A6' },
+  { asy: 'BeginArrow',   label: 'BeginArrow',  symbol: '\u2190' },
+  { asy: 'Arrows',       label: 'Arrows',      symbol: '\u2194' },
+  { asy: 'ArcArrow',     label: 'ArcArrow',    symbol: '\u21B7' },
+  { asy: 'ArcArrows',    label: 'ArcArrows',   symbol: '\u21C4' },
+  { asy: 'Bar',          label: 'Bar',         symbol: '|' },
+  { asy: 'Bars',         label: 'Bars',        symbol: '||' },
+];
+
+const ARROW_NAMES = new Set(ARROW_STYLES.map(a => a.asy).filter(Boolean));
+
+const FONT_SIZES = ['tiny','scriptsize','footnotesize','small','normalsize','large','Large','LARGE','huge','Huge'];
+
+const LINE_CAPS = [
+  { asy: '', label: 'Default' },
+  { asy: 'squarecap', label: 'Square' },
+  { asy: 'roundcap', label: 'Round' },
+  { asy: 'extendcap', label: 'Extend' },
+];
+const LINE_JOINS = [
+  { asy: '', label: 'Default' },
+  { asy: 'miterjoin', label: 'Miter' },
+  { asy: 'roundjoin', label: 'Round' },
+  { asy: 'beveljoin', label: 'Bevel' },
+];
+
+// ============================================================
+// Asymptote Parser (dependency tracking)
 // ============================================================
 const AsyParser = {
-  /**
-   * Parse Asymptote code and return structured information about
-   * draw commands and variable dependencies.
-   */
   parse(code) {
     const lines = code.split('\n');
-    const drawCommands = [];   // {lineIndex, lineText, vars}
-    const assignments = [];    // {lineIndex, varName, lineText}
-    const imports = [];        // {lineIndex, lineText}
-
-    // Regex patterns
-    const drawPattern = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
-    const assignPattern = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
-    const multiAssignPattern = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
-    const importPattern = /^\s*(import|access|from)\s+/;
-    const sizePattern = /^\s*(unitsize|size)\s*\(/;
-    const commentPattern = /^\s*\/\//;
+    const drawCommands = [], assignments = [], imports = [];
+    const drawP = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
+    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
+    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const importP = /^\s*(import|access|from)\s+/;
+    const sizeP = /^\s*(unitsize|size)\s*\(/;
+    const commentP = /^\s*\/\//;
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-
-      // Skip empty lines, comments, delimiters
-      if (!trimmed || commentPattern.test(trimmed) ||
-          trimmed === '[asy]' || trimmed === '[/asy]') continue;
-
-      // Check for imports
-      if (importPattern.test(trimmed)) {
-        imports.push({ lineIndex: i, lineText: line });
-        continue;
-      }
-
-      // Check for size/unitsize
-      if (sizePattern.test(trimmed)) {
-        imports.push({ lineIndex: i, lineText: line });
-        continue;
-      }
-
-      // Check for draw commands (may span multiple lines)
-      if (drawPattern.test(trimmed)) {
-        const vars = this.extractVariables(trimmed, lines, i);
-        drawCommands.push({ lineIndex: i, lineText: line, vars });
-        continue;
-      }
-
-      // Check for variable assignments
-      const assignMatch = trimmed.match(assignPattern);
-      if (assignMatch) {
-        assignments.push({
-          lineIndex: i,
-          varName: assignMatch[1],
-          lineText: line,
-        });
-        continue;
-      }
-
-      // Check for multi-variable declarations like "pair A, B, C;"
-      const multiMatch = trimmed.match(multiAssignPattern);
-      if (multiMatch) {
-        const varNames = multiMatch[1].split(',').map(v => v.trim());
-        for (const vn of varNames) {
-          assignments.push({ lineIndex: i, varName: vn, lineText: line });
-        }
-        continue;
-      }
+      const t = lines[i].trim();
+      if (!t || commentP.test(t) || t === '[asy]' || t === '[/asy]') continue;
+      if (importP.test(t)) { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
+      if (sizeP.test(t))   { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
+      if (drawP.test(t))   { drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i)}); continue; }
+      const am = t.match(assignP);
+      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
+      const mm = t.match(multiP);
+      if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i]}); }
     }
-
     return { drawCommands, assignments, imports, lines };
   },
 
-  /**
-   * Extract variable names referenced in a draw command.
-   * Looks at identifiers that aren't Asymptote built-in keywords.
-   */
   extractVariables(lineText, allLines, lineIdx) {
-    // Handle multi-line statements (find the complete statement)
-    let fullStatement = lineText;
-    let parenDepth = 0;
-    for (const ch of lineText) {
-      if (ch === '(') parenDepth++;
-      if (ch === ')') parenDepth--;
-    }
+    let full = lineText, depth = 0;
+    for (const ch of lineText) { if(ch==='(')depth++; if(ch===')')depth--; }
     let j = lineIdx + 1;
-    while (parenDepth > 0 && j < allLines.length) {
-      fullStatement += ' ' + allLines[j].trim();
-      for (const ch of allLines[j]) {
-        if (ch === '(') parenDepth++;
-        if (ch === ')') parenDepth--;
-      }
-      j++;
-    }
-
-    // Extract identifiers
-    const identifiers = fullStatement.match(/[a-zA-Z_]\w*/g) || [];
-
-    // Filter out Asymptote keywords and built-in functions
-    const builtins = new Set([
-      'draw', 'fill', 'filldraw', 'label', 'dot', 'clip',
-      'pair', 'real', 'int', 'pen', 'path', 'guide', 'picture', 'transform', 'string', 'bool',
-      'cycle', 'true', 'false', 'null', 'new', 'return', 'if', 'else', 'for', 'while',
-      'unitcircle', 'nullpath', 'nullpen',
-      'black', 'white', 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta',
-      'orange', 'purple', 'brown', 'pink', 'gray', 'grey',
-      'lightblue', 'lightgreen', 'lightred', 'lightyellow', 'lightgray', 'lightgrey',
-      'darkblue', 'darkgreen', 'darkred', 'darkyellow', 'darkgray', 'darkgrey',
-      'heavyblue', 'heavygreen', 'heavyred', 'heavyyellow', 'heavygray', 'heavygrey',
-      'palered', 'paleblue', 'palegreen', 'paleyellow', 'palecyan', 'palemagenta',
-      'deepblue', 'deepgreen', 'deepred', 'deepyellow', 'deepgray', 'deepgrey',
-      'N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW', 'NNE', 'NNW', 'SSE', 'SSW',
-      'ENE', 'WNW', 'ESE', 'WSW',
-      'dir', 'sqrt', 'abs', 'sin', 'cos', 'tan', 'atan', 'atan2', 'log', 'exp',
-      'min', 'max', 'floor', 'ceil', 'round',
-      'linewidth', 'fontsize', 'dashed', 'dotted', 'solid', 'longdashed',
-      'dashdotted', 'longdashdotted',
-      'circle', 'arc', 'ellipse', 'box', 'shift', 'rotate', 'scale', 'reflect',
-      'midpoint', 'extension', 'intersect', 'intersectionpoint', 'intersectionpoints',
-      'incircle', 'circumcircle', 'incenter', 'circumcenter', 'inradius', 'circumradius',
-      'foot', 'bisectorpoint', 'centroid', 'orthocenter',
-      'length', 'angle', 'degrees', 'radians', 'unit', 'conj', 'expi',
-      'xpart', 'ypart', 'point', 'relpoint', 'arclength',
-      'currentpen', 'currentpicture', 'currentprojection',
-      'fontcommand', 'Pen', 'Symbol', 'invisible',
-      'MidArrow', 'Arrow', 'EndArrow', 'BeginArrow', 'Arrows', 'ArcArrow', 'ArcArrows',
-      'bp', 'pt', 'cm', 'mm', 'inch',
-      'import', 'access', 'from', 'include',
-      'geometry', 'olympiad', 'cse5', 'graph', 'math', 'markers',
-      'size', 'unitsize', 'defaultpen',
-    ]);
-
-    return [...new Set(identifiers.filter(id => !builtins.has(id)))];
+    while (depth > 0 && j < allLines.length) { full += ' '+allLines[j].trim(); for(const ch of allLines[j]){if(ch==='(')depth++;if(ch===')')depth--;} j++; }
+    const ids = full.match(/[a-zA-Z_]\w*/g) || [];
+    return [...new Set(ids.filter(id => !BUILTINS.has(id)))];
   },
 
-  /**
-   * Given a draw command, find all lines it depends on.
-   * Returns array of line indices.
-   */
   findDependencies(drawCmd, assignments) {
-    const deps = new Set();
-    const visited = new Set();
-    const queue = [...drawCmd.vars];
-
-    while (queue.length > 0) {
-      const varName = queue.shift();
-      if (visited.has(varName)) continue;
-      visited.add(varName);
-
-      for (const assign of assignments) {
-        if (assign.varName === varName) {
-          deps.add(assign.lineIndex);
-          // Find variables used in this assignment's RHS
-          const rhs = assign.lineText.split('=').slice(1).join('=');
-          const rhsVars = this.extractVariables(rhs, [rhs], 0);
-          for (const rv of rhsVars) {
-            if (!visited.has(rv)) queue.push(rv);
-          }
-        }
-      }
+    const deps = new Set(), visited = new Set(), q = [...drawCmd.vars];
+    while (q.length) {
+      const v = q.shift(); if (visited.has(v)) continue; visited.add(v);
+      for (const a of assignments) { if (a.varName===v) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); } }
     }
     return [...deps];
   },
 
-  /**
-   * Build full mapping: for each draw command index, get:
-   * - primaryLine: the draw command's line index
-   * - dependencyLines: array of dependency line indices
-   */
   buildMapping(code) {
-    const parsed = this.parse(code);
-    const mapping = [];
+    const parsed = this.parse(code), mapping = [];
+    for (const cmd of parsed.drawCommands) mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:this.findDependencies(cmd,parsed.assignments), commandText:cmd.lineText.trim() });
+    return { mapping, parsed };
+  }
+};
 
-    for (const cmd of parsed.drawCommands) {
-      const depLines = this.findDependencies(cmd, parsed.assignments);
-      mapping.push({
-        primaryLine: cmd.lineIndex,
-        dependencyLines: depLines,
-        commandText: cmd.lineText.trim(),
+const BUILTINS = new Set([
+  'draw','fill','filldraw','label','dot','clip',
+  'pair','real','int','pen','path','guide','picture','transform','string','bool',
+  'cycle','true','false','null','new','return','if','else','for','while',
+  'unitcircle','nullpath','nullpen',
+  ...Object.keys(ASY_COLORS),
+  'N','S','E','W','NE','NW','SE','SW','NNE','NNW','SSE','SSW','ENE','WNW','ESE','WSW',
+  'dir','sqrt','abs','sin','cos','tan','atan','atan2','log','exp','min','max','floor','ceil','round',
+  'linewidth','fontsize','dashed','dotted','solid','longdashed','dashdotted','longdashdotted',
+  'circle','arc','ellipse','box','shift','rotate','scale','reflect',
+  'midpoint','extension','intersect','intersectionpoint','intersectionpoints',
+  'incircle','circumcircle','incenter','circumcenter','inradius','circumradius',
+  'foot','bisectorpoint','centroid','orthocenter',
+  'length','angle','degrees','radians','unit','conj','expi',
+  'xpart','ypart','point','relpoint','arclength',
+  'currentpen','currentpicture','currentprojection',
+  'fontcommand','Pen','Symbol','invisible',
+  'MidArrow','Arrow','EndArrow','BeginArrow','Arrows','ArcArrow','ArcArrows','Bar','Bars',
+  'bp','pt','cm','mm','inch','import','access','from','include',
+  'geometry','olympiad','cse5','graph','math','markers','size','unitsize','defaultpen',
+  'opacity','squarecap','roundcap','extendcap','miterjoin','roundjoin','beveljoin',
+  'tiny','scriptsize','footnotesize','small','normalsize','large','Large','LARGE','huge','Huge',
+  'rgb','cmyk','gray','hsv',
+]);
+
+// ============================================================
+// Pen Parser – extract / modify pen properties in Asymptote code
+// ============================================================
+const PenParser = {
+  /** Split a string on commas, respecting nested parens and quotes. */
+  splitArgs(s) {
+    const args = []; let depth=0, cur='', inStr=false, sc='';
+    for (let i=0; i<s.length; i++) {
+      const ch=s[i];
+      if (inStr) { cur+=ch; if(ch===sc&&s[i-1]!=='\\') inStr=false; continue; }
+      if (ch==='"'||ch==="'") { inStr=true; sc=ch; cur+=ch; continue; }
+      if (ch==='('||ch==='[') depth++;
+      if (ch===')'||ch===']') depth--;
+      if (ch===','&&depth===0) { args.push(cur.trim()); cur=''; } else cur+=ch;
+    }
+    if (cur.trim()) args.push(cur.trim());
+    return args;
+  },
+
+  /** Extract the inner arguments string from a draw/fill/label/dot command. */
+  extractCommandParts(lineText) {
+    const m = lineText.match(/^(\s*)(draw|fill|filldraw|label|dot)\s*\(/);
+    if (!m) return null;
+    const indent=m[1], cmd=m[2], start=m.index+m[0].length;
+    let depth=1, i=start;
+    while (i<lineText.length&&depth>0) { if(lineText[i]==='(')depth++; if(lineText[i]===')')depth--; i++; }
+    const inner = lineText.substring(start, i-1);
+    const suffix = lineText.substring(i); // e.g. ";" or "// comment"
+    return { indent, cmd, inner, suffix, args: this.splitArgs(inner) };
+  },
+
+  /** Identify which arg index is the pen and which is the arrow in a draw command. */
+  classifyDrawArgs(args) {
+    // arg[0] is always the path.  Remaining args could be pen, arrow, margin, etc.
+    let penIdx=-1, arrowIdx=-1;
+    for (let i=1; i<args.length; i++) {
+      const a = args[i].trim();
+      const base = a.replace(/\(.*\)$/,'').trim();
+      if (ARROW_NAMES.has(base)) { arrowIdx=i; }
+      else if (penIdx===-1) { penIdx=i; } // first non-arrow after path is probably pen
+    }
+    return { penIdx, arrowIdx };
+  },
+
+  /** Identify pen arg index for label(text, position, [align], [pen]) */
+  classifyLabelArgs(args) {
+    // Last arg that looks like a pen (not a filltype)
+    for (let i=args.length-1; i>=2; i--) {
+      const a = args[i].trim();
+      if (this.looksLikePen(a)) return { penIdx: i };
+    }
+    return { penIdx: -1 };
+  },
+
+  looksLikePen(s) {
+    const t = s.trim();
+    if (Object.keys(ASY_COLORS).some(c => new RegExp('\\b'+c+'\\b').test(t))) return true;
+    if (/\b(linewidth|fontsize|dashed|dotted|solid|longdashed|dashdotted|longdashdotted|opacity|squarecap|roundcap|extendcap|miterjoin|roundjoin|beveljoin|invisible)\b/.test(t)) return true;
+    if (/^\s*rgb\s*\(/.test(t)) return true;
+    return false;
+  },
+
+  /** Parse a pen expression string into structured properties. */
+  parsePen(penExpr) {
+    const props = { color:null, colorHex:null, linewidth:null, linestyle:null,
+                    fontsize:null, opacity:null, linecap:null, linejoin:null, other:[] };
+    if (!penExpr) return props;
+    const parts = penExpr.split('+').map(p=>p.trim()).filter(Boolean);
+    for (const part of parts) {
+      // Color name
+      let matched = false;
+      for (const [name,hex] of Object.entries(ASY_COLORS)) {
+        if (part === name) { props.color=name; props.colorHex=hex; matched=true; break; }
+      }
+      if (matched) continue;
+      // rgb()
+      const rgbM = part.match(/^rgb\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)/);
+      if (rgbM) {
+        props.color=part;
+        const r=Math.round(parseFloat(rgbM[1])*255), g=Math.round(parseFloat(rgbM[2])*255), b=Math.round(parseFloat(rgbM[3])*255);
+        props.colorHex='#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');
+        continue;
+      }
+      // linewidth
+      const lwM = part.match(/^linewidth\s*\(\s*([\d.]+)\s*(bp|pt|mm|cm)?\s*\)/);
+      if (lwM) { props.linewidth=lwM[1]+(lwM[2]||'bp'); continue; }
+      // line style
+      if (['dashed','dotted','solid','longdashed','dashdotted','longdashdotted'].includes(part)) { props.linestyle=part; continue; }
+      // fontsize
+      const fsM = part.match(/^fontsize\s*\(\s*([\d.]+)\s*(pt)?\s*\)/);
+      if (fsM) { props.fontsize=fsM[1]+(fsM[2]||'pt'); continue; }
+      if (FONT_SIZES.includes(part)) { props.fontsize=part; continue; }
+      // opacity
+      const opM = part.match(/^opacity\s*\(\s*([\d.]+)\s*\)/);
+      if (opM) { props.opacity=parseFloat(opM[1]); continue; }
+      // linecap
+      if (['squarecap','roundcap','extendcap'].includes(part)) { props.linecap=part; continue; }
+      // linejoin
+      if (['miterjoin','roundjoin','beveljoin'].includes(part)) { props.linejoin=part; continue; }
+      // unrecognized
+      props.other.push(part);
+    }
+    return props;
+  },
+
+  /** Build a pen string from properties. */
+  buildPen(props) {
+    const parts = [];
+    if (props.color) parts.push(props.color);
+    if (props.linestyle && props.linestyle!=='solid') parts.push(props.linestyle);
+    if (props.linewidth) parts.push('linewidth('+props.linewidth+')');
+    if (props.fontsize) {
+      if (FONT_SIZES.includes(props.fontsize)) parts.push(props.fontsize);
+      else parts.push('fontsize('+props.fontsize+')');
+    }
+    if (props.opacity!=null && props.opacity!==1) parts.push('opacity('+props.opacity+')');
+    if (props.linecap) parts.push(props.linecap);
+    if (props.linejoin) parts.push(props.linejoin);
+    parts.push(...(props.other||[]));
+    return parts.join(' + ') || '';
+  },
+
+  /**
+   * Resolve the pen for a draw command line.
+   * Returns { penExpr, penProps, isNamed, penVarName, penDefLineIdx,
+   *           arrowExpr, cmdType, cmdParts, penArgIdx, arrowArgIdx,
+   *           sharedLines (other lines using same named pen) }
+   */
+  resolvePen(lineIdx, code) {
+    const lines = code.split('\n');
+    const line = lines[lineIdx];
+    const parts = this.extractCommandParts(line);
+    if (!parts) return null;
+
+    let penArgIdx=-1, arrowArgIdx=-1, penExpr='', arrowExpr='';
+    if (parts.cmd==='label'||parts.cmd==='dot') {
+      const c = this.classifyLabelArgs(parts.args);
+      penArgIdx = c.penIdx;
+    } else {
+      const c = this.classifyDrawArgs(parts.args);
+      penArgIdx = c.penIdx;
+      arrowArgIdx = c.arrowIdx;
+      if (arrowArgIdx>=0) arrowExpr = parts.args[arrowArgIdx].trim();
+    }
+    if (penArgIdx>=0) penExpr = parts.args[penArgIdx].trim();
+
+    // Check if pen is a named variable
+    let isNamed=false, penVarName='', penDefLineIdx=-1, sharedLines=[];
+    const { parsed } = AsyParser.buildMapping(code);
+
+    if (penExpr && !this.looksLikePen(penExpr) && /^[a-zA-Z_]\w*$/.test(penExpr)) {
+      // Might be a pen variable
+      for (const a of parsed.assignments) {
+        if (a.varName===penExpr && /^\s*pen\b/.test(a.lineText)) {
+          isNamed=true;
+          penVarName=penExpr;
+          penDefLineIdx=a.lineIndex;
+          const defRhs = a.lineText.split('=').slice(1).join('=').replace(/;\s*$/,'').trim();
+          penExpr = defRhs;
+          break;
+        }
+      }
+      if (isNamed) {
+        // Find other draw commands using this pen
+        for (const dc of parsed.drawCommands) {
+          if (dc.lineIndex === lineIdx) continue;
+          if (dc.lineText.includes(penVarName)) sharedLines.push(dc.lineIndex);
+        }
+      }
+    }
+
+    // Check for computed / array pen (edge case: not easily editable)
+    let isComplex = false;
+    if (penExpr && !isNamed && !this.looksLikePen(penExpr) && !/^[a-zA-Z_]\w*$/.test(penExpr)) {
+      // Contains operators, array access, function calls, etc.
+      if (/[\[\]?:]/.test(penExpr) || /\w+\s*\(/.test(penExpr.replace(/(linewidth|fontsize|opacity|rgb)\s*\(/, ''))) {
+        isComplex = true;
+      }
+    }
+
+    const penProps = this.parsePen(penExpr);
+    return {
+      penExpr, penProps, isNamed, penVarName, penDefLineIdx,
+      arrowExpr, arrowArgIdx, cmdType: parts.cmd, cmdParts: parts,
+      penArgIdx, sharedLines, isComplex,
+    };
+  },
+
+  /** Apply a style change. Modifies code in the editor, returns new code. */
+  applyChange(lineIdx, property, value, code) {
+    const info = this.resolvePen(lineIdx, code);
+    if (!info) return code;
+    const lines = code.split('\n');
+
+    if (property === 'arrow') {
+      // Arrow is a separate argument, not part of pen
+      return this._setArrow(info, value, lines);
+    }
+
+    // Update pen props
+    const props = { ...info.penProps };
+    switch(property) {
+      case 'color':      props.color=value; props.colorHex=ASY_COLORS[value]||null; break;
+      case 'colorCustom':
+        const hex=value;
+        const r=(parseInt(hex.slice(1,3),16)/255).toFixed(3);
+        const g=(parseInt(hex.slice(3,5),16)/255).toFixed(3);
+        const b=(parseInt(hex.slice(5,7),16)/255).toFixed(3);
+        props.color=`rgb(${r},${g},${b})`; props.colorHex=hex; break;
+      case 'linestyle':  props.linestyle=value||null; break;
+      case 'linewidth':  props.linewidth=value||null; break;
+      case 'fontsize':   props.fontsize=value||null; break;
+      case 'opacity':    props.opacity=value; break;
+      case 'linecap':    props.linecap=value||null; break;
+      case 'linejoin':   props.linejoin=value||null; break;
+    }
+    const newPen = this.buildPen(props);
+
+    if (info.isNamed) {
+      // Update the pen definition line
+      lines[info.penDefLineIdx] = lines[info.penDefLineIdx].replace(
+        /=\s*.+;/,
+        `= ${newPen};`
+      );
+    } else {
+      // Rebuild the draw command with new pen
+      this._setPenArg(info, newPen, lines, lineIdx);
+    }
+    return lines.join('\n');
+  },
+
+  _setPenArg(info, newPen, lines, lineIdx) {
+    const p = info.cmdParts;
+    const newArgs = [...p.args];
+    if (newPen) {
+      if (info.penArgIdx >= 0) {
+        newArgs[info.penArgIdx] = newPen;
+      } else {
+        // Insert pen after path (index 1 for draw, after position for label)
+        const insertAt = (p.cmd==='label'||p.cmd==='dot') ? newArgs.length : 1;
+        newArgs.splice(insertAt, 0, newPen);
+      }
+    } else if (info.penArgIdx >= 0) {
+      newArgs.splice(info.penArgIdx, 1);
+    }
+    lines[lineIdx] = `${p.indent}${p.cmd}(${newArgs.join(', ')})${p.suffix}`;
+  },
+
+  _setArrow(info, arrowAsy, lines) {
+    const p = info.cmdParts;
+    const lineIdx = lines.indexOf(lines.find((_,i) => {
+      const pp = this.extractCommandParts(lines[i]);
+      return pp && pp.inner === p.inner;
+    }));
+    const li = info.cmdParts.args.length > 0 ? lines.findIndex(l => l.includes(p.inner)) : -1;
+    // Rebuild args
+    const newArgs = [...p.args];
+    if (arrowAsy) {
+      if (info.arrowArgIdx >= 0) {
+        newArgs[info.arrowArgIdx] = arrowAsy;
+      } else {
+        // Insert arrow after pen (or after path if no pen)
+        const insertAt = (info.penArgIdx>=0 ? info.penArgIdx+1 : 1);
+        newArgs.splice(Math.min(insertAt, newArgs.length), 0, arrowAsy);
+      }
+    } else if (info.arrowArgIdx >= 0) {
+      newArgs.splice(info.arrowArgIdx, 1);
+    }
+    // Find the actual line index
+    const code = lines.join('\n');
+    const actualLine = lines.findIndex(l => {
+      const pp = this.extractCommandParts(l);
+      return pp && pp.inner === p.inner;
+    });
+    if (actualLine >= 0) {
+      const pp = this.extractCommandParts(lines[actualLine]);
+      lines[actualLine] = `${pp.indent}${pp.cmd}(${newArgs.join(', ')})${pp.suffix}`;
+    }
+    return lines.join('\n');
+  },
+};
+
+// ============================================================
+// Style Menu
+// ============================================================
+const StyleMenu = {
+  el: null,
+  visible: false,
+  lineIdx: -1,
+  cmdIdx: -1,
+  info: null,
+  dirty: false,
+
+  init() {
+    this.el = document.getElementById('style-menu');
+    document.addEventListener('mousedown', (e) => {
+      if (this.visible && !this.el.contains(e.target)) this.hide();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key==='Escape' && this.visible) this.hide();
+    });
+  },
+
+  show(x, y, lineIdx) {
+    this.lineIdx = lineIdx;
+    this.cmdIdx = lineToCommandIdx.get(lineIdx) ?? -1;
+    this.dirty = false;
+
+    const code = editor.getValue();
+    this.info = PenParser.resolvePen(lineIdx, code);
+    if (!this.info) return;
+
+    this._buildUI();
+    this._applyHighlights();
+
+    // Position
+    this.el.style.left = Math.min(x, window.innerWidth - 360) + 'px';
+    this.el.style.top = Math.min(y, window.innerHeight - 400) + 'px';
+    this.el.classList.add('visible');
+    this.visible = true;
+  },
+
+  hide() {
+    this.el.classList.remove('visible');
+    this.visible = false;
+    clearHighlights();
+    clearSvgHighlights();
+    if (this.dirty) doRender();
+  },
+
+  _applyHighlights() {
+    clearHighlights(); clearSvgHighlights();
+    const info = this.info;
+    const depLines = [];
+
+    // Highlight the draw command
+    const cmd = (this.cmdIdx >= 0) ? currentMapping[this.cmdIdx] : null;
+    if (cmd) {
+      for (const dl of cmd.dependencyLines) depLines.push(dl);
+      // Highlight SVG element
+      for (const el of (svgElsByCommand.get(this.cmdIdx)||[])) highlightSvgElement(el, 'strong');
+    }
+
+    // If named pen, highlight pen def and shared users
+    if (info.isNamed) {
+      depLines.push(info.penDefLineIdx);
+      for (const sl of info.sharedLines) depLines.push(sl);
+      // Highlight SVG elements of shared lines
+      for (const sl of info.sharedLines) {
+        const sci = lineToCommandIdx.get(sl);
+        if (sci !== undefined) {
+          for (const el of (svgElsByCommand.get(sci)||[])) highlightSvgElement(el, 'soft');
+        }
+      }
+    }
+
+    highlightLines(this.lineIdx, depLines);
+  },
+
+  _change(property, value) {
+    const code = editor.getValue();
+    const cursor = editor.getCursor();
+    const newCode = PenParser.applyChange(this.lineIdx, property, value, code);
+    editor.setValue(newCode);
+    editor.setCursor(cursor);
+    this.dirty = true;
+    // Re-resolve to update the info for the menu
+    this.info = PenParser.resolvePen(this.lineIdx, newCode);
+    this._applyHighlights();
+  },
+
+  _buildUI() {
+    const info = this.info;
+    const isPath = info.cmdType==='draw' || info.cmdType==='fill' || info.cmdType==='filldraw';
+    const isLabel = info.cmdType==='label';
+    const isDot = info.cmdType==='dot';
+    let html = '';
+
+    // Named pen badge
+    if (info.isNamed) {
+      const count = info.sharedLines.length + 1;
+      html += `<div class="pen-badge"><code>pen ${info.penVarName}</code><span class="pen-shared">Shared by ${count} command${count>1?'s':''} \u2013 changes affect all</span></div>`;
+    }
+    if (info.isComplex) {
+      html += `<div class="pen-badge" style="color:#ff8080">Complex pen expression \u2013 edit manually</div>`;
+    }
+
+    // ---- Color ----
+    html += `<div class="sm-heading">Color</div>`;
+    html += `<div class="color-grid">`;
+    const mainColors = ['black','white','gray','red','blue','green','yellow','cyan','magenta','orange','purple','brown','pink'];
+    const extraColors = ['lightred','lightblue','lightgreen','darkred','darkblue','darkgreen','palered','paleblue','palegreen'];
+    for (const c of [...mainColors, ...extraColors]) {
+      const active = (info.penProps.color===c) ? ' active' : '';
+      const border = c==='white' ? ';border:1px solid #888' : '';
+      html += `<div class="color-swatch${active}" data-color="${c}" style="background:${ASY_COLORS[c]}${border}" title="${c}"></div>`;
+    }
+    html += `</div>`;
+    html += `<div class="color-custom"><input type="color" id="sm-color-picker" value="${info.penProps.colorHex||'#000000'}"><span>Custom color</span></div>`;
+
+    // ---- Line Style (paths only) ----
+    if (isPath) {
+      html += `<div class="sm-heading">Line Style</div>`;
+      for (const ls of LINE_STYLES) {
+        const active = ((info.penProps.linestyle||'')===(ls.asy)) ? ' active' : '';
+        const dashStyle = ls.asy==='dotted' ? 'border-top-style:dotted' : ls.asy.includes('dash') ? 'border-top-style:dashed' : '';
+        html += `<div class="ls-option${active}" data-linestyle="${ls.asy}"><div class="ls-preview" style="${dashStyle}"></div><span>${ls.label}</span></div>`;
+      }
+    }
+
+    // ---- Linewidth (paths & dots) ----
+    if (isPath || isDot) {
+      html += `<div class="sm-heading">Line Width</div>`;
+      const curLw = parseFloat(info.penProps.linewidth) || '';
+      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.1" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
+    }
+
+    // ---- Arrows (draw only, not fill/filldraw) ----
+    if (info.cmdType==='draw') {
+      html += `<div class="sm-heading">Arrows</div>`;
+      html += `<div class="arrow-grid">`;
+      for (const a of ARROW_STYLES) {
+        const active = (info.arrowExpr.replace(/\(.*\)/,'')===a.asy) ? ' active' : '';
+        html += `<div class="arrow-opt${active}" data-arrow="${a.asy}" title="${a.label}">${a.symbol} ${a.label}</div>`;
+      }
+      html += `</div>`;
+    }
+
+    // ---- Font size (labels only) ----
+    if (isLabel) {
+      html += `<div class="sm-heading">Font Size</div>`;
+      html += `<div class="opt-row"><label>Size</label><select id="sm-fontsize"><option value="">Default</option>`;
+      for (const fs of FONT_SIZES) {
+        const sel = info.penProps.fontsize===fs ? ' selected' : '';
+        html += `<option value="${fs}"${sel}>${fs}</option>`;
+      }
+      html += `</select></div>`;
+    }
+
+    // ---- Opacity ----
+    html += `<div class="sm-heading">Opacity</div>`;
+    const curOp = info.penProps.opacity ?? 1;
+    html += `<div class="opt-row"><label>Opacity</label><input type="number" id="sm-opacity" value="${curOp}" min="0" max="1" step="0.1"></div>`;
+
+    // ---- Go Deeper ----
+    if (isPath) {
+      html += `<div class="go-deeper" id="sm-deeper-toggle">\u25B6 More options</div>`;
+      html += `<div class="advanced" id="sm-advanced">`;
+      // Line cap
+      html += `<div class="opt-row"><label>Line cap</label><select id="sm-linecap">`;
+      for (const lc of LINE_CAPS) {
+        const sel = (info.penProps.linecap||'')===lc.asy ? ' selected':'';
+        html += `<option value="${lc.asy}"${sel}>${lc.label}</option>`;
+      }
+      html += `</select></div>`;
+      // Line join
+      html += `<div class="opt-row"><label>Line join</label><select id="sm-linejoin">`;
+      for (const lj of LINE_JOINS) {
+        const sel = (info.penProps.linejoin||'')===lj.asy ? ' selected':'';
+        html += `<option value="${lj.asy}"${sel}>${lj.label}</option>`;
+      }
+      html += `</select></div>`;
+      html += `</div>`;
+    }
+
+    this.el.innerHTML = html;
+    this._bindEvents();
+  },
+
+  _bindEvents() {
+    const info = this.info;
+    if (info.isComplex) return; // No editing for complex pens
+
+    // Color swatches
+    for (const sw of this.el.querySelectorAll('.color-swatch')) {
+      sw.addEventListener('click', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        sw.classList.add('active');
+        this._change('color', sw.dataset.color);
       });
     }
 
-    return { mapping, parsed };
-  }
+    // Custom color
+    const picker = this.el.querySelector('#sm-color-picker');
+    if (picker) {
+      picker.addEventListener('input', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        this._change('colorCustom', picker.value);
+      });
+    }
+
+    // Line style
+    for (const lso of this.el.querySelectorAll('.ls-option')) {
+      lso.addEventListener('click', () => {
+        this.el.querySelectorAll('.ls-option').forEach(o=>o.classList.remove('active'));
+        lso.classList.add('active');
+        this._change('linestyle', lso.dataset.linestyle);
+      });
+    }
+
+    // Linewidth
+    const lwInput = this.el.querySelector('#sm-linewidth');
+    if (lwInput) {
+      lwInput.addEventListener('change', () => {
+        const v = lwInput.value ? lwInput.value+'bp' : null;
+        this._change('linewidth', v);
+      });
+    }
+
+    // Arrows
+    for (const ao of this.el.querySelectorAll('.arrow-opt')) {
+      ao.addEventListener('click', () => {
+        this.el.querySelectorAll('.arrow-opt').forEach(o=>o.classList.remove('active'));
+        ao.classList.add('active');
+        this._change('arrow', ao.dataset.arrow);
+      });
+    }
+
+    // Font size
+    const fsSelect = this.el.querySelector('#sm-fontsize');
+    if (fsSelect) {
+      fsSelect.addEventListener('change', () => this._change('fontsize', fsSelect.value||null));
+    }
+
+    // Opacity
+    const opInput = this.el.querySelector('#sm-opacity');
+    if (opInput) {
+      opInput.addEventListener('change', () => {
+        const v = parseFloat(opInput.value);
+        this._change('opacity', isNaN(v) ? null : v);
+      });
+    }
+
+    // Go deeper toggle
+    const toggle = this.el.querySelector('#sm-deeper-toggle');
+    const adv = this.el.querySelector('#sm-advanced');
+    if (toggle && adv) {
+      toggle.addEventListener('click', () => {
+        adv.classList.toggle('visible');
+        toggle.textContent = adv.classList.contains('visible') ? '\u25BC More options' : '\u25B6 More options';
+      });
+    }
+
+    // Line cap / join
+    const lcSelect = this.el.querySelector('#sm-linecap');
+    if (lcSelect) lcSelect.addEventListener('change', () => this._change('linecap', lcSelect.value||null));
+    const ljSelect = this.el.querySelector('#sm-linejoin');
+    if (ljSelect) ljSelect.addEventListener('change', () => this._change('linejoin', ljSelect.value||null));
+  },
 };
 
 // ============================================================
@@ -388,7 +876,7 @@ let highlightMarks = [];
 
 function initEditor() {
   editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
-    mode: 'text/x-c++src',  // C-like mode works reasonably for Asymptote
+    mode: 'text/x-c++src',
     theme: 'monokai',
     lineNumbers: true,
     indentUnit: 2,
@@ -397,43 +885,41 @@ function initEditor() {
     autoCloseBrackets: true,
     lineWrapping: false,
   });
+  editor.setOption('extraKeys', { 'Ctrl-Enter': doRender });
 
-  // Ctrl+Enter to render
-  editor.setOption('extraKeys', {
-    'Ctrl-Enter': doRender,
+  // Right-click on code lines
+  editor.getWrapperElement().addEventListener('contextmenu', (e) => {
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineText = editor.getLine(pos.line);
+    // Only show menu if the line is a draw/fill/label/dot command
+    if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
+      e.preventDefault();
+      StyleMenu.show(e.clientX, e.clientY, pos.line);
+    }
   });
 }
 
 function clearHighlights() {
-  for (const mark of highlightMarks) {
-    mark.clear();
-  }
+  for (const mark of highlightMarks) mark.clear();
   highlightMarks = [];
 }
 
 function highlightLines(primaryLine, depLines) {
   clearHighlights();
-
-  // Highlight dependencies in pale yellow
   for (const lineIdx of depLines) {
-    const mark = editor.markText(
-      { line: lineIdx, ch: 0 },
-      { line: lineIdx, ch: editor.getLine(lineIdx).length },
-      { className: 'cm-highlight-dependency' }
-    );
-    highlightMarks.push(mark);
+    if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
+    highlightMarks.push(editor.markText(
+      {line:lineIdx,ch:0}, {line:lineIdx,ch:editor.getLine(lineIdx).length},
+      {className:'cm-highlight-dependency'}
+    ));
   }
-
-  // Highlight primary draw command in bright yellow
-  const mark = editor.markText(
-    { line: primaryLine, ch: 0 },
-    { line: primaryLine, ch: editor.getLine(primaryLine).length },
-    { className: 'cm-highlight-primary' }
-  );
-  highlightMarks.push(mark);
-
-  // Scroll to the primary line
-  editor.scrollIntoView({ line: primaryLine, ch: 0 }, 50);
+  if (primaryLine >= 0 && primaryLine < editor.lineCount()) {
+    highlightMarks.push(editor.markText(
+      {line:primaryLine,ch:0}, {line:primaryLine,ch:editor.getLine(primaryLine).length},
+      {className:'cm-highlight-primary'}
+    ));
+  }
+  editor.scrollIntoView({line:primaryLine,ch:0}, 50);
 }
 
 // ============================================================
@@ -445,68 +931,47 @@ async function doRender() {
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
   const previewEl = document.getElementById('preview-container');
-
   statusEl.textContent = 'Compiling...';
   statusEl.style.color = '#e9c46a';
-
   try {
     const resp = await fetch(`${SERVER_URL}/compile`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({code}),
     });
-
     const data = await resp.json();
-
     if (data.error) {
       previewEl.innerHTML = `<div class="error">${escapeHtml(data.error)}</div>`;
-      statusEl.textContent = 'Compilation error';
-      statusEl.style.color = '#e94560';
-      return;
+      statusEl.textContent = 'Compilation error'; statusEl.style.color = '#e94560'; return;
     }
-
-    // Display SVG and set up interactivity
     previewEl.innerHTML = data.svg;
     setupSvgInteractivity(code);
-
-    statusEl.textContent = 'Rendered successfully';
-    statusEl.style.color = '#2ecc71';
-  } catch (err) {
+    statusEl.textContent = 'Rendered successfully'; statusEl.style.color = '#2ecc71';
+  } catch(err) {
     previewEl.innerHTML = `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py</div>`;
-    statusEl.textContent = 'Server error';
-    statusEl.style.color = '#e94560';
+    statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
   }
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+function escapeHtml(text) { const d=document.createElement('div'); d.textContent=text; return d.innerHTML; }
 
 // ============================================================
 // SVG Interactivity + Bidirectional Highlighting
 // ============================================================
-
-// Persistent state set after each render
-let currentMapping = [];          // [{primaryLine, dependencyLines, commandText}]
-let svgElsByCommand = new Map();  // cmdIdx -> [svgElements]
-let lineToCommandIdx = new Map(); // lineIndex -> cmdIdx (for draw commands only)
-let lineToDepCommands = new Map();// lineIndex -> Set<cmdIdx> (which draw cmds depend on this line)
-let svgHighlightOverlays = [];    // currently-visible SVG highlight clones
+let currentMapping = [];
+let svgElsByCommand = new Map();
+let lineToCommandIdx = new Map();
+let lineToDepCommands = new Map();
+let svgHighlightOverlays = [];
 
 function clearSvgHighlights() {
   for (const ov of svgHighlightOverlays) ov.remove();
   svgHighlightOverlays = [];
 }
 
-/** Add a bright highlight clone over an SVG element. intensity: 'strong' | 'soft' */
 function highlightSvgElement(el, intensity) {
   const clone = el.cloneNode(false);
-  const color = intensity === 'strong'
-    ? 'rgba(233, 69, 96, 0.9)'
-    : 'rgba(233, 69, 96, 0.35)';
-  const width = intensity === 'strong' ? 3 : 2;
+  const color = intensity==='strong' ? 'rgba(233,69,96,0.9)' : 'rgba(233,69,96,0.35)';
+  const width = intensity==='strong' ? 3.5 : 2;
   clone.setAttribute('stroke', color);
   clone.setAttribute('stroke-width', String(width));
   clone.setAttribute('fill', 'none');
@@ -526,257 +991,155 @@ function setupSvgInteractivity(code) {
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
 
-  // Build lineToCommandIdx
-  for (let ci = 0; ci < mapping.length; ci++) {
-    lineToCommandIdx.set(mapping[ci].primaryLine, ci);
-  }
-
-  // Build lineToDepCommands (reverse map: assignment line -> which commands use it)
-  for (let ci = 0; ci < mapping.length; ci++) {
-    for (const depLine of mapping[ci].dependencyLines) {
-      if (!lineToDepCommands.has(depLine)) lineToDepCommands.set(depLine, new Set());
-      lineToDepCommands.get(depLine).add(ci);
+  for (let ci=0; ci<mapping.length; ci++) lineToCommandIdx.set(mapping[ci].primaryLine, ci);
+  for (let ci=0; ci<mapping.length; ci++) {
+    for (const dl of mapping[ci].dependencyLines) {
+      if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
+      lineToDepCommands.get(dl).add(ci);
     }
   }
 
-  // ---- Map SVG elements to draw commands ----
+  // Map SVG elements to draw commands
   const svgElements = svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect');
   const elementToCommand = new Map();
-
-  const strokedEls = [];
-  const filledEls = [];
-
+  const strokedEls = [], filledEls = [];
   for (const el of svgElements) {
     const stroke = el.getAttribute('stroke');
-    const fill = el.getAttribute('fill');
-    const hasStroke = stroke && stroke !== 'none';
-    if (hasStroke) {
-      strokedEls.push(el);
-    } else {
-      filledEls.push(el);
-    }
+    (stroke && stroke!=='none') ? strokedEls.push(el) : filledEls.push(el);
   }
 
-  let strokedIdx = 0;
-  let filledIdx = 0;
-
-  for (let cmdIdx = 0; cmdIdx < mapping.length; cmdIdx++) {
-    const cmd = mapping[cmdIdx];
-    const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
-
-    if (cmdType === 'label' || cmdType === 'dot') {
-      if (filledIdx < filledEls.length) {
-        const remainingLabels = mapping.slice(cmdIdx + 1).filter(
-          c => /^\s*(label|dot)/.test(c.commandText)
-        ).length;
-        const remainingFilledEls = filledEls.length - filledIdx;
-        const elsPerLabel = remainingLabels > 0
-          ? Math.max(1, Math.floor(remainingFilledEls / (remainingLabels + 1)))
-          : remainingFilledEls;
-
-        for (let k = 0; k < elsPerLabel && filledIdx < filledEls.length; k++) {
-          elementToCommand.set(filledEls[filledIdx], cmdIdx);
-          if (!svgElsByCommand.has(cmdIdx)) svgElsByCommand.set(cmdIdx, []);
-          svgElsByCommand.get(cmdIdx).push(filledEls[filledIdx]);
-          filledIdx++;
+  let si=0, fi=0;
+  for (let ci=0; ci<mapping.length; ci++) {
+    const cmdType = mapping[ci].commandText.match(/^\s*(\w+)/)?.[1];
+    if (cmdType==='label'||cmdType==='dot') {
+      if (fi<filledEls.length) {
+        const rem = mapping.slice(ci+1).filter(c=>/^\s*(label|dot)/.test(c.commandText)).length;
+        const count = rem>0 ? Math.max(1,Math.floor((filledEls.length-fi)/(rem+1))) : filledEls.length-fi;
+        for (let k=0; k<count&&fi<filledEls.length; k++) {
+          elementToCommand.set(filledEls[fi], ci);
+          if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci,[]);
+          svgElsByCommand.get(ci).push(filledEls[fi]); fi++;
         }
       }
     } else {
-      if (strokedIdx < strokedEls.length) {
-        elementToCommand.set(strokedEls[strokedIdx], cmdIdx);
-        if (!svgElsByCommand.has(cmdIdx)) svgElsByCommand.set(cmdIdx, []);
-        svgElsByCommand.get(cmdIdx).push(strokedEls[strokedIdx]);
-        strokedIdx++;
+      if (si<strokedEls.length) {
+        elementToCommand.set(strokedEls[si], ci);
+        if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci,[]);
+        svgElsByCommand.get(ci).push(strokedEls[si]); si++;
       }
     }
   }
 
-  // ---- Create hit-targets & attach SVG hover ----
-  for (const [el, cmdIdx] of elementToCommand) {
-    const cmd = mapping[cmdIdx];
+  // Hit targets & hover/right-click
+  for (const [el, ci] of elementToCommand) {
+    const cmd = mapping[ci];
     const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
-    const isStrokedCmd = cmdType !== 'label' && cmdType !== 'dot';
-    const isFillCmd = cmdType === 'fill' || cmdType === 'filldraw';
+    const isStrokeOnly = cmdType!=='label' && cmdType!=='dot' && cmdType!=='fill' && cmdType!=='filldraw';
 
-    // For stroked-only elements (draw, not fill/filldraw): pointer-events on stroke only
-    if (isStrokedCmd && !isFillCmd) {
-      el.style.pointerEvents = 'stroke';
-    } else {
-      el.style.pointerEvents = 'all';
-    }
+    el.style.pointerEvents = isStrokeOnly ? 'stroke' : 'all';
 
-    // Create wider invisible hit target
     const hitTarget = el.cloneNode(false);
-    if (isStrokedCmd && !isFillCmd) {
-      // Stroke-only hit zone — no fill
-      hitTarget.setAttribute('stroke', 'transparent');
-      hitTarget.setAttribute('fill', 'none');
-      const origWidth = parseFloat(el.getAttribute('stroke-width') || '0.5');
-      hitTarget.setAttribute('stroke-width', String(Math.max(origWidth * 6, 4)));
-      hitTarget.setAttribute('stroke-linecap', 'round');
+    if (isStrokeOnly) {
+      hitTarget.setAttribute('stroke','transparent'); hitTarget.setAttribute('fill','none');
+      const ow = parseFloat(el.getAttribute('stroke-width')||'0.5');
+      hitTarget.setAttribute('stroke-width', String(Math.max(ow*6,4)));
+      hitTarget.setAttribute('stroke-linecap','round');
       hitTarget.style.pointerEvents = 'stroke';
     } else {
-      // Labels / fill commands — fill-based hit zone
-      hitTarget.setAttribute('fill', 'transparent');
-      hitTarget.setAttribute('stroke', 'transparent');
-      hitTarget.setAttribute('stroke-width', '4');
-      hitTarget.style.pointerEvents = 'all';
+      hitTarget.setAttribute('fill','transparent'); hitTarget.setAttribute('stroke','transparent');
+      hitTarget.setAttribute('stroke-width','4'); hitTarget.style.pointerEvents = 'all';
     }
     el.parentNode.insertBefore(hitTarget, el);
 
     function onEnter() {
-      clearHighlights();
-      clearSvgHighlights();
+      if (StyleMenu.visible) return; // don't override menu highlights
+      clearHighlights(); clearSvgHighlights();
       highlightLines(cmd.primaryLine, cmd.dependencyLines);
-      // Highlight this SVG element
-      for (const svgEl of (svgElsByCommand.get(cmdIdx) || [])) {
-        highlightSvgElement(svgEl, 'strong');
-      }
+      for (const svgEl of (svgElsByCommand.get(ci)||[])) highlightSvgElement(svgEl, 'strong');
     }
     function onLeave() {
-      clearHighlights();
-      clearSvgHighlights();
+      if (StyleMenu.visible) return;
+      clearHighlights(); clearSvgHighlights();
+    }
+    function onContext(e) {
+      e.preventDefault();
+      StyleMenu.show(e.clientX, e.clientY, cmd.primaryLine);
     }
 
     el.addEventListener('mouseenter', onEnter);
     el.addEventListener('mouseleave', onLeave);
     hitTarget.addEventListener('mouseenter', onEnter);
     hitTarget.addEventListener('mouseleave', onLeave);
+    el.addEventListener('contextmenu', onContext);
+    hitTarget.addEventListener('contextmenu', onContext);
   }
 
-  // ---- Code-side hover: highlight from editor to SVG ----
   setupCodeHover();
 }
 
-/** Track mouse position over the editor and do bidirectional highlighting */
 function setupCodeHover() {
   const cmWrapper = document.querySelector('.CodeMirror');
-  if (!cmWrapper) return;
-
-  let lastHoverLine = -1;
-
+  if (!cmWrapper || cmWrapper._hiteXerHover) return; // avoid duplicate listeners
+  cmWrapper._hiteXerHover = true;
+  let lastLine = -1;
   cmWrapper.addEventListener('mousemove', (e) => {
-    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
-    if (pos.line === lastHoverLine) return;
-    lastHoverLine = pos.line;
+    if (StyleMenu.visible) return;
+    const pos = editor.coordsChar({left:e.clientX,top:e.clientY},'page');
+    if (pos.line===lastLine) return;
+    lastLine = pos.line;
     doCodeLineHover(pos.line);
   });
-
   cmWrapper.addEventListener('mouseleave', () => {
-    lastHoverLine = -1;
-    clearHighlights();
-    clearSvgHighlights();
+    if (StyleMenu.visible) return;
+    lastLine=-1; clearHighlights(); clearSvgHighlights();
   });
 }
 
 function doCodeLineHover(lineIdx) {
-  clearHighlights();
-  clearSvgHighlights();
-
+  clearHighlights(); clearSvgHighlights();
   const depLines = new Set();
-  const drawnCommandsStrong = new Set(); // SVG commands drawn by this line (strong highlight)
-  const drawnCommandsSoft = new Set();   // SVG commands that depend on this line (soft highlight)
+  const strongCmds = new Set(), softCmds = new Set();
 
-  // Case 1: this line IS a draw command
-  const cmdIdx = lineToCommandIdx.get(lineIdx);
-  if (cmdIdx !== undefined) {
-    const cmd = currentMapping[cmdIdx];
-    drawnCommandsStrong.add(cmdIdx);
-    for (const dl of cmd.dependencyLines) depLines.add(dl);
+  const ci = lineToCommandIdx.get(lineIdx);
+  if (ci!==undefined) {
+    strongCmds.add(ci);
+    for (const dl of currentMapping[ci].dependencyLines) depLines.add(dl);
   }
 
-  // Case 2: this line is depended on by draw commands (it's an assignment they use)
-  const reverseSet = lineToDepCommands.get(lineIdx);
-  if (reverseSet) {
-    for (const ci of reverseSet) {
-      drawnCommandsSoft.add(ci);
-      depLines.add(currentMapping[ci].primaryLine);
-    }
-  }
+  const rev = lineToDepCommands.get(lineIdx);
+  if (rev) { for(const c of rev) { softCmds.add(c); depLines.add(currentMapping[c].primaryLine); } }
 
-  // Case 3: find what this line depends on (if it's an assignment)
-  // Look up this line in assignments from the parser
   const code = editor.getValue();
   const { parsed } = AsyParser.buildMapping(code);
-  for (const assign of parsed.assignments) {
-    if (assign.lineIndex === lineIdx) {
-      // Find what this assignment's RHS depends on
-      const rhs = assign.lineText.split('=').slice(1).join('=');
-      const rhsVars = AsyParser.extractVariables(rhs, [rhs], 0);
-      const visited = new Set(rhsVars);
-      const queue = [...rhsVars];
-      while (queue.length > 0) {
-        const v = queue.shift();
-        for (const a of parsed.assignments) {
-          if (a.varName === v) {
-            depLines.add(a.lineIndex);
-            const innerRhs = a.lineText.split('=').slice(1).join('=');
-            const innerVars = AsyParser.extractVariables(innerRhs, [innerRhs], 0);
-            for (const iv of innerVars) {
-              if (!visited.has(iv)) { visited.add(iv); queue.push(iv); }
-            }
-          }
-        }
+  for (const a of parsed.assignments) {
+    if (a.lineIndex===lineIdx) {
+      const rhs = a.lineText.split('=').slice(1).join('=');
+      const vars = AsyParser.extractVariables(rhs,[rhs],0);
+      const vis = new Set(vars), q = [...vars];
+      while (q.length) {
+        const v=q.shift();
+        for(const aa of parsed.assignments) { if(aa.varName===v) { depLines.add(aa.lineIndex); const ir=aa.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);} } }
       }
       break;
     }
   }
 
-  // Remove the hovered line itself from dep set
   depLines.delete(lineIdx);
-  // Don't double-count strong commands in soft
-  for (const ci of drawnCommandsStrong) drawnCommandsSoft.delete(ci);
-
-  // Apply code highlights
+  for (const c of strongCmds) softCmds.delete(c);
   highlightLines(lineIdx, [...depLines]);
-
-  // Apply SVG highlights
-  for (const ci of drawnCommandsStrong) {
-    for (const el of (svgElsByCommand.get(ci) || [])) {
-      highlightSvgElement(el, 'strong');
-    }
-  }
-  for (const ci of drawnCommandsSoft) {
-    for (const el of (svgElsByCommand.get(ci) || [])) {
-      highlightSvgElement(el, 'soft');
-    }
-  }
+  for (const c of strongCmds) for (const el of (svgElsByCommand.get(c)||[])) highlightSvgElement(el, 'strong');
+  for (const c of softCmds) for (const el of (svgElsByCommand.get(c)||[])) highlightSvgElement(el, 'soft');
 }
 
 // ============================================================
 // Panel Resizer
 // ============================================================
 function initResizer() {
-  const resizer = document.getElementById('resizer');
-  const editorPanel = document.getElementById('editor-panel');
-  const previewPanel = document.getElementById('preview-panel');
-  let isResizing = false;
-
-  resizer.addEventListener('mousedown', (e) => {
-    isResizing = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    e.preventDefault();
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-    const containerWidth = document.getElementById('main').offsetWidth;
-    const newWidth = (e.clientX / containerWidth) * 100;
-    if (newWidth > 20 && newWidth < 80) {
-      editorPanel.style.width = newWidth + '%';
-      previewPanel.style.width = (100 - newWidth) + '%';
-      editor.refresh();
-    }
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (isResizing) {
-      isResizing = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-  });
+  const resizer=document.getElementById('resizer'), ep=document.getElementById('editor-panel'), pp=document.getElementById('preview-panel');
+  let resizing=false;
+  resizer.addEventListener('mousedown', e=>{resizing=true;document.body.style.cursor='col-resize';document.body.style.userSelect='none';e.preventDefault();});
+  document.addEventListener('mousemove', e=>{if(!resizing)return;const w=(e.clientX/document.getElementById('main').offsetWidth)*100;if(w>20&&w<80){ep.style.width=w+'%';pp.style.width=(100-w)+'%';editor.refresh();}});
+  document.addEventListener('mouseup', ()=>{if(resizing){resizing=false;document.body.style.cursor='';document.body.style.userSelect='';}});
 }
 
 // ============================================================
@@ -785,15 +1148,14 @@ function initResizer() {
 document.addEventListener('DOMContentLoaded', () => {
   initEditor();
   initResizer();
-
+  StyleMenu.init();
   document.getElementById('btn-render').addEventListener('click', doRender);
   document.getElementById('btn-clear').addEventListener('click', () => {
     editor.setValue('[asy]\n\n[/asy]');
-    document.getElementById('preview-container').innerHTML =
-      '<div class="placeholder">Press <b>Ctrl+Enter</b> or click <b>RENDER</b> to compile</div>';
-    clearHighlights();
-    document.getElementById('status').textContent = 'Ready';
-    document.getElementById('status').style.color = '#888';
+    document.getElementById('preview-container').innerHTML = '<div class="placeholder">Press <b>Ctrl+Enter</b> or click <b>RENDER</b> to compile</div>';
+    clearHighlights(); clearSvgHighlights();
+    document.getElementById('status').textContent='Ready';
+    document.getElementById('status').style.color='#888';
   });
 });
 </script>
