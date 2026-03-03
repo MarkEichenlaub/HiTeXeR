@@ -117,13 +117,15 @@ body {
   text-align: center;
 }
 
-/* Highlight styles for code lines */
+/* Highlight styles for code lines - designed for dark editor theme */
 .cm-highlight-primary {
-  background-color: #fff44f !important;
+  background-color: rgba(233, 69, 96, 0.35) !important;
+  outline: 1px solid rgba(233, 69, 96, 0.5);
 }
 
 .cm-highlight-dependency {
-  background-color: #fff9c4 !important;
+  background-color: rgba(15, 52, 96, 0.5) !important;
+  outline: 1px solid rgba(15, 52, 96, 0.4);
 }
 
 /* SVG hover effects */
@@ -573,27 +575,51 @@ function setupSvgInteractivity(code) {
     }
   }
 
-  // Add hover listeners to all mapped elements
+  // Add invisible wider hit-targets and hover listeners for each mapped element.
+  // We clone each path with a much wider transparent stroke so the user doesn't
+  // need pixel-perfect aim.
+  const NS = 'http://www.w3.org/2000/svg';
+
   for (const [el, cmdIdx] of elementToCommand) {
-    // Make element more hoverable by adding transparent wider stroke
     el.style.pointerEvents = 'all';
 
-    el.addEventListener('mouseenter', () => {
+    // Create a wider invisible hit-target sitting behind the real element
+    const hitTarget = el.cloneNode(false);
+    hitTarget.setAttribute('stroke', 'transparent');
+    hitTarget.setAttribute('fill', 'none');
+    // Use a generous stroke-width for the hit area
+    const origWidth = parseFloat(el.getAttribute('stroke-width') || '0.5');
+    hitTarget.setAttribute('stroke-width', String(Math.max(origWidth * 6, 4)));
+    hitTarget.setAttribute('stroke-linecap', 'round');
+    hitTarget.style.pointerEvents = 'stroke';
+    hitTarget.removeAttribute('stroke-miterlimit');
+    // For filled glyphs (labels), expand the hit area with a transparent fill instead
+    const hasFill = el.getAttribute('fill') && el.getAttribute('fill') !== 'none';
+    if (hasFill || (!el.getAttribute('stroke') || el.getAttribute('stroke') === 'none')) {
+      hitTarget.setAttribute('fill', 'transparent');
+      hitTarget.setAttribute('stroke', 'transparent');
+      hitTarget.setAttribute('stroke-width', '4');
+      hitTarget.style.pointerEvents = 'all';
+    }
+    el.parentNode.insertBefore(hitTarget, el);
+
+    function onEnter() {
       const cmd = mapping[cmdIdx];
       highlightLines(cmd.primaryLine, cmd.dependencyLines);
-      // Visual feedback on SVG element
       el.setAttribute('data-original-filter', el.style.filter || '');
       el.style.filter = 'drop-shadow(0 0 4px rgba(233, 69, 96, 0.8))';
-    });
-
-    el.addEventListener('mouseleave', () => {
+    }
+    function onLeave() {
       clearHighlights();
       el.style.filter = el.getAttribute('data-original-filter') || '';
-    });
-  }
+    }
 
-  // Also handle hover on parent <g> elements that might contain multiple paths
-  // for a single command
+    // Attach to both the real element and the hit target
+    el.addEventListener('mouseenter', onEnter);
+    el.addEventListener('mouseleave', onLeave);
+    hitTarget.addEventListener('mouseenter', onEnter);
+    hitTarget.addEventListener('mouseleave', onLeave);
+  }
 }
 
 // ============================================================

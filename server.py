@@ -94,7 +94,7 @@ def compile_asy_to_svg(code: str) -> str:
 
         # Step 1: Asymptote -> PDF
         result = subprocess.run(
-            [ASY_EXE, "-f", "pdf", "-o", "diagram", "diagram.asy"],
+            [ASY_EXE, "-f", "pdf", "-noView", "-o", "diagram", "diagram.asy"],
             cwd=tmpdir,
             capture_output=True,
             text=True,
