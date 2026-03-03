@@ -139,9 +139,14 @@ body {
 /* Spin animation for AI progress */
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-/* Slide mode golden glow on free elements */
-.slide-free-glow { filter: url(#hitexer-slide-glow); cursor: grab !important; }
+/* Slide mode: golden glow + hit circles for free elements */
+.slide-free-glow {
+  filter: url(#hitexer-slide-glow) !important;
+  cursor: grab !important;
+}
 .slide-free-glow:active { cursor: grabbing !important; }
+.slide-hit-circle { cursor: grab !important; }
+.slide-hit-circle:active { cursor: grabbing !important; }
 
 /* Add element menu items */
 #add-element-menu .ae-item {
@@ -1335,6 +1340,7 @@ function clearHighlights() {
 function highlightLines(primaryLine, depLines) {
   clearHighlights();
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
+  if (window.hitexerSlideActive) return;
   for (const lineIdx of depLines) {
     if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
     highlightMarks.push(editor.markText(
@@ -1487,6 +1493,7 @@ function ensureGlowFilter(svg) {
  */
 function highlightSvgElement(el, intensity) {
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
+  if (window.hitexerSlideActive) return;
   const svg = el.closest('svg');
   ensureGlowFilter(svg);
   const isSelect = intensity === 'select';
@@ -2087,12 +2094,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // Feature #1: Slide Mode
   // ============================================================
   let slideActive = false;
+  window.hitexerSlideActive = false;
   const slideBtn = document.getElementById('btn-slide');
   const slidePanel = document.getElementById('slide-panel');
-  let slideDragState = null; // { lineIdx, varName, startX, startY, origX, origY }
+  let slideDragState = null;
+  let slideInjectedDots = [];
+  let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls}]
+  let slidePxPerUnit = 28.35;
 
   slideBtn.addEventListener('click', () => {
     slideActive = !slideActive;
+    window.hitexerSlideActive = slideActive;
     slideBtn.classList.toggle('active', slideActive);
     if (slideActive) {
       activateSlideMode();
@@ -2102,10 +2114,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function findFreePoints(code) {
-    // A "free point" is a pair variable assigned to a literal coordinate, not depending on other vars
     const lines = code.split('\n');
     const freePoints = [];
     for (let i = 0; i < lines.length; i++) {
+      // Match: A = (0, 0); or pair A = (0, 0);
       const m = lines[i].match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
       if (m) {
         freePoints.push({ lineIdx: i, varName: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]) });
@@ -2126,72 +2138,139 @@ document.addEventListener('DOMContentLoaded', () => {
     return freeReals;
   }
 
-  let slideInjectedDots = []; // varNames of dots we injected for slide mode
-
   function isPointDrawn(code, varName) {
-    // Check if this point already has a dot() or label() referencing it
-    const re = new RegExp('\\b(?:dot|label)\\s*\\(.*\\b' + varName + '\\b', 'm');
+    // Check if this point already has a dot() or label() referencing it as an argument
+    // Use word boundary to avoid matching substrings (e.g. "AB" matching "A")
+    const re = new RegExp('\\b(?:dot|label)\\s*\\([^)]*\\b' + varName + '\\b', 'm');
     return re.test(code);
   }
+
+  function getUnitScale(code) {
+    const usMatch = code.match(/unitsize\s*\(\s*([\d.]+)\s*(cm|mm|inch|pt|bp)?\s*\)/);
+    if (!usMatch) return 28.35;
+    const val = parseFloat(usMatch[1]);
+    const unit = usMatch[2] || 'cm';
+    const unitToPt = { cm: 28.35, mm: 2.835, inch: 72, pt: 1, bp: 1 };
+    return val * (unitToPt[unit] || 28.35);
+  }
+
+  // --- Activate / Deactivate ---
 
   function activateSlideMode() {
     const code = editor.getValue();
     const freePoints = findFreePoints(code);
-    const freeReals = findFreeReals(code);
 
-    // Inject temporary dot() commands for free points that aren't drawn
+    // Inject visible red+gold dot() for free points that aren't drawn
     const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp.varName));
     if (undrawn.length > 0) {
       const lines = code.split('\n');
-      // Find [/asy] line
       const asyEndIdx = lines.findIndex(l => /^\s*\[\/asy\]/.test(l));
       if (asyEndIdx >= 0) {
-        const dotLines = undrawn.map(fp => `dot(${fp.varName}, red+4bp); // SLIDE_DOT`);
+        const dotLines = undrawn.map(fp =>
+          `dot(${fp.varName}, red+linewidth(8bp)); // SLIDE_DOT`
+        );
         lines.splice(asyEndIdx, 0, ...dotLines);
         slideInjectedDots = undrawn.map(fp => fp.varName);
         editor.setValue(lines.join('\n'));
-        // Re-render with the dots, then apply glow
-        doRender().then(() => applySlideGlow());
-        return; // applySlideGlow will be called after render
+        doRender().then(() => applySlideOverlay());
+        return;
       }
     }
 
-    applySlideGlow();
+    applySlideOverlay();
   }
 
-  function applySlideGlow() {
+  function applySlideOverlay() {
     const code = editor.getValue();
     const freePoints = findFreePoints(code);
+    const freeReals = findFreeReals(code);
+    slidePxPerUnit = getUnitScale(code);
 
-    // Add golden glow to SVG elements associated with free points
     const svg = document.querySelector('#preview-container svg');
-    if (svg) {
-      ensureSlideGlowFilter(svg);
-      for (const fp of freePoints) {
-        // Find dot/label commands that reference this point
-        for (const [cmdIdx, els] of svgElsByCommand) {
-          const cmd = currentMapping[cmdIdx];
-          if (cmd && cmd.commandText.includes(fp.varName)) {
-            if (/\b(label|dot)\b/.test(cmd.commandText)) {
-              for (const el of els) {
-                el.classList.add('slide-free-glow');
-                el.dataset.slideVar = fp.varName;
-                el.dataset.slideLine = fp.lineIdx;
-                el.dataset.slideX = fp.x;
-                el.dataset.slideY = fp.y;
-              }
-            }
+    if (!svg) return;
+
+    // Clean up any previous overlay remnants
+    svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
+    svg.querySelectorAll('.slide-free-glow').forEach(el => {
+      el.classList.remove('slide-free-glow');
+      el.removeAttribute('transform');
+    });
+    slideFreePointData = [];
+
+    ensureSlideGlowFilter(svg);
+
+    // Build a set of free-point line indices for quick lookup
+    const freeLineSet = new Set(freePoints.map(fp => fp.lineIdx));
+
+    // Helper: transform a point from an element's local bbox space to SVG viewBox space
+    function localToViewBox(el, lx, ly) {
+      const pt = svg.createSVGPoint();
+      pt.x = lx; pt.y = ly;
+      // el.getCTM() maps local → screen; svg.getCTM() maps viewBox → screen
+      // So local → viewBox = svg.getCTM().inverse() * el.getCTM() * point
+      const elCTM = el.getCTM();
+      const svgCTM = svg.getCTM();
+      if (!elCTM || !svgCTM) return { x: lx, y: ly };
+      const m = svgCTM.inverse().multiply(elCTM);
+      return pt.matrixTransform(m);
+    }
+
+    slideFreePointData = [];
+    for (const fp of freePoints) {
+      let svgCX = null, svgCY = null;
+      const glowEls = [];
+
+      // Find SVG elements for dot/label commands that reference this var
+      for (const [cmdIdx, els] of svgElsByCommand) {
+        const cmd = currentMapping[cmdIdx];
+        if (!cmd) continue;
+        // Match this var by word boundary to avoid false positives
+        const varRe = new RegExp('\\b' + fp.varName + '\\b');
+        if (!varRe.test(cmd.commandText)) continue;
+        if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
+        for (const el of els) {
+          if (svgCX === null) {
+            const bbox = el.getBBox();
+            const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+            svgCX = center.x;
+            svgCY = center.y;
           }
+          el.classList.add('slide-free-glow');
+          glowEls.push(el);
         }
       }
 
-      // Set up drag handling
-      svg.addEventListener('mousedown', slideMouseDown);
-      svg.addEventListener('mousemove', slideMouseMove);
-      window.addEventListener('mouseup', slideMouseUp);
+      // Create a large visible hit circle at the point's position (in viewBox coords)
+      let hitCircle = null;
+      if (svgCX !== null) {
+        hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        hitCircle.setAttribute('cx', svgCX);
+        hitCircle.setAttribute('cy', svgCY);
+        hitCircle.setAttribute('r', '18');
+        hitCircle.setAttribute('fill', 'rgba(233,196,106,0.3)');
+        hitCircle.setAttribute('stroke', '#e9c46a');
+        hitCircle.setAttribute('stroke-width', '2.5');
+        hitCircle.setAttribute('stroke-dasharray', '4 2');
+        hitCircle.setAttribute('class', 'slide-hit-circle');
+        svg.appendChild(hitCircle);
+      }
+
+      slideFreePointData.push({
+        varName: fp.varName, lineIdx: fp.lineIdx,
+        x: fp.x, y: fp.y, svgCX, svgCY,
+        hitCircle, glowEls,
+      });
     }
 
-    // Show variable sliders
+    // Set up drag handling on the SVG (remove first to avoid duplicates on re-overlay)
+    svg.removeEventListener('mousedown', slideMouseDown);
+    svg.removeEventListener('mousemove', slideMouseMove);
+    window.removeEventListener('mouseup', slideMouseUp);
+    svg.addEventListener('mousedown', slideMouseDown);
+    svg.addEventListener('mousemove', slideMouseMove);
+    window.addEventListener('mouseup', slideMouseUp);
+
+    // Show variable sliders for free reals
     if (freeReals.length > 0) {
       slidePanel.style.display = 'block';
       const slidersDiv = document.getElementById('slide-sliders');
@@ -2221,17 +2300,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (svg) {
       svg.querySelectorAll('.slide-free-glow').forEach(el => {
         el.classList.remove('slide-free-glow');
-        delete el.dataset.slideVar;
-        delete el.dataset.slideLine;
+        el.removeAttribute('transform');
       });
+      svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
       svg.removeEventListener('mousedown', slideMouseDown);
       svg.removeEventListener('mousemove', slideMouseMove);
       window.removeEventListener('mouseup', slideMouseUp);
     }
+    slideFreePointData = [];
     slidePanel.style.display = 'none';
     slideDragState = null;
 
-    // Remove injected SLIDE_DOT lines
+    // Remove injected SLIDE_DOT lines and re-render
     if (slideInjectedDots.length > 0) {
       const code = editor.getValue();
       const lines = code.split('\n');
@@ -2250,80 +2330,96 @@ document.addEventListener('DOMContentLoaded', () => {
     f.setAttribute('filterUnits','userSpaceOnUse');
     f.setAttribute('x','-10000'); f.setAttribute('y','-10000');
     f.setAttribute('width','20000'); f.setAttribute('height','20000');
-    f.innerHTML = '<feGaussianBlur stdDeviation="4" result="blur"/><feFlood flood-color="#e9c46a" flood-opacity="0.7" result="color"/><feComposite in="color" in2="blur" operator="in" result="glow"/><feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>';
+    // Stronger glow: larger blur, full opacity
+    f.innerHTML = '<feGaussianBlur stdDeviation="6" result="blur"/>'
+      + '<feFlood flood-color="#e9c46a" flood-opacity="1" result="color"/>'
+      + '<feComposite in="color" in2="blur" operator="in" result="glow"/>'
+      + '<feMerge><feMergeNode in="glow"/><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>';
     defs.appendChild(f);
   }
 
+  // --- Drag handlers ---
+  // Architecture: during drag, move SVG elements via transform (instant).
+  // Only re-render Asymptote on mouseup for full fidelity.
+
   function slideMouseDown(e) {
     if (!slideActive) return;
-    e.preventDefault(); // prevent selection in slide mode
+    e.preventDefault();
     e.stopPropagation();
-    const target = e.target.closest('.slide-free-glow');
-    if (!target) return;
-    const svg = target.closest('svg');
+
+    // Find which free point was clicked (by proximity to hit circles)
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
     const screenCTM = svg.getScreenCTM().inverse();
-    // Convert screen to SVG coords
-    const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
-    const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+    const clickSvgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const clickSvgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+
+    let bestFP = null, bestDist = Infinity;
+    for (const fp of slideFreePointData) {
+      if (fp.svgCX === null) continue;
+      const d = Math.hypot(clickSvgX - fp.svgCX, clickSvgY - fp.svgCY);
+      if (d < bestDist) { bestDist = d; bestFP = fp; }
+    }
+    // ~18 SVG units radius for hit circle; allow a bit more
+    if (!bestFP || bestDist > 25) return;
+
+    svg.style.cursor = 'grabbing';
     slideDragState = {
-      lineIdx: parseInt(target.dataset.slideLine),
-      varName: target.dataset.slideVar,
-      origX: parseFloat(target.dataset.slideX),
-      origY: parseFloat(target.dataset.slideY),
-      startSvgX: svgX, startSvgY: svgY,
+      fp: bestFP,
+      startSvgX: clickSvgX,
+      startSvgY: clickSvgY,
       svg: svg,
     };
   }
 
-  let slideRenderPending = false;
   function slideMouseMove(e) {
     if (!slideDragState) return;
     e.preventDefault();
-    const { svg, startSvgX, startSvgY, origX, origY, lineIdx, varName } = slideDragState;
+    const { fp, startSvgX, startSvgY, svg } = slideDragState;
     const screenCTM = svg.getScreenCTM().inverse();
     const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
     const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
 
-    // Compute unit scale from unitsize
-    const code = editor.getValue();
-    const usMatch = code.match(/unitsize\s*\(\s*([\d.]+)\s*(cm|mm|inch|pt|bp)?\s*\)/);
-    let pxPerUnit = 28.35; // default 1cm in PDF points
-    if (usMatch) {
-      const val = parseFloat(usMatch[1]);
-      const unit = usMatch[2] || 'cm';
-      const unitToPt = { cm: 28.35, mm: 2.835, inch: 72, pt: 1, bp: 1 };
-      pxPerUnit = val * (unitToPt[unit] || 28.35);
+    // Delta in SVG coordinate space
+    const dSvgX = svgX - startSvgX;
+    const dSvgY = svgY - startSvgY;
+
+    // Move hit circle and glow elements instantly via SVG transform
+    if (fp.hitCircle) {
+      fp.hitCircle.setAttribute('cx', fp.svgCX + dSvgX);
+      fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
+    }
+    for (const el of fp.glowEls) {
+      // Glow elements live inside a <g transform="matrix(1 0 0 -1 0 0)"> that flips Y,
+      // so we need to negate the Y delta for their local coordinate space
+      el.setAttribute('transform', `translate(${dSvgX},${-dSvgY})`);
     }
 
-    const dx = (svgX - startSvgX) / pxPerUnit;
-    const dy = -(svgY - startSvgY) / pxPerUnit; // Y is inverted in SVG vs math coords
-    const newX = (origX + dx).toFixed(2).replace(/\.?0+$/, '');
-    const newY = (origY + dy).toFixed(2).replace(/\.?0+$/, '');
+    // Convert to math coords and update the code text (no render yet)
+    const dx = dSvgX / slidePxPerUnit;
+    const dy = -dSvgY / slidePxPerUnit; // Y is inverted
+    const newX = (fp.x + dx).toFixed(2).replace(/\.?0+$/, '');
+    const newY = (fp.y + dy).toFixed(2).replace(/\.?0+$/, '');
 
-    // Update code
+    const code = editor.getValue();
     const lines = code.split('\n');
-    lines[lineIdx] = lines[lineIdx].replace(
+    lines[fp.lineIdx] = lines[fp.lineIdx].replace(
       /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
       `= (${newX}, ${newY})`
     );
     editor.setValue(lines.join('\n'));
-
-    // Debounce re-render
-    if (!slideRenderPending) {
-      slideRenderPending = true;
-      requestAnimationFrame(() => {
-        slideRenderPending = false;
-        doRender().then(() => {
-          if (slideActive) applySlideGlow();
-        });
-      });
-    }
   }
 
   function slideMouseUp() {
-    if (slideDragState) {
-      slideDragState = null;
-    }
+    if (!slideDragState) return;
+    const { svg } = slideDragState;
+    if (svg) svg.style.cursor = '';
+    slideDragState = null;
+
+    // Now do a single Asymptote re-render for full fidelity
+    doRender().then(() => {
+      if (slideActive) applySlideOverlay();
+    });
   }
 
   function updateSlideReal(lineIdx, varName, value) {
@@ -2335,7 +2431,7 @@ document.addEventListener('DOMContentLoaded', () => {
     );
     editor.setValue(lines.join('\n'));
     doRender().then(() => {
-      if (slideActive) applySlideGlow();
+      if (slideActive) applySlideOverlay();
     });
   }
 
