@@ -732,6 +732,11 @@ const StyleMenu = {
 
   hide() {
     if (!this.visible) return;
+    // Flush any pending input changes (e.g. linewidth typed but not committed)
+    // by blurring the active element inside the menu — this fires 'change' events
+    // before we clear state, so _doMultiChange sees valid multiLines.
+    const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
+    if (focused && focused !== this.el) focused.blur();
     this.el.classList.remove('visible');
     this.visible = false;
     const wasMulti = this.multiLines.length > 0;
@@ -1710,6 +1715,31 @@ function setupSvgInteractivity(code) {
     return { ci: bestCi, el: bestEl };
   }
 
+  // Helper: find all SVG elements within threshold, sorted by distance.
+  // Returns array of { ci, el, dist, lineIdx }.
+  function findAllNear(clientX, clientY, onlyMapped, threshold) {
+    const results = [];
+    const thr = threshold || 30;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d <= thr) {
+        const lineIdx = (ci >= 0 && mapping[ci]) ? mapping[ci].primaryLine : -1;
+        results.push({ ci, el, dist: d, lineIdx });
+      }
+    }
+    // Deduplicate by lineIdx (keep closest element per line)
+    const byLine = new Map();
+    for (const r of results) {
+      if (r.lineIdx < 0) continue;
+      if (!byLine.has(r.lineIdx) || r.dist < byLine.get(r.lineIdx).dist) {
+        byLine.set(r.lineIdx, r);
+      }
+    }
+    return [...byLine.values()].sort((a, b) => a.dist - b.dist);
+  }
+
   // Hover
   let lastHoveredCi = -1;
   let lastHoveredEl = null;
@@ -1741,15 +1771,41 @@ function setupSvgInteractivity(code) {
     if (multiSelected.size > 0) renderMultiSelection();
   });
 
-  // Left-click on SVG for multi-select
+  // Left-click on SVG for multi-select (with smart overlap handling)
   svg.addEventListener('click', (e) => {
     if (StyleMenu.visible) return;
-    const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
-    if (bestCi < 0) return;
 
-    const lineIdx = mapping[bestCi].primaryLine;
-    if (multiSelected.has(lineIdx)) multiSelected.delete(lineIdx);
-    else multiSelected.add(lineIdx);
+    const candidates = findAllNear(e.clientX, e.clientY, true);
+    if (candidates.length === 0) return;
+
+    let target = candidates[0]; // default: nearest
+
+    // Smart selection when building a multi-selection with overlapping elements:
+    // Among candidates within 5px of the nearest, prefer the unselected one that
+    // is closest in code line number to already-selected lines (e.g., prefer
+    // line 13 over line 18 when lines 11,12 are already selected).
+    // When the nearest is already selected but alternatives are far away,
+    // the close.length > 1 check ensures we just toggle-deselect as normal.
+    if (candidates.length > 1 && multiSelected.size > 0) {
+      const nearDist = target.dist;
+      const close = candidates.filter(c => c.dist - nearDist < 5);
+      if (close.length > 1) {
+        const selLines = [...multiSelected];
+        let bestCandidate = null, bestProximity = Infinity;
+        for (const c of close) {
+          if (multiSelected.has(c.lineIdx)) continue; // skip already-selected
+          const proximity = Math.min(...selLines.map(s => Math.abs(c.lineIdx - s)));
+          if (proximity < bestProximity) {
+            bestProximity = proximity;
+            bestCandidate = c;
+          }
+        }
+        if (bestCandidate) target = bestCandidate;
+      }
+    }
+
+    if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
+    else multiSelected.add(target.lineIdx);
     renderMultiSelection();
   });
 
@@ -1845,6 +1901,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizer();
   StyleMenu.init();
   document.getElementById('btn-render').addEventListener('click', doRender);
+
+  // Auto-render on page load
+  doRender();
 
   // Color blind mode toggle (deuteranopia simulation via Brettel/Viénot color matrix)
   let colorBlindActive = false;
