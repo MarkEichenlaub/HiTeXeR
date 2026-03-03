@@ -2126,24 +2126,53 @@ document.addEventListener('DOMContentLoaded', () => {
     return freeReals;
   }
 
+  let slideInjectedDots = []; // varNames of dots we injected for slide mode
+
+  function isPointDrawn(code, varName) {
+    // Check if this point already has a dot() or label() referencing it
+    const re = new RegExp('\\b(?:dot|label)\\s*\\(.*\\b' + varName + '\\b', 'm');
+    return re.test(code);
+  }
+
   function activateSlideMode() {
     const code = editor.getValue();
     const freePoints = findFreePoints(code);
     const freeReals = findFreeReals(code);
+
+    // Inject temporary dot() commands for free points that aren't drawn
+    const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp.varName));
+    if (undrawn.length > 0) {
+      const lines = code.split('\n');
+      // Find [/asy] line
+      const asyEndIdx = lines.findIndex(l => /^\s*\[\/asy\]/.test(l));
+      if (asyEndIdx >= 0) {
+        const dotLines = undrawn.map(fp => `dot(${fp.varName}, red+4bp); // SLIDE_DOT`);
+        lines.splice(asyEndIdx, 0, ...dotLines);
+        slideInjectedDots = undrawn.map(fp => fp.varName);
+        editor.setValue(lines.join('\n'));
+        // Re-render with the dots, then apply glow
+        doRender().then(() => applySlideGlow());
+        return; // applySlideGlow will be called after render
+      }
+    }
+
+    applySlideGlow();
+  }
+
+  function applySlideGlow() {
+    const code = editor.getValue();
+    const freePoints = findFreePoints(code);
 
     // Add golden glow to SVG elements associated with free points
     const svg = document.querySelector('#preview-container svg');
     if (svg) {
       ensureSlideGlowFilter(svg);
       for (const fp of freePoints) {
-        // Find label/dot commands that reference this point
-        const ci = lineToCommandIdx.get(fp.lineIdx);
-        // Also find draw commands that reference the variable
+        // Find dot/label commands that reference this point
         for (const [cmdIdx, els] of svgElsByCommand) {
           const cmd = currentMapping[cmdIdx];
           if (cmd && cmd.commandText.includes(fp.varName)) {
-            // Check if it's a label or dot for this point
-            if (/\b(label|dot)\b/.test(cmd.commandText) && cmd.commandText.includes(fp.varName)) {
+            if (/\b(label|dot)\b/.test(cmd.commandText)) {
               for (const el of els) {
                 el.classList.add('slide-free-glow');
                 el.dataset.slideVar = fp.varName;
@@ -2152,16 +2181,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.dataset.slideY = fp.y;
               }
             }
-          }
-        }
-      }
-      // Also apply to the assignment lines' dependent elements
-      for (const fp of freePoints) {
-        // Find any elements whose commands depend on this point
-        for (const [cmdIdx, els] of svgElsByCommand) {
-          const cmd = currentMapping[cmdIdx];
-          if (cmd && cmd.dependencyLines.includes(fp.lineIdx)) {
-            // These depend on the free point, they'll move when dragged
           }
         }
       }
@@ -2211,6 +2230,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     slidePanel.style.display = 'none';
     slideDragState = null;
+
+    // Remove injected SLIDE_DOT lines
+    if (slideInjectedDots.length > 0) {
+      const code = editor.getValue();
+      const lines = code.split('\n');
+      const cleaned = lines.filter(l => !l.includes('// SLIDE_DOT'));
+      editor.setValue(cleaned.join('\n'));
+      slideInjectedDots = [];
+      doRender();
+    }
   }
 
   function ensureSlideGlowFilter(svg) {
@@ -2227,9 +2256,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function slideMouseDown(e) {
     if (!slideActive) return;
+    e.preventDefault(); // prevent selection in slide mode
+    e.stopPropagation();
     const target = e.target.closest('.slide-free-glow');
     if (!target) return;
-    e.preventDefault();
     const svg = target.closest('svg');
     const screenCTM = svg.getScreenCTM().inverse();
     // Convert screen to SVG coords
@@ -2284,7 +2314,7 @@ document.addEventListener('DOMContentLoaded', () => {
       requestAnimationFrame(() => {
         slideRenderPending = false;
         doRender().then(() => {
-          if (slideActive && slideDragState) activateSlideMode();
+          if (slideActive) applySlideGlow();
         });
       });
     }
@@ -2305,7 +2335,7 @@ document.addEventListener('DOMContentLoaded', () => {
     );
     editor.setValue(lines.join('\n'));
     doRender().then(() => {
-      if (slideActive) activateSlideMode();
+      if (slideActive) applySlideGlow();
     });
   }
 
