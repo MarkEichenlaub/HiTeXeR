@@ -1221,30 +1221,45 @@ let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
 
-/** Approximate distance from an SVG point to the nearest point on an SVG element. */
-function distToElement(svgPt, el) {
-  // Use getBBox for a quick bounding-box check, then refine for paths
+/**
+ * Distance from screen-space mouse coordinates to the nearest point on an SVG element.
+ * Returns distance in screen pixels for consistent thresholding.
+ */
+function distToElementScreen(clientX, clientY, el) {
   try {
-    const bbox = el.getBBox();
-    // Clamp point to bbox
-    const cx = Math.max(bbox.x, Math.min(svgPt.x, bbox.x + bbox.width));
-    const cy = Math.max(bbox.y, Math.min(svgPt.y, bbox.y + bbox.height));
-    const bboxDist = Math.hypot(svgPt.x - cx, svgPt.y - cy);
+    // Get the element's screen CTM to transform local coords → screen coords
+    const screenCTM = el.getScreenCTM();
+    if (!screenCTM) return Infinity;
 
-    // For paths/lines, try to get closer estimate using getPointAtLength
+    const bbox = el.getBBox();
+
+    // For paths/lines, use getPointAtLength for accuracy
     if (typeof el.getTotalLength === 'function') {
       const len = el.getTotalLength();
+      if (len === 0) return Infinity;
       const steps = Math.min(Math.max(20, Math.ceil(len / 2)), 100);
       let minD = Infinity;
       for (let i = 0; i <= steps; i++) {
         const p = el.getPointAtLength((i / steps) * len);
-        const d = Math.hypot(svgPt.x - p.x, svgPt.y - p.y);
+        // Transform to screen coords
+        const sx = screenCTM.a * p.x + screenCTM.c * p.y + screenCTM.e;
+        const sy = screenCTM.b * p.x + screenCTM.d * p.y + screenCTM.f;
+        const d = Math.hypot(clientX - sx, clientY - sy);
         if (d < minD) minD = d;
       }
       return minD;
     }
 
-    return bboxDist;
+    // Fallback: clamp to bbox corners, transform to screen
+    const cx = Math.max(bbox.x, Math.min(
+      (screenCTM.inverse().a * clientX + screenCTM.inverse().c * clientY + screenCTM.inverse().e),
+      bbox.x + bbox.width));
+    const cy = Math.max(bbox.y, Math.min(
+      (screenCTM.inverse().b * clientX + screenCTM.inverse().d * clientY + screenCTM.inverse().f),
+      bbox.y + bbox.height));
+    const sx = screenCTM.a * cx + screenCTM.c * cy + screenCTM.e;
+    const sy = screenCTM.b * cx + screenCTM.d * cy + screenCTM.f;
+    return Math.hypot(clientX - sx, clientY - sy);
   } catch (e) {
     return Infinity;
   }
@@ -1269,54 +1284,53 @@ function renderMultiSelection() {
 }
 
 function clearSvgHighlights() {
-  for (const el of svgHighlightOverlays) {
-    if (el._origFilter !== undefined) {
-      if (el._origFilter) el.setAttribute('filter', el._origFilter);
-      else el.removeAttribute('filter');
-      delete el._origFilter;
-    }
-  }
+  for (const ov of svgHighlightOverlays) ov.remove();
   svgHighlightOverlays = [];
 }
 
 function ensureGlowFilter(svg) {
   if (!svg) return;
-  if (svg.querySelector('#hitexer-glow-strong')) return;
+  if (svg.querySelector('#hitexer-blur-strong')) return;
   const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg','defs'), svg.firstChild);
 
-  // Strong glow filter
+  // Strong blur filter (applied to the glow clone, not the original)
   const f1 = document.createElementNS('http://www.w3.org/2000/svg','filter');
-  f1.setAttribute('id','hitexer-glow-strong');
-  f1.setAttribute('x','-50%'); f1.setAttribute('y','-50%');
-  f1.setAttribute('width','200%'); f1.setAttribute('height','200%');
-  f1.innerHTML = `
-    <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
-    <feFlood flood-color="#e94560" flood-opacity="0.8" result="color"/>
-    <feComposite in="color" in2="blur" operator="in" result="glow"/>
-    <feMerge><feMergeNode in="glow"/><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>`;
+  f1.setAttribute('id','hitexer-blur-strong');
+  // Use userSpaceOnUse with large region to avoid clipping thin elements
+  f1.setAttribute('filterUnits','userSpaceOnUse');
+  f1.setAttribute('x','-10000'); f1.setAttribute('y','-10000');
+  f1.setAttribute('width','20000'); f1.setAttribute('height','20000');
+  f1.innerHTML = `<feGaussianBlur stdDeviation="3"/>`;
   defs.appendChild(f1);
 
-  // Soft glow filter
   const f2 = document.createElementNS('http://www.w3.org/2000/svg','filter');
-  f2.setAttribute('id','hitexer-glow-soft');
-  f2.setAttribute('x','-50%'); f2.setAttribute('y','-50%');
-  f2.setAttribute('width','200%'); f2.setAttribute('height','200%');
-  f2.innerHTML = `
-    <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-    <feFlood flood-color="#e94560" flood-opacity="0.4" result="color"/>
-    <feComposite in="color" in2="blur" operator="in" result="glow"/>
-    <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>`;
+  f2.setAttribute('id','hitexer-blur-soft');
+  f2.setAttribute('filterUnits','userSpaceOnUse');
+  f2.setAttribute('x','-10000'); f2.setAttribute('y','-10000');
+  f2.setAttribute('width','20000'); f2.setAttribute('height','20000');
+  f2.innerHTML = `<feGaussianBlur stdDeviation="2"/>`;
   defs.appendChild(f2);
 }
 
 function highlightSvgElement(el, intensity) {
   const svg = el.closest('svg');
   ensureGlowFilter(svg);
-  const filterId = intensity === 'strong' ? 'hitexer-glow-strong' : 'hitexer-glow-soft';
-  // Store original filter so we can restore
-  el._origFilter = el.getAttribute('filter') || '';
-  el.setAttribute('filter', `url(#${filterId})`);
-  svgHighlightOverlays.push(el);
+  // Create a blurred, colored clone BEHIND the original element for glow effect
+  const clone = el.cloneNode(false);
+  const color = intensity === 'strong' ? '#e94560' : '#e94560';
+  const opacity = intensity === 'strong' ? '0.8' : '0.4';
+  const strokeW = intensity === 'strong' ? 5 : 3;
+  const filterId = intensity === 'strong' ? 'hitexer-blur-strong' : 'hitexer-blur-soft';
+  clone.setAttribute('stroke', color);
+  clone.setAttribute('stroke-opacity', opacity);
+  clone.setAttribute('stroke-width', String(strokeW));
+  clone.setAttribute('fill', 'none');
+  clone.setAttribute('filter', `url(#${filterId})`);
+  clone.style.pointerEvents = 'none';
+  clone.removeAttribute('stroke-dasharray');
+  // Insert clone BEFORE the original so glow appears behind
+  el.parentNode.insertBefore(clone, el);
+  svgHighlightOverlays.push(clone);
 }
 
 function setupSvgInteractivity(code) {
@@ -1375,31 +1389,30 @@ function setupSvgInteractivity(code) {
     const cmd = mapping[ci];
     const cmdType = cmd.commandText.match(/^\s*(\w+)/)?.[1];
     svgAllMapped.push({ el, ci, cmdType });
-    // Ensure elements accept pointer events for right-click
-    const isStrokeOnly = cmdType!=='label' && cmdType!=='dot' && cmdType!=='fill' && cmdType!=='filldraw';
-    el.style.pointerEvents = isStrokeOnly ? 'stroke' : 'all';
+    // Make all elements accept pointer events so right-click works
+    el.style.pointerEvents = 'all';
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       StyleMenu.show(e.clientX, e.clientY, cmd.primaryLine);
     });
   }
 
+  // Hover threshold in screen pixels
+  const hoverThreshold = 30;
+
   // Single mousemove on SVG finds the closest element (no overlapping hit targets)
   let lastHoveredCi = -1;
   svg.addEventListener('mousemove', (e) => {
     if (StyleMenu.visible) return;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
 
     let bestCi = -1, bestDist = Infinity;
     for (const { el, ci } of svgAllMapped) {
-      const d = distToElement(svgPt, el);
+      const d = distToElementScreen(e.clientX, e.clientY, el);
       if (d < bestDist) { bestDist = d; bestCi = ci; }
     }
 
-    // Only highlight if within reasonable distance (20 SVG units)
-    if (bestDist > 20) bestCi = -1;
+    // Only highlight if within reasonable distance (30 screen pixels)
+    if (bestDist > hoverThreshold) bestCi = -1;
 
     if (bestCi === lastHoveredCi) return;
     lastHoveredCi = bestCi;
@@ -1426,16 +1439,13 @@ function setupSvgInteractivity(code) {
   // Left-click on SVG for multi-select
   svg.addEventListener('click', (e) => {
     if (StyleMenu.visible) return;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
 
     let bestCi = -1, bestDist = Infinity;
     for (const { el, ci } of svgAllMapped) {
-      const d = distToElement(svgPt, el);
+      const d = distToElementScreen(e.clientX, e.clientY, el);
       if (d < bestDist) { bestDist = d; bestCi = ci; }
     }
-    if (bestDist > 20 || bestCi === -1) return;
+    if (bestDist > hoverThreshold || bestCi === -1) return;
 
     const lineIdx = mapping[bestCi].primaryLine;
     if (multiSelected.has(lineIdx)) {
@@ -1449,16 +1459,13 @@ function setupSvgInteractivity(code) {
   // Right-click on SVG for multi-select context menu
   svg.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
 
     let bestCi = -1, bestDist = Infinity;
     for (const { el, ci } of svgAllMapped) {
-      const d = distToElement(svgPt, el);
+      const d = distToElementScreen(e.clientX, e.clientY, el);
       if (d < bestDist) { bestDist = d; bestCi = ci; }
     }
-    if (bestDist > 20 || bestCi === -1) return;
+    if (bestDist > hoverThreshold || bestCi === -1) return;
 
     const lineIdx = mapping[bestCi].primaryLine;
     if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
