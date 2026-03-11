@@ -180,6 +180,7 @@ body {
     </span>
     <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;"></span>
   </span>
+  <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <span class="status" id="status">Ready</span>
 </div>
 
@@ -1954,6 +1955,51 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizer();
   StyleMenu.init();
   document.getElementById('btn-render').addEventListener('click', doRender);
+
+  // === EigenNode integration ===
+  // URL params: ?eigennode_node=NODEID&eigennode_file=FILEPATH
+  // eigennode_file: temp file containing the asymptote code to load
+  // eigennode_node: the EigenNode node ID to send code back to
+  const urlParams = new URLSearchParams(window.location.search);
+  const eigennodeNode = urlParams.get('eigennode_node');
+  const eigennodeFile = urlParams.get('eigennode_file');
+  const eigennodeCallbackFile = urlParams.get('eigennode_callback');
+
+  if (eigennodeFile) {
+    // Load code from file via the server
+    fetch('/eigennode-read?path=' + encodeURIComponent(eigennodeFile))
+      .then(r => r.text())
+      .then(code => {
+        if (code) {
+          editor.setValue(code);
+          doRender();
+        }
+      })
+      .catch(err => console.error('Failed to load EigenNode code:', err));
+  }
+
+  if (eigennodeNode && eigennodeCallbackFile) {
+    const sendBtn = document.getElementById('btn-eigennode-send');
+    sendBtn.style.display = '';
+    sendBtn.addEventListener('click', () => {
+      const code = editor.getValue();
+      // Write code back via the server
+      fetch('/eigennode-write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: eigennodeCallbackFile, code, nodeId: eigennodeNode }),
+      }).then(r => {
+        if (r.ok) {
+          sendBtn.textContent = 'SENT ✓';
+          sendBtn.style.background = '#16a34a';
+          setTimeout(() => {
+            sendBtn.textContent = 'SEND TO EIGENNODE';
+            sendBtn.style.background = '#e94560';
+          }, 2000);
+        }
+      }).catch(err => console.error('Failed to send to EigenNode:', err));
+    });
+  }
 
   // Auto-render on page load
   doRender();

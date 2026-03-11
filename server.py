@@ -175,6 +175,24 @@ def auto_import(code: str) -> str:
 
 
 class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/eigennode-read":
+            from urllib.parse import parse_qs
+            params = parse_qs(parsed.query)
+            filepath = params.get("path", [None])[0]
+            if filepath and os.path.exists(filepath):
+                code = Path(filepath).read_text(encoding="utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(code.encode("utf-8"))
+            else:
+                self.send_error(404, "File not found")
+            return
+        super().do_GET()
+
     def do_POST(self):
         if self.path == "/compile":
             self.handle_compile()
@@ -182,8 +200,27 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_texer()
         elif self.path == "/ai":
             self.handle_ai()
+        elif self.path == "/eigennode-write":
+            self.handle_eigennode_write()
         else:
             self.send_error(404)
+
+    def handle_eigennode_write(self):
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            filepath = data["path"]
+            code = data["code"]
+            node_id = data.get("nodeId", "")
+            # Write a JSON file that EigenNode can read
+            Path(filepath).write_text(
+                json.dumps({"code": code, "nodeId": node_id}),
+                encoding="utf-8",
+            )
+            self.send_json(200, {"ok": True})
+        except Exception as e:
+            self.send_json(500, {"error": str(e)})
 
     def handle_compile(self):
         content_length = int(self.headers["Content-Length"])
