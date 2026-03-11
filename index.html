@@ -2705,8 +2705,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!bestFP || bestDist > 25) return;
 
     svg.style.cursor = 'grabbing';
+
+    // Compute a stable screen-pixels-per-math-unit conversion factor at drag start.
+    // This stays valid even after the SVG DOM is replaced by JS re-renders.
+    // screenCTM maps SVG coords → screen coords; its 'a' is SVG-pixels-per-screen-pixel (inverted).
+    // pxPerUnit is SVG-pixels-per-math-unit. So screen-pixels-per-math-unit = pxPerUnit / |screenCTM_inv.a|
+    const screenPxPerMathUnit = slidePxPerUnit / Math.abs(screenCTM.a);
+
     slideDragState = {
       fp: bestFP,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      screenPxPerMathUnit,
+      // Keep SVG-coordinate state for the fallback (non-JS-render) path
       startSvgX: clickSvgX,
       startSvgY: clickSvgY,
       svg: svg,
@@ -2716,18 +2727,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function slideMouseMove(e) {
     if (!slideDragState) return;
     e.preventDefault();
-    const { fp, startSvgX, startSvgY, svg } = slideDragState;
-    const screenCTM = svg.getScreenCTM().inverse();
-    const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
-    const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+    const { fp, startClientX, startClientY, screenPxPerMathUnit } = slideDragState;
 
-    // Delta in SVG coordinate space
-    const dSvgX = svgX - startSvgX;
-    const dSvgY = svgY - startSvgY;
-
-    // Convert to math coords and update the code text
-    const dx = dSvgX / slidePxPerUnit;
-    const dy = -dSvgY / slidePxPerUnit; // Y is inverted
+    // Compute math-coordinate delta from stable screen-pixel delta
+    const dx = (e.clientX - startClientX) / screenPxPerMathUnit;
+    const dy = -(e.clientY - startClientY) / screenPxPerMathUnit; // screen Y is inverted
     const newX = (fp.x + dx).toFixed(2).replace(/\.?0+$/, '');
     const newY = (fp.y + dy).toFixed(2).replace(/\.?0+$/, '');
 
@@ -2755,8 +2759,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Fallback: move hit circle and glow elements via SVG transform
-    const svg2 = document.querySelector('#preview-container svg');
-    if (!svg2) return;
+    const { startSvgX, startSvgY, svg } = slideDragState;
+    if (!svg || !svg.isConnected) return;
+    const screenCTM = svg.getScreenCTM().inverse();
+    const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+    const dSvgX = svgX - startSvgX;
+    const dSvgY = svgY - startSvgY;
     if (fp.hitCircle) {
       fp.hitCircle.setAttribute('cx', fp.svgCX + dSvgX);
       fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
