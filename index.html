@@ -1405,6 +1405,7 @@ let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
+let gridActive = false; // grid overlay toggle state
 let _serverDown = false;
 
 function getPreviewDimensions() {
@@ -1429,6 +1430,68 @@ function showWarnBadge(text) {
 function scheduleAutoRender() {
   if (autoRenderTimer) clearTimeout(autoRenderTimer);
   autoRenderTimer = setTimeout(() => { autoRenderTimer = null; doRender(); }, 150);
+}
+
+function removeGridOverlay() {
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+  const g = svg.querySelector('#hitexer-grid-overlay');
+  if (g) g.remove();
+}
+
+function applyGridOverlay() {
+  removeGridOverlay();
+  if (!lastRenderInfo) return;
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+
+  const { pxPerUnit, minX, minY, maxX, maxY } = lastRenderInfo;
+  const ns = 'http://www.w3.org/2000/svg';
+  const g = document.createElementNS(ns, 'g');
+  g.setAttribute('id', 'hitexer-grid-overlay');
+  g.style.pointerEvents = 'none';
+
+  const gridMinX = Math.floor(minX);
+  const gridMaxX = Math.ceil(maxX);
+  const gridMinY = Math.floor(minY);
+  const gridMaxY = Math.ceil(maxY);
+
+  for (let x = gridMinX; x <= gridMaxX; x++) {
+    const sx = (x - minX) * pxPerUnit;
+    const sy0 = (maxY - gridMinY) * pxPerUnit;
+    const sy1 = (maxY - gridMaxY) * pxPerUnit;
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', sx); line.setAttribute('y1', sy0);
+    line.setAttribute('x2', sx); line.setAttribute('y2', sy1);
+    line.setAttribute('stroke', x === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
+    line.setAttribute('stroke-width', x === 0 ? '1.5' : '0.5');
+    g.appendChild(line);
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', sx); lbl.setAttribute('y', sy0 + 12);
+    lbl.setAttribute('fill', '#888'); lbl.setAttribute('font-size', '10');
+    lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('font-family', 'sans-serif');
+    lbl.textContent = String(x);
+    g.appendChild(lbl);
+  }
+  for (let y = gridMinY; y <= gridMaxY; y++) {
+    const sy = (maxY - y) * pxPerUnit;
+    const sx0 = (gridMinX - minX) * pxPerUnit;
+    const sx1 = (gridMaxX - minX) * pxPerUnit;
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', sx0); line.setAttribute('y1', sy);
+    line.setAttribute('x2', sx1); line.setAttribute('y2', sy);
+    line.setAttribute('stroke', y === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
+    line.setAttribute('stroke-width', y === 0 ? '1.5' : '0.5');
+    g.appendChild(line);
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', sx0 - 4); lbl.setAttribute('y', sy + 3);
+    lbl.setAttribute('fill', '#888'); lbl.setAttribute('font-size', '10');
+    lbl.setAttribute('text-anchor', 'end'); lbl.setAttribute('font-family', 'sans-serif');
+    lbl.textContent = String(y);
+    g.appendChild(lbl);
+  }
+
+  svg.appendChild(g);
 }
 
 async function doRender() {
@@ -2483,7 +2546,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
   // Feature: Grid Overlay
   // ============================================================
-  let gridActive = false;
   const gridBtn = document.getElementById('btn-grid');
   gridBtn.addEventListener('click', () => {
     gridActive = !gridActive;
@@ -2495,72 +2557,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  function removeGridOverlay() {
-    const svg = document.querySelector('#preview-container svg');
-    if (!svg) return;
-    const g = svg.querySelector('#hitexer-grid-overlay');
-    if (g) g.remove();
-  }
-
-  function applyGridOverlay() {
-    removeGridOverlay();
-    if (!lastRenderInfo) return;
-    const svg = document.querySelector('#preview-container svg');
-    if (!svg) return;
-
-    const { pxPerUnit, minX, minY, maxX, maxY } = lastRenderInfo;
-    const ns = 'http://www.w3.org/2000/svg';
-    const g = document.createElementNS(ns, 'g');
-    g.setAttribute('id', 'hitexer-grid-overlay');
-    g.style.pointerEvents = 'none';
-
-    // Compute integer grid range
-    const gridMinX = Math.floor(minX);
-    const gridMaxX = Math.ceil(maxX);
-    const gridMinY = Math.floor(minY);
-    const gridMaxY = Math.ceil(maxY);
-
-    // Vertical lines
-    for (let x = gridMinX; x <= gridMaxX; x++) {
-      const sx = (x - minX) * pxPerUnit;
-      const sy0 = (maxY - gridMinY) * pxPerUnit;
-      const sy1 = (maxY - gridMaxY) * pxPerUnit;
-      const line = document.createElementNS(ns, 'line');
-      line.setAttribute('x1', sx); line.setAttribute('y1', sy0);
-      line.setAttribute('x2', sx); line.setAttribute('y2', sy1);
-      line.setAttribute('stroke', x === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
-      line.setAttribute('stroke-width', x === 0 ? '1.5' : '0.5');
-      g.appendChild(line);
-      // Label at bottom
-      const lbl = document.createElementNS(ns, 'text');
-      lbl.setAttribute('x', sx); lbl.setAttribute('y', sy0 + 12);
-      lbl.setAttribute('fill', '#888'); lbl.setAttribute('font-size', '10');
-      lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('font-family', 'sans-serif');
-      lbl.textContent = String(x);
-      g.appendChild(lbl);
-    }
-    // Horizontal lines
-    for (let y = gridMinY; y <= gridMaxY; y++) {
-      const sy = (maxY - y) * pxPerUnit;
-      const sx0 = (gridMinX - minX) * pxPerUnit;
-      const sx1 = (gridMaxX - minX) * pxPerUnit;
-      const line = document.createElementNS(ns, 'line');
-      line.setAttribute('x1', sx0); line.setAttribute('y1', sy);
-      line.setAttribute('x2', sx1); line.setAttribute('y2', sy);
-      line.setAttribute('stroke', y === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
-      line.setAttribute('stroke-width', y === 0 ? '1.5' : '0.5');
-      g.appendChild(line);
-      // Label at left
-      const lbl = document.createElementNS(ns, 'text');
-      lbl.setAttribute('x', sx0 - 4); lbl.setAttribute('y', sy + 3);
-      lbl.setAttribute('fill', '#888'); lbl.setAttribute('font-size', '10');
-      lbl.setAttribute('text-anchor', 'end'); lbl.setAttribute('font-family', 'sans-serif');
-      lbl.textContent = String(y);
-      g.appendChild(lbl);
-    }
-
-    svg.appendChild(g);
-  }
+  // removeGridOverlay / applyGridOverlay are top-level functions (defined near doRender)
 
   // ============================================================
   // Feature #7: Highlighting Toggle
