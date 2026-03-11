@@ -1839,6 +1839,7 @@ function createInterpreter() {
 
     // Pen constructors
     env.set('rgb', (r,g,b) => makePen({r:toNumber(r),g:toNumber(g),b:toNumber(b)}));
+    env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w)}));
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
     env.set('opacity', (a) => makePen({opacity:toNumber(a)}));
