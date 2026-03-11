@@ -1405,6 +1405,7 @@ let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
+let _serverDown = false;
 
 function getPreviewDimensions() {
   const el = document.getElementById('preview-container');
@@ -1476,61 +1477,78 @@ async function doRender() {
     }
   }
 
-  // Fall back to server
+  // Fall back to server with retry logic
   statusEl.textContent = 'Compiling (server)...'; statusEl.style.color = '#e9c46a';
-  try {
-    const resp = await fetch(`${SERVER_URL}/compile`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({code}),
-    });
-    const data = await resp.json();
-    if (data.error) {
-      // Server error — show stale badge if we have a previous render
-      if (previewEl.querySelector('svg')) {
-        showStaleBadge(true);
-        statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
-      } else {
-        // No previous SVG — show error (preserve badges)
-        const oldSvg2 = previewEl.querySelector('svg');
-        const oldPh = previewEl.querySelector('.placeholder');
-        const oldErr = previewEl.querySelector('.error');
-        if (oldSvg2) oldSvg2.remove();
-        if (oldPh) oldPh.remove();
-        if (oldErr) oldErr.remove();
-        previewEl.insertAdjacentHTML('afterbegin', `<div class="error">${escapeHtml(data.error)}</div>`);
-        statusEl.textContent = 'Compilation error'; statusEl.style.color = '#e94560';
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY = 1000; // ms
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(`${SERVER_URL}/compile`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({code}),
+      });
+      const data = await resp.json();
+      _serverDown = false;
+      if (data.error) {
+        // Server error — show stale badge if we have a previous render
+        if (previewEl.querySelector('svg')) {
+          showStaleBadge(true);
+          statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+        } else {
+          // No previous SVG — show error (preserve badges)
+          const oldSvg2 = previewEl.querySelector('svg');
+          const oldPh = previewEl.querySelector('.placeholder');
+          const oldErr = previewEl.querySelector('.error');
+          if (oldSvg2) oldSvg2.remove();
+          if (oldPh) oldPh.remove();
+          if (oldErr) oldErr.remove();
+          previewEl.insertAdjacentHTML('afterbegin', `<div class="error">${escapeHtml(data.error)}</div>`);
+          statusEl.textContent = 'Compilation error'; statusEl.style.color = '#e94560';
+        }
+        return;
       }
+      // Server success
+      const svgEl = previewEl.querySelector('svg');
+      const placeholder = previewEl.querySelector('.placeholder');
+      if (svgEl) svgEl.remove();
+      if (placeholder) placeholder.remove();
+      previewEl.insertAdjacentHTML('afterbegin', data.svg);
+      showStaleBadge(false);
+      showWarnBadge('');
+      setupSvgInteractivity(code);
+      statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
+      document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
-    }
-    // Server success
-    const svgEl = previewEl.querySelector('svg');
-    const placeholder = previewEl.querySelector('.placeholder');
-    if (svgEl) svgEl.remove();
-    if (placeholder) placeholder.remove();
-    previewEl.insertAdjacentHTML('afterbegin', data.svg);
-    showStaleBadge(false);
-    showWarnBadge('');
-    setupSvgInteractivity(code);
-    statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
-    document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
-  } catch(err) {
-    // Server unreachable — show stale if possible
-    if (previewEl.querySelector('svg')) {
-      showStaleBadge(true);
-      statusEl.textContent = 'Showing last valid render (server offline)'; statusEl.style.color = '#e9c46a';
-    } else {
-      // No previous SVG — show connection error (preserve badges)
-      const oldSvg3 = previewEl.querySelector('svg');
-      const oldPh2 = previewEl.querySelector('.placeholder');
-      const oldErr2 = previewEl.querySelector('.error');
-      if (oldSvg3) oldSvg3.remove();
-      if (oldPh2) oldPh2.remove();
-      if (oldErr2) oldErr2.remove();
-      previewEl.insertAdjacentHTML('afterbegin', `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py</div>`);
-      statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
+    } catch(err) {
+      if (attempt < MAX_RETRIES) {
+        statusEl.textContent = `Server not ready, retrying (${attempt + 1}/${MAX_RETRIES})...`;
+        await new Promise(r => setTimeout(r, RETRY_DELAY));
+      } else {
+        _serverDown = true;
+        // Server unreachable — show stale if possible
+        if (previewEl.querySelector('svg')) {
+          showStaleBadge(true);
+          statusEl.textContent = 'Showing last valid render (server offline)'; statusEl.style.color = '#e9c46a';
+        } else {
+          const oldSvg3 = previewEl.querySelector('svg');
+          const oldPh2 = previewEl.querySelector('.placeholder');
+          const oldErr2 = previewEl.querySelector('.error');
+          if (oldSvg3) oldSvg3.remove();
+          if (oldPh2) oldPh2.remove();
+          if (oldErr2) oldErr2.remove();
+          previewEl.insertAdjacentHTML('afterbegin', `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py\n\nWill auto-retry when you refocus this tab.</div>`);
+          statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
+        }
+      }
     }
   }
 }
+
+// Auto-retry on tab focus if server was down
+window.addEventListener('focus', () => {
+  if (_serverDown) doRender();
+});
 
 function escapeHtml(text) { const d=document.createElement('div'); d.textContent=text; return d.innerHTML; }
 
