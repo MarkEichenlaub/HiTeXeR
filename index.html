@@ -52,6 +52,19 @@ body {
   padding: 20px; background: #1a1a2e; border-radius: 4px; max-width: 90%;
 }
 #preview-container .placeholder { color: #999; font-size: 14px; text-align: center; }
+#preview-container { position: relative; }
+#preview-stale-badge {
+  display: none; position: absolute; top: 6px; left: 6px; z-index: 100;
+  background: rgba(233,69,96,0.85); color: #fff; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 3px; pointer-events: none;
+  font-family: system-ui, sans-serif;
+}
+#preview-warn-badge {
+  display: none; position: absolute; top: 6px; right: 6px; z-index: 100;
+  background: rgba(233,196,106,0.9); color: #1a1a2e; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 3px; pointer-events: none;
+  font-family: system-ui, sans-serif;
+}
 
 /* Highlight styles for code lines */
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
@@ -162,7 +175,7 @@ body {
 
 <div id="toolbar">
   <h1>HiTeXeR</h1>
-  <button class="primary" id="btn-render" title="Ctrl+Enter">RENDER</button>
+  <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-clear">CLEAR</button>
   <button id="btn-colorblind">COLOR BLIND MODE</button>
   <button id="btn-zoom-out" title="Shrink image">&minus;</button>
@@ -215,7 +228,9 @@ label("$C$", C, N);
   <div id="resizer"></div>
   <div id="preview-panel">
     <div id="preview-container">
-      <div class="placeholder">Press <b>Ctrl+Enter</b> or click <b>RENDER</b> to compile</div>
+      <div class="placeholder">Loading...</div>
+      <div id="preview-stale-badge">showing last valid render</div>
+      <div id="preview-warn-badge"></div>
     </div>
   </div>
 </div>
@@ -1386,31 +1401,79 @@ function highlightLines(primaryLine, depLines) {
 const SERVER_URL = 'http://127.0.0.1:8080';
 
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
+let autoRenderTimer = null;
+let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
+
+function getPreviewDimensions() {
+  const el = document.getElementById('preview-container');
+  // Available space minus padding
+  return { w: el.clientWidth - 40, h: el.clientHeight - 40 };
+}
+
+function showStaleBadge(show) {
+  const badge = document.getElementById('preview-stale-badge');
+  if (badge) badge.style.display = show ? 'block' : 'none';
+}
+
+function showWarnBadge(text) {
+  const badge = document.getElementById('preview-warn-badge');
+  if (badge) {
+    if (text) { badge.textContent = text; badge.style.display = 'block'; }
+    else { badge.style.display = 'none'; }
+  }
+}
+
+function scheduleAutoRender() {
+  if (autoRenderTimer) clearTimeout(autoRenderTimer);
+  autoRenderTimer = setTimeout(() => { autoRenderTimer = null; doRender(); }, 150);
+}
 
 async function doRender() {
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
   const previewEl = document.getElementById('preview-container');
-  statusEl.textContent = 'Compiling...';
-  statusEl.style.color = '#e9c46a';
   lastJsRenderOk = false;
 
   // Try JS interpreter first
   if (window.AsyInterp && AsyInterp.canInterpret(code)) {
     try {
-      const result = AsyInterp.render(code);
-      previewEl.innerHTML = result.svg;
+      const dims = getPreviewDimensions();
+      const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
+      // Success — clear stale badge, show SVG (preserving badge elements)
+      const svgEl = previewEl.querySelector('svg');
+      const placeholder = previewEl.querySelector('.placeholder');
+      if (svgEl) svgEl.remove();
+      if (placeholder) placeholder.remove();
+      previewEl.insertAdjacentHTML('afterbegin', result.svg);
+      showStaleBadge(false);
+      // Show warnings
+      const warns = [];
+      if (result.warnings && result.warnings.includes('auto-scaled')) {
+        warns.push('No unitsize/size specified — auto-scaled to fit');
+      }
+      if (result.displayPercent < 100) {
+        warns.push('Shrunk to fit: ' + result.displayPercent + '%');
+      }
+      showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
-      statusEl.textContent = 'Rendered (JS)'; statusEl.style.color = '#2ecc71';
+      statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       lastJsRenderOk = true;
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
     } catch(e) {
+      // JS interpreter failed — show stale badge over previous SVG
+      if (previewEl.querySelector('svg')) {
+        showStaleBadge(true);
+        statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+        return;
+      }
+      // No previous SVG to show — fall through to server
       console.warn('JS interpreter failed, falling back to server:', e.message);
     }
   }
 
   // Fall back to server
+  statusEl.textContent = 'Compiling (server)...'; statusEl.style.color = '#e9c46a';
   try {
     const resp = await fetch(`${SERVER_URL}/compile`, {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1418,16 +1481,50 @@ async function doRender() {
     });
     const data = await resp.json();
     if (data.error) {
-      previewEl.innerHTML = `<div class="error">${escapeHtml(data.error)}</div>`;
-      statusEl.textContent = 'Compilation error'; statusEl.style.color = '#e94560'; return;
+      // Server error — show stale badge if we have a previous render
+      if (previewEl.querySelector('svg')) {
+        showStaleBadge(true);
+        statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+      } else {
+        // No previous SVG — show error (preserve badges)
+        const oldSvg2 = previewEl.querySelector('svg');
+        const oldPh = previewEl.querySelector('.placeholder');
+        const oldErr = previewEl.querySelector('.error');
+        if (oldSvg2) oldSvg2.remove();
+        if (oldPh) oldPh.remove();
+        if (oldErr) oldErr.remove();
+        previewEl.insertAdjacentHTML('afterbegin', `<div class="error">${escapeHtml(data.error)}</div>`);
+        statusEl.textContent = 'Compilation error'; statusEl.style.color = '#e94560';
+      }
+      return;
     }
-    previewEl.innerHTML = data.svg;
+    // Server success
+    const svgEl = previewEl.querySelector('svg');
+    const placeholder = previewEl.querySelector('.placeholder');
+    if (svgEl) svgEl.remove();
+    if (placeholder) placeholder.remove();
+    previewEl.insertAdjacentHTML('afterbegin', data.svg);
+    showStaleBadge(false);
+    showWarnBadge('');
     setupSvgInteractivity(code);
-    statusEl.textContent = 'Rendered (mapping...)'; statusEl.style.color = '#e9c46a';
+    statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
     document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
   } catch(err) {
-    previewEl.innerHTML = `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py</div>`;
-    statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
+    // Server unreachable — show stale if possible
+    if (previewEl.querySelector('svg')) {
+      showStaleBadge(true);
+      statusEl.textContent = 'Showing last valid render (server offline)'; statusEl.style.color = '#e9c46a';
+    } else {
+      // No previous SVG — show connection error (preserve badges)
+      const oldSvg3 = previewEl.querySelector('svg');
+      const oldPh2 = previewEl.querySelector('.placeholder');
+      const oldErr2 = previewEl.querySelector('.error');
+      if (oldSvg3) oldSvg3.remove();
+      if (oldPh2) oldPh2.remove();
+      if (oldErr2) oldErr2.remove();
+      previewEl.insertAdjacentHTML('afterbegin', `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py</div>`);
+      statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
+    }
   }
 }
 
@@ -2233,7 +2330,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btn-clear').addEventListener('click', () => {
     editor.setValue('[asy]\n\n[/asy]');
-    document.getElementById('preview-container').innerHTML = '<div class="placeholder">Press <b>Ctrl+Enter</b> or click <b>RENDER</b> to compile</div>';
+    const clearPreview = document.getElementById('preview-container');
+    const clearSvg = clearPreview.querySelector('svg');
+    const clearPlaceholder = clearPreview.querySelector('.placeholder');
+    const clearError = clearPreview.querySelector('.error');
+    if (clearSvg) clearSvg.remove();
+    if (clearPlaceholder) clearPlaceholder.remove();
+    if (clearError) clearError.remove();
+    showStaleBadge(false);
+    showWarnBadge('');
     clearHighlights(); clearSvgHighlights();
     document.getElementById('status').textContent='Ready';
     document.getElementById('status').style.color='#888';
@@ -2299,7 +2404,11 @@ document.addEventListener('DOMContentLoaded', () => {
   texerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doTexerImport(); });
 
   // Track edits for "(modified)" indicator
-  editor.on('change', () => { if (texerLoadedUrl) updateTexerModifiedIndicator(); });
+  editor.on('change', () => {
+    if (texerLoadedUrl) updateTexerModifiedIndicator();
+    // Don't schedule auto-render during slide drag/slider — those handlers render directly
+    if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
+  });
 
   // ============================================================
   // Feature #6: Plus/Minus Zoom Buttons
@@ -2748,8 +2857,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
       try {
         const previewEl = document.getElementById('preview-container');
-        const result = AsyInterp.render(newCode);
-        previewEl.innerHTML = result.svg;
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
         // Re-apply slide overlay on the new SVG
         applySlideOverlay();
         return;
@@ -2786,8 +2898,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.AsyInterp && AsyInterp.canInterpret(code)) {
       try {
         const previewEl = document.getElementById('preview-container');
-        const result = AsyInterp.render(code);
-        previewEl.innerHTML = result.svg;
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
         setupSvgInteractivityDirect(code, result.commandMap);
         if (slideActive) applySlideOverlay();
         return;
@@ -2808,14 +2923,19 @@ document.addEventListener('DOMContentLoaded', () => {
       `= ${value};`
     );
     const newCode = lines.join('\n');
+    suppressAutoRender = true;
     editor.setValue(newCode);
+    suppressAutoRender = false;
 
     // Try JS interpreter for instant response
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
       try {
         const previewEl = document.getElementById('preview-container');
-        const result = AsyInterp.render(newCode);
-        previewEl.innerHTML = result.svg;
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
         setupSvgInteractivityDirect(newCode, result.commandMap);
         if (slideActive) applySlideOverlay();
         return;

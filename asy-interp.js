@@ -2256,9 +2256,10 @@ function createInterpreter() {
 // SVG Renderer
 // ============================================================
 
-function renderSVG(result) {
+function renderSVG(result, opts) {
+  opts = opts || {};
   const { drawCommands, unitScale, sizeW, sizeH } = result;
-  if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [] };
+  if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
 
   // Compute bounding box
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2327,20 +2328,51 @@ function renderSVG(result) {
   const pad = 0.5;
   minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
-  // Determine scale
-  let scale = unitScale > 0 ? unitScale : 28.35; // default 1cm
-  // Match server output: points per unit
-  const pxPerUnit = scale;
-  const w = (maxX - minX) * pxPerUnit;
-  const h = (maxY - minY) * pxPerUnit;
+  const warnings = [];
 
-  // Target a reasonable SVG size
-  let svgW = w, svgH = h;
-  if (sizeW > 0) { svgW = sizeW; }
-  if (sizeH > 0) { svgH = sizeH; }
-  // Clamp to reasonable range
-  svgW = Math.max(50, Math.min(2000, svgW));
-  svgH = Math.max(50, Math.min(2000, svgH));
+  // Determine scale
+  const hasExplicitScale = unitScale > 1 || sizeW > 0 || sizeH > 0;
+  let pxPerUnit;
+  if (unitScale > 1) {
+    pxPerUnit = unitScale;
+  } else if (!hasExplicitScale) {
+    // No unitsize/size: mimic AoPS behavior by auto-scaling to ~6cm
+    const bboxW = maxX - minX, bboxH = maxY - minY;
+    const targetPx = 170; // ~6cm at 72dpi
+    pxPerUnit = targetPx / Math.max(bboxW, bboxH, 1);
+    warnings.push('auto-scaled');
+  } else {
+    pxPerUnit = unitScale || 28.35;
+  }
+
+  const naturalW = (maxX - minX) * pxPerUnit;
+  const naturalH = (maxY - minY) * pxPerUnit;
+
+  // Apply explicit size() if given
+  let svgW = naturalW, svgH = naturalH;
+  if (sizeW > 0) svgW = sizeW;
+  if (sizeH > 0) svgH = sizeH;
+
+  // If container dimensions provided, shrink to fit
+  let displayPercent = 100;
+  const containerW = opts.containerW || 0;
+  const containerH = opts.containerH || 0;
+  if (containerW > 0 && containerH > 0) {
+    const scaleX = containerW / svgW;
+    const scaleY = containerH / svgH;
+    if (scaleX < 1 || scaleY < 1) {
+      const shrink = Math.min(scaleX, scaleY);
+      displayPercent = Math.round(shrink * 100);
+      svgW *= shrink;
+      svgH *= shrink;
+      // We don't change pxPerUnit or viewBox — we just set SVG width/height
+      // smaller and let the browser scale via viewBox
+    }
+  }
+
+  // Compute viewBox (in intrinsic coordinates, before any display shrink)
+  const viewW = naturalW;
+  const viewH = naturalH;
 
   // Build SVG
   const commandMap = []; // maps draw command index → SVG element index
@@ -2425,9 +2457,9 @@ function renderSVG(result) {
     }
   }
 
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(svgW)} ${fmt(svgH)}">\n${elements.join('\n')}\n</svg>`;
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}">\n${elements.join('\n')}\n</svg>`;
 
-  return { svg: svgContent, commandMap, pxPerUnit, minX, maxY };
+  return { svg: svgContent, commandMap, pxPerUnit, minX, maxY, warnings, displayPercent };
 }
 
 function pathToD(path, minX, maxY, scale) {
@@ -2677,10 +2709,10 @@ function canInterpret(code) {
   return true;
 }
 
-function render(code) {
+function render(code, opts) {
   const interp = createInterpreter();
   const result = interp.execute(code);
-  return renderSVG(result);
+  return renderSVG(result, opts);
 }
 
 window.AsyInterp = {
