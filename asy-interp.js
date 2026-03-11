@@ -2336,9 +2336,9 @@ function renderSVG(result, opts) {
   if (unitScale > 1) {
     pxPerUnit = unitScale;
   } else if (!hasExplicitScale) {
-    // No unitsize/size: mimic AoPS behavior by auto-scaling to ~6cm
+    // No unitsize/size: mimic AoPS behavior by auto-scaling
     const bboxW = maxX - minX, bboxH = maxY - minY;
-    const targetPx = 170; // ~6cm at 72dpi
+    const targetPx = 340; // ~12cm at 72dpi
     pxPerUnit = targetPx / Math.max(bboxW, bboxH, 1);
     warnings.push('auto-scaled');
   } else {
@@ -2459,7 +2459,7 @@ function renderSVG(result, opts) {
 
   const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}">\n${elements.join('\n')}\n</svg>`;
 
-  return { svg: svgContent, commandMap, pxPerUnit, minX, maxY, warnings, displayPercent };
+  return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
 }
 
 function pathToD(path, minX, maxY, scale) {
