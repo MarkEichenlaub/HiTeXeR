@@ -57,6 +57,7 @@ body {
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
 .cm-highlight-dependency { background-color: rgba(233, 69, 96, 0.15) !important; outline: 1px solid rgba(233, 69, 96, 0.25); }
 .cm-highlight-selected { background-color: rgba(59, 130, 246, 0.4) !important; outline: 1px solid rgba(59, 130, 246, 0.6); }
+.cm-line-hidden { display: none !important; }
 
 /* Resizer */
 #resizer { width: 4px; background: #0f3460; cursor: col-resize; flex-shrink: 0; }
@@ -1452,9 +1453,31 @@ function distToElementScreen(clientX, clientY, el) {
 }
 
 /** Render multi-selection visual feedback (blue glow). */
+function updateCodeFilter() {
+  const total = editor.lineCount();
+  if (multiSelected.size === 0) {
+    for (let i = 0; i < total; i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+    return;
+  }
+  const relevant = new Set();
+  for (const lineIdx of multiSelected) {
+    const ci = lineToCommandIdx.get(lineIdx);
+    if (ci !== undefined && currentMapping[ci]) {
+      relevant.add(currentMapping[ci].primaryLine);
+      for (const dl of currentMapping[ci].dependencyLines) relevant.add(dl);
+    }
+  }
+  for (let i = 0; i < total; i++) {
+    if (relevant.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+    else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
+  }
+  const first = Math.min(...multiSelected);
+  if (first >= 0 && first < total) editor.scrollIntoView({line: first, ch: 0}, 50);
+}
+
 function renderMultiSelection() {
   clearHighlights(); clearSvgHighlights();
-  if (multiSelected.size === 0) return;
+  if (multiSelected.size === 0) { updateCodeFilter(); return; }
   for (const lineIdx of multiSelected) {
     const ci = lineToCommandIdx.get(lineIdx);
     if (ci !== undefined) {
@@ -1467,6 +1490,7 @@ function renderMultiSelection() {
       ));
     }
   }
+  updateCodeFilter();
 }
 
 function clearSvgHighlights() {
@@ -1657,6 +1681,7 @@ function setupSvgInteractivity(code) {
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
   multiSelected.clear();
+  for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   const thisGen = ++probeGeneration;
 
   const svg = document.querySelector('#preview-container svg');
@@ -2523,6 +2548,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!learnActive) {
       learnExplanations = null;
       learnPopup.style.display = 'none';
+    } else {
+      fetchLearnExplanations();
     }
   });
 
