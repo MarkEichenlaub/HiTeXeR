@@ -1456,37 +1456,39 @@ function applyGridOverlay() {
   const gridMinY = Math.floor(minY);
   const gridMaxY = Math.ceil(maxY);
 
+  // viewBox dimensions for label placement
+  const viewW = (maxX - minX) * pxPerUnit;
+  const viewH = (maxY - minY) * pxPerUnit;
+
+  // Vertical lines with X labels along bottom inside viewBox
   for (let x = gridMinX; x <= gridMaxX; x++) {
     const sx = (x - minX) * pxPerUnit;
-    const sy0 = (maxY - gridMinY) * pxPerUnit;
-    const sy1 = (maxY - gridMaxY) * pxPerUnit;
     const line = document.createElementNS(ns, 'line');
-    line.setAttribute('x1', sx); line.setAttribute('y1', sy0);
-    line.setAttribute('x2', sx); line.setAttribute('y2', sy1);
+    line.setAttribute('x1', sx); line.setAttribute('y1', 0);
+    line.setAttribute('x2', sx); line.setAttribute('y2', viewH);
     line.setAttribute('stroke', x === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
     line.setAttribute('stroke-width', x === 0 ? '1.5' : '0.5');
     g.appendChild(line);
     const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', sx); lbl.setAttribute('y', sy0 + 12);
-    lbl.setAttribute('fill', '#888'); lbl.setAttribute('font-size', '10');
-    lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('font-family', 'sans-serif');
+    lbl.setAttribute('x', sx + 2); lbl.setAttribute('y', viewH - 4);
+    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
     lbl.textContent = String(x);
     g.appendChild(lbl);
   }
+  // Horizontal lines with Y labels along left inside viewBox
   for (let y = gridMinY; y <= gridMaxY; y++) {
     const sy = (maxY - y) * pxPerUnit;
-    const sx0 = (gridMinX - minX) * pxPerUnit;
-    const sx1 = (gridMaxX - minX) * pxPerUnit;
     const line = document.createElementNS(ns, 'line');
-    line.setAttribute('x1', sx0); line.setAttribute('y1', sy);
-    line.setAttribute('x2', sx1); line.setAttribute('y2', sy);
+    line.setAttribute('x1', 0); line.setAttribute('y1', sy);
+    line.setAttribute('x2', viewW); line.setAttribute('y2', sy);
     line.setAttribute('stroke', y === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
     line.setAttribute('stroke-width', y === 0 ? '1.5' : '0.5');
     g.appendChild(line);
     const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', sx0 - 4); lbl.setAttribute('y', sy + 3);
-    lbl.setAttribute('fill', '#888'); lbl.setAttribute('font-size', '10');
-    lbl.setAttribute('text-anchor', 'end'); lbl.setAttribute('font-family', 'sans-serif');
+    lbl.setAttribute('x', 2); lbl.setAttribute('y', sy - 3);
+    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
     lbl.textContent = String(y);
     g.appendChild(lbl);
   }
