@@ -230,7 +230,7 @@ label("$C$", C, N);
   <div id="preview-panel">
     <div id="preview-container">
       <div class="placeholder">Loading...</div>
-      <div id="preview-stale-badge">showing last valid render</div>
+      <div id="preview-stale-badge">not live; showing last render</div>
       <div id="preview-warn-badge"></div>
     </div>
   </div>
@@ -2966,6 +2966,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const oldSvg = previewEl.querySelector('svg');
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
         // Re-apply slide overlay on the new SVG
         applySlideOverlay();
         return;
@@ -3007,6 +3008,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const oldSvg = previewEl.querySelector('svg');
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
         setupSvgInteractivityDirect(code, result.commandMap);
         if (slideActive) applySlideOverlay();
         return;
@@ -3040,6 +3042,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const oldSvg = previewEl.querySelector('svg');
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
         setupSvgInteractivityDirect(newCode, result.commandMap);
         return;
       } catch(e) { /* fall through to server */ }
