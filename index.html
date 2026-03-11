@@ -264,6 +264,7 @@ label("$C$", C, N);
   <div id="slide-sliders"></div>
 </div>
 
+<script src="asy-interp.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
 <script>
@@ -1384,12 +1385,32 @@ function highlightLines(primaryLine, depLines) {
 // ============================================================
 const SERVER_URL = 'http://127.0.0.1:8080';
 
+let lastJsRenderOk = false; // tracks whether last render used JS interpreter
+
 async function doRender() {
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
   const previewEl = document.getElementById('preview-container');
   statusEl.textContent = 'Compiling...';
   statusEl.style.color = '#e9c46a';
+  lastJsRenderOk = false;
+
+  // Try JS interpreter first
+  if (window.AsyInterp && AsyInterp.canInterpret(code)) {
+    try {
+      const result = AsyInterp.render(code);
+      previewEl.innerHTML = result.svg;
+      setupSvgInteractivityDirect(code, result.commandMap);
+      statusEl.textContent = 'Rendered (JS)'; statusEl.style.color = '#2ecc71';
+      lastJsRenderOk = true;
+      document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
+      return;
+    } catch(e) {
+      console.warn('JS interpreter failed, falling back to server:', e.message);
+    }
+  }
+
+  // Fall back to server
   try {
     const resp = await fetch(`${SERVER_URL}/compile`, {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1869,6 +1890,167 @@ function setupSvgInteractivity(code) {
     const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
     if (bestCi < 0) return;
 
+    const lineIdx = mapping[bestCi].primaryLine;
+    if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
+      StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
+    } else {
+      StyleMenu.show(e.clientX, e.clientY, lineIdx);
+    }
+  });
+
+  setupCodeHover();
+}
+
+// Direct interactivity setup for JS-interpreter-rendered SVG.
+// Uses the commandMap from the interpreter to build mappings directly,
+// bypassing the color probe entirely.
+function setupSvgInteractivityDirect(code, commandMap) {
+  const { mapping, parsed } = AsyParser.buildMapping(code);
+  currentMapping = mapping;
+  svgElsByCommand = new Map();
+  lineToCommandIdx = new Map();
+  lineToDepCommands = new Map();
+  multiSelected.clear();
+  for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  ++probeGeneration;
+
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+
+  // Build lineToCommandIdx and lineToDepCommands from AsyParser mapping
+  for (let ci = 0; ci < mapping.length; ci++) lineToCommandIdx.set(mapping[ci].primaryLine, ci);
+  for (let ci = 0; ci < mapping.length; ci++) {
+    for (const dl of mapping[ci].dependencyLines) {
+      if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
+      lineToDepCommands.get(dl).add(ci);
+    }
+  }
+
+  // Get SVG elements (same selector as setupSvgInteractivity)
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, use')]
+    .filter(el => !el.closest('defs'));
+  const elementToCommand = new Map();
+
+  // Build mapping from commandMap (interpreter's command→element mapping)
+  // The commandMap entries have {cmdIdx, elementIdx, line} where line is the source line (1-based from lexer)
+  // We need to match these to AsyParser's mapping by line number
+  for (let i = 0; i < svgElements.length; i++) {
+    const mapEntry = commandMap.find(cm => cm.elementIdx === i);
+    if (!mapEntry) continue;
+    // Find the AsyParser command index for this source line
+    // mapEntry.line is 1-based from the lexer; AsyParser uses 0-based lineIndex
+    const srcLine = mapEntry.line - 1; // convert to 0-based
+    let ci = -1;
+    // Direct lookup
+    if (lineToCommandIdx.has(srcLine)) {
+      ci = lineToCommandIdx.get(srcLine);
+    } else {
+      // Try nearby lines (in case of off-by-one from multi-line commands)
+      for (let d = 1; d <= 3; d++) {
+        if (lineToCommandIdx.has(srcLine - d)) { ci = lineToCommandIdx.get(srcLine - d); break; }
+        if (lineToCommandIdx.has(srcLine + d)) { ci = lineToCommandIdx.get(srcLine + d); break; }
+      }
+    }
+    if (ci >= 0) {
+      elementToCommand.set(svgElements[i], ci);
+      if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci, []);
+      svgElsByCommand.get(ci).push(svgElements[i]);
+    }
+  }
+
+  // probeReady resolves immediately (no probe needed)
+  const statusEl = document.getElementById('status');
+  probeReady = Promise.resolve();
+  statusEl.textContent = 'Rendered (JS)'; statusEl.style.color = '#2ecc71';
+
+  // Make all SVG elements accept pointer events
+  for (const el of svgElements) el.style.pointerEvents = 'all';
+
+  // Reuse the same hover/click/contextmenu logic as setupSvgInteractivity
+  function findNearest(clientX, clientY, onlyMapped) {
+    let bestCi = -1, bestDist = Infinity, bestEl = null;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; bestEl = el; }
+    }
+    if (bestDist > 30) return { ci: -1, el: null };
+    return { ci: bestCi, el: bestEl };
+  }
+
+  function findAllNear(clientX, clientY, onlyMapped, threshold) {
+    const results = [];
+    const thr = threshold || 30;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d <= thr) {
+        const lineIdx = (ci >= 0 && mapping[ci]) ? mapping[ci].primaryLine : -1;
+        results.push({ ci, el, dist: d, lineIdx });
+      }
+    }
+    const byLine = new Map();
+    for (const r of results) {
+      if (r.lineIdx < 0) continue;
+      if (!byLine.has(r.lineIdx) || r.dist < byLine.get(r.lineIdx).dist) {
+        byLine.set(r.lineIdx, r);
+      }
+    }
+    return [...byLine.values()].sort((a, b) => a.dist - b.dist);
+  }
+
+  let lastHoveredCi = -1, lastHoveredEl = null;
+  svg.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
+    if (bestCi >= 0 && bestCi === lastHoveredCi) return;
+    if (bestCi < 0 && bestEl === lastHoveredEl) return;
+    lastHoveredCi = bestCi; lastHoveredEl = bestEl;
+    clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+    if (bestCi >= 0) {
+      const cmd = mapping[bestCi];
+      for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
+      highlightLines(cmd.primaryLine, cmd.dependencyLines);
+    } else if (bestEl) {
+      highlightSvgElement(bestEl, 'strong');
+    }
+  });
+  svg.addEventListener('mouseleave', () => {
+    if (StyleMenu.visible) return;
+    lastHoveredCi = -1; lastHoveredEl = null;
+    clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+  });
+  svg.addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+    const candidates = findAllNear(e.clientX, e.clientY, true);
+    if (candidates.length === 0) return;
+    let target = candidates[0];
+    if (candidates.length > 1 && multiSelected.size > 0) {
+      const nearDist = target.dist;
+      const close = candidates.filter(c => c.dist - nearDist < 5);
+      if (close.length > 1) {
+        const selLines = [...multiSelected];
+        let bestCandidate = null, bestProximity = Infinity;
+        for (const c of close) {
+          if (multiSelected.has(c.lineIdx)) continue;
+          const proximity = Math.min(...selLines.map(s => Math.abs(c.lineIdx - s)));
+          if (proximity < bestProximity) { bestProximity = proximity; bestCandidate = c; }
+        }
+        if (bestCandidate) target = bestCandidate;
+      }
+    }
+    if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
+    else multiSelected.add(target.lineIdx);
+    renderMultiSelection();
+  });
+  svg.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
+    if (bestCi < 0) return;
     const lineIdx = mapping[bestCi].primaryLine;
     if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
       StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
@@ -2543,18 +2725,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dSvgX = svgX - startSvgX;
     const dSvgY = svgY - startSvgY;
 
-    // Move hit circle and glow elements instantly via SVG transform
-    if (fp.hitCircle) {
-      fp.hitCircle.setAttribute('cx', fp.svgCX + dSvgX);
-      fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
-    }
-    for (const el of fp.glowEls) {
-      // Glow elements live inside a <g transform="matrix(1 0 0 -1 0 0)"> that flips Y,
-      // so we need to negate the Y delta for their local coordinate space
-      el.setAttribute('transform', `translate(${dSvgX},${-dSvgY})`);
-    }
-
-    // Convert to math coords and update the code text (no render yet)
+    // Convert to math coords and update the code text
     const dx = dSvgX / slidePxPerUnit;
     const dy = -dSvgY / slidePxPerUnit; // Y is inverted
     const newX = (fp.x + dx).toFixed(2).replace(/\.?0+$/, '');
@@ -2566,7 +2737,33 @@ document.addEventListener('DOMContentLoaded', () => {
       /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
       `= (${newX}, ${newY})`
     );
-    editor.setValue(lines.join('\n'));
+    const newCode = lines.join('\n');
+    editor.setValue(newCode);
+
+    // Try JS interpreter for real-time full re-render during drag
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const result = AsyInterp.render(newCode);
+        previewEl.innerHTML = result.svg;
+        // Re-apply slide overlay on the new SVG
+        applySlideOverlay();
+        return;
+      } catch(e2) {
+        // Fall through to SVG transform approach
+      }
+    }
+
+    // Fallback: move hit circle and glow elements via SVG transform
+    const svg2 = document.querySelector('#preview-container svg');
+    if (!svg2) return;
+    if (fp.hitCircle) {
+      fp.hitCircle.setAttribute('cx', fp.svgCX + dSvgX);
+      fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
+    }
+    for (const el of fp.glowEls) {
+      el.setAttribute('transform', `translate(${dSvgX},${-dSvgY})`);
+    }
   }
 
   function slideMouseUp() {
@@ -2575,7 +2772,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (svg) svg.style.cursor = '';
     slideDragState = null;
 
-    // Now do a single Asymptote re-render for full fidelity
+    // If JS interpreter already rendered during drag, just re-apply overlay
+    const code = editor.getValue();
+    if (window.AsyInterp && AsyInterp.canInterpret(code)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const result = AsyInterp.render(code);
+        previewEl.innerHTML = result.svg;
+        setupSvgInteractivityDirect(code, result.commandMap);
+        if (slideActive) applySlideOverlay();
+        return;
+      } catch(e) { /* fall through to server */ }
+    }
+
+    // Fallback: server re-render for full fidelity
     doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
@@ -2588,7 +2798,22 @@ document.addEventListener('DOMContentLoaded', () => {
       /=\s*[-\d.]+\s*;/,
       `= ${value};`
     );
-    editor.setValue(lines.join('\n'));
+    const newCode = lines.join('\n');
+    editor.setValue(newCode);
+
+    // Try JS interpreter for instant response
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const result = AsyInterp.render(newCode);
+        previewEl.innerHTML = result.svg;
+        setupSvgInteractivityDirect(newCode, result.commandMap);
+        if (slideActive) applySlideOverlay();
+        return;
+      } catch(e) { /* fall through to server */ }
+    }
+
+    // Fallback to server
     doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
