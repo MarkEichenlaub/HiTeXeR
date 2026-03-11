@@ -567,7 +567,13 @@ function parse(tokens) {
     eat(T.LPAREN);
     const args = [];
     while (!at(T.RPAREN) && !at(T.EOF)) {
-      args.push(parseExpr());
+      // Support named parameters: name=value (skip the name, use the value)
+      if (at(T.IDENT) && pos+1 < tokens.length && tokens[pos+1].type === T.ASSIGN) {
+        pos += 2; // skip identifier and '='
+        args.push(parseExpr());
+      } else {
+        args.push(parseExpr());
+      }
       if (!tryEat(T.COMMA)) break;
     }
     eat(T.RPAREN);
