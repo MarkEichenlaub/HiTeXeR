@@ -9,6 +9,7 @@
 const T = {
   NUMBER:'NUMBER', STRING:'STRING', IDENT:'IDENT', BOOL:'BOOL',
   PLUS:'+', MINUS:'-', STAR:'*', SLASH:'/', CARET:'^', PERCENT:'%',
+  HATHAT:'^^',
   DASHDASH:'--', DOTDOT:'..', DOT:'.', COMMA:',', SEMI:';', COLON:':',
   LPAREN:'(', RPAREN:')', LBRACE:'{', RBRACE:'}', LBRACKET:'[', RBRACKET:']',
   ASSIGN:'=', EQ:'==', NEQ:'!=', LT:'<', GT:'>', LE:'<=', GE:'>=',
@@ -137,7 +138,7 @@ function lex(source) {
         break;
       case '*': advance(); if(ch()==='='){advance();add(T.STARASSIGN,'*=');}else{add(T.STAR,'*');} break;
       case '/': advance(); if(ch()==='='){advance();add(T.SLASHASSIGN,'/=');}else{add(T.SLASH,'/');} break;
-      case '^': advance(); add(T.CARET,'^'); break;
+      case '^': advance(); if(ch()==='^'){advance();add(T.HATHAT,'^^');}else{add(T.CARET,'^');} break;
       case '%': advance(); add(T.PERCENT,'%'); break;
       case '(': advance(); add(T.LPAREN,'('); break;
       case ')': advance(); add(T.RPAREN,')'); break;
@@ -388,6 +389,27 @@ function parse(tokens) {
     const ln = cur().line;
     eat(T.IDENT); // 'for'
     eat(T.LPAREN);
+
+    // Check for foreach syntax: for (type var : expr)
+    if (isTypeName() && peekType(1) === T.IDENT && peekType(2) === T.COLON) {
+      const elemType = eat(T.IDENT).value;
+      const elemName = eat(T.IDENT).value;
+      eat(T.COLON); // ':'
+      const iterExpr = parseExpr();
+      eat(T.RPAREN);
+      const body = parseStatement();
+      return {type:'ForEachStmt', elemType, elemName, iter: iterExpr, body, line: ln};
+    }
+    // Also handle: for (var : expr) without explicit type
+    if (at(T.IDENT) && peekType(1) === T.COLON) {
+      const elemName = eat(T.IDENT).value;
+      eat(T.COLON);
+      const iterExpr = parseExpr();
+      eat(T.RPAREN);
+      const body = parseStatement();
+      return {type:'ForEachStmt', elemType: 'var', elemName, iter: iterExpr, body, line: ln};
+    }
+
     let init = null;
     if (!at(T.SEMI)) {
       if (isDeclaration()) init = parseVarDecl(true);
@@ -492,7 +514,20 @@ function parse(tokens) {
       case T.EQ: case T.NEQ: return 4;
       case T.LT: case T.GT: case T.LE: case T.GE: return 5;
       case T.PLUS: case T.MINUS: return 6;
-      case T.DASHDASH: case T.DOTDOT: case T.DOTDOTDOT: return 6; // path join at same level
+      case T.DASHDASH: case T.DOTDOT: case T.DOTDOTDOT: case T.HATHAT: return 6; // path join at same level
+      case T.LBRACE: {
+        // {dir} after a point starts a path direction — give it path-join precedence
+        // so (0,0){1,0}..{1,0}(1,1) works inside function call args
+        // Quick lookahead: check for {expr,expr} pattern (exactly one comma at depth 0)
+        let d = 0, commas = 0;
+        for (let i = pos + 1; i < tokens.length; i++) {
+          if (tokens[i].type === T.LBRACE || tokens[i].type === T.LPAREN) d++;
+          else if (tokens[i].type === T.RPAREN) d--;
+          else if (tokens[i].type === T.RBRACE) { if (d === 0) break; d--; }
+          else if (d === 0 && tokens[i].type === T.COMMA) commas++;
+        }
+        return commas === 1 ? 6 : 0;
+      }
       case T.STAR: case T.SLASH: case T.PERCENT: return 7;
       case T.CARET: return 9; // right-assoc
       case T.QUESTION: return 1; // ternary
@@ -541,8 +576,8 @@ function parse(tokens) {
       return ArrayAccess(left, idx, ln);
     }
 
-    // Path joins
-    if (t.type === T.DASHDASH || t.type === T.DOTDOT || t.type === T.DOTDOTDOT) {
+    // Path joins (including {dir} which starts a path direction)
+    if (t.type === T.DASHDASH || t.type === T.DOTDOT || t.type === T.DOTDOTDOT || t.type === T.HATHAT || t.type === T.LBRACE) {
       return parsePathExpr(left);
     }
 
@@ -582,8 +617,50 @@ function parse(tokens) {
 
   function parsePathExpr(first) {
     const ln = first.line;
-    const nodes = [{point: first, join: null}];
-    while (at(T.DASHDASH) || at(T.DOTDOT) || at(T.DOTDOTDOT)) {
+    const nodes = [{point: first, join: null, dirOut: null}];
+
+    // Check for outgoing direction on first node: point{dir}
+    if (at(T.LBRACE)) {
+      const saved = pos;
+      pos++; // skip {
+      try {
+        const dx = parseExpr();
+        if (at(T.COMMA)) {
+          eat(T.COMMA);
+          const dy = parseExpr();
+          eat(T.RBRACE);
+          nodes[0].dirOut = {x: dx, y: dy};
+        } else {
+          pos = saved; // not a direction
+        }
+      } catch(e) { pos = saved; }
+    }
+
+    while (at(T.DASHDASH) || at(T.DOTDOT) || at(T.DOTDOTDOT) || at(T.HATHAT)) {
+      // Handle ^^ (path concatenation)
+      if (at(T.HATHAT)) {
+        pos++;
+        // Parse rest as a new path expression
+        const nextPoint = parseExpr(6);
+        nodes[nodes.length-1].join = '^^';
+        nodes.push({point: nextPoint, join: null, dirOut: null});
+        // Check for outgoing direction
+        if (at(T.LBRACE)) {
+          const saved = pos;
+          pos++;
+          try {
+            const dx = parseExpr();
+            if (at(T.COMMA)) {
+              eat(T.COMMA);
+              const dy = parseExpr();
+              eat(T.RBRACE);
+              nodes[nodes.length-1].dirOut = {x: dx, y: dy};
+            } else { pos = saved; }
+          } catch(e) { pos = saved; }
+        }
+        continue;
+      }
+
       const joinTok = eat(cur().type);
       const join = joinTok.value === '--' ? '--' : '..';
 
@@ -606,10 +683,43 @@ function parse(tokens) {
         eat(T.DOTDOT);
       }
 
+      // Check for incoming direction {dir}..
+      let dirIn = null;
+      if (at(T.LBRACE)) {
+        const saved = pos;
+        pos++;
+        try {
+          const dx = parseExpr();
+          if (at(T.COMMA)) {
+            eat(T.COMMA);
+            const dy = parseExpr();
+            eat(T.RBRACE);
+            dirIn = {x: dx, y: dy};
+          } else { pos = saved; }
+        } catch(e) { pos = saved; }
+      }
+
       const point = parseExpr(6); // parse at additive level to avoid consuming next --/..
       nodes[nodes.length-1].join = join;
       nodes[nodes.length-1].tension = tension;
-      nodes.push({point, join: null});
+      const newNode = {point, join: null, dirIn: dirIn};
+
+      // Check for outgoing direction on this new node
+      if (at(T.LBRACE)) {
+        const saved = pos;
+        pos++;
+        try {
+          const dx = parseExpr();
+          if (at(T.COMMA)) {
+            eat(T.COMMA);
+            const dy = parseExpr();
+            eat(T.RBRACE);
+            newNode.dirOut = {x: dx, y: dy};
+          } else { pos = saved; }
+        } catch(e) { pos = saved; }
+      }
+
+      nodes.push(newNode);
     }
     return PathExpr(nodes, ln);
   }
@@ -635,16 +745,18 @@ function parse(tokens) {
       return Assignment(operand, '-=', NumberLit(1, ln), ln);
     }
 
-    // Number, possibly followed by unit identifier (e.g., 1cm → 1*cm)
+    // Number, possibly followed by identifier for implicit multiplication (e.g., 2pi, 3n, 1cm)
     if (t.type === T.NUMBER) {
       pos++;
       const numNode = NumberLit(t.value, ln);
-      // Implicit multiplication with unit: 1cm, 2bp, etc.
+      // Implicit multiplication: 2pi, 3n, 1cm, etc.
       if (at(T.IDENT)) {
-        const unitNames = new Set(['cm','mm','inch','pt','bp']);
-        if (unitNames.has(cur().value)) {
-          const uName = cur().value; pos++;
-          return BinaryOp(T.STAR, numNode, Identifier(uName, ln), ln);
+        const nextVal = cur().value;
+        // Not a keyword that starts a statement or type declaration
+        const noImplicit = new Set(['if','else','for','while','do','return','break','continue','new','import','access','include','void']);
+        if (!noImplicit.has(nextVal) && !isDeclaration()) {
+          // Don't consume the ident - just emit a multiply and let normal parsing handle it
+          return BinaryOp(T.STAR, numNode, parseExpr(7), ln);
         }
       }
       return numNode;
@@ -1047,6 +1159,7 @@ function createInterpreter() {
       case 'ExprStmt': return evalNode(node.expr, env);
       case 'IfStmt': return evalIf(node, env);
       case 'ForStmt': return evalFor(node, env);
+      case 'ForEachStmt': return evalForEach(node, env);
       case 'WhileStmt': return evalWhile(node, env);
       case 'DoWhileStmt': return evalDoWhile(node, env);
       case 'ReturnStmt': throw ReturnSig(node.value ? evalNode(node.value,env) : null);
@@ -1373,6 +1486,33 @@ function createInterpreter() {
 
     if (points.length < 2) return makePath([], false);
 
+    // Handle ^^ (path concatenation) - split into separate sub-paths
+    // Find ^^ boundaries
+    const hathatIndices = [];
+    for (let i = 0; i < joins.length; i++) {
+      if (joins[i] === '^^') hathatIndices.push(i);
+    }
+
+    if (hathatIndices.length > 0) {
+      // Split into sub-paths at ^^ boundaries, return a path array
+      const allSegs = [];
+      let start = 0;
+      for (const hi of [...hathatIndices, joins.length]) {
+        const subPoints = points.slice(start, hi + 1);
+        const subJoins = joins.slice(start, hi);
+        if (subPoints.length >= 2) {
+          const subSegs = buildPathSegs(subPoints, subJoins, false);
+          allSegs.push(...subSegs);
+        }
+        start = hi + 1;
+      }
+      return makePath(allSegs, false);
+    }
+
+    return makePath(buildPathSegs(points, joins, hasCycle), hasCycle);
+  }
+
+  function buildPathSegs(points, joins, hasCycle) {
     // Check if all joins are '--' (straight line)
     const allStraight = joins.every(j => j === '--');
 
@@ -1383,14 +1523,12 @@ function createInterpreter() {
         const j = (i+1) % points.length;
         segs.push(lineSegment(points[i], points[j]));
       }
-      return makePath(segs, hasCycle);
+      return segs;
     }
 
     // Hobby's algorithm for '..' joins
-    // For mixed joins, treat '--' as a special case
     if (joins.every(j => j === '..')) {
-      const segs = hobbySpline(points, hasCycle);
-      return makePath(segs, hasCycle);
+      return hobbySpline(points, hasCycle);
     }
 
     // Mixed joins: segment by segment
@@ -1401,12 +1539,11 @@ function createInterpreter() {
       if (joins[i] === '--') {
         segs.push(lineSegment(points[i], points[j]));
       } else {
-        // Use hobby for this individual curve segment
         const s = hobbySpline([points[i], points[j]], false);
         segs.push(...s);
       }
     }
-    return makePath(segs, hasCycle);
+    return segs;
   }
 
   function evalVarDecl(node, env) {
@@ -1414,14 +1551,18 @@ function createInterpreter() {
     if (node.init) val = evalNode(node.init, env);
     else {
       // Default values by type
-      switch(node.varType) {
-        case 'int': case 'real': val = 0; break;
-        case 'pair': val = makePair(0,0); break;
-        case 'pen': val = makePen({}); break;
-        case 'path': case 'guide': val = makePath([],false); break;
-        case 'transform': val = makeTransform(0,1,0,0,0,1); break;
-        case 'string': val = ''; break;
-        case 'bool': val = false; break;
+      if (node.varType.endsWith('[]')) {
+        val = [];
+      } else {
+        switch(node.varType) {
+          case 'int': case 'real': val = 0; break;
+          case 'pair': val = makePair(0,0); break;
+          case 'pen': val = makePen({}); break;
+          case 'path': case 'guide': val = makePath([],false); break;
+          case 'transform': val = makeTransform(0,1,0,0,0,1); break;
+          case 'string': val = ''; break;
+          case 'bool': val = false; break;
+        }
       }
     }
     env.set(node.name, val);
@@ -1517,6 +1658,25 @@ function createInterpreter() {
     return null;
   }
 
+  function evalForEach(node, env) {
+    const local = createEnv(env);
+    const iterVal = evalNode(node.iter, env);
+    if (!isArray(iterVal)) return null;
+    let iters = 0;
+    for (const item of iterVal) {
+      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
+      local.set(node.elemName, item);
+      try {
+        if (node.body) evalNode(node.body, local);
+      } catch(e) {
+        if (e === BREAK_SIG) break;
+        if (e === CONTINUE_SIG) continue;
+        throw e;
+      }
+    }
+    return null;
+  }
+
   function evalFuncDecl(node, env) {
     const func = {_tag:'func', name:node.name, params:node.params, body:node.body, closure:env};
     env.set(node.name, func);
@@ -1524,11 +1684,12 @@ function createInterpreter() {
   }
 
   function evalImport(node, env) {
-    // Supported imports: olympiad, cse5, math, markers
-    // These inject geometry functions that are already in stdlib
     const mod = node.module.toLowerCase();
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry')) {
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers')) {
       // Already installed in stdlib
+    }
+    if (mod.includes('graph')) {
+      installGraphPackage(env);
     }
     return null;
   }
@@ -2053,6 +2214,7 @@ function createInterpreter() {
     });
     env.set('write', (...args) => { /* no-op in browser */ });
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
+    env.set('unitrand', () => Math.random());
 
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
@@ -2075,10 +2237,231 @@ function createInterpreter() {
       return null;
     });
     env.set('NoFill', null);
+    env.set('UnFill', null);
+
+    // Margin types
+    env.set('Margins', null);
+    env.set('TrueMargin', (...args) => null);
+    env.set('DotMargin', null);
+    env.set('DotMargins', null);
+    env.set('NoMargin', null);
+    env.set('BeginMargin', null);
+    env.set('EndMargin', null);
+    env.set('Margin', (...args) => null);
+
+    // Arrow head types
+    env.set('TeXHead', null);
+    env.set('HookHead', null);
+    env.set('SimpleHead', null);
 
     // markangle and related
     env.set('markangle', (...args) => null);
     env.set('markers', null);
+  }
+
+  // ============================================================
+  // Graph Package
+  // ============================================================
+
+  let graphPackageInstalled = false;
+
+  function installGraphPackage(env) {
+    if (graphPackageInstalled) return;
+    graphPackageInstalled = true;
+
+    // graph() function: plot a function over a range
+    env.set('graph', (...args) => {
+      // graph(f, a, b) or graph(f, a, b, n) or graph(x[], y[])
+      if (args.length >= 2 && isArray(args[0]) && isArray(args[1])) {
+        // graph(real[] x, real[] y)
+        const xs = args[0], ys = args[1];
+        const pts = [];
+        for (let i = 0; i < Math.min(xs.length, ys.length); i++) {
+          pts.push({x: toNumber(xs[i]), y: toNumber(ys[i])});
+        }
+        if (pts.length < 2) return makePath([], false);
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          segs.push(lineSegment(pts[i], pts[i+1]));
+        }
+        return makePath(segs, false);
+      }
+
+      if (args.length >= 3 && typeof args[0] === 'function') {
+        const f = args[0];
+        const a = toNumber(args[1]), b = toNumber(args[2]);
+        const n = args.length >= 4 ? Math.floor(toNumber(args[3])) : 100;
+        const join = (args.length >= 5 && args[4] && args[4]._tag === 'path') ? '..' : '--';
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const x = a + (b - a) * i / n;
+          try {
+            const y = toNumber(f(x));
+            if (isFinite(y)) pts.push({x, y});
+          } catch(e) { /* skip bad points */ }
+        }
+        if (pts.length < 2) return makePath([], false);
+        // Use straight line segments for '--' (default for graph)
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          segs.push(lineSegment(pts[i], pts[i+1]));
+        }
+        return makePath(segs, false);
+      }
+
+      // graph(pic, f, a, b) - ignore picture arg
+      if (args.length >= 4 && typeof args[1] === 'function') {
+        const f = args[1];
+        const a = toNumber(args[2]), b = toNumber(args[3]);
+        const n = args.length >= 5 ? Math.floor(toNumber(args[4])) : 100;
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const x = a + (b - a) * i / n;
+          try {
+            const y = toNumber(f(x));
+            if (isFinite(y)) pts.push({x, y});
+          } catch(e) {}
+        }
+        if (pts.length < 2) return makePath([], false);
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          segs.push(lineSegment(pts[i], pts[i+1]));
+        }
+        return makePath(segs, false);
+      }
+
+      return makePath([], false);
+    });
+
+    // xaxis and yaxis
+    env.set('xaxis', (...args) => {
+      // xaxis(Label, real xmin, real xmax, pen, Ticks, Arrow, ...)
+      // Simplified: draw an x-axis line with optional ticks
+      let label = '', xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      for (const a of args) {
+        if (isString(a) && !label) label = a;
+        else if (typeof a === 'number') {
+          if (xmin === null) xmin = a;
+          else if (xmax === null) xmax = a;
+        }
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'ticks') ticks = a;
+      }
+
+      // Use bounding box if not specified
+      if (xmin === null) xmin = -5;
+      if (xmax === null) xmax = 5;
+      if (!pen) pen = clonePen(defaultPen);
+
+      const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
+      drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
+
+      // Draw ticks
+      if (ticks) {
+        const step = ticks.step || 1;
+        const tickSize = ticks.size || 0.1;
+        for (let x = Math.ceil(xmin/step)*step; x <= xmax; x += step) {
+          if (Math.abs(x) < 1e-10) continue; // skip origin
+          const tickPath = makePath([lineSegment({x,y:-tickSize},{x,y:tickSize})], false);
+          drawCommands.push({cmd:'draw', path:tickPath, pen, arrow:null, line: 0});
+          if (ticks.labels) {
+            drawCommands.push({cmd:'label', text:String(Math.round(x*1000)/1000), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
+          }
+        }
+      }
+
+      if (label) {
+        drawCommands.push({cmd:'label', text: stripLaTeX(label), pos:{x:(xmin+xmax)/2, y:0}, align:{x:0,y:-1.5}, pen, line:0});
+      }
+    });
+
+    env.set('yaxis', (...args) => {
+      let label = '', ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      for (const a of args) {
+        if (isString(a) && !label) label = a;
+        else if (typeof a === 'number') {
+          if (ymin === null) ymin = a;
+          else if (ymax === null) ymax = a;
+        }
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'ticks') ticks = a;
+      }
+
+      if (ymin === null) ymin = -5;
+      if (ymax === null) ymax = 5;
+      if (!pen) pen = clonePen(defaultPen);
+
+      const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
+      drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
+
+      if (ticks) {
+        const step = ticks.step || 1;
+        const tickSize = ticks.size || 0.1;
+        for (let y = Math.ceil(ymin/step)*step; y <= ymax; y += step) {
+          if (Math.abs(y) < 1e-10) continue;
+          const tickPath = makePath([lineSegment({x:-tickSize,y},{x:tickSize,y})], false);
+          drawCommands.push({cmd:'draw', path:tickPath, pen, arrow:null, line: 0});
+          if (ticks.labels) {
+            drawCommands.push({cmd:'label', text:String(Math.round(y*1000)/1000), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
+          }
+        }
+      }
+
+      if (label) {
+        drawCommands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:(ymin+ymax)/2}, align:{x:-1.5,y:0}, pen, line:0});
+      }
+    });
+
+    // axes() - draw both axes
+    env.set('axes', (...args) => {
+      let xlabel = '', ylabel = '', xmin = null, xmax = null, ymin = null, ymax = null, pen = null, arrow = null, ticks = null;
+      for (const a of args) {
+        if (isString(a)) {
+          if (!xlabel) xlabel = a;
+          else if (!ylabel) ylabel = a;
+        }
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'ticks') ticks = a;
+      }
+      env.get('xaxis')(xlabel, pen, arrow);
+      env.get('yaxis')(ylabel, pen, arrow);
+    });
+
+    // Ticks constructors
+    env.set('Ticks', (...args) => {
+      const t = {_tag: 'ticks', step: 1, size: 0.1, labels: true};
+      for (const a of args) {
+        if (typeof a === 'number') t.step = a;
+        else if (isString(a)) { /* format string, ignored */ }
+        else if (isPen(a)) t.pen = a;
+      }
+      return t;
+    });
+    env.set('LeftTicks', (...args) => {
+      const t = env.get('Ticks')(...args);
+      t.side = 'left';
+      return t;
+    });
+    env.set('RightTicks', (...args) => {
+      const t = env.get('Ticks')(...args);
+      t.side = 'right';
+      return t;
+    });
+    env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false});
+
+    // Scale types
+    env.set('Linear', null);
+    env.set('Log', null);
+    env.set('Logarithmic', null);
+
+    // xlimits/ylimits
+    env.set('xlimits', (a, b) => null);
+    env.set('ylimits', (a, b) => null);
+    env.set('limits', (a, b) => null);
+    env.set('crop', () => null);
   }
 
   // Draw command evaluators
@@ -2701,7 +3084,6 @@ function canInterpret(code) {
   if (/\bstruct\b/.test(code)) return false;
   if (/\btriple\b/.test(code)) return false;
   if (/\bimport\s+three\b/.test(code)) return false;
-  if (/\bimport\s+graph\b/.test(code)) return false;
   if (/\bimport\s+contour\b/.test(code)) return false;
   if (/\bimport\s+flowchart\b/.test(code)) return false;
   if (/\bimport\s+animation\b/.test(code)) return false;
