@@ -34,8 +34,9 @@ const KEYWORDS = new Set([
 ]);
 
 const TYPE_NAMES = new Set([
-  'int','real','pair','triple','string','bool','pen','path','guide',
-  'picture','transform','void','var',
+  'int','real','pair','triple','string','bool','bool3','pen','path','guide',
+  'picture','transform','void','var','Label','file',
+  'projection','revolution','surface','material',
 ]);
 
 // ============================================================
@@ -136,7 +137,7 @@ function lex(source) {
         else if(ch()==='>'){advance();add(T.ARROW,'=>');}
         else{add(T.MINUS,'-');}
         break;
-      case '*': advance(); if(ch()==='='){advance();add(T.STARASSIGN,'*=');}else{add(T.STAR,'*');} break;
+      case '*': advance(); if(ch()==='='){advance();add(T.STARASSIGN,'*=');}else if(ch()==='*'){advance();add(T.CARET,'^');}else{add(T.STAR,'*');} break;
       case '/': advance(); if(ch()==='='){advance();add(T.SLASHASSIGN,'/=');}else{add(T.SLASH,'/');} break;
       case '^': advance(); if(ch()==='^'){advance();add(T.HATHAT,'^^');}else{add(T.CARET,'^');} break;
       case '%': advance(); add(T.PERCENT,'%'); break;
@@ -518,6 +519,10 @@ function parse(tokens) {
       case T.LBRACE: {
         // {dir} after a point starts a path direction — give it path-join precedence
         // so (0,0){1,0}..{1,0}(1,1) works inside function call args
+        // Also handle named directions: {up}, {down}, {left}, {right}, etc.
+        if (pos + 2 < tokens.length && tokens[pos+1].type === T.IDENT
+            && NAMED_DIRS && NAMED_DIRS[tokens[pos+1].value]
+            && tokens[pos+2].type === T.RBRACE) return 6;
         // Quick lookahead: check for {expr,expr} pattern (exactly one comma at depth 0)
         let d = 0, commas = 0;
         for (let i = pos + 1; i < tokens.length; i++) {
@@ -615,49 +620,50 @@ function parse(tokens) {
     return FuncCall(callee, args, ln);
   }
 
+  // Named direction keywords for {up}, {down}, {left}, {right}
+  const NAMED_DIRS = {up:{x:0,y:1}, down:{x:0,y:-1}, left:{x:-1,y:0}, right:{x:1,y:0},
+    N:{x:0,y:1}, S:{x:0,y:-1}, E:{x:1,y:0}, W:{x:-1,y:0},
+    NE:{x:1,y:1}, NW:{x:-1,y:1}, SE:{x:1,y:-1}, SW:{x:-1,y:-1}};
+
+  // Try to parse a {dir} specifier. Returns direction object or null, restoring pos on failure.
+  function tryParseDir() {
+    if (!at(T.LBRACE)) return null;
+    const saved = pos;
+    pos++; // skip {
+    // Check for named direction: {up}, {down}, etc.
+    if (at(T.IDENT) && NAMED_DIRS[cur().value] && peekType(1) === T.RBRACE) {
+      const d = NAMED_DIRS[cur().value];
+      pos++; eat(T.RBRACE);
+      return {x: NumberLit(d.x, saved), y: NumberLit(d.y, saved)};
+    }
+    try {
+      const dx = parseExpr();
+      if (at(T.COMMA)) {
+        eat(T.COMMA);
+        const dy = parseExpr();
+        eat(T.RBRACE);
+        return {x: dx, y: dy};
+      } else { pos = saved; return null; }
+    } catch(e) { pos = saved; return null; }
+  }
+
   function parsePathExpr(first) {
     const ln = first.line;
     const nodes = [{point: first, join: null, dirOut: null}];
 
     // Check for outgoing direction on first node: point{dir}
-    if (at(T.LBRACE)) {
-      const saved = pos;
-      pos++; // skip {
-      try {
-        const dx = parseExpr();
-        if (at(T.COMMA)) {
-          eat(T.COMMA);
-          const dy = parseExpr();
-          eat(T.RBRACE);
-          nodes[0].dirOut = {x: dx, y: dy};
-        } else {
-          pos = saved; // not a direction
-        }
-      } catch(e) { pos = saved; }
-    }
+    const d0 = tryParseDir();
+    if (d0) nodes[0].dirOut = d0;
 
     while (at(T.DASHDASH) || at(T.DOTDOT) || at(T.DOTDOTDOT) || at(T.HATHAT)) {
       // Handle ^^ (path concatenation)
       if (at(T.HATHAT)) {
         pos++;
-        // Parse rest as a new path expression
         const nextPoint = parseExpr(6);
         nodes[nodes.length-1].join = '^^';
         nodes.push({point: nextPoint, join: null, dirOut: null});
-        // Check for outgoing direction
-        if (at(T.LBRACE)) {
-          const saved = pos;
-          pos++;
-          try {
-            const dx = parseExpr();
-            if (at(T.COMMA)) {
-              eat(T.COMMA);
-              const dy = parseExpr();
-              eat(T.RBRACE);
-              nodes[nodes.length-1].dirOut = {x: dx, y: dy};
-            } else { pos = saved; }
-          } catch(e) { pos = saved; }
-        }
+        const dOut = tryParseDir();
+        if (dOut) nodes[nodes.length-1].dirOut = dOut;
         continue;
       }
 
@@ -683,21 +689,8 @@ function parse(tokens) {
         eat(T.DOTDOT);
       }
 
-      // Check for incoming direction {dir}..
-      let dirIn = null;
-      if (at(T.LBRACE)) {
-        const saved = pos;
-        pos++;
-        try {
-          const dx = parseExpr();
-          if (at(T.COMMA)) {
-            eat(T.COMMA);
-            const dy = parseExpr();
-            eat(T.RBRACE);
-            dirIn = {x: dx, y: dy};
-          } else { pos = saved; }
-        } catch(e) { pos = saved; }
-      }
+      // Check for incoming direction {dir}
+      const dirIn = tryParseDir();
 
       const point = parseExpr(6); // parse at additive level to avoid consuming next --/..
       nodes[nodes.length-1].join = join;
@@ -705,19 +698,8 @@ function parse(tokens) {
       const newNode = {point, join: null, dirIn: dirIn};
 
       // Check for outgoing direction on this new node
-      if (at(T.LBRACE)) {
-        const saved = pos;
-        pos++;
-        try {
-          const dx = parseExpr();
-          if (at(T.COMMA)) {
-            eat(T.COMMA);
-            const dy = parseExpr();
-            eat(T.RBRACE);
-            newNode.dirOut = {x: dx, y: dy};
-          } else { pos = saved; }
-        } catch(e) { pos = saved; }
-      }
+      const dOutN = tryParseDir();
+      if (dOutN) newNode.dirOut = dOutN;
 
       nodes.push(newNode);
     }
@@ -771,10 +753,43 @@ function parse(tokens) {
     // null
     if (t.type === T.IDENT && t.value === 'null') { pos++; return NullLit(ln); }
 
-    // new array
+    // operator keyword: operator .. or operator --
+    if (t.type === T.IDENT && t.value === 'operator') {
+      pos++;
+      let opVal = '';
+      if (at(T.DOTDOT) || at(T.DOTDOTDOT)) { opVal = cur().value; pos++; }
+      else if (at(T.DASHDASH)) { opVal = '--'; pos++; }
+      else if (at(T.PLUS)) { opVal = '+'; pos++; }
+      else if (at(T.MINUS)) { opVal = '-'; pos++; }
+      else if (at(T.STAR)) { opVal = '*'; pos++; }
+      else if (at(T.CARET)) { opVal = '^'; pos++; }
+      else { opVal = cur().value; pos++; }
+      return {type:'OperatorLit', value: opVal, line: ln};
+    }
+
+    // new — anonymous function or array
     if (t.type === T.IDENT && t.value === 'new') {
       pos++;
       const aType = at(T.IDENT) ? eat(T.IDENT).value : 'real';
+      // Anonymous function: new type(params){ body }
+      if (at(T.LPAREN)) {
+        const saved = pos;
+        // Peek: is this new type(params){ body } ?
+        eat(T.LPAREN);
+        let depth = 1, canBeFunc = false;
+        while (depth > 0 && !at(T.EOF)) {
+          if (at(T.LPAREN)) depth++;
+          if (at(T.RPAREN)) depth--;
+          if (depth > 0) pos++;
+        }
+        if (at(T.RPAREN)) pos++;
+        canBeFunc = at(T.LBRACE);
+        pos = saved;
+        if (canBeFunc) {
+          // Parse as anonymous function declaration
+          return parseFuncDeclBody(aType, '', ln);
+        }
+      }
       if (tryEat(T.LBRACKET)) eat(T.RBRACKET);
       // Might have initializer
       if (at(T.LBRACE)) {
@@ -1167,6 +1182,7 @@ function createInterpreter() {
       case 'ContinueStmt': throw CONTINUE_SIG;
       case 'FuncDecl': return evalFuncDecl(node, env);
       case 'ImportStmt': return evalImport(node, env);
+      case 'OperatorLit': return {_tag:'operator', value: node.value};
       default: return null;
     }
   }
@@ -1366,6 +1382,28 @@ function createInterpreter() {
     for (let i = 0; i < params.length; i++) {
       if (i < argNodes.length) {
         local.set(params[i].name, evalNode(argNodes[i], callEnv));
+      } else if (params[i].default) {
+        local.set(params[i].name, evalNode(params[i].default, local));
+      } else {
+        local.set(params[i].name, null);
+      }
+    }
+    try {
+      evalNode(func.body, local);
+    } catch(e) {
+      if (e && e._sig === 'return') return e.value;
+      throw e;
+    }
+    return null;
+  }
+
+  // Call a user-defined function with already-evaluated argument values
+  function callUserFuncValues(func, argValues) {
+    const local = createEnv(func.closure);
+    const params = func.params;
+    for (let i = 0; i < params.length; i++) {
+      if (i < argValues.length) {
+        local.set(params[i].name, argValues[i]);
       } else if (params[i].default) {
         local.set(params[i].name, evalNode(params[i].default, local));
       } else {
@@ -1679,14 +1717,14 @@ function createInterpreter() {
 
   function evalFuncDecl(node, env) {
     const func = {_tag:'func', name:node.name, params:node.params, body:node.body, closure:env};
-    env.set(node.name, func);
+    if (node.name) env.set(node.name, func);
     return func;
   }
 
   function evalImport(node, env) {
     const mod = node.module.toLowerCase();
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers')) {
-      // Already installed in stdlib
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('solids') || mod.includes('contour') || mod.includes('palette')) {
+      // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
     }
     if (mod.includes('graph')) {
       installGraphPackage(env);
@@ -2269,65 +2307,107 @@ function createInterpreter() {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
 
+    // Helper: build path from points, using smooth (..) or straight (--) joins
+    function buildGraphPath(pts, useSmooth) {
+      if (pts.length < 2) return makePath([], false);
+      if (useSmooth) {
+        // Catmull-Rom-style smooth curve
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i], p1 = pts[i+1];
+          const prev = i > 0 ? pts[i-1] : null;
+          const next = i < pts.length - 2 ? pts[i+2] : null;
+          const dx = p1.x - p0.x, dy = p1.y - p0.y;
+          const len = Math.sqrt(dx*dx + dy*dy) / 3;
+          let tx0 = dx, ty0 = dy;
+          if (prev) { tx0 = (p1.x - prev.x)/2; ty0 = (p1.y - prev.y)/2; }
+          let tx1 = dx, ty1 = dy;
+          if (next) { tx1 = (next.x - p0.x)/2; ty1 = (next.y - p0.y)/2; }
+          const tLen0 = Math.sqrt(tx0*tx0+ty0*ty0) || 1;
+          const tLen1 = Math.sqrt(tx1*tx1+ty1*ty1) || 1;
+          segs.push({
+            p0, p3: p1,
+            cp1: {x: p0.x + tx0/tLen0*len, y: p0.y + ty0/tLen0*len},
+            cp2: {x: p1.x - tx1/tLen1*len, y: p1.y - ty1/tLen1*len}
+          });
+        }
+        return makePath(segs, false);
+      }
+      const segs = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        segs.push(lineSegment(pts[i], pts[i+1]));
+      }
+      return makePath(segs, false);
+    }
+    // Check if an arg is an operator value
+    function isOperator(a) { return a && a._tag === 'operator'; }
+    function wantsSmooth(args) {
+      for (const a of args) {
+        if (isOperator(a) && (a.value === '..' || a.value === '...')) return true;
+      }
+      return false;
+    }
+
     // graph() function: plot a function over a range
     env.set('graph', (...args) => {
-      // graph(f, a, b) or graph(f, a, b, n) or graph(x[], y[])
-      if (args.length >= 2 && isArray(args[0]) && isArray(args[1])) {
-        // graph(real[] x, real[] y)
-        const xs = args[0], ys = args[1];
+      // Filter out non-essential args: find functions, numbers, arrays, operators, bool3 funcs
+      const smooth = wantsSmooth(args);
+      // Strip operator/bool3/picture args for cleaner matching
+      const coreArgs = args.filter(a => !isOperator(a));
+
+      // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
+      if (coreArgs.length >= 2 && isArray(coreArgs[0]) && isArray(coreArgs[1])) {
+        const xs = coreArgs[0], ys = coreArgs[1];
         const pts = [];
         for (let i = 0; i < Math.min(xs.length, ys.length); i++) {
           pts.push({x: toNumber(xs[i]), y: toNumber(ys[i])});
         }
-        if (pts.length < 2) return makePath([], false);
-        const segs = [];
-        for (let i = 0; i < pts.length - 1; i++) {
-          segs.push(lineSegment(pts[i], pts[i+1]));
-        }
-        return makePath(segs, false);
+        return buildGraphPath(pts, smooth);
       }
 
-      if (args.length >= 3 && typeof args[0] === 'function') {
-        const f = args[0];
-        const a = toNumber(args[1]), b = toNumber(args[2]);
-        const n = args.length >= 4 ? Math.floor(toNumber(args[3])) : 100;
-        const join = (args.length >= 5 && args[4] && args[4]._tag === 'path') ? '..' : '--';
+      // Find the function argument(s) and numeric range
+      let funcArg = null, funcIdx = -1;
+      for (let i = 0; i < coreArgs.length; i++) {
+        if (typeof coreArgs[i] === 'function' || (coreArgs[i] && coreArgs[i]._tag === 'func')) {
+          // Skip bool3 filter functions (they appear after main function)
+          if (funcArg === null) { funcArg = coreArgs[i]; funcIdx = i; }
+        }
+      }
+
+      if (funcArg !== null) {
+        // Gather numeric args after the function
+        const nums = [];
+        for (let i = funcIdx + 1; i < coreArgs.length; i++) {
+          if (typeof coreArgs[i] === 'number') nums.push(coreArgs[i]);
+          else if (typeof coreArgs[i] === 'function' || (coreArgs[i] && coreArgs[i]._tag === 'func')) break; // bool3 filter
+        }
+        const a = nums[0] !== undefined ? nums[0] : 0;
+        const b = nums[1] !== undefined ? nums[1] : 1;
+        const n = nums[2] !== undefined ? Math.floor(nums[2]) : 100;
+
+        // Check if function returns a pair (parametric curve)
+        let isPairFunc = false;
+        try {
+          const testVal = typeof funcArg === 'function' ? funcArg(a) : callUserFuncValues(funcArg, [a]);
+          if (testVal && testVal._tag === 'pair') isPairFunc = true;
+        } catch(e) {}
+
         const pts = [];
         for (let i = 0; i <= n; i++) {
-          const x = a + (b - a) * i / n;
+          const t = a + (b - a) * i / n;
           try {
-            const y = toNumber(f(x));
-            if (isFinite(y)) pts.push({x, y});
+            const result = typeof funcArg === 'function' ? funcArg(t) : callUserFuncValues(funcArg, [t]);
+            if (isPairFunc) {
+              if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
+                pts.push({x: result.x, y: result.y});
+              }
+            } else {
+              const y = toNumber(result);
+              if (isFinite(y)) pts.push({x: t, y});
+            }
           } catch(e) { /* skip bad points */ }
         }
-        if (pts.length < 2) return makePath([], false);
-        // Use straight line segments for '--' (default for graph)
-        const segs = [];
-        for (let i = 0; i < pts.length - 1; i++) {
-          segs.push(lineSegment(pts[i], pts[i+1]));
-        }
-        return makePath(segs, false);
-      }
-
-      // graph(pic, f, a, b) - ignore picture arg
-      if (args.length >= 4 && typeof args[1] === 'function') {
-        const f = args[1];
-        const a = toNumber(args[2]), b = toNumber(args[3]);
-        const n = args.length >= 5 ? Math.floor(toNumber(args[4])) : 100;
-        const pts = [];
-        for (let i = 0; i <= n; i++) {
-          const x = a + (b - a) * i / n;
-          try {
-            const y = toNumber(f(x));
-            if (isFinite(y)) pts.push({x, y});
-          } catch(e) {}
-        }
-        if (pts.length < 2) return makePath([], false);
-        const segs = [];
-        for (let i = 0; i < pts.length - 1; i++) {
-          segs.push(lineSegment(pts[i], pts[i+1]));
-        }
-        return makePath(segs, false);
+        return buildGraphPath(pts, smooth);
       }
 
       return makePath([], false);
@@ -3084,6 +3164,8 @@ function canInterpret(code) {
   if (/\bstruct\b/.test(code)) return false;
   if (/\btriple\b/.test(code)) return false;
   if (/\bimport\s+three\b/.test(code)) return false;
+  if (/\bimport\s+graph3\b/.test(code)) return false;
+  if (/\bimport\s+solids\b/.test(code)) return false;
   if (/\bimport\s+contour\b/.test(code)) return false;
   if (/\bimport\s+flowchart\b/.test(code)) return false;
   if (/\bimport\s+animation\b/.test(code)) return false;
