@@ -1,0 +1,2529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR (Online) - Interactive Asymptote Editor</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/monokai.min.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#toolbar {
+  background: #16213e;
+  border-bottom: 2px solid #0f3460;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+#toolbar h1 { font-size: 18px; font-weight: 700; color: #e94560; margin-right: 16px; letter-spacing: 1px; }
+#toolbar button {
+  background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
+  padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background 0.15s;
+}
+#toolbar button:hover { background: #1a1a5e; }
+#toolbar button.primary { background: #e94560; border-color: #e94560; }
+#toolbar button.primary:hover { background: #c73e54; }
+#toolbar .status { margin-left: auto; font-size: 12px; color: #888; }
+
+#main { display: flex; flex: 1; overflow: hidden; }
+
+#editor-panel {
+  width: 50%; display: flex; flex-direction: column; border-right: 2px solid #0f3460;
+}
+#editor-panel .CodeMirror { flex: 1; height: auto; font-size: 14px; line-height: 1.5; }
+
+#preview-panel { width: 50%; display: flex; flex-direction: column; background: #fff; position: relative; }
+#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px; }
+#preview-container svg { max-width: 100%; max-height: 100%; }
+#preview-container .error {
+  color: #e94560; font-family: monospace; font-size: 13px; white-space: pre-wrap;
+  padding: 20px; background: #1a1a2e; border-radius: 4px; max-width: 90%;
+}
+#preview-container .placeholder { color: #999; font-size: 14px; text-align: center; }
+#preview-container { position: relative; }
+#preview-stale-badge {
+  display: none; position: absolute; top: 6px; left: 6px; z-index: 100;
+  background: rgba(233,69,96,0.85); color: #fff; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 3px; pointer-events: none;
+  font-family: system-ui, sans-serif;
+}
+#preview-warn-badge {
+  display: none; position: absolute; top: 6px; right: 6px; z-index: 100;
+  background: rgba(233,196,106,0.9); color: #1a1a2e; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 3px; pointer-events: none;
+  font-family: system-ui, sans-serif;
+}
+
+/* Highlight styles for code lines */
+.cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
+.cm-highlight-dependency { background-color: rgba(233, 69, 96, 0.15) !important; outline: 1px solid rgba(233, 69, 96, 0.25); }
+.cm-highlight-selected { background-color: rgba(59, 130, 246, 0.4) !important; outline: 1px solid rgba(59, 130, 246, 0.6); }
+.cm-line-hidden { display: none !important; }
+
+/* Resizer */
+#resizer { width: 4px; background: #0f3460; cursor: col-resize; flex-shrink: 0; }
+#resizer:hover { background: #e94560; }
+
+/* ========== Style Context Menu ========== */
+#style-menu {
+  position: fixed; z-index: 10000;
+  background: #1e1e2e; border: 1px solid #555; border-radius: 8px;
+  padding: 14px; min-width: 290px; max-width: 350px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  font-size: 13px; color: #ccc; display: none;
+  max-height: 80vh; overflow-y: auto;
+}
+#style-menu.visible { display: block; }
+
+#style-menu .sm-heading {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: #888; margin: 10px 0 5px; padding-bottom: 3px; border-bottom: 1px solid #333;
+}
+#style-menu .sm-heading:first-child { margin-top: 0; }
+
+#style-menu .pen-badge {
+  background: #2a2a3e; padding: 5px 8px; border-radius: 4px;
+  font-family: monospace; font-size: 12px; color: #e9c46a; margin-bottom: 10px;
+  word-break: break-all;
+}
+#style-menu .pen-badge .pen-shared {
+  display: block; font-size: 10px; color: #888; margin-top: 3px; font-family: sans-serif;
+}
+
+/* Color grid */
+#style-menu .color-grid { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
+#style-menu .color-swatch {
+  width: 22px; height: 22px; border-radius: 3px; border: 2px solid transparent;
+  cursor: pointer; transition: transform 0.1s;
+}
+#style-menu .color-swatch:hover { transform: scale(1.2); }
+#style-menu .color-swatch.active { border-color: #e94560; box-shadow: 0 0 4px #e94560; }
+#style-menu .color-custom { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+#style-menu .color-custom input[type="color"] { width: 28px; height: 28px; border: none; cursor: pointer; background: none; padding: 0; }
+#style-menu .color-custom span { font-size: 11px; color: #888; }
+
+/* Option rows */
+#style-menu .opt-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+#style-menu .opt-row label { flex: 0 0 72px; font-size: 12px; color: #aaa; }
+#style-menu .opt-row > :last-child { flex: 1; }
+#style-menu select, #style-menu input[type="number"] {
+  background: #2a2a3e; color: #eee; border: 1px solid #444; border-radius: 4px;
+  padding: 4px 8px; font-size: 13px; width: 100%;
+}
+
+/* Line style options */
+#style-menu .ls-option {
+  display: flex; align-items: center; gap: 8px; padding: 3px 8px; cursor: pointer; border-radius: 3px;
+}
+#style-menu .ls-option:hover { background: #2a2a3e; }
+#style-menu .ls-option.active { background: #3a2040; }
+#style-menu .ls-preview { width: 50px; height: 0; border-top: 2px solid #ccc; flex-shrink: 0; }
+
+/* Arrow options */
+#style-menu .arrow-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+#style-menu .arrow-opt {
+  padding: 4px 10px; background: #2a2a3e; border-radius: 4px; cursor: pointer;
+  font-size: 12px; border: 1px solid transparent;
+}
+#style-menu .arrow-opt:hover { border-color: #666; }
+#style-menu .arrow-opt.active { border-color: #e94560; background: #3a2040; }
+
+/* Go deeper */
+#style-menu .go-deeper { font-size: 12px; color: #e94560; cursor: pointer; margin-top: 10px; user-select: none; }
+#style-menu .go-deeper:hover { text-decoration: underline; }
+#style-menu .advanced { display: none; margin-top: 8px; }
+#style-menu .advanced.visible { display: block; }
+
+/* Toolbar button active state */
+#toolbar button.active { background: #e9c46a; color: #1a1a2e; border-color: #e9c46a; }
+#toolbar button.active:hover { background: #d4a83a; }
+
+/* Slide mode: golden glow + hit circles for free elements */
+.slide-free-glow {
+  filter: url(#hitexer-slide-glow) !important;
+  cursor: grab !important;
+}
+.slide-free-glow:active { cursor: grabbing !important; }
+.slide-hit-circle { cursor: grab !important; }
+.slide-hit-circle:active { cursor: grabbing !important; }
+
+/* Add element menu items */
+#add-element-menu .ae-item {
+  padding: 6px 12px; cursor: pointer; border-radius: 4px; font-size: 13px; color: #ccc;
+  display: flex; align-items: center; gap: 8px;
+}
+#add-element-menu .ae-item:hover { background: #2a2a3e; }
+#add-element-menu .ae-item .ae-icon { font-size: 16px; width: 24px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>HiTeXeR <span style="font-size:12px;color:#e9c46a;font-weight:400;">(Online)</span></h1>
+  <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
+  <button id="btn-clear">CLEAR</button>
+  <button id="btn-colorblind">COLOR BLIND MODE</button>
+  <button id="btn-zoom-out" title="Shrink image">&minus;</button>
+  <button id="btn-zoom-in" title="Enlarge image">+</button>
+  <button id="btn-highlight-toggle" title="Toggle highlighting">HIGHLIGHT: ON</button>
+  <button id="btn-slide">SLIDE</button>
+  <button id="btn-grid">GRID</button>
+  <button id="btn-add-element">+ ELEMENT</button>
+  <span class="status" id="status">Ready</span>
+</div>
+
+<div id="main">
+  <div id="editor-panel">
+    <textarea id="code-editor">[asy]
+import geometry;
+unitsize(2.0 cm);
+
+// Triangle vertices
+pair A, B, C;
+A = (0, 0);
+B = (4, 0);
+C = (1.5, 3);
+
+// Draw triangle sides
+draw(A--B, linewidth(1.0bp));
+draw(B--C, linewidth(1.0bp));
+draw(C--A, linewidth(1.0bp));
+
+// Incircle
+real r = inradius(A, B, C);
+pair I = incenter(A, B, C);
+draw(circle(I, r), blue);
+
+// Labels
+label("$A$", A, SW);
+label("$B$", B, SE);
+label("$C$", C, N);
+[/asy]</textarea>
+  </div>
+  <div id="resizer"></div>
+  <div id="preview-panel">
+    <div id="preview-container">
+      <div class="placeholder">Loading...</div>
+      <div id="preview-stale-badge">not live; showing last render</div>
+      <div id="preview-warn-badge"></div>
+    </div>
+  </div>
+</div>
+
+<div id="style-menu"></div>
+
+<!-- Add Element Menu (floating) -->
+<div id="add-element-menu" style="display:none;position:fixed;z-index:10001;background:#1e1e2e;border:1px solid #555;border-radius:8px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,0.6);min-width:200px;">
+</div>
+
+<!-- Slide Mode Slider Panel -->
+<div id="slide-panel" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(30,30,46,0.95);border-top:2px solid #e9c46a;padding:8px 16px;z-index:5000;max-height:120px;overflow-y:auto;">
+  <div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:4px;">Variable Sliders</div>
+  <div id="slide-sliders"></div>
+</div>
+
+<script src="asy-interp.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
+<script>
+'use strict';
+
+// ============================================================
+// Constants
+// ============================================================
+const ASY_COLORS = {
+  black:'#000000', white:'#ffffff', gray:'#808080', red:'#ff0000',
+  blue:'#0000ff', green:'#00b300', yellow:'#ffff00', cyan:'#00ffff',
+  magenta:'#ff00ff', orange:'#ff8c00', purple:'#8000bf', brown:'#804000',
+  pink:'#ffc0cb',
+  lightblue:'#87ceeb', lightgreen:'#90ee90', lightred:'#ff8080',
+  lightyellow:'#ffffe0', lightgray:'#bfbfbf',
+  darkblue:'#000080', darkgreen:'#006400', darkred:'#8b0000',
+  heavyblue:'#0000bf', heavygreen:'#005900', heavyred:'#bf0000',
+  paleblue:'#c0d0ff', palegreen:'#c0ffc0', palered:'#ffc0c0',
+  paleyellow:'#ffffc0', palecyan:'#c0ffff', palemagenta:'#ffc0ff',
+  deepblue:'#0000a0', deepgreen:'#004d00', deepred:'#a00000',
+};
+
+const LINE_STYLES = [
+  { asy: '',                label: 'Solid',            css: 'solid' },
+  { asy: 'dashed',          label: 'Dashed',           css: 'dashed' },
+  { asy: 'dotted',          label: 'Dotted',           css: 'dotted' },
+  { asy: 'longdashed',      label: 'Long dashed',      css: 'dashed' },
+  { asy: 'dashdotted',      label: 'Dash-dot',         css: 'dashed' },
+  { asy: 'longdashdotted',  label: 'Long dash-dot',    css: 'dashed' },
+];
+
+const ARROW_STYLES = [
+  { asy: '',             label: 'None',        symbol: '\u2014' },
+  { asy: 'Arrow',        label: 'Arrow',       symbol: '\u2192' },
+  { asy: 'MidArrow',     label: 'MidArrow',    symbol: '\u21A6' },
+  { asy: 'BeginArrow',   label: 'BeginArrow',  symbol: '\u2190' },
+  { asy: 'Arrows',       label: 'Arrows',      symbol: '\u2194' },
+  { asy: 'ArcArrow',     label: 'ArcArrow',    symbol: '\u21B7' },
+  { asy: 'ArcArrows',    label: 'ArcArrows',   symbol: '\u21C4' },
+  { asy: 'Bar',          label: 'Bar',         symbol: '|' },
+  { asy: 'Bars',         label: 'Bars',        symbol: '||' },
+];
+
+const ARROW_NAMES = new Set(ARROW_STYLES.map(a => a.asy).filter(Boolean));
+
+const FONT_SIZES = ['6pt','7pt','8pt','9pt','10pt','11pt','12pt','14pt','16pt','18pt','20pt','24pt','28pt','32pt'];
+
+const LINE_CAPS = [
+  { asy: '', label: 'Default' },
+  { asy: 'squarecap', label: 'Square' },
+  { asy: 'roundcap', label: 'Round' },
+  { asy: 'extendcap', label: 'Extend' },
+];
+const LINE_JOINS = [
+  { asy: '', label: 'Default' },
+  { asy: 'miterjoin', label: 'Miter' },
+  { asy: 'roundjoin', label: 'Round' },
+  { asy: 'beveljoin', label: 'Bevel' },
+];
+
+// ============================================================
+// Asymptote Parser (dependency tracking)
+// ============================================================
+const AsyParser = {
+  parse(code) {
+    const lines = code.split('\n');
+    const drawCommands = [], assignments = [], imports = [];
+    const drawP = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
+    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
+    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const importP = /^\s*(import|access|from)\s+/;
+    const sizeP = /^\s*(unitsize|size)\s*\(/;
+    const commentP = /^\s*\/\//;
+
+    let braceDepth = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (!t || commentP.test(t) || t === '[asy]' || t === '[/asy]') continue;
+      const lineDepth = braceDepth;
+      // Track brace depth (simple count, ignoring strings/comments)
+      for (const ch of t) { if (ch==='{') braceDepth++; if (ch==='}') braceDepth--; }
+      if (braceDepth < 0) braceDepth = 0;
+      if (importP.test(t)) { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
+      if (sizeP.test(t))   { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
+      if (drawP.test(t))   { drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i),braceDepth:lineDepth}); continue; }
+      const am = t.match(assignP);
+      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
+      const mm = t.match(multiP);
+      if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i]}); }
+    }
+    return { drawCommands, assignments, imports, lines };
+  },
+
+  extractVariables(lineText, allLines, lineIdx) {
+    let full = lineText, depth = 0;
+    for (const ch of lineText) { if(ch==='(')depth++; if(ch===')')depth--; }
+    let j = lineIdx + 1;
+    while (depth > 0 && j < allLines.length) { full += ' '+allLines[j].trim(); for(const ch of allLines[j]){if(ch==='(')depth++;if(ch===')')depth--;} j++; }
+    const ids = full.match(/[a-zA-Z_]\w*/g) || [];
+    return [...new Set(ids.filter(id => !BUILTINS.has(id)))];
+  },
+
+  findDependencies(drawCmd, assignments) {
+    const deps = new Set(), visited = new Set(), q = [...drawCmd.vars];
+    while (q.length) {
+      const v = q.shift(); if (visited.has(v)) continue; visited.add(v);
+      for (const a of assignments) { if (a.varName===v) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); } }
+    }
+    return [...deps];
+  },
+
+  buildMapping(code) {
+    const parsed = this.parse(code), mapping = [];
+    for (const cmd of parsed.drawCommands) mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:this.findDependencies(cmd,parsed.assignments), commandText:cmd.lineText.trim() });
+    return { mapping, parsed };
+  }
+};
+
+const BUILTINS = new Set([
+  'draw','fill','filldraw','label','dot','clip',
+  'pair','real','int','pen','path','guide','picture','transform','string','bool',
+  'cycle','true','false','null','new','return','if','else','for','while',
+  'unitcircle','nullpath','nullpen',
+  ...Object.keys(ASY_COLORS),
+  'N','S','E','W','NE','NW','SE','SW','NNE','NNW','SSE','SSW','ENE','WNW','ESE','WSW',
+  'dir','sqrt','abs','sin','cos','tan','atan','atan2','log','exp','min','max','floor','ceil','round',
+  'linewidth','fontsize','dashed','dotted','solid','longdashed','dashdotted','longdashdotted',
+  'circle','arc','ellipse','box','shift','rotate','scale','reflect',
+  'midpoint','extension','intersect','intersectionpoint','intersectionpoints',
+  'incircle','circumcircle','incenter','circumcenter','inradius','circumradius',
+  'foot','bisectorpoint','centroid','orthocenter',
+  'length','angle','degrees','radians','unit','conj','expi',
+  'xpart','ypart','point','relpoint','arclength',
+  'currentpen','currentpicture','currentprojection',
+  'fontcommand','Pen','Symbol','invisible',
+  'MidArrow','Arrow','EndArrow','BeginArrow','Arrows','ArcArrow','ArcArrows','Bar','Bars',
+  'bp','pt','cm','mm','inch','import','access','from','include',
+  'geometry','olympiad','cse5','graph','math','markers','size','unitsize','defaultpen',
+  'opacity','squarecap','roundcap','extendcap','miterjoin','roundjoin','beveljoin',
+  'rgb','cmyk','gray','hsv',
+]);
+
+// ============================================================
+// Pen Parser – extract / modify pen properties in Asymptote code
+// ============================================================
+const PenParser = {
+  /** Split a string on commas, respecting nested parens and quotes. */
+  splitArgs(s) {
+    const args = []; let depth=0, cur='', inStr=false, sc='';
+    for (let i=0; i<s.length; i++) {
+      const ch=s[i];
+      if (inStr) { cur+=ch; if(ch===sc&&s[i-1]!=='\\') inStr=false; continue; }
+      if (ch==='"'||ch==="'") { inStr=true; sc=ch; cur+=ch; continue; }
+      if (ch==='('||ch==='[') depth++;
+      if (ch===')'||ch===']') depth--;
+      if (ch===','&&depth===0) { args.push(cur.trim()); cur=''; } else cur+=ch;
+    }
+    if (cur.trim()) args.push(cur.trim());
+    return args;
+  },
+
+  /** Extract the inner arguments string from a draw/fill/label/dot command. */
+  extractCommandParts(lineText) {
+    const m = lineText.match(/^(\s*)(draw|fill|filldraw|label|dot)\s*\(/);
+    if (!m) return null;
+    const indent=m[1], cmd=m[2], start=m.index+m[0].length;
+    let depth=1, i=start;
+    while (i<lineText.length&&depth>0) { if(lineText[i]==='(')depth++; if(lineText[i]===')')depth--; i++; }
+    const inner = lineText.substring(start, i-1);
+    const suffix = lineText.substring(i); // e.g. ";" or "// comment"
+    return { indent, cmd, inner, suffix, args: this.splitArgs(inner) };
+  },
+
+  /** Identify which arg index is the pen and which is the arrow in a draw command. */
+  classifyDrawArgs(args) {
+    // arg[0] is always the path.  Remaining args could be pen, arrow, margin, etc.
+    let penIdx=-1, arrowIdx=-1;
+    for (let i=1; i<args.length; i++) {
+      const a = args[i].trim();
+      const base = a.replace(/\(.*\)$/,'').trim();
+      if (ARROW_NAMES.has(base)) { arrowIdx=i; }
+      else if (penIdx===-1) { penIdx=i; } // first non-arrow after path is probably pen
+    }
+    return { penIdx, arrowIdx };
+  },
+
+  /** Identify pen arg index for label(text, position, [align], [pen]) */
+  classifyLabelArgs(args) {
+    // Last arg that looks like a pen (not a filltype)
+    for (let i=args.length-1; i>=2; i--) {
+      const a = args[i].trim();
+      if (this.looksLikePen(a)) return { penIdx: i };
+    }
+    return { penIdx: -1 };
+  },
+
+  looksLikePen(s) {
+    const t = s.trim();
+    if (Object.keys(ASY_COLORS).some(c => new RegExp('\\b'+c+'\\b').test(t))) return true;
+    if (/\b(linewidth|fontsize|dashed|dotted|solid|longdashed|dashdotted|longdashdotted|opacity|squarecap|roundcap|extendcap|miterjoin|roundjoin|beveljoin|invisible)\b/.test(t)) return true;
+    if (/^\s*rgb\s*\(/.test(t)) return true;
+    return false;
+  },
+
+  /** Parse a pen expression string into structured properties. */
+  parsePen(penExpr) {
+    const props = { color:null, colorHex:null, linewidth:null, linestyle:null,
+                    fontsize:null, opacity:null, linecap:null, linejoin:null, other:[] };
+    if (!penExpr) return props;
+    const parts = penExpr.split('+').map(p=>p.trim()).filter(Boolean);
+    for (const part of parts) {
+      // Color name
+      let matched = false;
+      for (const [name,hex] of Object.entries(ASY_COLORS)) {
+        if (part === name) { props.color=name; props.colorHex=hex; matched=true; break; }
+      }
+      if (matched) continue;
+      // rgb()
+      const rgbM = part.match(/^rgb\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)/);
+      if (rgbM) {
+        props.color=part;
+        const r=Math.round(parseFloat(rgbM[1])*255), g=Math.round(parseFloat(rgbM[2])*255), b=Math.round(parseFloat(rgbM[3])*255);
+        props.colorHex='#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');
+        continue;
+      }
+      // linewidth
+      const lwM = part.match(/^linewidth\s*\(\s*([\d.]+)\s*(bp|pt|mm|cm)?\s*\)/);
+      if (lwM) { props.linewidth=lwM[1]+(lwM[2]||'bp'); continue; }
+      // line style
+      if (['dashed','dotted','solid','longdashed','dashdotted','longdashdotted'].includes(part)) { props.linestyle=part; continue; }
+      // fontsize
+      const fsM = part.match(/^fontsize\s*\(\s*([\d.]+)\s*(pt)?\s*\)/);
+      if (fsM) { props.fontsize=fsM[1]+(fsM[2]||'pt'); continue; }
+      // opacity
+      const opM = part.match(/^opacity\s*\(\s*([\d.]+)\s*\)/);
+      if (opM) { props.opacity=parseFloat(opM[1]); continue; }
+      // linecap
+      if (['squarecap','roundcap','extendcap'].includes(part)) { props.linecap=part; continue; }
+      // linejoin
+      if (['miterjoin','roundjoin','beveljoin'].includes(part)) { props.linejoin=part; continue; }
+      // unrecognized
+      props.other.push(part);
+    }
+    return props;
+  },
+
+  /** Build a pen string from properties. */
+  buildPen(props) {
+    const parts = [];
+    if (props.color) parts.push(props.color);
+    if (props.linestyle && props.linestyle!=='solid') parts.push(props.linestyle);
+    if (props.linewidth) parts.push('linewidth('+props.linewidth+')');
+    if (props.fontsize) parts.push('fontsize('+props.fontsize+')');
+    if (props.opacity!=null && props.opacity!==1) parts.push('opacity('+props.opacity+')');
+    if (props.linecap) parts.push(props.linecap);
+    if (props.linejoin) parts.push(props.linejoin);
+    parts.push(...(props.other||[]));
+    return parts.join(' + ') || '';
+  },
+
+  /**
+   * Resolve the pen for a draw command line.
+   * Returns { penExpr, penProps, isNamed, penVarName, penDefLineIdx,
+   *           arrowExpr, cmdType, cmdParts, penArgIdx, arrowArgIdx,
+   *           sharedLines (other lines using same named pen) }
+   */
+  resolvePen(lineIdx, code) {
+    const lines = code.split('\n');
+    const line = lines[lineIdx];
+    const parts = this.extractCommandParts(line);
+    if (!parts) return null;
+
+    let penArgIdx=-1, arrowArgIdx=-1, penExpr='', arrowExpr='';
+    if (parts.cmd==='label'||parts.cmd==='dot') {
+      const c = this.classifyLabelArgs(parts.args);
+      penArgIdx = c.penIdx;
+    } else {
+      const c = this.classifyDrawArgs(parts.args);
+      penArgIdx = c.penIdx;
+      arrowArgIdx = c.arrowIdx;
+      if (arrowArgIdx>=0) arrowExpr = parts.args[arrowArgIdx].trim();
+    }
+    if (penArgIdx>=0) penExpr = parts.args[penArgIdx].trim();
+
+    // Check if pen is a named variable
+    let isNamed=false, penVarName='', penDefLineIdx=-1, sharedLines=[];
+    const { parsed } = AsyParser.buildMapping(code);
+
+    if (penExpr && !this.looksLikePen(penExpr) && /^[a-zA-Z_]\w*$/.test(penExpr)) {
+      // Might be a pen variable
+      for (const a of parsed.assignments) {
+        if (a.varName===penExpr && /^\s*pen\b/.test(a.lineText)) {
+          isNamed=true;
+          penVarName=penExpr;
+          penDefLineIdx=a.lineIndex;
+          const defRhs = a.lineText.split('=').slice(1).join('=').replace(/;\s*$/,'').trim();
+          penExpr = defRhs;
+          break;
+        }
+      }
+      if (isNamed) {
+        // Find other draw commands using this pen
+        for (const dc of parsed.drawCommands) {
+          if (dc.lineIndex === lineIdx) continue;
+          if (dc.lineText.includes(penVarName)) sharedLines.push(dc.lineIndex);
+        }
+      }
+    }
+
+    // Check for computed / array pen (edge case: not easily editable)
+    let isComplex = false;
+    if (penExpr && !isNamed && !this.looksLikePen(penExpr) && !/^[a-zA-Z_]\w*$/.test(penExpr)) {
+      // Contains operators, array access, function calls, etc.
+      if (/[\[\]?:]/.test(penExpr) || /\w+\s*\(/.test(penExpr.replace(/(linewidth|fontsize|opacity|rgb)\s*\(/, ''))) {
+        isComplex = true;
+      }
+    }
+
+    const penProps = this.parsePen(penExpr);
+    return {
+      penExpr, penProps, isNamed, penVarName, penDefLineIdx,
+      arrowExpr, arrowArgIdx, cmdType: parts.cmd, cmdParts: parts,
+      penArgIdx, sharedLines, isComplex,
+    };
+  },
+
+  /** Apply a style change. Modifies code in the editor, returns new code. */
+  applyChange(lineIdx, property, value, code) {
+    const info = this.resolvePen(lineIdx, code);
+    if (!info) return code;
+    const lines = code.split('\n');
+
+    if (property === 'arrow') {
+      // Arrow is a separate argument, not part of pen
+      return this._setArrow(info, value, lines);
+    }
+
+    // Update pen props
+    const props = { ...info.penProps };
+    switch(property) {
+      case 'color':      props.color=value; props.colorHex=ASY_COLORS[value]||null; break;
+      case 'colorCustom':
+        const hex=value;
+        const r=(parseInt(hex.slice(1,3),16)/255).toFixed(3);
+        const g=(parseInt(hex.slice(3,5),16)/255).toFixed(3);
+        const b=(parseInt(hex.slice(5,7),16)/255).toFixed(3);
+        props.color=`rgb(${r},${g},${b})`; props.colorHex=hex; break;
+      case 'linestyle':  props.linestyle=value||null; break;
+      case 'linewidth':  props.linewidth=value||null; break;
+      case 'fontsize':   props.fontsize=value||null; break;
+      case 'opacity':    props.opacity=value; break;
+      case 'linecap':    props.linecap=value||null; break;
+      case 'linejoin':   props.linejoin=value||null; break;
+    }
+    const newPen = this.buildPen(props);
+
+    if (info.isNamed) {
+      // Update the pen definition line
+      lines[info.penDefLineIdx] = lines[info.penDefLineIdx].replace(
+        /=\s*.+;/,
+        `= ${newPen};`
+      );
+    } else {
+      // Rebuild the draw command with new pen
+      this._setPenArg(info, newPen, lines, lineIdx);
+    }
+    return lines.join('\n');
+  },
+
+  _setPenArg(info, newPen, lines, lineIdx) {
+    const p = info.cmdParts;
+    const newArgs = [...p.args];
+    if (newPen) {
+      if (info.penArgIdx >= 0) {
+        newArgs[info.penArgIdx] = newPen;
+      } else {
+        // Insert pen after path (index 1 for draw, after position for label)
+        const insertAt = (p.cmd==='label'||p.cmd==='dot') ? newArgs.length : 1;
+        newArgs.splice(insertAt, 0, newPen);
+      }
+    } else if (info.penArgIdx >= 0) {
+      newArgs.splice(info.penArgIdx, 1);
+    }
+    lines[lineIdx] = `${p.indent}${p.cmd}(${newArgs.join(', ')})${p.suffix}`;
+  },
+
+  _setArrow(info, arrowAsy, lines) {
+    const p = info.cmdParts;
+    const lineIdx = lines.indexOf(lines.find((_,i) => {
+      const pp = this.extractCommandParts(lines[i]);
+      return pp && pp.inner === p.inner;
+    }));
+    const li = info.cmdParts.args.length > 0 ? lines.findIndex(l => l.includes(p.inner)) : -1;
+    // Rebuild args
+    const newArgs = [...p.args];
+    if (arrowAsy) {
+      if (info.arrowArgIdx >= 0) {
+        newArgs[info.arrowArgIdx] = arrowAsy;
+      } else {
+        // Insert arrow after pen (or after path if no pen)
+        const insertAt = (info.penArgIdx>=0 ? info.penArgIdx+1 : 1);
+        newArgs.splice(Math.min(insertAt, newArgs.length), 0, arrowAsy);
+      }
+    } else if (info.arrowArgIdx >= 0) {
+      newArgs.splice(info.arrowArgIdx, 1);
+    }
+    // Find the actual line index
+    const code = lines.join('\n');
+    const actualLine = lines.findIndex(l => {
+      const pp = this.extractCommandParts(l);
+      return pp && pp.inner === p.inner;
+    });
+    if (actualLine >= 0) {
+      const pp = this.extractCommandParts(lines[actualLine]);
+      lines[actualLine] = `${pp.indent}${pp.cmd}(${newArgs.join(', ')})${pp.suffix}`;
+    }
+    return lines.join('\n');
+  },
+};
+
+// ============================================================
+// Style Menu
+// ============================================================
+const StyleMenu = {
+  el: null,
+  visible: false,
+  lineIdx: -1,
+  cmdIdx: -1,
+  info: null,
+  dirty: false,
+
+  init() {
+    this.el = document.getElementById('style-menu');
+    document.addEventListener('mousedown', (e) => {
+      if (this.visible && !this.el.contains(e.target)) this.hide();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key==='Escape') {
+        if (this.visible) { this.hide(); return; }
+        if (multiSelected.size > 0) {
+          multiSelected.clear();
+          clearHighlights(); clearSvgHighlights();
+        }
+      }
+    });
+  },
+
+  show(x, y, lineIdx) {
+    this.lineIdx = lineIdx;
+    this.cmdIdx = lineToCommandIdx.get(lineIdx) ?? -1;
+    this.dirty = false;
+
+    const code = editor.getValue();
+    this.info = PenParser.resolvePen(lineIdx, code);
+    if (!this.info) return;
+
+    this._buildUI();
+    this._applyHighlights();
+
+    // Position: render first, then measure and adjust
+    this.el.classList.add('visible');
+    this.visible = true;
+    this.el.style.left = Math.min(x, window.innerWidth - 360) + 'px';
+    this.el.style.top = '0px';
+    const menuH = this.el.offsetHeight;
+    this.el.style.top = Math.min(y, window.innerHeight - menuH - 10) + 'px';
+  },
+
+  hide() {
+    if (!this.visible) return;
+    // Flush any pending input changes (e.g. linewidth typed but not committed)
+    // by blurring the active element inside the menu — this fires 'change' events
+    // before we clear state, so _doMultiChange sees valid multiLines.
+    const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
+    if (focused && focused !== this.el) focused.blur();
+    this.el.classList.remove('visible');
+    this.visible = false;
+    const wasMulti = this.multiLines.length > 0;
+    this.multiLines = [];
+    this._sharedPenName = null;
+    this._sharedPenDefLine = -1;
+    this._sharedPenProps = null;
+    if (wasMulti) multiSelected.clear();
+    clearHighlights();
+    clearSvgHighlights();
+    if (this.dirty) {
+      this.dirty = false;
+      doRender();
+    }
+  },
+
+  _applyHighlights() {
+    clearHighlights(); clearSvgHighlights();
+    const info = this.info;
+    const depLines = [];
+
+    // Highlight the draw command
+    const cmd = (this.cmdIdx >= 0) ? currentMapping[this.cmdIdx] : null;
+    if (cmd) {
+      for (const dl of cmd.dependencyLines) depLines.push(dl);
+      // Highlight SVG element
+      for (const el of (svgElsByCommand.get(this.cmdIdx)||[])) highlightSvgElement(el, 'strong');
+    }
+
+    // If named pen, highlight pen def and shared users
+    if (info.isNamed) {
+      depLines.push(info.penDefLineIdx);
+      for (const sl of info.sharedLines) depLines.push(sl);
+      // Highlight SVG elements of shared lines
+      for (const sl of info.sharedLines) {
+        const sci = lineToCommandIdx.get(sl);
+        if (sci !== undefined) {
+          for (const el of (svgElsByCommand.get(sci)||[])) highlightSvgElement(el, 'soft');
+        }
+      }
+    }
+
+    highlightLines(this.lineIdx, depLines);
+  },
+
+  _change(property, value) {
+    if (this._inChange) return; // guard against re-entrant calls from blur events
+    this._inChange = true;
+    try {
+      const code = editor.getValue();
+      const cursor = editor.getCursor();
+      const newCode = PenParser.applyChange(this.lineIdx, property, value, code);
+      editor.setValue(newCode);
+      editor.setCursor(cursor);
+      this.dirty = true;
+      // Re-resolve to update the info for the menu
+      this.info = PenParser.resolvePen(this.lineIdx, newCode);
+      this._applyHighlights();
+    } finally { this._inChange = false; }
+  },
+
+  _buildUI() {
+    const info = this.info;
+    const isPath = info.cmdType==='draw' || info.cmdType==='fill' || info.cmdType==='filldraw';
+    const isLabel = info.cmdType==='label';
+    const isDot = info.cmdType==='dot';
+    let html = '';
+
+    // Named pen badge
+    if (info.isNamed) {
+      const count = info.sharedLines.length + 1;
+      html += `<div class="pen-badge"><code>pen ${info.penVarName}</code><span class="pen-shared">Shared by ${count} command${count>1?'s':''} \u2013 changes affect all</span></div>`;
+    }
+    if (info.isComplex) {
+      html += `<div class="pen-badge" style="color:#ff8080">Complex pen expression \u2013 edit manually</div>`;
+    }
+
+    // ---- Color ----
+    html += `<div class="sm-heading">Color</div>`;
+    html += `<div class="color-grid">`;
+    const mainColors = ['black','white','gray','red','blue','green','yellow','cyan','magenta','orange','purple','brown','pink'];
+    const extraColors = ['lightred','lightblue','lightgreen','darkred','darkblue','darkgreen','palered','paleblue','palegreen'];
+    for (const c of [...mainColors, ...extraColors]) {
+      const active = (info.penProps.color===c) ? ' active' : '';
+      const border = c==='white' ? ';border:1px solid #888' : '';
+      html += `<div class="color-swatch${active}" data-color="${c}" style="background:${ASY_COLORS[c]}${border}" title="${c}"></div>`;
+    }
+    html += `</div>`;
+    html += `<div class="color-custom"><input type="color" id="sm-color-picker" value="${info.penProps.colorHex||'#000000'}"><span>Custom color</span></div>`;
+
+    // ---- Line Style (paths only) ----
+    if (isPath) {
+      html += `<div class="sm-heading">Line Style</div>`;
+      for (const ls of LINE_STYLES) {
+        const active = ((info.penProps.linestyle||'')===(ls.asy)) ? ' active' : '';
+        const dashStyle = ls.asy==='dotted' ? 'border-top-style:dotted' : ls.asy.includes('dash') ? 'border-top-style:dashed' : '';
+        html += `<div class="ls-option${active}" data-linestyle="${ls.asy}"><div class="ls-preview" style="${dashStyle}"></div><span>${ls.label}</span></div>`;
+      }
+    }
+
+    // ---- Linewidth (paths & dots) ----
+    if (isPath || isDot) {
+      html += `<div class="sm-heading">Line Width</div>`;
+      const curLw = parseFloat(info.penProps.linewidth) || '';
+      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.1" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
+    }
+
+    // ---- Arrows (draw only, not fill/filldraw) ----
+    if (info.cmdType==='draw') {
+      html += `<div class="sm-heading">Arrows</div>`;
+      html += `<div class="arrow-grid">`;
+      for (const a of ARROW_STYLES) {
+        const active = (info.arrowExpr.replace(/\(.*\)/,'')===a.asy) ? ' active' : '';
+        html += `<div class="arrow-opt${active}" data-arrow="${a.asy}" title="${a.label}">${a.symbol} ${a.label}</div>`;
+      }
+      html += `</div>`;
+    }
+
+    // ---- Font size (labels only) ----
+    if (isLabel) {
+      html += `<div class="sm-heading">Font Size</div>`;
+      html += `<div class="opt-row"><label>Size</label><select id="sm-fontsize"><option value="">Default</option>`;
+      for (const fs of FONT_SIZES) {
+        const sel = info.penProps.fontsize===fs ? ' selected' : '';
+        html += `<option value="${fs}"${sel}>fontsize(${fs})</option>`;
+      }
+      html += `</select></div>`;
+    }
+
+    // ---- Opacity ----
+    html += `<div class="sm-heading">Opacity</div>`;
+    const curOp = info.penProps.opacity ?? 1;
+    html += `<div class="opt-row"><label>Opacity</label><input type="number" id="sm-opacity" value="${curOp}" min="0" max="1" step="0.1"></div>`;
+
+    // ---- Go Deeper ----
+    if (isPath) {
+      html += `<div class="go-deeper" id="sm-deeper-toggle">\u25B6 More options</div>`;
+      html += `<div class="advanced" id="sm-advanced">`;
+      // Line cap
+      html += `<div class="opt-row"><label>Line cap</label><select id="sm-linecap">`;
+      for (const lc of LINE_CAPS) {
+        const sel = (info.penProps.linecap||'')===lc.asy ? ' selected':'';
+        html += `<option value="${lc.asy}"${sel}>${lc.label}</option>`;
+      }
+      html += `</select></div>`;
+      // Line join
+      html += `<div class="opt-row"><label>Line join</label><select id="sm-linejoin">`;
+      for (const lj of LINE_JOINS) {
+        const sel = (info.penProps.linejoin||'')===lj.asy ? ' selected':'';
+        html += `<option value="${lj.asy}"${sel}>${lj.label}</option>`;
+      }
+      html += `</select></div>`;
+      html += `</div>`;
+    }
+
+    this.el.innerHTML = html;
+    this._bindEvents();
+  },
+
+  _bindEvents() {
+    const info = this.info;
+    if (info.isComplex) return; // No editing for complex pens
+
+    // Color swatches
+    for (const sw of this.el.querySelectorAll('.color-swatch')) {
+      sw.addEventListener('click', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        sw.classList.add('active');
+        this._change('color', sw.dataset.color);
+      });
+    }
+
+    // Custom color
+    const picker = this.el.querySelector('#sm-color-picker');
+    if (picker) {
+      picker.addEventListener('input', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        this._change('colorCustom', picker.value);
+      });
+    }
+
+    // Line style
+    for (const lso of this.el.querySelectorAll('.ls-option')) {
+      lso.addEventListener('click', () => {
+        this.el.querySelectorAll('.ls-option').forEach(o=>o.classList.remove('active'));
+        lso.classList.add('active');
+        this._change('linestyle', lso.dataset.linestyle);
+      });
+    }
+
+    // Linewidth
+    const lwInput = this.el.querySelector('#sm-linewidth');
+    if (lwInput) {
+      lwInput.addEventListener('change', () => {
+        const v = lwInput.value ? lwInput.value+'bp' : null;
+        this._change('linewidth', v);
+      });
+    }
+
+    // Arrows
+    for (const ao of this.el.querySelectorAll('.arrow-opt')) {
+      ao.addEventListener('click', () => {
+        this.el.querySelectorAll('.arrow-opt').forEach(o=>o.classList.remove('active'));
+        ao.classList.add('active');
+        this._change('arrow', ao.dataset.arrow);
+      });
+    }
+
+    // Font size
+    const fsSelect = this.el.querySelector('#sm-fontsize');
+    if (fsSelect) {
+      fsSelect.addEventListener('change', () => this._change('fontsize', fsSelect.value||null));
+    }
+
+    // Opacity
+    const opInput = this.el.querySelector('#sm-opacity');
+    if (opInput) {
+      opInput.addEventListener('change', () => {
+        const v = parseFloat(opInput.value);
+        this._change('opacity', isNaN(v) ? null : v);
+      });
+    }
+
+    // Go deeper toggle
+    const toggle = this.el.querySelector('#sm-deeper-toggle');
+    const adv = this.el.querySelector('#sm-advanced');
+    if (toggle && adv) {
+      toggle.addEventListener('click', () => {
+        adv.classList.toggle('visible');
+        toggle.textContent = adv.classList.contains('visible') ? '\u25BC More options' : '\u25B6 More options';
+      });
+    }
+
+    // Line cap / join
+    const lcSelect = this.el.querySelector('#sm-linecap');
+    if (lcSelect) lcSelect.addEventListener('change', () => this._change('linecap', lcSelect.value||null));
+    const ljSelect = this.el.querySelector('#sm-linejoin');
+    if (ljSelect) ljSelect.addEventListener('change', () => this._change('linejoin', ljSelect.value||null));
+  },
+
+  // ---- Multi-select support ----
+  multiLines: [],
+  _sharedPenName: null,   // pen var name for current multi-select session
+  _sharedPenDefLine: -1,  // line index of the pen definition
+  _sharedPenProps: null,   // current pen properties object
+
+  showMulti(x, y, lineIndices) {
+    this.multiLines = lineIndices;
+    this._sharedPenName = null;
+    this._sharedPenDefLine = -1;
+    this._sharedPenProps = null;
+    this.dirty = false;
+
+    const code = editor.getValue();
+    const infos = lineIndices.map(li => PenParser.resolvePen(li, code)).filter(Boolean);
+    if (infos.length === 0) return;
+
+    // Check if all commands already share the same named pen
+    const namedPens = infos.filter(i => i.isNamed);
+    if (namedPens.length === infos.length) {
+      const names = new Set(namedPens.map(i => i.penVarName));
+      if (names.size === 1) {
+        // Reuse existing shared pen
+        this._sharedPenName = namedPens[0].penVarName;
+        this._sharedPenDefLine = namedPens[0].penDefLineIdx;
+        this._sharedPenProps = { ...namedPens[0].penProps };
+      }
+    }
+
+    const types = new Set(infos.map(i => i.cmdType));
+    const hasPath = [...types].some(t => t==='draw'||t==='fill'||t==='filldraw');
+    const hasLabel = types.has('label');
+    const hasDot = types.has('dot');
+
+    this._buildMultiUI(infos, { hasPath, hasLabel, hasDot });
+
+    // Position: render first, then measure and adjust
+    this.el.classList.add('visible');
+    this.visible = true;
+    this.el.style.left = Math.min(x, window.innerWidth - 360) + 'px';
+    this.el.style.top = '0px'; // temp
+    const menuH = this.el.offsetHeight;
+    this.el.style.top = Math.min(y, window.innerHeight - menuH - 10) + 'px';
+  },
+
+  _applyMultiHighlights() {
+    clearHighlights(); clearSvgHighlights();
+    for (const li of this.multiLines) {
+      const ci = lineToCommandIdx.get(li);
+      if (ci !== undefined) {
+        for (const el of (svgElsByCommand.get(ci)||[])) highlightSvgElement(el, 'select');
+      }
+      if (li >= 0 && li < editor.lineCount()) {
+        highlightMarks.push(editor.markText(
+          {line:li,ch:0}, {line:li,ch:editor.getLine(li).length},
+          {className:'cm-highlight-selected'}
+        ));
+      }
+    }
+  },
+
+  _multiChange(property, value) {
+    if (this._inMultiChange) return; // guard against re-entrant calls from blur events
+    this._inMultiChange = true;
+    try { this._doMultiChange(property, value); } finally { this._inMultiChange = false; }
+  },
+
+  _doMultiChange(property, value) {
+    let code = editor.getValue();
+    const cursor = editor.getCursor();
+    let codeLines = code.split('\n');
+
+    if (!this._sharedPenName) {
+      // First change: create a new shared pen and assign to all commands
+      let penName = 'groupPen';
+      let suffix = 1;
+      while (codeLines.some(l => new RegExp('\\b'+penName+'\\b').test(l))) {
+        penName = 'groupPen' + (suffix++);
+      }
+
+      // Find insertion point (after imports/unitsize/existing pens, before first draw)
+      let insertIdx = 0;
+      const { parsed } = AsyParser.buildMapping(code);
+      for (const imp of parsed.imports) { if (imp.lineIndex >= insertIdx) insertIdx = imp.lineIndex + 1; }
+      for (const a of parsed.assignments) {
+        if (/^\s*pen\b/.test(a.lineText) && a.lineIndex < (parsed.drawCommands[0]?.lineIndex ?? Infinity)) {
+          insertIdx = Math.max(insertIdx, a.lineIndex + 1);
+        }
+      }
+
+      // Build initial pen props (start from scratch, apply the change)
+      this._sharedPenProps = { color:null, colorHex:null, linewidth:null, linestyle:null,
+                               fontsize:null, opacity:null, linecap:null, linejoin:null, other:[] };
+      this._applyPropChange(this._sharedPenProps, property, value);
+      const penExpr = PenParser.buildPen(this._sharedPenProps) || 'currentpen';
+
+      // Insert pen definition
+      codeLines.splice(insertIdx, 0, `pen ${penName} = ${penExpr};`);
+
+      // Adjust line indices
+      this.multiLines = this.multiLines.map(li => li >= insertIdx ? li + 1 : li);
+
+      // Replace pen arg in each selected command with penName
+      // Done inline with verification to ensure robustness
+      for (const li of this.multiLines) {
+        if (!codeLines[li]) continue;
+        const before = codeLines[li];
+        try { this._setPenArgOnLine(codeLines, li, penName); } catch(e) { /* fallback below */ }
+        if (!codeLines[li].includes(penName)) {
+          // _setPenArgOnLine didn't apply; use direct approach
+          codeLines[li] = before; // restore in case of partial modification
+          const m = before.match(/^(\s*)(draw|fill|filldraw|label|dot)\s*\(/);
+          if (m) {
+            const after_open = before.substring(m[0].length);
+            let depth = 1, ci = 0;
+            while (ci < after_open.length && depth > 0) {
+              if (after_open[ci] === '(') depth++;
+              if (after_open[ci] === ')') depth--;
+              ci++;
+            }
+            const inner = after_open.substring(0, ci - 1);
+            const suffix = after_open.substring(ci);
+            const args = PenParser.splitArgs(inner);
+            const cmd = m[2];
+            if (cmd === 'label' || cmd === 'dot') {
+              args.push(penName);
+            } else {
+              // Use classifyDrawArgs to find correct pen position
+              const { penIdx, arrowIdx } = PenParser.classifyDrawArgs(args);
+              if (penIdx >= 0) args[penIdx] = penName;
+              else args.splice(arrowIdx >= 0 ? arrowIdx : Math.min(1, args.length), 0, penName);
+            }
+            codeLines[li] = `${m[1]}${cmd}(${args.join(', ')})${suffix}`;
+          }
+        }
+      }
+
+      this._sharedPenName = penName;
+      this._sharedPenDefLine = insertIdx;
+    } else {
+      // Subsequent change: update the existing pen definition
+      this._applyPropChange(this._sharedPenProps, property, value);
+      const penExpr = PenParser.buildPen(this._sharedPenProps) || 'currentpen';
+      codeLines[this._sharedPenDefLine] = `pen ${this._sharedPenName} = ${penExpr};`;
+    }
+
+    editor.setValue(codeLines.join('\n'));
+    editor.setCursor(cursor);
+    this.dirty = true;
+    this._applyMultiHighlights();
+  },
+
+  _applyPropChange(props, property, value) {
+    switch(property) {
+      case 'color':      props.color=value; props.colorHex=ASY_COLORS[value]||null; break;
+      case 'colorCustom':
+        const hex=value;
+        const r=(parseInt(hex.slice(1,3),16)/255).toFixed(3);
+        const g=(parseInt(hex.slice(3,5),16)/255).toFixed(3);
+        const b=(parseInt(hex.slice(5,7),16)/255).toFixed(3);
+        props.color=`rgb(${r},${g},${b})`; props.colorHex=hex; break;
+      case 'linestyle':  props.linestyle=value||null; break;
+      case 'linewidth':  props.linewidth=value||null; break;
+      case 'fontsize':   props.fontsize=value||null; break;
+      case 'opacity':    props.opacity=(value!=null && value!==1) ? value : null; break;
+    }
+  },
+
+  _setPenArgOnLine(lines, li, penName) {
+    const parts = PenParser.extractCommandParts(lines[li]);
+    if (!parts) return;
+    let penIdx = -1;
+    if (parts.cmd==='label'||parts.cmd==='dot') {
+      penIdx = PenParser.classifyLabelArgs(parts.args).penIdx;
+    } else {
+      penIdx = PenParser.classifyDrawArgs(parts.args).penIdx;
+    }
+    const newArgs = [...parts.args];
+    if (penIdx >= 0) {
+      newArgs[penIdx] = penName;
+    } else {
+      const insertAt = (parts.cmd==='label'||parts.cmd==='dot') ? newArgs.length : 1;
+      newArgs.splice(Math.min(insertAt, newArgs.length), 0, penName);
+    }
+    lines[li] = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+  },
+
+  _buildMultiUI(infos, flags) {
+    let html = '';
+    const count = this.multiLines.length;
+    const badge = this._sharedPenName
+      ? `<code>pen ${this._sharedPenName}</code><span class="pen-shared">Shared by ${count} commands \u2013 changes affect all</span>`
+      : `<code>${count} elements selected</code><span class="pen-shared">A shared pen will be created for all</span>`;
+    html += `<div class="pen-badge">${badge}</div>`;
+
+    // ---- Color ----
+    html += `<div class="sm-heading">Color</div>`;
+    html += `<div class="color-grid">`;
+    const mainColors = ['black','white','gray','red','blue','green','yellow','cyan','magenta','orange','purple','brown','pink'];
+    const extraColors = ['lightred','lightblue','lightgreen','darkred','darkblue','darkgreen','palered','paleblue','palegreen'];
+    for (const c of [...mainColors, ...extraColors]) {
+      const active = (this._sharedPenProps && this._sharedPenProps.color===c) ? ' active' : '';
+      const border = c==='white' ? ';border:1px solid #888' : '';
+      html += `<div class="color-swatch${active}" data-color="${c}" style="background:${ASY_COLORS[c]}${border}" title="${c}"></div>`;
+    }
+    html += `</div>`;
+    const curHex = (this._sharedPenProps && this._sharedPenProps.colorHex) || '#000000';
+    html += `<div class="color-custom"><input type="color" id="sm-color-picker" value="${curHex}"><span>Custom color</span></div>`;
+
+    // ---- Line Style (if any path) ----
+    if (flags.hasPath) {
+      html += `<div class="sm-heading">Line Style</div>`;
+      for (const ls of LINE_STYLES) {
+        const active = (this._sharedPenProps && (this._sharedPenProps.linestyle||'')===(ls.asy)) ? ' active' : '';
+        const dashStyle = ls.asy==='dotted' ? 'border-top-style:dotted' : ls.asy.includes('dash') ? 'border-top-style:dashed' : '';
+        html += `<div class="ls-option${active}" data-linestyle="${ls.asy}"><div class="ls-preview" style="${dashStyle}"></div><span>${ls.label}</span></div>`;
+      }
+    }
+
+    // ---- Linewidth ----
+    if (flags.hasPath || flags.hasDot) {
+      html += `<div class="sm-heading">Line Width</div>`;
+      const curLw = (this._sharedPenProps && parseFloat(this._sharedPenProps.linewidth)) || '';
+      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.1" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
+    }
+
+    // ---- Font size (if any label) ----
+    if (flags.hasLabel) {
+      html += `<div class="sm-heading">Font Size</div>`;
+      const curFs = this._sharedPenProps ? this._sharedPenProps.fontsize : null;
+      html += `<div class="opt-row"><label>Size</label><select id="sm-fontsize"><option value="">Default</option>`;
+      for (const fs of FONT_SIZES) {
+        const sel = curFs===fs ? ' selected' : '';
+        html += `<option value="${fs}"${sel}>fontsize(${fs})</option>`;
+      }
+      html += `</select></div>`;
+    }
+
+    // ---- Opacity ----
+    html += `<div class="sm-heading">Opacity</div>`;
+    const curOp = (this._sharedPenProps && this._sharedPenProps.opacity!=null) ? this._sharedPenProps.opacity : 1;
+    html += `<div class="opt-row"><label>Opacity</label><input type="number" id="sm-opacity" value="${curOp}" min="0" max="1" step="0.1"></div>`;
+
+    this.el.innerHTML = html;
+    this._bindMultiEvents();
+  },
+
+  _bindMultiEvents() {
+    // Color swatches
+    for (const sw of this.el.querySelectorAll('.color-swatch')) {
+      sw.addEventListener('click', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        sw.classList.add('active');
+        this._multiChange('color', sw.dataset.color);
+      });
+    }
+
+    // Custom color
+    const picker = this.el.querySelector('#sm-color-picker');
+    if (picker) {
+      picker.addEventListener('input', () => {
+        this.el.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        this._multiChange('colorCustom', picker.value);
+      });
+    }
+
+    // Line style
+    for (const lso of this.el.querySelectorAll('.ls-option')) {
+      lso.addEventListener('click', () => {
+        this.el.querySelectorAll('.ls-option').forEach(o=>o.classList.remove('active'));
+        lso.classList.add('active');
+        this._multiChange('linestyle', lso.dataset.linestyle);
+      });
+    }
+
+    // Linewidth
+    const lwInput = this.el.querySelector('#sm-linewidth');
+    if (lwInput) {
+      lwInput.addEventListener('change', () => {
+        const v = lwInput.value ? lwInput.value+'bp' : null;
+        this._multiChange('linewidth', v);
+      });
+    }
+
+    // Font size
+    const fsSelect = this.el.querySelector('#sm-fontsize');
+    if (fsSelect) {
+      fsSelect.addEventListener('change', () => this._multiChange('fontsize', fsSelect.value||null));
+    }
+
+    // Opacity
+    const opInput = this.el.querySelector('#sm-opacity');
+    if (opInput) {
+      opInput.addEventListener('change', () => {
+        const v = parseFloat(opInput.value);
+        this._multiChange('opacity', isNaN(v) ? null : v);
+      });
+    }
+  },
+};
+
+// ============================================================
+// Editor Setup
+// ============================================================
+let editor;
+let highlightMarks = [];
+
+// Asymptote syntax highlighting (word lists from AsymptoteSyntax by Noel Murasko)
+(function() {
+  function words(str) { var o = {}; str.split(' ').forEach(function(w) { if (w) o[w] = true; }); return o; }
+  CodeMirror.defineMIME('text/x-asymptote', {
+    name: 'clike',
+    keywords: words('if else while for do break return continue unravel import include as access from and controls tension atleast curl struct typedef using new quote static autounravel public private restricted this explicit true false null cycle newframe operator const'),
+    types: words('Braid FitResult Label Legend Solution TreeNode abscissa arc arrowhead arrowhead3 binarytree binarytreeNode block bool bool3 bounds bqe circle conic coord coordsys cputime ellipse evaluatedpoint file filltype frame grid3 guide horner hsv hyperbola int interaction inversion key light line linefit marginT marginT3 marker mass material node object pair parabola patch path path3 pen picture point position positionedvector projection rational real realschur revolution rmf scaleT schur scientific segment side slice solution splitface string surface tensionSpecifier ticklocate ticksgridT tickvalues transform transformation tree triangle trilinear triple vector vertex void'),
+    builtin: words('AND Align Arc ArcArrow ArcArrow3 ArcArrows ArcArrows3 Arrow Arrow3 Arrows Arrows3 AtA Automatic AvantGarde B03 B13 B23 B33 BBox BWRainbow BWRainbow2 Bar Bar3 Bars Bars3 BeginArcArrow BeginArcArrow3 BeginArrow BeginArrow3 BeginBar BeginBar3 BeginDotMargin BeginDotMargin3 BeginMargin BeginMargin3 BeginPenMargin BeginPenMargin2 BeginPenMargin3 Blank Bookman Bottom BottomTop Bounds Break Broken BrokenLog CLZ CTZ Ceil Circle CircleBarIntervalMarker Cos Courier CrossIntervalMarker DOSendl DOSnewl DefaultFormat DefaultHead2 DefaultLogFormat Degrees Dir DotMargin DotMargin3 DotMargins DotMargins3 Dotted DoubleLineMidArrow Draw Embed EndArcArrow EndArcArrow3 EndArrow EndArrow3 EndBar EndBar3 EndDotMargin EndDotMargin3 EndMargin EndMargin3 EndPenMargin EndPenMargin2 EndPenMargin3 Fill FillDraw Finite Floor Format Full Gaussian Gaussrand Gaussrandpair Gradient Grayscale Helvetica Hermite HookHead HookHead2 HookHead3 InOutTicks InTicks Jn Label LabelInteraction Landscape Left LeftRight LeftTicks Legend Linear Log LogFormat Margin Margin3 Margins Margins3 Mark MidArcArrow MidArcArrow3 MidArrow MidArrow3 NOT NewCenturySchoolBook NoBox NoMargin NoMargin3 NoModifier NoTicks NoTicks3 NoZero NoZeroFormat None OR OmitFormat OmitTick OmitTickInterval OmitTickIntervals OutTicks Ox Oy Palatino PaletteTicks Pen PenMargin PenMargin2 PenMargin3 PenMargins PenMargins2 PenMargins3 Pentype Portrait RGB RadialShade RadialShadeDraw Rainbow Range Relative Right RightTicks Rotate Round Scale ScaleX ScaleY ScaleZ Seascape Shift Sin Slant Spline StickIntervalMarker Straight Symbol Tan TeXHead2 TeXify Ticks Ticks3 TildeIntervalMarker TimesRoman Top TrueMargin TrueMargin3 UnFill UpsideDown Wheel X XEquals XOR XY XYEquals XYZero XYgrid XYplane XZ XZEquals XZZero XZero XZgrid Y YEquals YX YXgrid YZ YZEquals YZZero YZero YZgrid YZplane Yn Z ZX ZXgrid ZXplane ZY ZYgrid ZapfChancery ZapfDingbats _begingroup3 _cputime _draw _eval _findroot _image _labelpath _projection _schur _shipout _strokepath _texpath aCos aSin aTan abort abs abs2 absorthographic absperspective accel acos acos1 acosh acot acsc activatequote add add2 addArrow addMargins addPath addSaveFunction addStereoViews addViews addpenarc addpenline adjust adjustedIndex aim alias align alignshift aligntransform all altitude angabscissa angle angledegrees angpoint animate annotate anticomplementary antipedal apply approach approximate arc arcarrowsize arccircle arcdir arcfromcenter arcfromfocus arclength arcnodesnumber arcpoint arcsubtended arcsubtendedcenter arctime array arrow arrow2 arrowbase arrowbasepoints arrowsize ascii asec asin asin1 asinh ask assert asy asycode asydir asyfigure asyfilecode asyinclude asywrite atan atan2 atanh atbreakpoint atexit attach attract atupdate autoformat autoscale autoscale3 axes axes3 axialshade axis axiscoverage azimuth babel background bangles bar barmarksize barsize basealign baseline bbox beep begin beginclip begingroup begingroup3 beginpoint bend between bevel bezier bezierP bezierPP bezierPPP bezulate bibliography bibliographystyle binarytree binarytreeNode binomial bins bisector bisectorpoint bispline bitreverse blend blockconnector box bqe brace breakpoint breakpoints brick buildRestoreDefaults buildRestoreThunk buildcycle bulletcolor byte byteinv calculateScaling camera canonical canonicalcartesiansystem cartesiansystem cbrt cd ceil center centerToFocus centered centroid cevian change2 changecoordsys checkEmpty checkSegment check_fpt_zero checkconditionlength checker checkincreasing checklengths checkposition checkpt checkptincube choose circle circlebarframe circlemarkradius circlenodesnumber circumcenter circumcircle clamped clear clip clipdraw close cmyk code colatitude collinear color colorless colors colorspace comma compassmark complement complementary computeNormals concat concurrent cone conic conicnodesnumber conictype conj connect containmentTree contains contour contour3 controlSpecifier convert coons coons3 coordinates coordsys copy copyPairOrTriple cos cosh cot countIntersections cputime crop cropcode cross crossframe crosshatch crossmarksize csc cubicroots curabscissa curlSpecifier curpoint currentarrow currentexitfunction currentmomarrow currentpolarconicroutine curve cut cutafter cutbefore cyclic cylinder deactivatequote debugger deconstruct defaultformat defaultpen defined degenerate degrees delete deletepreamble determinant diagonal diamond diffdiv dir dirSpecifier dirtime display distance distort divisors dot dotframe dotsize downcase draw draw3D drawAll drawCylinder drawDisk drawDoubleLine drawFermion drawGhost drawGluon drawMomArrow drawPhoton drawScalar drawSphere drawTessellation drawTube drawVertex drawVertexBox drawVertexBoxO drawVertexBoxX drawVertexO drawVertexOX drawVertexTriangle drawVertexTriangleO drawVertexX drawarrow drawarrow2 drawbeziertriangle drawline drawpixel drawstrokepath drawtick duplicate elle ellipse ellipsenodesnumber embed embed3 embed3D embedder embedplayer emissive empty enclose end endclip endgroup endgroup3 endl endpoint endpoints eof eol equation equations erase erasestep erf erfc error errorbar errorbars eval excenter excircle exit exitfunction exp expfactors expi expm1 exradius extend extension extouch extrude fabs factorial fermat fft fhorner figure file filecode fill fillbox filldraw filloutside fillrule filltype find findall findroot finite finiteDifferenceJacobian firstcut firstframe fit fit2 fit3 fixedscaling floor flush fmdefaults fmod focusToCenter font fontcommand fontsize foot format frac frequency fromCenter fromFocus fspline functionshade gamma gcd generate_random_backtrace generateticks gergonne getc getint getpair getreal getstring gettriple gluon gouraudshade graph graphic graphicscale graphwithderiv gray grestore grid grid3 gsave halfbox hatch hdiffdiv hermite hex histogram history hline hprojection hsplit hsv hyperbola hyperbolanodesnumber hyperlink hypot identity image implicitsurface importv3d incenter incentral incircle increasing incrementposition indexedfigure initdefaults initialized input inradius insert inside insphere integrate interactive interior interp interpolate intersect intersectionpoint intersectionpoints intersections intouch inverse inversion invert invisible is3D isDuplicate isnan isogonal isogonalconjugate isometry isotomic isotomicconjugate isparabola italic item jobname join3 key kurtosis kurtosisexcess label labelaxis labelmargin labelpath labels labeltick labelx labelx3 labely labely3 labelz labelz3 lastcut latex latitude latticeshade layer layout lcm ldexp leastsquares legend legenditem length lexorder lift light limits line linear linecap lineinversion linejoin linemargin lineskip linetype linewidth link list lm_evaluate_default lm_lmdif lm_minimize lm_print_default lm_print_quiet locale locate locatefile location log log10 log1p logaxiscoverage longitude look lookup make3dgrid makeNode makecircle makedraw makepen maketriangle map mapArray mapArrayString margin markangle markangleradius markanglespace markarc marker markinterval marknodes markrightangle markthin markuniform mass masscenter massformat material math max max3 maxAfterTransform maxbezier maxbound maxcoords maxlength maxratio maxtimes mean medial median meshname midpoint min min3 minAfterTransform minbezier minbound minipage minratio mintimes miterlimit mktemp momArrowPath momarrowsize monotonic multifigure nGrad nativeformat natural newl newpage newslide newton newtree nextframe nextnormal nextpage nib nodabscissa node none norm normal normalout normalvideo notaknot nowarn nullpath3 numberpage nurb object oblique obliqueX obliqueY obliqueZ octant1 offset onpath opacity opposite orient orientation origin orthic orthocenter orthocentercenter orthographic outdirectory outformat outline outname outprefix output overlap overloadedMessage overwrite pack pad pairs palette parabola parabolanodesnumber parallel parallelogram partialsum partname patchwithnormals path path3 pathbetween pathinface pattern pause pdf pedal periodic perp perpendicular perpendicularmark perspective phantom phi1 phi2 phi3 phi4 photon piecewisestraight pixel plane planeproject point polar polarconicroutine polargraph polygon popcount postcontrol postscript pow10 prc prc0 prconly precision precontrol prepend primitive printBytecode print_random_addresses progress project projection projecttospan projecttospan_findcoeffs purge pwhermite quadpatches quadrant quadraticroots quantize quarticroots quotient radialshade radians radicalcenter radicalline radius rand randompath randompath3 rationalidentity rd readline realmult realquarticroots rectangle rectangular rectify reference reflect regularize relabscissa relative relativedistance reldir relpoint reltime remainder remark removeDuplicates rename render replace report resetdefaultpen restore restoredefaults reverse reversevideo rf rfind rgb rgba rgbint rmf rms rotate rotateO rotation round roundbox roundedpath roundrectangle samecoordsys sameside sample save savedefaults saveline scale scale3 scaleO scaleT scaleless schur scientific search searchtree sec secondaryX secondaryY seconds section sector seek seekeof segment segmentlimits sequence setpens sgn sgnd sharpangle sharpdegrees shift shiftless shipout shipout3 show simeq simplexInit simplexPhase1 simplexPhase2 simplexTableau simplexWrite simpson sin sinh size size3 skewness skip slant sleep slice slope slopefield solve solveBVP sort sourceline sphere split sqrt square srand standardizecoordsys stdev step stickframe stickmarksize stickmarkspace stop straight straightness string stripdirectory stripextension stripfile stripsuffix strokepath subdivide subitem subpatch subpatchbegin subpatchend subpath substr sum surface symmedial symmedian system tab tableau tan tangent tangential tangents tanh tell tensionSpecifier tensor tensorshade tex texcolor texify texpath texpreamble texreset texshipout texsize texstring textpath theta thick thin tick tickMax tickMax3 tickMin tickMin3 ticklabelshift ticklocate tildeframe tildemarksize tile tiling time times title titlepage topbox transform transform3 transformation transpose trembleFuzz triangle triangleAbc triangleabc triangletoquads trianglewithnormals triangulate tricoef tridiagonal trilinear trim triples truepoint tube uncycle unfill uniform unique unit unitcylinderDraw unitfrustum unitfrustum1 unitrand unitsize unityroot unscaled unstraighten upcase updatefunction uperiodic upscale uptodate usepackage usersetting usetypescript usleep value variance variancebiased vbox vector vectorfield verbatim view viewportmargin vline vperiodic vprojection vsplit warn warning windingnumber write xasyKEY xaxis xaxis3 xaxis3At xaxisAt xequals xlimits xmap xpart xscale xscale3 xscaleO xtick xtick3 xtrans xypart yaxis yaxis3 yaxis3At yaxisAt yequals ylimits ypart yscale yscale3 yscaleO ytick ytick3 ytrans zaxis3 zaxis3At zero zlimits zpart zscale3 ztick ztick3 ztrans'),
+    atoms: words('Accent AliceBlue Align Allow AntiqueWhite Apricot Aqua Aquamarine Aspect Azure BackView BeginPoint Beige Billboard Bisque Bittersweet Black BlanchedAlmond Blue BlueGreen BlueViolet Blues Both BottomView BrBG Break BrickRed Brown BuGn BuPu BurlyWood BurntOrange CCW CMRmap CW CadetBlue CarnationPink Center Centered Cerulean Chartreuse Chocolate Coeff Coral CornflowerBlue Cornsilk Crimson Crop Cyan Dandelion Dark2 DarkBlue DarkCyan DarkGoldenrod DarkGray DarkGreen DarkKhaki DarkMagenta DarkOliveGreen DarkOrange DarkOrchid DarkRed DarkSalmon DarkSeaGreen DarkSlateBlue DarkSlateGray DarkTurquoise DarkViolet DeepPink DeepSkyBlue DefaultHead DefaultHead2 DefaultHead3 DimGray DodgerBlue Dotted Down Draw E ENE EPS ESE E_Euler E_PC E_RK2 E_RK3BS Embedded Emerald EndPoint Euler Fill FillDraw FireBrick FloralWhite ForestGreen FrontView Fuchsia Gainsboro GhostWhite GnBu Gold Goldenrod Gray Green GreenYellow Greens Greys Headlamp High Honeydew HookHead HookHead2 HookHead3 Horizontal HotPink I IgnoreAspect IndianRed Indigo Infinity Ivory JOIN_IN JOIN_OUT JungleGreen Khaki Label Lavender LavenderBlush LawnGreen Left LeftJustified LeftSide LeftView LemonChiffon LightBlue LightCoral LightCyan LightGoldenrodYellow LightGreen LightGrey LightPink LightSalmon LightSeaGreen LightSkyBlue LightSlateGray LightSteelBlue LightYellow Lime LimeGreen Linear Linen Log Logarithmic Low Magenta Mahogany Mark MarkFill MarkFillable MarkPath Maroon Max Medium MediumAquamarine MediumBlue MediumOrchid MediumPurple MediumSeaGreen MediumSlateBlue MediumSpringGreen MediumTurquoise MediumVioletRed Melon MidPoint MidnightBlue Min MintCream MistyRose Moccasin Move MoveQuiet Mulberry N NE NNE NNW NURBSsphere NW NavajoWhite Navy NavyBlue NoAlign NoCrop NoFill NoSide O OldLace Olive OliveDrab OliveGreen OrRd Orange OrangeRed Oranges Orchid Ox Oy PC PRCsphere PRGn Paired PaleGoldenrod PaleGreen PaleTurquoise PaleVioletRed PapayaWhip Pastel1 Pastel2 Peach PeachPuff Periwinkle Peru PiYG PineGreen Pink Plum PowderBlue ProcessBlue PuBu PuBuGn PuOr PuRd Purple Purples RELEASE RK2 RK3 RK3BS RK4 RK5 RK5DP RK5F RawSienna RdBu RdGy RdPu RdYlBu RdYlGn Red RedOrange RedViolet Reds Rhodamine Right RightJustified RightSide RightView RosyBrown RoyalBlue RoyalPurple RubineRed S SE SSE SSW SW SaddleBrown Salmon SandyBrown SeaGreen Seashell Sepia Set1 Set2 Set3 Sienna Silver SimpleHead Single SixViews SixViewsFR SixViewsUS SkyBlue SlateBlue SlateGray Snow Spectral SpringGreen SteelBlue Suppress SuppressQuiet Tan TeXHead TeXHead2 TeXHead3 Teal TealBlue Thistle ThreeViews ThreeViewsFR ThreeViewsUS Ticksize Tomato TopView Turquoise UnFill Up VERSION Value Vertical Viewport Violet VioletRed W WNW WSW Wheat White WhiteSmoke WildStrawberry X XY XYAlign XZ Y YAlign YX YZ Yellow YellowGreen YellowOrange YlGn YlGnBu YlOrBr YlOrRd Z ZX ZY Zero _outpipe aboveequationskip addpenarc addpenline align allowstepping angleprecision angularsystem animationdelay appendsuffix arcarrowangle arcarrowfactor arrow2sizelimit arrowangle arrowbarb arrowdir arrowfactor arrowhookfactor arrowlength arrowsizelimit arrowtexfactor artificialColumn authorpen autumn axis axiscoverage axislabelfactor background backgroundcolor backgroundpen barfactor barmarksizefactor basealign baselinetemplate bernstein beveljoin bigvertexpen bigvertexsize binary black blue bm bone bottom bp bracedefaultratio braceinnerangle bracemidangle braceouterangle brg brown bullet bwr byfoci byvertices camerafactor chartreuse circlemarkradiusfactor circlenodesnumberfactor circleprecision circlescale cividis cm codefile codepen codeskip colorPen coloredNodes coloredSegments conditionlength conicnodesfactor cool coolwarm copper count cputimeformat crossmarksizefactor currentcoordsys currentlight currentpatterns currentpen currentpicture currentposition currentprojection curvilinearsystem cuttings cyan darkblue darkbrown darkcyan darkgray darkgreen darkgrey darkmagenta darkolive darkred dashdotted dashed datepen dateskip debuggerlines debugging deepblue deepcyan deepgray deepgreen deepgrey deepmagenta deepred deepyellow default defaultControl defaultS defaultbackpen defaultcoordsys defaultembed3Doptions defaultembed3Dscript defaultexcursion defaulteyetoview defaultfilename defaultformat defaultfresnel0 defaultmassformat defaultmetallic defaultpen defaultrender defaultseparator defaultshininess diamond differentlengths dot dotfactor dotfilltype dotframe dotted doublelinepen doublelinespacing down duplicateFuzz ellipsenodesnumberfactor eps epsgeo epsilon evenodd expansionfactor extendcap fermionpen figureborder figuremattpen file3 firstnode firststep foregroundcolor fuchsia gapfactor ghostpen gist_earth gist_ncar gist_stern gluonamplitude gluonpen gluonratio gray green grey hatchepsilon havepagenumber heavyblue heavycyan heavygray heavygreen heavygrey heavymagenta heavyred hline hot hsv hwratio hyperbolanodesnumberfactor identity identity4 ignore implicitshipout inch inches includegraphicscommand inf inferno infinity institutionpen intMax intMin invert invisible itempen itemskip itemstep jet labelmargin landscape lastnode left legendhskip legendlinelength legendmargin legendmarkersize legendmaxrelativewidth legendvskip lightblue lightcyan lightgray lightgreen lightgrey lightmagenta lightolive lightred lightyellow linemargin lm_infmsg lm_shortmsg longdashdotted longdashed magenta magma magneticRadius mantissaBits markangleradius markangleradiusfactor markanglespace markanglespacefactor maxDenominator maxangleiterations maxrefinements mediumblue mediumcyan mediumgray mediumgreen mediumgrey mediummagenta mediumred mediumyellow middle minDistDefault minblockheight minblockwidth mincirclediameter minipagemargin minipagewidth minvertexangle miterjoin mm momarrowfactor momarrowlength momarrowmargin momarrowoffset momarrowpen monoPen morepoints nCircle nan newbulletcolor ngraph nil nipy_spectral nmesh noTension nobasealign nocontrol nodeMarginDefault nodesystem nolight nomarker nslice nullpath nullpen nullpens nullsurface oblique obliqueX obliqueY obliqueZ ocgindex octant1 octant1x oldbulletcolor olive optimizeTableau orange origin overpaint page pageheight pagemargin pagenumberalign pagenumberpen pagenumberposition pagewidth paleblue palecyan palegray palegreen palegrey palemagenta palered paleyellow parabolanodesnumberfactor perpfactor phi photonamplitude photonpen photonratio pi pink plain plain_bounds plasma plus preamblenodes pt purple r3 r4a r4b randMax realDigits realEpsilon realMax realMin red relativesystem reverse right roundcap roundjoin royalblue salmon saveFunctions scalarpen seismic settings signedtrailingzero solid spinner spring springgreen sqrtEpsilon squarecap squarepen startposition stdin stdout stepfactor stepfraction steppagenumberpen stepping stickframe stickmarksizefactor stickmarkspacefactor summer tab10 tab20 tab20b tab20c textpen ticksize tildeframe tildemarksizefactor tinv titlealign titlepagepen titlepageposition titlepen titleskip top trailingzero treeLevelStep treeMinNodeWidth treeNodeStep trembleAngle trembleFrequency trembleRandom tubegranularity tubethreshold twilight twilight_shifted undefined unitbox unitcircle unitcircle3 unitcone unitcube unitcylinder unitdisk unithemisphere unitplane unitsolidcone unitsphere unitsquare unitsquare3 up urlpen urlskip v3dheadertypes v3dtypes version vertexpen vertexsize viewportmargin viewportsize viridis vline white winter wistia wye yellow ylabelwidth zeroTransform zerotickfuzz zerowinding'),
+    blockKeywords: words('if else for while do struct'),
+    defKeywords: words('struct typedef'),
+    hooks: {'#': false},
+  });
+})();
+
+function initEditor() {
+  editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
+    mode: 'text/x-asymptote',
+    theme: 'monokai',
+    lineNumbers: true,
+    indentUnit: 2,
+    tabSize: 2,
+    matchBrackets: true,
+    autoCloseBrackets: true,
+    lineWrapping: false,
+  });
+  editor.setOption('extraKeys', { 'Ctrl-Enter': doRender });
+
+  // Right-click on code lines
+  editor.getWrapperElement().addEventListener('contextmenu', (e) => {
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineText = editor.getLine(pos.line);
+    if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
+      e.preventDefault();
+      // If multi-selected and this line is in the selection, show multi menu
+      if (multiSelected.size > 0 && multiSelected.has(pos.line)) {
+        StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
+      } else {
+        StyleMenu.show(e.clientX, e.clientY, pos.line);
+      }
+    }
+  });
+
+  // Left-click on code lines for multi-select (with Ctrl held or always in multi-select mode)
+  editor.getWrapperElement().addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineText = editor.getLine(pos.line);
+    if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
+      if (multiSelected.size > 0 || e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (multiSelected.has(pos.line)) {
+          multiSelected.delete(pos.line);
+        } else {
+          multiSelected.add(pos.line);
+        }
+        renderMultiSelection();
+      }
+    } else if (!e.ctrlKey && !e.metaKey) {
+      // Clicking on a non-draw line clears multi-selection
+      if (multiSelected.size > 0) {
+        multiSelected.clear();
+        clearHighlights(); clearSvgHighlights();
+      }
+    }
+  });
+}
+
+function clearHighlights() {
+  for (const mark of highlightMarks) mark.clear();
+  highlightMarks = [];
+}
+
+function highlightLines(primaryLine, depLines) {
+  clearHighlights();
+  if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
+  if (window.hitexerSlideActive) return;
+  for (const lineIdx of depLines) {
+    if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
+    highlightMarks.push(editor.markText(
+      {line:lineIdx,ch:0}, {line:lineIdx,ch:editor.getLine(lineIdx).length},
+      {className:'cm-highlight-dependency'}
+    ));
+  }
+  if (primaryLine >= 0 && primaryLine < editor.lineCount()) {
+    highlightMarks.push(editor.markText(
+      {line:primaryLine,ch:0}, {line:primaryLine,ch:editor.getLine(primaryLine).length},
+      {className:'cm-highlight-primary'}
+    ));
+  }
+  editor.scrollIntoView({line:primaryLine,ch:0}, 50);
+}
+
+// ============================================================
+// Compilation
+// ============================================================
+let lastJsRenderOk = false; // tracks whether last render used JS interpreter
+let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
+let autoRenderTimer = null;
+let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
+let gridActive = false; // grid overlay toggle state
+
+function getPreviewDimensions() {
+  const el = document.getElementById('preview-container');
+  // Available space minus padding
+  return { w: el.clientWidth - 40, h: el.clientHeight - 40 };
+}
+
+function showStaleBadge(show) {
+  const badge = document.getElementById('preview-stale-badge');
+  if (badge) badge.style.display = show ? 'block' : 'none';
+}
+
+function showWarnBadge(text) {
+  const badge = document.getElementById('preview-warn-badge');
+  if (badge) {
+    if (text) { badge.textContent = text; badge.style.display = 'block'; }
+    else { badge.style.display = 'none'; }
+  }
+}
+
+function scheduleAutoRender() {
+  if (autoRenderTimer) clearTimeout(autoRenderTimer);
+  autoRenderTimer = setTimeout(() => { autoRenderTimer = null; doRender(); }, 150);
+}
+
+function removeGridOverlay() {
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+  const g = svg.querySelector('#hitexer-grid-overlay');
+  if (g) g.remove();
+}
+
+function applyGridOverlay() {
+  removeGridOverlay();
+  if (!lastRenderInfo) return;
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+
+  const { pxPerUnit, minX, minY, maxX, maxY } = lastRenderInfo;
+  const ns = 'http://www.w3.org/2000/svg';
+  const g = document.createElementNS(ns, 'g');
+  g.setAttribute('id', 'hitexer-grid-overlay');
+  g.style.pointerEvents = 'none';
+
+  const gridMinX = Math.floor(minX);
+  const gridMaxX = Math.ceil(maxX);
+  const gridMinY = Math.floor(minY);
+  const gridMaxY = Math.ceil(maxY);
+
+  // viewBox dimensions for label placement
+  const viewW = (maxX - minX) * pxPerUnit;
+  const viewH = (maxY - minY) * pxPerUnit;
+
+  // Vertical lines with X labels along bottom inside viewBox
+  for (let x = gridMinX; x <= gridMaxX; x++) {
+    const sx = (x - minX) * pxPerUnit;
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', sx); line.setAttribute('y1', 0);
+    line.setAttribute('x2', sx); line.setAttribute('y2', viewH);
+    line.setAttribute('stroke', x === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
+    line.setAttribute('stroke-width', x === 0 ? '1.5' : '0.5');
+    g.appendChild(line);
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', sx + 2); lbl.setAttribute('y', viewH - 4);
+    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
+    lbl.textContent = String(x);
+    g.appendChild(lbl);
+  }
+  // Horizontal lines with Y labels along left inside viewBox
+  for (let y = gridMinY; y <= gridMaxY; y++) {
+    const sy = (maxY - y) * pxPerUnit;
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', 0); line.setAttribute('y1', sy);
+    line.setAttribute('x2', viewW); line.setAttribute('y2', sy);
+    line.setAttribute('stroke', y === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
+    line.setAttribute('stroke-width', y === 0 ? '1.5' : '0.5');
+    g.appendChild(line);
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', 2); lbl.setAttribute('y', sy - 3);
+    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
+    lbl.textContent = String(y);
+    g.appendChild(lbl);
+  }
+
+  svg.appendChild(g);
+}
+
+async function doRender() {
+  const code = editor.getValue();
+  const statusEl = document.getElementById('status');
+  const previewEl = document.getElementById('preview-container');
+  lastJsRenderOk = false;
+
+  // Try JS interpreter
+  if (window.AsyInterp && AsyInterp.canInterpret(code)) {
+    try {
+      const dims = getPreviewDimensions();
+      const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
+      // Success — clear stale badge, show SVG (preserving badge elements)
+      const svgEl = previewEl.querySelector('svg');
+      const placeholder = previewEl.querySelector('.placeholder');
+      if (svgEl) svgEl.remove();
+      if (placeholder) placeholder.remove();
+      previewEl.insertAdjacentHTML('afterbegin', result.svg);
+      showStaleBadge(false);
+      // Show warnings
+      const warns = [];
+      if (result.warnings && result.warnings.includes('auto-scaled')) {
+        warns.push('No unitsize/size specified — auto-scaled to fit');
+      }
+      if (result.displayPercent < 100) {
+        warns.push('Shrunk to fit: ' + result.displayPercent + '%');
+      }
+      showWarnBadge(warns.length ? warns.join(' · ') : '');
+      setupSvgInteractivityDirect(code, result.commandMap);
+      lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+      statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
+      lastJsRenderOk = true;
+      if (gridActive) applyGridOverlay();
+      document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
+      return;
+    } catch(e) {
+      // JS interpreter failed — show stale badge over previous SVG
+      if (previewEl.querySelector('svg')) {
+        showStaleBadge(true);
+        statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+        return;
+      }
+      console.warn('JS interpreter error:', e.message);
+    }
+  }
+
+  // Browser-only mode: show a friendly message when code can't be rendered
+  if (previewEl.querySelector('svg')) {
+    showStaleBadge(true);
+    statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+  } else {
+    const oldSvg = previewEl.querySelector('svg');
+    const oldPh = previewEl.querySelector('.placeholder');
+    const oldErr = previewEl.querySelector('.error');
+    if (oldSvg) oldSvg.remove();
+    if (oldPh) oldPh.remove();
+    if (oldErr) oldErr.remove();
+    previewEl.insertAdjacentHTML('afterbegin', `<div class="error">This code uses features not yet supported by the browser-based renderer (3D, graphs, advanced packages, etc.).\n\nFor full Asymptote support, use the local version with the server.</div>`);
+    statusEl.textContent = 'Not supported in browser mode'; statusEl.style.color = '#e9c46a';
+  }
+}
+
+function escapeHtml(text) { const d=document.createElement('div'); d.textContent=text; return d.innerHTML; }
+
+// ============================================================
+// SVG Interactivity + Bidirectional Highlighting
+// ============================================================
+let currentMapping = [];
+let svgElsByCommand = new Map();
+let lineToCommandIdx = new Map();
+let probeGeneration = 0; // incremented each render to discard stale probes
+let lineToDepCommands = new Map();
+let svgHighlightOverlays = [];
+let multiSelected = new Set(); // line indices of multi-selected commands
+let probeReady = Promise.resolve(); // resolves when color probe mapping completes
+
+/**
+ * Distance from screen-space mouse coordinates to the nearest point on an SVG element.
+ * Returns distance in screen pixels for consistent thresholding.
+ */
+function distToElementScreen(clientX, clientY, el) {
+  try {
+    // Get the element's screen CTM to transform local coords → screen coords
+    const screenCTM = el.getScreenCTM();
+    if (!screenCTM) return Infinity;
+
+    const bbox = el.getBBox();
+
+    // For paths/lines, use getPointAtLength for accuracy
+    if (typeof el.getTotalLength === 'function') {
+      const len = el.getTotalLength();
+      if (len === 0) return Infinity;
+      const steps = Math.min(Math.max(20, Math.ceil(len / 2)), 100);
+      let minD = Infinity;
+      for (let i = 0; i <= steps; i++) {
+        const p = el.getPointAtLength((i / steps) * len);
+        // Transform to screen coords
+        const sx = screenCTM.a * p.x + screenCTM.c * p.y + screenCTM.e;
+        const sy = screenCTM.b * p.x + screenCTM.d * p.y + screenCTM.f;
+        const d = Math.hypot(clientX - sx, clientY - sy);
+        if (d < minD) minD = d;
+      }
+      return minD;
+    }
+
+    // Fallback: clamp to bbox corners, transform to screen
+    const cx = Math.max(bbox.x, Math.min(
+      (screenCTM.inverse().a * clientX + screenCTM.inverse().c * clientY + screenCTM.inverse().e),
+      bbox.x + bbox.width));
+    const cy = Math.max(bbox.y, Math.min(
+      (screenCTM.inverse().b * clientX + screenCTM.inverse().d * clientY + screenCTM.inverse().f),
+      bbox.y + bbox.height));
+    const sx = screenCTM.a * cx + screenCTM.c * cy + screenCTM.e;
+    const sy = screenCTM.b * cx + screenCTM.d * cy + screenCTM.f;
+    return Math.hypot(clientX - sx, clientY - sy);
+  } catch (e) {
+    return Infinity;
+  }
+}
+
+/** Render multi-selection visual feedback (blue glow). */
+function updateCodeFilter() {
+  const total = editor.lineCount();
+  if (multiSelected.size === 0) {
+    for (let i = 0; i < total; i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+    return;
+  }
+  const relevant = new Set();
+  for (const lineIdx of multiSelected) {
+    const ci = lineToCommandIdx.get(lineIdx);
+    if (ci !== undefined && currentMapping[ci]) {
+      relevant.add(currentMapping[ci].primaryLine);
+      for (const dl of currentMapping[ci].dependencyLines) relevant.add(dl);
+    }
+  }
+  for (let i = 0; i < total; i++) {
+    if (relevant.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+    else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
+  }
+  const first = Math.min(...multiSelected);
+  if (first >= 0 && first < total) editor.scrollIntoView({line: first, ch: 0}, 50);
+}
+
+function renderMultiSelection() {
+  clearHighlights(); clearSvgHighlights();
+  if (multiSelected.size === 0) { updateCodeFilter(); return; }
+  for (const lineIdx of multiSelected) {
+    const ci = lineToCommandIdx.get(lineIdx);
+    if (ci !== undefined) {
+      for (const el of (svgElsByCommand.get(ci) || [])) highlightSvgElement(el, 'select');
+    }
+    if (lineIdx >= 0 && lineIdx < editor.lineCount()) {
+      highlightMarks.push(editor.markText(
+        {line: lineIdx, ch: 0}, {line: lineIdx, ch: editor.getLine(lineIdx).length},
+        {className: 'cm-highlight-selected'}
+      ));
+    }
+  }
+  updateCodeFilter();
+}
+
+function clearSvgHighlights() {
+  for (const ov of svgHighlightOverlays) ov.remove();
+  svgHighlightOverlays = [];
+}
+
+function ensureGlowFilter(svg) {
+  if (!svg) return;
+  if (svg.querySelector('#hitexer-blur-strong')) return;
+  const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg','defs'), svg.firstChild);
+
+  function addBlurFilter(id, stdDev) {
+    const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+    f.setAttribute('id', id);
+    f.setAttribute('filterUnits','userSpaceOnUse');
+    f.setAttribute('x','-10000'); f.setAttribute('y','-10000');
+    f.setAttribute('width','20000'); f.setAttribute('height','20000');
+    f.innerHTML = `<feGaussianBlur stdDeviation="${stdDev}"/>`;
+    defs.appendChild(f);
+  }
+  addBlurFilter('hitexer-blur-strong', 3);
+  addBlurFilter('hitexer-blur-soft', 2);
+  addBlurFilter('hitexer-blur-select', 3);
+}
+
+/**
+ * @param {SVGElement} el
+ * @param {'strong'|'soft'|'select'} intensity
+ */
+function highlightSvgElement(el, intensity) {
+  if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
+  if (window.hitexerSlideActive) return;
+  const svg = el.closest('svg');
+  ensureGlowFilter(svg);
+  const isSelect = intensity === 'select';
+  const color = isSelect ? '#3b82f6' : '#e94560';
+  const opacity = (intensity === 'strong' || isSelect) ? '0.8' : '0.4';
+  const strokeW = (intensity === 'strong' || isSelect) ? 5 : 3;
+  const filterId = isSelect ? 'hitexer-blur-select'
+                 : intensity === 'strong' ? 'hitexer-blur-strong' : 'hitexer-blur-soft';
+  // Create a blurred, colored clone BEHIND the original element for glow effect
+  const clone = el.cloneNode(false);
+  clone.setAttribute('stroke', color);
+  clone.setAttribute('stroke-opacity', opacity);
+  clone.setAttribute('stroke-width', String(strokeW));
+  clone.setAttribute('fill', 'none');
+  clone.setAttribute('filter', `url(#${filterId})`);
+  clone.style.pointerEvents = 'none';
+  clone.removeAttribute('stroke-dasharray');
+  // Insert clone BEFORE the original so glow appears behind
+  el.parentNode.insertBefore(clone, el);
+  svgHighlightOverlays.push(clone);
+}
+
+// Direct interactivity setup for JS-interpreter-rendered SVG.
+// Uses the commandMap from the interpreter to build mappings directly,
+// bypassing the color probe entirely.
+function setupSvgInteractivityDirect(code, commandMap) {
+  const { mapping, parsed } = AsyParser.buildMapping(code);
+  currentMapping = mapping;
+  svgElsByCommand = new Map();
+  lineToCommandIdx = new Map();
+  lineToDepCommands = new Map();
+  multiSelected.clear();
+  for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  ++probeGeneration;
+
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+
+  // Build lineToCommandIdx and lineToDepCommands from AsyParser mapping
+  for (let ci = 0; ci < mapping.length; ci++) lineToCommandIdx.set(mapping[ci].primaryLine, ci);
+  for (let ci = 0; ci < mapping.length; ci++) {
+    for (const dl of mapping[ci].dependencyLines) {
+      if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
+      lineToDepCommands.get(dl).add(ci);
+    }
+  }
+
+  // Get SVG elements (same selector as setupSvgInteractivity)
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, use')]
+    .filter(el => !el.closest('defs'));
+  const elementToCommand = new Map();
+
+  // Build mapping from commandMap (interpreter's command→element mapping)
+  // The commandMap entries have {cmdIdx, elementIdx, line} where line is the source line (1-based from lexer)
+  // We need to match these to AsyParser's mapping by line number
+  for (let i = 0; i < svgElements.length; i++) {
+    const mapEntry = commandMap.find(cm => cm.elementIdx === i);
+    if (!mapEntry) continue;
+    // Find the AsyParser command index for this source line
+    // mapEntry.line is 1-based from the lexer; AsyParser uses 0-based lineIndex
+    const srcLine = mapEntry.line - 1; // convert to 0-based
+    let ci = -1;
+    // Direct lookup
+    if (lineToCommandIdx.has(srcLine)) {
+      ci = lineToCommandIdx.get(srcLine);
+    } else {
+      // Try nearby lines (in case of off-by-one from multi-line commands)
+      for (let d = 1; d <= 3; d++) {
+        if (lineToCommandIdx.has(srcLine - d)) { ci = lineToCommandIdx.get(srcLine - d); break; }
+        if (lineToCommandIdx.has(srcLine + d)) { ci = lineToCommandIdx.get(srcLine + d); break; }
+      }
+    }
+    if (ci >= 0) {
+      elementToCommand.set(svgElements[i], ci);
+      if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci, []);
+      svgElsByCommand.get(ci).push(svgElements[i]);
+    }
+  }
+
+  // probeReady resolves immediately (no probe needed)
+  const statusEl = document.getElementById('status');
+  probeReady = Promise.resolve();
+  statusEl.textContent = 'Rendered (JS)'; statusEl.style.color = '#2ecc71';
+
+  // Make all SVG elements accept pointer events
+  for (const el of svgElements) el.style.pointerEvents = 'all';
+
+  // Reuse the same hover/click/contextmenu logic as setupSvgInteractivity
+  function findNearest(clientX, clientY, onlyMapped) {
+    let bestCi = -1, bestDist = Infinity, bestEl = null;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; bestEl = el; }
+    }
+    if (bestDist > 30) return { ci: -1, el: null };
+    return { ci: bestCi, el: bestEl };
+  }
+
+  function findAllNear(clientX, clientY, onlyMapped, threshold) {
+    const results = [];
+    const thr = threshold || 30;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d <= thr) {
+        const lineIdx = (ci >= 0 && mapping[ci]) ? mapping[ci].primaryLine : -1;
+        results.push({ ci, el, dist: d, lineIdx });
+      }
+    }
+    const byLine = new Map();
+    for (const r of results) {
+      if (r.lineIdx < 0) continue;
+      if (!byLine.has(r.lineIdx) || r.dist < byLine.get(r.lineIdx).dist) {
+        byLine.set(r.lineIdx, r);
+      }
+    }
+    return [...byLine.values()].sort((a, b) => a.dist - b.dist);
+  }
+
+  let lastHoveredCi = -1, lastHoveredEl = null;
+  svg.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
+    if (bestCi >= 0 && bestCi === lastHoveredCi) return;
+    if (bestCi < 0 && bestEl === lastHoveredEl) return;
+    lastHoveredCi = bestCi; lastHoveredEl = bestEl;
+    clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+    if (bestCi >= 0) {
+      const cmd = mapping[bestCi];
+      for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
+      highlightLines(cmd.primaryLine, cmd.dependencyLines);
+    } else if (bestEl) {
+      highlightSvgElement(bestEl, 'strong');
+    }
+  });
+  svg.addEventListener('mouseleave', () => {
+    if (StyleMenu.visible) return;
+    lastHoveredCi = -1; lastHoveredEl = null;
+    clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+  });
+  svg.addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+    const candidates = findAllNear(e.clientX, e.clientY, true);
+    if (candidates.length === 0) return;
+    let target = candidates[0];
+    if (candidates.length > 1 && multiSelected.size > 0) {
+      const nearDist = target.dist;
+      const close = candidates.filter(c => c.dist - nearDist < 5);
+      if (close.length > 1) {
+        const selLines = [...multiSelected];
+        let bestCandidate = null, bestProximity = Infinity;
+        for (const c of close) {
+          if (multiSelected.has(c.lineIdx)) continue;
+          const proximity = Math.min(...selLines.map(s => Math.abs(c.lineIdx - s)));
+          if (proximity < bestProximity) { bestProximity = proximity; bestCandidate = c; }
+        }
+        if (bestCandidate) target = bestCandidate;
+      }
+    }
+    if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
+    else multiSelected.add(target.lineIdx);
+    renderMultiSelection();
+  });
+  svg.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
+    if (bestCi < 0) return;
+    const lineIdx = mapping[bestCi].primaryLine;
+    if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
+      StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
+    } else {
+      StyleMenu.show(e.clientX, e.clientY, lineIdx);
+    }
+  });
+
+  setupCodeHover();
+}
+
+function setupCodeHover() {
+  const cmWrapper = document.querySelector('.CodeMirror');
+  if (!cmWrapper || cmWrapper._hiteXerHover) return; // avoid duplicate listeners
+  cmWrapper._hiteXerHover = true;
+  let lastLine = -1;
+  cmWrapper.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    const pos = editor.coordsChar({left:e.clientX,top:e.clientY},'page');
+    if (pos.line===lastLine) return;
+    lastLine = pos.line;
+    doCodeLineHover(pos.line);
+  });
+  cmWrapper.addEventListener('mouseleave', () => {
+    if (StyleMenu.visible) return;
+    lastLine=-1; clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+  });
+}
+
+function doCodeLineHover(lineIdx) {
+  clearHighlights(); clearSvgHighlights();
+  if (multiSelected.size > 0) renderMultiSelection();
+  const depLines = new Set();
+  const strongCmds = new Set(), softCmds = new Set();
+
+  const ci = lineToCommandIdx.get(lineIdx);
+  if (ci!==undefined) {
+    strongCmds.add(ci);
+    for (const dl of currentMapping[ci].dependencyLines) depLines.add(dl);
+  }
+
+  const rev = lineToDepCommands.get(lineIdx);
+  if (rev) { for(const c of rev) { softCmds.add(c); depLines.add(currentMapping[c].primaryLine); } }
+
+  const code = editor.getValue();
+  const { parsed } = AsyParser.buildMapping(code);
+  for (const a of parsed.assignments) {
+    if (a.lineIndex===lineIdx) {
+      const rhs = a.lineText.split('=').slice(1).join('=');
+      const vars = AsyParser.extractVariables(rhs,[rhs],0);
+      const vis = new Set(vars), q = [...vars];
+      while (q.length) {
+        const v=q.shift();
+        for(const aa of parsed.assignments) { if(aa.varName===v) { depLines.add(aa.lineIndex); const ir=aa.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);} } }
+      }
+      break;
+    }
+  }
+
+  depLines.delete(lineIdx);
+  for (const c of strongCmds) softCmds.delete(c);
+  highlightLines(lineIdx, [...depLines]);
+  for (const c of strongCmds) for (const el of (svgElsByCommand.get(c)||[])) highlightSvgElement(el, 'strong');
+  for (const c of softCmds) for (const el of (svgElsByCommand.get(c)||[])) highlightSvgElement(el, 'soft');
+}
+
+// ============================================================
+// Panel Resizer
+// ============================================================
+function initResizer() {
+  const resizer=document.getElementById('resizer'), ep=document.getElementById('editor-panel'), pp=document.getElementById('preview-panel');
+  let resizing=false;
+  resizer.addEventListener('mousedown', e=>{resizing=true;document.body.style.cursor='col-resize';document.body.style.userSelect='none';e.preventDefault();});
+  document.addEventListener('mousemove', e=>{if(!resizing)return;const w=(e.clientX/document.getElementById('main').offsetWidth)*100;if(w>20&&w<80){ep.style.width=w+'%';pp.style.width=(100-w)+'%';editor.refresh();}});
+  document.addEventListener('mouseup', ()=>{if(resizing){resizing=false;document.body.style.cursor='';document.body.style.userSelect='';}});
+}
+
+// ============================================================
+// Init
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  initEditor();
+  initResizer();
+  StyleMenu.init();
+  document.getElementById('btn-render').addEventListener('click', doRender);
+
+  // Auto-render on page load
+  doRender();
+
+  // Color blind mode toggle (deuteranopia simulation via Brettel/Viénot color matrix)
+  let colorBlindActive = false;
+  const cbBtn = document.getElementById('btn-colorblind');
+  cbBtn.addEventListener('click', () => {
+    colorBlindActive = !colorBlindActive;
+    cbBtn.classList.toggle('primary', colorBlindActive);
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
+    if (colorBlindActive) {
+      // Ensure defs exists
+      let defs = svg.querySelector('defs');
+      if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg','defs'); svg.insertBefore(defs, svg.firstChild); }
+      if (!svg.querySelector('#hitexer-deuteranopia')) {
+        const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+        f.setAttribute('id','hitexer-deuteranopia');
+        f.setAttribute('color-interpolation-filters','linearRGB');
+        // Deuteranopia color matrix (Brettel/Viénot/Mollon)
+        f.innerHTML = `<feColorMatrix type="matrix" values="
+          0.625  0.375  0.000  0  0
+          0.700  0.300  0.000  0  0
+          0.000  0.300  0.700  0  0
+          0      0      0      1  0"/>`;
+        defs.appendChild(f);
+      }
+      // Apply to entire SVG contents via a wrapper group
+      let wrapper = svg.querySelector('#hitexer-cb-wrapper');
+      if (!wrapper) {
+        wrapper = document.createElementNS('http://www.w3.org/2000/svg','g');
+        wrapper.setAttribute('id','hitexer-cb-wrapper');
+        // Move all children except defs into wrapper
+        const children = [...svg.childNodes].filter(n => n !== defs && n.nodeName !== 'defs');
+        for (const ch of children) wrapper.appendChild(ch);
+        svg.appendChild(wrapper);
+      }
+      wrapper.setAttribute('filter','url(#hitexer-deuteranopia)');
+    } else {
+      const svg = document.querySelector('#preview-container svg');
+      if (!svg) return;
+      const wrapper = svg.querySelector('#hitexer-cb-wrapper');
+      if (wrapper) {
+        wrapper.removeAttribute('filter');
+      }
+    }
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    editor.setValue('[asy]\n\n[/asy]');
+    const clearPreview = document.getElementById('preview-container');
+    const clearSvg = clearPreview.querySelector('svg');
+    const clearPlaceholder = clearPreview.querySelector('.placeholder');
+    const clearError = clearPreview.querySelector('.error');
+    if (clearSvg) clearSvg.remove();
+    if (clearPlaceholder) clearPlaceholder.remove();
+    if (clearError) clearError.remove();
+    showStaleBadge(false);
+    showWarnBadge('');
+    clearHighlights(); clearSvgHighlights();
+    document.getElementById('status').textContent='Ready';
+    document.getElementById('status').style.color='#888';
+  });
+
+  // Auto-render on code changes
+  editor.on('change', () => {
+    // Don't schedule auto-render during slide drag/slider — those handlers render directly
+    if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
+  });
+
+  // ============================================================
+  // Feature #6: Plus/Minus Zoom Buttons
+  // ============================================================
+  function adjustScale(factor) {
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    let found = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      // Match unitsize(X cm) or unitsize(X)
+      const usM = lines[i].match(/^(\s*unitsize\s*\(\s*)([\d.]+)(\s*(cm|mm|inch|pt|bp)?\s*\)\s*;)/);
+      if (usM) {
+        const newVal = Math.max(0.1, (parseFloat(usM[2]) * factor)).toFixed(2).replace(/\.?0+$/, '');
+        lines[i] = usM[1] + newVal + usM[3];
+        found = true; break;
+      }
+      // Match size(X cm) or size(X, X)
+      const szM = lines[i].match(/^(\s*size\s*\(\s*)([\d.]+)(\s*(cm|mm|inch|pt|bp)?)(\s*(?:,\s*([\d.]+)(\s*(?:cm|mm|inch|pt|bp)?))?\s*\)\s*;)/);
+      if (szM) {
+        const newW = Math.max(1, (parseFloat(szM[2]) * factor)).toFixed(2).replace(/\.?0+$/, '');
+        let rest = szM[5];
+        if (szM[6]) {
+          const newH = Math.max(1, (parseFloat(szM[6]) * factor)).toFixed(2).replace(/\.?0+$/, '');
+          rest = rest.replace(szM[6], newH);
+        }
+        lines[i] = szM[1] + newW + szM[3].replace(szM[4]||'', szM[4]||'') + rest;
+        // Simpler approach: just scale width, reconstruct
+        lines[i] = lines[i]; // already done above
+        found = true; break;
+      }
+    }
+
+    if (!found) {
+      // No unitsize/size found, insert unitsize after imports
+      const insertIdx = lines.findIndex(l => /^\s*\[asy\]/.test(l));
+      const base = factor > 1 ? 1.2 : 0.8;
+      lines.splice(insertIdx + 1, 0, `unitsize(${base} cm);`);
+    }
+
+    const cursor = editor.getCursor();
+    editor.setValue(lines.join('\n'));
+    editor.setCursor(cursor);
+    doRender();
+  }
+
+  document.getElementById('btn-zoom-in').addEventListener('click', () => adjustScale(1.25));
+  document.getElementById('btn-zoom-out').addEventListener('click', () => adjustScale(0.8));
+
+  // ============================================================
+  // Feature: Grid Overlay
+  // ============================================================
+  const gridBtn = document.getElementById('btn-grid');
+  gridBtn.addEventListener('click', () => {
+    gridActive = !gridActive;
+    gridBtn.classList.toggle('active', gridActive);
+    if (gridActive) {
+      applyGridOverlay();
+    } else {
+      removeGridOverlay();
+    }
+  });
+
+  // removeGridOverlay / applyGridOverlay are top-level functions (defined near doRender)
+
+  // ============================================================
+  // Feature #7: Highlighting Toggle
+  // ============================================================
+  let highlightingEnabled = true;
+  const hlBtn = document.getElementById('btn-highlight-toggle');
+  hlBtn.addEventListener('click', () => {
+    highlightingEnabled = !highlightingEnabled;
+    hlBtn.textContent = 'HIGHLIGHT: ' + (highlightingEnabled ? 'ON' : 'OFF');
+    hlBtn.classList.toggle('active', !highlightingEnabled);
+    if (!highlightingEnabled) {
+      clearHighlights();
+      clearSvgHighlights();
+    }
+  });
+
+  // ============================================================
+  // Feature #8: Add Common Elements Menu
+  // ============================================================
+  const addElMenu = document.getElementById('add-element-menu');
+  const addElBtn = document.getElementById('btn-add-element');
+
+  const ELEMENT_TEMPLATES = [
+    { icon: '\u25CF', label: 'Point', code: 'pair P = ({x}, {y});\ndot(P);\nlabel("$P$", P, N);' },
+    { icon: '\u2014', label: 'Segment', code: 'draw({A}--{B});' },
+    { icon: '\u25CB', label: 'Circle', code: 'draw(circle({center}, {radius}));' },
+    { icon: '\u2B2D', label: 'Ellipse', code: 'draw(ellipse({center}, {a}, {b}));' },
+    { icon: '\u25AD', label: 'Rectangle', code: 'draw(box({corner1}, {corner2}));' },
+    { icon: '\u25B3', label: 'Triangle', code: 'pair P1 = ({x1}, {y1});\npair P2 = ({x2}, {y2});\npair P3 = ({x3}, {y3});\ndraw(P1--P2--P3--cycle);' },
+    { icon: '\u2229', label: 'Intersection', code: 'pair X = intersectionpoint({path1}, {path2});\ndot(X);\nlabel("$X$", X, N);' },
+    { icon: '\u27C2', label: 'Perpendicular foot', code: 'pair F = foot({point}, {lineA}, {lineB});\ndot(F);' },
+    { icon: '\u2220', label: 'Angle mark', code: 'markangle({A}, {vertex}, {B});' },
+    { icon: '\u22A5', label: 'Right angle mark', code: 'draw(rightanglemark({A}, {vertex}, {B}));' },
+  ];
+
+  addElBtn.addEventListener('click', (e) => {
+    if (addElMenu.style.display === 'block') { addElMenu.style.display = 'none'; return; }
+    let html = '<div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:6px;">Add Element</div>';
+    for (const t of ELEMENT_TEMPLATES) {
+      html += `<div class="ae-item" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}</div>`;
+    }
+    addElMenu.innerHTML = html;
+    const rect = addElBtn.getBoundingClientRect();
+    addElMenu.style.left = rect.left + 'px';
+    addElMenu.style.top = (rect.bottom + 4) + 'px';
+    addElMenu.style.display = 'block';
+
+    addElMenu.querySelectorAll('.ae-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const template = item.dataset.code;
+        // Find placeholders and prompt user for values
+        const placeholders = [...new Set(template.match(/\{[^}]+\}/g) || [])];
+        let code = template;
+        for (const ph of placeholders) {
+          const name = ph.slice(1, -1);
+          const val = prompt(`Enter value for ${name}:`, name === 'x' || name === 'y' ? '0' : name.includes('radius') ? '1' : name);
+          if (val === null) return; // cancelled
+          code = code.split(ph).join(val);
+        }
+        // Insert before [/asy]
+        const editorCode = editor.getValue();
+        const endTag = editorCode.lastIndexOf('[/asy]');
+        if (endTag >= 0) {
+          const before = editorCode.substring(0, endTag);
+          const after = editorCode.substring(endTag);
+          editor.setValue(before + code + '\n' + after);
+        } else {
+          editor.setValue(editorCode + '\n' + code);
+        }
+        addElMenu.style.display = 'none';
+        doRender();
+      });
+    });
+  });
+
+  // Close add-element menu on outside click
+  document.addEventListener('mousedown', (e) => {
+    if (addElMenu.style.display === 'block' && !addElMenu.contains(e.target) && e.target !== addElBtn) {
+      addElMenu.style.display = 'none';
+    }
+  });
+
+  // ============================================================
+  // Feature #1: Slide Mode
+  // ============================================================
+  let slideActive = false;
+  window.hitexerSlideActive = false;
+  const slideBtn = document.getElementById('btn-slide');
+  const slidePanel = document.getElementById('slide-panel');
+  let slideDragState = null;
+  let slideInjectedDots = [];
+  let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls}]
+  let slidePxPerUnit = 28.35;
+
+  slideBtn.addEventListener('click', () => {
+    slideActive = !slideActive;
+    window.hitexerSlideActive = slideActive;
+    slideBtn.classList.toggle('active', slideActive);
+    if (slideActive) {
+      activateSlideMode();
+    } else {
+      deactivateSlideMode();
+    }
+  });
+
+  function findFreePoints(code) {
+    const lines = code.split('\n');
+    const freePoints = [];
+    for (let i = 0; i < lines.length; i++) {
+      // Match: A = (0, 0); or pair A = (0, 0);
+      const m = lines[i].match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
+      if (m) {
+        freePoints.push({ lineIdx: i, varName: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]) });
+      }
+    }
+    return freePoints;
+  }
+
+  function findFreeReals(code) {
+    const lines = code.split('\n');
+    const freeReals = [];
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^\s*real\s+([A-Za-z_]\w*)\s*=\s*([-\d.]+)\s*;/);
+      if (m) {
+        freeReals.push({ lineIdx: i, varName: m[1], value: parseFloat(m[2]) });
+      }
+    }
+    return freeReals;
+  }
+
+  function isPointDrawn(code, varName) {
+    // Check if this point already has a dot() or label() referencing it as an argument
+    // Use word boundary to avoid matching substrings (e.g. "AB" matching "A")
+    const re = new RegExp('\\b(?:dot|label)\\s*\\([^)]*\\b' + varName + '\\b', 'm');
+    return re.test(code);
+  }
+
+  function getUnitScale(code) {
+    const usMatch = code.match(/unitsize\s*\(\s*([\d.]+)\s*(cm|mm|inch|pt|bp)?\s*\)/);
+    if (!usMatch) return 28.35;
+    const val = parseFloat(usMatch[1]);
+    const unit = usMatch[2] || 'cm';
+    const unitToPt = { cm: 28.35, mm: 2.835, inch: 72, pt: 1, bp: 1 };
+    return val * (unitToPt[unit] || 28.35);
+  }
+
+  // --- Activate / Deactivate ---
+
+  function activateSlideMode() {
+    const code = editor.getValue();
+    const freePoints = findFreePoints(code);
+
+    // Inject visible red+gold dot() for free points that aren't drawn
+    const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp.varName));
+    if (undrawn.length > 0) {
+      const lines = code.split('\n');
+      const asyEndIdx = lines.findIndex(l => /^\s*\[\/asy\]/.test(l));
+      if (asyEndIdx >= 0) {
+        const dotLines = undrawn.map(fp =>
+          `dot(${fp.varName}, red+linewidth(8bp)); // SLIDE_DOT`
+        );
+        lines.splice(asyEndIdx, 0, ...dotLines);
+        slideInjectedDots = undrawn.map(fp => fp.varName);
+        editor.setValue(lines.join('\n'));
+        doRender().then(() => probeReady).then(() => applySlideOverlay());
+        return;
+      }
+    }
+
+    // Wait for probe mapping to complete before building overlay
+    probeReady.then(() => applySlideOverlay());
+  }
+
+  function applySlideOverlay() {
+    const code = editor.getValue();
+    const freePoints = findFreePoints(code);
+    const freeReals = findFreeReals(code);
+    slidePxPerUnit = getUnitScale(code);
+
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
+
+    // Clean up any previous overlay remnants
+    svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
+    svg.querySelectorAll('.slide-free-glow').forEach(el => {
+      el.classList.remove('slide-free-glow');
+      el.removeAttribute('transform');
+    });
+    slideFreePointData = [];
+
+    ensureSlideGlowFilter(svg);
+
+    // Build a set of free-point line indices for quick lookup
+    const freeLineSet = new Set(freePoints.map(fp => fp.lineIdx));
+
+    // Helper: transform a point from an element's local bbox space to SVG viewBox space
+    function localToViewBox(el, lx, ly) {
+      const pt = svg.createSVGPoint();
+      pt.x = lx; pt.y = ly;
+      // el.getCTM() maps local → screen; svg.getCTM() maps viewBox → screen
+      // So local → viewBox = svg.getCTM().inverse() * el.getCTM() * point
+      const elCTM = el.getCTM();
+      const svgCTM = svg.getCTM();
+      if (!elCTM || !svgCTM) return { x: lx, y: ly };
+      const m = svgCTM.inverse().multiply(elCTM);
+      return pt.matrixTransform(m);
+    }
+
+    slideFreePointData = [];
+    for (const fp of freePoints) {
+      let svgCX = null, svgCY = null;
+      const glowEls = [];
+
+      // Find SVG elements for dot/label commands that reference this var
+      for (const [cmdIdx, els] of svgElsByCommand) {
+        const cmd = currentMapping[cmdIdx];
+        if (!cmd) continue;
+        // Match this var by word boundary to avoid false positives
+        const varRe = new RegExp('\\b' + fp.varName + '\\b');
+        if (!varRe.test(cmd.commandText)) continue;
+        if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
+        for (const el of els) {
+          if (svgCX === null) {
+            const bbox = el.getBBox();
+            const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+            svgCX = center.x;
+            svgCY = center.y;
+          }
+          el.classList.add('slide-free-glow');
+          glowEls.push(el);
+        }
+      }
+
+      // Create a large visible hit circle at the point's position (in viewBox coords)
+      let hitCircle = null;
+      if (svgCX !== null) {
+        hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        hitCircle.setAttribute('cx', svgCX);
+        hitCircle.setAttribute('cy', svgCY);
+        hitCircle.setAttribute('r', '18');
+        hitCircle.setAttribute('fill', 'rgba(233,196,106,0.3)');
+        hitCircle.setAttribute('stroke', '#e9c46a');
+        hitCircle.setAttribute('stroke-width', '2.5');
+        hitCircle.setAttribute('stroke-dasharray', '4 2');
+        hitCircle.setAttribute('class', 'slide-hit-circle');
+        svg.appendChild(hitCircle);
+      }
+
+      slideFreePointData.push({
+        varName: fp.varName, lineIdx: fp.lineIdx,
+        x: fp.x, y: fp.y, svgCX, svgCY,
+        hitCircle, glowEls,
+      });
+    }
+
+    // Set up drag handling on the SVG (remove first to avoid duplicates on re-overlay)
+    svg.removeEventListener('mousedown', slideMouseDown);
+    window.removeEventListener('mousemove', slideMouseMove);
+    window.removeEventListener('mouseup', slideMouseUp);
+    svg.addEventListener('mousedown', slideMouseDown);
+    window.addEventListener('mousemove', slideMouseMove);
+    window.addEventListener('mouseup', slideMouseUp);
+
+    // Show variable sliders for free reals
+    if (freeReals.length > 0) {
+      slidePanel.style.display = 'block';
+      const slidersDiv = document.getElementById('slide-sliders');
+      slidersDiv.innerHTML = '';
+      for (const fr of freeReals) {
+        const min = Math.min(-10, fr.value * 2);
+        const max = Math.max(10, fr.value * 2);
+        const step = Math.abs(fr.value) > 10 ? 1 : 0.1;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
+        row.innerHTML = `<label style="color:#e9c46a;font-size:12px;min-width:60px;">${fr.varName}</label>
+          <input type="range" min="${min}" max="${max}" step="${step}" value="${fr.value}" data-line="${fr.lineIdx}" data-var="${fr.varName}" style="flex:1;">
+          <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
+        slidersDiv.appendChild(row);
+        const slider = row.querySelector('input[type=range]');
+        slider.addEventListener('input', () => {
+          const val = parseFloat(slider.value);
+          row.querySelector('.slide-val').textContent = val.toFixed(1);
+          updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
+        });
+      }
+    }
+  }
+
+  function deactivateSlideMode() {
+    const svg = document.querySelector('#preview-container svg');
+    if (svg) {
+      svg.querySelectorAll('.slide-free-glow').forEach(el => {
+        el.classList.remove('slide-free-glow');
+        el.removeAttribute('transform');
+      });
+      svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
+      svg.removeEventListener('mousedown', slideMouseDown);
+      window.removeEventListener('mousemove', slideMouseMove);
+      window.removeEventListener('mouseup', slideMouseUp);
+    }
+    slideFreePointData = [];
+    slidePanel.style.display = 'none';
+    slideDragState = null;
+
+    // Remove injected SLIDE_DOT lines and re-render
+    if (slideInjectedDots.length > 0) {
+      const code = editor.getValue();
+      const lines = code.split('\n');
+      const cleaned = lines.filter(l => !l.includes('// SLIDE_DOT'));
+      editor.setValue(cleaned.join('\n'));
+      slideInjectedDots = [];
+      doRender();
+    }
+  }
+
+  function ensureSlideGlowFilter(svg) {
+    if (svg.querySelector('#hitexer-slide-glow')) return;
+    const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg','defs'), svg.firstChild);
+    const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+    f.setAttribute('id','hitexer-slide-glow');
+    f.setAttribute('filterUnits','userSpaceOnUse');
+    f.setAttribute('x','-10000'); f.setAttribute('y','-10000');
+    f.setAttribute('width','20000'); f.setAttribute('height','20000');
+    // Stronger glow: larger blur, full opacity
+    f.innerHTML = '<feGaussianBlur stdDeviation="6" result="blur"/>'
+      + '<feFlood flood-color="#e9c46a" flood-opacity="1" result="color"/>'
+      + '<feComposite in="color" in2="blur" operator="in" result="glow"/>'
+      + '<feMerge><feMergeNode in="glow"/><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>';
+    defs.appendChild(f);
+  }
+
+  // --- Drag handlers ---
+  // Architecture: during drag, move SVG elements via transform (instant).
+  // Only re-render Asymptote on mouseup for full fidelity.
+
+  function slideMouseDown(e) {
+    if (!slideActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Find which free point was clicked (by proximity to hit circles)
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
+    const screenCTM = svg.getScreenCTM().inverse();
+    const clickSvgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const clickSvgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+
+    let bestFP = null, bestDist = Infinity;
+    for (const fp of slideFreePointData) {
+      if (fp.svgCX === null) continue;
+      const d = Math.hypot(clickSvgX - fp.svgCX, clickSvgY - fp.svgCY);
+      if (d < bestDist) { bestDist = d; bestFP = fp; }
+    }
+    // ~18 SVG units radius for hit circle; allow a bit more
+    if (!bestFP || bestDist > 25) return;
+
+    svg.style.cursor = 'grabbing';
+
+    // Compute a stable screen-pixels-per-math-unit conversion factor at drag start.
+    // This stays valid even after the SVG DOM is replaced by JS re-renders.
+    // screenCTM maps SVG coords → screen coords; its 'a' is SVG-pixels-per-screen-pixel (inverted).
+    // pxPerUnit is SVG-pixels-per-math-unit. So screen-pixels-per-math-unit = pxPerUnit / |screenCTM_inv.a|
+    const screenPxPerMathUnit = slidePxPerUnit / Math.abs(screenCTM.a);
+
+    slideDragState = {
+      fp: bestFP,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      screenPxPerMathUnit,
+      // Keep SVG-coordinate state for the fallback (non-JS-render) path
+      startSvgX: clickSvgX,
+      startSvgY: clickSvgY,
+      svg: svg,
+    };
+  }
+
+  function slideMouseMove(e) {
+    if (!slideDragState) return;
+    e.preventDefault();
+    const { fp, startClientX, startClientY, screenPxPerMathUnit } = slideDragState;
+
+    // Compute math-coordinate delta from stable screen-pixel delta
+    const dx = (e.clientX - startClientX) / screenPxPerMathUnit;
+    const dy = -(e.clientY - startClientY) / screenPxPerMathUnit; // screen Y is inverted
+    const newX = (fp.x + dx).toFixed(2).replace(/\.?0+$/, '');
+    const newY = (fp.y + dy).toFixed(2).replace(/\.?0+$/, '');
+
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    lines[fp.lineIdx] = lines[fp.lineIdx].replace(
+      /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
+      `= (${newX}, ${newY})`
+    );
+    const newCode = lines.join('\n');
+    editor.setValue(newCode);
+
+    // Try JS interpreter for real-time full re-render during drag
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        // Re-apply slide overlay on the new SVG
+        applySlideOverlay();
+        return;
+      } catch(e2) {
+        // Fall through to SVG transform approach
+      }
+    }
+
+    // Fallback: move hit circle and glow elements via SVG transform
+    const { startSvgX, startSvgY, svg } = slideDragState;
+    if (!svg || !svg.isConnected) return;
+    const screenCTM = svg.getScreenCTM().inverse();
+    const svgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const svgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+    const dSvgX = svgX - startSvgX;
+    const dSvgY = svgY - startSvgY;
+    if (fp.hitCircle) {
+      fp.hitCircle.setAttribute('cx', fp.svgCX + dSvgX);
+      fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
+    }
+    for (const el of fp.glowEls) {
+      el.setAttribute('transform', `translate(${dSvgX},${-dSvgY})`);
+    }
+  }
+
+  function slideMouseUp() {
+    if (!slideDragState) return;
+    const { svg } = slideDragState;
+    if (svg) svg.style.cursor = '';
+    slideDragState = null;
+
+    // If JS interpreter already rendered during drag, just re-apply overlay
+    const code = editor.getValue();
+    if (window.AsyInterp && AsyInterp.canInterpret(code)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        setupSvgInteractivityDirect(code, result.commandMap);
+        if (slideActive) applySlideOverlay();
+        return;
+      } catch(e) { /* fall through to full re-render */ }
+    }
+
+    // Fallback: full re-render
+    doRender().then(() => probeReady).then(() => {
+      if (slideActive) applySlideOverlay();
+    });
+  }
+
+  function updateSlideReal(lineIdx, varName, value) {
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    lines[lineIdx] = lines[lineIdx].replace(
+      /=\s*[-\d.]+\s*;/,
+      `= ${value};`
+    );
+    const newCode = lines.join('\n');
+    suppressAutoRender = true;
+    editor.setValue(newCode);
+    suppressAutoRender = false;
+
+    // Try JS interpreter for instant response (don't rebuild slider overlay — it kills drag)
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        setupSvgInteractivityDirect(newCode, result.commandMap);
+        return;
+      } catch(e) { /* fall through to full re-render */ }
+    }
+
+    // Fallback: full re-render
+    doRender().then(() => probeReady).then(() => {
+      if (slideActive) applySlideOverlay();
+    });
+  }
+
+});
+</script>
+</body>
+</html>
