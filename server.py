@@ -569,8 +569,15 @@ def fix_svg_opacity(svg: str) -> str:
 
 
 def main():
+    import socket as _socket
     os.chdir(Path(__file__).parent)
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), HiTeXeRHandler)
+    # Create socket with SO_REUSEADDR before binding to survive TIME_WAIT on Windows
+    sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", PORT))
+    sock.listen(5)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), HiTeXeRHandler, bind_and_activate=False)
+    server.socket = sock
     print(f"HiTeXeR server running at http://127.0.0.1:{PORT}")
     print("Press Ctrl+C to stop")
     try:
