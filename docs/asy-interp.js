@@ -92,7 +92,12 @@ function lex(source) {
     if (ch() === '"') {
       advance(); let s = '';
       while (pos < len && ch() !== '"') {
-        if (ch() === '\\') { advance(); s += ch(); } else { s += ch(); }
+        if (ch() === '\\') {
+          advance();
+          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          else if (ch() === '\\') { s += '\\'; } else if (ch() === '"') { s += '"'; }
+          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
+        } else { s += ch(); }
         advance();
       }
       if (pos < len) advance(); // closing quote
@@ -103,7 +108,12 @@ function lex(source) {
     if (ch() === "'") {
       advance(); let s = '';
       while (pos < len && ch() !== "'") {
-        if (ch() === '\\') { advance(); s += ch(); } else { s += ch(); }
+        if (ch() === '\\') {
+          advance();
+          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          else if (ch() === '\\') { s += '\\'; } else if (ch() === "'") { s += "'"; }
+          else { s += '\\'; s += ch(); }
+        } else { s += ch(); }
         advance();
       }
       if (pos < len) advance();
@@ -1213,6 +1223,7 @@ function createInterpreter() {
   let projection = null; // null = no 3D; {type, camera, target, up, ...}
   // Settings
   let unitScale = 1;       // unitsize value in points
+  let hasUnitScale = false; // whether unitsize() was explicitly called
   let sizeW = 0, sizeH = 0;
   let defaultPen = makePen({});
   let iterationLimit = 100000;
@@ -1412,8 +1423,17 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
+    if (op === T.PLUS && isPen(left) && isNumber(right)) return mergePens(left, makePen({linewidth:right}));
+    if (op === T.PLUS && isNumber(left) && isPen(right)) return mergePens(makePen({linewidth:left}), right);
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
+    // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
+    if (op === T.STAR && isNumber(left) && isPen(right)) {
+      return makePen(Object.assign({}, right, {r:left*right.r, g:left*right.g, b:left*right.b}));
+    }
+    if (op === T.STAR && isPen(left) && isNumber(right)) {
+      return makePen(Object.assign({}, left, {r:right*left.r, g:right*left.g, b:right*left.b}));
+    }
 
     // Triple ops
     if (isTriple(left) || isTriple(right)) {
@@ -1570,6 +1590,18 @@ function createInterpreter() {
     if (callee && callee._tag === 'func') {
       return callUserFunc(callee, node.args, env);
     }
+
+    // gray(number) → grayscale pen  (gray is also a pen constant)
+    if (calleeName === 'gray' && isPen(callee)) {
+      const args = node.args.map(a => evalNode(a, env));
+      if (args.length >= 1) {
+        const v = toNumber(args[0]);
+        return makePen({r:v,g:v,b:v});
+      }
+      return callee;
+    }
+    // Calling a pen as a function (e.g. invisible()) — just return the pen
+    if (isPen(callee)) return callee;
 
     // Type constructor calls: pair(x,y), triple(x,y,z), real(x), int(x), etc.
     if (calleeName === 'pair' && node.args.length === 2) {
@@ -2036,12 +2068,17 @@ function createInterpreter() {
       magenta:'#ff00ff', orange:'#ff8c00', purple:'#8000bf', brown:'#804000',
       pink:'#ffc0cb',
       lightblue:'#87ceeb', lightgreen:'#90ee90', lightred:'#ff8080',
-      lightyellow:'#ffffe0', lightgray:'#bfbfbf',
+      lightyellow:'#ffffe0', lightgray:'#bfbfbf', lightcyan:'#c0ffff',
       darkblue:'#000080', darkgreen:'#006400', darkred:'#8b0000',
+      darkcyan:'#008b8b', darkmagenta:'#8b008b', darkgray:'#404040',
       heavyblue:'#0000bf', heavygreen:'#005900', heavyred:'#bf0000',
+      heavycyan:'#008080', heavymagenta:'#800080', heavygray:'#606060',
+      mediumblue:'#0000cd', mediumgreen:'#00a000', mediumred:'#c00000',
+      mediumcyan:'#00b0b0', mediummagenta:'#b000b0', mediumgray:'#a0a0a0',
       paleblue:'#c0d0ff', palegreen:'#c0ffc0', palered:'#ffc0c0',
       paleyellow:'#ffffc0', palecyan:'#c0ffff', palemagenta:'#ffc0ff',
       deepblue:'#0000a0', deepgreen:'#004d00', deepred:'#a00000',
+      deepcyan:'#006060', deepmagenta:'#600060',
     };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
       const r = parseInt(hex.substr(1,2),16)/255;
@@ -2207,6 +2244,11 @@ function createInterpreter() {
       const rad = toNumber(r);
       return makeCirclePath(c, rad);
     });
+    env.set('Circle', (center, r) => {
+      const c = toPair(center);
+      const rad = toNumber(r);
+      return makeCirclePath(c, rad);
+    });
 
     env.set('arc', (center, r, a1, a2) => {
       const c = toPair(center);
@@ -2290,6 +2332,30 @@ function createInterpreter() {
       return makePath(rev, p.closed);
     });
 
+    // buildcycle: construct closed region from multiple paths
+    env.set('buildcycle', (...paths) => {
+      // Concatenate all paths into one closed path
+      // For the common case of 2 paths that share endpoints,
+      // join them end-to-end and close
+      const allSegs = [];
+      for (const p of paths) {
+        if (!isPath(p)) continue;
+        const segs = p.segs;
+        if (segs.length === 0) continue;
+        // If there's a gap between previous end and this start, add a line segment
+        if (allSegs.length > 0) {
+          const prev = allSegs[allSegs.length - 1];
+          const next = segs[0];
+          const dx = prev.p3.x - next.p0.x, dy = prev.p3.y - next.p0.y;
+          if (dx*dx + dy*dy > 1e-6) {
+            allSegs.push(lineSegment(prev.p3, next.p0));
+          }
+        }
+        for (const s of segs) allSegs.push(s);
+      }
+      return makePath(allSegs, true);
+    });
+
     env.set('subpath', (p, a, b) => {
       if (!isPath(p)) return p;
       // Simplified: extract segments in range
@@ -2355,14 +2421,8 @@ function createInterpreter() {
       const cc=toNumber(c),mm=toNumber(m),yy=toNumber(y),kk=toNumber(k);
       return makePen({r:(1-cc)*(1-kk),g:(1-mm)*(1-kk),b:(1-yy)*(1-kk)});
     });
-    env.set('gray', (g) => {
-      // If called as gray(number), return grayscale pen
-      if (arguments.length > 0 && g !== undefined) {
-        const v = toNumber(g);
-        return makePen({r:v,g:v,b:v});
-      }
-      return makePen({r:0.5,g:0.5,b:0.5});
-    });
+    // gray is set as a pen constant from ASY_COLORS above.
+    // gray(number) is handled specially in the function call evaluator.
     env.set('hsv', (h,s,v) => {
       const hh=toNumber(h)/60, ss=toNumber(s), vv=toNumber(v);
       const c=vv*ss, x=c*(1-Math.abs(hh%2-1)), m=vv-c;
@@ -2374,7 +2434,7 @@ function createInterpreter() {
 
     // Settings
     env.set('unitsize', (...args) => {
-      if (args.length >= 1) unitScale = toNumber(args[0]);
+      if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; }
     });
     env.set('size', (...args) => {
       // size(pic, w, h) or size(w, h) or size(w)
@@ -2506,12 +2566,47 @@ function createInterpreter() {
       return makePair(a.x+b.x+c.x-2*cc.x, a.y+b.y+c.y-2*cc.y);
     });
 
+    // Right angle mark: draws a small square at vertex B
+    env.set('rightanglemark', (A, B, C, ...rest) => {
+      const a = toPair(A), b = toPair(B), c = toPair(C);
+      const rawS = rest.length > 0 ? toNumber(rest[0]) : 10;
+      const msf = env.get('markscalefactor') || 0.03;
+      const s = rawS * msf;
+      // Normalize BA and BC directions
+      const ba = {x: a.x-b.x, y: a.y-b.y};
+      const bc = {x: c.x-b.x, y: c.y-b.y};
+      const lenBA = Math.sqrt(ba.x*ba.x + ba.y*ba.y) || 1;
+      const lenBC = Math.sqrt(bc.x*bc.x + bc.y*bc.y) || 1;
+      const uBA = {x: ba.x/lenBA*s, y: ba.y/lenBA*s};
+      const uBC = {x: bc.x/lenBC*s, y: bc.y/lenBC*s};
+      // Three corners of the right angle mark
+      const p1 = makePair(b.x + uBA.x, b.y + uBA.y);
+      const p2 = makePair(b.x + uBA.x + uBC.x, b.y + uBA.y + uBC.y);
+      const p3 = makePair(b.x + uBC.x, b.y + uBC.y);
+      return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
+    });
+
+    // anglemark: draw arc showing angle at vertex B
+    env.set('anglemark', (...args) => {
+      // Stub: return empty path for now
+      return makePath([], false);
+    });
+
     // Labeling helpers
     env.set('Label', (...args) => {
-      // Return the string argument for label()
-      if (args.length >= 1 && isString(args[0])) return args[0];
-      return '';
+      // Return a label object with text and optional alignment/position info
+      let text = '';
+      let align = null;
+      for (const a of args) {
+        if (isString(a)) text = a;
+        else if (isPair(a)) align = a;
+        // position=EndPoint etc. are just ignored for now (label goes at axis end)
+      }
+      return {_tag:'label', text, align};
     });
+    env.set('EndPoint', 1);
+    env.set('BeginPoint', 0);
+    env.set('MidPoint', 0.5);
 
     // String functions
     env.set('string', (x) => {
@@ -2622,6 +2717,9 @@ function createInterpreter() {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
 
+    // Shared axis limit state
+    const _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null };
+
     // Helper: build path from points, using smooth (..) or straight (--) joins
     function buildGraphPath(pts, useSmooth) {
       if (pts.length < 2) return makePath([], false);
@@ -2729,36 +2827,125 @@ function createInterpreter() {
     });
 
     // Helper: draw ticks along an axis
-    function _drawTicks(ticks, axisDir, min, max, pen) {
-      if (!ticks || ticks.step === 0) return;
+    // pic: target picture, extent: null or BottomTop/LeftRight for grid lines
+    // crossMin/crossMax: for extent mode, how far tick lines extend in cross direction
+    // Compute good tick divisors for range [a,b] (from graph.asy)
+    function _tickDivisors(a, b) {
+      const n = Math.round(b - a);
+      if (n <= 0) return [1];
+      const dlist = [1];
+      if (n === 1) return [1, 10, 100];
+      if (n === 2) return [1, 2];
+      const sqrtn = Math.floor(Math.sqrt(n));
+      for (let d = 2; d <= sqrtn; d++)
+        if (n % d === 0) dlist.push(d);
+      for (let d = sqrtn; d >= 1; d--)
+        if (n % d === 0) dlist.push(Math.floor(n / d));
+      // Remove duplicates and sort
+      return [...new Set(dlist)].sort((a, b) => a - b);
+    }
+
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax) {
+      if (!ticks) return;
+      if (!pic) pic = currentPic;
       const tickPen = ticks.pen || pen;
-      const tickSize = ticks.size || 0.1;
       const noZero = ticks.noZero || false;
-      // Use explicit positions array if provided, otherwise step
-      let positions;
+      const isExtend = extent && (extent === 'BottomTop' || extent === 'LeftRight' ||
+                                   extent === 'TopBottom' || extent === 'RightLeft');
+      // Tick sizes in world coordinates
+      // Default major tick = 0.05 world units, minor = 0.025
+      let majorSize = ticks.size > 0 ? ticks.size : 0.05;
+      let minorSize = majorSize * 0.5;
+
+      // Compute major tick positions
+      let majorPositions;
+      let step;
       if (ticks.positions && isArray(ticks.positions)) {
-        positions = ticks.positions.map(v => toNumber(v));
+        majorPositions = ticks.positions.map(v => toNumber(v));
+        step = majorPositions.length > 1 ? Math.abs(majorPositions[1] - majorPositions[0]) : 1;
       } else {
-        const step = ticks.step || 1;
-        if (step <= 0) return;
-        positions = [];
-        for (let v = Math.ceil(min/step)*step; v <= max + 1e-10; v += step) {
-          positions.push(Math.round(v*1e10)/1e10);
+        step = ticks.step;
+        if (step <= 0) {
+          // Auto-compute step using Asymptote's divisors algorithm
+          const range = max - min;
+          const a = Math.ceil(min);
+          const b = Math.floor(max);
+          if (b > a) {
+            const divs = _tickDivisors(a, b);
+            // Pick largest divisor count that doesn't overcrowd
+            // Asymptote targets roughly 4-8 major ticks
+            step = (b - a);
+            for (let i = divs.length - 1; i >= 0; i--) {
+              const N = divs[i];
+              const s = (b - a) / N;
+              if (N >= 2 && N <= 10) { step = s; break; }
+            }
+          } else {
+            step = 1;
+          }
+        }
+        if (step <= 0) step = 1;
+        majorPositions = [];
+        for (let v = Math.ceil(min / step) * step; v <= max + 1e-10; v += step) {
+          majorPositions.push(Math.round(v * 1e10) / 1e10);
         }
       }
-      for (const v of positions) {
-        if (noZero && Math.abs(v) < 1e-10) continue;
-        if (v < min - 1e-10 || v > max + 1e-10) continue;
-        const isX = (axisDir === 'x');
-        const p0 = isX ? {x:v, y:-tickSize} : {x:-tickSize, y:v};
-        const p1 = isX ? {x:v, y:tickSize} : {x:tickSize, y:v};
+
+      // Compute sub-tick positions (minor ticks between major ticks)
+      let minorPositions = [];
+      if (!isExtend) {
+        // Default: 2 sub-ticks per major step (like Asymptote)
+        const subN = ticks.subStep > 0 ? Math.round(step / ticks.subStep) : 2;
+        if (subN > 1) {
+          const subStep = step / subN;
+          for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
+            const rounded = Math.round(v * 1e10) / 1e10;
+            // Skip if it's already a major tick position
+            const isMajor = majorPositions.some(m => Math.abs(m - rounded) < 1e-8);
+            if (!isMajor) minorPositions.push(rounded);
+          }
+        }
+      }
+
+      const isX = (axisDir === 'x');
+
+      // Draw function for a single tick mark
+      function drawTick(v, sz) {
+        if (noZero && Math.abs(v) < 1e-10) return;
+        if (v < min - 1e-10 || v > max + 1e-10) return;
+        let p0, p1;
+        if (isExtend) {
+          const cMin = crossMin !== undefined ? crossMin : -5;
+          const cMax = crossMax !== undefined ? crossMax : 5;
+          p0 = isX ? {x:v, y:cMin} : {x:cMin, y:v};
+          p1 = isX ? {x:v, y:cMax} : {x:cMax, y:v};
+        } else {
+          p0 = isX ? {x:v, y:-sz} : {x:-sz, y:v};
+          p1 = isX ? {x:v, y:sz} : {x:sz, y:v};
+        }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        currentPic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
-        if (ticks.labels) {
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
+      }
+
+      // Draw major ticks
+      for (const v of majorPositions) drawTick(v, majorSize);
+      // Draw minor ticks
+      for (const v of minorPositions) drawTick(v, minorSize);
+
+      // Draw labels for major ticks
+      // Suppress labels when Size was explicitly set very small (e.g. Size=0.1pt),
+      // which means ticks are invisible markers — labels would be meaningless
+      const showLabels = ticks.labels && !isExtend && !(ticks.sizeExplicit && ticks.size < 0.5);
+      if (showLabels) {
+        for (const v of majorPositions) {
+          if (noZero && Math.abs(v) < 1e-10) continue;
+          if (v < min - 1e-10 || v > max + 1e-10) continue;
           const pos = isX ? {x:v, y:0} : {x:0, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
-          const txt = String(Math.round(v*1000)/1000);
-          currentPic.commands.push({cmd:'label', text:txt, pos, align, pen:tickPen, line:0});
+          const txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+          const labelPen = clonePen(tickPen);
+          labelPen.fontsize = 8;
+          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0});
         }
       }
     }
@@ -2775,10 +2962,19 @@ function createInterpreter() {
 
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
-      let label = '', xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
-      for (const a of args) {
-        if (a === null || a === undefined) continue;
-        if (isString(a) && !label) label = a;
+      let pic = currentPic;
+      let label = '', labelAlign = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let extent = null; // BottomTop, etc.
+      const rawArgs = args;
+      let startIdx = 0;
+      if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
+        pic = rawArgs[0]; startIdx = 1;
+      }
+      for (let i = startIdx; i < rawArgs.length; i++) {
+        const a = rawArgs[i];
+        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; }
+        else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
           else if (xmax === null) xmax = a;
@@ -2786,45 +2982,111 @@ function createInterpreter() {
         else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
         else if (a && a._tag === 'arrow') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
-        else if (a && a._tag === 'axisextent') { /* extent info — used for tick placement */ }
+        else if (typeof a === 'function') {
+          try {
+            const r = a();
+            if (r && r._tag === 'arrow') arrow = arrow || r;
+            else if (r && r._tag === 'axisextent') extent = r.type;
+          } catch(e) {}
+        }
+        else if (a && a._tag === 'axisextent') { extent = a.type; }
       }
-      if (xmin === null) xmin = -5;
-      if (xmax === null) xmax = 5;
+      // Auto-range from content bounds if no explicit limits
+      if (xmin === null) xmin = _axisLimits.xmin;
+      if (xmax === null) xmax = _axisLimits.xmax;
+      if (xmin === null || xmax === null) {
+        // Compute from picture's existing content
+        let cMinX = Infinity, cMaxX = -Infinity;
+        for (const dc of pic.commands) {
+          if (dc.path && dc.path.segs) {
+            for (const seg of dc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+                if (isFinite(p.x)) { if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x; }
+              }
+            }
+          }
+          if (dc.pos && isFinite(dc.pos.x)) { if (dc.pos.x < cMinX) cMinX = dc.pos.x; if (dc.pos.x > cMaxX) cMaxX = dc.pos.x; }
+        }
+        if (xmin === null) xmin = isFinite(cMinX) ? cMinX : -5;
+        if (xmax === null) xmax = isFinite(cMaxX) ? cMaxX : 5;
+      }
       if (!pen) pen = clonePen(defaultPen);
-      if (pen.opacity !== 0) {
+      const isInvisible = pen.opacity === 0;
+      // Draw axis line (skip if invisible)
+      if (!isInvisible) {
         const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
-        currentPic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
-      _drawTicks(ticks, 'x', xmin, xmax, pen);
-      if (label) {
-        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:(xmin+xmax)/2, y:0}, align:{x:0,y:-1.5}, pen, line:0});
+      // Cross range for grid lines
+      const crossMin = _axisLimits.ymin !== null ? _axisLimits.ymin : -5;
+      const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
+      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax);
+      if (label && !isInvisible) {
+        const lAlign = labelAlign || {x:1, y:-1};
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:xmax, y:0}, align:lAlign, pen, line:0});
       }
     });
 
     env.set('yaxis', (...args) => {
-      let label = '', ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
-      for (const a of args) {
-        if (a === null || a === undefined) continue;
-        if (isString(a) && !label) label = a;
+      let pic = currentPic;
+      let label = '', labelAlign = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let extent = null;
+      const rawArgs = args;
+      let startIdx = 0;
+      if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
+        pic = rawArgs[0]; startIdx = 1;
+      }
+      for (let i = startIdx; i < rawArgs.length; i++) {
+        const a = rawArgs[i];
+        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; }
+        else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
           else if (ymax === null) ymax = a;
         }
         else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
         else if (a && a._tag === 'arrow') arrow = a;
+        else if (typeof a === 'function') {
+          try {
+            const r = a();
+            if (r && r._tag === 'arrow') arrow = arrow || r;
+            else if (r && r._tag === 'axisextent') extent = r.type;
+          } catch(e) {}
+        }
         else if (a && a._tag === 'ticks') ticks = a;
-        else if (a && a._tag === 'axisextent') { /* extent info */ }
+        else if (a && a._tag === 'axisextent') { extent = a.type; }
       }
-      if (ymin === null) ymin = -5;
-      if (ymax === null) ymax = 5;
+      // Auto-range from content bounds if no explicit limits
+      if (ymin === null) ymin = _axisLimits.ymin;
+      if (ymax === null) ymax = _axisLimits.ymax;
+      if (ymin === null || ymax === null) {
+        let cMinY = Infinity, cMaxY = -Infinity;
+        for (const dc of pic.commands) {
+          if (dc.path && dc.path.segs) {
+            for (const seg of dc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+                if (isFinite(p.y)) { if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y; }
+              }
+            }
+          }
+          if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
+        }
+        if (ymin === null) ymin = isFinite(cMinY) ? cMinY : -5;
+        if (ymax === null) ymax = isFinite(cMaxY) ? cMaxY : 5;
+      }
       if (!pen) pen = clonePen(defaultPen);
-      if (pen.opacity !== 0) {
+      const isInvisible = pen.opacity === 0;
+      if (!isInvisible) {
         const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
-        currentPic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
-      _drawTicks(ticks, 'y', ymin, ymax, pen);
-      if (label) {
-        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:(ymin+ymax)/2}, align:{x:-1.5,y:0}, pen, line:0});
+      const crossMin = _axisLimits.xmin !== null ? _axisLimits.xmin : -5;
+      const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
+      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax);
+      if (label && !isInvisible) {
+        const lAlign = labelAlign || {x:-1, y:1};
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:ymax}, align:lAlign, pen, line:0});
       }
     });
 
@@ -2948,14 +3210,23 @@ function createInterpreter() {
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
     function _makeTicks(args, defaults) {
-      const t = Object.assign({_tag:'ticks', step:1, size:0.1, labels:true, noZero:false, positions:null, pen:null}, defaults);
+      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:false, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
       for (const a of args) {
         if (a === null || a === undefined) continue;
-        if (typeof a === 'number') t.step = a;
-        else if (isString(a)) { /* format string like "%", ignored */ }
+        if (typeof a === 'number') {
+          // Could be Step or Size — small numbers (<1) are likely Size
+          if (a < 0.5) { t.size = a; t.sizeExplicit = true; }
+          else t.step = a;
+        }
+        else if (isString(a)) { /* format string like "%" — stored but does not auto-enable labels */ }
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
-        else if (a === true || a === false) { /* extend flag, ignored */ }
+        else if (a === true || a === false) t.extend = a;
+        else if (a && a._tag === 'label') { t.labels = true; }
+        else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
+        // Named parameters (from our interpreter's named param handling)
+        else if (a && typeof a === 'object' && a._namedStep !== undefined) t.step = a._namedStep;
+        else if (a && typeof a === 'object' && a._namedSize !== undefined) t.size = a._namedSize;
       }
       return t;
     }
@@ -2996,10 +3267,31 @@ function createInterpreter() {
     env.set('Logarithmic', null);
     env.set('Broken', (...args) => null);
 
-    // xlimits/ylimits
-    env.set('xlimits', (...args) => null);
-    env.set('ylimits', (...args) => null);
-    env.set('limits', (...args) => null);
+    // xlimits/ylimits — store axis ranges for xaxis/yaxis to use
+    env.set('xlimits', (...args) => {
+      const nums = args.filter(a => typeof a === 'number');
+      if (nums.length >= 1) _axisLimits.xmin = nums[0];
+      if (nums.length >= 2) _axisLimits.xmax = nums[1];
+    });
+    env.set('ylimits', (...args) => {
+      const nums = args.filter(a => typeof a === 'number');
+      if (nums.length >= 1) _axisLimits.ymin = nums[0];
+      if (nums.length >= 2) _axisLimits.ymax = nums[1];
+    });
+    env.set('limits', (...args) => {
+      // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
+      const pairs = [];
+      for (const a of args) {
+        if (isPair(a)) pairs.push(a);
+        // Skip picture arg and Crop flag
+      }
+      if (pairs.length >= 2) {
+        _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
+        _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
+      }
+    });
+    env.set('Crop', true);
+    env.set('NoCrop', false);
     env.set('crop', (...args) => null);
   }
 
@@ -3018,27 +3310,27 @@ function createInterpreter() {
     env.set('Arrow3', (...args) => {
       let sz = 5;
       for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', type:'end', size:sz};
+      return {_tag:'arrow', style:'Arrow', size:sz};
     });
     env.set('Arrows3', (...args) => {
       let sz = 5;
       for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', type:'both', size:sz};
+      return {_tag:'arrow', style:'Arrows', size:sz};
     });
     env.set('BeginArrow3', (...args) => {
       let sz = 5;
       for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', type:'begin', size:sz};
+      return {_tag:'arrow', style:'BeginArrow', size:sz};
     });
     env.set('EndArrow3', (...args) => {
       let sz = 5;
       for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', type:'end', size:sz};
+      return {_tag:'arrow', style:'EndArrow', size:sz};
     });
     env.set('MidArrow3', (...args) => {
       let sz = 5;
       for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', type:'end', size:sz};
+      return {_tag:'arrow', style:'MidArrow', size:sz};
     });
     env.set('NoArrow3', null);
 
@@ -3236,13 +3528,21 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    let pathArg = null, pen = null, arrow = null;
+    let pathArg = null, pen = null, drawPen = null, arrow = null;
+    let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (a === null || a === undefined) continue;
       if (isPath(a)) { if (!pathArg) pathArg = a; }
-      else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+      else if (isPen(a)) {
+        penCount++;
+        if (cmd === 'filldraw' && penCount === 2) { drawPen = a; }
+        else { pen = pen ? mergePens(pen, a) : a; }
+      }
       else if (a && a._tag === 'arrow') arrow = a;
+      else if (typeof a === 'function' && !arrow) {
+        try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
+      }
       else if (isTriple(a) && !pathArg) {
         pathArg = makePath([], false);
         pathArg._singlePoint = projectTriple(a);
@@ -3265,7 +3565,9 @@ function createInterpreter() {
     if (!pen) pen = clonePen(defaultPen);
     if (pathArg) {
       projectPathTriples(pathArg);
-      target.commands.push({cmd, path:pathArg, pen, arrow, line: args._line || 0});
+      const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
+      if (drawPen) dc.drawPen = drawPen;
+      target.commands.push(dc);
     }
   }
 
@@ -3311,7 +3613,19 @@ function createInterpreter() {
     }
     let text = '', pos = null, align = null, pen = null;
     for (const a of args) {
-      if (isString(a) && !text) text = a;
+      if (a && a._tag === 'label') {
+        if (!text) text = a.text || '';
+        if (!align && a.align) align = a.align;
+      }
+      else if (isString(a) && !text) text = a;
+      else if (isPath(a) && !pos) {
+        // label on a path: place at midpoint
+        const segs = a.segs;
+        if (segs.length > 0) {
+          const midSeg = segs[Math.floor(segs.length/2)];
+          pos = makePair((midSeg.p0.x+midSeg.p3.x)/2, (midSeg.p0.y+midSeg.p3.y)/2);
+        }
+      }
       else if (isTriple(a)) {
         if (!pos) pos = projectTriple(a);
         else if (!align) align = projectTriple(a);
@@ -3418,9 +3732,13 @@ function createInterpreter() {
     currentPic = {_tag:'picture', commands:[]};
     globalEnv.update('currentpicture', currentPic);
     projection = null;
-    unitScale = 1;
+    unitScale = 1; hasUnitScale = false;
     sizeW = 0; sizeH = 0;
     defaultPen = makePen({});
+
+    // Auto-install graph package — many AoPS codes use graph functions without import
+    graphPackageInstalled = false; // Reset so it re-installs with fresh state
+    installGraphPackage(globalEnv);
 
     const tokens = lex(code);
     const ast = parse(tokens);
@@ -3435,7 +3753,7 @@ function createInterpreter() {
 
     return {
       drawCommands: drawCommands.slice(),
-      unitScale,
+      unitScale, hasUnitScale,
       sizeW, sizeH,
       defaultPen,
     };
@@ -3473,7 +3791,7 @@ function createInterpreter() {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, sizeW, sizeH } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW, sizeH } = result;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
 
   // Compute bounding box
@@ -3530,6 +3848,9 @@ function renderSVG(result, opts) {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
       expandBBox(dc.pos.x, dc.pos.y);
+      // Estimate text extent in user coordinates for bbox expansion
+      // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
+      // This will be refined after pxPerUnit is computed below
     } else if (dc.path) {
       if (dc.path._singlePoint) {
         expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
@@ -3543,21 +3864,57 @@ function renderSVG(result, opts) {
   const pad = 0.5;
   minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
+  // Expand bbox for labels so text doesn't get clipped
+  // Estimate label extent in user coordinates
+  for (const dc of drawCommands) {
+    if (dc.cmd === 'label' || dc.cmd === 'dot') {
+      const pos = dc.pos || dc;
+      if (!pos || pos.x === undefined) continue;
+      const fontSize = (dc.pen && dc.pen.fontsize) || 12;
+      const text = dc.text || dc.label || '';
+      const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
+      // Approximate character width ~0.6 * fontSize
+      const bboxSpan = maxX - minX || 1;
+      // Rough pxPerUnit estimate for sizing
+      const roughPxPerUnit = (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
+      const charWidthUser = fontSize * 0.6 / roughPxPerUnit;
+      // For labels with fractions, estimate wider width
+      const rawLabel = text;
+      const hasFrac = /\\frac/.test(rawLabel);
+      const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
+      const textWidthUser = effectiveLen * charWidthUser;
+      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) / roughPxPerUnit;
+      let dx = 0, dy = 0;
+      if (dc.align) {
+        dx = dc.align.x * textHeightUser * 0.8;
+        dy = dc.align.y * textHeightUser * 0.8;
+      }
+      // Expand bbox to include estimated text bounds
+      const cx = pos.x + dx;
+      const cy = pos.y + dy;
+      expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
+      expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
+    }
+  }
+
   const warnings = [];
 
   // Determine scale
-  const hasExplicitScale = unitScale > 1 || sizeW > 0 || sizeH > 0;
+  const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit;
-  if (unitScale > 1) {
+  if (hasUnitScale) {
+    // unitsize() was called: user coords → bp directly
     pxPerUnit = unitScale;
-  } else if (!hasExplicitScale) {
+  } else if (sizeW > 0 || sizeH > 0) {
+    // size() without unitsize(): scale user coords to fit in the requested size
+    const targetW = sizeW > 0 ? sizeW : Infinity;
+    const targetH = sizeH > 0 ? sizeH : Infinity;
+    pxPerUnit = Math.min(targetW / bboxW, targetH / bboxH);
+  } else {
     // No unitsize/size: mimic AoPS behavior by auto-scaling
-    const bboxW = maxX - minX, bboxH = maxY - minY;
     const targetPx = 340; // ~12cm at 72dpi
     pxPerUnit = targetPx / Math.max(bboxW, bboxH, 1);
     warnings.push('auto-scaled');
-  } else {
-    pxPerUnit = unitScale || 28.35;
   }
 
   const naturalW = (maxX - minX) * pxPerUnit;
@@ -3594,85 +3951,126 @@ function renderSVG(result, opts) {
   const elements = [];
   const ns = 'http://www.w3.org/2000/svg';
 
-  // For each draw command, generate SVG content
-  for (let ci = 0; ci < drawCommands.length; ci++) {
-    const dc = drawCommands[ci];
-    const css = penToCSS(dc.pen);
-    const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
+  // Scale factor: how many viewBox units = 1 CSS pixel
+  // viewBox is in pxPerUnit-scaled coordinates, and SVG display width = svgW CSS pixels
+  // So 1 CSS pixel = viewW / svgW viewBox units
+  const cssPixel = viewW / (svgW || viewW || 1);
 
-    if (dc.cmd === 'dot') {
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit; // flip Y
-      const r = dc.pen.linewidth > 1 ? dc.pen.linewidth : 3;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(r)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+  // Render draw commands in two passes: first paths/fills, then labels/dots on top
+  // This prevents fills drawn later in program order from covering earlier labels
+  const deferredLabels = []; // [{ci, dc}]
+
+  function renderPathCommand(ci, dc, css, dashArray) {
+    if (dc.path._singlePoint) {
+      const p = dc.path._singlePoint;
+      const sx = (p.x - minX) * pxPerUnit;
+      const sy = (maxY - p.y) * pxPerUnit;
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(2.5*cssPixel)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-    } else if (dc.cmd === 'label') {
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
-      let dx = 0, dy = 0;
-      if (dc.align) {
-        dx = dc.align.x * 10;
-        dy = -dc.align.y * 10; // flip Y for SVG
-      }
-      const cleanText = stripLaTeX(dc.text);
-      const fontSize = dc.pen.fontsize || 12;
-      elements.push(`<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opacityAttr(css.opacity)}>${escSvg(cleanText)}</text>`);
-      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-    } else if (dc.path) {
-      // draw / fill / filldraw / clip
-      if (dc.path._singlePoint) {
-        // Degenerate: single point
-        const p = dc.path._singlePoint;
-        const sx = (p.x - minX) * pxPerUnit;
-        const sy = (maxY - p.y) * pxPerUnit;
-        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="3" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
-        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-        continue;
-      }
-      if (dc.path.segs.length === 0) continue;
+      return;
+    }
+    if (dc.path.segs.length === 0) return;
 
-      const d = pathToD(dc.path, minX, maxY, pxPerUnit);
-      let fill = 'none', stroke = 'none', strokeW = 0;
+    const d = pathToD(dc.path, minX, maxY, pxPerUnit);
+    let fill = 'none', stroke = 'none', strokeW = 0;
 
-      if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
-        fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
-      } else if (dc.cmd === 'filldraw') {
-        fill = css.fill;
-        stroke = css.stroke;
-        strokeW = css.strokeWidth;
-      } else if (dc.cmd === 'clip') {
-        continue; // skip clip for now
+    if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
+      fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
+    } else if (dc.cmd === 'filldraw') {
+      fill = css.fill;
+      if (dc.drawPen) {
+        const drawCSS = penToCSS(dc.drawPen);
+        drawCSS.strokeWidth *= cssPixel;
+        stroke = drawCSS.stroke;
+        strokeW = drawCSS.strokeWidth;
       } else {
-        // draw
         stroke = css.stroke;
         strokeW = css.strokeWidth;
       }
+    } else if (dc.cmd === 'clip') {
+      return; // skip clip for now
+    } else {
+      // draw
+      stroke = css.stroke;
+      strokeW = css.strokeWidth;
+    }
 
-      let attrs = `d="${d}"`;
-      attrs += ` fill="${fill}"`;
-      if (stroke !== 'none') {
-        attrs += ` stroke="${stroke}" stroke-width="${fmt(strokeW)}"`;
-        if (dashArray) attrs += ` stroke-dasharray="${dashArray}"`;
-        if (dc.pen && dc.pen.linecap) attrs += ` stroke-linecap="${dc.pen.linecap}"`;
-        if (dc.pen && dc.pen.linejoin) attrs += ` stroke-linejoin="${dc.pen.linejoin}"`;
-      }
-      attrs += opacityAttr(css.opacity);
+    let attrs = `d="${d}"`;
+    attrs += ` fill="${fill}"`;
+    if (stroke !== 'none') {
+      attrs += ` stroke="${stroke}" stroke-width="${fmt(strokeW)}"`;
+      if (dashArray) attrs += ` stroke-dasharray="${dashArray}"`;
+      if (dc.pen && dc.pen.linecap) attrs += ` stroke-linecap="${dc.pen.linecap}"`;
+      if (dc.pen && dc.pen.linejoin) attrs += ` stroke-linejoin="${dc.pen.linejoin}"`;
+    }
+    attrs += opacityAttr(css.opacity);
 
-      elements.push(`<path ${attrs}/>`);
-      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    elements.push(`<path ${attrs}/>`);
+    commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
 
-      // Arrow heads
-      if (dc.arrow && dc.cmd === 'draw') {
-        const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnit, css);
-        if (arrowEl) {
-          elements.push(arrowEl);
-          commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-        }
+    // Arrow heads
+    if (dc.arrow && dc.cmd === 'draw') {
+      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnit, cssPixel, css);
+      if (arrowEl) {
+        elements.push(arrowEl);
+        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       }
     }
   }
 
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}">\n${elements.join('\n')}\n</svg>`;
+  // Pass 1: paths, fills, draws (non-text)
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    const dc = drawCommands[ci];
+    const css = penToCSS(dc.pen);
+    css.strokeWidth *= cssPixel;
+    const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
+
+    if (dc.cmd === 'dot' || dc.cmd === 'label') {
+      deferredLabels.push({ci, dc, css: {...css}});
+    } else if (dc.path) {
+      renderPathCommand(ci, dc, css, dashArray);
+    }
+  }
+
+  // Pass 2: labels and dots on top
+  for (const {ci, dc, css} of deferredLabels) {
+    if (dc.cmd === 'dot') {
+      const sx = (dc.pos.x - minX) * pxPerUnit;
+      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      const dotR = dc.pen.linewidth > 1 ? dc.pen.linewidth * cssPixel : 2.5 * cssPixel;
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    } else if (dc.cmd === 'label') {
+      const sx = (dc.pos.x - minX) * pxPerUnit;
+      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      const fontSize = (dc.pen.fontsize || 12) * cssPixel;
+      let dx = 0, dy = 0;
+      let anchor = 'middle';
+      let baseline = 'central';
+      if (dc.align) {
+        const ax = dc.align.x, ay = dc.align.y;
+        // Horizontal alignment: shift and anchor
+        if (ax > 0.3) { anchor = 'start'; dx = fontSize * 0.3; }
+        else if (ax < -0.3) { anchor = 'end'; dx = -fontSize * 0.3; }
+        // Vertical alignment: shift (SVG y is inverted)
+        if (ay > 0.3) { dy = -fontSize * 0.6; }
+        else if (ay < -0.3) { dy = fontSize * 0.6; }
+      }
+      const rawText = dc.text || '';
+      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
+      if (hasLaTeX) {
+        // Render complex LaTeX as SVG group with fractions/braces
+        const svgLabel = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), fontSize, css.fill, anchor, css.opacity);
+        elements.push(svgLabel);
+      } else {
+        const cleanText = stripLaTeX(rawText);
+        elements.push(`<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${opacityAttr(css.opacity)}>${escSvg(cleanText)}</text>`);
+      }
+      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    }
+  }
+
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}" overflow="visible">\n${elements.join('\n')}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -3727,16 +4125,19 @@ function linestyleToDasharray(style, strokeWidth) {
   }
 }
 
-function generateArrowHead(dc, minX, maxY, scale, css) {
+function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
-  const size = (dc.arrow.size || 6) * (css.strokeWidth || 0.5);
+  // Arrow size in CSS pixels: base size (default 6bp) scaled by cssPixel to viewBox units
+  const baseSize = dc.arrow.size || 6;
+  const arrowLen = baseSize * cssPixel;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
   if (segs.length === 0) return null;
 
   const arrowParts = [];
+  const filled = (style !== 'Bar' && style !== 'Bars');
 
   function arrowAt(seg, atEnd) {
     let tip, tangentAngle;
@@ -3758,15 +4159,15 @@ function generateArrowHead(dc, minX, maxY, scale, css) {
       }
     }
     const tipX = (tip.x - minX)*scale, tipY = (maxY - tip.y)*scale;
-    const headAngle = 25 * Math.PI / 180;
+    const headAngle = 30 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
-    const s = size * scale * 0.15;
+    const s = arrowLen;
     const lx = tipX - s*Math.cos(screenAngle - headAngle);
-    const ly = tipY + s*Math.sin(screenAngle - headAngle);
+    const ly = tipY - s*Math.sin(screenAngle - headAngle);
     const rx = tipX - s*Math.cos(screenAngle + headAngle);
-    const ry = tipY + s*Math.sin(screenAngle + headAngle);
-    return `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`;
+    const ry = tipY - s*Math.sin(screenAngle + headAngle);
+    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled};
   }
 
   if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow') {
@@ -3786,8 +4187,10 @@ function generateArrowHead(dc, minX, maxY, scale, css) {
   }
 
   if (arrowParts.length === 0) return null;
-  const d = arrowParts.join(' ');
-  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const d = arrowParts.map(p => p.d).join(' ');
+  const isFilled = arrowParts[0].filled;
+  const fillAttr = isFilled ? css.stroke : 'none';
+  return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 function stripLaTeX(text) {
@@ -3795,6 +4198,14 @@ function stripLaTeX(text) {
   let s = text;
   // Remove $ delimiters
   s = s.replace(/\$/g, '');
+  // Handle \frac{a}{b} → a/b (before removing braces)
+  s = s.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '$1/$2');
+  // Handle \underbrace{...} and \overbrace{...} → remove
+  s = s.replace(/\\(?:underbrace|overbrace)\s*\{[^}]*\}/g, '');
+  // Handle \hspace{...} → space
+  s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // Handle \sqrt{a} → √a
+  s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode
   const texMap = {
     '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
@@ -3805,16 +4216,21 @@ function stripLaTeX(text) {
     '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
-    '\\cdot':'·','\\leq':'≤','\\geq':'≥','\\neq':'≠','\\approx':'≈',
-    '\\equiv':'≡','\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
+    '\\cdot':'·','\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
+    '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
+    '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
     '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
     '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
     '\\rightarrow':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐',
     '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ', '\\prime':'′',
+    '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\left':'','\\right':'',
   };
-  for (const [cmd, uni] of Object.entries(texMap)) {
+  // Sort by key length descending so longer commands match first (e.g. \left before \le)
+  const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
+  for (const [cmd, uni] of sortedEntries) {
     s = s.split(cmd).join(uni);
   }
   // Remove remaining \command sequences
@@ -3823,7 +4239,171 @@ function stripLaTeX(text) {
   s = s.replace(/[{}]/g, '');
   // Remove ^ and _ with single char
   s = s.replace(/[_^](.)/g, '$1');
+  // Collapse multiple spaces and remove spaces adjacent to parentheses/brackets
+  s = s.replace(/\s+/g, ' ');
+  s = s.replace(/\s+\(/g, '(');
+  s = s.replace(/\(\s+/g, '(');
+  s = s.replace(/\s+\)/g, ')');
+  s = s.replace(/\[\s+/g, '[');
+  s = s.replace(/\s+\]/g, ']');
   return s.trim();
+}
+
+// Estimate text width in SVG units using per-character width ratios for serif font
+function _estimateTextWidth(text, fontSize) {
+  let w = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    // Space
+    if (ch === ' ') w += 0.27;
+    // Narrow characters: ( ) [ ] , . : ; ! | l i 1 t f j
+    else if ('()[],.;:!|'.includes(ch)) w += 0.3;
+    else if ('liftj1'.includes(ch)) w += 0.3;
+    // Medium-narrow: r s e a c o n u
+    else if ('rseaconu'.includes(ch)) w += 0.45;
+    // Wide: m w M W
+    else if ('mwMW'.includes(ch)) w += 0.7;
+    // Greek/special Unicode: π etc — roughly normal width
+    else if (ch.charCodeAt(0) > 127) w += 0.5;
+    // Default (most letters, digits)
+    else w += 0.5;
+  }
+  return w * fontSize;
+}
+
+// Render LaTeX labels with fractions/underbraces as SVG elements
+function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
+  x = parseFloat(x); y = parseFloat(y);
+  const opAttr = (opacity !== undefined && opacity !== 1) ? ` opacity="${opacity}"` : '';
+  // Parse the LaTeX text into segments: plain text, fractions, underbraces
+  const segments = parseLaTeXSegments(rawText);
+  // Layout segments left-to-right
+  const parts = []; // {type, svgStr, width, height}
+  let totalWidth = 0;
+  for (const seg of segments) {
+    if (seg.type === 'frac') {
+      const numText = stripLaTeX(seg.num);
+      const denText = stripLaTeX(seg.den);
+      const fracFontSize = fontSize * 0.75;
+      const numW = _estimateTextWidth(numText, fracFontSize);
+      const denW = _estimateTextWidth(denText, fracFontSize);
+      const fracW = Math.max(numW, denW) + fracFontSize * 0.3;
+      const fracH = fontSize * 2;
+      parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, width: fracW});
+      totalWidth += fracW;
+    } else if (seg.type === 'underbrace') {
+      const braceW = seg.width || fontSize * 8;
+      const labelText = stripLaTeX(seg.label || '');
+      parts.push({type:'underbrace', braceW, labelText, width: braceW});
+      totalWidth += braceW;
+    } else {
+      // Plain text
+      const w = _estimateTextWidth(seg.text, fontSize);
+      parts.push({type:'text', text: seg.text, width: w});
+      totalWidth += w;
+    }
+  }
+  // Compute starting X based on anchor
+  let startX = x;
+  if (anchor === 'middle') startX = x - totalWidth / 2;
+  else if (anchor === 'end') startX = x - totalWidth;
+  let curX = startX;
+  const els = [];
+  for (const p of parts) {
+    if (p.type === 'frac') {
+      const cx = curX + p.width / 2;
+      // Numerator above line
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.numText)}</text>`);
+      // Fraction line
+      els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
+      // Denominator below line
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.denText)}</text>`);
+    } else if (p.type === 'underbrace') {
+      const cx = curX + p.width / 2;
+      const by = y + fontSize * 0.3;
+      const bh = fontSize * 0.4;
+      // Underbrace as a path: left arm → center dip → right arm
+      els.push(`<path d="M${fmt(curX)},${fmt(by)} Q${fmt(curX)},${fmt(by+bh)} ${fmt(cx)},${fmt(by+bh)} Q${fmt(curX+p.width)},${fmt(by+bh)} ${fmt(curX+p.width)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
+      if (p.labelText) {
+        els.push(`<text x="${fmt(cx)}" y="${fmt(by + bh + fontSize*0.7)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.labelText)}</text>`);
+      }
+    } else {
+      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.text)}</text>`);
+    }
+    curX += p.width;
+  }
+  return `<g>${els.join('')}</g>`;
+}
+
+// Parse LaTeX string into segments of {type:'text'|'frac'|'underbrace', ...}
+function parseLaTeXSegments(text) {
+  if (!text) return [{type:'text', text:''}];
+  let s = text.replace(/\$/g, '');
+  const segments = [];
+  let remaining = s;
+  while (remaining.length > 0) {
+    // Find next \frac or \underbrace
+    const fracIdx = remaining.indexOf('\\frac');
+    const ubIdx = remaining.indexOf('\\underbrace');
+    let nextIdx = -1, nextType = '';
+    if (fracIdx >= 0 && (ubIdx < 0 || fracIdx < ubIdx)) { nextIdx = fracIdx; nextType = 'frac'; }
+    else if (ubIdx >= 0) { nextIdx = ubIdx; nextType = 'underbrace'; }
+    if (nextIdx < 0) {
+      // No more special commands
+      const cleaned = stripLaTeX(remaining);
+      if (cleaned) segments.push({type:'text', text: cleaned});
+      break;
+    }
+    // Plain text before this command
+    if (nextIdx > 0) {
+      const before = stripLaTeX(remaining.substring(0, nextIdx));
+      if (before) segments.push({type:'text', text: before});
+    }
+    if (nextType === 'frac') {
+      remaining = remaining.substring(nextIdx + 5); // skip \frac
+      remaining = remaining.replace(/^\s*\\left\s*/, ''); // skip optional \left
+      const num = extractBraced(remaining);
+      remaining = remaining.substring(num.consumed);
+      remaining = remaining.replace(/^\s*\\right\s*/, ''); // skip optional \right
+      const den = extractBraced(remaining);
+      remaining = remaining.substring(den.consumed);
+      segments.push({type:'frac', num: num.content, den: den.content});
+    } else if (nextType === 'underbrace') {
+      remaining = remaining.substring(nextIdx + 11); // skip \underbrace
+      const content = extractBraced(remaining);
+      remaining = remaining.substring(content.consumed);
+      // Check for _label after underbrace
+      let label = '';
+      const labelMatch = remaining.match(/^\s*_\s*\{([^}]*)\}/);
+      if (labelMatch) {
+        label = labelMatch[1];
+        remaining = remaining.substring(labelMatch[0].length);
+      }
+      // Estimate width from \hspace if present
+      let width = 0;
+      const hspaceMatch = content.content.match(/\\hspace\s*\{([^}]*)\}/);
+      if (hspaceMatch) {
+        const valMatch = hspaceMatch[1].match(/([\d.]+)/);
+        if (valMatch) width = parseFloat(valMatch[1]) * 28.35; // cm to points
+      }
+      segments.push({type:'underbrace', width, label});
+    }
+  }
+  if (segments.length === 0) segments.push({type:'text', text: stripLaTeX(text)});
+  return segments;
+}
+
+// Extract content inside braces: {content}, returns {content, consumed}
+function extractBraced(s) {
+  let i = 0;
+  while (i < s.length && s[i] !== '{') i++;
+  if (i >= s.length) return {content: '', consumed: i};
+  let depth = 0, start = i;
+  for (; i < s.length; i++) {
+    if (s[i] === '{') depth++;
+    else if (s[i] === '}') { depth--; if (depth === 0) return {content: s.substring(start+1, i), consumed: i+1}; }
+  }
+  return {content: s.substring(start+1), consumed: s.length};
 }
 
 function fmt(n) { return Number(n.toFixed(4)); }

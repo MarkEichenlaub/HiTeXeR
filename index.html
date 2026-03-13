@@ -2367,6 +2367,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Load code from URL hash if present (e.g. #code=ENCODED)
+  if (location.hash && location.hash.startsWith('#code=')) {
+    try {
+      const code = decodeURIComponent(location.hash.slice(6));
+      editor.setValue(code);
+    } catch(e) {}
+  }
+
   // Auto-render on page load
   doRender();
 
