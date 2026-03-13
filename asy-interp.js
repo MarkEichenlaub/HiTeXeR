@@ -34,7 +34,7 @@ const KEYWORDS = new Set([
 ]);
 
 const TYPE_NAMES = new Set([
-  'int','real','pair','triple','string','bool','bool3','pen','path','guide',
+  'int','real','pair','triple','string','bool','bool3','pen','path','path3','guide',
   'picture','transform','void','var','Label','file',
   'projection','revolution','surface','material',
 ]);
@@ -182,6 +182,7 @@ function BoolLit(value,line) { return {type:'BoolLit',value,line}; }
 function NullLit(line) { return {type:'NullLit',line}; }
 function Identifier(name,line) { return {type:'Identifier',name,line}; }
 function PairLit(x,y,line) { return {type:'PairLit',x,y,line}; }
+function TripleLit(x,y,z,line) { return {type:'TripleLit',x,y,z,line}; }
 function ArrayExpr(elements,line) { return {type:'ArrayExpr',elements,line}; }
 function BinaryOp(op,left,right,line) { return {type:'BinaryOp',op,left,right,line}; }
 function UnaryOp(op,operand,line) { return {type:'UnaryOp',op,operand,line}; }
@@ -800,6 +801,10 @@ function parse(tokens) {
           return BinaryOp(T.STAR, numNode, parseExpr(7), ln);
         }
       }
+      // Implicit multiplication: 10(expr), e.g. A+10(B-A) means A+10*(B-A)
+      if (at(T.LPAREN)) {
+        return BinaryOp(T.STAR, numNode, parseExpr(7), ln);
+      }
       return numNode;
     }
 
@@ -886,14 +891,20 @@ function parse(tokens) {
       return CastExpr(ctype, parseExpr(8), ln);
     }
 
-    // Parenthesized expr or pair literal
+    // Parenthesized expr or pair/triple literal
     if (t.type === T.LPAREN) {
       pos++;
       const first = parseExpr();
       if (at(T.COMMA)) {
-        // Pair literal (x, y)
         eat(T.COMMA);
         const second = parseExpr();
+        if (at(T.COMMA)) {
+          // Triple literal (x, y, z)
+          eat(T.COMMA);
+          const third = parseExpr();
+          eat(T.RPAREN);
+          return TripleLit(first, second, third, ln);
+        }
         eat(T.RPAREN);
         return PairLit(first, second, ln);
       }
@@ -932,6 +943,7 @@ function parse(tokens) {
 // ============================================================
 
 function makePair(x,y) { return {_tag:'pair', x:x||0, y:y||0}; }
+function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
     fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null}, props);
@@ -943,6 +955,7 @@ function makeSeg(p0,cp1,cp2,p3) { return {p0,cp1,cp2,p3}; }
 function lineSegment(a,b) { return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b); }
 
 function isPair(v) { return v && v._tag === 'pair'; }
+function isTriple(v) { return v && v._tag === 'triple'; }
 function isPen(v) { return v && v._tag === 'pen'; }
 function isPath(v) { return v && v._tag === 'path'; }
 function isTransform(v) { return v && v._tag === 'transform'; }
@@ -1196,11 +1209,53 @@ function createInterpreter() {
   const drawCommands = [];
   // Active picture (all drawing routes here; copied to drawCommands at end)
   let currentPic = {_tag:'picture', commands:[]};
+  // 3D projection (set by import three / currentprojection = ...)
+  let projection = null; // null = no 3D; {type, camera, target, up, ...}
   // Settings
   let unitScale = 1;       // unitsize value in points
   let sizeW = 0, sizeH = 0;
   let defaultPen = makePen({});
   let iterationLimit = 100000;
+
+  // Project a triple to a pair using the current 3D projection
+  function projectTriple(v) {
+    if (!isTriple(v)) return isPair(v) ? v : makePair(0,0);
+    const proj = projection;
+    if (!proj) return makePair(v.x, v.y); // no projection: drop z
+    // Camera (eye) position
+    const cx = proj.cx, cy = proj.cy, cz = proj.cz;
+    // Target (look-at) position
+    const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+    // View direction
+    const dx = cx-tx, dy = cy-ty, dz = cz-tz;
+    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+    // Forward (into screen), right, up vectors
+    const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
+    // Up hint
+    const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
+    // Right = up x forward
+    let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
+    const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
+    rx /= rlen; ry /= rlen; rz /= rlen;
+    // True up = forward x right
+    const upx = fw.y*rz - fw.z*ry, upy = fw.z*rx - fw.x*rz, upz = fw.x*ry - fw.y*rx;
+
+    // Translate point relative to target
+    const px = v.x - tx, py = v.y - ty, pz = v.z - tz;
+
+    if (proj.type === 'perspective') {
+      // Perspective projection
+      const depth = px*fw.x + py*fw.y + pz*fw.z;
+      const scale = dist / (dist - depth || 1);
+      const sx = px*rx + py*ry + pz*rz;
+      const sy = px*upx + py*upy + pz*upz;
+      return makePair(sx * scale, sy * scale);
+    }
+    // Orthographic projection (default)
+    const sx = px*rx + py*ry + pz*rz;
+    const sy = px*upx + py*upy + pz*upz;
+    return makePair(sx, sy);
+  }
 
   // Transform a single draw command by an affine transform
   function transformDrawCmd(t, dc) {
@@ -1251,6 +1306,7 @@ function createInterpreter() {
       case 'NullLit': return null;
       case 'Identifier': return evalIdent(node, env);
       case 'PairLit': return makePair(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)));
+      case 'TripleLit': return makeTriple(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)), toNumber(evalNode(node.z,env)));
       case 'ArrayExpr': return node.elements.map(e => evalNode(e,env));
       case 'NewPicture': return {_tag:'picture', commands:[]};
       case 'NewArray': {
@@ -1299,6 +1355,7 @@ function createInterpreter() {
     if (typeof v === 'boolean') return v ? 1 : 0;
     if (typeof v === 'string') return parseFloat(v) || 0;
     if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
+    if (isTriple(v)) return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
     return 0;
   }
   function toBool(v) {
@@ -1310,8 +1367,15 @@ function createInterpreter() {
   }
   function toPair(v) {
     if (isPair(v)) return v;
+    if (isTriple(v)) return projectTriple(v);
     if (typeof v === 'number') return makePair(v, 0);
     return makePair(0,0);
+  }
+  function toTriple(v) {
+    if (isTriple(v)) return v;
+    if (isPair(v)) return makeTriple(v.x, v.y, 0);
+    if (typeof v === 'number') return makeTriple(v, 0, 0);
+    return makeTriple(0,0,0);
   }
 
   function evalProgram(node, env) {
@@ -1351,6 +1415,25 @@ function createInterpreter() {
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
 
+    // Triple ops
+    if (isTriple(left) || isTriple(right)) {
+      const l = isTriple(left) ? left : toTriple(left);
+      const r = isTriple(right) ? right : toTriple(right);
+      switch(op) {
+        case T.PLUS: return makeTriple(l.x+r.x, l.y+r.y, l.z+r.z);
+        case T.MINUS: return makeTriple(l.x-r.x, l.y-r.y, l.z-r.z);
+        case T.EQ: return l.x===r.x && l.y===r.y && l.z===r.z;
+        case T.NEQ: return l.x!==r.x || l.y!==r.y || l.z!==r.z;
+      }
+      // scalar * triple, triple * scalar, triple / scalar
+      if (isNumber(left) && isTriple(right)) {
+        if (op===T.STAR) return makeTriple(left*right.x, left*right.y, left*right.z);
+      }
+      if (isTriple(left) && isNumber(right)) {
+        if (op===T.STAR) return makeTriple(left.x*right, left.y*right, left.z*right);
+        if (op===T.SLASH) return right ? makeTriple(left.x/right, left.y/right, left.z/right) : makeTriple(0,0,0);
+      }
+    }
     // Pair ops
     if (isPair(left) && isPair(right)) {
       switch(op) {
@@ -1384,7 +1467,7 @@ function createInterpreter() {
 
     // String concatenation
     if (isString(left) || isString(right)) {
-      if (op === T.PLUS) return String(isPair(left)?pairToStr(left):left) + String(isPair(right)?pairToStr(right):right);
+      if (op === T.PLUS) return String(isTriple(left)?tripleToStr(left):isPair(left)?pairToStr(left):left) + String(isTriple(right)?tripleToStr(right):isPair(right)?pairToStr(right):right);
     }
 
     // Number ops
@@ -1410,6 +1493,7 @@ function createInterpreter() {
   }
 
   function pairToStr(p) { return `(${p.x},${p.y})`; }
+  function tripleToStr(t) { return `(${t.x},${t.y},${t.z})`; }
 
   // Evaluate binary op on raw values (for compound assignment)
   function evalBinaryValues(op, left, right) {
@@ -1435,6 +1519,7 @@ function createInterpreter() {
   function evalUnary(node, env) {
     const v = evalNode(node.operand, env);
     if (node.op === '-') {
+      if (isTriple(v)) return makeTriple(-v.x, -v.y, -v.z);
       if (isPair(v)) return makePair(-v.x, -v.y);
       return -toNumber(v);
     }
@@ -1465,7 +1550,16 @@ function createInterpreter() {
       const args = node.args.map(a => evalNode(a, env));
       args._line = node._sourceLine || node.line || 0;
       if (calleeName === 'label') return evalLabel(args);
-      if (calleeName === 'dot') return evalDot(args);
+      if (calleeName === 'dot') {
+        // dot(triple, triple) is dot product, not drawing
+        if (args.length === 2 && isTriple(args[0]) && isTriple(args[1])) {
+          return args[0].x*args[1].x + args[0].y*args[1].y + args[0].z*args[1].z;
+        }
+        if (args.length === 2 && isPair(args[0]) && isPair(args[1])) {
+          return args[0].x*args[1].x + args[0].y*args[1].y;
+        }
+        return evalDot(args);
+      }
       return evalDraw(calleeName, args);
     }
 
@@ -1477,9 +1571,12 @@ function createInterpreter() {
       return callUserFunc(callee, node.args, env);
     }
 
-    // Type constructor calls: pair(x,y), real(x), int(x), etc.
+    // Type constructor calls: pair(x,y), triple(x,y,z), real(x), int(x), etc.
     if (calleeName === 'pair' && node.args.length === 2) {
       return makePair(toNumber(evalNode(node.args[0],env)), toNumber(evalNode(node.args[1],env)));
+    }
+    if (calleeName === 'triple' && node.args.length === 3) {
+      return makeTriple(toNumber(evalNode(node.args[0],env)), toNumber(evalNode(node.args[1],env)), toNumber(evalNode(node.args[2],env)));
     }
 
     // Unknown function - return null
@@ -1606,6 +1703,11 @@ function createInterpreter() {
     if (isPair(obj)) {
       if (m === 'x') return obj.x;
       if (m === 'y') return obj.y;
+    }
+    if (isTriple(obj)) {
+      if (m === 'x') return obj.x;
+      if (m === 'y') return obj.y;
+      if (m === 'z') return obj.z;
     }
     if (isTransform(obj)) {
       if ('abcdef'.includes(m) && m.length === 1) return obj[m];
@@ -1752,8 +1854,9 @@ function createInterpreter() {
         switch(node.varType) {
           case 'int': case 'real': val = 0; break;
           case 'pair': val = makePair(0,0); break;
+          case 'triple': val = makeTriple(0,0,0); break;
           case 'pen': val = makePen({}); break;
-          case 'path': case 'guide': val = makePath([],false); break;
+          case 'path': case 'path3': case 'guide': val = makePath([],false); break;
           case 'transform': val = makeTransform(0,1,0,0,0,1); break;
           case 'string': val = ''; break;
           case 'bool': val = false; break;
@@ -1780,6 +1883,10 @@ function createInterpreter() {
       // Track currentpicture reassignment so drawing routes to the right picture
       if (name === 'currentpicture' && val && val._tag === 'picture') {
         currentPic = val;
+      }
+      // Track currentprojection for 3D rendering
+      if (name === 'currentprojection' && val && val._tag === 'projection') {
+        projection = val;
       }
       return val;
     }
@@ -1888,11 +1995,14 @@ function createInterpreter() {
 
   function evalImport(node, env) {
     const mod = node.module.toLowerCase();
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('solids') || mod.includes('contour') || mod.includes('palette')) {
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
     }
     if (mod.includes('graph')) {
       installGraphPackage(env);
+    }
+    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3')) {
+      installThreePackage(env);
     }
     return null;
   }
@@ -2021,6 +2131,7 @@ function createInterpreter() {
     env.set('atan2', (y,x) => Math.atan2(toNumber(y),toNumber(x)));
     env.set('sqrt', (x) => Math.sqrt(toNumber(x)));
     env.set('abs', (x) => {
+      if (isTriple(x)) return Math.sqrt(x.x*x.x + x.y*x.y + x.z*x.z);
       if (isPair(x)) return Math.sqrt(x.x*x.x + x.y*x.y);
       return Math.abs(toNumber(x));
     });
@@ -2054,12 +2165,21 @@ function createInterpreter() {
     // Pair functions
     env.set('dir', (...args) => {
       if (args.length === 1) {
+        if (isTriple(args[0])) {
+          const t = args[0];
+          const len = Math.sqrt(t.x*t.x + t.y*t.y + t.z*t.z);
+          return len > 0 ? makeTriple(t.x/len, t.y/len, t.z/len) : makeTriple(0,0,0);
+        }
         const a = toNumber(args[0]);
         return makePair(Math.cos(a*Math.PI/180), Math.sin(a*Math.PI/180));
       }
       return makePair(1,0);
     });
     env.set('unit', (p) => {
+      if (isTriple(p)) {
+        const len = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+        return len > 0 ? makeTriple(p.x/len, p.y/len, p.z/len) : makeTriple(0,0,0);
+      }
       const pp = toPair(p);
       const len = Math.sqrt(pp.x*pp.x + pp.y*pp.y);
       return len > 0 ? makePair(pp.x/len, pp.y/len) : makePair(0,0);
@@ -2883,6 +3003,230 @@ function createInterpreter() {
     env.set('crop', (...args) => null);
   }
 
+  // ============================================================
+  // Three Package (3D wireframe)
+  // ============================================================
+
+  function installThreePackage(env) {
+    // 3D unit vectors and origin
+    env.set('X', makeTriple(1,0,0));
+    env.set('Y', makeTriple(0,1,0));
+    env.set('Z', makeTriple(0,0,1));
+    env.set('O', makeTriple(0,0,0));
+
+    // 3D arrow types (treated same as 2D arrows for wireframe rendering)
+    env.set('Arrow3', (...args) => {
+      let sz = 5;
+      for (const a of args) if (typeof a === 'number') sz = a;
+      return {_tag:'arrow', type:'end', size:sz};
+    });
+    env.set('Arrows3', (...args) => {
+      let sz = 5;
+      for (const a of args) if (typeof a === 'number') sz = a;
+      return {_tag:'arrow', type:'both', size:sz};
+    });
+    env.set('BeginArrow3', (...args) => {
+      let sz = 5;
+      for (const a of args) if (typeof a === 'number') sz = a;
+      return {_tag:'arrow', type:'begin', size:sz};
+    });
+    env.set('EndArrow3', (...args) => {
+      let sz = 5;
+      for (const a of args) if (typeof a === 'number') sz = a;
+      return {_tag:'arrow', type:'end', size:sz};
+    });
+    env.set('MidArrow3', (...args) => {
+      let sz = 5;
+      for (const a of args) if (typeof a === 'number') sz = a;
+      return {_tag:'arrow', type:'end', size:sz};
+    });
+    env.set('NoArrow3', null);
+
+    // Projection constructors
+    env.set('orthographic', (...args) => {
+      const nums = args.filter(a => typeof a === 'number');
+      let cx = 1, cy = -2, cz = 0.5;
+      if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
+      else if (nums.length === 1 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
+      const p = {_tag:'projection', type:'orthographic', cx, cy, cz, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
+      // Apply named args
+      for (const a of args) {
+        if (isTriple(a) && a !== args[0]) { p.ux = a.x; p.uy = a.y; p.uz = a.z; }
+      }
+      return p;
+    });
+
+    env.set('perspective', (...args) => {
+      const nums = args.filter(a => typeof a === 'number');
+      let cx = 5, cy = 4, cz = 2;
+      if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
+      else if (args.length >= 1 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
+      const p = {_tag:'projection', type:'perspective', cx, cy, cz, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
+      for (const a of args) {
+        if (isTriple(a) && a !== args[0]) { p.ux = a.x; p.uy = a.y; p.uz = a.z; }
+      }
+      return p;
+    });
+
+    env.set('oblique', (...args) => {
+      return {_tag:'projection', type:'orthographic', cx:0, cy:-1, cz:0.5, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
+    });
+
+    // currentprojection — set default if not already set
+    if (!projection) {
+      projection = {_tag:'projection', type:'orthographic', cx:1, cy:-2, cz:0.5, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
+      env.set('currentprojection', projection);
+    }
+
+    // 3D math functions
+    env.set('cross', (a, b) => {
+      const u = toTriple(a), v = toTriple(b);
+      return makeTriple(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
+    });
+
+    env.set('normal', (a, b, c) => {
+      // Normal to plane through three points
+      const u = toTriple(a), v = toTriple(b), w = toTriple(c);
+      const dx1 = v.x-u.x, dy1 = v.y-u.y, dz1 = v.z-u.z;
+      const dx2 = w.x-u.x, dy2 = w.y-u.y, dz2 = w.z-u.z;
+      return makeTriple(dy1*dz2-dz1*dy2, dz1*dx2-dx1*dz2, dx1*dy2-dy1*dx2);
+    });
+
+    env.set('interp', (a, b, t) => {
+      const frac = toNumber(t);
+      if (isTriple(a) || isTriple(b)) {
+        const u = toTriple(a), v = toTriple(b);
+        return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
+      }
+      if (isPair(a) || isPair(b)) {
+        const u = toPair(a), v = toPair(b);
+        return makePair(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac);
+      }
+      return toNumber(a)*(1-frac) + toNumber(b)*frac;
+    });
+
+    // Component accessors
+    env.set('xpart', v => isTriple(v) ? v.x : (isPair(v) ? v.x : toNumber(v)));
+    env.set('ypart', v => isTriple(v) ? v.y : (isPair(v) ? v.y : 0));
+    env.set('zpart', v => isTriple(v) ? v.z : 0);
+
+    // 3D path type stubs
+    env.set('path3', null);
+
+    // XYplane: maps 2D pair to 3D triple on XY plane (z=0)
+    env.set('XYplane', (p) => {
+      const pp = toPair(p);
+      return makeTriple(pp.x, pp.y, 0);
+    });
+
+    // markscalefactor
+    env.set('markscalefactor', 0.03);
+
+    // 3D circle approximation (returns a path of projected points)
+    env.set('circle', (...args) => {
+      // Detect 3D circle: circle(center, radius, normal)
+      // If first arg is triple, do 3D circle
+      if (args.length >= 2 && isTriple(args[0])) {
+        const center = args[0], r = toNumber(args[1]);
+        const normal = args.length >= 3 && isTriple(args[2]) ? args[2] : makeTriple(0,0,1);
+        // Create circle in plane perpendicular to normal, centered at center
+        const nlen = Math.sqrt(normal.x*normal.x + normal.y*normal.y + normal.z*normal.z) || 1;
+        const nz = {x:normal.x/nlen, y:normal.y/nlen, z:normal.z/nlen};
+        // Find two perpendicular vectors in the plane
+        let ax = {x:1,y:0,z:0};
+        if (Math.abs(nz.x) > 0.9) ax = {x:0,y:1,z:0};
+        // u = normalize(ax cross nz)
+        let ux = ax.y*nz.z - ax.z*nz.y, uy = ax.z*nz.x - ax.x*nz.z, uz = ax.x*nz.y - ax.y*nz.x;
+        const ul = Math.sqrt(ux*ux + uy*uy + uz*uz) || 1;
+        ux /= ul; uy /= ul; uz /= ul;
+        // v = nz cross u
+        const vx = nz.y*uz - nz.z*uy, vy = nz.z*ux - nz.x*uz, vz = nz.x*uy - nz.y*ux;
+        const pts = [];
+        const n = 36;
+        for (let i = 0; i <= n; i++) {
+          const theta = 2*Math.PI*i/n;
+          const co = Math.cos(theta), si = Math.sin(theta);
+          pts.push(projectTriple(makeTriple(
+            center.x + r*(co*ux + si*vx),
+            center.y + r*(co*uy + si*vy),
+            center.z + r*(co*uz + si*vz)
+          )));
+        }
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
+        return makePath(segs, true);
+      }
+      // Fallback to 2D circle (handled by existing builtin)
+      const c = toPair(args[0]), r2 = toNumber(args[1]);
+      const pts2 = [];
+      const n2 = 36;
+      for (let i = 0; i <= n2; i++) {
+        const theta2 = 2*Math.PI*i/n2;
+        pts2.push(makePair(c.x + r2*Math.cos(theta2), c.y + r2*Math.sin(theta2)));
+      }
+      const segs2 = [];
+      for (let i = 0; i < pts2.length - 1; i++) segs2.push(lineSegment(pts2[i], pts2[i+1]));
+      return makePath(segs2, true);
+    });
+
+    // shift for triples
+    const origShift = env.get('shift');
+    env.set('shift', (...args) => {
+      if (args.length === 1 && isTriple(args[0])) {
+        const d = args[0];
+        return {_tag:'transform', a:d.x, b:1, c:d.y, d:0, e:d.z, f:1, _shift3d:d};
+      }
+      if (args.length === 3 && typeof args[0] === 'number') {
+        const d = makeTriple(args[0], args[1], args[2]);
+        return {_tag:'transform', a:d.x, b:1, c:d.y, d:0, e:d.z, f:1, _shift3d:d};
+      }
+      if (origShift) return origShift(...args);
+      if (args.length === 2) return makeTransform(args[0], 1, args[1], 0, 0, 1);
+      if (args.length === 1 && isPair(args[0])) return makeTransform(args[0].x, 1, args[0].y, 0, 0, 1);
+      return makeTransform(0,1,0,0,0,1);
+    });
+
+    // 3D scale
+    const origScale = env.get('scale');
+    env.set('scale', (...args) => {
+      if (args.length === 3) {
+        // scale(sx, sy, sz) - 3D scale, return as transform with metadata
+        return {_tag:'transform', a:0, b:args[0], c:0, d:0, e:0, f:args[1], _scale3d:{x:args[0],y:args[1],z:args[2]}};
+      }
+      if (origScale) return origScale(...args);
+      const s = toNumber(args[0]);
+      return makeTransform(0, s, 0, 0, 0, s);
+    });
+
+    // Sin/Cos (degree-based trig)
+    env.set('Sin', (deg) => Math.sin(toNumber(deg) * Math.PI / 180));
+    env.set('Cos', (deg) => Math.cos(toNumber(deg) * Math.PI / 180));
+    env.set('Tan', (deg) => Math.tan(toNumber(deg) * Math.PI / 180));
+
+    // intersectionpoints stub (returns empty array for now)
+    env.set('intersectionpoints', (...args) => []);
+
+    // surface/revolution stubs for non-wireframe usage (draw calls on these are no-ops)
+    env.set('surface', (...args) => ({_tag:'surface'}));
+    env.set('revolution', (...args) => ({_tag:'surface'}));
+    env.set('unitsphere', {_tag:'surface'});
+    env.set('unitdisk', {_tag:'surface'});
+    env.set('unitplane', {_tag:'surface'});
+    env.set('unitcube', {_tag:'surface'});
+    env.set('extrude', (...args) => ({_tag:'surface'}));
+
+    // light stubs
+    env.set('light', (...args) => ({_tag:'light'}));
+    env.set('currentlight', {_tag:'light'});
+    env.set('nolight', {_tag:'light'});
+    env.set('Headlamp', {_tag:'light'});
+    env.set('White', {_tag:'light'});
+
+    // material stubs
+    env.set('material', (...args) => isPen(args[0]) ? args[0] : makePen({}));
+    env.set('emissive', (p) => isPen(p) ? p : makePen({}));
+  }
+
   // Draw command evaluators
   function evalDraw(cmd, args) {
     if (args.length === 0) return;
@@ -2899,21 +3243,28 @@ function createInterpreter() {
       if (isPath(a)) { if (!pathArg) pathArg = a; }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
       else if (a && a._tag === 'arrow') arrow = a;
+      else if (isTriple(a) && !pathArg) {
+        pathArg = makePath([], false);
+        pathArg._singlePoint = projectTriple(a);
+      }
       else if (isPair(a) && !pathArg) {
-        // Single pair treated as degenerate path (for dot)
         pathArg = makePath([], false);
         pathArg._singlePoint = a;
       }
     }
     if (!pathArg && args.length > 0) {
       const first = args[0];
-      if (isPair(first)) {
+      if (isTriple(first)) {
+        pathArg = makePath([], false);
+        pathArg._singlePoint = projectTriple(first);
+      } else if (isPair(first)) {
         pathArg = makePath([], false);
         pathArg._singlePoint = first;
       }
     }
     if (!pen) pen = clonePen(defaultPen);
     if (pathArg) {
+      projectPathTriples(pathArg);
       target.commands.push({cmd, path:pathArg, pen, arrow, line: args._line || 0});
     }
   }
@@ -2928,7 +3279,11 @@ function createInterpreter() {
     }
     let pos = null, pen = null, text = null, align = null;
     for (const a of args) {
-      if (isPair(a)) {
+      if (isTriple(a)) {
+        if (!pos) pos = projectTriple(a);
+        else if (!align) align = projectTriple(a);
+      }
+      else if (isPair(a)) {
         if (!pos) pos = a;
         else if (!align) align = a;
       }
@@ -2957,6 +3312,10 @@ function createInterpreter() {
     let text = '', pos = null, align = null, pen = null;
     for (const a of args) {
       if (isString(a) && !text) text = a;
+      else if (isTriple(a)) {
+        if (!pos) pos = projectTriple(a);
+        else if (!align) align = projectTriple(a);
+      }
       else if (isPair(a)) {
         if (!pos) pos = a;
         else if (!align) align = a;
@@ -3008,6 +3367,21 @@ function createInterpreter() {
     return makeSeg(p0, cp1, cp2, p3);
   }
 
+  // Project any remaining triples in path segments to pairs
+  function projectPathTriples(p) {
+    if (!isPath(p)) return p;
+    for (const seg of p.segs) {
+      if (isTriple(seg.p0)) { const pr = projectTriple(seg.p0); seg.p0 = pr; }
+      if (isTriple(seg.cp1)) { const pr = projectTriple(seg.cp1); seg.cp1 = pr; }
+      if (isTriple(seg.cp2)) { const pr = projectTriple(seg.cp2); seg.cp2 = pr; }
+      if (isTriple(seg.p3)) { const pr = projectTriple(seg.p3); seg.p3 = pr; }
+    }
+    if (p._singlePoint && isTriple(p._singlePoint)) {
+      p._singlePoint = projectTriple(p._singlePoint);
+    }
+    return p;
+  }
+
   function bezierArcLength(seg) {
     // Approximate arc length by sampling
     let len = 0;
@@ -3043,6 +3417,7 @@ function createInterpreter() {
     drawCommands.length = 0;
     currentPic = {_tag:'picture', commands:[]};
     globalEnv.update('currentpicture', currentPic);
+    projection = null;
     unitScale = 1;
     sizeW = 0; sizeH = 0;
     defaultPen = makePen({});
@@ -3532,10 +3907,8 @@ function patchASTNumbers(ast, oldToks, newToks) {
 function canInterpret(code) {
   // Reject features we can't handle
   if (/\bstruct\b/.test(code)) return false;
-  if (/\btriple\b/.test(code)) return false;
-  if (/\bimport\s+three\b/.test(code)) return false;
-  if (/\bimport\s+graph3\b/.test(code)) return false;
-  if (/\bimport\s+solids\b/.test(code)) return false;
+  // 3D wireframe is supported; only block surface-heavy code
+  if (/\bsurface\s*\(/.test(code) || /\bsurface\s+\w/.test(code)) return false;
   if (/\bimport\s+contour\b/.test(code)) return false;
   if (/\bimport\s+flowchart\b/.test(code)) return false;
   if (/\bimport\s+animation\b/.test(code)) return false;
