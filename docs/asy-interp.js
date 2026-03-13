@@ -830,6 +830,10 @@ function parse(tokens) {
     if (t.type === T.IDENT && t.value === 'new') {
       pos++;
       const aType = at(T.IDENT) ? eat(T.IDENT).value : 'real';
+      // new picture — creates a fresh picture object
+      if (aType === 'picture' && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
+        return {type:'NewPicture', line: ln};
+      }
       // Anonymous function: new type(params){ body }
       if (at(T.LPAREN)) {
         const saved = pos;
@@ -1190,11 +1194,27 @@ function ReturnSig(v) { return {_sig:'return', value:v}; }
 function createInterpreter() {
   // Draw commands output
   const drawCommands = [];
+  // Active picture (all drawing routes here; copied to drawCommands at end)
+  let currentPic = {_tag:'picture', commands:[]};
   // Settings
   let unitScale = 1;       // unitsize value in points
   let sizeW = 0, sizeH = 0;
   let defaultPen = makePen({});
   let iterationLimit = 100000;
+
+  // Transform a single draw command by an affine transform
+  function transformDrawCmd(t, dc) {
+    const r = Object.assign({}, dc);
+    if (r.path) r.path = applyTransformPath(t, r.path);
+    if (r.pos) r.pos = applyTransformPair(t, r.pos);
+    // Preserve alignment direction (don't transform it)
+    return r;
+  }
+
+  // Apply a transform to all commands in a picture, returning a new picture
+  function transformPicture(t, pic) {
+    return {_tag:'picture', commands: pic.commands.map(c => transformDrawCmd(t, c))};
+  }
 
   // Environment (scoped)
   function createEnv(parent) {
@@ -1232,6 +1252,7 @@ function createInterpreter() {
       case 'Identifier': return evalIdent(node, env);
       case 'PairLit': return makePair(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)));
       case 'ArrayExpr': return node.elements.map(e => evalNode(e,env));
+      case 'NewPicture': return {_tag:'picture', commands:[]};
       case 'NewArray': {
         const dims = node.dims.map(d => d ? Math.floor(toNumber(evalNode(d, env))) : 0);
         function allocArray(depth) {
@@ -1356,6 +1377,8 @@ function createInterpreter() {
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
     // Transform * path
     if (isTransform(left) && isPath(right)) return applyTransformPath(left, right);
+    // Transform * picture
+    if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
     // Transform * transform
     if (isTransform(left) && isTransform(right)) return composeTransforms(right, left);
 
@@ -1558,6 +1581,22 @@ function createInterpreter() {
       if (method === 'substr') return obj.substr(args[0], args[1]);
     }
 
+    // Picture methods
+    if (obj && obj._tag === 'picture') {
+      if (method === 'fit') return obj; // fit() returns the picture (scaling handled at render)
+      if (method === 'add') {
+        // pic.add(otherPic) — add commands from other picture
+        for (const a of args) {
+          if (a && a._tag === 'picture') {
+            for (const c of a.commands) obj.commands.push(c);
+          }
+        }
+        return null;
+      }
+      if (method === 'erase') { obj.commands.length = 0; return null; }
+      if (method === 'size') return null; // ignore per-picture size for now
+    }
+
     return null;
   }
 
@@ -1586,7 +1625,11 @@ function createInterpreter() {
   function evalArrayAccess(node, env) {
     const obj = evalNode(node.object, env);
     const idx = toNumber(evalNode(node.index, env));
-    if (isArray(obj)) return obj[Math.floor(idx)];
+    if (isArray(obj)) {
+      let i = Math.floor(idx);
+      if (obj._cyclic && obj.length > 0) i = ((i % obj.length) + obj.length) % obj.length;
+      return obj[i];
+    }
     if (isString(obj)) return obj[Math.floor(idx)];
     if (isPath(obj)) {
       // path indexing: fraction through the path
@@ -1734,6 +1777,10 @@ function createInterpreter() {
         const result = evalBinaryValues(ops[node.op], old, val);
         env.update(name, result);
       }
+      // Track currentpicture reassignment so drawing routes to the right picture
+      if (name === 'currentpicture' && val && val._tag === 'picture') {
+        currentPic = val;
+      }
       return val;
     }
     if (node.target.type === 'ArrayAccess') {
@@ -1747,6 +1794,9 @@ function createInterpreter() {
       if (isPair(obj)) {
         if (node.target.member === 'x') obj.x = toNumber(val);
         if (node.target.member === 'y') obj.y = toNumber(val);
+      }
+      if (isArray(obj) && node.target.member === 'cyclic') {
+        obj._cyclic = toBool(val);
       }
       return val;
     }
@@ -1905,10 +1955,20 @@ function createInterpreter() {
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
-    env.set('currentpicture', {_tag:'picture', commands:[]});
+    env.set('currentpicture', currentPic);
     env.set('currentprojection', null);
-    // add() composites a picture (ignored for rendering — pictures share output)
-    env.set('add', (...args) => { /* no-op: all draw commands go to shared output */ });
+    // add() composites a picture into currentpicture, optionally with transform
+    env.set('add', (...args) => {
+      let pic = null, t = null;
+      for (const a of args) {
+        if (a && a._tag === 'picture') pic = a;
+        else if (isTransform(a)) t = a;
+      }
+      if (pic) {
+        const cmds = t ? pic.commands.map(c => transformDrawCmd(t, c)) : pic.commands;
+        for (const c of cmds) currentPic.commands.push(c);
+      }
+    });
     env.set('invisible', makePen({opacity:0}));
     env.set('solid', makePen({linestyle:'solid'}));
 
@@ -2197,6 +2257,8 @@ function createInterpreter() {
       if (args.length >= 1) unitScale = toNumber(args[0]);
     });
     env.set('size', (...args) => {
+      // size(pic, w, h) or size(w, h) or size(w)
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
       if (args.length >= 1) sizeW = toNumber(args[0]);
       if (args.length >= 2) sizeH = toNumber(args[1]);
     });
@@ -2359,10 +2421,13 @@ function createInterpreter() {
     });
     env.set('array', (...args) => args);
     env.set('sequence', (f, n) => {
+      // sequence(n) or sequence(func, n)
+      if (n === undefined) { n = f; f = null; }
       const result = [];
       const count = Math.floor(toNumber(n));
       for (let i = 0; i < count; i++) {
         if (typeof f === 'function') result.push(f(i));
+        else if (f && f._tag === 'func') result.push(callUserFuncValues(f, [i]));
         else result.push(i);
       }
       return result;
@@ -2568,12 +2633,12 @@ function createInterpreter() {
         const p0 = isX ? {x:v, y:-tickSize} : {x:-tickSize, y:v};
         const p1 = isX ? {x:v, y:tickSize} : {x:tickSize, y:v};
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        drawCommands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
+        currentPic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
         if (ticks.labels) {
           const pos = isX ? {x:v, y:0} : {x:0, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           const txt = String(Math.round(v*1000)/1000);
-          drawCommands.push({cmd:'label', text:txt, pos, align, pen:tickPen, line:0});
+          currentPic.commands.push({cmd:'label', text:txt, pos, align, pen:tickPen, line:0});
         }
       }
     }
@@ -2608,11 +2673,11 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       if (pen.opacity !== 0) {
         const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
-        drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
+        currentPic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
       _drawTicks(ticks, 'x', xmin, xmax, pen);
       if (label) {
-        drawCommands.push({cmd:'label', text: stripLaTeX(label), pos:{x:(xmin+xmax)/2, y:0}, align:{x:0,y:-1.5}, pen, line:0});
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:(xmin+xmax)/2, y:0}, align:{x:0,y:-1.5}, pen, line:0});
       }
     });
 
@@ -2635,11 +2700,11 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       if (pen.opacity !== 0) {
         const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
-        drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
+        currentPic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
       _drawTicks(ticks, 'y', ymin, ymax, pen);
       if (label) {
-        drawCommands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:(ymin+ymax)/2}, align:{x:-1.5,y:0}, pen, line:0});
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:(ymin+ymax)/2}, align:{x:-1.5,y:0}, pen, line:0});
       }
     });
 
@@ -2662,7 +2727,7 @@ function createInterpreter() {
       if (ymax === null) ymax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x,y:ymin},{x,y:ymax})], false);
-      drawCommands.push({cmd:'draw', path, pen, arrow, line:0});
+      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -2673,9 +2738,9 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
-          drawCommands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
           if (ticks.labels) {
-            drawCommands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
+            currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
           }
         }
       }
@@ -2699,7 +2764,7 @@ function createInterpreter() {
       if (xmax === null) xmax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x:xmin,y},{x:xmax,y})], false);
-      drawCommands.push({cmd:'draw', path, pen, arrow, line:0});
+      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -2710,9 +2775,9 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
-          drawCommands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
           if (ticks.labels) {
-            drawCommands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
+            currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
           }
         }
       }
@@ -2748,7 +2813,7 @@ function createInterpreter() {
         else if (isPen(a)) pen = a;
       }
       if (!pen) pen = clonePen(defaultPen);
-      drawCommands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
+      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
     });
     env.set('labely', (...args) => {
       let text = '', y = 0, pen = null;
@@ -2758,7 +2823,7 @@ function createInterpreter() {
         else if (isPen(a)) pen = a;
       }
       if (!pen) pen = clonePen(defaultPen);
-      drawCommands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
+      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
     });
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
@@ -2821,8 +2886,12 @@ function createInterpreter() {
   // Draw command evaluators
   function evalDraw(cmd, args) {
     if (args.length === 0) return;
-    // Skip picture arguments (draw(pic, path, ...) — just draw to shared output)
-    if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
+    // Extract target picture if first arg is a picture
+    let target = currentPic;
+    if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+      target = args[0];
+      args = args.slice(1);
+    }
     let pathArg = null, pen = null, arrow = null;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -2845,28 +2914,46 @@ function createInterpreter() {
     }
     if (!pen) pen = clonePen(defaultPen);
     if (pathArg) {
-      drawCommands.push({cmd, path:pathArg, pen, arrow, line: args._line || 0});
+      target.commands.push({cmd, path:pathArg, pen, arrow, line: args._line || 0});
     }
   }
 
   function evalDot(args) {
     if (args.length === 0) return;
-    let pos = null, pen = null;
+    // Extract target picture if first arg is a picture
+    let target = currentPic;
+    if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+      target = args[0];
+      args = args.slice(1);
+    }
+    let pos = null, pen = null, text = null, align = null;
     for (const a of args) {
-      if (isPair(a) && !pos) pos = a;
+      if (isPair(a)) {
+        if (!pos) pos = a;
+        else if (!align) align = a;
+      }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
       else if (isPath(a) && a.segs.length > 0 && !pos) pos = a.segs[0].p0;
-      else if (isString(a)) { /* label text, ignored for dot position */ }
+      else if (isString(a) && text === null) text = a;
     }
     if (!pos) return;
     if (!pen) pen = clonePen(defaultPen);
-    drawCommands.push({cmd:'dot', pos, pen, line: args._line || 0});
+    target.commands.push({cmd:'dot', pos, pen, line: args._line || 0});
+    // If dot has a label, add it too
+    if (text) {
+      if (!align) align = makePair(1, 1);
+      target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
+    }
   }
 
   function evalLabel(args) {
     if (args.length === 0) return;
-    // Skip picture arguments
-    if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
+    // Extract target picture if first arg is a picture
+    let target = currentPic;
+    if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+      target = args[0];
+      args = args.slice(1);
+    }
     let text = '', pos = null, align = null, pen = null;
     for (const a of args) {
       if (isString(a) && !text) text = a;
@@ -2878,7 +2965,7 @@ function createInterpreter() {
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
-    drawCommands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
+    target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
   }
 
   // Path helpers
@@ -2954,6 +3041,8 @@ function createInterpreter() {
   function execute(code) {
     // Reset state
     drawCommands.length = 0;
+    currentPic = {_tag:'picture', commands:[]};
+    globalEnv.update('currentpicture', currentPic);
     unitScale = 1;
     sizeW = 0; sizeH = 0;
     defaultPen = makePen({});
@@ -2965,6 +3054,9 @@ function createInterpreter() {
     patchDrawLines(ast, globalEnv);
 
     evalNode(ast, globalEnv);
+
+    // Copy currentpicture's commands to drawCommands for rendering
+    for (const c of currentPic.commands) drawCommands.push(c);
 
     return {
       drawCommands: drawCommands.slice(),
@@ -3453,7 +3545,7 @@ function canInterpret(code) {
   if (/\bsettings\b/.test(code)) return false;
   if (/\btexpath\b/.test(code)) return false;
   if (/\bshipout\b/.test(code)) return false;
-  if (/\bpicture\s+\w+\s*=/.test(code)) return false; // custom pictures
+  // picture support is now implemented
   // Accept everything else
   return true;
 }
