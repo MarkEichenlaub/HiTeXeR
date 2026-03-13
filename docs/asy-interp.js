@@ -190,6 +190,7 @@ function MemberAccess(object,member,line) { return {type:'MemberAccess',object,m
 function ArrayAccess(object,index,line) { return {type:'ArrayAccess',object,index,line}; }
 function TernaryOp(cond,then_,else_,line) { return {type:'TernaryOp',cond,then:then_,else:else_,line}; }
 function CastExpr(targetType,expr,line) { return {type:'CastExpr',targetType,expr,line}; }
+function NamedArg(name,value,line) { return {type:'NamedArg',name,value,line}; }
 function VarDecl(varType,name,init,line) { return {type:'VarDecl',varType,name,init,line}; }
 function Assignment(target,op,value,line) { return {type:'Assignment',target,op,value,line}; }
 function ExprStmt(expr,line) { return {type:'ExprStmt',expr,line}; }
@@ -658,10 +659,12 @@ function parse(tokens) {
     eat(T.LPAREN);
     const args = [];
     while (!at(T.RPAREN) && !at(T.EOF)) {
-      // Support named parameters: name=value (skip the name, use the value)
+      // Support named parameters: name=value
       if (at(T.IDENT) && pos+1 < tokens.length && tokens[pos+1].type === T.ASSIGN) {
+        const argName = cur().value;
+        const argLn = cur().line;
         pos += 2; // skip identifier and '='
-        args.push(parseExpr());
+        args.push(NamedArg(argName, parseExpr(), argLn));
       } else {
         args.push(parseExpr());
       }
@@ -1250,6 +1253,7 @@ function createInterpreter() {
       case 'ArrayAccess': return evalArrayAccess(node, env);
       case 'TernaryOp': return toBool(evalNode(node.cond,env)) ? evalNode(node.then,env) : evalNode(node.else,env);
       case 'CastExpr': return evalCast(node, env);
+      case 'NamedArg': return evalNode(node.value, env);
       case 'PathExpr': return evalPathExpr(node, env);
       case 'VarDecl': return evalVarDecl(node, env);
       case 'Assignment': return evalAssignment(node, env);
@@ -1466,9 +1470,22 @@ function createInterpreter() {
     if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
     const params = func.params;
+    // Separate positional and named arguments
+    const positional = [];
+    const named = {};
+    for (const a of argNodes) {
+      if (a.type === 'NamedArg') {
+        named[a.name] = a.value;
+      } else {
+        positional.push(a);
+      }
+    }
+    let posIdx = 0;
     for (let i = 0; i < params.length; i++) {
-      if (i < argNodes.length) {
-        local.set(params[i].name, evalNode(argNodes[i], callEnv));
+      if (named[params[i].name] !== undefined) {
+        local.set(params[i].name, evalNode(named[params[i].name], callEnv));
+      } else if (posIdx < positional.length) {
+        local.set(params[i].name, evalNode(positional[posIdx++], callEnv));
       } else if (params[i].default) {
         local.set(params[i].name, evalNode(params[i].default, local));
       } else {
@@ -2526,12 +2543,56 @@ function createInterpreter() {
       return makePath([], false);
     });
 
+    // Helper: draw ticks along an axis
+    function _drawTicks(ticks, axisDir, min, max, pen) {
+      if (!ticks || ticks.step === 0) return;
+      const tickPen = ticks.pen || pen;
+      const tickSize = ticks.size || 0.1;
+      const noZero = ticks.noZero || false;
+      // Use explicit positions array if provided, otherwise step
+      let positions;
+      if (ticks.positions && isArray(ticks.positions)) {
+        positions = ticks.positions.map(v => toNumber(v));
+      } else {
+        const step = ticks.step || 1;
+        if (step <= 0) return;
+        positions = [];
+        for (let v = Math.ceil(min/step)*step; v <= max + 1e-10; v += step) {
+          positions.push(Math.round(v*1e10)/1e10);
+        }
+      }
+      for (const v of positions) {
+        if (noZero && Math.abs(v) < 1e-10) continue;
+        if (v < min - 1e-10 || v > max + 1e-10) continue;
+        const isX = (axisDir === 'x');
+        const p0 = isX ? {x:v, y:-tickSize} : {x:-tickSize, y:v};
+        const p1 = isX ? {x:v, y:tickSize} : {x:tickSize, y:v};
+        const tickPath = makePath([lineSegment(p0, p1)], false);
+        drawCommands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
+        if (ticks.labels) {
+          const pos = isX ? {x:v, y:0} : {x:0, y:v};
+          const align = isX ? {x:0, y:-1} : {x:-1, y:0};
+          const txt = String(Math.round(v*1000)/1000);
+          drawCommands.push({cmd:'label', text:txt, pos, align, pen:tickPen, line:0});
+        }
+      }
+    }
+
+    // Axis extent specifiers — return marker objects that xaxis/yaxis can check
+    env.set('BottomTop', (...args) => ({_tag:'axisextent', type:'BottomTop'}));
+    env.set('LeftRight', (...args) => ({_tag:'axisextent', type:'LeftRight'}));
+    env.set('TopBottom', (...args) => ({_tag:'axisextent', type:'TopBottom'}));
+    env.set('RightLeft', (...args) => ({_tag:'axisextent', type:'RightLeft'}));
+    env.set('Bottom', (...args) => ({_tag:'axisextent', type:'Bottom'}));
+    env.set('Top', (...args) => ({_tag:'axisextent', type:'Top'}));
+    env.set('Left', (...args) => ({_tag:'axisextent', type:'Left'}));
+    env.set('Right', (...args) => ({_tag:'axisextent', type:'Right'}));
+
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
-      // xaxis(Label, real xmin, real xmax, pen, Ticks, Arrow, ...)
-      // Simplified: draw an x-axis line with optional ticks
       let label = '', xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       for (const a of args) {
+        if (a === null || a === undefined) continue;
         if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
@@ -2540,30 +2601,16 @@ function createInterpreter() {
         else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
         else if (a && a._tag === 'arrow') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
+        else if (a && a._tag === 'axisextent') { /* extent info — used for tick placement */ }
       }
-
-      // Use bounding box if not specified
       if (xmin === null) xmin = -5;
       if (xmax === null) xmax = 5;
       if (!pen) pen = clonePen(defaultPen);
-
-      const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
-      drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
-
-      // Draw ticks
-      if (ticks) {
-        const step = ticks.step || 1;
-        const tickSize = ticks.size || 0.1;
-        for (let x = Math.ceil(xmin/step)*step; x <= xmax; x += step) {
-          if (Math.abs(x) < 1e-10) continue; // skip origin
-          const tickPath = makePath([lineSegment({x,y:-tickSize},{x,y:tickSize})], false);
-          drawCommands.push({cmd:'draw', path:tickPath, pen, arrow:null, line: 0});
-          if (ticks.labels) {
-            drawCommands.push({cmd:'label', text:String(Math.round(x*1000)/1000), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
-          }
-        }
+      if (pen.opacity !== 0) {
+        const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
+        drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
-
+      _drawTicks(ticks, 'x', xmin, xmax, pen);
       if (label) {
         drawCommands.push({cmd:'label', text: stripLaTeX(label), pos:{x:(xmin+xmax)/2, y:0}, align:{x:0,y:-1.5}, pen, line:0});
       }
@@ -2572,6 +2619,7 @@ function createInterpreter() {
     env.set('yaxis', (...args) => {
       let label = '', ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       for (const a of args) {
+        if (a === null || a === undefined) continue;
         if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
@@ -2580,36 +2628,99 @@ function createInterpreter() {
         else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
         else if (a && a._tag === 'arrow') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
+        else if (a && a._tag === 'axisextent') { /* extent info */ }
       }
-
       if (ymin === null) ymin = -5;
       if (ymax === null) ymax = 5;
       if (!pen) pen = clonePen(defaultPen);
-
-      const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
-      drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
-
-      if (ticks) {
-        const step = ticks.step || 1;
-        const tickSize = ticks.size || 0.1;
-        for (let y = Math.ceil(ymin/step)*step; y <= ymax; y += step) {
-          if (Math.abs(y) < 1e-10) continue;
-          const tickPath = makePath([lineSegment({x:-tickSize,y},{x:tickSize,y})], false);
-          drawCommands.push({cmd:'draw', path:tickPath, pen, arrow:null, line: 0});
-          if (ticks.labels) {
-            drawCommands.push({cmd:'label', text:String(Math.round(y*1000)/1000), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
-          }
-        }
+      if (pen.opacity !== 0) {
+        const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
+        drawCommands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
-
+      _drawTicks(ticks, 'y', ymin, ymax, pen);
       if (label) {
         drawCommands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:(ymin+ymax)/2}, align:{x:-1.5,y:0}, pen, line:0});
       }
     });
 
+    // xequals / yequals — draw vertical/horizontal line at a given coordinate
+    env.set('xequals', (...args) => {
+      let x = 0, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let gotX = false;
+      for (const a of args) {
+        if (a === null || a === undefined || a === true || a === false) continue;
+        if (typeof a === 'number' && !gotX) { x = a; gotX = true; }
+        else if (typeof a === 'number') {
+          if (ymin === null) ymin = a;
+          else if (ymax === null) ymax = a;
+        }
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'ticks') ticks = a;
+      }
+      if (ymin === null) ymin = -5;
+      if (ymax === null) ymax = 5;
+      if (!pen) pen = clonePen(defaultPen);
+      const path = makePath([lineSegment({x,y:ymin},{x,y:ymax})], false);
+      drawCommands.push({cmd:'draw', path, pen, arrow, line:0});
+      if (ticks) {
+        const tickPen = ticks.pen || pen;
+        const tickSize = ticks.size || 0.1;
+        const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
+        if (positions.length === 0 && ticks.step > 0) {
+          for (let v = Math.ceil(ymin/ticks.step)*ticks.step; v <= ymax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
+        }
+        for (const v of positions) {
+          if (ticks.noZero && Math.abs(v) < 1e-10) continue;
+          const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
+          drawCommands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          if (ticks.labels) {
+            drawCommands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
+          }
+        }
+      }
+    });
+
+    env.set('yequals', (...args) => {
+      let y = 0, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let gotY = false;
+      for (const a of args) {
+        if (a === null || a === undefined || a === true || a === false) continue;
+        if (typeof a === 'number' && !gotY) { y = a; gotY = true; }
+        else if (typeof a === 'number') {
+          if (xmin === null) xmin = a;
+          else if (xmax === null) xmax = a;
+        }
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'ticks') ticks = a;
+      }
+      if (xmin === null) xmin = -5;
+      if (xmax === null) xmax = 5;
+      if (!pen) pen = clonePen(defaultPen);
+      const path = makePath([lineSegment({x:xmin,y},{x:xmax,y})], false);
+      drawCommands.push({cmd:'draw', path, pen, arrow, line:0});
+      if (ticks) {
+        const tickPen = ticks.pen || pen;
+        const tickSize = ticks.size || 0.1;
+        const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
+        if (positions.length === 0 && ticks.step > 0) {
+          for (let v = Math.ceil(xmin/ticks.step)*ticks.step; v <= xmax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
+        }
+        for (const v of positions) {
+          if (ticks.noZero && Math.abs(v) < 1e-10) continue;
+          const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
+          drawCommands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          if (ticks.labels) {
+            drawCommands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
+          }
+        }
+      }
+    });
+
     // axes() - draw both axes
     env.set('axes', (...args) => {
-      let xlabel = '', ylabel = '', xmin = null, xmax = null, ymin = null, ymax = null, pen = null, arrow = null, ticks = null;
+      let xlabel = '', ylabel = '', pen = null, arrow = null, ticks = null;
       for (const a of args) {
         if (isString(a)) {
           if (!xlabel) xlabel = a;
@@ -2619,42 +2730,92 @@ function createInterpreter() {
         else if (a && a._tag === 'arrow') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
       }
-      env.get('xaxis')(xlabel, pen, arrow);
-      env.get('yaxis')(ylabel, pen, arrow);
+      const xArgs = []; const yArgs = [];
+      if (xlabel) xArgs.push(xlabel);
+      if (ylabel) yArgs.push(ylabel);
+      if (pen) { xArgs.push(pen); yArgs.push(pen); }
+      if (arrow) { xArgs.push(arrow); yArgs.push(arrow); }
+      invokeFunc(env.get('xaxis'), xArgs);
+      invokeFunc(env.get('yaxis'), yArgs);
     });
 
-    // Ticks constructors
-    env.set('Ticks', (...args) => {
-      const t = {_tag: 'ticks', step: 1, size: 0.1, labels: true};
+    // labelx / labely — place a label on an axis
+    env.set('labelx', (...args) => {
+      let text = '', x = 0, pen = null;
       for (const a of args) {
+        if (isString(a) && !text) text = a;
+        else if (typeof a === 'number') x = a;
+        else if (isPen(a)) pen = a;
+      }
+      if (!pen) pen = clonePen(defaultPen);
+      drawCommands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
+    });
+    env.set('labely', (...args) => {
+      let text = '', y = 0, pen = null;
+      for (const a of args) {
+        if (isString(a) && !text) text = a;
+        else if (typeof a === 'number') y = a;
+        else if (isPen(a)) pen = a;
+      }
+      if (!pen) pen = clonePen(defaultPen);
+      drawCommands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
+    });
+
+    // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
+    function _makeTicks(args, defaults) {
+      const t = Object.assign({_tag:'ticks', step:1, size:0.1, labels:true, noZero:false, positions:null, pen:null}, defaults);
+      for (const a of args) {
+        if (a === null || a === undefined) continue;
         if (typeof a === 'number') t.step = a;
-        else if (isString(a)) { /* format string, ignored */ }
+        else if (isString(a)) { /* format string like "%", ignored */ }
         else if (isPen(a)) t.pen = a;
+        else if (isArray(a)) t.positions = a;
+        else if (a === true || a === false) { /* extend flag, ignored */ }
       }
       return t;
+    }
+    env.set('Ticks', (...args) => _makeTicks(args, {}));
+    env.set('LeftTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'left'; return t; });
+    env.set('RightTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'right'; return t; });
+    env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null});
+    env.set('NoZero', {_tag:'tickmod', noZero:true});
+
+    // polargraph — plot r = f(theta) in polar coordinates
+    env.set('polargraph', (...args) => {
+      const smooth = wantsSmooth(args);
+      const coreArgs = args.filter(a => !isOperator(a));
+      let funcArg = null, a = 0, b = 2*Math.PI, n = 200;
+      const nums = [];
+      for (const ca of coreArgs) {
+        if ((typeof ca === 'function' || (ca && ca._tag === 'func')) && !funcArg) funcArg = ca;
+        else if (typeof ca === 'number') nums.push(ca);
+      }
+      if (nums.length >= 1) a = nums[0];
+      if (nums.length >= 2) b = nums[1];
+      if (nums.length >= 3) n = Math.floor(nums[2]);
+      if (!funcArg) return makePath([], false);
+      const pts = [];
+      for (let i = 0; i <= n; i++) {
+        const theta = a + (b - a) * i / n;
+        try {
+          const r = toNumber(typeof funcArg === 'function' ? funcArg(theta) : callUserFuncValues(funcArg, [theta]));
+          if (isFinite(r)) pts.push({x: r*Math.cos(theta), y: r*Math.sin(theta)});
+        } catch(e) {}
+      }
+      return buildGraphPath(pts, smooth || true);
     });
-    env.set('LeftTicks', (...args) => {
-      const t = env.get('Ticks')(...args);
-      t.side = 'left';
-      return t;
-    });
-    env.set('RightTicks', (...args) => {
-      const t = env.get('Ticks')(...args);
-      t.side = 'right';
-      return t;
-    });
-    env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false});
 
     // Scale types
     env.set('Linear', null);
     env.set('Log', null);
     env.set('Logarithmic', null);
+    env.set('Broken', (...args) => null);
 
     // xlimits/ylimits
-    env.set('xlimits', (a, b) => null);
-    env.set('ylimits', (a, b) => null);
-    env.set('limits', (a, b) => null);
-    env.set('crop', () => null);
+    env.set('xlimits', (...args) => null);
+    env.set('ylimits', (...args) => null);
+    env.set('limits', (...args) => null);
+    env.set('crop', (...args) => null);
   }
 
   // Draw command evaluators
