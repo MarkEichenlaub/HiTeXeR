@@ -229,22 +229,27 @@ function parse(tokens) {
     return false;
   }
 
+  // Skip over array bracket suffixes: [] or [][] etc. Returns offset after brackets.
+  function skipArrayBrackets(start) {
+    let off = start;
+    while (peekType(off) === T.LBRACKET && peekType(off+1) === T.RBRACKET) off += 2;
+    return off;
+  }
+
   // Check for declaration: type name = ... or type name ; or type name ,
+  // Also handles type[][] name and type name[]
   function isDeclaration() {
     if (!isTypeName()) return false;
-    const next = peekType(1);
-    if (next === T.IDENT) return true;
-    // type[] name
-    if (next === T.LBRACKET && peekType(2) === T.RBRACKET && peekType(3) === T.IDENT) return true;
+    const off = skipArrayBrackets(1);
+    if (peekType(off) === T.IDENT) return true;
     return false;
   }
 
   // Check for function declaration: type name(...)
   function isFuncDecl() {
     if (!isTypeName()) return false;
-    if (peekType(1) === T.IDENT && peekType(2) === T.LPAREN) return true;
-    // type[] name(
-    if (peekType(1) === T.LBRACKET && peekType(2) === T.RBRACKET && peekType(3) === T.IDENT && peekType(4) === T.LPAREN) return true;
+    const off = skipArrayBrackets(1);
+    if (peekType(off) === T.IDENT && peekType(off+1) === T.LPAREN) return true;
     return false;
   }
 
@@ -319,9 +324,9 @@ function parse(tokens) {
     if (isFuncDecl()) {
       // But only if next-next-next has a brace (body) - otherwise it could be a call
       const saved = pos;
-      const retType = eat(T.IDENT).value;
-      let isArr = false;
-      if (tryEat(T.LBRACKET)) { eat(T.RBRACKET); isArr = true; }
+      let retType = eat(T.IDENT).value;
+      // Handle type[], type[][], etc.
+      while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; retType += '[]'; }
       const name = eat(T.IDENT).value;
       if (at(T.LPAREN)) {
         // Peek ahead: parse params, check for body
@@ -337,7 +342,7 @@ function parse(tokens) {
         if (at(T.LBRACE)) {
           // It is a function declaration
           pos = paramStart;
-          return parseFuncDeclBody(retType + (isArr ? '[]' : ''), name, cur().line);
+          return parseFuncDeclBody(retType, name, cur().line);
         }
       }
       pos = saved; // not a func decl, reparse as expression/decl
@@ -452,13 +457,17 @@ function parse(tokens) {
   function parseVarDecl(noSemi) {
     const ln = cur().line;
     let varType = eat(T.IDENT).value;
-    if (tryEat(T.LBRACKET)) { eat(T.RBRACKET); varType += '[]'; }
+    // Handle type[], type[][], etc.
+    while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; varType += '[]'; }
     const stmts = [];
     do {
       const name = eat(T.IDENT).value;
+      // Handle array-after-name: pair name[], int name[][]
+      let nameType = varType;
+      while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; nameType += '[]'; }
       let init = null;
       if (tryEat(T.ASSIGN)) init = parseExpr();
-      stmts.push(VarDecl(varType, name, init, ln));
+      stmts.push(VarDecl(nameType, name, init, ln));
     } while (tryEat(T.COMMA));
     if (!noSemi) tryEat(T.SEMI);
     return stmts.length === 1 ? stmts[0] : {type:'MultiDecl', stmts, line:ln};
@@ -469,16 +478,48 @@ function parse(tokens) {
     const params = [];
     while (!at(T.RPAREN) && !at(T.EOF)) {
       let pType = 'real';
-      if (isTypeName()) { pType = eat(T.IDENT).value; if(tryEat(T.LBRACKET)){eat(T.RBRACKET);pType+='[]';} }
-      const pName = eat(T.IDENT).value;
-      let pDefault = null;
-      if (tryEat(T.ASSIGN)) pDefault = parseExpr();
-      params.push({type:pType, name:pName, default:pDefault});
+      if (isTypeName()) {
+        pType = eat(T.IDENT).value;
+        // Handle type[], type[][], etc.
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; pType += '[]'; }
+      }
+      // Function-type parameter: void checker(int,int) or pair f(real)
+      if (at(T.IDENT) && peekType(1) === T.LPAREN) {
+        const pName = eat(T.IDENT).value;
+        // Skip the function signature (params inside parens)
+        eat(T.LPAREN);
+        let depth = 1;
+        while (depth > 0 && !at(T.EOF)) {
+          if (at(T.LPAREN)) depth++;
+          if (at(T.RPAREN)) depth--;
+          if (depth > 0) pos++;
+        }
+        eat(T.RPAREN);
+        let pDefault = null;
+        if (tryEat(T.ASSIGN)) pDefault = parseExpr();
+        params.push({type: pType, name: pName, default: pDefault});
+      } else {
+        const pName = eat(T.IDENT).value;
+        // Handle array-after-name: pair vertices[], int arr[][]
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; pType += '[]'; }
+        let pDefault = null;
+        if (tryEat(T.ASSIGN)) pDefault = parseExpr();
+        params.push({type: pType, name: pName, default: pDefault});
+      }
       if (!tryEat(T.COMMA)) break;
     }
     eat(T.RPAREN);
     const body = parseBlock();
     return FuncDecl(retType, name, params, body, ln);
+  }
+
+  // Detect [/asy] end marker so we can tolerate missing semicolons
+  function atEndMarker() {
+    if (at(T.LBRACKET)) {
+      if (peekType(1) === T.SLASH && peekType(2) === T.IDENT && peekVal(2) === 'asy') return true;
+      if (peekType(1) === T.IDENT && peekVal(1) === '/asy') return true;
+    }
+    return false;
   }
 
   function parseExprOrAssign(noSemi) {
@@ -491,7 +532,7 @@ function parse(tokens) {
       if (!noSemi) tryEat(T.SEMI);
       return Assignment(expr, op, val, ln);
     }
-    if (!noSemi) tryEat(T.SEMI);
+    if (!noSemi) { if (!atEndMarker()) tryEat(T.SEMI); }
     return ExprStmt(expr, ln);
   }
 
@@ -523,22 +564,32 @@ function parse(tokens) {
         if (pos + 2 < tokens.length && tokens[pos+1].type === T.IDENT
             && NAMED_DIRS && NAMED_DIRS[tokens[pos+1].value]
             && tokens[pos+2].type === T.RBRACE) return 6;
-        // Quick lookahead: check for {expr,expr} pattern (exactly one comma at depth 0)
-        let d = 0, commas = 0;
+        // Quick lookahead: scan to matching }, counting commas at depth 0
+        let d = 0, commas = 0, closePos = -1;
         for (let i = pos + 1; i < tokens.length; i++) {
           if (tokens[i].type === T.LBRACE || tokens[i].type === T.LPAREN) d++;
           else if (tokens[i].type === T.RPAREN) d--;
-          else if (tokens[i].type === T.RBRACE) { if (d === 0) break; d--; }
+          else if (tokens[i].type === T.RBRACE) { if (d === 0) { closePos = i; break; } d--; }
           else if (d === 0 && tokens[i].type === T.COMMA) commas++;
         }
-        return commas === 1 ? 6 : 0;
+        if (commas === 1) return 6; // {expr,expr} pair direction
+        // Single expression direction: {dir(angle)} or {expr} followed by .. or --
+        if (commas === 0 && closePos >= 0 && closePos + 1 < tokens.length) {
+          const after = tokens[closePos + 1].type;
+          if (after === T.DOTDOT || after === T.DOTDOTDOT || after === T.DASHDASH) return 6;
+        }
+        return 0;
       }
-      case T.STAR: case T.SLASH: case T.PERCENT: return 7;
+      case T.STAR: case T.SLASH: case T.PERCENT: case T.HASH: return 7;
       case T.CARET: return 9; // right-assoc
       case T.QUESTION: return 1; // ternary
       case T.DOT: return 11;
       case T.LPAREN: return 10; // function call
-      case T.LBRACKET: return 10; // array access
+      case T.LBRACKET: {
+        // Don't treat [/asy] or [asy] as array access
+        if (peekType(1) === T.SLASH || (peekType(1) === T.IDENT && (peekVal(1) === 'asy' || peekVal(1) === '/asy'))) return 0;
+        return 10; // array access
+      }
       case T.PLUSPLUS: return 10; // postfix i++
       case T.MINUSMINUS_OP: return 10; // postfix i--
       default: return 0;
@@ -643,6 +694,10 @@ function parse(tokens) {
         const dy = parseExpr();
         eat(T.RBRACE);
         return {x: dx, y: dy};
+      } else if (at(T.RBRACE)) {
+        // Single expression direction: {dir(225)} or {expr}
+        eat(T.RBRACE);
+        return {x: dx, y: null, singleExpr: true};
       } else { pos = saved; return null; }
     } catch(e) { pos = saved; return null; }
   }
@@ -721,7 +776,8 @@ function parse(tokens) {
       const operand = parseExpr(8);
       return Assignment(operand, '+=', NumberLit(1, ln), ln);
     }
-    if (t.type === T.MINUSMINUS_OP) {
+    if (t.type === T.MINUSMINUS_OP || t.type === T.DASHDASH) {
+      // -- as prefix decrement (--i)
       pos++;
       const operand = parseExpr(8);
       return Assignment(operand, '-=', NumberLit(1, ln), ln);
@@ -767,7 +823,7 @@ function parse(tokens) {
       return {type:'OperatorLit', value: opVal, line: ln};
     }
 
-    // new — anonymous function or array
+    // new — anonymous function or array allocation
     if (t.type === T.IDENT && t.value === 'new') {
       pos++;
       const aType = at(T.IDENT) ? eat(T.IDENT).value : 'real';
@@ -790,7 +846,19 @@ function parse(tokens) {
           return parseFuncDeclBody(aType, '', ln);
         }
       }
-      if (tryEat(T.LBRACKET)) eat(T.RBRACKET);
+      // new type[expr] or new type[expr][expr] — sized array allocation
+      if (at(T.LBRACKET)) {
+        const dims = [];
+        while (at(T.LBRACKET)) {
+          pos++; // skip [
+          if (at(T.RBRACKET)) { pos++; dims.push(null); } // new type[]
+          else { dims.push(parseExpr()); eat(T.RBRACKET); }
+        }
+        // If we have sized dims, return an allocation node
+        if (dims.some(d => d !== null)) {
+          return {type:'NewArray', elemType: aType, dims, line: ln};
+        }
+      }
       // Might have initializer
       if (at(T.LBRACE)) {
         eat(T.LBRACE);
@@ -1161,6 +1229,20 @@ function createInterpreter() {
       case 'Identifier': return evalIdent(node, env);
       case 'PairLit': return makePair(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)));
       case 'ArrayExpr': return node.elements.map(e => evalNode(e,env));
+      case 'NewArray': {
+        const dims = node.dims.map(d => d ? Math.floor(toNumber(evalNode(d, env))) : 0);
+        function allocArray(depth) {
+          const size = dims[depth] || 0;
+          const arr = new Array(size);
+          if (depth + 1 < dims.length) {
+            for (let i = 0; i < size; i++) arr[i] = allocArray(depth + 1);
+          } else {
+            arr.fill(0);
+          }
+          return arr;
+        }
+        return allocArray(0);
+      }
       case 'BinaryOp': return evalBinary(node, env);
       case 'UnaryOp': return evalUnary(node, env);
       case 'FuncCall': return evalFuncCall(node, env);
@@ -1286,6 +1368,7 @@ function createInterpreter() {
       case T.STAR: return l*r;
       case T.SLASH: return r!==0?l/r:0;
       case T.PERCENT: return r!==0?l%r:0;
+      case T.HASH: return r!==0?Math.floor(l/r):0; // integer quotient
       case T.CARET: return Math.pow(l,r);
       case T.EQ: return l===r;
       case T.NEQ: return l!==r;
@@ -1376,7 +1459,11 @@ function createInterpreter() {
     return null;
   }
 
+  let _callDepth = 0;
+  const MAX_CALL_DEPTH = 256;
+
   function callUserFunc(func, argNodes, callEnv) {
+    if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
     const params = func.params;
     for (let i = 0; i < params.length; i++) {
@@ -1391,14 +1478,16 @@ function createInterpreter() {
     try {
       evalNode(func.body, local);
     } catch(e) {
-      if (e && e._sig === 'return') return e.value;
-      throw e;
+      if (e && e._sig === 'return') { _callDepth--; return e.value; }
+      _callDepth--; throw e;
     }
+    _callDepth--;
     return null;
   }
 
   // Call a user-defined function with already-evaluated argument values
   function callUserFuncValues(func, argValues) {
+    if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
     const params = func.params;
     for (let i = 0; i < params.length; i++) {
@@ -1413,9 +1502,17 @@ function createInterpreter() {
     try {
       evalNode(func.body, local);
     } catch(e) {
-      if (e && e._sig === 'return') return e.value;
-      throw e;
+      if (e && e._sig === 'return') { _callDepth--; return e.value; }
+      _callDepth--; throw e;
     }
+    _callDepth--;
+    return null;
+  }
+
+  // Helper to invoke either a native JS function or user-defined func with values
+  function invokeFunc(fn, argValues) {
+    if (typeof fn === 'function') return fn(...argValues);
+    if (fn && fn._tag === 'func') return callUserFuncValues(fn, argValues);
     return null;
   }
 
@@ -1600,6 +1697,7 @@ function createInterpreter() {
           case 'transform': val = makeTransform(0,1,0,0,0,1); break;
           case 'string': val = ''; break;
           case 'bool': val = false; break;
+          case 'picture': val = {_tag:'picture', commands:[]}; break;
         }
       }
     }
@@ -1790,8 +1888,10 @@ function createInterpreter() {
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
-    env.set('currentpicture', null);
+    env.set('currentpicture', {_tag:'picture', commands:[]});
     env.set('currentprojection', null);
+    // add() composites a picture (ignored for rendering — pictures share output)
+    env.set('add', (...args) => { /* no-op: all draw commands go to shared output */ });
     env.set('invisible', makePen({opacity:0}));
     env.set('solid', makePen({linestyle:'solid'}));
 
@@ -1948,7 +2048,8 @@ function createInterpreter() {
     });
 
     // Path query functions
-    env.set('point', (p, t) => {
+    // Internal helper for path point evaluation (avoids env.get shadowing issues)
+    function _pointOnPath(p, t) {
       if (!isPath(p)) return makePair(0,0);
       const time = toNumber(t);
       const i = Math.floor(time);
@@ -1956,18 +2057,20 @@ function createInterpreter() {
       const idx = Math.max(0, Math.min(i, p.segs.length-1));
       if (p.segs.length === 0) return makePair(0,0);
       return bezierPoint(p.segs[idx], Math.max(0, Math.min(1, frac)));
-    });
+    }
+
+    env.set('point', (p, t) => _pointOnPath(p, t));
 
     env.set('relpoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
       const time = toNumber(t) * p.segs.length;
-      return env.get('point')(p, time);
+      return _pointOnPath(p, time);
     });
 
     env.set('midpoint', (...args) => {
       if (args.length === 1 && isPath(args[0])) {
         const p = args[0];
-        return env.get('point')(p, p.segs.length/2);
+        return _pointOnPath(p, p.segs.length/2);
       }
       // midpoint of two pairs
       if (args.length === 2) {
@@ -2144,14 +2247,14 @@ function createInterpreter() {
     });
 
     env.set('circumradius', (A,B,C) => {
-      const o = env.get('circumcenter')(A,B,C);
+      const o = invokeFunc(env.get('circumcenter'), [A,B,C]);
       const a = toPair(A);
       return Math.sqrt((a.x-o.x)*(a.x-o.x)+(a.y-o.y)*(a.y-o.y));
     });
 
     env.set('circumcircle', (A,B,C) => {
-      const o = env.get('circumcenter')(A,B,C);
-      const r = env.get('circumradius')(A,B,C);
+      const o = invokeFunc(env.get('circumcenter'), [A,B,C]);
+      const r = invokeFunc(env.get('circumradius'), [A,B,C]);
       return makeCirclePath(o, r);
     });
 
@@ -2175,8 +2278,8 @@ function createInterpreter() {
     });
 
     env.set('incircle', (A,B,C) => {
-      const o = env.get('incenter')(A,B,C);
-      const r = env.get('inradius')(A,B,C);
+      const o = invokeFunc(env.get('incenter'), [A,B,C]);
+      const r = invokeFunc(env.get('inradius'), [A,B,C]);
       return makeCirclePath(o, r);
     });
 
@@ -2199,7 +2302,7 @@ function createInterpreter() {
 
     env.set('orthocenter', (A,B,C) => {
       const a=toPair(A),b=toPair(B),c=toPair(C);
-      const cc = env.get('circumcenter')(A,B,C);
+      const cc = invokeFunc(env.get('circumcenter'), [A,B,C]);
       // H = A + B + C - 2*O
       return makePair(a.x+b.x+c.x-2*cc.x, a.y+b.y+c.y-2*cc.y);
     });
@@ -2225,8 +2328,18 @@ function createInterpreter() {
     env.set('substr', (s, start, len) => String(s).substr(toNumber(start), len !== undefined ? toNumber(len) : undefined));
     env.set('find', (s, sub) => String(s).indexOf(String(sub)));
     env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
+    env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
+    env.set('minipage', (...args) => {
+      // Return the string content, ignoring width/formatting
+      for (const a of args) { if (isString(a)) return a; }
+      return '';
+    });
 
     // Array functions
+    env.set('copy', (arr) => {
+      if (isArray(arr)) return arr.slice();
+      return arr;
+    });
     env.set('array', (...args) => args);
     env.set('sequence', (f, n) => {
       const result = [];
@@ -2547,6 +2660,8 @@ function createInterpreter() {
   // Draw command evaluators
   function evalDraw(cmd, args) {
     if (args.length === 0) return;
+    // Skip picture arguments (draw(pic, path, ...) — just draw to shared output)
+    if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
     let pathArg = null, pen = null, arrow = null;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -2589,6 +2704,8 @@ function createInterpreter() {
 
   function evalLabel(args) {
     if (args.length === 0) return;
+    // Skip picture arguments
+    if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
     let text = '', pos = null, align = null, pen = null;
     for (const a of args) {
       if (isString(a) && !text) text = a;
