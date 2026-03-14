@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HiTeXeR (Online) - Interactive Asymptote Editor</title>
+<title>HiTeXeR - Interactive Asymptote Editor</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/monokai.min.css">
 <style>
@@ -65,6 +65,13 @@ body {
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
 }
+#clear-selection-btn {
+  display: none; position: absolute; top: 6px; right: 6px; z-index: 99;
+  background: rgba(30,30,46,0.8); color: #eee; border: 1px solid rgba(255,255,255,0.2);
+  padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;
+  font-family: system-ui, sans-serif; transition: background 0.15s;
+}
+#clear-selection-btn:hover { background: rgba(233,69,96,0.8); }
 
 /* Highlight styles for code lines */
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
@@ -150,6 +157,9 @@ body {
 #toolbar button.active { background: #e9c46a; color: #1a1a2e; border-color: #e9c46a; }
 #toolbar button.active:hover { background: #d4a83a; }
 
+/* Spin animation for AI progress */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 /* Slide mode: golden glow + hit circles for free elements */
 .slide-free-glow {
   filter: url(#hitexer-slide-glow) !important;
@@ -171,7 +181,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:12px;color:#e9c46a;font-weight:400;">(Online)</span></h1>
+  <h1>HiTeXeR</h1>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-clear">CLEAR</button>
   <button id="btn-colorblind">COLOR BLIND MODE</button>
@@ -181,6 +191,17 @@ body {
   <button id="btn-slide">SLIDE</button>
   <button id="btn-grid">GRID</button>
   <button id="btn-add-element">+ ELEMENT</button>
+  <button id="btn-ai-refactor">AI REFACTOR</button>
+  <button id="btn-ai-edit">AI EDIT</button>
+  <button id="btn-learn">LEARN</button>
+  <span style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:6px;">
+      <input type="text" id="texer-url" placeholder="TeXeR URL or slug..." style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:5px 10px;border-radius:4px;font-size:12px;width:240px;">
+      <button id="btn-texer-import">IMPORT</button>
+    </span>
+    <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;"></span>
+  </span>
+  <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <span class="status" id="status">Ready</span>
 </div>
 
@@ -218,14 +239,47 @@ label("$C$", C, N);
       <div class="placeholder">Loading...</div>
       <div id="preview-stale-badge">not live; showing last render</div>
       <div id="preview-warn-badge"></div>
+      <button id="clear-selection-btn">&#x2715; Clear selection</button>
     </div>
   </div>
 </div>
 
 <div id="style-menu"></div>
 
+<!-- AI Edit Bar (hidden by default) -->
+<div id="ai-edit-bar" style="display:none;background:#16213e;border-top:2px solid #0f3460;padding:8px 16px;position:fixed;bottom:0;left:0;right:0;z-index:9999;display:none;">
+  <div style="display:flex;align-items:center;gap:8px;max-width:100%;">
+    <span style="color:#e9c46a;font-size:12px;font-weight:600;white-space:nowrap;">AI Edit:</span>
+    <input type="text" id="ai-edit-input" placeholder="Describe the image or changes you want..." style="flex:1;background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 12px;border-radius:4px;font-size:13px;">
+    <label id="ai-edit-upload-label" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Upload Image
+      <input type="file" id="ai-edit-file" accept="image/*" style="display:none;">
+    </label>
+    <span id="ai-edit-file-name" style="font-size:11px;color:#888;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    <button id="ai-edit-send" class="primary" style="white-space:nowrap;">SEND</button>
+    <button id="ai-edit-close">CLOSE</button>
+  </div>
+</div>
+
 <!-- Add Element Menu (floating) -->
 <div id="add-element-menu" style="display:none;position:fixed;z-index:10001;background:#1e1e2e;border:1px solid #555;border-radius:8px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,0.6);min-width:200px;">
+</div>
+
+<!-- Learning Mode Popup -->
+<div id="learn-popup" style="display:none;position:fixed;z-index:10002;background:#1e1e2e;border:1px solid #e9c46a;border-radius:8px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:420px;font-size:13px;color:#ccc;line-height:1.5;">
+  <div id="learn-popup-content"></div>
+  <div style="text-align:right;margin-top:8px;"><button id="learn-popup-close" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Close</button></div>
+</div>
+
+<!-- AI Progress Overlay -->
+<div id="ai-progress" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10003;background:#1e1e2e;border:2px solid #e9c46a;border-radius:12px;padding:24px 36px;box-shadow:0 12px 48px rgba(0,0,0,0.8);text-align:center;min-width:320px;">
+  <div style="font-size:16px;color:#e9c46a;font-weight:600;margin-bottom:12px;" id="ai-progress-title">AI Working...</div>
+  <div id="ai-progress-text" style="font-size:13px;color:#ccc;margin-bottom:12px;"></div>
+  <div id="ai-progress-spinner" style="color:#e9c46a;">
+    <svg width="32" height="32" viewBox="0 0 32 32" style="animation:spin 1s linear infinite;"><circle cx="16" cy="16" r="12" fill="none" stroke="#e9c46a" stroke-width="3" stroke-dasharray="60 20"/></svg>
+  </div>
+  <button id="ai-progress-cancel" style="margin-top:12px;background:#e94560;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Cancel</button>
+  <button id="ai-progress-revert" style="margin-top:8px;background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Revert</button>
+  <button id="ai-progress-accept" style="margin-top:8px;background:#2ecc71;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Accept</button>
 </div>
 
 <!-- Slide Mode Slider Panel -->
@@ -1353,11 +1407,14 @@ function highlightLines(primaryLine, depLines) {
 // ============================================================
 // Compilation
 // ============================================================
+const SERVER_URL = 'http://127.0.0.1:8080';
+
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
 let gridActive = false; // grid overlay toggle state
+let _serverDown = false;
 
 function getPreviewDimensions() {
   const el = document.getElementById('preview-container');
@@ -1453,7 +1510,7 @@ async function doRender() {
   const previewEl = document.getElementById('preview-container');
   lastJsRenderOk = false;
 
-  // Try JS interpreter
+  // Try JS interpreter first
   if (window.AsyInterp && AsyInterp.canInterpret(code)) {
     try {
       const dims = getPreviewDimensions();
@@ -1488,25 +1545,83 @@ async function doRender() {
         statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
         return;
       }
-      console.warn('JS interpreter error:', e.message);
+      // No previous SVG to show — fall through to server
+      console.warn('JS interpreter failed, falling back to server:', e.message);
     }
   }
 
-  // Browser-only mode: show a friendly message when code can't be rendered
-  if (previewEl.querySelector('svg')) {
-    showStaleBadge(true);
-    statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
-  } else {
-    const oldSvg = previewEl.querySelector('svg');
-    const oldPh = previewEl.querySelector('.placeholder');
-    const oldErr = previewEl.querySelector('.error');
-    if (oldSvg) oldSvg.remove();
-    if (oldPh) oldPh.remove();
-    if (oldErr) oldErr.remove();
-    previewEl.insertAdjacentHTML('afterbegin', `<div class="error">This code uses features not yet supported by the browser-based renderer (3D, graphs, advanced packages, etc.).\n\nFor full Asymptote support, use the local version with the server.</div>`);
-    statusEl.textContent = 'Not supported in browser mode'; statusEl.style.color = '#e9c46a';
+  // Fall back to server with retry logic
+  statusEl.textContent = 'Compiling (server)...'; statusEl.style.color = '#e9c46a';
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY = 1000; // ms
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(`${SERVER_URL}/compile`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({code}),
+      });
+      const data = await resp.json();
+      _serverDown = false;
+      if (data.error) {
+        // Server error — show stale badge if we have a previous render
+        if (previewEl.querySelector('svg')) {
+          showStaleBadge(true);
+          statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+        } else {
+          // No previous SVG — show error (preserve badges)
+          const oldSvg2 = previewEl.querySelector('svg');
+          const oldPh = previewEl.querySelector('.placeholder');
+          const oldErr = previewEl.querySelector('.error');
+          if (oldSvg2) oldSvg2.remove();
+          if (oldPh) oldPh.remove();
+          if (oldErr) oldErr.remove();
+          previewEl.insertAdjacentHTML('afterbegin', `<div class="error">${escapeHtml(data.error)}</div>`);
+          statusEl.textContent = 'Compilation error'; statusEl.style.color = '#e94560';
+        }
+        return;
+      }
+      // Server success
+      const svgEl = previewEl.querySelector('svg');
+      const placeholder = previewEl.querySelector('.placeholder');
+      if (svgEl) svgEl.remove();
+      if (placeholder) placeholder.remove();
+      previewEl.insertAdjacentHTML('afterbegin', data.svg);
+      showStaleBadge(false);
+      showWarnBadge('');
+      setupSvgInteractivity(code);
+      statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
+      document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
+      return;
+    } catch(err) {
+      if (attempt < MAX_RETRIES) {
+        statusEl.textContent = `Server not ready, retrying (${attempt + 1}/${MAX_RETRIES})...`;
+        await new Promise(r => setTimeout(r, RETRY_DELAY));
+      } else {
+        _serverDown = true;
+        // Server unreachable — show stale if possible
+        if (previewEl.querySelector('svg')) {
+          showStaleBadge(true);
+          statusEl.textContent = 'Showing last valid render (server offline)'; statusEl.style.color = '#e9c46a';
+        } else {
+          const oldSvg3 = previewEl.querySelector('svg');
+          const oldPh2 = previewEl.querySelector('.placeholder');
+          const oldErr2 = previewEl.querySelector('.error');
+          if (oldSvg3) oldSvg3.remove();
+          if (oldPh2) oldPh2.remove();
+          if (oldErr2) oldErr2.remove();
+          previewEl.insertAdjacentHTML('afterbegin', `<div class="error">Connection error: ${escapeHtml(err.message)}\n\nMake sure the server is running:\n  python server.py\n\nWill auto-retry when you refocus this tab.</div>`);
+          statusEl.textContent = 'Server error'; statusEl.style.color = '#e94560';
+        }
+      }
+    }
   }
 }
+
+// Auto-retry on tab focus if server was down
+window.addEventListener('focus', () => {
+  if (_serverDown) doRender();
+});
 
 function escapeHtml(text) { const d=document.createElement('div'); d.textContent=text; return d.innerHTML; }
 
@@ -1520,6 +1635,11 @@ let probeGeneration = 0; // incremented each render to discard stale probes
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
+const clearSelBtn = document.getElementById('clear-selection-btn');
+clearSelBtn.addEventListener('click', () => {
+  multiSelected.clear();
+  renderMultiSelection();
+});
 let probeReady = Promise.resolve(); // resolves when color probe mapping completes
 
 /**
@@ -1591,6 +1711,7 @@ function updateCodeFilter() {
 
 function renderMultiSelection() {
   clearHighlights(); clearSvgHighlights();
+  clearSelBtn.style.display = multiSelected.size > 0 ? 'block' : 'none';
   if (multiSelected.size === 0) { updateCodeFilter(); return; }
   for (const lineIdx of multiSelected) {
     const ci = lineToCommandIdx.get(lineIdx);
@@ -1658,6 +1779,324 @@ function highlightSvgElement(el, intensity) {
   // Insert clone BEFORE the original so glow appears behind
   el.parentNode.insertBefore(clone, el);
   svgHighlightOverlays.push(clone);
+}
+
+/**
+ * Build SVG→command mapping via a "color probe" compilation.
+ * Rewrites each draw/fill/label/dot command to use a unique marker color,
+ * compiles, then reads the SVG colors to know exactly which elements
+ * correspond to which command.  Falls back to sequential mapping on failure.
+ */
+async function buildColorProbeMapping(code, mapping, parsed) {
+  const lines = code.split('\n');
+  const probeLines = [...lines]; // mutable copy
+
+  // Generate a unique RGB for each command index.
+  // Red = ci + 1 (1-based to avoid black), Green = 0, Blue = 127 (fixed sentinel).
+  // This ensures colors are far from any default and easily identifiable.
+  function ciToRgb(ci) {
+    const r = ci + 1;     // 1..N
+    const g = 0;
+    const b = 127;        // sentinel
+    return `rgb(${(r/255).toFixed(6)}, ${(g/255).toFixed(6)}, ${(b/255).toFixed(6)})`;
+  }
+
+  // For each draw command, replace/inject the marker color pen.
+  // Handle multi-line commands by joining continuation lines.
+  for (let ci = 0; ci < mapping.length; ci++) {
+    const lineIdx = mapping[ci].primaryLine;
+    let origLine = probeLines[lineIdx];
+
+    // Join continuation lines if parens aren't balanced
+    let endIdx = lineIdx;
+    let depth = 0;
+    for (const ch of origLine) { if (ch === '(') depth++; if (ch === ')') depth--; }
+    while (depth > 0 && endIdx + 1 < probeLines.length) {
+      endIdx++;
+      origLine += ' ' + probeLines[endIdx].trim();
+      for (const ch of probeLines[endIdx]) { if (ch === '(') depth++; if (ch === ')') depth--; }
+    }
+
+    const parts = PenParser.extractCommandParts(origLine);
+    if (!parts) continue;
+
+    const markerPen = ciToRgb(ci);
+    const cmdType = parts.cmd;
+    if (cmdType === 'clip') continue; // clip has no visible pen to mark
+
+    if (cmdType === 'dot') {
+      // dot(position, pen?) or dot(Label, position, pen?)
+      // Pen is the last arg if it looks like a pen; otherwise append
+      const newArgs = [...parts.args];
+      const lastIdx = newArgs.length - 1;
+      if (lastIdx >= 1 && PenParser.looksLikePen(newArgs[lastIdx].trim())) {
+        newArgs[lastIdx] = markerPen;
+      } else {
+        newArgs.push(markerPen);
+      }
+      const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+      probeLines[lineIdx] = rebuilt;
+      for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
+    } else if (cmdType === 'label') {
+      const c = PenParser.classifyLabelArgs(parts.args);
+      const newArgs = [...parts.args];
+      if (c.penIdx >= 0) newArgs[c.penIdx] = markerPen;
+      else newArgs.push(markerPen);
+      const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+      probeLines[lineIdx] = rebuilt;
+      for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
+    } else {
+      const c = PenParser.classifyDrawArgs(parts.args);
+      const newArgs = [...parts.args];
+      if (c.penIdx >= 0) newArgs[c.penIdx] = markerPen;
+      else newArgs.splice(1, 0, markerPen);
+      const rebuilt = `${parts.indent}${parts.cmd}(${newArgs.join(', ')})${parts.suffix}`;
+      probeLines[lineIdx] = rebuilt;
+      for (let j = lineIdx + 1; j <= endIdx; j++) probeLines[j] = '';
+    }
+  }
+
+  // Compile the probe code
+  const probeCode = probeLines.join('\n');
+  try {
+    const resp = await fetch(`${SERVER_URL}/compile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: probeCode }),
+    });
+    const data = await resp.json();
+    if (data.error || !data.svg) return null; // fall back
+
+    // Parse the probe SVG
+    const parser = new DOMParser();
+    const probeDoc = parser.parseFromString(data.svg, 'image/svg+xml');
+    const probeSvg = probeDoc.querySelector('svg');
+    if (!probeSvg) return null;
+    const probeEls = [...probeSvg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, use')]
+      .filter(el => !el.closest('defs'));
+
+    // Build mapping: for each probe element, read its stroke/fill color to determine ci
+    const probeMap = []; // array of ci values, one per probe element
+    for (const el of probeEls) {
+      const stroke = el.getAttribute('stroke');
+      const fill = el.getAttribute('fill');
+      let ci = -1;
+      // Try stroke first, then fill
+      for (const color of [stroke, fill]) {
+        if (!color || color === 'none') continue;
+        const m = color.match(/^#([0-9a-f]{6})$/i);
+        if (m) {
+          const hex = m[1].toLowerCase();
+          const r = parseInt(hex.slice(0,2), 16);
+          const g = parseInt(hex.slice(2,4), 16);
+          const b = parseInt(hex.slice(4,6), 16);
+          // Our markers: green=0, blue=127 (sentinel), red=ci+1
+          if (g === 0 && (b >= 126 && b <= 128)) { // allow ±1 for rounding
+            const id = r;
+            if (id >= 1 && id <= mapping.length) {
+              ci = id - 1;
+              break;
+            }
+          }
+        }
+      }
+      probeMap.push(ci);
+    }
+
+    return probeMap;
+  } catch (e) {
+    console.error('Color probe compilation failed:', e);
+    return null;
+  }
+}
+
+function setupSvgInteractivity(code) {
+  const { mapping, parsed } = AsyParser.buildMapping(code);
+  currentMapping = mapping;
+  svgElsByCommand = new Map();
+  lineToCommandIdx = new Map();
+  lineToDepCommands = new Map();
+  multiSelected.clear();
+  for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  const thisGen = ++probeGeneration;
+
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+
+  for (let ci=0; ci<mapping.length; ci++) lineToCommandIdx.set(mapping[ci].primaryLine, ci);
+  for (let ci=0; ci<mapping.length; ci++) {
+    for (const dl of mapping[ci].dependencyLines) {
+      if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
+      lineToDepCommands.get(dl).add(ci);
+    }
+  }
+
+  // Get ALL SVG graphical elements in document order
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, use')]
+    .filter(el => !el.closest('defs'));
+  const elementToCommand = new Map();
+
+  // Start with sequential 1:1 mapping (immediate, works for simple diagrams)
+  for (let i = 0; i < Math.min(svgElements.length, mapping.length); i++) {
+    elementToCommand.set(svgElements[i], i);
+    svgElsByCommand.set(i, [svgElements[i]]);
+  }
+
+  // Kick off color probe in background to get accurate mapping
+  const statusEl = document.getElementById('status');
+  probeReady = buildColorProbeMapping(code, mapping, parsed).then(probeMap => {
+    if (probeGeneration !== thisGen) return; // stale probe, discard
+    if (!probeMap) {
+      statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
+      return;
+    }
+    if (probeMap.length !== svgElements.length) {
+      console.warn(`Probe element count (${probeMap.length}) != display count (${svgElements.length}), skipping`);
+      statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
+      return;
+    }
+    // Apply probe mapping
+    elementToCommand.clear();
+    svgElsByCommand.clear();
+    for (let i = 0; i < svgElements.length; i++) {
+      const ci = probeMap[i];
+      if (ci >= 0 && ci < mapping.length) {
+        elementToCommand.set(svgElements[i], ci);
+        if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci, []);
+        svgElsByCommand.get(ci).push(svgElements[i]);
+      }
+    }
+    statusEl.textContent = 'Rendered successfully'; statusEl.style.color = '#2ecc71';
+  }).catch(() => {
+    if (probeGeneration !== thisGen) return;
+    statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
+  });
+
+  // Make all SVG elements accept pointer events
+  for (const el of svgElements) el.style.pointerEvents = 'all';
+
+  // Helper: find nearest SVG element to mouse position.
+  // If onlyMapped is true, skip elements with no command mapping.
+  function findNearest(clientX, clientY, onlyMapped) {
+    let bestCi = -1, bestDist = Infinity, bestEl = null;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; bestEl = el; }
+    }
+    if (bestDist > 30) return { ci: -1, el: null }; // 30px threshold
+    return { ci: bestCi, el: bestEl };
+  }
+
+  // Helper: find all SVG elements within threshold, sorted by distance.
+  // Returns array of { ci, el, dist, lineIdx }.
+  function findAllNear(clientX, clientY, onlyMapped, threshold) {
+    const results = [];
+    const thr = threshold || 30;
+    for (const el of svgElements) {
+      const ci = elementToCommand.has(el) ? elementToCommand.get(el) : -1;
+      if (onlyMapped && ci < 0) continue;
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d <= thr) {
+        const lineIdx = (ci >= 0 && mapping[ci]) ? mapping[ci].primaryLine : -1;
+        results.push({ ci, el, dist: d, lineIdx });
+      }
+    }
+    // Deduplicate by lineIdx (keep closest element per line)
+    const byLine = new Map();
+    for (const r of results) {
+      if (r.lineIdx < 0) continue;
+      if (!byLine.has(r.lineIdx) || r.dist < byLine.get(r.lineIdx).dist) {
+        byLine.set(r.lineIdx, r);
+      }
+    }
+    return [...byLine.values()].sort((a, b) => a.dist - b.dist);
+  }
+
+  // Hover
+  let lastHoveredCi = -1;
+  let lastHoveredEl = null;
+  svg.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
+
+    if (bestCi >= 0 && bestCi === lastHoveredCi) return;
+    if (bestCi < 0 && bestEl === lastHoveredEl) return;
+    lastHoveredCi = bestCi;
+    lastHoveredEl = bestEl;
+
+    clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+
+    if (bestCi >= 0) {
+      const cmd = mapping[bestCi];
+      for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
+      highlightLines(cmd.primaryLine, cmd.dependencyLines);
+    } else if (bestEl) {
+      highlightSvgElement(bestEl, 'strong');
+    }
+  });
+
+  svg.addEventListener('mouseleave', () => {
+    if (StyleMenu.visible) return;
+    lastHoveredCi = -1; lastHoveredEl = null;
+    clearHighlights(); clearSvgHighlights();
+    if (multiSelected.size > 0) renderMultiSelection();
+  });
+
+  // Left-click on SVG for multi-select (with smart overlap handling)
+  svg.addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+
+    const candidates = findAllNear(e.clientX, e.clientY, true);
+    if (candidates.length === 0) return;
+
+    let target = candidates[0]; // default: nearest
+
+    // Smart selection when building a multi-selection with overlapping elements:
+    // Among candidates within 5px of the nearest, prefer the unselected one that
+    // is closest in code line number to already-selected lines (e.g., prefer
+    // line 13 over line 18 when lines 11,12 are already selected).
+    // When the nearest is already selected but alternatives are far away,
+    // the close.length > 1 check ensures we just toggle-deselect as normal.
+    if (candidates.length > 1 && multiSelected.size > 0) {
+      const nearDist = target.dist;
+      const close = candidates.filter(c => c.dist - nearDist < 5);
+      if (close.length > 1) {
+        const selLines = [...multiSelected];
+        let bestCandidate = null, bestProximity = Infinity;
+        for (const c of close) {
+          if (multiSelected.has(c.lineIdx)) continue; // skip already-selected
+          const proximity = Math.min(...selLines.map(s => Math.abs(c.lineIdx - s)));
+          if (proximity < bestProximity) {
+            bestProximity = proximity;
+            bestCandidate = c;
+          }
+        }
+        if (bestCandidate) target = bestCandidate;
+      }
+    }
+
+    if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
+    else multiSelected.add(target.lineIdx);
+    renderMultiSelection();
+  });
+
+  // Right-click on SVG
+  svg.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const { ci: bestCi } = findNearest(e.clientX, e.clientY, true);
+    if (bestCi < 0) return;
+
+    const lineIdx = mapping[bestCi].primaryLine;
+    if (multiSelected.size > 0 && multiSelected.has(lineIdx)) {
+      StyleMenu.showMulti(e.clientX, e.clientY, [...multiSelected]);
+    } else {
+      StyleMenu.show(e.clientX, e.clientY, lineIdx);
+    }
+  });
+
+  setupCodeHover();
 }
 
 // Direct interactivity setup for JS-interpreter-rendered SVG.
@@ -1897,6 +2336,51 @@ document.addEventListener('DOMContentLoaded', () => {
   StyleMenu.init();
   document.getElementById('btn-render').addEventListener('click', doRender);
 
+  // === EigenNode integration ===
+  // URL params: ?eigennode_node=NODEID&eigennode_file=FILEPATH
+  // eigennode_file: temp file containing the asymptote code to load
+  // eigennode_node: the EigenNode node ID to send code back to
+  const urlParams = new URLSearchParams(window.location.search);
+  const eigennodeNode = urlParams.get('eigennode_node');
+  const eigennodeFile = urlParams.get('eigennode_file');
+  const eigennodeCallbackFile = urlParams.get('eigennode_callback');
+
+  if (eigennodeFile) {
+    // Load code from file via the server
+    fetch('/eigennode-read?path=' + encodeURIComponent(eigennodeFile))
+      .then(r => r.text())
+      .then(code => {
+        if (code) {
+          editor.setValue(code);
+          doRender();
+        }
+      })
+      .catch(err => console.error('Failed to load EigenNode code:', err));
+  }
+
+  if (eigennodeNode && eigennodeCallbackFile) {
+    const sendBtn = document.getElementById('btn-eigennode-send');
+    sendBtn.style.display = '';
+    sendBtn.addEventListener('click', () => {
+      const code = editor.getValue();
+      // Write code back via the server
+      fetch('/eigennode-write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: eigennodeCallbackFile, code, nodeId: eigennodeNode }),
+      }).then(r => {
+        if (r.ok) {
+          sendBtn.textContent = 'SENT ✓';
+          sendBtn.style.background = '#16a34a';
+          setTimeout(() => {
+            sendBtn.textContent = 'SEND TO EIGENNODE';
+            sendBtn.style.background = '#e94560';
+          }, 2000);
+        }
+      }).catch(err => console.error('Failed to send to EigenNode:', err));
+    });
+  }
+
   // Load code from URL hash if present (e.g. #code=ENCODED)
   if (location.hash && location.hash.startsWith('#code=')) {
     try {
@@ -1969,8 +2453,68 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('status').style.color='#888';
   });
 
-  // Auto-render on code changes
+  // TeXeR import
+  const texerBtn = document.getElementById('btn-texer-import');
+  const texerInput = document.getElementById('texer-url');
+  const texerLoadedInfo = document.getElementById('texer-loaded-info');
+  let texerLoadedUrl = null;   // the URL we loaded from
+  let texerOriginalCode = null; // snapshot at load time, for "(modified)" detection
+
+  function normalizeTexerUrl(input) {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    // If it looks like a full URL, use as-is
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    // If it contains artofproblemsolving.com but no protocol
+    if (trimmed.includes('artofproblemsolving.com')) return 'https://' + trimmed;
+    // Otherwise treat as a slug
+    return 'https://artofproblemsolving.com/texer/' + trimmed;
+  }
+
+  function updateTexerModifiedIndicator() {
+    if (!texerLoadedUrl) { texerLoadedInfo.style.display = 'none'; return; }
+    texerLoadedInfo.style.display = '';
+    const modified = editor.getValue() !== texerOriginalCode;
+    const slug = texerLoadedUrl.replace(/.*\/texer\//, '');
+    texerLoadedInfo.innerHTML = `<a href="${escapeHtml(texerLoadedUrl)}" target="_blank" style="color:#e9c46a;text-decoration:none;">${escapeHtml(slug)}</a>${modified ? ' <span style="color:#e94560;">(modified)</span>' : ''}`;
+  }
+
+  async function doTexerImport() {
+    const raw = texerInput.value.trim();
+    if (!raw) return;
+    const url = normalizeTexerUrl(raw);
+    if (!url) return;
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = 'Fetching TeXeR...';
+    statusEl.style.color = '#e9c46a';
+    try {
+      const resp = await fetch(`${SERVER_URL}/texer`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ url }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        statusEl.textContent = data.error; statusEl.style.color = '#e94560';
+        return;
+      }
+      const newCode = '[asy]\n' + data.code + '\n[/asy]';
+      editor.setValue(newCode);
+      texerLoadedUrl = url;
+      texerOriginalCode = newCode;
+      updateTexerModifiedIndicator();
+      statusEl.textContent = 'TeXeR code imported'; statusEl.style.color = '#2ecc71';
+      texerInput.value = '';
+      doRender();
+    } catch (err) {
+      statusEl.textContent = 'Import failed: ' + err.message; statusEl.style.color = '#e94560';
+    }
+  }
+  texerBtn.addEventListener('click', doTexerImport);
+  texerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doTexerImport(); });
+
+  // Track edits for "(modified)" indicator
   editor.on('change', () => {
+    if (texerLoadedUrl) updateTexerModifiedIndicator();
     // Don't schedule auto-render during slide drag/slider — those handlers render directly
     if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
   });
@@ -2129,7 +2673,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const slidePanel = document.getElementById('slide-panel');
   let slideDragState = null;
   let slideInjectedDots = [];
-  let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls}]
+  let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls, matchStart, matchEnd, kind}]
   let slidePxPerUnit = 28.35;
 
   slideBtn.addEventListener('click', () => {
@@ -2146,11 +2690,56 @@ document.addEventListener('DOMContentLoaded', () => {
   function findFreePoints(code) {
     const lines = code.split('\n');
     const freePoints = [];
+    // Functions whose output is computed — pairs on these lines are not free
+    const computedFns = /\b(intersectionpoint|intersectionpoints|midpoint|extension|circumcenter|incenter|orthocenter|foot|reflect|bisectorpoint|IP|OP|waypoint|relpoint|arcpoint|rotate|dir)\s*\(/;
     for (let i = 0; i < lines.length; i++) {
-      // Match: A = (0, 0); or pair A = (0, 0);
-      const m = lines[i].match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
-      if (m) {
-        freePoints.push({ lineIdx: i, varName: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]) });
+      const line = lines[i];
+      // Skip comment-only lines
+      if (/^\s*\/\//.test(line)) continue;
+      // Strip inline comments for analysis
+      const stripped = line.replace(/\/\/.*$/, '');
+
+      // 1) Named pair assignment: pair A = (num, num); or A = (num, num);
+      const namedMatch = stripped.match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
+      if (namedMatch) {
+        const matchStart = line.indexOf('(', line.indexOf('='));
+        const pairStr = `(${namedMatch[2]}, ${namedMatch[3]})`;
+        // Find exact match position of the parenthesized pair
+        const re = /\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/;
+        const pm = stripped.match(re);
+        const ms = pm ? stripped.indexOf(pm[0]) : matchStart;
+        const me = ms + (pm ? pm[0].length : pairStr.length);
+        freePoints.push({
+          lineIdx: i, varName: namedMatch[1],
+          x: parseFloat(namedMatch[2]), y: parseFloat(namedMatch[3]),
+          matchStart: ms, matchEnd: me, fullMatch: pm ? pm[0] : pairStr,
+          kind: 'named'
+        });
+        continue;
+      }
+
+      // 2) Inline literal pairs — scan for all (num, num) on this line
+      // Skip lines with computed functions
+      if (computedFns.test(stripped)) continue;
+      // Skip lines that are pure variable assignments with expressions (not just a pair)
+      // e.g. pair M = (A+B)/2; — has variable refs on RHS
+      if (/^\s*(?:pair\s+)?[A-Za-z_]\w*\s*=/.test(stripped)) {
+        // It's an assignment; if we didn't match above as a named pair, it's computed
+        continue;
+      }
+
+      const pairRe = /\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/g;
+      let pm;
+      while ((pm = pairRe.exec(stripped)) !== null) {
+        // Skip if this looks like it's inside a function argument list for size/unitsize/fontsize
+        const before = stripped.substring(0, pm.index);
+        if (/\b(unitsize|size|fontsize|linewidth|fontcommand)\s*$/.test(before)) continue;
+        freePoints.push({
+          lineIdx: i, varName: null,
+          x: parseFloat(pm[1]), y: parseFloat(pm[2]),
+          matchStart: pm.index, matchEnd: pm.index + pm[0].length, fullMatch: pm[0],
+          kind: 'inline'
+        });
       }
     }
     return freePoints;
@@ -2168,10 +2757,16 @@ document.addEventListener('DOMContentLoaded', () => {
     return freeReals;
   }
 
-  function isPointDrawn(code, varName) {
-    // Check if this point already has a dot() or label() referencing it as an argument
+  function isPointDrawn(code, fp) {
+    // For inline pairs, check if they appear directly in a dot() call on the same line
+    if (!fp.varName) {
+      const lines = code.split('\n');
+      const line = lines[fp.lineIdx] || '';
+      return /\bdot\s*\(/.test(line);
+    }
+    // For named points, check if this point already has a dot() or label() referencing it
     // Use word boundary to avoid matching substrings (e.g. "AB" matching "A")
-    const re = new RegExp('\\b(?:dot|label)\\s*\\([^)]*\\b' + varName + '\\b', 'm');
+    const re = new RegExp('\\b(?:dot|label)\\s*\\([^)]*\\b' + fp.varName + '\\b', 'm');
     return re.test(code);
   }
 
@@ -2191,16 +2786,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const freePoints = findFreePoints(code);
 
     // Inject visible red+gold dot() for free points that aren't drawn
-    const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp.varName));
+    const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp));
     if (undrawn.length > 0) {
       const lines = code.split('\n');
       const asyEndIdx = lines.findIndex(l => /^\s*\[\/asy\]/.test(l));
       if (asyEndIdx >= 0) {
-        const dotLines = undrawn.map(fp =>
-          `dot(${fp.varName}, red+linewidth(8bp)); // SLIDE_DOT`
-        );
+        const dotLines = undrawn.map(fp => {
+          const ref = fp.varName || `(${fp.x}, ${fp.y})`;
+          return `dot(${ref}, red+linewidth(8bp)); // SLIDE_DOT`;
+        });
         lines.splice(asyEndIdx, 0, ...dotLines);
-        slideInjectedDots = undrawn.map(fp => fp.varName);
+        slideInjectedDots = undrawn.map(fp => fp.varName || `(${fp.x}, ${fp.y})`);
         editor.setValue(lines.join('\n'));
         doRender().then(() => probeReady).then(() => applySlideOverlay());
         return;
@@ -2246,28 +2842,56 @@ document.addEventListener('DOMContentLoaded', () => {
       return pt.matrixTransform(m);
     }
 
+    // Helper: convert math coordinates to SVG viewBox coordinates using lastRenderInfo
+    function mathToSvg(mx, my) {
+      if (!lastRenderInfo) return null;
+      const { pxPerUnit, minX, maxY } = lastRenderInfo;
+      return { x: (mx - minX) * pxPerUnit, y: (maxY - my) * pxPerUnit };
+    }
+
     slideFreePointData = [];
     for (const fp of freePoints) {
       let svgCX = null, svgCY = null;
       const glowEls = [];
 
-      // Find SVG elements for dot/label commands that reference this var
-      for (const [cmdIdx, els] of svgElsByCommand) {
-        const cmd = currentMapping[cmdIdx];
-        if (!cmd) continue;
-        // Match this var by word boundary to avoid false positives
-        const varRe = new RegExp('\\b' + fp.varName + '\\b');
-        if (!varRe.test(cmd.commandText)) continue;
-        if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
-        for (const el of els) {
-          if (svgCX === null) {
-            const bbox = el.getBBox();
-            const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-            svgCX = center.x;
-            svgCY = center.y;
+      if (fp.varName) {
+        // Named point: find SVG elements for dot/label commands that reference this var
+        for (const [cmdIdx, els] of svgElsByCommand) {
+          const cmd = currentMapping[cmdIdx];
+          if (!cmd) continue;
+          const varRe = new RegExp('\\b' + fp.varName + '\\b');
+          if (!varRe.test(cmd.commandText)) continue;
+          if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
+          for (const el of els) {
+            if (svgCX === null) {
+              const bbox = el.getBBox();
+              const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+              svgCX = center.x;
+              svgCY = center.y;
+            }
+            el.classList.add('slide-free-glow');
+            glowEls.push(el);
           }
-          el.classList.add('slide-free-glow');
-          glowEls.push(el);
+        }
+      }
+
+      // For inline points (or named points without a dot/label), use coordinate mapping
+      if (svgCX === null) {
+        const mapped = mathToSvg(fp.x, fp.y);
+        if (mapped) {
+          svgCX = mapped.x;
+          svgCY = mapped.y;
+        }
+        // Try to find and glow any SVG elements on the same source line
+        for (const [cmdIdx, els] of svgElsByCommand) {
+          const cmd = currentMapping[cmdIdx];
+          if (!cmd) continue;
+          if (cmd.primaryLine === fp.lineIdx) {
+            for (const el of els) {
+              el.classList.add('slide-free-glow');
+              glowEls.push(el);
+            }
+          }
         }
       }
 
@@ -2290,6 +2914,7 @@ document.addEventListener('DOMContentLoaded', () => {
         varName: fp.varName, lineIdx: fp.lineIdx,
         x: fp.x, y: fp.y, svgCX, svgCY,
         hitCircle, glowEls,
+        matchStart: fp.matchStart, matchEnd: fp.matchEnd, kind: fp.kind,
       });
     }
 
@@ -2427,10 +3052,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const code = editor.getValue();
     const lines = code.split('\n');
-    lines[fp.lineIdx] = lines[fp.lineIdx].replace(
-      /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
-      `= (${newX}, ${newY})`
-    );
+    const line = lines[fp.lineIdx];
+    if (fp.matchStart !== undefined && fp.matchEnd !== undefined) {
+      // Precise replacement using character offsets
+      const newPair = `(${newX}, ${newY})`;
+      lines[fp.lineIdx] = line.substring(0, fp.matchStart) + newPair + line.substring(fp.matchEnd);
+      // Update matchEnd for next move (newPair length may differ from old)
+      fp.matchEnd = fp.matchStart + newPair.length;
+    } else {
+      // Legacy fallback: regex replacement for named assignments
+      lines[fp.lineIdx] = line.replace(
+        /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
+        `= (${newX}, ${newY})`
+      );
+    }
     const newCode = lines.join('\n');
     editor.setValue(newCode);
 
@@ -2489,10 +3124,10 @@ document.addEventListener('DOMContentLoaded', () => {
         setupSvgInteractivityDirect(code, result.commandMap);
         if (slideActive) applySlideOverlay();
         return;
-      } catch(e) { /* fall through to full re-render */ }
+      } catch(e) { /* fall through to server */ }
     }
 
-    // Fallback: full re-render
+    // Fallback: server re-render for full fidelity
     doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
@@ -2522,15 +3157,250 @@ document.addEventListener('DOMContentLoaded', () => {
         showStaleBadge(false);
         setupSvgInteractivityDirect(newCode, result.commandMap);
         return;
-      } catch(e) { /* fall through to full re-render */ }
+      } catch(e) { /* fall through to server */ }
     }
 
-    // Fallback: full re-render
+    // Fallback to server
     doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
   }
 
+  // ============================================================
+  // Feature #4: Learning Mode
+  // ============================================================
+  let learnActive = false;
+  let learnExplanations = null; // { lineExplanations: {lineIdx: text}, elementExplanations: {cmdIdx: text} }
+  const learnBtn = document.getElementById('btn-learn');
+  const learnPopup = document.getElementById('learn-popup');
+  const learnPopupContent = document.getElementById('learn-popup-content');
+
+  learnBtn.addEventListener('click', () => {
+    learnActive = !learnActive;
+    learnBtn.classList.toggle('active', learnActive);
+    if (!learnActive) {
+      learnExplanations = null;
+      learnPopup.style.display = 'none';
+    } else {
+      fetchLearnExplanations();
+    }
+  });
+
+  document.getElementById('learn-popup-close').addEventListener('click', () => {
+    learnPopup.style.display = 'none';
+  });
+
+  // Listen for render completion to fetch learning explanations
+  document.addEventListener('hitexer-rendered', () => {
+    if (learnActive) fetchLearnExplanations();
+  });
+
+  async function fetchLearnExplanations() {
+    const code = editor.getValue();
+    const statusEl = document.getElementById('status');
+    try {
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'learn',
+          code: code,
+        }),
+      });
+      const data = await resp.json();
+      if (data.explanations) {
+        learnExplanations = data.explanations;
+      }
+    } catch (e) {
+      console.warn('Learning mode fetch failed:', e);
+    }
+  }
+
+  // Double-click on code line -> show explanation
+  editor.getWrapperElement().addEventListener('dblclick', (e) => {
+    if (!learnActive || !learnExplanations) return;
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineIdx = pos.line;
+    const explanation = learnExplanations[String(lineIdx)];
+    if (explanation) {
+      showLearnPopup(e.clientX, e.clientY, explanation);
+    }
+  });
+
+  function showLearnPopup(x, y, text) {
+    learnPopupContent.innerHTML = text.replace(/\n/g, '<br>');
+    learnPopup.style.display = 'block';
+    learnPopup.style.left = Math.min(x, window.innerWidth - 440) + 'px';
+    learnPopup.style.top = Math.min(y, window.innerHeight - 200) + 'px';
+  }
+
+  // ============================================================
+  // Feature #2: AI Refactor
+  // ============================================================
+  let aiRevertCode = null;
+  const aiProgress = document.getElementById('ai-progress');
+  const aiProgressTitle = document.getElementById('ai-progress-title');
+  const aiProgressText = document.getElementById('ai-progress-text');
+  const aiProgressCancel = document.getElementById('ai-progress-cancel');
+  const aiProgressRevert = document.getElementById('ai-progress-revert');
+  const aiProgressAccept = document.getElementById('ai-progress-accept');
+  let aiAbortController = null;
+
+  document.getElementById('btn-ai-refactor').addEventListener('click', async () => {
+    const code = editor.getValue();
+    aiRevertCode = code;
+    aiAbortController = new AbortController();
+    showAiProgress('AI Refactoring...', 'Sending code to AI for style refactoring...', true);
+
+    try {
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refactor', code }),
+        signal: aiAbortController.signal,
+      });
+      const data = await resp.json();
+      if (data.error) {
+        showAiResult('Refactor Failed', data.error, true);
+        return;
+      }
+      if (data.code) {
+        editor.setValue(data.code);
+        if (data.imageMatch) {
+          showAiResult('Refactoring Complete', 'Code refactored successfully. Image verified identical.', true);
+        } else {
+          showAiResult('Approximate Refactoring', data.message || 'Could not achieve perfect match. Accept or revert?', true);
+        }
+        doRender();
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showAiResult('Error', 'AI refactoring failed: ' + e.message, true);
+      }
+    }
+  });
+
+  aiProgressCancel.addEventListener('click', () => {
+    if (aiAbortController) aiAbortController.abort();
+    hideAiProgress();
+  });
+
+  aiProgressRevert.addEventListener('click', () => {
+    if (aiRevertCode) {
+      editor.setValue(aiRevertCode);
+      doRender();
+    }
+    hideAiProgress();
+  });
+
+  aiProgressAccept.addEventListener('click', () => {
+    hideAiProgress();
+  });
+
+  function showAiProgress(title, text, cancelable) {
+    aiProgressTitle.textContent = title;
+    aiProgressText.textContent = text;
+    aiProgressCancel.style.display = cancelable ? '' : 'none';
+    aiProgressRevert.style.display = 'none';
+    aiProgressAccept.style.display = 'none';
+    document.getElementById('ai-progress-spinner').style.display = '';
+    aiProgress.style.display = '';
+  }
+
+  function showAiResult(title, text, showRevert) {
+    aiProgressTitle.textContent = title;
+    aiProgressText.textContent = text;
+    aiProgressCancel.style.display = 'none';
+    document.getElementById('ai-progress-spinner').style.display = 'none';
+    aiProgressRevert.style.display = showRevert ? '' : 'none';
+    aiProgressAccept.style.display = '';
+  }
+
+  function hideAiProgress() {
+    aiProgress.style.display = 'none';
+  }
+
+  // ============================================================
+  // Feature #3 + #5: AI Edit + Hand-drawn mode
+  // ============================================================
+  const aiEditBar = document.getElementById('ai-edit-bar');
+  const aiEditInput = document.getElementById('ai-edit-input');
+  const aiEditFile = document.getElementById('ai-edit-file');
+  const aiEditFileName = document.getElementById('ai-edit-file-name');
+  let aiEditImageData = null;
+
+  // Toggle AI edit bar with Ctrl+Shift+E or by clicking a button
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      toggleAiEditBar();
+    }
+  });
+
+  document.getElementById('btn-ai-edit').addEventListener('click', toggleAiEditBar);
+
+  function toggleAiEditBar() {
+    const visible = aiEditBar.style.display === 'flex';
+    aiEditBar.style.display = visible ? 'none' : 'flex';
+    if (!visible) aiEditInput.focus();
+  }
+
+  // Also open AI edit bar from the refactor button area - let's add a keyboard shortcut hint
+  // The AI Edit is triggered via Ctrl+Shift+E or we can add a toolbar button too.
+  // Let's reuse the existing UI - when user types in the text box in ai-edit-bar and hits send
+
+  aiEditFile.addEventListener('change', () => {
+    if (aiEditFile.files.length > 0) {
+      const file = aiEditFile.files[0];
+      aiEditFileName.textContent = file.name;
+      const reader = new FileReader();
+      reader.onload = () => { aiEditImageData = reader.result; };
+      reader.readAsDataURL(file);
+    } else {
+      aiEditFileName.textContent = '';
+      aiEditImageData = null;
+    }
+  });
+
+  document.getElementById('ai-edit-send').addEventListener('click', doAiEdit);
+  aiEditInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAiEdit(); });
+  document.getElementById('ai-edit-close').addEventListener('click', () => { aiEditBar.style.display = 'none'; });
+
+  async function doAiEdit() {
+    const prompt = aiEditInput.value.trim();
+    if (!prompt && !aiEditImageData) return;
+    const code = editor.getValue();
+    aiRevertCode = code;
+    aiAbortController = new AbortController();
+    aiEditBar.style.display = 'none';
+    showAiProgress('AI Editing...', 'Sending request to AI...', true);
+
+    try {
+      const body = { action: 'edit', code, prompt };
+      if (aiEditImageData) body.image = aiEditImageData;
+
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: aiAbortController.signal,
+      });
+      const data = await resp.json();
+      if (data.error) {
+        showAiResult('Edit Failed', data.error, true);
+        return;
+      }
+      if (data.code) {
+        editor.setValue(data.code);
+        showAiResult('AI Edit Complete', data.message || 'Code updated. Accept or revert?', true);
+        doRender();
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showAiResult('Error', 'AI edit failed: ' + e.message, true);
+      }
+    }
+    aiEditInput.value = '';
+    aiEditFileName.textContent = '';
+    aiEditImageData = null;
+  }
 });
 </script>
 </body>

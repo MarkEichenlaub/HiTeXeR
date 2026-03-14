@@ -65,6 +65,13 @@ body {
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
 }
+#clear-selection-btn {
+  display: none; position: absolute; top: 6px; right: 6px; z-index: 99;
+  background: rgba(30,30,46,0.8); color: #eee; border: 1px solid rgba(255,255,255,0.2);
+  padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;
+  font-family: system-ui, sans-serif; transition: background 0.15s;
+}
+#clear-selection-btn:hover { background: rgba(233,69,96,0.8); }
 
 /* Highlight styles for code lines */
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
@@ -232,6 +239,7 @@ label("$C$", C, N);
       <div class="placeholder">Loading...</div>
       <div id="preview-stale-badge">not live; showing last render</div>
       <div id="preview-warn-badge"></div>
+      <button id="clear-selection-btn">&#x2715; Clear selection</button>
     </div>
   </div>
 </div>
@@ -1627,6 +1635,11 @@ let probeGeneration = 0; // incremented each render to discard stale probes
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
+const clearSelBtn = document.getElementById('clear-selection-btn');
+clearSelBtn.addEventListener('click', () => {
+  multiSelected.clear();
+  renderMultiSelection();
+});
 let probeReady = Promise.resolve(); // resolves when color probe mapping completes
 
 /**
@@ -1698,6 +1711,7 @@ function updateCodeFilter() {
 
 function renderMultiSelection() {
   clearHighlights(); clearSvgHighlights();
+  clearSelBtn.style.display = multiSelected.size > 0 ? 'block' : 'none';
   if (multiSelected.size === 0) { updateCodeFilter(); return; }
   for (const lineIdx of multiSelected) {
     const ci = lineToCommandIdx.get(lineIdx);
@@ -2659,7 +2673,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const slidePanel = document.getElementById('slide-panel');
   let slideDragState = null;
   let slideInjectedDots = [];
-  let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls}]
+  let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls, matchStart, matchEnd, kind}]
   let slidePxPerUnit = 28.35;
 
   slideBtn.addEventListener('click', () => {
@@ -2676,11 +2690,56 @@ document.addEventListener('DOMContentLoaded', () => {
   function findFreePoints(code) {
     const lines = code.split('\n');
     const freePoints = [];
+    // Functions whose output is computed — pairs on these lines are not free
+    const computedFns = /\b(intersectionpoint|intersectionpoints|midpoint|extension|circumcenter|incenter|orthocenter|foot|reflect|bisectorpoint|IP|OP|waypoint|relpoint|arcpoint|rotate|dir)\s*\(/;
     for (let i = 0; i < lines.length; i++) {
-      // Match: A = (0, 0); or pair A = (0, 0);
-      const m = lines[i].match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
-      if (m) {
-        freePoints.push({ lineIdx: i, varName: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]) });
+      const line = lines[i];
+      // Skip comment-only lines
+      if (/^\s*\/\//.test(line)) continue;
+      // Strip inline comments for analysis
+      const stripped = line.replace(/\/\/.*$/, '');
+
+      // 1) Named pair assignment: pair A = (num, num); or A = (num, num);
+      const namedMatch = stripped.match(/^\s*(?:pair\s+)?([A-Za-z_]\w*)\s*=\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*;/);
+      if (namedMatch) {
+        const matchStart = line.indexOf('(', line.indexOf('='));
+        const pairStr = `(${namedMatch[2]}, ${namedMatch[3]})`;
+        // Find exact match position of the parenthesized pair
+        const re = /\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/;
+        const pm = stripped.match(re);
+        const ms = pm ? stripped.indexOf(pm[0]) : matchStart;
+        const me = ms + (pm ? pm[0].length : pairStr.length);
+        freePoints.push({
+          lineIdx: i, varName: namedMatch[1],
+          x: parseFloat(namedMatch[2]), y: parseFloat(namedMatch[3]),
+          matchStart: ms, matchEnd: me, fullMatch: pm ? pm[0] : pairStr,
+          kind: 'named'
+        });
+        continue;
+      }
+
+      // 2) Inline literal pairs — scan for all (num, num) on this line
+      // Skip lines with computed functions
+      if (computedFns.test(stripped)) continue;
+      // Skip lines that are pure variable assignments with expressions (not just a pair)
+      // e.g. pair M = (A+B)/2; — has variable refs on RHS
+      if (/^\s*(?:pair\s+)?[A-Za-z_]\w*\s*=/.test(stripped)) {
+        // It's an assignment; if we didn't match above as a named pair, it's computed
+        continue;
+      }
+
+      const pairRe = /\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/g;
+      let pm;
+      while ((pm = pairRe.exec(stripped)) !== null) {
+        // Skip if this looks like it's inside a function argument list for size/unitsize/fontsize
+        const before = stripped.substring(0, pm.index);
+        if (/\b(unitsize|size|fontsize|linewidth|fontcommand)\s*$/.test(before)) continue;
+        freePoints.push({
+          lineIdx: i, varName: null,
+          x: parseFloat(pm[1]), y: parseFloat(pm[2]),
+          matchStart: pm.index, matchEnd: pm.index + pm[0].length, fullMatch: pm[0],
+          kind: 'inline'
+        });
       }
     }
     return freePoints;
@@ -2698,10 +2757,16 @@ document.addEventListener('DOMContentLoaded', () => {
     return freeReals;
   }
 
-  function isPointDrawn(code, varName) {
-    // Check if this point already has a dot() or label() referencing it as an argument
+  function isPointDrawn(code, fp) {
+    // For inline pairs, check if they appear directly in a dot() call on the same line
+    if (!fp.varName) {
+      const lines = code.split('\n');
+      const line = lines[fp.lineIdx] || '';
+      return /\bdot\s*\(/.test(line);
+    }
+    // For named points, check if this point already has a dot() or label() referencing it
     // Use word boundary to avoid matching substrings (e.g. "AB" matching "A")
-    const re = new RegExp('\\b(?:dot|label)\\s*\\([^)]*\\b' + varName + '\\b', 'm');
+    const re = new RegExp('\\b(?:dot|label)\\s*\\([^)]*\\b' + fp.varName + '\\b', 'm');
     return re.test(code);
   }
 
@@ -2721,16 +2786,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const freePoints = findFreePoints(code);
 
     // Inject visible red+gold dot() for free points that aren't drawn
-    const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp.varName));
+    const undrawn = freePoints.filter(fp => !isPointDrawn(code, fp));
     if (undrawn.length > 0) {
       const lines = code.split('\n');
       const asyEndIdx = lines.findIndex(l => /^\s*\[\/asy\]/.test(l));
       if (asyEndIdx >= 0) {
-        const dotLines = undrawn.map(fp =>
-          `dot(${fp.varName}, red+linewidth(8bp)); // SLIDE_DOT`
-        );
+        const dotLines = undrawn.map(fp => {
+          const ref = fp.varName || `(${fp.x}, ${fp.y})`;
+          return `dot(${ref}, red+linewidth(8bp)); // SLIDE_DOT`;
+        });
         lines.splice(asyEndIdx, 0, ...dotLines);
-        slideInjectedDots = undrawn.map(fp => fp.varName);
+        slideInjectedDots = undrawn.map(fp => fp.varName || `(${fp.x}, ${fp.y})`);
         editor.setValue(lines.join('\n'));
         doRender().then(() => probeReady).then(() => applySlideOverlay());
         return;
@@ -2776,28 +2842,56 @@ document.addEventListener('DOMContentLoaded', () => {
       return pt.matrixTransform(m);
     }
 
+    // Helper: convert math coordinates to SVG viewBox coordinates using lastRenderInfo
+    function mathToSvg(mx, my) {
+      if (!lastRenderInfo) return null;
+      const { pxPerUnit, minX, maxY } = lastRenderInfo;
+      return { x: (mx - minX) * pxPerUnit, y: (maxY - my) * pxPerUnit };
+    }
+
     slideFreePointData = [];
     for (const fp of freePoints) {
       let svgCX = null, svgCY = null;
       const glowEls = [];
 
-      // Find SVG elements for dot/label commands that reference this var
-      for (const [cmdIdx, els] of svgElsByCommand) {
-        const cmd = currentMapping[cmdIdx];
-        if (!cmd) continue;
-        // Match this var by word boundary to avoid false positives
-        const varRe = new RegExp('\\b' + fp.varName + '\\b');
-        if (!varRe.test(cmd.commandText)) continue;
-        if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
-        for (const el of els) {
-          if (svgCX === null) {
-            const bbox = el.getBBox();
-            const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-            svgCX = center.x;
-            svgCY = center.y;
+      if (fp.varName) {
+        // Named point: find SVG elements for dot/label commands that reference this var
+        for (const [cmdIdx, els] of svgElsByCommand) {
+          const cmd = currentMapping[cmdIdx];
+          if (!cmd) continue;
+          const varRe = new RegExp('\\b' + fp.varName + '\\b');
+          if (!varRe.test(cmd.commandText)) continue;
+          if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
+          for (const el of els) {
+            if (svgCX === null) {
+              const bbox = el.getBBox();
+              const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+              svgCX = center.x;
+              svgCY = center.y;
+            }
+            el.classList.add('slide-free-glow');
+            glowEls.push(el);
           }
-          el.classList.add('slide-free-glow');
-          glowEls.push(el);
+        }
+      }
+
+      // For inline points (or named points without a dot/label), use coordinate mapping
+      if (svgCX === null) {
+        const mapped = mathToSvg(fp.x, fp.y);
+        if (mapped) {
+          svgCX = mapped.x;
+          svgCY = mapped.y;
+        }
+        // Try to find and glow any SVG elements on the same source line
+        for (const [cmdIdx, els] of svgElsByCommand) {
+          const cmd = currentMapping[cmdIdx];
+          if (!cmd) continue;
+          if (cmd.primaryLine === fp.lineIdx) {
+            for (const el of els) {
+              el.classList.add('slide-free-glow');
+              glowEls.push(el);
+            }
+          }
         }
       }
 
@@ -2820,6 +2914,7 @@ document.addEventListener('DOMContentLoaded', () => {
         varName: fp.varName, lineIdx: fp.lineIdx,
         x: fp.x, y: fp.y, svgCX, svgCY,
         hitCircle, glowEls,
+        matchStart: fp.matchStart, matchEnd: fp.matchEnd, kind: fp.kind,
       });
     }
 
@@ -2957,10 +3052,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const code = editor.getValue();
     const lines = code.split('\n');
-    lines[fp.lineIdx] = lines[fp.lineIdx].replace(
-      /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
-      `= (${newX}, ${newY})`
-    );
+    const line = lines[fp.lineIdx];
+    if (fp.matchStart !== undefined && fp.matchEnd !== undefined) {
+      // Precise replacement using character offsets
+      const newPair = `(${newX}, ${newY})`;
+      lines[fp.lineIdx] = line.substring(0, fp.matchStart) + newPair + line.substring(fp.matchEnd);
+      // Update matchEnd for next move (newPair length may differ from old)
+      fp.matchEnd = fp.matchStart + newPair.length;
+    } else {
+      // Legacy fallback: regex replacement for named assignments
+      lines[fp.lineIdx] = line.replace(
+        /=\s*\(\s*[-\d.]+\s*,\s*[-\d.]+\s*\)/,
+        `= (${newX}, ${newY})`
+      );
+    }
     const newCode = lines.join('\n');
     editor.setValue(newCode);
 
