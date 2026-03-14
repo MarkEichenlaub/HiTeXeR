@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR Rendering Comparison</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #f0f2f5;
+  padding: 24px;
+  color: #333;
+}
+
+.container {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+h1 {
+  text-align: center;
+  font-size: 1.8em;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #666;
+  font-size: 0.95em;
+  margin-bottom: 32px;
+}
+
+/* --- Cards --- */
+.card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  margin-bottom: 28px;
+  overflow: hidden;
+}
+
+.card-header {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 14px 24px;
+}
+
+.card-header h2 {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+/* --- 3-column layout: 40% / 40% / 20% --- */
+.card-body {
+  display: grid;
+  grid-template-columns: 40% 40% 20%;
+  gap: 0;
+}
+
+.render-col {
+  padding: 16px;
+  border-right: 1px solid #eee;
+}
+
+.render-col:last-of-type {
+  border-right: none;
+}
+
+.render-col h3 {
+  font-size: 0.78em;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.img-wrap {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+
+.img-wrap img,
+.img-wrap object {
+  max-width: 100%;
+  max-height: 350px;
+  display: block;
+}
+
+/* --- Code box --- */
+.code-box {
+  background: #f5f5f5;
+  color: #333;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  max-height: 300px;
+  overflow-y: scroll;
+  white-space: pre;
+  word-wrap: normal;
+}
+
+.code-box code {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.open-link {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 14px;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: #1a1a2e;
+  background: #e8e8f0;
+  border: 1px solid #c0c0d0;
+  border-radius: 5px;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.open-link:hover {
+  background: #1a1a2e;
+  color: #fff;
+  cursor: pointer;
+}
+
+.link-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.texer-btn {
+  font-family: inherit;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rating {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-size: 0.78em;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.analysis {
+  padding: 12px 24px;
+  background: #f8f9fa;
+  border-top: 1px solid #eee;
+  font-size: 0.88em;
+  color: #555;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>HiTeXeR Rendering Comparison</h1>
+<p class="subtitle">Reference PNGs from real Asymptote vs. HiTeXeR JavaScript interpreter (10 diagrams)</p>
+
+
+<!-- Diagram 01 -->
+<div class="card">
+  <div class="card-header">
+    <h2>01 &mdash; Two circles with circumcircle, labeled points</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="01_circles_circumcircle.png" alt="Reference: Two circles with circumcircle, labeled points">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="01_circles_circumcircle.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>defaultpen(fontsize(10));
+unitsize(0.2 cm);
+
+pair A, B, C, O, P;
+real r;
+
+A = (0,0);
+B = (5,5);
+C = (-4,13);
+O = (-0.397804,5.3978);
+r = 5.41244;
+P = (3*O + r*C)/(3 + r);
+
+draw(Circle(C,3),red);
+draw(circumcircle(A,B,P),blue);
+draw(A--P--B);
+draw((C + dir(150))--(C + 4*dir(150)));
+
+dot(&quot;$A = (0,0)$&quot;, A, S);
+dot(&quot;$B = (5,5)$&quot;, B, E);
+dot(C);
+label(&quot;$C=(-4,13)$&quot;, C + 4*dir(150), NW);
+dot(&quot;$P$&quot;, P, NW);
+label(&quot;$\omega$&quot;, C + 3*dir(70), N);
+label(&quot;$\gamma$&quot;, O + r*dir(45), NE);</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Adefaultpen(fontsize(10))%3B%0D%0Aunitsize(0.2%20cm)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20O%2C%20P%3B%0D%0Areal%20r%3B%0D%0A%0D%0AA%20%3D%20(0%2C0)%3B%0D%0AB%20%3D%20(5%2C5)%3B%0D%0AC%20%3D%20(-4%2C13)%3B%0D%0AO%20%3D%20(-0.397804%2C5.3978)%3B%0D%0Ar%20%3D%205.41244%3B%0D%0AP%20%3D%20(3*O%20%2B%20r*C)%2F(3%20%2B%20r)%3B%0D%0A%0D%0Adraw(Circle(C%2C3)%2Cred)%3B%0D%0Adraw(circumcircle(A%2CB%2CP)%2Cblue)%3B%0D%0Adraw(A--P--B)%3B%0D%0Adraw((C%20%2B%20dir(150))--(C%20%2B%204*dir(150)))%3B%0D%0A%0D%0Adot(%22%24A%20%3D%20(0%2C0)%24%22%2C%20A%2C%20S)%3B%0D%0Adot(%22%24B%20%3D%20(5%2C5)%24%22%2C%20B%2C%20E)%3B%0D%0Adot(C)%3B%0D%0Alabel(%22%24C%3D(-4%2C13)%24%22%2C%20C%20%2B%204*dir(150)%2C%20NW)%3B%0D%0Adot(%22%24P%24%22%2C%20P%2C%20NW)%3B%0D%0Alabel(%22%24%5Comega%24%22%2C%20C%20%2B%203*dir(70)%2C%20N)%3B%0D%0Alabel(%22%24%5Cgamma%24%22%2C%20O%20%2B%20r*dir(45)%2C%20NE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+defaultpen(fontsize(10));
+unitsize(0.2 cm);
+
+pair A, B, C, O, P;
+real r;
+
+A = (0,0);
+B = (5,5);
+C = (-4,13);
+O = (-0.397804,5.3978);
+r = 5.41244;
+P = (3*O + r*C)/(3 + r);
+
+draw(Circle(C,3),red);
+draw(circumcircle(A,B,P),blue);
+draw(A--P--B);
+draw((C + dir(150))--(C + 4*dir(150)));
+
+dot(&quot;$A = (0,0)$&quot;, A, S);
+dot(&quot;$B = (5,5)$&quot;, B, E);
+dot(C);
+label(&quot;$C=(-4,13)$&quot;, C + 4*dir(150), NW);
+dot(&quot;$P$&quot;, P, NW);
+label(&quot;$\omega$&quot;, C + 3*dir(70), N);
+label(&quot;$\gamma$&quot;, O + r*dir(45), NE);
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Red and blue circles match. Triangle connecting A, B, P correct. Labels A=(0,0), B=(5,5), C=(-4,13), P, ω, γ all positioned correctly.</div>
+</div>
+
+<!-- Diagram 02 -->
+<div class="card">
+  <div class="card-header">
+    <h2>02 &mdash; Complete bipartite graph on circle vertices</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="02_bipartite_graph.png" alt="Reference: Complete bipartite graph on circle vertices">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="02_bipartite_graph.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>size(160);
+void v(pair p, pen c){
+label(&quot;$\bullet$&quot;,p, c);
+}
+void e(pair p,pair q, pen c){
+draw((p--q), c);
+}
+
+pair[] vertices;
+
+//Define and label the vertices: 
+for(int i =0; i &lt; 10; ++i)
+{
+  vertices[i] = dir(360/10*i);  
+  v(vertices[i], black); 
+}
+//Label the complementary edges in red: 
+for(int i = 0; i &lt; 5; ++i)
+{
+  for(int j = 5; j &lt;10; ++j)
+  {
+    e(vertices[i], vertices[j], red);  
+  }
+}</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Asize(160)%3B%0D%0Avoid%20v(pair%20p%2C%20pen%20c)%7B%0D%0Alabel(%22%24%5Cbullet%24%22%2Cp%2C%20c)%3B%0D%0A%7D%0D%0Avoid%20e(pair%20p%2Cpair%20q%2C%20pen%20c)%7B%0D%0Adraw((p--q)%2C%20c)%3B%0D%0A%7D%0D%0A%0D%0Apair%5B%5D%20vertices%3B%0D%0A%0D%0A%2F%2FDefine%20and%20label%20the%20vertices%3A%20%0D%0Afor(int%20i%20%3D0%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0A%7B%0D%0A%20%20vertices%5Bi%5D%20%3D%20dir(360%2F10*i)%3B%20%20%0D%0A%20%20v(vertices%5Bi%5D%2C%20black)%3B%20%0D%0A%7D%0D%0A%2F%2FLabel%20the%20complementary%20edges%20in%20red%3A%20%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%205%3B%20%2B%2Bi)%0D%0A%7B%0D%0A%20%20for(int%20j%20%3D%205%3B%20j%20%3C10%3B%20%2B%2Bj)%0D%0A%20%20%7B%0D%0A%20%20%20%20e(vertices%5Bi%5D%2C%20vertices%5Bj%5D%2C%20red)%3B%20%20%0D%0A%20%20%7D%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+size(160);
+void v(pair p, pen c){
+label(&quot;$\bullet$&quot;,p, c);
+}
+void e(pair p,pair q, pen c){
+draw((p--q), c);
+}
+
+pair[] vertices;
+
+//Define and label the vertices: 
+for(int i =0; i &lt; 10; ++i)
+{
+  vertices[i] = dir(360/10*i);  
+  v(vertices[i], black); 
+}
+//Label the complementary edges in red: 
+for(int i = 0; i &lt; 5; ++i)
+{
+  for(int j = 5; j &lt;10; ++j)
+  {
+    e(vertices[i], vertices[j], red);  
+  }
+}
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Complete bipartite graph K(5,5) with red edges on circle-positioned vertices. All 25 edges and 10 vertex dots present and correctly placed.</div>
+</div>
+
+<!-- Diagram 03 -->
+<div class="card">
+  <div class="card-header">
+    <h2>03 &mdash; Numbered box grid with royalblue fill</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="03_numbered_grid.png" alt="Reference: Numbered box grid with royalblue fill">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="03_numbered_grid.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>path box = (0,0)--(2,0)--(2,-2)--(0,-2)--cycle;
+int numRows = 2;
+int numCols = 8;
+fill( (0,0)--(16,0)--(16,-2)--(0,-2)--cycle, royalblue);
+for( int c = 0; c &lt; numCols; ++c ) {
+  for( int r = 0; r &lt; numRows; ++r ) {
+    draw(shift(2*c,-2*r)*box);
+    label(string(numRows*c+r), (2*c+1,-2*r-1));
+  }
+}
+for( int r = 0; r &lt; numRows; ++r ) {
+  label(&quot;$\cdots$&quot;, (2*numCols+1,-2*r-1));
+}</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Apath%20box%20%3D%20(0%2C0)--(2%2C0)--(2%2C-2)--(0%2C-2)--cycle%3B%0D%0D%0Aint%20numRows%20%3D%202%3B%0D%0D%0Aint%20numCols%20%3D%208%3B%0D%0D%0Afill(%20(0%2C0)--(16%2C0)--(16%2C-2)--(0%2C-2)--cycle%2C%20royalblue)%3B%0D%0D%0Afor(%20int%20c%20%3D%200%3B%20c%20%3C%20numCols%3B%20%2B%2Bc%20)%20%7B%0D%0D%0A%20%20for(%20int%20r%20%3D%200%3B%20r%20%3C%20numRows%3B%20%2B%2Br%20)%20%7B%0D%0D%0A%20%20%20%20draw(shift(2*c%2C-2*r)*box)%3B%0D%0D%0A%20%20%20%20label(string(numRows*c%2Br)%2C%20(2*c%2B1%2C-2*r-1))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0D%0Afor(%20int%20r%20%3D%200%3B%20r%20%3C%20numRows%3B%20%2B%2Br%20)%20%7B%0D%0D%0A%20%20label(%22%24%5Ccdots%24%22%2C%20(2*numCols%2B1%2C-2*r-1))%3B%0D%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+path box = (0,0)--(2,0)--(2,-2)--(0,-2)--cycle;
+int numRows = 2;
+int numCols = 8;
+fill( (0,0)--(16,0)--(16,-2)--(0,-2)--cycle, royalblue);
+for( int c = 0; c &lt; numCols; ++c ) {
+  for( int r = 0; r &lt; numRows; ++r ) {
+    draw(shift(2*c,-2*r)*box);
+    label(string(numRows*c+r), (2*c+1,-2*r-1));
+  }
+}
+for( int r = 0; r &lt; numRows; ++r ) {
+  label(&quot;$\cdots$&quot;, (2*numCols+1,-2*r-1));
+}
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Royalblue fill, 8×2 numbered grid (0-15), ⋯ dots column. Layout and colors match. (Reference PNG is very small due to Asymptote rendering at low unitsize.)</div>
+</div>
+
+<!-- Diagram 04 -->
+<div class="card">
+  <div class="card-header">
+    <h2>04 &mdash; Filled regions with orange and cyan+yellow</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="04_filled_triangle.png" alt="Reference: Filled regions with orange and cyan+yellow">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="04_filled_triangle.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>size(4cm);
+path p=(0,0)--(0,6)--(4,4)--(8,6)--(8,0)--(4,2)--cycle;
+path t1 = (0,0)--(8,0) -- (4,2)--cycle;
+path t2 = (8,6)--(0,6)--(4,4)--cycle;
+fill(t1, orange);
+fill(t2,orange);
+fill(p,cyan+yellow);
+draw(p,black+2);
+for(int i=0; i&lt;9; i+=1){ draw((i,0)--(i,6),black+0.6); };
+for(int j=0; j&lt;7; j+=1){ draw((0,j)--(8,j),black+0.6); };</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Asize(4cm)%3B%0D%0Apath%20p%3D(0%2C0)--(0%2C6)--(4%2C4)--(8%2C6)--(8%2C0)--(4%2C2)--cycle%3B%0D%0Apath%20t1%20%3D%20(0%2C0)--(8%2C0)%20--%20(4%2C2)--cycle%3B%0D%0Apath%20t2%20%3D%20(8%2C6)--(0%2C6)--(4%2C4)--cycle%3B%0D%0Afill(t1%2C%20orange)%3B%0D%0Afill(t2%2Corange)%3B%0D%0Afill(p%2Ccyan%2Byellow)%3B%0D%0Adraw(p%2Cblack%2B2)%3B%0D%0Afor(int%20i%3D0%3B%20i%3C9%3B%20i%2B%3D1)%7B%20draw((i%2C0)--(i%2C6)%2Cblack%2B0.6)%3B%20%7D%3B%0D%0Afor(int%20j%3D0%3B%20j%3C7%3B%20j%2B%3D1)%7B%20draw((0%2Cj)--(8%2Cj)%2Cblack%2B0.6)%3B%20%7D%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+size(4cm);
+path p=(0,0)--(0,6)--(4,4)--(8,6)--(8,0)--(4,2)--cycle;
+path t1 = (0,0)--(8,0) -- (4,2)--cycle;
+path t2 = (8,6)--(0,6)--(4,4)--cycle;
+fill(t1, orange);
+fill(t2,orange);
+fill(p,cyan+yellow);
+draw(p,black+2);
+for(int i=0; i&lt;9; i+=1){ draw((i,0)--(i,6),black+0.6); };
+for(int j=0; j&lt;7; j+=1){ draw((0,j)--(8,j),black+0.6); };
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Orange triangular fills and green (cyan+yellow averaged) hourglass region correct. Grid overlay with linewidth(0.6) present. Pen color averaging working correctly.</div>
+</div>
+
+<!-- Diagram 05 -->
+<div class="card">
+  <div class="card-header">
+    <h2>05 &mdash; Octagon with extension lines and right angle marks</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="05_octagon_geometry.png" alt="Reference: Octagon with extension lines and right angle marks">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="05_octagon_geometry.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>unitsize(0.4 cm);
+
+pair K = (0,0);
+pair J = K + (6,0);
+pair I = J + 2*dir(45);
+pair H = I + (0,6);
+pair G = H + 2*dir(135);
+pair F = G + (-6,0);
+pair E = F + 2*dir(225);
+pair L = E + (0,-6);
+pair P = extension(F,G,E,L);
+pair Q = extension(F,G,H,I);
+
+draw(K--J--I--H--G--F--E--L--cycle);
+draw(E--I);
+draw(E--H);
+draw(E--P--F);
+draw(G--Q--H);
+draw(rightanglemark(E,P,Q,15));
+draw(rightanglemark(P,Q,H,15));
+draw(rightanglemark(E,H,I,15));
+
+dot(&quot;$E$&quot;, E, W);
+dot(&quot;$F$&quot;, F, N);
+dot(&quot;$G$&quot;, G, N);
+dot(&quot;$H$&quot;, H, dir(0));
+dot(&quot;$I$&quot;, I, dir(0));
+dot(&quot;$J$&quot;, J, S);
+dot(&quot;$K$&quot;, K, S);
+dot(&quot;$L$&quot;, L, W);
+dot(&quot;$P$&quot;, P, NW);
+dot(&quot;$Q$&quot;, Q, NE);</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Aunitsize(0.4%20cm)%3B%0D%0A%0D%0Apair%20K%20%3D%20(0%2C0)%3B%0D%0D%0Apair%20J%20%3D%20K%20%2B%20(6%2C0)%3B%0D%0D%0Apair%20I%20%3D%20J%20%2B%202*dir(45)%3B%0D%0D%0Apair%20H%20%3D%20I%20%2B%20(0%2C6)%3B%0D%0D%0Apair%20G%20%3D%20H%20%2B%202*dir(135)%3B%0D%0D%0Apair%20F%20%3D%20G%20%2B%20(-6%2C0)%3B%0D%0D%0Apair%20E%20%3D%20F%20%2B%202*dir(225)%3B%0D%0D%0Apair%20L%20%3D%20E%20%2B%20(0%2C-6)%3B%0D%0D%0Apair%20P%20%3D%20extension(F%2CG%2CE%2CL)%3B%0D%0D%0Apair%20Q%20%3D%20extension(F%2CG%2CH%2CI)%3B%0D%0A%0D%0Adraw(K--J--I--H--G--F--E--L--cycle)%3B%0D%0D%0Adraw(E--I)%3B%0D%0D%0Adraw(E--H)%3B%0D%0D%0Adraw(E--P--F)%3B%0D%0D%0Adraw(G--Q--H)%3B%0D%0D%0Adraw(rightanglemark(E%2CP%2CQ%2C15))%3B%0D%0D%0Adraw(rightanglemark(P%2CQ%2CH%2C15))%3B%0D%0D%0Adraw(rightanglemark(E%2CH%2CI%2C15))%3B%0D%0A%0D%0Adot(%22%24E%24%22%2C%20E%2C%20W)%3B%0D%0D%0Adot(%22%24F%24%22%2C%20F%2C%20N)%3B%0D%0D%0Adot(%22%24G%24%22%2C%20G%2C%20N)%3B%0D%0D%0Adot(%22%24H%24%22%2C%20H%2C%20dir(0))%3B%0D%0D%0Adot(%22%24I%24%22%2C%20I%2C%20dir(0))%3B%0D%0D%0Adot(%22%24J%24%22%2C%20J%2C%20S)%3B%0D%0D%0Adot(%22%24K%24%22%2C%20K%2C%20S)%3B%0D%0D%0Adot(%22%24L%24%22%2C%20L%2C%20W)%3B%0D%0D%0Adot(%22%24P%24%22%2C%20P%2C%20NW)%3B%0D%0D%0Adot(%22%24Q%24%22%2C%20Q%2C%20NE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+unitsize(0.4 cm);
+
+pair K = (0,0);
+pair J = K + (6,0);
+pair I = J + 2*dir(45);
+pair H = I + (0,6);
+pair G = H + 2*dir(135);
+pair F = G + (-6,0);
+pair E = F + 2*dir(225);
+pair L = E + (0,-6);
+pair P = extension(F,G,E,L);
+pair Q = extension(F,G,H,I);
+
+draw(K--J--I--H--G--F--E--L--cycle);
+draw(E--I);
+draw(E--H);
+draw(E--P--F);
+draw(G--Q--H);
+draw(rightanglemark(E,P,Q,15));
+draw(rightanglemark(P,Q,H,15));
+draw(rightanglemark(E,H,I,15));
+
+dot(&quot;$E$&quot;, E, W);
+dot(&quot;$F$&quot;, F, N);
+dot(&quot;$G$&quot;, G, N);
+dot(&quot;$H$&quot;, H, dir(0));
+dot(&quot;$I$&quot;, I, dir(0));
+dot(&quot;$J$&quot;, J, S);
+dot(&quot;$K$&quot;, K, S);
+dot(&quot;$L$&quot;, L, W);
+dot(&quot;$P$&quot;, P, NW);
+dot(&quot;$Q$&quot;, Q, NE);
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Regular octagon with vertices E-L, extension lines from E through corners P and Q, right angle marks at P, Q, and H. Diagonal line EI. All geometry matches.</div>
+</div>
+
+<!-- Diagram 06 -->
+<div class="card">
+  <div class="card-header">
+    <h2>06 &mdash; Triangle with red angle sectors and distance labels</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="06_angle_sectors.png" alt="Reference: Triangle with red angle sectors and distance labels">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="06_angle_sectors.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>unitsize(0.1 cm);
+
+pair B, P, Q, R, S;
+
+P = (0,0);
+Q = (30,0);
+B = (40,0);
+R = (40,18);
+S = (40,27);
+
+fill(P--arc(P,10,aTan(abs(B - R)/abs(P - B)),aTan(abs(B - S)/abs(P - B)))--cycle,red);
+fill(Q--arc(Q,10,aTan(abs(B - R)/abs(Q - B)),aTan(abs(B - S)/abs(Q - B)))--cycle,red);
+draw(P--B--S--cycle);
+draw(P--R--Q--S);
+
+label(&quot;$P$&quot;, P, SW);
+label(&quot;$Q$&quot;, Q, dir(270));
+label(&quot;$B$&quot;, B, SE);
+label(&quot;$R$&quot;, R, E);
+label(&quot;$S$&quot;, S, NE);
+label(&quot;$30$&quot;, (P + Q)/2, dir(270));
+label(&quot;$10$&quot;, (Q + B)/2, dir(270));
+label(&quot;$h$&quot;, (B + R)/2, E);
+label(&quot;$9$&quot;, (R + S)/2, E);</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Aunitsize(0.1%20cm)%3B%0D%0A%0D%0Apair%20B%2C%20P%2C%20Q%2C%20R%2C%20S%3B%0D%0A%0D%0AP%20%3D%20(0%2C0)%3B%0D%0AQ%20%3D%20(30%2C0)%3B%0D%0AB%20%3D%20(40%2C0)%3B%0D%0AR%20%3D%20(40%2C18)%3B%0D%0AS%20%3D%20(40%2C27)%3B%0D%0A%0D%0Afill(P--arc(P%2C10%2CaTan(abs(B%20-%20R)%2Fabs(P%20-%20B))%2CaTan(abs(B%20-%20S)%2Fabs(P%20-%20B)))--cycle%2Cred)%3B%0D%0Afill(Q--arc(Q%2C10%2CaTan(abs(B%20-%20R)%2Fabs(Q%20-%20B))%2CaTan(abs(B%20-%20S)%2Fabs(Q%20-%20B)))--cycle%2Cred)%3B%0D%0Adraw(P--B--S--cycle)%3B%0D%0Adraw(P--R--Q--S)%3B%0D%0A%0D%0Alabel(%22%24P%24%22%2C%20P%2C%20SW)%3B%0D%0Alabel(%22%24Q%24%22%2C%20Q%2C%20dir(270))%3B%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20SE)%3B%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20E)%3B%0D%0Alabel(%22%24S%24%22%2C%20S%2C%20NE)%3B%0D%0Alabel(%22%2430%24%22%2C%20(P%20%2B%20Q)%2F2%2C%20dir(270))%3B%0D%0Alabel(%22%2410%24%22%2C%20(Q%20%2B%20B)%2F2%2C%20dir(270))%3B%0D%0Alabel(%22%24h%24%22%2C%20(B%20%2B%20R)%2F2%2C%20E)%3B%0D%0Alabel(%22%249%24%22%2C%20(R%20%2B%20S)%2F2%2C%20E)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+unitsize(0.1 cm);
+
+pair B, P, Q, R, S;
+
+P = (0,0);
+Q = (30,0);
+B = (40,0);
+R = (40,18);
+S = (40,27);
+
+fill(P--arc(P,10,aTan(abs(B - R)/abs(P - B)),aTan(abs(B - S)/abs(P - B)))--cycle,red);
+fill(Q--arc(Q,10,aTan(abs(B - R)/abs(Q - B)),aTan(abs(B - S)/abs(Q - B)))--cycle,red);
+draw(P--B--S--cycle);
+draw(P--R--Q--S);
+
+label(&quot;$P$&quot;, P, SW);
+label(&quot;$Q$&quot;, Q, dir(270));
+label(&quot;$B$&quot;, B, SE);
+label(&quot;$R$&quot;, R, E);
+label(&quot;$S$&quot;, S, NE);
+label(&quot;$30$&quot;, (P + Q)/2, dir(270));
+label(&quot;$10$&quot;, (Q + B)/2, dir(270));
+label(&quot;$h$&quot;, (B + R)/2, E);
+label(&quot;$9$&quot;, (R + S)/2, E);
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Red angle sectors at P and Q as pie-wedge fills using arc(). Triangle P-B-S with auxiliary lines P-R, Q-S, Q-R. Distance labels 30, 10, h, 9 correct.</div>
+</div>
+
+<!-- Diagram 07 -->
+<div class="card">
+  <div class="card-header">
+    <h2>07 &mdash; Two overlapping circles with intersection points</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="07_two_circles.png" alt="Reference: Two overlapping circles with intersection points">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="07_two_circles.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>unitsize(2 cm);
+
+pair A, B, C, D, P;
+pair[] O;
+path[] circ;
+
+O[1] = (0,0);
+O[2] = (sqrt(2),0);
+circ[1] = Circle(O[1],1);
+circ[2] = Circle(O[2],1);
+P = dir(200);
+A = dir(45);
+B = dir(-45);
+C = intersectionpoint((A + 0.1*(A - P))--(A + 3*(A - P)), circ[2]);
+D = intersectionpoint((B + 0.1*(B - P))--(B + 3*(B - P)), circ[2]);
+
+draw(circ[1]);
+draw(circ[2]);
+draw(C--P--D);
+draw(C--D);
+
+dot(&quot;$A$&quot;, A, N);
+dot(&quot;$B$&quot;, B, S);
+dot(&quot;$C$&quot;, C, N);
+dot(&quot;$D$&quot;, D, S);
+dot(&quot;$P$&quot;, P, W);
+label(&quot;$S$&quot;, dir(135), NW);
+label(&quot;$T$&quot;, O[2] + dir(45), NE);</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Aunitsize(2%20cm)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20P%3B%0D%0Apair%5B%5D%20O%3B%0D%0Apath%5B%5D%20circ%3B%0D%0A%0D%0AO%5B1%5D%20%3D%20(0%2C0)%3B%0D%0AO%5B2%5D%20%3D%20(sqrt(2)%2C0)%3B%0D%0Acirc%5B1%5D%20%3D%20Circle(O%5B1%5D%2C1)%3B%0D%0Acirc%5B2%5D%20%3D%20Circle(O%5B2%5D%2C1)%3B%0D%0AP%20%3D%20dir(200)%3B%0D%0AA%20%3D%20dir(45)%3B%0D%0AB%20%3D%20dir(-45)%3B%0D%0AC%20%3D%20intersectionpoint((A%20%2B%200.1*(A%20-%20P))--(A%20%2B%203*(A%20-%20P))%2C%20circ%5B2%5D)%3B%0D%0AD%20%3D%20intersectionpoint((B%20%2B%200.1*(B%20-%20P))--(B%20%2B%203*(B%20-%20P))%2C%20circ%5B2%5D)%3B%0D%0A%0D%0Adraw(circ%5B1%5D)%3B%0D%0Adraw(circ%5B2%5D)%3B%0D%0Adraw(C--P--D)%3B%0D%0Adraw(C--D)%3B%0D%0A%0D%0Adot(%22%24A%24%22%2C%20A%2C%20N)%3B%0D%0Adot(%22%24B%24%22%2C%20B%2C%20S)%3B%0D%0Adot(%22%24C%24%22%2C%20C%2C%20N)%3B%0D%0Adot(%22%24D%24%22%2C%20D%2C%20S)%3B%0D%0Adot(%22%24P%24%22%2C%20P%2C%20W)%3B%0D%0Alabel(%22%24S%24%22%2C%20dir(135)%2C%20NW)%3B%0D%0Alabel(%22%24T%24%22%2C%20O%5B2%5D%20%2B%20dir(45)%2C%20NE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+unitsize(2 cm);
+
+pair A, B, C, D, P;
+pair[] O;
+path[] circ;
+
+O[1] = (0,0);
+O[2] = (sqrt(2),0);
+circ[1] = Circle(O[1],1);
+circ[2] = Circle(O[2],1);
+P = dir(200);
+A = dir(45);
+B = dir(-45);
+C = intersectionpoint((A + 0.1*(A - P))--(A + 3*(A - P)), circ[2]);
+D = intersectionpoint((B + 0.1*(B - P))--(B + 3*(B - P)), circ[2]);
+
+draw(circ[1]);
+draw(circ[2]);
+draw(C--P--D);
+draw(C--D);
+
+dot(&quot;$A$&quot;, A, N);
+dot(&quot;$B$&quot;, B, S);
+dot(&quot;$C$&quot;, C, N);
+dot(&quot;$D$&quot;, D, S);
+dot(&quot;$P$&quot;, P, W);
+label(&quot;$S$&quot;, dir(135), NW);
+label(&quot;$T$&quot;, O[2] + dir(45), NE);
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Two overlapping circles with intersection points A, B. Center C of left circle, tangent point D, external point P. Labels S, T for circles. Lines C-P and C-B-D drawn.</div>
+</div>
+
+<!-- Diagram 08 -->
+<div class="card">
+  <div class="card-header">
+    <h2>08 &mdash; Isometric 3D cube grid with red fill</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="08_isometric_grid.png" alt="Reference: Isometric 3D cube grid with red fill">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="08_isometric_grid.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>size(120);
+pair i = dir(30), j = dir(150), k = dir(90);
+draw((0,0)--i);
+draw((0,0)--j);
+draw((0,0)--k);
+int sizze = 10;
+fill((0,0)--(sizze*i)--(sizze*(i+k))--(sizze*(i+k+j))--(sizze*(j+k))--(sizze*j)--cycle, red);
+for (int a = 0; a &lt;=sizze; ++a){
+   draw((a*i)--(a*i + sizze*k)--(a*i + sizze*k + sizze*j));
+}
+for (int a = 0; a &lt;=sizze; ++a){
+   draw((a*j)--(a*j + sizze*k)--(a*j + sizze*k + sizze*i));
+}
+for (int a = 0; a &lt;= sizze; ++a){
+   draw((a*k + sizze*j)--(a*k)--(a*k + sizze*i));
+}</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Asize(120)%3B%0D%0D%0Apair%20i%20%3D%20dir(30)%2C%20j%20%3D%20dir(150)%2C%20k%20%3D%20dir(90)%3B%0D%0D%0Adraw((0%2C0)--i)%3B%0D%0D%0Adraw((0%2C0)--j)%3B%0D%0D%0Adraw((0%2C0)--k)%3B%0D%0D%0Aint%20sizze%20%3D%2010%3B%0D%0D%0Afill((0%2C0)--(sizze*i)--(sizze*(i%2Bk))--(sizze*(i%2Bk%2Bj))--(sizze*(j%2Bk))--(sizze*j)--cycle%2C%20red)%3B%0D%0D%0Afor%20(int%20a%20%3D%200%3B%20a%20%3C%3Dsizze%3B%20%2B%2Ba)%7B%0D%0D%0A%20%20%20draw((a*i)--(a*i%20%2B%20sizze*k)--(a*i%20%2B%20sizze*k%20%2B%20sizze*j))%3B%0D%0D%0A%7D%0D%0D%0Afor%20(int%20a%20%3D%200%3B%20a%20%3C%3Dsizze%3B%20%2B%2Ba)%7B%0D%0D%0A%20%20%20draw((a*j)--(a*j%20%2B%20sizze*k)--(a*j%20%2B%20sizze*k%20%2B%20sizze*i))%3B%0D%0D%0A%7D%0D%0D%0Afor%20(int%20a%20%3D%200%3B%20a%20%3C%3D%20sizze%3B%20%2B%2Ba)%7B%0D%0D%0A%20%20%20draw((a*k%20%2B%20sizze*j)--(a*k)--(a*k%20%2B%20sizze*i))%3B%0D%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+size(120);
+pair i = dir(30), j = dir(150), k = dir(90);
+draw((0,0)--i);
+draw((0,0)--j);
+draw((0,0)--k);
+int sizze = 10;
+fill((0,0)--(sizze*i)--(sizze*(i+k))--(sizze*(i+k+j))--(sizze*(j+k))--(sizze*j)--cycle, red);
+for (int a = 0; a &lt;=sizze; ++a){
+   draw((a*i)--(a*i + sizze*k)--(a*i + sizze*k + sizze*j));
+}
+for (int a = 0; a &lt;=sizze; ++a){
+   draw((a*j)--(a*j + sizze*k)--(a*j + sizze*k + sizze*i));
+}
+for (int a = 0; a &lt;= sizze; ++a){
+   draw((a*k + sizze*j)--(a*k)--(a*k + sizze*i));
+}
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Isometric 3D cube grid (10×10×10) with red fill. Three sets of parallel lines creating hexagonal outline. Excellent match with reference.</div>
+</div>
+
+<!-- Diagram 09 -->
+<div class="card">
+  <div class="card-header">
+    <h2>09 &mdash; Triangle with circumcircle, orthocenter, yellow fills</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="09_triangle_circumcircle.png" alt="Reference: Triangle with circumcircle, orthocenter, yellow fills">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="09_triangle_circumcircle.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>unitsize(1 cm);
+defaultpen(fontsize(10));
+
+pair A, B, C, H, M, N, P, Q, X;
+
+A = (1.5,3);
+B = (0,0);
+C = (4,0);
+M = (B + C)/2;
+P = extension(A, B, M, M + rotate(90)*(B - C));
+Q = extension(A, C, M, M + rotate(90)*(B - C));
+N = (P + Q)/2;
+H = orthocenter(A,B,C);
+X = extension(A,N,H,M);
+
+fill(A--P--Q--cycle, paleyellow);
+fill(B--H--C--cycle, paleyellow);
+draw(P--M, gray(0.7));
+draw(X--N, gray(0.7));
+draw(X--M, gray(0.7));
+draw(circumcircle(A,B,C), gray(0.8));
+draw(B--H--C, gray(0.7));
+draw(P--B--C--A);
+
+dot(&quot;$A$&quot;, A, NW);
+dot(&quot;$B$&quot;, B, SW);
+dot(&quot;$C$&quot;, C, SE);
+dot(&quot;$H$&quot;, H, NE);
+dot(&quot;$M$&quot;, M, S);
+dot(&quot;$N$&quot;, N, E);
+dot(&quot;$P$&quot;, P, NE);
+dot(&quot;$Q$&quot;, Q, NE);
+dot(&quot;$X$&quot;, X, NW);</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Aunitsize(1%20cm)%3B%0D%0D%0Adefaultpen(fontsize(10))%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20H%2C%20M%2C%20N%2C%20P%2C%20Q%2C%20X%3B%0D%0A%0D%0AA%20%3D%20(1.5%2C3)%3B%0D%0D%0AB%20%3D%20(0%2C0)%3B%0D%0D%0AC%20%3D%20(4%2C0)%3B%0D%0D%0AM%20%3D%20(B%20%2B%20C)%2F2%3B%0D%0D%0AP%20%3D%20extension(A%2C%20B%2C%20M%2C%20M%20%2B%20rotate(90)*(B%20-%20C))%3B%0D%0D%0AQ%20%3D%20extension(A%2C%20C%2C%20M%2C%20M%20%2B%20rotate(90)*(B%20-%20C))%3B%0D%0D%0AN%20%3D%20(P%20%2B%20Q)%2F2%3B%0D%0D%0AH%20%3D%20orthocenter(A%2CB%2CC)%3B%0D%0D%0AX%20%3D%20extension(A%2CN%2CH%2CM)%3B%0D%0A%0D%0Afill(A--P--Q--cycle%2C%20paleyellow)%3B%0D%0D%0Afill(B--H--C--cycle%2C%20paleyellow)%3B%0D%0D%0Adraw(P--M%2C%20gray(0.7))%3B%0D%0D%0Adraw(X--N%2C%20gray(0.7))%3B%0D%0D%0Adraw(X--M%2C%20gray(0.7))%3B%0D%0D%0Adraw(circumcircle(A%2CB%2CC)%2C%20gray(0.8))%3B%0D%0D%0Adraw(B--H--C%2C%20gray(0.7))%3B%0D%0D%0Adraw(P--B--C--A)%3B%0D%0A%0D%0Adot(%22%24A%24%22%2C%20A%2C%20NW)%3B%0D%0D%0Adot(%22%24B%24%22%2C%20B%2C%20SW)%3B%0D%0D%0Adot(%22%24C%24%22%2C%20C%2C%20SE)%3B%0D%0D%0Adot(%22%24H%24%22%2C%20H%2C%20NE)%3B%0D%0D%0Adot(%22%24M%24%22%2C%20M%2C%20S)%3B%0D%0D%0Adot(%22%24N%24%22%2C%20N%2C%20E)%3B%0D%0D%0Adot(%22%24P%24%22%2C%20P%2C%20NE)%3B%0D%0D%0Adot(%22%24Q%24%22%2C%20Q%2C%20NE)%3B%0D%0D%0Adot(%22%24X%24%22%2C%20X%2C%20NW)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+unitsize(1 cm);
+defaultpen(fontsize(10));
+
+pair A, B, C, H, M, N, P, Q, X;
+
+A = (1.5,3);
+B = (0,0);
+C = (4,0);
+M = (B + C)/2;
+P = extension(A, B, M, M + rotate(90)*(B - C));
+Q = extension(A, C, M, M + rotate(90)*(B - C));
+N = (P + Q)/2;
+H = orthocenter(A,B,C);
+X = extension(A,N,H,M);
+
+fill(A--P--Q--cycle, paleyellow);
+fill(B--H--C--cycle, paleyellow);
+draw(P--M, gray(0.7));
+draw(X--N, gray(0.7));
+draw(X--M, gray(0.7));
+draw(circumcircle(A,B,C), gray(0.8));
+draw(B--H--C, gray(0.7));
+draw(P--B--C--A);
+
+dot(&quot;$A$&quot;, A, NW);
+dot(&quot;$B$&quot;, B, SW);
+dot(&quot;$C$&quot;, C, SE);
+dot(&quot;$H$&quot;, H, NE);
+dot(&quot;$M$&quot;, M, S);
+dot(&quot;$N$&quot;, N, E);
+dot(&quot;$P$&quot;, P, NE);
+dot(&quot;$Q$&quot;, Q, NE);
+dot(&quot;$X$&quot;, X, NW);
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Triangle ABC with circumcircle (gray), orthocenter H, midpoint M, feet N, Q. Paleyellow fills for pedal triangle regions. Gray auxiliary lines. All 9 labeled points correct.</div>
+</div>
+
+<!-- Diagram 10 -->
+<div class="card">
+  <div class="card-header">
+    <h2>10 &mdash; Filled triangle with dashed altitude and dimension arrows</h2>
+    <span class="rating" style="background:#2d8a4e">Good</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col col-ref">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap">
+        <img src="10_dimension_triangle.png" alt="Reference: Filled triangle with dashed altitude and dimension arrows">
+      </div>
+    </div>
+    <div class="render-col col-hitexer">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap">
+        <object data="10_dimension_triangle.svg" type="image/svg+xml">SVG not supported</object>
+      </div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Asymptote Source</h3>
+      <div class="code-box"><code>size(4.8cm);
+pair a=(4,0); pair b=(16,0); pair d=(12,5); pair e=(12,0);
+fill(a--b--d--cycle,orange+yellow);
+draw(a--b--d--a);
+draw(d--e,dashed);
+draw((18,0)--(19,0));
+draw((18,5)--(19,5));
+draw((18.5,0)--(18.5,5),Arrows(TeXHead));
+label(&quot;$5$&quot;,(18.5,2.5),E);</code></div>
+      <div class="link-row">
+        <a class="open-link" href="../index.html#code=%5Basy%5D%0Asize(4.8cm)%3B%0D%0D%0Apair%20a%3D(4%2C0)%3B%20pair%20b%3D(16%2C0)%3B%20pair%20d%3D(12%2C5)%3B%20pair%20e%3D(12%2C0)%3B%0D%0D%0Afill(a--b--d--cycle%2Corange%2Byellow)%3B%0D%0D%0Adraw(a--b--d--a)%3B%0D%0D%0Adraw(d--e%2Cdashed)%3B%0D%0D%0Adraw((18%2C0)--(19%2C0))%3B%0D%0D%0Adraw((18%2C5)--(19%2C5))%3B%0D%0D%0Adraw((18.5%2C0)--(18.5%2C5)%2CArrows(TeXHead))%3B%0D%0D%0Alabel(%22%245%24%22%2C(18.5%2C2.5)%2CE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="open-link texer-btn" data-code="[asy]
+size(4.8cm);
+pair a=(4,0); pair b=(16,0); pair d=(12,5); pair e=(12,0);
+fill(a--b--d--cycle,orange+yellow);
+draw(a--b--d--a);
+draw(d--e,dashed);
+draw((18,0)--(19,0));
+draw((18,5)--(19,5));
+draw((18.5,0)--(18.5,5),Arrows(TeXHead));
+label(&quot;$5$&quot;,(18.5,2.5),E);
+[/asy]">Open in TeXeR</button>
+      </div>
+    </div>
+  </div>
+  <div class="analysis">Filled triangle (orange+yellow blend) with dashed altitude, dimension arrows (Arrows(TeXHead)) and label &quot;5&quot;. Clean match with reference.</div>
+</div>
+
+</div><!-- .container -->
+<script>
+document.querySelectorAll('.texer-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const code = btn.getAttribute('data-code');
+    navigator.clipboard.writeText(code).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+      window.open('https://artofproblemsolving.com/texer/', '_blank');
+    });
+  });
+});
+</script>
+</body>
+</html>

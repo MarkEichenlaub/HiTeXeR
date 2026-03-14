@@ -990,8 +990,16 @@ function mergePens(a,b) {
   if (!isPen(a)) return b;
   if (!isPen(b)) return a;
   const r = clonePen(a);
-  // b overrides non-default properties
-  if (b.r !== 0 || b.g !== 0 || b.b !== 0) { r.r=b.r; r.g=b.g; r.b=b.b; }
+  // Color mixing: if both pens have non-black color, average them (Asymptote behavior)
+  const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
+  const bHasColor = (b.r !== 0 || b.g !== 0 || b.b !== 0);
+  if (aHasColor && bHasColor) {
+    r.r = (a.r + b.r) / 2;
+    r.g = (a.g + b.g) / 2;
+    r.b = (a.b + b.b) / 2;
+  } else if (bHasColor) {
+    r.r = b.r; r.g = b.g; r.b = b.b;
+  }
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
   if (b.linestyle) r.linestyle = b.linestyle;
   if (b.fontsize !== 12) r.fontsize = b.fontsize;
@@ -1798,8 +1806,8 @@ function createInterpreter() {
   }
 
   function evalPathExpr(node, env) {
-    const points = [];
-    const joins = [];
+    // First pass: evaluate all nodes, collecting pairs and inline paths
+    const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
     let hasCycle = false;
 
     for (let i = 0; i < node.nodes.length; i++) {
@@ -1809,8 +1817,66 @@ function createInterpreter() {
         continue;
       }
       const val = evalNode(n.point, env);
-      points.push(toPair(val));
-      if (n.join) joins.push(n.join);
+      if (isPath(val) && val.segs.length > 0) {
+        elements.push({type:'path', segs:val.segs, join:n.join});
+      } else {
+        elements.push({type:'pair', pt:toPair(val), join:n.join});
+      }
+    }
+
+    // If any inline paths, build segments directly
+    const hasInlinePaths = elements.some(e => e.type === 'path');
+    if (hasInlinePaths) {
+      const allSegs = [];
+      let pendingPt = null; // pair waiting to be connected to next element
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        if (el.type === 'path') {
+          const start = el.segs[0].p0;
+          // Connect from pending point or previous endpoint to start of path
+          if (pendingPt) {
+            allSegs.push(lineSegment(pendingPt, start));
+            pendingPt = null;
+          } else if (allSegs.length > 0) {
+            const prev = allSegs[allSegs.length - 1].p3;
+            if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
+              allSegs.push(lineSegment(prev, start));
+            }
+          }
+          allSegs.push(...el.segs);
+        } else {
+          // pair element
+          if (pendingPt) {
+            // Two consecutive pairs, connect them
+            allSegs.push(lineSegment(pendingPt, el.pt));
+            pendingPt = null;
+          } else if (allSegs.length > 0) {
+            const prev = allSegs[allSegs.length - 1].p3;
+            if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
+              allSegs.push(lineSegment(prev, el.pt));
+            }
+          } else {
+            // First element with no segments yet — store as pending
+            pendingPt = el.pt;
+          }
+        }
+      }
+      // Close if cycle
+      if (hasCycle && allSegs.length > 0) {
+        const first = allSegs[0].p0;
+        const last = allSegs[allSegs.length - 1].p3;
+        if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
+          allSegs.push(lineSegment(last, first));
+        }
+      }
+      return makePath(allSegs, hasCycle);
+    }
+
+    // Standard path: all elements are pairs
+    const points = elements.map(e => e.pt);
+    const joins = [];
+    for (let i = 0; i < elements.length; i++) {
+      if (elements[i].join) joins.push(elements[i].join);
     }
 
     if (points.length < 2) return makePath([], false);
@@ -2079,6 +2145,8 @@ function createInterpreter() {
       paleyellow:'#ffffc0', palecyan:'#c0ffff', palemagenta:'#ffc0ff',
       deepblue:'#0000a0', deepgreen:'#004d00', deepred:'#a00000',
       deepcyan:'#006060', deepmagenta:'#600060',
+      royalblue:'#4169e1', olive:'#808000', chartreuse:'#7fff00',
+      fuchsia:'#ff00ff', springgreen:'#00ff7f',
     };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
       const r = parseInt(hex.substr(1,2),16)/255;
@@ -2099,6 +2167,19 @@ function createInterpreter() {
     env.set('realMin', Number.MIN_VALUE);
     env.set('I', makePair(0,1));
     env.set('origin', makePair(0,0));
+    // Cardinal direction constants
+    env.set('N', makePair(0,1));
+    env.set('S', makePair(0,-1));
+    env.set('E', makePair(1,0));
+    env.set('W', makePair(-1,0));
+    env.set('NE', makePair(1,1));
+    env.set('NW', makePair(-1,1));
+    env.set('SE', makePair(1,-1));
+    env.set('SW', makePair(-1,-1));
+    env.set('up', makePair(0,1));
+    env.set('down', makePair(0,-1));
+    env.set('right', makePair(1,0));
+    env.set('left', makePair(-1,0));
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
@@ -2488,8 +2569,15 @@ function createInterpreter() {
       const pts = [];
       for (const s1 of p1.segs) {
         for (const s2 of p2.segs) {
-          const ip = bezierBezierIntersect(s1, s2);
-          if (ip) pts.push(ip);
+          const ips = bezierBezierAllIntersections(s1, s2);
+          for (const ip of ips) {
+            // Deduplicate across segments
+            let dup = false;
+            for (const p of pts) {
+              if (Math.abs(p.x - ip.x) < 0.001 && Math.abs(p.y - ip.y) < 0.001) { dup = true; break; }
+            }
+            if (!dup) pts.push(ip);
+          }
         }
       }
       return pts;
@@ -3495,8 +3583,7 @@ function createInterpreter() {
     env.set('Cos', (deg) => Math.cos(toNumber(deg) * Math.PI / 180));
     env.set('Tan', (deg) => Math.tan(toNumber(deg) * Math.PI / 180));
 
-    // intersectionpoints stub (returns empty array for now)
-    env.set('intersectionpoints', (...args) => []);
+    // (intersectionpoints defined earlier with proper implementation)
 
     // surface/revolution stubs for non-wireframe usage (draw calls on these are no-ops)
     env.set('surface', (...args) => ({_tag:'surface'}));
@@ -3711,18 +3798,130 @@ function createInterpreter() {
   }
 
   function bezierBezierIntersect(s1, s2) {
-    // Approximate intersection by sampling
-    const N = 32;
-    let bestDist = Infinity, bestPt = null;
-    for (let i = 0; i <= N; i++) {
-      const p1 = bezierPoint(s1, i/N);
-      for (let j = 0; j <= N; j++) {
-        const p2 = bezierPoint(s2, j/N);
-        const d = Math.sqrt((p1.x-p2.x)*(p1.x-p2.x)+(p1.y-p2.y)*(p1.y-p2.y));
-        if (d < bestDist) { bestDist = d; bestPt = makePair((p1.x+p2.x)/2,(p1.y+p2.y)/2); }
+    // Recursive subdivision approach for robust Bezier-Bezier intersection
+    function bbox(seg) {
+      const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
+      const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
+      return {
+        minX: Math.min(...xs), maxX: Math.max(...xs),
+        minY: Math.min(...ys), maxY: Math.max(...ys),
+      };
+    }
+    function bboxOverlap(a, b, tol) {
+      return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
+             a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
+    }
+    function subdivide(seg, t) {
+      const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
+      const u = 1 - t;
+      const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
+      const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
+      const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
+      const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
+      const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
+      const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
+      return [
+        makeSeg(p0, q0, r0, s0),
+        makeSeg(s0, r1, q2, p3),
+      ];
+    }
+    function segSize(seg) {
+      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
+      return Math.abs(dx) + Math.abs(dy);
+    }
+    const tol = 1e-4;
+    const results = [];
+    function recurse(a, b, depth) {
+      if (results.length > 0) return; // only need first intersection
+      const ba = bbox(a), bb = bbox(b);
+      if (!bboxOverlap(ba, bb, tol)) return;
+      if (depth > 40) {
+        // Converged — report midpoint
+        const mx = (a.p0.x + a.p3.x + b.p0.x + b.p3.x) / 4;
+        const my = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
+        results.push(makePair(mx, my));
+        return;
+      }
+      if (segSize(a) < tol && segSize(b) < tol) {
+        const mx = (a.p0.x + b.p0.x) / 2;
+        const my = (a.p0.y + b.p0.y) / 2;
+        results.push(makePair(mx, my));
+        return;
+      }
+      // Subdivide the larger segment
+      if (segSize(a) >= segSize(b)) {
+        const [a1, a2] = subdivide(a, 0.5);
+        recurse(a1, b, depth + 1);
+        recurse(a2, b, depth + 1);
+      } else {
+        const [b1, b2] = subdivide(b, 0.5);
+        recurse(a, b1, depth + 1);
+        recurse(a, b2, depth + 1);
       }
     }
-    return bestDist < 0.01 ? bestPt : null;
+    recurse(s1, s2, 0);
+    return results.length > 0 ? results[0] : null;
+  }
+
+  function bezierBezierAllIntersections(s1, s2) {
+    // Find ALL intersections between two Bezier segments
+    function bbox(seg) {
+      const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
+      const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
+      return {
+        minX: Math.min(...xs), maxX: Math.max(...xs),
+        minY: Math.min(...ys), maxY: Math.max(...ys),
+      };
+    }
+    function bboxOverlap(a, b, tol) {
+      return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
+             a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
+    }
+    function subdivide(seg, t) {
+      const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
+      const u = 1 - t;
+      const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
+      const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
+      const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
+      const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
+      const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
+      const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
+      return [
+        makeSeg(p0, q0, r0, s0),
+        makeSeg(s0, r1, q2, p3),
+      ];
+    }
+    function segSize(seg) {
+      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
+      return Math.abs(dx) + Math.abs(dy);
+    }
+    const tol = 1e-4;
+    const results = [];
+    function recurse(a, b, depth) {
+      const ba = bbox(a), bb = bbox(b);
+      if (!bboxOverlap(ba, bb, tol)) return;
+      if (depth > 40 || (segSize(a) < tol && segSize(b) < tol)) {
+        const mx = (a.p0.x + a.p3.x + b.p0.x + b.p3.x) / 4;
+        const my = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
+        // Deduplicate: skip if too close to existing result
+        for (const r of results) {
+          if (Math.abs(r.x - mx) < 0.001 && Math.abs(r.y - my) < 0.001) return;
+        }
+        results.push(makePair(mx, my));
+        return;
+      }
+      if (segSize(a) >= segSize(b)) {
+        const [a1, a2] = subdivide(a, 0.5);
+        recurse(a1, b, depth + 1);
+        recurse(a2, b, depth + 1);
+      } else {
+        const [b1, b2] = subdivide(b, 0.5);
+        recurse(a, b1, depth + 1);
+        recurse(a, b2, depth + 1);
+      }
+    }
+    recurse(s1, s2, 0);
+    return results;
   }
 
   // Main execution
@@ -4216,7 +4415,8 @@ function stripLaTeX(text) {
     '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
-    '\\cdot':'·','\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
     '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
