@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR vs Asymptote — Page 25/178</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
+.container{max-width:1600px;margin:0 auto}
+h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom:4px}
+.sub{text-align:center;color:#666;font-size:.92em;margin-bottom:6px}
+.stats{text-align:center;margin-bottom:20px;font-size:.88em}
+.stats b{display:inline-block;padding:2px 10px;border-radius:10px;color:#fff;margin:0 3px;font-weight:600;font-size:.82em}
+
+.card{background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:24px;overflow:visible}
+.card-header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px 10px 0 0}
+.card-header h2{font-size:1em;font-weight:600}
+.badge{padding:3px 12px;border-radius:12px;font-size:.75em;font-weight:700;color:#fff;white-space:nowrap}
+.card-body{display:grid;grid-template-columns:35% 35% 30%;gap:0}
+.render-col{padding:14px;border-right:1px solid #eee}
+.render-col:last-child{border-right:none}
+.render-col h3{font-size:.72em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
+.img-wrap{background:#fff;border:1px solid #ddd;border-radius:6px;min-height:80px;display:flex;align-items:center;justify-content:center;padding:8px;overflow:visible}
+.img-wrap img,.img-wrap object{max-width:100%;height:auto;display:block}
+.na{color:#999;font-size:.85em}
+.code-box{background:#f5f5f5;color:#333;font-family:Consolas,monospace;font-size:10.5px;line-height:1.35;padding:8px;border-radius:6px;border:1px solid #ddd;max-height:260px;overflow-y:auto;white-space:pre;word-wrap:normal}
+.link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.btn{display:inline-block;padding:4px 10px;font-size:.78em;font-weight:600;color:#1a1a2e;background:#e8e8f0;border:1px solid #c0c0d0;border-radius:4px;text-decoration:none;cursor:pointer;font-family:inherit}
+.btn:hover{background:#1a1a2e;color:#fff}
+.pag{text-align:center;margin:24px 0}
+.pag a,.pag span{display:inline-block;padding:5px 10px;margin:1px;border-radius:4px;font-size:.85em;text-decoration:none}
+.pag a{background:#e8e8f0;color:#1a1a2e}
+.pag a:hover{background:#1a1a2e;color:#fff}
+.pag .cur{background:#1a1a2e;color:#fff;font-weight:700}
+.pag .dots{color:#999}
+</style></head><body>
+<div class="container">
+<h1>HiTeXeR vs Asymptote</h1>
+<p class="sub">1779 diagrams sorted by SSIM (worst first) — Page 25 of 178</p>
+<div class="stats">
+<b style="background:#2d8a4e">4 Good</b>
+<b style="background:#c0820a">66 Fair</b>
+<b style="background:#c0392b">1709 Poor</b>
+
+</div>
+<div class="pag"><a href="page-24.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-18.html">18</a><a href="page-19.html">19</a><a href="page-20.html">20</a><a href="page-21.html">21</a><a href="page-22.html">22</a><a href="page-23.html">23</a><a href="page-24.html">24</a><span class="cur">25</span><a href="page-26.html">26</a><a href="page-27.html">27</a><a href="page-28.html">28</a><a href="page-29.html">29</a><a href="page-30.html">30</a><a href="page-31.html">31</a><a href="page-32.html">32</a><span class="dots">…</span><a href="page-178.html">178</a><a href="page-26.html">Next &raquo;</a></div>
+
+<div class="card" id="pair-241">
+  <div class="card-header">
+    <h2>#241 &mdash; c186_L20_script_8.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3135 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01964.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01964.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, R, SS, tailP, tailD;
+
+P = (2,4); 
+D = (2,1);
+R = (6,3);
+SS = foot(R, P, P+D);
+
+tailP = (0,0); 
+tailD = (0,0);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(R--SS, dashed);
+draw(rightanglemark(R, SS, P, 15));
+draw(P--R, brown + linewidth(1.0), Arrow(7)); 
+draw(P--SS, heavygreen + linewidth(1.0), Arrow(7));
+draw(SS--R, orange + linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$R$&quot;, R, S, UnFill);
+label(&quot;$P$&quot;, P, NW, UnFill);
+label(&quot;$S$&quot;, SS, N, UnFill);
+
+dot(P); 
+dot(SS); 
+dot(R);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20P%2C%20D%2C%20R%2C%20SS%2C%20tailP%2C%20tailD%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0D%0AR%20%3D%20(6%2C3)%3B%0D%0D%0ASS%20%3D%20foot(R%2C%20P%2C%20P%2BD)%3B%0D%0A%0D%0AtailP%20%3D%20(0%2C0)%3B%20%0D%0D%0AtailD%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(R--SS%2C%20dashed)%3B%0D%0D%0Adraw(rightanglemark(R%2C%20SS%2C%20P%2C%2015))%3B%0D%0D%0Adraw(P--R%2C%20brown%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(P--SS%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(SS--R%2C%20orange%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%20D%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24P%24%22%2C%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24S%24%22%2C%20SS%2C%20N%2C%20UnFill)%3B%0D%0A%0D%0Adot(P)%3B%20%0D%0D%0Adot(SS)%3B%20%0D%0D%0Adot(R)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, R, SS, tailP, tailD;
+
+P = (2,4); 
+D = (2,1);
+R = (6,3);
+SS = foot(R, P, P+D);
+
+tailP = (0,0); 
+tailD = (0,0);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(R--SS, dashed);
+draw(rightanglemark(R, SS, P, 15));
+draw(P--R, brown + linewidth(1.0), Arrow(7)); 
+draw(P--SS, heavygreen + linewidth(1.0), Arrow(7));
+draw(SS--R, orange + linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$R$&quot;, R, S, UnFill);
+label(&quot;$P$&quot;, P, NW, UnFill);
+label(&quot;$S$&quot;, SS, N, UnFill);
+
+dot(P); 
+dot(SS); 
+dot(R);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-242">
+  <div class="card-header">
+    <h2>#242 &mdash; c186_L20_script_7.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3138 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01958.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01958.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, R, SS, tailP, tailD;
+
+P = (2,4); 
+D = (2,1);
+R = (6,3);
+SS = foot(R, P, P+D);
+
+tailP = (0,0); 
+tailD = (0,0);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(R--SS, dashed);
+draw(rightanglemark(R, SS, P, 15));
+draw(P--R, brown + linewidth(1.0), Arrow(7)); 
+draw(P--SS, heavygreen + linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$R$&quot;, R, S, UnFill);
+label(&quot;$P$&quot;, P, NW, UnFill);
+label(&quot;$S$&quot;, SS, N, UnFill);
+
+dot(P); 
+dot(SS); 
+dot(R);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20P%2C%20D%2C%20R%2C%20SS%2C%20tailP%2C%20tailD%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0D%0AR%20%3D%20(6%2C3)%3B%0D%0D%0ASS%20%3D%20foot(R%2C%20P%2C%20P%2BD)%3B%0D%0A%0D%0AtailP%20%3D%20(0%2C0)%3B%20%0D%0D%0AtailD%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(R--SS%2C%20dashed)%3B%0D%0D%0Adraw(rightanglemark(R%2C%20SS%2C%20P%2C%2015))%3B%0D%0D%0Adraw(P--R%2C%20brown%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(P--SS%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%20D%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24P%24%22%2C%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24S%24%22%2C%20SS%2C%20N%2C%20UnFill)%3B%0D%0A%0D%0Adot(P)%3B%20%0D%0D%0Adot(SS)%3B%20%0D%0D%0Adot(R)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, R, SS, tailP, tailD;
+
+P = (2,4); 
+D = (2,1);
+R = (6,3);
+SS = foot(R, P, P+D);
+
+tailP = (0,0); 
+tailD = (0,0);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(R--SS, dashed);
+draw(rightanglemark(R, SS, P, 15));
+draw(P--R, brown + linewidth(1.0), Arrow(7)); 
+draw(P--SS, heavygreen + linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$R$&quot;, R, S, UnFill);
+label(&quot;$P$&quot;, P, NW, UnFill);
+label(&quot;$S$&quot;, SS, N, UnFill);
+
+dot(P); 
+dot(SS); 
+dot(R);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-243">
+  <div class="card-header">
+    <h2>#243 &mdash; c186_L19_script_42.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3145 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01704.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01704.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t= 3;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0, 0);
+tailP = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+
+label(&quot;Vector for $t=&quot; + string(t) + &quot;$&quot;, tailV + V/2, W, UnFill);
+
+label(&quot;$t =&quot; + string(t) + &quot;$&quot;, V, SW, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%3D%203%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C%200)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22Vector%20for%20%24t%3D%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20tailV%20%2B%20V%2F2%2C%20W%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20SW%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t= 3;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0, 0);
+tailP = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+
+label(&quot;Vector for $t=&quot; + string(t) + &quot;$&quot;, tailV + V/2, W, UnFill);
+
+label(&quot;$t =&quot; + string(t) + &quot;$&quot;, V, SW, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-244">
+  <div class="card-header">
+    <h2>#244 &mdash; c186_L19_p37377_solution_text_1.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3146 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01658.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01658.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, A, B, C, DD;
+
+P = (3,2); 
+D = (-2,2); 
+
+A = g(0, P,D); 
+B = g(1.5, P, D);
+C = (-2,6); 
+DD = g(-2, P, D); 
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$A$&quot;, A, NE, UnFill); 
+label(&quot;$B$&quot;, B, NE, UnFill);
+label(&quot;$C$&quot;, C, S, UnFill);  
+label(&quot;$D$&quot;, DD, NE, UnFill); 
+
+dot(A); 
+dot(B); 
+dot(C); 
+dot(DD);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0A%7B%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0Apair%20P%2C%20D%2C%20A%2C%20B%2C%20C%2C%20DD%3B%0D%0A%0D%0AP%20%3D%20(3%2C2)%3B%20%0D%0AD%20%3D%20(-2%2C2)%3B%20%0D%0A%0D%0AA%20%3D%20g(0%2C%20P%2CD)%3B%20%0D%0AB%20%3D%20g(1.5%2C%20P%2C%20D)%3B%0D%0AC%20%3D%20(-2%2C6)%3B%20%0D%0ADD%20%3D%20g(-2%2C%20P%2C%20D)%3B%20%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20NE%2C%20UnFill)%3B%20%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20NE%2C%20UnFill)%3B%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20S%2C%20UnFill)%3B%20%20%0D%0Alabel(%22%24D%24%22%2C%20DD%2C%20NE%2C%20UnFill)%3B%20%0D%0A%0D%0Adot(A)%3B%20%0D%0Adot(B)%3B%20%0D%0Adot(C)%3B%20%0D%0Adot(DD)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, A, B, C, DD;
+
+P = (3,2); 
+D = (-2,2); 
+
+A = g(0, P,D); 
+B = g(1.5, P, D);
+C = (-2,6); 
+DD = g(-2, P, D); 
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$A$&quot;, A, NE, UnFill); 
+label(&quot;$B$&quot;, B, NE, UnFill);
+label(&quot;$C$&quot;, C, S, UnFill);  
+label(&quot;$D$&quot;, DD, NE, UnFill); 
+
+dot(A); 
+dot(B); 
+dot(C); 
+dot(DD);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-245">
+  <div class="card-header">
+    <h2>#245 &mdash; c186_L16_p32173_solution_text_3.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3154 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01413.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01413.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(15); 
+import TrigMacros; 
+import olympiad; 
+
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+gridLines(-6, 6, -6, 6); 
+
+pair col1A, col2A; 
+
+col1A= (cos(2pi/3), sin(2pi/3)); 
+col2A = (-sin(2pi/3), cos(2pi/3)); 
+
+pair  V, AV, tailV, tailAV, O;
+
+O = (0,0); 
+V = (3,1); 
+AV = multByMat(V, col1A, col2A); 
+
+tailV = (0,0); 
+tailAV = tailV;
+
+draw(tailAV--tailAV +AV, red + dashed, Arrow(7)); 
+
+pair U,P;
+U = (1,2);
+
+P = foot(AV, U, (0, 0));
+
+draw(maxLine((0,0), U, -6, 6, -6, 6)); 
+draw(-2U-- -U, red, Arrow(7)); 
+draw((0, 0)--P, brown, Arrow(7)); 
+draw((0,0)--AV, gray, Arrow(7));
+
+dot(-2U, red); 
+dot((0,0), black);
+
+draw(P--AV, dashed); 
+draw(rightanglemark(2U, P, AV, 10)); 
+label(&quot;$(\mathbf{D} \mathbf{A})\mathbf{v}$&quot;,P/2,SE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;,tailAV + AV/2,SW, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%20%0D%0Aimport%20TrigMacros%3B%20%0D%0Aimport%20olympiad%3B%20%0D%0A%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0A%7B%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0A%7B%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0A%7D%0D%0A%0D%0AgridLines(-6%2C%206%2C%20-6%2C%206)%3B%20%0D%0A%0D%0Apair%20col1A%2C%20col2A%3B%20%0D%0A%0D%0Acol1A%3D%20(cos(2pi%2F3)%2C%20sin(2pi%2F3))%3B%20%0D%0Acol2A%20%3D%20(-sin(2pi%2F3)%2C%20cos(2pi%2F3))%3B%20%0D%0A%0D%0Apair%20%20V%2C%20AV%2C%20tailV%2C%20tailAV%2C%20O%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%20%0D%0AV%20%3D%20(3%2C1)%3B%20%0D%0AAV%20%3D%20multByMat(V%2C%20col1A%2C%20col2A)%3B%20%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%20%0D%0AtailAV%20%3D%20tailV%3B%0D%0A%0D%0Adraw(tailAV--tailAV%20%2BAV%2C%20red%20%2B%20dashed%2C%20Arrow(7))%3B%20%0D%0A%0D%0Apair%20U%2CP%3B%0D%0AU%20%3D%20(1%2C2)%3B%0D%0A%0D%0AP%20%3D%20foot(AV%2C%20U%2C%20(0%2C%200))%3B%0D%0A%0D%0Adraw(maxLine((0%2C0)%2C%20U%2C%20-6%2C%206%2C%20-6%2C%206))%3B%20%0D%0Adraw(-2U--%20-U%2C%20red%2C%20Arrow(7))%3B%20%0D%0Adraw((0%2C%200)--P%2C%20brown%2C%20Arrow(7))%3B%20%0D%0Adraw((0%2C0)--AV%2C%20gray%2C%20Arrow(7))%3B%0D%0A%0D%0Adot(-2U%2C%20red)%3B%20%0D%0Adot((0%2C0)%2C%20black)%3B%0D%0A%0D%0Adraw(P--AV%2C%20dashed)%3B%20%0D%0Adraw(rightanglemark(2U%2C%20P%2C%20AV%2C%2010))%3B%20%0D%0Alabel(%22%24(%5Cmathbf%7BD%7D%20%5Cmathbf%7BA%7D)%5Cmathbf%7Bv%7D%24%22%2CP%2F2%2CSE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2CtailAV%20%2B%20AV%2F2%2CSW%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(15); 
+import TrigMacros; 
+import olympiad; 
+
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+gridLines(-6, 6, -6, 6); 
+
+pair col1A, col2A; 
+
+col1A= (cos(2pi/3), sin(2pi/3)); 
+col2A = (-sin(2pi/3), cos(2pi/3)); 
+
+pair  V, AV, tailV, tailAV, O;
+
+O = (0,0); 
+V = (3,1); 
+AV = multByMat(V, col1A, col2A); 
+
+tailV = (0,0); 
+tailAV = tailV;
+
+draw(tailAV--tailAV +AV, red + dashed, Arrow(7)); 
+
+pair U,P;
+U = (1,2);
+
+P = foot(AV, U, (0, 0));
+
+draw(maxLine((0,0), U, -6, 6, -6, 6)); 
+draw(-2U-- -U, red, Arrow(7)); 
+draw((0, 0)--P, brown, Arrow(7)); 
+draw((0,0)--AV, gray, Arrow(7));
+
+dot(-2U, red); 
+dot((0,0), black);
+
+draw(P--AV, dashed); 
+draw(rightanglemark(2U, P, AV, 10)); 
+label(&quot;$(\mathbf{D} \mathbf{A})\mathbf{v}$&quot;,P/2,SE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;,tailAV + AV/2,SW, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-246">
+  <div class="card-header">
+    <h2>#246 &mdash; c134_L9_p3513_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3155 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00865.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/00865.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import graph;
+
+unitsize(2.5 cm);
+
+pair A, B, C, D, E, F;
+
+A = dir(105);
+B = dir(195);
+C = dir(345);
+D = (A + reflect(B,C)*(A))/2;
+E = (B + reflect(C,A)*(B))/2;
+F = (C + reflect(A,B)*(C))/2;
+
+draw(A--B--C--cycle);
+draw(A--D);
+draw(B--E);
+draw(C--F);
+draw(Circle((B + C)/2, abs(B - C)/2));
+draw(Circle((C + A)/2, abs(C - A)/2));
+draw(Circle((A + B)/2, abs(A - B)/2));
+
+label(&quot;$A$&quot;, A, N);
+label(&quot;$B$&quot;, B, SW);
+label(&quot;$C$&quot;, C, SE);
+label(&quot;$D$&quot;, D, S);
+label(&quot;$E$&quot;, E, NE);
+label(&quot;$F$&quot;, F, NW);
+label(&quot;$S_1$&quot;, (B + C)/2 + abs(B - C)/2*dir(-60), SE);
+label(&quot;$S_2$&quot;, (C + A)/2 + abs(C - A)/2*dir(60), NE);
+label(&quot;$S_3$&quot;, (A + B)/2 + abs(A - B)/2*dir(120), NW);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20graph%3B%0D%0A%0D%0Aunitsize(2.5%20cm)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20E%2C%20F%3B%0D%0A%0D%0AA%20%3D%20dir(105)%3B%0D%0AB%20%3D%20dir(195)%3B%0D%0AC%20%3D%20dir(345)%3B%0D%0AD%20%3D%20(A%20%2B%20reflect(B%2CC)*(A))%2F2%3B%0D%0AE%20%3D%20(B%20%2B%20reflect(C%2CA)*(B))%2F2%3B%0D%0AF%20%3D%20(C%20%2B%20reflect(A%2CB)*(C))%2F2%3B%0D%0A%0D%0Adraw(A--B--C--cycle)%3B%0D%0Adraw(A--D)%3B%0D%0Adraw(B--E)%3B%0D%0Adraw(C--F)%3B%0D%0Adraw(Circle((B%20%2B%20C)%2F2%2C%20abs(B%20-%20C)%2F2))%3B%0D%0Adraw(Circle((C%20%2B%20A)%2F2%2C%20abs(C%20-%20A)%2F2))%3B%0D%0Adraw(Circle((A%20%2B%20B)%2F2%2C%20abs(A%20-%20B)%2F2))%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20N)%3B%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20SW)%3B%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20SE)%3B%0D%0Alabel(%22%24D%24%22%2C%20D%2C%20S)%3B%0D%0Alabel(%22%24E%24%22%2C%20E%2C%20NE)%3B%0D%0Alabel(%22%24F%24%22%2C%20F%2C%20NW)%3B%0D%0Alabel(%22%24S_1%24%22%2C%20(B%20%2B%20C)%2F2%20%2B%20abs(B%20-%20C)%2F2*dir(-60)%2C%20SE)%3B%0D%0Alabel(%22%24S_2%24%22%2C%20(C%20%2B%20A)%2F2%20%2B%20abs(C%20-%20A)%2F2*dir(60)%2C%20NE)%3B%0D%0Alabel(%22%24S_3%24%22%2C%20(A%20%2B%20B)%2F2%20%2B%20abs(A%20-%20B)%2F2*dir(120)%2C%20NW)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import graph;
+
+unitsize(2.5 cm);
+
+pair A, B, C, D, E, F;
+
+A = dir(105);
+B = dir(195);
+C = dir(345);
+D = (A + reflect(B,C)*(A))/2;
+E = (B + reflect(C,A)*(B))/2;
+F = (C + reflect(A,B)*(C))/2;
+
+draw(A--B--C--cycle);
+draw(A--D);
+draw(B--E);
+draw(C--F);
+draw(Circle((B + C)/2, abs(B - C)/2));
+draw(Circle((C + A)/2, abs(C - A)/2));
+draw(Circle((A + B)/2, abs(A - B)/2));
+
+label(&quot;$A$&quot;, A, N);
+label(&quot;$B$&quot;, B, SW);
+label(&quot;$C$&quot;, C, SE);
+label(&quot;$D$&quot;, D, S);
+label(&quot;$E$&quot;, E, NE);
+label(&quot;$F$&quot;, F, NW);
+label(&quot;$S_1$&quot;, (B + C)/2 + abs(B - C)/2*dir(-60), SE);
+label(&quot;$S_2$&quot;, (C + A)/2 + abs(C - A)/2*dir(60), NE);
+label(&quot;$S_3$&quot;, (A + B)/2 + abs(A - B)/2*dir(120), NW);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-247">
+  <div class="card-header">
+    <h2>#247 &mdash; c186_L19_p37377_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3161 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01657.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01657.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+real t = 1.5; 
+
+pair P, D, tD, tailP, tailD, tailtD;
+pair A, B, C, DD; 
+
+P = (3,2); 
+D = (-2,2); 
+tD = t*D; 
+
+A = g(0, P,D); 
+B = g(1.5, P, D);
+C = (-2,6); 
+DD = g(-2, P, D); 
+
+tailP = (0,0);
+tailD = tailP;
+tailtD = tailP + P; 
+
+//draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P,  2ESE, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + 2D/3, SW, UnFill);
+label(&quot;$t\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+label(&quot;$A$&quot;, A, NE, UnFill); 
+label(&quot;$B$&quot;, B, NE, UnFill);
+label(&quot;$C$&quot;, C, NE, UnFill);  
+label(&quot;$D$&quot;, DD, NE, UnFill); 
+
+dot(A); 
+dot(B); 
+dot(C); 
+dot(DD);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0A%7B%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0Areal%20t%20%3D%201.5%3B%20%0D%0A%0D%0Apair%20P%2C%20D%2C%20tD%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0Apair%20A%2C%20B%2C%20C%2C%20DD%3B%20%0D%0A%0D%0AP%20%3D%20(3%2C2)%3B%20%0D%0AD%20%3D%20(-2%2C2)%3B%20%0D%0AtD%20%3D%20t*D%3B%20%0D%0A%0D%0AA%20%3D%20g(0%2C%20P%2CD)%3B%20%0D%0AB%20%3D%20g(1.5%2C%20P%2C%20D)%3B%0D%0AC%20%3D%20(-2%2C6)%3B%20%0D%0ADD%20%3D%20g(-2%2C%20P%2C%20D)%3B%20%0D%0A%0D%0AtailP%20%3D%20(0%2C0)%3B%0D%0AtailD%20%3D%20tailP%3B%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%20%0D%0A%0D%0A%2F%2Fdraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20%202ESE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%202D%2F3%2C%20SW%2C%20UnFill)%3B%0D%0Alabel(%22%24t%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20NE%2C%20UnFill)%3B%20%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20NE%2C%20UnFill)%3B%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20NE%2C%20UnFill)%3B%20%20%0D%0Alabel(%22%24D%24%22%2C%20DD%2C%20NE%2C%20UnFill)%3B%20%0D%0A%0D%0Adot(A)%3B%20%0D%0Adot(B)%3B%20%0D%0Adot(C)%3B%20%0D%0Adot(DD)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+real t = 1.5; 
+
+pair P, D, tD, tailP, tailD, tailtD;
+pair A, B, C, DD; 
+
+P = (3,2); 
+D = (-2,2); 
+tD = t*D; 
+
+A = g(0, P,D); 
+B = g(1.5, P, D);
+C = (-2,6); 
+DD = g(-2, P, D); 
+
+tailP = (0,0);
+tailD = tailP;
+tailtD = tailP + P; 
+
+//draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P,  2ESE, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + 2D/3, SW, UnFill);
+label(&quot;$t\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+label(&quot;$A$&quot;, A, NE, UnFill); 
+label(&quot;$B$&quot;, B, NE, UnFill);
+label(&quot;$C$&quot;, C, NE, UnFill);  
+label(&quot;$D$&quot;, DD, NE, UnFill); 
+
+dot(A); 
+dot(B); 
+dot(C); 
+dot(DD);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-248">
+  <div class="card-header">
+    <h2>#248 &mdash; c186_L16_script_18.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3162 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01456.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01456.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair col1, col2; 
+pair V, BV, O; 
+pair tailV, tailBV;
+
+O = (0,0);
+
+//Columns of the matrix:
+col1 = (1,0); 
+col2 = (0,0);
+
+//Input vector
+V = (4, 2);
+
+//Output vector:
+BV = multByMat(V, col1, col2);
+
+tailV = O; 
+tailBV = tailV;
+
+gridLines(-4, 6,-6,4);
+
+draw(tailV--tailV + V, blue, Arrow(7));
+draw(tailBV--tailBV + BV, heavygreen, Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
+label(&quot;$\mathbf B \mathbf{v}$&quot;, tailBV + BV/2, S, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0D%0Apair%20col1%2C%20col2%3B%20%0D%0D%0Apair%20V%2C%20BV%2C%20O%3B%20%0D%0D%0Apair%20tailV%2C%20tailBV%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FColumns%20of%20the%20matrix%3A%0D%0D%0Acol1%20%3D%20(1%2C0)%3B%20%0D%0D%0Acol2%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FInput%20vector%0D%0D%0AV%20%3D%20(4%2C%202)%3B%0D%0A%0D%0A%2F%2FOutput%20vector%3A%0D%0D%0ABV%20%3D%20multByMat(V%2C%20col1%2C%20col2)%3B%0D%0A%0D%0AtailV%20%3D%20O%3B%20%0D%0D%0AtailBV%20%3D%20tailV%3B%0D%0A%0D%0AgridLines(-4%2C%206%2C-6%2C4)%3B%0D%0A%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20blue%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailBV--tailBV%20%2B%20BV%2C%20heavygreen%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%20%2B%20V%2F2%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%5Cmathbf%20B%20%5Cmathbf%7Bv%7D%24%22%2C%20tailBV%20%2B%20BV%2F2%2C%20S%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair col1, col2; 
+pair V, BV, O; 
+pair tailV, tailBV;
+
+O = (0,0);
+
+//Columns of the matrix:
+col1 = (1,0); 
+col2 = (0,0);
+
+//Input vector
+V = (4, 2);
+
+//Output vector:
+BV = multByMat(V, col1, col2);
+
+tailV = O; 
+tailBV = tailV;
+
+gridLines(-4, 6,-6,4);
+
+draw(tailV--tailV + V, blue, Arrow(7));
+draw(tailBV--tailBV + BV, heavygreen, Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
+label(&quot;$\mathbf B \mathbf{v}$&quot;, tailBV + BV/2, S, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-249">
+  <div class="card-header">
+    <h2>#249 &mdash; c186_L20_script_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3175 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01891.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01891.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tailV, tailP, tailD;
+real t;
+
+P = (2,4); 
+D = (2,1);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$t = -2$&quot;, g(-2, P, D), NW, UnFill); 
+label(&quot;$t = 0$&quot;, g(0, P, D), NW, UnFill); 
+label(&quot;$t = 2$&quot;, g(2, P, D), NW, UnFill);
+
+dot(g(-2, P, D));
+dot(g(0, P, D)); 
+dot(g(2, P, D));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tailV%2C%20tailP%2C%20tailD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20-2%24%22%2C%20g(-2%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%200%24%22%2C%20g(0%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%202%24%22%2C%20g(2%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Adot(g(-2%2C%20P%2C%20D))%3B%0D%0D%0Adot(g(0%2C%20P%2C%20D))%3B%20%0D%0D%0Adot(g(2%2C%20P%2C%20D))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tailV, tailP, tailD;
+real t;
+
+P = (2,4); 
+D = (2,1);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$t = -2$&quot;, g(-2, P, D), NW, UnFill); 
+label(&quot;$t = 0$&quot;, g(0, P, D), NW, UnFill); 
+label(&quot;$t = 2$&quot;, g(2, P, D), NW, UnFill);
+
+dot(g(-2, P, D));
+dot(g(0, P, D)); 
+dot(g(2, P, D));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-250">
+  <div class="card-header">
+    <h2>#250 &mdash; c186_L16_p36971_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3190 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01437.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01437.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(200);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair col1, col2; 
+pair V, AV, O; 
+pair tailV, tailAV;
+
+O = (0,0);
+
+//Input vector
+V = (7, 1); 
+
+//Output vector:
+AV = (0, 5); 
+
+tailV = O; 
+tailAV = tailV;
+
+gridLines(-4, 10,-2,8);
+
+draw(tailV--tailV + V, blue + linewidth(0.7), Arrow(7));
+draw(tailAV--tailAV + AV, heavygreen + linewidth(0.8), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, SE, UnFill); 
+label(&quot;$\mathbf A \mathbf{v}$&quot;, tailAV + AV/2, W, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(200)%3B%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0A%7B%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0A%7B%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%7D%0D%0Apair%20col1%2C%20col2%3B%20%0D%0Apair%20V%2C%20AV%2C%20O%3B%20%0D%0Apair%20tailV%2C%20tailAV%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FInput%20vector%0D%0AV%20%3D%20(7%2C%201)%3B%20%0D%0A%0D%0A%2F%2FOutput%20vector%3A%0D%0AAV%20%3D%20(0%2C%205)%3B%20%0D%0A%0D%0AtailV%20%3D%20O%3B%20%0D%0AtailAV%20%3D%20tailV%3B%0D%0A%0D%0AgridLines(-4%2C%2010%2C-2%2C8)%3B%0D%0A%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20blue%20%2B%20linewidth(0.7)%2C%20Arrow(7))%3B%0D%0Adraw(tailAV--tailAV%20%2B%20AV%2C%20heavygreen%20%2B%20linewidth(0.8)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%20%2B%20V%2F2%2C%20SE%2C%20UnFill)%3B%20%0D%0Alabel(%22%24%5Cmathbf%20A%20%5Cmathbf%7Bv%7D%24%22%2C%20tailAV%20%2B%20AV%2F2%2C%20W%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(200);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair col1, col2; 
+pair V, AV, O; 
+pair tailV, tailAV;
+
+O = (0,0);
+
+//Input vector
+V = (7, 1); 
+
+//Output vector:
+AV = (0, 5); 
+
+tailV = O; 
+tailAV = tailV;
+
+gridLines(-4, 10,-2,8);
+
+draw(tailV--tailV + V, blue + linewidth(0.7), Arrow(7));
+draw(tailAV--tailAV + AV, heavygreen + linewidth(0.8), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, SE, UnFill); 
+label(&quot;$\mathbf A \mathbf{v}$&quot;, tailAV + AV/2, W, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="pag"><a href="page-24.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-18.html">18</a><a href="page-19.html">19</a><a href="page-20.html">20</a><a href="page-21.html">21</a><a href="page-22.html">22</a><a href="page-23.html">23</a><a href="page-24.html">24</a><span class="cur">25</span><a href="page-26.html">26</a><a href="page-27.html">27</a><a href="page-28.html">28</a><a href="page-29.html">29</a><a href="page-30.html">30</a><a href="page-31.html">31</a><a href="page-32.html">32</a><span class="dots">…</span><a href="page-178.html">178</a><a href="page-26.html">Next &raquo;</a></div>
+</div>
+<script>
+document.querySelectorAll('.texer-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    navigator.clipboard.writeText(btn.getAttribute('data-code')).then(()=>{
+      const o=btn.textContent;btn.textContent='Copied!';
+      setTimeout(()=>{btn.textContent=o},1500);
+      window.open('https://artofproblemsolving.com/texer/','_blank');
+    });
+  });
+});
+</script></body></html>

@@ -568,14 +568,14 @@ function parse(tokens) {
       case T.EQ: case T.NEQ: return 4;
       case T.LT: case T.GT: case T.LE: case T.GE: return 5;
       case T.PLUS: case T.MINUS: return 6;
-      case T.DASHDASH: case T.DOTDOT: case T.DOTDOTDOT: case T.HATHAT: return 6; // path join at same level
+      case T.DASHDASH: case T.DOTDOT: case T.DOTDOTDOT: case T.HATHAT: return 5.5; // path join: lower than +/- so a--a+b means a--(a+b)
       case T.LBRACE: {
         // {dir} after a point starts a path direction — give it path-join precedence
         // so (0,0){1,0}..{1,0}(1,1) works inside function call args
         // Also handle named directions: {up}, {down}, {left}, {right}, etc.
         if (pos + 2 < tokens.length && tokens[pos+1].type === T.IDENT
             && NAMED_DIRS && NAMED_DIRS[tokens[pos+1].value]
-            && tokens[pos+2].type === T.RBRACE) return 6;
+            && tokens[pos+2].type === T.RBRACE) return 5.5;
         // Quick lookahead: scan to matching }, counting commas at depth 0
         let d = 0, commas = 0, closePos = -1;
         for (let i = pos + 1; i < tokens.length; i++) {
@@ -584,11 +584,11 @@ function parse(tokens) {
           else if (tokens[i].type === T.RBRACE) { if (d === 0) { closePos = i; break; } d--; }
           else if (d === 0 && tokens[i].type === T.COMMA) commas++;
         }
-        if (commas === 1) return 6; // {expr,expr} pair direction
+        if (commas === 1) return 5.5; // {expr,expr} pair direction
         // Single expression direction: {dir(angle)} or {expr} followed by .. or --
         if (commas === 0 && closePos >= 0 && closePos + 1 < tokens.length) {
           const after = tokens[closePos + 1].type;
-          if (after === T.DOTDOT || after === T.DOTDOTDOT || after === T.DASHDASH) return 6;
+          if (after === T.DOTDOT || after === T.DOTDOTDOT || after === T.DASHDASH) return 5.5;
         }
         return 0;
       }
@@ -728,7 +728,7 @@ function parse(tokens) {
       // Handle ^^ (path concatenation)
       if (at(T.HATHAT)) {
         pos++;
-        const nextPoint = parseExpr(6);
+        const nextPoint = parseExpr(5.5);
         nodes[nodes.length-1].join = '^^';
         nodes.push({point: nextPoint, join: null, dirOut: null});
         const dOut = tryParseDir();
@@ -761,7 +761,7 @@ function parse(tokens) {
       // Check for incoming direction {dir}
       const dirIn = tryParseDir();
 
-      const point = parseExpr(6); // parse at additive level to avoid consuming next --/..
+      const point = parseExpr(5.5); // parse at path-join level so +/- bind tighter than --/..
       nodes[nodes.length-1].join = join;
       nodes[nodes.length-1].tension = tension;
       const newNode = {point, join: null, dirIn: dirIn};
@@ -990,15 +990,20 @@ function mergePens(a,b) {
   if (!isPen(a)) return b;
   if (!isPen(b)) return a;
   const r = clonePen(a);
-  // Color mixing: if both pens have non-black color, average them (Asymptote behavior)
-  const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
+  // Color: In Asymptote, pen + pen adds RGB values (clamped to 0-1).
+  // But for modifier pens (linewidth/fontsize only), don't change color.
   const bHasColor = (b.r !== 0 || b.g !== 0 || b.b !== 0);
-  if (aHasColor && bHasColor) {
-    r.r = (a.r + b.r) / 2;
-    r.g = (a.g + b.g) / 2;
-    r.b = (a.b + b.b) / 2;
-  } else if (bHasColor) {
-    r.r = b.r; r.g = b.g; r.b = b.b;
+  const bIsModifier = !bHasColor && (b.linewidth !== 0.5 || b.linestyle || b.fontsize !== 12 || b.linecap || b.linejoin);
+  if (bHasColor) {
+    const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
+    if (aHasColor) {
+      // Both have color: add RGB (Asymptote pen addition semantics)
+      r.r = Math.min(1, a.r + b.r);
+      r.g = Math.min(1, a.g + b.g);
+      r.b = Math.min(1, a.b + b.b);
+    } else {
+      r.r = b.r; r.g = b.g; r.b = b.b;
+    }
   }
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
   if (b.linestyle) r.linestyle = b.linestyle;
@@ -2127,26 +2132,50 @@ function createInterpreter() {
     };
     for (const [k,v] of Object.entries(dirs)) env.set(k, v);
 
-    // Named colors from ASY_COLORS (hex → pen)
+    // Named colors — exact Asymptote definitions from plain_pens.asy
+    // Base: red=(1,0,0) green=(0,1,0) blue=(0,0,1) cyan=(0,1,1) magenta=(1,0,1) yellow=(1,1,0)
+    // pale = 0.25*base + 0.75*white, light = 0.5*base + 0.5*white
+    // medium = 0.75*base + 0.25*white, heavy = 0.75*base + 0.25*black
+    // deep = 0.5*base + 0.5*black, dark = 0.25*base + 0.75*black
     const ASY_COLORS = {
-      black:'#000000', white:'#ffffff', gray:'#808080', red:'#ff0000',
-      blue:'#0000ff', green:'#00b300', yellow:'#ffff00', cyan:'#00ffff',
-      magenta:'#ff00ff', orange:'#ff8c00', purple:'#8000bf', brown:'#804000',
-      pink:'#ffc0cb',
-      lightblue:'#87ceeb', lightgreen:'#90ee90', lightred:'#ff8080',
-      lightyellow:'#ffffe0', lightgray:'#bfbfbf', lightcyan:'#c0ffff',
-      darkblue:'#000080', darkgreen:'#006400', darkred:'#8b0000',
-      darkcyan:'#008b8b', darkmagenta:'#8b008b', darkgray:'#404040',
-      heavyblue:'#0000bf', heavygreen:'#005900', heavyred:'#bf0000',
-      heavycyan:'#008080', heavymagenta:'#800080', heavygray:'#606060',
-      mediumblue:'#0000cd', mediumgreen:'#00a000', mediumred:'#c00000',
-      mediumcyan:'#00b0b0', mediummagenta:'#b000b0', mediumgray:'#a0a0a0',
-      paleblue:'#c0d0ff', palegreen:'#c0ffc0', palered:'#ffc0c0',
-      paleyellow:'#ffffc0', palecyan:'#c0ffff', palemagenta:'#ffc0ff',
-      deepblue:'#0000a0', deepgreen:'#004d00', deepred:'#a00000',
-      deepcyan:'#006060', deepmagenta:'#600060',
-      royalblue:'#4169e1', olive:'#808000', chartreuse:'#7fff00',
-      fuchsia:'#ff00ff', springgreen:'#00ff7f',
+      black:'#000000', white:'#ffffff',
+      gray:'#808080',
+      // Primary / secondary
+      red:'#ff0000', green:'#00ff00', blue:'#0000ff',
+      cyan:'#00ffff', magenta:'#ff00ff', yellow:'#ffff00',
+      // Pale (75% white)
+      palered:'#ffbfbf', palegreen:'#bfffbf', paleblue:'#bfbfff',
+      palecyan:'#bfffff', palemagenta:'#ffbfff', paleyellow:'#ffffbf',
+      palegray:'#f2f2f2',
+      // Light (50% white)
+      lightred:'#ff8080', lightgreen:'#80ff80', lightblue:'#8080ff',
+      lightcyan:'#80ffff', lightmagenta:'#ff80ff', lightyellow:'#ffff80',
+      lightgray:'#e6e6e6',
+      // Medium (25% white)
+      mediumred:'#ff4040', mediumgreen:'#40ff40', mediumblue:'#4040ff',
+      mediumcyan:'#40ffff', mediummagenta:'#ff40ff', mediumyellow:'#ffff40',
+      mediumgray:'#bfbfbf',
+      // Heavy (25% black)
+      heavyred:'#bf0000', heavygreen:'#00bf00', heavyblue:'#0000bf',
+      heavycyan:'#00bfbf', heavymagenta:'#bf00bf', lightolive:'#bfbf00',
+      heavygray:'#404040',
+      // Deep (50% black)
+      deepred:'#800000', deepgreen:'#008000', deepblue:'#000080',
+      deepcyan:'#008080', deepmagenta:'#800080', deepyellow:'#808000',
+      deepgray:'#1a1a1a',
+      // Dark (75% black)
+      darkred:'#400000', darkgreen:'#004000', darkblue:'#000040',
+      darkcyan:'#004040', darkmagenta:'#400040', darkolive:'#404000',
+      darkgray:'#0d0d0d',
+      // Tertiary colors (50% mixes on color wheel)
+      orange:'#ff8000', fuchsia:'#ff0080', chartreuse:'#80ff00',
+      springgreen:'#00ff80', purple:'#8000ff', royalblue:'#0080ff',
+      // Aliases
+      brown:'#800000',   // = deepred
+      olive:'#808000',   // = deepyellow
+      darkbrown:'#400000', // = darkred
+      pink:'#ffbfff',    // = palemagenta
+      salmon:'#ff8080',  // = lightred
     };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
       const r = parseInt(hex.substr(1,2),16)/255;
@@ -2238,6 +2267,9 @@ function createInterpreter() {
     env.set('cm', 28.35);
     env.set('mm', 2.835);
     env.set('inch', 72);
+
+    // Dot sizing
+    env.set('dotfactor', 6);
 
     // Math functions
     env.set('sin', (x) => Math.sin(toNumber(x)));
@@ -2490,10 +2522,32 @@ function createInterpreter() {
     env.set('slant', (s) => makeTransform(0,1,toNumber(s),0,0,1));
 
     // Pen constructors
-    env.set('rgb', (r,g,b) => makePen({r:toNumber(r),g:toNumber(g),b:toNumber(b)}));
+    env.set('rgb', (...args) => {
+      // rgb(r,g,b) with floats, or rgb("hexstring")
+      if (args.length === 1 && isString(args[0])) {
+        let hex = args[0].replace(/^#/,'');
+        if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+        const ri = parseInt(hex.substr(0,2),16)/255;
+        const gi = parseInt(hex.substr(2,2),16)/255;
+        const bi = parseInt(hex.substr(4,2),16)/255;
+        return makePen({r:isNaN(ri)?0:ri, g:isNaN(gi)?0:gi, b:isNaN(bi)?0:bi});
+      }
+      return makePen({r:toNumber(args[0]),g:toNumber(args[1]),b:toNumber(args[2])});
+    });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w)}));
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
+    env.set('linetype', (...args) => {
+      // linetype("dash pattern") or linetype(real[])
+      let pattern = null;
+      if (args.length >= 1 && isString(args[0])) pattern = args[0];
+      return makePen({linestyle: pattern || 'dashed'});
+    });
+    env.set('linecap', (n) => {
+      const v = toNumber(n);
+      const caps = ['butt','round','square'];
+      return makePen({linecap: caps[v] || 'round'});
+    });
     env.set('opacity', (a) => makePen({opacity:toNumber(a)}));
     env.set('Pen', (n) => makePen({}));
     env.set('Symbol', (...args) => null);
@@ -2736,8 +2790,10 @@ function createInterpreter() {
       return result;
     });
     env.set('map', (f, arr) => {
-      if (!isArray(arr) || typeof f !== 'function') return [];
-      return arr.map(f);
+      if (!isArray(arr)) return [];
+      if (typeof f === 'function') return arr.map(f);
+      if (f && f._tag === 'func') return arr.map(v => callUserFuncValues(f, [v]));
+      return [];
     });
     env.set('sort', (arr) => {
       if (!isArray(arr)) return arr;
@@ -2759,21 +2815,21 @@ function createInterpreter() {
       env.set(name, (...args) => ({_tag:'arrow', style:name, size: args.length>0?toNumber(args[0]):6}));
     }
 
-    // Fill types
+    // Fill types — return tagged objects so label rendering can detect them
     env.set('FillDraw', (...args) => {
-      if (args.length >= 1 && isPen(args[0])) return args[0];
-      return null;
+      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : makePen({r:1,g:1,b:1});
+      return {_tag:'filltype', style:'FillDraw', pen};
     });
     env.set('Fill', (...args) => {
-      if (args.length >= 1 && isPen(args[0])) return args[0];
-      return null;
+      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : makePen({r:1,g:1,b:1});
+      return {_tag:'filltype', style:'Fill', pen};
     });
     env.set('Draw', (...args) => {
-      if (args.length >= 1 && isPen(args[0])) return args[0];
-      return null;
+      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : null;
+      return {_tag:'filltype', style:'Draw', pen};
     });
-    env.set('NoFill', null);
-    env.set('UnFill', null);
+    env.set('NoFill', {_tag:'filltype', style:'NoFill', pen:null});
+    env.set('UnFill', {_tag:'filltype', style:'UnFill', pen:makePen({r:1,g:1,b:1})});
 
     // Margin types
     env.set('Margins', null);
@@ -2801,12 +2857,12 @@ function createInterpreter() {
 
   let graphPackageInstalled = false;
 
+  // Shared axis limit state (accessible from both installGraphPackage and execute)
+  let _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+
   function installGraphPackage(env) {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
-
-    // Shared axis limit state
-    const _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null };
 
     // Helper: build path from points, using smooth (..) or straight (--) joins
     function buildGraphPath(pts, useSmooth) {
@@ -2893,22 +2949,69 @@ function createInterpreter() {
           if (testVal && testVal._tag === 'pair') isPairFunc = true;
         } catch(e) {}
 
-        const pts = [];
+        // Compute y-range limit: if axis limits are set, clip to a reasonable multiple
+        const yClipMin = _axisLimits.ymin !== null ? _axisLimits.ymin - (_axisLimits.ymax - _axisLimits.ymin) * 2 : -1e6;
+        const yClipMax = _axisLimits.ymax !== null ? _axisLimits.ymax + (_axisLimits.ymax - _axisLimits.ymin) * 2 : 1e6;
+        const xClipMin = _axisLimits.xmin !== null ? _axisLimits.xmin - (_axisLimits.xmax - _axisLimits.xmin) * 2 : -1e6;
+        const xClipMax = _axisLimits.xmax !== null ? _axisLimits.xmax + (_axisLimits.xmax - _axisLimits.xmin) * 2 : 1e6;
+
+        // Collect all points, then split at discontinuities (out-of-range or large jumps)
+        const allPts = [];
         for (let i = 0; i <= n; i++) {
           const t = a + (b - a) * i / n;
           try {
             const result = typeof funcArg === 'function' ? funcArg(t) : callUserFuncValues(funcArg, [t]);
             if (isPairFunc) {
               if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
-                pts.push({x: result.x, y: result.y});
+                allPts.push({x: result.x, y: result.y});
+              } else {
+                allPts.push(null); // discontinuity marker
               }
             } else {
               const y = toNumber(result);
-              if (isFinite(y)) pts.push({x: t, y});
+              if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
+                allPts.push({x: t, y});
+              } else {
+                allPts.push(null); // discontinuity marker
+              }
             }
-          } catch(e) { /* skip bad points */ }
+          } catch(e) { allPts.push(null); }
         }
-        return buildGraphPath(pts, smooth);
+
+        // Split into segments at null markers and large jumps
+        const segments = [];
+        let curSeg = [];
+        for (let i = 0; i < allPts.length; i++) {
+          const pt = allPts[i];
+          if (!pt) {
+            if (curSeg.length >= 2) segments.push(curSeg);
+            curSeg = [];
+            continue;
+          }
+          // Detect large y-jumps (asymptotes) — break path if jump exceeds visible range
+          if (curSeg.length > 0) {
+            const prev = curSeg[curSeg.length - 1];
+            const yRange = (_axisLimits.ymax !== null && _axisLimits.ymin !== null) ? (_axisLimits.ymax - _axisLimits.ymin) : 100;
+            if (Math.abs(pt.y - prev.y) > yRange * 2) {
+              if (curSeg.length >= 2) segments.push(curSeg);
+              curSeg = [];
+            }
+          }
+          curSeg.push(pt);
+        }
+        if (curSeg.length >= 2) segments.push(curSeg);
+
+        // Build path by joining segments (disconnected pieces become separate subpaths)
+        if (segments.length === 0) return makePath([], false);
+        if (segments.length === 1) return buildGraphPath(segments[0], smooth);
+
+        // Multiple disconnected segments: build each and concatenate
+        let allSegs = [];
+        for (const seg of segments) {
+          const p = buildGraphPath(seg, smooth);
+          for (const s of p.segs) allSegs.push(s);
+        }
+        return makePath(allSegs, false);
       }
 
       return makePath([], false);
@@ -3323,6 +3426,7 @@ function createInterpreter() {
     env.set('RightTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'right'; return t; });
     env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null});
     env.set('NoZero', {_tag:'tickmod', noZero:true});
+    env.set('NoZeroFormat', {_tag:'tickmod', noZero:true});
 
     // polargraph — plot r = f(theta) in polar coordinates
     env.set('polargraph', (...args) => {
@@ -3369,14 +3473,16 @@ function createInterpreter() {
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
       const pairs = [];
+      let hasCrop = false;
       for (const a of args) {
         if (isPair(a)) pairs.push(a);
-        // Skip picture arg and Crop flag
+        else if (a === true) hasCrop = true; // Crop is env-set to true
       }
       if (pairs.length >= 2) {
         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
         _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
       }
+      if (hasCrop) _axisLimits.crop = true;
     });
     env.set('Crop', true);
     env.set('NoCrop', false);
@@ -3698,12 +3804,14 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    let text = '', pos = null, align = null, pen = null;
+    let text = '', pos = null, align = null, pen = null, filltype = null;
     for (const a of args) {
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
         if (!align && a.align) align = a.align;
+        if (!filltype && a.filltype) filltype = a.filltype;
       }
+      else if (a && a._tag === 'filltype') { filltype = a; }
       else if (isString(a) && !text) text = a;
       else if (isPath(a) && !pos) {
         // label on a path: place at midpoint
@@ -3725,7 +3833,7 @@ function createInterpreter() {
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
-    target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
+    target.commands.push({cmd:'label', text, pos, align, pen, filltype, line: args._line || 0});
   }
 
   // Path helpers
@@ -3934,6 +4042,7 @@ function createInterpreter() {
     unitScale = 1; hasUnitScale = false;
     sizeW = 0; sizeH = 0;
     defaultPen = makePen({});
+    _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
 
     // Auto-install graph package — many AoPS codes use graph functions without import
     graphPackageInstalled = false; // Reset so it re-installs with fresh state
@@ -3950,11 +4059,17 @@ function createInterpreter() {
     // Copy currentpicture's commands to drawCommands for rendering
     for (const c of currentPic.commands) drawCommands.push(c);
 
+    // Read dotfactor from environment (default 6)
+    const dotfactorVal = globalEnv.get('dotfactor');
+    const dotfactor = (typeof dotfactorVal === 'number' && dotfactorVal > 0) ? dotfactorVal : 6;
+
     return {
       drawCommands: drawCommands.slice(),
       unitScale, hasUnitScale,
       sizeW, sizeH,
       defaultPen,
+      axisLimits: Object.assign({}, _axisLimits),
+      dotfactor,
     };
   }
 
@@ -3990,7 +4105,9 @@ function createInterpreter() {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW, sizeH } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, axisLimits, dotfactor: _dotfactor } = result;
+  let sizeW = _sizeW, sizeH = _sizeH;
+  const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
 
   // Compute bounding box
@@ -4058,6 +4175,19 @@ function renderSVG(result, opts) {
     }
   }
 
+  // When Crop is enabled, constrain bbox to axis limits (plus padding for labels/axes)
+  if (axisLimits && axisLimits.crop &&
+      axisLimits.xmin !== null && axisLimits.xmax !== null &&
+      axisLimits.ymin !== null && axisLimits.ymax !== null) {
+    // Allow a small margin beyond limits for axis labels/ticks
+    const xMargin = (axisLimits.xmax - axisLimits.xmin) * 0.15;
+    const yMargin = (axisLimits.ymax - axisLimits.ymin) * 0.15;
+    minX = Math.max(minX, axisLimits.xmin - xMargin);
+    maxX = Math.min(maxX, axisLimits.xmax + xMargin);
+    minY = Math.max(minY, axisLimits.ymin - yMargin);
+    maxY = Math.min(maxY, axisLimits.ymax + yMargin);
+  }
+
   // Add padding
   if (!isFinite(minX)) { minX=0; minY=0; maxX=1; maxY=1; }
   const pad = 0.5;
@@ -4110,9 +4240,13 @@ function renderSVG(result, opts) {
     const targetH = sizeH > 0 ? sizeH : Infinity;
     pxPerUnit = Math.min(targetW / bboxW, targetH / bboxH);
   } else {
-    // No unitsize/size: mimic AoPS behavior by auto-scaling
-    const targetPx = 340; // ~12cm at 72dpi
-    pxPerUnit = targetPx / Math.max(bboxW, bboxH, 1);
+    // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
+    const defaultSize = 200;
+    const targetW = defaultSize;
+    const targetH = defaultSize;
+    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    sizeW = defaultSize;
+    sizeH = defaultSize;
     warnings.push('auto-scaled');
   }
 
@@ -4150,13 +4284,27 @@ function renderSVG(result, opts) {
   const elements = [];
   const ns = 'http://www.w3.org/2000/svg';
 
+  // Crop clipping: if limits() was called with Crop, add SVG clipPath
+  let cropClipId = null;
+  if (axisLimits && axisLimits.crop &&
+      axisLimits.xmin !== null && axisLimits.xmax !== null &&
+      axisLimits.ymin !== null && axisLimits.ymax !== null) {
+    cropClipId = 'crop-clip';
+    const cx1 = (axisLimits.xmin - minX) * pxPerUnit;
+    const cy1 = (maxY - axisLimits.ymax) * pxPerUnit;
+    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnit;
+    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnit;
+    elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
+  }
+
   // Scale factor: how many viewBox units = 1 CSS pixel
   // viewBox is in pxPerUnit-scaled coordinates, and SVG display width = svgW CSS pixels
   // So 1 CSS pixel = viewW / svgW viewBox units
   const cssPixel = viewW / (svgW || viewW || 1);
 
-  // Render draw commands in two passes: first paths/fills, then labels/dots on top
+  // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
+  // Dots are rendered in program order (not deferred) to allow later fills to cover them
   const deferredLabels = []; // [{ci, dc}]
 
   function renderPathCommand(ci, dc, css, dashArray) {
@@ -4164,7 +4312,10 @@ function renderSVG(result, opts) {
       const p = dc.path._singlePoint;
       const sx = (p.x - minX) * pxPerUnit;
       const sy = (maxY - p.y) * pxPerUnit;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(2.5*cssPixel)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      // Asymptote: dot radius = dotfactor/2 * linewidth (capped for sanity)
+      const singleDotLw = Math.min(dc.pen ? dc.pen.linewidth : 0.5, 1.5);
+      const singleDotR = (dotfactor / 2) * singleDotLw * cssPixel;
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
     }
@@ -4217,29 +4368,34 @@ function renderSVG(result, opts) {
     }
   }
 
-  // Pass 1: paths, fills, draws (non-text)
+  // Pass 1: paths, fills, draws, and dots (in program order)
   for (let ci = 0; ci < drawCommands.length; ci++) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= cssPixel;
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
-    if (dc.cmd === 'dot' || dc.cmd === 'label') {
+    if (dc.cmd === 'label') {
       deferredLabels.push({ci, dc, css: {...css}});
+    } else if (dc.cmd === 'dot') {
+      // Render dots in program order so later fills can cover them
+      const sx = (dc.pos.x - minX) * pxPerUnit;
+      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      // Dot radius: dotfactor/2 * linewidth in absolute CSS-pixel units.
+      // Cap linewidth contribution to avoid oversized dots when user specifies
+      // thick pens like 5bp (which would give dotfactor*5 = 30bp diameter).
+      const dotLw = Math.min(dc.pen.linewidth, 1.5);
+      const dotR = (dotfactor / 2) * dotLw * cssPixel;
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.path) {
       renderPathCommand(ci, dc, css, dashArray);
     }
   }
 
-  // Pass 2: labels and dots on top
+  // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
-    if (dc.cmd === 'dot') {
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
-      const dotR = dc.pen.linewidth > 1 ? dc.pen.linewidth * cssPixel : 2.5 * cssPixel;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
-      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-    } else if (dc.cmd === 'label') {
+    if (dc.cmd === 'label') {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
       const fontSize = (dc.pen.fontsize || 12) * cssPixel;
@@ -4256,20 +4412,53 @@ function renderSVG(result, opts) {
         else if (ay < -0.3) { dy = fontSize * 0.6; }
       }
       const rawText = dc.text || '';
+
+      // If filltype is Fill, UnFill, or FillDraw — add a white background rectangle
+      const ft = dc.filltype;
+      if (ft && ft._tag === 'filltype' && (ft.style === 'Fill' || ft.style === 'UnFill' || ft.style === 'FillDraw')) {
+        const bgPen = ft.pen || {r:1,g:1,b:1};
+        const bgHex = '#' + [bgPen.r,bgPen.g,bgPen.b].map(c => {
+          const h = Math.round(Math.max(0,Math.min(255,c*255))).toString(16);
+          return h.length<2?'0'+h:h;
+        }).join('');
+        // Estimate text dimensions for background
+        const cleanLen = stripLaTeX(rawText).length;
+        const estW = cleanLen * fontSize * 0.6 + fontSize * 0.4;
+        const estH = fontSize * 1.2;
+        let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
+        // Adjust rectangle position based on anchor
+        let rectX = rx - estW / 2;
+        if (anchor === 'start') rectX = rx - fontSize * 0.1;
+        else if (anchor === 'end') rectX = rx - estW + fontSize * 0.1;
+        const rectY = ry - estH / 2;
+        const pad = fontSize * 0.15;
+        elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
+      }
+
       const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
       if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         const svgLabel = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), fontSize, css.fill, anchor, css.opacity);
         elements.push(svgLabel);
       } else {
-        const cleanText = stripLaTeX(rawText);
-        elements.push(`<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${opacityAttr(css.opacity)}>${escSvg(cleanText)}</text>`);
+        // Render with superscript/subscript support using tspan
+        const labelSvg = renderLabelWithScripts(rawText, fmt(sx+dx), fmt(sy+dy), fontSize, css.fill, anchor, baseline, css.opacity);
+        elements.push(labelSvg);
       }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     }
   }
 
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}" overflow="visible">\n${elements.join('\n')}\n</svg>`;
+  // If crop clipping is active, wrap drawing elements (not <defs>) in a <g clip-path>
+  let innerContent;
+  if (cropClipId) {
+    const defsEl = elements.length > 0 && elements[0].startsWith('<defs>') ? elements[0] : null;
+    const drawEls = defsEl ? elements.slice(1) : elements;
+    innerContent = (defsEl ? defsEl + '\n' : '') + `<g clip-path="url(#${cropClipId})">\n${drawEls.join('\n')}\n</g>`;
+  } else {
+    innerContent = elements.join('\n');
+  }
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}" overflow="visible">\n${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -4320,7 +4509,15 @@ function linestyleToDasharray(style, strokeWidth) {
     case 'longdashed': return `${12*w} ${6*w}`;
     case 'dashdotted': return `${6*w} ${3*w} ${1*w} ${3*w}`;
     case 'longdashdotted': return `${12*w} ${4*w} ${1*w} ${4*w}`;
-    default: return null;
+    default:
+      // Custom dash pattern from linetype("a b c ...") — space-separated numbers
+      if (/^[\d.\s]+$/.test(style)) {
+        const nums = style.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+        if (nums.length > 0) {
+          return nums.map(n => n * w * 4).join(' ');
+        }
+      }
+      return null;
   }
 }
 
@@ -4390,6 +4587,96 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const isFilled = arrowParts[0].filled;
   const fillAttr = isFilled ? css.stroke : 'none';
   return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+
+// Render label text with superscript/subscript support as SVG
+function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+  // First apply LaTeX-to-Unicode mapping (same as stripLaTeX but preserving ^/_)
+  let s = rawText || '';
+  s = s.replace(/\$/g, '');
+  // Handle \mathbf, \mathrm, \textbf, etc. — remove the command, keep content
+  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // Common LaTeX → Unicode
+  const texMap = {
+    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+    '\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ',
+    '\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π',
+    '\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ',
+    '\\chi':'χ','\\psi':'ψ','\\omega':'ω',
+    '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
+    '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
+    '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
+    '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
+    '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
+    '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
+    '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
+    '\\rightarrow':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐',
+    '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
+    '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
+    '\\ell':'ℓ','\\prime':'′',
+    '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\left':'','\\right':'',
+  };
+  const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
+  for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
+  // Remove remaining \commands
+  s = s.replace(/\\[a-zA-Z]+/g, '');
+  s = s.replace(/[{}]/g, '');
+  s = s.replace(/\s+/g, ' ').trim();
+
+  // Check for super/subscripts
+  const hasSS = /[_^]/.test(s);
+  if (!hasSS) {
+    // Simple text, no scripts
+    const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+    return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${escSvg(s)}</text>`;
+  }
+
+  // Parse into segments: normal text, superscript (^), subscript (_)
+  const parts = []; // {text, mode:'normal'|'sup'|'sub'}
+  let i = 0, cur = '', mode = 'normal';
+  while (i < s.length) {
+    if (s[i] === '^' || s[i] === '_') {
+      if (cur) parts.push({text: cur, mode});
+      mode = s[i] === '^' ? 'sup' : 'sub';
+      i++;
+      // Grab next char or braced group
+      cur = '';
+      if (i < s.length && s[i] === '{') {
+        i++; // skip {
+        let depth = 1;
+        while (i < s.length && depth > 0) {
+          if (s[i] === '{') depth++;
+          else if (s[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+          cur += s[i]; i++;
+        }
+      } else if (i < s.length) {
+        cur = s[i]; i++;
+      }
+      parts.push({text: cur, mode});
+      cur = ''; mode = 'normal';
+    } else {
+      cur += s[i]; i++;
+    }
+  }
+  if (cur) parts.push({text: cur, mode});
+
+  // Build SVG text with tspan elements
+  const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  let inner = '';
+  for (const p of parts) {
+    if (p.mode === 'sup') {
+      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+    } else if (p.mode === 'sub') {
+      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+    } else {
+      inner += escSvg(p.text);
+    }
+  }
+  return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${inner}</text>`;
 }
 
 function stripLaTeX(text) {

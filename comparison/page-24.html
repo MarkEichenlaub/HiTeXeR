@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR vs Asymptote — Page 24/178</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
+.container{max-width:1600px;margin:0 auto}
+h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom:4px}
+.sub{text-align:center;color:#666;font-size:.92em;margin-bottom:6px}
+.stats{text-align:center;margin-bottom:20px;font-size:.88em}
+.stats b{display:inline-block;padding:2px 10px;border-radius:10px;color:#fff;margin:0 3px;font-weight:600;font-size:.82em}
+
+.card{background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:24px;overflow:visible}
+.card-header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px 10px 0 0}
+.card-header h2{font-size:1em;font-weight:600}
+.badge{padding:3px 12px;border-radius:12px;font-size:.75em;font-weight:700;color:#fff;white-space:nowrap}
+.card-body{display:grid;grid-template-columns:35% 35% 30%;gap:0}
+.render-col{padding:14px;border-right:1px solid #eee}
+.render-col:last-child{border-right:none}
+.render-col h3{font-size:.72em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
+.img-wrap{background:#fff;border:1px solid #ddd;border-radius:6px;min-height:80px;display:flex;align-items:center;justify-content:center;padding:8px;overflow:visible}
+.img-wrap img,.img-wrap object{max-width:100%;height:auto;display:block}
+.na{color:#999;font-size:.85em}
+.code-box{background:#f5f5f5;color:#333;font-family:Consolas,monospace;font-size:10.5px;line-height:1.35;padding:8px;border-radius:6px;border:1px solid #ddd;max-height:260px;overflow-y:auto;white-space:pre;word-wrap:normal}
+.link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.btn{display:inline-block;padding:4px 10px;font-size:.78em;font-weight:600;color:#1a1a2e;background:#e8e8f0;border:1px solid #c0c0d0;border-radius:4px;text-decoration:none;cursor:pointer;font-family:inherit}
+.btn:hover{background:#1a1a2e;color:#fff}
+.pag{text-align:center;margin:24px 0}
+.pag a,.pag span{display:inline-block;padding:5px 10px;margin:1px;border-radius:4px;font-size:.85em;text-decoration:none}
+.pag a{background:#e8e8f0;color:#1a1a2e}
+.pag a:hover{background:#1a1a2e;color:#fff}
+.pag .cur{background:#1a1a2e;color:#fff;font-weight:700}
+.pag .dots{color:#999}
+</style></head><body>
+<div class="container">
+<h1>HiTeXeR vs Asymptote</h1>
+<p class="sub">1779 diagrams sorted by SSIM (worst first) — Page 24 of 178</p>
+<div class="stats">
+<b style="background:#2d8a4e">4 Good</b>
+<b style="background:#c0820a">66 Fair</b>
+<b style="background:#c0392b">1709 Poor</b>
+
+</div>
+<div class="pag"><a href="page-23.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-17.html">17</a><a href="page-18.html">18</a><a href="page-19.html">19</a><a href="page-20.html">20</a><a href="page-21.html">21</a><a href="page-22.html">22</a><a href="page-23.html">23</a><span class="cur">24</span><a href="page-25.html">25</a><a href="page-26.html">26</a><a href="page-27.html">27</a><a href="page-28.html">28</a><a href="page-29.html">29</a><a href="page-30.html">30</a><a href="page-31.html">31</a><span class="dots">…</span><a href="page-178.html">178</a><a href="page-25.html">Next &raquo;</a></div>
+
+<div class="card" id="pair-231">
+  <div class="card-header">
+    <h2>#231 &mdash; c186_L19_script_46.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3077 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01708.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01708.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = -1;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+//label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, N, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$t\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+label(&quot;$t = \ ?$&quot;, V, NE, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%20-1%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0A%2F%2Flabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20N%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24t%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%5C%20%3F%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = -1;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+//label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, N, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$t\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+label(&quot;$t = \ ?$&quot;, V, NE, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-232">
+  <div class="card-header">
+    <h2>#232 &mdash; c186_L16_p32177_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3082 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01418.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01418.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(15); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Size of the grids: 
+int big = 8;
+
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q, R, SS, tailV, tailW, tailP, tailQ, tailR, tailS;
+pair outV, outW, A, B, C, D, tailoutV, tailoutW, tailA, tailB, tailC, tailD;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 2, 0);
+
+//Input vectors; 
+V = 2*dir(12);
+WW = 2*dir(70); 
+
+P = (-3.9, -0.51); 
+Q = (2.8, 1.8); 
+R = (4.2, -1.9); 
+SS = (3.65, 4.07); 
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+tailP = 2V-WW;
+tailQ = -3V;
+tailR = -2WW;
+tailS = V+WW;
+
+
+//Output vectors: 
+outV = 3*dir(40); 
+outW = (-1,2); 
+A= (2.06, 3.7); 
+B =  (7.8, 2); 
+C = (-5.1, -3.4); 
+D = (0.86, 6.1); 
+
+
+//Tails of output vectors: 
+tailoutV = (0,0);
+tailoutW = (0,0); 
+tailA = -2outV; 
+tailB = -2outV - outW;
+tailC = 2outW + outV;
+tailD = outV - 2outW;
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailP--tailP +P, magenta+linewidth(1.0), Arrow(7));
+draw(tailQ--tailQ + Q, brown+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, orange+linewidth(1.0), Arrow(7));
+draw(tailS--tailS +SS, heavycyan+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV--tailV+V, S, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW--tailW +WW, NW, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP--tailP +P, S, UnFill);
+label(&quot;$\mathbf{q}$&quot;, tailQ--tailQ +Q, SE, UnFill);
+label(&quot;$\mathbf{r}$&quot;, tailR--tailR +R, S, UnFill);
+label(&quot;$\mathbf{s}$&quot;, tailS--tailS +SS, NW, UnFill);
+
+
+
+draw(shift(O2)*(tailoutV--tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutW--tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailA--tailA +A), black+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailB--tailB +B), purple+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailC--tailC+C), heavygreen+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailD--tailD+D), gray +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV--tailoutV+outV), SE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW--tailoutW +outW), SW, UnFill);
+label(&quot;$\mathbf{a}$&quot;, shift(O2)*(tailA--tailA +A), W, UnFill);
+label(&quot;$\mathbf{b}$&quot;, shift(O2)*(tailB--tailB +B), SE, UnFill);
+label(&quot;$\mathbf{c}$&quot;, shift(O2)*(tailC--tailC +C), NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, shift(O2)*(tailD--tailD +D), E, UnFill);
+
+label(&quot;Inputs:&quot;, (big+1)*(0,1)); 
+label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*(0,1)));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FSize%20of%20the%20grids%3A%20%0D%0Aint%20big%20%3D%208%3B%0D%0A%0D%0Apair%20O1%2C%20O2%2C%20I%2C%20J%2C%20col1%2C%20col2%3B%0D%0Apair%20V%2C%20WW%2C%20P%2C%20Q%2C%20R%2C%20SS%2C%20tailV%2C%20tailW%2C%20tailP%2C%20tailQ%2C%20tailR%2C%20tailS%3B%0D%0Apair%20outV%2C%20outW%2C%20A%2C%20B%2C%20C%2C%20D%2C%20tailoutV%2C%20tailoutW%2C%20tailA%2C%20tailB%2C%20tailC%2C%20tailD%3B%0D%0A%0D%0A%2F%2FCenters%20of%20input%20and%20output%20grids%2C%20respectively%3A%20%0D%0AO1%20%3D%20(0%2C0)%3B%20%0D%0AO2%20%3D%20(2*big%20%2B%202%2C%200)%3B%0D%0A%0D%0A%2F%2FInput%20vectors%3B%20%0D%0AV%20%3D%202*dir(12)%3B%0D%0AWW%20%3D%202*dir(70)%3B%20%0D%0A%0D%0AP%20%3D%20(-3.9%2C%20-0.51)%3B%20%0D%0AQ%20%3D%20(2.8%2C%201.8)%3B%20%0D%0AR%20%3D%20(4.2%2C%20-1.9)%3B%20%0D%0ASS%20%3D%20(3.65%2C%204.07)%3B%20%0D%0A%0D%0A%2F%2FTails%20of%20input%20vectors%3A%20%0D%0AtailV%20%3D%20(0%2C0)%3B%20%0D%0AtailW%20%3D%20(0%2C0)%3B%0D%0AtailP%20%3D%202V-WW%3B%0D%0AtailQ%20%3D%20-3V%3B%0D%0AtailR%20%3D%20-2WW%3B%0D%0AtailS%20%3D%20V%2BWW%3B%0D%0A%0D%0A%0D%0A%2F%2FOutput%20vectors%3A%20%0D%0AoutV%20%3D%203*dir(40)%3B%20%0D%0AoutW%20%3D%20(-1%2C2)%3B%20%0D%0AA%3D%20(2.06%2C%203.7)%3B%20%0D%0AB%20%3D%20%20(7.8%2C%202)%3B%20%0D%0AC%20%3D%20(-5.1%2C%20-3.4)%3B%20%0D%0AD%20%3D%20(0.86%2C%206.1)%3B%20%0D%0A%0D%0A%0D%0A%2F%2FTails%20of%20output%20vectors%3A%20%0D%0AtailoutV%20%3D%20(0%2C0)%3B%0D%0AtailoutW%20%3D%20(0%2C0)%3B%20%0D%0AtailA%20%3D%20-2outV%3B%20%0D%0AtailB%20%3D%20-2outV%20-%20outW%3B%0D%0AtailC%20%3D%202outW%20%2B%20outV%3B%0D%0AtailD%20%3D%20outV%20-%202outW%3B%0D%0A%0D%0A%2F%2FDraw%20output%20grid%20lines%20parallel%20to%20col1%20and%20col2.%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0A%7B%20%20%20%20%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outV%2C%20i*outV%20%2B%20outW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outW%2C%20i*outW%20%2B%20outV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(maxLine(i*V%2C%20i*V%20%2B%20WW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(maxLine(i*WW%2C%20i*WW%20%2B%20V%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%7D%0D%0A%0D%0Adraw(tailV--tailV%2BV%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailW--tailW%20%2BWW%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailP--tailP%20%2BP%2C%20magenta%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailQ--tailQ%20%2B%20Q%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailR--tailR%20%2BR%2C%20orange%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailS--tailS%20%2BSS%2C%20heavycyan%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV--tailV%2BV%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20tailW--tailW%20%2BWW%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP--tailP%20%2BP%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bq%7D%24%22%2C%20tailQ--tailQ%20%2BQ%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Br%7D%24%22%2C%20tailR--tailR%20%2BR%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bs%7D%24%22%2C%20tailS--tailS%20%2BSS%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0A%0D%0A%0D%0Adraw(shift(O2)*(tailoutV--tailoutV%2BoutV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailoutW--tailoutW%20%2BoutW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailA--tailA%20%2BA)%2C%20black%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailB--tailB%20%2BB)%2C%20purple%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailC--tailC%2BC)%2C%20heavygreen%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailD--tailD%2BD)%2C%20gray%20%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(O2)*(tailoutV--tailoutV%2BoutV)%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(O2)*(tailoutW--tailoutW%20%2BoutW)%2C%20SW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Ba%7D%24%22%2C%20shift(O2)*(tailA--tailA%20%2BA)%2C%20W%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bb%7D%24%22%2C%20shift(O2)*(tailB--tailB%20%2BB)%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bc%7D%24%22%2C%20shift(O2)*(tailC--tailC%20%2BC)%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20shift(O2)*(tailD--tailD%20%2BD)%2C%20E%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22Inputs%3A%22%2C%20(big%2B1)*(0%2C1))%3B%20%0D%0Alabel(%22Outputs%3A%22%2C%20shift(O2)*((big%20%2B%201)*(0%2C1)))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(15); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Size of the grids: 
+int big = 8;
+
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q, R, SS, tailV, tailW, tailP, tailQ, tailR, tailS;
+pair outV, outW, A, B, C, D, tailoutV, tailoutW, tailA, tailB, tailC, tailD;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 2, 0);
+
+//Input vectors; 
+V = 2*dir(12);
+WW = 2*dir(70); 
+
+P = (-3.9, -0.51); 
+Q = (2.8, 1.8); 
+R = (4.2, -1.9); 
+SS = (3.65, 4.07); 
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+tailP = 2V-WW;
+tailQ = -3V;
+tailR = -2WW;
+tailS = V+WW;
+
+
+//Output vectors: 
+outV = 3*dir(40); 
+outW = (-1,2); 
+A= (2.06, 3.7); 
+B =  (7.8, 2); 
+C = (-5.1, -3.4); 
+D = (0.86, 6.1); 
+
+
+//Tails of output vectors: 
+tailoutV = (0,0);
+tailoutW = (0,0); 
+tailA = -2outV; 
+tailB = -2outV - outW;
+tailC = 2outW + outV;
+tailD = outV - 2outW;
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailP--tailP +P, magenta+linewidth(1.0), Arrow(7));
+draw(tailQ--tailQ + Q, brown+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, orange+linewidth(1.0), Arrow(7));
+draw(tailS--tailS +SS, heavycyan+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV--tailV+V, S, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW--tailW +WW, NW, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP--tailP +P, S, UnFill);
+label(&quot;$\mathbf{q}$&quot;, tailQ--tailQ +Q, SE, UnFill);
+label(&quot;$\mathbf{r}$&quot;, tailR--tailR +R, S, UnFill);
+label(&quot;$\mathbf{s}$&quot;, tailS--tailS +SS, NW, UnFill);
+
+
+
+draw(shift(O2)*(tailoutV--tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutW--tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailA--tailA +A), black+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailB--tailB +B), purple+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailC--tailC+C), heavygreen+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailD--tailD+D), gray +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV--tailoutV+outV), SE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW--tailoutW +outW), SW, UnFill);
+label(&quot;$\mathbf{a}$&quot;, shift(O2)*(tailA--tailA +A), W, UnFill);
+label(&quot;$\mathbf{b}$&quot;, shift(O2)*(tailB--tailB +B), SE, UnFill);
+label(&quot;$\mathbf{c}$&quot;, shift(O2)*(tailC--tailC +C), NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, shift(O2)*(tailD--tailD +D), E, UnFill);
+
+label(&quot;Inputs:&quot;, (big+1)*(0,1)); 
+label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*(0,1)));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-233">
+  <div class="card-header">
+    <h2>#233 &mdash; c186_L19_script_49.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3088 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01711.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01711.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 1.5;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%201.5%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%22%20%2B%20string(t)%20%2B%20%22%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 1.5;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-234">
+  <div class="card-header">
+    <h2>#234 &mdash; c186_L20_script_3.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3095 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01914.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01914.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 2;
+
+P = (2,4); 
+D = (2,1);
+
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, 2ESE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NW, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0A%7B%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%202%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0AD%20%3D%20(2%2C1)%3B%0D%0A%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0AtailP%20%3D%20tailV%3B%20%0D%0AtailD%20%3D%20tailV%3B%20%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%202ESE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%20D%2C%20NE%2C%20UnFill)%3B%0D%0Alabel(%22%24%22%20%2B%20string(t)%20%2B%20%22%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 2;
+
+P = (2,4); 
+D = (2,1);
+
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, 2ESE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NW, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-235">
+  <div class="card-header">
+    <h2>#235 &mdash; c186_L19_script_40.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3102 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01702.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01702.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t= 2;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$t = -1$&quot;, g(-1, P, D), NE, UnFill); 
+label(&quot;$t = 0$&quot;, g(0, P, D), ENE, UnFill); 
+label(&quot;$t = 1$&quot;, g(1, P, D), NE, UnFill);
+label(&quot;$t = 1.5$&quot;, g(1.5, P, D), NE, UnFill); 
+label(&quot;$t = 2$&quot;, g(2, P, D), NE, UnFill);
+
+dot(g(-1, P, D));
+dot(g(0, P, D)); 
+dot(g(1, P, D));
+dot(g(1.5, P, D)); 
+dot(g(2, P, D));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%3D%202%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20-1%24%22%2C%20g(-1%2C%20P%2C%20D)%2C%20NE%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%200%24%22%2C%20g(0%2C%20P%2C%20D)%2C%20ENE%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%201%24%22%2C%20g(1%2C%20P%2C%20D)%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24t%20%3D%201.5%24%22%2C%20g(1.5%2C%20P%2C%20D)%2C%20NE%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%202%24%22%2C%20g(2%2C%20P%2C%20D)%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(g(-1%2C%20P%2C%20D))%3B%0D%0D%0Adot(g(0%2C%20P%2C%20D))%3B%20%0D%0D%0Adot(g(1%2C%20P%2C%20D))%3B%0D%0D%0Adot(g(1.5%2C%20P%2C%20D))%3B%20%0D%0D%0Adot(g(2%2C%20P%2C%20D))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t= 2;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$t = -1$&quot;, g(-1, P, D), NE, UnFill); 
+label(&quot;$t = 0$&quot;, g(0, P, D), ENE, UnFill); 
+label(&quot;$t = 1$&quot;, g(1, P, D), NE, UnFill);
+label(&quot;$t = 1.5$&quot;, g(1.5, P, D), NE, UnFill); 
+label(&quot;$t = 2$&quot;, g(2, P, D), NE, UnFill);
+
+dot(g(-1, P, D));
+dot(g(0, P, D)); 
+dot(g(1, P, D));
+dot(g(1.5, P, D)); 
+dot(g(2, P, D));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-236">
+  <div class="card-header">
+    <h2>#236 &mdash; c186_L19_script_47.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3105 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01709.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01709.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = -1;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, N, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$-\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%20-1%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20N%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24-%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = -1;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, N, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$-\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-237">
+  <div class="card-header">
+    <h2>#237 &mdash; c186_L16_p32177_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3108 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01419.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01419.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(15); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Size of the grids: 
+int big = 8;
+
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q, R, SS, tailV, tailW, tailP, tailQ, tailR, tailS;
+pair outV, outW, A, B, C, D, tailoutV, tailoutW, tailA, tailB, tailC, tailD;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 2, 0);
+
+//Input vectors; 
+V = 2*dir(12);
+WW = 2*dir(70); 
+
+P = -2.1V + 0.3WW;
+Q = 1.2V+ 0.7WW;
+R = 2.7V  - 1.6 WW;
+SS = 1.2V + 1.9WW; 
+
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+tailP = (0,0);
+tailQ = (0,0);
+tailR = (0,0);
+tailS = (0,0);
+
+
+//Output vectors: 
+outV = 3*dir(40); 
+outW = (-1,2); 
+A= 1.2outV + 0.7outW;
+B =  2.7outV - 1.6outW; 
+C = -2.1outV + 0.3outW; 
+D = 1.2outV + 1.9outW; 
+
+//Tails of output vectors: 
+tailoutV = (0,0);
+tailoutW = (0,0); 
+tailA = (0,0);
+tailB = (0,0);
+tailC = (0,0);
+tailD = (0,0);
+
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailP--tailP +P, magenta+linewidth(1.0), Arrow(7));
+draw(tailQ--tailQ + Q, brown+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, orange+linewidth(1.0), Arrow(7));
+draw(tailS--tailS +SS, heavycyan+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV+V, E, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW +WW, NW, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP +P, SW, UnFill);
+label(&quot;$\mathbf{q}$&quot;, tailQ +Q, SE, UnFill);
+label(&quot;$\mathbf{r}$&quot;, tailR +R, SE, UnFill);
+label(&quot;$\mathbf{s}$&quot;, tailS +SS, N, UnFill);
+
+draw(shift(O2)*(tailoutV--tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutW--tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailA -- tailA +A), brown+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailB-- tailB +B), orange+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailC -- tailC+C), magenta+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailD -- tailD+D), heavycyan +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV+outV), N, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW +outW), NW, UnFill);
+label(&quot;$\mathbf{A} \mathbf{q}$&quot;, shift(O2)*(tailA +A), NE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{r}$&quot;, shift(O2)*(tailB +B), NW, UnFill);
+label(&quot;$\mathbf{A}\mathbf{p}$&quot;, shift(O2)*(tailC +C), S, UnFill);
+label(&quot;$\mathbf{A}\mathbf{s}$&quot;, shift(O2)*(tailD +D), NE, UnFill);
+
+label(&quot;Inputs:&quot;, (0, big+1)); 
+label(&quot;Outputs:&quot;, shift(O2)*(0, big + 1));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FSize%20of%20the%20grids%3A%20%0D%0Aint%20big%20%3D%208%3B%0D%0A%0D%0Apair%20O1%2C%20O2%2C%20I%2C%20J%2C%20col1%2C%20col2%3B%0D%0Apair%20V%2C%20WW%2C%20P%2C%20Q%2C%20R%2C%20SS%2C%20tailV%2C%20tailW%2C%20tailP%2C%20tailQ%2C%20tailR%2C%20tailS%3B%0D%0Apair%20outV%2C%20outW%2C%20A%2C%20B%2C%20C%2C%20D%2C%20tailoutV%2C%20tailoutW%2C%20tailA%2C%20tailB%2C%20tailC%2C%20tailD%3B%0D%0A%0D%0A%2F%2FCenters%20of%20input%20and%20output%20grids%2C%20respectively%3A%20%0D%0AO1%20%3D%20(0%2C0)%3B%20%0D%0AO2%20%3D%20(2*big%20%2B%202%2C%200)%3B%0D%0A%0D%0A%2F%2FInput%20vectors%3B%20%0D%0AV%20%3D%202*dir(12)%3B%0D%0AWW%20%3D%202*dir(70)%3B%20%0D%0A%0D%0AP%20%3D%20-2.1V%20%2B%200.3WW%3B%0D%0AQ%20%3D%201.2V%2B%200.7WW%3B%0D%0AR%20%3D%202.7V%20%20-%201.6%20WW%3B%0D%0ASS%20%3D%201.2V%20%2B%201.9WW%3B%20%0D%0A%0D%0A%0D%0A%2F%2FTails%20of%20input%20vectors%3A%20%0D%0AtailV%20%3D%20(0%2C0)%3B%20%0D%0AtailW%20%3D%20(0%2C0)%3B%0D%0AtailP%20%3D%20(0%2C0)%3B%0D%0AtailQ%20%3D%20(0%2C0)%3B%0D%0AtailR%20%3D%20(0%2C0)%3B%0D%0AtailS%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%0D%0A%2F%2FOutput%20vectors%3A%20%0D%0AoutV%20%3D%203*dir(40)%3B%20%0D%0AoutW%20%3D%20(-1%2C2)%3B%20%0D%0AA%3D%201.2outV%20%2B%200.7outW%3B%0D%0AB%20%3D%20%202.7outV%20-%201.6outW%3B%20%0D%0AC%20%3D%20-2.1outV%20%2B%200.3outW%3B%20%0D%0AD%20%3D%201.2outV%20%2B%201.9outW%3B%20%0D%0A%0D%0A%2F%2FTails%20of%20output%20vectors%3A%20%0D%0AtailoutV%20%3D%20(0%2C0)%3B%0D%0AtailoutW%20%3D%20(0%2C0)%3B%20%0D%0AtailA%20%3D%20(0%2C0)%3B%0D%0AtailB%20%3D%20(0%2C0)%3B%0D%0AtailC%20%3D%20(0%2C0)%3B%0D%0AtailD%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%0D%0A%2F%2FDraw%20output%20grid%20lines%20parallel%20to%20col1%20and%20col2.%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0A%7B%20%20%20%20%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outV%2C%20i*outV%20%2B%20outW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outW%2C%20i*outW%20%2B%20outV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(maxLine(i*V%2C%20i*V%20%2B%20WW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(maxLine(i*WW%2C%20i*WW%20%2B%20V%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%7D%0D%0A%0D%0Adraw(tailV--tailV%2BV%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailW--tailW%20%2BWW%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailP--tailP%20%2BP%2C%20magenta%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailQ--tailQ%20%2B%20Q%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailR--tailR%20%2BR%2C%20orange%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailS--tailS%20%2BSS%2C%20heavycyan%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%2BV%2C%20E%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20tailW%20%2BWW%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20%2BP%2C%20SW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bq%7D%24%22%2C%20tailQ%20%2BQ%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Br%7D%24%22%2C%20tailR%20%2BR%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bs%7D%24%22%2C%20tailS%20%2BSS%2C%20N%2C%20UnFill)%3B%0D%0A%0D%0Adraw(shift(O2)*(tailoutV--tailoutV%2BoutV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailoutW--tailoutW%20%2BoutW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailA%20--%20tailA%20%2BA)%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailB--%20tailB%20%2BB)%2C%20orange%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailC%20--%20tailC%2BC)%2C%20magenta%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailD%20--%20tailD%2BD)%2C%20heavycyan%20%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(O2)*(tailoutV%2BoutV)%2C%20N%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(O2)*(tailoutW%20%2BoutW)%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%20%5Cmathbf%7Bq%7D%24%22%2C%20shift(O2)*(tailA%20%2BA)%2C%20NE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Br%7D%24%22%2C%20shift(O2)*(tailB%20%2BB)%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bp%7D%24%22%2C%20shift(O2)*(tailC%20%2BC)%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bs%7D%24%22%2C%20shift(O2)*(tailD%20%2BD)%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22Inputs%3A%22%2C%20(0%2C%20big%2B1))%3B%20%0D%0Alabel(%22Outputs%3A%22%2C%20shift(O2)*(0%2C%20big%20%2B%201))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(15); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Size of the grids: 
+int big = 8;
+
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q, R, SS, tailV, tailW, tailP, tailQ, tailR, tailS;
+pair outV, outW, A, B, C, D, tailoutV, tailoutW, tailA, tailB, tailC, tailD;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 2, 0);
+
+//Input vectors; 
+V = 2*dir(12);
+WW = 2*dir(70); 
+
+P = -2.1V + 0.3WW;
+Q = 1.2V+ 0.7WW;
+R = 2.7V  - 1.6 WW;
+SS = 1.2V + 1.9WW; 
+
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+tailP = (0,0);
+tailQ = (0,0);
+tailR = (0,0);
+tailS = (0,0);
+
+
+//Output vectors: 
+outV = 3*dir(40); 
+outW = (-1,2); 
+A= 1.2outV + 0.7outW;
+B =  2.7outV - 1.6outW; 
+C = -2.1outV + 0.3outW; 
+D = 1.2outV + 1.9outW; 
+
+//Tails of output vectors: 
+tailoutV = (0,0);
+tailoutW = (0,0); 
+tailA = (0,0);
+tailB = (0,0);
+tailC = (0,0);
+tailD = (0,0);
+
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailP--tailP +P, magenta+linewidth(1.0), Arrow(7));
+draw(tailQ--tailQ + Q, brown+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, orange+linewidth(1.0), Arrow(7));
+draw(tailS--tailS +SS, heavycyan+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV+V, E, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW +WW, NW, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP +P, SW, UnFill);
+label(&quot;$\mathbf{q}$&quot;, tailQ +Q, SE, UnFill);
+label(&quot;$\mathbf{r}$&quot;, tailR +R, SE, UnFill);
+label(&quot;$\mathbf{s}$&quot;, tailS +SS, N, UnFill);
+
+draw(shift(O2)*(tailoutV--tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutW--tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailA -- tailA +A), brown+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailB-- tailB +B), orange+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailC -- tailC+C), magenta+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailD -- tailD+D), heavycyan +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV+outV), N, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW +outW), NW, UnFill);
+label(&quot;$\mathbf{A} \mathbf{q}$&quot;, shift(O2)*(tailA +A), NE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{r}$&quot;, shift(O2)*(tailB +B), NW, UnFill);
+label(&quot;$\mathbf{A}\mathbf{p}$&quot;, shift(O2)*(tailC +C), S, UnFill);
+label(&quot;$\mathbf{A}\mathbf{s}$&quot;, shift(O2)*(tailD +D), NE, UnFill);
+
+label(&quot;Inputs:&quot;, (0, big+1)); 
+label(&quot;Outputs:&quot;, shift(O2)*(0, big + 1));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-238">
+  <div class="card-header">
+    <h2>#238 &mdash; c186_L16_script_19.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3108 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01457.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01457.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair Acol1, Acol2; 
+pair Bcol1, Bcol2; 
+pair V, BV, ABV, O; 
+pair tailV, tailBV, tailABV;
+
+O = (0,0);
+
+//Columns of the matrix A:
+Acol1 = (0,-1); 
+Acol2 = (1,0);
+
+//Columns of the matrix B:
+Bcol1 = (1,0); 
+Bcol2 = (0,0);
+
+//Input vector
+V = (4, 2);
+
+//Output vectors:
+BV = multByMat(V, Bcol1, Bcol2);
+ABV = multByMat(BV, Acol1, Acol2);
+
+tailV = O; 
+tailBV = tailV;
+tailABV = tailV;
+
+gridLines(-4, 6,-5,5);
+
+draw(tailV--tailV + V, blue, Arrow(7));
+draw(tailBV--tailBV + BV, heavygreen, Arrow(7));
+draw(tailABV--tailABV + ABV, brown, Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
+label(&quot;$\mathbf B \mathbf{v}$&quot;, tailBV + BV/2, S, UnFill); 
+label(&quot;$(\mathbf{A B})\mathbf{v}$&quot;, tailABV + ABV/2, W, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0D%0Apair%20Acol1%2C%20Acol2%3B%20%0D%0D%0Apair%20Bcol1%2C%20Bcol2%3B%20%0D%0D%0Apair%20V%2C%20BV%2C%20ABV%2C%20O%3B%20%0D%0D%0Apair%20tailV%2C%20tailBV%2C%20tailABV%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FColumns%20of%20the%20matrix%20A%3A%0D%0D%0AAcol1%20%3D%20(0%2C-1)%3B%20%0D%0D%0AAcol2%20%3D%20(1%2C0)%3B%0D%0A%0D%0A%2F%2FColumns%20of%20the%20matrix%20B%3A%0D%0D%0ABcol1%20%3D%20(1%2C0)%3B%20%0D%0D%0ABcol2%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FInput%20vector%0D%0D%0AV%20%3D%20(4%2C%202)%3B%0D%0A%0D%0A%2F%2FOutput%20vectors%3A%0D%0D%0ABV%20%3D%20multByMat(V%2C%20Bcol1%2C%20Bcol2)%3B%0D%0D%0AABV%20%3D%20multByMat(BV%2C%20Acol1%2C%20Acol2)%3B%0D%0A%0D%0AtailV%20%3D%20O%3B%20%0D%0D%0AtailBV%20%3D%20tailV%3B%0D%0D%0AtailABV%20%3D%20tailV%3B%0D%0A%0D%0AgridLines(-4%2C%206%2C-5%2C5)%3B%0D%0A%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20blue%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailBV--tailBV%20%2B%20BV%2C%20heavygreen%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailABV--tailABV%20%2B%20ABV%2C%20brown%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%20%2B%20V%2F2%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%5Cmathbf%20B%20%5Cmathbf%7Bv%7D%24%22%2C%20tailBV%20%2B%20BV%2F2%2C%20S%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24(%5Cmathbf%7BA%20B%7D)%5Cmathbf%7Bv%7D%24%22%2C%20tailABV%20%2B%20ABV%2F2%2C%20W%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair Acol1, Acol2; 
+pair Bcol1, Bcol2; 
+pair V, BV, ABV, O; 
+pair tailV, tailBV, tailABV;
+
+O = (0,0);
+
+//Columns of the matrix A:
+Acol1 = (0,-1); 
+Acol2 = (1,0);
+
+//Columns of the matrix B:
+Bcol1 = (1,0); 
+Bcol2 = (0,0);
+
+//Input vector
+V = (4, 2);
+
+//Output vectors:
+BV = multByMat(V, Bcol1, Bcol2);
+ABV = multByMat(BV, Acol1, Acol2);
+
+tailV = O; 
+tailBV = tailV;
+tailABV = tailV;
+
+gridLines(-4, 6,-5,5);
+
+draw(tailV--tailV + V, blue, Arrow(7));
+draw(tailBV--tailBV + BV, heavygreen, Arrow(7));
+draw(tailABV--tailABV + ABV, brown, Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
+label(&quot;$\mathbf B \mathbf{v}$&quot;, tailBV + BV/2, S, UnFill); 
+label(&quot;$(\mathbf{A B})\mathbf{v}$&quot;, tailABV + ABV/2, W, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-239">
+  <div class="card-header">
+    <h2>#239 &mdash; c186_L18_p37049_problem_text_1.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3117 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01565.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01565.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(12);
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Size of the grids: 
+int big = 4;
+
+pair X, OA, OB, OC,OD, I, J, col1, col2;
+pair AV, AW, BV, BW, CV, CW, DV, DW; 
+pair tailAV, tailAW, tailBV, tailBW, tailCV, tailCW, tailDV, tailDW; 
+pair tailXforA, tailXforB, tailXforC, tailXforD; 
+
+
+//Centers of the various output grids: 
+OA = (0,0); 
+OB = (2.2*big + 1, 0);
+OC = (4.4*big + 1, 0); 
+OD = (6.6*big + 1, 0); 
+
+//The repeated output vector: 
+X = (3.1, -1.2); 
+
+//The tails of the output vector in the various grids: 
+pair tailXforA = (0,0); 
+pair tailXforB = (0, -2); 
+pair tailXforC = (0,0); 
+pair tailXforD = (0,0); 
+
+
+//The standard coordinate axes: 
+I = (1,0); 
+J = (0,1);
+
+//Output vectors for A:
+AV = (1.8, 0.3);
+AW = (0.5, 1.8); 
+
+//Output vectors for B:
+BV =  0.7X;
+BW = -0.4X; 
+
+//Output vectors for C:
+CV = (1/4, 4/3);
+CW = (1, -1); 
+
+//Output vectors for D:
+DV = dir(100); 
+DW = -2dir(100); 
+
+
+//Tails of output vectors: 
+tailAV = (0,0);
+tailAW = (0,0); 
+
+//Draw output grid lines parallel to the output vectors: 
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(OA)*maxLine(i*AV, i*AV + AW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OA)*maxLine(i*AW, i*AW + AV, -big, big, -big, big), linewidth(0.4)); 
+     
+     
+     draw(shift(OB)*maxLine(i*BV, i*BV + BW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OB)*maxLine(i*BW, i*BW + BV, -big, big, -big, big), linewidth(0.4)); 
+
+     draw(shift(OC)*maxLine(i*CV, i*CV + CW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OC)*maxLine(i*CW, i*CW + CV, -big, big, -big, big), linewidth(0.4)); 
+
+     draw(shift(OD)*maxLine(i*DV, i*DV + DW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OD)*maxLine(i*DW, i*DW + DV, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailAV--tailAV+AV, red+linewidth(1.0), Arrow(7));
+draw(tailAW--tailAW +AW, blue+linewidth(1.0), Arrow(7));
+draw(tailXforA--tailXforA +X, brown+linewidth(1.0), Arrow(7));
+
+draw(shift(OB)*(tailBV--tailBV+BV), red+linewidth(1.0), Arrow(7));
+draw(shift(OB)*(tailBW--tailBW +BW), blue+linewidth(1.0), Arrow(7));
+draw(shift(OB)*(tailXforB--tailXforB +X), brown+linewidth(1.0), Arrow(7));
+
+draw(shift(OC)*(tailCV--tailCV+CV), red+linewidth(1.0), Arrow(7));
+draw(shift(OC)*(tailCW--tailCW +CW), blue+linewidth(1.0), Arrow(7));
+draw(shift(OC)*(tailXforC--tailXforC +X), brown+linewidth(1.0), Arrow(7));
+
+draw(shift(OD)*(tailDV--tailDV+DV), red+linewidth(1.0), Arrow(7));
+draw(shift(OD)*(tailDW--tailDW +DW), blue+linewidth(1.0), Arrow(7));
+draw(shift(OD)*(tailXforD--tailXforD +X), brown+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, tailAV+AV, N, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, tailAW--tailAW +AW, NW, UnFill);
+
+label(&quot;$\mathbf{B}\mathbf{v}$&quot;, shift(OB)*(tailBV--tailBV+BV), NE, UnFill);
+label(&quot;$\mathbf{B}\mathbf{w}$&quot;, shift(OB)*(tailBW--tailBW +BW), SW, UnFill);
+
+label(&quot;$\mathbf{C}\mathbf{v}$&quot;, shift(OC)*(tailCV--tailCV+CV), NW, UnFill);
+label(&quot;$\mathbf{C}\mathbf{w}$&quot;, shift(OC)*(tailCW--tailCW +CW), SW, UnFill);
+
+label(&quot;$\mathbf{D}\mathbf{v}$&quot;, shift(OD)*(tailDV--tailDV+DV), NE, UnFill);
+label(&quot;$\mathbf{D}\mathbf{w}$&quot;, shift(OD)*(tailDW--tailDW +DW), SW, UnFill);
+
+label(&quot;$\mathbf{x}$&quot;, shift(OA)*(tailXforA +X), S, UnFill);
+label(&quot;$\mathbf{x}$&quot;, shift(OB)*(tailXforB -- tailXforB +X), N, UnFill);
+label(&quot;$\mathbf{x}$&quot;, shift(OC)*(tailXforC +X), S, UnFill);
+label(&quot;$\mathbf{x}$&quot;, shift(OD)*(tailXforD +X), S, UnFill);
+
+
+label(&quot;Outputs for $\mathbf{A}$:&quot;, shift(OA)*((big+1.2)*J)); 
+label(&quot;Outputs for $\mathbf{B}$:&quot;, shift(OB)*((big + 1.2)*J));
+label(&quot;Outputs for $\mathbf{C}$:&quot;, shift(OC)*((big + 1.2)*J));
+label(&quot;Outputs for $\mathbf{D}$:&quot;, shift(OD)*((big + 1.2)*J));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(12)%3B%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0A%7B%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0A%7B%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2FSize%20of%20the%20grids%3A%20%0D%0Aint%20big%20%3D%204%3B%0D%0A%0D%0Apair%20X%2C%20OA%2C%20OB%2C%20OC%2COD%2C%20I%2C%20J%2C%20col1%2C%20col2%3B%0D%0Apair%20AV%2C%20AW%2C%20BV%2C%20BW%2C%20CV%2C%20CW%2C%20DV%2C%20DW%3B%20%0D%0Apair%20tailAV%2C%20tailAW%2C%20tailBV%2C%20tailBW%2C%20tailCV%2C%20tailCW%2C%20tailDV%2C%20tailDW%3B%20%0D%0Apair%20tailXforA%2C%20tailXforB%2C%20tailXforC%2C%20tailXforD%3B%20%0D%0A%0D%0A%0D%0A%2F%2FCenters%20of%20the%20various%20output%20grids%3A%20%0D%0AOA%20%3D%20(0%2C0)%3B%20%0D%0AOB%20%3D%20(2.2*big%20%2B%201%2C%200)%3B%0D%0AOC%20%3D%20(4.4*big%20%2B%201%2C%200)%3B%20%0D%0AOD%20%3D%20(6.6*big%20%2B%201%2C%200)%3B%20%0D%0A%0D%0A%2F%2FThe%20repeated%20output%20vector%3A%20%0D%0AX%20%3D%20(3.1%2C%20-1.2)%3B%20%0D%0A%0D%0A%2F%2FThe%20tails%20of%20the%20output%20vector%20in%20the%20various%20grids%3A%20%0D%0Apair%20tailXforA%20%3D%20(0%2C0)%3B%20%0D%0Apair%20tailXforB%20%3D%20(0%2C%20-2)%3B%20%0D%0Apair%20tailXforC%20%3D%20(0%2C0)%3B%20%0D%0Apair%20tailXforD%20%3D%20(0%2C0)%3B%20%0D%0A%0D%0A%0D%0A%2F%2FThe%20standard%20coordinate%20axes%3A%20%0D%0AI%20%3D%20(1%2C0)%3B%20%0D%0AJ%20%3D%20(0%2C1)%3B%0D%0A%0D%0A%2F%2FOutput%20vectors%20for%20A%3A%0D%0AAV%20%3D%20(1.8%2C%200.3)%3B%0D%0AAW%20%3D%20(0.5%2C%201.8)%3B%20%0D%0A%0D%0A%2F%2FOutput%20vectors%20for%20B%3A%0D%0ABV%20%3D%20%200.7X%3B%0D%0ABW%20%3D%20-0.4X%3B%20%0D%0A%0D%0A%2F%2FOutput%20vectors%20for%20C%3A%0D%0ACV%20%3D%20(1%2F4%2C%204%2F3)%3B%0D%0ACW%20%3D%20(1%2C%20-1)%3B%20%0D%0A%0D%0A%2F%2FOutput%20vectors%20for%20D%3A%0D%0ADV%20%3D%20dir(100)%3B%20%0D%0ADW%20%3D%20-2dir(100)%3B%20%0D%0A%0D%0A%0D%0A%2F%2FTails%20of%20output%20vectors%3A%20%0D%0AtailAV%20%3D%20(0%2C0)%3B%0D%0AtailAW%20%3D%20(0%2C0)%3B%20%0D%0A%0D%0A%2F%2FDraw%20output%20grid%20lines%20parallel%20to%20the%20output%20vectors%3A%20%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0A%7B%20%20%20%20%0D%0A%20%20%20%20%20draw(shift(OA)*maxLine(i*AV%2C%20i*AV%20%2B%20AW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(OA)*maxLine(i*AW%2C%20i*AW%20%2B%20AV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20%0D%0A%20%20%20%20%20%0D%0A%20%20%20%20%20draw(shift(OB)*maxLine(i*BV%2C%20i*BV%20%2B%20BW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(OB)*maxLine(i*BW%2C%20i*BW%20%2B%20BV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%0D%0A%20%20%20%20%20draw(shift(OC)*maxLine(i*CV%2C%20i*CV%20%2B%20CW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(OC)*maxLine(i*CW%2C%20i*CW%20%2B%20CV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%0D%0A%20%20%20%20%20draw(shift(OD)*maxLine(i*DV%2C%20i*DV%20%2B%20DW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(OD)*maxLine(i*DW%2C%20i*DW%20%2B%20DV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%7D%0D%0A%0D%0Adraw(tailAV--tailAV%2BAV%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailAW--tailAW%20%2BAW%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailXforA--tailXforA%20%2BX%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Adraw(shift(OB)*(tailBV--tailBV%2BBV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(OB)*(tailBW--tailBW%20%2BBW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(OB)*(tailXforB--tailXforB%20%2BX)%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Adraw(shift(OC)*(tailCV--tailCV%2BCV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(OC)*(tailCW--tailCW%20%2BCW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(OC)*(tailXforC--tailXforC%20%2BX)%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Adraw(shift(OD)*(tailDV--tailDV%2BDV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(OD)*(tailDW--tailDW%20%2BDW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(OD)*(tailXforD--tailXforD%20%2BX)%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2C%20tailAV%2BAV%2C%20N%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bw%7D%24%22%2C%20tailAW--tailAW%20%2BAW%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BB%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(OB)*(tailBV--tailBV%2BBV)%2C%20NE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BB%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(OB)*(tailBW--tailBW%20%2BBW)%2C%20SW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BC%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(OC)*(tailCV--tailCV%2BCV)%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BC%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(OC)*(tailCW--tailCW%20%2BCW)%2C%20SW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BD%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(OD)*(tailDV--tailDV%2BDV)%2C%20NE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BD%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(OD)*(tailDW--tailDW%20%2BDW)%2C%20SW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20shift(OA)*(tailXforA%20%2BX)%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20shift(OB)*(tailXforB%20--%20tailXforB%20%2BX)%2C%20N%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20shift(OC)*(tailXforC%20%2BX)%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20shift(OD)*(tailXforD%20%2BX)%2C%20S%2C%20UnFill)%3B%0D%0A%0D%0A%0D%0Alabel(%22Outputs%20for%20%24%5Cmathbf%7BA%7D%24%3A%22%2C%20shift(OA)*((big%2B1.2)*J))%3B%20%0D%0Alabel(%22Outputs%20for%20%24%5Cmathbf%7BB%7D%24%3A%22%2C%20shift(OB)*((big%20%2B%201.2)*J))%3B%0D%0Alabel(%22Outputs%20for%20%24%5Cmathbf%7BC%7D%24%3A%22%2C%20shift(OC)*((big%20%2B%201.2)*J))%3B%0D%0Alabel(%22Outputs%20for%20%24%5Cmathbf%7BD%7D%24%3A%22%2C%20shift(OD)*((big%20%2B%201.2)*J))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(12);
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Size of the grids: 
+int big = 4;
+
+pair X, OA, OB, OC,OD, I, J, col1, col2;
+pair AV, AW, BV, BW, CV, CW, DV, DW; 
+pair tailAV, tailAW, tailBV, tailBW, tailCV, tailCW, tailDV, tailDW; 
+pair tailXforA, tailXforB, tailXforC, tailXforD; 
+
+
+//Centers of the various output grids: 
+OA = (0,0); 
+OB = (2.2*big + 1, 0);
+OC = (4.4*big + 1, 0); 
+OD = (6.6*big + 1, 0); 
+
+//The repeated output vector: 
+X = (3.1, -1.2); 
+
+//The tails of the output vector in the various grids: 
+pair tailXforA = (0,0); 
+pair tailXforB = (0, -2); 
+pair tailXforC = (0,0); 
+pair tailXforD = (0,0); 
+
+
+//The standard coordinate axes: 
+I = (1,0); 
+J = (0,1);
+
+//Output vectors for A:
+AV = (1.8, 0.3);
+AW = (0.5, 1.8); 
+
+//Output vectors for B:
+BV =  0.7X;
+BW = -0.4X; 
+
+//Output vectors for C:
+CV = (1/4, 4/3);
+CW = (1, -1); 
+
+//Output vectors for D:
+DV = dir(100); 
+DW = -2dir(100); 
+
+
+//Tails of output vectors: 
+tailAV = (0,0);
+tailAW = (0,0); 
+
+//Draw output grid lines parallel to the output vectors: 
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(OA)*maxLine(i*AV, i*AV + AW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OA)*maxLine(i*AW, i*AW + AV, -big, big, -big, big), linewidth(0.4)); 
+     
+     
+     draw(shift(OB)*maxLine(i*BV, i*BV + BW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OB)*maxLine(i*BW, i*BW + BV, -big, big, -big, big), linewidth(0.4)); 
+
+     draw(shift(OC)*maxLine(i*CV, i*CV + CW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OC)*maxLine(i*CW, i*CW + CV, -big, big, -big, big), linewidth(0.4)); 
+
+     draw(shift(OD)*maxLine(i*DV, i*DV + DW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(OD)*maxLine(i*DW, i*DW + DV, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailAV--tailAV+AV, red+linewidth(1.0), Arrow(7));
+draw(tailAW--tailAW +AW, blue+linewidth(1.0), Arrow(7));
+draw(tailXforA--tailXforA +X, brown+linewidth(1.0), Arrow(7));
+
+draw(shift(OB)*(tailBV--tailBV+BV), red+linewidth(1.0), Arrow(7));
+draw(shift(OB)*(tailBW--tailBW +BW), blue+linewidth(1.0), Arrow(7));
+draw(shift(OB)*(tailXforB--tailXforB +X), brown+linewidth(1.0), Arrow(7));
+
+draw(shift(OC)*(tailCV--tailCV+CV), red+linewidth(1.0), Arrow(7));
+draw(shift(OC)*(tailCW--tailCW +CW), blue+linewidth(1.0), Arrow(7));
+draw(shift(OC)*(tailXforC--tailXforC +X), brown+linewidth(1.0), Arrow(7));
+
+draw(shift(OD)*(tailDV--tailDV+DV), red+linewidth(1.0), Arrow(7));
+draw(shift(OD)*(tailDW--tailDW +DW), blue+linewidth(1.0), Arrow(7));
+draw(shift(OD)*(tailXforD--tailXforD +X), brown+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, tailAV+AV, N, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, tailAW--tailAW +AW, NW, UnFill);
+
+label(&quot;$\mathbf{B}\mathbf{v}$&quot;, shift(OB)*(tailBV--tailBV+BV), NE, UnFill);
+label(&quot;$\mathbf{B}\mathbf{w}$&quot;, shift(OB)*(tailBW--tailBW +BW), SW, UnFill);
+
+label(&quot;$\mathbf{C}\mathbf{v}$&quot;, shift(OC)*(tailCV--tailCV+CV), NW, UnFill);
+label(&quot;$\mathbf{C}\mathbf{w}$&quot;, shift(OC)*(tailCW--tailCW +CW), SW, UnFill);
+
+label(&quot;$\mathbf{D}\mathbf{v}$&quot;, shift(OD)*(tailDV--tailDV+DV), NE, UnFill);
+label(&quot;$\mathbf{D}\mathbf{w}$&quot;, shift(OD)*(tailDW--tailDW +DW), SW, UnFill);
+
+label(&quot;$\mathbf{x}$&quot;, shift(OA)*(tailXforA +X), S, UnFill);
+label(&quot;$\mathbf{x}$&quot;, shift(OB)*(tailXforB -- tailXforB +X), N, UnFill);
+label(&quot;$\mathbf{x}$&quot;, shift(OC)*(tailXforC +X), S, UnFill);
+label(&quot;$\mathbf{x}$&quot;, shift(OD)*(tailXforD +X), S, UnFill);
+
+
+label(&quot;Outputs for $\mathbf{A}$:&quot;, shift(OA)*((big+1.2)*J)); 
+label(&quot;Outputs for $\mathbf{B}$:&quot;, shift(OB)*((big + 1.2)*J));
+label(&quot;Outputs for $\mathbf{C}$:&quot;, shift(OC)*((big + 1.2)*J));
+label(&quot;Outputs for $\mathbf{D}$:&quot;, shift(OD)*((big + 1.2)*J));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-240">
+  <div class="card-header">
+    <h2>#240 &mdash; c186_L20_script_2.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3123 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01903.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01903.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 2;
+
+P = (2,4); 
+D = (2,1);
+
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+//label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$t\mathbf{d}$&quot;, tailtD -- tailtD + tD, NW, UnFill);
+
+label(&quot;$t = \ ?$&quot;, V, 2ESE, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%202%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0A%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0A%2F%2Flabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%20D%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24t%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%5C%20%3F%24%22%2C%20V%2C%202ESE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 2;
+
+P = (2,4); 
+D = (2,1);
+
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+//label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$t\mathbf{d}$&quot;, tailtD -- tailtD + tD, NW, UnFill);
+
+label(&quot;$t = \ ?$&quot;, V, 2ESE, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="pag"><a href="page-23.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-17.html">17</a><a href="page-18.html">18</a><a href="page-19.html">19</a><a href="page-20.html">20</a><a href="page-21.html">21</a><a href="page-22.html">22</a><a href="page-23.html">23</a><span class="cur">24</span><a href="page-25.html">25</a><a href="page-26.html">26</a><a href="page-27.html">27</a><a href="page-28.html">28</a><a href="page-29.html">29</a><a href="page-30.html">30</a><a href="page-31.html">31</a><span class="dots">…</span><a href="page-178.html">178</a><a href="page-25.html">Next &raquo;</a></div>
+</div>
+<script>
+document.querySelectorAll('.texer-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    navigator.clipboard.writeText(btn.getAttribute('data-code')).then(()=>{
+      const o=btn.textContent;btn.textContent='Copied!';
+      setTimeout(()=>{btn.textContent=o},1500);
+      window.open('https://artofproblemsolving.com/texer/','_blank');
+    });
+  });
+});
+</script></body></html>

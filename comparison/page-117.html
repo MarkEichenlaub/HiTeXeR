@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR vs Asymptote — Page 117/178</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
+.container{max-width:1600px;margin:0 auto}
+h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom:4px}
+.sub{text-align:center;color:#666;font-size:.92em;margin-bottom:6px}
+.stats{text-align:center;margin-bottom:20px;font-size:.88em}
+.stats b{display:inline-block;padding:2px 10px;border-radius:10px;color:#fff;margin:0 3px;font-weight:600;font-size:.82em}
+
+.card{background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:24px;overflow:visible}
+.card-header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px 10px 0 0}
+.card-header h2{font-size:1em;font-weight:600}
+.badge{padding:3px 12px;border-radius:12px;font-size:.75em;font-weight:700;color:#fff;white-space:nowrap}
+.card-body{display:grid;grid-template-columns:35% 35% 30%;gap:0}
+.render-col{padding:14px;border-right:1px solid #eee}
+.render-col:last-child{border-right:none}
+.render-col h3{font-size:.72em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
+.img-wrap{background:#fff;border:1px solid #ddd;border-radius:6px;min-height:80px;display:flex;align-items:center;justify-content:center;padding:8px;overflow:visible}
+.img-wrap img,.img-wrap object{max-width:100%;height:auto;display:block}
+.na{color:#999;font-size:.85em}
+.code-box{background:#f5f5f5;color:#333;font-family:Consolas,monospace;font-size:10.5px;line-height:1.35;padding:8px;border-radius:6px;border:1px solid #ddd;max-height:260px;overflow-y:auto;white-space:pre;word-wrap:normal}
+.link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.btn{display:inline-block;padding:4px 10px;font-size:.78em;font-weight:600;color:#1a1a2e;background:#e8e8f0;border:1px solid #c0c0d0;border-radius:4px;text-decoration:none;cursor:pointer;font-family:inherit}
+.btn:hover{background:#1a1a2e;color:#fff}
+.pag{text-align:center;margin:24px 0}
+.pag a,.pag span{display:inline-block;padding:5px 10px;margin:1px;border-radius:4px;font-size:.85em;text-decoration:none}
+.pag a{background:#e8e8f0;color:#1a1a2e}
+.pag a:hover{background:#1a1a2e;color:#fff}
+.pag .cur{background:#1a1a2e;color:#fff;font-weight:700}
+.pag .dots{color:#999}
+</style></head><body>
+<div class="container">
+<h1>HiTeXeR vs Asymptote</h1>
+<p class="sub">1779 diagrams sorted by SSIM (worst first) — Page 117 of 178</p>
+<div class="stats">
+<b style="background:#2d8a4e">4 Good</b>
+<b style="background:#c0820a">66 Fair</b>
+<b style="background:#c0392b">1709 Poor</b>
+
+</div>
+<div class="pag"><a href="page-116.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-110.html">110</a><a href="page-111.html">111</a><a href="page-112.html">112</a><a href="page-113.html">113</a><a href="page-114.html">114</a><a href="page-115.html">115</a><a href="page-116.html">116</a><span class="cur">117</span><a href="page-118.html">118</a><a href="page-119.html">119</a><a href="page-120.html">120</a><a href="page-121.html">121</a><a href="page-122.html">122</a><a href="page-123.html">123</a><a href="page-124.html">124</a><span class="dots">…</span><a href="page-178.html">178</a><a href="page-118.html">Next &raquo;</a></div>
+
+<div class="card" id="pair-1161">
+  <div class="card-header">
+    <h2>#1161 &mdash; c10_L1_script_1.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6864 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00155.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/00155.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>// intro area under curve pic
+
+import graph;
+
+size(7cm);
+
+real f(real x){return ((1/3)*x^3 - (3/2)*x^2 + 2*x + 2);}
+
+xlimits( -0.5, 3.5);
+
+ylimits( -0.1, 4);
+
+path bdry=(3,f(3))--(3,0)--(1,0)--(1,f(1));
+label(&quot;$a$&quot;, (1,0), S);
+label(&quot;$b$&quot;, (3,0), S);
+label(&quot;$y=f(x)$&quot;, (3,f(3)), NW);
+
+fill(buildcycle(bdry,graph(f,1,3)),rgb(.8,.8,.8));
+
+draw(graph(f,-0.5,3.5),black+1bp);
+
+draw(bdry,black+1bp+dashed);
+
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),Ticks(&quot;%&quot;), Arrow);
+
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Ticks(&quot;%&quot;), Arrow);
+
+// end</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2F%20intro%20area%20under%20curve%20pic%0D%0A%0D%0Aimport%20graph%3B%0D%0A%0D%0Asize(7cm)%3B%0D%0A%0D%0Areal%20f(real%20x)%7Breturn%20((1%2F3)*x%5E3%20-%20(3%2F2)*x%5E2%20%2B%202*x%20%2B%202)%3B%7D%0D%0A%0D%0Axlimits(%20-0.5%2C%203.5)%3B%0D%0A%0D%0Aylimits(%20-0.1%2C%204)%3B%0D%0A%0D%0Apath%20bdry%3D(3%2Cf(3))--(3%2C0)--(1%2C0)--(1%2Cf(1))%3B%0D%0D%0Alabel(%22%24a%24%22%2C%20(1%2C0)%2C%20S)%3B%0D%0D%0Alabel(%22%24b%24%22%2C%20(3%2C0)%2C%20S)%3B%0D%0D%0Alabel(%22%24y%3Df(x)%24%22%2C%20(3%2Cf(3))%2C%20NW)%3B%0D%0A%0D%0Afill(buildcycle(bdry%2Cgraph(f%2C1%2C3))%2Crgb(.8%2C.8%2C.8))%3B%0D%0A%0D%0Adraw(graph(f%2C-0.5%2C3.5)%2Cblack%2B1bp)%3B%0D%0A%0D%0Adraw(bdry%2Cblack%2B1bp%2Bdashed)%3B%0D%0A%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2CTicks(%22%25%22)%2C%20Arrow)%3B%0D%0A%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2CTicks(%22%25%22)%2C%20Arrow)%3B%0D%0A%0D%0A%2F%2F%20end%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+// intro area under curve pic
+
+import graph;
+
+size(7cm);
+
+real f(real x){return ((1/3)*x^3 - (3/2)*x^2 + 2*x + 2);}
+
+xlimits( -0.5, 3.5);
+
+ylimits( -0.1, 4);
+
+path bdry=(3,f(3))--(3,0)--(1,0)--(1,f(1));
+label(&quot;$a$&quot;, (1,0), S);
+label(&quot;$b$&quot;, (3,0), S);
+label(&quot;$y=f(x)$&quot;, (3,f(3)), NW);
+
+fill(buildcycle(bdry,graph(f,1,3)),rgb(.8,.8,.8));
+
+draw(graph(f,-0.5,3.5),black+1bp);
+
+draw(bdry,black+1bp+dashed);
+
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),Ticks(&quot;%&quot;), Arrow);
+
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Ticks(&quot;%&quot;), Arrow);
+
+// end
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1162">
+  <div class="card-header">
+    <h2>#1162 &mdash; c134_L3_script_31.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6866 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00671.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/00671.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(1.5 cm);
+
+pair A, B, C, D, E, F, H;
+
+A = (1,3);
+B = (0,0);
+C = (4,0);
+D = (A + reflect(B,C)*(A))/2;
+E = (B + reflect(C,A)*(B))/2;
+F = (C + reflect(A,B)*(C))/2;
+H = extension(A,D,B,E);
+
+draw(circumcircle(B,C,E),red);
+draw(A--B--C--cycle);
+draw(A--D);
+draw(B--E);
+draw(C--F);
+draw(E--F);
+
+label(&quot;$A$&quot;, A, N);
+label(&quot;$B$&quot;, B, SW);
+label(&quot;$C$&quot;, C, SE);
+label(&quot;$D$&quot;, D, S);
+label(&quot;$E$&quot;, E, NE);
+label(&quot;$F$&quot;, F, NW);
+label(&quot;$H$&quot;, H, SE);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(1.5%20cm)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20E%2C%20F%2C%20H%3B%0D%0A%0D%0AA%20%3D%20(1%2C3)%3B%0D%0AB%20%3D%20(0%2C0)%3B%0D%0AC%20%3D%20(4%2C0)%3B%0D%0AD%20%3D%20(A%20%2B%20reflect(B%2CC)*(A))%2F2%3B%0D%0AE%20%3D%20(B%20%2B%20reflect(C%2CA)*(B))%2F2%3B%0D%0AF%20%3D%20(C%20%2B%20reflect(A%2CB)*(C))%2F2%3B%0D%0AH%20%3D%20extension(A%2CD%2CB%2CE)%3B%0D%0A%0D%0Adraw(circumcircle(B%2CC%2CE)%2Cred)%3B%0D%0Adraw(A--B--C--cycle)%3B%0D%0Adraw(A--D)%3B%0D%0Adraw(B--E)%3B%0D%0Adraw(C--F)%3B%0D%0Adraw(E--F)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20N)%3B%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20SW)%3B%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20SE)%3B%0D%0Alabel(%22%24D%24%22%2C%20D%2C%20S)%3B%0D%0Alabel(%22%24E%24%22%2C%20E%2C%20NE)%3B%0D%0Alabel(%22%24F%24%22%2C%20F%2C%20NW)%3B%0D%0Alabel(%22%24H%24%22%2C%20H%2C%20SE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(1.5 cm);
+
+pair A, B, C, D, E, F, H;
+
+A = (1,3);
+B = (0,0);
+C = (4,0);
+D = (A + reflect(B,C)*(A))/2;
+E = (B + reflect(C,A)*(B))/2;
+F = (C + reflect(A,B)*(C))/2;
+H = extension(A,D,B,E);
+
+draw(circumcircle(B,C,E),red);
+draw(A--B--C--cycle);
+draw(A--D);
+draw(B--E);
+draw(C--F);
+draw(E--F);
+
+label(&quot;$A$&quot;, A, N);
+label(&quot;$B$&quot;, B, SW);
+label(&quot;$C$&quot;, C, SE);
+label(&quot;$D$&quot;, D, S);
+label(&quot;$E$&quot;, E, NE);
+label(&quot;$F$&quot;, F, NW);
+label(&quot;$H$&quot;, H, SE);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1163">
+  <div class="card-header">
+    <h2>#1163 &mdash; c186_L10_script_2.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6869 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00971.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/00971.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+
+real theta = 50; 
+pair A = (1,0); 
+pair B = expi(2pi); 
+pair O = (0,0);
+
+rr_cartesian_axes(-1.5,1.5,-1.5,1.5, usegrid = false, complexplane=true);
+
+draw(Circle(O, 1), gray + linewidth(0.4));
+
+label(&quot;$e^{2\pi i}$&quot;, B, NE);
+
+dot(B);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Areal%20theta%20%3D%2050%3B%20%0D%0D%0Apair%20A%20%3D%20(1%2C0)%3B%20%0D%0D%0Apair%20B%20%3D%20expi(2pi)%3B%20%0D%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Arr_cartesian_axes(-1.5%2C1.5%2C-1.5%2C1.5%2C%20usegrid%20%3D%20false%2C%20complexplane%3Dtrue)%3B%0D%0A%0D%0Adraw(Circle(O%2C%201)%2C%20gray%20%2B%20linewidth(0.4))%3B%0D%0A%0D%0Alabel(%22%24e%5E%7B2%5Cpi%20i%7D%24%22%2C%20B%2C%20NE)%3B%0D%0A%0D%0Adot(B)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+
+real theta = 50; 
+pair A = (1,0); 
+pair B = expi(2pi); 
+pair O = (0,0);
+
+rr_cartesian_axes(-1.5,1.5,-1.5,1.5, usegrid = false, complexplane=true);
+
+draw(Circle(O, 1), gray + linewidth(0.4));
+
+label(&quot;$e^{2\pi i}$&quot;, B, NE);
+
+dot(B);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1164">
+  <div class="card-header">
+    <h2>#1164 &mdash; c186_L13_script_25.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6869 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01186.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01186.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(210);
+
+import TrigMacros; 
+import olympiad; 
+import markers;
+
+rr_cartesian_axes(-3, 8, -3, 7, complexplane = true, usegrid = false);
+
+pair O, V, WW, Z, wrongZ;
+
+O = (0,0); 
+V =(2, 4); 
+WW = (6, 3); 
+Z = V + scale(1/sqrt(2))*rotate(45)*(WW-V);
+wrongZ = expi(pi/4)*WW/sqrt(2);
+
+draw(V--WW--Z--cycle);
+draw(rightanglemark(V, Z, WW, 15));
+draw(O--WW, dashed);
+draw(O--expi(pi/4)*WW/sqrt(2), dashed);
+
+label(&quot;$\frac{1}{\sqrt{2}}e^{\pi i/4}(6+3i)$&quot;, wrongZ, NNW, UnFill);
+markangle(&quot;$\frac{\pi}{4}$&quot;, WW, O, wrongZ, radius = 20);
+
+dot(&quot;$6+3i$&quot;,WW, SE);
+dot(&quot;$?$&quot;,Z, N);
+dot(V); 
+dot(wrongZ);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(210)%3B%0D%0A%0D%0Aimport%20TrigMacros%3B%20%0D%0Aimport%20olympiad%3B%20%0D%0Aimport%20markers%3B%0D%0A%0D%0Arr_cartesian_axes(-3%2C%208%2C%20-3%2C%207%2C%20complexplane%20%3D%20true%2C%20usegrid%20%3D%20false)%3B%0D%0A%0D%0Apair%20O%2C%20V%2C%20WW%2C%20Z%2C%20wrongZ%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%20%0D%0AV%20%3D(2%2C%204)%3B%20%0D%0AWW%20%3D%20(6%2C%203)%3B%20%0D%0AZ%20%3D%20V%20%2B%20scale(1%2Fsqrt(2))*rotate(45)*(WW-V)%3B%0D%0AwrongZ%20%3D%20expi(pi%2F4)*WW%2Fsqrt(2)%3B%0D%0A%0D%0Adraw(V--WW--Z--cycle)%3B%0D%0Adraw(rightanglemark(V%2C%20Z%2C%20WW%2C%2015))%3B%0D%0Adraw(O--WW%2C%20dashed)%3B%0D%0Adraw(O--expi(pi%2F4)*WW%2Fsqrt(2)%2C%20dashed)%3B%0D%0A%0D%0Alabel(%22%24%5Cfrac%7B1%7D%7B%5Csqrt%7B2%7D%7De%5E%7B%5Cpi%20i%2F4%7D(6%2B3i)%24%22%2C%20wrongZ%2C%20NNW%2C%20UnFill)%3B%0D%0Amarkangle(%22%24%5Cfrac%7B%5Cpi%7D%7B4%7D%24%22%2C%20WW%2C%20O%2C%20wrongZ%2C%20radius%20%3D%2020)%3B%0D%0A%0D%0Adot(%22%246%2B3i%24%22%2CWW%2C%20SE)%3B%0D%0Adot(%22%24%3F%24%22%2CZ%2C%20N)%3B%0D%0Adot(V)%3B%20%0D%0Adot(wrongZ)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(210);
+
+import TrigMacros; 
+import olympiad; 
+import markers;
+
+rr_cartesian_axes(-3, 8, -3, 7, complexplane = true, usegrid = false);
+
+pair O, V, WW, Z, wrongZ;
+
+O = (0,0); 
+V =(2, 4); 
+WW = (6, 3); 
+Z = V + scale(1/sqrt(2))*rotate(45)*(WW-V);
+wrongZ = expi(pi/4)*WW/sqrt(2);
+
+draw(V--WW--Z--cycle);
+draw(rightanglemark(V, Z, WW, 15));
+draw(O--WW, dashed);
+draw(O--expi(pi/4)*WW/sqrt(2), dashed);
+
+label(&quot;$\frac{1}{\sqrt{2}}e^{\pi i/4}(6+3i)$&quot;, wrongZ, NNW, UnFill);
+markangle(&quot;$\frac{\pi}{4}$&quot;, WW, O, wrongZ, radius = 20);
+
+dot(&quot;$6+3i$&quot;,WW, SE);
+dot(&quot;$?$&quot;,Z, N);
+dot(V); 
+dot(wrongZ);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1165">
+  <div class="card-header">
+    <h2>#1165 &mdash; c186_L1_p31757_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6872 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01730.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01730.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220);  
+import TrigMacros;
+import olympiad;
+
+real theta = 70; 
+pair A = (3,0); 
+pair B = 3*dir(theta);
+pair O = (0,0);
+
+//Sizing up the grid and circle since otherwise, the labels for the axes 
+//are in a funny place: 
+rr_cartesian_axes(-5, 5, -5, 5, usegrid = false);
+
+draw(Circle(O, 3)); 
+draw(arc(0, 0.2A, 0.2B));  
+label(&quot;$	heta$&quot;, (A+B)/5); 
+draw(O--B); 
+dot(&quot;Terminal point of $	heta$&quot;, B, NE); 
+label(&quot;$	heta$&quot;,rotate(theta/2)*A,NE);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%20%0D%0Aimport%20TrigMacros%3B%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Areal%20theta%20%3D%2070%3B%20%0D%0Apair%20A%20%3D%20(3%2C0)%3B%20%0D%0Apair%20B%20%3D%203*dir(theta)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FSizing%20up%20the%20grid%20and%20circle%20since%20otherwise%2C%20the%20labels%20for%20the%20axes%20%0D%0A%2F%2Fare%20in%20a%20funny%20place%3A%20%0D%0Arr_cartesian_axes(-5%2C%205%2C%20-5%2C%205%2C%20usegrid%20%3D%20false)%3B%0D%0A%0D%0Adraw(Circle(O%2C%203))%3B%20%0D%0Adraw(arc(0%2C%200.2A%2C%200.2B))%3B%20%20%0D%0Alabel(%22%24%09heta%24%22%2C%20(A%2BB)%2F5)%3B%20%0D%0Adraw(O--B)%3B%20%0D%0Adot(%22Terminal%20point%20of%20%24%09heta%24%22%2C%20B%2C%20NE)%3B%20%0D%0Alabel(%22%24%09heta%24%22%2Crotate(theta%2F2)*A%2CNE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220);  
+import TrigMacros;
+import olympiad;
+
+real theta = 70; 
+pair A = (3,0); 
+pair B = 3*dir(theta);
+pair O = (0,0);
+
+//Sizing up the grid and circle since otherwise, the labels for the axes 
+//are in a funny place: 
+rr_cartesian_axes(-5, 5, -5, 5, usegrid = false);
+
+draw(Circle(O, 3)); 
+draw(arc(0, 0.2A, 0.2B));  
+label(&quot;$	heta$&quot;, (A+B)/5); 
+draw(O--B); 
+dot(&quot;Terminal point of $	heta$&quot;, B, NE); 
+label(&quot;$	heta$&quot;,rotate(theta/2)*A,NE);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1166">
+  <div class="card-header">
+    <h2>#1166 &mdash; c186_L5_script_36.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6873 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02434.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/02434.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import olympiad; 
+size(180);
+picture pic;
+
+pair A, B, Bprime, C;
+
+A = 8*dir(60); 
+B = intersectionpoints(Circle(A, 7), C--(10,0))[0]; 
+Bprime = intersectionpoints(Circle(A, 7), C--(10,0))[1]; 
+C = (0, 0);
+
+draw(A--Bprime--C--cycle);
+draw(A--B);
+
+label(&quot;$A$&quot;, A, N); 
+label(&quot;$B$&quot;, B, S); 
+label(&quot;$B&#39;$&quot;, Bprime, S); 
+label(&quot;$C$&quot;, C, S);
+
+label(&quot;$7$&quot;, A--B, W); 
+label(&quot;$7$&quot;, A--Bprime, E); 
+label(&quot;$8$&quot;, A--C, 2*W);
+
+label(&quot;$60^{\circ}$&quot;, C + 0.6*(unit(B-C) + unit(A-C)));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20olympiad%3B%20%0D%0Asize(180)%3B%0D%0Apicture%20pic%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20Bprime%2C%20C%3B%0D%0A%0D%0AA%20%3D%208*dir(60)%3B%20%0D%0AB%20%3D%20intersectionpoints(Circle(A%2C%207)%2C%20C--(10%2C0))%5B0%5D%3B%20%0D%0ABprime%20%3D%20intersectionpoints(Circle(A%2C%207)%2C%20C--(10%2C0))%5B1%5D%3B%20%0D%0AC%20%3D%20(0%2C%200)%3B%0D%0A%0D%0Adraw(A--Bprime--C--cycle)%3B%0D%0Adraw(A--B)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20N)%3B%20%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20S)%3B%20%0D%0Alabel(%22%24B'%24%22%2C%20Bprime%2C%20S)%3B%20%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20S)%3B%0D%0A%0D%0Alabel(%22%247%24%22%2C%20A--B%2C%20W)%3B%20%0D%0Alabel(%22%247%24%22%2C%20A--Bprime%2C%20E)%3B%20%0D%0Alabel(%22%248%24%22%2C%20A--C%2C%202*W)%3B%0D%0A%0D%0Alabel(%22%2460%5E%7B%5Ccirc%7D%24%22%2C%20C%20%2B%200.6*(unit(B-C)%20%2B%20unit(A-C)))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import olympiad; 
+size(180);
+picture pic;
+
+pair A, B, Bprime, C;
+
+A = 8*dir(60); 
+B = intersectionpoints(Circle(A, 7), C--(10,0))[0]; 
+Bprime = intersectionpoints(Circle(A, 7), C--(10,0))[1]; 
+C = (0, 0);
+
+draw(A--Bprime--C--cycle);
+draw(A--B);
+
+label(&quot;$A$&quot;, A, N); 
+label(&quot;$B$&quot;, B, S); 
+label(&quot;$B&#39;$&quot;, Bprime, S); 
+label(&quot;$C$&quot;, C, S);
+
+label(&quot;$7$&quot;, A--B, W); 
+label(&quot;$7$&quot;, A--Bprime, E); 
+label(&quot;$8$&quot;, A--C, 2*W);
+
+label(&quot;$60^{\circ}$&quot;, C + 0.6*(unit(B-C) + unit(A-C)));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1167">
+  <div class="card-header">
+    <h2>#1167 &mdash; c10_L2_p4809_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6875 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00296.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/00296.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(5cm);
+import graph;
+real f (real x) {return (x-2)*x;}
+xlimits(-1,3);
+path p = graph(f,-1,3);
+draw(p,black+1bp,Arrows(2mm));
+draw(shift(2,3)*p,blue+1bp,Arrows(2mm));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(5cm)%3B%0D%0Aimport%20graph%3B%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x-2)*x%3B%7D%0D%0Axlimits(-1%2C3)%3B%0D%0Apath%20p%20%3D%20graph(f%2C-1%2C3)%3B%0D%0Adraw(p%2Cblack%2B1bp%2CArrows(2mm))%3B%0D%0Adraw(shift(2%2C3)*p%2Cblue%2B1bp%2CArrows(2mm))%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2CArrow)%3B%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2CArrow)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(5cm);
+import graph;
+real f (real x) {return (x-2)*x;}
+xlimits(-1,3);
+path p = graph(f,-1,3);
+draw(p,black+1bp,Arrows(2mm));
+draw(shift(2,3)*p,blue+1bp,Arrows(2mm));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1168">
+  <div class="card-header">
+    <h2>#1168 &mdash; c186_L1_script_12.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6876 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01770.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/01770.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(250); 
+import TrigMacros;
+import olympiad;
+
+real theta = 140; 
+pair A = (3,0); 
+pair B = 3*dir(theta);
+pair O = (0,0);
+
+//Sizing up the grid and circle since otherwise, the labels for the axes 
+//are in a funny place: 
+rr_cartesian_axes(-5, 5, -5, 5, usegrid = false);
+
+draw(Circle(O, 3)); 
+label(&quot;$140^\circ$&quot;, (A+B)/3, NNE); 
+draw(arc(O,0.2A,  0.2B), Arrow(6)); 
+draw(O--B); 
+dot(&quot;$(\cos 500^{\circ}, \sin 500^{\circ})$&quot;, B, NW);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(250)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Areal%20theta%20%3D%20140%3B%20%0D%0Apair%20A%20%3D%20(3%2C0)%3B%20%0D%0Apair%20B%20%3D%203*dir(theta)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FSizing%20up%20the%20grid%20and%20circle%20since%20otherwise%2C%20the%20labels%20for%20the%20axes%20%0D%0A%2F%2Fare%20in%20a%20funny%20place%3A%20%0D%0Arr_cartesian_axes(-5%2C%205%2C%20-5%2C%205%2C%20usegrid%20%3D%20false)%3B%0D%0A%0D%0Adraw(Circle(O%2C%203))%3B%20%0D%0Alabel(%22%24140%5E%5Ccirc%24%22%2C%20(A%2BB)%2F3%2C%20NNE)%3B%20%0D%0Adraw(arc(O%2C0.2A%2C%20%200.2B)%2C%20Arrow(6))%3B%20%0D%0Adraw(O--B)%3B%20%0D%0Adot(%22%24(%5Ccos%20500%5E%7B%5Ccirc%7D%2C%20%5Csin%20500%5E%7B%5Ccirc%7D)%24%22%2C%20B%2C%20NW)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(250); 
+import TrigMacros;
+import olympiad;
+
+real theta = 140; 
+pair A = (3,0); 
+pair B = 3*dir(theta);
+pair O = (0,0);
+
+//Sizing up the grid and circle since otherwise, the labels for the axes 
+//are in a funny place: 
+rr_cartesian_axes(-5, 5, -5, 5, usegrid = false);
+
+draw(Circle(O, 3)); 
+label(&quot;$140^\circ$&quot;, (A+B)/3, NNE); 
+draw(arc(O,0.2A,  0.2B), Arrow(6)); 
+draw(O--B); 
+dot(&quot;$(\cos 500^{\circ}, \sin 500^{\circ})$&quot;, B, NW);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1169">
+  <div class="card-header">
+    <h2>#1169 &mdash; c186_L4_p32166_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6878 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02337.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/02337.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import olympiad; 
+size(300); 
+pair A, B, C, D, EE, F; 
+A= (0,0);
+B = (24, 7); 
+C= (24,0); 
+D = extension(A, bisectorpoint(C, A, B), C, B); 
+EE = extension(B, bisectorpoint(A, B, C), A, C); 
+draw(brace(C+1.5S, A+1.5S, 1), S, blue); 
+draw(brace(B+1.3E, C+1.3E, 1), E, blue); 
+draw(A--B--C--cycle); 
+draw(A--D); 
+draw(B--EE); 
+draw(rightanglemark(A, C, B, 20)); 
+label(&quot;$\alpha$&quot;, A + 3*(unit(D-A)+ unit(C-A))); 
+label(&quot;$\alpha$&quot;, A + 3*(unit(D-A)+ unit(B-A))); 
+label(&quot;$\beta$&quot;, B+ (unit(EE-B)+ unit(A-B))); 
+label(&quot;$\beta$&quot;, B + (unit(EE-B)+ unit(C-B))); 
+label(&quot;$24$&quot;, A+2.5S--C + 2.5S); 
+label(&quot;$7$&quot;, B+3.5E--C + 3.5E); 
+dot(&quot;$A$&quot;, A, S); 
+dot(&quot;$B$&quot;, B, N); 
+dot(&quot;$C$&quot;, C, S) ; 
+dot(&quot;$D$&quot;, D, E); 
+dot(&quot;$E$&quot;, EE, S);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20olympiad%3B%20%0D%0Asize(300)%3B%20%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20EE%2C%20F%3B%20%0D%0AA%3D%20(0%2C0)%3B%0D%0AB%20%3D%20(24%2C%207)%3B%20%0D%0AC%3D%20(24%2C0)%3B%20%0D%0AD%20%3D%20extension(A%2C%20bisectorpoint(C%2C%20A%2C%20B)%2C%20C%2C%20B)%3B%20%0D%0AEE%20%3D%20extension(B%2C%20bisectorpoint(A%2C%20B%2C%20C)%2C%20A%2C%20C)%3B%20%0D%0Adraw(brace(C%2B1.5S%2C%20A%2B1.5S%2C%201)%2C%20S%2C%20blue)%3B%20%0D%0Adraw(brace(B%2B1.3E%2C%20C%2B1.3E%2C%201)%2C%20E%2C%20blue)%3B%20%0D%0Adraw(A--B--C--cycle)%3B%20%0D%0Adraw(A--D)%3B%20%0D%0Adraw(B--EE)%3B%20%0D%0Adraw(rightanglemark(A%2C%20C%2C%20B%2C%2020))%3B%20%0D%0Alabel(%22%24%5Calpha%24%22%2C%20A%20%2B%203*(unit(D-A)%2B%20unit(C-A)))%3B%20%0D%0Alabel(%22%24%5Calpha%24%22%2C%20A%20%2B%203*(unit(D-A)%2B%20unit(B-A)))%3B%20%0D%0Alabel(%22%24%5Cbeta%24%22%2C%20B%2B%20(unit(EE-B)%2B%20unit(A-B)))%3B%20%0D%0Alabel(%22%24%5Cbeta%24%22%2C%20B%20%2B%20(unit(EE-B)%2B%20unit(C-B)))%3B%20%0D%0Alabel(%22%2424%24%22%2C%20A%2B2.5S--C%20%2B%202.5S)%3B%20%0D%0Alabel(%22%247%24%22%2C%20B%2B3.5E--C%20%2B%203.5E)%3B%20%0D%0Adot(%22%24A%24%22%2C%20A%2C%20S)%3B%20%0D%0Adot(%22%24B%24%22%2C%20B%2C%20N)%3B%20%0D%0Adot(%22%24C%24%22%2C%20C%2C%20S)%20%3B%20%0D%0Adot(%22%24D%24%22%2C%20D%2C%20E)%3B%20%0D%0Adot(%22%24E%24%22%2C%20EE%2C%20S)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import olympiad; 
+size(300); 
+pair A, B, C, D, EE, F; 
+A= (0,0);
+B = (24, 7); 
+C= (24,0); 
+D = extension(A, bisectorpoint(C, A, B), C, B); 
+EE = extension(B, bisectorpoint(A, B, C), A, C); 
+draw(brace(C+1.5S, A+1.5S, 1), S, blue); 
+draw(brace(B+1.3E, C+1.3E, 1), E, blue); 
+draw(A--B--C--cycle); 
+draw(A--D); 
+draw(B--EE); 
+draw(rightanglemark(A, C, B, 20)); 
+label(&quot;$\alpha$&quot;, A + 3*(unit(D-A)+ unit(C-A))); 
+label(&quot;$\alpha$&quot;, A + 3*(unit(D-A)+ unit(B-A))); 
+label(&quot;$\beta$&quot;, B+ (unit(EE-B)+ unit(A-B))); 
+label(&quot;$\beta$&quot;, B + (unit(EE-B)+ unit(C-B))); 
+label(&quot;$24$&quot;, A+2.5S--C + 2.5S); 
+label(&quot;$7$&quot;, B+3.5E--C + 3.5E); 
+dot(&quot;$A$&quot;, A, S); 
+dot(&quot;$B$&quot;, B, N); 
+dot(&quot;$C$&quot;, C, S) ; 
+dot(&quot;$D$&quot;, D, E); 
+dot(&quot;$E$&quot;, EE, S);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1170">
+  <div class="card-header">
+    <h2>#1170 &mdash; c134_L7_script_4.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6883 &middot; Bad</span>
+  </div>
+  <div class="card-body">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00823.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><img src="htx_pngs/00823.png"></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>defaultpen(fontsize(10));
+	size(6cm);
+	pair A = (5,12), B = (0,0), C = (14,0), D = foot(A,B,C), E = foot(B,A,C), F = foot(C,A,B), H = orthocenter(A,B,C);
+	draw(D--A--B--C^^E--B^^F--C--A);
+	markscalefactor = 0.08;
+	draw(rightanglemark(A,D,B)^^rightanglemark(C,E,B)^^rightanglemark(A,F,C));
+	pair point = incenter(A,B,C);
+	pair[] p={A,B,C,D,E,F};
+	string s = &quot;A,B,C,D,E,F&quot;;
+	int size = p.length;
+	real[] d; real[] mult; for(int i = 0; i&lt;size; ++i) { d[i] = 0; mult[i] = 1;}
+	mult[6] = 2; d[6] = -10;
+	string[] k= split(s,&quot;,&quot;);
+	for(int i = 0;i&lt;p.length;++i) {
+	dot(&quot;$&quot;+k[i]+&quot;$&quot;,p[i],mult[i]*dir(point--p[i])*dir(d[i]));
+	}</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Adefaultpen(fontsize(10))%3B%0D%0A%09size(6cm)%3B%0D%0A%09pair%20A%20%3D%20(5%2C12)%2C%20B%20%3D%20(0%2C0)%2C%20C%20%3D%20(14%2C0)%2C%20D%20%3D%20foot(A%2CB%2CC)%2C%20E%20%3D%20foot(B%2CA%2CC)%2C%20F%20%3D%20foot(C%2CA%2CB)%2C%20H%20%3D%20orthocenter(A%2CB%2CC)%3B%0D%0A%09draw(D--A--B--C%5E%5EE--B%5E%5EF--C--A)%3B%0D%0A%09markscalefactor%20%3D%200.08%3B%0D%0A%09draw(rightanglemark(A%2CD%2CB)%5E%5Erightanglemark(C%2CE%2CB)%5E%5Erightanglemark(A%2CF%2CC))%3B%0D%0A%09pair%20point%20%3D%20incenter(A%2CB%2CC)%3B%0D%0A%09pair%5B%5D%20p%3D%7BA%2CB%2CC%2CD%2CE%2CF%7D%3B%0D%0A%09string%20s%20%3D%20%22A%2CB%2CC%2CD%2CE%2CF%22%3B%0D%0A%09int%20size%20%3D%20p.length%3B%0D%0A%09real%5B%5D%20d%3B%20real%5B%5D%20mult%3B%20for(int%20i%20%3D%200%3B%20i%3Csize%3B%20%2B%2Bi)%20%7B%20d%5Bi%5D%20%3D%200%3B%20mult%5Bi%5D%20%3D%201%3B%7D%0D%0A%09mult%5B6%5D%20%3D%202%3B%20d%5B6%5D%20%3D%20-10%3B%0D%0A%09string%5B%5D%20k%3D%20split(s%2C%22%2C%22)%3B%0D%0A%09for(int%20i%20%3D%200%3Bi%3Cp.length%3B%2B%2Bi)%20%7B%0D%0A%09dot(%22%24%22%2Bk%5Bi%5D%2B%22%24%22%2Cp%5Bi%5D%2Cmult%5Bi%5D*dir(point--p%5Bi%5D)*dir(d%5Bi%5D))%3B%0D%0A%09%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+defaultpen(fontsize(10));
+	size(6cm);
+	pair A = (5,12), B = (0,0), C = (14,0), D = foot(A,B,C), E = foot(B,A,C), F = foot(C,A,B), H = orthocenter(A,B,C);
+	draw(D--A--B--C^^E--B^^F--C--A);
+	markscalefactor = 0.08;
+	draw(rightanglemark(A,D,B)^^rightanglemark(C,E,B)^^rightanglemark(A,F,C));
+	pair point = incenter(A,B,C);
+	pair[] p={A,B,C,D,E,F};
+	string s = &quot;A,B,C,D,E,F&quot;;
+	int size = p.length;
+	real[] d; real[] mult; for(int i = 0; i&lt;size; ++i) { d[i] = 0; mult[i] = 1;}
+	mult[6] = 2; d[6] = -10;
+	string[] k= split(s,&quot;,&quot;);
+	for(int i = 0;i&lt;p.length;++i) {
+	dot(&quot;$&quot;+k[i]+&quot;$&quot;,p[i],mult[i]*dir(point--p[i])*dir(d[i]));
+	}
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="pag"><a href="page-116.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-110.html">110</a><a href="page-111.html">111</a><a href="page-112.html">112</a><a href="page-113.html">113</a><a href="page-114.html">114</a><a href="page-115.html">115</a><a href="page-116.html">116</a><span class="cur">117</span><a href="page-118.html">118</a><a href="page-119.html">119</a><a href="page-120.html">120</a><a href="page-121.html">121</a><a href="page-122.html">122</a><a href="page-123.html">123</a><a href="page-124.html">124</a><span class="dots">…</span><a href="page-178.html">178</a><a href="page-118.html">Next &raquo;</a></div>
+</div>
+<script>
+document.querySelectorAll('.texer-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    navigator.clipboard.writeText(btn.getAttribute('data-code')).then(()=>{
+      const o=btn.textContent;btn.textContent='Copied!';
+      setTimeout(()=>{btn.textContent=o},1500);
+      window.open('https://artofproblemsolving.com/texer/','_blank');
+    });
+  });
+});
+</script></body></html>

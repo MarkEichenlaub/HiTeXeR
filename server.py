@@ -309,6 +309,14 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_edit(code, data.get("prompt", ""), data.get("image"))
         elif action == "learn":
             self._handle_learn(code)
+        elif action == "chat":
+            self._handle_chat(code, data.get("prompt", ""), data.get("options", {}), data.get("history", []))
+        elif action == "lint":
+            self._handle_lint(code)
+        elif action == "fix":
+            self._handle_fix(code, data.get("line", 0), data.get("message", ""))
+        elif action == "autocomplete":
+            self._handle_autocomplete(code, data.get("cursor", 0), data.get("prefix", ""))
         else:
             self.send_json(400, {"error": f"Unknown AI action: {action}"})
 
@@ -485,6 +493,153 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(200, {"explanations": explanations})
         except (json.JSONDecodeError, AttributeError):
             self.send_json(200, {"error": "Failed to parse AI explanation", "raw": response[:500]})
+
+    def _handle_chat(self, code, prompt, options, history):
+        """AI Chat: conversational interaction about the code."""
+        system = (
+            "You are an expert Asymptote programmer and educator. "
+            "You are helping the user with their Asymptote diagram code.\n\n"
+        )
+
+        if options.get("refactor"):
+            system += f"\n{STYLE_GUIDE_PROMPT}\n\n"
+
+        constraints = []
+        no_edits = options.get("noEdits", False)
+        if no_edits:
+            constraints.append("Do NOT modify the code. Only provide explanations and advice.")
+        if options.get("noVisibleChanges"):
+            constraints.append("Any code changes must produce the EXACT same visual output.")
+        if options.get("commentsOnly"):
+            constraints.append("Only add or improve comments. Do not change any executable code.")
+
+        if constraints:
+            system += "CONSTRAINTS:\n" + "\n".join(f"- {c}" for c in constraints) + "\n\n"
+
+        # Build conversation
+        messages = system
+        if code.strip():
+            messages += f"Current Asymptote code:\n```asy\n{code}\n```\n\n"
+
+        for msg in history[-10:]:  # Keep last 10 messages for context
+            role = msg.get("role", "user")
+            messages += f"{'User' if role == 'user' else 'Assistant'}: {msg.get('content', '')}\n\n"
+
+        messages += f"User: {prompt}\n\nProvide your response. "
+        if not no_edits:
+            messages += (
+                "If you suggest code changes, include the COMPLETE updated code in a single "
+                "```asy``` code block. If no code changes are needed, just explain."
+            )
+
+        response = call_claude(messages, model="claude-sonnet-4-6")
+
+        # Extract code if present
+        result_code = None
+        if not no_edits:
+            m = re.search(r'```(?:asy|asymptote)?\s*\n(.*?)```', response, re.DOTALL)
+            if m:
+                result_code = m.group(1).strip()
+                # Wrap if needed
+                if not result_code.startswith('[asy]'):
+                    result_code = f"[asy]\n{result_code}\n[/asy]"
+
+        # Clean up response for display (remove code blocks for the message text)
+        display_msg = re.sub(r'```(?:asy|asymptote)?\s*\n.*?```', '[code provided above]', response, flags=re.DOTALL).strip()
+
+        result = {"message": display_msg}
+        if result_code:
+            result["code"] = result_code
+        self.send_json(200, result)
+
+    def _handle_lint(self, code):
+        """Lint: compile with Asymptote and parse errors."""
+        # Strip wrappers
+        clean = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+        clean = re.sub(r'\n?\s*\[/asy\]\s*$', '', clean)
+
+        full_code = AOPS_PREAMBLE + auto_import(clean)
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                asy_file = os.path.join(tmpdir, "diagram.asy")
+                with open(asy_file, "w") as f:
+                    f.write(full_code)
+
+                result = subprocess.run(
+                    [ASY_EXE, "-f", "pdf", "-noView", "-o", "diagram", "diagram.asy"],
+                    cwd=tmpdir, capture_output=True, text=True, timeout=30,
+                )
+
+                errors = []
+                if result.returncode != 0:
+                    stderr = result.stderr + result.stdout
+                    # Parse error lines: "diagram.asy: 5.10: error message"
+                    for m in re.finditer(r'.*?\.asy:\s*(\d+)\.\d+:\s*(.*)', stderr):
+                        line_num = int(m.group(1))
+                        message = m.group(2).strip()
+                        severity = "warning" if "warning" in message.lower() else "error"
+                        errors.append({"line": line_num, "message": message, "severity": severity})
+
+                self.send_json(200, {"errors": errors})
+        except subprocess.TimeoutExpired:
+            self.send_json(200, {"errors": [{"line": 1, "message": "Compilation timed out", "severity": "error"}]})
+        except Exception as e:
+            self.send_json(200, {"errors": [{"line": 1, "message": str(e), "severity": "error"}]})
+
+    def _handle_fix(self, code, line, message):
+        """AI Fix: suggest a fix for an error on a specific line."""
+        clean = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+        clean = re.sub(r'\n?\s*\[/asy\]\s*$', '', clean)
+        lines = clean.split('\n')
+        error_line = lines[line - 1] if 0 < line <= len(lines) else ""
+
+        prompt = (
+            f"The following Asymptote code has an error on line {line}:\n"
+            f"```asy\n{clean}\n```\n\n"
+            f"Error on line {line}: {message}\n"
+            f"The line is: `{error_line}`\n\n"
+            "Provide ONLY the corrected version of that single line. "
+            "Return just the fixed line of code, nothing else."
+        )
+
+        response = call_claude(prompt, model="claude-sonnet-4-6")
+        # Clean up: take first non-empty line, strip markdown
+        fixed = response.strip()
+        fixed = re.sub(r'^```\w*\s*', '', fixed)
+        fixed = re.sub(r'\s*```$', '', fixed)
+        fixed = fixed.strip().split('\n')[0].strip()
+
+        self.send_json(200, {"fixedLine": fixed})
+
+    def _handle_autocomplete(self, code, cursor, prefix):
+        """AI Autocomplete: suggest completions based on context."""
+        clean = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+        clean = re.sub(r'\n?\s*\[/asy\]\s*$', '', clean)
+
+        prompt = (
+            f"You are an Asymptote code autocomplete engine.\n"
+            f"The user is typing code and the cursor is at position {cursor}.\n"
+            f"Current prefix being typed: \"{prefix}\"\n\n"
+            f"Code context:\n```asy\n{clean}\n```\n\n"
+            f"Suggest exactly 5 completions for \"{prefix}\" that make sense in this context. "
+            f"Return ONLY a JSON array of 5 strings, like [\"completion1\", \"completion2\", ...]. "
+            f"Each completion should be the FULL word/identifier (not just the suffix after the prefix)."
+        )
+
+        response = call_claude(prompt, model="claude-sonnet-4-6", max_tokens=500)
+
+        try:
+            # Extract JSON array from response
+            m = re.search(r'\[.*?\]', response, re.DOTALL)
+            if m:
+                completions = json.loads(m.group())
+            else:
+                completions = []
+        except (json.JSONDecodeError, AttributeError):
+            completions = []
+
+        self.send_json(200, {"completions": completions})
 
     def send_json(self, status, obj):
         response = json.dumps(obj).encode("utf-8")

@@ -6,6 +6,8 @@
 <title>HiTeXeR - Interactive Asymptote Editor</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/monokai.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/lint/lint.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -176,34 +178,154 @@ body {
 }
 #add-element-menu .ae-item:hover { background: #2a2a3e; }
 #add-element-menu .ae-item .ae-icon { font-size: 16px; width: 24px; text-align: center; }
+
+/* Enhanced bracket matching */
+.CodeMirror-matchingbracket { background: rgba(233,196,106,0.4) !important; color: #e9c46a !important; font-weight: bold; text-decoration: underline; }
+.CodeMirror-nonmatchingbracket { background: rgba(233,69,96,0.4) !important; color: #e94560 !important; font-weight: bold; text-decoration: underline; }
+
+/* Menu bar dropdown styles */
+.menu-bar { display: flex; align-items: center; gap: 0; }
+.menu-item { position: relative; }
+.menu-item > span {
+  padding: 6px 12px; cursor: pointer; font-size: 13px; color: #ccc; font-weight: 500;
+  border-radius: 3px; transition: background 0.1s; user-select: none; display: inline-block;
+}
+.menu-item > span:hover, .menu-item.open > span { background: #1a1a5e; color: #eee; }
+.menu-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; z-index: 10010;
+  background: #1e1e2e; border: 1px solid #555; border-radius: 6px;
+  padding: 4px 0; min-width: 200px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.menu-item.open > .menu-dropdown { display: block; }
+.md-item {
+  padding: 6px 16px 6px 28px; cursor: pointer; font-size: 13px; color: #ccc;
+  position: relative; white-space: nowrap; transition: background 0.1s;
+}
+.md-item:hover { background: #2a2a3e; color: #eee; }
+.md-item.checked::before { content: '\2713'; position: absolute; left: 10px; color: #e9c46a; font-weight: bold; }
+.md-item.disabled { color: #555; pointer-events: none; }
+.md-separator { height: 1px; background: #333; margin: 4px 0; }
+.md-submenu { position: relative; }
+.md-submenu::after { content: '\25B6'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 9px; color: #888; }
+.md-submenu > .menu-dropdown { left: 100%; top: -4px; }
+.md-submenu:hover > .menu-dropdown { display: block; }
+
+/* Chat panel styles */
+#chat-panel {
+  display: none; flex-direction: column; background: #16213e; border-left: 2px solid #0f3460;
+  width: 350px; flex-shrink: 0; position: relative;
+}
+#chat-panel.open { display: flex; }
+#chat-resizer { width: 4px; background: #0f3460; cursor: col-resize; flex-shrink: 0; display: none; }
+#chat-panel.open ~ #chat-resizer, #chat-resizer.active { display: block; }
+.chat-header {
+  padding: 10px 14px; border-bottom: 1px solid #0f3460; display: flex;
+  align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.chat-header h3 { font-size: 14px; color: #e9c46a; font-weight: 600; margin: 0; }
+.chat-header button {
+  background: none; border: none; color: #888; cursor: pointer; font-size: 18px; padding: 0 4px;
+}
+.chat-header button:hover { color: #eee; }
+.chat-options { padding: 8px 14px; border-bottom: 1px solid #0f3460; flex-shrink: 0; }
+.chat-options label {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: #aaa;
+  cursor: pointer; padding: 2px 0;
+}
+.chat-options label input { accent-color: #e9c46a; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
+.chat-msg.user { background: #0f3460; color: #eee; align-self: flex-end; border-bottom-right-radius: 2px; }
+.chat-msg.assistant { background: #2a2a3e; color: #ccc; align-self: flex-start; border-bottom-left-radius: 2px; }
+.chat-msg pre { background: #111; padding: 6px 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
+.chat-msg .chat-actions { display: flex; gap: 6px; margin-top: 6px; }
+.chat-msg .chat-actions button {
+  padding: 3px 10px; border-radius: 3px; border: none; cursor: pointer; font-size: 11px; font-weight: 500;
+}
+.chat-msg .chat-actions .btn-accept { background: #2ecc71; color: #fff; }
+.chat-msg .chat-actions .btn-revert { background: #e94560; color: #fff; }
+.chat-input-area {
+  padding: 10px 14px; border-top: 1px solid #0f3460; display: flex; gap: 6px; flex-shrink: 0;
+}
+.chat-input-area input {
+  flex: 1; background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
+  padding: 6px 10px; border-radius: 4px; font-size: 13px;
+}
+.chat-input-area button {
+  background: #e94560; color: #fff; border: none; padding: 6px 14px;
+  border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;
+}
+.chat-input-area button:hover { background: #c73e54; }
+
+/* CodeMirror lint overrides */
+.CodeMirror-lint-tooltip { background: #1e1e2e !important; border: 1px solid #e94560 !important; color: #ccc !important; border-radius: 4px !important; font-size: 12px !important; }
+.CodeMirror-lint-mark-error { background: none; border-bottom: 2px wavy #e94560; }
+.CodeMirror-lint-mark-warning { background: none; border-bottom: 2px wavy #e9c46a; }
+
+/* Autocomplete hint styles */
+.CodeMirror-hints { background: #1e1e2e !important; border: 1px solid #555 !important; border-radius: 4px !important; }
+.CodeMirror-hint { color: #ccc !important; padding: 4px 8px !important; }
+.CodeMirror-hint-active { background: #0f3460 !important; color: #eee !important; }
 </style>
 </head>
 <body>
 
 <div id="toolbar">
   <h1>HiTeXeR</h1>
+  <div class="menu-bar">
+    <div class="menu-item" id="menu-file">
+      <span>File</span>
+      <div class="menu-dropdown">
+        <div class="md-item" id="md-save">Save .asy</div>
+        <div class="md-item" id="md-open">Open .asy</div>
+        <div class="md-separator"></div>
+        <div class="md-item md-submenu">Export
+          <div class="menu-dropdown">
+            <div class="md-item" id="md-export-svg">SVG</div>
+            <div class="md-item" id="md-export-png">PNG</div>
+            <div class="md-item" id="md-export-pdf">PDF</div>
+            <div class="md-item" id="md-export-jpg">JPG</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="menu-item" id="menu-edit">
+      <span>Edit</span>
+      <div class="menu-dropdown">
+        <div class="md-item" id="md-clear">Clear</div>
+        <div class="md-item" id="md-add-element">+ Element</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-ai-chat">AI Chat</div>
+      </div>
+    </div>
+    <div class="menu-item" id="menu-view">
+      <span>View</span>
+      <div class="menu-dropdown">
+        <div class="md-item checked" id="md-highlight">Highlight</div>
+        <div class="md-item" id="md-grid">Grid</div>
+        <div class="md-item" id="md-colorblind">Color Blind Mode</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-zoom-in">Zoom In</div>
+        <div class="md-item" id="md-zoom-out">Zoom Out</div>
+      </div>
+    </div>
+    <div class="menu-item" id="menu-tools">
+      <span>Tools</span>
+      <div class="menu-dropdown">
+        <div class="md-item" id="md-slide">Slide Mode</div>
+        <div class="md-item" id="md-real-asy">Use Real Asymptote</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-texer-import">Import from TeXeR...</div>
+      </div>
+    </div>
+  </div>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
-  <button id="btn-clear">CLEAR</button>
-  <button id="btn-colorblind">COLOR BLIND MODE</button>
-  <button id="btn-zoom-out" title="Shrink image">&minus;</button>
-  <button id="btn-zoom-in" title="Enlarge image">+</button>
-  <button id="btn-highlight-toggle" title="Toggle highlighting">HIGHLIGHT: ON</button>
-  <button id="btn-slide">SLIDE</button>
-  <button id="btn-grid">GRID</button>
-  <button id="btn-add-element">+ ELEMENT</button>
-  <button id="btn-ai-refactor">AI REFACTOR</button>
-  <button id="btn-ai-edit">AI EDIT</button>
-  <button id="btn-learn">LEARN</button>
-  <span style="margin-left:12px;border-left:1px solid #0f3460;padding-left:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-    <span style="display:flex;align-items:center;gap:6px;">
-      <input type="text" id="texer-url" placeholder="TeXeR URL or slug..." style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:5px 10px;border-radius:4px;font-size:12px;width:240px;">
-      <button id="btn-texer-import">IMPORT</button>
-    </span>
-    <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;"></span>
-  </span>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
+  <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
   <span class="status" id="status">Ready</span>
 </div>
+<!-- Hidden file input for Open .asy -->
+<input type="file" id="file-open-input" accept=".asy" style="display:none">
 
 <div id="main">
   <div id="editor-panel">
@@ -240,6 +362,24 @@ label("$C$", C, N);
       <div id="preview-stale-badge">not live; showing last render</div>
       <div id="preview-warn-badge"></div>
       <button id="clear-selection-btn">&#x2715; Clear selection</button>
+    </div>
+  </div>
+  <div id="chat-resizer"></div>
+  <div id="chat-panel">
+    <div class="chat-header">
+      <h3>AI Chat</h3>
+      <button id="chat-close-btn">&times;</button>
+    </div>
+    <div class="chat-options">
+      <label><input type="checkbox" id="chat-opt-noedits"> No edits</label>
+      <label><input type="checkbox" id="chat-opt-refactor"> Refactor (style guide)</label>
+      <label><input type="checkbox" id="chat-opt-novisible"> No visible changes</label>
+      <label><input type="checkbox" id="chat-opt-comments"> Comments only</label>
+    </div>
+    <div id="chat-messages"></div>
+    <div class="chat-input-area">
+      <input type="text" id="chat-input" placeholder="Ask about your code...">
+      <button id="chat-send-btn">Send</button>
     </div>
   </div>
 </div>
@@ -291,6 +431,11 @@ label("$C$", C, N);
 <script src="asy-interp.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/lint/lint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 'use strict';
 
@@ -1410,6 +1555,7 @@ function highlightLines(primaryLine, depLines) {
 const SERVER_URL = 'http://127.0.0.1:8080';
 
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
+let useRealAsy = false; // when true, skip JS interpreter and always use server
 let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
@@ -1510,8 +1656,8 @@ async function doRender() {
   const previewEl = document.getElementById('preview-container');
   lastJsRenderOk = false;
 
-  // Try JS interpreter first
-  if (window.AsyInterp && AsyInterp.canInterpret(code)) {
+  // Try JS interpreter first (unless "Use Real Asymptote" mode is on)
+  if (!useRealAsy && window.AsyInterp && AsyInterp.canInterpret(code)) {
     try {
       const dims = getPreviewDimensions();
       const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
@@ -2328,6 +2474,54 @@ function initResizer() {
 }
 
 // ============================================================
+// Menu Bar Dropdown Logic
+// ============================================================
+function initMenuBar() {
+  const menuItems = document.querySelectorAll('.menu-item');
+  let openMenu = null;
+
+  // Click to open, hover to switch between open menus
+  menuItems.forEach(mi => {
+    const trigger = mi.querySelector(':scope > span');
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (mi.classList.contains('open')) {
+        mi.classList.remove('open');
+        openMenu = null;
+      } else {
+        menuItems.forEach(m => m.classList.remove('open'));
+        mi.classList.add('open');
+        openMenu = mi;
+      }
+    });
+    mi.addEventListener('mouseenter', () => {
+      if (openMenu && openMenu !== mi) {
+        menuItems.forEach(m => m.classList.remove('open'));
+        mi.classList.add('open');
+        openMenu = mi;
+      }
+    });
+  });
+
+  // Click outside to close
+  document.addEventListener('mousedown', (e) => {
+    if (openMenu && !openMenu.contains(e.target)) {
+      menuItems.forEach(m => m.classList.remove('open'));
+      openMenu = null;
+    }
+  });
+
+  // Close menu after clicking an md-item (unless it's a submenu container)
+  document.querySelectorAll('.md-item').forEach(item => {
+    if (item.classList.contains('md-submenu')) return;
+    item.addEventListener('click', () => {
+      menuItems.forEach(m => m.classList.remove('open'));
+      openMenu = null;
+    });
+  });
+}
+
+// ============================================================
 // Init
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -2335,6 +2529,27 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizer();
   StyleMenu.init();
   document.getElementById('btn-render').addEventListener('click', doRender);
+  initMenuBar();
+
+  // === Menu item wiring ===
+  document.getElementById('md-clear').addEventListener('click', () => doClear());
+  document.getElementById('md-add-element').addEventListener('click', (e) => showAddElementMenu(e));
+  document.getElementById('md-ai-chat').addEventListener('click', () => toggleChatPanel());
+  document.getElementById('md-highlight').addEventListener('click', () => toggleHighlight());
+  document.getElementById('md-grid').addEventListener('click', () => toggleGrid());
+  document.getElementById('md-colorblind').addEventListener('click', () => toggleColorBlind());
+  document.getElementById('md-zoom-in').addEventListener('click', () => adjustScale(1.25));
+  document.getElementById('md-zoom-out').addEventListener('click', () => adjustScale(0.8));
+  document.getElementById('md-slide').addEventListener('click', () => toggleSlideMode());
+  document.getElementById('md-texer-import').addEventListener('click', () => doTexerImport());
+  document.getElementById('md-real-asy').addEventListener('click', () => toggleRealAsy());
+  document.getElementById('md-save').addEventListener('click', () => doSaveAsy());
+  document.getElementById('md-open').addEventListener('click', () => document.getElementById('file-open-input').click());
+  document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
+  document.getElementById('md-export-svg').addEventListener('click', () => doExportSvg());
+  document.getElementById('md-export-png').addEventListener('click', () => doExportPng());
+  document.getElementById('md-export-jpg').addEventListener('click', () => doExportJpg());
+  document.getElementById('md-export-pdf').addEventListener('click', () => doExportPdf());
 
   // === EigenNode integration ===
   // URL params: ?eigennode_node=NODEID&eigennode_file=FILEPATH
@@ -2394,10 +2609,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Color blind mode toggle (deuteranopia simulation via Brettel/Viénot color matrix)
   let colorBlindActive = false;
-  const cbBtn = document.getElementById('btn-colorblind');
-  cbBtn.addEventListener('click', () => {
+  function toggleColorBlind() {
     colorBlindActive = !colorBlindActive;
-    cbBtn.classList.toggle('primary', colorBlindActive);
+    const cbMd = document.getElementById('md-colorblind');
+    if (cbMd) cbMd.classList.toggle('checked', colorBlindActive);
     const svg = document.querySelector('#preview-container svg');
     if (!svg) return;
     if (colorBlindActive) {
@@ -2435,9 +2650,9 @@ document.addEventListener('DOMContentLoaded', () => {
         wrapper.removeAttribute('filter');
       }
     }
-  });
+  }
 
-  document.getElementById('btn-clear').addEventListener('click', () => {
+  function doClear() {
     editor.setValue('[asy]\n\n[/asy]');
     const clearPreview = document.getElementById('preview-container');
     const clearSvg = clearPreview.querySelector('svg');
@@ -2451,11 +2666,9 @@ document.addEventListener('DOMContentLoaded', () => {
     clearHighlights(); clearSvgHighlights();
     document.getElementById('status').textContent='Ready';
     document.getElementById('status').style.color='#888';
-  });
+  }
 
   // TeXeR import
-  const texerBtn = document.getElementById('btn-texer-import');
-  const texerInput = document.getElementById('texer-url');
   const texerLoadedInfo = document.getElementById('texer-loaded-info');
   let texerLoadedUrl = null;   // the URL we loaded from
   let texerOriginalCode = null; // snapshot at load time, for "(modified)" detection
@@ -2479,10 +2692,10 @@ document.addEventListener('DOMContentLoaded', () => {
     texerLoadedInfo.innerHTML = `<a href="${escapeHtml(texerLoadedUrl)}" target="_blank" style="color:#e9c46a;text-decoration:none;">${escapeHtml(slug)}</a>${modified ? ' <span style="color:#e94560;">(modified)</span>' : ''}`;
   }
 
-  async function doTexerImport() {
-    const raw = texerInput.value.trim();
+  async function doTexerImport(rawInput) {
+    const raw = rawInput || prompt('Enter TeXeR URL or slug:');
     if (!raw) return;
-    const url = normalizeTexerUrl(raw);
+    const url = normalizeTexerUrl(raw.trim());
     if (!url) return;
     const statusEl = document.getElementById('status');
     statusEl.textContent = 'Fetching TeXeR...';
@@ -2503,14 +2716,11 @@ document.addEventListener('DOMContentLoaded', () => {
       texerOriginalCode = newCode;
       updateTexerModifiedIndicator();
       statusEl.textContent = 'TeXeR code imported'; statusEl.style.color = '#2ecc71';
-      texerInput.value = '';
       doRender();
     } catch (err) {
       statusEl.textContent = 'Import failed: ' + err.message; statusEl.style.color = '#e94560';
     }
   }
-  texerBtn.addEventListener('click', doTexerImport);
-  texerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doTexerImport(); });
 
   // Track edits for "(modified)" indicator
   editor.on('change', () => {
@@ -2564,45 +2774,44 @@ document.addEventListener('DOMContentLoaded', () => {
     doRender();
   }
 
-  document.getElementById('btn-zoom-in').addEventListener('click', () => adjustScale(1.25));
-  document.getElementById('btn-zoom-out').addEventListener('click', () => adjustScale(0.8));
+  // Zoom handlers are wired via menu bar initMenuBar()
+
+  function toggleRealAsy() {
+    useRealAsy = !useRealAsy;
+    const md = document.getElementById('md-real-asy');
+    if (md) md.classList.toggle('checked', useRealAsy);
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = useRealAsy ? 'Using real Asymptote' : 'Using JS interpreter';
+    statusEl.style.color = '#e9c46a';
+    doRender();
+  }
 
   // ============================================================
   // Feature: Grid Overlay
   // ============================================================
-  const gridBtn = document.getElementById('btn-grid');
-  gridBtn.addEventListener('click', () => {
+  function toggleGrid() {
     gridActive = !gridActive;
-    gridBtn.classList.toggle('active', gridActive);
-    if (gridActive) {
-      applyGridOverlay();
-    } else {
-      removeGridOverlay();
-    }
-  });
-
-  // removeGridOverlay / applyGridOverlay are top-level functions (defined near doRender)
+    const gridMd = document.getElementById('md-grid');
+    if (gridMd) gridMd.classList.toggle('checked', gridActive);
+    if (gridActive) applyGridOverlay();
+    else removeGridOverlay();
+  }
 
   // ============================================================
   // Feature #7: Highlighting Toggle
   // ============================================================
   let highlightingEnabled = true;
-  const hlBtn = document.getElementById('btn-highlight-toggle');
-  hlBtn.addEventListener('click', () => {
+  function toggleHighlight() {
     highlightingEnabled = !highlightingEnabled;
-    hlBtn.textContent = 'HIGHLIGHT: ' + (highlightingEnabled ? 'ON' : 'OFF');
-    hlBtn.classList.toggle('active', !highlightingEnabled);
-    if (!highlightingEnabled) {
-      clearHighlights();
-      clearSvgHighlights();
-    }
-  });
+    const hlMd = document.getElementById('md-highlight');
+    if (hlMd) hlMd.classList.toggle('checked', highlightingEnabled);
+    if (!highlightingEnabled) { clearHighlights(); clearSvgHighlights(); }
+  }
 
   // ============================================================
   // Feature #8: Add Common Elements Menu
   // ============================================================
   const addElMenu = document.getElementById('add-element-menu');
-  const addElBtn = document.getElementById('btn-add-element');
 
   const ELEMENT_TEMPLATES = [
     { icon: '\u25CF', label: 'Point', code: 'pair P = ({x}, {y});\ndot(P);\nlabel("$P$", P, N);' },
@@ -2617,14 +2826,14 @@ document.addEventListener('DOMContentLoaded', () => {
     { icon: '\u22A5', label: 'Right angle mark', code: 'draw(rightanglemark({A}, {vertex}, {B}));' },
   ];
 
-  addElBtn.addEventListener('click', (e) => {
+  function showAddElementMenu(e) {
     if (addElMenu.style.display === 'block') { addElMenu.style.display = 'none'; return; }
     let html = '<div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:6px;">Add Element</div>';
     for (const t of ELEMENT_TEMPLATES) {
       html += `<div class="ae-item" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}</div>`;
     }
     addElMenu.innerHTML = html;
-    const rect = addElBtn.getBoundingClientRect();
+    const rect = (e && e.target) ? e.target.getBoundingClientRect() : { left: 200, bottom: 40 };
     addElMenu.style.left = rect.left + 'px';
     addElMenu.style.top = (rect.bottom + 4) + 'px';
     addElMenu.style.display = 'block';
@@ -2655,11 +2864,11 @@ document.addEventListener('DOMContentLoaded', () => {
         doRender();
       });
     });
-  });
+  }
 
   // Close add-element menu on outside click
   document.addEventListener('mousedown', (e) => {
-    if (addElMenu.style.display === 'block' && !addElMenu.contains(e.target) && e.target !== addElBtn) {
+    if (addElMenu.style.display === 'block' && !addElMenu.contains(e.target)) {
       addElMenu.style.display = 'none';
     }
   });
@@ -2669,23 +2878,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // ============================================================
   let slideActive = false;
   window.hitexerSlideActive = false;
-  const slideBtn = document.getElementById('btn-slide');
   const slidePanel = document.getElementById('slide-panel');
   let slideDragState = null;
   let slideInjectedDots = [];
   let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls, matchStart, matchEnd, kind}]
   let slidePxPerUnit = 28.35;
 
-  slideBtn.addEventListener('click', () => {
+  function toggleSlideMode() {
     slideActive = !slideActive;
     window.hitexerSlideActive = slideActive;
-    slideBtn.classList.toggle('active', slideActive);
-    if (slideActive) {
-      activateSlideMode();
-    } else {
-      deactivateSlideMode();
-    }
-  });
+    const slideMd = document.getElementById('md-slide');
+    if (slideMd) slideMd.classList.toggle('checked', slideActive);
+    if (slideActive) activateSlideMode();
+    else deactivateSlideMode();
+  }
 
   function findFreePoints(code) {
     const lines = code.split('\n');
@@ -2696,6 +2902,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const line = lines[i];
       // Skip comment-only lines
       if (/^\s*\/\//.test(line)) continue;
+      // Skip injected SLIDE_DOT lines to avoid duplicates
+      if (line.includes('// SLIDE_DOT')) continue;
       // Strip inline comments for analysis
       const stripped = line.replace(/\/\/.*$/, '');
 
@@ -2797,7 +3005,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         lines.splice(asyEndIdx, 0, ...dotLines);
         slideInjectedDots = undrawn.map(fp => fp.varName || `(${fp.x}, ${fp.y})`);
+        // Suppress auto-render: editor.setValue triggers the change event,
+        // which would schedule a delayed doRender() that replaces the SVG
+        // and destroys the slide overlay + event listeners.
+        suppressAutoRender = true;
         editor.setValue(lines.join('\n'));
+        suppressAutoRender = false;
+        if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
         doRender().then(() => probeReady).then(() => applySlideOverlay());
         return;
       }
@@ -2811,7 +3025,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const code = editor.getValue();
     const freePoints = findFreePoints(code);
     const freeReals = findFreeReals(code);
-    slidePxPerUnit = getUnitScale(code);
+    slidePxPerUnit = (lastRenderInfo && lastRenderInfo.pxPerUnit) ? lastRenderInfo.pxPerUnit : getUnitScale(code);
 
     const svg = document.querySelector('#preview-container svg');
     if (!svg) return;
@@ -2844,9 +3058,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Helper: convert math coordinates to SVG viewBox coordinates using lastRenderInfo
     function mathToSvg(mx, my) {
-      if (!lastRenderInfo) return null;
-      const { pxPerUnit, minX, maxY } = lastRenderInfo;
-      return { x: (mx - minX) * pxPerUnit, y: (maxY - my) * pxPerUnit };
+      if (lastRenderInfo) {
+        const { pxPerUnit, minX, maxY } = lastRenderInfo;
+        return { x: (mx - minX) * pxPerUnit, y: (maxY - my) * pxPerUnit };
+      }
+      // Fallback: parse SVG viewBox when lastRenderInfo is null (server-rendered code)
+      const svgEl = document.querySelector('#preview-container svg');
+      if (!svgEl) return null;
+      const vb = svgEl.getAttribute('viewBox');
+      if (!vb) return null;
+      const [vbX, vbY, vbW, vbH] = vb.split(/[\s,]+/).map(Number);
+      // Estimate bounds from viewBox and slidePxPerUnit
+      const minX = vbX / slidePxPerUnit;
+      const maxY = -(vbY / slidePxPerUnit);
+      return { x: (mx - minX) * slidePxPerUnit, y: (maxY - my) * slidePxPerUnit };
     }
 
     slideFreePointData = [];
@@ -3170,21 +3395,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Feature #4: Learning Mode
   // ============================================================
   let learnActive = false;
-  let learnExplanations = null; // { lineExplanations: {lineIdx: text}, elementExplanations: {cmdIdx: text} }
-  const learnBtn = document.getElementById('btn-learn');
+  let learnExplanations = null;
   const learnPopup = document.getElementById('learn-popup');
   const learnPopupContent = document.getElementById('learn-popup-content');
-
-  learnBtn.addEventListener('click', () => {
-    learnActive = !learnActive;
-    learnBtn.classList.toggle('active', learnActive);
-    if (!learnActive) {
-      learnExplanations = null;
-      learnPopup.style.display = 'none';
-    } else {
-      fetchLearnExplanations();
-    }
-  });
 
   document.getElementById('learn-popup-close').addEventListener('click', () => {
     learnPopup.style.display = 'none';
@@ -3193,6 +3406,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for render completion to fetch learning explanations
   document.addEventListener('hitexer-rendered', () => {
     if (learnActive) fetchLearnExplanations();
+    // Re-apply slide overlay after any render so SVG replacement doesn't kill it
+    if (slideActive) {
+      probeReady.then(() => applySlideOverlay());
+    }
   });
 
   async function fetchLearnExplanations() {
@@ -3245,7 +3462,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const aiProgressAccept = document.getElementById('ai-progress-accept');
   let aiAbortController = null;
 
-  document.getElementById('btn-ai-refactor').addEventListener('click', async () => {
+  async function doAiRefactor() {
     const code = editor.getValue();
     aiRevertCode = code;
     aiAbortController = new AbortController();
@@ -3276,7 +3493,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showAiResult('Error', 'AI refactoring failed: ' + e.message, true);
       }
     }
-  });
+  }
 
   aiProgressCancel.addEventListener('click', () => {
     if (aiAbortController) aiAbortController.abort();
@@ -3335,7 +3552,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.getElementById('btn-ai-edit').addEventListener('click', toggleAiEditBar);
+  // AI edit bar toggle wired via menu bar
 
   function toggleAiEditBar() {
     const visible = aiEditBar.style.display === 'flex';
@@ -3401,6 +3618,487 @@ document.addEventListener('DOMContentLoaded', () => {
     aiEditFileName.textContent = '';
     aiEditImageData = null;
   }
+
+  // ============================================================
+  // Save / Open / Export
+  // ============================================================
+  function extractAsyCode() {
+    const code = editor.getValue();
+    let asy = code;
+    asy = asy.replace(/^\s*\[asy\]\s*\n?/, '');
+    asy = asy.replace(/\n?\s*\[\/asy\]\s*$/, '');
+    return asy;
+  }
+
+  function doSaveAsy() {
+    const asy = extractAsyCode();
+    const blob = new Blob([asy], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'diagram.asy';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function doOpenAsy(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let text = reader.result;
+      if (!text.trim().startsWith('[asy]')) text = '[asy]\n' + text;
+      if (!text.trim().endsWith('[/asy]')) text = text + '\n[/asy]';
+      editor.setValue(text);
+      doRender();
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset for re-open
+  }
+
+  function cloneSvgForExport() {
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return null;
+    const clone = svg.cloneNode(true);
+    // Remove overlays
+    clone.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+    // Embed Asymptote code as metadata
+    const ns = 'http://www.w3.org/2000/svg';
+    const meta = document.createElementNS(ns, 'metadata');
+    meta.textContent = extractAsyCode();
+    clone.insertBefore(meta, clone.firstChild);
+    return clone;
+  }
+
+  function doExportSvg() {
+    const clone = cloneSvgForExport();
+    if (!clone) return;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(clone);
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'diagram.svg';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function svgToCanvas(clone, scale) {
+    return new Promise((resolve, reject) => {
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(clone);
+      const img = new Image();
+      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        resolve(canvas);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  async function doExportPng() {
+    const clone = cloneSvgForExport();
+    if (!clone) return;
+    // Set explicit width/height if not present
+    if (!clone.hasAttribute('width')) {
+      const vb = clone.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map(Number);
+        clone.setAttribute('width', parts[2]);
+        clone.setAttribute('height', parts[3]);
+      }
+    }
+    try {
+      const canvas = await svgToCanvas(clone, 2);
+      canvas.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'diagram.png';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, 'image/png');
+    } catch(err) {
+      console.error('PNG export failed:', err);
+    }
+  }
+
+  async function doExportJpg() {
+    const clone = cloneSvgForExport();
+    if (!clone) return;
+    if (!clone.hasAttribute('width')) {
+      const vb = clone.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map(Number);
+        clone.setAttribute('width', parts[2]);
+        clone.setAttribute('height', parts[3]);
+      }
+    }
+    try {
+      const canvas = await svgToCanvas(clone, 2);
+      // Fill white background
+      const ctx = canvas.getContext('2d');
+      const tmp = document.createElement('canvas');
+      tmp.width = canvas.width; tmp.height = canvas.height;
+      const tmpCtx = tmp.getContext('2d');
+      tmpCtx.fillStyle = '#ffffff';
+      tmpCtx.fillRect(0, 0, tmp.width, tmp.height);
+      tmpCtx.drawImage(canvas, 0, 0);
+      tmp.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'diagram.jpg';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, 'image/jpeg', 0.95);
+    } catch(err) {
+      console.error('JPG export failed:', err);
+    }
+  }
+
+  async function doExportPdf() {
+    const clone = cloneSvgForExport();
+    if (!clone) return;
+    if (!clone.hasAttribute('width')) {
+      const vb = clone.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map(Number);
+        clone.setAttribute('width', parts[2]);
+        clone.setAttribute('height', parts[3]);
+      }
+    }
+    if (typeof window.jspdf === 'undefined') {
+      alert('jsPDF library not loaded. Check your internet connection.');
+      return;
+    }
+    try {
+      const canvas = await svgToCanvas(clone, 2);
+      const imgData = canvas.toDataURL('image/png');
+      const { jsPDF } = window.jspdf;
+      const w = canvas.width / 2;
+      const h = canvas.height / 2;
+      const orientation = w > h ? 'landscape' : 'portrait';
+      const pdf = new jsPDF({ orientation, unit: 'pt', format: [w, h] });
+      pdf.setProperties({ subject: extractAsyCode() });
+      pdf.addImage(imgData, 'PNG', 0, 0, w, h);
+      pdf.save('diagram.pdf');
+    } catch(err) {
+      console.error('PDF export failed:', err);
+    }
+  }
+
+  // ============================================================
+  // AI Chat Panel
+  // ============================================================
+  const chatPanel = document.getElementById('chat-panel');
+  const chatMessages = document.getElementById('chat-messages');
+  const chatInput = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('chat-send-btn');
+  const chatCloseBtn = document.getElementById('chat-close-btn');
+  const chatOptNoEdits = document.getElementById('chat-opt-noedits');
+  const chatOptRefactor = document.getElementById('chat-opt-refactor');
+  const chatOptNoVisible = document.getElementById('chat-opt-novisible');
+  const chatOptComments = document.getElementById('chat-opt-comments');
+  let chatHistory = [];
+  let chatRevertCode = null;
+
+  // "No edits" disables other options
+  chatOptNoEdits.addEventListener('change', () => {
+    const disabled = chatOptNoEdits.checked;
+    [chatOptRefactor, chatOptNoVisible, chatOptComments].forEach(cb => {
+      cb.disabled = disabled;
+      if (disabled) cb.checked = false;
+    });
+  });
+
+  function toggleChatPanel() {
+    const isOpen = chatPanel.classList.contains('open');
+    chatPanel.classList.toggle('open', !isOpen);
+    document.getElementById('chat-resizer').style.display = isOpen ? 'none' : 'block';
+    if (!isOpen) {
+      // Shrink preview panel
+      document.getElementById('preview-panel').style.width = 'calc(50% - 175px)';
+      chatInput.focus();
+    } else {
+      document.getElementById('preview-panel').style.width = '50%';
+    }
+  }
+
+  chatCloseBtn.addEventListener('click', toggleChatPanel);
+  chatSendBtn.addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
+  // Chat resizer
+  (function() {
+    const cr = document.getElementById('chat-resizer');
+    let dragging = false;
+    cr.addEventListener('mousedown', e => { dragging = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); });
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const mainW = document.getElementById('main').offsetWidth;
+      const chatW = mainW - e.clientX;
+      if (chatW > 200 && chatW < mainW * 0.5) {
+        chatPanel.style.width = chatW + 'px';
+      }
+    });
+    document.addEventListener('mouseup', () => { if (dragging) { dragging = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; } });
+  })();
+
+  function addChatMessage(role, text, codePayload) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+    let html = escapeHtml(text).replace(/\n/g, '<br>');
+    if (codePayload) {
+      html += `<div class="chat-actions">
+        <button class="btn-accept" onclick="applyChatCode(this)">Accept</button>
+        <button class="btn-revert" onclick="revertChatCode(this)">Revert</button>
+      </div>`;
+      div.dataset.code = codePayload;
+    }
+    div.innerHTML = html;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  // Global handlers for chat accept/revert buttons
+  window.applyChatCode = function(btn) {
+    const msg = btn.closest('.chat-msg');
+    if (msg && msg.dataset.code) {
+      chatRevertCode = editor.getValue();
+      editor.setValue(msg.dataset.code);
+      doRender();
+      btn.textContent = 'Applied';
+      btn.disabled = true;
+    }
+  };
+  window.revertChatCode = function(btn) {
+    if (chatRevertCode) {
+      editor.setValue(chatRevertCode);
+      doRender();
+      chatRevertCode = null;
+    }
+  };
+
+  async function sendChatMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    chatInput.value = '';
+    addChatMessage('user', text);
+    chatHistory.push({ role: 'user', content: text });
+
+    const options = {
+      noEdits: chatOptNoEdits.checked,
+      refactor: chatOptRefactor.checked,
+      noVisibleChanges: chatOptNoVisible.checked,
+      commentsOnly: chatOptComments.checked,
+    };
+
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = 'AI thinking...'; statusEl.style.color = '#e9c46a';
+
+    try {
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'chat', code: editor.getValue(),
+          prompt: text, options, history: chatHistory,
+        }),
+      });
+      const data = await resp.json();
+      const msg = data.message || 'No response';
+      chatHistory.push({ role: 'assistant', content: msg });
+      addChatMessage('assistant', msg, data.code || null);
+      if (data.code && !options.noEdits) {
+        chatRevertCode = editor.getValue();
+      }
+      statusEl.textContent = 'Ready'; statusEl.style.color = '#888';
+    } catch(err) {
+      addChatMessage('assistant', 'Error: ' + err.message);
+      statusEl.textContent = 'Chat error'; statusEl.style.color = '#e94560';
+    }
+  }
+
+  // ============================================================
+  // Error Underlining (Lint)
+  // ============================================================
+  let lintErrors = [];
+
+  function asyLintAsync(cm, updateLinting) {
+    const code = cm.getValue();
+    fetch(`${SERVER_URL}/ai`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'lint', code }),
+    }).then(r => r.json()).then(data => {
+      const annotations = [];
+      if (data.errors) {
+        lintErrors = data.errors;
+        // Compute line offset: count lines before actual code starts
+        const lines = code.split('\n');
+        let offset = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (/^\s*\[asy\]/.test(lines[i])) { offset = i + 1; break; }
+        }
+        for (const err of data.errors) {
+          const line = err.line - 1 + offset; // Convert 1-based to 0-based + offset
+          if (line < 0 || line >= lines.length) continue;
+          annotations.push({
+            from: { line, ch: 0 },
+            to: { line, ch: (lines[line] || '').length },
+            message: err.message,
+            severity: err.severity || 'error',
+          });
+        }
+      }
+      updateLinting(annotations);
+    }).catch(() => updateLinting([]));
+  }
+
+  // Gutter click for AI fix
+  editor.on('gutterClick', (cm, line, gutter) => {
+    // Find if there's a lint error on this line
+    const code = cm.getValue();
+    const lines = code.split('\n');
+    let offset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*\[asy\]/.test(lines[i])) { offset = i + 1; break; }
+    }
+    const asyLine = line - offset + 1;
+    const err = lintErrors.find(e => e.line === asyLine);
+    if (!err) return;
+
+    // Request AI fix
+    fetch(`${SERVER_URL}/ai`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'fix', code, line: asyLine, message: err.message }),
+    }).then(r => r.json()).then(data => {
+      if (!data.fixedLine) return;
+      // Show inline widget
+      const widget = document.createElement('div');
+      widget.style.cssText = 'background:#2a2a3e;border:1px solid #e9c46a;border-radius:4px;padding:6px 10px;margin:2px 0;font-size:12px;color:#ccc;';
+      widget.innerHTML = `<div style="color:#e9c46a;font-size:11px;margin-bottom:4px;">AI Fix Suggestion:</div>` +
+        `<code style="color:#2ecc71;">${escapeHtml(data.fixedLine)}</code>` +
+        `<div style="margin-top:6px;display:flex;gap:6px;">` +
+        `<button style="background:#2ecc71;color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" class="fix-accept">Accept</button>` +
+        `<button style="background:#555;color:#eee;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" class="fix-dismiss">Dismiss</button></div>`;
+      const lineWidget = cm.addLineWidget(line, widget, { coverGutter: false });
+      widget.querySelector('.fix-accept').addEventListener('click', () => {
+        const cursor = cm.getCursor();
+        cm.replaceRange(data.fixedLine, { line, ch: 0 }, { line, ch: cm.getLine(line).length });
+        cm.setCursor(cursor);
+        lineWidget.clear();
+        doRender();
+      });
+      widget.querySelector('.fix-dismiss').addEventListener('click', () => lineWidget.clear());
+    }).catch(() => {});
+  });
+
+  // ============================================================
+  // AI-Powered Autocomplete
+  // ============================================================
+  const ASY_COMPLETIONS = [
+    // Types
+    'pair','real','int','pen','path','guide','picture','transform','string','bool','triple',
+    // Drawing commands
+    'draw','fill','filldraw','label','dot','clip','unfill',
+    // Shapes
+    'circle','arc','ellipse','box','unitcircle','shift','rotate','scale','reflect',
+    // Geometry
+    'midpoint','extension','intersect','intersectionpoint','intersectionpoints',
+    'incircle','circumcircle','incenter','circumcenter','inradius','circumradius',
+    'foot','bisectorpoint','centroid','orthocenter',
+    // Pen
+    'linewidth','fontsize','dashed','dotted','solid','longdashed','dashdotted',
+    'opacity','invisible',
+    // Colors
+    ...Object.keys(ASY_COLORS),
+    // Directions
+    'N','S','E','W','NE','NW','SE','SW',
+    // Math
+    'sqrt','abs','sin','cos','tan','atan','atan2','log','exp','min','max','floor','ceil',
+    // Sizing
+    'unitsize','size','defaultpen',
+    // Import
+    'import','geometry','olympiad','cse5','graph',
+    // Other
+    'cycle','true','false','currentpen','currentpicture',
+    'xpart','ypart','length','angle','degrees','radians',
+    'arclength','point','relpoint','dir',
+    'Arrow','MidArrow','BeginArrow','Arrows','ArcArrow','Bar','Bars',
+    'rightanglemark','anglemark','markangle',
+  ];
+
+  let acDebounceTimer = null;
+
+  function asyHint(cm, callback) {
+    const cur = cm.getCursor();
+    const token = cm.getTokenAt(cur);
+    let prefix = token.string;
+    const start = token.start;
+    const end = cur.ch;
+
+    if (prefix.length < 2) { callback({ list: [], from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } }); return; }
+
+    // Local: filter built-in completions
+    const lower = prefix.toLowerCase();
+    const localMatches = ASY_COMPLETIONS.filter(c => c.toLowerCase().startsWith(lower) && c !== prefix);
+
+    // Also scan code for user-defined variables
+    const code = cm.getValue();
+    const varRe = /\b(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([A-Za-z_]\w*)/g;
+    let m;
+    const userVars = new Set();
+    while ((m = varRe.exec(code)) !== null) userVars.add(m[1]);
+    const userMatches = [...userVars].filter(v => v.toLowerCase().startsWith(lower) && v !== prefix && !localMatches.includes(v));
+
+    const allLocal = [...new Set([...localMatches, ...userMatches])].slice(0, 10);
+
+    // Show locals immediately
+    const result = { list: allLocal, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } };
+    callback(result);
+
+    // Async AI suggestions (debounced)
+    clearTimeout(acDebounceTimer);
+    acDebounceTimer = setTimeout(() => {
+      fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'autocomplete', code, cursor: cm.indexFromPos(cur), prefix }),
+      }).then(r => r.json()).then(data => {
+        if (data.completions && data.completions.length > 0) {
+          const merged = [...new Set([...allLocal, ...data.completions])].slice(0, 12);
+          cm.showHint({ hint: () => ({ list: merged, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } }), completeSingle: false });
+        }
+      }).catch(() => {});
+    }, 300);
+  }
+  asyHint.async = true;
+
+  // Auto-trigger on typing 2+ chars
+  editor.on('inputRead', (cm, change) => {
+    if (change.origin !== '+input') return;
+    const token = cm.getTokenAt(cm.getCursor());
+    if (token.string.length >= 2 && /^[A-Za-z_]/.test(token.string)) {
+      cm.showHint({ hint: asyHint, completeSingle: false });
+    }
+  });
+
+  // Ctrl-Space manual trigger
+  editor.setOption('extraKeys', {
+    'Ctrl-Enter': doRender,
+    'Ctrl-Space': (cm) => cm.showHint({ hint: asyHint, completeSingle: false }),
+  });
+
+  // ============================================================
+  // Update editor config for lint
+  // ============================================================
+  editor.setOption('gutters', ['CodeMirror-lint-markers', 'CodeMirror-linenumbers']);
+  editor.setOption('lint', { getAnnotations: asyLintAsync, async: true, delay: 500 });
 });
 </script>
 </body>
