@@ -1597,7 +1597,14 @@ function createInterpreter() {
     }
 
     if (typeof callee === 'function') {
-      const args = node.args.map(a => evalNode(a, env));
+      const args = node.args.map(a => {
+        if (a.type === 'NamedArg') {
+          const obj = {_named: true};
+          obj[a.name] = evalNode(a.value, env);
+          return obj;
+        }
+        return evalNode(a, env);
+      });
       return callee(...args);
     }
     if (callee && callee._tag === 'func') {
@@ -2100,6 +2107,10 @@ function createInterpreter() {
     const mod = node.module.toLowerCase();
     if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    }
+    if (mod.includes('trigmacros')) {
+      installGraphPackage(env); // TrigMacros depends on graph
+      installTrigMacros(env);
     }
     if (mod.includes('graph')) {
       installGraphPackage(env);
@@ -3490,6 +3501,123 @@ function createInterpreter() {
   }
 
   // ============================================================
+  // TrigMacros Package (AoPS custom axes/grid)
+  // ============================================================
+
+  function installTrigMacros(env) {
+    const ticklength = 0.1 * 28.35; // 0.1cm in bp
+    const axisarrowsize = 0.14 * 28.35; // 0.14cm in bp
+    const axisPen = makePen({r:0,g:0,b:0,linewidth:1.3});
+
+    env.set('rr_cartesian_axes', (...args) => {
+      // Parse args: xleft, xright, ybottom, ytop, then named args
+      let xleft = -5, xright = 5, ybottom = -5, ytop = 5;
+      let xstep = 1, ystep = 1;
+      let useticks = false, complexplane = false, usegrid = true;
+      const nums = [];
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+        else if (typeof a === 'boolean') {
+          // Can't distinguish which bool is which from positional args alone
+        } else if (a && typeof a === 'object') {
+          // Named argument object
+        }
+      }
+      // Positional numeric args
+      if (nums.length >= 1) xleft = nums[0];
+      if (nums.length >= 2) xright = nums[1];
+      if (nums.length >= 3) ybottom = nums[2];
+      if (nums.length >= 4) ytop = nums[3];
+      if (nums.length >= 5) xstep = nums[4];
+      if (nums.length >= 6) ystep = nums[5];
+      // Check for named args passed as special objects
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('xstep' in a) xstep = a.xstep;
+          if ('ystep' in a) ystep = a.ystep;
+          if ('useticks' in a) useticks = a.useticks;
+          if ('complexplane' in a) complexplane = a.complexplane;
+          if ('usegrid' in a) usegrid = a.usegrid;
+        }
+      }
+
+      const pic = currentPic;
+
+      // Draw axis labels
+      if (complexplane) {
+        pic.commands.push({cmd:'label', text:'Re', pos:{x:xright, y:0}, align:{x:1,y:-1}, pen:clonePen(defaultPen), filltype:null, line:0});
+        pic.commands.push({cmd:'label', text:'Im', pos:{x:0, y:ytop}, align:{x:-1,y:1}, pen:clonePen(defaultPen), filltype:null, line:0});
+      } else {
+        pic.commands.push({cmd:'label', text:'$x$', pos:{x:xright+0.4, y:-0.5}, align:null, pen:clonePen(defaultPen), filltype:null, line:0});
+        pic.commands.push({cmd:'label', text:'$y$', pos:{x:-0.5, y:ytop+0.2}, align:null, pen:clonePen(defaultPen), filltype:null, line:0});
+      }
+
+      // Set axis limits
+      if (_axisLimits.xmin === null || xleft < _axisLimits.xmin) _axisLimits.xmin = xleft;
+      if (_axisLimits.xmax === null || xright > _axisLimits.xmax) _axisLimits.xmax = xright;
+      if (_axisLimits.ymin === null || ybottom < _axisLimits.ymin) _axisLimits.ymin = ybottom;
+      if (_axisLimits.ymax === null || ytop > _axisLimits.ymax) _axisLimits.ymax = ytop;
+
+      // Grid lines
+      if (usegrid) {
+        const gridPen = makePen({r:0.22,g:0.22,b:0.22, linewidth:0.4});
+        for (let i = xleft; i <= xright; i += xstep) {
+          if (Math.abs(i) > 0.01) {
+            const path = makePath([lineSegment({x:i,y:ybottom},{x:i,y:ytop})], false);
+            pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
+          }
+        }
+        for (let i = ybottom; i <= ytop; i += ystep) {
+          if (Math.abs(i) > 0.01) {
+            const path = makePath([lineSegment({x:xleft,y:i},{x:xright,y:i})], false);
+            pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
+          }
+        }
+      }
+
+      // Draw axis lines with arrows
+      const axArrow = {_tag:'arrow', style:'Arrows', size:axisarrowsize/28.35*6};
+      // Vertical axis (x=0)
+      const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
+      pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+      // Horizontal axis (y=0)
+      const hPath = makePath([lineSegment({x:xleft,y:0},{x:xright,y:0})], false);
+      pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+
+      // Tick labels
+      const tickPen = clonePen(defaultPen);
+      tickPen.fontsize = 8;
+      for (let i = xleft + xstep; i < xright; i += xstep) {
+        const iv = Math.round(i * 1000) / 1000;
+        if (Math.abs(iv) < 0.01) continue;
+        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
+        pic.commands.push({cmd:'label', text:'$' + label + '$', pos:{x:iv, y:0}, align:{x:0,y:-1}, pen:clonePen(tickPen), filltype:null, line:0});
+        if (useticks) {
+          const tPath = makePath([lineSegment({x:iv,y:-0.15},{x:iv,y:0.15})], false);
+          pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
+        }
+      }
+      for (let i = ybottom + ystep; i < ytop; i += ystep) {
+        const iv = Math.round(i * 1000) / 1000;
+        if (Math.abs(iv) < 0.01) continue;
+        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
+        const suffix = complexplane ? 'i' : '';
+        pic.commands.push({cmd:'label', text:'$' + label + suffix + '$', pos:{x:0, y:iv}, align:{x:-1,y:0}, pen:clonePen(tickPen), filltype:null, line:0});
+        if (useticks) {
+          const tPath = makePath([lineSegment({x:-0.15,y:iv},{x:0.15,y:iv})], false);
+          pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
+        }
+      }
+    });
+
+    // TrigMacros constants
+    env.set('ticklength', ticklength);
+    env.set('axisarrowsize', axisarrowsize);
+    env.set('axispen', axisPen);
+    env.set('vectorarrowsize', 0.2 * 28.35);
+  }
+
+  // ============================================================
   // Three Package (3D wireframe)
   // ============================================================
 
@@ -4199,7 +4327,7 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'label' || dc.cmd === 'dot') {
       const pos = dc.pos || dc;
       if (!pos || pos.x === undefined) continue;
-      const fontSize = (dc.pen && dc.pen.fontsize) || 12;
+      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
       const text = dc.text || dc.label || '';
       const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
       // Approximate character width ~0.6 * fontSize
@@ -4257,6 +4385,14 @@ function renderSVG(result, opts) {
   let svgW = naturalW, svgH = naturalH;
   if (sizeW > 0) svgW = sizeW;
   if (sizeH > 0) svgH = sizeH;
+
+  // Enforce minimum display size (like AoPS TeXeR) for very small unitsize values
+  const minDisplaySize = 100;
+  if (svgW < minDisplaySize && svgH < minDisplaySize && hasUnitScale) {
+    const upscale = minDisplaySize / Math.max(svgW, svgH);
+    svgW *= upscale;
+    svgH *= upscale;
+  }
 
   // If container dimensions provided, shrink to fit
   let displayPercent = 100;
@@ -4398,7 +4534,7 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'label') {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
-      const fontSize = (dc.pen.fontsize || 12) * cssPixel;
+      const fontSize = (dc.pen.fontsize || 10) * cssPixel;
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
@@ -4526,11 +4662,20 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const style = dc.arrow.style;
   // Arrow size in CSS pixels: base size (default 6bp) scaled by cssPixel to viewBox units
   const baseSize = dc.arrow.size || 6;
-  const arrowLen = baseSize * cssPixel;
+  let arrowLen = baseSize * cssPixel;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
   if (segs.length === 0) return null;
+
+  // Compute total path length in viewBox units and clamp arrowhead size
+  let totalLen = 0;
+  for (const s of segs) {
+    const dx = (s.p3.x - s.p0.x) * scale, dy = (s.p3.y - s.p0.y) * scale;
+    totalLen += Math.sqrt(dx*dx + dy*dy);
+  }
+  // Don't let arrowhead exceed 70% of path length
+  if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
 
   const arrowParts = [];
   const filled = (style !== 'Bar' && style !== 'Bars');
