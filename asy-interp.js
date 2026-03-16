@@ -1476,6 +1476,23 @@ function createInterpreter() {
         case T.SLASH: { const d=right.x*right.x+right.y*right.y; return d?makePair((left.x*right.x+left.y*right.y)/d,(left.y*right.x-left.x*right.y)/d):makePair(0,0); }
         case T.EQ: return left.x===right.x && left.y===right.y;
         case T.NEQ: return left.x!==right.x || left.y!==right.y;
+        case T.CARET: {
+          // Complex exponentiation: (a+bi)^n using polar form
+          const r = Math.sqrt(left.x*left.x + left.y*left.y);
+          const theta = Math.atan2(left.y, left.x);
+          const n = right.x; // real part of exponent
+          const rn = Math.pow(r, n);
+          return makePair(rn * Math.cos(n * theta), rn * Math.sin(n * theta));
+        }
+      }
+    }
+    // pair ^ real (complex exponentiation)
+    if (isPair(left) && isNumber(right)) {
+      if (op===T.CARET) {
+        const r = Math.sqrt(left.x*left.x + left.y*left.y);
+        const theta = Math.atan2(left.y, left.x);
+        const rn = Math.pow(r, right);
+        return makePair(rn * Math.cos(right * theta), rn * Math.sin(right * theta));
       }
     }
     // real * pair, pair * real
@@ -2374,9 +2391,26 @@ function createInterpreter() {
       return makeCirclePath(c, rad);
     });
 
-    env.set('arc', (center, r, a1, a2) => {
-      const c = toPair(center);
-      return makeArcPath(c, toNumber(r), toNumber(a1), toNumber(a2));
+    env.set('arc', (...args) => {
+      if (args.length >= 4) {
+        // arc(center, radius, startAngle, endAngle)
+        const c = toPair(args[0]);
+        return makeArcPath(c, toNumber(args[1]), toNumber(args[2]), toNumber(args[3]));
+      }
+      if (args.length >= 3 && isPair(args[1])) {
+        // arc(center, point1, point2) — arc from p1 to p2 around center
+        const c = toPair(args[0]);
+        const p1 = toPair(args[1]), p2 = toPair(args[2]);
+        const r = Math.sqrt((p1.x-c.x)*(p1.x-c.x) + (p1.y-c.y)*(p1.y-c.y));
+        const a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
+        const a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
+        return makeArcPath(c, r, a1, a2);
+      }
+      if (args.length >= 2) {
+        const c = toPair(args[0]);
+        return makeArcPath(c, toNumber(args[1]), 0, 360);
+      }
+      return makePath([], false);
     });
 
     env.set('ellipse', (center, a, b) => {
@@ -2739,10 +2773,16 @@ function createInterpreter() {
       return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
     });
 
-    // anglemark: draw arc showing angle at vertex B
+    // anglemark: draw arc showing angle at vertex B from BA to BC
     env.set('anglemark', (...args) => {
-      // Stub: return empty path for now
-      return makePath([], false);
+      if (args.length < 3) return makePath([], false);
+      const A = toPair(args[0]), B = toPair(args[1]), C = toPair(args[2]);
+      const rawR = args.length > 3 ? toNumber(args[3]) : 10;
+      const msf = env.get('markscalefactor') || 0.03;
+      const r = rawR * msf;
+      const a1 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      const a2 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      return makeArcPath(B, r, a1, a2);
     });
 
     // Labeling helpers
@@ -3513,7 +3553,7 @@ function createInterpreter() {
       // Parse args: xleft, xright, ybottom, ytop, then named args
       let xleft = -5, xright = 5, ybottom = -5, ytop = 5;
       let xstep = 1, ystep = 1;
-      let useticks = false, complexplane = false, usegrid = true;
+      let useticks = true, complexplane = false, usegrid = true;
       const nums = [];
       for (const a of args) {
         if (typeof a === 'number') nums.push(a);
@@ -3560,7 +3600,7 @@ function createInterpreter() {
 
       // Grid lines
       if (usegrid) {
-        const gridPen = makePen({r:0.22,g:0.22,b:0.22, linewidth:0.4});
+        const gridPen = makePen({r:0.75,g:0.75,b:0.75, linewidth:0.4});
         for (let i = xleft; i <= xright; i += xstep) {
           if (Math.abs(i) > 0.01) {
             const path = makePath([lineSegment({x:i,y:ybottom},{x:i,y:ytop})], false);
@@ -3576,7 +3616,7 @@ function createInterpreter() {
       }
 
       // Draw axis lines with arrows
-      const axArrow = {_tag:'arrow', style:'Arrows', size:axisarrowsize/28.35*6};
+      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
       // Vertical axis (x=0)
       const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
@@ -4448,8 +4488,8 @@ function renderSVG(result, opts) {
       const p = dc.path._singlePoint;
       const sx = (p.x - minX) * pxPerUnit;
       const sy = (maxY - p.y) * pxPerUnit;
-      // Asymptote: dot radius = dotfactor/2 * linewidth (capped for sanity)
-      const singleDotLw = Math.min(dc.pen ? dc.pen.linewidth : 0.5, 1.5);
+      // Asymptote: dot radius = dotfactor/2 * linewidth
+      const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
       const singleDotR = (dotfactor / 2) * singleDotLw * cssPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -4518,9 +4558,7 @@ function renderSVG(result, opts) {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
       // Dot radius: dotfactor/2 * linewidth in absolute CSS-pixel units.
-      // Cap linewidth contribution to avoid oversized dots when user specifies
-      // thick pens like 5bp (which would give dotfactor*5 = 30bp diameter).
-      const dotLw = Math.min(dc.pen.linewidth, 1.5);
+      const dotLw = dc.pen.linewidth;
       const dotR = (dotfactor / 2) * dotLw * cssPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -4557,17 +4595,17 @@ function renderSVG(result, opts) {
           const h = Math.round(Math.max(0,Math.min(255,c*255))).toString(16);
           return h.length<2?'0'+h:h;
         }).join('');
-        // Estimate text dimensions for background
+        // Estimate text dimensions for background (tight fit like Asymptote)
         const cleanLen = stripLaTeX(rawText).length;
-        const estW = cleanLen * fontSize * 0.6 + fontSize * 0.4;
-        const estH = fontSize * 1.2;
+        const estW = cleanLen * fontSize * 0.52 + fontSize * 0.1;
+        const estH = fontSize * 1.0;
         let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
         // Adjust rectangle position based on anchor
         let rectX = rx - estW / 2;
-        if (anchor === 'start') rectX = rx - fontSize * 0.1;
-        else if (anchor === 'end') rectX = rx - estW + fontSize * 0.1;
+        if (anchor === 'start') rectX = rx - fontSize * 0.05;
+        else if (anchor === 'end') rectX = rx - estW + fontSize * 0.05;
         const rectY = ry - estH / 2;
-        const pad = fontSize * 0.15;
+        const pad = fontSize * 0.04;
         elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
 

@@ -16,12 +16,13 @@ const ASY_EXE     = 'C:\\Program Files\\Asymptote\\asy.exe';
 // dvips (used by Asymptote for EPS with labels) cannot handle spaces in paths.
 // Use a short temp directory without spaces for EPS rendering.
 const ASY_TMP     = 'C:\\asy_tmp';
-const PER_PAGE    = 10;
+const PER_PAGE    = 100;
+const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
 
 const args = process.argv.slice(2);
 const STEPS = new Set(args.length ? args : ['render-htx','render-asy','rasterize','ssim','html']);
 
-for (const d of [OUT_DIR, ASY_DIR, HTX_DIR, SVG_DIR, ASY_SRC_DIR, ASY_TMP]) {
+for (const d of [OUT_DIR, ASY_DIR, HTX_DIR, SVG_DIR, ASY_SRC_DIR, ASY_TMP, TEXER_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
@@ -492,6 +493,19 @@ async function main() {
         const hasAsy = fs.existsSync(path.join(ASY_DIR, id + '.png'));
         const hasSvg = fs.existsSync(path.join(SVG_DIR, id + '.svg'));
         const hasHtxPng = fs.existsSync(path.join(HTX_DIR, id + '.png'));
+        const hasTexer = fs.existsSync(path.join(TEXER_DIR, id + '.png'));
+        const showTexer = rank <= 100; // Only show TeXer column for first 100
+
+        const gridCols = showTexer ? '25% 25% 25% 25%' : '35% 35% 30%';
+
+        let texerCol = '';
+        if (showTexer) {
+          texerCol = `
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap">${hasTexer ? `<img src="texer_pngs/${id}.png">` : '<em class="na">Not rendered</em>'}</div>
+    </div>`;
+        }
 
         cardsHtml += `
 <div class="card" id="pair-${rank}">
@@ -499,7 +513,7 @@ async function main() {
     <h2>#${rank} &mdash; ${esc(r.corpusFile)}</h2>
     <span class="badge" style="background:${ssimColor(r.ssim)}">SSIM ${r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A'} &middot; ${ssimLabel(r.ssim)}</span>
   </div>
-  <div class="card-body">
+  <div class="card-body" style="grid-template-columns:${gridCols}">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
       <div class="img-wrap">${hasAsy ? `<img src="asy_pngs/${id}.png">` : '<em class="na">Not rendered</em>'}</div>
@@ -507,7 +521,7 @@ async function main() {
     <div class="render-col">
       <h3>HiTeXeR</h3>
       <div class="img-wrap">${hasHtxPng ? `<img src="htx_pngs/${id}.png">` : (hasSvg ? `<object data="htx_svgs/${id}.svg" type="image/svg+xml">SVG</object>` : '<em class="na">Not rendered</em>')}</div>
-    </div>
+    </div>${texerCol}
     <div class="render-col col-source">
       <h3>Source</h3>
       <div class="code-box"><code>${esc(code)}</code></div>
@@ -515,6 +529,7 @@ async function main() {
         <a class="btn" href="${openUrl}" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="${esc('[asy]\n' + code + '\n[/asy]')}">Copy &amp; TeXeR</button>
       </div>
+      <textarea class="feedback-box" data-rank="${rank}" data-id="${id}" data-file="${esc(r.corpusFile)}" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>`;
@@ -570,6 +585,12 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 .pag a:hover{background:#1a1a2e;color:#fff}
 .pag .cur{background:#1a1a2e;color:#fff;font-weight:700}
 .pag .dots{color:#999}
+.feedback-box{width:100%;min-height:36px;margin-top:8px;padding:6px 8px;font-size:.82em;font-family:inherit;border:1px solid #ccc;border-radius:4px;resize:vertical;background:#fafafa}
+.feedback-box:focus{border-color:#1a1a2e;outline:none;background:#fff}
+.submit-bar{text-align:center;margin:30px 0;padding:20px;background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07)}
+.submit-bar button{padding:10px 30px;font-size:1em;font-weight:700;color:#fff;background:#1a1a2e;border:none;border-radius:6px;cursor:pointer}
+.submit-bar button:hover{background:#2a2a4e}
+.submit-bar textarea{width:90%;min-height:200px;margin-top:12px;padding:12px;font-family:Consolas,monospace;font-size:.85em;border:1px solid #ccc;border-radius:6px;display:none}
 </style></head><body>
 <div class="container">
 <h1>HiTeXeR vs Asymptote</h1>
@@ -583,6 +604,11 @@ ${statsErr > 0 ? `<b style="background:#999">${statsErr} Err</b>` : ''}
 ${pag}
 ${cardsHtml}
 ${pag}
+<div class="submit-bar">
+  <button id="collect-btn">Collect Feedback for Claude</button>
+  <textarea id="prompt-output" readonly></textarea>
+  <button id="copy-prompt" style="display:none;margin-top:8px;padding:6px 16px;font-size:.9em">Copy Prompt to Clipboard</button>
+</div>
 </div>
 <script>
 document.querySelectorAll('.texer-btn').forEach(btn=>{
@@ -593,6 +619,37 @@ document.querySelectorAll('.texer-btn').forEach(btn=>{
       window.open('https://artofproblemsolving.com/texer/','_blank');
     });
   });
+});
+document.getElementById('collect-btn').addEventListener('click',()=>{
+  const boxes=document.querySelectorAll('.feedback-box');
+  const items=[];
+  boxes.forEach(b=>{
+    const msg=b.value.trim();
+    if(msg){
+      items.push({rank:b.dataset.rank,id:b.dataset.id,file:b.dataset.file,message:msg});
+    }
+  });
+  if(items.length===0){alert('No feedback entered.');return;}
+  let prompt='You are working on the HiTeXeR Asymptote interpreter (asy-interp.js). '+
+    'The comparison website shows Asymptote reference PNGs vs HiTeXeR SVG renders side by side, '+
+    'ranked by SSIM score (worst first). Here is feedback on specific diagram pairs that need fixing.\\n\\n'+
+    'For each item below, the rank # is the SSIM rank, the file is the corpus filename, '+
+    'and the ID is the 5-digit numeric ID used for asy_src/{id}.asy.\\n\\n';
+  for(const it of items){
+    prompt+='--- #'+it.rank+' ('+it.file+', id='+it.id+') ---\\n'+it.message+'\\n\\n';
+  }
+  prompt+='Please fix these issues in asy-interp.js, then re-run the SSIM pipeline: node ssim-pipeline.js render-htx rasterize ssim html';
+  const out=document.getElementById('prompt-output');
+  out.style.display='block';
+  out.value=prompt;
+  const copyBtn=document.getElementById('copy-prompt');
+  copyBtn.style.display='inline-block';
+  copyBtn.onclick=()=>{
+    navigator.clipboard.writeText(prompt).then(()=>{
+      copyBtn.textContent='Copied!';
+      setTimeout(()=>{copyBtn.textContent='Copy Prompt to Clipboard'},1500);
+    });
+  };
 });
 </script></body></html>`;
 
