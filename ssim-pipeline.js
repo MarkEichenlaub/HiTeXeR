@@ -526,7 +526,7 @@ async function main() {
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap">${hasHtxPng ? `<img src="htx_pngs/${id}.png">` : (hasSvg ? `<object data="htx_svgs/${id}.svg" type="image/svg+xml">SVG</object>` : '<em class="na">Not rendered</em>')}</div>
+      <div class="img-wrap">${hasSvg ? `<object data="htx_svgs/${id}.svg" type="image/svg+xml">SVG</object>` : '<em class="na">Not rendered</em>'}</div>
     </div>${texerCol}
     <div class="render-col col-source">
       <h3>Source</h3>
