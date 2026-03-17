@@ -315,7 +315,12 @@ async function main() {
     for (const sf of svgFiles) {
       const id = sf.replace('.svg', '');
       const outPng = path.join(HTX_DIR, id + '.png');
-      if (fs.existsSync(outPng)) { ok++; continue; }
+      if (fs.existsSync(outPng)) {
+        // Skip only if PNG is newer than SVG (i.e. SVG hasn't changed since last rasterize)
+        const svgMtime = fs.statSync(path.join(SVG_DIR, sf)).mtimeMs;
+        const pngMtime = fs.statSync(outPng).mtimeMs;
+        if (pngMtime >= svgMtime) { ok++; continue; }
+      }
 
       try {
         const svgBuf = fs.readFileSync(path.join(SVG_DIR, sf));

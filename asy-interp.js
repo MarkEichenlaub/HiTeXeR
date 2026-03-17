@@ -1435,19 +1435,6 @@ function createInterpreter() {
     const right = evalNode(node.right, env);
     const op = node.op;
 
-    // Asymptote integer division: int_literal / int_literal → Math.trunc (e.g. 1/2 = 0, -1/2 = 0)
-    // Helper: true if node is an integer literal or negated integer literal
-    function isIntLiteralNode(n) {
-      if (n.type === 'NumberLit' && n.isInt) return true;
-      if (n.type === 'UnaryOp' && n.op === T.MINUS && n.operand && n.operand.type === 'NumberLit' && n.operand.isInt) return true;
-      return false;
-    }
-    if (op === T.SLASH && isNumber(left) && isNumber(right) && right !== 0) {
-      if (isIntLiteralNode(node.left) && isIntLiteralNode(node.right)) {
-        return Math.trunc(left / right);
-      }
-    }
-
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
     if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; r._lwExplicit = true; return r; }
@@ -4007,11 +3994,18 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    // Detect draw(pair, path, pen) marker syntax: shift path to pair position
+    // Detect draw(pair, path, pen) marker syntax: marker path is in bp/px units (fixed size)
+    // In Asymptote, draw(pair z, path g, pen p) renders g in bp space at coordinate position z
     if (args.length >= 2 && isPair(args[0]) && isPath(args[1]) && args[1].segs && args[1].segs.length > 0) {
       const pos = args[0];
-      const shiftT = makeTransform(pos.x, 1, 0, pos.y, 0, 1);
-      args = [applyTransformPath(shiftT, args[1]), ...args.slice(2)];
+      const markerPath = args[1];
+      let markerPen = null;
+      for (let i = 2; i < args.length; i++) {
+        if (isPen(args[i])) markerPen = markerPen ? mergePens(markerPen, args[i]) : args[i];
+      }
+      if (!markerPen) markerPen = clonePen(defaultPen);
+      target.commands.push({cmd:'marker', pos, markerPath, pen:markerPen, line: args._line || 0});
+      return;
     }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
     let penCount = 0;
@@ -4479,6 +4473,9 @@ function renderSVG(result, opts) {
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
       // This will be refined after pxPerUnit is computed below
+    } else if (dc.cmd === 'marker') {
+      // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
+      expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.path) {
       if (dc.path._singlePoint) {
         expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
@@ -4708,6 +4705,36 @@ function renderSVG(result, opts) {
       const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * cssPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    } else if (dc.cmd === 'marker') {
+      // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
+      const svgCX = (dc.pos.x - minX) * pxPerUnit;
+      const svgCY = (maxY - dc.pos.y) * pxPerUnit;
+      const mPath = dc.markerPath;
+      if (mPath.segs.length > 0) {
+        let d = '';
+        for (let i = 0; i < mPath.segs.length; i++) {
+          const s = mPath.segs[i];
+          const p0x = svgCX + s.p0.x * cssPixel, p0y = svgCY - s.p0.y * cssPixel;
+          const cp1x = svgCX + s.cp1.x * cssPixel, cp1y = svgCY - s.cp1.y * cssPixel;
+          const cp2x = svgCX + s.cp2.x * cssPixel, cp2y = svgCY - s.cp2.y * cssPixel;
+          const p3x = svgCX + s.p3.x * cssPixel, p3y = svgCY - s.p3.y * cssPixel;
+          if (i === 0) {
+            d += `M${fmt(p0x)} ${fmt(p0y)}`;
+          } else {
+            const prev = mPath.segs[i-1];
+            const gap = Math.abs(s.p0.x - prev.p3.x) + Math.abs(s.p0.y - prev.p3.y);
+            if (gap > 1e-9) d += ` M${fmt(p0x)} ${fmt(p0y)}`;
+          }
+          if (isLinear(s)) {
+            d += ` L${fmt(p3x)} ${fmt(p3y)}`;
+          } else {
+            d += ` C${fmt(cp1x)} ${fmt(cp1y)} ${fmt(cp2x)} ${fmt(cp2y)} ${fmt(p3x)} ${fmt(p3y)}`;
+          }
+        }
+        if (mPath.closed) d += ' Z';
+        elements.push(`<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}"/>`);
+        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+      }
     } else if (dc.path) {
       renderPathCommand(ci, dc, css, dashArray);
     }
