@@ -5017,7 +5017,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
 
   let html;
   try {
-    html = katex.renderToString(math, {throwOnError: false, displayMode: false});
+    html = katex.renderToString(math, {throwOnError: false, displayMode: false, output: 'mathml'});
   } catch(e) {
     // Fallback to Unicode rendering
     return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);

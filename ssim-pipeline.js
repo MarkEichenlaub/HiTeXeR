@@ -86,6 +86,7 @@ async function main() {
 
     console.log('Rendering with HiTeXeR JS interpreter...');
     global.window = global.window || {};
+    global.katex = require('katex');
     require('./asy-interp.js');
     const A = window.AsyInterp;
 
