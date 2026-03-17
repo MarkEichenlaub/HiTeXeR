@@ -56,78 +56,101 @@ def setup_driver():
         return webdriver.Chrome(options=options)
 
 
-def render_on_texer(driver, asy_code, output_path, timeout=30):
+def ensure_texer_loaded(driver):
+    """Navigate to TeXeR if not already there, wait for CodeMirror."""
+    current = driver.current_url
+    if "artofproblemsolving.com/texer/" not in current:
+        driver.get(TEXER_URL)
+        time.sleep(3)
+        # Wait for CodeMirror to be ready
+        WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script(
+                "var cm = document.querySelector('.CodeMirror');"
+                "return cm && cm.CodeMirror ? true : false;"
+            )
+        )
+
+
+def render_on_texer(driver, asy_code, output_path, timeout=60):
     """
     Render Asymptote code on the AoPS TeXeR and save the image.
 
-    Steps:
-    1. Navigate to TeXeR
-    2. Clear the editor and paste the code wrapped in [asy]...[/asy]
-    3. Click Render (or Ctrl+Enter)
-    4. Wait for the image to appear
-    5. Download and save the image
+    Page structure (discovered via inspection):
+    - Editor: CodeMirror wrapping textarea#boomer
+    - Render button: span#render-image (in the crumb bar)
+    - Output: #preview panel gets replaced with a single <img> tag
+    - Image src: https://latex.artofproblemsolving.com/texer/X/SLUG.png?time=...
+
+    To avoid race conditions (downloading a stale image before the server
+    finishes compiling), we remove the old <img> from #preview before
+    clicking render, then wait for a brand-new fully-loaded image, and
+    extract its pixels via canvas rather than re-downloading from the URL.
     """
-    # Navigate to TeXeR
-    driver.get(TEXER_URL)
-    wait = WebDriverWait(driver, 15)
+    ensure_texer_loaded(driver)
 
-    # Wait for the editor textarea to be present
-    editor = wait.until(EC.presence_of_element_located((By.ID, "boomer")))
+    # Remove any existing image from #preview so we can detect when a fresh one appears
+    driver.execute_script("""
+        var preview = document.getElementById('preview');
+        if (preview) {
+            var imgs = preview.querySelectorAll('img');
+            imgs.forEach(function(img) { img.remove(); });
+        }
+    """)
 
-    # Clear and enter code
+    # Set code in the CodeMirror editor
     wrapped = f"[asy]\n{asy_code}\n[/asy]"
-    editor.clear()
+    cm_set = driver.execute_script("""
+        var cm = document.querySelector('.CodeMirror');
+        if (cm && cm.CodeMirror) {
+            cm.CodeMirror.setValue(arguments[0]);
+            return true;
+        }
+        return false;
+    """, wrapped)
+
+    if not cm_set:
+        print("    Warning: CodeMirror not found, trying textarea fallback")
+        driver.execute_script("""
+            var ta = document.getElementById('boomer') || document.querySelector('textarea');
+            if (ta) { ta.value = arguments[0]; ta.dispatchEvent(new Event('input', {bubbles:true})); }
+        """, wrapped)
+
     time.sleep(0.3)
 
-    # Use JavaScript to set value reliably (handles large code blocks)
-    driver.execute_script(
-        "arguments[0].value = arguments[1]; "
-        "arguments[0].dispatchEvent(new Event('input'));",
-        editor, wrapped
-    )
-    time.sleep(0.3)
-
-    # Trigger render with Ctrl+Enter
-    editor.send_keys(Keys.CONTROL + Keys.RETURN)
-
-    # Wait for the rendered image to appear
+    # Click the "Render as Image" button (span#render-image)
     try:
-        img_el = WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "#texer_output img, .texer-output img, #output img"))
-        )
-        time.sleep(1)  # Extra wait for image to fully load
+        render_btn = driver.find_element(By.CSS_SELECTOR, "#render-image")
+        render_btn.click()
+    except Exception:
+        from selenium.webdriver.common.action_chains import ActionChains
+        ActionChains(driver).send_keys(Keys.CONTROL + Keys.RETURN).perform()
 
-        # Get the image src
-        img_src = img_el.get_attribute("src")
+    # Wait for a new image to appear in #preview AND be fully loaded
+    try:
+        def image_fully_loaded(d):
+            return d.execute_script("""
+                var img = document.querySelector('#preview img');
+                if (!img) return false;
+                if (!img.src) return false;
+                if (!img.complete) return false;
+                if (img.naturalWidth === 0) return false;
+                return true;
+            """)
 
-        if img_src and img_src.startswith("data:image"):
-            # Data URL — decode directly
-            header, data = img_src.split(",", 1)
-            img_bytes = base64.b64decode(data)
-            with open(output_path, "wb") as f:
-                f.write(img_bytes)
-            return True
-        elif img_src and img_src.startswith("http"):
-            # Regular URL — download
-            # Use cookies from the browser session
-            cookies = driver.get_cookies()
-            opener = urllib.request.build_opener()
-            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
-            opener.addheaders = [("Cookie", cookie_str)]
-            urllib.request.install_opener(opener)
-            urllib.request.urlretrieve(img_src, str(output_path))
-            return True
-        else:
-            # Try screenshot of the image element
-            img_el.screenshot(str(output_path))
-            return True
+        WebDriverWait(driver, timeout).until(image_fully_loaded)
+
+        # Use Selenium's element screenshot to capture exactly what the browser
+        # rendered. This avoids CORS tainted-canvas issues with toDataURL(),
+        # and avoids race conditions with re-downloading from the URL.
+        img_el = driver.find_element(By.CSS_SELECTOR, "#preview img")
+        img_el.screenshot(str(output_path))
+        return True
 
     except Exception as e:
         print(f"    Failed to get image: {e}")
-        # Try taking a screenshot of the output area as fallback
         try:
-            output_div = driver.find_element(By.CSS_SELECTOR, "#texer_output, .texer-output, #output")
-            output_div.screenshot(str(output_path))
+            preview = driver.find_element(By.CSS_SELECTOR, "#preview")
+            preview.screenshot(str(output_path))
             return True
         except Exception:
             return False
@@ -174,6 +197,17 @@ def main():
     fail = 0
 
     try:
+        # Navigate to TeXeR once upfront
+        driver.get(TEXER_URL)
+        time.sleep(3)
+        WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script(
+                "var cm = document.querySelector('.CodeMirror');"
+                "return cm && cm.CodeMirror ? true : false;"
+            )
+        )
+        print("  TeXeR loaded, starting renders...")
+
         for rank, r, src_path, out_path in to_render:
             code = src_path.read_text(encoding="utf-8")
             print(f"  #{rank} ({r['corpusFile']}, id={r['id']})...", end=" ", flush=True)

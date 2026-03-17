@@ -956,7 +956,7 @@ function makePair(x,y) { return {_tag:'pair', x:x||0, y:y||0}; }
 function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
-    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null}, props);
+    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false}, props);
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -1006,6 +1006,7 @@ function mergePens(a,b) {
     }
   }
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
+  if (b._lwExplicit) r._lwExplicit = true;
   if (b.linestyle) r.linestyle = b.linestyle;
   if (b.fontsize !== 12) r.fontsize = b.fontsize;
   if (b.opacity !== 1) r.opacity = b.opacity;
@@ -1436,8 +1437,8 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; return r; }
-    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = right.linewidth + left; return r; }
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; r._lwExplicit = true; return r; }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = right.linewidth + left; r._lwExplicit = true; return r; }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -2612,7 +2613,7 @@ function createInterpreter() {
       return makePen({r:toNumber(args[0]),g:toNumber(args[1]),b:toNumber(args[2])});
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
-    env.set('linewidth', (w) => makePen({linewidth:toNumber(w)}));
+    env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true}));
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
     env.set('linetype', (...args) => {
       // linetype("dash pattern") or linetype(real[])
@@ -4599,9 +4600,9 @@ function renderSVG(result, opts) {
       const p = dc.path._singlePoint;
       const sx = (p.x - minX) * pxPerUnit;
       const sy = (maxY - p.y) * pxPerUnit;
-      // Asymptote: dot radius = dotfactor/2 * linewidth
+      // Asymptote: single-point draw = zero-length stroke, radius = linewidth/2 (no dotfactor)
       const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
-      const singleDotR = (dotfactor / 2) * singleDotLw * cssPixel;
+      const singleDotR = (singleDotLw / 2) * cssPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
@@ -4668,9 +4669,11 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
-      // Dot radius: dotfactor/2 * linewidth in absolute CSS-pixel units.
+      // Dot radius: if linewidth was explicitly set by user (n+pen or linewidth(n)),
+      // Asymptote uses radius = linewidth/2 directly (the number IS the dot size).
+      // If linewidth is default (no explicit set), apply dotfactor: radius = dotfactor/2 * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dotfactor / 2) * dotLw * cssPixel;
+      const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * cssPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.path) {

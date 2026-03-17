@@ -432,7 +432,7 @@ async function main() {
     console.log(`  Saved ${results.length} results to comparison/ssim-results.json`);
     console.log(`  Worst 10:`);
     for (const r of results.slice(0, 10))
-      console.log(`    #${r.id} (${r.corpusFile}) SSIM=${r.ssim >= 0 ? r.ssim.toFixed(4) : 'ERR'}${r.error ? ' ' + r.error : ''}`);
+      console.log(`    #${r.id} (${r.corpusFile}) SSIM=${r.ssim.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
     console.log();
   }
 
@@ -462,7 +462,7 @@ async function main() {
     }
 
     function ssimLabel(v) {
-      if (v < 0) return 'Error';
+      if (v < 0) return 'Negative';
       if (v >= 0.95) return 'Good';
       if (v >= 0.85) return 'Fair';
       if (v >= 0.70) return 'Poor';
@@ -511,7 +511,7 @@ async function main() {
 <div class="card" id="pair-${rank}">
   <div class="card-header">
     <h2>#${rank} &mdash; ${esc(r.corpusFile)}</h2>
-    <span class="badge" style="background:${ssimColor(r.ssim)}">SSIM ${r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A'} &middot; ${ssimLabel(r.ssim)}</span>
+    <span class="badge" style="background:${ssimColor(r.ssim)}">SSIM ${r.ssim.toFixed(4)} &middot; ${ssimLabel(r.ssim)}</span>
   </div>
   <div class="card-body" style="grid-template-columns:${gridCols}">
     <div class="render-col">
