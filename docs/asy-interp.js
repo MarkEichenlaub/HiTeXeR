@@ -84,7 +84,7 @@ function lex(source) {
         if (ch() === '+' || ch() === '-') { num += ch(); advance(); }
         while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
       }
-      tokens.push({type:T.NUMBER, value:parseFloat(num), line:startLine, col:startCol});
+      tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e')&&!num.includes('E'), line:startLine, col:startCol});
       continue;
     }
 
@@ -143,7 +143,7 @@ function lex(source) {
       case '+': advance(); if(ch()==='='){advance();add(T.PLUSASSIGN,'+=');}else if(ch()==='+'){advance();add(T.PLUSPLUS,'++');}else{add(T.PLUS,'+');} break;
       case '-': advance();
         if(ch()==='='){advance();add(T.MINUSASSIGN,'-=');}
-        else if(ch()==='-'){advance();add(T.DASHDASH,'--');}
+        else if(ch()==='-'){advance();if(ch()==='-'){advance();}add(T.DASHDASH,'--');} // --- is same as --
         else if(ch()==='>'){advance();add(T.ARROW,'=>');}
         else{add(T.MINUS,'-');}
         break;
@@ -186,7 +186,7 @@ function lex(source) {
 // ============================================================
 
 // AST Node constructors
-function NumberLit(value,line) { return {type:'NumberLit',value,line}; }
+function NumberLit(value,line,isInt) { return {type:'NumberLit',value,line,isInt:!!isInt}; }
 function StringLit(value,line) { return {type:'StringLit',value,line}; }
 function BoolLit(value,line) { return {type:'BoolLit',value,line}; }
 function NullLit(line) { return {type:'NullLit',line}; }
@@ -568,14 +568,14 @@ function parse(tokens) {
       case T.EQ: case T.NEQ: return 4;
       case T.LT: case T.GT: case T.LE: case T.GE: return 5;
       case T.PLUS: case T.MINUS: return 6;
-      case T.DASHDASH: case T.DOTDOT: case T.DOTDOTDOT: case T.HATHAT: return 6; // path join at same level
+      case T.DASHDASH: case T.DOTDOT: case T.DOTDOTDOT: case T.HATHAT: return 5.5; // path join: lower than +/- so a--a+b means a--(a+b)
       case T.LBRACE: {
         // {dir} after a point starts a path direction — give it path-join precedence
         // so (0,0){1,0}..{1,0}(1,1) works inside function call args
         // Also handle named directions: {up}, {down}, {left}, {right}, etc.
         if (pos + 2 < tokens.length && tokens[pos+1].type === T.IDENT
             && NAMED_DIRS && NAMED_DIRS[tokens[pos+1].value]
-            && tokens[pos+2].type === T.RBRACE) return 6;
+            && tokens[pos+2].type === T.RBRACE) return 5.5;
         // Quick lookahead: scan to matching }, counting commas at depth 0
         let d = 0, commas = 0, closePos = -1;
         for (let i = pos + 1; i < tokens.length; i++) {
@@ -584,11 +584,11 @@ function parse(tokens) {
           else if (tokens[i].type === T.RBRACE) { if (d === 0) { closePos = i; break; } d--; }
           else if (d === 0 && tokens[i].type === T.COMMA) commas++;
         }
-        if (commas === 1) return 6; // {expr,expr} pair direction
+        if (commas === 1) return 5.5; // {expr,expr} pair direction
         // Single expression direction: {dir(angle)} or {expr} followed by .. or --
         if (commas === 0 && closePos >= 0 && closePos + 1 < tokens.length) {
           const after = tokens[closePos + 1].type;
-          if (after === T.DOTDOT || after === T.DOTDOTDOT || after === T.DASHDASH) return 6;
+          if (after === T.DOTDOT || after === T.DOTDOTDOT || after === T.DASHDASH) return 5.5;
         }
         return 0;
       }
@@ -728,7 +728,7 @@ function parse(tokens) {
       // Handle ^^ (path concatenation)
       if (at(T.HATHAT)) {
         pos++;
-        const nextPoint = parseExpr(6);
+        const nextPoint = parseExpr(5.5);
         nodes[nodes.length-1].join = '^^';
         nodes.push({point: nextPoint, join: null, dirOut: null});
         const dOut = tryParseDir();
@@ -761,7 +761,7 @@ function parse(tokens) {
       // Check for incoming direction {dir}
       const dirIn = tryParseDir();
 
-      const point = parseExpr(6); // parse at additive level to avoid consuming next --/..
+      const point = parseExpr(5.5); // parse at path-join level so +/- bind tighter than --/..
       nodes[nodes.length-1].join = join;
       nodes[nodes.length-1].tension = tension;
       const newNode = {point, join: null, dirIn: dirIn};
@@ -800,7 +800,7 @@ function parse(tokens) {
     // Number, possibly followed by identifier for implicit multiplication (e.g., 2pi, 3n, 1cm)
     if (t.type === T.NUMBER) {
       pos++;
-      const numNode = NumberLit(t.value, ln);
+      const numNode = NumberLit(t.value, ln, t.isInt);
       // Implicit multiplication: 2pi, 3n, 1cm, etc.
       if (at(T.IDENT)) {
         const nextVal = cur().value;
@@ -956,7 +956,7 @@ function makePair(x,y) { return {_tag:'pair', x:x||0, y:y||0}; }
 function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
-    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null}, props);
+    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false}, props);
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -990,17 +990,23 @@ function mergePens(a,b) {
   if (!isPen(a)) return b;
   if (!isPen(b)) return a;
   const r = clonePen(a);
-  // Color mixing: if both pens have non-black color, average them (Asymptote behavior)
-  const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
+  // Color: In Asymptote, pen + pen adds RGB values (clamped to 0-1).
+  // But for modifier pens (linewidth/fontsize only), don't change color.
   const bHasColor = (b.r !== 0 || b.g !== 0 || b.b !== 0);
-  if (aHasColor && bHasColor) {
-    r.r = (a.r + b.r) / 2;
-    r.g = (a.g + b.g) / 2;
-    r.b = (a.b + b.b) / 2;
-  } else if (bHasColor) {
-    r.r = b.r; r.g = b.g; r.b = b.b;
+  const bIsModifier = !bHasColor && (b.linewidth !== 0.5 || b.linestyle || b.fontsize !== 12 || b.linecap || b.linejoin);
+  if (bHasColor) {
+    const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
+    if (aHasColor) {
+      // Both have color: add RGB (Asymptote pen addition semantics)
+      r.r = Math.min(1, a.r + b.r);
+      r.g = Math.min(1, a.g + b.g);
+      r.b = Math.min(1, a.b + b.b);
+    } else {
+      r.r = b.r; r.g = b.g; r.b = b.b;
+    }
   }
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
+  if (b._lwExplicit) r._lwExplicit = true;
   if (b.linestyle) r.linestyle = b.linestyle;
   if (b.fontsize !== 12) r.fontsize = b.fontsize;
   if (b.opacity !== 1) r.opacity = b.opacity;
@@ -1431,8 +1437,8 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) return mergePens(left, makePen({linewidth:right}));
-    if (op === T.PLUS && isNumber(left) && isPen(right)) return mergePens(makePen({linewidth:left}), right);
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; r._lwExplicit = true; return r; }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = right.linewidth + left; r._lwExplicit = true; return r; }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -1471,6 +1477,23 @@ function createInterpreter() {
         case T.SLASH: { const d=right.x*right.x+right.y*right.y; return d?makePair((left.x*right.x+left.y*right.y)/d,(left.y*right.x-left.x*right.y)/d):makePair(0,0); }
         case T.EQ: return left.x===right.x && left.y===right.y;
         case T.NEQ: return left.x!==right.x || left.y!==right.y;
+        case T.CARET: {
+          // Complex exponentiation: (a+bi)^n using polar form
+          const r = Math.sqrt(left.x*left.x + left.y*left.y);
+          const theta = Math.atan2(left.y, left.x);
+          const n = right.x; // real part of exponent
+          const rn = Math.pow(r, n);
+          return makePair(rn * Math.cos(n * theta), rn * Math.sin(n * theta));
+        }
+      }
+    }
+    // pair ^ real (complex exponentiation)
+    if (isPair(left) && isNumber(right)) {
+      if (op===T.CARET) {
+        const r = Math.sqrt(left.x*left.x + left.y*left.y);
+        const theta = Math.atan2(left.y, left.x);
+        const rn = Math.pow(r, right);
+        return makePair(rn * Math.cos(right * theta), rn * Math.sin(right * theta));
       }
     }
     // real * pair, pair * real
@@ -1492,6 +1515,14 @@ function createInterpreter() {
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
     // Transform * transform
     if (isTransform(left) && isTransform(right)) return composeTransforms(right, left);
+    // Transform * string → Label with transform (e.g. scale(0.7)*"text", rotate(90)*"text")
+    if (isTransform(left) && isString(right)) return {_tag:'label', text: right, transform: left};
+    // Transform * label → label with composed transform
+    if (isTransform(left) && right && right._tag === 'label') {
+      const existing = right.transform;
+      const t = existing ? composeTransforms(existing, left) : left;
+      return Object.assign({}, right, {transform: t});
+    }
 
     // String concatenation
     if (isString(left) || isString(right)) {
@@ -1592,7 +1623,14 @@ function createInterpreter() {
     }
 
     if (typeof callee === 'function') {
-      const args = node.args.map(a => evalNode(a, env));
+      const args = node.args.map(a => {
+        if (a.type === 'NamedArg') {
+          const obj = {_named: true};
+          obj[a.name] = evalNode(a.value, env);
+          return obj;
+        }
+        return evalNode(a, env);
+      });
       return callee(...args);
     }
     if (callee && callee._tag === 'func') {
@@ -1831,33 +1869,47 @@ function createInterpreter() {
       let pendingPt = null; // pair waiting to be connected to next element
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
+        // Check if previous element used ^^ (pen-up) — if so, don't connect
+        const prevJoin = i > 0 ? elements[i-1].join : '--';
+        const isHatHat = prevJoin === '^^';
         if (el.type === 'path') {
           const start = el.segs[0].p0;
-          // Connect from pending point or previous endpoint to start of path
-          if (pendingPt) {
-            allSegs.push(lineSegment(pendingPt, start));
-            pendingPt = null;
-          } else if (allSegs.length > 0) {
-            const prev = allSegs[allSegs.length - 1].p3;
-            if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
-              allSegs.push(lineSegment(prev, start));
+          // Connect from pending point or previous endpoint to start of path (unless ^^ gap)
+          if (!isHatHat) {
+            if (pendingPt) {
+              allSegs.push(lineSegment(pendingPt, start));
+              pendingPt = null;
+            } else if (allSegs.length > 0) {
+              const prev = allSegs[allSegs.length - 1].p3;
+              if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
+                allSegs.push(lineSegment(prev, start));
+              }
             }
+          } else {
+            pendingPt = null; // discard pending point across ^^ gap
           }
           allSegs.push(...el.segs);
         } else {
           // pair element
-          if (pendingPt) {
-            // Two consecutive pairs, connect them
-            allSegs.push(lineSegment(pendingPt, el.pt));
-            pendingPt = null;
-          } else if (allSegs.length > 0) {
-            const prev = allSegs[allSegs.length - 1].p3;
-            if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
-              allSegs.push(lineSegment(prev, el.pt));
+          if (!isHatHat) {
+            if (pendingPt) {
+              // Two consecutive pairs, connect them
+              allSegs.push(lineSegment(pendingPt, el.pt));
+              pendingPt = null;
+            } else if (allSegs.length > 0) {
+              const prev = allSegs[allSegs.length - 1].p3;
+              if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
+                allSegs.push(lineSegment(prev, el.pt));
+              }
+            } else {
+              // First element with no segments yet — store as pending
+              pendingPt = el.pt;
             }
           } else {
-            // First element with no segments yet — store as pending
-            pendingPt = el.pt;
+            // ^^ gap: start fresh from this point
+            pendingPt = null;
+            // Add zero-length seg to preserve point position for dot() usage
+            allSegs.push(makeSeg(el.pt, el.pt, el.pt, el.pt));
           }
         }
       }
@@ -1898,6 +1950,9 @@ function createInterpreter() {
         if (subPoints.length >= 2) {
           const subSegs = buildPathSegs(subPoints, subJoins, false);
           allSegs.push(...subSegs);
+        } else if (subPoints.length === 1) {
+          // Single point joined via ^^: zero-length segment (used by dot(a^^b^^c) to mark positions)
+          allSegs.push(makeSeg(subPoints[0], subPoints[0], subPoints[0], subPoints[0]));
         }
         start = hi + 1;
       }
@@ -2096,6 +2151,10 @@ function createInterpreter() {
     if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
     }
+    if (mod.includes('trigmacros')) {
+      installGraphPackage(env); // TrigMacros depends on graph
+      installTrigMacros(env);
+    }
     if (mod.includes('graph')) {
       installGraphPackage(env);
     }
@@ -2127,26 +2186,50 @@ function createInterpreter() {
     };
     for (const [k,v] of Object.entries(dirs)) env.set(k, v);
 
-    // Named colors from ASY_COLORS (hex → pen)
+    // Named colors — exact Asymptote definitions from plain_pens.asy
+    // Base: red=(1,0,0) green=(0,1,0) blue=(0,0,1) cyan=(0,1,1) magenta=(1,0,1) yellow=(1,1,0)
+    // pale = 0.25*base + 0.75*white, light = 0.5*base + 0.5*white
+    // medium = 0.75*base + 0.25*white, heavy = 0.75*base + 0.25*black
+    // deep = 0.5*base + 0.5*black, dark = 0.25*base + 0.75*black
     const ASY_COLORS = {
-      black:'#000000', white:'#ffffff', gray:'#808080', red:'#ff0000',
-      blue:'#0000ff', green:'#00b300', yellow:'#ffff00', cyan:'#00ffff',
-      magenta:'#ff00ff', orange:'#ff8c00', purple:'#8000bf', brown:'#804000',
-      pink:'#ffc0cb',
-      lightblue:'#87ceeb', lightgreen:'#90ee90', lightred:'#ff8080',
-      lightyellow:'#ffffe0', lightgray:'#bfbfbf', lightcyan:'#c0ffff',
-      darkblue:'#000080', darkgreen:'#006400', darkred:'#8b0000',
-      darkcyan:'#008b8b', darkmagenta:'#8b008b', darkgray:'#404040',
-      heavyblue:'#0000bf', heavygreen:'#005900', heavyred:'#bf0000',
-      heavycyan:'#008080', heavymagenta:'#800080', heavygray:'#606060',
-      mediumblue:'#0000cd', mediumgreen:'#00a000', mediumred:'#c00000',
-      mediumcyan:'#00b0b0', mediummagenta:'#b000b0', mediumgray:'#a0a0a0',
-      paleblue:'#c0d0ff', palegreen:'#c0ffc0', palered:'#ffc0c0',
-      paleyellow:'#ffffc0', palecyan:'#c0ffff', palemagenta:'#ffc0ff',
-      deepblue:'#0000a0', deepgreen:'#004d00', deepred:'#a00000',
-      deepcyan:'#006060', deepmagenta:'#600060',
-      royalblue:'#4169e1', olive:'#808000', chartreuse:'#7fff00',
-      fuchsia:'#ff00ff', springgreen:'#00ff7f',
+      black:'#000000', white:'#ffffff',
+      gray:'#808080',
+      // Primary / secondary
+      red:'#ff0000', green:'#00ff00', blue:'#0000ff',
+      cyan:'#00ffff', magenta:'#ff00ff', yellow:'#ffff00',
+      // Pale (75% white)
+      palered:'#ffbfbf', palegreen:'#bfffbf', paleblue:'#bfbfff',
+      palecyan:'#bfffff', palemagenta:'#ffbfff', paleyellow:'#ffffbf',
+      palegray:'#f2f2f2',
+      // Light (50% white)
+      lightred:'#ff8080', lightgreen:'#80ff80', lightblue:'#8080ff',
+      lightcyan:'#80ffff', lightmagenta:'#ff80ff', lightyellow:'#ffff80',
+      lightgray:'#e6e6e6',
+      // Medium (25% white)
+      mediumred:'#ff4040', mediumgreen:'#40ff40', mediumblue:'#4040ff',
+      mediumcyan:'#40ffff', mediummagenta:'#ff40ff', mediumyellow:'#ffff40',
+      mediumgray:'#bfbfbf',
+      // Heavy (25% black)
+      heavyred:'#bf0000', heavygreen:'#00bf00', heavyblue:'#0000bf',
+      heavycyan:'#00bfbf', heavymagenta:'#bf00bf', lightolive:'#bfbf00',
+      heavygray:'#404040',
+      // Deep (50% black)
+      deepred:'#800000', deepgreen:'#008000', deepblue:'#000080',
+      deepcyan:'#008080', deepmagenta:'#800080', deepyellow:'#808000',
+      deepgray:'#1a1a1a',
+      // Dark (75% black)
+      darkred:'#400000', darkgreen:'#004000', darkblue:'#000040',
+      darkcyan:'#004040', darkmagenta:'#400040', darkolive:'#404000',
+      darkgray:'#0d0d0d',
+      // Tertiary colors (50% mixes on color wheel)
+      orange:'#ff8000', fuchsia:'#ff0080', chartreuse:'#80ff00',
+      springgreen:'#00ff80', purple:'#8000ff', royalblue:'#0080ff',
+      // Aliases
+      brown:'#800000',   // = deepred
+      olive:'#808000',   // = deepyellow
+      darkbrown:'#400000', // = darkred
+      pink:'#ffbfff',    // = palemagenta
+      salmon:'#ff8080',  // = lightred
     };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
       const r = parseInt(hex.substr(1,2),16)/255;
@@ -2238,6 +2321,9 @@ function createInterpreter() {
     env.set('cm', 28.35);
     env.set('mm', 2.835);
     env.set('inch', 72);
+
+    // Dot sizing
+    env.set('dotfactor', 6);
 
     // Math functions
     env.set('sin', (x) => Math.sin(toNumber(x)));
@@ -2331,9 +2417,26 @@ function createInterpreter() {
       return makeCirclePath(c, rad);
     });
 
-    env.set('arc', (center, r, a1, a2) => {
-      const c = toPair(center);
-      return makeArcPath(c, toNumber(r), toNumber(a1), toNumber(a2));
+    env.set('arc', (...args) => {
+      if (args.length >= 4) {
+        // arc(center, radius, startAngle, endAngle)
+        const c = toPair(args[0]);
+        return makeArcPath(c, toNumber(args[1]), toNumber(args[2]), toNumber(args[3]));
+      }
+      if (args.length >= 3 && isPair(args[1])) {
+        // arc(center, point1, point2) — arc from p1 to p2 around center
+        const c = toPair(args[0]);
+        const p1 = toPair(args[1]), p2 = toPair(args[2]);
+        const r = Math.sqrt((p1.x-c.x)*(p1.x-c.x) + (p1.y-c.y)*(p1.y-c.y));
+        const a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
+        const a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
+        return makeArcPath(c, r, a1, a2);
+      }
+      if (args.length >= 2) {
+        const c = toPair(args[0]);
+        return makeArcPath(c, toNumber(args[1]), 0, 360);
+      }
+      return makePath([], false);
     });
 
     env.set('ellipse', (center, a, b) => {
@@ -2365,6 +2468,30 @@ function createInterpreter() {
       const segs = [];
       for (let i = 0; i < sides; i++) segs.push(lineSegment(pts[i], pts[(i+1)%sides]));
       return makePath(segs, true);
+    });
+
+    // grid(Nx, Ny, pen) — returns a picture with grid lines from (0,0) to (Nx, Ny)
+    env.set('grid', (...args) => {
+      let nx = 1, ny = 1, pen = clonePen(defaultPen);
+      for (const a of args) {
+        if (isPen(a)) pen = a;
+        else if (typeof a === 'number') {
+          if (nx === 1 && args.indexOf(a) === 0) nx = Math.round(a);
+          else ny = Math.round(a);
+        }
+      }
+      const pic = {_tag:'picture', commands:[], transform: null};
+      // Vertical lines
+      for (let i = 0; i <= nx; i++) {
+        const p = makePath([lineSegment({x:i,y:0}, {x:i,y:ny})], false);
+        pic.commands.push({cmd:'draw', path:p, pen:clonePen(pen), arrow:null, line:0});
+      }
+      // Horizontal lines
+      for (let j = 0; j <= ny; j++) {
+        const p = makePath([lineSegment({x:0,y:j}, {x:nx,y:j})], false);
+        pic.commands.push({cmd:'draw', path:p, pen:clonePen(pen), arrow:null, line:0});
+      }
+      return pic;
     });
 
     // Path query functions
@@ -2490,10 +2617,32 @@ function createInterpreter() {
     env.set('slant', (s) => makeTransform(0,1,toNumber(s),0,0,1));
 
     // Pen constructors
-    env.set('rgb', (r,g,b) => makePen({r:toNumber(r),g:toNumber(g),b:toNumber(b)}));
+    env.set('rgb', (...args) => {
+      // rgb(r,g,b) with floats, or rgb("hexstring")
+      if (args.length === 1 && isString(args[0])) {
+        let hex = args[0].replace(/^#/,'');
+        if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+        const ri = parseInt(hex.substr(0,2),16)/255;
+        const gi = parseInt(hex.substr(2,2),16)/255;
+        const bi = parseInt(hex.substr(4,2),16)/255;
+        return makePen({r:isNaN(ri)?0:ri, g:isNaN(gi)?0:gi, b:isNaN(bi)?0:bi});
+      }
+      return makePen({r:toNumber(args[0]),g:toNumber(args[1]),b:toNumber(args[2])});
+    });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
-    env.set('linewidth', (w) => makePen({linewidth:toNumber(w)}));
+    env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true}));
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
+    env.set('linetype', (...args) => {
+      // linetype("dash pattern") or linetype(real[])
+      let pattern = null;
+      if (args.length >= 1 && isString(args[0])) pattern = args[0];
+      return makePen({linestyle: pattern || 'dashed'});
+    });
+    env.set('linecap', (n) => {
+      const v = toNumber(n);
+      const caps = ['butt','round','square'];
+      return makePen({linecap: caps[v] || 'round'});
+    });
     env.set('opacity', (a) => makePen({opacity:toNumber(a)}));
     env.set('Pen', (n) => makePen({}));
     env.set('Symbol', (...args) => null);
@@ -2674,10 +2823,16 @@ function createInterpreter() {
       return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
     });
 
-    // anglemark: draw arc showing angle at vertex B
+    // anglemark: draw arc showing angle at vertex B from BA to BC
     env.set('anglemark', (...args) => {
-      // Stub: return empty path for now
-      return makePath([], false);
+      if (args.length < 3) return makePath([], false);
+      const A = toPair(args[0]), B = toPair(args[1]), C = toPair(args[2]);
+      const rawR = args.length > 3 ? toNumber(args[3]) : 10;
+      const msf = env.get('markscalefactor') || 0.03;
+      const r = rawR * msf;
+      const a1 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      const a2 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      return makeArcPath(B, r, a1, a2);
     });
 
     // Labeling helpers
@@ -2685,12 +2840,25 @@ function createInterpreter() {
       // Return a label object with text and optional alignment/position info
       let text = '';
       let align = null;
+      let position = null;
+      let labelPen = null;
       for (const a of args) {
         if (isString(a)) text = a;
+        else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (isPair(a)) align = a;
-        // position=EndPoint etc. are just ignored for now (label goes at axis end)
+        else if (a && typeof a === 'object' && a._named) {
+          if ('position' in a) position = a.position;
+          if ('align' in a) {
+            if (isPair(a.align)) align = a.align;
+            else if (typeof a.align === 'number') align = makePair(a.align, 0);
+          }
+        }
+        else if (typeof a === 'number' && position === null) position = a;
       }
-      return {_tag:'label', text, align};
+      const lbl = {_tag:'label', text, align};
+      if (position !== null) lbl.position = position;
+      if (labelPen) lbl.pen = labelPen;
+      return lbl;
     });
     env.set('EndPoint', 1);
     env.set('BeginPoint', 0);
@@ -2736,8 +2904,10 @@ function createInterpreter() {
       return result;
     });
     env.set('map', (f, arr) => {
-      if (!isArray(arr) || typeof f !== 'function') return [];
-      return arr.map(f);
+      if (!isArray(arr)) return [];
+      if (typeof f === 'function') return arr.map(f);
+      if (f && f._tag === 'func') return arr.map(v => callUserFuncValues(f, [v]));
+      return [];
     });
     env.set('sort', (arr) => {
       if (!isArray(arr)) return arr;
@@ -2759,21 +2929,21 @@ function createInterpreter() {
       env.set(name, (...args) => ({_tag:'arrow', style:name, size: args.length>0?toNumber(args[0]):6}));
     }
 
-    // Fill types
+    // Fill types — return tagged objects so label rendering can detect them
     env.set('FillDraw', (...args) => {
-      if (args.length >= 1 && isPen(args[0])) return args[0];
-      return null;
+      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : makePen({r:1,g:1,b:1});
+      return {_tag:'filltype', style:'FillDraw', pen};
     });
     env.set('Fill', (...args) => {
-      if (args.length >= 1 && isPen(args[0])) return args[0];
-      return null;
+      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : makePen({r:1,g:1,b:1});
+      return {_tag:'filltype', style:'Fill', pen};
     });
     env.set('Draw', (...args) => {
-      if (args.length >= 1 && isPen(args[0])) return args[0];
-      return null;
+      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : null;
+      return {_tag:'filltype', style:'Draw', pen};
     });
-    env.set('NoFill', null);
-    env.set('UnFill', null);
+    env.set('NoFill', {_tag:'filltype', style:'NoFill', pen:null});
+    env.set('UnFill', {_tag:'filltype', style:'UnFill', pen:makePen({r:1,g:1,b:1})});
 
     // Margin types
     env.set('Margins', null);
@@ -2801,12 +2971,12 @@ function createInterpreter() {
 
   let graphPackageInstalled = false;
 
+  // Shared axis limit state (accessible from both installGraphPackage and execute)
+  let _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+
   function installGraphPackage(env) {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
-
-    // Shared axis limit state
-    const _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null };
 
     // Helper: build path from points, using smooth (..) or straight (--) joins
     function buildGraphPath(pts, useSmooth) {
@@ -2893,22 +3063,69 @@ function createInterpreter() {
           if (testVal && testVal._tag === 'pair') isPairFunc = true;
         } catch(e) {}
 
-        const pts = [];
+        // Compute y-range limit: if axis limits are set, clip to a reasonable multiple
+        const yClipMin = _axisLimits.ymin !== null ? _axisLimits.ymin - (_axisLimits.ymax - _axisLimits.ymin) * 2 : -1e6;
+        const yClipMax = _axisLimits.ymax !== null ? _axisLimits.ymax + (_axisLimits.ymax - _axisLimits.ymin) * 2 : 1e6;
+        const xClipMin = _axisLimits.xmin !== null ? _axisLimits.xmin - (_axisLimits.xmax - _axisLimits.xmin) * 2 : -1e6;
+        const xClipMax = _axisLimits.xmax !== null ? _axisLimits.xmax + (_axisLimits.xmax - _axisLimits.xmin) * 2 : 1e6;
+
+        // Collect all points, then split at discontinuities (out-of-range or large jumps)
+        const allPts = [];
         for (let i = 0; i <= n; i++) {
           const t = a + (b - a) * i / n;
           try {
             const result = typeof funcArg === 'function' ? funcArg(t) : callUserFuncValues(funcArg, [t]);
             if (isPairFunc) {
               if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
-                pts.push({x: result.x, y: result.y});
+                allPts.push({x: result.x, y: result.y});
+              } else {
+                allPts.push(null); // discontinuity marker
               }
             } else {
               const y = toNumber(result);
-              if (isFinite(y)) pts.push({x: t, y});
+              if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
+                allPts.push({x: t, y});
+              } else {
+                allPts.push(null); // discontinuity marker
+              }
             }
-          } catch(e) { /* skip bad points */ }
+          } catch(e) { allPts.push(null); }
         }
-        return buildGraphPath(pts, smooth);
+
+        // Split into segments at null markers and large jumps
+        const segments = [];
+        let curSeg = [];
+        for (let i = 0; i < allPts.length; i++) {
+          const pt = allPts[i];
+          if (!pt) {
+            if (curSeg.length >= 2) segments.push(curSeg);
+            curSeg = [];
+            continue;
+          }
+          // Detect large y-jumps (asymptotes) — break path if jump exceeds visible range
+          if (curSeg.length > 0) {
+            const prev = curSeg[curSeg.length - 1];
+            const yRange = (_axisLimits.ymax !== null && _axisLimits.ymin !== null) ? (_axisLimits.ymax - _axisLimits.ymin) : 100;
+            if (Math.abs(pt.y - prev.y) > yRange * 2) {
+              if (curSeg.length >= 2) segments.push(curSeg);
+              curSeg = [];
+            }
+          }
+          curSeg.push(pt);
+        }
+        if (curSeg.length >= 2) segments.push(curSeg);
+
+        // Build path by joining segments (disconnected pieces become separate subpaths)
+        if (segments.length === 0) return makePath([], false);
+        if (segments.length === 1) return buildGraphPath(segments[0], smooth);
+
+        // Multiple disconnected segments: build each and concatenate
+        let allSegs = [];
+        for (const seg of segments) {
+          const p = buildGraphPath(seg, smooth);
+          for (const s of p.segs) allSegs.push(s);
+        }
+        return makePath(allSegs, false);
       }
 
       return makePath([], false);
@@ -2933,7 +3150,8 @@ function createInterpreter() {
       return [...new Set(dlist)].sort((a, b) => a - b);
     }
 
-    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax) {
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+      axisOffset = axisOffset || 0;
       if (!ticks) return;
       if (!pic) pic = currentPic;
       const tickPen = ticks.pen || pen;
@@ -3008,11 +3226,11 @@ function createInterpreter() {
           p0 = isX ? {x:v, y:cMin} : {x:cMin, y:v};
           p1 = isX ? {x:v, y:cMax} : {x:cMax, y:v};
         } else {
-          p0 = isX ? {x:v, y:-sz} : {x:-sz, y:v};
-          p1 = isX ? {x:v, y:sz} : {x:sz, y:v};
+          p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
+          p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
       }
 
       // Draw major ticks
@@ -3023,16 +3241,21 @@ function createInterpreter() {
       // Draw labels for major ticks
       // Suppress labels when Size was explicitly set very small (e.g. Size=0.1pt),
       // which means ticks are invisible markers — labels would be meaningless
-      const showLabels = ticks.labels && !isExtend && !(ticks.sizeExplicit && ticks.size < 0.5);
+      const showLabels = ticks.labels && !isExtend;
       if (showLabels) {
         for (const v of majorPositions) {
           if (noZero && Math.abs(v) < 1e-10) continue;
           if (v < min - 1e-10 || v > max + 1e-10) continue;
-          const pos = isX ? {x:v, y:0} : {x:0, y:v};
+          const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
-          const txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
-          const labelPen = clonePen(tickPen);
-          labelPen.fontsize = 8;
+          let txt;
+          if (ticks.format) {
+            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, () => Number.isInteger(v) ? String(v) : v.toFixed(1));
+          } else {
+            txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+          }
+          const labelPen = clonePen(ticks.labelPen || tickPen);
+          labelPen.fontsize = labelPen.fontsize || 8;
           pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0});
         }
       }
@@ -3048,20 +3271,41 @@ function createInterpreter() {
     env.set('Left', (...args) => ({_tag:'axisextent', type:'Left'}));
     env.set('Right', (...args) => ({_tag:'axisextent', type:'Right'}));
 
+    // YEquals / XEquals — shift axis to a different coordinate
+    env.set('YEquals', (...args) => {
+      const y = args.length > 0 ? toNumber(args[0]) : 0;
+      return {_tag:'axisshift', axis:'x', value:y};
+    });
+    env.set('XEquals', (...args) => {
+      const x = args.length > 0 ? toNumber(args[0]) : 0;
+      return {_tag:'axisshift', axis:'y', value:x};
+    });
+
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       let extent = null; // BottomTop, etc.
+      let above = false;
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
         pic = rawArgs[0]; startIdx = 1;
       }
+      let axisShiftY = 0;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
-        if (a === null || a === undefined || a === true || a === false) continue;
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; }
+        if (a === null || a === undefined || a === false) continue;
+        if (a === true) { above = true; continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('ticks' in a) ticks = a.ticks;
+          if ('p' in a) pen = a.p;
+          if ('pen' in a) pen = a.pen;
+          if ('above' in a) above = !!a.above;
+          continue;
+        }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        else if (a && a._tag === 'axisshift' && a.axis === 'x') { axisShiftY = a.value; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
@@ -3099,35 +3343,53 @@ function createInterpreter() {
         if (xmax === null) xmax = isFinite(cMaxX) ? cMaxX : 5;
       }
       if (!pen) pen = clonePen(defaultPen);
+      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
+      if (xmin !== null) {
+        if (_axisLimits.xmin === null || xmin < _axisLimits.xmin) _axisLimits.xmin = xmin;
+        if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
+      }
       const isInvisible = pen.opacity === 0;
       // Draw axis line (skip if invisible)
       if (!isInvisible) {
-        const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
+        const path = makePath([lineSegment({x:xmin,y:axisShiftY},{x:xmax,y:axisShiftY})], false);
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0});
       }
       // Cross range for grid lines
       const crossMin = _axisLimits.ymin !== null ? _axisLimits.ymin : -5;
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
-      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax);
+      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:1, y:-1};
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:xmax, y:0}, align:lAlign, pen, line:0});
+        let labelX = xmax;
+        if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
       }
     });
 
     env.set('yaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
+      let above = false;
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
         pic = rawArgs[0]; startIdx = 1;
       }
+      let axisShiftX = 0;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
-        if (a === null || a === undefined || a === true || a === false) continue;
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; }
+        if (a === null || a === undefined || a === false) continue;
+        if (a === true) { above = true; continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('ticks' in a) ticks = a.ticks;
+          if ('p' in a) pen = a.p;
+          if ('pen' in a) pen = a.pen;
+          if ('above' in a) above = !!a.above;
+          continue;
+        }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
@@ -3164,17 +3426,24 @@ function createInterpreter() {
         if (ymax === null) ymax = isFinite(cMaxY) ? cMaxY : 5;
       }
       if (!pen) pen = clonePen(defaultPen);
+      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
+      if (ymin !== null) {
+        if (_axisLimits.ymin === null || ymin < _axisLimits.ymin) _axisLimits.ymin = ymin;
+        if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
+      }
       const isInvisible = pen.opacity === 0;
       if (!isInvisible) {
-        const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
+        const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0});
       }
       const crossMin = _axisLimits.xmin !== null ? _axisLimits.xmin : -5;
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
-      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax);
+      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:-1, y:1};
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:ymax}, align:lAlign, pen, line:0});
+        let labelY = ymax;
+        if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
       }
     });
 
@@ -3310,11 +3579,17 @@ function createInterpreter() {
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
-        else if (a && a._tag === 'label') { t.labels = true; }
+        else if (a && a._tag === 'label') { t.labels = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
-        // Named parameters (from our interpreter's named param handling)
-        else if (a && typeof a === 'object' && a._namedStep !== undefined) t.step = a._namedStep;
-        else if (a && typeof a === 'object' && a._namedSize !== undefined) t.size = a._namedSize;
+        else if (a && typeof a === 'object' && a._named) {
+          if ('Step' in a) t.step = a.Step;
+          if ('step' in a) t.step = a.step;
+          if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
+          if ('size' in a) { t.size = a.size; t.sizeExplicit = true; }
+          if ('extend' in a) t.extend = a.extend;
+          if ('pTick' in a && isPen(a.pTick)) t.pen = a.pTick;
+          if ('ptick' in a && isPen(a.ptick)) t.pen = a.ptick;
+        }
       }
       return t;
     }
@@ -3323,6 +3598,7 @@ function createInterpreter() {
     env.set('RightTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'right'; return t; });
     env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null});
     env.set('NoZero', {_tag:'tickmod', noZero:true});
+    env.set('NoZeroFormat', {_tag:'tickmod', noZero:true});
 
     // polargraph — plot r = f(theta) in polar coordinates
     env.set('polargraph', (...args) => {
@@ -3369,18 +3645,137 @@ function createInterpreter() {
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
       const pairs = [];
+      let hasCrop = false;
       for (const a of args) {
         if (isPair(a)) pairs.push(a);
-        // Skip picture arg and Crop flag
+        else if (a === true) hasCrop = true; // Crop is env-set to true
       }
       if (pairs.length >= 2) {
         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
         _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
       }
+      if (hasCrop) _axisLimits.crop = true;
     });
     env.set('Crop', true);
     env.set('NoCrop', false);
     env.set('crop', (...args) => null);
+  }
+
+  // ============================================================
+  // TrigMacros Package (AoPS custom axes/grid)
+  // ============================================================
+
+  function installTrigMacros(env) {
+    const ticklength = 0.1 * 28.35; // 0.1cm in bp
+    const axisarrowsize = 0.14 * 28.35; // 0.14cm in bp
+    const axisPen = makePen({r:0,g:0,b:0,linewidth:1.3});
+
+    env.set('rr_cartesian_axes', (...args) => {
+      // Parse args: xleft, xright, ybottom, ytop, then named args
+      let xleft = -5, xright = 5, ybottom = -5, ytop = 5;
+      let xstep = 1, ystep = 1;
+      let useticks = true, complexplane = false, usegrid = true;
+      const nums = [];
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+        else if (typeof a === 'boolean') {
+          // Can't distinguish which bool is which from positional args alone
+        } else if (a && typeof a === 'object') {
+          // Named argument object
+        }
+      }
+      // Positional numeric args
+      if (nums.length >= 1) xleft = nums[0];
+      if (nums.length >= 2) xright = nums[1];
+      if (nums.length >= 3) ybottom = nums[2];
+      if (nums.length >= 4) ytop = nums[3];
+      if (nums.length >= 5) xstep = nums[4];
+      if (nums.length >= 6) ystep = nums[5];
+      // Check for named args passed as special objects
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('xstep' in a) xstep = a.xstep;
+          if ('ystep' in a) ystep = a.ystep;
+          if ('useticks' in a) useticks = a.useticks;
+          if ('complexplane' in a) complexplane = a.complexplane;
+          if ('usegrid' in a) usegrid = a.usegrid;
+        }
+      }
+
+      const pic = currentPic;
+
+      // Draw axis labels
+      if (complexplane) {
+        pic.commands.push({cmd:'label', text:'Re', pos:{x:xright, y:0}, align:{x:1,y:-1}, pen:clonePen(defaultPen), filltype:null, line:0});
+        pic.commands.push({cmd:'label', text:'Im', pos:{x:0, y:ytop}, align:{x:-1,y:1}, pen:clonePen(defaultPen), filltype:null, line:0});
+      } else {
+        pic.commands.push({cmd:'label', text:'$x$', pos:{x:xright+0.4, y:-0.5}, align:null, pen:clonePen(defaultPen), filltype:null, line:0});
+        pic.commands.push({cmd:'label', text:'$y$', pos:{x:-0.5, y:ytop+0.2}, align:null, pen:clonePen(defaultPen), filltype:null, line:0});
+      }
+
+      // Set axis limits
+      if (_axisLimits.xmin === null || xleft < _axisLimits.xmin) _axisLimits.xmin = xleft;
+      if (_axisLimits.xmax === null || xright > _axisLimits.xmax) _axisLimits.xmax = xright;
+      if (_axisLimits.ymin === null || ybottom < _axisLimits.ymin) _axisLimits.ymin = ybottom;
+      if (_axisLimits.ymax === null || ytop > _axisLimits.ymax) _axisLimits.ymax = ytop;
+
+      // Grid lines
+      if (usegrid) {
+        const gridPen = makePen({r:0.75,g:0.75,b:0.75, linewidth:0.4});
+        for (let i = xleft; i <= xright; i += xstep) {
+          if (Math.abs(i) > 0.01) {
+            const path = makePath([lineSegment({x:i,y:ybottom},{x:i,y:ytop})], false);
+            pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
+          }
+        }
+        for (let i = ybottom; i <= ytop; i += ystep) {
+          if (Math.abs(i) > 0.01) {
+            const path = makePath([lineSegment({x:xleft,y:i},{x:xright,y:i})], false);
+            pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
+          }
+        }
+      }
+
+      // Draw axis lines with arrows
+      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      // Vertical axis (x=0)
+      const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
+      pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+      // Horizontal axis (y=0)
+      const hPath = makePath([lineSegment({x:xleft,y:0},{x:xright,y:0})], false);
+      pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+
+      // Tick labels
+      const tickPen = clonePen(defaultPen);
+      tickPen.fontsize = 8;
+      for (let i = xleft + xstep; i < xright; i += xstep) {
+        const iv = Math.round(i * 1000) / 1000;
+        if (Math.abs(iv) < 0.01) continue;
+        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
+        pic.commands.push({cmd:'label', text:'$' + label + '$', pos:{x:iv, y:0}, align:{x:0,y:-1}, pen:clonePen(tickPen), filltype:null, line:0});
+        if (useticks) {
+          const tPath = makePath([lineSegment({x:iv,y:-0.15},{x:iv,y:0.15})], false);
+          pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
+        }
+      }
+      for (let i = ybottom + ystep; i < ytop; i += ystep) {
+        const iv = Math.round(i * 1000) / 1000;
+        if (Math.abs(iv) < 0.01) continue;
+        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
+        const suffix = complexplane ? 'i' : '';
+        pic.commands.push({cmd:'label', text:'$' + label + suffix + '$', pos:{x:0, y:iv}, align:{x:-1,y:0}, pen:clonePen(tickPen), filltype:null, line:0});
+        if (useticks) {
+          const tPath = makePath([lineSegment({x:-0.15,y:iv},{x:0.15,y:iv})], false);
+          pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
+        }
+      }
+    });
+
+    // TrigMacros constants
+    env.set('ticklength', ticklength);
+    env.set('axisarrowsize', axisarrowsize);
+    env.set('axispen', axisPen);
+    env.set('vectorarrowsize', 0.2 * 28.35);
   }
 
   // ============================================================
@@ -3615,6 +4010,19 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Detect draw(pair, path, pen) marker syntax: marker path is in bp/px units (fixed size)
+    // In Asymptote, draw(pair z, path g, pen p) renders g in bp space at coordinate position z
+    if (args.length >= 2 && isPair(args[0]) && isPath(args[1]) && args[1].segs && args[1].segs.length > 0) {
+      const pos = args[0];
+      const markerPath = args[1];
+      let markerPen = null;
+      for (let i = 2; i < args.length; i++) {
+        if (isPen(args[i])) markerPen = markerPen ? mergePens(markerPen, args[i]) : args[i];
+      }
+      if (!markerPen) markerPen = clonePen(defaultPen);
+      target.commands.push({cmd:'marker', pos, markerPath, pen:markerPen, line: args._line || 0});
+      return;
+    }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
@@ -3650,6 +4058,8 @@ function createInterpreter() {
       }
     }
     if (!pen) pen = clonePen(defaultPen);
+    // filldraw with one pen: fill with that pen, stroke with default pen (black)
+    if (cmd === 'filldraw' && !drawPen) drawPen = clonePen(defaultPen);
     if (pathArg) {
       projectPathTriples(pathArg);
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
@@ -3666,7 +4076,7 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    let pos = null, pen = null, text = null, align = null;
+    let pos = null, pen = null, text = null, align = null, multiDots = null;
     for (const a of args) {
       if (isTriple(a)) {
         if (!pos) pos = projectTriple(a);
@@ -3677,11 +4087,26 @@ function createInterpreter() {
         else if (!align) align = a;
       }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
-      else if (isPath(a) && a.segs.length > 0 && !pos) pos = a.segs[0].p0;
+      else if (isPath(a) && a.segs.length > 0 && !pos) {
+        // Multi-dot: dot all segment endpoints (for ^^ paths)
+        const points = [a.segs[0].p0];
+        for (const seg of a.segs) {
+          const p3 = seg.p3;
+          if (!points.some(p => Math.abs(p.x-p3.x)<1e-10 && Math.abs(p.y-p3.y)<1e-10))
+            points.push(p3);
+        }
+        if (points.length > 1) { multiDots = points; } else { pos = points[0]; }
+      }
       else if (isString(a) && text === null) text = a;
     }
-    if (!pos) return;
     if (!pen) pen = clonePen(defaultPen);
+    if (multiDots) {
+      for (const pt of multiDots) {
+        target.commands.push({cmd:'dot', pos:pt, pen, line: args._line || 0});
+      }
+      return;
+    }
+    if (!pos) return;
     target.commands.push({cmd:'dot', pos, pen, line: args._line || 0});
     // If dot has a label, add it too
     if (text) {
@@ -3698,12 +4123,15 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    let text = '', pos = null, align = null, pen = null;
+    let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     for (const a of args) {
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
         if (!align && a.align) align = a.align;
+        if (!filltype && a.filltype) filltype = a.filltype;
+        if (!labelTransform && a.transform) labelTransform = a.transform;
       }
+      else if (a && a._tag === 'filltype') { filltype = a; }
       else if (isString(a) && !text) text = a;
       else if (isPath(a) && !pos) {
         // label on a path: place at midpoint
@@ -3725,7 +4153,9 @@ function createInterpreter() {
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
-    target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
+    const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
+    if (labelTransform) labelCmd.labelTransform = labelTransform;
+    target.commands.push(labelCmd);
   }
 
   // Path helpers
@@ -3934,6 +4364,7 @@ function createInterpreter() {
     unitScale = 1; hasUnitScale = false;
     sizeW = 0; sizeH = 0;
     defaultPen = makePen({});
+    _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
 
     // Auto-install graph package — many AoPS codes use graph functions without import
     graphPackageInstalled = false; // Reset so it re-installs with fresh state
@@ -3950,11 +4381,17 @@ function createInterpreter() {
     // Copy currentpicture's commands to drawCommands for rendering
     for (const c of currentPic.commands) drawCommands.push(c);
 
+    // Read dotfactor from environment (default 6)
+    const dotfactorVal = globalEnv.get('dotfactor');
+    const dotfactor = (typeof dotfactorVal === 'number' && dotfactorVal > 0) ? dotfactorVal : 6;
+
     return {
       drawCommands: drawCommands.slice(),
       unitScale, hasUnitScale,
       sizeW, sizeH,
       defaultPen,
+      axisLimits: Object.assign({}, _axisLimits),
+      dotfactor,
     };
   }
 
@@ -3990,7 +4427,9 @@ function createInterpreter() {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW, sizeH } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, axisLimits, dotfactor: _dotfactor } = result;
+  let sizeW = _sizeW, sizeH = _sizeH;
+  const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
 
   // Compute bounding box
@@ -4050,12 +4489,28 @@ function renderSVG(result, opts) {
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
       // This will be refined after pxPerUnit is computed below
+    } else if (dc.cmd === 'marker') {
+      // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
+      expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.path) {
       if (dc.path._singlePoint) {
         expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
       }
       for (const seg of dc.path.segs) expandBezierBBox(seg);
     }
+  }
+
+  // When Crop is enabled, constrain bbox to axis limits (plus padding for labels/axes)
+  if (axisLimits && axisLimits.crop &&
+      axisLimits.xmin !== null && axisLimits.xmax !== null &&
+      axisLimits.ymin !== null && axisLimits.ymax !== null) {
+    // Allow a small margin beyond limits for axis labels/ticks
+    const xMargin = (axisLimits.xmax - axisLimits.xmin) * 0.15;
+    const yMargin = (axisLimits.ymax - axisLimits.ymin) * 0.15;
+    minX = Math.max(minX, axisLimits.xmin - xMargin);
+    maxX = Math.min(maxX, axisLimits.xmax + xMargin);
+    minY = Math.max(minY, axisLimits.ymin - yMargin);
+    maxY = Math.min(maxY, axisLimits.ymax + yMargin);
   }
 
   // Add padding
@@ -4069,7 +4524,7 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'label' || dc.cmd === 'dot') {
       const pos = dc.pos || dc;
       if (!pos || pos.x === undefined) continue;
-      const fontSize = (dc.pen && dc.pen.fontsize) || 12;
+      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
       const text = dc.text || dc.label || '';
       const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
       // Approximate character width ~0.6 * fontSize
@@ -4110,9 +4565,13 @@ function renderSVG(result, opts) {
     const targetH = sizeH > 0 ? sizeH : Infinity;
     pxPerUnit = Math.min(targetW / bboxW, targetH / bboxH);
   } else {
-    // No unitsize/size: mimic AoPS behavior by auto-scaling
-    const targetPx = 340; // ~12cm at 72dpi
-    pxPerUnit = targetPx / Math.max(bboxW, bboxH, 1);
+    // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
+    const defaultSize = 200;
+    const targetW = defaultSize;
+    const targetH = defaultSize;
+    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    sizeW = defaultSize;
+    sizeH = defaultSize;
     warnings.push('auto-scaled');
   }
 
@@ -4123,6 +4582,14 @@ function renderSVG(result, opts) {
   let svgW = naturalW, svgH = naturalH;
   if (sizeW > 0) svgW = sizeW;
   if (sizeH > 0) svgH = sizeH;
+
+  // Enforce minimum display size (like AoPS TeXeR) for very small unitsize values
+  const minDisplaySize = 100;
+  if (svgW < minDisplaySize && svgH < minDisplaySize && hasUnitScale) {
+    const upscale = minDisplaySize / Math.max(svgW, svgH);
+    svgW *= upscale;
+    svgH *= upscale;
+  }
 
   // If container dimensions provided, shrink to fit
   let displayPercent = 100;
@@ -4150,13 +4617,27 @@ function renderSVG(result, opts) {
   const elements = [];
   const ns = 'http://www.w3.org/2000/svg';
 
+  // Crop clipping: if limits() was called with Crop, add SVG clipPath
+  let cropClipId = null;
+  if (axisLimits && axisLimits.crop &&
+      axisLimits.xmin !== null && axisLimits.xmax !== null &&
+      axisLimits.ymin !== null && axisLimits.ymax !== null) {
+    cropClipId = 'crop-clip';
+    const cx1 = (axisLimits.xmin - minX) * pxPerUnit;
+    const cy1 = (maxY - axisLimits.ymax) * pxPerUnit;
+    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnit;
+    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnit;
+    elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
+  }
+
   // Scale factor: how many viewBox units = 1 CSS pixel
   // viewBox is in pxPerUnit-scaled coordinates, and SVG display width = svgW CSS pixels
   // So 1 CSS pixel = viewW / svgW viewBox units
   const cssPixel = viewW / (svgW || viewW || 1);
 
-  // Render draw commands in two passes: first paths/fills, then labels/dots on top
+  // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
+  // Dots are rendered in program order (not deferred) to allow later fills to cover them
   const deferredLabels = []; // [{ci, dc}]
 
   function renderPathCommand(ci, dc, css, dashArray) {
@@ -4164,7 +4645,10 @@ function renderSVG(result, opts) {
       const p = dc.path._singlePoint;
       const sx = (p.x - minX) * pxPerUnit;
       const sy = (maxY - p.y) * pxPerUnit;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(2.5*cssPixel)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      // Asymptote: single-point draw = zero-length stroke, radius = linewidth/2 (no dotfactor)
+      const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
+      const singleDotR = (singleDotLw / 2) * cssPixel;
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
     }
@@ -4217,32 +4701,80 @@ function renderSVG(result, opts) {
     }
   }
 
-  // Pass 1: paths, fills, draws (non-text)
+  // Build render order: non-above commands first (preserving program order),
+  // then above=true commands (e.g. axes with above=true drawn over gridlines)
+  const renderOrder = [];
   for (let ci = 0; ci < drawCommands.length; ci++) {
+    if (!drawCommands[ci].above) renderOrder.push(ci);
+  }
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    if (drawCommands[ci].above) renderOrder.push(ci);
+  }
+
+  // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
+  for (const ci of renderOrder) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= cssPixel;
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
-    if (dc.cmd === 'dot' || dc.cmd === 'label') {
+    if (dc.cmd === 'label') {
       deferredLabels.push({ci, dc, css: {...css}});
+    } else if (dc.cmd === 'dot') {
+      // Render dots in program order so later fills can cover them
+      const sx = (dc.pos.x - minX) * pxPerUnit;
+      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      // Dot radius: if linewidth was explicitly set by user (n+pen or linewidth(n)),
+      // Asymptote uses radius = linewidth/2 directly (the number IS the dot size).
+      // If linewidth is default (no explicit set), apply dotfactor: radius = dotfactor/2 * linewidth.
+      const dotLw = dc.pen.linewidth;
+      const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * cssPixel;
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    } else if (dc.cmd === 'marker') {
+      // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
+      const svgCX = (dc.pos.x - minX) * pxPerUnit;
+      const svgCY = (maxY - dc.pos.y) * pxPerUnit;
+      const mPath = dc.markerPath;
+      if (mPath.segs.length > 0) {
+        let d = '';
+        for (let i = 0; i < mPath.segs.length; i++) {
+          const s = mPath.segs[i];
+          const p0x = svgCX + s.p0.x * cssPixel, p0y = svgCY - s.p0.y * cssPixel;
+          const cp1x = svgCX + s.cp1.x * cssPixel, cp1y = svgCY - s.cp1.y * cssPixel;
+          const cp2x = svgCX + s.cp2.x * cssPixel, cp2y = svgCY - s.cp2.y * cssPixel;
+          const p3x = svgCX + s.p3.x * cssPixel, p3y = svgCY - s.p3.y * cssPixel;
+          if (i === 0) {
+            d += `M${fmt(p0x)} ${fmt(p0y)}`;
+          } else {
+            const prev = mPath.segs[i-1];
+            const gap = Math.abs(s.p0.x - prev.p3.x) + Math.abs(s.p0.y - prev.p3.y);
+            if (gap > 1e-9) d += ` M${fmt(p0x)} ${fmt(p0y)}`;
+          }
+          if (isLinear(s)) {
+            d += ` L${fmt(p3x)} ${fmt(p3y)}`;
+          } else {
+            d += ` C${fmt(cp1x)} ${fmt(cp1y)} ${fmt(cp2x)} ${fmt(cp2y)} ${fmt(p3x)} ${fmt(p3y)}`;
+          }
+        }
+        if (mPath.closed) d += ' Z';
+        elements.push(`<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}"/>`);
+        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+      }
     } else if (dc.path) {
       renderPathCommand(ci, dc, css, dashArray);
     }
   }
 
-  // Pass 2: labels and dots on top
+  // Track where label elements begin (for crop clip exclusion)
+  const firstLabelIdx = elements.length;
+
+  // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
-    if (dc.cmd === 'dot') {
+    if (dc.cmd === 'label') {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
-      const dotR = dc.pen.linewidth > 1 ? dc.pen.linewidth * cssPixel : 2.5 * cssPixel;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
-      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-    } else if (dc.cmd === 'label') {
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
-      const fontSize = (dc.pen.fontsize || 12) * cssPixel;
+      const fontSize = (dc.pen.fontsize || 10);
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
@@ -4256,20 +4788,81 @@ function renderSVG(result, opts) {
         else if (ay < -0.3) { dy = fontSize * 0.6; }
       }
       const rawText = dc.text || '';
-      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
-      if (hasLaTeX) {
-        // Render complex LaTeX as SVG group with fractions/braces
-        const svgLabel = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), fontSize, css.fill, anchor, css.opacity);
-        elements.push(svgLabel);
-      } else {
-        const cleanText = stripLaTeX(rawText);
-        elements.push(`<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${opacityAttr(css.opacity)}>${escSvg(cleanText)}</text>`);
+
+      // If filltype is Fill, UnFill, or FillDraw — add a white background rectangle
+      const ft = dc.filltype;
+      if (ft && ft._tag === 'filltype' && (ft.style === 'Fill' || ft.style === 'UnFill' || ft.style === 'FillDraw')) {
+        const bgPen = ft.pen || {r:1,g:1,b:1};
+        const bgHex = '#' + [bgPen.r,bgPen.g,bgPen.b].map(c => {
+          const h = Math.round(Math.max(0,Math.min(255,c*255))).toString(16);
+          return h.length<2?'0'+h:h;
+        }).join('');
+        // Estimate text dimensions for background (tight fit like Asymptote)
+        const cleanLen = stripLaTeX(rawText).length;
+        const estW = cleanLen * fontSize * 0.52 + fontSize * 0.1;
+        const estH = fontSize * 1.0;
+        let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
+        // Adjust rectangle position based on anchor
+        let rectX = rx - estW / 2;
+        if (anchor === 'start') rectX = rx - fontSize * 0.05;
+        else if (anchor === 'end') rectX = rx - estW + fontSize * 0.05;
+        const rectY = ry - estH / 2;
+        const pad = fontSize * 0.04;
+        elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
+
+      // Apply label transform (scale/rotate) if present
+      let effectiveFontSize = fontSize;
+      let labelTransformAttr = '';
+      if (dc.labelTransform) {
+        const lt = dc.labelTransform;
+        // Extract scale from transform matrix: scale = sqrt(b^2 + e^2) (x-axis scale)
+        const scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) effectiveFontSize = fontSize * scaleX;
+        // Extract rotation angle from transform matrix
+        const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        if (Math.abs(angle) > 0.1) {
+          // SVG rotation is clockwise, Asymptote is counterclockwise; SVG y is flipped
+          labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
+        }
+      }
+
+      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
+      const hasMath = /\$/.test(rawText) || /\\[a-zA-Z]/.test(rawText);
+      let labelEl;
+      if (typeof katex !== 'undefined' && hasMath) {
+        // Use KaTeX for math rendering via foreignObject
+        labelEl = renderLabelKaTeX(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+      } else if (hasLaTeX) {
+        // Render complex LaTeX as SVG group with fractions/braces
+        labelEl = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
+      } else {
+        // Render with superscript/subscript support using tspan
+        labelEl = renderLabelWithScripts(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+      }
+      if (labelTransformAttr) {
+        labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
+      }
+      elements.push(labelEl);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     }
   }
 
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}" overflow="visible">\n${elements.join('\n')}\n</svg>`;
+  // If crop clipping is active, wrap drawing elements (not <defs> or labels) in a <g clip-path>
+  // Labels are excluded from clipping so axis labels outside the plot area remain visible
+  let innerContent;
+  if (cropClipId) {
+    const defsEl = elements.length > 0 && elements[0].startsWith('<defs>') ? elements[0] : null;
+    const startIdx = defsEl ? 1 : 0;
+    const clipEls = elements.slice(startIdx, firstLabelIdx);
+    const labelEls = elements.slice(firstLabelIdx);
+    innerContent = (defsEl ? defsEl + '\n' : '') +
+      `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
+      (labelEls.length > 0 ? '\n' + labelEls.join('\n') : '');
+  } else {
+    innerContent = elements.join('\n');
+  }
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}" overflow="visible">\n${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -4285,7 +4878,14 @@ function pathToD(path, minX, maxY, scale) {
     const cp2x = (s.cp2.x - minX)*scale, cp2y = (maxY - s.cp2.y)*scale;
     const p3x = (s.p3.x - minX)*scale, p3y = (maxY - s.p3.y)*scale;
 
-    if (i === 0) d += `M${fmt(p0x)} ${fmt(p0y)}`;
+    // Emit M at start or when there's a gap (^^ path concatenation)
+    if (i === 0) {
+      d += `M${fmt(p0x)} ${fmt(p0y)}`;
+    } else {
+      const prev = segs[i-1];
+      const gap = Math.abs(s.p0.x - prev.p3.x) + Math.abs(s.p0.y - prev.p3.y);
+      if (gap > 1e-9) d += ` M${fmt(p0x)} ${fmt(p0y)}`;
+    }
     // Check if it's basically a line
     if (isLinear(s)) {
       d += ` L${fmt(p3x)} ${fmt(p3y)}`;
@@ -4320,7 +4920,15 @@ function linestyleToDasharray(style, strokeWidth) {
     case 'longdashed': return `${12*w} ${6*w}`;
     case 'dashdotted': return `${6*w} ${3*w} ${1*w} ${3*w}`;
     case 'longdashdotted': return `${12*w} ${4*w} ${1*w} ${4*w}`;
-    default: return null;
+    default:
+      // Custom dash pattern from linetype("a b c ...") — space-separated numbers
+      if (/^[\d.\s]+$/.test(style)) {
+        const nums = style.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+        if (nums.length > 0) {
+          return nums.map(n => n * w * 4).join(' ');
+        }
+      }
+      return null;
   }
 }
 
@@ -4329,11 +4937,20 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const style = dc.arrow.style;
   // Arrow size in CSS pixels: base size (default 6bp) scaled by cssPixel to viewBox units
   const baseSize = dc.arrow.size || 6;
-  const arrowLen = baseSize * cssPixel;
+  let arrowLen = baseSize * cssPixel;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
   if (segs.length === 0) return null;
+
+  // Compute total path length in viewBox units and clamp arrowhead size
+  let totalLen = 0;
+  for (const s of segs) {
+    const dx = (s.p3.x - s.p0.x) * scale, dy = (s.p3.y - s.p0.y) * scale;
+    totalLen += Math.sqrt(dx*dx + dy*dy);
+  }
+  // Don't let arrowhead exceed 70% of path length
+  if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
 
   const arrowParts = [];
   const filled = (style !== 'Bar' && style !== 'Bars');
@@ -4390,6 +5007,161 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const isFilled = arrowParts[0].filled;
   const fillAttr = isFilled ? css.stroke : 'none';
   return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+
+// Render label text with superscript/subscript support as SVG
+function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+  // First apply LaTeX-to-Unicode mapping (same as stripLaTeX but preserving ^/_)
+  let s = rawText || '';
+  s = s.replace(/\$/g, '');
+  // Handle \mathbf, \mathrm, \textbf, etc. — remove the command, keep content
+  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // Common LaTeX → Unicode
+  const texMap = {
+    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+    '\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ',
+    '\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π',
+    '\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ',
+    '\\chi':'χ','\\psi':'ψ','\\omega':'ω',
+    '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
+    '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
+    '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
+    '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
+    '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
+    '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
+    '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
+    '\\rightarrow':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐',
+    '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
+    '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
+    '\\ell':'ℓ','\\prime':'′',
+    '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\left':'','\\right':'',
+  };
+  const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
+  for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
+  // Remove remaining \commands
+  s = s.replace(/\\[a-zA-Z]+/g, '');
+  s = s.replace(/[{}]/g, '');
+  s = s.replace(/\s+/g, ' ').trim();
+
+  // Check for super/subscripts
+  const hasSS = /[_^]/.test(s);
+  if (!hasSS) {
+    // Simple text, no scripts
+    const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+    return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${escSvg(s)}</text>`;
+  }
+
+  // Parse into segments: normal text, superscript (^), subscript (_)
+  const parts = []; // {text, mode:'normal'|'sup'|'sub'}
+  let i = 0, cur = '', mode = 'normal';
+  while (i < s.length) {
+    if (s[i] === '^' || s[i] === '_') {
+      if (cur) parts.push({text: cur, mode});
+      mode = s[i] === '^' ? 'sup' : 'sub';
+      i++;
+      // Grab next char or braced group
+      cur = '';
+      if (i < s.length && s[i] === '{') {
+        i++; // skip {
+        let depth = 1;
+        while (i < s.length && depth > 0) {
+          if (s[i] === '{') depth++;
+          else if (s[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+          cur += s[i]; i++;
+        }
+      } else if (i < s.length) {
+        cur = s[i]; i++;
+      }
+      parts.push({text: cur, mode});
+      cur = ''; mode = 'normal';
+    } else {
+      cur += s[i]; i++;
+    }
+  }
+  if (cur) parts.push({text: cur, mode});
+
+  // Build SVG text with tspan elements
+  const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  let inner = '';
+  for (const p of parts) {
+    if (p.mode === 'sup') {
+      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+    } else if (p.mode === 'sub') {
+      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+    } else {
+      inner += escSvg(p.text);
+    }
+  }
+  return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${inner}</text>`;
+}
+
+function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+  // Extract math content: strip $ delimiters, render via KaTeX
+  let math = (rawText || '').trim();
+  // Handle \reflectbox{...} wrapper: extract inner content, apply CSS horizontal flip
+  let reflectX = false;
+  const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+  if (reflectMatch) {
+    reflectX = true;
+    math = reflectMatch[1].trim();
+  }
+  // Check if wrapped in $...$
+  const isDollar = math.startsWith('$') && math.endsWith('$');
+  if (isDollar) math = math.slice(1, -1);
+  // Remove double $$ too
+  if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
+
+  let html;
+  // Check for mixed text/math content (e.g. "$W-1$ cells" or "2$W$")
+  const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
+  if (hasMixedContent) {
+    // Parse into math and text segments, render each separately
+    const segments = [];
+    let pos = 0;
+    const reSegment = /\$([^$]+)\$/g;
+    let m;
+    while ((m = reSegment.exec(math)) !== null) {
+      if (m.index > pos) segments.push({type: 'text', content: math.slice(pos, m.index)});
+      segments.push({type: 'math', content: m[1]});
+      pos = m.index + m[0].length;
+    }
+    if (pos < math.length) segments.push({type: 'text', content: math.slice(pos)});
+    html = '';
+    for (const seg of segments) {
+      if (seg.type === 'math') {
+        html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'mathml'});
+      } else {
+        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    }
+  } else {
+    try {
+      html = katex.renderToString(math, {throwOnError: false, displayMode: false, output: 'mathml'});
+    } catch(e) {
+      // Fallback to Unicode rendering
+      return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
+    }
+  }
+
+  // Estimate dimensions for foreignObject
+  const cleanLen = stripLaTeX(rawText).length;
+  const estW = Math.max(cleanLen * fontSize * 0.7, fontSize * 2);
+  const estH = fontSize * 1.8;
+
+  // Compute foreignObject position based on anchor
+  let fx = parseFloat(x), fy = parseFloat(y);
+  if (anchor === 'middle') fx -= estW / 2;
+  else if (anchor === 'end') fx -= estW;
+  fy -= estH / 2; // vertically center
+
+  const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  const colorStyle = fill && fill !== '#000000' ? `color:${fill};` : '';
+  const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {

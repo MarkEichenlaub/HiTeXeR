@@ -3150,7 +3150,7 @@ function createInterpreter() {
       return [...new Set(dlist)].sort((a, b) => a - b);
     }
 
-    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset) {
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       if (!pic) pic = currentPic;
@@ -3230,7 +3230,7 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
       }
 
       // Draw major ticks
@@ -3241,7 +3241,7 @@ function createInterpreter() {
       // Draw labels for major ticks
       // Suppress labels when Size was explicitly set very small (e.g. Size=0.1pt),
       // which means ticks are invisible markers — labels would be meaningless
-      const showLabels = ticks.labels && !isExtend && !(ticks.sizeExplicit && ticks.size < 0.5);
+      const showLabels = ticks.labels && !isExtend;
       if (showLabels) {
         for (const v of majorPositions) {
           if (noZero && Math.abs(v) < 1e-10) continue;
@@ -3286,6 +3286,7 @@ function createInterpreter() {
       let pic = currentPic;
       let label = '', labelAlign = null, labelPosition = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       let extent = null; // BottomTop, etc.
+      let above = false;
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
@@ -3294,11 +3295,13 @@ function createInterpreter() {
       let axisShiftY = 0;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
-        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a === null || a === undefined || a === false) continue;
+        if (a === true) { above = true; continue; }
         if (a && typeof a === 'object' && a._named) {
           if ('ticks' in a) ticks = a.ticks;
           if ('p' in a) pen = a.p;
           if ('pen' in a) pen = a.pen;
+          if ('above' in a) above = !!a.above;
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
@@ -3340,16 +3343,21 @@ function createInterpreter() {
         if (xmax === null) xmax = isFinite(cMaxX) ? cMaxX : 5;
       }
       if (!pen) pen = clonePen(defaultPen);
+      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
+      if (xmin !== null) {
+        if (_axisLimits.xmin === null || xmin < _axisLimits.xmin) _axisLimits.xmin = xmin;
+        if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
+      }
       const isInvisible = pen.opacity === 0;
       // Draw axis line (skip if invisible)
       if (!isInvisible) {
         const path = makePath([lineSegment({x:xmin,y:axisShiftY},{x:xmax,y:axisShiftY})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0});
       }
       // Cross range for grid lines
       const crossMin = _axisLimits.ymin !== null ? _axisLimits.ymin : -5;
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
-      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY);
+      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:1, y:-1};
         let labelX = xmax;
@@ -3362,6 +3370,7 @@ function createInterpreter() {
       let pic = currentPic;
       let label = '', labelAlign = null, labelPosition = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
+      let above = false;
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
@@ -3370,11 +3379,13 @@ function createInterpreter() {
       let axisShiftX = 0;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
-        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a === null || a === undefined || a === false) continue;
+        if (a === true) { above = true; continue; }
         if (a && typeof a === 'object' && a._named) {
           if ('ticks' in a) ticks = a.ticks;
           if ('p' in a) pen = a.p;
           if ('pen' in a) pen = a.pen;
+          if ('above' in a) above = !!a.above;
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
@@ -3415,14 +3426,19 @@ function createInterpreter() {
         if (ymax === null) ymax = isFinite(cMaxY) ? cMaxY : 5;
       }
       if (!pen) pen = clonePen(defaultPen);
+      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
+      if (ymin !== null) {
+        if (_axisLimits.ymin === null || ymin < _axisLimits.ymin) _axisLimits.ymin = ymin;
+        if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
+      }
       const isInvisible = pen.opacity === 0;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0});
       }
       const crossMin = _axisLimits.xmin !== null ? _axisLimits.xmin : -5;
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
-      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX);
+      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:-1, y:1};
         let labelY = ymax;
@@ -4685,8 +4701,18 @@ function renderSVG(result, opts) {
     }
   }
 
-  // Pass 1: paths, fills, draws, and dots (in program order)
+  // Build render order: non-above commands first (preserving program order),
+  // then above=true commands (e.g. axes with above=true drawn over gridlines)
+  const renderOrder = [];
   for (let ci = 0; ci < drawCommands.length; ci++) {
+    if (!drawCommands[ci].above) renderOrder.push(ci);
+  }
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    if (drawCommands[ci].above) renderOrder.push(ci);
+  }
+
+  // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
+  for (const ci of renderOrder) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= cssPixel;
@@ -4748,7 +4774,7 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'label') {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
-      const fontSize = (dc.pen.fontsize || 10) * cssPixel;
+      const fontSize = (dc.pen.fontsize || 10);
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
@@ -5090,11 +5116,35 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
 
   let html;
-  try {
-    html = katex.renderToString(math, {throwOnError: false, displayMode: false, output: 'mathml'});
-  } catch(e) {
-    // Fallback to Unicode rendering
-    return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
+  // Check for mixed text/math content (e.g. "$W-1$ cells" or "2$W$")
+  const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
+  if (hasMixedContent) {
+    // Parse into math and text segments, render each separately
+    const segments = [];
+    let pos = 0;
+    const reSegment = /\$([^$]+)\$/g;
+    let m;
+    while ((m = reSegment.exec(math)) !== null) {
+      if (m.index > pos) segments.push({type: 'text', content: math.slice(pos, m.index)});
+      segments.push({type: 'math', content: m[1]});
+      pos = m.index + m[0].length;
+    }
+    if (pos < math.length) segments.push({type: 'text', content: math.slice(pos)});
+    html = '';
+    for (const seg of segments) {
+      if (seg.type === 'math') {
+        html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'mathml'});
+      } else {
+        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    }
+  } else {
+    try {
+      html = katex.renderToString(math, {throwOnError: false, displayMode: false, output: 'mathml'});
+    } catch(e) {
+      // Fallback to Unicode rendering
+      return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
+    }
   }
 
   // Estimate dimensions for foreignObject
@@ -5106,7 +5156,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   let fx = parseFloat(x), fy = parseFloat(y);
   if (anchor === 'middle') fx -= estW / 2;
   else if (anchor === 'end') fx -= estW;
-  fy -= estH * 0.6; // vertically center
+  fy -= estH / 2; // vertically center
 
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = fill && fill !== '#000000' ? `color:${fill};` : '';

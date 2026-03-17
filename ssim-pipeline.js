@@ -217,7 +217,7 @@ async function main() {
 
       // Default size when none specified — matches HiTeXeR auto-scale behavior.
       // Without this, Asymptote PNG output is only a few pixels.
-      if (!/\b(size|unitsize)\s*\(/.test(src)) {
+      if (!/\bsize\s*\(/.test(src)) {
         src = 'size(200);\n' + src;
       }
 
