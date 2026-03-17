@@ -143,7 +143,7 @@ function lex(source) {
       case '+': advance(); if(ch()==='='){advance();add(T.PLUSASSIGN,'+=');}else if(ch()==='+'){advance();add(T.PLUSPLUS,'++');}else{add(T.PLUS,'+');} break;
       case '-': advance();
         if(ch()==='='){advance();add(T.MINUSASSIGN,'-=');}
-        else if(ch()==='-'){advance();add(T.DASHDASH,'--');}
+        else if(ch()==='-'){advance();if(ch()==='-'){advance();}add(T.DASHDASH,'--');} // --- is same as --
         else if(ch()==='>'){advance();add(T.ARROW,'=>');}
         else{add(T.MINUS,'-');}
         break;
@@ -1436,8 +1436,8 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) return mergePens(left, makePen({linewidth:right}));
-    if (op === T.PLUS && isNumber(left) && isPen(right)) return mergePens(makePen({linewidth:left}), right);
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; return r; }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = right.linewidth + left; return r; }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -1514,6 +1514,14 @@ function createInterpreter() {
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
     // Transform * transform
     if (isTransform(left) && isTransform(right)) return composeTransforms(right, left);
+    // Transform * string → Label with transform (e.g. scale(0.7)*"text", rotate(90)*"text")
+    if (isTransform(left) && isString(right)) return {_tag:'label', text: right, transform: left};
+    // Transform * label → label with composed transform
+    if (isTransform(left) && right && right._tag === 'label') {
+      const existing = right.transform;
+      const t = existing ? composeTransforms(existing, left) : left;
+      return Object.assign({}, right, {transform: t});
+    }
 
     // String concatenation
     if (isString(left) || isString(right)) {
@@ -2444,6 +2452,30 @@ function createInterpreter() {
       return makePath(segs, true);
     });
 
+    // grid(Nx, Ny, pen) — returns a picture with grid lines from (0,0) to (Nx, Ny)
+    env.set('grid', (...args) => {
+      let nx = 1, ny = 1, pen = clonePen(defaultPen);
+      for (const a of args) {
+        if (isPen(a)) pen = a;
+        else if (typeof a === 'number') {
+          if (nx === 1 && args.indexOf(a) === 0) nx = Math.round(a);
+          else ny = Math.round(a);
+        }
+      }
+      const pic = {_tag:'picture', commands:[], transform: null};
+      // Vertical lines
+      for (let i = 0; i <= nx; i++) {
+        const p = makePath([lineSegment({x:i,y:0}, {x:i,y:ny})], false);
+        pic.commands.push({cmd:'draw', path:p, pen:clonePen(pen), arrow:null, line:0});
+      }
+      // Horizontal lines
+      for (let j = 0; j <= ny; j++) {
+        const p = makePath([lineSegment({x:0,y:j}, {x:nx,y:j})], false);
+        pic.commands.push({cmd:'draw', path:p, pen:clonePen(pen), arrow:null, line:0});
+      }
+      return pic;
+    });
+
     // Path query functions
     // Internal helper for path point evaluation (avoids env.get shadowing issues)
     function _pointOnPath(p, t) {
@@ -2790,12 +2822,23 @@ function createInterpreter() {
       // Return a label object with text and optional alignment/position info
       let text = '';
       let align = null;
+      let position = null;
       for (const a of args) {
         if (isString(a)) text = a;
+        else if (isPen(a)) { /* pens in Label are ignored (e.g. Label("%4g",black)) */ }
         else if (isPair(a)) align = a;
-        // position=EndPoint etc. are just ignored for now (label goes at axis end)
+        else if (a && typeof a === 'object' && a._named) {
+          if ('position' in a) position = a.position;
+          if ('align' in a) {
+            if (isPair(a.align)) align = a.align;
+            else if (typeof a.align === 'number') align = makePair(a.align, 0);
+          }
+        }
+        else if (typeof a === 'number' && position === null) position = a;
       }
-      return {_tag:'label', text, align};
+      const lbl = {_tag:'label', text, align};
+      if (position !== null) lbl.position = position;
+      return lbl;
     });
     env.set('EndPoint', 1);
     env.set('BeginPoint', 0);
@@ -3087,7 +3130,8 @@ function createInterpreter() {
       return [...new Set(dlist)].sort((a, b) => a - b);
     }
 
-    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax) {
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset) {
+      axisOffset = axisOffset || 0;
       if (!ticks) return;
       if (!pic) pic = currentPic;
       const tickPen = ticks.pen || pen;
@@ -3162,8 +3206,8 @@ function createInterpreter() {
           p0 = isX ? {x:v, y:cMin} : {x:cMin, y:v};
           p1 = isX ? {x:v, y:cMax} : {x:cMax, y:v};
         } else {
-          p0 = isX ? {x:v, y:-sz} : {x:-sz, y:v};
-          p1 = isX ? {x:v, y:sz} : {x:sz, y:v};
+          p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
+          p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
         pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0});
@@ -3182,9 +3226,14 @@ function createInterpreter() {
         for (const v of majorPositions) {
           if (noZero && Math.abs(v) < 1e-10) continue;
           if (v < min - 1e-10 || v > max + 1e-10) continue;
-          const pos = isX ? {x:v, y:0} : {x:0, y:v};
+          const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
-          const txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+          let txt;
+          if (ticks.format) {
+            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, () => Number.isInteger(v) ? String(v) : v.toFixed(1));
+          } else {
+            txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+          }
           const labelPen = clonePen(tickPen);
           labelPen.fontsize = 8;
           pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0});
@@ -3202,20 +3251,38 @@ function createInterpreter() {
     env.set('Left', (...args) => ({_tag:'axisextent', type:'Left'}));
     env.set('Right', (...args) => ({_tag:'axisextent', type:'Right'}));
 
+    // YEquals / XEquals — shift axis to a different coordinate
+    env.set('YEquals', (...args) => {
+      const y = args.length > 0 ? toNumber(args[0]) : 0;
+      return {_tag:'axisshift', axis:'x', value:y};
+    });
+    env.set('XEquals', (...args) => {
+      const x = args.length > 0 ? toNumber(args[0]) : 0;
+      return {_tag:'axisshift', axis:'y', value:x};
+    });
+
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       let extent = null; // BottomTop, etc.
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
         pic = rawArgs[0]; startIdx = 1;
       }
+      let axisShiftY = 0;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
         if (a === null || a === undefined || a === true || a === false) continue;
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('ticks' in a) ticks = a.ticks;
+          if ('p' in a) pen = a.p;
+          if ('pen' in a) pen = a.pen;
+          continue;
+        }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        else if (a && a._tag === 'axisshift' && a.axis === 'x') { axisShiftY = a.value; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
@@ -3256,32 +3323,42 @@ function createInterpreter() {
       const isInvisible = pen.opacity === 0;
       // Draw axis line (skip if invisible)
       if (!isInvisible) {
-        const path = makePath([lineSegment({x:xmin,y:0},{x:xmax,y:0})], false);
+        const path = makePath([lineSegment({x:xmin,y:axisShiftY},{x:xmax,y:axisShiftY})], false);
         pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
       // Cross range for grid lines
       const crossMin = _axisLimits.ymin !== null ? _axisLimits.ymin : -5;
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
-      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax);
+      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:1, y:-1};
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:xmax, y:0}, align:lAlign, pen, line:0});
+        let labelX = xmax;
+        if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
       }
     });
 
     env.set('yaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
         pic = rawArgs[0]; startIdx = 1;
       }
+      let axisShiftX = 0;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
         if (a === null || a === undefined || a === true || a === false) continue;
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('ticks' in a) ticks = a.ticks;
+          if ('p' in a) pen = a.p;
+          if ('pen' in a) pen = a.pen;
+          continue;
+        }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
@@ -3320,15 +3397,17 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       const isInvisible = pen.opacity === 0;
       if (!isInvisible) {
-        const path = makePath([lineSegment({x:0,y:ymin},{x:0,y:ymax})], false);
+        const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
         pic.commands.push({cmd:'draw', path, pen, arrow, line: 0});
       }
       const crossMin = _axisLimits.xmin !== null ? _axisLimits.xmin : -5;
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
-      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax);
+      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:-1, y:1};
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:0, y:ymax}, align:lAlign, pen, line:0});
+        let labelY = ymax;
+        if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
       }
     });
 
@@ -3464,11 +3543,17 @@ function createInterpreter() {
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
-        else if (a && a._tag === 'label') { t.labels = true; }
+        else if (a && a._tag === 'label') { t.labels = true; if (a.text) t.format = a.text; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
-        // Named parameters (from our interpreter's named param handling)
-        else if (a && typeof a === 'object' && a._namedStep !== undefined) t.step = a._namedStep;
-        else if (a && typeof a === 'object' && a._namedSize !== undefined) t.size = a._namedSize;
+        else if (a && typeof a === 'object' && a._named) {
+          if ('Step' in a) t.step = a.Step;
+          if ('step' in a) t.step = a.step;
+          if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
+          if ('size' in a) { t.size = a.size; t.sizeExplicit = true; }
+          if ('extend' in a) t.extend = a.extend;
+          if ('pTick' in a && isPen(a.pTick)) t.pen = a.pTick;
+          if ('ptick' in a && isPen(a.ptick)) t.pen = a.ptick;
+        }
       }
       return t;
     }
@@ -3889,6 +3974,12 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Detect draw(pair, path, pen) marker syntax: shift path to pair position
+    if (args.length >= 2 && isPair(args[0]) && isPath(args[1]) && args[1].segs && args[1].segs.length > 0) {
+      const pos = args[0];
+      const shiftT = makeTransform(pos.x, 1, 0, pos.y, 0, 1);
+      args = [applyTransformPath(shiftT, args[1]), ...args.slice(2)];
+    }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
@@ -3924,6 +4015,8 @@ function createInterpreter() {
       }
     }
     if (!pen) pen = clonePen(defaultPen);
+    // filldraw with one pen: fill with that pen, stroke with default pen (black)
+    if (cmd === 'filldraw' && !drawPen) drawPen = clonePen(defaultPen);
     if (pathArg) {
       projectPathTriples(pathArg);
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
@@ -3940,7 +4033,7 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    let pos = null, pen = null, text = null, align = null;
+    let pos = null, pen = null, text = null, align = null, multiDots = null;
     for (const a of args) {
       if (isTriple(a)) {
         if (!pos) pos = projectTriple(a);
@@ -3951,11 +4044,26 @@ function createInterpreter() {
         else if (!align) align = a;
       }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
-      else if (isPath(a) && a.segs.length > 0 && !pos) pos = a.segs[0].p0;
+      else if (isPath(a) && a.segs.length > 0 && !pos) {
+        // Multi-dot: dot all segment endpoints (for ^^ paths)
+        const points = [a.segs[0].p0];
+        for (const seg of a.segs) {
+          const p3 = seg.p3;
+          if (!points.some(p => Math.abs(p.x-p3.x)<1e-10 && Math.abs(p.y-p3.y)<1e-10))
+            points.push(p3);
+        }
+        if (points.length > 1) { multiDots = points; } else { pos = points[0]; }
+      }
       else if (isString(a) && text === null) text = a;
     }
-    if (!pos) return;
     if (!pen) pen = clonePen(defaultPen);
+    if (multiDots) {
+      for (const pt of multiDots) {
+        target.commands.push({cmd:'dot', pos:pt, pen, line: args._line || 0});
+      }
+      return;
+    }
+    if (!pos) return;
     target.commands.push({cmd:'dot', pos, pen, line: args._line || 0});
     // If dot has a label, add it too
     if (text) {
@@ -3972,12 +4080,13 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    let text = '', pos = null, align = null, pen = null, filltype = null;
+    let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     for (const a of args) {
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
         if (!align && a.align) align = a.align;
         if (!filltype && a.filltype) filltype = a.filltype;
+        if (!labelTransform && a.transform) labelTransform = a.transform;
       }
       else if (a && a._tag === 'filltype') { filltype = a; }
       else if (isString(a) && !text) text = a;
@@ -4001,7 +4110,9 @@ function createInterpreter() {
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
-    target.commands.push({cmd:'label', text, pos, align, pen, filltype, line: args._line || 0});
+    const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
+    if (labelTransform) labelCmd.labelTransform = labelTransform;
+    target.commands.push(labelCmd);
   }
 
   // Path helpers
@@ -4609,16 +4720,39 @@ function renderSVG(result, opts) {
         elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
 
+      // Apply label transform (scale/rotate) if present
+      let effectiveFontSize = fontSize;
+      let labelTransformAttr = '';
+      if (dc.labelTransform) {
+        const lt = dc.labelTransform;
+        // Extract scale from transform matrix: scale = sqrt(b^2 + e^2) (x-axis scale)
+        const scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) effectiveFontSize = fontSize * scaleX;
+        // Extract rotation angle from transform matrix
+        const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        if (Math.abs(angle) > 0.1) {
+          // SVG rotation is clockwise, Asymptote is counterclockwise; SVG y is flipped
+          labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
+        }
+      }
+
       const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
-      if (hasLaTeX) {
+      const hasMath = /\$/.test(rawText) || /\\[a-zA-Z]/.test(rawText);
+      let labelEl;
+      if (typeof katex !== 'undefined' && hasMath) {
+        // Use KaTeX for math rendering via foreignObject
+        labelEl = renderLabelKaTeX(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+      } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
-        const svgLabel = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), fontSize, css.fill, anchor, css.opacity);
-        elements.push(svgLabel);
+        labelEl = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
       } else {
         // Render with superscript/subscript support using tspan
-        const labelSvg = renderLabelWithScripts(rawText, fmt(sx+dx), fmt(sy+dy), fontSize, css.fill, anchor, baseline, css.opacity);
-        elements.push(labelSvg);
+        labelEl = renderLabelWithScripts(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
       }
+      if (labelTransformAttr) {
+        labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
+      }
+      elements.push(labelEl);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     }
   }
@@ -4648,7 +4782,14 @@ function pathToD(path, minX, maxY, scale) {
     const cp2x = (s.cp2.x - minX)*scale, cp2y = (maxY - s.cp2.y)*scale;
     const p3x = (s.p3.x - minX)*scale, p3y = (maxY - s.p3.y)*scale;
 
-    if (i === 0) d += `M${fmt(p0x)} ${fmt(p0y)}`;
+    // Emit M at start or when there's a gap (^^ path concatenation)
+    if (i === 0) {
+      d += `M${fmt(p0x)} ${fmt(p0y)}`;
+    } else {
+      const prev = segs[i-1];
+      const gap = Math.abs(s.p0.x - prev.p3.x) + Math.abs(s.p0.y - prev.p3.y);
+      if (gap > 1e-9) d += ` M${fmt(p0x)} ${fmt(p0y)}`;
+    }
     // Check if it's basically a line
     if (isLinear(s)) {
       d += ` L${fmt(p3x)} ${fmt(p3y)}`;
@@ -4860,6 +5001,39 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     }
   }
   return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${inner}</text>`;
+}
+
+function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+  // Extract math content: strip $ delimiters, render via KaTeX
+  let math = (rawText || '').trim();
+  // Check if wrapped in $...$
+  const isDollar = math.startsWith('$') && math.endsWith('$');
+  if (isDollar) math = math.slice(1, -1);
+  // Remove double $$ too
+  if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
+
+  let html;
+  try {
+    html = katex.renderToString(math, {throwOnError: false, displayMode: false});
+  } catch(e) {
+    // Fallback to Unicode rendering
+    return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
+  }
+
+  // Estimate dimensions for foreignObject
+  const cleanLen = stripLaTeX(rawText).length;
+  const estW = Math.max(cleanLen * fontSize * 0.7, fontSize * 2);
+  const estH = fontSize * 1.8;
+
+  // Compute foreignObject position based on anchor
+  let fx = parseFloat(x), fy = parseFloat(y);
+  if (anchor === 'middle') fx -= estW / 2;
+  else if (anchor === 'end') fx -= estW;
+  fy -= estH * 0.6; // vertically center
+
+  const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  const colorStyle = fill && fill !== '#000000' ? `color:${fill};` : '';
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {
