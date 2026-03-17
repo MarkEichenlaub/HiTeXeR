@@ -84,7 +84,7 @@ function lex(source) {
         if (ch() === '+' || ch() === '-') { num += ch(); advance(); }
         while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
       }
-      tokens.push({type:T.NUMBER, value:parseFloat(num), line:startLine, col:startCol});
+      tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e')&&!num.includes('E'), line:startLine, col:startCol});
       continue;
     }
 
@@ -186,7 +186,7 @@ function lex(source) {
 // ============================================================
 
 // AST Node constructors
-function NumberLit(value,line) { return {type:'NumberLit',value,line}; }
+function NumberLit(value,line,isInt) { return {type:'NumberLit',value,line,isInt:!!isInt}; }
 function StringLit(value,line) { return {type:'StringLit',value,line}; }
 function BoolLit(value,line) { return {type:'BoolLit',value,line}; }
 function NullLit(line) { return {type:'NullLit',line}; }
@@ -800,7 +800,7 @@ function parse(tokens) {
     // Number, possibly followed by identifier for implicit multiplication (e.g., 2pi, 3n, 1cm)
     if (t.type === T.NUMBER) {
       pos++;
-      const numNode = NumberLit(t.value, ln);
+      const numNode = NumberLit(t.value, ln, t.isInt);
       // Implicit multiplication: 2pi, 3n, 1cm, etc.
       if (at(T.IDENT)) {
         const nextVal = cur().value;
@@ -1435,6 +1435,19 @@ function createInterpreter() {
     const right = evalNode(node.right, env);
     const op = node.op;
 
+    // Asymptote integer division: int_literal / int_literal → Math.trunc (e.g. 1/2 = 0, -1/2 = 0)
+    // Helper: true if node is an integer literal or negated integer literal
+    function isIntLiteralNode(n) {
+      if (n.type === 'NumberLit' && n.isInt) return true;
+      if (n.type === 'UnaryOp' && n.op === T.MINUS && n.operand && n.operand.type === 'NumberLit' && n.operand.isInt) return true;
+      return false;
+    }
+    if (op === T.SLASH && isNumber(left) && isNumber(right) && right !== 0) {
+      if (isIntLiteralNode(node.left) && isIntLiteralNode(node.right)) {
+        return Math.trunc(left / right);
+      }
+    }
+
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
     if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; r._lwExplicit = true; return r; }
@@ -1869,33 +1882,47 @@ function createInterpreter() {
       let pendingPt = null; // pair waiting to be connected to next element
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
+        // Check if previous element used ^^ (pen-up) — if so, don't connect
+        const prevJoin = i > 0 ? elements[i-1].join : '--';
+        const isHatHat = prevJoin === '^^';
         if (el.type === 'path') {
           const start = el.segs[0].p0;
-          // Connect from pending point or previous endpoint to start of path
-          if (pendingPt) {
-            allSegs.push(lineSegment(pendingPt, start));
-            pendingPt = null;
-          } else if (allSegs.length > 0) {
-            const prev = allSegs[allSegs.length - 1].p3;
-            if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
-              allSegs.push(lineSegment(prev, start));
+          // Connect from pending point or previous endpoint to start of path (unless ^^ gap)
+          if (!isHatHat) {
+            if (pendingPt) {
+              allSegs.push(lineSegment(pendingPt, start));
+              pendingPt = null;
+            } else if (allSegs.length > 0) {
+              const prev = allSegs[allSegs.length - 1].p3;
+              if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
+                allSegs.push(lineSegment(prev, start));
+              }
             }
+          } else {
+            pendingPt = null; // discard pending point across ^^ gap
           }
           allSegs.push(...el.segs);
         } else {
           // pair element
-          if (pendingPt) {
-            // Two consecutive pairs, connect them
-            allSegs.push(lineSegment(pendingPt, el.pt));
-            pendingPt = null;
-          } else if (allSegs.length > 0) {
-            const prev = allSegs[allSegs.length - 1].p3;
-            if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
-              allSegs.push(lineSegment(prev, el.pt));
+          if (!isHatHat) {
+            if (pendingPt) {
+              // Two consecutive pairs, connect them
+              allSegs.push(lineSegment(pendingPt, el.pt));
+              pendingPt = null;
+            } else if (allSegs.length > 0) {
+              const prev = allSegs[allSegs.length - 1].p3;
+              if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
+                allSegs.push(lineSegment(prev, el.pt));
+              }
+            } else {
+              // First element with no segments yet — store as pending
+              pendingPt = el.pt;
             }
           } else {
-            // First element with no segments yet — store as pending
-            pendingPt = el.pt;
+            // ^^ gap: start fresh from this point
+            pendingPt = null;
+            // Add zero-length seg to preserve point position for dot() usage
+            allSegs.push(makeSeg(el.pt, el.pt, el.pt, el.pt));
           }
         }
       }
@@ -1936,6 +1963,9 @@ function createInterpreter() {
         if (subPoints.length >= 2) {
           const subSegs = buildPathSegs(subPoints, subJoins, false);
           allSegs.push(...subSegs);
+        } else if (subPoints.length === 1) {
+          // Single point joined via ^^: zero-length segment (used by dot(a^^b^^c) to mark positions)
+          allSegs.push(makeSeg(subPoints[0], subPoints[0], subPoints[0], subPoints[0]));
         }
         start = hi + 1;
       }
@@ -2824,9 +2854,10 @@ function createInterpreter() {
       let text = '';
       let align = null;
       let position = null;
+      let labelPen = null;
       for (const a of args) {
         if (isString(a)) text = a;
-        else if (isPen(a)) { /* pens in Label are ignored (e.g. Label("%4g",black)) */ }
+        else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (isPair(a)) align = a;
         else if (a && typeof a === 'object' && a._named) {
           if ('position' in a) position = a.position;
@@ -2839,6 +2870,7 @@ function createInterpreter() {
       }
       const lbl = {_tag:'label', text, align};
       if (position !== null) lbl.position = position;
+      if (labelPen) lbl.pen = labelPen;
       return lbl;
     });
     env.set('EndPoint', 1);
@@ -3235,8 +3267,8 @@ function createInterpreter() {
           } else {
             txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
           }
-          const labelPen = clonePen(tickPen);
-          labelPen.fontsize = 8;
+          const labelPen = clonePen(ticks.labelPen || tickPen);
+          labelPen.fontsize = labelPen.fontsize || 8;
           pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0});
         }
       }
@@ -3544,7 +3576,7 @@ function createInterpreter() {
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
-        else if (a && a._tag === 'label') { t.labels = true; if (a.text) t.format = a.text; }
+        else if (a && a._tag === 'label') { t.labels = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('Step' in a) t.step = a.Step;
@@ -4681,6 +4713,9 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Track where label elements begin (for crop clip exclusion)
+  const firstLabelIdx = elements.length;
+
   // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
     if (dc.cmd === 'label') {
@@ -4760,12 +4795,17 @@ function renderSVG(result, opts) {
     }
   }
 
-  // If crop clipping is active, wrap drawing elements (not <defs>) in a <g clip-path>
+  // If crop clipping is active, wrap drawing elements (not <defs> or labels) in a <g clip-path>
+  // Labels are excluded from clipping so axis labels outside the plot area remain visible
   let innerContent;
   if (cropClipId) {
     const defsEl = elements.length > 0 && elements[0].startsWith('<defs>') ? elements[0] : null;
-    const drawEls = defsEl ? elements.slice(1) : elements;
-    innerContent = (defsEl ? defsEl + '\n' : '') + `<g clip-path="url(#${cropClipId})">\n${drawEls.join('\n')}\n</g>`;
+    const startIdx = defsEl ? 1 : 0;
+    const clipEls = elements.slice(startIdx, firstLabelIdx);
+    const labelEls = elements.slice(firstLabelIdx);
+    innerContent = (defsEl ? defsEl + '\n' : '') +
+      `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
+      (labelEls.length > 0 ? '\n' + labelEls.join('\n') : '');
   } else {
     innerContent = elements.join('\n');
   }
@@ -5009,6 +5049,13 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
 function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
   // Extract math content: strip $ delimiters, render via KaTeX
   let math = (rawText || '').trim();
+  // Handle \reflectbox{...} wrapper: extract inner content, apply CSS horizontal flip
+  let reflectX = false;
+  const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+  if (reflectMatch) {
+    reflectX = true;
+    math = reflectMatch[1].trim();
+  }
   // Check if wrapped in $...$
   const isDollar = math.startsWith('$') && math.endsWith('$');
   if (isDollar) math = math.slice(1, -1);
@@ -5036,7 +5083,8 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
 
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = fill && fill !== '#000000' ? `color:${fill};` : '';
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {

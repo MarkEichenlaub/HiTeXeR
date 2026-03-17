@@ -319,7 +319,7 @@ async function main() {
 
       try {
         const svgBuf = fs.readFileSync(path.join(SVG_DIR, sf));
-        await sharp(svgBuf, { density: 240 }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
+        await sharp(svgBuf, { density: 320 }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
         ok++;
       } catch (e) { fail++; }
 
