@@ -1028,17 +1028,17 @@ function applyTransformPath(t, path) {
 }
 
 function composeTransforms(t1, t2) {
-  // t1 applied first, then t2: result = t2(t1(x))
-  // [a2+b2*b1+c2*e1, b2*b1_... ] — standard affine composition
+  // t1 * t2 means: apply t2 first, then t1 (right-to-left like matrix multiplication)
+  // result(x) = t1(t2(x))
   // T = [b c; e f] translation [a; d]
   // For pair (x,y): T(x,y) = (a + bx + cy, d + ex + fy)
   return makeTransform(
-    t2.a + t2.b*t1.a + t2.c*t1.d,
-    t2.b*t1.b + t2.c*t1.e,
-    t2.b*t1.c + t2.c*t1.f,
-    t2.d + t2.e*t1.a + t2.f*t1.d,
-    t2.e*t1.b + t2.f*t1.e,
-    t2.e*t1.c + t2.f*t1.f
+    t1.a + t1.b*t2.a + t1.c*t2.d,
+    t1.b*t2.b + t1.c*t2.e,
+    t1.b*t2.c + t1.c*t2.f,
+    t1.d + t1.e*t2.a + t1.f*t2.d,
+    t1.e*t2.b + t1.f*t2.e,
+    t1.e*t2.c + t1.f*t2.f
   );
 }
 
@@ -1437,8 +1437,8 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; r._lwExplicit = true; return r; }
-    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = right.linewidth + left; r._lwExplicit = true; return r; }
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = right; r._lwExplicit = true; return r; }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = left; r._lwExplicit = true; return r; }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -1514,7 +1514,7 @@ function createInterpreter() {
     // Transform * picture
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
     // Transform * transform
-    if (isTransform(left) && isTransform(right)) return composeTransforms(right, left);
+    if (isTransform(left) && isTransform(right)) return composeTransforms(left, right);
     // Transform * string → Label with transform (e.g. scale(0.7)*"text", rotate(90)*"text")
     if (isTransform(left) && isString(right)) return {_tag:'label', text: right, transform: left};
     // Transform * label → label with composed transform
@@ -1536,7 +1536,7 @@ function createInterpreter() {
       case T.MINUS: return l-r;
       case T.STAR: return l*r;
       case T.SLASH: return r!==0?l/r:0;
-      case T.PERCENT: return r!==0?l%r:0;
+      case T.PERCENT: return r!==0?((l%r)+r)%r:0; // Asymptote modulo is always non-negative
       case T.HASH: return r!==0?Math.floor(l/r):0; // integer quotient
       case T.CARET: return Math.pow(l,r);
       case T.EQ: return l===r;
@@ -3230,7 +3230,9 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+        // Extended gridlines (isExtend=true) go into background layer (above:-1) so they
+        // always render below user-drawn paths regardless of source order.
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0)});
       }
 
       // Draw major ticks
@@ -4583,12 +4585,18 @@ function renderSVG(result, opts) {
   if (sizeW > 0) svgW = sizeW;
   if (sizeH > 0) svgH = sizeH;
 
-  // Enforce minimum display size (like AoPS TeXeR) for very small unitsize values
-  const minDisplaySize = 100;
-  if (svgW < minDisplaySize && svgH < minDisplaySize && hasUnitScale) {
-    const upscale = minDisplaySize / Math.max(svgW, svgH);
-    svgW *= upscale;
-    svgH *= upscale;
+  // Enforce minimum display size: scale so that font labels (~16 CSS px for 12pt) are
+  // proportionally small relative to cells (target ~50% of cell height).
+  // Target: 32 CSS px per user coordinate unit → font/cell ≈ 16/32 = 0.5.
+  // Hard minimum: 100px. Cap at 500px to avoid oversized SVGs for large drawings.
+  if (hasUnitScale) {
+    const bboxUnitsMax = Math.max((maxX - minX) || 1, (maxY - minY) || 1);
+    const fontAwareMin = Math.min(Math.max(32 * bboxUnitsMax, 100), 500);
+    if (svgW < fontAwareMin && svgH < fontAwareMin) {
+      const upscale = fontAwareMin / Math.max(svgW, svgH);
+      svgW *= upscale;
+      svgH *= upscale;
+    }
   }
 
   // If container dimensions provided, shrink to fit
@@ -4701,14 +4709,18 @@ function renderSVG(result, opts) {
     }
   }
 
-  // Build render order: non-above commands first (preserving program order),
-  // then above=true commands (e.g. axes with above=true drawn over gridlines)
+  // Build render order: background (above=-1, e.g. extend=true tick gridlines) first,
+  // then normal (above=0) commands preserving program order,
+  // then foreground (above=1) commands (e.g. axes with above=true)
   const renderOrder = [];
   for (let ci = 0; ci < drawCommands.length; ci++) {
-    if (!drawCommands[ci].above) renderOrder.push(ci);
+    if (drawCommands[ci].above === -1) renderOrder.push(ci);
   }
   for (let ci = 0; ci < drawCommands.length; ci++) {
-    if (drawCommands[ci].above) renderOrder.push(ci);
+    if ((drawCommands[ci].above || 0) === 0) renderOrder.push(ci);
+  }
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    if (drawCommands[ci].above === 1) renderOrder.push(ci);
   }
 
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
@@ -4775,17 +4787,24 @@ function renderSVG(result, opts) {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
       const fontSize = (dc.pen.fontsize || 10);
+      // Convert font size from PostScript points to SVG user units at the actual display scale.
+      // font-size="12" in SVG user units renders as 12*(svgW/viewW) CSS px — at the default
+      // 100px display size for a 14pt viewBox that is ~85 CSS px per character, completely
+      // covering the drawing. Use cssPixel (viewW/svgW) to express the absolute pt size
+      // as the correct fractional SVG user-unit value.
+      const fontSizeSVG = fontSize * (96 / 72) * cssPixel; // SVG user units (absolute pt size)
+      const fontSizeCSS = fontSize * (96 / 72);            // CSS px at 96 dpi (for foreignObject)
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
         // Horizontal alignment: shift and anchor
-        if (ax > 0.3) { anchor = 'start'; dx = fontSize * 0.3; }
-        else if (ax < -0.3) { anchor = 'end'; dx = -fontSize * 0.3; }
+        if (ax > 0.3) { anchor = 'start'; dx = fontSizeSVG * 0.3; }
+        else if (ax < -0.3) { anchor = 'end'; dx = -fontSizeSVG * 0.3; }
         // Vertical alignment: shift (SVG y is inverted)
-        if (ay > 0.3) { dy = -fontSize * 0.6; }
-        else if (ay < -0.3) { dy = fontSize * 0.6; }
+        if (ay > 0.3) { dy = -fontSizeSVG * 0.6; }
+        else if (ay < -0.3) { dy = fontSizeSVG * 0.6; }
       }
       const rawText = dc.text || '';
 
@@ -4799,46 +4818,99 @@ function renderSVG(result, opts) {
         }).join('');
         // Estimate text dimensions for background (tight fit like Asymptote)
         const cleanLen = stripLaTeX(rawText).length;
-        const estW = cleanLen * fontSize * 0.52 + fontSize * 0.1;
-        const estH = fontSize * 1.0;
+        const estW = cleanLen * fontSizeSVG * 0.52 + fontSizeSVG * 0.1;
+        const estH = fontSizeSVG * 1.0;
         let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
         // Adjust rectangle position based on anchor
         let rectX = rx - estW / 2;
-        if (anchor === 'start') rectX = rx - fontSize * 0.05;
-        else if (anchor === 'end') rectX = rx - estW + fontSize * 0.05;
+        if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
+        else if (anchor === 'end') rectX = rx - estW + fontSizeSVG * 0.05;
         const rectY = ry - estH / 2;
-        const pad = fontSize * 0.04;
+        const pad = fontSizeSVG * 0.04;
         elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
 
       // Apply label transform (scale/rotate) if present
-      let effectiveFontSize = fontSize;
+      let effectiveFontSize = fontSizeSVG;
+      let effectiveFontSizeCSS = fontSizeCSS;
       let labelTransformAttr = '';
       if (dc.labelTransform) {
         const lt = dc.labelTransform;
         // Extract scale from transform matrix: scale = sqrt(b^2 + e^2) (x-axis scale)
         const scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
-        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) effectiveFontSize = fontSize * scaleX;
+        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) {
+          effectiveFontSize = fontSizeSVG * scaleX;
+          effectiveFontSizeCSS = fontSizeCSS * scaleX;
+        }
         // Extract rotation angle from transform matrix
         const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
         if (Math.abs(angle) > 0.1) {
           // SVG rotation is clockwise, Asymptote is counterclockwise; SVG y is flipped
+          // For W/E aligned rotated labels: the font height (which becomes the screen-space
+          // "width" after rotation) needs to offset the center from the anchor.
+          if (dc.align) {
+            if (dc.align.x < -0.3) dx -= effectiveFontSize * 0.5; // W: center left of anchor
+            else if (dc.align.x > 0.3) dx += effectiveFontSize * 0.5; // E: center right of anchor
+          }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
+          // With rotation, text-anchor must be 'middle' so the label is centered at the
+          // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
+          anchor = 'middle';
         }
       }
 
-      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
-      const hasMath = /\$/.test(rawText) || /\\[a-zA-Z]/.test(rawText);
+      // Replace LaTeX dot/continuation symbols with Unicode so they render as SVG
+      // text instead of KaTeX foreignObject (avoids MathML mspace artifact in \vdots).
+      const LATEX_TO_UNICODE = {
+        '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '…',
+      };
+      let displayText = rawText;
+      // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
+      // rawText may look like "\reflectbox{$\ddots$}" or "$\vdots$" etc.
+      let probeText = rawText.trim();
+      probeText = probeText.replace(/^\$+(.*?)\$+$/, '$1').trim();
+      const reflectMatch2 = probeText.match(/^\\reflectbox\{([\s\S]*)\}$/);
+      if (reflectMatch2) probeText = reflectMatch2[1].trim().replace(/^\$+(.*?)\$+$/, '$1').trim();
+      if (LATEX_TO_UNICODE[probeText]) displayText = LATEX_TO_UNICODE[probeText];
+      else if (LATEX_TO_UNICODE[rawText.trim()]) displayText = LATEX_TO_UNICODE[rawText.trim()];
+      // Strip $...$ from simple math content (digits, letters, basic operators) so it
+      // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
+      // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
+      // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
+      let wasStrippedMath = false;
+      if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
+        const stripped = displayText.replace(/\$/g, '').trim();
+        if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
+          displayText = stripped;
+          wasStrippedMath = true;
+        }
+      }
+
+      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
+      const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
       let labelEl;
       if (typeof katex !== 'undefined' && hasMath) {
-        // Use KaTeX for math rendering via foreignObject
-        labelEl = renderLabelKaTeX(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        // Check for \mathbf-only labels: render as bold SVG text — works in all rendering
+        // contexts (sharp, <img>, <object>) without needing KaTeX CSS.
+        const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
+        if (/^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+          const boldContent = strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, '$1').trim();
+          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+        } else {
+          // Use KaTeX for math rendering via foreignObject
+          labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+        }
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
-        labelEl = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
+        labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
       } else {
-        // Render with superscript/subscript support using tspan
-        labelEl = renderLabelWithScripts(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        // Render with superscript/subscript support using tspan.
+        // If the label was originally $...$ math (wasStrippedMath), use math italic font.
+        if (wasStrippedMath) {
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
+        } else {
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        }
       }
       if (labelTransformAttr) {
         labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
@@ -4975,7 +5047,7 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
       }
     }
     const tipX = (tip.x - minX)*scale, tipY = (maxY - tip.y)*scale;
-    const headAngle = 30 * Math.PI / 180;
+    const headAngle = 15 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
@@ -5010,7 +5082,7 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
 }
 
 // Render label text with superscript/subscript support as SVG
-function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontFamily, fontWeight, fontStyle) {
   // First apply LaTeX-to-Unicode mapping (same as stripLaTeX but preserving ^/_)
   let s = rawText || '';
   s = s.replace(/\$/g, '');
@@ -5052,7 +5124,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   if (!hasSS) {
     // Simple text, no scripts
     const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
-    return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${escSvg(s)}</text>`;
+    const ff = fontFamily || 'KaTeX_Main, serif';
+    const fwAttr = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
+    const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+    return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${escSvg(s)}</text>`;
   }
 
   // Parse into segments: normal text, superscript (^), subscript (_)
@@ -5096,10 +5171,16 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
       inner += escSvg(p.text);
     }
   }
-  return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${inner}</text>`;
+  const ff2 = fontFamily || 'KaTeX_Main, serif';
+  const fwAttr2 = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
+  const fsAttr2 = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+  return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff2}"${fwAttr2}${fsAttr2}${op}>${inner}</text>`;
 }
 
-function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
+  // fontSize: SVG user units (for foreignObject width/height dimensions)
+  // fontSizeCSS: CSS pixels for the HTML font-size inside the foreignObject (default = fontSize)
+  if (fontSizeCSS === undefined) fontSizeCSS = fontSize;
   // Extract math content: strip $ delimiters, render via KaTeX
   let math = (rawText || '').trim();
   // Handle \reflectbox{...} wrapper: extract inner content, apply CSS horizontal flip
@@ -5150,7 +5231,9 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   // Estimate dimensions for foreignObject
   const cleanLen = stripLaTeX(rawText).length;
   const estW = Math.max(cleanLen * fontSize * 0.7, fontSize * 2);
-  const estH = fontSize * 1.8;
+  // Fractions (\frac) need extra vertical space; use taller estimate for them
+  const hasFrac = /\\frac\b/.test(rawText);
+  const estH = hasFrac ? fontSize * 3.0 : fontSize * 1.8;
 
   // Compute foreignObject position based on anchor
   let fx = parseFloat(x), fy = parseFloat(y);
@@ -5161,7 +5244,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = fill && fill !== '#000000' ? `color:${fill};` : '';
   const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSizeCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {
@@ -5285,11 +5368,11 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
     if (p.type === 'frac') {
       const cx = curX + p.width / 2;
       // Numerator above line
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.numText)}</text>`);
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.numText)}</text>`);
       // Fraction line
       els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.denText)}</text>`);
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
     } else if (p.type === 'underbrace') {
       const cx = curX + p.width / 2;
       const by = y + fontSize * 0.3;
@@ -5297,10 +5380,10 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // Underbrace as a path: left arm → center dip → right arm
       els.push(`<path d="M${fmt(curX)},${fmt(by)} Q${fmt(curX)},${fmt(by+bh)} ${fmt(cx)},${fmt(by+bh)} Q${fmt(curX+p.width)},${fmt(by+bh)} ${fmt(curX+p.width)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       if (p.labelText) {
-        els.push(`<text x="${fmt(cx)}" y="${fmt(by + bh + fontSize*0.7)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.labelText)}</text>`);
+        els.push(`<text x="${fmt(cx)}" y="${fmt(by + bh + fontSize*0.7)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
-      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.text)}</text>`);
+      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.text)}</text>`);
     }
     curX += p.width;
   }
