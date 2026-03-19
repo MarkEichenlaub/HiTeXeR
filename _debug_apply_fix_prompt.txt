@@ -1,0 +1,756 @@
+I need a JSON description of code changes to fix a bug in asy-interp.js.
+
+Bug to fix:
+The viewbox or canvas height calculation in asy-interp.js is incorrect, causing severe vertical cropping. Look at how the SVG viewBox or canvas dimensions are computed - likely in the size() handling or the limits()/Crop functionality. The issue is that the rendered output only shows roughly the top half of what should be visible. Check the code that calculates the final SVG viewBox dimensions, particularly how ymin/ymax bounds interact with the Crop option in limits(). The vertical extent is not being properly captured - ensure the viewBox height accounts for the full ymin to ymax range (-6.5 to 6.5).
+
+Relevant code from asy-interp.js:
+```javascript
+
+// Lines 821-1061:
+  821:     // String
+  822:     if (t.type === T.STRING) { pos++; return StringLit(t.value, ln); }
+  823: 
+  824:     // Bool
+  825:     if (t.type === T.BOOL) { pos++; return BoolLit(t.value, ln); }
+  826: 
+  827:     // null
+  828:     if (t.type === T.IDENT && t.value === 'null') { pos++; return NullLit(ln); }
+  829: 
+  830:     // operator keyword: operator .. or operator --
+  831:     if (t.type === T.IDENT && t.value === 'operator') {
+  832:       pos++;
+  833:       let opVal = '';
+  834:       if (at(T.DOTDOT) || at(T.DOTDOTDOT)) { opVal = cur().value; pos++; }
+  835:       else if (at(T.DASHDASH)) { opVal = '--'; pos++; }
+  836:       else if (at(T.PLUS)) { opVal = '+'; pos++; }
+  837:       else if (at(T.MINUS)) { opVal = '-'; pos++; }
+  838:       else if (at(T.STAR)) { opVal = '*'; pos++; }
+  839:       else if (at(T.CARET)) { opVal = '^'; pos++; }
+  840:       else { opVal = cur().value; pos++; }
+  841:       return {type:'OperatorLit', value: opVal, line: ln};
+  842:     }
+  843: 
+  844:     // new — anonymous function or array allocation
+  845:     if (t.type === T.IDENT && t.value === 'new') {
+  846:       pos++;
+  847:       const aType = at(T.IDENT) ? eat(T.IDENT).value : 'real';
+  848:       // new picture — creates a fresh picture object
+  849:       if (aType === 'picture' && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
+  850:         return {type:'NewPicture', line: ln};
+  851:       }
+  852:       // Anonymous function: new type(params){ body }
+  853:       if (at(T.LPAREN)) {
+  854:         const saved = pos;
+  855:         // Peek: is this new type(params){ body } ?
+  856:         eat(T.LPAREN);
+  857:         let depth = 1, canBeFunc = false;
+  858:         while (depth > 0 && !at(T.EOF)) {
+  859:           if (at(T.LPAREN)) depth++;
+  860:           if (at(T.RPAREN)) depth--;
+  861:           if (depth > 0) pos++;
+  862:         }
+  863:         if (at(T.RPAREN)) pos++;
+  864:         canBeFunc = at(T.LBRACE);
+  865:         pos = saved;
+  866:         if (canBeFunc) {
+  867:           // Parse as anonymous function declaration
+  868:           return parseFuncDeclBody(aType, '', ln);
+  869:         }
+  870:       }
+  871:       // new type[expr] or new type[expr][expr] — sized array allocation
+  872:       if (at(T.LBRACKET)) {
+  873:         const dims = [];
+  874:         while (at(T.LBRACKET)) {
+  875:           pos++; // skip [
+  876:           if (at(T.RBRACKET)) { pos++; dims.push(null); } // new type[]
+  877:           else { dims.push(parseExpr()); eat(T.RBRACKET); }
+  878:         }
+  879:         // If we have sized dims, return an allocation node
+  880:         if (dims.some(d => d !== null)) {
+  881:           return {type:'NewArray', elemType: aType, dims, line: ln};
+  882:         }
+  883:       }
+  884:       // Might have initializer
+  885:       if (at(T.LBRACE)) {
+  886:         eat(T.LBRACE);
+  887:         const els = [];
+  888:         while (!at(T.RBRACE) && !at(T.EOF)) {
+  889:           els.push(parseExpr());
+  890:           if (!tryEat(T.COMMA)) break;
+  891:         }
+  892:         eat(T.RBRACE);
+  893:         return ArrayExpr(els, ln);
+  894:       }
+  895:       return ArrayExpr([], ln);
+  896:     }
+  897: 
+  898:     // Cast: (type) expr -- only for type names
+  899:     if (t.type === T.LPAREN && peekType(1) === T.IDENT && TYPE_NAMES.has(peekVal(1)) && peekType(2) === T.RPAREN) {
+  900:       pos++; const ctype = eat(T.IDENT).value; eat(T.RPAREN);
+  901:       return CastExpr(ctype, parseExpr(8), ln);
+  902:     }
+  903: 
+  904:     // Parenthesized expr or pair/triple literal
+  905:     if (t.type === T.LPAREN) {
+  906:       pos++;
+  907:       const first = parseExpr();
+  908:       if (at(T.COMMA)) {
+  909:         eat(T.COMMA);
+  910:         const second = parseExpr();
+  911:         if (at(T.COMMA)) {
+  912:           // Triple literal (x, y, z)
+  913:           eat(T.COMMA);
+  914:           const third = parseExpr();
+  915:           eat(T.RPAREN);
+  916:           return TripleLit(first, second, third, ln);
+  917:         }
+  918:         eat(T.RPAREN);
+  919:         return PairLit(first, second, ln);
+  920:       }
+  921:       eat(T.RPAREN);
+  922:       return first; // grouped expression
+  923:     }
+  924: 
+  925:     // Array literal {a, b, c}
+  926:     if (t.type === T.LBRACE) {
+  927:       pos++;
+  928:       const els = [];
+  929:       while (!at(T.RBRACE) && !at(T.EOF)) {
+  930:         els.push(parseExpr());
+  931:         if (!tryEat(T.COMMA)) break;
+  932:       }
+  933:       eat(T.RBRACE);
+  934:       return ArrayExpr(els, ln);
+  935:     }
+  936: 
+  937:     // Identifier
+  938:     if (t.type === T.IDENT) {
+  939:       pos++;
+  940:       return Identifier(t.value, ln);
+  941:     }
+  942: 
+  943:     // Fallback: skip
+  944:     pos++;
+  945:     return NullLit(ln);
+  946:   }
+  947: 
+  948:   return parseProgram();
+  949: }
+  950: 
+  951: // ============================================================
+  952: // Runtime Value Helpers
+  953: // ============================================================
+  954: 
+  955: function makePair(x,y) { return {_tag:'pair', x:x||0, y:y||0}; }
+  956: function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
+  957: function makePen(props) {
+  958:   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
+  959:     fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false}, props);
+  960: }
+  961: function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
+  962: function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
+  963: // seg = {p0:{x,y}, cp1:{x,y}, cp2:{x,y}, p3:{x,y}}
+  964: function makeSeg(p0,cp1,cp2,p3) { return {p0,cp1,cp2,p3}; }
+  965: function lineSegment(a,b) { return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b); }
+  966: 
+  967: function isPair(v) { return v && v._tag === 'pair'; }
+  968: function isTriple(v) { return v && v._tag === 'triple'; }
+  969: function isPen(v) { return v && v._tag === 'pen'; }
+  970: function isPath(v) { return v && v._tag === 'path'; }
+  971: function isTransform(v) { return v && v._tag === 'transform'; }
+  972: function isString(v) { return typeof v === 'string'; }
+  973: function isBool(v) { return typeof v === 'boolean'; }
+  974: function isNumber(v) { return typeof v === 'number'; }
+  975: function isArray(v) { return Array.isArray(v); }
+  976: function isCallable(v) { return typeof v === 'function' || (v && v._tag === 'func'); }
+  977: 
+  978: function penToCSS(pen) {
+  979:   if (!pen || !isPen(pen)) return {stroke:'#000000',strokeWidth:0.5,opacity:1};
+  980:   const hex = '#' + [pen.r,pen.g,pen.b].map(c => {
+  981:     const h = Math.round(Math.max(0,Math.min(255,c*255))).toString(16);
+  982:     return h.length<2?'0'+h:h;
+  983:   }).join('');
+  984:   return {stroke:hex, strokeWidth:pen.linewidth, opacity:pen.opacity, fill:hex};
+  985: }
+  986: 
+  987: function clonePen(p) { return Object.assign({}, p); }
+  988: 
+  989: function mergePens(a,b) {
+  990:   if (!isPen(a)) return b;
+  991:   if (!isPen(b)) return a;
+  992:   const r = clonePen(a);
+  993:   // Color: In Asymptote, pen + pen adds RGB values (clamped to 0-1).
+  994:   // But for modifier pens (linewidth/fontsize only), don't change color.
+  995:   const bHasColor = (b.r !== 0 || b.g !== 0 || b.b !== 0);
+  996:   const bIsModifier = !bHasColor && (b.linewidth !== 0.5 || b.linestyle || b.fontsize !== 12 || b.linecap || b.linejoin);
+  997:   if (bHasColor) {
+  998:     const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
+  999:     if (aHasColor) {
+ 1000:       // Both have color: add RGB (Asymptote pen addition semantics)
+ 1001:       r.r = Math.min(1, a.r + b.r);
+ 1002:       r.g = Math.min(1, a.g + b.g);
+ 1003:       r.b = Math.min(1, a.b + b.b);
+ 1004:     } else {
+ 1005:       r.r = b.r; r.g = b.g; r.b = b.b;
+ 1006:     }
+ 1007:   }
+ 1008:   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
+ 1009:   if (b._lwExplicit) r._lwExplicit = true;
+ 1010:   if (b.linestyle) r.linestyle = b.linestyle;
+ 1011:   if (b.fontsize !== 12) r.fontsize = b.fontsize;
+ 1012:   if (b.opacity !== 1) r.opacity = b.opacity;
+ 1013:   if (b.linecap) r.linecap = b.linecap;
+ 1014:   if (b.linejoin) r.linejoin = b.linejoin;
+ 1015:   return r;
+ 1016: }
+ 1017: 
+ 1018: function applyTransformPair(t, p) {
+ 1019:   return makePair(t.a + t.b*p.x + t.c*p.y, t.d + t.e*p.x + t.f*p.y);
+ 1020: }
+ 1021: 
+ 1022: function applyTransformPath(t, path) {
+ 1023:   const newSegs = path.segs.map(s => makeSeg(
+ 1024:     applyTransformPair(t, s.p0), applyTransformPair(t, s.cp1),
+ 1025:     applyTransformPair(t, s.cp2), applyTransformPair(t, s.p3)
+ 1026:   ));
+ 1027:   return makePath(newSegs, path.closed);
+ 1028: }
+ 1029: 
+ 1030: function composeTransforms(t1, t2) {
+ 1031:   // t1 applied first, then t2: result = t2(t1(x))
+ 1032:   // [a2+b2*b1+c2*e1, b2*b1_... ] — standard affine composition
+ 1033:   // T = [b c; e f] translation [a; d]
+ 1034:   // For pair (x,y): T(x,y) = (a + bx + cy, d + ex + fy)
+ 1035:   return makeTransform(
+ 1036:     t2.a + t2.b*t1.a + t2.c*t1.d,
+ 1037:     t2.b*t1.b + t2.c*t1.e,
+ 1038:     t2.b*t1.c + t2.c*t1.f,
+ 1039:     t2.d + t2.e*t1.a + t2.f*t1.d,
+ 1040:     t2.e*t1.b + t2.f*t1.e,
+ 1041:     t2.e*t1.c + t2.f*t1.f
+ 1042:   );
+ 1043: }
+ 1044: 
+ 1045: // ============================================================
+ 1046: // Hobby's Algorithm for smooth '..' paths
+ 1047: // ============================================================
+ 1048: 
+ 1049: function hobbySpline(knots, closed) {
+ 1050:   const n = knots.length;
+ 1051:   if (n < 2) return [];
+ 1052:   if (n === 2) {
+ 1053:     // Simple case: single segment with default smooth tangents
+ 1054:     return [hobbyTwoPointSegment(knots[0], knots[1])];
+ 1055:   }
+ 1056: 
+ 1057:   // Compute chord distances and turning angles
+ 1058:   const m = closed ? n : n - 1;
+ 1059:   const d = []; // chord lengths
+ 1060:   const delta = []; // chord angles
+ 1061:   for (let i = 0; i < m; i++) {
+
+// Lines 1189-1393:
+ 1189:     D[i] = -(2*psi[i]*di + psi[(i+1)%n]*di_1) / (di_1 * di);
+ 1190:   }
+ 1191: 
+ 1192:   // Sherman-Morrison: modify first eq to break cycle
+ 1193:   const gamma = -B[0];
+ 1194:   B[0] -= gamma;
+ 1195:   B[n-1] -= A[0]*C[n-1]/gamma;
+ 1196: 
+ 1197:   // Solve two systems with Thomas
+ 1198:   const y = new Array(n).fill(0), q = new Array(n).fill(0);
+ 1199:   const u = new Array(n).fill(0);
+ 1200:   u[0] = gamma; u[n-1] = C[n-1];
+ 1201: 
+ 1202:   // Forward elimination for both
+ 1203:   const B2 = B.slice();
+ 1204:   const D2 = D.slice();
+ 1205:   const u2 = u.slice();
+ 1206:   for (let i = 1; i < n; i++) {
+ 1207:     const w = A[i] / B2[i-1];
+ 1208:     B2[i] -= w * C[i-1];
+ 1209:     D2[i] -= w * D2[i-1];
+ 1210:     u2[i] -= w * u2[i-1];
+ 1211:   }
+ 1212:   y[n-1] = D2[n-1] / B2[n-1];
+ 1213:   q[n-1] = u2[n-1] / B2[n-1];
+ 1214:   for (let i = n-2; i >= 0; i--) {
+ 1215:     y[i] = (D2[i] - C[i]*y[i+1]) / B2[i];
+ 1216:     q[i] = (u2[i] - C[i]*q[i+1]) / B2[i];
+ 1217:   }
+ 1218: 
+ 1219:   const factor = (y[0] + A[0]*y[n-1]/gamma) / (1 + q[0] + A[0]*q[n-1]/gamma);
+ 1220:   for (let i = 0; i < n; i++) theta[i] = y[i] - factor*q[i];
+ 1221: }
+ 1222: 
+ 1223: // ============================================================
+ 1224: // Interpreter / Evaluator
+ 1225: // ============================================================
+ 1226: 
+ 1227: const BREAK_SIG = {_sig:'break'};
+ 1228: const CONTINUE_SIG = {_sig:'continue'};
+ 1229: function ReturnSig(v) { return {_sig:'return', value:v}; }
+ 1230: 
+ 1231: function createInterpreter() {
+ 1232:   // Draw commands output
+ 1233:   const drawCommands = [];
+ 1234:   // Active picture (all drawing routes here; copied to drawCommands at end)
+ 1235:   let currentPic = {_tag:'picture', commands:[]};
+ 1236:   // 3D projection (set by import three / currentprojection = ...)
+ 1237:   let projection = null; // null = no 3D; {type, camera, target, up, ...}
+ 1238:   // Settings
+ 1239:   let unitScale = 1;       // unitsize value in points
+ 1240:   let hasUnitScale = false; // whether unitsize() was explicitly called
+ 1241:   let sizeW = 0, sizeH = 0;
+ 1242:   let defaultPen = makePen({});
+ 1243:   let iterationLimit = 100000;
+ 1244: 
+ 1245:   // Project a triple to a pair using the current 3D projection
+ 1246:   function projectTriple(v) {
+ 1247:     if (!isTriple(v)) return isPair(v) ? v : makePair(0,0);
+ 1248:     const proj = projection;
+ 1249:     if (!proj) return makePair(v.x, v.y); // no projection: drop z
+ 1250:     // Camera (eye) position
+ 1251:     const cx = proj.cx, cy = proj.cy, cz = proj.cz;
+ 1252:     // Target (look-at) position
+ 1253:     const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+ 1254:     // View direction
+ 1255:     const dx = cx-tx, dy = cy-ty, dz = cz-tz;
+ 1256:     const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+ 1257:     // Forward (into screen), right, up vectors
+ 1258:     const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
+ 1259:     // Up hint
+ 1260:     const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
+ 1261:     // Right = up x forward
+ 1262:     let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
+ 1263:     const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
+ 1264:     rx /= rlen; ry /= rlen; rz /= rlen;
+ 1265:     // True up = forward x right
+ 1266:     const upx = fw.y*rz - fw.z*ry, upy = fw.z*rx - fw.x*rz, upz = fw.x*ry - fw.y*rx;
+ 1267: 
+ 1268:     // Translate point relative to target
+ 1269:     const px = v.x - tx, py = v.y - ty, pz = v.z - tz;
+ 1270: 
+ 1271:     if (proj.type === 'perspective') {
+ 1272:       // Perspective projection
+ 1273:       const depth = px*fw.x + py*fw.y + pz*fw.z;
+ 1274:       const scale = dist / (dist - depth || 1);
+ 1275:       const sx = px*rx + py*ry + pz*rz;
+ 1276:       const sy = px*upx + py*upy + pz*upz;
+ 1277:       return makePair(sx * scale, sy * scale);
+ 1278:     }
+ 1279:     // Orthographic projection (default)
+ 1280:     const sx = px*rx + py*ry + pz*rz;
+ 1281:     const sy = px*upx + py*upy + pz*upz;
+ 1282:     return makePair(sx, sy);
+ 1283:   }
+ 1284: 
+ 1285:   // Transform a single draw command by an affine transform
+ 1286:   function transformDrawCmd(t, dc) {
+ 1287:     const r = Object.assign({}, dc);
+ 1288:     if (r.path) r.path = applyTransformPath(t, r.path);
+ 1289:     if (r.pos) r.pos = applyTransformPair(t, r.pos);
+ 1290:     // Preserve alignment direction (don't transform it)
+ 1291:     return r;
+ 1292:   }
+ 1293: 
+ 1294:   // Apply a transform to all commands in a picture, returning a new picture
+ 1295:   function transformPicture(t, pic) {
+ 1296:     return {_tag:'picture', commands: pic.commands.map(c => transformDrawCmd(t, c))};
+ 1297:   }
+ 1298: 
+ 1299:   // Environment (scoped)
+ 1300:   function createEnv(parent) {
+ 1301:     const vars = new Map();
+ 1302:     return {
+ 1303:       parent,
+ 1304:       get(name) {
+ 1305:         if (vars.has(name)) return vars.get(name);
+ 1306:         if (parent) return parent.get(name);
+ 1307:         return undefined;
+ 1308:       },
+ 1309:       set(name, val) { vars.set(name, val); },
+ 1310:       has(name) { return vars.has(name) || (parent && parent.has(name)); },
+ 1311:       update(name, val) {
+ 1312:         if (vars.has(name)) { vars.set(name, val); return true; }
+ 1313:         if (parent && parent.update(name, val)) return true;
+ 1314:         vars.set(name, val); return true;
+ 1315:       },
+ 1316:     };
+ 1317:   }
+ 1318: 
+ 1319:   const globalEnv = createEnv(null);
+ 1320:   installStdlib(globalEnv);
+ 1321: 
+ 1322:   function evalNode(node, env) {
+ 1323:     if (!node) return null;
+ 1324:     switch(node.type) {
+ 1325:       case 'Program': return evalProgram(node, env);
+ 1326:       case 'Block': return evalBlock(node, env);
+ 1327:       case 'MultiDecl': { for (const s of node.stmts) evalNode(s, env); return null; }
+ 1328:       case 'NumberLit': return node.value;
+ 1329:       case 'StringLit': return node.value;
+ 1330:       case 'BoolLit': return node.value;
+ 1331:       case 'NullLit': return null;
+ 1332:       case 'Identifier': return evalIdent(node, env);
+ 1333:       case 'PairLit': return makePair(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)));
+ 1334:       case 'TripleLit': return makeTriple(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)), toNumber(evalNode(node.z,env)));
+ 1335:       case 'ArrayExpr': return node.elements.map(e => evalNode(e,env));
+ 1336:       case 'NewPicture': return {_tag:'picture', commands:[]};
+ 1337:       case 'NewArray': {
+ 1338:         const dims = node.dims.map(d => d ? Math.floor(toNumber(evalNode(d, env))) : 0);
+ 1339:         function allocArray(depth) {
+ 1340:           const size = dims[depth] || 0;
+ 1341:           const arr = new Array(size);
+ 1342:           if (depth + 1 < dims.length) {
+ 1343:             for (let i = 0; i < size; i++) arr[i] = allocArray(depth + 1);
+ 1344:           } else {
+ 1345:             arr.fill(0);
+ 1346:           }
+ 1347:           return arr;
+ 1348:         }
+ 1349:         return allocArray(0);
+ 1350:       }
+ 1351:       case 'BinaryOp': return evalBinary(node, env);
+ 1352:       case 'UnaryOp': return evalUnary(node, env);
+ 1353:       case 'FuncCall': return evalFuncCall(node, env);
+ 1354:       case 'MemberAccess': return evalMemberAccess(node, env);
+ 1355:       case 'ArrayAccess': return evalArrayAccess(node, env);
+ 1356:       case 'TernaryOp': return toBool(evalNode(node.cond,env)) ? evalNode(node.then,env) : evalNode(node.else,env);
+ 1357:       case 'CastExpr': return evalCast(node, env);
+ 1358:       case 'NamedArg': return evalNode(node.value, env);
+ 1359:       case 'PathExpr': return evalPathExpr(node, env);
+ 1360:       case 'VarDecl': return evalVarDecl(node, env);
+ 1361:       case 'Assignment': return evalAssignment(node, env);
+ 1362:       case 'ExprStmt': return evalNode(node.expr, env);
+ 1363:       case 'IfStmt': return evalIf(node, env);
+ 1364:       case 'ForStmt': return evalFor(node, env);
+ 1365:       case 'ForEachStmt': return evalForEach(node, env);
+ 1366:       case 'WhileStmt': return evalWhile(node, env);
+ 1367:       case 'DoWhileStmt': return evalDoWhile(node, env);
+ 1368:       case 'ReturnStmt': throw ReturnSig(node.value ? evalNode(node.value,env) : null);
+ 1369:       case 'BreakStmt': throw BREAK_SIG;
+ 1370:       case 'ContinueStmt': throw CONTINUE_SIG;
+ 1371:       case 'FuncDecl': return evalFuncDecl(node, env);
+ 1372:       case 'ImportStmt': return evalImport(node, env);
+ 1373:       case 'OperatorLit': return {_tag:'operator', value: node.value};
+ 1374:       default: return null;
+ 1375:     }
+ 1376:   }
+ 1377: 
+ 1378:   function toNumber(v) {
+ 1379:     if (typeof v === 'number') return v;
+ 1380:     if (typeof v === 'boolean') return v ? 1 : 0;
+ 1381:     if (typeof v === 'string') return parseFloat(v) || 0;
+ 1382:     if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
+ 1383:     if (isTriple(v)) return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+ 1384:     return 0;
+ 1385:   }
+ 1386:   function toBool(v) {
+ 1387:     if (typeof v === 'boolean') return v;
+ 1388:     if (typeof v === 'number') return v !== 0;
+ 1389:     if (typeof v === 'string') return v.length > 0;
+ 1390:     if (v === null || v === undefined) return false;
+ 1391:     return true;
+ 1392:   }
+ 1393:   function toPair(v) {
+
+// Lines 1689-1822:
+ 1689:       } else {
+ 1690:         local.set(params[i].name, null);
+ 1691:       }
+ 1692:     }
+ 1693:     try {
+ 1694:       evalNode(func.body, local);
+ 1695:     } catch(e) {
+ 1696:       if (e && e._sig === 'return') { _callDepth--; return e.value; }
+ 1697:       _callDepth--; throw e;
+ 1698:     }
+ 1699:     _callDepth--;
+ 1700:     return null;
+ 1701:   }
+ 1702: 
+ 1703:   // Call a user-defined function with already-evaluated argument values
+ 1704:   function callUserFuncValues(func, argValues) {
+ 1705:     if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
+ 1706:     const local = createEnv(func.closure);
+ 1707:     const params = func.params;
+ 1708:     for (let i = 0; i < params.length; i++) {
+ 1709:       if (i < argValues.length) {
+ 1710:         local.set(params[i].name, argValues[i]);
+ 1711:       } else if (params[i].default) {
+ 1712:         local.set(params[i].name, evalNode(params[i].default, local));
+ 1713:       } else {
+ 1714:         local.set(params[i].name, null);
+ 1715:       }
+ 1716:     }
+ 1717:     try {
+ 1718:       evalNode(func.body, local);
+ 1719:     } catch(e) {
+ 1720:       if (e && e._sig === 'return') { _callDepth--; return e.value; }
+ 1721:       _callDepth--; throw e;
+ 1722:     }
+ 1723:     _callDepth--;
+ 1724:     return null;
+ 1725:   }
+ 1726: 
+ 1727:   // Helper to invoke either a native JS function or user-defined func with values
+ 1728:   function invokeFunc(fn, argValues) {
+ 1729:     if (typeof fn === 'function') return fn(...argValues);
+ 1730:     if (fn && fn._tag === 'func') return callUserFuncValues(fn, argValues);
+ 1731:     return null;
+ 1732:   }
+ 1733: 
+ 1734:   function evalMethodCall(obj, method, argNodes, env) {
+ 1735:     const args = argNodes.map(a => evalNode(a, env));
+ 1736: 
+ 1737:     if (isPath(obj)) {
+ 1738:       if (method === 'length') return obj.segs.length;
+ 1739:       if (method === 'size') return obj.segs.length;
+ 1740:       if (method === 'reverse') {
+ 1741:         const rev = obj.segs.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0));
+ 1742:         return makePath(rev, obj.closed);
+ 1743:       }
+ 1744:     }
+ 1745: 
+ 1746:     if (isArray(obj)) {
+ 1747:       if (method === 'length') return obj.length;
+ 1748:       if (method === 'push') { obj.push(args[0]); return null; }
+ 1749:       if (method === 'pop') return obj.pop();
+ 1750:       if (method === 'reverse') return obj.slice().reverse();
+ 1751:       if (method === 'initialized') return args[0] < obj.length && obj[args[0]] !== undefined;
+ 1752:     }
+ 1753: 
+ 1754:     if (isString(obj)) {
+ 1755:       if (method === 'length') return obj.length;
+ 1756:       if (method === 'substr') return obj.substr(args[0], args[1]);
+ 1757:     }
+ 1758: 
+ 1759:     // Picture methods
+ 1760:     if (obj && obj._tag === 'picture') {
+ 1761:       if (method === 'fit') return obj; // fit() returns the picture (scaling handled at render)
+ 1762:       if (method === 'add') {
+ 1763:         // pic.add(otherPic) — add commands from other picture
+ 1764:         for (const a of args) {
+ 1765:           if (a && a._tag === 'picture') {
+ 1766:             for (const c of a.commands) obj.commands.push(c);
+ 1767:           }
+ 1768:         }
+ 1769:         return null;
+ 1770:       }
+ 1771:       if (method === 'erase') { obj.commands.length = 0; return null; }
+ 1772:       if (method === 'size') return null; // ignore per-picture size for now
+ 1773:     }
+ 1774: 
+ 1775:     return null;
+ 1776:   }
+ 1777: 
+ 1778:   function evalMemberAccess(node, env) {
+ 1779:     const obj = evalNode(node.object, env);
+ 1780:     const m = node.member;
+ 1781:     if (isPair(obj)) {
+ 1782:       if (m === 'x') return obj.x;
+ 1783:       if (m === 'y') return obj.y;
+ 1784:     }
+ 1785:     if (isTriple(obj)) {
+ 1786:       if (m === 'x') return obj.x;
+ 1787:       if (m === 'y') return obj.y;
+ 1788:       if (m === 'z') return obj.z;
+ 1789:     }
+ 1790:     if (isTransform(obj)) {
+ 1791:       if ('abcdef'.includes(m) && m.length === 1) return obj[m];
+ 1792:     }
+ 1793:     if (isPath(obj)) {
+ 1794:       if (m === 'length') return obj.segs.length;
+ 1795:     }
+ 1796:     if (isArray(obj)) {
+ 1797:       if (m === 'length') return obj.length;
+ 1798:     }
+ 1799:     if (isString(obj)) {
+ 1800:       if (m === 'length') return obj.length;
+ 1801:     }
+ 1802:     return null;
+ 1803:   }
+ 1804: 
+ 1805:   function evalArrayAccess(node, env) {
+ 1806:     const obj = evalNode(node.object, env);
+ 1807:     const idx = toNumber(evalNode(node.index, env));
+ 1808:     if (isArray(obj)) {
+ 1809:       let i = Math.floor(idx);
+ 1810:       if (obj._cyclic && obj.length > 0) i = ((i % obj.length) + obj.length) % obj.length;
+ 1811:       return obj[i];
+ 1812:     }
+ 1813:     if (isString(obj)) return obj[Math.floor(idx)];
+ 1814:     if (isPath(obj)) {
+ 1815:       // path indexing: fraction through the path
+ 1816:       const i = Math.floor(idx);
+ 1817:       const t = idx - i;
+ 1818:       if (i >= 0 && i < obj.segs.length) {
+ 1819:         const s = obj.segs[i];
+ 1820:         return bezierPoint(s, t);
+ 1821:       }
+ 1822:     }
+
+// Lines 2584-2723:
+ 2584:     });
+ 2585:     env.set('rotate', (angle, center) => {
+ 2586:       const a = toNumber(angle) * Math.PI / 180;
+ 2587:       const c = Math.cos(a), s = Math.sin(a);
+ 2588:       if (center) {
+ 2589:         const p = toPair(center);
+ 2590:         return makeTransform(
+ 2591:           p.x - c*p.x + s*p.y, c, -s,
+ 2592:           p.y - s*p.x - c*p.y, s, c
+ 2593:         );
+ 2594:       }
+ 2595:       return makeTransform(0, c, -s, 0, s, c);
+ 2596:     });
+ 2597:     env.set('scale', (...args) => {
+ 2598:       if (args.length === 1) {
+ 2599:         const s = toNumber(args[0]);
+ 2600:         return makeTransform(0,s,0,0,0,s);
+ 2601:       }
+ 2602:       return makeTransform(0,toNumber(args[0]),0,0,0,toNumber(args[1]));
+ 2603:     });
+ 2604:     env.set('xscale', (s) => makeTransform(0,toNumber(s),0,0,0,1));
+ 2605:     env.set('yscale', (s) => makeTransform(0,1,0,0,0,toNumber(s)));
+ 2606:     env.set('reflect', (a, b) => {
+ 2607:       const p1 = toPair(a), p2 = toPair(b);
+ 2608:       const dx = p2.x-p1.x, dy = p2.y-p1.y;
+ 2609:       const d2 = dx*dx + dy*dy;
+ 2610:       if (d2 === 0) return makeTransform(0,1,0,0,0,1);
+ 2611:       const c = (dx*dx-dy*dy)/d2, s = 2*dx*dy/d2;
+ 2612:       return makeTransform(
+ 2613:         p1.x - c*p1.x - s*p1.y, c, s,
+ 2614:         p1.y - s*p1.x + c*p1.y, s, -c
+ 2615:       );
+ 2616:     });
+ 2617:     env.set('slant', (s) => makeTransform(0,1,toNumber(s),0,0,1));
+ 2618: 
+ 2619:     // Pen constructors
+ 2620:     env.set('rgb', (...args) => {
+ 2621:       // rgb(r,g,b) with floats, or rgb("hexstring")
+ 2622:       if (args.length === 1 && isString(args[0])) {
+ 2623:         let hex = args[0].replace(/^#/,'');
+ 2624:         if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+ 2625:         const ri = parseInt(hex.substr(0,2),16)/255;
+ 2626:         const gi = parseInt(hex.substr(2,2),16)/255;
+ 2627:         const bi = parseInt(hex.substr(4,2),16)/255;
+ 2628:         return makePen({r:isNaN(ri)?0:ri, g:isNaN(gi)?0:gi, b:isNaN(bi)?0:bi});
+ 2629:       }
+ 2630:       return makePen({r:toNumber(args[0]),g:toNumber(args[1]),b:toNumber(args[2])});
+ 2631:     });
+ 2632:     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
+ 2633:     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true}));
+ 2634:     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
+ 2635:     env.set('linetype', (...args) => {
+ 2636:       // linetype("dash pattern") or linetype(real[])
+ 2637:       let pattern = null;
+ 2638:       if (args.length >= 1 && isString(args[0])) pattern = args[0];
+ 2639:       return makePen({linestyle: pattern || 'dashed'});
+ 2640:     });
+ 2641:     env.set('linecap', (n) => {
+ 2642:       const v = toNumber(n);
+ 2643:       const caps = ['butt','round','square'];
+ 2644:       return makePen({linecap: caps[v] || 'round'});
+ 2645:     });
+ 2646:     env.set('opacity', (a) => makePen({opacity:toNumber(a)}));
+ 2647:     env.set('Pen', (n) => makePen({}));
+ 2648:     env.set('Symbol', (...args) => null);
+ 2649:     env.set('fontcommand', (...args) => makePen({}));
+ 2650:     env.set('cmyk', (c,m,y,k) => {
+ 2651:       const cc=toNumber(c),mm=toNumber(m),yy=toNumber(y),kk=toNumber(k);
+ 2652:       return makePen({r:(1-cc)*(1-kk),g:(1-mm)*(1-kk),b:(1-yy)*(1-kk)});
+ 2653:     });
+ 2654:     // gray is set as a pen constant from ASY_COLORS above.
+ 2655:     // gray(number) is handled specially in the function call evaluator.
+ 2656:     env.set('hsv', (h,s,v) => {
+ 2657:       const hh=toNumber(h)/60, ss=toNumber(s), vv=toNumber(v);
+ 2658:       const c=vv*ss, x=c*(1-Math.abs(hh%2-1)), m=vv-c;
+ 2659:       let r=0,g=0,b=0;
+ 2660:       if(hh<1){r=c;g=x;}else if(hh<2){r=x;g=c;}else if(hh<3){g=c;b=x;}
+ 2661:       else if(hh<4){g=x;b=c;}else if(hh<5){r=x;b=c;}else{r=c;b=x;}
+ 2662:       return makePen({r:r+m,g:g+m,b:b+m});
+ 2663:     });
+ 2664: 
+ 2665:     // Settings
+ 2666:     env.set('unitsize', (...args) => {
+ 2667:       if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; }
+ 2668:     });
+ 2669:     env.set('size', (...args) => {
+ 2670:       // size(pic, w, h) or size(w, h) or size(w)
+ 2671:       if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
+ 2672:       if (args.length >= 1) sizeW = toNumber(args[0]);
+ 2673:       if (args.length >= 2) sizeH = toNumber(args[1]);
+ 2674:     });
+ 2675:     env.set('defaultpen', (p) => {
+ 2676:       if (isPen(p)) defaultPen = mergePens(defaultPen, p);
+ 2677:     });
+ 2678: 
+ 2679:     // Draw commands - these append to drawCommands
+ 2680:     env.set('draw', (...args) => evalDraw('draw', args));
+ 2681:     env.set('fill', (...args) => evalDraw('fill', args));
+ 2682:     env.set('filldraw', (...args) => evalDraw('filldraw', args));
+ 2683:     env.set('clip', (...args) => evalDraw('clip', args));
+ 2684:     env.set('unfill', (...args) => evalDraw('unfill', args));
+ 2685:     env.set('label', (...args) => evalLabel(args));
+ 2686: 
+ 2687:     // Intersection
+ 2688:     env.set('extension', (P, Q, R, S) => {
+ 2689:       const p=toPair(P),q=toPair(Q),r=toPair(R),s=toPair(S);
+ 2690:       const d1x=q.x-p.x, d1y=q.y-p.y, d2x=s.x-r.x, d2y=s.y-r.y;
+ 2691:       const cross = d1x*d2y - d1y*d2x;
+ 2692:       if (Math.abs(cross) < 1e-12) return makePair(0,0);
+ 2693:       const t = ((r.x-p.x)*d2y - (r.y-p.y)*d2x) / cross;
+ 2694:       return makePair(p.x + t*d1x, p.y + t*d1y);
+ 2695:     });
+ 2696: 
+ 2697:     env.set('intersect', (p1, p2) => {
+ 2698:       if (!isPath(p1) || !isPath(p2)) return [0, 0];
+ 2699:       // Simplified: return first intersection time pair
+ 2700:       // This is a basic implementation
+ 2701:       return [0, 0];
+ 2702:     });
+ 2703: 
+ 2704:     env.set('intersectionpoint', (p1, p2) => {
+ 2705:       if (!isPath(p1) || !isPath(p2)) return makePair(0,0);
+ 2706:       // Basic: try to find actual intersection
+ 2707:       for (const s1 of p1.segs) {
+ 2708:         for (const s2 of p2.segs) {
+ 2709:           const ip = bezierBezierIntersect(s1, s2);
+ 2710:           if (ip) return ip;
+ 2711:         }
+ 2712:       }
+ 2713:       return makePair(0,0);
+ 2714:     });
+ 2715: 
+ 2716:     env.set('intersectionpoints', (p1, p2) => {
+ 2717:       if (!isPath(p1) || !isPath(p2)) return [];
+ 2718:       const pts = [];
+ 2719:       for (const s1 of p1.segs) {
+ 2720:         for (const s2 of p2.segs) {
+ 2721:           const ips = bezierBezierAllIntersections(s1, s2);
+ 2722:           for (const ip of ips) {
+ 2723:             // Deduplicate across segments
+
+// Lines 2879-3866:
+ 2879:     env.set('find', (s, sub) => String(s).indexOf(String(sub)));
+ 2880:     env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
+ 2881:     env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
+ 2882:     env.set('minipage', (...args) => {
+ 2883:       // Return the string content, ignoring width/formatting
+ 2884:       for (const a of args) { if (isString(a)) return a; }
+ 2885:       return '';
+ 2886:     });
+ 2887: 
+ 2888:     // Array functions
+ 2889:     env.set('copy', (arr) => {
+ 2890:       if (isArray(arr)) return arr.slice();
+ 2891:      
+// ... (truncated)
+```
+
+Respond with ONLY this JSON structure, no explanation:
+{"changes": [{"old_code": "exact string from the code above", "new_code": "replacement string"}]}
+Requirements: old_code must be an exact verbatim substring of the code shown above (including all whitespace and indentation). Make minimal targeted changes.
