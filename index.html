@@ -44,38 +44,66 @@ body {
 #main { display: flex; flex: 1; overflow: hidden; }
 
 #editor-panel {
-  width: 50%; display: flex; flex-direction: column; border-right: 2px solid #0f3460;
+  width: 50%; display: flex; flex-direction: column; border-right: 2px solid #0f3460; position: relative;
 }
+#editor-controls {
+  position: absolute; top: 6px; right: 6px; z-index: 10; display: flex; gap: 4px;
+}
+.editor-ctrl-btn {
+  background: rgba(22,33,62,0.92); color: #bbb; border: 1px solid rgba(255,255,255,0.18);
+  padding: 3px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;
+  font-family: system-ui, sans-serif; transition: background 0.15s;
+}
+.editor-ctrl-btn:hover { background: rgba(15,52,96,0.95); color: #eee; }
 #editor-panel .CodeMirror { flex: 1; height: auto; font-size: 14px; line-height: 1.5; }
 
 #preview-panel { width: 50%; display: flex; flex-direction: column; background: #fff; position: relative; }
-#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px; }
-#preview-container svg { max-width: 100%; max-height: 100%; }
+#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 20px; position: relative; cursor: grab; }
+#preview-container svg { display: block; max-width: 100%; max-height: 100%; }
 #preview-container .error {
   color: #e94560; font-family: monospace; font-size: 13px; white-space: pre-wrap;
   padding: 20px; background: #1a1a2e; border-radius: 4px; max-width: 90%;
 }
 #preview-container .placeholder { color: #999; font-size: 14px; text-align: center; }
-#preview-container { position: relative; }
 #preview-stale-badge {
-  display: none; position: absolute; top: 6px; left: 6px; z-index: 100;
+  display: none; position: absolute; top: 46px; left: 8px; z-index: 100;
   background: rgba(233,69,96,0.85); color: #fff; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
 }
 #preview-warn-badge {
-  display: none; position: absolute; top: 6px; right: 6px; z-index: 100;
+  display: none; position: absolute; top: 46px; right: 8px; z-index: 100;
   background: rgba(233,196,106,0.9); color: #1a1a2e; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
 }
 #clear-selection-btn {
-  display: none; position: absolute; top: 6px; right: 6px; z-index: 99;
+  display: none; position: absolute; top: 46px; right: 8px; z-index: 99;
   background: rgba(30,30,46,0.8); color: #eee; border: 1px solid rgba(255,255,255,0.2);
   padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;
   font-family: system-ui, sans-serif; transition: background 0.15s;
 }
 #clear-selection-btn:hover { background: rgba(233,69,96,0.8); }
+
+/* Canvas overlay controls */
+.canvas-controls {
+  position: absolute; z-index: 200; display: flex; gap: 4px; align-items: center; pointer-events: none;
+}
+.canvas-controls > * { pointer-events: all; }
+.canvas-controls-tl { top: 8px; left: 8px; }
+.canvas-controls-tr { top: 8px; right: 8px; }
+.canvas-ctrl-btn {
+  background: rgba(22,33,62,0.88); color: #bbb; border: 1px solid rgba(255,255,255,0.18);
+  padding: 4px 9px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
+  font-family: system-ui, sans-serif; transition: background 0.15s; user-select: none;
+}
+.canvas-ctrl-btn:hover { background: rgba(15,52,96,0.95); color: #eee; }
+.canvas-ctrl-btn.active { background: rgba(233,196,106,0.25); border-color: #e9c46a; color: #e9c46a; }
+#canvas-pan-overlay {
+  position: absolute; inset: 0; z-index: 50; pointer-events: none;
+}
+#preview-container.element-placement-active,
+#preview-container.element-placement-active * { cursor: crosshair !important; }
 
 /* Highlight styles for code lines */
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
@@ -236,7 +264,7 @@ body {
 }
 .chat-options label input { accent-color: #e9c46a; }
 #chat-messages { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
-.chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
+.chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
 .chat-msg.user { background: #0f3460; color: #eee; align-self: flex-end; border-bottom-right-radius: 2px; }
 .chat-msg.assistant { background: #2a2a3e; color: #ccc; align-self: flex-start; border-bottom-left-radius: 2px; }
 .chat-msg pre { background: #111; padding: 6px 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
@@ -247,11 +275,13 @@ body {
 .chat-msg .chat-actions .btn-accept { background: #2ecc71; color: #fff; }
 .chat-msg .chat-actions .btn-revert { background: #e94560; color: #fff; }
 .chat-input-area {
-  padding: 10px 14px; border-top: 1px solid #0f3460; display: flex; gap: 6px; flex-shrink: 0;
+  padding: 10px 14px; border-top: 1px solid #0f3460; display: flex; gap: 6px; flex-shrink: 0; align-items: flex-start;
 }
-.chat-input-area input {
+.chat-input-area textarea {
   flex: 1; background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
-  padding: 6px 10px; border-radius: 4px; font-size: 13px;
+  padding: 6px 10px; border-radius: 4px; font-size: 13px; resize: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word;
 }
 .chat-input-area button {
   background: #e94560; color: #fff; border: none; padding: 6px 14px;
@@ -314,13 +344,14 @@ body {
     <div class="menu-item" id="menu-tools">
       <span>Tools</span>
       <div class="menu-dropdown">
-        <div class="md-item" id="md-slide">Slide Mode</div>
+        <div class="md-item checked" id="md-autocomplete">Autocomplete</div>
         <div class="md-item" id="md-real-asy">Use Real Asymptote</div>
         <div class="md-separator"></div>
         <div class="md-item" id="md-texer-import">Import from TeXeR...</div>
       </div>
     </div>
   </div>
+  <button id="btn-slide" title="Toggle slide mode (drag free points)">Slide</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
@@ -331,6 +362,9 @@ body {
 
 <div id="main">
   <div id="editor-panel">
+    <div id="editor-controls">
+      <button class="editor-ctrl-btn" id="btn-copy-code" title="Copy code to clipboard">Copy</button>
+    </div>
     <textarea id="code-editor">[asy]
 import geometry;
 unitsize(2.0 cm);
@@ -360,10 +394,20 @@ label("$C$", C, N);
   <div id="resizer"></div>
   <div id="preview-panel">
     <div id="preview-container">
+      <div class="canvas-controls canvas-controls-tl">
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-in" title="Zoom in">+</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-out" title="Zoom out">&#x2212;</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
+      </div>
+      <div class="canvas-controls canvas-controls-tr">
+        <button class="canvas-ctrl-btn" id="btn-canvas-copy" title="Copy image to clipboard">Copy</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-shrink" title="Shrink to fit">Fit</button>
+      </div>
       <div class="placeholder">Loading...</div>
       <div id="preview-stale-badge">not live; showing last render</div>
       <div id="preview-warn-badge"></div>
       <button id="clear-selection-btn">&#x2715; Clear selection</button>
+      <div id="canvas-pan-overlay" class="pan-inactive"></div>
     </div>
   </div>
   <div id="chat-resizer"></div>
@@ -380,7 +424,7 @@ label("$C$", C, N);
     </div>
     <div id="chat-messages"></div>
     <div class="chat-input-area">
-      <input type="text" id="chat-input" placeholder="Ask about your code...">
+      <textarea id="chat-input" rows="8" placeholder="Ask about your code..."></textarea>
       <button id="chat-send-btn">Send</button>
     </div>
   </div>
@@ -1670,6 +1714,7 @@ async function doRender() {
       if (placeholder) placeholder.remove();
       previewEl.insertAdjacentHTML('afterbegin', result.svg);
       showStaleBadge(false);
+      applyCanvasTransform();
       // Show warnings
       const warns = [];
       if (result.warnings && result.warnings.includes('auto-scaled')) {
@@ -1737,6 +1782,7 @@ async function doRender() {
       previewEl.insertAdjacentHTML('afterbegin', data.svg);
       showStaleBadge(false);
       showWarnBadge('');
+      applyCanvasTransform();
       setupSvgInteractivity(code);
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
@@ -2476,6 +2522,199 @@ function initResizer() {
 }
 
 // ============================================================
+// Canvas Pan / Visual Zoom / Copy
+// ============================================================
+let canvasZoom = 1.0;
+let canvasPanX = 0, canvasPanY = 0;
+let canvasPanDrag = null; // { startX, startY, startPanX, startPanY }
+
+function applyCanvasTransform() {
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+  if (canvasZoom === 1.0 && canvasPanX === 0 && canvasPanY === 0) {
+    // Default view: remove inline overrides and let CSS handle max-width/max-height
+    svg.style.transform = '';
+    svg.style.transformOrigin = '';
+    svg.style.maxWidth = '';
+    svg.style.maxHeight = '';
+  } else {
+    // Zoomed/panned: remove CSS size constraints, apply transform
+    svg.style.maxWidth = 'none';
+    svg.style.maxHeight = 'none';
+    svg.style.transformOrigin = 'center center';
+    svg.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasZoom})`;
+  }
+}
+
+function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); }
+function canvasZoomOut() { canvasZoom = Math.max(0.1, canvasZoom / 1.25); applyCanvasTransform(); }
+function canvasShrinkToFit() { canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; applyCanvasTransform(); }
+
+function initCanvasPan() {
+  const container = document.getElementById('preview-container');
+  if (!container) return;
+  let panPending = null; // pending pan start (not yet committed)
+
+  container.addEventListener('mousedown', (e) => {
+    // Ignore clicks on control buttons/overlays inside the container
+    if (e.target.closest('.canvas-controls') || e.target.closest('#clear-selection-btn') || e.target.closest('#canvas-pan-overlay')) return;
+
+    // Element placement: any click on canvas places the element
+    if (elementPlacementPending) {
+      handleElementPlacementClick(e);
+      return;
+    }
+    if (e.button !== 0 || window.hitexerSlideActive) return;
+    panPending = { startX: e.clientX, startY: e.clientY, startPanX: canvasPanX, startPanY: canvasPanY };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (panPending && !canvasPanDrag) {
+      const dist = Math.hypot(e.clientX - panPending.startX, e.clientY - panPending.startY);
+      if (dist > 4) {
+        canvasPanDrag = { ...panPending };
+        panPending = null;
+        container.style.cursor = 'grabbing';
+      }
+    }
+    if (canvasPanDrag) {
+      canvasPanX = canvasPanDrag.startPanX + (e.clientX - canvasPanDrag.startX);
+      canvasPanY = canvasPanDrag.startPanY + (e.clientY - canvasPanDrag.startY);
+      applyCanvasTransform();
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    panPending = null;
+    if (!canvasPanDrag) return;
+    canvasPanDrag = null;
+    container.style.cursor = '';
+  });
+}
+
+async function copyCanvasImage() {
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+  try {
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([svgData], { type: 'image/svg+xml' });
+    // Try to copy as PNG for broader compatibility
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
+    const vb = svg.getAttribute('viewBox');
+    let w = svg.getAttribute('width') || (vb ? vb.split(/[\s,]+/)[2] : 400);
+    let h = svg.getAttribute('height') || (vb ? vb.split(/[\s,]+/)[3] : 300);
+    const canvas = document.createElement('canvas');
+    canvas.width = parseFloat(w) * 2; canvas.height = parseFloat(h) * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(2, 2);
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    canvas.toBlob(async (pngBlob) => {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+        const btn = document.getElementById('btn-canvas-copy');
+        if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
+      } catch(err) { alert('Copy failed: ' + err.message); }
+    }, 'image/png');
+  } catch(err) { alert('Copy failed: ' + err.message); }
+}
+
+function copyEditorCode() {
+  const code = editor.getValue();
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.getElementById('btn-copy-code');
+    if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
+  }).catch(err => alert('Copy failed: ' + err.message));
+}
+
+// ============================================================
+// Autocomplete Toggle
+// ============================================================
+let autocompleteEnabled = true;
+
+function toggleAutocomplete() {
+  autocompleteEnabled = !autocompleteEnabled;
+  const md = document.getElementById('md-autocomplete');
+  if (md) md.classList.toggle('checked', autocompleteEnabled);
+}
+
+// ============================================================
+// Element Placement Mode
+// ============================================================
+let elementPlacementPending = null; // { label, template }
+
+function startElementPlacement(label, template) {
+  elementPlacementPending = { label, template };
+  const previewContainer = document.getElementById('preview-container');
+  previewContainer.classList.add('element-placement-active');
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = `Click canvas to place ${label} (Esc to cancel)`;
+  statusEl.style.color = '#e9c46a';
+  document.addEventListener('keydown', cancelElementPlacementOnEsc);
+}
+
+function cancelElementPlacement() {
+  elementPlacementPending = null;
+  const previewContainer = document.getElementById('preview-container');
+  previewContainer.classList.remove('element-placement-active');
+  document.removeEventListener('keydown', cancelElementPlacementOnEsc);
+}
+
+function cancelElementPlacementOnEsc(e) {
+  if (e.key === 'Escape') { cancelElementPlacement(); document.getElementById('status').textContent = 'Ready'; document.getElementById('status').style.color = '#888'; }
+}
+
+function handleElementPlacementClick(e) {
+  const { label } = elementPlacementPending;
+  const svg = document.querySelector('#preview-container svg');
+  let mx = 0, my = 0;
+  if (svg && lastRenderInfo) {
+    const screenCTM = svg.getScreenCTM();
+    if (screenCTM) {
+      const inv = screenCTM.inverse();
+      const svgX = inv.a * e.clientX + inv.c * e.clientY + inv.e;
+      const svgY = inv.b * e.clientX + inv.d * e.clientY + inv.f;
+      mx = lastRenderInfo.minX + svgX / lastRenderInfo.pxPerUnit;
+      my = lastRenderInfo.maxY - svgY / lastRenderInfo.pxPerUnit;
+    }
+  }
+  placeElementAtCoords(label, mx, my);
+  cancelElementPlacement();
+}
+
+function placeElementAtCoords(label, mx, my) {
+  const x = mx.toFixed(2).replace(/\.?0+$/, '') || '0';
+  const y = my.toFixed(2).replace(/\.?0+$/, '') || '0';
+  let code;
+  if (label === 'Point') {
+    code = `pair P = (${x}, ${y});\ndot(P);\nlabel("$P$", P, N);`;
+  } else if (label === 'Circle') {
+    code = `draw(circle((${x}, ${y}), 1));`;
+  } else if (label === 'Ellipse') {
+    code = `draw(ellipse((${x}, ${y}), 1.5, 1));`;
+  } else if (label === 'Rectangle') {
+    const x2 = (parseFloat(x) + 2).toFixed(2).replace(/\.?0+$/, '');
+    const y2 = (parseFloat(y) + 1.5).toFixed(2).replace(/\.?0+$/, '');
+    code = `draw(box((${x}, ${y}), (${x2}, ${y2})));`;
+  } else if (label === 'Triangle') {
+    const x1 = (parseFloat(x) - 1).toFixed(2).replace(/\.?0+$/, '');
+    const x2 = (parseFloat(x) + 1).toFixed(2).replace(/\.?0+$/, '');
+    const y3 = (parseFloat(y) + Math.sqrt(3)).toFixed(2).replace(/\.?0+$/, '');
+    code = `pair T1 = (${x1}, ${y});\npair T2 = (${x2}, ${y});\npair T3 = (${x}, ${y3});\ndraw(T1--T2--T3--cycle);`;
+  } else {
+    code = `// placed ${label} at (${x}, ${y})`;
+  }
+  const editorCode = editor.getValue();
+  const endTag = editorCode.lastIndexOf('[/asy]');
+  if (endTag >= 0) {
+    editor.setValue(editorCode.substring(0, endTag) + code + '\n' + editorCode.substring(endTag));
+  } else {
+    editor.setValue(editorCode + '\n' + code);
+  }
+  doRender();
+}
+
+// ============================================================
 // Menu Bar Dropdown Logic
 // ============================================================
 function initMenuBar() {
@@ -2542,9 +2781,21 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-colorblind').addEventListener('click', () => toggleColorBlind());
   document.getElementById('md-zoom-in').addEventListener('click', () => adjustScale(1.25));
   document.getElementById('md-zoom-out').addEventListener('click', () => adjustScale(0.8));
-  document.getElementById('md-slide').addEventListener('click', () => toggleSlideMode());
+  document.getElementById('md-autocomplete').addEventListener('click', () => toggleAutocomplete());
   document.getElementById('md-texer-import').addEventListener('click', () => doTexerImport());
   document.getElementById('md-real-asy').addEventListener('click', () => toggleRealAsy());
+  // Toolbar Slide button
+  document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
+  // Canvas controls
+  document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
+  document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
+  document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
+  document.getElementById('btn-canvas-copy').addEventListener('click', () => copyCanvasImage());
+  document.getElementById('btn-canvas-shrink').addEventListener('click', () => canvasShrinkToFit());
+  // Editor copy button
+  document.getElementById('btn-copy-code').addEventListener('click', () => copyEditorCode());
+  // Init canvas pan
+  initCanvasPan();
   document.getElementById('md-save').addEventListener('click', () => doSaveAsy());
   document.getElementById('md-open').addEventListener('click', () => document.getElementById('file-open-input').click());
   document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
@@ -2795,6 +3046,8 @@ document.addEventListener('DOMContentLoaded', () => {
     gridActive = !gridActive;
     const gridMd = document.getElementById('md-grid');
     if (gridMd) gridMd.classList.toggle('checked', gridActive);
+    const gridCanvasBtn = document.getElementById('btn-canvas-grid');
+    if (gridCanvasBtn) gridCanvasBtn.classList.toggle('active', gridActive);
     if (gridActive) applyGridOverlay();
     else removeGridOverlay();
   }
@@ -2828,11 +3081,15 @@ document.addEventListener('DOMContentLoaded', () => {
     { icon: '\u22A5', label: 'Right angle mark', code: 'draw(rightanglemark({A}, {vertex}, {B}));' },
   ];
 
+  // Labels that support click-to-place on the canvas
+  const PLACEABLE_ELEMENTS = new Set(['Point', 'Circle', 'Ellipse', 'Rectangle', 'Triangle']);
+
   function showAddElementMenu(e) {
     if (addElMenu.style.display === 'block') { addElMenu.style.display = 'none'; return; }
     let html = '<div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:6px;">Add Element</div>';
     for (const t of ELEMENT_TEMPLATES) {
-      html += `<div class="ae-item" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}</div>`;
+      const hint = PLACEABLE_ELEMENTS.has(t.label) ? ' <span style="font-size:10px;color:#888;">(click canvas)</span>' : '';
+      html += `<div class="ae-item" data-label="${escapeHtml(t.label)}" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}${hint}</div>`;
     }
     addElMenu.innerHTML = html;
     const rect = (e && e.target) ? e.target.getBoundingClientRect() : { left: 200, bottom: 40 };
@@ -2842,28 +3099,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     addElMenu.querySelectorAll('.ae-item').forEach(item => {
       item.addEventListener('click', () => {
+        const label = item.dataset.label;
         const template = item.dataset.code;
-        // Find placeholders and prompt user for values
-        const placeholders = [...new Set(template.match(/\{[^}]+\}/g) || [])];
-        let code = template;
-        for (const ph of placeholders) {
-          const name = ph.slice(1, -1);
-          const val = prompt(`Enter value for ${name}:`, name === 'x' || name === 'y' ? '0' : name.includes('radius') ? '1' : name);
-          if (val === null) return; // cancelled
-          code = code.split(ph).join(val);
-        }
-        // Insert before [/asy]
-        const editorCode = editor.getValue();
-        const endTag = editorCode.lastIndexOf('[/asy]');
-        if (endTag >= 0) {
-          const before = editorCode.substring(0, endTag);
-          const after = editorCode.substring(endTag);
-          editor.setValue(before + code + '\n' + after);
-        } else {
-          editor.setValue(editorCode + '\n' + code);
-        }
         addElMenu.style.display = 'none';
-        doRender();
+
+        if (PLACEABLE_ELEMENTS.has(label)) {
+          // Enter placement mode — user clicks canvas to set position
+          startElementPlacement(label, template);
+        } else {
+          // Other elements: prompt for each placeholder
+          const placeholders = [...new Set(template.match(/\{[^}]+\}/g) || [])];
+          let code = template;
+          for (const ph of placeholders) {
+            const name = ph.slice(1, -1);
+            const val = prompt(`Enter value for ${name}:`, name === 'x' || name === 'y' ? '0' : name.includes('radius') ? '1' : name);
+            if (val === null) return;
+            code = code.split(ph).join(val);
+          }
+          const editorCode = editor.getValue();
+          const endTag = editorCode.lastIndexOf('[/asy]');
+          if (endTag >= 0) {
+            editor.setValue(editorCode.substring(0, endTag) + code + '\n' + editorCode.substring(endTag));
+          } else {
+            editor.setValue(editorCode + '\n' + code);
+          }
+          doRender();
+        }
       });
     });
   }
@@ -2889,8 +3150,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function toggleSlideMode() {
     slideActive = !slideActive;
     window.hitexerSlideActive = slideActive;
-    const slideMd = document.getElementById('md-slide');
-    if (slideMd) slideMd.classList.toggle('checked', slideActive);
+    const btnSlide = document.getElementById('btn-slide');
+    if (btnSlide) btnSlide.classList.toggle('active', slideActive);
     if (slideActive) activateSlideMode();
     else deactivateSlideMode();
   }
@@ -3145,6 +3406,13 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // If a drag is in progress, reconnect slideDragState.fp to the newly rebuilt entry
+    if (slideDragState) {
+      const oldFp = slideDragState.fp;
+      const newFp = slideFreePointData.find(fp => fp.lineIdx === oldFp.lineIdx);
+      if (newFp) slideDragState.fp = newFp;
+    }
+
     // Set up drag handling on the SVG (remove first to avoid duplicates on re-overlay)
     svg.removeEventListener('mousedown', slideMouseDown);
     window.removeEventListener('mousemove', slideMouseMove);
@@ -3256,6 +3524,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     slideDragState = {
       fp: bestFP,
+      startX: bestFP.x,  // math coords at drag start — stable across re-renders
+      startY: bestFP.y,
       startClientX: e.clientX,
       startClientY: e.clientY,
       screenPxPerMathUnit,
@@ -3269,13 +3539,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function slideMouseMove(e) {
     if (!slideDragState) return;
     e.preventDefault();
-    const { fp, startClientX, startClientY, screenPxPerMathUnit } = slideDragState;
+    const { fp, startX, startY, startClientX, startClientY, screenPxPerMathUnit } = slideDragState;
 
-    // Compute math-coordinate delta from stable screen-pixel delta
+    // Compute math-coordinate delta from stable screen-pixel delta.
+    // Use startX/startY (captured at drag start) not fp.x/fp.y which get updated
+    // by applySlideOverlay's reconnect logic on each re-render.
     const dx = (e.clientX - startClientX) / screenPxPerMathUnit;
     const dy = -(e.clientY - startClientY) / screenPxPerMathUnit; // screen Y is inverted
-    const newX = (fp.x + dx).toFixed(2).replace(/\.?0+$/, '');
-    const newY = (fp.y + dy).toFixed(2).replace(/\.?0+$/, '');
+    const newX = (startX + dx).toFixed(2).replace(/\.?0+$/, '');
+    const newY = (startY + dy).toFixed(2).replace(/\.?0+$/, '');
 
     const code = editor.getValue();
     const lines = code.split('\n');
@@ -3306,6 +3578,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
         // Re-apply slide overlay on the new SVG
         applySlideOverlay();
         return;
@@ -3348,6 +3622,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
         setupSvgInteractivityDirect(code, result.commandMap);
         if (slideActive) applySlideOverlay();
         return;
@@ -3372,7 +3648,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editor.setValue(newCode);
     suppressAutoRender = false;
 
-    // Try JS interpreter for instant response (don't rebuild slider overlay — it kills drag)
+    // Try JS interpreter for instant response
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
       try {
         const previewEl = document.getElementById('preview-container');
@@ -3382,7 +3658,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         setupSvgInteractivityDirect(newCode, result.commandMap);
+        applyCanvasTransform();
+        if (slideActive) applySlideOverlay();
         return;
       } catch(e) { /* fall through to server */ }
     }
@@ -3835,7 +4114,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   chatCloseBtn.addEventListener('click', toggleChatPanel);
   chatSendBtn.addEventListener('click', sendChatMessage);
-  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
 
   // Chat resizer
   (function() {
@@ -4081,8 +4362,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   asyHint.async = true;
 
-  // Auto-trigger on typing 2+ chars
+  // Auto-trigger on typing 2+ chars (gated by autocompleteEnabled)
   editor.on('inputRead', (cm, change) => {
+    if (!autocompleteEnabled) return;
     if (change.origin !== '+input') return;
     const token = cm.getTokenAt(cm.getCursor());
     if (token.string.length >= 2 && /^[A-Za-z_]/.test(token.string)) {
