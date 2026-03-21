@@ -201,6 +201,10 @@ body {
 .slide-hit-circle { cursor: grab !important; }
 .slide-hit-circle:active { cursor: grabbing !important; }
 
+/* GIF mode */
+#gif-panel input:focus, #gif-panel select:focus { outline: 1px solid #e9c46a; outline-offset: 0; }
+.gif-generating { pointer-events: none; opacity: 0.6; }
+
 /* Add element menu items */
 #add-element-menu .ae-item {
   padding: 6px 12px; cursor: pointer; border-radius: 4px; font-size: 13px; color: #ccc;
@@ -352,6 +356,7 @@ body {
     </div>
   </div>
   <button id="btn-slide" title="Toggle slide mode (drag free points)">Slide</button>
+  <button id="btn-gif" title="Toggle GIF mode">GIF</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
@@ -408,6 +413,23 @@ label("$C$", C, N);
       <div id="preview-warn-badge"></div>
       <button id="clear-selection-btn">&#x2715; Clear selection</button>
       <div id="canvas-pan-overlay" class="pan-inactive"></div>
+      <!-- GIF Mode Control Panel -->
+      <div id="gif-panel" style="display:none;position:absolute;top:0;left:0;right:0;background:rgba(30,30,46,0.95);border-bottom:2px solid #e9c46a;padding:8px 16px;z-index:5000;font-size:12px;color:#ccc;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="color:#e9c46a;font-weight:600;">GIF Mode</span>
+          <label>Var: <select id="gif-var-select" style="background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;"></select></label>
+          <label>Start: <input id="gif-start" type="text" value="0" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>End: <input id="gif-end" type="text" value="1" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>Width: <input id="gif-width" type="text" value="true" title="'true' = natural size, or pixels e.g. 400" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>Duration: <input id="gif-duration" type="text" value="3s" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>Delay: <input id="gif-delay" type="number" value="5" min="1" max="100" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">x0.01s</span></label>
+          <label>Loop: <input id="gif-loop" type="number" value="0" min="0" style="width:36px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">0=inf</span></label>
+          <label style="cursor:pointer;"><input type="checkbox" id="gif-transparent" style="accent-color:#e9c46a;"> Transparent</label>
+          <button id="gif-save-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Save GIF</button>
+          <button id="gif-copy-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Copy GIF</button>
+          <span id="gif-progress" style="color:#e9c46a;font-size:11px;"></span>
+        </div>
+      </div>
     </div>
   </div>
   <div id="chat-resizer"></div>
@@ -482,6 +504,7 @@ label("$C$", C, N);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/lint/lint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
 <script>
 'use strict';
 
@@ -1579,6 +1602,7 @@ function highlightLines(primaryLine, depLines) {
   clearHighlights();
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   if (window.hitexerSlideActive) return;
+  if (window.hitexerGifActive) return;
   for (const lineIdx of depLines) {
     if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
     highlightMarks.push(editor.markText(
@@ -1953,6 +1977,7 @@ function ensureGlowFilter(svg) {
 function highlightSvgElement(el, intensity) {
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   if (window.hitexerSlideActive) return;
+  if (window.hitexerGifActive) return;
   const svg = el.closest('svg');
   ensureGlowFilter(svg);
   const isSelect = intensity === 'select';
@@ -2786,6 +2811,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-real-asy').addEventListener('click', () => toggleRealAsy());
   // Toolbar Slide button
   document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
+  // Toolbar GIF button
+  document.getElementById('btn-gif').addEventListener('click', () => toggleGifMode());
+  document.getElementById('gif-save-btn').addEventListener('click', () => generateGif('save'));
+  document.getElementById('gif-copy-btn').addEventListener('click', () => generateGif('copy'));
   // Canvas controls
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
@@ -2980,6 +3009,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (texerLoadedUrl) updateTexerModifiedIndicator();
     // Don't schedule auto-render during slide drag/slider — those handlers render directly
     if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
+    // Re-sync GIF mode variable when code changes externally
+    if (gifActive && gifSelectedVar && !suppressAutoRender) {
+      const code = editor.getValue();
+      const freeReals = findFreeReals(code);
+      const match = freeReals.find(fr => fr.varName === gifSelectedVar.varName);
+      if (match) {
+        gifSelectedVar.lineIdx = match.lineIdx;
+      } else {
+        // Variable disappeared — deactivate GIF mode
+        deactivateGifMode();
+      }
+    }
   });
 
   // ============================================================
@@ -3148,6 +3189,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let slidePxPerUnit = 28.35;
 
   function toggleSlideMode() {
+    // Mutual exclusion: deactivate GIF mode if active
+    if (gifActive) deactivateGifMode();
     slideActive = !slideActive;
     window.hitexerSlideActive = slideActive;
     const btnSlide = document.getElementById('btn-slide');
@@ -3670,6 +3713,430 @@ document.addEventListener('DOMContentLoaded', () => {
     doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
+  }
+
+  // ============================================================
+  // Feature: GIF Mode
+  // ============================================================
+  let gifActive = false;
+  window.hitexerGifActive = false;
+  let gifPreviewAnimId = null;
+  let gifWorkerBlobUrl = null; // cached blob URL for gif.js worker (avoids CORS)
+  let gifSelectedVar = null;   // { lineIdx, varName, value }
+  let gifPreviewBounds = null; // {minX, minY, maxX, maxY, ppu} — stable bounds for preview
+  let gifOriginalValue = null; // original value of the variable before GIF preview
+
+  function toggleGifMode() {
+    if (gifActive) deactivateGifMode();
+    else activateGifMode();
+  }
+
+  function activateGifMode() {
+    const code = editor.getValue();
+    const freeReals = findFreeReals(code);
+    if (freeReals.length === 0) {
+      alert('No free real variables found. Add a line like: real t = 0.5;');
+      return;
+    }
+    // Deactivate slide mode if active
+    if (slideActive) {
+      slideActive = false;
+      window.hitexerSlideActive = false;
+      const btnSlide = document.getElementById('btn-slide');
+      if (btnSlide) btnSlide.classList.toggle('active', false);
+      deactivateSlideMode();
+    }
+    gifActive = true;
+    window.hitexerGifActive = true;
+    const btnGif = document.getElementById('btn-gif');
+    if (btnGif) btnGif.classList.toggle('active', true);
+
+    // Populate dropdown
+    const sel = document.getElementById('gif-var-select');
+    sel.innerHTML = '';
+    for (const fr of freeReals) {
+      const opt = document.createElement('option');
+      opt.value = fr.varName;
+      opt.textContent = fr.varName;
+      opt.dataset.lineIdx = fr.lineIdx;
+      opt.dataset.initValue = fr.value;
+      sel.appendChild(opt);
+    }
+    gifSelectVariable();
+    sel.onchange = gifSelectVariable;
+
+    document.getElementById('gif-panel').style.display = 'block';
+    gifStartPreview();
+  }
+
+  function gifSelectVariable() {
+    const sel = document.getElementById('gif-var-select');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    const initVal = parseFloat(opt.dataset.initValue);
+    gifSelectedVar = { lineIdx: parseInt(opt.dataset.lineIdx), varName: opt.value, value: initVal };
+    gifOriginalValue = initVal;
+    // Set default end value: init value if non-zero, else 1
+    document.getElementById('gif-end').value = (initVal === 0) ? '1' : String(initVal);
+    document.getElementById('gif-start').value = '0';
+    // Restart preview with new variable
+    gifStartPreview();
+  }
+
+  function gifParseDuration(str) {
+    str = str.trim().toLowerCase();
+    const msMatch = str.match(/^([\d.]+)\s*ms$/);
+    if (msMatch) return Math.max(100, parseFloat(msMatch[1]));
+    const sMatch = str.match(/^([\d.]+)\s*s?$/);
+    if (sMatch) return Math.max(100, parseFloat(sMatch[1]) * 1000);
+    return 3000; // default
+  }
+
+  // Pre-compute stable bounds by sampling the variable range
+  function gifComputePreviewBounds() {
+    gifPreviewBounds = null;
+    if (!gifSelectedVar) return;
+    const code = editor.getValue();
+    const lineIdx = gifSelectedVar.lineIdx;
+    const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
+    const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
+    // Sample several values to find the full extent of the drawing
+    const samples = 10;
+    let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+    let ppu = null;
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const val = startVal + (endVal - startVal) * t;
+      const framelines = code.split('\n');
+      framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${val};`);
+      const frameCode = framelines.join('\n');
+      if (!window.AsyInterp || !AsyInterp.canInterpret(frameCode)) continue;
+      try {
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(frameCode, { containerW: dims.w, containerH: dims.h });
+        bMinX = Math.min(bMinX, result.minX);
+        bMinY = Math.min(bMinY, result.minY);
+        bMaxX = Math.max(bMaxX, result.maxX);
+        bMaxY = Math.max(bMaxY, result.maxY);
+        if (ppu === null) ppu = result.pxPerUnit;
+      } catch(e) { /* skip */ }
+    }
+    if (ppu !== null && isFinite(bMinX)) {
+      gifPreviewBounds = { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY, ppu };
+    }
+  }
+
+  // Apply stable viewBox to an SVG element based on gifPreviewBounds and the frame's own bounds
+  function gifStabilizeSvg(svgEl, frameResult) {
+    if (!gifPreviewBounds || !frameResult) return;
+    const { minX: uMinX, maxX: uMaxX, minY: uMinY, maxY: uMaxY, ppu } = gifPreviewBounds;
+    const unionVBW = (uMaxX - uMinX) * ppu;
+    const unionVBH = (uMaxY - uMinY) * ppu;
+    // The frame's SVG content is positioned so that math point (frame.minX, frame.maxY) is at SVG (0,0).
+    // In the union coordinate system, that point should be at SVG ((frame.minX - uMinX)*ppu, (uMaxY - frame.maxY)*ppu).
+    const dx = (frameResult.minX - uMinX) * ppu;
+    const dy = (uMaxY - frameResult.maxY) * ppu;
+    // Wrap all existing children in a <g> with the offset
+    const ns = 'http://www.w3.org/2000/svg';
+    const g = document.createElementNS(ns, 'g');
+    g.setAttribute('transform', `translate(${dx},${dy})`);
+    while (svgEl.firstChild) g.appendChild(svgEl.firstChild);
+    svgEl.appendChild(g);
+    // Set the union viewBox
+    svgEl.setAttribute('viewBox', `0 0 ${unionVBW} ${unionVBH}`);
+  }
+
+  function gifStartPreview() {
+    if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+    if (!gifActive || !gifSelectedVar) return;
+    // Pre-compute stable bounds from sampled frames
+    gifComputePreviewBounds();
+    // Step through discrete frames at the specified delay to match actual GIF output.
+    // Uses recursive setTimeout so the delay is read fresh each tick.
+    let frameIndex = 0;
+    function stepFrame() {
+      if (!gifActive || !gifSelectedVar) { gifPreviewAnimId = null; return; }
+      const durationMs = gifParseDuration(document.getElementById('gif-duration').value);
+      const delayInput = parseInt(document.getElementById('gif-delay').value) || 5;
+      const frameDelay = Math.max(1, delayInput) * 10; // ms
+      const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
+      const t = totalFrames === 1 ? 0 : (frameIndex % totalFrames) / (totalFrames - 1);
+      const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
+      const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
+      const value = startVal + (endVal - startVal) * t;
+      gifUpdateVariable(value);
+      frameIndex++;
+      gifPreviewAnimId = setTimeout(stepFrame, frameDelay);
+    }
+    stepFrame();
+  }
+
+  function gifUpdateVariable(value) {
+    if (!gifSelectedVar) return;
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    const lineIdx = gifSelectedVar.lineIdx;
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    // Replace the value in the real declaration
+    const newLine = lines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
+    if (newLine === lines[lineIdx]) return; // no change
+    lines[lineIdx] = newLine;
+    const newCode = lines.join('\n');
+    const cursor = editor.getCursor();
+    const scrollInfo = editor.getScrollInfo();
+    suppressAutoRender = true;
+    editor.setValue(newCode);
+    editor.setCursor(cursor);
+    editor.scrollTo(scrollInfo.left, scrollInfo.top);
+    suppressAutoRender = false;
+    if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
+
+    // Use JS interpreter for instant render
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        // Stabilize the SVG so fixed-coordinate elements don't move
+        const newSvg = previewEl.querySelector('svg');
+        if (newSvg && gifPreviewBounds) gifStabilizeSvg(newSvg, result);
+        showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
+      } catch(e) { /* ignore render errors during preview */ }
+    }
+  }
+
+  function deactivateGifMode() {
+    if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+    gifPreviewBounds = null;
+
+    // Restore original variable value
+    if (gifSelectedVar && gifOriginalValue !== null) {
+      gifUpdateVariable(gifOriginalValue);
+    }
+
+    gifActive = false;
+    window.hitexerGifActive = false;
+    gifSelectedVar = null;
+    gifOriginalValue = null;
+    const btnGif = document.getElementById('btn-gif');
+    if (btnGif) btnGif.classList.toggle('active', false);
+    document.getElementById('gif-panel').style.display = 'none';
+    document.getElementById('gif-progress').textContent = '';
+  }
+
+  async function generateGif(action) {
+    if (!gifSelectedVar) return;
+    if (typeof GIF === 'undefined') {
+      alert('gif.js library not loaded. Check your internet connection.');
+      return;
+    }
+
+    // Fetch and cache the gif.js worker script as a blob URL to avoid CORS issues
+    if (!gifWorkerBlobUrl) {
+      try {
+        const resp = await fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js');
+        const text = await resp.text();
+        const blob = new Blob([text], { type: 'application/javascript' });
+        gifWorkerBlobUrl = URL.createObjectURL(blob);
+      } catch(e) {
+        alert('Failed to load gif.js worker script. Check your internet connection.');
+        return;
+      }
+    }
+
+    const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
+    const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
+    const durationMs = gifParseDuration(document.getElementById('gif-duration').value);
+    const delayInput = parseInt(document.getElementById('gif-delay').value) || 5;
+    const frameDelay = Math.max(1, delayInput) * 10; // convert to ms
+    const loopCount = parseInt(document.getElementById('gif-loop').value) || 0;
+    const transparent = document.getElementById('gif-transparent').checked;
+    const widthStr = document.getElementById('gif-width').value.trim().toLowerCase();
+    const progressEl = document.getElementById('gif-progress');
+
+    const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
+    if (totalFrames > 500) {
+      if (!confirm(`This will generate ${totalFrames} frames. Continue?`)) return;
+    }
+
+    // Pause preview animation during generation
+    if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+    document.getElementById('gif-panel').classList.add('gif-generating');
+    progressEl.textContent = 'Rendering frames...';
+
+    try {
+      const code = editor.getValue();
+      const lineIdx = gifSelectedVar.lineIdx;
+
+      function renderFrame(value) {
+        const framelines = code.split('\n');
+        framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
+        const frameCode = framelines.join('\n');
+        if (window.AsyInterp && AsyInterp.canInterpret(frameCode)) {
+          const dims = getPreviewDimensions();
+          return AsyInterp.render(frameCode, { containerW: dims.w, containerH: dims.h });
+        }
+        return null;
+      }
+
+      // Test that the renderer works
+      const testResult = renderFrame(startVal);
+      if (!testResult) {
+        alert('Cannot render with JS interpreter. GIF mode requires the built-in renderer.');
+        document.getElementById('gif-panel').classList.remove('gif-generating');
+        gifStartPreview();
+        return;
+      }
+
+      // Pass 1: render all frames, collect results and compute union math bounds
+      progressEl.textContent = 'Pass 1: computing bounds...';
+      const frameResults = [];
+      let uMinX = Infinity, uMinY = Infinity, uMaxX = -Infinity, uMaxY = -Infinity;
+      let ppu = null;
+      for (let i = 0; i < totalFrames; i++) {
+        const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+        const value = startVal + (endVal - startVal) * t;
+        const result = renderFrame(value);
+        if (!result) continue;
+        // Accumulate union of math-coordinate bounds
+        uMinX = Math.min(uMinX, result.minX);
+        uMinY = Math.min(uMinY, result.minY);
+        uMaxX = Math.max(uMaxX, result.maxX);
+        uMaxY = Math.max(uMaxY, result.maxY);
+        if (ppu === null) ppu = result.pxPerUnit;
+        frameResults.push(result);
+        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+
+      if (frameResults.length === 0 || ppu === null) {
+        alert('No frames could be rendered.');
+        document.getElementById('gif-panel').classList.remove('gif-generating');
+        gifStartPreview();
+        return;
+      }
+
+      // Store union bounds for gifStabilizeSvg
+      const gifBounds = { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY, ppu };
+
+      // Union viewBox dimensions (in SVG/pixel units)
+      const natW = (uMaxX - uMinX) * ppu;
+      const natH = (uMaxY - uMinY) * ppu;
+
+      // Compute actual output dimensions
+      let outW, outH;
+      if (widthStr === 'true' || widthStr === '' || widthStr === 'auto') {
+        outW = Math.round(natW);
+        outH = Math.round(natH);
+      } else {
+        const wPx = parseInt(widthStr);
+        if (wPx > 0) {
+          outW = wPx;
+          outH = Math.round(natH * (wPx / natW));
+        } else {
+          outW = Math.round(natW);
+          outH = Math.round(natH);
+        }
+      }
+      // Safety floors
+      outW = Math.max(10, outW);
+      outH = Math.max(10, outH);
+
+      const gif = new GIF({
+        workers: 2,
+        quality: 10,
+        width: outW,
+        height: outH,
+        workerScript: gifWorkerBlobUrl,
+        repeat: loopCount,
+        transparent: transparent ? 0x00000000 : null,
+      });
+
+      // Pass 2: rasterize each frame with stable coordinate system
+      const savedBounds = gifPreviewBounds;
+      gifPreviewBounds = gifBounds; // temporarily use GIF bounds for stabilization
+      for (let i = 0; i < frameResults.length; i++) {
+        const result = frameResults[i];
+        const frameDiv = document.createElement('div');
+        frameDiv.innerHTML = result.svg;
+        const frameSvg = frameDiv.querySelector('svg');
+        if (!frameSvg) continue;
+
+        // Translate content into union coordinate system so fixed-coord elements stay put
+        gifStabilizeSvg(frameSvg, result);
+        frameSvg.setAttribute('width', outW);
+        frameSvg.setAttribute('height', outH);
+        // Remove overlays
+        frameSvg.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+
+        // If not transparent, add white background rect
+        if (!transparent) {
+          const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          bgRect.setAttribute('width', '100%');
+          bgRect.setAttribute('height', '100%');
+          bgRect.setAttribute('fill', 'white');
+          frameSvg.insertBefore(bgRect, frameSvg.firstChild);
+        }
+
+        try {
+          const canvas = await svgToCanvas(frameSvg, 1);
+          gif.addFrame(canvas, { delay: frameDelay, copy: true });
+        } catch(e) {
+          console.warn('GIF frame render failed:', e);
+        }
+
+        progressEl.textContent = `Rendering frame ${i + 1}/${frameResults.length}...`;
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      gifPreviewBounds = savedBounds; // restore
+      progressEl.textContent = 'Encoding GIF...';
+
+      const blob = await new Promise((resolve, reject) => {
+        gif.on('finished', resolve);
+        gif.on('error', reject);
+        gif.render();
+      });
+
+      if (action === 'copy') {
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/gif': blob })
+          ]);
+          progressEl.textContent = 'Copied to clipboard!';
+        } catch(e) {
+          // Fallback to download
+          console.warn('Clipboard write failed, downloading instead:', e);
+          downloadBlob(blob, 'animation.gif');
+          progressEl.textContent = 'Clipboard failed; downloaded instead.';
+        }
+      } else {
+        downloadBlob(blob, 'animation.gif');
+        progressEl.textContent = 'Saved!';
+      }
+    } catch(err) {
+      console.error('GIF generation failed:', err);
+      progressEl.textContent = 'Error: ' + err.message;
+    } finally {
+      document.getElementById('gif-panel').classList.remove('gif-generating');
+      // Restore original value and restart preview
+      if (gifActive && gifSelectedVar && gifOriginalValue !== null) {
+        gifUpdateVariable(gifOriginalValue);
+        gifStartPreview();
+      }
+    }
+  }
+
+  function downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   // ============================================================
