@@ -2421,18 +2421,28 @@ function createInterpreter() {
     });
 
     env.set('arc', (...args) => {
-      if (args.length >= 4) {
-        // arc(center, radius, startAngle, endAngle)
+      // Asymptote: arc(center, radius, angle1, angle2, direction=CCW)
+      // Default direction is CCW (counterclockwise).
+      // CCW: normalize so angle2 > angle1 (positive sweep)
+      // CW:  normalize so angle2 < angle1 (negative sweep)
+      if (args.length >= 4 && !isPair(args[1])) {
         const c = toPair(args[0]);
-        return makeArcPath(c, toNumber(args[1]), toNumber(args[2]), toNumber(args[3]));
+        let a1 = toNumber(args[2]), a2 = toNumber(args[3]);
+        const ccw = args.length >= 5 ? !!args[4] : true;
+        if (ccw) { while (a2 < a1) a2 += 360; }
+        else     { while (a2 > a1) a2 -= 360; }
+        return makeArcPath(c, toNumber(args[1]), a1, a2);
       }
       if (args.length >= 3 && isPair(args[1])) {
         // arc(center, point1, point2) — arc from p1 to p2 around center
         const c = toPair(args[0]);
         const p1 = toPair(args[1]), p2 = toPair(args[2]);
         const r = Math.sqrt((p1.x-c.x)*(p1.x-c.x) + (p1.y-c.y)*(p1.y-c.y));
-        const a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
-        const a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
+        let a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
+        let a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
+        const ccw = args.length >= 4 ? !!args[3] : true;
+        if (ccw) { while (a2 < a1) a2 += 360; }
+        else     { while (a2 > a1) a2 -= 360; }
         return makeArcPath(c, r, a1, a2);
       }
       if (args.length >= 2) {
