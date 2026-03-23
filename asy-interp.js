@@ -4555,8 +4555,11 @@ function renderSVG(result, opts) {
       const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) / roughPxPerUnit;
       let dx = 0, dy = 0;
       if (dc.align) {
-        dx = dc.align.x * textHeightUser * 0.8;
-        dy = dc.align.y * textHeightUser * 0.8;
+        const ax = dc.align.x, ay = dc.align.y;
+        const halfW = textWidthUser / 2, halfH = textHeightUser / 2;
+        const extent = Math.abs(ax) * halfW + Math.abs(ay) * halfH;
+        dx = ax * extent;
+        dy = ay * extent;
       }
       // Expand bbox to include estimated text bounds
       const cx = pos.x + dx;
@@ -4812,12 +4815,15 @@ function renderSVG(result, opts) {
       let baseline = 'central';
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        // Horizontal alignment: shift and anchor
-        if (ax > 0.3) { anchor = 'start'; dx = fontSizeSVG * 0.3; }
-        else if (ax < -0.3) { anchor = 'end'; dx = -fontSizeSVG * 0.3; }
-        // Vertical alignment: shift (SVG y is inverted)
-        if (ay > 0.3) { dy = -fontSizeSVG * 0.6; }
-        else if (ay < -0.3) { dy = fontSizeSVG * 0.6; }
+        const cleanLen = stripLaTeX(dc.text || '').length || 1;
+        const halfW = cleanLen * fontSizeSVG * 0.26;
+        const halfH = fontSizeSVG * 0.5;
+        // In Asymptote, align points FROM anchor TOWARD the label center.
+        // dx = ax * halfExtent; dy uses -ay because SVG y is inverted.
+        const extent = Math.abs(ax) * halfW + Math.abs(ay) * halfH;
+        dx = ax * extent;
+        dy = -ay * extent;
+        anchor = 'middle';
       }
       const rawText = dc.text || '';
 
@@ -4862,8 +4868,9 @@ function renderSVG(result, opts) {
           // For W/E aligned rotated labels: the font height (which becomes the screen-space
           // "width" after rotation) needs to offset the center from the anchor.
           if (dc.align) {
-            if (dc.align.x < -0.3) dx -= effectiveFontSize * 0.5; // W: center left of anchor
-            else if (dc.align.x > 0.3) dx += effectiveFontSize * 0.5; // E: center right of anchor
+            // After rotation the text's visual width is its original height, so use halfH.
+            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5; // W: center left of anchor by halfH
+            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5; // E: center right of anchor by halfH
           }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
           // With rotation, text-anchor must be 'middle' so the label is centered at the
