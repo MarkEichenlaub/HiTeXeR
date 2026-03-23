@@ -2357,7 +2357,7 @@ function createInterpreter() {
     env.set('sgn', (x) => Math.sign(toNumber(x)));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
     env.set('degrees', (x) => {
-      if (isPair(x)) return Math.atan2(x.y, x.x) * 180 / Math.PI;
+      if (isPair(x)) { const d = Math.atan2(x.y, x.x) * 180 / Math.PI; return d < 0 ? d + 360 : d; }
       return toNumber(x) * 180 / Math.PI;
     });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
