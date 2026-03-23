@@ -4556,10 +4556,12 @@ function renderSVG(result, opts) {
       let dx = 0, dy = 0;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        const halfW = textWidthUser / 2, halfH = textHeightUser / 2;
-        const extent = Math.abs(ax) * halfW + Math.abs(ay) * halfH;
-        dx = ax * extent;
-        dy = ay * extent;
+        const margin = 0.28 * fontSize / roughPxPerUnit;
+        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
+        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
+        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+        dx = ax_n * textWidthUser + ax * margin;
+        dy = ay_n * textHeightUser + ay * margin;   // Asymptote y-up, no inversion
       }
       // Expand bbox to include estimated text bounds
       const cx = pos.x + dx;
@@ -4814,15 +4816,20 @@ function renderSVG(result, opts) {
       let anchor = 'middle';
       let baseline = 'central';
       if (dc.align) {
+        // Asymptote algorithm (plain_Label.asy + drawlabel.cc):
+        //   S = position + align * labelmargin          (small margin push)
+        //   text center = S + (ax_n * W, ay_n * H)     (L∞-normalised box offset)
+        // where ax_n = ax * 0.5 / max(|ax|,|ay|), same for y.
         const ax = dc.align.x, ay = dc.align.y;
         const cleanLen = stripLaTeX(dc.text || '').length || 1;
-        const halfW = cleanLen * fontSizeSVG * 0.26;
-        const halfH = fontSizeSVG * 0.5;
-        // In Asymptote, align points FROM anchor TOWARD the label center.
-        // dx = ax * halfExtent; dy uses -ay because SVG y is inverted.
-        const extent = Math.abs(ax) * halfW + Math.abs(ay) * halfH;
-        dx = ax * extent;
-        dy = -ay * extent;
+        const W = cleanLen * fontSizeSVG * 0.52;
+        const H = fontSizeSVG;
+        const margin = 0.28 * fontSizeSVG;   // labelmargin = 0.28 * fontsize
+        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
+        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
+        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+        dx = ax_n * W + ax * margin;
+        dy = -(ay_n * H + ay * margin);   // negate: SVG y-axis is inverted
         anchor = 'middle';
       }
       const rawText = dc.text || '';
