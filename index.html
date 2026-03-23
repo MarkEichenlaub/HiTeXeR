@@ -2647,7 +2647,24 @@ async function copyCanvasImage() {
 }
 
 function copyEditorCode() {
-  const code = editor.getValue();
+  let code;
+  if (multiSelected.size === 0) {
+    code = editor.getValue();
+  } else {
+    const relevant = new Set();
+    for (const lineIdx of multiSelected) {
+      const ci = lineToCommandIdx.get(lineIdx);
+      if (ci !== undefined && currentMapping[ci]) {
+        relevant.add(currentMapping[ci].primaryLine);
+        for (const dl of currentMapping[ci].dependencyLines) relevant.add(dl);
+      }
+    }
+    const lines = [];
+    for (let i = 0; i < editor.lineCount(); i++) {
+      if (relevant.has(i)) lines.push(editor.getLine(i));
+    }
+    code = lines.join('\n');
+  }
   navigator.clipboard.writeText(code).then(() => {
     const btn = document.getElementById('btn-copy-code');
     if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
