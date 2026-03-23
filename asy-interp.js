@@ -2356,7 +2356,10 @@ function createInterpreter() {
     env.set('round', (x) => Math.round(toNumber(x)));
     env.set('sgn', (x) => Math.sign(toNumber(x)));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
-    env.set('degrees', (x) => toNumber(x) * 180 / Math.PI);
+    env.set('degrees', (x) => {
+      if (isPair(x)) return Math.atan2(x.y, x.x) * 180 / Math.PI;
+      return toNumber(x) * 180 / Math.PI;
+    });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
     env.set('Degrees', (x) => toNumber(x));  // already in degrees in Asymptote context
     env.set('Sin', (x) => Math.sin(toNumber(x)*Math.PI/180));
