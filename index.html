@@ -2343,8 +2343,10 @@ function setupSvgInteractivityDirect(code, commandMap) {
     }
   }
 
-  // Get SVG elements (same selector as setupSvgInteractivity)
-  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, use')]
+  // Get SVG elements in document order.  Must include foreignObject so that
+  // KaTeX-rendered labels (which produce <foreignObject>) occupy the same
+  // index positions as in the renderer's elements[] array / commandMap.
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, foreignObject, use')]
     .filter(el => !el.closest('defs'));
   const elementToCommand = new Map();
 

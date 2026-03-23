@@ -5540,19 +5540,21 @@ function patchASTNumbers(ast, oldToks, newToks) {
 
 // Feature detection: what can we interpret?
 function canInterpret(code) {
+  // Strip comments before checking so keywords in comments don't cause false positives
+  const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   // Reject features we can't handle
-  if (/\bstruct\b/.test(code)) return false;
+  if (/\bstruct\b/.test(stripped)) return false;
   // 3D wireframe is supported; only block surface-heavy code
-  if (/\bsurface\s*\(/.test(code) || /\bsurface\s+\w/.test(code)) return false;
-  if (/\bimport\s+contour\b/.test(code)) return false;
-  if (/\bimport\s+flowchart\b/.test(code)) return false;
-  if (/\bimport\s+animation\b/.test(code)) return false;
-  if (/\bimport\s+trembling\b/.test(code)) return false;
-  if (/\bimport\s+palette\b/.test(code)) return false;
-  if (/\bfile\b/.test(code) && /\binput\b/.test(code)) return false;
-  if (/\bsettings\b/.test(code)) return false;
-  if (/\btexpath\b/.test(code)) return false;
-  if (/\bshipout\b/.test(code)) return false;
+  if (/\bsurface\s*\(/.test(stripped) || /\bsurface\s+\w/.test(stripped)) return false;
+  if (/\bimport\s+contour\b/.test(stripped)) return false;
+  if (/\bimport\s+flowchart\b/.test(stripped)) return false;
+  if (/\bimport\s+animation\b/.test(stripped)) return false;
+  if (/\bimport\s+trembling\b/.test(stripped)) return false;
+  if (/\bimport\s+palette\b/.test(stripped)) return false;
+  if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
+  if (/\bsettings\b/.test(stripped)) return false;
+  if (/\btexpath\b/.test(stripped)) return false;
+  if (/\bshipout\b/.test(stripped)) return false;
   // picture support is now implemented
   // Accept everything else
   return true;
