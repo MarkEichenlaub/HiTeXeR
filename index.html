@@ -569,31 +569,56 @@ const LINE_JOINS = [
 const AsyParser = {
   parse(code) {
     const lines = code.split('\n');
-    const drawCommands = [], assignments = [], imports = [];
+    const drawCommands = [], assignments = [], imports = [], funcDefs = [];
     const drawP = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
     const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
     const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
     const importP = /^\s*(import|access|from)\s+/;
     const sizeP = /^\s*(unitsize|size)\s*\(/;
     const commentP = /^\s*\/\//;
+    // Match user-defined function definitions by return type
+    const funcDefP = /^\s*(?:void|pair|path|real|int|bool|string|picture|transform|guide|pen)\s+([a-zA-Z_]\w*)\s*\(/;
 
     let braceDepth = 0;
+    const funcStack = []; // stack of {name, lineIndex, entryDepth}
+    let pendingFunc = null; // funcDef found but '{' not yet seen
+
     for (let i = 0; i < lines.length; i++) {
       const t = lines[i].trim();
       if (!t || commentP.test(t) || t === '[asy]' || t === '[/asy]') continue;
       const lineDepth = braceDepth;
-      // Track brace depth (simple count, ignoring strings/comments)
-      for (const ch of t) { if (ch==='{') braceDepth++; if (ch==='}') braceDepth--; }
+
+      // Detect function definition (must not be a draw command)
+      if (!drawP.test(t)) {
+        const fm = t.match(funcDefP);
+        if (fm) { pendingFunc = { name: fm[1], lineIndex: i }; funcDefs.push({ name: fm[1], lineIndex: i }); }
+      }
+
+      // Track brace depth; push/pop funcStack when entering/leaving function bodies
+      for (const ch of t) {
+        if (ch === '{') {
+          braceDepth++;
+          if (pendingFunc) { funcStack.push({ ...pendingFunc, entryDepth: braceDepth }); pendingFunc = null; }
+        } else if (ch === '}') {
+          braceDepth--;
+          if (funcStack.length > 0 && funcStack[funcStack.length - 1].entryDepth > braceDepth) funcStack.pop();
+        }
+      }
       if (braceDepth < 0) braceDepth = 0;
+
       if (importP.test(t)) { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
       if (sizeP.test(t))   { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
-      if (drawP.test(t))   { drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i),braceDepth:lineDepth}); continue; }
+      if (drawP.test(t)) {
+        const enclosingFunc = funcStack.length > 0 ? { ...funcStack[funcStack.length - 1] } : null;
+        drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i),braceDepth:lineDepth,enclosingFunc});
+        continue;
+      }
       const am = t.match(assignP);
       if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
       const mm = t.match(multiP);
       if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i]}); }
     }
-    return { drawCommands, assignments, imports, lines };
+    return { drawCommands, assignments, imports, funcDefs, lines };
   },
 
   extractVariables(lineText, allLines, lineIdx) {
@@ -616,7 +641,20 @@ const AsyParser = {
 
   buildMapping(code) {
     const parsed = this.parse(code), mapping = [];
-    for (const cmd of parsed.drawCommands) mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:this.findDependencies(cmd,parsed.assignments), commandText:cmd.lineText.trim() });
+    for (const cmd of parsed.drawCommands) {
+      const depLines = this.findDependencies(cmd, parsed.assignments);
+      // If draw is inside a user-defined function, include the function definition
+      // line and all call sites so the dependency panel shows the full context.
+      if (cmd.enclosingFunc) {
+        depLines.push(cmd.enclosingFunc.lineIndex);
+        const callRe = new RegExp(`^\\s*${cmd.enclosingFunc.name}\\s*\\(`);
+        for (let i = 0; i < parsed.lines.length; i++) {
+          const t = parsed.lines[i].trim();
+          if (callRe.test(t) && i !== cmd.enclosingFunc.lineIndex) depLines.push(i);
+        }
+      }
+      mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:[...new Set(depLines)], commandText:cmd.lineText.trim() });
+    }
     return { mapping, parsed };
   }
 };
@@ -943,7 +981,7 @@ const StyleMenu = {
       if (e.key==='Escape') {
         if (this.visible) { this.hide(); return; }
         if (multiSelected.size > 0) {
-          multiSelected.clear();
+          multiSelected.clear(); multiSelectedInterp.clear();
           clearHighlights(); clearSvgHighlights();
         }
       }
@@ -985,7 +1023,7 @@ const StyleMenu = {
     this._sharedPenName = null;
     this._sharedPenDefLine = -1;
     this._sharedPenProps = null;
-    if (wasMulti) multiSelected.clear();
+    if (wasMulti) { multiSelected.clear(); multiSelectedInterp.clear(); }
     clearHighlights();
     clearSvgHighlights();
     if (this.dirty) {
@@ -1578,15 +1616,19 @@ function initEditor() {
         e.preventDefault();
         if (multiSelected.has(pos.line)) {
           multiSelected.delete(pos.line);
+          // Also remove matching interpCi values
+          for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.delete(ic); }
         } else {
           multiSelected.add(pos.line);
+          // Also add any interpCi values for this line (highlight all draws on that line)
+          for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.add(ic); }
         }
         renderMultiSelection();
       }
     } else if (!e.ctrlKey && !e.metaKey) {
       // Clicking on a non-draw line clears multi-selection
       if (multiSelected.size > 0) {
-        multiSelected.clear();
+        multiSelected.clear(); multiSelectedInterp.clear();
         clearHighlights(); clearSvgHighlights();
       }
     }
@@ -1853,9 +1895,13 @@ let probeGeneration = 0; // incremented each render to discard stale probes
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
+let multiSelectedInterp = new Set(); // interpreter cmdIdx values — per-draw granularity for SVG highlight
+let interpCmdToElements = new Map(); // interpCmdIdx → SVGElement[]
+let interpCmdToLineIdx = new Map();  // interpCmdIdx → source lineIdx (0-based)
+let elementToInterpCmd = new Map();  // SVGElement → interpCmdIdx
 const clearSelBtn = document.getElementById('clear-selection-btn');
 clearSelBtn.addEventListener('click', () => {
-  multiSelected.clear();
+  multiSelected.clear(); multiSelectedInterp.clear();
   renderMultiSelection();
 });
 let probeReady = Promise.resolve(); // resolves when color probe mapping completes
@@ -1931,11 +1977,22 @@ function renderMultiSelection() {
   clearHighlights(); clearSvgHighlights();
   clearSelBtn.style.display = multiSelected.size > 0 ? 'block' : 'none';
   if (multiSelected.size === 0) { updateCodeFilter(); return; }
-  for (const lineIdx of multiSelected) {
-    const ci = lineToCommandIdx.get(lineIdx);
-    if (ci !== undefined) {
-      for (const el of (svgElsByCommand.get(ci) || [])) highlightSvgElement(el, 'select');
+  // SVG highlight: use per-draw granularity when available (direct renderer),
+  // otherwise fall back to group-by-command (probe renderer)
+  if (multiSelectedInterp.size > 0) {
+    for (const interpCi of multiSelectedInterp) {
+      for (const el of (interpCmdToElements.get(interpCi) || [])) highlightSvgElement(el, 'select');
     }
+  } else {
+    for (const lineIdx of multiSelected) {
+      const ci = lineToCommandIdx.get(lineIdx);
+      if (ci !== undefined) {
+        for (const el of (svgElsByCommand.get(ci) || [])) highlightSvgElement(el, 'select');
+      }
+    }
+  }
+  // Code line highlight
+  for (const lineIdx of multiSelected) {
     if (lineIdx >= 0 && lineIdx < editor.lineCount()) {
       highlightMarks.push(editor.markText(
         {line: lineIdx, ch: 0}, {line: lineIdx, ch: editor.getLine(lineIdx).length},
@@ -2134,7 +2191,7 @@ function setupSvgInteractivity(code) {
   svgElsByCommand = new Map();
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
-  multiSelected.clear();
+  multiSelected.clear(); multiSelectedInterp.clear();
   for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   const thisGen = ++probeGeneration;
 
@@ -2327,7 +2384,10 @@ function setupSvgInteractivityDirect(code, commandMap) {
   svgElsByCommand = new Map();
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
-  multiSelected.clear();
+  interpCmdToElements = new Map();
+  interpCmdToLineIdx = new Map();
+  elementToInterpCmd = new Map();
+  multiSelected.clear(); multiSelectedInterp.clear();
   for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   ++probeGeneration;
 
@@ -2370,7 +2430,13 @@ function setupSvgInteractivityDirect(code, commandMap) {
         if (lineToCommandIdx.has(srcLine + d)) { ci = lineToCommandIdx.get(srcLine + d); break; }
       }
     }
+    // Track per-interpreter-command grouping (each draw call = unique interpCi)
+    const interpCi = mapEntry.cmdIdx;
+    elementToInterpCmd.set(svgElements[i], interpCi);
+    if (!interpCmdToElements.has(interpCi)) interpCmdToElements.set(interpCi, []);
+    interpCmdToElements.get(interpCi).push(svgElements[i]);
     if (ci >= 0) {
+      interpCmdToLineIdx.set(interpCi, mapping[ci].primaryLine);
       elementToCommand.set(svgElements[i], ci);
       if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci, []);
       svgElsByCommand.get(ci).push(svgElements[i]);
@@ -2406,32 +2472,36 @@ function setupSvgInteractivityDirect(code, commandMap) {
       if (onlyMapped && ci < 0) continue;
       const d = distToElementScreen(clientX, clientY, el);
       if (d <= thr) {
+        const interpCi = elementToInterpCmd.get(el) ?? -1;
         const lineIdx = (ci >= 0 && mapping[ci]) ? mapping[ci].primaryLine : -1;
-        results.push({ ci, el, dist: d, lineIdx });
+        results.push({ ci, el, dist: d, lineIdx, interpCi });
       }
     }
-    const byLine = new Map();
+    // Deduplicate by interpCi so each individual draw call is a distinct candidate
+    const byInterp = new Map();
     for (const r of results) {
-      if (r.lineIdx < 0) continue;
-      if (!byLine.has(r.lineIdx) || r.dist < byLine.get(r.lineIdx).dist) {
-        byLine.set(r.lineIdx, r);
-      }
+      if (r.interpCi < 0) continue;
+      if (!byInterp.has(r.interpCi) || r.dist < byInterp.get(r.interpCi).dist)
+        byInterp.set(r.interpCi, r);
     }
-    return [...byLine.values()].sort((a, b) => a.dist - b.dist);
+    return [...byInterp.values()].sort((a, b) => a.dist - b.dist);
   }
 
   let lastHoveredCi = -1, lastHoveredEl = null;
   svg.addEventListener('mousemove', (e) => {
     if (StyleMenu.visible) return;
     const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
-    if (bestCi >= 0 && bestCi === lastHoveredCi) return;
-    if (bestCi < 0 && bestEl === lastHoveredEl) return;
+    // Re-render if either the element or the AsyParser command changed
+    if (bestEl === lastHoveredEl && bestCi === lastHoveredCi) return;
     lastHoveredCi = bestCi; lastHoveredEl = bestEl;
     clearHighlights(); clearSvgHighlights();
     if (multiSelected.size > 0) renderMultiSelection();
     if (bestCi >= 0) {
       const cmd = mapping[bestCi];
-      for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
+      // Highlight only this specific draw call's elements (not all loop iterations on the same line)
+      const hoverInterpCi = bestEl ? elementToInterpCmd.get(bestEl) : undefined;
+      const hoverEls = hoverInterpCi !== undefined ? interpCmdToElements.get(hoverInterpCi) : svgElsByCommand.get(bestCi);
+      for (const svgEl of (hoverEls || [])) highlightSvgElement(svgEl, 'strong');
       highlightLines(cmd.primaryLine, cmd.dependencyLines);
     } else if (bestEl) {
       highlightSvgElement(bestEl, 'strong');
@@ -2448,22 +2518,38 @@ function setupSvgInteractivityDirect(code, commandMap) {
     const candidates = findAllNear(e.clientX, e.clientY, true);
     if (candidates.length === 0) return;
     let target = candidates[0];
-    if (candidates.length > 1 && multiSelected.size > 0) {
+    if (candidates.length > 1 && multiSelectedInterp.size > 0) {
       const nearDist = target.dist;
       const close = candidates.filter(c => c.dist - nearDist < 5);
       if (close.length > 1) {
-        const selLines = [...multiSelected];
+        const selLineIdxs = [...multiSelectedInterp].map(ic => interpCmdToLineIdx.get(ic) ?? -1);
         let bestCandidate = null, bestProximity = Infinity;
         for (const c of close) {
-          if (multiSelected.has(c.lineIdx)) continue;
-          const proximity = Math.min(...selLines.map(s => Math.abs(c.lineIdx - s)));
+          if (multiSelectedInterp.has(c.interpCi)) continue;
+          const cLineIdx = interpCmdToLineIdx.get(c.interpCi) ?? c.lineIdx;
+          const proximity = Math.min(...selLineIdxs.map(s => Math.abs(cLineIdx - s)));
           if (proximity < bestProximity) { bestProximity = proximity; bestCandidate = c; }
         }
         if (bestCandidate) target = bestCandidate;
       }
     }
-    if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
-    else multiSelected.add(target.lineIdx);
+    const tInterpCi = target.interpCi ?? -1;
+    if (tInterpCi >= 0) {
+      if (multiSelectedInterp.has(tInterpCi)) {
+        multiSelectedInterp.delete(tInterpCi);
+        // Remove lineIdx from multiSelected if no remaining selected interp cmd maps to it
+        const tLineIdx = target.lineIdx;
+        if (tLineIdx >= 0 && ![...multiSelectedInterp].some(ic => interpCmdToLineIdx.get(ic) === tLineIdx))
+          multiSelected.delete(tLineIdx);
+      } else {
+        multiSelectedInterp.add(tInterpCi);
+        if (target.lineIdx >= 0) multiSelected.add(target.lineIdx);
+      }
+    } else {
+      // Fallback: no interpCi (element not tracked), use lineIdx
+      if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
+      else multiSelected.add(target.lineIdx);
+    }
     renderMultiSelection();
   });
   svg.addEventListener('contextmenu', (e) => {
@@ -2647,25 +2733,17 @@ async function copyCanvasImage() {
 }
 
 function copyEditorCode() {
-  let code;
-  if (multiSelected.size === 0) {
-    code = editor.getValue();
-  } else {
-    const relevant = new Set();
-    for (const lineIdx of multiSelected) {
-      const ci = lineToCommandIdx.get(lineIdx);
-      if (ci !== undefined && currentMapping[ci]) {
-        relevant.add(currentMapping[ci].primaryLine);
-        for (const dl of currentMapping[ci].dependencyLines) relevant.add(dl);
-      }
-    }
-    const lines = [];
-    for (let i = 0; i < editor.lineCount(); i++) {
-      if (relevant.has(i)) lines.push(editor.getLine(i));
-    }
-    code = lines.join('\n');
+  // Copy every line that is not hidden by the dependency filter.
+  // No element selected → all lines visible → copies full code.
+  // Element selected → only relevant lines visible → copies those.
+  // Either way: "everything visible if the editor were infinitely tall."
+  const lines = [];
+  for (let i = 0; i < editor.lineCount(); i++) {
+    const info = editor.lineInfo(i);
+    const hidden = info && info.wrapClass && info.wrapClass.split(' ').includes('cm-line-hidden');
+    if (!hidden) lines.push(editor.getLine(i));
   }
-  navigator.clipboard.writeText(code).then(() => {
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
     const btn = document.getElementById('btn-copy-code');
     if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
   }).catch(err => alert('Copy failed: ' + err.message));

@@ -94,7 +94,7 @@ function lex(source) {
       while (pos < len && ch() !== '"') {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; } else if (ch() === 't' && !/[a-zA-Z]/.test(peek(1))) { s += '\t'; }
           else if (ch() === '\\') { s += '\\'; } else if (ch() === '"') { s += '"'; }
           else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
@@ -110,7 +110,7 @@ function lex(source) {
       while (pos < len && ch() !== "'") {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; } else if (ch() === 't' && !/[a-zA-Z]/.test(peek(1))) { s += '\t'; }
           else if (ch() === '\\') { s += '\\'; } else if (ch() === "'") { s += "'"; }
           else { s += '\\'; s += ch(); }
         } else { s += ch(); }
@@ -2498,11 +2498,14 @@ function createInterpreter() {
     // Internal helper for path point evaluation (avoids env.get shadowing issues)
     function _pointOnPath(p, t) {
       if (!isPath(p)) return makePair(0,0);
+      if (p.segs.length === 0) return makePair(0,0);
       const time = toNumber(t);
+      // time >= segs.length means the endpoint of the path
+      if (time >= p.segs.length) return bezierPoint(p.segs[p.segs.length-1], 1);
+      if (time <= 0) return bezierPoint(p.segs[0], 0);
       const i = Math.floor(time);
       const frac = time - i;
-      const idx = Math.max(0, Math.min(i, p.segs.length-1));
-      if (p.segs.length === 0) return makePair(0,0);
+      const idx = Math.min(i, p.segs.length-1);
       return bezierPoint(p.segs[idx], Math.max(0, Math.min(1, frac)));
     }
 
@@ -4531,13 +4534,14 @@ function renderSVG(result, opts) {
       const bboxSpan = maxX - minX || 1;
       // Rough pxPerUnit estimate for sizing
       const roughPxPerUnit = (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
-      const charWidthUser = fontSize * 0.6 / roughPxPerUnit;
+      const ptToPx = 96 / 72;
+      const charWidthUser = fontSize * ptToPx * 0.6 / roughPxPerUnit;
       // For labels with fractions, estimate wider width
       const rawLabel = text;
       const hasFrac = /\\frac/.test(rawLabel);
       const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
       const textWidthUser = effectiveLen * charWidthUser;
-      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) / roughPxPerUnit;
+      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) * ptToPx / roughPxPerUnit;
       let dx = 0, dy = 0;
       if (dc.align) {
         dx = dc.align.x * textHeightUser * 0.8;
@@ -4630,10 +4634,12 @@ function renderSVG(result, opts) {
     elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
   }
 
-  // Scale factor: how many viewBox units = 1 CSS pixel
-  // viewBox is in pxPerUnit-scaled coordinates, and SVG display width = svgW CSS pixels
-  // So 1 CSS pixel = viewW / svgW viewBox units
-  const cssPixel = viewW / (svgW || viewW || 1);
+  // Scale factor: how many viewBox units = 1 CSS pixel.
+  // The SVG uses preserveAspectRatio="xMidYMid meet" (browser default), so the viewBox is
+  // scaled by min(svgW/viewW, svgH/viewH) CSS-px per unit.  Inverting gives the correct
+  // cssPixel = max(viewW/svgW, viewH/svgH).  Using only viewW/svgW was wrong for
+  // height-limited pictures (naturalW < sizeW) and made fontSizeSVG too small.
+  const cssPixel = Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1));
 
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
@@ -4831,8 +4837,17 @@ function renderSVG(result, opts) {
       const hasMath = /\$/.test(rawText) || /\\[a-zA-Z]/.test(rawText);
       let labelEl;
       if (typeof katex !== 'undefined' && hasMath) {
+        const strippedDollar = rawText.replace(/^\$+|\$+$/g, '').trim();
+        if (/^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+          const boldContent = strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, '$1').trim();
+          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+        } else if (/^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+          const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
+          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+        } else {
         // Use KaTeX for math rendering via foreignObject
         labelEl = renderLabelKaTeX(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        }
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
@@ -5010,10 +5025,13 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
 }
 
 // Render label text with superscript/subscript support as SVG
-function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontFamily, fontWeight, fontStyle) {
   // First apply LaTeX-to-Unicode mapping (same as stripLaTeX but preserving ^/_)
   let s = rawText || '';
   s = s.replace(/\$/g, '');
+  // Detect \textbf / \mathbf → bold; \textit / \mathit → italic (whole-label heuristic)
+  if ((!fontWeight || fontWeight === 'normal') && /\\(?:textbf|mathbf)\s*\{/.test(s)) fontWeight = 'bold';
+  if ((!fontStyle  || fontStyle  === 'normal') && /\\(?:textit|mathit)\s*\{/.test(s)) fontStyle  = 'italic';
   // Handle \mathbf, \mathrm, \textbf, etc. — remove the command, keep content
   s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
@@ -5052,7 +5070,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   if (!hasSS) {
     // Simple text, no scripts
     const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
-    return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${escSvg(s)}</text>`;
+    const ff = fontFamily || 'serif';
+    const fwAttr = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
+    const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+    return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${escSvg(s)}</text>`;
   }
 
   // Parse into segments: normal text, superscript (^), subscript (_)
@@ -5096,7 +5117,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
       inner += escSvg(p.text);
     }
   }
-  return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="serif"${op}>${inner}</text>`;
+  const ff2 = fontFamily || 'serif';
+  const fwAttr2 = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
+  const fsAttr2 = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+  return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff2}"${fwAttr2}${fsAttr2}${op}>${inner}</text>`;
 }
 
 function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
@@ -5159,7 +5183,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   fy -= estH / 2; // vertically center
 
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
-  const colorStyle = fill && fill !== '#000000' ? `color:${fill};` : '';
+  const colorStyle = `color:${fill || '#000000'};`;
   const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
   return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
