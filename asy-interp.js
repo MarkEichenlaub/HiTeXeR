@@ -5598,6 +5598,8 @@ function canInterpret(code) {
   if (/\bsettings\b/.test(stripped)) return false;
   if (/\btexpath\b/.test(stripped)) return false;
   if (/\bshipout\b/.test(stripped)) return false;
+  // graphic() embeds external images (EPS/PNG); only the server can handle these
+  if (/\bgraphic\s*\(/.test(stripped)) return false;
   // picture support is now implemented
   // Accept everything else
   return true;

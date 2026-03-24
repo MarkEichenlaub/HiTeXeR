@@ -10,9 +10,11 @@ import http.server
 import json
 import os
 import re
+import struct
 import subprocess
 import tempfile
 import traceback
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -27,7 +29,113 @@ PORT = 8080
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
 DVISVGM = "dvisvgm"
 
+def _find_ghostscript() -> str | None:
+    """Locate gswin64c.exe or gs in common paths."""
+    candidates = [
+        r"C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe",
+        r"C:\Program Files\gs\gs10.05.0\bin\gswin64c.exe",
+        r"C:\Program Files\gs\gs10.04.0\bin\gswin64c.exe",
+    ]
+    import glob
+    candidates += glob.glob(r"C:\Program Files\gs\gs*\bin\gswin64c.exe")
+    candidates += glob.glob(r"C:\Program Files (x86)\gs\gs*\bin\gswin32c.exe")
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+GS_EXE = _find_ghostscript()
+
 AOPS_PREAMBLE = ""
+
+_AOPS_CDN_LOCAL = '/var/www/cdn'
+_AOPS_CDN_URL   = 'http://cdn.artofproblemsolving.com'
+_AOPS_PATH_RE   = re.compile(r'/var/www/cdn/[^\s"\'\\)]+')
+
+
+def _eps_to_png(eps_path: str, png_path: str) -> bool:
+    """Convert an EPS file to PNG using Ghostscript. Returns True on success."""
+    if not GS_EXE:
+        return False
+    try:
+        result = subprocess.run(
+            [GS_EXE, '-dNOPAUSE', '-dBATCH', '-dSAFER',
+             '-sDEVICE=png16m', '-r150',
+             f'-sOutputFile={png_path}', eps_path],
+            capture_output=True, timeout=30,
+        )
+        return result.returncode == 0 and os.path.exists(png_path)
+    except Exception:
+        return False
+
+
+def _eps_to_pdf(eps_path: str, pdf_path: str) -> bool:
+    """Convert an EPS file to a cropped PDF using Ghostscript. Returns True on success.
+
+    Uses -dEPSCrop so the PDF page size matches the EPS BoundingBox exactly,
+    which lets pdflatex embed it cleanly without coordinate corruption.
+    """
+    if not GS_EXE:
+        return False
+    try:
+        result = subprocess.run(
+            [GS_EXE, '-dNOPAUSE', '-dBATCH', '-dSAFER',
+             '-sDEVICE=pdfwrite', '-dEPSCrop',
+             f'-sOutputFile={pdf_path}', eps_path],
+            capture_output=True, timeout=30,
+        )
+        return result.returncode == 0 and os.path.exists(pdf_path)
+    except Exception:
+        return False
+
+
+def resolve_aops_eps_paths(code: str, tmpdir: str) -> tuple[str, bool]:
+    """Download AoPS-local EPS paths (/var/www/cdn/...) to tmpdir and rewrite them.
+
+    AoPS stores assets at /var/www/cdn/... on their servers.  The same files
+    are publicly reachable at http://cdn.artofproblemsolving.com/... (strip the
+    /var/www/cdn prefix).  We download each unique path to tmpdir and replace
+    the original path with the local absolute path so Asymptote/LaTeX can find
+    the file.
+
+    EPS files are converted to PDF via Ghostscript (preferred, preserves vector
+    quality) or PNG (fallback) so that pdflatex can embed them natively.
+    Using -dEPSCrop avoids the coordinate-system corruption that occurs when
+    pdflatex invokes its internal epstopdf on raw EPS files.
+
+    Returns (updated_code, needs_pdflatex).  needs_pdflatex is True when any
+    image was converted — those files require the pdflatex engine;
+    latex (DVI mode) cannot embed them.
+    """
+    needs_pdflatex = False
+    matches = list(set(_AOPS_PATH_RE.findall(code)))
+    for aops_path in matches:
+        public_url = _AOPS_CDN_URL + aops_path[len(_AOPS_CDN_LOCAL):]
+        stem = os.path.splitext(os.path.basename(aops_path))[0]
+        eps_path = os.path.join(tmpdir, stem + '.eps')
+        try:
+            urllib.request.urlretrieve(public_url, eps_path)
+        except Exception:
+            continue  # Leave path unchanged; asy will report its own error
+
+        # Prefer EPS -> PDF (vector-quality, exact BoundingBox crop)
+        pdf_path = os.path.join(tmpdir, stem + '.pdf')
+        if _eps_to_pdf(eps_path, pdf_path):
+            local_path = pdf_path
+            needs_pdflatex = True
+        else:
+            # Fall back to EPS -> PNG
+            png_path = os.path.join(tmpdir, stem + '.png')
+            if _eps_to_png(eps_path, png_path):
+                local_path = png_path
+                needs_pdflatex = True
+            else:
+                local_path = eps_path  # Fall back to raw EPS
+
+        # Asymptote/LaTeX expect forward slashes even on Windows
+        code = code.replace(aops_path, local_path.replace('\\', '/'))
+    return code, needs_pdflatex
+
 
 STYLE_GUIDE_PROMPT = """You are an expert educator with deep Asymptote experience. Follow the style guide at:
 https://docs.google.com/document/d/1D-VA4w4_fPGEvp8CJQnTJLaULzKBzl2cToYSbmM6x-0/edit
@@ -87,6 +195,7 @@ def compile_to_png(code, tmpdir=None):
     code = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
     code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
 
+    code, _ = resolve_aops_eps_paths(code, tmpdir)
     with open(asy_file, "w") as f:
         f.write(AOPS_PREAMBLE + auto_import(code))
 
@@ -666,6 +775,32 @@ class CompilationError(Exception):
     pass
 
 
+def _png_dimensions(png_path: str) -> tuple[int, int]:
+    """Read width and height from the PNG IHDR chunk."""
+    with open(png_path, 'rb') as f:
+        f.read(8)   # PNG signature
+        f.read(4)   # IHDR length
+        f.read(4)   # "IHDR"
+        w = struct.unpack('>I', f.read(4))[0]
+        h = struct.unpack('>I', f.read(4))[0]
+    return w, h
+
+
+def _png_as_svg(png_path: str) -> str:
+    """Wrap a PNG file in a minimal SVG <image> element (base64-encoded)."""
+    w, h = _png_dimensions(png_path)
+    with open(png_path, 'rb') as f:
+        b64 = base64.b64encode(f.read()).decode('ascii')
+    return (
+        f"<svg xmlns='http://www.w3.org/2000/svg' "
+        f"xmlns:xlink='http://www.w3.org/1999/xlink' "
+        f"width='{w}pt' height='{h}pt' viewBox='0 0 {w} {h}'>"
+        f"<image width='{w}' height='{h}' "
+        f"xlink:href='data:image/png;base64,{b64}'/>"
+        f"</svg>"
+    )
+
+
 def compile_asy_to_svg(code: str) -> str:
     """Compile Asymptote code to SVG string."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -673,8 +808,52 @@ def compile_asy_to_svg(code: str) -> str:
         pdf_file = os.path.join(tmpdir, "diagram.pdf")
         svg_file = os.path.join(tmpdir, "diagram.svg")
 
+        code, needs_pdflatex = resolve_aops_eps_paths(code, tmpdir)
         with open(asy_file, "w") as f:
             f.write(code)
+
+        if needs_pdflatex:
+            # Step 1: compile with pdflatex engine to PDF
+            result = subprocess.run(
+                [ASY_EXE, "-tex", "pdflatex", "-f", "pdf", "-noView",
+                 "-o", "diagram", "diagram.asy"],
+                cwd=tmpdir, capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                raise CompilationError(f"Asymptote error:\n{error_msg}")
+            if not os.path.exists(pdf_file):
+                raise CompilationError("Asymptote produced no output")
+
+            # Step 2: try dvisvgm on the PDF for a proper vector SVG with
+            # tight bounding box.  This works when GS can extract the embedded
+            # images; fall back to PNG wrapping when it cannot.
+            dvi_result = subprocess.run(
+                [DVISVGM, "--pdf", "--no-fonts", "--exact-bbox",
+                 pdf_file, "-o", svg_file],
+                cwd=tmpdir, capture_output=True, text=True, timeout=30,
+            )
+            if dvi_result.returncode == 0 and os.path.exists(svg_file):
+                with open(svg_file, "r") as f:
+                    svg = f.read()
+                # dvisvgm sometimes silently drops embedded raster images.
+                # Verify images are present; fall back to PNG if they were lost.
+                if '<image' in svg:
+                    return fix_svg_opacity(svg)
+
+            # dvisvgm couldn't handle the embedded images — re-compile to PNG
+            png_file = os.path.join(tmpdir, "diagram.png")
+            result = subprocess.run(
+                [ASY_EXE, "-tex", "pdflatex", "-f", "png", "-noView",
+                 "-o", "diagram", "diagram.asy"],
+                cwd=tmpdir, capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                raise CompilationError(f"Asymptote error:\n{error_msg}")
+            if not os.path.exists(png_file):
+                raise CompilationError("Asymptote produced no output")
+            return _png_as_svg(png_file)
 
         # Step 1: Asymptote -> PDF
         result = subprocess.run(
