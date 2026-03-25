@@ -25,11 +25,6 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-try:
-    import anthropic as _anthropic
-    HAS_ANTHROPIC = True
-except ImportError:
-    HAS_ANTHROPIC = False
 
 PORT = 8080
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
@@ -188,57 +183,44 @@ def call_claude(prompt, model="claude-opus-4-6", max_tokens=16000):
         return f"Error: {e}"
 
 
-def _get_anthropic_api_key():
-    """Get an API key for the Anthropic SDK.
+def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-sonnet-4-6"):
+    """Call Claude with an image by saving it to a temp file for the CLI's Read tool.
 
-    Tries ANTHROPIC_API_KEY env var first, then falls back to reading
-    the OAuth access token stored by the Claude CLI.
+    The Claude CLI supports reading image files natively (multimodal Read tool),
+    so we write the image to disk and instruct Claude to read it.
     """
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if key:
-        return key
-    cred_path = Path.home() / ".claude" / ".credentials.json"
-    if cred_path.exists():
-        try:
-            data = json.loads(cred_path.read_text())
-            return data["claudeAiOauth"]["accessToken"]
-        except (KeyError, json.JSONDecodeError):
-            pass
-    return None
+    ext_map = {"image/png": ".png", "image/jpeg": ".jpg",
+               "image/gif": ".gif", "image/webp": ".webp"}
+    ext = ext_map.get(media_type, ".png")
 
-
-def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-opus-4-5-20251101"):
-    """Call Claude with an image using the Anthropic SDK directly."""
-    if not HAS_ANTHROPIC:
-        return "Error: anthropic package not installed. Run: pip install anthropic"
-    api_key = _get_anthropic_api_key()
-    if not api_key:
-        return "Error: No API key found. Set ANTHROPIC_API_KEY or log in via the Claude CLI."
+    tmp_path = None
     try:
-        client = _anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model=model,
-            max_tokens=16000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": image_b64,
-                            },
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(base64.b64decode(image_b64))
+            tmp_path = tmp.name
+
+        img_prompt = (
+            prompt
+            + f"\n\nIMPORTANT: The user has attached an image file at `{tmp_path}`. "
+            "Use the Read tool on that path to view the image before responding."
         )
-        return message.content[0].text
+
+        result = subprocess.run(
+            [CLAUDE_CLI, "-p", "--model", model, "--max-turns", "3",
+             "--add-dir", os.path.dirname(tmp_path)],
+            input=img_prompt,
+            capture_output=True, text=True, timeout=180,
+            cwd=tempfile.gettempdir(), shell=True,
+        )
+        return result.stdout.strip() or result.stderr.strip() or "No response"
     except Exception as e:
         return f"Error: {e}"
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def compile_to_png(code, tmpdir=None):
