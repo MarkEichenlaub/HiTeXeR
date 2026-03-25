@@ -25,6 +25,12 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    import anthropic as _anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
+
 PORT = 8080
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
 DVISVGM = "dvisvgm"
@@ -178,6 +184,59 @@ def call_claude(prompt, model="claude-opus-4-6", max_tokens=16000):
         return "Error: Claude CLI timed out"
     except FileNotFoundError:
         return "Error: Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _get_anthropic_api_key():
+    """Get an API key for the Anthropic SDK.
+
+    Tries ANTHROPIC_API_KEY env var first, then falls back to reading
+    the OAuth access token stored by the Claude CLI.
+    """
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key:
+        return key
+    cred_path = Path.home() / ".claude" / ".credentials.json"
+    if cred_path.exists():
+        try:
+            data = json.loads(cred_path.read_text())
+            return data["claudeAiOauth"]["accessToken"]
+        except (KeyError, json.JSONDecodeError):
+            pass
+    return None
+
+
+def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-sonnet-4-6"):
+    """Call Claude with an image using the Anthropic SDK directly."""
+    if not HAS_ANTHROPIC:
+        return "Error: anthropic package not installed. Run: pip install anthropic"
+    api_key = _get_anthropic_api_key()
+    if not api_key:
+        return "Error: No API key found. Set ANTHROPIC_API_KEY or log in via the Claude CLI."
+    try:
+        client = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=model,
+            max_tokens=16000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_b64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+        return message.content[0].text
     except Exception as e:
         return f"Error: {e}"
 
@@ -419,7 +478,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         elif action == "learn":
             self._handle_learn(code)
         elif action == "chat":
-            self._handle_chat(code, data.get("prompt", ""), data.get("options", {}), data.get("history", []))
+            self._handle_chat(code, data.get("prompt", ""), data.get("options", {}), data.get("history", []), data.get("image"))
         elif action == "lint":
             self._handle_lint(code)
         elif action == "fix":
@@ -603,7 +662,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         except (json.JSONDecodeError, AttributeError):
             self.send_json(200, {"error": "Failed to parse AI explanation", "raw": response[:500]})
 
-    def _handle_chat(self, code, prompt, options, history):
+    def _handle_chat(self, code, prompt, options, history, image=None):
         """AI Chat: conversational interaction about the code."""
         system = (
             "You are an expert Asymptote programmer and educator. "
@@ -625,7 +684,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         if constraints:
             system += "CONSTRAINTS:\n" + "\n".join(f"- {c}" for c in constraints) + "\n\n"
 
-        # Build conversation
+        # Build conversation text (system + history + current prompt)
         messages = system
         if code.strip():
             messages += f"Current Asymptote code:\n```asy\n{code}\n```\n\n"
@@ -634,14 +693,21 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             role = msg.get("role", "user")
             messages += f"{'User' if role == 'user' else 'Assistant'}: {msg.get('content', '')}\n\n"
 
-        messages += f"User: {prompt}\n\nProvide your response. "
+        user_text = f"User: {prompt}\n\nProvide your response. "
         if not no_edits:
-            messages += (
+            user_text += (
                 "If you suggest code changes, include the COMPLETE updated code in a single "
                 "```asy``` code block. If no code changes are needed, just explain."
             )
+        messages += user_text
 
-        response = call_claude(messages, model="claude-sonnet-4-6")
+        if image:
+            # Use vision API when an image is attached
+            image_b64 = image.get("data", "")
+            media_type = image.get("type", "image/png")
+            response = call_claude_vision(messages, image_b64, media_type, model="claude-sonnet-4-6")
+        else:
+            response = call_claude(messages, model="claude-sonnet-4-6")
 
         # Extract code if present
         result_code = None
