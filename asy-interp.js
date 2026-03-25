@@ -2896,8 +2896,16 @@ function createInterpreter() {
     env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
     env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
     env.set('minipage', (...args) => {
-      // Return the string content, ignoring width/formatting
-      for (const a of args) { if (isString(a)) return a; }
+      for (const a of args) {
+        if (isString(a)) {
+          let s = a;
+          // Strip \center{...} alignment wrapper
+          s = s.replace(/^\\center\{([\s\S]*)\}$/, '$1').trim();
+          // Replace LaTeX line breaks: Asymptote's \\ tokenizes to a single \ before a space
+          s = s.replace(/\\ /g, '\n');
+          return s;
+        }
+      }
       return '';
     });
 
@@ -4894,6 +4902,24 @@ function renderSVG(result, opts) {
           // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
           anchor = 'middle';
         }
+      }
+
+      // Handle multi-line text (produced by minipage with \n line breaks)
+      if (rawText.includes('\n')) {
+        const lines = rawText.split('\n').filter(l => l.length > 0);
+        const lineHeight = effectiveFontSize * 1.2;
+        const totalOffset = (lines.length - 1) * lineHeight;
+        const ff = 'KaTeX_Main, serif';
+        const op = css.opacity != null && css.opacity < 1 ? ` opacity="${css.opacity}"` : '';
+        let tspans = '';
+        lines.forEach((line, i) => {
+          const lineDy = i === 0 ? -totalOffset / 2 : lineHeight;
+          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(line.trim())}</tspan>`;
+        });
+        const mlLabel = `<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
+        elements.push(labelTransformAttr ? `<g${labelTransformAttr}>${mlLabel}</g>` : mlLabel);
+        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+        continue;
       }
 
       // Replace LaTeX dot/continuation symbols with Unicode so they render as SVG
