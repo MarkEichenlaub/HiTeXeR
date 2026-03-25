@@ -207,7 +207,7 @@ def _get_anthropic_api_key():
     return None
 
 
-def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-sonnet-4-6"):
+def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-opus-4-5-20251101"):
     """Call Claude with an image using the Anthropic SDK directly."""
     if not HAS_ANTHROPIC:
         return "Error: anthropic package not installed. Run: pip install anthropic"
@@ -705,7 +705,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             # Use vision API when an image is attached
             image_b64 = image.get("data", "")
             media_type = image.get("type", "image/png")
-            response = call_claude_vision(messages, image_b64, media_type, model="claude-sonnet-4-6")
+            response = call_claude_vision(messages, image_b64, media_type)
         else:
             response = call_claude(messages, model="claude-sonnet-4-6")
 
