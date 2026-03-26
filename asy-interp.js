@@ -95,7 +95,7 @@ function lex(source) {
         if (ch() === '\\') {
           advance();
           if (ch() === 'n') { s += '\n'; } else if (ch() === 't' && !/[a-zA-Z]/.test(peek(1))) { s += '\t'; }
-          else if (ch() === '\\') { s += '\\'; } else if (ch() === '"') { s += '"'; }
+          else if (ch() === '\\') { s += '\\\\'; } else if (ch() === '"') { s += '"'; }
           else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
         advance();
@@ -2899,9 +2899,14 @@ function createInterpreter() {
       for (const a of args) {
         if (isString(a)) {
           let s = a;
+          // Strip \centering directive at start
+          s = s.replace(/^\\centering\s*/, '');
           // Strip \center{...} alignment wrapper
-          s = s.replace(/^\\center\{([\s\S]*)\}$/, '$1').trim();
-          // Replace LaTeX line breaks: Asymptote's \\ tokenizes to a single \ before a space
+          s = s.replace(/^\\center\{([\s\S]*)\}$/, '$1');
+          s = s.trim();
+          // Replace LaTeX line breaks \\ with newlines
+          s = s.replace(/\\\\/g, '\n');
+          // Also handle \ followed by space (older fallback)
           s = s.replace(/\\ /g, '\n');
           return s;
         }
@@ -3061,31 +3066,37 @@ function createInterpreter() {
       }
 
       // Find the function argument(s) and numeric range
-      let funcArg = null, funcIdx = -1;
+      // Supports: graph(f, a, b, n), graph(f_pair, a, b, n), graph(fx, fy, a, b, n)
+      let funcArg = null, funcArg2 = null, funcIdx = -1;
+      const isFunc = v => typeof v === 'function' || (v && v._tag === 'func');
       for (let i = 0; i < coreArgs.length; i++) {
-        if (typeof coreArgs[i] === 'function' || (coreArgs[i] && coreArgs[i]._tag === 'func')) {
-          // Skip bool3 filter functions (they appear after main function)
+        if (isFunc(coreArgs[i])) {
           if (funcArg === null) { funcArg = coreArgs[i]; funcIdx = i; }
+          else if (funcArg2 === null && i === funcIdx + 1) { funcArg2 = coreArgs[i]; }
         }
       }
 
       if (funcArg !== null) {
-        // Gather numeric args after the function
+        // Gather numeric args after the last function arg
+        const numsStartIdx = funcArg2 !== null ? funcIdx + 2 : funcIdx + 1;
         const nums = [];
-        for (let i = funcIdx + 1; i < coreArgs.length; i++) {
+        for (let i = numsStartIdx; i < coreArgs.length; i++) {
           if (typeof coreArgs[i] === 'number') nums.push(coreArgs[i]);
-          else if (typeof coreArgs[i] === 'function' || (coreArgs[i] && coreArgs[i]._tag === 'func')) break; // bool3 filter
+          else if (isFunc(coreArgs[i])) break; // bool3 filter
         }
         const a = nums[0] !== undefined ? nums[0] : 0;
         const b = nums[1] !== undefined ? nums[1] : 1;
         const n = nums[2] !== undefined ? Math.floor(nums[2]) : 100;
 
-        // Check if function returns a pair (parametric curve)
+        // Determine mode: two-function parametric, single pair-returning function, or y=f(x)
+        const isTwoFuncParametric = funcArg2 !== null;
         let isPairFunc = false;
-        try {
-          const testVal = typeof funcArg === 'function' ? funcArg(a) : callUserFuncValues(funcArg, [a]);
-          if (testVal && testVal._tag === 'pair') isPairFunc = true;
-        } catch(e) {}
+        if (!isTwoFuncParametric) {
+          try {
+            const testVal = typeof funcArg === 'function' ? funcArg(a) : callUserFuncValues(funcArg, [a]);
+            if (testVal && testVal._tag === 'pair') isPairFunc = true;
+          } catch(e) {}
+        }
 
         // Compute y-range limit: if axis limits are set, clip to a reasonable multiple
         const yClipMin = _axisLimits.ymin !== null ? _axisLimits.ymin - (_axisLimits.ymax - _axisLimits.ymin) * 2 : -1e6;
@@ -3093,24 +3104,36 @@ function createInterpreter() {
         const xClipMin = _axisLimits.xmin !== null ? _axisLimits.xmin - (_axisLimits.xmax - _axisLimits.xmin) * 2 : -1e6;
         const xClipMax = _axisLimits.xmax !== null ? _axisLimits.xmax + (_axisLimits.xmax - _axisLimits.xmin) * 2 : 1e6;
 
+        const callFunc = (f, t) => typeof f === 'function' ? f(t) : callUserFuncValues(f, [t]);
+
         // Collect all points, then split at discontinuities (out-of-range or large jumps)
         const allPts = [];
         for (let i = 0; i <= n; i++) {
           const t = a + (b - a) * i / n;
           try {
-            const result = typeof funcArg === 'function' ? funcArg(t) : callUserFuncValues(funcArg, [t]);
-            if (isPairFunc) {
-              if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
-                allPts.push({x: result.x, y: result.y});
+            if (isTwoFuncParametric) {
+              const xVal = toNumber(callFunc(funcArg, t));
+              const yVal = toNumber(callFunc(funcArg2, t));
+              if (isFinite(xVal) && isFinite(yVal)) {
+                allPts.push({x: xVal, y: yVal});
               } else {
-                allPts.push(null); // discontinuity marker
+                allPts.push(null);
               }
             } else {
-              const y = toNumber(result);
-              if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
-                allPts.push({x: t, y});
+              const result = callFunc(funcArg, t);
+              if (isPairFunc) {
+                if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
+                  allPts.push({x: result.x, y: result.y});
+                } else {
+                  allPts.push(null); // discontinuity marker
+                }
               } else {
-                allPts.push(null); // discontinuity marker
+                const y = toNumber(result);
+                if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
+                  allPts.push({x: t, y});
+                } else {
+                  allPts.push(null); // discontinuity marker
+                }
               }
             }
           } catch(e) { allPts.push(null); }

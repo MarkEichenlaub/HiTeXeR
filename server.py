@@ -368,11 +368,18 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             filepath = data["path"]
             code = data["code"]
             node_id = data.get("nodeId", "")
-            # Write a JSON file that EigenNode can read
-            Path(filepath).write_text(
-                json.dumps({"code": code, "nodeId": node_id}),
-                encoding="utf-8",
-            )
+            # Write atomically via rename so file-watchers reliably see each update
+            content = json.dumps({"code": code, "nodeId": node_id})
+            tmp_path = filepath + ".tmp." + uuid.uuid4().hex[:8]
+            try:
+                Path(tmp_path).write_text(content, encoding="utf-8")
+                os.replace(tmp_path, filepath)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
             self.send_json(200, {"ok": True})
         except Exception as e:
             self.send_json(500, {"error": str(e)})

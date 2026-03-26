@@ -99,6 +99,20 @@ body {
 }
 .canvas-ctrl-btn:hover { background: rgba(15,52,96,0.95); color: #eee; }
 .canvas-ctrl-btn.active { background: rgba(233,196,106,0.25); border-color: #e9c46a; color: #e9c46a; }
+.copy-btn-group { position: relative; display: inline-flex; }
+.copy-btn-group #btn-canvas-copy { border-radius: 4px 0 0 4px; border-right: none; }
+.copy-arrow-btn { border-radius: 0 4px 4px 0; padding: 4px 5px; font-size: 9px; }
+.copy-format-menu {
+  display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 1000;
+  background: rgba(22,33,62,0.97); border: 1px solid rgba(255,255,255,0.18); border-radius: 4px;
+  min-width: 70px; overflow: hidden;
+}
+.copy-format-menu.open { display: block; }
+.copy-format-menu div {
+  padding: 5px 12px; font-size: 12px; color: #bbb; cursor: pointer; white-space: nowrap;
+  font-family: system-ui, sans-serif;
+}
+.copy-format-menu div:hover { background: rgba(15,52,96,0.9); color: #eee; }
 #canvas-pan-overlay {
   position: absolute; inset: 0; z-index: 50; pointer-events: none;
 }
@@ -419,7 +433,14 @@ label("$C$", C, N);
         <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
       </div>
       <div class="canvas-controls canvas-controls-tr">
-        <button class="canvas-ctrl-btn" id="btn-canvas-copy" title="Copy image to clipboard">Copy</button>
+        <div class="copy-btn-group">
+          <button class="canvas-ctrl-btn" id="btn-canvas-copy" title="Copy image to clipboard">Copy</button><button class="canvas-ctrl-btn copy-arrow-btn" id="btn-canvas-copy-arrow" title="Copy as...">&#9660;</button>
+          <div class="copy-format-menu" id="copy-format-menu">
+            <div data-format="png">PNG</div>
+            <div data-format="svg">SVG</div>
+            <div data-format="jpg">JPG</div>
+          </div>
+        </div>
         <button class="canvas-ctrl-btn" id="btn-canvas-shrink" title="Shrink to fit">Fit</button>
       </div>
       <div class="placeholder">Loading...</div>
@@ -1987,6 +2008,8 @@ function updateCodeFilter() {
     if (ci !== undefined && currentMapping[ci]) {
       relevant.add(currentMapping[ci].primaryLine);
       for (const dl of currentMapping[ci].dependencyLines) relevant.add(dl);
+    } else {
+      relevant.add(lineIdx); // not yet in mapping (mid-edit) — show the line itself
     }
   }
   for (let i = 0; i < total; i++) {
@@ -2217,7 +2240,6 @@ function setupSvgInteractivity(code) {
   lineToDepCommands = new Map();
   const prevSelected = new Set(multiSelected);
   multiSelected.clear(); multiSelectedInterp.clear();
-  for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   const thisGen = ++probeGeneration;
 
   const svg = document.querySelector('#preview-container svg');
@@ -2227,8 +2249,10 @@ function setupSvgInteractivity(code) {
   // Restore selection for lines still present in the new mapping
   for (const lineIdx of prevSelected) {
     if (lineToCommandIdx.has(lineIdx)) multiSelected.add(lineIdx);
+    else if (lineIdx < editor.lineCount()) multiSelected.add(lineIdx); // keep selection through edits
   }
   if (multiSelected.size > 0) renderMultiSelection();
+  else for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   for (let ci=0; ci<mapping.length; ci++) {
     for (const dl of mapping[ci].dependencyLines) {
       if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
@@ -2420,7 +2444,6 @@ function setupSvgInteractivityDirect(code, commandMap) {
   elementToInterpCmd = new Map();
   const prevSelectedDirect = new Set(multiSelected);
   multiSelected.clear(); multiSelectedInterp.clear();
-  for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   ++probeGeneration;
 
   const svg = document.querySelector('#preview-container svg');
@@ -2475,16 +2498,20 @@ function setupSvgInteractivityDirect(code, commandMap) {
     }
   }
 
-  // Restore selection for lines still present in the new mapping
+  // Restore selection; keep lines even if not yet in new mapping so the filter
+  // stays active while the user is mid-edit (deselect clears it explicitly).
   for (const lineIdx of prevSelectedDirect) {
     if (lineToCommandIdx.has(lineIdx)) {
       multiSelected.add(lineIdx);
       for (const [ic, li] of interpCmdToLineIdx) {
         if (li === lineIdx) multiSelectedInterp.add(ic);
       }
+    } else if (lineIdx < editor.lineCount()) {
+      multiSelected.add(lineIdx); // keep unmapped lines through edits
     }
   }
   if (multiSelected.size > 0) renderMultiSelection();
+  else for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
 
   // probeReady resolves immediately (no probe needed)
   const statusEl = document.getElementById('status');
@@ -2746,14 +2773,22 @@ function initCanvasPan() {
   });
 }
 
-async function copyCanvasImage() {
+async function copyCanvasImage(format) {
+  format = format || 'png';
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
+  const btn = document.getElementById('btn-canvas-copy');
+  const flash = (msg) => { if (btn) { const o = btn.textContent; btn.textContent = msg; setTimeout(() => btn.textContent = o, 1200); } };
   try {
     const svgData = new XMLSerializer().serializeToString(svg);
-    const blob = new Blob([svgData], { type: 'image/svg+xml' });
-    // Try to copy as PNG for broader compatibility
-    const url = URL.createObjectURL(blob);
+    if (format === 'svg') {
+      // Copy raw SVG markup as plain text
+      await navigator.clipboard.writeText(svgData);
+      flash('Copied!');
+      return;
+    }
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(svgBlob);
     const img = new Image();
     await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
     const vb = svg.getAttribute('viewBox');
@@ -2762,16 +2797,17 @@ async function copyCanvasImage() {
     const canvas = document.createElement('canvas');
     canvas.width = parseFloat(w) * 2; canvas.height = parseFloat(h) * 2;
     const ctx = canvas.getContext('2d');
+    if (format === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
     ctx.scale(2, 2);
     ctx.drawImage(img, 0, 0);
     URL.revokeObjectURL(url);
-    canvas.toBlob(async (pngBlob) => {
+    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    canvas.toBlob(async (imgBlob) => {
       try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-        const btn = document.getElementById('btn-canvas-copy');
-        if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
+        await navigator.clipboard.write([new ClipboardItem({ [mimeType]: imgBlob })]);
+        flash('Copied!');
       } catch(err) { alert('Copy failed: ' + err.message); }
-    }, 'image/png');
+    }, mimeType);
   } catch(err) { alert('Copy failed: ' + err.message); }
 }
 
@@ -2959,7 +2995,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
   document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
-  document.getElementById('btn-canvas-copy').addEventListener('click', () => copyCanvasImage());
+  document.getElementById('btn-canvas-copy').addEventListener('click', () => copyCanvasImage('png'));
+  document.getElementById('btn-canvas-copy-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('copy-format-menu').classList.toggle('open');
+  });
+  document.getElementById('copy-format-menu').addEventListener('click', (e) => {
+    const fmt = e.target.dataset.format;
+    if (fmt) { document.getElementById('copy-format-menu').classList.remove('open'); copyCanvasImage(fmt); }
+  });
+  document.addEventListener('click', () => document.getElementById('copy-format-menu').classList.remove('open'));
   document.getElementById('btn-canvas-shrink').addEventListener('click', () => canvasShrinkToFit());
   // Editor copy button
   document.getElementById('btn-copy-code').addEventListener('click', () => copyEditorCode());
@@ -3865,6 +3910,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let gifSelectedVar = null;   // { lineIdx, varName, value }
   let gifPreviewBounds = null; // {minX, minY, maxX, maxY, ppu} — stable bounds for preview
   let gifOriginalValue = null; // original value of the variable before GIF preview
+  let gifAllOriginalValues = null; // map of lineIdx → {varName, value} for ALL free reals at entry
 
   function toggleGifMode() {
     if (gifActive) deactivateGifMode();
@@ -3891,9 +3937,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnGif = document.getElementById('btn-gif');
     if (btnGif) btnGif.classList.toggle('active', true);
 
+    // Snapshot all free-real variable values before any animation changes them
+    gifAllOriginalValues = {};
+    for (const fr of freeReals) gifAllOriginalValues[fr.lineIdx] = { varName: fr.varName, value: fr.value };
+
     // Populate dropdown
     const sel = document.getElementById('gif-var-select');
     sel.innerHTML = '';
+    const blankOpt = document.createElement('option');
+    blankOpt.value = '';
+    blankOpt.textContent = '-- select variable --';
+    sel.appendChild(blankOpt);
     for (const fr of freeReals) {
       const opt = document.createElement('option');
       opt.value = fr.varName;
@@ -3902,17 +3956,19 @@ document.addEventListener('DOMContentLoaded', () => {
       opt.dataset.initValue = fr.value;
       sel.appendChild(opt);
     }
-    gifSelectVariable();
     sel.onchange = gifSelectVariable;
 
     document.getElementById('gif-panel').style.display = 'block';
-    gifStartPreview();
   }
 
   function gifSelectVariable() {
     const sel = document.getElementById('gif-var-select');
     const opt = sel.options[sel.selectedIndex];
-    if (!opt) return;
+    if (!opt || opt.value === '') {
+      if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+      gifSelectedVar = null;
+      return;
+    }
     const initVal = parseFloat(opt.dataset.initValue);
     gifSelectedVar = { lineIdx: parseInt(opt.dataset.lineIdx), varName: opt.value, value: initVal };
     gifOriginalValue = initVal;
@@ -4056,9 +4112,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
     gifPreviewBounds = null;
 
-    // Restore original variable value
-    if (gifSelectedVar && gifOriginalValue !== null) {
-      gifUpdateVariable(gifOriginalValue);
+    // Restore ALL free-real variables to the values they had when GIF mode was entered
+    if (gifAllOriginalValues) {
+      const code = editor.getValue();
+      const lines = code.split('\n');
+      let changed = false;
+      for (const [lineIdxStr, { value }] of Object.entries(gifAllOriginalValues)) {
+        const lineIdx = parseInt(lineIdxStr);
+        if (lineIdx >= 0 && lineIdx < lines.length) {
+          const newLine = lines[lineIdx].replace(/=\s*[-\d.eE+]+\s*;/, `= ${value};`);
+          if (newLine !== lines[lineIdx]) { lines[lineIdx] = newLine; changed = true; }
+        }
+      }
+      if (changed) {
+        const cursor = editor.getCursor();
+        const scrollInfo = editor.getScrollInfo();
+        suppressAutoRender = true;
+        editor.setValue(lines.join('\n'));
+        editor.setCursor(cursor);
+        editor.scrollTo(scrollInfo.left, scrollInfo.top);
+        suppressAutoRender = false;
+        doRender();
+      }
+      gifAllOriginalValues = null;
     }
 
     gifActive = false;
@@ -4245,16 +4321,33 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       if (action === 'copy') {
+        let copied = false;
+        // Try native image/gif (works in Firefox and Chrome 86+)
         try {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/gif': blob })
-          ]);
+          await navigator.clipboard.write([new ClipboardItem({ 'image/gif': blob })]);
+          copied = true;
+        } catch(e) { /* try HTML fallback next */ }
+        // HTML fallback: embed as base64 data URI — pastes into email/docs as animated GIF
+        if (!copied) {
+          try {
+            const base64 = await new Promise((res, rej) => {
+              const r = new FileReader();
+              r.onload = () => res(r.result.split(',')[1]);
+              r.onerror = rej;
+              r.readAsDataURL(blob);
+            });
+            const html = `<img src="data:image/gif;base64,${base64}">`;
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }) })
+            ]);
+            copied = true;
+          } catch(e) { /* fall through to download */ }
+        }
+        if (copied) {
           progressEl.textContent = 'Copied to clipboard!';
-        } catch(e) {
-          // Fallback to download
-          console.warn('Clipboard write failed, downloading instead:', e);
+        } else {
           downloadBlob(blob, 'animation.gif');
-          progressEl.textContent = 'Clipboard failed; downloaded instead.';
+          progressEl.textContent = 'Clipboard not supported — downloaded instead.';
         }
       } else {
         downloadBlob(blob, 'animation.gif');
