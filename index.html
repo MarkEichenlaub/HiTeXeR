@@ -2215,6 +2215,7 @@ function setupSvgInteractivity(code) {
   svgElsByCommand = new Map();
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
+  const prevSelected = new Set(multiSelected);
   multiSelected.clear(); multiSelectedInterp.clear();
   for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   const thisGen = ++probeGeneration;
@@ -2223,6 +2224,11 @@ function setupSvgInteractivity(code) {
   if (!svg) return;
 
   for (let ci=0; ci<mapping.length; ci++) lineToCommandIdx.set(mapping[ci].primaryLine, ci);
+  // Restore selection for lines still present in the new mapping
+  for (const lineIdx of prevSelected) {
+    if (lineToCommandIdx.has(lineIdx)) multiSelected.add(lineIdx);
+  }
+  if (multiSelected.size > 0) renderMultiSelection();
   for (let ci=0; ci<mapping.length; ci++) {
     for (const dl of mapping[ci].dependencyLines) {
       if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
@@ -2266,6 +2272,7 @@ function setupSvgInteractivity(code) {
       }
     }
     statusEl.textContent = 'Rendered successfully'; statusEl.style.color = '#2ecc71';
+    if (multiSelected.size > 0) renderMultiSelection();
   }).catch(() => {
     if (probeGeneration !== thisGen) return;
     statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
@@ -2411,6 +2418,7 @@ function setupSvgInteractivityDirect(code, commandMap) {
   interpCmdToElements = new Map();
   interpCmdToLineIdx = new Map();
   elementToInterpCmd = new Map();
+  const prevSelectedDirect = new Set(multiSelected);
   multiSelected.clear(); multiSelectedInterp.clear();
   for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
   ++probeGeneration;
@@ -2466,6 +2474,17 @@ function setupSvgInteractivityDirect(code, commandMap) {
       svgElsByCommand.get(ci).push(svgElements[i]);
     }
   }
+
+  // Restore selection for lines still present in the new mapping
+  for (const lineIdx of prevSelectedDirect) {
+    if (lineToCommandIdx.has(lineIdx)) {
+      multiSelected.add(lineIdx);
+      for (const [ic, li] of interpCmdToLineIdx) {
+        if (li === lineIdx) multiSelectedInterp.add(ic);
+      }
+    }
+  }
+  if (multiSelected.size > 0) renderMultiSelection();
 
   // probeReady resolves immediately (no probe needed)
   const statusEl = document.getElementById('status');
@@ -4968,6 +4987,79 @@ document.addEventListener('DOMContentLoaded', () => {
     'rightanglemark','anglemark','markangle',
   ];
 
+  // Function signatures: text → full signature string
+  const ASY_SIGNATURES = {
+    'draw': 'draw(path g, pen p = currentpen)',
+    'fill': 'fill(path g, pen p = currentpen)',
+    'filldraw': 'filldraw(path g, pen fillpen = currentpen, pen drawpen = currentpen)',
+    'label': 'label(string s, pair position, pair dir = (0,0), pen p = currentpen)',
+    'dot': 'dot(pair z, pen p = currentpen)',
+    'clip': 'clip(path g)',
+    'unfill': 'unfill(path g)',
+    'circle': 'circle(pair c, real r)',
+    'arc': 'arc(pair c, real r, real angle1, real angle2)',
+    'ellipse': 'ellipse(pair c, real a, real b)',
+    'box': 'box(pair a, pair b)',
+    'shift': 'shift(pair z)',
+    'rotate': 'rotate(real angle, pair z = (0,0))',
+    'scale': 'scale(real s)',
+    'reflect': 'reflect(pair a, pair b)',
+    'midpoint': 'midpoint(path g)',
+    'extension': 'extension(pair P, pair Q, pair R, pair S)',
+    'intersectionpoint': 'intersectionpoint(path g, path h)',
+    'intersectionpoints': 'intersectionpoints(path g, path h)',
+    'incircle': 'incircle(pair A, pair B, pair C)',
+    'circumcircle': 'circumcircle(pair A, pair B, pair C)',
+    'incenter': 'incenter(pair A, pair B, pair C)',
+    'circumcenter': 'circumcenter(pair A, pair B, pair C)',
+    'inradius': 'inradius(pair A, pair B, pair C)',
+    'circumradius': 'circumradius(pair A, pair B, pair C)',
+    'foot': 'foot(pair P, pair A, pair B)',
+    'bisectorpoint': 'bisectorpoint(pair A, pair B, pair C)',
+    'centroid': 'centroid(pair A, pair B, pair C)',
+    'orthocenter': 'orthocenter(pair A, pair B, pair C)',
+    'linewidth': 'linewidth(real w)',
+    'fontsize': 'fontsize(real size)',
+    'opacity': 'opacity(real o)',
+    'sqrt': 'sqrt(real x)',
+    'abs': 'abs(real x)',
+    'sin': 'sin(real x)',
+    'cos': 'cos(real x)',
+    'tan': 'tan(real x)',
+    'atan': 'atan(real x)',
+    'atan2': 'atan2(real y, real x)',
+    'log': 'log(real x)',
+    'exp': 'exp(real x)',
+    'min': 'min(real a, real b)',
+    'max': 'max(real a, real b)',
+    'floor': 'floor(real x)',
+    'ceil': 'ceil(real x)',
+    'unitsize': 'unitsize(real u)',
+    'size': 'size(real w, real h = 0)',
+    'defaultpen': 'defaultpen(pen p)',
+    'xpart': 'xpart(pair z)',
+    'ypart': 'ypart(pair z)',
+    'length': 'length(path g)',
+    'angle': 'angle(pair z)',
+    'degrees': 'degrees(real angle)',
+    'radians': 'radians(real angle)',
+    'arclength': 'arclength(path g)',
+    'point': 'point(path g, real t)',
+    'relpoint': 'relpoint(path g, real t)',
+    'dir': 'dir(real angle)',
+    'rightanglemark': 'rightanglemark(pair A, pair B, pair C, real size = 5)',
+    'anglemark': 'anglemark(pair A, pair B, pair C, real radius = 0)',
+    'markangle': 'markangle(pair A, pair B, pair C, real radius = 0, pen p = currentpen)',
+    'rgb': 'rgb(real r, real g, real b)',
+    'gray': 'gray(real g)',
+  };
+
+  // Build completion objects with displayText for functions
+  function makeCompletionObj(name) {
+    const sig = ASY_SIGNATURES[name];
+    return sig ? { text: name, displayText: sig } : { text: name, displayText: name };
+  }
+
   let acDebounceTimer = null;
 
   function asyHint(cm, callback) {
@@ -4981,7 +5073,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Local: filter built-in completions
     const lower = prefix.toLowerCase();
-    const localMatches = ASY_COMPLETIONS.filter(c => c.toLowerCase().startsWith(lower) && c !== prefix);
+    const localMatches = ASY_COMPLETIONS
+      .filter(c => c.toLowerCase().startsWith(lower) && c !== prefix)
+      .map(makeCompletionObj);
 
     // Also scan code for user-defined variables
     const code = cm.getValue();
@@ -4989,9 +5083,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let m;
     const userVars = new Set();
     while ((m = varRe.exec(code)) !== null) userVars.add(m[1]);
-    const userMatches = [...userVars].filter(v => v.toLowerCase().startsWith(lower) && v !== prefix && !localMatches.includes(v));
+    const localTexts = new Set(localMatches.map(c => c.text));
+    const userMatches = [...userVars]
+      .filter(v => v.toLowerCase().startsWith(lower) && v !== prefix && !localTexts.has(v))
+      .map(v => ({ text: v, displayText: v }));
 
-    const allLocal = [...new Set([...localMatches, ...userMatches])].slice(0, 10);
+    const allLocal = [...localMatches, ...userMatches].slice(0, 10);
 
     // Show locals immediately
     const result = { list: allLocal, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } };
@@ -5005,13 +5102,82 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({ action: 'autocomplete', code, cursor: cm.indexFromPos(cur), prefix }),
       }).then(r => r.json()).then(data => {
         if (data.completions && data.completions.length > 0) {
-          const merged = [...new Set([...allLocal, ...data.completions])].slice(0, 12);
+          const aiObjs = data.completions.map(makeCompletionObj);
+          const allTexts = new Set(allLocal.map(c => c.text));
+          const merged = [...allLocal, ...aiObjs.filter(o => !allTexts.has(o.text))].slice(0, 12);
           cm.showHint({ hint: () => ({ list: merged, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } }), completeSingle: false });
         }
       }).catch(() => {});
     }, 300);
   }
   asyHint.async = true;
+
+  // ============================================================
+  // Parameter hint tooltip (shows signature while typing args)
+  // ============================================================
+  const paramHintEl = document.createElement('div');
+  paramHintEl.id = 'asy-param-hint';
+  paramHintEl.style.cssText = 'position:fixed;background:#1e1e2e;border:1px solid #555;border-radius:4px;padding:3px 10px;font-size:12px;font-family:monospace;color:#ccc;z-index:9999;pointer-events:none;display:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);';
+  document.body.appendChild(paramHintEl);
+
+  function updateParamHint(cm) {
+    const cur = cm.getCursor();
+    const line = cm.getLine(cur.line);
+    if (!line) { paramHintEl.style.display = 'none'; return; }
+
+    // Walk back from cursor to find the innermost unmatched '('
+    let depth = 0;
+    let openParenPos = -1;
+    for (let i = cur.ch - 1; i >= 0; i--) {
+      const ch = line[i];
+      if (ch === ')') depth++;
+      else if (ch === '(') {
+        if (depth === 0) { openParenPos = i; break; }
+        depth--;
+      }
+    }
+    if (openParenPos < 0) { paramHintEl.style.display = 'none'; return; }
+
+    // Get function name immediately before '('
+    const before = line.slice(0, openParenPos);
+    const funcMatch = before.match(/([A-Za-z_]\w*)$/);
+    if (!funcMatch) { paramHintEl.style.display = 'none'; return; }
+
+    const sig = ASY_SIGNATURES[funcMatch[1]];
+    if (!sig) { paramHintEl.style.display = 'none'; return; }
+
+    // Count which argument index the cursor is at (commas at depth 0)
+    let argIdx = 0;
+    let d = 0;
+    for (let i = openParenPos + 1; i < cur.ch; i++) {
+      const ch = line[i];
+      if (ch === '(' || ch === '[') d++;
+      else if (ch === ')' || ch === ']') d--;
+      else if (ch === ',' && d === 0) argIdx++;
+    }
+
+    // Parse args from signature
+    const argsMatch = sig.match(/\(([^]*)\)$/);
+    if (!argsMatch) { paramHintEl.style.display = 'none'; return; }
+    const args = argsMatch[1].split(',').map(s => s.trim());
+
+    // Render with the current arg highlighted
+    const funcName = sig.slice(0, sig.indexOf('('));
+    paramHintEl.innerHTML = escapeHtml(funcName) + '(' + args.map((arg, i) =>
+      i === argIdx
+        ? `<span style="color:#e9c46a;font-weight:bold;">${escapeHtml(arg)}</span>`
+        : `<span style="color:#aaa;">${escapeHtml(arg)}</span>`
+    ).join('<span style="color:#666;">, </span>') + ')';
+
+    paramHintEl.style.display = 'block';
+    const coords = cm.cursorCoords(true, 'window');
+    const hintH = paramHintEl.offsetHeight || 22;
+    paramHintEl.style.left = coords.left + 'px';
+    paramHintEl.style.top = (coords.top - hintH - 6) + 'px';
+  }
+
+  editor.on('cursorActivity', updateParamHint);
+  editor.on('blur', () => { paramHintEl.style.display = 'none'; });
 
   // Auto-trigger on typing 2+ chars (gated by autocompleteEnabled)
   editor.on('inputRead', (cm, change) => {

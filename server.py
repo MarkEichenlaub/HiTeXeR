@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import traceback
 import urllib.request
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -188,16 +189,21 @@ def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-
 
     The Claude CLI supports reading image files natively (multimodal Read tool),
     so we write the image to disk and instruct Claude to read it.
+    We write to the project directory (where the server runs) so Claude CLI
+    has file access without needing --add-dir flags.
     """
     ext_map = {"image/png": ".png", "image/jpeg": ".jpg",
                "image/gif": ".gif", "image/webp": ".webp"}
     ext = ext_map.get(media_type, ".png")
 
-    tmp_path = None
+    # Write into the project directory so Claude CLI can read it without --add-dir
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    tmp_filename = f"_vision_tmp_{uuid.uuid4().hex}{ext}"
+    tmp_path = os.path.join(project_dir, tmp_filename)
+
     try:
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(base64.b64decode(image_b64))
-            tmp_path = tmp.name
+        with open(tmp_path, "wb") as f:
+            f.write(base64.b64decode(image_b64))
 
         img_prompt = (
             prompt
@@ -206,17 +212,16 @@ def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-
         )
 
         result = subprocess.run(
-            [CLAUDE_CLI, "-p", "--model", model, "--max-turns", "3",
-             "--add-dir", os.path.dirname(tmp_path)],
+            [CLAUDE_CLI, "-p", "--model", model, "--max-turns", "3"],
             input=img_prompt,
             capture_output=True, text=True, timeout=180,
-            cwd=tempfile.gettempdir(), shell=True,
+            cwd=project_dir, shell=True,
         )
         return result.stdout.strip() or result.stderr.strip() or "No response"
     except Exception as e:
         return f"Error: {e}"
     finally:
-        if tmp_path:
+        if os.path.exists(tmp_path):
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -453,22 +458,26 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         action = data.get("action", "")
         code = data.get("code", "")
 
-        if action == "refactor":
-            self._handle_refactor(code)
-        elif action == "edit":
-            self._handle_edit(code, data.get("prompt", ""), data.get("image"))
-        elif action == "learn":
-            self._handle_learn(code)
-        elif action == "chat":
-            self._handle_chat(code, data.get("prompt", ""), data.get("options", {}), data.get("history", []), data.get("image"))
-        elif action == "lint":
-            self._handle_lint(code)
-        elif action == "fix":
-            self._handle_fix(code, data.get("line", 0), data.get("message", ""))
-        elif action == "autocomplete":
-            self._handle_autocomplete(code, data.get("cursor", 0), data.get("prefix", ""))
-        else:
-            self.send_json(400, {"error": f"Unknown AI action: {action}"})
+        try:
+            if action == "refactor":
+                self._handle_refactor(code)
+            elif action == "edit":
+                self._handle_edit(code, data.get("prompt", ""), data.get("image"))
+            elif action == "learn":
+                self._handle_learn(code)
+            elif action == "chat":
+                self._handle_chat(code, data.get("prompt", ""), data.get("options", {}), data.get("history", []), data.get("image"))
+            elif action == "lint":
+                self._handle_lint(code)
+            elif action == "fix":
+                self._handle_fix(code, data.get("line", 0), data.get("message", ""))
+            elif action == "autocomplete":
+                self._handle_autocomplete(code, data.get("cursor", 0), data.get("prefix", ""))
+            else:
+                self.send_json(400, {"error": f"Unknown AI action: {action}"})
+        except Exception as e:
+            traceback.print_exc()
+            self.send_json(500, {"error": f"Server error: {e}"})
 
     def _handle_refactor(self, code):
         """AI Refactor: refactor code while keeping identical output."""
