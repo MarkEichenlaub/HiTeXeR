@@ -344,6 +344,7 @@ body {
       <div class="menu-dropdown">
         <div class="md-item" id="md-save">Save .asy</div>
         <div class="md-item" id="md-open">Open .asy</div>
+        <div class="md-item" id="md-open-image">Open Image...</div>
         <div class="md-separator"></div>
         <div class="md-item md-submenu">Export
           <div class="menu-dropdown">
@@ -393,6 +394,7 @@ body {
 </div>
 <!-- Hidden file input for Open .asy -->
 <input type="file" id="file-open-input" accept=".asy" style="display:none">
+<input type="file" id="file-open-image-input" accept=".svg,.png,.jpg,.jpeg,.gif,.pdf" style="display:none">
 
 <div id="main">
   <div id="editor-panel">
@@ -458,7 +460,7 @@ label("$C$", C, N);
           <label>End: <input id="gif-end" type="text" value="1" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
           <label>Width: <input id="gif-width" type="text" value="true" title="'true' = natural size, or pixels e.g. 400" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
           <label>Duration: <input id="gif-duration" type="text" value="3s" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
-          <label>Delay: <input id="gif-delay" type="number" value="5" min="1" max="100" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">x0.01s</span></label>
+          <label>Delay: <input id="gif-delay" type="number" value="2" min="1" max="100" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">x0.01s</span></label>
           <label>Loop: <input id="gif-loop" type="number" value="0" min="0" style="width:36px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">0=inf</span></label>
           <label>Pause: <input id="gif-pause" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
           <label style="cursor:pointer;"><input type="checkbox" id="gif-transparent" style="accent-color:#e9c46a;"> Transparent</label>
@@ -618,8 +620,10 @@ const AsyParser = {
     const lines = code.split('\n');
     const drawCommands = [], assignments = [], imports = [], funcDefs = [];
     const drawP = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
-    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
-    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
+    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const pushP = /^\s*([a-zA-Z_]\w*)\.(?:push|append|insert)\s*\(/;
+    const forInitP = /^\s*for\s*\(\s*(?:int|real|pair|path|guide|pen|bool|string)\s+([a-zA-Z_]\w*)\s*=/;
     const importP = /^\s*(import|access|from)\s+/;
     const sizeP = /^\s*(unitsize|size)\s*\(/;
     const commentP = /^\s*\/\//;
@@ -662,6 +666,10 @@ const AsyParser = {
       }
       const am = t.match(assignP);
       if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
+      const pm = t.match(pushP);
+      if (pm) { assignments.push({lineIndex:i,varName:pm[1],lineText:lines[i]}); continue; }
+      const fim = t.match(forInitP);
+      if (fim) { assignments.push({lineIndex:i,varName:fim[1],lineText:lines[i]}); continue; }
       const mm = t.match(multiP);
       if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i]}); }
     }
@@ -2769,6 +2777,102 @@ function initCanvasPan() {
   });
 }
 
+// Replace <foreignObject> (KaTeX/MathML labels) with SVG <text> fallbacks.
+// Browsers block <foreignObject> when rendering SVG as <img> via blob URL,
+// so we must convert to native SVG elements before rasterisation.
+function replaceForeignObjects(svgEl) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const fos = [...svgEl.querySelectorAll('foreignObject')];
+  for (const fo of fos) {
+    // Extract display text: prefer <annotation encoding="application/x-tex">,
+    // fall back to visible textContent
+    let label = '';
+    const ann = fo.querySelector('annotation[encoding="application/x-tex"]');
+    if (ann) {
+      label = ann.textContent.trim();
+    } else {
+      label = (fo.textContent || '').trim();
+    }
+
+    // Map common LaTeX commands to Unicode for the SVG text fallback
+    const LATEX_UNICODE = {
+      '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+      '\\varepsilon':'ε','\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\vartheta':'ϑ',
+      '\\iota':'ι','\\kappa':'κ','\\lambda':'λ','\\mu':'μ','\\nu':'ν',
+      '\\xi':'ξ','\\pi':'π','\\varpi':'ϖ','\\rho':'ρ','\\varrho':'ϱ',
+      '\\sigma':'σ','\\varsigma':'ς','\\tau':'τ','\\upsilon':'υ','\\phi':'ϕ',
+      '\\varphi':'φ','\\chi':'χ','\\psi':'ψ','\\omega':'ω',
+      '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
+      '\\Pi':'Π','\\Sigma':'Σ','\\Upsilon':'Υ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
+      '\\infty':'∞','\\partial':'∂','\\nabla':'∇','\\pm':'±','\\mp':'∓',
+      '\\times':'×','\\div':'÷','\\cdot':'·','\\leq':'≤','\\geq':'≥',
+      '\\neq':'≠','\\approx':'≈','\\equiv':'≡','\\sim':'∼','\\propto':'∝',
+      '\\angle':'∠','\\perp':'⊥','\\parallel':'∥','\\ell':'ℓ',
+      '\\forall':'∀','\\exists':'∃','\\in':'∈','\\notin':'∉',
+      '\\subset':'⊂','\\supset':'⊃','\\cup':'∪','\\cap':'∩',
+      '\\emptyset':'∅','\\neg':'¬','\\wedge':'∧','\\vee':'∨',
+      '\\oplus':'⊕','\\otimes':'⊗','\\rightarrow':'→','\\leftarrow':'←',
+      '\\Rightarrow':'⇒','\\Leftarrow':'⇐','\\leftrightarrow':'↔',
+      '\\vdots':'⋮','\\ddots':'⋱','\\cdots':'⋯','\\ldots':'…','\\dots':'…',
+      '\\prime':'′','\\circ':'∘','\\bullet':'•','\\star':'⋆',
+      '\\sqrt':'√','\\sum':'∑','\\prod':'∏','\\int':'∫',
+    };
+    // Convert LaTeX to Unicode text
+    let displayText = label;
+    // Replace LaTeX commands with Unicode (longest first to avoid partial matches)
+    for (const [cmd, ch] of Object.entries(LATEX_UNICODE)) {
+      displayText = displayText.split(cmd).join(ch);
+    }
+    // Strip remaining LaTeX: braces, $, \mathrm{}, \mathbf{}, etc.
+    displayText = displayText.replace(/\\(?:mathrm|mathbf|textbf|mathit|mathsf|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+    displayText = displayText.replace(/\\[a-zA-Z]+/g, ''); // remove unknown commands
+    displayText = displayText.replace(/[{}$]/g, '').trim();
+
+    // Read position and style from the foreignObject
+    const fx = parseFloat(fo.getAttribute('x')) || 0;
+    const fy = parseFloat(fo.getAttribute('y')) || 0;
+    const fw = parseFloat(fo.getAttribute('width')) || 0;
+    const fh = parseFloat(fo.getAttribute('height')) || 0;
+    const opacity = fo.getAttribute('opacity') || '';
+
+    // Extract color and alignment from the inner div's style
+    const div = fo.querySelector('div');
+    let fill = '#000000', justifyContent = 'center';
+    if (div) {
+      const colMatch = div.getAttribute('style')?.match(/color:\s*([^;]+)/);
+      if (colMatch) fill = colMatch[1].trim();
+      if (/justify-content:\s*flex-end/.test(div.getAttribute('style') || '')) justifyContent = 'flex-end';
+      else if (/justify-content:\s*flex-start/.test(div.getAttribute('style') || '')) justifyContent = 'flex-start';
+    }
+    // Estimate SVG-unit font size from foreignObject height
+    // (renderLabelKaTeX sets estH = fontSizeSVG * 1.8, or * 3.0 for fractions)
+    const hasFrac = /\\frac/.test(label);
+    const fontSize = fh / (hasFrac ? 3.0 : 1.8);
+    // Map justify-content to text-anchor
+    const textAnchor = justifyContent === 'flex-end' ? 'end' : justifyContent === 'flex-start' ? 'start' : 'middle';
+    // Position text at center of foreignObject (adjust x for anchor)
+    let tx = fx + fw / 2;
+    if (textAnchor === 'start') tx = fx;
+    else if (textAnchor === 'end') tx = fx + fw;
+    const ty = fy + fh / 2;
+
+    const textEl = document.createElementNS(ns, 'text');
+    textEl.setAttribute('x', tx);
+    textEl.setAttribute('y', ty);
+    textEl.setAttribute('fill', fill);
+    textEl.setAttribute('font-size', fontSize);
+    textEl.setAttribute('text-anchor', textAnchor);
+    textEl.setAttribute('dominant-baseline', 'central');
+    textEl.setAttribute('font-family', 'serif');
+    textEl.setAttribute('font-style', 'italic');
+    if (opacity) textEl.setAttribute('opacity', opacity);
+    textEl.textContent = displayText;
+
+    // Preserve any parent <g> transform by replacing in-place
+    fo.parentNode.replaceChild(textEl, fo);
+  }
+}
+
 async function copyCanvasImage(format) {
   format = format || 'png';
   const svg = document.querySelector('#preview-container svg');
@@ -2783,7 +2887,11 @@ async function copyCanvasImage(format) {
       flash('Copied!');
       return;
     }
-    const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+    // Clone SVG and replace foreignObject elements so it renders in <img> context
+    const svgClone = svg.cloneNode(true);
+    replaceForeignObjects(svgClone);
+    const rasterData = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([rasterData], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(svgBlob);
     const img = new Image();
     await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
@@ -3009,6 +3117,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-save').addEventListener('click', () => doSaveAsy());
   document.getElementById('md-open').addEventListener('click', () => document.getElementById('file-open-input').click());
   document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
+  document.getElementById('md-open-image').addEventListener('click', () => document.getElementById('file-open-image-input').click());
+  document.getElementById('file-open-image-input').addEventListener('change', (e) => doOpenImage(e));
   document.getElementById('md-export-svg').addEventListener('click', () => doExportSvg());
   document.getElementById('md-export-png').addEventListener('click', () => doExportPng());
   document.getElementById('md-export-jpg').addEventListener('click', () => doExportJpg());
@@ -4047,11 +4157,16 @@ document.addEventListener('DOMContentLoaded', () => {
     gifComputePreviewBounds();
     // Step through discrete frames at the specified delay to match actual GIF output.
     // Uses recursive setTimeout so the delay is read fresh each tick.
+    // Step through the same discrete frames the GIF will have, at the same
+    // timing — but with a floor on the delay so the renderer can keep up.
+    // Long delays (e.g. 500ms) are honored faithfully so the preview matches
+    // the choppy look of the actual GIF.
     let frameIndex = 0;
+    const PREVIEW_DELAY_FLOOR = 40; // ms — minimum preview delay (~25fps cap)
     function stepFrame() {
       if (!gifActive || !gifSelectedVar) { gifPreviewAnimId = null; return; }
       const durationMs = gifParseDuration(document.getElementById('gif-duration').value);
-      const delayInput = parseInt(document.getElementById('gif-delay').value) || 5;
+      const delayInput = parseInt(document.getElementById('gif-delay').value) || 2;
       const frameDelay = Math.max(1, delayInput) * 10; // ms
       const pauseMs = Math.round((parseFloat(document.getElementById('gif-pause').value) || 0) * 1000);
       const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
@@ -4063,7 +4178,7 @@ document.addEventListener('DOMContentLoaded', () => {
       gifUpdateVariable(value);
       frameIndex++;
       const nextDelay = (frameInCycle === totalFrames - 1 && pauseMs > 0) ? frameDelay + pauseMs : frameDelay;
-      gifPreviewAnimId = setTimeout(stepFrame, nextDelay);
+      gifPreviewAnimId = setTimeout(stepFrame, Math.max(nextDelay, PREVIEW_DELAY_FLOOR));
     }
     stepFrame();
   }
@@ -4304,7 +4419,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const canvas = await svgToCanvas(frameSvg, 1);
           const isLastFrame = i === frameResults.length - 1;
-          gif.addFrame(canvas, { delay: isLastFrame ? frameDelay + pauseMs : frameDelay, copy: true });
+          const delay = isLastFrame ? frameDelay + pauseMs : frameDelay;
+
+          gif.addFrame(canvas, { delay, copy: true });
           framesAdded++;
         } catch(e) {
           console.warn('GIF frame render failed:', e);
@@ -4322,16 +4439,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
       progressEl.textContent = 'Encoding GIF...';
 
-      const blob = await new Promise((resolve, reject) => {
+      let blob = await new Promise((resolve, reject) => {
         gif.on('finished', resolve);
         gif.on('error', reject);
         gif.render();
       });
 
+      // Embed Asymptote code and GIF settings as a GIF comment extension
+      const gifMeta = JSON.stringify({
+        source: extractAsyCode(),
+        gif: {
+          var: gifSelectedVar ? gifSelectedVar.varName : null,
+          start: startVal, end: endVal,
+          duration: document.getElementById('gif-duration').value,
+          delay: delayInput, loop: loopCount,
+          pause: parseFloat(document.getElementById('gif-pause').value) || 0,
+          width: widthStr, transparent,
+        },
+      });
+      blob = await gifAddComment(blob, gifMeta);
+
       if (action === 'copy') {
-        // Convert to base64 first so we can offer both image/gif AND text/html in one
-        // ClipboardItem. Rich-text apps (like EigenNode) read text/html and embed the
-        // base64 data URI, which persists across navigation. Native image apps use image/gif.
+        // Chrome's Clipboard API only allows text/plain, text/html, and image/png.
+        // We encode the GIF as a base64 data URI inside an HTML <img> tag so it can
+        // be pasted into rich-text editors (Google Docs, EigenNode, etc.).
         const base64 = await new Promise((res, rej) => {
           const r = new FileReader();
           r.onload = () => res(r.result.split(',')[1]);
@@ -4342,17 +4473,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const htmlBlob = new Blob([html], { type: 'text/html' });
         let copied = false;
         try {
-          // Offer both formats simultaneously; app picks whichever it prefers.
           await navigator.clipboard.write([new ClipboardItem({
-            'image/gif': blob,
             'text/html': htmlBlob,
           })]);
           copied = true;
         } catch(e) {
-          // Some browsers reject multi-type ClipboardItems; fall back to gif only.
+          // Fallback: try writing as plain image/png (render first frame)
           try {
-            await navigator.clipboard.write([new ClipboardItem({ 'image/gif': blob })]);
-            copied = true;
+            const firstFrame = gif.frames && gif.frames[0];
+            if (firstFrame) {
+              const pngBlob = await new Promise(r => firstFrame.toBlob(r, 'image/png'));
+              await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+              copied = true;
+            }
           } catch(e2) { /* fall through to download */ }
         }
         if (copied) {
@@ -4376,6 +4509,100 @@ document.addEventListener('DOMContentLoaded', () => {
         gifStartPreview();
       }
     }
+  }
+
+  // ---- Metadata embedding helpers ----
+  // Inject a tEXt chunk into a PNG blob. The tEXt chunk stores a keyword/value
+  // pair as plain Latin-1 text. We insert it right after the IHDR chunk (the
+  // first chunk after the 8-byte PNG signature).
+  async function pngAddTextChunk(blob, keyword, value) {
+    const buf = await blob.arrayBuffer();
+    const src = new Uint8Array(buf);
+    // PNG signature = 8 bytes, then IHDR chunk = 4(len)+4(type)+13(data)+4(crc) = 25
+    const insertPos = 8 + 25; // right after IHDR
+    const enc = new TextEncoder();
+    const kwBytes = enc.encode(keyword);
+    const valBytes = enc.encode(value);
+    // tEXt data = keyword + null separator + value
+    const dataLen = kwBytes.length + 1 + valBytes.length;
+    const chunk = new Uint8Array(4 + 4 + dataLen + 4); // length + type + data + crc
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, dataLen); // chunk data length
+    chunk[4] = 0x74; chunk[5] = 0x45; chunk[6] = 0x58; chunk[7] = 0x74; // "tEXt"
+    chunk.set(kwBytes, 8);
+    chunk[8 + kwBytes.length] = 0; // null separator
+    chunk.set(valBytes, 8 + kwBytes.length + 1);
+    // CRC covers type + data
+    const crc = crc32(chunk.subarray(4, 4 + 4 + dataLen));
+    view.setUint32(4 + 4 + dataLen, crc);
+    // Build new PNG: [signature + IHDR] + [tEXt chunk] + [rest]
+    const result = new Uint8Array(src.length + chunk.length);
+    result.set(src.subarray(0, insertPos), 0);
+    result.set(chunk, insertPos);
+    result.set(src.subarray(insertPos), insertPos + chunk.length);
+    return new Blob([result], { type: 'image/png' });
+  }
+
+  // Insert a COM (comment) marker into a JPEG blob, right after the SOI marker.
+  async function jpgAddComment(blob, comment) {
+    const buf = await blob.arrayBuffer();
+    const src = new Uint8Array(buf);
+    const enc = new TextEncoder();
+    const commentBytes = enc.encode(comment.slice(0, 65531)); // COM segment max 65533 bytes incl. length
+    // COM marker: FF FE, then 2-byte length (including the 2 length bytes)
+    const segLen = 2 + commentBytes.length;
+    const marker = new Uint8Array(2 + 2 + commentBytes.length);
+    marker[0] = 0xFF; marker[1] = 0xFE; // COM marker
+    marker[2] = (segLen >> 8) & 0xFF; marker[3] = segLen & 0xFF;
+    marker.set(commentBytes, 4);
+    // Insert after SOI (first 2 bytes: FF D8)
+    const result = new Uint8Array(src.length + marker.length);
+    result.set(src.subarray(0, 2), 0); // SOI
+    result.set(marker, 2);
+    result.set(src.subarray(2), 2 + marker.length);
+    return new Blob([result], { type: 'image/jpeg' });
+  }
+
+  // Insert a Comment Extension block into a GIF blob, right after the
+  // GIF header + logical screen descriptor (+ global color table if present).
+  async function gifAddComment(blob, comment) {
+    const buf = await blob.arrayBuffer();
+    const src = new Uint8Array(buf);
+    // GIF header: 6 bytes ("GIF89a" or "GIF87a")
+    // Logical screen descriptor: 7 bytes (w, h, packed, bg, aspect)
+    const packed = src[10];
+    const hasGCT = (packed & 0x80) !== 0;
+    const gctSize = hasGCT ? 3 * (1 << ((packed & 0x07) + 1)) : 0;
+    const insertPos = 6 + 7 + gctSize; // after header + LSD + GCT
+    // Build comment extension: 0x21 0xFE, then sub-blocks (max 255 bytes each), then 0x00 terminator
+    const enc = new TextEncoder();
+    const commentBytes = enc.encode(comment);
+    const subBlocks = [];
+    for (let i = 0; i < commentBytes.length; i += 255) {
+      const chunk = commentBytes.subarray(i, Math.min(i + 255, commentBytes.length));
+      subBlocks.push(chunk.length); // sub-block size byte
+      subBlocks.push(...chunk);
+    }
+    const ext = new Uint8Array(2 + subBlocks.length + 1);
+    ext[0] = 0x21; // extension introducer
+    ext[1] = 0xFE; // comment label
+    ext.set(new Uint8Array(subBlocks), 2);
+    ext[ext.length - 1] = 0x00; // block terminator
+    const result = new Uint8Array(src.length + ext.length);
+    result.set(src.subarray(0, insertPos), 0);
+    result.set(ext, insertPos);
+    result.set(src.subarray(insertPos), insertPos + ext.length);
+    return new Blob([result], { type: 'image/gif' });
+  }
+
+  // CRC-32 for PNG chunks (ISO 3309 / ITU-T V.42)
+  function crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
   }
 
   function downloadBlob(blob, filename) {
@@ -4654,6 +4881,196 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = ''; // reset for re-open
   }
 
+  // Open an image file and extract embedded Asymptote source code from metadata.
+  // Supports SVG (<metadata>), PNG (tEXt chunk), JPG (COM marker), GIF (comment
+  // extension), and PDF (jsPDF subject property). For GIFs, also restores GIF
+  // mode settings if present.
+  async function doOpenImage(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = ''; // reset for re-open
+    const ext = file.name.split('.').pop().toLowerCase();
+    let code = null;
+    let gifSettings = null;
+
+    try {
+      if (ext === 'svg') {
+        const text = await file.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'image/svg+xml');
+        const meta = doc.querySelector('metadata');
+        if (meta) code = meta.textContent.trim();
+      } else if (ext === 'png') {
+        const buf = await file.arrayBuffer();
+        code = extractPngText(new Uint8Array(buf), 'Source');
+      } else if (ext === 'jpg' || ext === 'jpeg') {
+        const buf = await file.arrayBuffer();
+        code = extractJpgComment(new Uint8Array(buf));
+      } else if (ext === 'gif') {
+        const buf = await file.arrayBuffer();
+        const comment = extractGifComment(new Uint8Array(buf));
+        if (comment) {
+          // Try parsing as JSON (HiTeXeR GIF metadata)
+          try {
+            const meta = JSON.parse(comment);
+            code = meta.source || null;
+            gifSettings = meta.gif || null;
+          } catch(_) {
+            // Plain text comment — treat as source code
+            code = comment;
+          }
+        }
+      } else if (ext === 'pdf') {
+        const text = await file.text();
+        code = extractPdfSubject(text);
+      }
+    } catch(err) {
+      console.error('Failed to read image metadata:', err);
+    }
+
+    if (!code) {
+      alert('No Asymptote source code found in this file.');
+      return;
+    }
+
+    // Load the code into the editor
+    let asyCode = code;
+    if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
+    if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
+    editor.setValue(asyCode);
+    doRender();
+
+    // For GIFs with settings, activate GIF mode and restore settings
+    if (gifSettings) {
+      // Wait a tick for the editor/render to settle
+      await new Promise(r => setTimeout(r, 100));
+      activateGifMode();
+      // Select the variable
+      if (gifSettings.var) {
+        const sel = document.getElementById('gif-var-select');
+        for (let i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === gifSettings.var) {
+            sel.selectedIndex = i;
+            gifSelectVariable();
+            break;
+          }
+        }
+      }
+      // Restore settings
+      if (gifSettings.start != null) document.getElementById('gif-start').value = String(gifSettings.start);
+      if (gifSettings.end != null) document.getElementById('gif-end').value = String(gifSettings.end);
+      if (gifSettings.duration != null) document.getElementById('gif-duration').value = String(gifSettings.duration);
+      if (gifSettings.delay != null) document.getElementById('gif-delay').value = String(gifSettings.delay);
+      if (gifSettings.loop != null) document.getElementById('gif-loop').value = String(gifSettings.loop);
+      if (gifSettings.pause != null) document.getElementById('gif-pause').value = String(gifSettings.pause);
+      if (gifSettings.width != null) document.getElementById('gif-width').value = String(gifSettings.width);
+      if (gifSettings.transparent != null) document.getElementById('gif-transparent').checked = !!gifSettings.transparent;
+      // Restart preview with restored settings
+      gifStartPreview();
+    }
+  }
+
+  // Extract a tEXt chunk value from a PNG file by keyword.
+  function extractPngText(data, keyword) {
+    // Walk PNG chunks: 8-byte signature, then [4-byte len][4-byte type][data][4-byte crc]
+    let pos = 8; // skip PNG signature
+    const dec = new TextDecoder('latin1');
+    while (pos + 8 <= data.length) {
+      const len = (data[pos] << 24) | (data[pos+1] << 16) | (data[pos+2] << 8) | data[pos+3];
+      const type = dec.decode(data.subarray(pos + 4, pos + 8));
+      if (type === 'tEXt') {
+        const chunkData = data.subarray(pos + 8, pos + 8 + len);
+        // keyword\0value
+        const nullIdx = chunkData.indexOf(0);
+        if (nullIdx >= 0) {
+          const kw = dec.decode(chunkData.subarray(0, nullIdx));
+          if (kw === keyword) {
+            return new TextDecoder('utf-8').decode(chunkData.subarray(nullIdx + 1));
+          }
+        }
+      }
+      if (type === 'IEND') break;
+      pos += 4 + 4 + len + 4; // len field + type + data + crc
+    }
+    return null;
+  }
+
+  // Extract the COM (comment) marker content from a JPEG file.
+  function extractJpgComment(data) {
+    // JPEG: FF D8 (SOI), then markers FF XX [2-byte length] [data]
+    let pos = 2; // skip SOI
+    while (pos + 4 <= data.length) {
+      if (data[pos] !== 0xFF) break;
+      const marker = data[pos + 1];
+      if (marker === 0xD9) break; // EOI
+      const segLen = (data[pos + 2] << 8) | data[pos + 3];
+      if (marker === 0xFE) { // COM
+        return new TextDecoder('utf-8').decode(data.subarray(pos + 4, pos + 2 + segLen));
+      }
+      pos += 2 + segLen;
+    }
+    return null;
+  }
+
+  // Extract the Comment Extension content from a GIF file.
+  function extractGifComment(data) {
+    // GIF: 6-byte header, 7-byte LSD, optional GCT, then blocks
+    const packed = data[10];
+    const hasGCT = (packed & 0x80) !== 0;
+    const gctSize = hasGCT ? 3 * (1 << ((packed & 0x07) + 1)) : 0;
+    let pos = 6 + 7 + gctSize;
+    while (pos < data.length) {
+      if (data[pos] === 0x3B) break; // trailer
+      if (data[pos] === 0x21 && pos + 1 < data.length) {
+        const label = data[pos + 1];
+        pos += 2;
+        if (label === 0xFE) {
+          // Comment extension: read sub-blocks
+          const parts = [];
+          while (pos < data.length && data[pos] !== 0) {
+            const blockLen = data[pos++];
+            parts.push(data.subarray(pos, pos + blockLen));
+            pos += blockLen;
+          }
+          pos++; // skip terminator
+          const total = parts.reduce((s, p) => s + p.length, 0);
+          const merged = new Uint8Array(total);
+          let off = 0;
+          for (const p of parts) { merged.set(p, off); off += p.length; }
+          return new TextDecoder('utf-8').decode(merged);
+        }
+        // Skip other extension sub-blocks
+        while (pos < data.length && data[pos] !== 0) { pos += 1 + data[pos]; }
+        pos++; // skip terminator
+      } else if (data[pos] === 0x2C) {
+        // Image descriptor: skip over it
+        pos += 10; // descriptor
+        const lpacked = data[pos - 1];
+        const hasLCT = (lpacked & 0x80) !== 0;
+        const lctSize = hasLCT ? 3 * (1 << ((lpacked & 0x07) + 1)) : 0;
+        pos += lctSize;
+        pos++; // LZW min code size
+        // Skip LZW sub-blocks
+        while (pos < data.length && data[pos] !== 0) { pos += 1 + data[pos]; }
+        pos++; // skip terminator
+      } else {
+        pos++;
+      }
+    }
+    return null;
+  }
+
+  // Extract the /Subject field from a PDF (text-based search; works for jsPDF output).
+  function extractPdfSubject(text) {
+    // jsPDF writes: /Subject (content)
+    // The content may contain escaped parens: \( \)
+    const m = text.match(/\/Subject\s*\(([^)]*(?:\\\)[^)]*)*)\)/);
+    if (m) {
+      return m[1].replace(/\\(.)/g, '$1'); // unescape
+    }
+    return null;
+  }
+
   function cloneSvgForExport() {
     const svg = document.querySelector('#preview-container svg');
     if (!svg) return null;
@@ -4682,6 +5099,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function svgToCanvas(clone, scale) {
+    // Replace foreignObject elements so SVG renders in <img> context
+    replaceForeignObjects(clone);
     return new Promise((resolve, reject) => {
       const serializer = new XMLSerializer();
       const svgStr = serializer.serializeToString(clone);
@@ -4717,13 +5136,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     try {
       const canvas = await svgToCanvas(clone, 2);
-      canvas.toBlob(blob => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'diagram.png';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }, 'image/png');
+      const rawBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      const blob = await pngAddTextChunk(rawBlob, 'Source', extractAsyCode());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'diagram.png';
+      a.click();
+      URL.revokeObjectURL(a.href);
     } catch(err) {
       console.error('PNG export failed:', err);
     }
@@ -4750,13 +5169,13 @@ document.addEventListener('DOMContentLoaded', () => {
       tmpCtx.fillStyle = '#ffffff';
       tmpCtx.fillRect(0, 0, tmp.width, tmp.height);
       tmpCtx.drawImage(canvas, 0, 0);
-      tmp.toBlob(blob => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'diagram.jpg';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }, 'image/jpeg', 0.95);
+      const rawBlob = await new Promise(r => tmp.toBlob(r, 'image/jpeg', 0.95));
+      const blob = await jpgAddComment(rawBlob, extractAsyCode());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'diagram.jpg';
+      a.click();
+      URL.revokeObjectURL(a.href);
     } catch(err) {
       console.error('JPG export failed:', err);
     }

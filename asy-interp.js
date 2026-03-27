@@ -1857,6 +1857,10 @@ function createInterpreter() {
       const val = evalNode(n.point, env);
       if (isPath(val) && val.segs.length > 0) {
         elements.push({type:'path', segs:val.segs, join:n.join});
+      } else if (isPath(val) && val.segs.length === 0) {
+        // Empty path/guide (e.g. uninitialized "guide g") — skip entirely.
+        // Converting to (0,0) via toPair would create a stray segment from the origin.
+        continue;
       } else {
         elements.push({type:'pair', pt:toPair(val), join:n.join});
       }
@@ -2357,7 +2361,8 @@ function createInterpreter() {
     env.set('sgn', (x) => Math.sign(toNumber(x)));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
     env.set('degrees', (x) => {
-      if (isPair(x)) { const d = Math.atan2(x.y, x.x) * 180 / Math.PI; return d < 0 ? d + 360 : d; }
+      // Asymptote's degrees(pair) returns atan2(y,x) in (-180,180], not [0,360)
+      if (isPair(x)) { return Math.atan2(x.y, x.x) * 180 / Math.PI; }
       return toNumber(x) * 180 / Math.PI;
     });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
@@ -2429,8 +2434,8 @@ function createInterpreter() {
         const c = toPair(args[0]);
         let a1 = toNumber(args[2]), a2 = toNumber(args[3]);
         const ccw = args.length >= 5 ? !!args[4] : true;
-        if (ccw) { while (a2 < a1) a2 += 360; }
-        else     { while (a2 > a1) a2 -= 360; }
+        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
+        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
         return makeArcPath(c, toNumber(args[1]), a1, a2);
       }
       if (args.length >= 3 && isPair(args[1])) {
@@ -2441,8 +2446,8 @@ function createInterpreter() {
         let a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
         let a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
         const ccw = args.length >= 4 ? !!args[3] : true;
-        if (ccw) { while (a2 < a1) a2 += 360; }
-        else     { while (a2 > a1) a2 -= 360; }
+        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
+        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
         return makeArcPath(c, r, a1, a2);
       }
       if (args.length >= 2) {
@@ -4568,6 +4573,14 @@ function renderSVG(result, opts) {
   const pad = 0.5;
   minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
+  // Save geometry-only bbox before label expansion.
+  // In real Asymptote, size() scales geometry to fit the requested dimensions;
+  // labels are placed at absolute point sizes and don't shrink the geometry.
+  // Using the label-expanded bbox for pxPerUnit made geometry too small relative
+  // to labels, causing text to appear disproportionately wide.
+  const geoBboxW = maxX - minX || 1;
+  const geoBboxH = maxY - minY || 1;
+
   // Expand bbox for labels so text doesn't get clipped
   // Estimate label extent in user coordinates
   for (const dc of drawCommands) {
@@ -4612,23 +4625,24 @@ function renderSVG(result, opts) {
 
   const warnings = [];
 
-  // Determine scale
+  // Determine scale — use geometry-only bbox so labels don't shrink geometry
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit;
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly
     pxPerUnit = unitScale;
   } else if (sizeW > 0 || sizeH > 0) {
-    // size() without unitsize(): scale user coords to fit in the requested size
+    // size() without unitsize(): scale user coords to fit in the requested size.
+    // Use geometry-only bbox so labels don't shrink the drawing.
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
-    pxPerUnit = Math.min(targetW / bboxW, targetH / bboxH);
+    pxPerUnit = Math.min(targetW / geoBboxW, targetH / geoBboxH);
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
     const defaultSize = 200;
     const targetW = defaultSize;
     const targetH = defaultSize;
-    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    pxPerUnit = Math.min(targetW / (geoBboxW || 1), targetH / (geoBboxH || 1));
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');

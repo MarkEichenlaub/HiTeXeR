@@ -357,6 +357,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_ai()
         elif self.path == "/eigennode-write":
             self.handle_eigennode_write()
+        elif self.path == "/render-gif":
+            self.handle_render_gif()
         else:
             self.send_error(404)
 
@@ -383,6 +385,62 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(200, {"ok": True})
         except Exception as e:
             self.send_json(500, {"error": str(e)})
+
+    def handle_render_gif(self):
+        """Render Asymptote code to an animated GIF using asy.exe -f gif."""
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_json(400, {"error": "Invalid JSON"})
+            return
+
+        code = data.get("code", "")
+        # gif_settings passed for reference but asy code controls output directly
+        if not code.strip():
+            self.send_json(400, {"error": "No code provided"})
+            return
+
+        # Strip [asy]/[/asy] wrappers
+        code = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
+        code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                asy_file = os.path.join(tmpdir, "anim.asy")
+
+                code, _ = resolve_aops_eps_paths(code, tmpdir)
+                with open(asy_file, "w") as f:
+                    f.write(AOPS_PREAMBLE + auto_import(code))
+
+                result = subprocess.run(
+                    [ASY_EXE, "-f", "gif", "-noView", "-o", "anim", "anim.asy"],
+                    cwd=tmpdir, capture_output=True, text=True, timeout=120,
+                )
+
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip() or result.stdout.strip() or f"asy exited with code {result.returncode}"
+                    self.send_json(200, {"success": False, "error": error_msg})
+                    return
+
+                # asy may produce anim.gif or anim0.gif, anim1.gif, ... for animations
+                gif_file = os.path.join(tmpdir, "anim.gif")
+                if not os.path.exists(gif_file):
+                    gif_files = sorted(f for f in os.listdir(tmpdir) if f.endswith('.gif'))
+                    if not gif_files:
+                        self.send_json(200, {"success": False, "error": "asy produced no GIF output (ImageMagick may be required for animation)"})
+                        return
+                    gif_file = os.path.join(tmpdir, gif_files[0])
+
+                with open(gif_file, "rb") as f:
+                    gif_b64 = base64.b64encode(f.read()).decode()
+
+                self.send_json(200, {"success": True, "gifBase64": gif_b64})
+        except subprocess.TimeoutExpired:
+            self.send_json(200, {"success": False, "error": "GIF compilation timed out"})
+        except Exception as e:
+            self.send_json(500, {"success": False, "error": str(e)})
 
     def handle_compile(self):
         content_length = int(self.headers["Content-Length"])
@@ -832,6 +890,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
+        # Prevent browser from caching served files so edits take effect immediately
+        self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
 
