@@ -217,7 +217,8 @@ body {
 
 /* GIF mode */
 #gif-panel input:focus, #gif-panel select:focus { outline: 1px solid #e9c46a; outline-offset: 0; }
-.gif-generating { pointer-events: none; opacity: 0.6; }
+.gif-generating { pointer-events: none; }
+.gif-generating button { opacity: 0.45; cursor: not-allowed; }
 
 /* Add element menu items */
 #add-element-menu .ae-item {
@@ -1670,12 +1671,6 @@ function initEditor() {
           for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.add(ic); }
         }
         renderMultiSelection();
-      }
-    } else if (!e.ctrlKey && !e.metaKey) {
-      // Clicking on a non-draw line clears multi-selection
-      if (multiSelected.size > 0) {
-        multiSelected.clear(); multiSelectedInterp.clear();
-        clearHighlights(); clearSvgHighlights();
       }
     }
   });
@@ -4282,6 +4277,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Pass 2: rasterize each frame with stable coordinate system
       const savedBounds = gifPreviewBounds;
       gifPreviewBounds = gifBounds; // temporarily use GIF bounds for stabilization
+      let framesAdded = 0;
       for (let i = 0; i < frameResults.length; i++) {
         const result = frameResults[i];
         const frameDiv = document.createElement('div');
@@ -4309,6 +4305,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const canvas = await svgToCanvas(frameSvg, 1);
           const isLastFrame = i === frameResults.length - 1;
           gif.addFrame(canvas, { delay: isLastFrame ? frameDelay + pauseMs : frameDelay, copy: true });
+          framesAdded++;
         } catch(e) {
           console.warn('GIF frame render failed:', e);
         }
@@ -4318,6 +4315,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       gifPreviewBounds = savedBounds; // restore
+
+      if (framesAdded === 0) {
+        throw new Error('No frames could be rasterized.');
+      }
+
       progressEl.textContent = 'Encoding GIF...';
 
       const blob = await new Promise((resolve, reject) => {
@@ -4327,27 +4329,31 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       if (action === 'copy') {
+        // Convert to base64 first so we can offer both image/gif AND text/html in one
+        // ClipboardItem. Rich-text apps (like EigenNode) read text/html and embed the
+        // base64 data URI, which persists across navigation. Native image apps use image/gif.
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(',')[1]);
+          r.onerror = rej;
+          r.readAsDataURL(blob);
+        });
+        const html = `<img src="data:image/gif;base64,${base64}">`;
+        const htmlBlob = new Blob([html], { type: 'text/html' });
         let copied = false;
-        // Try native image/gif (works in Firefox and Chrome 86+)
         try {
-          await navigator.clipboard.write([new ClipboardItem({ 'image/gif': blob })]);
+          // Offer both formats simultaneously; app picks whichever it prefers.
+          await navigator.clipboard.write([new ClipboardItem({
+            'image/gif': blob,
+            'text/html': htmlBlob,
+          })]);
           copied = true;
-        } catch(e) { /* try HTML fallback next */ }
-        // HTML fallback: embed as base64 data URI — pastes into email/docs as animated GIF
-        if (!copied) {
+        } catch(e) {
+          // Some browsers reject multi-type ClipboardItems; fall back to gif only.
           try {
-            const base64 = await new Promise((res, rej) => {
-              const r = new FileReader();
-              r.onload = () => res(r.result.split(',')[1]);
-              r.onerror = rej;
-              r.readAsDataURL(blob);
-            });
-            const html = `<img src="data:image/gif;base64,${base64}">`;
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }) })
-            ]);
+            await navigator.clipboard.write([new ClipboardItem({ 'image/gif': blob })]);
             copied = true;
-          } catch(e) { /* fall through to download */ }
+          } catch(e2) { /* fall through to download */ }
         }
         if (copied) {
           progressEl.textContent = 'Copied to clipboard!';
@@ -4374,10 +4380,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function downloadBlob(blob, filename) {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    a.href = url;
     a.download = filename;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(a.href);
+    document.body.removeChild(a);
+    // Delay revoke so the browser has time to start the download.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
   // ============================================================

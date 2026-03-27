@@ -2839,15 +2839,16 @@ function createInterpreter() {
       return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
     });
 
-    // anglemark: draw arc showing angle at vertex B from BA to BC
+    // anglemark: draw arc CCW from ray BA to ray BC at vertex B (matching Asymptote)
     env.set('anglemark', (...args) => {
       if (args.length < 3) return makePath([], false);
       const A = toPair(args[0]), B = toPair(args[1]), C = toPair(args[2]);
       const rawR = args.length > 3 ? toNumber(args[3]) : 10;
       const msf = env.get('markscalefactor') || 0.03;
       const r = rawR * msf;
-      const a1 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
-      const a2 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      while (a2 < a1) a2 += 360;
       return makeArcPath(B, r, a1, a2);
     });
 
