@@ -1047,12 +1047,14 @@ function composeTransforms(t1, t2) {
 // Hobby's Algorithm for smooth '..' paths
 // ============================================================
 
-function hobbySpline(knots, closed) {
+function hobbySpline(knots, closed, directions) {
   const n = knots.length;
   if (n < 2) return [];
   if (n === 2) {
     // Simple case: single segment with default smooth tangents
-    return [hobbyTwoPointSegment(knots[0], knots[1])];
+    const dOut = directions && directions[0] ? directions[0].dirOut : null;
+    const dIn = directions && directions[1] ? directions[1].dirIn : null;
+    return [hobbyTwoPointSegment(knots[0], knots[1], dOut, dIn)];
   }
 
   // Compute chord distances and turning angles
@@ -1082,22 +1084,92 @@ function hobbySpline(knots, closed) {
     while (psi[0] < -Math.PI) psi[0] += 2*Math.PI;
   }
 
+  // Build clamped theta array from direction constraints.
+  // For knot i, if a direction is specified, we compute the desired theta[i]
+  // (offset of tangent from chord) and mark it as clamped.
+  // dirOut of knot i constrains the outgoing tangent at knot i → theta[i].
+  // dirIn of knot i constrains the incoming tangent at knot i → phi at knot i-1 side,
+  //   but it is easier to express as theta[i] relative to the incoming chord.
+  // We combine: if dirOut is set, that directly gives theta. If only dirIn is set and
+  // dirOut is not, we convert it to an equivalent theta constraint.
+  const clampedTheta = new Array(n).fill(null);
+  if (directions) {
+    for (let i = 0; i < n; i++) {
+      const dir = directions[i];
+      if (!dir) continue;
+      if (dir.dirOut != null) {
+        // theta[i] = dirOut - delta[i] (outgoing chord angle at i)
+        let th = dir.dirOut - delta[i % m];
+        while (th > Math.PI) th -= 2*Math.PI;
+        while (th < -Math.PI) th += 2*Math.PI;
+        clampedTheta[i] = th;
+      } else if (dir.dirIn != null && !closed) {
+        // For an interior knot with only dirIn: the incoming tangent at knot i
+        // should be dir.dirIn. The incoming tangent angle = delta[i-1] - phi[i-1].
+        // Using the relation phi[i-1] = -psi[i] - theta[i], we get:
+        // incoming angle = delta[i-1] + psi[i] + theta[i]
+        // Setting this equal to dirIn gives theta[i] = dirIn - delta[i-1] - psi[i].
+        // But it's simpler to just treat dirIn as constraining the outgoing direction
+        // at knot i to the same angle (smooth through the knot).
+        if (i > 0 && i < n-1) {
+          let th = dir.dirIn - delta[i % m];
+          while (th > Math.PI) th -= 2*Math.PI;
+          while (th < -Math.PI) th += 2*Math.PI;
+          clampedTheta[i] = th;
+        } else if (i === n-1) {
+          // Last knot: dirIn constrains the incoming tangent at the endpoint.
+          // theta[n-1] relates to the incoming side: incoming angle = delta[n-2] + psi[n-1] + theta[n-1]
+          // We want incoming angle + PI = dirIn (direction of arrival), so
+          // incoming angle = dirIn + PI (since dirIn points inward).
+          // Actually: the incoming tangent at knot n-1 points from cp2 to p3,
+          // i.e. angle = delta[m-1] - phi[m-1] = delta[m-1] + psi[n-1] + theta[n-1].
+          // We want it to equal dirIn, so:
+          // theta[n-1] = dirIn - delta[m-1] - psi[n-1]
+          let th = dir.dirIn - delta[m-1] - psi[n-1];
+          while (th > Math.PI) th -= 2*Math.PI;
+          while (th < -Math.PI) th += 2*Math.PI;
+          clampedTheta[n-1] = th;
+        }
+      }
+    }
+  }
+
   // Solve for theta (tangent angle offsets at each knot)
   const theta = new Array(n).fill(0);
   const phi = new Array(n).fill(0);
 
   if (closed) {
     // Cyclic tridiagonal system
-    solveCyclicTridiag(n, d, psi, theta);
+    solveCyclicTridiag(n, d, psi, theta, clampedTheta);
   } else {
     // Open: natural end conditions (theta[0]=0 approx, theta[n-1]=0)
-    solveOpenTridiag(n, d, psi, theta);
+    solveOpenTridiag(n, d, psi, theta, clampedTheta);
   }
 
-  // Compute phi from theta and psi
-  for (let i = 0; i < m; i++) {
-    const j = (i+1) % n;
-    phi[i] = -psi[j] - theta[j];
+  // Override phi for knots where dirIn is specified (incoming tangent constraint)
+  // This handles the case where dirIn constrains the incoming control point
+  // independently from the outgoing direction.
+  if (directions) {
+    for (let i = 0; i < m; i++) {
+      const j = (i+1) % n;
+      phi[i] = -psi[j] - theta[j];
+      // If next knot has dirIn, override phi to match
+      const dirJ = directions[j];
+      if (dirJ && dirJ.dirIn != null && dirJ.dirOut != null && dirJ.dirIn !== dirJ.dirOut) {
+        // Both dirIn and dirOut specified and different: phi controls incoming angle
+        // phi[i] = delta[i] - dirIn + PI, normalized
+        let p = delta[i] - dirJ.dirIn + Math.PI;
+        while (p > Math.PI) p -= 2*Math.PI;
+        while (p < -Math.PI) p += 2*Math.PI;
+        phi[i] = p;
+      }
+    }
+  } else {
+    // Compute phi from theta and psi (original code)
+    for (let i = 0; i < m; i++) {
+      const j = (i+1) % n;
+      phi[i] = -psi[j] - theta[j];
+    }
   }
 
   // Generate Bezier control points
@@ -1132,20 +1204,30 @@ function hobbyRho(theta, phi) {
   return Math.max(0.1, num / den);
 }
 
-function hobbyTwoPointSegment(a, b) {
+function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
   // Default smooth tangents for two-point spline
   const dx = b.x - a.x, dy = b.y - a.y;
   const d = Math.sqrt(dx*dx + dy*dy);
-  const alpha = d / 3;
-  const angle = Math.atan2(dy, dx);
+  const chordAngle = Math.atan2(dy, dx);
+  const angleA = (dirOut != null) ? dirOut : chordAngle;
+  const angleB = (dirIn != null) ? dirIn : chordAngle;
+  // Compute theta/phi offsets from chord for Hobby's rho function
+  const thetaA = angleA - chordAngle;
+  const phiB = chordAngle - angleB + Math.PI;
+  // Normalize to [-pi, pi]
+  const normAngle = v => { while (v > Math.PI) v -= 2*Math.PI; while (v < -Math.PI) v += 2*Math.PI; return v; };
+  const theta = normAngle(thetaA);
+  const phi = normAngle(phiB);
+  const alpha = hobbyRho(theta, phi) * d / 3;
+  const beta = hobbyRho(phi, theta) * d / 3;
   return makeSeg(a,
-    {x: a.x + alpha*Math.cos(angle), y: a.y + alpha*Math.sin(angle)},
-    {x: b.x - alpha*Math.cos(angle), y: b.y - alpha*Math.sin(angle)},
+    {x: a.x + alpha*Math.cos(angleA), y: a.y + alpha*Math.sin(angleA)},
+    {x: b.x - beta*Math.cos(angleB), y: b.y - beta*Math.sin(angleB)},
     b
   );
 }
 
-function solveOpenTridiag(n, d, psi, theta) {
+function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
   if (n <= 2) { theta[0] = 0; if(n>1) theta[1] = 0; return; }
   const m = n - 1;
   // Build tridiagonal: A[i]*theta[i-1] + B[i]*theta[i] + C[i]*theta[i+1] = D[i]
@@ -1163,6 +1245,15 @@ function solveOpenTridiag(n, d, psi, theta) {
   }
   B[m] = 1; A[m] = 1; D[m] = 0;
 
+  // Apply clamped theta constraints: replace row with identity equation
+  if (clampedTheta) {
+    for (let i = 0; i < n; i++) {
+      if (clampedTheta[i] != null) {
+        A[i] = 0; B[i] = 1; C[i] = 0; D[i] = clampedTheta[i];
+      }
+    }
+  }
+
   // Thomas algorithm
   for (let i = 1; i < n; i++) {
     const w = A[i] / B[i-1];
@@ -1175,7 +1266,7 @@ function solveOpenTridiag(n, d, psi, theta) {
   }
 }
 
-function solveCyclicTridiag(n, d, psi, theta) {
+function solveCyclicTridiag(n, d, psi, theta, clampedTheta) {
   // Use Sherman-Morrison trick for cyclic tridiagonal
   if (n < 3) { theta.fill(0); return; }
   const A = new Array(n).fill(0), B = new Array(n).fill(0);
@@ -1188,6 +1279,15 @@ function solveCyclicTridiag(n, d, psi, theta) {
     B[i] = (2*di_1 + 2*di) / (di_1 * di);
     C[i] = 1/di;
     D[i] = -(2*psi[i]*di + psi[(i+1)%n]*di_1) / (di_1 * di);
+  }
+
+  // Apply clamped theta constraints: replace row with identity equation
+  if (clampedTheta) {
+    for (let i = 0; i < n; i++) {
+      if (clampedTheta[i] != null) {
+        A[i] = 0; B[i] = 1; C[i] = 0; D[i] = clampedTheta[i];
+      }
+    }
   }
 
   // Sherman-Morrison: modify first eq to break cycle
@@ -1891,6 +1991,21 @@ function createInterpreter() {
     }
   }
 
+  // Convert a direction AST spec ({x,y} pair or {x, singleExpr:true} angle) to radians
+  function evalDirSpec(dir, env) {
+    if (!dir) return null;
+    if (dir.singleExpr) {
+      // Single expression: interpret as degrees (e.g. {dir(225)})
+      const val = evalNode(dir.x, env);
+      if (isPair(val)) return Math.atan2(val.y, val.x);
+      const deg = toNumber(val);
+      return deg * Math.PI / 180;
+    }
+    const vx = toNumber(evalNode(dir.x, env));
+    const vy = toNumber(evalNode(dir.y, env));
+    return Math.atan2(vy, vx);
+  }
+
   function evalPathExpr(node, env) {
     // First pass: evaluate all nodes, collecting pairs and inline paths
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
@@ -1903,14 +2018,16 @@ function createInterpreter() {
         continue;
       }
       const val = evalNode(n.point, env);
+      const eDirIn = evalDirSpec(n.dirIn, env);
+      const eDirOut = evalDirSpec(n.dirOut, env);
       if (isPath(val) && val.segs.length > 0) {
-        elements.push({type:'path', segs:val.segs, join:n.join});
+        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
       } else if (isPath(val) && val.segs.length === 0) {
         // Empty path/guide (e.g. uninitialized "guide g") — skip entirely.
         // Converting to (0,0) via toPair would create a stray segment from the origin.
         continue;
       } else {
-        elements.push({type:'pair', pt:toPair(val), join:n.join});
+        elements.push({type:'pair', pt:toPair(val), join:n.join, dirIn:eDirIn, dirOut:eDirOut});
       }
     }
 
@@ -1983,6 +2100,9 @@ function createInterpreter() {
       if (elements[i].join) joins.push(elements[i].join);
     }
 
+    // Build per-knot direction constraints: {dirIn, dirOut} for each point
+    const directions = elements.map(e => ({dirIn: e.dirIn || null, dirOut: e.dirOut || null}));
+
     if (points.length < 2) return makePath([], false);
 
     // Handle ^^ (path concatenation) - split into separate sub-paths
@@ -1999,8 +2119,9 @@ function createInterpreter() {
       for (const hi of [...hathatIndices, joins.length]) {
         const subPoints = points.slice(start, hi + 1);
         const subJoins = joins.slice(start, hi);
+        const subDirs = directions.slice(start, hi + 1);
         if (subPoints.length >= 2) {
-          const subSegs = buildPathSegs(subPoints, subJoins, false);
+          const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs);
           allSegs.push(...subSegs);
         } else if (subPoints.length === 1) {
           // Single point joined via ^^: zero-length segment (used by dot(a^^b^^c) to mark positions)
@@ -2011,10 +2132,10 @@ function createInterpreter() {
       return makePath(allSegs, false);
     }
 
-    return makePath(buildPathSegs(points, joins, hasCycle), hasCycle);
+    return makePath(buildPathSegs(points, joins, hasCycle, directions), hasCycle);
   }
 
-  function buildPathSegs(points, joins, hasCycle) {
+  function buildPathSegs(points, joins, hasCycle, directions) {
     // Check if all joins are '--' (straight line)
     const allStraight = joins.every(j => j === '--');
 
@@ -2030,7 +2151,7 @@ function createInterpreter() {
 
     // Hobby's algorithm for '..' joins
     if (joins.every(j => j === '..')) {
-      return hobbySpline(points, hasCycle);
+      return hobbySpline(points, hasCycle, directions);
     }
 
     // Mixed joins: segment by segment
@@ -2041,7 +2162,9 @@ function createInterpreter() {
       if (joins[i] === '--') {
         segs.push(lineSegment(points[i], points[j]));
       } else {
-        const s = hobbySpline([points[i], points[j]], false);
+        // Pass per-segment directions for the two-knot sub-spline
+        const subDirs = directions ? [directions[i], directions[j]] : null;
+        const s = hobbySpline([points[i], points[j]], false, subDirs);
         segs.push(...s);
       }
     }
@@ -2315,6 +2438,8 @@ function createInterpreter() {
     env.set('down', makePair(0,-1));
     env.set('right', makePair(1,0));
     env.set('left', makePair(-1,0));
+    env.set('CCW', true);
+    env.set('CW', false);
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
