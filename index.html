@@ -1678,7 +1678,7 @@ function initEditor() {
           // Also add any interpCi values for this line (highlight all draws on that line)
           for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.add(ic); }
         }
-        renderMultiSelection();
+        renderMultiSelection(true);
       }
     }
   });
@@ -1722,6 +1722,35 @@ let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
 let gridActive = false; // grid overlay toggle state
 let _serverDown = false;
+
+// Pre-fetch graphic() images for the JS interpreter
+async function prefetchGraphicImages(code) {
+  window._graphicCache = window._graphicCache || {};
+  const pathRe = /\/var\/www\/cdn\/[^\s"'\\)]+/g;
+  const matches = [...new Set((code.match(pathRe) || []))];
+  if (matches.length === 0) return window._graphicCache;
+
+  // Find uncached paths
+  const uncached = matches.filter(p => !window._graphicCache[p]);
+  if (uncached.length > 0) {
+    try {
+      const resp = await fetch(`${SERVER_URL}/convert-eps`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({paths: uncached}),
+      });
+      const data = await resp.json();
+      if (data.images) {
+        for (const [path, info] of Object.entries(data.images)) {
+          window._graphicCache[path] = info;
+        }
+      }
+    } catch (e) {
+      console.warn('graphic() image pre-fetch failed:', e.message);
+    }
+  }
+  return window._graphicCache;
+}
 
 function getPreviewDimensions() {
   const el = document.getElementById('preview-container');
@@ -1820,8 +1849,10 @@ async function doRender() {
   // Try JS interpreter first (unless "Use Real Asymptote" mode is on)
   if (!useRealAsy && window.AsyInterp && AsyInterp.canInterpret(code)) {
     try {
+      // Pre-fetch any graphic() images before synchronous interpretation
+      const images = await prefetchGraphicImages(code);
       const dims = getPreviewDimensions();
-      const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
+      const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h, imageCache: images });
       // Success — clear stale badge, show SVG (preserving badge elements)
       const svgEl = previewEl.querySelector('svg');
       const placeholder = previewEl.querySelector('.placeholder');
@@ -1847,13 +1878,18 @@ async function doRender() {
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
     } catch(e) {
-      // JS interpreter failed — show stale badge over previous SVG
-      if (previewEl.querySelector('svg')) {
-        showStaleBadge(true);
-        statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
-        return;
+      // If the error is about missing graphic images, always fall through to
+      // server compilation — the server can download and embed them directly.
+      const isGraphicError = e.message && e.message.startsWith('graphic:');
+      if (!isGraphicError) {
+        // JS interpreter failed on non-graphic issue — show stale badge over previous SVG
+        if (previewEl.querySelector('svg')) {
+          showStaleBadge(true);
+          statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+          return;
+        }
       }
-      // No previous SVG to show — fall through to server
+      // Fall through to server
       console.warn('JS interpreter failed, falling back to server:', e.message);
     }
   }
@@ -1945,12 +1981,14 @@ let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
 let multiSelectedInterp = new Set(); // interpreter cmdIdx values — per-draw granularity for SVG highlight
+let frozenVisibleLines = null; // When non-null, code filter is frozen to these line indices (Set)
 let interpCmdToElements = new Map(); // interpCmdIdx → SVGElement[]
 let interpCmdToLineIdx = new Map();  // interpCmdIdx → source lineIdx (0-based)
 let elementToInterpCmd = new Map();  // SVGElement → interpCmdIdx
 const clearSelBtn = document.getElementById('clear-selection-btn');
 clearSelBtn.addEventListener('click', () => {
   multiSelected.clear(); multiSelectedInterp.clear();
+  frozenVisibleLines = null;
   renderMultiSelection();
 });
 let probeReady = Promise.resolve(); // resolves when color probe mapping completes
@@ -1999,13 +2037,33 @@ function distToElementScreen(clientX, clientY, el) {
   }
 }
 
-/** Render multi-selection visual feedback (blue glow). */
-function updateCodeFilter() {
+/**
+ * Apply code filter (hide/show lines) based on selection.
+ * @param {boolean} userDriven — true when the user explicitly changed selection
+ *   (click on SVG element, deselect-all). When false (re-render after code edit),
+ *   use frozenVisibleLines instead of recalculating dependencies so the visible
+ *   line set doesn't change out from under the user while they are editing.
+ */
+function updateCodeFilter(userDriven) {
   const total = editor.lineCount();
   if (multiSelected.size === 0) {
+    frozenVisibleLines = null;
     for (let i = 0; i < total; i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
     return;
   }
+
+  // If we have a frozen set and this is NOT a user-driven update, apply the
+  // frozen set directly without recalculating dependencies.
+  if (!userDriven && frozenVisibleLines) {
+    for (let i = 0; i < total; i++) {
+      if (frozenVisibleLines.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+      else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
+    }
+    // Don't scrollIntoView — the user is actively editing
+    return;
+  }
+
+  // User-driven update: recalculate dependency lines from scratch
   const relevant = new Set();
   for (const lineIdx of multiSelected) {
     const ci = lineToCommandIdx.get(lineIdx);
@@ -2020,14 +2078,16 @@ function updateCodeFilter() {
     if (relevant.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
     else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
   }
+  // Freeze this set so subsequent re-renders don't change it
+  frozenVisibleLines = new Set(relevant);
   const first = Math.min(...multiSelected);
   if (first >= 0 && first < total) editor.scrollIntoView({line: first, ch: 0}, 50);
 }
 
-function renderMultiSelection() {
+function renderMultiSelection(userDriven) {
   clearHighlights(); clearSvgHighlights();
   clearSelBtn.style.display = multiSelected.size > 0 ? 'block' : 'none';
-  if (multiSelected.size === 0) { updateCodeFilter(); return; }
+  if (multiSelected.size === 0) { updateCodeFilter(userDriven); return; }
   // SVG highlight: use per-draw granularity when available (direct renderer),
   // otherwise fall back to group-by-command (probe renderer)
   if (multiSelectedInterp.size > 0) {
@@ -2051,7 +2111,7 @@ function renderMultiSelection() {
       ));
     }
   }
-  updateCodeFilter();
+  updateCodeFilter(userDriven);
 }
 
 function clearSvgHighlights() {
@@ -2256,7 +2316,10 @@ function setupSvgInteractivity(code) {
     else if (lineIdx < editor.lineCount()) multiSelected.add(lineIdx); // keep selection through edits
   }
   if (multiSelected.size > 0) renderMultiSelection();
-  else for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  else {
+    frozenVisibleLines = null;
+    for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  }
   for (let ci=0; ci<mapping.length; ci++) {
     for (const dl of mapping[ci].dependencyLines) {
       if (!lineToDepCommands.has(dl)) lineToDepCommands.set(dl, new Set());
@@ -2414,7 +2477,7 @@ function setupSvgInteractivity(code) {
 
     if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
     else multiSelected.add(target.lineIdx);
-    renderMultiSelection();
+    renderMultiSelection(true);
   });
 
   // Right-click on SVG
@@ -2515,7 +2578,10 @@ function setupSvgInteractivityDirect(code, commandMap) {
     }
   }
   if (multiSelected.size > 0) renderMultiSelection();
-  else for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  else {
+    frozenVisibleLines = null;
+    for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  }
 
   // probeReady resolves immediately (no probe needed)
   const statusEl = document.getElementById('status');
@@ -2624,7 +2690,7 @@ function setupSvgInteractivityDirect(code, commandMap) {
       if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
       else multiSelected.add(target.lineIdx);
     }
-    renderMultiSelection();
+    renderMultiSelection(true);
   });
   svg.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -3296,8 +3362,43 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Track edits for "(modified)" indicator
-  editor.on('change', () => {
+  editor.on('change', (cm, changeObj) => {
     if (texerLoadedUrl) updateTexerModifiedIndicator();
+
+    // Adjust frozenVisibleLines and multiSelected when lines are added/removed.
+    // This keeps the frozen code filter in sync with the actual editor content
+    // so the user doesn't get disoriented when adding/removing lines mid-edit.
+    if (frozenVisibleLines && changeObj) {
+      const fromLine = changeObj.from.line;
+      const removedCount = changeObj.removed.length - 1; // lines removed (0 if within one line)
+      const addedCount = changeObj.text.length - 1;       // lines added (0 if within one line)
+      const delta = addedCount - removedCount;
+      if (delta !== 0) {
+        // Shift line numbers in frozenVisibleLines
+        const shifted = new Set();
+        for (const ln of frozenVisibleLines) {
+          if (ln <= fromLine) {
+            shifted.add(ln);
+          } else if (ln > fromLine + removedCount) {
+            shifted.add(ln + delta);
+          }
+          // Lines within the removed range are dropped
+        }
+        // Any newly-inserted lines at the edit point should be visible
+        // (the user is typing there, so they need to see those lines)
+        for (let i = 1; i <= addedCount; i++) shifted.add(fromLine + i);
+        frozenVisibleLines = shifted;
+
+        // Also shift multiSelected (mutate in-place so closures keep the same reference)
+        const oldSel = [...multiSelected];
+        multiSelected.clear();
+        for (const ln of oldSel) {
+          if (ln <= fromLine) multiSelected.add(ln);
+          else if (ln > fromLine + removedCount) multiSelected.add(ln + delta);
+        }
+      }
+    }
+
     // Don't schedule auto-render during slide drag/slider — those handlers render directly
     if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
     // Re-sync GIF mode variable when code changes externally
