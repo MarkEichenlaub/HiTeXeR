@@ -3579,6 +3579,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let slideInjectedDots = [];
   let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls, matchStart, matchEnd, kind}]
   let slidePxPerUnit = 28.35;
+  let slideSliderRanges = {};  // {varName: {min, max, step}} — preserve ranges across rebuilds
 
   function toggleSlideMode() {
     // Mutual exclusion: deactivate GIF mode if active
@@ -3860,23 +3861,51 @@ document.addEventListener('DOMContentLoaded', () => {
     if (freeReals.length > 0) {
       slidePanel.style.display = 'block';
       const slidersDiv = document.getElementById('slide-sliders');
-      slidersDiv.innerHTML = '';
+      const existingSliders = slidersDiv.querySelectorAll('input[type=range]');
+      const existingByVar = {};
+      existingSliders.forEach(s => { existingByVar[s.dataset.var] = s; });
+      const currentVarNames = new Set(freeReals.map(fr => fr.varName));
+
+      // Remove rows for variables that no longer exist
+      existingSliders.forEach(s => {
+        if (!currentVarNames.has(s.dataset.var)) {
+          s.closest('div').remove();
+          delete slideSliderRanges[s.dataset.var];
+        }
+      });
+
       for (const fr of freeReals) {
-        const min = Math.min(-10, fr.value * 2);
-        const max = Math.max(10, fr.value * 2);
-        const step = Math.abs(fr.value) > 10 ? 1 : 0.1;
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
-        row.innerHTML = `<label style="color:#e9c46a;font-size:12px;min-width:60px;">${fr.varName}</label>
-          <input type="range" min="${min}" max="${max}" step="${step}" value="${fr.value}" data-line="${fr.lineIdx}" data-var="${fr.varName}" style="flex:1;">
-          <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
-        slidersDiv.appendChild(row);
-        const slider = row.querySelector('input[type=range]');
-        slider.addEventListener('input', () => {
-          const val = parseFloat(slider.value);
-          row.querySelector('.slide-val').textContent = val.toFixed(1);
-          updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
-        });
+        const existing = existingByVar[fr.varName];
+        if (existing) {
+          // Update existing slider: keep its min/max/step, just sync the value display
+          existing.dataset.line = fr.lineIdx;
+          const valSpan = existing.closest('div').querySelector('.slide-val');
+          if (valSpan) valSpan.textContent = parseFloat(fr.value).toFixed(1);
+          // Don't touch slider.value — user may be actively dragging it
+        } else {
+          // Create new slider with initial range, and remember it
+          let range = slideSliderRanges[fr.varName];
+          if (!range) {
+            range = {
+              min: Math.min(-10, fr.value * 2),
+              max: Math.max(10, fr.value * 2),
+              step: Math.abs(fr.value) > 10 ? 1 : 0.1,
+            };
+            slideSliderRanges[fr.varName] = range;
+          }
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
+          row.innerHTML = `<label style="color:#e9c46a;font-size:12px;min-width:60px;">${fr.varName}</label>
+            <input type="range" min="${range.min}" max="${range.max}" step="${range.step}" value="${fr.value}" data-line="${fr.lineIdx}" data-var="${fr.varName}" style="flex:1;">
+            <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
+          slidersDiv.appendChild(row);
+          const slider = row.querySelector('input[type=range]');
+          slider.addEventListener('input', () => {
+            const val = parseFloat(slider.value);
+            row.querySelector('.slide-val').textContent = val.toFixed(1);
+            updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
+          });
+        }
       }
     }
   }
@@ -3896,6 +3925,7 @@ document.addEventListener('DOMContentLoaded', () => {
     slideFreePointData = [];
     slidePanel.style.display = 'none';
     slideDragState = null;
+    slideSliderRanges = {};
 
     // Remove injected SLIDE_DOT lines and re-render
     if (slideInjectedDots.length > 0) {
