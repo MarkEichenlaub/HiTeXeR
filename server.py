@@ -55,6 +55,74 @@ _AOPS_CDN_URL   = 'http://cdn.artofproblemsolving.com'
 _AOPS_PATH_RE   = re.compile(r'/var/www/cdn/[^\s"\'\\)]+')
 
 
+def _eps_boundingbox(eps_path: str) -> tuple[float, float]:
+    """Parse %%BoundingBox / %%HiResBoundingBox from an EPS file.
+
+    Returns (width_bp, height_bp).  Prefers HiResBoundingBox (float) when
+    available; falls back to integer BoundingBox.
+    """
+    llx = lly = urx = ury = 0.0
+    found = False
+    hires = False
+    with open(eps_path, 'r', errors='replace') as f:
+        for i, line in enumerate(f):
+            if i > 100:
+                break
+            if line.startswith('%%HiResBoundingBox:'):
+                parts = line.split(':',1)[1].split()
+                if len(parts) >= 4:
+                    llx, lly, urx, ury = (float(x) for x in parts[:4])
+                    hires = True
+                    found = True
+            elif line.startswith('%%BoundingBox:') and not hires:
+                parts = line.split(':',1)[1].split()
+                if len(parts) >= 4 and parts[0] != '(atend)':
+                    llx, lly, urx, ury = (float(x) for x in parts[:4])
+                    found = True
+    if not found:
+        return (100.0, 100.0)  # fallback
+    return (urx - llx, ury - lly)
+
+
+_eps_cache: dict[str, dict] = {}  # keyed by AoPS path string
+
+
+def _convert_eps_for_client(aops_path: str) -> dict:
+    """Download, parse, and convert an AoPS EPS file to base64 PNG.
+
+    Returns {png_b64, width_bp, height_bp} on success,
+    or {error: str} on failure.  Results are cached in _eps_cache.
+    """
+    if aops_path in _eps_cache:
+        return _eps_cache[aops_path]
+
+    public_url = _AOPS_CDN_URL + aops_path[len(_AOPS_CDN_LOCAL):]
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stem = os.path.splitext(os.path.basename(aops_path))[0]
+            eps_path = os.path.join(tmpdir, stem + '.eps')
+            urllib.request.urlretrieve(public_url, eps_path)
+
+            width_bp, height_bp = _eps_boundingbox(eps_path)
+
+            png_path = os.path.join(tmpdir, stem + '.png')
+            if not _eps_to_png(eps_path, png_path):
+                result = {'error': f'Ghostscript conversion failed for {aops_path}'}
+                _eps_cache[aops_path] = result
+                return result
+
+            with open(png_path, 'rb') as f:
+                png_b64 = base64.b64encode(f.read()).decode('ascii')
+
+            result = {'png_b64': png_b64, 'width_bp': width_bp, 'height_bp': height_bp}
+            _eps_cache[aops_path] = result
+            return result
+    except Exception as e:
+        result = {'error': str(e)}
+        _eps_cache[aops_path] = result
+        return result
+
+
 def _eps_to_png(eps_path: str, png_path: str) -> bool:
     """Convert an EPS file to PNG using Ghostscript. Returns True on success."""
     if not GS_EXE:
@@ -62,7 +130,7 @@ def _eps_to_png(eps_path: str, png_path: str) -> bool:
     try:
         result = subprocess.run(
             [GS_EXE, '-dNOPAUSE', '-dBATCH', '-dSAFER',
-             '-sDEVICE=png16m', '-r150',
+             '-sDEVICE=png16m', '-r150', '-dEPSCrop',
              f'-sOutputFile={png_path}', eps_path],
             capture_output=True, timeout=30,
         )
@@ -359,6 +427,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_eigennode_write()
         elif self.path == "/render-gif":
             self.handle_render_gif()
+        elif self.path == "/convert-eps":
+            self.handle_convert_eps()
         else:
             self.send_error(404)
 
@@ -441,6 +511,30 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(200, {"success": False, "error": "GIF compilation timed out"})
         except Exception as e:
             self.send_json(500, {"success": False, "error": str(e)})
+
+    def handle_convert_eps(self):
+        """Convert AoPS EPS images to base64 PNG for the JS interpreter."""
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_json(400, {"error": "Invalid JSON"})
+            return
+
+        paths = data.get("paths", [])
+        if not isinstance(paths, list) or not paths:
+            self.send_json(400, {"error": "No paths provided"})
+            return
+
+        images = {}
+        for p in paths:
+            if not isinstance(p, str) or not _AOPS_PATH_RE.fullmatch(p):
+                images[p] = {"error": "Invalid path"}
+                continue
+            images[p] = _convert_eps_for_client(p)
+
+        self.send_json(200, {"images": images})
 
     def handle_compile(self):
         content_length = int(self.headers["Content-Length"])

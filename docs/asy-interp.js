@@ -95,7 +95,7 @@ function lex(source) {
         if (ch() === '\\') {
           advance();
           if (ch() === 'n') { s += '\n'; } else if (ch() === 't' && !/[a-zA-Z]/.test(peek(1))) { s += '\t'; }
-          else if (ch() === '\\') { s += '\\'; } else if (ch() === '"') { s += '"'; }
+          else if (ch() === '\\') { s += '\\\\'; } else if (ch() === '"') { s += '"'; }
           else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
         advance();
@@ -974,6 +974,7 @@ function isBool(v) { return typeof v === 'boolean'; }
 function isNumber(v) { return typeof v === 'number'; }
 function isArray(v) { return Array.isArray(v); }
 function isCallable(v) { return typeof v === 'function' || (v && v._tag === 'func'); }
+function isGraphic(v) { return v && v._tag === 'graphic'; }
 
 function penToCSS(pen) {
   if (!pen || !isPen(pen)) return {stroke:'#000000',strokeWidth:0.5,opacity:1};
@@ -1028,17 +1029,17 @@ function applyTransformPath(t, path) {
 }
 
 function composeTransforms(t1, t2) {
-  // t1 applied first, then t2: result = t2(t1(x))
-  // [a2+b2*b1+c2*e1, b2*b1_... ] — standard affine composition
+  // t1 * t2 means: apply t2 first, then t1 (right-to-left like matrix multiplication)
+  // result(x) = t1(t2(x))
   // T = [b c; e f] translation [a; d]
   // For pair (x,y): T(x,y) = (a + bx + cy, d + ex + fy)
   return makeTransform(
-    t2.a + t2.b*t1.a + t2.c*t1.d,
-    t2.b*t1.b + t2.c*t1.e,
-    t2.b*t1.c + t2.c*t1.f,
-    t2.d + t2.e*t1.a + t2.f*t1.d,
-    t2.e*t1.b + t2.f*t1.e,
-    t2.e*t1.c + t2.f*t1.f
+    t1.a + t1.b*t2.a + t1.c*t2.d,
+    t1.b*t2.b + t1.c*t2.e,
+    t1.b*t2.c + t1.c*t2.f,
+    t1.d + t1.e*t2.a + t1.f*t2.d,
+    t1.e*t2.b + t1.f*t2.e,
+    t1.e*t2.c + t1.f*t2.f
   );
 }
 
@@ -1239,8 +1240,10 @@ function createInterpreter() {
   let unitScale = 1;       // unitsize value in points
   let hasUnitScale = false; // whether unitsize() was explicitly called
   let sizeW = 0, sizeH = 0;
+  let keepAspect = true;
   let defaultPen = makePen({});
   let iterationLimit = 100000;
+  let _imageCache = {};    // pre-fetched graphic() image data
 
   // Project a triple to a pair using the current 3D projection
   function projectTriple(v) {
@@ -1287,6 +1290,13 @@ function createInterpreter() {
     const r = Object.assign({}, dc);
     if (r.path) r.path = applyTransformPath(t, r.path);
     if (r.pos) r.pos = applyTransformPair(t, r.pos);
+    // Compose picture transform into graphic's transform for image commands
+    if (r.cmd === 'image' && r.graphic) {
+      const existing = r.graphic.transform;
+      r.graphic = Object.assign({}, r.graphic, {
+        transform: existing ? composeTransforms(existing, t) : t
+      });
+    }
     // Preserve alignment direction (don't transform it)
     return r;
   }
@@ -1317,6 +1327,30 @@ function createInterpreter() {
   }
 
   const globalEnv = createEnv(null);
+  // _builtinFuncs: preserves built-in functions so that user variable
+  // declarations (e.g. `real scale = 0.02;`) cannot permanently shadow them.
+  // Asymptote allows variables and functions with the same name to coexist.
+  const _builtinFuncs = new Map();
+  {
+    // Wrap globalEnv.set so that when a non-function overwrites a function,
+    // the original function is saved in _builtinFuncs for fallback lookup.
+    const origSet = globalEnv.set.bind(globalEnv);
+    const origUpdate = globalEnv.update.bind(globalEnv);
+    globalEnv.set = (name, val) => {
+      const cur = globalEnv.get(name);
+      if (typeof cur === 'function' && typeof val !== 'function' && !_builtinFuncs.has(name)) {
+        _builtinFuncs.set(name, cur);
+      }
+      origSet(name, val);
+    };
+    globalEnv.update = (name, val) => {
+      const cur = globalEnv.get(name);
+      if (typeof cur === 'function' && typeof val !== 'function' && !_builtinFuncs.has(name)) {
+        _builtinFuncs.set(name, cur);
+      }
+      return origUpdate(name, val);
+    };
+  }
   installStdlib(globalEnv);
 
   function evalNode(node, env) {
@@ -1437,8 +1471,8 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = left.linewidth + right; r._lwExplicit = true; return r; }
-    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = right.linewidth + left; r._lwExplicit = true; return r; }
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = right; r._lwExplicit = true; return r; }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = left; r._lwExplicit = true; return r; }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -1514,7 +1548,13 @@ function createInterpreter() {
     // Transform * picture
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
     // Transform * transform
-    if (isTransform(left) && isTransform(right)) return composeTransforms(right, left);
+    if (isTransform(left) && isTransform(right)) return composeTransforms(left, right);
+    // Transform * graphic → graphic with composed transform
+    if (isTransform(left) && isGraphic(right)) {
+      const existing = right.transform;
+      const t = existing ? composeTransforms(existing, left) : left;
+      return Object.assign({}, right, {transform: t});
+    }
     // Transform * string → Label with transform (e.g. scale(0.7)*"text", rotate(90)*"text")
     if (isTransform(left) && isString(right)) return {_tag:'label', text: right, transform: left};
     // Transform * label → label with composed transform
@@ -1536,7 +1576,7 @@ function createInterpreter() {
       case T.MINUS: return l-r;
       case T.STAR: return l*r;
       case T.SLASH: return r!==0?l/r:0;
-      case T.PERCENT: return r!==0?l%r:0;
+      case T.PERCENT: return r!==0?((l%r)+r)%r:0; // Asymptote modulo is always non-negative
       case T.HASH: return r!==0?Math.floor(l/r):0; // integer quotient
       case T.CARET: return Math.pow(l,r);
       case T.EQ: return l===r;
@@ -1593,6 +1633,14 @@ function createInterpreter() {
     if (node.callee.type === 'Identifier') {
       calleeName = node.callee.name;
       callee = env.get(calleeName);
+      // Asymptote allows a variable and a function to share the same name
+      // (e.g. `real scale = 0.02;` doesn't shadow `transform scale(real)`).
+      // If the resolved value is not callable, fall back to the saved built-in.
+      if (callee !== undefined && typeof callee !== 'function' &&
+          !(callee && callee._tag === 'func')) {
+        const builtin = _builtinFuncs.get(calleeName);
+        if (builtin) callee = builtin;
+      }
     } else if (node.callee.type === 'MemberAccess') {
       // e.g. path.length
       const obj = evalNode(node.callee.object, env);
@@ -1857,6 +1905,10 @@ function createInterpreter() {
       const val = evalNode(n.point, env);
       if (isPath(val) && val.segs.length > 0) {
         elements.push({type:'path', segs:val.segs, join:n.join});
+      } else if (isPath(val) && val.segs.length === 0) {
+        // Empty path/guide (e.g. uninitialized "guide g") — skip entirely.
+        // Converting to (0,0) via toPair would create a stray segment from the origin.
+        continue;
       } else {
         elements.push({type:'pair', pt:toPair(val), join:n.join});
       }
@@ -2356,7 +2408,11 @@ function createInterpreter() {
     env.set('round', (x) => Math.round(toNumber(x)));
     env.set('sgn', (x) => Math.sign(toNumber(x)));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
-    env.set('degrees', (x) => toNumber(x) * 180 / Math.PI);
+    env.set('degrees', (x) => {
+      // Asymptote's degrees(pair) returns atan2(y,x) in (-180,180], not [0,360)
+      if (isPair(x)) { return Math.atan2(x.y, x.x) * 180 / Math.PI; }
+      return toNumber(x) * 180 / Math.PI;
+    });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
     env.set('Degrees', (x) => toNumber(x));  // already in degrees in Asymptote context
     env.set('Sin', (x) => Math.sin(toNumber(x)*Math.PI/180));
@@ -2418,18 +2474,28 @@ function createInterpreter() {
     });
 
     env.set('arc', (...args) => {
-      if (args.length >= 4) {
-        // arc(center, radius, startAngle, endAngle)
+      // Asymptote: arc(center, radius, angle1, angle2, direction=CCW)
+      // Default direction is CCW (counterclockwise).
+      // CCW: normalize so angle2 > angle1 (positive sweep)
+      // CW:  normalize so angle2 < angle1 (negative sweep)
+      if (args.length >= 4 && !isPair(args[1])) {
         const c = toPair(args[0]);
-        return makeArcPath(c, toNumber(args[1]), toNumber(args[2]), toNumber(args[3]));
+        let a1 = toNumber(args[2]), a2 = toNumber(args[3]);
+        const ccw = args.length >= 5 ? !!args[4] : true;
+        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
+        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
+        return makeArcPath(c, toNumber(args[1]), a1, a2);
       }
       if (args.length >= 3 && isPair(args[1])) {
         // arc(center, point1, point2) — arc from p1 to p2 around center
         const c = toPair(args[0]);
         const p1 = toPair(args[1]), p2 = toPair(args[2]);
         const r = Math.sqrt((p1.x-c.x)*(p1.x-c.x) + (p1.y-c.y)*(p1.y-c.y));
-        const a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
-        const a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
+        let a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
+        let a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
+        const ccw = args.length >= 4 ? !!args[3] : true;
+        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
+        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
         return makeArcPath(c, r, a1, a2);
       }
       if (args.length >= 2) {
@@ -2670,10 +2736,16 @@ function createInterpreter() {
       if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; }
     });
     env.set('size', (...args) => {
-      // size(pic, w, h) or size(w, h) or size(w)
+      // size(pic, w, h, keepAspect=bool) or size(w, h, keepAspect=bool) or size(w)
       if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
-      if (args.length >= 1) sizeW = toNumber(args[0]);
-      if (args.length >= 2) sizeH = toNumber(args[1]);
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named && 'keepAspect' in a) {
+          keepAspect = !!a.keepAspect;
+        }
+      }
+      const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
+      if (pos.length >= 1) sizeW = toNumber(pos[0]);
+      if (pos.length >= 2) sizeH = toNumber(pos[1]);
     });
     env.set('defaultpen', (p) => {
       if (isPen(p)) defaultPen = mergePens(defaultPen, p);
@@ -2686,6 +2758,24 @@ function createInterpreter() {
     env.set('clip', (...args) => evalDraw('clip', args));
     env.set('unfill', (...args) => evalDraw('unfill', args));
     env.set('label', (...args) => evalLabel(args));
+
+    // graphic(): embed external images (EPS/PNG) pre-fetched by the client
+    env.set('graphic', (path, ...rest) => {
+      const pathStr = String(path);
+      let options = '';
+      for (const a of rest) { if (isString(a)) options = a; }
+      const cached = _imageCache[pathStr];
+      if (!cached || cached.error) throw new Error('graphic: image not available: ' + pathStr);
+      return {
+        _tag: 'graphic', path: pathStr, options,
+        width_bp: cached.width_bp, height_bp: cached.height_bp,
+        png_b64: cached.png_b64, transform: null
+      };
+    });
+
+    // layer(): z-ordering separator. In our renderer labels are always on top,
+    // so this is effectively a no-op.
+    env.set('layer', () => {});
 
     // Intersection
     env.set('extension', (P, Q, R, S) => {
@@ -2826,15 +2916,16 @@ function createInterpreter() {
       return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
     });
 
-    // anglemark: draw arc showing angle at vertex B from BA to BC
+    // anglemark: draw arc CCW from ray BA to ray BC at vertex B (matching Asymptote)
     env.set('anglemark', (...args) => {
       if (args.length < 3) return makePath([], false);
       const A = toPair(args[0]), B = toPair(args[1]), C = toPair(args[2]);
       const rawR = args.length > 3 ? toNumber(args[3]) : 10;
       const msf = env.get('markscalefactor') || 0.03;
       const r = rawR * msf;
-      const a1 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
-      const a2 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      while (a2 < a1) a2 += 360;
       return makeArcPath(B, r, a1, a2);
     });
 
@@ -2883,8 +2974,21 @@ function createInterpreter() {
     env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
     env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
     env.set('minipage', (...args) => {
-      // Return the string content, ignoring width/formatting
-      for (const a of args) { if (isString(a)) return a; }
+      for (const a of args) {
+        if (isString(a)) {
+          let s = a;
+          // Strip \centering directive at start
+          s = s.replace(/^\\centering\s*/, '');
+          // Strip \center{...} alignment wrapper
+          s = s.replace(/^\\center\{([\s\S]*)\}$/, '$1');
+          s = s.trim();
+          // Replace LaTeX line breaks \\ with newlines
+          s = s.replace(/\\\\/g, '\n');
+          // Also handle \ followed by space (older fallback)
+          s = s.replace(/\\ /g, '\n');
+          return s;
+        }
+      }
       return '';
     });
 
@@ -3040,31 +3144,37 @@ function createInterpreter() {
       }
 
       // Find the function argument(s) and numeric range
-      let funcArg = null, funcIdx = -1;
+      // Supports: graph(f, a, b, n), graph(f_pair, a, b, n), graph(fx, fy, a, b, n)
+      let funcArg = null, funcArg2 = null, funcIdx = -1;
+      const isFunc = v => typeof v === 'function' || (v && v._tag === 'func');
       for (let i = 0; i < coreArgs.length; i++) {
-        if (typeof coreArgs[i] === 'function' || (coreArgs[i] && coreArgs[i]._tag === 'func')) {
-          // Skip bool3 filter functions (they appear after main function)
+        if (isFunc(coreArgs[i])) {
           if (funcArg === null) { funcArg = coreArgs[i]; funcIdx = i; }
+          else if (funcArg2 === null && i === funcIdx + 1) { funcArg2 = coreArgs[i]; }
         }
       }
 
       if (funcArg !== null) {
-        // Gather numeric args after the function
+        // Gather numeric args after the last function arg
+        const numsStartIdx = funcArg2 !== null ? funcIdx + 2 : funcIdx + 1;
         const nums = [];
-        for (let i = funcIdx + 1; i < coreArgs.length; i++) {
+        for (let i = numsStartIdx; i < coreArgs.length; i++) {
           if (typeof coreArgs[i] === 'number') nums.push(coreArgs[i]);
-          else if (typeof coreArgs[i] === 'function' || (coreArgs[i] && coreArgs[i]._tag === 'func')) break; // bool3 filter
+          else if (isFunc(coreArgs[i])) break; // bool3 filter
         }
         const a = nums[0] !== undefined ? nums[0] : 0;
         const b = nums[1] !== undefined ? nums[1] : 1;
         const n = nums[2] !== undefined ? Math.floor(nums[2]) : 100;
 
-        // Check if function returns a pair (parametric curve)
+        // Determine mode: two-function parametric, single pair-returning function, or y=f(x)
+        const isTwoFuncParametric = funcArg2 !== null;
         let isPairFunc = false;
-        try {
-          const testVal = typeof funcArg === 'function' ? funcArg(a) : callUserFuncValues(funcArg, [a]);
-          if (testVal && testVal._tag === 'pair') isPairFunc = true;
-        } catch(e) {}
+        if (!isTwoFuncParametric) {
+          try {
+            const testVal = typeof funcArg === 'function' ? funcArg(a) : callUserFuncValues(funcArg, [a]);
+            if (testVal && testVal._tag === 'pair') isPairFunc = true;
+          } catch(e) {}
+        }
 
         // Compute y-range limit: if axis limits are set, clip to a reasonable multiple
         const yClipMin = _axisLimits.ymin !== null ? _axisLimits.ymin - (_axisLimits.ymax - _axisLimits.ymin) * 2 : -1e6;
@@ -3072,24 +3182,36 @@ function createInterpreter() {
         const xClipMin = _axisLimits.xmin !== null ? _axisLimits.xmin - (_axisLimits.xmax - _axisLimits.xmin) * 2 : -1e6;
         const xClipMax = _axisLimits.xmax !== null ? _axisLimits.xmax + (_axisLimits.xmax - _axisLimits.xmin) * 2 : 1e6;
 
+        const callFunc = (f, t) => typeof f === 'function' ? f(t) : callUserFuncValues(f, [t]);
+
         // Collect all points, then split at discontinuities (out-of-range or large jumps)
         const allPts = [];
         for (let i = 0; i <= n; i++) {
           const t = a + (b - a) * i / n;
           try {
-            const result = typeof funcArg === 'function' ? funcArg(t) : callUserFuncValues(funcArg, [t]);
-            if (isPairFunc) {
-              if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
-                allPts.push({x: result.x, y: result.y});
+            if (isTwoFuncParametric) {
+              const xVal = toNumber(callFunc(funcArg, t));
+              const yVal = toNumber(callFunc(funcArg2, t));
+              if (isFinite(xVal) && isFinite(yVal)) {
+                allPts.push({x: xVal, y: yVal});
               } else {
-                allPts.push(null); // discontinuity marker
+                allPts.push(null);
               }
             } else {
-              const y = toNumber(result);
-              if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
-                allPts.push({x: t, y});
+              const result = callFunc(funcArg, t);
+              if (isPairFunc) {
+                if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
+                  allPts.push({x: result.x, y: result.y});
+                } else {
+                  allPts.push(null); // discontinuity marker
+                }
               } else {
-                allPts.push(null); // discontinuity marker
+                const y = toNumber(result);
+                if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
+                  allPts.push({x: t, y});
+                } else {
+                  allPts.push(null); // discontinuity marker
+                }
               }
             }
           } catch(e) { allPts.push(null); }
@@ -3233,7 +3355,9 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+        // Extended gridlines (isExtend=true) go into background layer (above:-1) so they
+        // always render below user-drawn paths regardless of source order.
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0)});
       }
 
       // Draw major ticks
@@ -4080,8 +4204,10 @@ function createInterpreter() {
       args = args.slice(1);
     }
     let pos = null, pen = null, text = null, align = null, multiDots = null;
+    let graphicData = null;
     for (const a of args) {
-      if (isTriple(a)) {
+      if (isGraphic(a) && !graphicData) graphicData = a;
+      else if (isTriple(a)) {
         if (!pos) pos = projectTriple(a);
         else if (!align) align = projectTriple(a);
       }
@@ -4111,8 +4237,13 @@ function createInterpreter() {
     }
     if (!pos) return;
     target.commands.push({cmd:'dot', pos, pen, line: args._line || 0});
+    // If dot has a graphic, add an image command
+    if (graphicData) {
+      if (!align) align = makePair(1, 1);
+      target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
+    }
     // If dot has a label, add it too
-    if (text) {
+    else if (text) {
       if (!align) align = makePair(1, 1);
       target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
     }
@@ -4127,9 +4258,14 @@ function createInterpreter() {
       args = args.slice(1);
     }
     let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
+    let graphicData = null;
     for (const a of args) {
-      if (a && a._tag === 'label') {
-        if (!text) text = a.text || '';
+      if (isGraphic(a) && !graphicData) {
+        graphicData = a;
+      }
+      else if (a && a._tag === 'label') {
+        if (a._graphic && !graphicData) { graphicData = a._graphic; }
+        else if (!text) text = a.text || '';
         if (!align && a.align) align = a.align;
         if (!filltype && a.filltype) filltype = a.filltype;
         if (!labelTransform && a.transform) labelTransform = a.transform;
@@ -4156,9 +4292,20 @@ function createInterpreter() {
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
-    const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
-    if (labelTransform) labelCmd.labelTransform = labelTransform;
-    target.commands.push(labelCmd);
+
+    if (graphicData) {
+      // Compose any labelTransform into the graphic's transform
+      if (labelTransform) {
+        const existing = graphicData.transform;
+        const t = existing ? composeTransforms(existing, labelTransform) : labelTransform;
+        graphicData = Object.assign({}, graphicData, {transform: t});
+      }
+      target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
+    } else {
+      const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
+      if (labelTransform) labelCmd.labelTransform = labelTransform;
+      target.commands.push(labelCmd);
+    }
   }
 
   // Path helpers
@@ -4358,16 +4505,25 @@ function createInterpreter() {
   }
 
   // Main execution
-  function execute(code) {
+  function execute(code, opts) {
+    opts = opts || {};
+    _imageCache = opts.imageCache || {};
     // Reset state
     drawCommands.length = 0;
     currentPic = {_tag:'picture', commands:[]};
     globalEnv.update('currentpicture', currentPic);
     projection = null;
     unitScale = 1; hasUnitScale = false;
-    sizeW = 0; sizeH = 0;
+    sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
     _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+
+    // Restore any built-in functions that were shadowed by user variables in a
+    // previous execution (e.g. `real scale = 0.02;` overwrote `scale` function).
+    for (const [name, fn] of _builtinFuncs) {
+      globalEnv.set(name, fn);
+    }
+    _builtinFuncs.clear();
 
     // Auto-install graph package — many AoPS codes use graph functions without import
     graphPackageInstalled = false; // Reset so it re-installs with fresh state
@@ -4391,7 +4547,7 @@ function createInterpreter() {
     return {
       drawCommands: drawCommands.slice(),
       unitScale, hasUnitScale,
-      sizeW, sizeH,
+      sizeW, sizeH, keepAspect,
       defaultPen,
       axisLimits: Object.assign({}, _axisLimits),
       dotfactor,
@@ -4428,9 +4584,48 @@ function createInterpreter() {
 // SVG Renderer
 // ============================================================
 
+// Compute display size of a graphic() in user coordinates
+function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
+  const w_bp = graphic.width_bp || 100;
+  const h_bp = graphic.height_bp || 100;
+  const aspect = w_bp / (h_bp || 1);
+
+  // Parse options string for explicit dimensions (e.g. "height=2cm", "width=3in")
+  const opts = graphic.options || '';
+  const unitToBP = { cm: 28.3465, mm: 2.83465, in: 72, pt: 1, bp: 1, pc: 12, dd: 1.07, cc: 12.84 };
+
+  let target_w_bp = null, target_h_bp = null;
+  const hm = opts.match(/height\s*=\s*([\d.]+)\s*([a-z]+)/i);
+  const wm = opts.match(/width\s*=\s*([\d.]+)\s*([a-z]+)/i);
+  if (hm) {
+    const val = parseFloat(hm[1]);
+    const conv = unitToBP[hm[2]] || 1;
+    target_h_bp = val * conv;
+    target_w_bp = target_h_bp * aspect;
+  }
+  if (wm) {
+    const val = parseFloat(wm[1]);
+    const conv = unitToBP[wm[2]] || 1;
+    target_w_bp = val * conv;
+    if (!hm) target_h_bp = target_w_bp / aspect;
+  }
+
+  // Default: use intrinsic size
+  const display_w_bp = target_w_bp || w_bp;
+  const display_h_bp = target_h_bp || h_bp;
+
+  // Convert from bp to user coordinates
+  const scale = hasUnitScale ? unitScale : 1;
+  const display_w_user = scale > 0 ? display_w_bp / scale : display_w_bp;
+  const display_h_user = scale > 0 ? display_h_bp / scale : display_h_bp;
+
+  return { w_user: display_w_user, h_user: display_h_user, w_bp: display_w_bp, h_bp: display_h_bp };
+}
+
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, axisLimits, dotfactor: _dotfactor } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor } = result;
+  const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
@@ -4492,10 +4687,21 @@ function renderSVG(result, opts) {
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
       // This will be refined after pxPerUnit is computed below
+    } else if (dc.cmd === 'image' && dc.graphic) {
+      // Expand bbox to include image extent (position ± half display size)
+      const imgSize = computeGraphicDisplaySize(dc.graphic, unitScale, hasUnitScale);
+      const hw = imgSize.w_user / 2, hh = imgSize.h_user / 2;
+      expandBBox(dc.pos.x - hw, dc.pos.y - hh);
+      expandBBox(dc.pos.x + hw, dc.pos.y + hh);
     } else if (dc.cmd === 'marker') {
       // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.path) {
+      // Skip white fills for bbox: fill(box(...), white) is a background erase
+      // that shouldn't define the bounding box (matches Asymptote behavior)
+      if (dc.cmd === 'fill' && dc.pen && dc.pen.r >= 0.99 && dc.pen.g >= 0.99 && dc.pen.b >= 0.99) {
+        continue;
+      }
       if (dc.path._singlePoint) {
         expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
       }
@@ -4521,6 +4727,14 @@ function renderSVG(result, opts) {
   const pad = 0.5;
   minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
+  // Save geometry-only bbox before label expansion.
+  // In real Asymptote, size() scales geometry to fit the requested dimensions;
+  // labels are placed at absolute point sizes and don't shrink the geometry.
+  // Using the label-expanded bbox for pxPerUnit made geometry too small relative
+  // to labels, causing text to appear disproportionately wide.
+  const geoBboxW = maxX - minX || 1;
+  const geoBboxH = maxY - minY || 1;
+
   // Expand bbox for labels so text doesn't get clipped
   // Estimate label extent in user coordinates
   for (const dc of drawCommands) {
@@ -4534,6 +4748,9 @@ function renderSVG(result, opts) {
       const bboxSpan = maxX - minX || 1;
       // Rough pxPerUnit estimate for sizing
       const roughPxPerUnit = (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
+      // Font size in SVG user units: fontSize (pt) * (96/72) converts pt→CSS px, then
+      // divide by roughPxPerUnit to get user-coordinate units.  Omitting the 96/72
+      // factor caused the bbox to be ~33% too small, with labels extending outside it.
       const ptToPx = 96 / 72;
       const charWidthUser = fontSize * ptToPx * 0.6 / roughPxPerUnit;
       // For labels with fractions, estimate wider width
@@ -4544,8 +4761,13 @@ function renderSVG(result, opts) {
       const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) * ptToPx / roughPxPerUnit;
       let dx = 0, dy = 0;
       if (dc.align) {
-        dx = dc.align.x * textHeightUser * 0.8;
-        dy = dc.align.y * textHeightUser * 0.8;
+        const ax = dc.align.x, ay = dc.align.y;
+        const margin = 0.28 * fontSize * ptToPx / roughPxPerUnit;
+        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
+        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
+        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+        dx = ax_n * textWidthUser + ax * margin;
+        dy = ay_n * textHeightUser + ay * margin;   // Asymptote y-up, no inversion
       }
       // Expand bbox to include estimated text bounds
       const cx = pos.x + dx;
@@ -4557,23 +4779,24 @@ function renderSVG(result, opts) {
 
   const warnings = [];
 
-  // Determine scale
+  // Determine scale — use geometry-only bbox so labels don't shrink geometry
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit;
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly
     pxPerUnit = unitScale;
   } else if (sizeW > 0 || sizeH > 0) {
-    // size() without unitsize(): scale user coords to fit in the requested size
+    // size() without unitsize(): scale user coords to fit in the requested size.
+    // Use geometry-only bbox so labels don't shrink the drawing.
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
-    pxPerUnit = Math.min(targetW / bboxW, targetH / bboxH);
+    pxPerUnit = Math.min(targetW / geoBboxW, targetH / geoBboxH);
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
     const defaultSize = 200;
     const targetW = defaultSize;
     const targetH = defaultSize;
-    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    pxPerUnit = Math.min(targetW / (geoBboxW || 1), targetH / (geoBboxH || 1));
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');
@@ -4587,12 +4810,18 @@ function renderSVG(result, opts) {
   if (sizeW > 0) svgW = sizeW;
   if (sizeH > 0) svgH = sizeH;
 
-  // Enforce minimum display size (like AoPS TeXeR) for very small unitsize values
-  const minDisplaySize = 100;
-  if (svgW < minDisplaySize && svgH < minDisplaySize && hasUnitScale) {
-    const upscale = minDisplaySize / Math.max(svgW, svgH);
-    svgW *= upscale;
-    svgH *= upscale;
+  // Enforce minimum display size: scale so that font labels (~16 CSS px for 12pt) are
+  // proportionally small relative to cells (target ~50% of cell height).
+  // Target: 32 CSS px per user coordinate unit → font/cell ≈ 16/32 = 0.5.
+  // Hard minimum: 100px. Cap at 500px to avoid oversized SVGs for large drawings.
+  if (hasUnitScale) {
+    const bboxUnitsMax = Math.max((maxX - minX) || 1, (maxY - minY) || 1);
+    const fontAwareMin = Math.min(Math.max(32 * bboxUnitsMax, 100), 500);
+    if (svgW < fontAwareMin && svgH < fontAwareMin) {
+      const upscale = fontAwareMin / Math.max(svgW, svgH);
+      svgW *= upscale;
+      svgH *= upscale;
+    }
   }
 
   // If container dimensions provided, shrink to fit
@@ -4635,11 +4864,16 @@ function renderSVG(result, opts) {
   }
 
   // Scale factor: how many viewBox units = 1 CSS pixel.
-  // The SVG uses preserveAspectRatio="xMidYMid meet" (browser default), so the viewBox is
+  // With preserveAspectRatio="xMidYMid meet" (browser default / keepAspect), the viewBox is
   // scaled by min(svgW/viewW, svgH/viewH) CSS-px per unit.  Inverting gives the correct
   // cssPixel = max(viewW/svgW, viewH/svgH).  Using only viewW/svgW was wrong for
-  // height-limited pictures (naturalW < sizeW) and made fontSizeSVG too small.
-  const cssPixel = Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1));
+  // height-limited pictures (naturalW < sizeW) and made fontSizeSVG too small, placing
+  // labels too close to the drawing.
+  // With preserveAspectRatio="none" (keepAspect=false), the viewBox stretches to fill
+  // the SVG exactly, so use the X-direction scale for font sizing.
+  const cssPixel = keepAspect
+    ? Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1))
+    : viewW / (svgW || viewW || 1);
 
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
@@ -4707,14 +4941,18 @@ function renderSVG(result, opts) {
     }
   }
 
-  // Build render order: non-above commands first (preserving program order),
-  // then above=true commands (e.g. axes with above=true drawn over gridlines)
+  // Build render order: background (above=-1, e.g. extend=true tick gridlines) first,
+  // then normal (above=0) commands preserving program order,
+  // then foreground (above=1) commands (e.g. axes with above=true)
   const renderOrder = [];
   for (let ci = 0; ci < drawCommands.length; ci++) {
-    if (!drawCommands[ci].above) renderOrder.push(ci);
+    if (drawCommands[ci].above === -1) renderOrder.push(ci);
   }
   for (let ci = 0; ci < drawCommands.length; ci++) {
-    if (drawCommands[ci].above) renderOrder.push(ci);
+    if ((drawCommands[ci].above || 0) === 0) renderOrder.push(ci);
+  }
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    if (drawCommands[ci].above === 1) renderOrder.push(ci);
   }
 
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
@@ -4725,6 +4963,8 @@ function renderSVG(result, opts) {
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
     if (dc.cmd === 'label') {
+      deferredLabels.push({ci, dc, css: {...css}});
+    } else if (dc.cmd === 'image') {
       deferredLabels.push({ci, dc, css: {...css}});
     } else if (dc.cmd === 'dot') {
       // Render dots in program order so later fills can cover them
@@ -4781,17 +5021,32 @@ function renderSVG(result, opts) {
       const sx = (dc.pos.x - minX) * pxPerUnit;
       const sy = (maxY - dc.pos.y) * pxPerUnit;
       const fontSize = (dc.pen.fontsize || 10);
+      // Convert font size from PostScript points to SVG user units at the actual display scale.
+      // font-size="12" in SVG user units renders as 12*(svgW/viewW) CSS px — at the default
+      // 100px display size for a 14pt viewBox that is ~85 CSS px per character, completely
+      // covering the drawing. Use cssPixel (viewW/svgW) to express the absolute pt size
+      // as the correct fractional SVG user-unit value.
+      const fontSizeSVG = fontSize * (96 / 72) * cssPixel; // SVG user units (absolute pt size)
+      const fontSizeCSS = fontSize * (96 / 72);            // CSS px at 96 dpi (for foreignObject)
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
       if (dc.align) {
+        // Asymptote algorithm (plain_Label.asy + drawlabel.cc):
+        //   S = position + align * labelmargin          (small margin push)
+        //   text center = S + (ax_n * W, ay_n * H)     (L∞-normalised box offset)
+        // where ax_n = ax * 0.5 / max(|ax|,|ay|), same for y.
         const ax = dc.align.x, ay = dc.align.y;
-        // Horizontal alignment: shift and anchor
-        if (ax > 0.3) { anchor = 'start'; dx = fontSize * 0.3; }
-        else if (ax < -0.3) { anchor = 'end'; dx = -fontSize * 0.3; }
-        // Vertical alignment: shift (SVG y is inverted)
-        if (ay > 0.3) { dy = -fontSize * 0.6; }
-        else if (ay < -0.3) { dy = fontSize * 0.6; }
+        const cleanLen = stripLaTeX(dc.text || '').length || 1;
+        const W = cleanLen * fontSizeSVG * 0.52;
+        const H = fontSizeSVG;
+        const margin = 0.28 * fontSizeSVG;   // labelmargin = 0.28 * fontsize
+        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
+        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
+        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+        dx = ax_n * W + ax * margin;
+        dy = -(ay_n * H + ay * margin);   // negate: SVG y-axis is inverted
+        anchor = 'middle';
       }
       const rawText = dc.text || '';
 
@@ -4805,39 +5060,100 @@ function renderSVG(result, opts) {
         }).join('');
         // Estimate text dimensions for background (tight fit like Asymptote)
         const cleanLen = stripLaTeX(rawText).length;
-        const estW = cleanLen * fontSize * 0.52 + fontSize * 0.1;
-        const estH = fontSize * 1.0;
+        const estW = cleanLen * fontSizeSVG * 0.52 + fontSizeSVG * 0.1;
+        const estH = fontSizeSVG * 1.0;
         let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
         // Adjust rectangle position based on anchor
         let rectX = rx - estW / 2;
-        if (anchor === 'start') rectX = rx - fontSize * 0.05;
-        else if (anchor === 'end') rectX = rx - estW + fontSize * 0.05;
+        if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
+        else if (anchor === 'end') rectX = rx - estW + fontSizeSVG * 0.05;
         const rectY = ry - estH / 2;
-        const pad = fontSize * 0.04;
+        const pad = fontSizeSVG * 0.04;
         elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
 
       // Apply label transform (scale/rotate) if present
-      let effectiveFontSize = fontSize;
+      let effectiveFontSize = fontSizeSVG;
+      let effectiveFontSizeCSS = fontSizeCSS;
       let labelTransformAttr = '';
       if (dc.labelTransform) {
         const lt = dc.labelTransform;
         // Extract scale from transform matrix: scale = sqrt(b^2 + e^2) (x-axis scale)
         const scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
-        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) effectiveFontSize = fontSize * scaleX;
+        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) {
+          effectiveFontSize = fontSizeSVG * scaleX;
+          effectiveFontSizeCSS = fontSizeCSS * scaleX;
+        }
         // Extract rotation angle from transform matrix
         const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
         if (Math.abs(angle) > 0.1) {
           // SVG rotation is clockwise, Asymptote is counterclockwise; SVG y is flipped
+          // For W/E aligned rotated labels: the font height (which becomes the screen-space
+          // "width" after rotation) needs to offset the center from the anchor.
+          if (dc.align) {
+            // After rotation the text's visual width is its original height, so use halfH.
+            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5; // W: center left of anchor by halfH
+            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5; // E: center right of anchor by halfH
+          }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
+          // With rotation, text-anchor must be 'middle' so the label is centered at the
+          // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
+          anchor = 'middle';
         }
       }
 
-      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(rawText);
-      const hasMath = /\$/.test(rawText) || /\\[a-zA-Z]/.test(rawText);
+      // Handle multi-line text (produced by minipage with \n line breaks)
+      if (rawText.includes('\n')) {
+        const lines = rawText.split('\n').filter(l => l.length > 0);
+        const lineHeight = effectiveFontSize * 1.2;
+        const totalOffset = (lines.length - 1) * lineHeight;
+        const ff = 'KaTeX_Main, serif';
+        const op = css.opacity != null && css.opacity < 1 ? ` opacity="${css.opacity}"` : '';
+        let tspans = '';
+        lines.forEach((line, i) => {
+          const lineDy = i === 0 ? -totalOffset / 2 : lineHeight;
+          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(line.trim())}</tspan>`;
+        });
+        const mlLabel = `<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
+        elements.push(labelTransformAttr ? `<g${labelTransformAttr}>${mlLabel}</g>` : mlLabel);
+        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+        continue;
+      }
+
+      // Replace LaTeX dot/continuation symbols with Unicode so they render as SVG
+      // text instead of KaTeX foreignObject (avoids MathML mspace artifact in \vdots).
+      const LATEX_TO_UNICODE = {
+        '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '…',
+      };
+      let displayText = rawText;
+      // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
+      // rawText may look like "\reflectbox{$\ddots$}" or "$\vdots$" etc.
+      let probeText = rawText.trim();
+      probeText = probeText.replace(/^\$+(.*?)\$+$/, '$1').trim();
+      const reflectMatch2 = probeText.match(/^\\reflectbox\{([\s\S]*)\}$/);
+      if (reflectMatch2) probeText = reflectMatch2[1].trim().replace(/^\$+(.*?)\$+$/, '$1').trim();
+      if (LATEX_TO_UNICODE[probeText]) displayText = LATEX_TO_UNICODE[probeText];
+      else if (LATEX_TO_UNICODE[rawText.trim()]) displayText = LATEX_TO_UNICODE[rawText.trim()];
+      // Strip $...$ from simple math content (digits, letters, basic operators) so it
+      // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
+      // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
+      // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
+      let wasStrippedMath = false;
+      if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
+        const stripped = displayText.replace(/\$/g, '').trim();
+        if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
+          displayText = stripped;
+          wasStrippedMath = true;
+        }
+      }
+
+      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
+      const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
       let labelEl;
       if (typeof katex !== 'undefined' && hasMath) {
-        const strippedDollar = rawText.replace(/^\$+|\$+$/g, '').trim();
+        // Check for \mathbf-only labels: render as bold SVG text — works in all rendering
+        // contexts (sharp, <img>, <object>) without needing KaTeX CSS.
+        const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
         if (/^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
           const boldContent = strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, '$1').trim();
           labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
@@ -4845,20 +5161,70 @@ function renderSVG(result, opts) {
           const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
           labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
         } else {
-        // Use KaTeX for math rendering via foreignObject
-        labelEl = renderLabelKaTeX(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+          // Use KaTeX for math rendering via foreignObject
+          labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
         }
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
-        labelEl = renderLaTeXSVG(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
+        labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
       } else {
-        // Render with superscript/subscript support using tspan
-        labelEl = renderLabelWithScripts(rawText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        // Render with superscript/subscript support using tspan.
+        // If the label was originally $...$ math (wasStrippedMath), use math italic font.
+        if (wasStrippedMath) {
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
+        } else {
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        }
       }
       if (labelTransformAttr) {
         labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
       }
       elements.push(labelEl);
+      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    } else if (dc.cmd === 'image' && dc.graphic) {
+      // Render graphic() as <image> element
+      const g = dc.graphic;
+      const imgSize = computeGraphicDisplaySize(g, unitScale, hasUnitScale);
+
+      // Display size in SVG viewBox units (user coords × pxPerUnit)
+      let imgW = imgSize.w_user * pxPerUnit;
+      let imgH = imgSize.h_user * pxPerUnit;
+
+      // Position at label coordinates in SVG space
+      const sx = (dc.pos.x - minX) * pxPerUnit;
+      const sy = (maxY - dc.pos.y) * pxPerUnit;
+
+      // Alignment offset: center by default, shift by align direction
+      let dx = -imgW / 2, dy = -imgH / 2;
+      if (dc.align) {
+        const ax = dc.align.x, ay = dc.align.y;
+        const scale0 = Math.max(Math.abs(ax), Math.abs(ay)) || 1;
+        const ax_n = ax * 0.5 / scale0;
+        const ay_n = ay * 0.5 / scale0;
+        dx = ax_n * imgW - imgW / 2;
+        dy = -(ay_n * imgH) - imgH / 2; // SVG y flipped
+      }
+
+      // Extract scale and rotation from graphic.transform if present
+      let scaleX = 1, scaleY = 1, angle = 0;
+      let transformAttr = '';
+      if (g.transform) {
+        const lt = g.transform;
+        scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+        scaleY = Math.sqrt(lt.c * lt.c + lt.f * lt.f);
+        angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) { imgW *= scaleX; imgH *= scaleX; dx *= scaleX; dy *= scaleX; }
+        if (Math.abs(angle) > 0.1) {
+          transformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx)}, ${fmt(sy)})"`;
+        }
+      }
+
+      const imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
+      if (transformAttr) {
+        elements.push(`<g${transformAttr}>${imgEl}</g>`);
+      } else {
+        elements.push(imgEl);
+      }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     }
   }
@@ -4877,7 +5243,8 @@ function renderSVG(result, opts) {
   } else {
     innerContent = elements.join('\n');
   }
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}" overflow="visible">\n${innerContent}\n</svg>`;
+  const parAttr = keepAspect ? '' : ' preserveAspectRatio="none"';
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible">\n${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -4990,7 +5357,7 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
       }
     }
     const tipX = (tip.x - minX)*scale, tipY = (maxY - tip.y)*scale;
-    const headAngle = 30 * Math.PI / 180;
+    const headAngle = 15 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
@@ -5070,7 +5437,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   if (!hasSS) {
     // Simple text, no scripts
     const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
-    const ff = fontFamily || 'serif';
+    const ff = fontFamily || 'KaTeX_Main, serif';
     const fwAttr = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
     const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
     return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${escSvg(s)}</text>`;
@@ -5117,13 +5484,16 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
       inner += escSvg(p.text);
     }
   }
-  const ff2 = fontFamily || 'serif';
+  const ff2 = fontFamily || 'KaTeX_Main, serif';
   const fwAttr2 = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
   const fsAttr2 = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
   return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff2}"${fwAttr2}${fsAttr2}${op}>${inner}</text>`;
 }
 
-function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity) {
+function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
+  // fontSize: SVG user units (for foreignObject width/height dimensions)
+  // fontSizeCSS: CSS pixels for the HTML font-size inside the foreignObject (default = fontSize)
+  if (fontSizeCSS === undefined) fontSizeCSS = fontSize;
   // Extract math content: strip $ delimiters, render via KaTeX
   let math = (rawText || '').trim();
   // Handle \reflectbox{...} wrapper: extract inner content, apply CSS horizontal flip
@@ -5174,7 +5544,9 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   // Estimate dimensions for foreignObject
   const cleanLen = stripLaTeX(rawText).length;
   const estW = Math.max(cleanLen * fontSize * 0.7, fontSize * 2);
-  const estH = fontSize * 1.8;
+  // Fractions (\frac) need extra vertical space; use taller estimate for them
+  const hasFrac = /\\frac\b/.test(rawText);
+  const estH = hasFrac ? fontSize * 3.0 : fontSize * 1.8;
 
   // Compute foreignObject position based on anchor
   let fx = parseFloat(x), fy = parseFloat(y);
@@ -5185,7 +5557,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = `color:${fill || '#000000'};`;
   const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSize)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSizeCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {
@@ -5309,11 +5681,11 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
     if (p.type === 'frac') {
       const cx = curX + p.width / 2;
       // Numerator above line
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.numText)}</text>`);
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.numText)}</text>`);
       // Fraction line
       els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.denText)}</text>`);
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
     } else if (p.type === 'underbrace') {
       const cx = curX + p.width / 2;
       const by = y + fontSize * 0.3;
@@ -5321,10 +5693,10 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // Underbrace as a path: left arm → center dip → right arm
       els.push(`<path d="M${fmt(curX)},${fmt(by)} Q${fmt(curX)},${fmt(by+bh)} ${fmt(cx)},${fmt(by+bh)} Q${fmt(curX+p.width)},${fmt(by+bh)} ${fmt(curX+p.width)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       if (p.labelText) {
-        els.push(`<text x="${fmt(cx)}" y="${fmt(by + bh + fontSize*0.7)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.labelText)}</text>`);
+        els.push(`<text x="${fmt(cx)}" y="${fmt(by + bh + fontSize*0.7)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
-      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="serif"${opAttr}>${escSvg(p.text)}</text>`);
+      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.text)}</text>`);
     }
     curX += p.width;
   }
@@ -5481,19 +5853,22 @@ function patchASTNumbers(ast, oldToks, newToks) {
 
 // Feature detection: what can we interpret?
 function canInterpret(code) {
+  // Strip comments before checking so keywords in comments don't cause false positives
+  const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   // Reject features we can't handle
-  if (/\bstruct\b/.test(code)) return false;
+  if (/\bstruct\b/.test(stripped)) return false;
   // 3D wireframe is supported; only block surface-heavy code
-  if (/\bsurface\s*\(/.test(code) || /\bsurface\s+\w/.test(code)) return false;
-  if (/\bimport\s+contour\b/.test(code)) return false;
-  if (/\bimport\s+flowchart\b/.test(code)) return false;
-  if (/\bimport\s+animation\b/.test(code)) return false;
-  if (/\bimport\s+trembling\b/.test(code)) return false;
-  if (/\bimport\s+palette\b/.test(code)) return false;
-  if (/\bfile\b/.test(code) && /\binput\b/.test(code)) return false;
-  if (/\bsettings\b/.test(code)) return false;
-  if (/\btexpath\b/.test(code)) return false;
-  if (/\bshipout\b/.test(code)) return false;
+  if (/\bsurface\s*\(/.test(stripped) || /\bsurface\s+\w/.test(stripped)) return false;
+  if (/\bimport\s+contour\b/.test(stripped)) return false;
+  if (/\bimport\s+flowchart\b/.test(stripped)) return false;
+  if (/\bimport\s+animation\b/.test(stripped)) return false;
+  if (/\bimport\s+trembling\b/.test(stripped)) return false;
+  if (/\bimport\s+palette\b/.test(stripped)) return false;
+  if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
+  if (/\bsettings\b/.test(stripped)) return false;
+  if (/\btexpath\b/.test(stripped)) return false;
+  if (/\bshipout\b/.test(stripped)) return false;
+  // graphic() is now supported via pre-fetched image cache
   // picture support is now implemented
   // Accept everything else
   return true;
@@ -5501,7 +5876,7 @@ function canInterpret(code) {
 
 function render(code, opts) {
   const interp = createInterpreter();
-  const result = interp.execute(code);
+  const result = interp.execute(code, opts);
   return renderSVG(result, opts);
 }
 
