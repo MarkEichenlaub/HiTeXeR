@@ -5387,6 +5387,76 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Global paste handler: extract Asymptote source from pasted images.
+  // Handles two cases:
+  //  1. AoPS TeXeR images — clipboard HTML contains <img alt="[asy]...[/asy]">
+  //  2. HiTeXeR images — PNG with tEXt "Source" metadata chunk
+  document.addEventListener('paste', (e) => {
+    // Don't intercept pastes aimed at text inputs or the CodeMirror editor
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' ||
+        ae.closest('.CodeMirror'))) return;
+
+    const cd = e.clipboardData;
+    if (!cd) return;
+
+    // --- Case 1: TeXeR HTML with alt text containing [asy]...[/asy] ---
+    const html = cd.getData('text/html');
+    if (html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const imgs = doc.querySelectorAll('img[alt]');
+      for (const img of imgs) {
+        const alt = img.getAttribute('alt');
+        const m = alt.match(/\[asy\]([\s\S]*?)\[\/asy\]/);
+        if (m) {
+          e.preventDefault();
+          let code = m[1].trim();
+          code = '[asy]\n' + code + '\n[/asy]';
+          editor.setValue(code);
+          doRender();
+          return;
+        }
+      }
+    }
+
+    // --- Case 2: HiTeXeR PNG with embedded source metadata ---
+    let imageItem = null;
+    for (const item of cd.items) {
+      if (item.type.startsWith('image/')) { imageItem = item; break; }
+    }
+    if (!imageItem) return;
+
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+
+    file.arrayBuffer().then(buf => {
+      const data = new Uint8Array(buf);
+      let code = null;
+      // Try PNG tEXt chunk
+      if (data[0] === 0x89 && data[1] === 0x50) {
+        code = extractPngText(data, 'Source');
+      }
+      // Try JPEG COM marker
+      if (!code && data[0] === 0xFF && data[1] === 0xD8) {
+        code = extractJpgComment(data);
+      }
+      // Try GIF comment extension
+      if (!code && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
+        const comment = extractGifComment(data);
+        if (comment) {
+          try { code = JSON.parse(comment).source || null; } catch(_) { code = comment; }
+        }
+      }
+      if (!code) return; // no source found — do nothing
+      let asyCode = code;
+      if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
+      if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
+      editor.setValue(asyCode);
+      doRender();
+    }).catch(err => console.error('Paste image read failed:', err));
+  });
+
   function setChatImage(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
