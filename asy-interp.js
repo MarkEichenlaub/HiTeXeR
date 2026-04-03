@@ -4803,6 +4803,30 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Collect clip commands: in Asymptote, clip() constrains the bounding box
+  // to the intersection of all clip regions.
+  let clipMinX = -Infinity, clipMinY = -Infinity, clipMaxX = Infinity, clipMaxY = Infinity;
+  let hasClip = false;
+  for (const dc of drawCommands) {
+    if (dc.cmd === 'clip' && dc.path && dc.path.segs.length > 0) {
+      hasClip = true;
+      let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+      for (const seg of dc.path.segs) {
+        for (const p of [seg.p0, seg.p3]) {
+          if (p.x < cMinX) cMinX = p.x;
+          if (p.x > cMaxX) cMaxX = p.x;
+          if (p.y < cMinY) cMinY = p.y;
+          if (p.y > cMaxY) cMaxY = p.y;
+        }
+      }
+      // Intersect with any previous clip regions
+      clipMinX = Math.max(clipMinX, cMinX);
+      clipMinY = Math.max(clipMinY, cMinY);
+      clipMaxX = Math.min(clipMaxX, cMaxX);
+      clipMaxY = Math.min(clipMaxY, cMaxY);
+    }
+  }
+
   // Compute bounding box from all draw commands
   for (const dc of drawCommands) {
     if (dc.cmd === 'dot') {
@@ -4821,6 +4845,9 @@ function renderSVG(result, opts) {
     } else if (dc.cmd === 'marker') {
       // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
       expandBBox(dc.pos.x, dc.pos.y);
+    } else if (dc.cmd === 'clip') {
+      // clip commands don't contribute to bbox — they constrain it (handled below)
+      continue;
     } else if (dc.path) {
       // Skip white fills for bbox: fill(box(...), white) is a background erase
       // that shouldn't define the bounding box (matches Asymptote behavior)
@@ -4832,6 +4859,14 @@ function renderSVG(result, opts) {
       }
       for (const seg of dc.path.segs) expandBezierBBox(seg);
     }
+  }
+
+  // Constrain bbox to clip region (Asymptote clip() restricts the bounding box)
+  if (hasClip) {
+    minX = Math.max(minX, clipMinX);
+    minY = Math.max(minY, clipMinY);
+    maxX = Math.min(maxX, clipMaxX);
+    maxY = Math.min(maxY, clipMaxY);
   }
 
   // When Crop is enabled, constrain bbox to axis limits (plus padding for labels/axes)
@@ -4902,6 +4937,23 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Re-constrain bbox after label expansion: clip() must not be expanded by labels
+  if (hasClip) {
+    minX = Math.max(minX, clipMinX - pad);
+    minY = Math.max(minY, clipMinY - pad);
+    maxX = Math.min(maxX, clipMaxX + pad);
+    maxY = Math.min(maxY, clipMaxY + pad);
+  }
+
+  // GIF mode: override bounds with union bounds across all frames so that
+  // every frame uses the same coordinate system and points don't drift.
+  if (opts.forcedBounds) {
+    minX = opts.forcedBounds.minX;
+    minY = opts.forcedBounds.minY;
+    maxX = opts.forcedBounds.maxX;
+    maxY = opts.forcedBounds.maxY;
+  }
+
   const warnings = [];
 
   // Determine scale — use geometry-only bbox so labels don't shrink geometry
@@ -4925,6 +4977,11 @@ function renderSVG(result, opts) {
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');
+  }
+
+  // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
+  if (opts.forcedPxPerUnit) {
+    pxPerUnit = opts.forcedPxPerUnit;
   }
 
   const naturalW = (maxX - minX) * pxPerUnit;
@@ -4988,6 +5045,21 @@ function renderSVG(result, opts) {
     elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
   }
 
+  // Asymptote clip(): create SVG clipPath from clip commands.
+  // Unlike crop clipping (which excludes labels), clip() clips everything.
+  let userClipId = null;
+  if (hasClip) {
+    userClipId = 'user-clip';
+    let clipDefs = '<defs><clipPath id="user-clip">';
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'clip' && dc.path && dc.path.segs.length > 0) {
+        clipDefs += `<path d="${pathToD(dc.path, minX, maxY, pxPerUnit)}"/>`;
+      }
+    }
+    clipDefs += '</clipPath></defs>';
+    elements.push(clipDefs);
+  }
+
   // Scale factor: how many viewBox units = 1 CSS pixel.
   // With preserveAspectRatio="xMidYMid meet" (browser default / keepAspect), the viewBox is
   // scaled by min(svgW/viewW, svgH/viewH) CSS-px per unit.  Inverting gives the correct
@@ -5036,7 +5108,7 @@ function renderSVG(result, opts) {
         strokeW = css.strokeWidth;
       }
     } else if (dc.cmd === 'clip') {
-      return; // skip clip for now
+      return; // clip is handled via SVG <clipPath> defs
     } else {
       // draw
       stroke = css.stroke;
@@ -5356,15 +5428,38 @@ function renderSVG(result, opts) {
 
   // If crop clipping is active, wrap drawing elements (not <defs> or labels) in a <g clip-path>
   // Labels are excluded from clipping so axis labels outside the plot area remain visible
+  // If user clip (Asymptote clip()) is active, wrap ALL elements (including labels) in <g clip-path>
   let innerContent;
-  if (cropClipId) {
-    const defsEl = elements.length > 0 && elements[0].startsWith('<defs>') ? elements[0] : null;
-    const startIdx = defsEl ? 1 : 0;
-    const clipEls = elements.slice(startIdx, firstLabelIdx);
-    const labelEls = elements.slice(firstLabelIdx);
-    innerContent = (defsEl ? defsEl + '\n' : '') +
-      `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
-      (labelEls.length > 0 ? '\n' + labelEls.join('\n') : '');
+
+  // Separate <defs> elements from content elements
+  const defsEls = [];
+  const contentEls = [];
+  for (let i = 0; i < elements.length; i++) {
+    if (elements[i].startsWith('<defs>')) {
+      defsEls.push(elements[i]);
+    } else {
+      contentEls.push({el: elements[i], origIdx: i});
+    }
+  }
+  const contentFirstLabelIdx = firstLabelIdx - defsEls.length;
+
+  if (cropClipId || userClipId) {
+    const defsStr = defsEls.length > 0 ? defsEls.join('\n') + '\n' : '';
+    let bodyContent;
+    if (cropClipId) {
+      // Crop: wrap non-label content, labels stay outside crop clip
+      const clipEls = contentEls.slice(0, contentFirstLabelIdx).map(e => e.el);
+      const labelEls = contentEls.slice(contentFirstLabelIdx).map(e => e.el);
+      bodyContent = `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
+        (labelEls.length > 0 ? '\n' + labelEls.join('\n') : '');
+    } else {
+      bodyContent = contentEls.map(e => e.el).join('\n');
+    }
+    // User clip wraps everything (including labels) — matches Asymptote behavior
+    if (userClipId) {
+      bodyContent = `<g clip-path="url(#${userClipId})">\n${bodyContent}\n</g>`;
+    }
+    innerContent = defsStr + bodyContent;
   } else {
     innerContent = elements.join('\n');
   }

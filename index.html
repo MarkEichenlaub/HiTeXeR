@@ -4236,7 +4236,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Sample several values to find the full extent of the drawing
     const samples = 10;
     let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
-    let ppu = null;
+    let minPpu = Infinity;
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
       const val = startVal + (endVal - startVal) * t;
@@ -4251,34 +4251,12 @@ document.addEventListener('DOMContentLoaded', () => {
         bMinY = Math.min(bMinY, result.minY);
         bMaxX = Math.max(bMaxX, result.maxX);
         bMaxY = Math.max(bMaxY, result.maxY);
-        if (ppu === null) ppu = result.pxPerUnit;
+        minPpu = Math.min(minPpu, result.pxPerUnit);
       } catch(e) { /* skip */ }
     }
-    if (ppu !== null && isFinite(bMinX)) {
-      gifPreviewBounds = { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY, ppu };
+    if (isFinite(minPpu) && isFinite(bMinX)) {
+      gifPreviewBounds = { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY, ppu: minPpu };
     }
-  }
-
-  // Apply stable viewBox to an SVG element based on gifPreviewBounds and the frame's own bounds
-  function gifStabilizeSvg(svgEl, frameResult) {
-    if (!gifPreviewBounds || !frameResult) return;
-    const { minX: uMinX, maxX: uMaxX, minY: uMinY, maxY: uMaxY, ppu } = gifPreviewBounds;
-    const unionVBW = (uMaxX - uMinX) * ppu;
-    const unionVBH = (uMaxY - uMinY) * ppu;
-    // The frame's SVG content is positioned so that math point (frame.minX, frame.maxY) is at SVG (0,0).
-    // In the union coordinate system, that point should be at SVG ((frame.minX - uMinX)*ppu, (uMaxY - frame.maxY)*ppu).
-    const dx = (frameResult.minX - uMinX) * ppu;
-    const dy = (uMaxY - frameResult.maxY) * ppu;
-    // Wrap all existing children in a <g> with the offset
-    const ns = 'http://www.w3.org/2000/svg';
-    const g = document.createElementNS(ns, 'g');
-    g.setAttribute('transform', `translate(${dx},${dy})`);
-    while (svgEl.firstChild) g.appendChild(svgEl.firstChild);
-    svgEl.appendChild(g);
-    // Set the union viewBox and matching width/height so the SVG has a consistent intrinsic size
-    svgEl.setAttribute('viewBox', `0 0 ${unionVBW} ${unionVBH}`);
-    svgEl.setAttribute('width', unionVBW);
-    svgEl.setAttribute('height', unionVBH);
   }
 
   function gifStartPreview() {
@@ -4339,13 +4317,17 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
-        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        // When GIF preview bounds are available, render with forced bounds and scale
+        // so every frame has the same coordinate system and scale
+        const renderOpts = { containerW: dims.w, containerH: dims.h };
+        if (gifPreviewBounds) {
+          renderOpts.forcedBounds = { minX: gifPreviewBounds.minX, minY: gifPreviewBounds.minY, maxX: gifPreviewBounds.maxX, maxY: gifPreviewBounds.maxY };
+          renderOpts.forcedPxPerUnit = gifPreviewBounds.ppu;
+        }
+        const result = AsyInterp.render(newCode, renderOpts);
         const oldSvg = previewEl.querySelector('svg');
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
-        // Stabilize the SVG so fixed-coordinate elements don't move
-        const newSvg = previewEl.querySelector('svg');
-        if (newSvg && gifPreviewBounds) gifStabilizeSvg(newSvg, result);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -4437,13 +4419,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const code = editor.getValue();
       const lineIdx = gifSelectedVar.lineIdx;
 
-      function renderFrame(value) {
+      function renderFrame(value, extraOpts) {
         const framelines = code.split('\n');
         framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
         const frameCode = framelines.join('\n');
         if (window.AsyInterp && AsyInterp.canInterpret(frameCode)) {
           const dims = getPreviewDimensions();
-          return AsyInterp.render(frameCode, { containerW: dims.w, containerH: dims.h });
+          return AsyInterp.render(frameCode, { containerW: dims.w, containerH: dims.h, ...extraOpts });
         }
         return null;
       }
@@ -4457,11 +4439,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Pass 1: render all frames, collect results and compute union math bounds
+      // Pass 1: render all frames to compute union bounding box and consistent scale
       progressEl.textContent = 'Pass 1: computing bounds...';
-      const frameResults = [];
       let uMinX = Infinity, uMinY = Infinity, uMaxX = -Infinity, uMaxY = -Infinity;
-      let ppu = null;
+      let minPpu = Infinity;
       for (let i = 0; i < totalFrames; i++) {
         const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
         const value = startVal + (endVal - startVal) * t;
@@ -4472,20 +4453,19 @@ document.addEventListener('DOMContentLoaded', () => {
         uMinY = Math.min(uMinY, result.minY);
         uMaxX = Math.max(uMaxX, result.maxX);
         uMaxY = Math.max(uMaxY, result.maxY);
-        if (ppu === null) ppu = result.pxPerUnit;
-        frameResults.push(result);
+        minPpu = Math.min(minPpu, result.pxPerUnit);
         if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
-      if (frameResults.length === 0 || ppu === null) {
+      if (!isFinite(minPpu) || !isFinite(uMinX)) {
         alert('No frames could be rendered.');
         document.getElementById('gif-panel').classList.remove('gif-generating');
         gifStartPreview();
         return;
       }
 
-      // Store union bounds for gifStabilizeSvg
-      const gifBounds = { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY, ppu };
+      const ppu = minPpu;
+      const forcedBounds = { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY };
 
       // Union viewBox dimensions (in SVG/pixel units)
       const natW = (uMaxX - uMinX) * ppu;
@@ -4520,19 +4500,19 @@ document.addEventListener('DOMContentLoaded', () => {
         transparent: transparent ? 0x00000000 : null,
       });
 
-      // Pass 2: rasterize each frame with stable coordinate system
-      const savedBounds = gifPreviewBounds;
-      gifPreviewBounds = gifBounds; // temporarily use GIF bounds for stabilization
+      // Pass 2: re-render each frame with forced bounds and scale, then rasterize
       let framesAdded = 0;
-      for (let i = 0; i < frameResults.length; i++) {
-        const result = frameResults[i];
+      for (let i = 0; i < totalFrames; i++) {
+        const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+        const value = startVal + (endVal - startVal) * t;
+        const result = renderFrame(value, { forcedBounds, forcedPxPerUnit: ppu });
+        if (!result) continue;
+
         const frameDiv = document.createElement('div');
         frameDiv.innerHTML = result.svg;
         const frameSvg = frameDiv.querySelector('svg');
         if (!frameSvg) continue;
 
-        // Translate content into union coordinate system so fixed-coord elements stay put
-        gifStabilizeSvg(frameSvg, result);
         frameSvg.setAttribute('width', outW);
         frameSvg.setAttribute('height', outH);
         // Remove overlays
@@ -4549,7 +4529,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
           const canvas = await svgToCanvas(frameSvg, 1);
-          const isLastFrame = i === frameResults.length - 1;
+          const isLastFrame = i === totalFrames - 1;
           const delay = isLastFrame ? frameDelay + pauseMs : frameDelay;
 
           gif.addFrame(canvas, { delay, copy: true });
@@ -4558,11 +4538,9 @@ document.addEventListener('DOMContentLoaded', () => {
           console.warn('GIF frame render failed:', e);
         }
 
-        progressEl.textContent = `Rendering frame ${i + 1}/${frameResults.length}...`;
+        progressEl.textContent = `Rendering frame ${i + 1}/${totalFrames}...`;
         await new Promise(r => setTimeout(r, 0));
       }
-
-      gifPreviewBounds = savedBounds; // restore
 
       if (framesAdded === 0) {
         throw new Error('No frames could be rasterized.');
