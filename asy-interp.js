@@ -4999,8 +4999,16 @@ function renderSVG(result, opts) {
   // unconstrained one uses the full label-expanded natural size.
   let svgW = naturalW, svgH = naturalH;
   if (sizeW > 0 && sizeH > 0) {
-    svgW = sizeW;
-    svgH = sizeH;
+    if (keepAspect) {
+      // size(w,h) with keepAspect means "fit within w×h box, maintaining aspect ratio".
+      // Use the natural (content-fitting) dimensions — the binding constraint dimension
+      // equals the size() value, the other is smaller to preserve aspect ratio.
+      svgW = naturalW;
+      svgH = naturalH;
+    } else {
+      svgW = sizeW;
+      svgH = sizeH;
+    }
   } else if (sizeW > 0) {
     svgW = sizeW;
     svgH = naturalW > 0 ? sizeW * (naturalH / naturalW) : naturalH;
@@ -5024,6 +5032,9 @@ function renderSVG(result, opts) {
   const bpToCSSPx = 120 / 72;
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
+
+  // Store unshrunk dimensions for PNG export (before container shrink-to-fit)
+  const intrinsicW = svgW, intrinsicH = svgH;
 
   // If container dimensions provided, shrink to fit
   let displayPercent = 100;
@@ -5143,8 +5154,8 @@ function renderSVG(result, opts) {
     if (stroke !== 'none') {
       attrs += ` stroke="${stroke}" stroke-width="${fmt(strokeW)}"`;
       if (dashArray) attrs += ` stroke-dasharray="${dashArray}"`;
-      if (dc.pen && dc.pen.linecap) attrs += ` stroke-linecap="${dc.pen.linecap}"`;
-      if (dc.pen && dc.pen.linejoin) attrs += ` stroke-linejoin="${dc.pen.linejoin}"`;
+      attrs += ` stroke-linecap="${(dc.pen && dc.pen.linecap) || 'round'}"`;
+      attrs += ` stroke-linejoin="${(dc.pen && dc.pen.linejoin) || 'round'}"`;
     }
     attrs += opacityAttr(css.opacity);
 
@@ -5262,7 +5273,7 @@ function renderSVG(result, opts) {
         const cleanLen = stripLaTeX(dc.text || '').length || 1;
         const W = cleanLen * fontSizeSVG * 0.52;
         const H = fontSizeSVG;
-        const margin = 0.28 * fontSizeSVG;   // labelmargin = 0.28 * fontsize
+        const margin = 0.20 * fontSizeSVG;   // labelmargin ≈ 0.20 * fontsize
         const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
         const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
         const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
@@ -5489,7 +5500,11 @@ function renderSVG(result, opts) {
     innerContent = elements.join('\n');
   }
   const parAttr = keepAspect ? '' : ' preserveAspectRatio="none"';
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible">\n${innerContent}\n</svg>`;
+  // Thin SVG text to better match TeX Computer Modern bitmap rendering.
+  // paint-order:stroke renders a thin white stroke beneath the fill, visually
+  // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
+  const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -5802,7 +5817,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = `color:${fill || '#000000'};`;
   const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSizeCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(fontSizeCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {

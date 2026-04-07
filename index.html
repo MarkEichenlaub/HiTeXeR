@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.10</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.11</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2994,15 +2994,21 @@ async function copyCanvasImage(format) {
     const url = URL.createObjectURL(svgBlob);
     const img = new Image();
     await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
-    const vb = svg.getAttribute('viewBox');
-    let w = svg.getAttribute('width') || (vb ? vb.split(/[\s,]+/)[2] : 400);
-    let h = svg.getAttribute('height') || (vb ? vb.split(/[\s,]+/)[3] : 300);
+    // Use intrinsic (unshrunk) dimensions for export so PNG matches AoPS 240-DPI output
+    let w = svg.getAttribute('data-intrinsic-w') || svg.getAttribute('width');
+    let h = svg.getAttribute('data-intrinsic-h') || svg.getAttribute('height');
+    if (!w || !h) {
+      const vb = svg.getAttribute('viewBox');
+      w = vb ? vb.split(/[\s,]+/)[2] : 400;
+      h = vb ? vb.split(/[\s,]+/)[3] : 300;
+    }
+    w = parseFloat(w); h = parseFloat(h);
     const canvas = document.createElement('canvas');
-    canvas.width = parseFloat(w) * 2; canvas.height = parseFloat(h) * 2;
+    canvas.width = Math.round(w * 2); canvas.height = Math.round(h * 2);
     const ctx = canvas.getContext('2d');
     if (format === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
     ctx.scale(2, 2);
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, w, h);
     URL.revokeObjectURL(url);
     const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
     canvas.toBlob(async (imgBlob) => {
@@ -5243,6 +5249,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function svgToCanvas(clone, scale) {
     // Replace foreignObject elements so SVG renders in <img> context
     replaceForeignObjects(clone);
+    // Read intrinsic dimensions from SVG attributes (not img.width which
+    // may be affected by devicePixelRatio or container scaling)
+    const svgW = parseFloat(clone.getAttribute('width'));
+    const svgH = parseFloat(clone.getAttribute('height'));
     return new Promise((resolve, reject) => {
       const serializer = new XMLSerializer();
       const svgStr = serializer.serializeToString(clone);
@@ -5251,11 +5261,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const url = URL.createObjectURL(blob);
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
+        const w = Math.round(svgW * scale);
+        const h = Math.round(svgH * scale);
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
         ctx.scale(scale, scale);
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, svgW, svgH);
         URL.revokeObjectURL(url);
         resolve(canvas);
       };
@@ -5267,8 +5279,15 @@ document.addEventListener('DOMContentLoaded', () => {
   async function doExportPng() {
     const clone = cloneSvgForExport();
     if (!clone) return;
-    // Set explicit width/height if not present
-    if (!clone.hasAttribute('width')) {
+    // Restore unshrunk (intrinsic) dimensions for export.
+    // The display SVG may be shrunk to fit the container, but the PNG
+    // should use the full intrinsic size (matching AoPS 240-DPI output at 2× scale).
+    const iw = clone.getAttribute('data-intrinsic-w');
+    const ih = clone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      clone.setAttribute('width', iw);
+      clone.setAttribute('height', ih);
+    } else if (!clone.hasAttribute('width')) {
       const vb = clone.getAttribute('viewBox');
       if (vb) {
         const parts = vb.split(/[\s,]+/).map(Number);
@@ -5293,7 +5312,13 @@ document.addEventListener('DOMContentLoaded', () => {
   async function doExportJpg() {
     const clone = cloneSvgForExport();
     if (!clone) return;
-    if (!clone.hasAttribute('width')) {
+    // Restore unshrunk dimensions for export
+    const iw = clone.getAttribute('data-intrinsic-w');
+    const ih = clone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      clone.setAttribute('width', iw);
+      clone.setAttribute('height', ih);
+    } else if (!clone.hasAttribute('width')) {
       const vb = clone.getAttribute('viewBox');
       if (vb) {
         const parts = vb.split(/[\s,]+/).map(Number);
@@ -5326,7 +5351,13 @@ document.addEventListener('DOMContentLoaded', () => {
   async function doExportPdf() {
     const clone = cloneSvgForExport();
     if (!clone) return;
-    if (!clone.hasAttribute('width')) {
+    // Restore unshrunk dimensions for export
+    const iw = clone.getAttribute('data-intrinsic-w');
+    const ih = clone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      clone.setAttribute('width', iw);
+      clone.setAttribute('height', ih);
+    } else if (!clone.hasAttribute('width')) {
       const vb = clone.getAttribute('viewBox');
       if (vb) {
         const parts = vb.split(/[\s,]+/).map(Number);
