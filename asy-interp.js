@@ -3024,7 +3024,7 @@ function createInterpreter() {
     // Right angle mark: draws a small square at vertex B
     env.set('rightanglemark', (A, B, C, ...rest) => {
       const a = toPair(A), b = toPair(B), c = toPair(C);
-      const rawS = rest.length > 0 ? toNumber(rest[0]) : 10;
+      const rawS = rest.length > 0 ? toNumber(rest[0]) : 8;
       const msf = env.get('markscalefactor') || 0.03;
       const s = rawS * msf;
       // Normalize BA and BC directions
