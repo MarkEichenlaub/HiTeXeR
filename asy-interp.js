@@ -4999,20 +4999,6 @@ function renderSVG(result, opts) {
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
 
-  // Enforce minimum display size: scale so that font labels (~16 CSS px for 12pt) are
-  // proportionally small relative to cells (target ~50% of cell height).
-  // Target: 32 CSS px per user coordinate unit → font/cell ≈ 16/32 = 0.5.
-  // Hard minimum: 100px. Cap at 500px to avoid oversized SVGs for large drawings.
-  if (hasUnitScale) {
-    const bboxUnitsMax = Math.max((maxX - minX) || 1, (maxY - minY) || 1);
-    const fontAwareMin = Math.min(Math.max(32 * bboxUnitsMax, 100), 500);
-    if (svgW < fontAwareMin && svgH < fontAwareMin) {
-      const upscale = fontAwareMin / Math.max(svgW, svgH);
-      svgW *= upscale;
-      svgH *= upscale;
-    }
-  }
-
   // If container dimensions provided, shrink to fit
   let displayPercent = 100;
   const containerW = opts.containerW || 0;
