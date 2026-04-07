@@ -4992,11 +4992,10 @@ function renderSVG(result, opts) {
   if (sizeW > 0) svgW = sizeW;
   if (sizeH > 0) svgH = sizeH;
 
-  // Convert bp → CSS pixels.  Asymptote sizes are in PostScript points (1 bp = 1/72 in)
-  // but SVG width/height in browsers are CSS pixels (1 px = 1/96 in).  Without this
-  // conversion, size(12cm) produces a 340-wide SVG (bp) which the browser renders as
-  // 340 CSS px ≈ 9cm instead of the intended 12cm.
-  const bpToCSSPx = 96 / 72;
+  // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
+  // (1 bp = 1/72 in).  The AoPS TeXeR renders at an effective 120 DPI for web
+  // display, so we use 120/72 = 5/3 to match its output size.
+  const bpToCSSPx = 120 / 72;
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
 
