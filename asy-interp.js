@@ -4987,10 +4987,18 @@ function renderSVG(result, opts) {
   const naturalW = (maxX - minX) * pxPerUnit;
   const naturalH = (maxY - minY) * pxPerUnit;
 
-  // Apply explicit size() if given
+  // Apply explicit size() if given (sizes are in bp = 1/72 inch)
   let svgW = naturalW, svgH = naturalH;
   if (sizeW > 0) svgW = sizeW;
   if (sizeH > 0) svgH = sizeH;
+
+  // Convert bp → CSS pixels.  Asymptote sizes are in PostScript points (1 bp = 1/72 in)
+  // but SVG width/height in browsers are CSS pixels (1 px = 1/96 in).  Without this
+  // conversion, size(12cm) produces a 340-wide SVG (bp) which the browser renders as
+  // 340 CSS px ≈ 9cm instead of the intended 12cm.
+  const bpToCSSPx = 96 / 72;
+  svgW *= bpToCSSPx;
+  svgH *= bpToCSSPx;
 
   // Enforce minimum display size: scale so that font labels (~16 CSS px for 12pt) are
   // proportionally small relative to cells (target ~50% of cell height).
