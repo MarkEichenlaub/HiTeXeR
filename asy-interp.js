@@ -4882,18 +4882,22 @@ function renderSVG(result, opts) {
     maxY = Math.min(maxY, axisLimits.ymax + yMargin);
   }
 
-  // Add padding
+  // Add padding for stroke overshoot
   if (!isFinite(minX)) { minX=0; minY=0; maxX=1; maxY=1; }
-  const pad = 0.5;
-  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
-  // Save geometry-only bbox before label expansion.
+  // Save geometry-only bbox before label expansion (and before padding).
   // In real Asymptote, size() scales geometry to fit the requested dimensions;
   // labels are placed at absolute point sizes and don't shrink the geometry.
-  // Using the label-expanded bbox for pxPerUnit made geometry too small relative
-  // to labels, causing text to appear disproportionately wide.
-  const geoBboxW = maxX - minX || 1;
-  const geoBboxH = maxY - minY || 1;
+  const geoBboxW = (maxX - minX) || 1;
+  const geoBboxH = (maxY - minY) || 1;
+
+  // Padding in bp, converted to user coordinates.  Real Asymptote expands the
+  // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
+  // on each side) so the value doesn't depend on user-coordinate scale.
+  const roughPxPerUnitForPad = hasUnitScale ? unitScale
+    : (sizeW > 0 ? sizeW / geoBboxW : (sizeH > 0 ? sizeH / geoBboxH : 200 / geoBboxW));
+  const pad = 0.5 / roughPxPerUnitForPad;      // 0.5 bp → user coords
+  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
   // Expand bbox for labels so text doesn't get clipped
   // Estimate label extent in user coordinates
@@ -4904,25 +4908,26 @@ function renderSVG(result, opts) {
       const fontSize = (dc.pen && dc.pen.fontsize) || 10;
       const text = dc.text || dc.label || '';
       const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
-      // Approximate character width ~0.6 * fontSize
       const bboxSpan = maxX - minX || 1;
-      // Rough pxPerUnit estimate for sizing
-      const roughPxPerUnit = (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
-      // Font size in SVG user units: fontSize (pt) * (96/72) converts pt→CSS px, then
-      // divide by roughPxPerUnit to get user-coordinate units.  Omitting the 96/72
-      // factor caused the bbox to be ~33% too small, with labels extending outside it.
-      const ptToPx = 96 / 72;
-      const charWidthUser = fontSize * ptToPx * 0.6 / roughPxPerUnit;
+      // Use actual unitScale when available; fall back to rough estimate from size().
+      const roughPxPerUnit = hasUnitScale ? unitScale
+        : (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
+      // Effective glyph ratio: Asymptote uses tight TeX bounding boxes.  For
+      // single-character math labels the visible bbox is well below the full
+      // cap height (~0.68 em).  Using 0.45 approximates the tight bbox and
+      // keeps size()-constrained output close to real Asymptote dimensions.
+      const capRatio = 0.48;
+      const charWidthUser = fontSize * capRatio * 0.6 / roughPxPerUnit;
       // For labels with fractions, estimate wider width
       const rawLabel = text;
       const hasFrac = /\\frac/.test(rawLabel);
       const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
       const textWidthUser = effectiveLen * charWidthUser;
-      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) * ptToPx / roughPxPerUnit;
+      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) * capRatio / roughPxPerUnit;
       let dx = 0, dy = 0;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        const margin = 0.28 * fontSize * ptToPx / roughPxPerUnit;
+        const margin = 0.20 * fontSize / roughPxPerUnit;
         const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
         const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
         const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
@@ -4956,24 +4961,24 @@ function renderSVG(result, opts) {
 
   const warnings = [];
 
-  // Determine scale — use geometry-only bbox so labels don't shrink geometry
+  // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit;
   if (hasUnitScale) {
-    // unitsize() was called: user coords → bp directly
+    // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = unitScale;
   } else if (sizeW > 0 || sizeH > 0) {
-    // size() without unitsize(): scale user coords to fit in the requested size.
-    // Use geometry-only bbox so labels don't shrink the drawing.
+    // size() without unitsize(): scale so the full picture (geometry + labels)
+    // fits in the requested size — matching real Asymptote behaviour.
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
-    pxPerUnit = Math.min(targetW / geoBboxW, targetH / geoBboxH);
+    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
     const defaultSize = 200;
     const targetW = defaultSize;
     const targetH = defaultSize;
-    pxPerUnit = Math.min(targetW / (geoBboxW || 1), targetH / (geoBboxH || 1));
+    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');
@@ -4987,10 +4992,31 @@ function renderSVG(result, opts) {
   const naturalW = (maxX - minX) * pxPerUnit;
   const naturalH = (maxY - minY) * pxPerUnit;
 
-  // Apply explicit size() if given (sizes are in bp = 1/72 inch)
+  // Apply explicit size() if given (sizes are in bp = 1/72 inch).
+  // When only one dimension is constrained, scale the other to maintain
+  // the natural (label-expanded) aspect ratio — otherwise the display
+  // distorts because the constrained axis uses sizeW/H while the
+  // unconstrained one uses the full label-expanded natural size.
   let svgW = naturalW, svgH = naturalH;
-  if (sizeW > 0) svgW = sizeW;
-  if (sizeH > 0) svgH = sizeH;
+  if (sizeW > 0 && sizeH > 0) {
+    svgW = sizeW;
+    svgH = sizeH;
+  } else if (sizeW > 0) {
+    svgW = sizeW;
+    svgH = naturalW > 0 ? sizeW * (naturalH / naturalW) : naturalH;
+  } else if (sizeH > 0) {
+    svgH = sizeH;
+    svgW = naturalH > 0 ? sizeH * (naturalW / naturalH) : naturalW;
+  }
+
+  // In real Asymptote the pen-width overshoot extends the output slightly beyond
+  // the size() constraint.  For unitsize() cases the padding is already in the
+  // bbox, but for size()-constrained output we add ~1 bp (0.5 bp per side) to
+  // the constrained axis(es) so the final image matches AoPS TeXeR.
+  if (!hasUnitScale) {
+    if (sizeW > 0) svgW += 1;   // 0.5 bp padding each side
+    if (sizeH > 0) svgH += 1;
+  }
 
   // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
   // (1 bp = 1/72 in).  The AoPS TeXeR renders at an effective 120 DPI for web
