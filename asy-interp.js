@@ -5078,6 +5078,10 @@ function renderSVG(result, opts) {
   const cssPixel = keepAspect
     ? Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1))
     : viewW / (svgW || viewW || 1);
+  // Like cssPixel but includes the bp→CSS px conversion (96/72).  Use for anything
+  // whose natural unit is bp (stroke widths, dot radii, arrow sizes).  Font sizing
+  // already applies 96/72 explicitly, so it keeps using plain cssPixel.
+  const bpCSSPixel = (96 / 72) * cssPixel;
 
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
@@ -5091,7 +5095,7 @@ function renderSVG(result, opts) {
       const sy = (maxY - p.y) * pxPerUnit;
       // Asymptote: single-point draw = zero-length stroke, radius = linewidth/2 (no dotfactor)
       const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
-      const singleDotR = (singleDotLw / 2) * cssPixel;
+      const singleDotR = (singleDotLw / 2) * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
@@ -5107,7 +5111,7 @@ function renderSVG(result, opts) {
       fill = css.fill;
       if (dc.drawPen) {
         const drawCSS = penToCSS(dc.drawPen);
-        drawCSS.strokeWidth *= cssPixel;
+        drawCSS.strokeWidth *= bpCSSPixel;
         stroke = drawCSS.stroke;
         strokeW = drawCSS.strokeWidth;
       } else {
@@ -5163,7 +5167,7 @@ function renderSVG(result, opts) {
   for (const ci of renderOrder) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
-    css.strokeWidth *= cssPixel;
+    css.strokeWidth *= bpCSSPixel;
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
     if (dc.cmd === 'label') {
@@ -5178,7 +5182,7 @@ function renderSVG(result, opts) {
       // Asymptote uses radius = linewidth/2 directly (the number IS the dot size).
       // If linewidth is default (no explicit set), apply dotfactor: radius = dotfactor/2 * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * cssPixel;
+      const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
@@ -5546,7 +5550,7 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const style = dc.arrow.style;
   // Arrow size in CSS pixels: base size (default 6bp) scaled by cssPixel to viewBox units
   const baseSize = dc.arrow.size || 6;
-  let arrowLen = baseSize * cssPixel;
+  let arrowLen = baseSize * (96 / 72) * cssPixel;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
