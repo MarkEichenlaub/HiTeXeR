@@ -5078,10 +5078,10 @@ function renderSVG(result, opts) {
   const cssPixel = keepAspect
     ? Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1))
     : viewW / (svgW || viewW || 1);
-  // Like cssPixel but includes the bp→CSS px conversion (96/72).  Use for anything
-  // whose natural unit is bp (stroke widths, dot radii, arrow sizes).  Font sizing
-  // already applies 96/72 explicitly, so it keeps using plain cssPixel.
-  const bpCSSPixel = (96 / 72) * cssPixel;
+  // Like cssPixel but includes the bp→display conversion.  Use for anything whose
+  // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
+  // Uses bpToCSSPx so strokes/fonts scale at the same effective DPI as the geometry.
+  const bpCSSPixel = bpToCSSPx * cssPixel;
 
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
@@ -5141,7 +5141,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnit, cssPixel, css);
+      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnit, bpCSSPixel, css);
       if (arrowEl) {
         elements.push(arrowEl);
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -5234,8 +5234,10 @@ function renderSVG(result, opts) {
       // 100px display size for a 14pt viewBox that is ~85 CSS px per character, completely
       // covering the drawing. Use cssPixel (viewW/svgW) to express the absolute pt size
       // as the correct fractional SVG user-unit value.
-      const fontSizeSVG = fontSize * (96 / 72) * cssPixel; // SVG user units (absolute pt size)
-      const fontSizeCSS = fontSize * (96 / 72);            // CSS px at 96 dpi (for foreignObject)
+      const fontSizeSVG = fontSize * bpCSSPixel;  // SVG user units (bp → display px → viewBox)
+      // foreignObject CSS is scaled by the SVG viewBox→display mapping (≈ bpToCSSPx),
+      // so use raw pt value — the SVG transform provides the bp→CSS px conversion.
+      const fontSizeCSS = fontSize;
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
@@ -5545,12 +5547,12 @@ function linestyleToDasharray(style, strokeWidth) {
   }
 }
 
-function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
+function generateArrowHead(dc, minX, maxY, scale, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
-  // Arrow size in CSS pixels: base size (default 6bp) scaled by cssPixel to viewBox units
+  // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel
   const baseSize = dc.arrow.size || 6;
-  let arrowLen = baseSize * (96 / 72) * cssPixel;
+  let arrowLen = baseSize * bpCSSPixel;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
