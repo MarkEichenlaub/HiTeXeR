@@ -665,13 +665,13 @@ const AsyParser = {
         continue;
       }
       const am = t.match(assignP);
-      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
+      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
       const pm = t.match(pushP);
-      if (pm) { assignments.push({lineIndex:i,varName:pm[1],lineText:lines[i]}); continue; }
+      if (pm) { assignments.push({lineIndex:i,varName:pm[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
       const fim = t.match(forInitP);
-      if (fim) { assignments.push({lineIndex:i,varName:fim[1],lineText:lines[i]}); continue; }
+      if (fim) { assignments.push({lineIndex:i,varName:fim[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
       const mm = t.match(multiP);
-      if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i]}); }
+      if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i],braceDepth:lineDepth}); }
     }
     return { drawCommands, assignments, imports, funcDefs, lines };
   },
@@ -687,9 +687,30 @@ const AsyParser = {
 
   findDependencies(drawCmd, assignments) {
     const deps = new Set(), visited = new Set(), q = [...drawCmd.vars];
+    const drawLine = drawCmd.lineIndex;
+    const drawDepth = drawCmd.braceDepth;
     while (q.length) {
       const v = q.shift(); if (visited.has(v)) continue; visited.add(v);
-      for (const a of assignments) { if (a.varName===v) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); } }
+      // Collect all assignments for this variable name
+      const matches = assignments.filter(a => a.varName === v);
+      if (matches.length <= 1) {
+        // Unique or absent — use it directly (no ambiguity)
+        for (const a of matches) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); }
+      } else {
+        // Multiple assignments with same name — scope-aware selection.
+        // Pick the nearest preceding assignment whose braceDepth <= draw's depth.
+        // This correctly selects the enclosing for-loop init over an identically
+        // named variable in a different loop.
+        let best = null;
+        for (const a of matches) {
+          if (a.lineIndex > drawLine) continue; // after the draw — skip
+          if (a.braceDepth !== undefined && a.braceDepth > drawDepth) continue; // deeper scope — skip
+          if (!best || a.lineIndex > best.lineIndex) best = a;
+        }
+        // Fallback: if nothing preceded the draw (e.g. forward reference), take closest overall
+        if (!best) best = matches.reduce((a, b) => Math.abs(a.lineIndex - drawLine) < Math.abs(b.lineIndex - drawLine) ? a : b);
+        deps.add(best.lineIndex); const rhs=best.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv);
+      }
     }
     return [...deps];
   },
@@ -1078,7 +1099,7 @@ const StyleMenu = {
     this._sharedPenName = null;
     this._sharedPenDefLine = -1;
     this._sharedPenProps = null;
-    if (wasMulti) { multiSelected.clear(); multiSelectedInterp.clear(); }
+    if (wasMulti) { multiSelected.clear(); multiSelectedInterp.clear(); frozenVisibleLines = null; updateCodeFilter(); }
     clearHighlights();
     clearSvgHighlights();
     if (this.dirty) {
@@ -1661,25 +1682,24 @@ function initEditor() {
     }
   });
 
-  // Left-click on code lines for multi-select (with Ctrl held or always in multi-select mode)
+  // Left-click on code lines for multi-select (Ctrl/Meta click only)
   editor.getWrapperElement().addEventListener('click', (e) => {
     if (StyleMenu.visible) return;
+    if (!e.ctrlKey && !e.metaKey) return; // only toggle on Ctrl/Meta click
     const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
     const lineText = editor.getLine(pos.line);
     if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
-      if (multiSelected.size > 0 || e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        if (multiSelected.has(pos.line)) {
-          multiSelected.delete(pos.line);
-          // Also remove matching interpCi values
-          for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.delete(ic); }
-        } else {
-          multiSelected.add(pos.line);
-          // Also add any interpCi values for this line (highlight all draws on that line)
-          for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.add(ic); }
-        }
-        renderMultiSelection(true);
+      e.preventDefault();
+      if (multiSelected.has(pos.line)) {
+        multiSelected.delete(pos.line);
+        // Also remove matching interpCi values
+        for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.delete(ic); }
+      } else {
+        multiSelected.add(pos.line);
+        // Also add any interpCi values for this line (highlight all draws on that line)
+        for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.add(ic); }
       }
+      renderMultiSelection(true);
     }
   });
 }
@@ -2748,9 +2768,22 @@ function doCodeLineHover(lineIdx) {
       const rhs = a.lineText.split('=').slice(1).join('=');
       const vars = AsyParser.extractVariables(rhs,[rhs],0);
       const vis = new Set(vars), q = [...vars];
+      const hoverDepth = a.braceDepth !== undefined ? a.braceDepth : 0;
       while (q.length) {
         const v=q.shift();
-        for(const aa of parsed.assignments) { if(aa.varName===v) { depLines.add(aa.lineIndex); const ir=aa.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);} } }
+        const matches = parsed.assignments.filter(aa => aa.varName===v);
+        if (matches.length <= 1) {
+          for (const aa of matches) { depLines.add(aa.lineIndex); const ir=aa.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);} }
+        } else {
+          let best = null;
+          for (const aa of matches) {
+            if (aa.lineIndex > lineIdx) continue;
+            if (aa.braceDepth !== undefined && aa.braceDepth > hoverDepth) continue;
+            if (!best || aa.lineIndex > best.lineIndex) best = aa;
+          }
+          if (!best) best = matches.reduce((x, y) => Math.abs(x.lineIndex - lineIdx) < Math.abs(y.lineIndex - lineIdx) ? x : y);
+          depLines.add(best.lineIndex); const ir=best.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);}
+        }
       }
       break;
     }
