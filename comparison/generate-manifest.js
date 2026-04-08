@@ -8,6 +8,7 @@ const OUT_DIR    = __dirname;                        // comparison/
 const ASY_DIR    = path.join(OUT_DIR, 'asy_pngs');
 const HTX_DIR    = path.join(OUT_DIR, 'htx_pngs');
 const TEXER_DIR  = path.join(OUT_DIR, 'texer_pngs');
+const SVG_DIR    = path.join(OUT_DIR, 'htx_svgs');
 const SSIM_FILE  = path.join(OUT_DIR, 'ssim-results.json');
 const MANIFEST   = path.join(OUT_DIR, 'blink-manifest.json');
 
@@ -53,26 +54,22 @@ const COURSE_NAMES = {
 const allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort();
 console.log(`Corpus: ${allFiles.length} .asy files`);
 
-// Build sets of existing PNGs
+// Build sets of existing PNGs/SVGs
 const asySet   = new Set(fs.readdirSync(ASY_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
 const htxSet   = new Set(fs.readdirSync(HTX_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
+const svgSet   = new Set(fs.readdirSync(SVG_DIR).filter(f => f.endsWith('.svg')).map(f => f.replace('.svg', '')));
 const texerSet = new Set(fs.readdirSync(TEXER_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
 
-console.log(`asy_pngs: ${asySet.size}, htx_pngs: ${htxSet.size}, texer_pngs: ${texerSet.size}`);
+console.log(`asy_pngs: ${asySet.size}, htx_pngs: ${htxSet.size}, htx_svgs: ${svgSet.size}, texer_pngs: ${texerSet.size}`);
 
-// Build metrics lookup  { id -> { ssim, iou, edgeIou, score, ... } }
-const metricsLookup = {};
+// Build SSIM lookup  { id -> score }
+const ssimLookup = {};
 if (fs.existsSync(SSIM_FILE)) {
   const ssimData = JSON.parse(fs.readFileSync(SSIM_FILE, 'utf-8'));
   for (const entry of ssimData) {
-    metricsLookup[entry.id] = {
-      ssim: entry.ssim,
-      iou: entry.iou !== undefined ? entry.iou : null,
-      edgeIou: entry.edgeIou !== undefined ? entry.edgeIou : null,
-      score: entry.score !== undefined ? entry.score : null,
-    };
+    ssimLookup[entry.id] = entry.ssim;
   }
-  console.log(`Metric scores: ${ssimData.length}`);
+  console.log(`SSIM scores: ${ssimData.length}`);
 }
 
 // Extract collection from filename: "c{N}_L{N}_{type}_{idx}.asy" -> "c{N}"
@@ -91,18 +88,15 @@ for (let i = 0; i < allFiles.length; i++) {
   const collection = getCollection(source);
   collectionsSet.add(collection);
 
-  const m = metricsLookup[id] || {};
   diagrams.push({
     id,
     source,
     collection,
     hasAsy:  asySet.has(id),
     hasHtx:  htxSet.has(id),
+    hasSvg:  svgSet.has(id),
     hasTexer: texerSet.has(id),
-    ssim:    m.ssim !== undefined ? m.ssim : null,
-    iou:     m.iou !== undefined ? m.iou : null,
-    edgeIou: m.edgeIou !== undefined ? m.edgeIou : null,
-    score:   m.score !== undefined ? m.score : null,
+    ssim:    ssimLookup[id] !== undefined ? ssimLookup[id] : null,
   });
 }
 
