@@ -962,7 +962,18 @@ function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
 // seg = {p0:{x,y}, cp1:{x,y}, cp2:{x,y}, p3:{x,y}}
 function makeSeg(p0,cp1,cp2,p3) { return {p0,cp1,cp2,p3}; }
-function lineSegment(a,b) { return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b); }
+function lineSegment(a,b) {
+  // If either endpoint is a triple, keep control points as triples so
+  // projectPathTriples() can project them correctly later.
+  if ((a && a._tag === 'triple') || (b && b._tag === 'triple')) {
+    const az = a.z || 0, bz = b.z || 0;
+    return makeSeg(a,
+      {_tag:'triple', x:a.x+(b.x-a.x)/3, y:a.y+(b.y-a.y)/3, z:az+(bz-az)/3},
+      {_tag:'triple', x:a.x+2*(b.x-a.x)/3, y:a.y+2*(b.y-a.y)/3, z:az+2*(bz-az)/3},
+      b);
+  }
+  return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b);
+}
 
 function isPair(v) { return v && v._tag === 'pair'; }
 function isTriple(v) { return v && v._tag === 'triple'; }
@@ -1329,6 +1340,35 @@ const BREAK_SIG = {_sig:'break'};
 const CONTINUE_SIG = {_sig:'continue'};
 function ReturnSig(v) { return {_sig:'return', value:v}; }
 
+// Raw 3D→2D projection (module-scope so both interpreter and renderer can use it)
+function _projectTripleRaw(v, proj) {
+  const cx = proj.cx, cy = proj.cy, cz = proj.cz;
+  const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+  const dx = cx-tx, dy = cy-ty, dz = cz-tz;
+  const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+  const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
+  const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
+  let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
+  const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
+  rx /= rlen; ry /= rlen; rz /= rlen;
+  const upx = fw.y*rz - fw.z*ry, upy = fw.z*rx - fw.x*rz, upz = fw.x*ry - fw.y*rx;
+  const px = v.x - tx, py = v.y - ty, pz = v.z - tz;
+
+  if (proj.type === 'perspective') {
+    const depth = px*fw.x + py*fw.y + pz*fw.z;
+    const denom = dist - depth;
+    const safeDenom = Math.abs(denom) < 0.01 * dist
+      ? (denom >= 0 ? 1 : -1) * 0.01 * dist : denom;
+    const scale = dist / safeDenom;
+    const sx = px*rx + py*ry + pz*rz;
+    const sy = px*upx + py*upy + pz*upz;
+    return makePair(sx * scale, sy * scale);
+  }
+  const sx = px*rx + py*ry + pz*rz;
+  const sy = px*upx + py*upy + pz*upz;
+  return makePair(sx, sy);
+}
+
 function createInterpreter() {
   // Draw commands output
   const drawCommands = [];
@@ -1336,6 +1376,9 @@ function createInterpreter() {
   let currentPic = {_tag:'picture', commands:[]};
   // 3D projection (set by import three / currentprojection = ...)
   let projection = null; // null = no 3D; {type, camera, target, up, ...}
+  // Track all projected triples for camera auto-adjust (perspective adjust=true)
+  // Each entry: { triple, target } where target is {obj, key} pointing to the 2D result
+  let _projectedTriples = [];
   // Settings
   let unitScale = 1;       // unitsize value in points
   let hasUnitScale = false; // whether unitsize() was explicitly called
@@ -1345,44 +1388,47 @@ function createInterpreter() {
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
 
-  // Project a triple to a pair using the current 3D projection
+  // Project a triple to a pair using the current 3D projection.
+  // For perspective projections, implements Asymptote's adjust=true:
+  // if a point is near/behind the camera, immediately scale the camera
+  // outward and re-project all previously projected points in-place.
   function projectTriple(v) {
     if (!isTriple(v)) return isPair(v) ? v : makePair(0,0);
     const proj = projection;
     if (!proj) return makePair(v.x, v.y); // no projection: drop z
-    // Camera (eye) position
-    const cx = proj.cx, cy = proj.cy, cz = proj.cz;
-    // Target (look-at) position
-    const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
-    // View direction
-    const dx = cx-tx, dy = cy-ty, dz = cz-tz;
-    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-    // Forward (into screen), right, up vectors
-    const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
-    // Up hint
-    const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
-    // Right = up x forward
-    let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
-    const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
-    rx /= rlen; ry /= rlen; rz /= rlen;
-    // True up = forward x right
-    const upx = fw.y*rz - fw.z*ry, upy = fw.z*rx - fw.x*rz, upz = fw.x*ry - fw.y*rx;
 
-    // Translate point relative to target
-    const px = v.x - tx, py = v.y - ty, pz = v.z - tz;
-
+    // For perspective: check if this point needs camera adjustment
     if (proj.type === 'perspective') {
-      // Perspective projection
-      const depth = px*fw.x + py*fw.y + pz*fw.z;
-      const scale = dist / (dist - depth || 1);
-      const sx = px*rx + py*ry + pz*rz;
-      const sy = px*upx + py*upy + pz*upz;
-      return makePair(sx * scale, sy * scale);
+      const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+      const dx = proj.cx-tx, dy = proj.cy-ty, dz = proj.cz-tz;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      const fwx = dx/dist, fwy = dy/dist, fwz = dz/dist;
+      const depth = (v.x-tx)*fwx + (v.y-ty)*fwy + (v.z-tz)*fwz;
+
+      // If point is within 20% of camera distance, move camera back
+      if (depth > dist * 0.8) {
+        const newDist = depth / 0.5; // put farthest point at 50% of camera distance
+        const scaleFactor = newDist / dist;
+        proj.cx = tx + dx * scaleFactor;
+        proj.cy = ty + dy * scaleFactor;
+        proj.cz = tz + dz * scaleFactor;
+
+        // Re-project all previously tracked triples with new camera
+        for (const entry of _projectedTriples) {
+          const t = entry.triple;
+          const rp = _projectTripleRaw(t, proj);
+          entry.result.x = rp.x;
+          entry.result.y = rp.y;
+        }
+      }
     }
-    // Orthographic projection (default)
-    const sx = px*rx + py*ry + pz*rz;
-    const sy = px*upx + py*upy + pz*upz;
-    return makePair(sx, sy);
+
+    const result = _projectTripleRaw(v, proj);
+    // Track for later potential re-projection
+    if (proj.type === 'perspective') {
+      _projectedTriples.push({ triple: {x:v.x, y:v.y, z:v.z}, result });
+    }
+    return result;
   }
 
   // Transform a single draw command by an affine transform
@@ -1438,14 +1484,14 @@ function createInterpreter() {
     const origUpdate = globalEnv.update.bind(globalEnv);
     globalEnv.set = (name, val) => {
       const cur = globalEnv.get(name);
-      if (typeof cur === 'function' && typeof val !== 'function' && !_builtinFuncs.has(name)) {
+      if (typeof cur === 'function' && !_builtinFuncs.has(name)) {
         _builtinFuncs.set(name, cur);
       }
       origSet(name, val);
     };
     globalEnv.update = (name, val) => {
       const cur = globalEnv.get(name);
-      if (typeof cur === 'function' && typeof val !== 'function' && !_builtinFuncs.has(name)) {
+      if (typeof cur === 'function' && !_builtinFuncs.has(name)) {
         _builtinFuncs.set(name, cur);
       }
       return origUpdate(name, val);
@@ -1782,6 +1828,18 @@ function createInterpreter() {
       return callee(...args);
     }
     if (callee && callee._tag === 'func') {
+      // Arity-based overload: if arg count doesn't match user func params,
+      // try the saved built-in (Asymptote supports same-name functions with
+      // different signatures, e.g. user-defined scale(s,D,E,p) vs built-in scale(s)).
+      const nArgs = node.args.filter(a => a.type !== 'NamedArg').length;
+      const nParams = callee.params ? callee.params.length : 0;
+      if (nArgs !== nParams && calleeName) {
+        const builtin = _builtinFuncs.get(calleeName);
+        if (builtin) {
+          const args = node.args.map(a => evalNode(a, env));
+          return builtin(...args);
+        }
+      }
       return callUserFunc(callee, node.args, env);
     }
 
@@ -2443,6 +2501,8 @@ function createInterpreter() {
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
+    env.set('pathpen', makePen({}));
+    env.set('pointpen', makePen({}));
     env.set('currentpicture', currentPic);
     env.set('currentprojection', null);
     // add() composites a picture into currentpicture, optionally with transform
@@ -2955,6 +3015,43 @@ function createInterpreter() {
         }
       }
       return pts;
+    });
+
+    // Aliases for intersectionpoint(s) — cse5/olympiad shorthand
+    env.set('IP', (p1, p2) => invokeFunc(env.get('intersectionpoint'), [p1, p2]));
+    env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+
+    // MP (Marked Point) — cse5/olympiad: draws a dot + label, returns the pair
+    env.set('MP', (...args) => {
+      // Signature variants: MP(label, pair, dir, pen), MP(label, pair, dir), MP(label, pair)
+      let text = null, pos = null, align = null, pen = null;
+      for (const a of args) {
+        if (isString(a) && text === null) text = a;
+        else if (isPair(a) && !pos) pos = a;
+        else if (isPair(a) && !align) align = a;
+        else if (isPen(a)) pen = a;
+      }
+      if (!pos) return makePair(0, 0);
+      // Draw the dot using pointpen (or given pen)
+      const dotPen = pen || env.get('pointpen') || clonePen(defaultPen);
+      evalDot([pos, dotPen]);
+      // Draw the label if provided
+      if (text) {
+        const labelPen = pen || clonePen(defaultPen);
+        const labelArgs = [text, pos];
+        if (align) labelArgs.push(align);
+        labelArgs.push(labelPen);
+        evalLabel(labelArgs);
+      }
+      return pos;
+    });
+
+    // D() — cse5/olympiad shorthand for draw that returns its path
+    env.set('D', (...args) => {
+      evalDraw('draw', args);
+      // Return the first path argument so D() can be chained
+      for (const a of args) { if (isPath(a)) return a; }
+      return makePath([], false);
     });
 
     // Geometry (olympiad/cse5 package)
@@ -4700,6 +4797,8 @@ function createInterpreter() {
       defaultPen,
       axisLimits: Object.assign({}, _axisLimits),
       dotfactor,
+      _projectedTriples: _projectedTriples.slice(),
+      _projection: projection ? Object.assign({}, projection) : null,
     };
   }
 
@@ -4778,6 +4877,52 @@ function renderSVG(result, opts) {
   let sizeW = _sizeW, sizeH = _sizeH;
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
+
+  // ── Perspective camera auto-adjust (Asymptote adjust=true behaviour) ──
+  // If any 3D point was near or behind the camera, move the camera back
+  // along its direction vector so all points are safely in front, then
+  // re-project every tracked triple in-place.
+  if (result._projection && result._projection.type === 'perspective' &&
+      result._projectedTriples && result._projectedTriples.length > 0) {
+    const proj = result._projection;
+    const cx = proj.cx, cy = proj.cy, cz = proj.cz;
+    const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+    const dx = cx - tx, dy = cy - ty, dz = cz - tz;
+    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+    const fw = {x: dx/dist, y: dy/dist, z: dz/dist};
+
+    // Find maximum depth of any scene point along the view direction
+    let maxDepth = -Infinity;
+    for (const entry of result._projectedTriples) {
+      const t = entry.triple;
+      const px = t.x - tx, py = t.y - ty, pz = t.z - tz;
+      const depth = px*fw.x + py*fw.y + pz*fw.z;
+      if (depth > maxDepth) maxDepth = depth;
+    }
+
+    // If the farthest point is within 20% of the camera distance, move
+    // the camera back so that the farthest point is at 50% of camera dist.
+    // This gives a comfortable margin and matches Asymptote's adjust logic.
+    if (maxDepth > dist * 0.8) {
+      const newDist = maxDepth / 0.5;  // farthest point at 50% of new dist
+      const scaleFactor = newDist / dist;
+      const newProj = Object.assign({}, proj, {
+        cx: tx + dx * scaleFactor,
+        cy: ty + dy * scaleFactor,
+        cz: tz + dz * scaleFactor,
+      });
+
+      // Re-project all tracked triples in-place (mutate the pair objects
+      // that are already referenced by drawCommands)
+      for (const entry of result._projectedTriples) {
+        const t = entry.triple;
+        const reprojected = _projectTripleRaw(
+          {x: t.x, y: t.y, z: t.z, _tag: 'triple'}, newProj);
+        entry.result.x = reprojected.x;
+        entry.result.y = reprojected.y;
+      }
+    }
+  }
 
   // Compute bounding box
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
