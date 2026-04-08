@@ -72,6 +72,146 @@ function runCmd(exe, args, opts = {}) {
   });
 }
 
+// ── Metric helpers ──────────────────────────────────────────────
+
+/** Convert 3-channel RGB raw buffer to single-channel greyscale Uint8Array */
+function rgbToGrey(buf, w, h) {
+  const grey = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    grey[i] = Math.round(0.299 * buf[i * 3] + 0.587 * buf[i * 3 + 1] + 0.114 * buf[i * 3 + 2]);
+  }
+  return grey;
+}
+
+/** Binarize an RGB raw buffer to ink map: 1 = ink, 0 = background */
+function binarize(buf, w, h, threshold = 240) {
+  const grey = rgbToGrey(buf, w, h);
+  const out = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    out[i] = grey[i] < threshold ? 1 : 0;
+  }
+  return out;
+}
+
+/** IoU of two binary Uint8Arrays (same length) */
+function binaryIoU(mapA, mapB, len) {
+  let inter = 0, union = 0;
+  for (let i = 0; i < len; i++) {
+    const a = mapA[i], b = mapB[i];
+    if (a || b) { union++; if (a && b) inter++; }
+  }
+  return union === 0 ? 1.0 : inter / union;
+}
+
+/** Compute IoU between two RGB raw buffers (binarized at threshold) */
+function computeIoU(asyBuf, htxBuf, w, h, threshold = 240) {
+  const asyBin = binarize(asyBuf, w, h, threshold);
+  const htxBin = binarize(htxBuf, w, h, threshold);
+  return binaryIoU(asyBin, htxBin, w * h);
+}
+
+/** Sobel edge detection on greyscale buffer, returns binary edge map */
+function manualSobelEdge(greyBuf, w, h, edgeThreshold = 30) {
+  const out = new Uint8Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = y * w + x;
+      // Sobel X kernel
+      const gx =
+        -greyBuf[(y - 1) * w + (x - 1)] + greyBuf[(y - 1) * w + (x + 1)]
+        - 2 * greyBuf[y * w + (x - 1)] + 2 * greyBuf[y * w + (x + 1)]
+        - greyBuf[(y + 1) * w + (x - 1)] + greyBuf[(y + 1) * w + (x + 1)];
+      // Sobel Y kernel
+      const gy =
+        -greyBuf[(y - 1) * w + (x - 1)] - 2 * greyBuf[(y - 1) * w + x] - greyBuf[(y - 1) * w + (x + 1)]
+        + greyBuf[(y + 1) * w + (x - 1)] + 2 * greyBuf[(y + 1) * w + x] + greyBuf[(y + 1) * w + (x + 1)];
+      const mag = Math.sqrt(gx * gx + gy * gy);
+      out[idx] = mag >= edgeThreshold ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+/** Connected-component count using union-find, filtering components with area > minArea */
+function countComponents(binaryBuf, w, h, minArea = 10) {
+  const n = w * h;
+  const parent = new Int32Array(n);
+  const rank = new Uint8Array(n);
+  parent.fill(-1); // -1 = not part of any component
+
+  function find(x) {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  }
+
+  function unite(a, b) {
+    a = find(a); b = find(b);
+    if (a === b) return;
+    if (rank[a] < rank[b]) { const t = a; a = b; b = t; }
+    parent[b] = a;
+    if (rank[a] === rank[b]) rank[a]++;
+  }
+
+  // Initialize parent for ink pixels
+  for (let i = 0; i < n; i++) {
+    if (binaryBuf[i]) parent[i] = i;
+  }
+
+  // Connect 4-neighbors
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
+      if (!binaryBuf[idx]) continue;
+      if (x + 1 < w && binaryBuf[idx + 1]) unite(idx, idx + 1);
+      if (y + 1 < h && binaryBuf[idx + w]) unite(idx, idx + w);
+    }
+  }
+
+  // Count components by area
+  const areaCounts = {};
+  for (let i = 0; i < n; i++) {
+    if (parent[i] < 0) continue;
+    const root = find(i);
+    areaCounts[root] = (areaCounts[root] || 0) + 1;
+  }
+
+  let count = 0;
+  for (const root in areaCounts) {
+    if (areaCounts[root] >= minArea) count++;
+  }
+  return count;
+}
+
+/** Compute dHash (difference hash) from a PNG buffer via Sharp. Returns 64-bit BigInt. */
+async function computeDHash(pngBuf) {
+  // Resize to 9x8 greyscale
+  const raw = await sharp(pngBuf)
+    .greyscale()
+    .resize(9, 8, { fit: 'fill' })
+    .raw()
+    .toBuffer();
+
+  let hash = 0n;
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const left = raw[y * 9 + x];
+      const right = raw[y * 9 + x + 1];
+      if (left > right) {
+        hash |= 1n << BigInt(y * 8 + x);
+      }
+    }
+  }
+  return hash;
+}
+
+/** Hamming distance between two 64-bit BigInt hashes */
+function hammingDistance(h1, h2) {
+  let xor = h1 ^ h2;
+  let count = 0;
+  while (xor) { xor &= xor - 1n; count++; }
+  return count;
+}
+
 // ── Main ────────────────────────────────────────────────────────
 async function main() {
 
@@ -334,10 +474,104 @@ async function main() {
     console.log(`  Done: ok=${ok} fail=${fail}\n`);
   }
 
-  // ── Step 4: Compute SSIM ─────────────────────────────────────
+  // ── Step 4: Compute metrics ──────────────────────────────────
   if (STEPS.has('ssim')) {
-    console.log('Computing SSIM scores...');
+    console.log('Computing comparison metrics...');
     const { ssim: computeSSIM } = require('ssim.js');
+
+    const WHITE = { r: 255, g: 255, b: 255 };
+    const TRIM_THRESHOLD = 20;
+    const MIN_DIM = 11;
+    const TARGET = 400;
+
+    /** Preprocess a pair of images: trim, normalize, pad to same canvas.
+     *  Returns { asyRaw, htxRaw, asyPadPng, htxPadPng, w, h, asyTrimW, asyTrimH, htxTrimW, htxTrimH }
+     *  or null with an error string. */
+    async function preprocessPair(asyPath, htxPath) {
+      const asyTrimBuf = await sharp(asyPath)
+        .flatten({ background: WHITE })
+        .trim({ threshold: TRIM_THRESHOLD })
+        .removeAlpha().png().toBuffer();
+      const htxTrimBuf = await sharp(htxPath)
+        .flatten({ background: WHITE })
+        .trim({ threshold: TRIM_THRESHOLD })
+        .removeAlpha().png().toBuffer();
+
+      const asyTrimMeta = await sharp(asyTrimBuf).metadata();
+      const htxTrimMeta = await sharp(htxTrimBuf).metadata();
+      const asyTrimW = asyTrimMeta.width, asyTrimH = asyTrimMeta.height;
+      const htxTrimW = htxTrimMeta.width, htxTrimH = htxTrimMeta.height;
+
+      if (asyTrimW < MIN_DIM || asyTrimH < MIN_DIM ||
+          htxTrimW < MIN_DIM || htxTrimH < MIN_DIM) {
+        return null; // too small
+      }
+
+      const aspectAsy = asyTrimW / asyTrimH;
+      const aspectHtx = htxTrimW / htxTrimH;
+      const aspect = Math.max(aspectAsy, aspectHtx);
+      let canvasW, canvasH;
+      if (aspect >= 1) {
+        canvasW = TARGET;
+        canvasH = Math.max(Math.round(TARGET / aspect), MIN_DIM);
+      } else {
+        canvasH = TARGET;
+        canvasW = Math.max(Math.round(TARGET * aspect), MIN_DIM);
+      }
+
+      const asyFitScale = Math.min(canvasW / asyTrimW, canvasH / asyTrimH);
+      const asyW = Math.max(Math.round(asyTrimW * asyFitScale), 1);
+      const asyH = Math.max(Math.round(asyTrimH * asyFitScale), 1);
+
+      const htxFitScale = Math.min(canvasW / htxTrimW, canvasH / htxTrimH);
+      const htxW = Math.max(Math.round(htxTrimW * htxFitScale), 1);
+      const htxH = Math.max(Math.round(htxTrimH * htxFitScale), 1);
+
+      const asyPadSharp = sharp(asyTrimBuf)
+        .resize(asyW, asyH, { fit: 'fill' })
+        .extend({
+          top: Math.round((canvasH - asyH) / 2),
+          bottom: canvasH - asyH - Math.round((canvasH - asyH) / 2),
+          left: Math.round((canvasW - asyW) / 2),
+          right: canvasW - asyW - Math.round((canvasW - asyW) / 2),
+          background: WHITE
+        })
+        .removeAlpha();
+
+      const htxPadSharp = sharp(htxTrimBuf)
+        .resize(htxW, htxH, { fit: 'fill' })
+        .extend({
+          top: Math.round((canvasH - htxH) / 2),
+          bottom: canvasH - htxH - Math.round((canvasH - htxH) / 2),
+          left: Math.round((canvasW - htxW) / 2),
+          right: canvasW - htxW - Math.round((canvasW - htxW) / 2),
+          background: WHITE
+        })
+        .removeAlpha();
+
+      // Get raw RGB buffers and PNG buffers (PNG needed for dHash)
+      const [asyRaw, htxRaw, asyPadPng, htxPadPng] = await Promise.all([
+        asyPadSharp.clone().raw().toBuffer({ resolveWithObject: true }),
+        htxPadSharp.clone().raw().toBuffer({ resolveWithObject: true }),
+        asyPadSharp.clone().png().toBuffer(),
+        htxPadSharp.clone().png().toBuffer(),
+      ]);
+
+      const w = asyRaw.info.width, h = asyRaw.info.height;
+
+      return { asyRaw, htxRaw, asyPadPng, htxPadPng, w, h, asyTrimW, asyTrimH, htxTrimW, htxTrimH };
+    }
+
+    function rgbToRgba(buf, width, height) {
+      const rgba = new Uint8ClampedArray(width * height * 4);
+      for (let i = 0; i < width * height; i++) {
+        rgba[i * 4]     = buf[i * 3];
+        rgba[i * 4 + 1] = buf[i * 3 + 1];
+        rgba[i * 4 + 2] = buf[i * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+      }
+      return rgba;
+    }
 
     const asyPngs = new Set(fs.readdirSync(ASY_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
     const htxPngs = new Set(fs.readdirSync(HTX_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
@@ -352,93 +586,83 @@ async function main() {
       const corpusFile = allFiles[idx] || id;
 
       try {
-        // Get native dimensions of both images
-        const asyMeta = await sharp(path.join(ASY_DIR, id + '.png')).metadata();
-        const htxMeta = await sharp(path.join(HTX_DIR, id + '.png')).metadata();
+        const pp = await preprocessPair(
+          path.join(ASY_DIR, id + '.png'),
+          path.join(HTX_DIR, id + '.png')
+        );
 
-        // Skip images that are too small (likely failed renders)
-        const MIN_DIM = 8;
-        if ((asyMeta.width || 0) < MIN_DIM || (asyMeta.height || 0) < MIN_DIM ||
-            (htxMeta.width || 0) < MIN_DIM || (htxMeta.height || 0) < MIN_DIM) {
-          results.push({ id, idx, corpusFile, ssim: -1, error: 'Image too small' });
+        if (!pp) {
+          results.push({ id, idx, corpusFile, ssim: -1, iou: -1, edgeIou: -1, aspectSim: -1, componentRatio: -1, dhashSim: -1, score: -1, error: 'Image too small' });
           continue;
         }
 
-        // Use a common target size: scale both to fit in 400px max dimension,
-        // then pad to the SAME canvas size so SSIM compares matching pixels.
-        const MAX = 400;
+        const { asyRaw, htxRaw, asyPadPng, htxPadPng, w, h, asyTrimW, asyTrimH, htxTrimW, htxTrimH } = pp;
 
-        // Scale Asymptote image to fit in MAXxMAX
-        const asyScale = Math.min(MAX / (asyMeta.width || 1), MAX / (asyMeta.height || 1), 1);
-        const asyW = Math.round((asyMeta.width || 1) * asyScale);
-        const asyH = Math.round((asyMeta.height || 1) * asyScale);
-
-        // Scale HiTeXeR image to fit in MAXxMAX
-        const htxScale = Math.min(MAX / (htxMeta.width || 1), MAX / (htxMeta.height || 1), 1);
-        const htxW = Math.round((htxMeta.width || 1) * htxScale);
-        const htxH = Math.round((htxMeta.height || 1) * htxScale);
-
-        // Common canvas: use the max of both scaled dimensions
-        const canvasW = Math.max(asyW, htxW, 8);
-        const canvasH = Math.max(asyH, htxH, 8);
-
-        const asyBuf = await sharp(path.join(ASY_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } })
-          .resize(asyW, asyH, { fit: 'fill' })
-          .extend({
-            top: Math.round((canvasH - asyH) / 2),
-            bottom: canvasH - asyH - Math.round((canvasH - asyH) / 2),
-            left: Math.round((canvasW - asyW) / 2),
-            right: canvasW - asyW - Math.round((canvasW - asyW) / 2),
-            background: { r: 255, g: 255, b: 255 }
-          })
-          .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
-        const htxBuf = await sharp(path.join(HTX_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } })
-          .resize(htxW, htxH, { fit: 'fill' })
-          .extend({
-            top: Math.round((canvasH - htxH) / 2),
-            bottom: canvasH - htxH - Math.round((canvasH - htxH) / 2),
-            left: Math.round((canvasW - htxW) / 2),
-            right: canvasW - htxW - Math.round((canvasW - htxW) / 2),
-            background: { r: 255, g: 255, b: 255 }
-          })
-          .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
-        const w = asyBuf.info.width, h = asyBuf.info.height;
-
-        function rgbToRgba(buf, width, height) {
-          const rgba = new Uint8ClampedArray(width * height * 4);
-          for (let i = 0; i < width * height; i++) {
-            rgba[i * 4]     = buf[i * 3];
-            rgba[i * 4 + 1] = buf[i * 3 + 1];
-            rgba[i * 4 + 2] = buf[i * 3 + 2];
-            rgba[i * 4 + 3] = 255;
-          }
-          return rgba;
-        }
-
-        const asyImg = { data: rgbToRgba(asyBuf.data, w, h), width: w, height: h };
-        const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
-
+        // 1) SSIM
+        const asyImg = { data: rgbToRgba(asyRaw.data, w, h), width: w, height: h };
+        const htxImg = { data: rgbToRgba(htxRaw.data, w, h), width: w, height: h };
         const { mssim } = computeSSIM(asyImg, htxImg);
-        results.push({ id, idx, corpusFile, ssim: mssim });
+
+        // 2) IoU (binarized ink overlap)
+        const iou = computeIoU(asyRaw.data, htxRaw.data, w, h);
+
+        // 3) Edge IoU (Sobel edge map overlap)
+        const asyGrey = rgbToGrey(asyRaw.data, w, h);
+        const htxGrey = rgbToGrey(htxRaw.data, w, h);
+        const asyEdge = manualSobelEdge(asyGrey, w, h);
+        const htxEdge = manualSobelEdge(htxGrey, w, h);
+        const edgeIou = binaryIoU(asyEdge, htxEdge, w * h);
+
+        // 4) Aspect ratio similarity
+        const arAsy = asyTrimW / asyTrimH;
+        const arHtx = htxTrimW / htxTrimH;
+        const aspectSim = 1 - Math.abs(arAsy - arHtx) / Math.max(arAsy, arHtx);
+
+        // 5) Connected component ratio
+        const asyBin = binarize(asyRaw.data, w, h);
+        const htxBin = binarize(htxRaw.data, w, h);
+        const asyCC = countComponents(asyBin, w, h);
+        const htxCC = countComponents(htxBin, w, h);
+        const componentRatio = (asyCC === 0 && htxCC === 0) ? 1.0
+          : Math.min(asyCC, htxCC) / Math.max(asyCC, htxCC);
+
+        // 6) dHash similarity
+        const [asyHash, htxHash] = await Promise.all([
+          computeDHash(asyPadPng),
+          computeDHash(htxPadPng),
+        ]);
+        const dhashSim = 1 - hammingDistance(asyHash, htxHash) / 64;
+
+        // Composite score
+        const clampedSsim = Math.max(0, Math.min(1, mssim));
+        const score = 0.35 * iou + 0.30 * edgeIou + 0.15 * clampedSsim
+          + 0.10 * componentRatio + 0.05 * aspectSim + 0.05 * dhashSim;
+
+        results.push({
+          id, idx, corpusFile,
+          ssim: mssim,
+          iou: Math.round(iou * 10000) / 10000,
+          edgeIou: Math.round(edgeIou * 10000) / 10000,
+          aspectSim: Math.round(aspectSim * 10000) / 10000,
+          componentRatio: Math.round(componentRatio * 10000) / 10000,
+          dhashSim: Math.round(dhashSim * 10000) / 10000,
+          score: Math.round(score * 10000) / 10000,
+        });
       } catch (e) {
-        results.push({ id, idx, corpusFile, ssim: -1, error: e.message });
+        results.push({ id, idx, corpusFile, ssim: -1, iou: -1, edgeIou: -1, aspectSim: -1, componentRatio: -1, dhashSim: -1, score: -1, error: e.message });
       }
 
       if ((pi + 1) % 100 === 0)
         console.log(`  ${pi + 1}/${pairs.length}`);
     }
 
-    results.sort((a, b) => a.ssim - b.ssim);
+    results.sort((a, b) => a.score - b.score);
     fs.writeFileSync(path.join(OUT_DIR, 'ssim-results.json'), JSON.stringify(results, null, 2));
 
     console.log(`  Saved ${results.length} results to comparison/ssim-results.json`);
     console.log(`  Worst 10:`);
     for (const r of results.slice(0, 10))
-      console.log(`    #${r.id} (${r.corpusFile}) SSIM=${r.ssim.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
+      console.log(`    #${r.id} (${r.corpusFile}) Score=${r.score.toFixed(4)} SSIM=${r.ssim.toFixed(4)} IoU=${r.iou.toFixed(4)} Edge=${r.edgeIou.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
     console.log();
   }
 
@@ -459,26 +683,28 @@ async function main() {
               .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
-    function ssimColor(v) {
+    function scoreColor(v) {
       if (v < 0) return '#999';
-      if (v >= 0.95) return '#2d8a4e';
-      if (v >= 0.85) return '#6a9f2a';
-      if (v >= 0.70) return '#c0820a';
+      if (v >= 0.85) return '#2d8a4e';
+      if (v >= 0.70) return '#6a9f2a';
+      if (v >= 0.50) return '#c0820a';
       return '#c0392b';
     }
 
-    function ssimLabel(v) {
-      if (v < 0) return 'Negative';
-      if (v >= 0.95) return 'Good';
-      if (v >= 0.85) return 'Fair';
-      if (v >= 0.70) return 'Poor';
+    function scoreLabel(v) {
+      if (v < 0) return 'Error';
+      if (v >= 0.85) return 'Good';
+      if (v >= 0.70) return 'Fair';
+      if (v >= 0.50) return 'Poor';
       return 'Bad';
     }
 
-    const statsGood = results.filter(r => r.ssim >= 0.95).length;
-    const statsFair = results.filter(r => r.ssim >= 0.85 && r.ssim < 0.95).length;
-    const statsPoor = results.filter(r => r.ssim >= 0 && r.ssim < 0.85).length;
-    const statsErr  = results.filter(r => r.ssim < 0).length;
+    function fmtMetric(v) { return v < 0 ? 'N/A' : v.toFixed(2); }
+
+    const statsGood = results.filter(r => r.score >= 0.85).length;
+    const statsFair = results.filter(r => r.score >= 0.70 && r.score < 0.85).length;
+    const statsPoor = results.filter(r => r.score >= 0 && r.score < 0.70).length;
+    const statsErr  = results.filter(r => r.score < 0).length;
 
     for (let page = 0; page < totalPages; page++) {
       const start = page * PER_PAGE;
@@ -517,7 +743,8 @@ async function main() {
 <div class="card" id="pair-${rank}">
   <div class="card-header">
     <h2>#${rank} &mdash; ${esc(r.corpusFile)}</h2>
-    <span class="badge" style="background:${ssimColor(r.ssim)}">SSIM ${r.ssim.toFixed(4)} &middot; ${ssimLabel(r.ssim)}</span>
+    <span class="metrics-row">Score ${fmtMetric(r.score)} | SSIM ${fmtMetric(r.ssim)} | IoU ${fmtMetric(r.iou)} | Edge ${fmtMetric(r.edgeIou)} | CC ${fmtMetric(r.componentRatio)} | AR ${fmtMetric(r.aspectSim)} | dHash ${fmtMetric(r.dhashSim)}</span>
+    <span class="badge" style="background:${scoreColor(r.score)}">Score ${fmtMetric(r.score)} &middot; ${scoreLabel(r.score)}</span>
   </div>
   <div class="card-body" style="grid-template-columns:${gridCols}">
     <div class="render-col">
@@ -574,6 +801,7 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 .card-header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px 10px 0 0}
 .card-header h2{font-size:1em;font-weight:600}
 .badge{padding:3px 12px;border-radius:12px;font-size:.75em;font-weight:700;color:#fff;white-space:nowrap}
+.metrics-row{font-size:.7em;opacity:0.7;white-space:nowrap;font-family:Consolas,monospace}
 .card-body{display:grid;grid-template-columns:35% 35% 30%;gap:0}
 .render-col{padding:14px;border-right:1px solid #eee}
 .render-col:last-child{border-right:none}
@@ -600,7 +828,7 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 </style></head><body>
 <div class="container">
 <h1>HiTeXeR vs Asymptote</h1>
-<p class="sub">${results.length} diagrams sorted by SSIM (worst first) — Page ${pageNum} of ${totalPages}</p>
+<p class="sub">${results.length} diagrams sorted by composite score (worst first) — Page ${pageNum} of ${totalPages}</p>
 <div class="stats">
 <b style="background:#2d8a4e">${statsGood} Good</b>
 <b style="background:#c0820a">${statsFair} Fair</b>

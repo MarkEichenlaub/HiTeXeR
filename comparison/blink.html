@@ -101,6 +101,8 @@
   <div class="filter-group">
     <label>Sort:</label>
     <select id="sort-mode">
+      <option value="score-asc">Score (worst first)</option>
+      <option value="score-desc">Score (best first)</option>
       <option value="ssim-asc">SSIM (worst first)</option>
       <option value="ssim-desc">SSIM (best first)</option>
       <option value="id-asc">ID (ascending)</option>
@@ -138,7 +140,7 @@
     <div class="meta">
       <span id="blink-id"></span>
       <span id="blink-file"></span>
-      <span>SSIM:<span class="ssim-val" id="blink-ssim"></span></span>
+      <span id="blink-metrics"></span>
       <span id="blink-position"></span>
     </div>
     <button id="blink-auto" title="Toggle auto-blink (Space)">Auto-blink: OFF</button>
@@ -252,6 +254,12 @@
 
     list = [...list];
     switch (sort) {
+      case 'score-asc':
+        list.sort((a, b) => (a.score ?? 2) - (b.score ?? 2));
+        break;
+      case 'score-desc':
+        list.sort((a, b) => (b.score ?? -2) - (a.score ?? -2));
+        break;
       case 'ssim-asc':
         list.sort((a, b) => (a.ssim ?? 2) - (b.ssim ?? 2));
         break;
@@ -289,7 +297,7 @@
 
     grid.innerHTML = slice.map((d, i) => {
       const imgSrc = d.hasHtx ? `htx_pngs/${d.id}.png` : (d.hasAsy ? `asy_pngs/${d.id}.png` : '');
-      const badge = ssimBadge(d.ssim);
+      const badge = scoreBadge(d);
       const missing = !d.hasAsy ? '<div class="missing">no ASY</div>' : (!d.hasHtx ? '<div class="missing">no HTX</div>' : '');
       return `<div class="thumb" data-idx="${start + i}" title="${d.source}">
         ${imgSrc ? `<img src="${imgSrc}" loading="lazy" alt="${d.id}">` : '<div style="aspect-ratio:1;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;opacity:0.5">No image</div>'}
@@ -311,12 +319,22 @@
     renderPagination();
   }
 
-  function ssimBadge(ssim) {
-    if (ssim === null || ssim === undefined) return '<span class="badge badge-none">N/A</span>';
-    const val = ssim.toFixed(3);
-    if (ssim >= 0.95) return `<span class="badge badge-green">${val}</span>`;
-    if (ssim >= 0.85) return `<span class="badge badge-yellow">${val}</span>`;
-    if (ssim >= 0.70) return `<span class="badge badge-orange">${val}</span>`;
+  function scoreBadge(d) {
+    const s = d.score;
+    if (s === null || s === undefined) {
+      // Fallback to SSIM for old manifests without score
+      const ssim = d.ssim;
+      if (ssim === null || ssim === undefined) return '<span class="badge badge-none">N/A</span>';
+      const val = ssim.toFixed(3);
+      if (ssim >= 0.95) return `<span class="badge badge-green">S${val}</span>`;
+      if (ssim >= 0.85) return `<span class="badge badge-yellow">S${val}</span>`;
+      if (ssim >= 0.70) return `<span class="badge badge-orange">S${val}</span>`;
+      return `<span class="badge badge-red">S${val}</span>`;
+    }
+    const val = s.toFixed(3);
+    if (s >= 0.85) return `<span class="badge badge-green">${val}</span>`;
+    if (s >= 0.70) return `<span class="badge badge-yellow">${val}</span>`;
+    if (s >= 0.50) return `<span class="badge badge-orange">${val}</span>`;
     return `<span class="badge badge-red">${val}</span>`;
   }
 
@@ -388,7 +406,7 @@
     const label = document.getElementById('blink-source');
     const idEl = document.getElementById('blink-id');
     const fileEl = document.getElementById('blink-file');
-    const ssimEl = document.getElementById('blink-ssim');
+    const metricsEl = document.getElementById('blink-metrics');
     const posEl = document.getElementById('blink-position');
 
     let src = '', labelText = '', labelClass = '', scale = 1;
@@ -410,7 +428,8 @@
     label.className = 'source-label ' + labelClass;
     idEl.textContent = d.id;
     fileEl.textContent = ` | ${d.source} | `;
-    ssimEl.textContent = d.ssim !== null ? d.ssim.toFixed(4) : 'N/A';
+    const fm = v => (v !== null && v !== undefined && v >= 0) ? v.toFixed(2) : 'N/A';
+    metricsEl.textContent = `Score: ${fm(d.score)} | SSIM: ${fm(d.ssim)} | IoU: ${fm(d.iou)} | Edge: ${fm(d.edgeIou)}`;
     posEl.textContent = ` | ${blinkIdx + 1}/${filtered.length}`;
   }
 

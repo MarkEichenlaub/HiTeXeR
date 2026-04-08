@@ -60,14 +60,19 @@ const texerSet = new Set(fs.readdirSync(TEXER_DIR).filter(f => f.endsWith('.png'
 
 console.log(`asy_pngs: ${asySet.size}, htx_pngs: ${htxSet.size}, texer_pngs: ${texerSet.size}`);
 
-// Build SSIM lookup  { id -> score }
-const ssimLookup = {};
+// Build metrics lookup  { id -> { ssim, iou, edgeIou, score, ... } }
+const metricsLookup = {};
 if (fs.existsSync(SSIM_FILE)) {
   const ssimData = JSON.parse(fs.readFileSync(SSIM_FILE, 'utf-8'));
   for (const entry of ssimData) {
-    ssimLookup[entry.id] = entry.ssim;
+    metricsLookup[entry.id] = {
+      ssim: entry.ssim,
+      iou: entry.iou !== undefined ? entry.iou : null,
+      edgeIou: entry.edgeIou !== undefined ? entry.edgeIou : null,
+      score: entry.score !== undefined ? entry.score : null,
+    };
   }
-  console.log(`SSIM scores: ${ssimData.length}`);
+  console.log(`Metric scores: ${ssimData.length}`);
 }
 
 // Extract collection from filename: "c{N}_L{N}_{type}_{idx}.asy" -> "c{N}"
@@ -86,6 +91,7 @@ for (let i = 0; i < allFiles.length; i++) {
   const collection = getCollection(source);
   collectionsSet.add(collection);
 
+  const m = metricsLookup[id] || {};
   diagrams.push({
     id,
     source,
@@ -93,7 +99,10 @@ for (let i = 0; i < allFiles.length; i++) {
     hasAsy:  asySet.has(id),
     hasHtx:  htxSet.has(id),
     hasTexer: texerSet.has(id),
-    ssim:    ssimLookup[id] !== undefined ? ssimLookup[id] : null,
+    ssim:    m.ssim !== undefined ? m.ssim : null,
+    iou:     m.iou !== undefined ? m.iou : null,
+    edgeIou: m.edgeIou !== undefined ? m.edgeIou : null,
+    score:   m.score !== undefined ? m.score : null,
   });
 }
 
