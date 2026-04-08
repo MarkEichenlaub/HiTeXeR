@@ -4043,9 +4043,21 @@ function createInterpreter() {
     // xequals / yequals — draw vertical/horizontal line at a given coordinate
     env.set('xequals', (...args) => {
       let x = 0, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let above = false;
       let gotX = false;
       for (const a of args) {
-        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a === null || a === undefined) continue;
+        if (a === true || a === false) { above = a; continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('ymin' in a) ymin = a.ymin;
+          if ('ymax' in a) ymax = a.ymax;
+          if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+          if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
+          if ('above' in a) above = !!a.above;
+          if ('Ticks' in a && a.Ticks && a.Ticks._tag === 'ticks') ticks = a.Ticks;
+          if ('ticks' in a && a.ticks && a.ticks._tag === 'ticks') ticks = a.ticks;
+          continue;
+        }
         if (typeof a === 'number' && !gotX) { x = a; gotX = true; }
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
@@ -4059,7 +4071,7 @@ function createInterpreter() {
       if (ymax === null) ymax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x,y:ymin},{x,y:ymax})], false);
-      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0});
+      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -4070,7 +4082,7 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
-          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
           if (ticks.labels) {
             currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
           }
@@ -4080,9 +4092,21 @@ function createInterpreter() {
 
     env.set('yequals', (...args) => {
       let y = 0, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let above = false;
       let gotY = false;
       for (const a of args) {
-        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a === null || a === undefined) continue;
+        if (a === true || a === false) { above = a; continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('xmin' in a) xmin = a.xmin;
+          if ('xmax' in a) xmax = a.xmax;
+          if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+          if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
+          if ('above' in a) above = !!a.above;
+          if ('Ticks' in a && a.Ticks && a.Ticks._tag === 'ticks') ticks = a.Ticks;
+          if ('ticks' in a && a.ticks && a.ticks._tag === 'ticks') ticks = a.ticks;
+          continue;
+        }
         if (typeof a === 'number' && !gotY) { y = a; gotY = true; }
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
@@ -4096,7 +4120,7 @@ function createInterpreter() {
       if (xmax === null) xmax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x:xmin,y},{x:xmax,y})], false);
-      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0});
+      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -4107,7 +4131,7 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
-          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
           if (ticks.labels) {
             currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
           }
