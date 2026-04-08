@@ -2636,6 +2636,9 @@ function createInterpreter() {
       }
       return makePath([], false);
     });
+    // Arc (uppercase, from Asymptote's graph module) is a higher-accuracy arc;
+    // for our Bezier approximation the behaviour is identical to arc.
+    env.set('Arc', env.get('arc'));
 
     env.set('ellipse', (center, a, b) => {
       const c = toPair(center);
