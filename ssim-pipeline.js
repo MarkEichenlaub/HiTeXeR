@@ -18,6 +18,13 @@ const ASY_EXE     = 'C:\\Program Files\\Asymptote\\asy.exe';
 const ASY_TMP     = 'C:\\asy_tmp';
 const PER_PAGE    = 100;
 const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
+// HiTeXeR SVGs use 120/72 CSS-px per big-point (see bpToCSSPx in asy-interp.js).
+// Asymptote EPS is rasterized at 240 DPI (=240/72 px per bp).
+// To make both produce the same pixel dimensions for the same drawing:
+//   htx_px = css_w * D/96 = (bp * 120/72) * D/96
+//   asy_px = bp * 240/72
+//   Matching: D = 240 * 96 / 120 = 192
+const RASTER_DPI  = 192;
 
 const args = process.argv.slice(2);
 const STEPS = new Set(args.length ? args : ['render-htx','render-asy','rasterize','ssim','html']);
@@ -70,6 +77,41 @@ function runCmd(exe, args, opts = {}) {
       reject(e);
     });
   });
+}
+
+// ── KaTeX font embedding for SVG rasterization ─────────────────
+// sharp/librsvg cannot load web fonts by URL. We embed the actual font data
+// as base64 @font-face declarations so SVG text renders with correct glyphs.
+const KATEX_FONTS_DIR = path.join(ROOT, 'node_modules', 'katex', 'dist', 'fonts');
+
+function buildFontFaceCSS() {
+  const faces = [
+    { family: 'KaTeX_Main', style: 'normal', weight: 'normal', file: 'KaTeX_Main-Regular.woff2' },
+    { family: 'KaTeX_Main', style: 'italic', weight: 'normal', file: 'KaTeX_Main-Italic.woff2' },
+    { family: 'KaTeX_Main', style: 'normal', weight: 'bold',   file: 'KaTeX_Main-Bold.woff2' },
+    { family: 'KaTeX_Main', style: 'italic', weight: 'bold',   file: 'KaTeX_Main-BoldItalic.woff2' },
+    { family: 'KaTeX_Math', style: 'normal', weight: 'normal', file: 'KaTeX_Math-Italic.woff2' },
+    { family: 'KaTeX_Math', style: 'italic', weight: 'normal', file: 'KaTeX_Math-Italic.woff2' },
+    { family: 'KaTeX_Math', style: 'normal', weight: 'bold',   file: 'KaTeX_Math-BoldItalic.woff2' },
+    { family: 'KaTeX_Math', style: 'italic', weight: 'bold',   file: 'KaTeX_Math-BoldItalic.woff2' },
+  ];
+  let css = '';
+  for (const f of faces) {
+    const fontPath = path.join(KATEX_FONTS_DIR, f.file);
+    if (!fs.existsSync(fontPath)) continue;
+    const b64 = fs.readFileSync(fontPath).toString('base64');
+    css += `@font-face{font-family:"${f.family}";font-style:${f.style};font-weight:${f.weight};src:url("data:font/woff2;base64,${b64}") format("woff2");}`;
+  }
+  return css;
+}
+
+function embedFontsInSVG(svgStr, fontCSS) {
+  // Inject font-face CSS into the existing <style> block, or add one
+  if (svgStr.includes('<style>')) {
+    return svgStr.replace('<style>', '<style>' + fontCSS);
+  }
+  // Insert a <style> right after the opening <svg ...> tag
+  return svgStr.replace(/(^<svg[^>]*>)/, '$1<style>' + fontCSS + '</style>');
 }
 
 // ── Main ────────────────────────────────────────────────────────
@@ -308,7 +350,9 @@ async function main() {
 
   // ── Step 3: Rasterize SVGs to PNGs ────────────────────────────
   if (STEPS.has('rasterize')) {
-    console.log('Rasterizing HiTeXeR SVGs to PNGs...');
+    console.log(`Rasterizing HiTeXeR SVGs to PNGs at ${RASTER_DPI} DPI (matching Asymptote)...`);
+    const fontCSS = buildFontFaceCSS();
+    console.log(`  Font CSS built: ${fontCSS.length} chars (${fontCSS ? 'OK' : 'EMPTY — fonts will fall back'})`);
     const svgFiles = fs.readdirSync(SVG_DIR).filter(f => f.endsWith('.svg')).sort();
     let ok = 0, fail = 0;
 
@@ -323,8 +367,10 @@ async function main() {
       }
 
       try {
-        const svgBuf = fs.readFileSync(path.join(SVG_DIR, sf));
-        await sharp(svgBuf, { density: 320 }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
+        const svgStr = fs.readFileSync(path.join(SVG_DIR, sf), 'utf8');
+        const svgWithFonts = embedFontsInSVG(svgStr, fontCSS);
+        const svgBuf = Buffer.from(svgWithFonts, 'utf8');
+        await sharp(svgBuf, { density: RASTER_DPI }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
         ok++;
       } catch (e) { fail++; }
 

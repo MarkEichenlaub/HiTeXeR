@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR Blink Comparator</title>
+<!-- KaTeX fonts: needed so SVGs using KaTeX_Math/KaTeX_Main render correctly -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+
+  /* ── Header ─────────────────────────────────────────── */
+  .header { background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #0f3460; }
+  .header h1 { font-size: 18px; color: #e94560; white-space: nowrap; }
+  .header select, .header button, .header input { font-size: 13px; padding: 5px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .header select:hover, .header button:hover { border-color: #e94560; }
+  .header .stats { margin-left: auto; font-size: 12px; opacity: 0.7; white-space: nowrap; }
+  .filter-group { display: flex; align-items: center; gap: 6px; }
+  .filter-group label { font-size: 12px; opacity: 0.7; }
+
+  /* ── Grid View ──────────────────────────────────────── */
+  #grid-view { padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .thumb { position: relative; background: #16213e; border: 1px solid #0f3460; border-radius: 6px; overflow: hidden; cursor: pointer; transition: border-color 0.15s; }
+  .thumb:hover { border-color: #e94560; }
+  .thumb img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; display: block; }
+  .thumb .info { padding: 4px 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; }
+  .thumb .id { font-family: monospace; }
+  .thumb .badge { padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-green  { background: #2d6a4f; color: #b7e4c7; }
+  .badge-yellow { background: #7c6a0a; color: #fde68a; }
+  .badge-orange { background: #9a3412; color: #fed7aa; }
+  .badge-red    { background: #991b1b; color: #fecaca; }
+  .badge-none   { background: #374151; color: #9ca3af; }
+  .thumb .missing { position: absolute; top: 4px; right: 4px; font-size: 9px; background: rgba(0,0,0,0.7); color: #f87171; padding: 1px 4px; border-radius: 3px; }
+  .thumb .coll-tag { position: absolute; top: 4px; left: 4px; font-size: 9px; background: rgba(0,0,0,0.6); color: #94a3b8; padding: 1px 4px; border-radius: 3px; }
+
+  /* ── Pagination ─────────────────────────────────────── */
+  .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; flex-wrap: wrap; }
+  .pagination button { min-width: 36px; }
+  .pagination .current { color: #e94560; font-weight: 600; }
+
+  /* ── Blink View ─────────────────────────────────────── */
+  #blink-view { display: none; position: fixed; inset: 0; background: #111; z-index: 100; flex-direction: column; }
+  #blink-view.active { display: flex; }
+  .blink-header { background: #16213e; padding: 8px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap; }
+  .blink-header .source-label { font-size: 14px; font-weight: 600; min-width: 90px; }
+  .blink-header .source-label.htx { color: #22d3ee; }
+  .blink-header .source-label.asy { color: #f97316; }
+  .blink-header .source-label.texer { color: #a78bfa; }
+  .blink-header .meta { font-size: 12px; opacity: 0.7; }
+  .blink-header .meta .ssim-val { font-weight: 600; margin-left: 4px; }
+  .blink-header .help { margin-left: auto; font-size: 11px; opacity: 0.5; }
+  .blink-header button { font-size: 12px; padding: 4px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .blink-header button:hover { border-color: #e94560; }
+  .blink-header button.active-btn { background: #e94560; border-color: #e94560; color: #fff; }
+  .blink-header button.action-btn { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; font-weight: 600; }
+  .blink-header button.action-btn:hover { background: #2563eb; color: #fff; }
+
+  .blink-body { flex: 1; display: flex; overflow: hidden; }
+  .blink-image-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; background: #fff; position: relative; }
+  .blink-image-area img { object-fit: contain; image-rendering: auto; }
+
+  /* ── Code Panel ─────────────────────────────────────── */
+  .code-panel { width: 420px; overflow: hidden; transition: width 0.2s; background: #0d1117; border-left: 1px solid #0f3460; display: flex; flex-direction: column; }
+  .code-panel.collapsed { width: 0; }
+  .code-panel-header { padding: 8px 12px; background: #161b22; border-bottom: 1px solid #0f3460; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .code-panel-header span { font-size: 12px; font-weight: 600; color: #e94560; }
+  .code-panel-header button { font-size: 11px; padding: 3px 8px; border-radius: 3px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .code-panel-header button:hover { border-color: #e94560; }
+  .code-panel-header button.copied { background: #2d6a4f; border-color: #2d6a4f; }
+  .code-panel-header .spacer { flex: 1; }
+  .code-content { flex: 1; overflow: auto; padding: 8px 12px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; color: #c9d1d9; }
+  .code-content .loading { opacity: 0.5; font-style: italic; }
+
+  /* ── Keyboard hints overlay ─────────────────────────── */
+  .hints-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; display: none; align-items: center; justify-content: center; }
+  .hints-overlay.active { display: flex; }
+  .hints-box { background: #16213e; border: 1px solid #0f3460; border-radius: 10px; padding: 24px 32px; max-width: 420px; }
+  .hints-box h2 { color: #e94560; margin-bottom: 16px; font-size: 18px; }
+  .hints-box table { width: 100%; }
+  .hints-box td { padding: 4px 0; font-size: 14px; }
+  .hints-box td:first-child { font-family: monospace; color: #22d3ee; width: 120px; }
+  .hints-box .close-hint { margin-top: 16px; text-align: center; font-size: 12px; opacity: 0.5; }
+
+  /* ── Checkbox filters ───────────────────────────────── */
+  .filter-check { display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 12px; }
+  .filter-check input { cursor: pointer; }
+</style>
+</head>
+<body>
+
+<!-- ── Header / Controls ──────────────────────────────── -->
+<div class="header">
+  <h1>Blink Comparator</h1>
+
+  <div class="filter-group">
+    <label>Collection:</label>
+    <select id="collection-filter"><option value="">All</option></select>
+  </div>
+
+  <div class="filter-group">
+    <label>Sort:</label>
+    <select id="sort-mode">
+      <option value="ssim-asc">SSIM (worst first)</option>
+      <option value="ssim-desc">SSIM (best first)</option>
+      <option value="id-asc">ID (ascending)</option>
+      <option value="id-desc">ID (descending)</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label class="filter-check"><input type="checkbox" id="filter-both" checked> Both exist</label>
+    <label class="filter-check"><input type="checkbox" id="filter-htx-only"> HTX only</label>
+    <label class="filter-check"><input type="checkbox" id="filter-asy-only"> ASY only</label>
+  </div>
+
+  <div class="filter-group">
+    <label>Search:</label>
+    <input type="text" id="search-input" placeholder="ID or filename..." style="width:140px">
+  </div>
+
+  <button id="help-btn" title="Keyboard shortcuts">? Help</button>
+
+  <div class="stats" id="stats"></div>
+</div>
+
+<!-- ── Grid View ──────────────────────────────────────── -->
+<div id="grid-view">
+  <div class="grid" id="grid"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- ── Blink View ─────────────────────────────────────── -->
+<div id="blink-view">
+  <div class="blink-header">
+    <button id="blink-back" title="Back to grid (Esc)">&#x2190; Grid</button>
+    <div class="source-label" id="blink-source">HiTeXeR</div>
+    <div class="meta">
+      <span id="blink-id"></span>
+      <span id="blink-file"></span>
+      <span>SSIM:<span class="ssim-val" id="blink-ssim"></span></span>
+      <span id="blink-position"></span>
+    </div>
+    <button id="blink-auto" title="Toggle auto-blink (Space)">Auto-blink: OFF</button>
+    <button id="btn-copy-name" class="action-btn" title="Copy diagram filename to clipboard">Copy Name</button>
+    <button id="btn-copy" class="action-btn" title="Copy code to clipboard">Copy</button>
+    <button id="btn-texer" class="action-btn" title="Open in AoPS TeXeR">Open in TeXeR</button>
+    <button id="btn-hitexer" class="action-btn" title="Open in HiTeXeR">Open in HiTeXeR</button>
+    <button id="blink-code-toggle" title="Toggle code panel (C)">Hide Code</button>
+    <div class="help">L/R: toggle | Up/Down: prev/next | Space: blink | C: code | Esc: grid</div>
+  </div>
+  <div class="blink-body">
+    <div class="blink-image-area" id="blink-container">
+      <img id="blink-img" src="" alt="">
+    </div>
+    <div class="code-panel" id="code-panel">
+      <div class="code-panel-header">
+        <span>Source Code</span>
+        <div class="spacer"></div>
+        <button id="btn-copy-code">Copy</button>
+      </div>
+      <div class="code-content" id="code-content"><span class="loading">Select a diagram to view source...</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Help overlay ───────────────────────────────────── -->
+<div class="hints-overlay" id="hints-overlay">
+  <div class="hints-box">
+    <h2>Keyboard Shortcuts</h2>
+    <table>
+      <tr><td>Left / Right</td><td>Toggle HiTeXeR / Asymptote</td></tr>
+      <tr><td>Up / Down</td><td>Previous / Next diagram</td></tr>
+      <tr><td>Space</td><td>Auto-blink on/off</td></tr>
+      <tr><td>C</td><td>Toggle code panel</td></tr>
+      <tr><td>T</td><td>Show TeXeR (if available)</td></tr>
+      <tr><td>Escape</td><td>Return to grid</td></tr>
+      <tr><td>?</td><td>Show/hide this help</td></tr>
+    </table>
+    <div class="close-hint">Press any key to close</div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── State ────────────────────────────────────────────
+  let manifest = null;
+  let filtered = [];
+  let page = 0;
+  const PER_PAGE = 200;
+
+  // Blink state
+  let blinkActive = false;
+  let blinkIdx = 0;
+  let blinkSource = 'htx';
+  let autoBlinkTimer = null;
+  let codePanelOpen = true;
+  let codeCache = {};  // id -> source code
+
+  // ── Load manifest ────────────────────────────────────
+  fetch('blink-manifest.json')
+    .then(r => r.json())
+    .then(data => {
+      manifest = data;
+      initCollections();
+      applyFilters();
+    })
+    .catch(err => {
+      document.getElementById('grid').innerHTML = `<p style="color:#f87171;padding:20px">Failed to load blink-manifest.json: ${err.message}</p>`;
+    });
+
+  // ── Collections dropdown ─────────────────────────────
+  function initCollections() {
+    const sel = document.getElementById('collection-filter');
+    for (const c of manifest.collections) {
+      const name = (manifest.courseNames && manifest.courseNames[c]) || c;
+      const count = manifest.diagrams.filter(d => d.collection === c).length;
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = `${name} (${count})`;
+      sel.appendChild(opt);
+    }
+  }
+
+  // ── Filtering & sorting ──────────────────────────────
+  function applyFilters() {
+    const coll = document.getElementById('collection-filter').value;
+    const sort = document.getElementById('sort-mode').value;
+    const bothOnly = document.getElementById('filter-both').checked;
+    const htxOnly  = document.getElementById('filter-htx-only').checked;
+    const asyOnly  = document.getElementById('filter-asy-only').checked;
+    const search   = document.getElementById('search-input').value.trim().toLowerCase();
+
+    let list = manifest.diagrams;
+
+    if (coll) list = list.filter(d => d.collection === coll);
+    if (bothOnly) list = list.filter(d => d.hasAsy && d.hasHtx);
+    if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasAsy);
+    if (asyOnly)  list = list.filter(d => d.hasAsy && !d.hasHtx);
+
+    if (search) {
+      const names = manifest.courseNames || {};
+      list = list.filter(d =>
+        d.id.includes(search) ||
+        d.source.toLowerCase().includes(search) ||
+        d.collection.toLowerCase().includes(search) ||
+        (names[d.collection] || '').toLowerCase().includes(search)
+      );
+    }
+
+    list = [...list];
+    switch (sort) {
+      case 'ssim-asc':
+        list.sort((a, b) => (a.ssim ?? 2) - (b.ssim ?? 2));
+        break;
+      case 'ssim-desc':
+        list.sort((a, b) => (b.ssim ?? -2) - (a.ssim ?? -2));
+        break;
+      case 'id-asc':
+        list.sort((a, b) => a.id.localeCompare(b.id));
+        break;
+      case 'id-desc':
+        list.sort((a, b) => b.id.localeCompare(a.id));
+        break;
+    }
+
+    filtered = list;
+    page = 0;
+    renderGrid();
+  }
+
+  // ── Render grid ──────────────────────────────────────
+  function renderGrid() {
+    const grid = document.getElementById('grid');
+    const start = page * PER_PAGE;
+    const end = Math.min(start + PER_PAGE, filtered.length);
+    const slice = filtered.slice(start, end);
+
+    document.getElementById('stats').textContent =
+      `${filtered.length} diagrams | Page ${page + 1} of ${Math.ceil(filtered.length / PER_PAGE) || 1}`;
+
+    if (slice.length === 0) {
+      grid.innerHTML = '<p style="padding:20px;opacity:0.5">No diagrams match the current filters.</p>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = slice.map((d, i) => {
+      const imgSrc = d.hasHtx ? `htx_pngs/${d.id}.png` : (d.hasAsy ? `asy_pngs/${d.id}.png` : '');
+      const badge = ssimBadge(d.ssim);
+      const missing = !d.hasAsy ? '<div class="missing">no ASY</div>' : (!d.hasHtx ? '<div class="missing">no HTX</div>' : '');
+      return `<div class="thumb" data-idx="${start + i}" title="${d.source}">
+        ${imgSrc ? `<img src="${imgSrc}" loading="lazy" alt="${d.id}">` : '<div style="aspect-ratio:1;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;opacity:0.5">No image</div>'}
+        ${missing}
+        <div class="coll-tag">${d.collection}</div>
+        <div class="info">
+          <span class="id">${d.id}</span>
+          ${badge}
+        </div>
+      </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.thumb').forEach(el => {
+      el.addEventListener('click', () => {
+        enterBlink(parseInt(el.dataset.idx, 10));
+      });
+    });
+
+    renderPagination();
+  }
+
+  function ssimBadge(ssim) {
+    if (ssim === null || ssim === undefined) return '<span class="badge badge-none">N/A</span>';
+    const val = ssim.toFixed(3);
+    if (ssim >= 0.95) return `<span class="badge badge-green">${val}</span>`;
+    if (ssim >= 0.85) return `<span class="badge badge-yellow">${val}</span>`;
+    if (ssim >= 0.70) return `<span class="badge badge-orange">${val}</span>`;
+    return `<span class="badge badge-red">${val}</span>`;
+  }
+
+  function renderPagination() {
+    const total = Math.ceil(filtered.length / PER_PAGE) || 1;
+    const pag = document.getElementById('pagination');
+    if (total <= 1) { pag.innerHTML = ''; return; }
+
+    let html = `<button ${page === 0 ? 'disabled' : ''} data-page="${page - 1}">&laquo; Prev</button>`;
+    const pages = [];
+    for (let i = 0; i < total; i++) {
+      if (i === 0 || i === total - 1 || Math.abs(i - page) <= 2) pages.push(i);
+      else if (pages[pages.length - 1] !== -1) pages.push(-1);
+    }
+    for (const p of pages) {
+      if (p === -1) html += '<span style="opacity:0.3">&hellip;</span>';
+      else html += `<button data-page="${p}" ${p === page ? 'class="current"' : ''}>${p + 1}</button>`;
+    }
+    html += `<button ${page === total - 1 ? 'disabled' : ''} data-page="${page + 1}">Next &raquo;</button>`;
+    pag.innerHTML = html;
+
+    pag.querySelectorAll('button[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = parseInt(btn.dataset.page, 10);
+        if (p >= 0 && p < total) { page = p; renderGrid(); window.scrollTo(0, 0); }
+      });
+    });
+  }
+
+  // ── Blink View ───────────────────────────────────────
+  function enterBlink(idx) {
+    blinkIdx = idx;
+    blinkSource = 'htx';
+    blinkActive = true;
+    codePanelOpen = true;
+    document.getElementById('code-panel').classList.remove('collapsed');
+    document.getElementById('blink-code-toggle').textContent = 'Hide Code';
+    document.getElementById('blink-view').classList.add('active');
+    document.body.style.overflow = 'hidden';
+    updateBlinkImage();
+    loadCode();
+  }
+
+  function exitBlink() {
+    blinkActive = false;
+    stopAutoBlink();
+    document.getElementById('blink-view').classList.remove('active');
+    document.body.style.overflow = '';
+  }
+
+  // Asymptote PNGs are rasterized at 240 DPI from EPS.  HiTeXeR internally uses
+  // bpToCSSPx = 120/72, so its SVG CSS-pixel width ≈ physical_size * 120 DPI.
+  // To make the Asymptote PNG display at the same CSS size as the HiTeXeR SVG:
+  //   asy_display_px = asy_natural_px * (120 / 240) = asy_natural_px * 0.5
+  // TeXeR PNGs from the AoPS server vary in effective DPI, so display at 1:1.
+  const ASY_DISPLAY_SCALE = 0.5;
+
+  function fitImage(img, displayW, displayH) {
+    // displayW/displayH = the target CSS size for this image.
+    // Shrink to fit the viewport if needed, but never scale UP.
+    const codeW = codePanelOpen ? 420 : 0;
+    const maxW = (window.innerWidth - codeW) * 0.95;
+    const maxH = window.innerHeight - 60;
+    const ratio = Math.min(1, maxW / displayW, maxH / displayH);
+    img.style.width = (displayW * ratio) + 'px';
+    img.style.height = (displayH * ratio) + 'px';
+  }
+
+  function updateBlinkImage() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+
+    const img = document.getElementById('blink-img');
+    const label = document.getElementById('blink-source');
+    const idEl = document.getElementById('blink-id');
+    const fileEl = document.getElementById('blink-file');
+    const ssimEl = document.getElementById('blink-ssim');
+    const posEl = document.getElementById('blink-position');
+
+    let src = '', labelText = '', labelClass = '';
+    // displayScale: multiplier from naturalWidth/Height to target CSS display size
+    let displayScale = 1;
+
+    if (blinkSource === 'htx' && d.hasHtx) {
+      // Load SVG directly — browser renders with correct KaTeX fonts & CSS size
+      if (d.hasSvg) {
+        src = `htx_svgs/${d.id}.svg`; displayScale = 1;
+      } else {
+        src = `htx_pngs/${d.id}.png`; displayScale = 1;
+      }
+      labelText = 'HiTeXeR'; labelClass = 'htx';
+    } else if (blinkSource === 'asy' && d.hasAsy) {
+      src = `asy_pngs/${d.id}.png`; labelText = 'Asymptote'; labelClass = 'asy';
+      displayScale = ASY_DISPLAY_SCALE;
+    } else if (blinkSource === 'texer' && d.hasTexer) {
+      src = `texer_pngs/${d.id}.png`; labelText = 'TeXeR'; labelClass = 'texer';
+      displayScale = 1; // TeXeR PNGs from AoPS server — display at native pixel size
+    } else {
+      if (d.hasHtx) {
+        blinkSource = 'htx'; labelText = 'HiTeXeR'; labelClass = 'htx';
+        if (d.hasSvg) { src = `htx_svgs/${d.id}.svg`; displayScale = 1; }
+        else { src = `htx_pngs/${d.id}.png`; displayScale = 1; }
+      }
+      else if (d.hasAsy) { src = `asy_pngs/${d.id}.png`; labelText = 'Asymptote (only)'; labelClass = 'asy'; blinkSource = 'asy'; displayScale = ASY_DISPLAY_SCALE; }
+    }
+
+    img.onload = () => fitImage(img, img.naturalWidth * displayScale, img.naturalHeight * displayScale);
+    img.src = src;
+    label.textContent = labelText;
+    label.className = 'source-label ' + labelClass;
+    idEl.textContent = d.id;
+    fileEl.textContent = ` | ${d.source} | `;
+    ssimEl.textContent = d.ssim !== null ? d.ssim.toFixed(4) : 'N/A';
+    posEl.textContent = ` | ${blinkIdx + 1}/${filtered.length}`;
+  }
+
+  function toggleBlinkSource() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    blinkSource = (blinkSource === 'htx') ? (d.hasAsy ? 'asy' : 'htx') : (d.hasHtx ? 'htx' : 'asy');
+    updateBlinkImage();
+  }
+
+  function blinkNav(delta) {
+    const newIdx = blinkIdx + delta;
+    if (newIdx >= 0 && newIdx < filtered.length) {
+      blinkIdx = newIdx;
+      blinkSource = 'htx';
+      updateBlinkImage();
+      if (codePanelOpen) loadCode();
+    }
+  }
+
+  let autoBlinkOn = false;
+  function toggleAutoBlink() {
+    autoBlinkOn = !autoBlinkOn;
+    const btn = document.getElementById('blink-auto');
+    if (autoBlinkOn) {
+      btn.textContent = 'Auto-blink: ON'; btn.classList.add('active-btn');
+      autoBlinkTimer = setInterval(toggleBlinkSource, 500);
+    } else { stopAutoBlink(); }
+  }
+
+  function stopAutoBlink() {
+    autoBlinkOn = false;
+    document.getElementById('blink-auto').textContent = 'Auto-blink: OFF';
+    document.getElementById('blink-auto').classList.remove('active-btn');
+    if (autoBlinkTimer) { clearInterval(autoBlinkTimer); autoBlinkTimer = null; }
+  }
+
+  // ── Code Panel ───────────────────────────────────────
+  function toggleCodePanel() {
+    codePanelOpen = !codePanelOpen;
+    document.getElementById('code-panel').classList.toggle('collapsed', !codePanelOpen);
+    document.getElementById('blink-code-toggle').textContent = codePanelOpen ? 'Hide Code' : 'Show Code';
+    if (codePanelOpen) loadCode();
+    // Refit image after panel toggle
+    const d = filtered[blinkIdx];
+    if (d) {
+      const img = document.getElementById('blink-img');
+      const scale = (blinkSource === 'asy') ? ASY_DISPLAY_SCALE : 1;
+      setTimeout(() => fitImage(img, img.naturalWidth * scale, img.naturalHeight * scale), 220);
+    }
+  }
+
+  function loadCode() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    const el = document.getElementById('code-content');
+
+    if (codeCache[d.id]) {
+      el.textContent = codeCache[d.id];
+      return;
+    }
+
+    el.innerHTML = '<span class="loading">Loading...</span>';
+    fetch(`asy_src/${d.id}.asy`)
+      .then(r => {
+        if (!r.ok) throw new Error('Not found');
+        return r.text();
+      })
+      .then(code => {
+        codeCache[d.id] = code;
+        // Only update if still viewing same diagram
+        if (filtered[blinkIdx] && filtered[blinkIdx].id === d.id) {
+          el.textContent = code;
+        }
+      })
+      .catch(() => {
+        el.innerHTML = '<span class="loading">Source not available</span>';
+      });
+  }
+
+  function getCurrentCode() {
+    const d = filtered[blinkIdx];
+    return d ? (codeCache[d.id] || '') : '';
+  }
+
+  function copyCode() {
+    const code = getCurrentCode();
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.getElementById('btn-copy');
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    });
+  }
+
+  function copyName() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    navigator.clipboard.writeText(d.source).then(() => {
+      const btn = document.getElementById('btn-copy-name');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy Name'; }, 1500);
+    });
+  }
+
+  function copyCodePanel() {
+    const code = getCurrentCode();
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.getElementById('btn-copy-code');
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    });
+  }
+
+  function openInTexer() {
+    const code = getCurrentCode();
+    if (!code) return;
+    const wrapped = '[asy]\n' + code + '\n[/asy]';
+    navigator.clipboard.writeText(wrapped).then(() => {
+      console.log('Code copied to clipboard');
+    }).catch(() => {
+      // Fallback: select from a temporary textarea
+      const ta = document.createElement('textarea');
+      ta.value = wrapped;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    });
+    window.open('https://artofproblemsolving.com/texer', '_blank');
+  }
+
+  function openInHitexer() {
+    const code = getCurrentCode();
+    if (!code) return;
+    // HiTeXeR on localhost — set the code via URL hash
+    const url = '/index.html#code=' + encodeURIComponent('[asy]\n' + code + '\n[/asy]');
+    window.open(url, '_blank');
+  }
+
+  // ── Event listeners ──────────────────────────────────
+  document.getElementById('collection-filter').addEventListener('change', applyFilters);
+  document.getElementById('sort-mode').addEventListener('change', applyFilters);
+  document.getElementById('filter-both').addEventListener('change', applyFilters);
+  document.getElementById('filter-htx-only').addEventListener('change', applyFilters);
+  document.getElementById('filter-asy-only').addEventListener('change', applyFilters);
+  document.getElementById('search-input').addEventListener('input', applyFilters);
+
+  document.getElementById('blink-back').addEventListener('click', exitBlink);
+  document.getElementById('blink-auto').addEventListener('click', toggleAutoBlink);
+  document.getElementById('blink-code-toggle').addEventListener('click', toggleCodePanel);
+  document.getElementById('btn-copy-name').addEventListener('click', copyName);
+  document.getElementById('btn-copy').addEventListener('click', copyCode);
+  document.getElementById('btn-copy-code').addEventListener('click', copyCodePanel);
+  document.getElementById('btn-texer').addEventListener('click', openInTexer);
+  document.getElementById('btn-hitexer').addEventListener('click', openInHitexer);
+  document.getElementById('help-btn').addEventListener('click', () => {
+    document.getElementById('hints-overlay').classList.toggle('active');
+  });
+
+  // Ensure code panel needs the source loaded even on page load
+  // (the panel starts visible, code loads on enterBlink)
+
+  document.addEventListener('keydown', (e) => {
+    if (document.getElementById('hints-overlay').classList.contains('active')) {
+      document.getElementById('hints-overlay').classList.remove('active');
+      e.preventDefault();
+      return;
+    }
+
+    if (blinkActive) {
+      switch (e.key) {
+        case 'ArrowLeft':
+        case 'ArrowRight':
+          e.preventDefault(); toggleBlinkSource(); break;
+        case 'ArrowUp':
+          e.preventDefault(); blinkNav(-1); break;
+        case 'ArrowDown':
+          e.preventDefault(); blinkNav(1); break;
+        case ' ':
+          e.preventDefault(); toggleAutoBlink(); break;
+        case 'Escape':
+          e.preventDefault(); exitBlink(); break;
+        case 'c': case 'C':
+          toggleCodePanel(); break;
+        case 't': case 'T': {
+          const d = filtered[blinkIdx];
+          if (d && d.hasTexer) { blinkSource = blinkSource === 'texer' ? 'htx' : 'texer'; updateBlinkImage(); }
+          break;
+        }
+        case '?':
+          document.getElementById('hints-overlay').classList.add('active'); break;
+      }
+    } else {
+      if (e.key === '?') document.getElementById('hints-overlay').classList.toggle('active');
+    }
+  });
+
+  document.getElementById('blink-container').addEventListener('click', toggleBlinkSource);
+
+})();
+</script>
+</body>
+</html>
