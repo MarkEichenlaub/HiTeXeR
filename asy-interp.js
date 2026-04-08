@@ -5297,7 +5297,7 @@ function renderSVG(result, opts) {
         const cleanLen = stripLaTeX(dc.text || '').length || 1;
         const W = cleanLen * fontSizeSVG * 0.52;
         const H = fontSizeSVG;
-        const margin = 0.20 * fontSizeSVG;   // labelmargin ≈ 0.20 * fontsize
+        const margin = 0.25 * fontSizeSVG;   // Asymptote default: labelmargin=0.25
         const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
         const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
         const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
@@ -5398,7 +5398,7 @@ function renderSVG(result, opts) {
       let wasStrippedMath = false;
       if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
         const stripped = displayText.replace(/\$/g, '').trim();
-        if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
+        if (/^[0-9a-zA-Z\s+\-*\/=.,!?;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
           displayText = stripped;
           wasStrippedMath = true;
         }
@@ -5848,7 +5848,10 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = `color:${fill || '#000000'};`;
   const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(fontSizeCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  // KaTeX CSS applies .katex { font-size: 1.21em } internally, so divide by 1.21
+  // to get the correct effective size matching Asymptote/LaTeX output.
+  const katexCSS = fontSizeCSS / 1.21;
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(katexCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {
