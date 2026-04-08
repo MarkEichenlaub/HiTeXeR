@@ -2599,17 +2599,24 @@ function createInterpreter() {
     });
 
     env.set('arc', (...args) => {
-      // Asymptote: arc(center, radius, angle1, angle2, direction=CCW)
-      // Default direction is CCW (counterclockwise).
-      // CCW: normalize so angle2 > angle1 (positive sweep)
-      // CW:  normalize so angle2 < angle1 (negative sweep)
+      // Asymptote: arc(center, radius, angle1, angle2, direction)
+      // With explicit direction: CCW normalizes angle2 > angle1, CW normalizes angle2 < angle1.
+      // WITHOUT explicit direction (4-arg form): direction is CCW if angle2 >= angle1, CW otherwise.
+      // This matches Asymptote: arc(c,r,a1,a2) => arc(c,r,a1,a2, a2>=a1 ? CCW : CW)
       if (args.length >= 4 && !isPair(args[1])) {
         const c = toPair(args[0]);
+        let r = toNumber(args[1]);
         let a1 = toNumber(args[2]), a2 = toNumber(args[3]);
-        const ccw = args.length >= 5 ? !!args[4] : true;
+        // Negative radius: draw complementary arc with |r|
+        if (r < 0) {
+          r = -r;
+          const tmp = a1; a1 = a2; a2 = tmp;
+        }
+        // Determine direction: explicit 5th arg, or infer from angle relationship
+        const ccw = args.length >= 5 ? !!args[4] : (a2 >= a1);
         if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
         else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
-        return makeArcPath(c, toNumber(args[1]), a1, a2);
+        return makeArcPath(c, r, a1, a2);
       }
       if (args.length >= 3 && isPair(args[1])) {
         // arc(center, point1, point2) — arc from p1 to p2 around center
@@ -3041,17 +3048,34 @@ function createInterpreter() {
       return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
     });
 
-    // anglemark: draw arc CCW from ray BA to ray BC at vertex B (matching Asymptote)
+    // anglemark: matching olympiad.asy — arc CCW from ray BA to ray BC, closed back through vertex B
     env.set('anglemark', (...args) => {
       if (args.length < 3) return makePath([], false);
       const A = toPair(args[0]), B = toPair(args[1]), C = toPair(args[2]);
-      const rawR = args.length > 3 ? toNumber(args[3]) : 10;
+      // olympiad.asy: default t=8, extra radii via rest args (s[])
+      const t = args.length > 3 ? toNumber(args[3]) : 8;
       const msf = env.get('markscalefactor') || 0.03;
-      const r = rawR * msf;
-      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
-      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      const r = t * msf;
+      // M = point on ray BA at distance r from B
+      const baLen = Math.sqrt((A.x-B.x)*(A.x-B.x) + (A.y-B.y)*(A.y-B.y)) || 1;
+      const bcLen = Math.sqrt((C.x-B.x)*(C.x-B.x) + (C.y-B.y)*(C.y-B.y)) || 1;
+      const M = makePair(B.x + r*(A.x-B.x)/baLen, B.y + r*(A.y-B.y)/baLen);
+      const N = makePair(B.x + r*(C.x-B.x)/bcLen, B.y + r*(C.y-B.y)/bcLen);
+      // Arc CCW from M to N around B (matching arc(B,M,N) default CCW)
+      let a1 = Math.atan2(M.y - B.y, M.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(N.y - B.y, N.x - B.x) * 180 / Math.PI;
       while (a2 < a1) a2 += 360;
-      return makeArcPath(B, r, a1, a2);
+      const arcPath = makeArcPath(B, r, a1, a2);
+      // Close: arc -- B -- cycle (wedge/sector shape matching olympiad.asy)
+      const bPair = makePair(B.x, B.y);
+      const lastSeg = arcPath.segs[arcPath.segs.length - 1];
+      const arcEnd = lastSeg ? lastSeg.p3 : N;
+      const firstSeg = arcPath.segs[0];
+      const arcStart = firstSeg ? firstSeg.p0 : M;
+      arcPath.segs.push(lineSegment(arcEnd, bPair));
+      arcPath.segs.push(lineSegment(bPair, arcStart));
+      arcPath.closed = true;
+      return arcPath;
     });
 
     // Labeling helpers
@@ -5556,18 +5580,25 @@ function isLinear(seg) {
 function linestyleToDasharray(style, strokeWidth) {
   if (!style || style === 'solid') return null;
   const w = strokeWidth || 0.5;
+  // Asymptote dash patterns from plain_pens.asy (in linewidth units when scale=true):
+  //   dotted = linetype({0, 4})  — dot, 4× gap
+  //   dashed = linetype({8, 8})
+  //   longdashed = linetype({24, 8})
+  //   dashdotted = linetype({8, 8, 0, 8})
+  //   longdashdotted = linetype({24, 8, 0, 8})
+  // SVG stroke-dasharray with round linecap: "0.01 X" produces round dots.
   switch(style) {
-    case 'dashed': return `${6*w} ${4*w}`;
-    case 'dotted': return `${1*w} ${3*w}`;
-    case 'longdashed': return `${12*w} ${6*w}`;
-    case 'dashdotted': return `${6*w} ${3*w} ${1*w} ${3*w}`;
-    case 'longdashdotted': return `${12*w} ${4*w} ${1*w} ${4*w}`;
+    case 'dashed': return `${8*w} ${8*w}`;
+    case 'dotted': return `0.01 ${4*w}`;
+    case 'longdashed': return `${24*w} ${8*w}`;
+    case 'dashdotted': return `${8*w} ${8*w} 0.01 ${8*w}`;
+    case 'longdashdotted': return `${24*w} ${8*w} 0.01 ${8*w}`;
     default:
       // Custom dash pattern from linetype("a b c ...") — space-separated numbers
       if (/^[\d.\s]+$/.test(style)) {
         const nums = style.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
         if (nums.length > 0) {
-          return nums.map(n => n * w * 4).join(' ');
+          return nums.map(n => (n === 0 ? 0.01 : n * w)).join(' ');
         }
       }
       return null;
