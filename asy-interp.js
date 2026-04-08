@@ -6246,8 +6246,6 @@ function createInterpreter() {
       defaultPen,
       axisLimits: Object.assign({}, _axisLimits),
       dotfactor,
-      _projectedTriples: _projectedTriples.slice(),
-      _projection: projection ? Object.assign({}, projection) : null,
     };
   }
 
@@ -6326,52 +6324,6 @@ function renderSVG(result, opts) {
   let sizeW = _sizeW, sizeH = _sizeH;
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
-
-  // ── Perspective camera auto-adjust (Asymptote adjust=true behaviour) ──
-  // If any 3D point was near or behind the camera, move the camera back
-  // along its direction vector so all points are safely in front, then
-  // re-project every tracked triple in-place.
-  if (result._projection && result._projection.type === 'perspective' &&
-      result._projectedTriples && result._projectedTriples.length > 0) {
-    const proj = result._projection;
-    const cx = proj.cx, cy = proj.cy, cz = proj.cz;
-    const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
-    const dx = cx - tx, dy = cy - ty, dz = cz - tz;
-    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-    const fw = {x: dx/dist, y: dy/dist, z: dz/dist};
-
-    // Find maximum depth of any scene point along the view direction
-    let maxDepth = -Infinity;
-    for (const entry of result._projectedTriples) {
-      const t = entry.triple;
-      const px = t.x - tx, py = t.y - ty, pz = t.z - tz;
-      const depth = px*fw.x + py*fw.y + pz*fw.z;
-      if (depth > maxDepth) maxDepth = depth;
-    }
-
-    // If the farthest point is within 20% of the camera distance, move
-    // the camera back so that the farthest point is at 50% of camera dist.
-    // This gives a comfortable margin and matches Asymptote's adjust logic.
-    if (maxDepth > dist * 0.8) {
-      const newDist = maxDepth / 0.5;  // farthest point at 50% of new dist
-      const scaleFactor = newDist / dist;
-      const newProj = Object.assign({}, proj, {
-        cx: tx + dx * scaleFactor,
-        cy: ty + dy * scaleFactor,
-        cz: tz + dz * scaleFactor,
-      });
-
-      // Re-project all tracked triples in-place (mutate the pair objects
-      // that are already referenced by drawCommands)
-      for (const entry of result._projectedTriples) {
-        const t = entry.triple;
-        const reprojected = _projectTripleRaw(
-          {x: t.x, y: t.y, z: t.z, _tag: 'triple'}, newProj);
-        entry.result.x = reprojected.x;
-        entry.result.y = reprojected.y;
-      }
-    }
-  }
 
   // Compute bounding box
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
