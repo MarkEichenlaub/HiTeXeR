@@ -37,6 +37,9 @@ const TYPE_NAMES = new Set([
   'int','real','pair','triple','string','bool','bool3','pen','path','path3','guide',
   'picture','transform','void','var','Label','file',
   'projection','revolution','surface','material',
+  'coordsys','point','vector',
+  'line','segment','circle','triangle',
+  'side','vertex',
 ]);
 
 // ============================================================
@@ -976,6 +979,70 @@ function isArray(v) { return Array.isArray(v); }
 function isCallable(v) { return typeof v === 'function' || (v && v._tag === 'func'); }
 function isGraphic(v) { return v && v._tag === 'graphic'; }
 
+// Geometry package types
+function makeCoordSys(O, i, j) {
+  // O, i, j are pairs in default coordinates
+  // Build the 2×2 matrix P = [i | j] and its inverse
+  const det = i.x * j.y - i.y * j.x;
+  const idet = det !== 0 ? 1 / det : 0;
+  const iPxx = j.y * idet, iPxy = -j.x * idet;
+  const iPyx = -i.y * idet, iPyy = i.x * idet;
+  return {
+    _tag: 'coordsys',
+    O: O, i: i, j: j,
+    relativeToDefault: function(p) {
+      return makePair(O.x + p.x * i.x + p.y * j.x, O.y + p.x * i.y + p.y * j.y);
+    },
+    defaultToRelative: function(p) {
+      const dx = p.x - O.x, dy = p.y - O.y;
+      return makePair(iPxx * dx + iPxy * dy, iPyx * dx + iPyy * dy);
+    },
+  };
+}
+function isCoordSys(v) { return v && v._tag === 'coordsys'; }
+
+function makePoint(R, coords, mass) {
+  return { _tag: 'point', coordsys: R, coordinates: coords, x: coords.x, y: coords.y, m: mass || 1 };
+}
+function isPoint(v) { return v && v._tag === 'point'; }
+
+function locatePoint(P) { return P.coordsys.relativeToDefault(P.coordinates); }
+
+function makeGeoVector(R, coords) {
+  return { _tag: 'vector', v: makePoint(R, coords, 1) };
+}
+function isGeoVector(v) { return v && v._tag === 'vector'; }
+
+function locateVector(v) {
+  // Vector is displacement only — subtract origin
+  const p = locatePoint(v.v);
+  const O = v.v.coordsys.O;
+  return makePair(p.x - O.x, p.y - O.y);
+}
+
+// Geometry line type
+function makeGeoLine(A, B, extendA, extendB) {
+  // A, B are points; extendA/B control ray/segment/line
+  return { _tag: 'geoline', A: A, B: B, extendA: extendA !== false, extendB: extendB !== false };
+}
+function isGeoLine(v) { return v && v._tag === 'geoline'; }
+
+function makeSegment(A, B) {
+  return makeGeoLine(A, B, false, false);
+}
+
+// Geometry circle type
+function makeGeoCircle(C, r) {
+  return { _tag: 'geocircle', C: C, r: r };
+}
+function isGeoCircle(v) { return v && v._tag === 'geocircle'; }
+
+// Geometry triangle type
+function makeTriangleGeo(A, B, C) {
+  return { _tag: 'geotriangle', A: A, B: B, C: C };
+}
+function isTriangleGeo(v) { return v && v._tag === 'geotriangle'; }
+
 function penToCSS(pen) {
   if (!pen || !isPen(pen)) return {stroke:'#000000',strokeWidth:0.5,opacity:1};
   const hex = '#' + [pen.r,pen.g,pen.b].map(c => {
@@ -1526,6 +1593,8 @@ function createInterpreter() {
   }
   function toPair(v) {
     if (isPair(v)) return v;
+    if (isPoint(v)) return locatePoint(v);
+    if (isGeoVector(v)) return locateVector(v);
     if (isTriple(v)) return projectTriple(v);
     if (typeof v === 'number') return makePair(v, 0);
     return makePair(0,0);
@@ -1581,6 +1650,118 @@ function createInterpreter() {
     }
     if (op === T.STAR && isPen(left) && isNumber(right)) {
       return makePen(Object.assign({}, left, {r:right*left.r, g:right*left.g, b:right*left.b}));
+    }
+
+    // Geometry point/vector ops
+    if (isPoint(left) || isPoint(right) || isGeoVector(left) || isGeoVector(right)) {
+      // point + vector → point (shift point by vector displacement)
+      if (op === T.PLUS && isPoint(left) && isGeoVector(right)) {
+        const d = locateVector(right);
+        const lp = locatePoint(left);
+        const rp = makePair(lp.x + d.x, lp.y + d.y);
+        return makePoint(left.coordsys, left.coordsys.defaultToRelative(rp), left.m);
+      }
+      if (op === T.PLUS && isGeoVector(left) && isPoint(right)) {
+        const d = locateVector(left);
+        const rp = locatePoint(right);
+        const np = makePair(rp.x + d.x, rp.y + d.y);
+        return makePoint(right.coordsys, right.coordsys.defaultToRelative(np), right.m);
+      }
+      // point - vector → point
+      if (op === T.MINUS && isPoint(left) && isGeoVector(right)) {
+        const d = locateVector(right);
+        const lp = locatePoint(left);
+        const rp = makePair(lp.x - d.x, lp.y - d.y);
+        return makePoint(left.coordsys, left.coordsys.defaultToRelative(rp), left.m);
+      }
+      // point + pair → point (pair interpreted as coords in point's coordsys)
+      if (op === T.PLUS && isPoint(left) && isPair(right)) {
+        return makePoint(left.coordsys, makePair(left.x + right.x, left.y + right.y), left.m);
+      }
+      if (op === T.PLUS && isPair(left) && isPoint(right)) {
+        return makePoint(right.coordsys, makePair(left.x + right.x, left.y + right.y), right.m);
+      }
+      // point - pair → point
+      if (op === T.MINUS && isPoint(left) && isPair(right)) {
+        return makePoint(left.coordsys, makePair(left.x - right.x, left.y - right.y), left.m);
+      }
+      // point - point → vector (in default coordsys)
+      if (op === T.MINUS && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(lp.x - rp.x, lp.y - rp.y));
+      }
+      // point + point → point (barycentric-like addition, convert both to default)
+      if (op === T.PLUS && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        return makePoint(left.coordsys, left.coordsys.defaultToRelative(makePair(lp.x + rp.x, lp.y + rp.y)), left.m + right.m);
+      }
+      // real * point → point (scale coordinates)
+      if (op === T.STAR && isNumber(left) && isPoint(right)) {
+        return makePoint(right.coordsys, makePair(left * right.x, left * right.y), right.m);
+      }
+      if (op === T.STAR && isPoint(left) && isNumber(right)) {
+        return makePoint(left.coordsys, makePair(left.x * right, left.y * right), left.m);
+      }
+      // point / real → point
+      if (op === T.SLASH && isPoint(left) && isNumber(right)) {
+        return right !== 0 ? makePoint(left.coordsys, makePair(left.x / right, left.y / right), left.m) : left;
+      }
+      // vector + vector → vector
+      if (op === T.PLUS && isGeoVector(left) && isGeoVector(right)) {
+        const ld = locateVector(left), rd = locateVector(right);
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(ld.x + rd.x, ld.y + rd.y));
+      }
+      // vector - vector → vector
+      if (op === T.MINUS && isGeoVector(left) && isGeoVector(right)) {
+        const ld = locateVector(left), rd = locateVector(right);
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(ld.x - rd.x, ld.y - rd.y));
+      }
+      // real * vector → vector
+      if (op === T.STAR && isNumber(left) && isGeoVector(right)) {
+        return makeGeoVector(right.v.coordsys, makePair(left * right.v.x, left * right.v.y));
+      }
+      if (op === T.STAR && isGeoVector(left) && isNumber(right)) {
+        return makeGeoVector(left.v.coordsys, makePair(left.v.x * right, left.v.y * right));
+      }
+      // vector / real → vector
+      if (op === T.SLASH && isGeoVector(left) && isNumber(right)) {
+        return right !== 0 ? makeGeoVector(left.v.coordsys, makePair(left.v.x / right, left.v.y / right)) : left;
+      }
+      // point == point
+      if (op === T.EQ && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        return Math.abs(lp.x - rp.x) < 1e-10 && Math.abs(lp.y - rp.y) < 1e-10;
+      }
+      if (op === T.NEQ && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        return Math.abs(lp.x - rp.x) >= 1e-10 || Math.abs(lp.y - rp.y) >= 1e-10;
+      }
+      // coordsys * pair → pair (convert from R's coords to default)
+      if (op === T.STAR && isCoordSys(left) && isPair(right)) {
+        return left.relativeToDefault(right);
+      }
+      // pair / coordsys → pair (convert from default to R's coords)
+      if (op === T.SLASH && isPair(left) && isCoordSys(right)) {
+        return right.defaultToRelative(left);
+      }
+      // transform * point → point (apply transform, keep coordsys)
+      if (op === T.STAR && isTransform(left) && isPoint(right)) {
+        const p = locatePoint(right);
+        const tp = applyTransformPair(left, p);
+        return makePoint(right.coordsys, right.coordsys.defaultToRelative(tp), right.m);
+      }
+      // Fall through to pair ops by converting to pair
+      if (isPoint(left) || isGeoVector(left) || isPoint(right) || isGeoVector(right)) {
+        const lp = toPair(left), rp = toPair(right);
+        if (op === T.PLUS) return makePair(lp.x + rp.x, lp.y + rp.y);
+        if (op === T.MINUS) return makePair(lp.x - rp.x, lp.y - rp.y);
+        if (op === T.STAR) return makePair(lp.x*rp.x - lp.y*rp.y, lp.x*rp.y + lp.y*rp.x);
+        if (op === T.EQ) return Math.abs(lp.x-rp.x)<1e-10 && Math.abs(lp.y-rp.y)<1e-10;
+        if (op === T.NEQ) return Math.abs(lp.x-rp.x)>=1e-10 || Math.abs(lp.y-rp.y)>=1e-10;
+      }
     }
 
     // Triple ops
@@ -1718,6 +1899,8 @@ function createInterpreter() {
   function evalUnary(node, env) {
     const v = evalNode(node.operand, env);
     if (node.op === '-') {
+      if (isPoint(v)) return makePoint(v.coordsys, makePair(-v.x, -v.y), v.m);
+      if (isGeoVector(v)) return makeGeoVector(v.v.coordsys, makePair(-v.v.x, -v.v.y));
       if (isTriple(v)) return makeTriple(-v.x, -v.y, -v.z);
       if (isPair(v)) return makePair(-v.x, -v.y);
       return -toNumber(v);
@@ -1764,6 +1947,11 @@ function createInterpreter() {
         }
         if (args.length === 2 && isPair(args[0]) && isPair(args[1])) {
           return args[0].x*args[1].x + args[0].y*args[1].y;
+        }
+        // dot(point, point) or dot(vector, vector) → dot product
+        if (args.length === 2 && (isPoint(args[0]) || isGeoVector(args[0])) && (isPoint(args[1]) || isGeoVector(args[1]))) {
+          const a = toPair(args[0]), b = toPair(args[1]);
+          return a.x*b.x + a.y*b.y;
         }
         return evalDot(args);
       }
@@ -2173,8 +2361,23 @@ function createInterpreter() {
 
   function evalVarDecl(node, env) {
     let val = null;
-    if (node.init) val = evalNode(node.init, env);
-    else {
+    if (node.init) {
+      val = evalNode(node.init, env);
+      // Implicit type coercion for geometry types
+      if (node.varType === 'point' && !isPoint(val)) {
+        const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        if (isPair(val)) val = makePoint(cs, val, 1);
+        else if (isGeoVector(val)) val = val.v; // vector → point
+        else val = makePoint(cs, toPair(val), 1);
+      } else if (node.varType === 'vector' && !isGeoVector(val)) {
+        const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        if (isPoint(val)) val = makeGeoVector(val.coordsys, val.coordinates);
+        else if (isPair(val)) val = makeGeoVector(cs, val);
+        else val = makeGeoVector(cs, toPair(val));
+      } else if (node.varType === 'pair' && (isPoint(val) || isGeoVector(val))) {
+        val = toPair(val);
+      }
+    } else {
       // Default values by type
       if (node.varType.endsWith('[]')) {
         val = [];
@@ -2189,6 +2392,17 @@ function createInterpreter() {
           case 'string': val = ''; break;
           case 'bool': val = false; break;
           case 'picture': val = {_tag:'picture', commands:[]}; break;
+          case 'coordsys': val = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1)); break;
+          case 'point': {
+            const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+            val = makePoint(cs, makePair(0,0), 1);
+            break;
+          }
+          case 'vector': {
+            const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+            val = makeGeoVector(cs, makePair(0,0));
+            break;
+          }
         }
       }
     }
@@ -2323,7 +2537,10 @@ function createInterpreter() {
 
   function evalImport(node, env) {
     const mod = node.module.toLowerCase();
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
+    if (mod.includes('geometry')) {
+      installGeometryPackage(env);
+    }
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
     }
     if (mod.includes('trigmacros')) {
@@ -3938,6 +4155,1184 @@ function createInterpreter() {
   }
 
   // ============================================================
+  // Geometry Package (coordsys, point, vector, line, circle, etc.)
+  // ============================================================
+
+  function installGeometryPackage(env) {
+    // Default coordinate system: standard Cartesian
+    const defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+    env.set('defaultcoordsys', defaultCS);
+    env.set('currentcoordsys', defaultCS);
+
+    // cartesiansystem(pair O, pair i, pair j) → coordsys
+    env.set('cartesiansystem', (...args) => {
+      let O = makePair(0,0), i = makePair(1,0), j = makePair(0,1);
+      let posIdx = 0;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('i' in a) i = toPair(a.i);
+          if ('j' in a) j = toPair(a.j);
+        } else if (isPair(a) || isNumber(a)) {
+          if (posIdx === 0) O = toPair(a);
+          else if (posIdx === 1) i = toPair(a);
+          else if (posIdx === 2) j = toPair(a);
+          posIdx++;
+        }
+      }
+      return makeCoordSys(O, i, j);
+    });
+
+    // show(Label lo, Label li, Label lj, coordsys R, pen dotpen, pen xpen, pen ypen, pen ipen, pen jpen, arrowbar arrow)
+    // Draws the axes and basis vectors of a coordinate system
+    env.set('show', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0];
+        args = args.slice(1);
+      }
+      // Extract coordsys, labels, pens
+      let R = null;
+      const labels = []; // up to 3: origin label, i label, j label
+      let dotpen = null, xpen = null, ypen = null, ipen = null, jpen = null;
+      let arrow = null;
+
+      for (const a of args) {
+        if (a === null || a === undefined) continue;
+        if (isCoordSys(a)) R = a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (typeof a === 'function' && !arrow) {
+          try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
+        }
+        else if (isString(a) || (a && a._tag === 'label')) labels.push(a);
+        else if (isPen(a)) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('xpen' in a) xpen = a.xpen;
+            if ('ypen' in a) ypen = a.ypen;
+            if ('ipen' in a) ipen = a.ipen;
+            if ('jpen' in a) jpen = a.jpen;
+            if ('dotpen' in a) dotpen = a.dotpen;
+          } else {
+            // Positional pens: xpen, ypen, ipen, jpen
+            if (!xpen) xpen = a;
+            else if (!ypen) ypen = a;
+            else if (!ipen) ipen = a;
+            else if (!jpen) jpen = a;
+          }
+        }
+        else if (a && typeof a === 'object' && a._named) {
+          if ('xpen' in a) xpen = isPen(a.xpen) ? a.xpen : null;
+          if ('ypen' in a) ypen = isPen(a.ypen) ? a.ypen : null;
+          if ('ipen' in a) ipen = isPen(a.ipen) ? a.ipen : null;
+          if ('jpen' in a) jpen = isPen(a.jpen) ? a.jpen : null;
+          if ('dotpen' in a) dotpen = isPen(a.dotpen) ? a.dotpen : null;
+        }
+      }
+
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      if (!arrow) arrow = {_tag:'arrow', style:'Arrow', size:6};
+      if (!ipen) ipen = makePen({r:1,g:0,b:0}); // red
+      if (!jpen) jpen = ipen;
+      if (!xpen) xpen = clonePen(defaultPen);
+      if (!ypen) ypen = xpen;
+      if (!dotpen) dotpen = clonePen(defaultPen);
+
+      const O = R.O;
+      const iVec = R.i;
+      const jVec = R.j;
+
+      const loText = labels[0] || '$O$';
+      const liText = labels[1] || '$\\vec{\\imath}$';
+      const ljText = labels[2] || '$\\vec{\\jmath}$';
+
+      // Draw x-axis (infinite line through O in direction i) — if xpen not invisible
+      if (xpen.opacity > 0) {
+        const far = 100; // extend far in each direction
+        const xA = makePair(O.x - far * iVec.x, O.y - far * iVec.y);
+        const xB = makePair(O.x + far * iVec.x, O.y + far * iVec.y);
+        const xPath = makePath([lineSegment(xA, xB)], false);
+        target.commands.push({cmd:'draw', path:xPath, pen:xpen, arrow:null, line:0});
+      }
+      // Draw y-axis (infinite line through O in direction j) — if ypen not invisible
+      if (ypen.opacity > 0) {
+        const far = 100;
+        const yA = makePair(O.x - far * jVec.x, O.y - far * jVec.y);
+        const yB = makePair(O.x + far * jVec.x, O.y + far * jVec.y);
+        const yPath = makePath([lineSegment(yA, yB)], false);
+        target.commands.push({cmd:'draw', path:yPath, pen:ypen, arrow:null, line:0});
+      }
+
+      // Draw i basis vector (arrow from O to O+i)
+      const iEnd = makePair(O.x + iVec.x, O.y + iVec.y);
+      const iPath = makePath([lineSegment(O, iEnd)], false);
+      target.commands.push({cmd:'draw', path:iPath, pen:ipen, arrow:arrow, line:0});
+      // Label for i vector
+      const iMid = makePair((O.x + iEnd.x)/2, (O.y + iEnd.y)/2);
+      const liStr = (typeof liText === 'string') ? liText : (liText.text || '');
+      if (liStr) {
+        // Place label aligned perpendicular to the vector direction
+        const iNorm = Math.sqrt(iVec.x*iVec.x + iVec.y*iVec.y) || 1;
+        const perpAlign = makePair(-iVec.y / iNorm, iVec.x / iNorm);
+        target.commands.push({cmd:'label', text:liStr, pos:iMid, align:perpAlign, pen:ipen, line:0});
+      }
+
+      // Draw j basis vector (arrow from O to O+j)
+      const jEnd = makePair(O.x + jVec.x, O.y + jVec.y);
+      const jPath = makePath([lineSegment(O, jEnd)], false);
+      target.commands.push({cmd:'draw', path:jPath, pen:jpen, arrow:arrow, line:0});
+      // Label for j vector
+      const jMid = makePair((O.x + jEnd.x)/2, (O.y + jEnd.y)/2);
+      const ljStr = (typeof ljText === 'string') ? ljText : (ljText.text || '');
+      if (ljStr) {
+        const jNorm = Math.sqrt(jVec.x*jVec.x + jVec.y*jVec.y) || 1;
+        const perpAlign = makePair(-jVec.y / jNorm, jVec.x / jNorm);
+        target.commands.push({cmd:'label', text:ljStr, pos:jMid, align:perpAlign, pen:jpen, line:0});
+      }
+
+      // Dot at origin
+      target.commands.push({cmd:'dot', pos:O, pen:dotpen, line:0});
+      // Origin label
+      const loStr = (typeof loText === 'string') ? loText : (loText.text || '');
+      if (loStr) {
+        target.commands.push({cmd:'label', text:loStr, pos:O, align:makePair(-1,-1), pen:dotpen, line:0});
+      }
+    });
+
+    // origin — as a variable: point(defaultcoordsys, (0,0))
+    env.set('origin', makePoint(defaultCS, makePair(0,0), 1));
+
+    // origin() — as a function: point(currentcoordsys, (0,0))
+    // We use a dual mechanism: the env has 'origin' as a point,
+    // but we also register _builtinFuncs so origin() works as a function call.
+    const originFunc = (...args) => {
+      let R = null;
+      for (const a of args) {
+        if (isCoordSys(a)) R = a;
+      }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      return makePoint(R, makePair(0,0), 1);
+    };
+    // Store in builtins so it can be called even if overridden by variable
+    _builtinFuncs.set('origin', originFunc);
+
+    // locate(point) → pair in default coords
+    // locate(vector) → pair displacement in default coords
+    // locate(pair) → pair (identity)
+    env.set('locate', (...args) => {
+      const v = args[0];
+      if (isPoint(v)) return locatePoint(v);
+      if (isGeoVector(v)) return locateVector(v);
+      if (isPair(v)) return v;
+      return toPair(v);
+    });
+
+    // point(coordsys R, pair p, real m=1) → point
+    env.set('point', (...args) => {
+      let R = null, p = null, m = 1;
+      for (const a of args) {
+        if (isCoordSys(a) && !R) R = a;
+        else if (isPoint(a) && !p) {
+          // point(coordsys R, point M) — re-express M in R
+          if (R) {
+            const loc = locatePoint(a);
+            p = R.defaultToRelative(loc);
+            m = a.m;
+          } else {
+            return a; // just return the point
+          }
+        }
+        else if ((isPair(a) || isNumber(a)) && !p) p = toPair(a);
+        else if (typeof a === 'number' && p) m = a;
+      }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      if (!p) p = makePair(0,0);
+      return makePoint(R, p, m);
+    });
+
+    // vector(coordsys R, pair v) → vector
+    env.set('vector', (...args) => {
+      let R = null, p = null;
+      for (const a of args) {
+        if (isCoordSys(a) && !R) R = a;
+        else if (isPoint(a)) {
+          // vector(point M) → OM vector
+          return makeGeoVector(a.coordsys, a.coordinates);
+        }
+        else if (isGeoVector(a)) return a;
+        else if ((isPair(a) || isNumber(a)) && !p) p = toPair(a);
+      }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      if (!p) p = makePair(0,0);
+      return makeGeoVector(R, p);
+    });
+
+    // changecoordsys(coordsys R, point M) — same physical location, different system
+    env.set('changecoordsys', (...args) => {
+      let R = null;
+      for (const a of args) {
+        if (isCoordSys(a) && !R) R = a;
+        else if (isPoint(a)) {
+          if (!R) R = env.get('currentcoordsys') || defaultCS;
+          const loc = locatePoint(a);
+          return makePoint(R, R.defaultToRelative(loc), a.m);
+        }
+        else if (isGeoVector(a)) {
+          if (!R) R = env.get('currentcoordsys') || defaultCS;
+          const d = locateVector(a);
+          // Vector displacement: express in new system without origin offset
+          const di = R.defaultToRelative(makePair(R.O.x + d.x, R.O.y + d.y));
+          return makeGeoVector(R, di);
+        }
+      }
+      return null;
+    });
+
+    // coordsys(point M) → M.coordsys
+    // coordsys(line l) → l.A.coordsys
+    const coordsysFunc = (...args) => {
+      const v = args[0];
+      if (isPoint(v)) return v.coordsys;
+      if (isGeoVector(v)) return v.v.coordsys;
+      if (isGeoLine(v)) return v.A.coordsys;
+      if (isCoordSys(v)) return v;
+      return env.get('currentcoordsys') || defaultCS;
+    };
+    env.set('coordsys', coordsysFunc);
+    _builtinFuncs.set('coordsys', coordsysFunc);
+
+    // drawline(picture pic, pair A, pair B, pen p)
+    // Draws an infinite line through two points
+    env.set('drawline', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0]; args = args.slice(1);
+      }
+      let A = null, B = null, pen = null;
+      for (const a of args) {
+        if (isPair(a) || isPoint(a)) {
+          const p = toPair(a);
+          if (!A) A = p; else if (!B) B = p;
+        } else if (isPen(a)) pen = a;
+      }
+      if (!A || !B) return;
+      if (!pen) pen = clonePen(defaultPen);
+      // Extend the line far in both directions
+      const dx = B.x - A.x, dy = B.y - A.y;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      const far = 200;
+      const p0 = makePair(A.x - far * dx/len, A.y - far * dy/len);
+      const p1 = makePair(B.x + far * dx/len, B.y + far * dy/len);
+      target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen, arrow:null, line:0});
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Line / Segment
+    // ────────────────────────────────────────────────────────────
+
+    // line(point A, bool extendA=true, point B, bool extendB=true)
+    env.set('line', (...args) => {
+      let pts = [], extA = true, extB = true;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (typeof a === 'boolean') {
+          if (pts.length <= 1) extA = a; else extB = a;
+        }
+        else if (a && typeof a === 'object' && a._named) {
+          if ('extendA' in a) extA = !!a.extendA;
+          if ('extendB' in a) extB = !!a.extendB;
+        }
+      }
+      if (pts.length < 2) return null;
+      return makeGeoLine(pts[0], pts[1], extA, extB);
+    });
+
+    // segment(point A, point B)
+    env.set('segment', (...args) => {
+      let pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 2) return null;
+      return makeSegment(pts[0], pts[1]);
+    });
+
+    // Ox(coordsys R) → x-axis line
+    env.set('Ox', (...args) => {
+      let R = null;
+      for (const a of args) { if (isCoordSys(a)) R = a; }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      const O = makePoint(R, makePair(0,0), 1);
+      const I = makePoint(R, makePair(1,0), 1);
+      return makeGeoLine(O, I, true, true);
+    });
+
+    // Oy(coordsys R) → y-axis line
+    env.set('Oy', (...args) => {
+      let R = null;
+      for (const a of args) { if (isCoordSys(a)) R = a; }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      const O = makePoint(R, makePair(0,0), 1);
+      const J = makePoint(R, makePair(0,1), 1);
+      return makeGeoLine(O, J, true, true);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Circle
+    // ────────────────────────────────────────────────────────────
+
+    // circle(point C, real r) or circle(point A, point B) [diameter]
+    env.set('circle', (...args) => {
+      let pts = [], r = null;
+      for (const a of args) {
+        if (isPoint(a) || isPair(a)) pts.push(a);
+        else if (typeof a === 'number' && r === null) r = a;
+      }
+      if (pts.length >= 1 && r !== null) {
+        return makeGeoCircle(pts[0], r);
+      }
+      if (pts.length >= 2) {
+        // Diameter: center = midpoint, radius = half distance
+        const A = toPair(pts[0]), B = toPair(pts[1]);
+        const C = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const cs = env.get('currentcoordsys') || defaultCS;
+        const rad = Math.sqrt((B.x-A.x)*(B.x-A.x) + (B.y-A.y)*(B.y-A.y)) / 2;
+        return makeGeoCircle(makePoint(cs, cs.defaultToRelative(C), 1), rad);
+      }
+      return null;
+    });
+
+    // circumcircle(point A, point B, point C)
+    env.set('circumcircle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+      }
+      if (pts.length < 3) return null;
+      const ax = pts[0].x, ay = pts[0].y;
+      const bx = pts[1].x, by = pts[1].y;
+      const cx = pts[2].x, cy = pts[2].y;
+      const D = 2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+      if (Math.abs(D) < 1e-12) return null;
+      const ux = ((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/D;
+      const uy = ((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/D;
+      const r = Math.sqrt((ax-ux)*(ax-ux)+(ay-uy)*(ay-uy));
+      const cs = env.get('currentcoordsys') || defaultCS;
+      return makeGeoCircle(makePoint(cs, cs.defaultToRelative(makePair(ux,uy)),1), r);
+    });
+
+    // incircle(point A, point B, point C)
+    env.set('incircle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+      }
+      if (pts.length < 3) return null;
+      const A = pts[0], B = pts[1], C = pts[2];
+      const a = Math.sqrt((B.x-C.x)*(B.x-C.x)+(B.y-C.y)*(B.y-C.y));
+      const b = Math.sqrt((A.x-C.x)*(A.x-C.x)+(A.y-C.y)*(A.y-C.y));
+      const c = Math.sqrt((A.x-B.x)*(A.x-B.x)+(A.y-B.y)*(A.y-B.y));
+      const P = a+b+c;
+      if (P < 1e-12) return null;
+      const ix = (a*A.x+b*B.x+c*C.x)/P;
+      const iy = (a*A.y+b*B.y+c*C.y)/P;
+      // Inradius = area / semi-perimeter
+      const area = Math.abs((B.x-A.x)*(C.y-A.y)-(C.x-A.x)*(B.y-A.y))/2;
+      const r = area / (P/2);
+      const cs = env.get('currentcoordsys') || defaultCS;
+      return makeGeoCircle(makePoint(cs, cs.defaultToRelative(makePair(ix,iy)),1), r);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Triangle
+    // ────────────────────────────────────────────────────────────
+
+    // triangle(point A, point B, point C)
+    env.set('triangle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      return makeTriangleGeo(pts[0], pts[1], pts[2]);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Geometric constructions
+    // ────────────────────────────────────────────────────────────
+
+    // midpoint(point A, point B) or midpoint(segment)
+    env.set('midpoint', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (isGeoLine(a)) {
+          // midpoint of segment
+          pts.push(a.A, a.B);
+        }
+      }
+      if (pts.length < 2) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]);
+      const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(M), 1);
+    });
+
+    // perpendicular(point M, line l) → line perpendicular to l through M
+    env.set('perpendicular', (...args) => {
+      let M = null, l = null, normal = null;
+      for (const a of args) {
+        if (isPoint(a) && !M) M = a;
+        else if (isPair(a) && !M) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          M = makePoint(cs, a, 1);
+        }
+        else if (isGeoLine(a)) l = a;
+        else if (isGeoVector(a) && !normal) normal = a;
+      }
+      if (!M) return null;
+      if (l) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x - A.x, dy = B.y - A.y;
+        // Perpendicular direction
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x - dy, Ml.y + dx);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      if (normal) {
+        const d = locateVector(normal);
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x + d.x, Ml.y + d.y);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      return null;
+    });
+
+    // parallel(point M, line l) → line parallel to l through M
+    env.set('parallel', (...args) => {
+      let M = null, l = null, dir = null;
+      for (const a of args) {
+        if (isPoint(a) && !M) M = a;
+        else if (isPair(a) && !M) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          M = makePoint(cs, a, 1);
+        }
+        else if (isGeoLine(a)) l = a;
+        else if (isGeoVector(a) && !dir) dir = a;
+      }
+      if (!M) return null;
+      if (l) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x + dx, Ml.y + dy);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      if (dir) {
+        const d = locateVector(dir);
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x + d.x, Ml.y + d.y);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      return null;
+    });
+
+    // foot(point P, point A, point B) — foot of perpendicular from P to line AB
+    env.set('foot', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (isGeoLine(a)) { pts.push(a.A, a.B); }
+      }
+      if (pts.length < 3) return null;
+      const P = locatePoint(pts[0]), A = locatePoint(pts[1]), B = locatePoint(pts[2]);
+      const dx = B.x - A.x, dy = B.y - A.y;
+      const t = ((P.x-A.x)*dx + (P.y-A.y)*dy) / (dx*dx + dy*dy);
+      const F = makePair(A.x + t*dx, A.y + t*dy);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(F), 1);
+    });
+
+    // intersectionpoint(line l1, line l2) → point
+    // Also handles geoline types
+    const geoIntersectionPoint = (...args) => {
+      const lines = [];
+      for (const a of args) {
+        if (isGeoLine(a)) lines.push(a);
+      }
+      if (lines.length >= 2) {
+        const A = locatePoint(lines[0].A), B = locatePoint(lines[0].B);
+        const C = locatePoint(lines[1].A), D = locatePoint(lines[1].B);
+        const denom = (A.x-B.x)*(C.y-D.y)-(A.y-B.y)*(C.x-D.x);
+        if (Math.abs(denom) < 1e-12) return null;
+        const t = ((A.x-C.x)*(C.y-D.y)-(A.y-C.y)*(C.x-D.x)) / denom;
+        const P = makePair(A.x + t*(B.x-A.x), A.y + t*(B.y-A.y));
+        const cs = lines[0].A.coordsys;
+        return makePoint(cs, cs.defaultToRelative(P), 1);
+      }
+      return null;
+    };
+    // Register but don't override existing intersectionpoint
+    const existingIP = env.get('intersectionpoint');
+    env.set('intersectionpoint', (...args) => {
+      // If any arg is a geoline, use geometry version
+      if (args.some(a => isGeoLine(a))) return geoIntersectionPoint(...args);
+      // Otherwise fall back to existing
+      if (typeof existingIP === 'function') return existingIP(...args);
+      return null;
+    });
+
+    // intersectionpoints for geometry types (circle-line, circle-circle)
+    const existingIPs = env.get('intersectionpoints');
+    env.set('intersectionpoints', (...args) => {
+      // circle-line intersection
+      const circles = args.filter(a => isGeoCircle(a));
+      const glines = args.filter(a => isGeoLine(a));
+      if (circles.length >= 1 && glines.length >= 1) {
+        const c = circles[0], l = glines[0];
+        const C = toPair(c.C), r = c.r;
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const fx = A.x-C.x, fy = A.y-C.y;
+        const a = dx*dx+dy*dy, b = 2*(fx*dx+fy*dy), cc = fx*fx+fy*fy-r*r;
+        const disc = b*b - 4*a*cc;
+        if (disc < 0) return [];
+        const results = [];
+        const cs = env.get('currentcoordsys') || defaultCS;
+        const t1 = (-b - Math.sqrt(disc)) / (2*a);
+        results.push(makePoint(cs, cs.defaultToRelative(makePair(A.x+t1*dx, A.y+t1*dy)), 1));
+        if (disc > 1e-12) {
+          const t2 = (-b + Math.sqrt(disc)) / (2*a);
+          results.push(makePoint(cs, cs.defaultToRelative(makePair(A.x+t2*dx, A.y+t2*dy)), 1));
+        }
+        return results;
+      }
+      // circle-circle intersection
+      if (circles.length >= 2) {
+        const c1 = circles[0], c2 = circles[1];
+        const C1 = toPair(c1.C), r1 = c1.r;
+        const C2 = toPair(c2.C), r2 = c2.r;
+        const dx = C2.x-C1.x, dy = C2.y-C1.y;
+        const d = Math.sqrt(dx*dx+dy*dy);
+        if (d > r1+r2 || d < Math.abs(r1-r2) || d < 1e-12) return [];
+        const a = (r1*r1-r2*r2+d*d)/(2*d);
+        const h = Math.sqrt(Math.max(0, r1*r1-a*a));
+        const mx = C1.x+a*dx/d, my = C1.y+a*dy/d;
+        const cs = env.get('currentcoordsys') || defaultCS;
+        const results = [];
+        results.push(makePoint(cs, cs.defaultToRelative(makePair(mx+h*dy/d, my-h*dx/d)), 1));
+        if (h > 1e-12) {
+          results.push(makePoint(cs, cs.defaultToRelative(makePair(mx-h*dy/d, my+h*dx/d)), 1));
+        }
+        return results;
+      }
+      // Fallback to existing
+      if (typeof existingIPs === 'function') return existingIPs(...args);
+      return [];
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Triangle centers and special lines
+    // ────────────────────────────────────────────────────────────
+
+    env.set('circumcenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const D = 2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));
+      if (Math.abs(D) < 1e-12) return null;
+      const ux = ((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/D;
+      const uy = ((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/D;
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(makePair(ux,uy)), 1);
+    });
+
+    env.set('centroid', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const G = makePair((A.x+B.x+C.x)/3, (A.y+B.y+C.y)/3);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(G), 1);
+    });
+
+    env.set('incenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const a = Math.sqrt((B.x-C.x)*(B.x-C.x)+(B.y-C.y)*(B.y-C.y));
+      const b = Math.sqrt((A.x-C.x)*(A.x-C.x)+(A.y-C.y)*(A.y-C.y));
+      const c = Math.sqrt((A.x-B.x)*(A.x-B.x)+(A.y-B.y)*(A.y-B.y));
+      const P = a+b+c;
+      if (P < 1e-12) return null;
+      const I = makePair((a*A.x+b*B.x+c*C.x)/P, (a*A.y+b*B.y+c*C.y)/P);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(I), 1);
+    });
+
+    env.set('orthocenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      // H = A + B + C - 2*circumcenter
+      const D = 2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));
+      if (Math.abs(D) < 1e-12) return null;
+      const ux = ((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/D;
+      const uy = ((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/D;
+      const H = makePair(A.x+B.x+C.x - 2*ux, A.y+B.y+C.y - 2*uy);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(H), 1);
+    });
+
+    // altitude(vertex V, triangle t) — altitude from vertex
+    env.set('altitude', (...args) => {
+      // Accept: vertex point + opposite side (line or triangle)
+      let V = null, tri = null, oppLine = null;
+      for (const a of args) {
+        if (isTriangleGeo(a)) tri = a;
+        else if (isGeoLine(a)) oppLine = a;
+        else if (isPoint(a)) V = a;
+      }
+      if (tri && V) {
+        const Vl = locatePoint(V);
+        const verts = [locatePoint(tri.A), locatePoint(tri.B), locatePoint(tri.C)];
+        // Find which vertex V is closest to
+        let minD = Infinity, idx = 0;
+        for (let i = 0; i < 3; i++) {
+          const d = (Vl.x-verts[i].x)*(Vl.x-verts[i].x)+(Vl.y-verts[i].y)*(Vl.y-verts[i].y);
+          if (d < minD) { minD = d; idx = i; }
+        }
+        const A = verts[(idx+1)%3], B = verts[(idx+2)%3];
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const t = ((Vl.x-A.x)*dx+(Vl.y-A.y)*dy)/(dx*dx+dy*dy);
+        const F = makePair(A.x+t*dx, A.y+t*dy);
+        const cs = V.coordsys;
+        return makeGeoLine(V, makePoint(cs, cs.defaultToRelative(F), 1), false, false);
+      }
+      return null;
+    });
+
+    // median(vertex V, triangle t)
+    env.set('median', (...args) => {
+      let V = null, tri = null;
+      for (const a of args) {
+        if (isTriangleGeo(a)) tri = a;
+        else if (isPoint(a)) V = a;
+      }
+      if (tri && V) {
+        const Vl = locatePoint(V);
+        const verts = [locatePoint(tri.A), locatePoint(tri.B), locatePoint(tri.C)];
+        let minD = Infinity, idx = 0;
+        for (let i = 0; i < 3; i++) {
+          const d = (Vl.x-verts[i].x)*(Vl.x-verts[i].x)+(Vl.y-verts[i].y)*(Vl.y-verts[i].y);
+          if (d < minD) { minD = d; idx = i; }
+        }
+        const A = verts[(idx+1)%3], B = verts[(idx+2)%3];
+        const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const cs = V.coordsys;
+        return makeGeoLine(V, makePoint(cs, cs.defaultToRelative(M), 1), false, true);
+      }
+      return null;
+    });
+
+    // bisector(point A, point O, point B) or bisector(line l) [perpendicular bisector]
+    env.set('bisector', (...args) => {
+      const pts = [];
+      let l = null;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (isGeoLine(a)) l = a;
+      }
+      // Perpendicular bisector of segment/line
+      if (l) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const P2 = makePair(M.x - dy, M.y + dx);
+        const cs = l.A.coordsys;
+        return makeGeoLine(makePoint(cs, cs.defaultToRelative(M), 1), makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
+      }
+      // Angle bisector: bisector(A, O, B) — bisects angle AOB
+      if (pts.length >= 3) {
+        const A = locatePoint(pts[0]), O = locatePoint(pts[1]), B = locatePoint(pts[2]);
+        const dA = Math.sqrt((A.x-O.x)*(A.x-O.x)+(A.y-O.y)*(A.y-O.y)) || 1;
+        const dB = Math.sqrt((B.x-O.x)*(B.x-O.x)+(B.y-O.y)*(B.y-O.y)) || 1;
+        const uA = makePair((A.x-O.x)/dA, (A.y-O.y)/dA);
+        const uB = makePair((B.x-O.x)/dB, (B.y-O.y)/dB);
+        const bisDir = makePair(uA.x+uB.x, uA.y+uB.y);
+        const P2 = makePair(O.x+bisDir.x, O.y+bisDir.y);
+        const cs = pts[1].coordsys;
+        return makeGeoLine(pts[1], makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
+      }
+      // Perpendicular bisector of two points
+      if (pts.length >= 2) {
+        const A = locatePoint(pts[0]), B = locatePoint(pts[1]);
+        const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const P2 = makePair(M.x - dy, M.y + dx);
+        const cs = pts[0].coordsys;
+        return makeGeoLine(makePoint(cs, cs.defaultToRelative(M), 1), makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
+      }
+      return null;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Transforms
+    // ────────────────────────────────────────────────────────────
+
+    // reflect(line l) → transform (reflection about line)
+    const existingReflect = env.get('reflect');
+    env.set('reflect', (...args) => {
+      // If args are geolines, reflect about line
+      if (args.length === 1 && isGeoLine(args[0])) {
+        const A = locatePoint(args[0].A), B = locatePoint(args[0].B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        // Reflection matrix about line through A with direction (dx,dy)
+        const cos2 = (dx*dx-dy*dy)/d2, sin2 = 2*dx*dy/d2;
+        // T = translate(-A) * reflect * translate(A)
+        const tx = A.x - cos2*A.x - sin2*A.y;
+        const ty = A.y - sin2*A.x + cos2*A.y;
+        return makeTransform(tx, cos2, sin2, ty, sin2, -cos2);
+      }
+      // Fall back to existing reflect(pair, pair)
+      if (typeof existingReflect === 'function') return existingReflect(...args);
+      // Default: reflect about two points
+      if (args.length >= 2) {
+        const A = toPair(args[0]), B = toPair(args[1]);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        const cos2 = (dx*dx-dy*dy)/d2, sin2 = 2*dx*dy/d2;
+        const tx = A.x - cos2*A.x - sin2*A.y;
+        const ty = A.y - sin2*A.x + cos2*A.y;
+        return makeTransform(tx, cos2, sin2, ty, sin2, -cos2);
+      }
+      return makeTransform(0,1,0,0,0,1);
+    });
+
+    // projection(line l) → transform (orthogonal projection on line)
+    env.set('projection', (...args) => {
+      if (args.length === 1 && isGeoLine(args[0])) {
+        const A = locatePoint(args[0].A), B = locatePoint(args[0].B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        const c2 = dx*dx/d2, s2 = dx*dy/d2;
+        const tx = A.x - c2*A.x - s2*A.y;
+        const ty = A.y - s2*A.x - (dy*dy/d2)*A.y + (dy*dy/d2)*A.y;
+        // Projection: P = A + ((X-A)·u)u  where u = (dx,dy)/|d|
+        // As transform: [c², cs; cs, s²] * X + (I - M)*A
+        const cs2 = dx*dy/d2, ss = dy*dy/d2;
+        return makeTransform(
+          A.x*(1-c2) - A.y*cs2, c2, cs2,
+          A.y*(1-ss) - A.x*cs2, cs2, ss
+        );
+      }
+      // projection(point A, point B) → same as projection(line(A,B))
+      if (args.length >= 2) {
+        const A = toPair(args[0]), B = toPair(args[1]);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        const c2 = dx*dx/d2, cs2 = dx*dy/d2, ss = dy*dy/d2;
+        return makeTransform(
+          A.x*(1-c2) - A.y*cs2, c2, cs2,
+          A.y*(1-ss) - A.x*cs2, cs2, ss
+        );
+      }
+      return makeTransform(0,1,0,0,0,1);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Distance / length / abs for geometry types
+    // ────────────────────────────────────────────────────────────
+
+    // Enhance abs to handle points/vectors
+    const existingAbs = env.get('abs');
+    env.set('abs', (...args) => {
+      const v = args[0];
+      if (isPoint(v)) {
+        // abs in M's own coordinate system metric
+        return Math.sqrt(v.x*v.x + v.y*v.y);
+      }
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        return Math.sqrt(d.x*d.x + d.y*d.y);
+      }
+      if (typeof existingAbs === 'function') return existingAbs(...args);
+      return Math.abs(toNumber(args[0]));
+    });
+
+    // length for geometry types
+    const existingLength = env.get('length');
+    env.set('length', (...args) => {
+      const v = args[0];
+      if (isGeoLine(v) && !v.extendA && !v.extendB) {
+        // segment length
+        const A = locatePoint(v.A), B = locatePoint(v.B);
+        return Math.sqrt((B.x-A.x)*(B.x-A.x) + (B.y-A.y)*(B.y-A.y));
+      }
+      if (isPoint(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        return Math.sqrt(d.x*d.x + d.y*d.y);
+      }
+      if (typeof existingLength === 'function') return existingLength(...args);
+      if (isPath(v)) return v.segs.length;
+      if (isArray(v)) return v.length;
+      if (isString(v)) return v.length;
+      return 0;
+    });
+
+    // unit(point/vector) → unit vector in default coords direction
+    const existingUnit = env.get('unit');
+    env.set('unit', (...args) => {
+      const v = args[0];
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        const len = Math.sqrt(d.x*d.x + d.y*d.y);
+        if (len < 1e-12) return makeGeoVector(v.v.coordsys, makePair(0,0));
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(d.x/len, d.y/len));
+      }
+      if (isPoint(v)) {
+        const p = locatePoint(v);
+        const len = Math.sqrt(p.x*p.x + p.y*p.y);
+        if (len < 1e-12) return makePair(0,0);
+        return makePair(p.x/len, p.y/len);
+      }
+      if (typeof existingUnit === 'function') return existingUnit(...args);
+      if (isPair(v)) {
+        const len = Math.sqrt(v.x*v.x + v.y*v.y);
+        return len > 0 ? makePair(v.x/len, v.y/len) : makePair(0,0);
+      }
+      return makePair(0,0);
+    });
+
+    // degrees/angle for geometry types
+    const existingDegrees = env.get('degrees');
+    env.set('degrees', (...args) => {
+      const v = args[0];
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        return Math.atan2(d.y, d.x) * 180 / Math.PI;
+      }
+      if (isPoint(v)) {
+        const p = locatePoint(v);
+        return Math.atan2(p.y, p.x) * 180 / Math.PI;
+      }
+      if (typeof existingDegrees === 'function') return existingDegrees(...args);
+      if (isPair(v)) return Math.atan2(v.y, v.x) * 180 / Math.PI;
+      return toNumber(v) * 180 / Math.PI;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // NOTE: draw/fill/filldraw/dot/label handle geometry types
+    // directly via conversion in evalDraw/evalDot/evalLabel.
+    // ────────────────────────────────────────────────────────────
+
+    // ────────────────────────────────────────────────────────────
+    // Predicate functions
+    // ────────────────────────────────────────────────────────────
+
+    env.set('collinear', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+        else if (isGeoVector(a)) pts.push(locateVector(a));
+      }
+      if (pts.length >= 3) {
+        const A = pts[0], B = pts[1], C = pts[2];
+        return Math.abs((B.x-A.x)*(C.y-A.y) - (C.x-A.x)*(B.y-A.y)) < 1e-10;
+      }
+      if (pts.length === 2) {
+        // Two vectors: check if parallel
+        return Math.abs(pts[0].x*pts[1].y - pts[0].y*pts[1].x) < 1e-10;
+      }
+      return false;
+    });
+
+    env.set('sameside', (...args) => {
+      const pts = [];
+      let l = null;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+        else if (isGeoLine(a)) l = a;
+      }
+      if (l && pts.length >= 2) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const s1 = (pts[0].x-A.x)*dy - (pts[0].y-A.y)*dx;
+        const s2 = (pts[1].x-A.x)*dy - (pts[1].y-A.y)*dx;
+        return s1*s2 > 0;
+      }
+      if (pts.length >= 3) {
+        // sameside(M, N, O): M and N on same side of O
+        const M = pts[0], N = pts[1], O = pts[2];
+        return (M.x-O.x)*(N.x-O.x) + (M.y-O.y)*(N.y-O.y) > 0;
+      }
+      return false;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Distance function (visual measurement)
+    // ────────────────────────────────────────────────────────────
+
+    // distance(point M, line l) → real
+    // (Not the visual distance() that draws measurement arrows)
+    const existingDistance = env.get('distance');
+    env.set('distance', (...args) => {
+      let pt = null, l = null;
+      for (const a of args) {
+        if (isPoint(a) && !pt) pt = a;
+        else if (isPair(a) && !pt) pt = makePoint(defaultCS, a, 1);
+        else if (isGeoLine(a)) l = a;
+      }
+      if (pt && l) {
+        const M = locatePoint(pt);
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return Math.sqrt((M.x-A.x)*(M.x-A.x)+(M.y-A.y)*(M.y-A.y));
+        return Math.abs((M.x-A.x)*dy - (M.y-A.y)*dx) / Math.sqrt(d2);
+      }
+      // distance(point, point) → Euclidean distance
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+      }
+      if (pts.length >= 2) {
+        const dx = pts[1].x-pts[0].x, dy = pts[1].y-pts[0].y;
+        return Math.sqrt(dx*dx+dy*dy);
+      }
+      if (typeof existingDistance === 'function') return existingDistance(...args);
+      return 0;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Perpendicular mark / right angle mark
+    // ────────────────────────────────────────────────────────────
+
+    env.set('perpendicularmark', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0]; args = args.slice(1);
+      }
+      let z = null, alignDir = null, dir = null, sz = 10, pen = null;
+      for (const a of args) {
+        if (isPoint(a) && !z) z = locatePoint(a);
+        else if (isPair(a)) {
+          if (!z) z = a;
+          else if (!alignDir) alignDir = a;
+          else if (!dir) dir = a;
+        }
+        else if (typeof a === 'number') sz = a;
+        else if (isPen(a)) pen = a;
+        else if (isGeoVector(a)) {
+          if (!alignDir) alignDir = locateVector(a);
+          else if (!dir) dir = locateVector(a);
+        }
+      }
+      if (!z || !alignDir) return;
+      if (!dir) dir = makePair(-alignDir.y, alignDir.x);
+      if (!pen) pen = clonePen(defaultPen);
+      // Draw the right angle mark (small square corner)
+      const s = sz / 28.35; // convert from bp to user units approximately
+      const uA = {x: alignDir.x, y: alignDir.y};
+      const uD = {x: dir.x, y: dir.y};
+      const lA = Math.sqrt(uA.x*uA.x+uA.y*uA.y) || 1;
+      const lD = Math.sqrt(uD.x*uD.x+uD.y*uD.y) || 1;
+      const nA = {x: uA.x/lA*s, y: uA.y/lA*s};
+      const nD = {x: uD.x/lD*s, y: uD.y/lD*s};
+      const p1 = makePair(z.x+nA.x, z.y+nA.y);
+      const p2 = makePair(z.x+nA.x+nD.x, z.y+nA.y+nD.y);
+      const p3 = makePair(z.x+nD.x, z.y+nD.y);
+      const path = makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
+      target.commands.push({cmd:'draw', path, pen, arrow:null, line:0});
+    });
+
+    env.set('markrightangle', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0]; args = args.slice(1);
+      }
+      const pts = [];
+      let sz = 10, pen = null;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+        else if (typeof a === 'number') sz = a;
+        else if (isPen(a)) pen = a;
+      }
+      if (pts.length < 3) return;
+      if (!pen) pen = clonePen(defaultPen);
+      const A = pts[0], O = pts[1], B = pts[2];
+      const s = sz / 28.35;
+      const dA = Math.sqrt((A.x-O.x)*(A.x-O.x)+(A.y-O.y)*(A.y-O.y)) || 1;
+      const dB = Math.sqrt((B.x-O.x)*(B.x-O.x)+(B.y-O.y)*(B.y-O.y)) || 1;
+      const uA = {x:(A.x-O.x)/dA*s, y:(A.y-O.y)/dA*s};
+      const uB = {x:(B.x-O.x)/dB*s, y:(B.y-O.y)/dB*s};
+      const p1 = makePair(O.x+uA.x, O.y+uA.y);
+      const p2 = makePair(O.x+uA.x+uB.x, O.y+uA.y+uB.y);
+      const p3 = makePair(O.x+uB.x, O.y+uB.y);
+      const path = makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
+      target.commands.push({cmd:'draw', path, pen, arrow:null, line:0});
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Stubs for less-common features
+    // ────────────────────────────────────────────────────────────
+
+    // mass, abscissa, bqe, inversion — stub types
+    env.set('mass', (...args) => {
+      const pts = [];
+      let m = 1;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) pts.push(makePoint(defaultCS, a, 1));
+        else if (typeof a === 'number') m = a;
+      }
+      if (pts.length > 0) return makePoint(pts[0].coordsys, pts[0].coordinates, m);
+      return null;
+    });
+
+    env.set('masscenter', (...args) => {
+      // masscenter(point[] P) — weighted average
+      const pts = [];
+      for (const a of args) {
+        if (isArray(a)) {
+          for (const p of a) { if (isPoint(p)) pts.push(p); }
+        }
+        else if (isPoint(a)) pts.push(a);
+      }
+      if (pts.length === 0) return null;
+      let totalM = 0, sx = 0, sy = 0;
+      for (const p of pts) {
+        const loc = locatePoint(p);
+        totalM += p.m;
+        sx += p.m * loc.x;
+        sy += p.m * loc.y;
+      }
+      if (totalM < 1e-12) return null;
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(makePair(sx/totalM, sy/totalM)), totalM);
+    });
+
+    // Stub for trilinear
+    env.set('trilinear', (...args) => null);
+
+    // rotateO, scaleO — transforms relative to currentcoordsys origin
+    env.set('rotateO', (deg) => {
+      const R = env.get('currentcoordsys') || defaultCS;
+      const O = R.O;
+      const rad = toNumber(deg) * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return makeTransform(O.x - c*O.x + s*O.y, c, -s, O.y - s*O.x - c*O.y, s, c);
+    });
+
+    env.set('scaleO', (k) => {
+      const R = env.get('currentcoordsys') || defaultCS;
+      const O = R.O;
+      const kk = toNumber(k);
+      return makeTransform(O.x*(1-kk), kk, 0, O.y*(1-kk), 0, kk);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Conversion helpers accessible to user code
+    // ────────────────────────────────────────────────────────────
+
+    env.set('samecoordsys', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isArray(a)) { for (const p of a) if (isPoint(p)) pts.push(p); }
+        else if (isPoint(a)) pts.push(a);
+      }
+      if (pts.length < 2) return true;
+      const first = pts[0].coordsys;
+      return pts.every(p => p.coordsys === first ||
+        (Math.abs(p.coordsys.O.x-first.O.x)<1e-10 && Math.abs(p.coordsys.O.y-first.O.y)<1e-10 &&
+         Math.abs(p.coordsys.i.x-first.i.x)<1e-10 && Math.abs(p.coordsys.i.y-first.i.y)<1e-10 &&
+         Math.abs(p.coordsys.j.x-first.j.x)<1e-10 && Math.abs(p.coordsys.j.y-first.j.y)<1e-10));
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Boolean / membership
+    // ────────────────────────────────────────────────────────────
+
+    // inside(path, pair) — already in stdlib; add geometry overloads
+    // degenerate(circle) — true if radius is infinite
+    env.set('degenerate', (c) => {
+      if (isGeoCircle(c)) return !isFinite(c.r);
+      return false;
+    });
+  }
+
+  // ============================================================
   // TrigMacros Package (AoPS custom axes/grid)
   // ============================================================
 
@@ -4286,6 +5681,34 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Convert geometry types to drawable paths
+    const savedLine = args._line;
+    args = args.map(a => {
+      if (isPoint(a)) return locatePoint(a);
+      if (isGeoVector(a)) return locateVector(a);
+      if (isGeoLine(a)) {
+        const A = locatePoint(a.A), B = locatePoint(a.B);
+        let p0 = A, p1 = B;
+        if (a.extendA || a.extendB) {
+          const dx = B.x-A.x, dy = B.y-A.y;
+          const len = Math.sqrt(dx*dx+dy*dy) || 1;
+          const far = 200;
+          if (a.extendA) p0 = makePair(A.x - far*dx/len, A.y - far*dy/len);
+          if (a.extendB) p1 = makePair(B.x + far*dx/len, B.y + far*dy/len);
+        }
+        return makePath([lineSegment(p0, p1)], false);
+      }
+      if (isGeoCircle(a)) {
+        const C = toPair(a.C);
+        return makeCirclePath(C, a.r);
+      }
+      if (isTriangleGeo(a)) {
+        const A = locatePoint(a.A), B = locatePoint(a.B), C = locatePoint(a.C);
+        return makePath([lineSegment(A,B), lineSegment(B,C), lineSegment(C,A)], true);
+      }
+      return a;
+    });
+    args._line = savedLine;
     // Detect draw(pair, path, pen) marker syntax: marker path is in bp/px units (fixed size)
     // In Asymptote, draw(pair z, path g, pen p) renders g in bp space at coordinate position z
     if (args.length >= 2 && isPair(args[0]) && isPath(args[1]) && args[1].segs && args[1].segs.length > 0) {
@@ -4300,6 +5723,7 @@ function createInterpreter() {
       return;
     }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
+    let labelText = null, labelAlign = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -4314,13 +5738,21 @@ function createInterpreter() {
       else if (typeof a === 'function' && !arrow) {
         try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
       }
+      else if (a && a._tag === 'label') {
+        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; }
+      }
+      else if (isString(a) && !labelText && !pathArg) { labelText = a; }
       else if (isTriple(a) && !pathArg) {
         pathArg = makePath([], false);
         pathArg._singlePoint = projectTriple(a);
       }
-      else if (isPair(a) && !pathArg) {
-        pathArg = makePath([], false);
-        pathArg._singlePoint = a;
+      else if (isPair(a)) {
+        if (!pathArg && !labelText) {
+          pathArg = makePath([], false);
+          pathArg._singlePoint = a;
+        } else if (labelText && !labelAlign) {
+          labelAlign = a; // alignment for draw label
+        }
       }
     }
     if (!pathArg && args.length > 0) {
@@ -4341,6 +5773,12 @@ function createInterpreter() {
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
       if (drawPen) dc.drawPen = drawPen;
       target.commands.push(dc);
+      // If draw call has a label, place it at the path midpoint
+      if (labelText && pathArg.segs && pathArg.segs.length > 0) {
+        const midSeg = pathArg.segs[Math.floor(pathArg.segs.length/2)];
+        const midPos = makePair((midSeg.p0.x+midSeg.p3.x)/2, (midSeg.p0.y+midSeg.p3.y)/2);
+        target.commands.push({cmd:'label', text:labelText, pos:midPos, align:labelAlign, pen, line: args._line || 0});
+      }
     }
   }
 
@@ -4352,6 +5790,10 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Convert geometry points to pairs
+    const savedLine = args._line;
+    args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
+    args._line = savedLine;
     let pos = null, pen = null, text = null, align = null, multiDots = null;
     let graphicData = null;
     for (const a of args) {
@@ -4406,6 +5848,10 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Convert geometry points to pairs
+    const savedLine = args._line;
+    args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
+    args._line = savedLine;
     let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     let graphicData = null;
     for (const a of args) {
