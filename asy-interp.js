@@ -5398,7 +5398,7 @@ function renderSVG(result, opts) {
       let wasStrippedMath = false;
       if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
         const stripped = displayText.replace(/\$/g, '').trim();
-        if (/^[0-9a-zA-Z\s+\-*\/=.,!?;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
+        if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
           displayText = stripped;
           wasStrippedMath = true;
         }
