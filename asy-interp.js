@@ -5426,8 +5426,10 @@ function renderSVG(result, opts) {
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
       } else {
         // Render with superscript/subscript support using tspan.
-        // If the label was originally $...$ math (wasStrippedMath), use math italic font.
-        if (wasStrippedMath) {
+        // If the label was originally $...$ math (wasStrippedMath) AND contains Latin
+        // letters, use math italic font.  Pure digit/punctuation content (e.g. coordinates
+        // like $(-6,4)$) stays upright — digits and punctuation are upright in LaTeX math.
+        if (wasStrippedMath && /[a-zA-Z]/.test(displayText)) {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
         } else {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
