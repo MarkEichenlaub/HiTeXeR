@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.34</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.35</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -462,7 +462,8 @@ label("$C$", C, N);
           <label>Duration: <input id="gif-duration" type="text" value="3s" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
           <label>Delay: <input id="gif-delay" type="number" value="2" min="1" max="100" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">x0.01s</span></label>
           <label>Loop: <input id="gif-loop" type="number" value="0" min="0" style="width:36px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">0=inf</span></label>
-          <label>Pause: <input id="gif-pause" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
+          <label>Pause first: <input id="gif-pause-first" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
+          <label>Pause last: <input id="gif-pause" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
           <label style="cursor:pointer;"><input type="checkbox" id="gif-transparent" style="accent-color:#e9c46a;"> Transparent</label>
           <button id="gif-save-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Save GIF</button>
           <button id="gif-copy-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Copy GIF</button>
@@ -4324,6 +4325,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const delayInput = parseInt(document.getElementById('gif-delay').value) || 2;
       const frameDelay = Math.max(1, delayInput) * 10; // ms
       const pauseMs = Math.round((parseFloat(document.getElementById('gif-pause').value) || 0) * 1000);
+      const pauseFirstMs = Math.round((parseFloat(document.getElementById('gif-pause-first').value) || 0) * 1000);
       const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
       const frameInCycle = frameIndex % totalFrames;
       const t = totalFrames === 1 ? 0 : frameInCycle / (totalFrames - 1);
@@ -4332,7 +4334,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const value = startVal + (endVal - startVal) * t;
       gifUpdateVariable(value);
       frameIndex++;
-      const nextDelay = (frameInCycle === totalFrames - 1 && pauseMs > 0) ? frameDelay + pauseMs : frameDelay;
+      let nextDelay = frameDelay;
+      if (frameInCycle === totalFrames - 1 && pauseMs > 0) nextDelay += pauseMs;
+      if (frameInCycle === 0 && pauseFirstMs > 0) nextDelay += pauseFirstMs;
       gifPreviewAnimId = setTimeout(stepFrame, Math.max(nextDelay, PREVIEW_DELAY_FLOOR));
     }
     stepFrame();
@@ -4447,6 +4451,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const frameDelay = Math.max(1, delayInput) * 10; // convert to ms
     const loopCount = parseInt(document.getElementById('gif-loop').value) || 0;
     const pauseMs = Math.round((parseFloat(document.getElementById('gif-pause').value) || 0) * 1000);
+    const pauseFirstMs = Math.round((parseFloat(document.getElementById('gif-pause-first').value) || 0) * 1000);
     const transparent = document.getElementById('gif-transparent').checked;
     const widthStr = document.getElementById('gif-width').value.trim().toLowerCase();
     const progressEl = document.getElementById('gif-progress');
@@ -4575,8 +4580,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
           const canvas = await svgToCanvas(frameSvg, 1);
-          const isLastFrame = i === totalFrames - 1;
-          const delay = isLastFrame ? frameDelay + pauseMs : frameDelay;
+          let delay = frameDelay;
+          if (i === totalFrames - 1 && pauseMs > 0) delay += pauseMs;
+          if (i === 0 && pauseFirstMs > 0) delay += pauseFirstMs;
 
           gif.addFrame(canvas, { delay, copy: true });
           framesAdded++;
@@ -4609,6 +4615,7 @@ document.addEventListener('DOMContentLoaded', () => {
           duration: document.getElementById('gif-duration').value,
           delay: delayInput, loop: loopCount,
           pause: parseFloat(document.getElementById('gif-pause').value) || 0,
+          pauseFirst: parseFloat(document.getElementById('gif-pause-first').value) || 0,
           width: widthStr, transparent,
         },
       });
@@ -5118,6 +5125,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (gifSettings.delay != null) document.getElementById('gif-delay').value = String(gifSettings.delay);
       if (gifSettings.loop != null) document.getElementById('gif-loop').value = String(gifSettings.loop);
       if (gifSettings.pause != null) document.getElementById('gif-pause').value = String(gifSettings.pause);
+      if (gifSettings.pauseFirst != null) document.getElementById('gif-pause-first').value = String(gifSettings.pauseFirst);
       if (gifSettings.width != null) document.getElementById('gif-width').value = String(gifSettings.width);
       if (gifSettings.transparent != null) document.getElementById('gif-transparent').checked = !!gifSettings.transparent;
       // Restart preview with restored settings
