@@ -6506,16 +6506,19 @@ function renderSVG(result, opts) {
     // Compute the rough pxPerUnit from current bbox (mirrors the final scale logic)
     const curBboxW = (maxX - minX) || 1;
     const curBboxH = (maxY - minY) || 1;
-    let roughPxPerUnit;
+    let roughPxPerUnit, roughPxPerUnitX, roughPxPerUnitY;
     if (hasUnitScale) {
-      roughPxPerUnit = unitScale;
+      roughPxPerUnit = roughPxPerUnitX = roughPxPerUnitY = unitScale;
     } else if (sizeW > 0 || sizeH > 0) {
       const tW = sizeW > 0 ? sizeW : Infinity;
       const tH = sizeH > 0 ? sizeH : Infinity;
       roughPxPerUnit = Math.min(tW / curBboxW, tH / curBboxH);
+      roughPxPerUnitX = keepAspect ? roughPxPerUnit : (sizeW > 0 ? sizeW / curBboxW : roughPxPerUnit);
+      roughPxPerUnitY = keepAspect ? roughPxPerUnit : (sizeH > 0 ? sizeH / curBboxH : roughPxPerUnit);
     } else {
       // No size/unitsize: default size(200) — scale by the binding dimension
       roughPxPerUnit = Math.min(200 / curBboxW, 200 / curBboxH);
+      roughPxPerUnitX = roughPxPerUnitY = roughPxPerUnit;
     }
 
     // Reset bbox to geometry-only extents before re-expanding with labels
@@ -6539,7 +6542,7 @@ function renderSVG(result, opts) {
         // close to real Asymptote.  For auto-scaled diagrams, use the TeX
         // advance width (~0.50 em) so label-dominated layouts match Asymptote.
         const charWidthBp = fontSize * (autoScaled ? 0.50 : 0.48 * 0.6);
-        const charWidthUser = charWidthBp / roughPxPerUnit;
+        const charWidthUser = charWidthBp / roughPxPerUnitX;
         // For labels with fractions, estimate wider width
         const rawLabel = text;
         const hasFrac = /\\frac/.test(rawLabel);
@@ -6547,16 +6550,17 @@ function renderSVG(result, opts) {
         const textWidthUser = effectiveLen * charWidthUser;
         // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
         const heightFactor = autoScaled ? 0.7 : 0.48;
-        const textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnit;
+        const textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
         let dx = 0, dy = 0;
         if (dc.align) {
           const ax = dc.align.x, ay = dc.align.y;
-          const margin = 0.20 * fontSize / roughPxPerUnit;
+          const marginX = 0.20 * fontSize / roughPxPerUnitX;
+          const marginY = 0.20 * fontSize / roughPxPerUnitY;
           const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
           const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
           const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
-          dx = ax_n * textWidthUser + ax * margin;
-          dy = ay_n * textHeightUser + ay * margin;   // Asymptote y-up, no inversion
+          dx = ax_n * textWidthUser + ax * marginX;
+          dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
         }
         // Expand bbox to include estimated text bounds
         const cx = pos.x + dx;
@@ -6588,22 +6592,30 @@ function renderSVG(result, opts) {
 
   // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
-  let pxPerUnit;
+  let pxPerUnit, pxPerUnitX, pxPerUnitY;
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
-    pxPerUnit = unitScale;
+    pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
   } else if (sizeW > 0 || sizeH > 0) {
     // size() without unitsize(): scale so the full picture (geometry + labels)
     // fits in the requested size — matching real Asymptote behaviour.
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
     pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    if (!keepAspect && sizeW > 0 && sizeH > 0) {
+      // IgnoreAspect: independent scaling per axis
+      pxPerUnitX = sizeW / (bboxW || 1);
+      pxPerUnitY = sizeH / (bboxH || 1);
+    } else {
+      pxPerUnitX = pxPerUnitY = pxPerUnit;
+    }
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
     const defaultSize = 200;
     const targetW = defaultSize;
     const targetH = defaultSize;
     pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    pxPerUnitX = pxPerUnitY = pxPerUnit;
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');
@@ -6611,11 +6623,11 @@ function renderSVG(result, opts) {
 
   // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
   if (opts.forcedPxPerUnit) {
-    pxPerUnit = opts.forcedPxPerUnit;
+    pxPerUnit = pxPerUnitX = pxPerUnitY = opts.forcedPxPerUnit;
   }
 
-  const naturalW = (maxX - minX) * pxPerUnit;
-  const naturalH = (maxY - minY) * pxPerUnit;
+  const naturalW = (maxX - minX) * pxPerUnitX;
+  const naturalH = (maxY - minY) * pxPerUnitY;
 
   // Apply explicit size() if given (sizes are in bp = 1/72 inch).
   // When only one dimension is constrained, scale the other to maintain
@@ -6631,8 +6643,9 @@ function renderSVG(result, opts) {
       svgW = naturalW;
       svgH = naturalH;
     } else {
-      svgW = sizeW;
-      svgH = sizeH;
+      // IgnoreAspect: naturalW/H already equal sizeW/H (independent scaling)
+      svgW = naturalW;
+      svgH = naturalH;
     }
   } else if (sizeW > 0) {
     svgW = sizeW;
@@ -6693,10 +6706,10 @@ function renderSVG(result, opts) {
       axisLimits.xmin !== null && axisLimits.xmax !== null &&
       axisLimits.ymin !== null && axisLimits.ymax !== null) {
     cropClipId = 'crop-clip';
-    const cx1 = (axisLimits.xmin - minX) * pxPerUnit;
-    const cy1 = (maxY - axisLimits.ymax) * pxPerUnit;
-    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnit;
-    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnit;
+    const cx1 = (axisLimits.xmin - minX) * pxPerUnitX;
+    const cy1 = (maxY - axisLimits.ymax) * pxPerUnitY;
+    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnitX;
+    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnitY;
     elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
   }
 
@@ -6708,7 +6721,7 @@ function renderSVG(result, opts) {
     let clipDefs = '<defs><clipPath id="user-clip">';
     for (const dc of drawCommands) {
       if (dc.cmd === 'clip' && dc.path && dc.path.segs.length > 0) {
-        clipDefs += `<path d="${pathToD(dc.path, minX, maxY, pxPerUnit)}"/>`;
+        clipDefs += `<path d="${pathToD(dc.path, minX, maxY, pxPerUnitX, pxPerUnitY)}"/>`;
       }
     }
     clipDefs += '</clipPath></defs>';
@@ -6721,8 +6734,8 @@ function renderSVG(result, opts) {
   // cssPixel = max(viewW/svgW, viewH/svgH).  Using only viewW/svgW was wrong for
   // height-limited pictures (naturalW < sizeW) and made fontSizeSVG too small, placing
   // labels too close to the drawing.
-  // With preserveAspectRatio="none" (keepAspect=false), the viewBox stretches to fill
-  // the SVG exactly, so use the X-direction scale for font sizing.
+  // With keepAspect=false the non-uniform scaling is baked into coordinates via
+  // pxPerUnitX/Y, so viewBox matches svgW/svgH and cssPixel ≈ 1.
   const cssPixel = keepAspect
     ? Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1))
     : viewW / (svgW || viewW || 1);
@@ -6739,8 +6752,8 @@ function renderSVG(result, opts) {
   function renderPathCommand(ci, dc, css, dashArray) {
     if (dc.path._singlePoint) {
       const p = dc.path._singlePoint;
-      const sx = (p.x - minX) * pxPerUnit;
-      const sy = (maxY - p.y) * pxPerUnit;
+      const sx = (p.x - minX) * pxPerUnitX;
+      const sy = (maxY - p.y) * pxPerUnitY;
       // Asymptote: single-point draw = zero-length stroke, radius = linewidth/2 (no dotfactor)
       const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
       const singleDotR = (singleDotLw / 2) * bpCSSPixel;
@@ -6750,7 +6763,7 @@ function renderSVG(result, opts) {
     }
     if (dc.path.segs.length === 0) return;
 
-    const d = pathToD(dc.path, minX, maxY, pxPerUnit);
+    const d = pathToD(dc.path, minX, maxY, pxPerUnitX, pxPerUnitY);
     let fill = 'none', stroke = 'none', strokeW = 0;
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
@@ -6789,7 +6802,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnit, bpCSSPixel, css);
+      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css);
       if (arrowEl) {
         elements.push(arrowEl);
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -6824,8 +6837,8 @@ function renderSVG(result, opts) {
       deferredLabels.push({ci, dc, css: {...css}});
     } else if (dc.cmd === 'dot') {
       // Render dots in program order so later fills can cover them
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
       // Dot radius: if linewidth was explicitly set by user (n+pen or linewidth(n)),
       // Asymptote uses radius = linewidth/2 directly (the number IS the dot size).
       // If linewidth is default (no explicit set), apply dotfactor: radius = dotfactor/2 * linewidth.
@@ -6835,8 +6848,8 @@ function renderSVG(result, opts) {
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
       // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
-      const svgCX = (dc.pos.x - minX) * pxPerUnit;
-      const svgCY = (maxY - dc.pos.y) * pxPerUnit;
+      const svgCX = (dc.pos.x - minX) * pxPerUnitX;
+      const svgCY = (maxY - dc.pos.y) * pxPerUnitY;
       const mPath = dc.markerPath;
       if (mPath.segs.length > 0) {
         let d = '';
@@ -6874,8 +6887,8 @@ function renderSVG(result, opts) {
   // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
     if (dc.cmd === 'label') {
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
       const fontSize = (dc.pen.fontsize || 10);
       // Convert font size from PostScript points to SVG user units at the actual display scale.
       // font-size="12" in SVG user units renders as 12*(svgW/viewW) CSS px — at the default
@@ -7047,12 +7060,12 @@ function renderSVG(result, opts) {
       const imgSize = computeGraphicDisplaySize(g, unitScale, hasUnitScale);
 
       // Display size in SVG viewBox units (user coords × pxPerUnit)
-      let imgW = imgSize.w_user * pxPerUnit;
-      let imgH = imgSize.h_user * pxPerUnit;
+      let imgW = imgSize.w_user * pxPerUnitX;
+      let imgH = imgSize.h_user * pxPerUnitY;
 
       // Position at label coordinates in SVG space
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
 
       // Alignment offset: center by default, shift by align direction
       let dx = -imgW / 2, dy = -imgH / 2;
@@ -7126,26 +7139,29 @@ function renderSVG(result, opts) {
   } else {
     innerContent = elements.join('\n');
   }
-  const parAttr = keepAspect ? '' : ' preserveAspectRatio="none"';
+  // With keepAspect=false, non-uniform scaling is baked into coordinates via
+  // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
+  const parAttr = '';
   // Thin SVG text to better match TeX Computer Modern bitmap rendering.
   // paint-order:stroke renders a thin white stroke beneath the fill, visually
   // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
   const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
   const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
-  return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
+  return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
 }
 
-function pathToD(path, minX, maxY, scale) {
+function pathToD(path, minX, maxY, scaleX, scaleY) {
+  if (scaleY === undefined) scaleY = scaleX; // backward compat
   const segs = path.segs;
   if (segs.length === 0) return '';
   let d = '';
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
-    const p0x = (s.p0.x - minX)*scale, p0y = (maxY - s.p0.y)*scale;
-    const cp1x = (s.cp1.x - minX)*scale, cp1y = (maxY - s.cp1.y)*scale;
-    const cp2x = (s.cp2.x - minX)*scale, cp2y = (maxY - s.cp2.y)*scale;
-    const p3x = (s.p3.x - minX)*scale, p3y = (maxY - s.p3.y)*scale;
+    const p0x = (s.p0.x - minX)*scaleX, p0y = (maxY - s.p0.y)*scaleY;
+    const cp1x = (s.cp1.x - minX)*scaleX, cp1y = (maxY - s.cp1.y)*scaleY;
+    const cp2x = (s.cp2.x - minX)*scaleX, cp2y = (maxY - s.cp2.y)*scaleY;
+    const p3x = (s.p3.x - minX)*scaleX, p3y = (maxY - s.p3.y)*scaleY;
 
     // Emit M at start or when there's a gap (^^ path concatenation)
     if (i === 0) {
@@ -7208,7 +7224,7 @@ function linestyleToDasharray(style, strokeWidth) {
   }
 }
 
-function generateArrowHead(dc, minX, maxY, scale, bpCSSPixel, css) {
+function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
   // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel
@@ -7222,7 +7238,7 @@ function generateArrowHead(dc, minX, maxY, scale, bpCSSPixel, css) {
   // Compute total path length in viewBox units and clamp arrowhead size
   let totalLen = 0;
   for (const s of segs) {
-    const dx = (s.p3.x - s.p0.x) * scale, dy = (s.p3.y - s.p0.y) * scale;
+    const dx = (s.p3.x - s.p0.x) * scaleX, dy = (s.p3.y - s.p0.y) * scaleY;
     totalLen += Math.sqrt(dx*dx + dy*dy);
   }
   // Don't let arrowhead exceed 70% of path length
@@ -7235,22 +7251,22 @@ function generateArrowHead(dc, minX, maxY, scale, bpCSSPixel, css) {
     let tip, tangentAngle;
     if (atEnd) {
       tip = seg.p3;
-      const dx = seg.p3.x - seg.cp2.x, dy = seg.p3.y - seg.cp2.y;
+      const dx = (seg.p3.x - seg.cp2.x) * scaleX, dy = (seg.p3.y - seg.cp2.y) * scaleY;
       tangentAngle = Math.atan2(dy, dx);
       if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) {
-        const ddx = seg.p3.x - seg.p0.x, ddy = seg.p3.y - seg.p0.y;
+        const ddx = (seg.p3.x - seg.p0.x) * scaleX, ddy = (seg.p3.y - seg.p0.y) * scaleY;
         tangentAngle = Math.atan2(ddy, ddx);
       }
     } else {
       tip = seg.p0;
-      const dx = seg.p0.x - seg.cp1.x, dy = seg.p0.y - seg.cp1.y;
+      const dx = (seg.p0.x - seg.cp1.x) * scaleX, dy = (seg.p0.y - seg.cp1.y) * scaleY;
       tangentAngle = Math.atan2(dy, dx);
       if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) {
-        const ddx = seg.p0.x - seg.p3.x, ddy = seg.p0.y - seg.p3.y;
+        const ddx = (seg.p0.x - seg.p3.x) * scaleX, ddy = (seg.p0.y - seg.p3.y) * scaleY;
         tangentAngle = Math.atan2(ddy, ddx);
       }
     }
-    const tipX = (tip.x - minX)*scale, tipY = (maxY - tip.y)*scale;
+    const tipX = (tip.x - minX)*scaleX, tipY = (maxY - tip.y)*scaleY;
     const headAngle = 15 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords

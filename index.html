@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.26</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.27</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -1737,7 +1737,7 @@ const SERVER_URL = 'http://127.0.0.1:8080';
 
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let useRealAsy = false; // when true, skip JS interpreter and always use server
-let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
+let lastRenderInfo = null; // stores { pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, displayPercent } from last JS render
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
 let gridActive = false; // grid overlay toggle state
@@ -1809,7 +1809,7 @@ function applyGridOverlay() {
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
 
-  const { pxPerUnit, minX, minY, maxX, maxY } = lastRenderInfo;
+  const { pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY } = lastRenderInfo;
   const ns = 'http://www.w3.org/2000/svg';
   const g = document.createElementNS(ns, 'g');
   g.setAttribute('id', 'hitexer-grid-overlay');
@@ -1821,12 +1821,12 @@ function applyGridOverlay() {
   const gridMaxY = Math.ceil(maxY);
 
   // viewBox dimensions for label placement
-  const viewW = (maxX - minX) * pxPerUnit;
-  const viewH = (maxY - minY) * pxPerUnit;
+  const viewW = (maxX - minX) * pxPerUnitX;
+  const viewH = (maxY - minY) * pxPerUnitY;
 
   // Vertical lines with X labels along bottom inside viewBox
   for (let x = gridMinX; x <= gridMaxX; x++) {
-    const sx = (x - minX) * pxPerUnit;
+    const sx = (x - minX) * pxPerUnitX;
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', sx); line.setAttribute('y1', 0);
     line.setAttribute('x2', sx); line.setAttribute('y2', viewH);
@@ -1842,7 +1842,7 @@ function applyGridOverlay() {
   }
   // Horizontal lines with Y labels along left inside viewBox
   for (let y = gridMinY; y <= gridMaxY; y++) {
-    const sy = (maxY - y) * pxPerUnit;
+    const sy = (maxY - y) * pxPerUnitY;
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', 0); line.setAttribute('y1', sy);
     line.setAttribute('x2', viewW); line.setAttribute('y2', sy);
@@ -1891,7 +1891,7 @@ async function doRender() {
       }
       showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
-      lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+      lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       lastJsRenderOk = true;
       if (gridActive) applyGridOverlay();
@@ -3084,8 +3084,8 @@ function handleElementPlacementClick(e) {
       const inv = screenCTM.inverse();
       const svgX = inv.a * e.clientX + inv.c * e.clientY + inv.e;
       const svgY = inv.b * e.clientX + inv.d * e.clientY + inv.f;
-      mx = lastRenderInfo.minX + svgX / lastRenderInfo.pxPerUnit;
-      my = lastRenderInfo.maxY - svgY / lastRenderInfo.pxPerUnit;
+      mx = lastRenderInfo.minX + svgX / lastRenderInfo.pxPerUnitX;
+      my = lastRenderInfo.maxY - svgY / lastRenderInfo.pxPerUnitY;
     }
   }
   placeElementAtCoords(label, mx, my);
@@ -3797,8 +3797,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper: convert math coordinates to SVG viewBox coordinates using lastRenderInfo
     function mathToSvg(mx, my) {
       if (lastRenderInfo) {
-        const { pxPerUnit, minX, maxY } = lastRenderInfo;
-        return { x: (mx - minX) * pxPerUnit, y: (maxY - my) * pxPerUnit };
+        const { pxPerUnitX, pxPerUnitY, minX, maxY } = lastRenderInfo;
+        return { x: (mx - minX) * pxPerUnitX, y: (maxY - my) * pxPerUnitY };
       }
       // Fallback: parse SVG viewBox when lastRenderInfo is null (server-rendered code)
       const svgEl = document.querySelector('#preview-container svg');
@@ -4082,7 +4082,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
         // Re-apply slide overlay on the new SVG
         applySlideOverlay();
@@ -4126,7 +4126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
         setupSvgInteractivityDirect(code, result.commandMap);
         if (slideActive) applySlideOverlay();
@@ -4162,7 +4162,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         setupSvgInteractivityDirect(newCode, result.commandMap);
         applyCanvasTransform();
         if (slideActive) applySlideOverlay();
@@ -4368,7 +4368,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
       } catch(e) { /* ignore render errors during preview */ }
     }
