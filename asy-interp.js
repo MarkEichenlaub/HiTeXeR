@@ -2834,6 +2834,11 @@ function createInterpreter() {
           const len = Math.sqrt(t.x*t.x + t.y*t.y + t.z*t.z);
           return len > 0 ? makeTriple(t.x/len, t.y/len, t.z/len) : makeTriple(0,0,0);
         }
+        if (isPair(args[0])) {
+          const p = args[0];
+          const len = Math.sqrt(p.x*p.x + p.y*p.y);
+          return len > 0 ? makePair(p.x/len, p.y/len) : makePair(0,0);
+        }
         const a = toNumber(args[0]);
         return makePair(Math.cos(a*Math.PI/180), Math.sin(a*Math.PI/180));
       }
@@ -5518,16 +5523,16 @@ function createInterpreter() {
       if (_axisLimits.ymin === null || ybottom < _axisLimits.ymin) _axisLimits.ymin = ybottom;
       if (_axisLimits.ymax === null || ytop > _axisLimits.ymax) _axisLimits.ymax = ytop;
 
-      // Grid lines
+      // Grid lines (exclude boundary lines to avoid drawing a rectangular border)
       if (usegrid) {
         const gridPen = makePen({r:0.75,g:0.75,b:0.75, linewidth:0.4});
-        for (let i = xleft; i <= xright; i += xstep) {
+        for (let i = xleft + xstep; i < xright; i += xstep) {
           if (Math.abs(i) > 0.01) {
             const path = makePath([lineSegment({x:i,y:ybottom},{x:i,y:ytop})], false);
             pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
           }
         }
-        for (let i = ybottom; i <= ytop; i += ystep) {
+        for (let i = ybottom + ystep; i < ytop; i += ystep) {
           if (Math.abs(i) > 0.01) {
             const path = makePath([lineSegment({x:xleft,y:i},{x:xright,y:i})], false);
             pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
@@ -5544,26 +5549,17 @@ function createInterpreter() {
       const hPath = makePath([lineSegment({x:xleft,y:0},{x:xright,y:0})], false);
       pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
 
-      // Tick labels
-      const tickPen = clonePen(defaultPen);
-      tickPen.fontsize = 8;
-      for (let i = xleft + xstep; i < xright; i += xstep) {
-        const iv = Math.round(i * 1000) / 1000;
-        if (Math.abs(iv) < 0.01) continue;
-        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
-        pic.commands.push({cmd:'label', text:'$' + label + '$', pos:{x:iv, y:0}, align:{x:0,y:-1}, pen:clonePen(tickPen), filltype:null, line:0});
-        if (useticks) {
+      // Tick marks (no numeric labels — labels are added by user code)
+      if (useticks) {
+        for (let i = xleft + xstep; i < xright; i += xstep) {
+          const iv = Math.round(i * 1000) / 1000;
+          if (Math.abs(iv) < 0.01) continue;
           const tPath = makePath([lineSegment({x:iv,y:-0.15},{x:iv,y:0.15})], false);
           pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
         }
-      }
-      for (let i = ybottom + ystep; i < ytop; i += ystep) {
-        const iv = Math.round(i * 1000) / 1000;
-        if (Math.abs(iv) < 0.01) continue;
-        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
-        const suffix = complexplane ? 'i' : '';
-        pic.commands.push({cmd:'label', text:'$' + label + suffix + '$', pos:{x:0, y:iv}, align:{x:-1,y:0}, pen:clonePen(tickPen), filltype:null, line:0});
-        if (useticks) {
+        for (let i = ybottom + ystep; i < ytop; i += ystep) {
+          const iv = Math.round(i * 1000) / 1000;
+          if (Math.abs(iv) < 0.01) continue;
           const tPath = makePath([lineSegment({x:-0.15,y:iv},{x:0.15,y:iv})], false);
           pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
         }
