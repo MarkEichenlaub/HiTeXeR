@@ -3872,10 +3872,20 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
-          if (ticks.format) {
-            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, () => Number.isInteger(v) ? String(v) : v.toFixed(1));
+          const fmtDefault = () => Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+          if (ticks.format && ticks.format !== '%') {
+            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
+              // Simple printf-style: %d→int, %f→fixed, %g→general
+              if (spec.endsWith('d')) return String(Math.round(v));
+              if (spec.endsWith('f')) {
+                const m = spec.match(/\.(\d+)/);
+                return v.toFixed(m ? parseInt(m[1]) : 6);
+              }
+              // %g, %e, %s — use general format
+              return fmtDefault();
+            });
           } else {
-            txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+            txt = fmtDefault();
           }
           const labelPen = clonePen(ticks.labelPen || tickPen);
           labelPen.fontsize = labelPen.fontsize || 8;
@@ -6991,9 +7001,18 @@ function renderSVG(result, opts) {
         //   text center = S + (ax_n * W, ay_n * H)     (L∞-normalised box offset)
         // where ax_n = ax * 0.5 / max(|ax|,|ay|), same for y.
         const ax = dc.align.x, ay = dc.align.y;
-        const cleanLen = stripLaTeX(dc.text || '').length || 1;
+        const cleanText = stripLaTeX(dc.text || '');
+        let cleanLen, numLines;
+        if (cleanText.includes('\n')) {
+          const clines = cleanText.split('\n').filter(l => l.length > 0);
+          cleanLen = Math.max(...clines.map(l => l.length)) || 1;
+          numLines = clines.length;
+        } else {
+          cleanLen = cleanText.length || 1;
+          numLines = 1;
+        }
         const W = cleanLen * fontSizeSVG * 0.52;
-        const H = fontSizeSVG;
+        const H = fontSizeSVG * numLines;
         const margin = 0.25 * fontSizeSVG;   // Asymptote default: labelmargin=0.25
         // Asymptote drawlabel.cc: z = align * 0.5; offset = (z.x*W, z.y*H)
         // The magnitude of align is NOT normalised — 2E pushes twice as far as E.
@@ -7068,7 +7087,7 @@ function renderSVG(result, opts) {
         let tspans = '';
         lines.forEach((line, i) => {
           const lineDy = i === 0 ? -totalOffset / 2 : lineHeight;
-          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(line.trim())}</tspan>`;
+          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(stripLaTeX(line.trim()))}</tspan>`;
         });
         const mlLabel = `<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
         elements.push(labelTransformAttr ? `<g${labelTransformAttr}>${mlLabel}</g>` : mlLabel);
@@ -7134,6 +7153,11 @@ function renderSVG(result, opts) {
           '\\times','\\div','\\leq','\\geq','\\neq','\\equiv',
           '\\notin','\\cup','\\cap','\\neg','\\vee','\\ell',
           '\\cos','\\sin','\\tan','\\log','\\ln',
+          '\\sec','\\csc','\\cot','\\arcsin','\\arccos','\\arctan','\\exp','\\min','\\max',
+          '\\spadesuit','\\heartsuit','\\diamondsuit','\\clubsuit',
+          '\\square','\\blacksquare','\\lozenge',
+          '\\nabla','\\partial','\\surd','\\checkmark',
+          '\\varnothing','\\emptyset',
           '\\left','\\right',
         ];
         for (const cmd of unicodeCmds) {
@@ -7455,7 +7479,13 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ','\\prime':'′',
+    '\\spadesuit':'♠','\\heartsuit':'♥','\\diamondsuit':'♦','\\clubsuit':'♣',
+    '\\square':'□','\\blacksquare':'■','\\lozenge':'◊',
+    '\\nabla':'∇','\\partial':'∂','\\surd':'√','\\checkmark':'✓',
+    '\\varnothing':'∅','\\emptyset':'∅',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\sec':'sec','\\csc':'csc','\\cot':'cot','\\arcsin':'arcsin',
+    '\\arccos':'arccos','\\arctan':'arctan','\\exp':'exp','\\min':'min','\\max':'max',
     '\\left':'','\\right':'',
   };
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
@@ -7464,7 +7494,9 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   s = s.replace(/\\[ ~]/g, ' ');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
-  s = s.replace(/[{}]/g, '');
+  // NOTE: Do NOT strip braces here — the subscript/superscript parser below
+  // needs them to detect multi-character groups like _{k-1}.  Stray braces
+  // are cleaned up after parsing (see below).
   s = s.replace(/\s+/g, ' ').trim();
 
   // Check for super/subscripts
@@ -7506,6 +7538,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     }
   }
   if (cur) parts.push({text: cur, mode});
+
+  // Strip any leftover braces from part text (braces were preserved for
+  // subscript/superscript group detection above, clean up now).
+  for (const p of parts) p.text = p.text.replace(/[{}]/g, '');
 
   // Build SVG text with tspan elements
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
@@ -7609,6 +7645,8 @@ function stripLaTeX(text) {
   s = s.replace(/\\(?:underbrace|overbrace)\s*\{[^}]*\}/g, '');
   // Handle \hspace{...} → space
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // Handle \vspace{...} → remove entirely (vertical spacing)
+  s = s.replace(/\\vspace\s*\{[^}]*\}/g, '');
   // Handle \sqrt{a} → √a
   s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode

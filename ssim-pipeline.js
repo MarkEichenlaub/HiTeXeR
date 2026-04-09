@@ -106,6 +106,72 @@ function buildFontFaceCSS() {
   return css;
 }
 
+/**
+ * Expand the SVG viewBox so that elements positioned via overflow:visible
+ * (e.g. axis tick labels) are included in the rasterized output.
+ * Browsers honour overflow:visible, but librsvg/sharp clip to the viewBox.
+ */
+function expandViewBox(svgStr) {
+  const vbMatch = svgStr.match(/viewBox="([^"]+)"/);
+  if (!vbMatch) return svgStr;
+  let [vx, vy, vw, vh] = vbMatch[1].split(/\s+/).map(Number);
+  let minX = vx, minY = vy, maxX = vx + vw, maxY = vy + vh;
+
+  // Scan <text> elements for their y position (+font-size padding)
+  const textRe = /<text\s[^>]*?\bx="([^"]+)"[^>]*?\by="([^"]+)"[^>]*?(?:font-size="([^"]+)")?[^>]*>/g;
+  const textRe2 = /<text\s[^>]*?\by="([^"]+)"[^>]*?\bx="([^"]+)"[^>]*?(?:font-size="([^"]+)")?[^>]*>/g;
+  for (const re of [textRe, textRe2]) {
+    let m;
+    while ((m = re.exec(svgStr)) !== null) {
+      const x = parseFloat(re === textRe ? m[1] : m[2]);
+      const y = parseFloat(re === textRe ? m[2] : m[1]);
+      const fs = parseFloat(m[3] || '12');
+      const pad = fs * 0.6; // half the font height as padding
+      if (x - pad < minX) minX = x - pad;
+      if (x + pad > maxX) maxX = x + pad;
+      if (y - pad < minY) minY = y - pad;
+      if (y + pad > maxY) maxY = y + pad;
+    }
+  }
+
+  // Scan <foreignObject> elements (KaTeX labels)
+  const foRe = /<foreignObject\s[^>]*?\bx="([^"]+)"[^>]*?\by="([^"]+)"[^>]*?\bwidth="([^"]+)"[^>]*?\bheight="([^"]+)"[^>]*>/g;
+  let fm;
+  while ((fm = foRe.exec(svgStr)) !== null) {
+    const fx = parseFloat(fm[1]), fy = parseFloat(fm[2]);
+    const fw = parseFloat(fm[3]), fh = parseFloat(fm[4]);
+    if (fx < minX) minX = fx;
+    if (fy < minY) minY = fy;
+    if (fx + fw > maxX) maxX = fx + fw;
+    if (fy + fh > maxY) maxY = fy + fh;
+  }
+
+  // Only expand, never shrink
+  const newVx = Math.min(vx, minX);
+  const newVy = Math.min(vy, minY);
+  const newVw = Math.max(vx + vw, maxX) - newVx;
+  const newVh = Math.max(vy + vh, maxY) - newVy;
+
+  if (newVx === vx && newVy === vy && newVw === vw && newVh === vh) return svgStr;
+
+  // Update viewBox
+  const fmt = n => +n.toFixed(4);
+  let result = svgStr.replace(vbMatch[0], `viewBox="${fmt(newVx)} ${fmt(newVy)} ${fmt(newVw)} ${fmt(newVh)}"`);
+
+  // Scale width/height proportionally so pixel density stays the same
+  const wMatch = result.match(/\bwidth="([^"]+)"/);
+  const hMatch = result.match(/\bheight="([^"]+)"/);
+  if (wMatch && hMatch) {
+    const oldW = parseFloat(wMatch[1]), oldH = parseFloat(hMatch[1]);
+    const newW = oldW * (newVw / vw);
+    const newH = oldH * (newVh / vh);
+    result = result.replace(wMatch[0], `width="${fmt(newW)}"`);
+    result = result.replace(hMatch[0], `height="${fmt(newH)}"`);
+  }
+
+  return result;
+}
+
 function embedFontsInSVG(svgStr, fontCSS) {
   // Inject font-face CSS into the existing <style> block, or add one
   if (svgStr.includes('<style>')) {
@@ -369,7 +435,8 @@ async function main() {
 
       try {
         const svgStr = fs.readFileSync(path.join(SVG_DIR, sf), 'utf8');
-        const svgWithFonts = embedFontsInSVG(svgStr, fontCSS);
+        const svgExpanded = expandViewBox(svgStr);
+        const svgWithFonts = embedFontsInSVG(svgExpanded, fontCSS);
         const svgBuf = Buffer.from(svgWithFonts, 'utf8');
         await sharp(svgBuf, { density: RASTER_DPI }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
         ok++;
