@@ -3519,7 +3519,7 @@ function createInterpreter() {
 
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
-      'ArcArrow','ArcArrows','Bar','Bars','None'];
+      'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars','None'];
     for (const name of arrowNames) {
       env.set(name, (...args) => {
         // Arrow(arrowhead, real size) — first arg may be a null arrowhead type (TeXHead etc.)
@@ -7463,9 +7463,9 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled};
   }
 
-  if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow') {
+  if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow' || style === 'EndArcArrow') {
     arrowParts.push(arrowAt(segs[segs.length-1], true));
-  } else if (style === 'BeginArrow') {
+  } else if (style === 'BeginArrow' || style === 'BeginArcArrow') {
     arrowParts.push(arrowAt(segs[0], false));
   } else if (style === 'Arrows' || style === 'ArcArrows') {
     arrowParts.push(arrowAt(segs[segs.length-1], true));
