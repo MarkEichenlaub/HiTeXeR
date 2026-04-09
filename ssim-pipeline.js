@@ -20,11 +20,12 @@ const PER_PAGE    = 100;
 const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
 // HiTeXeR SVGs use 120/72 CSS-px per big-point (see bpToCSSPx in asy-interp.js).
 // Asymptote EPS is rasterized at 240 DPI (=240/72 px per bp).
-// To make both produce the same pixel dimensions for the same drawing:
-//   htx_px = css_w * D/96 = (bp * 120/72) * D/96
+// sharp/librsvg treats SVG width/height as points (1/72 inch), not CSS pixels
+// (1/96 inch), so the effective scale is D/72 not D/96:
+//   htx_px = css_w * D/72 = (bp * 120/72) * D/72
 //   asy_px = bp * 240/72
-//   Matching: D = 240 * 96 / 120 = 192
-const RASTER_DPI  = 192;
+//   Matching: D = 240 * 72 / 120 = 144
+const RASTER_DPI  = 144;
 
 const args = process.argv.slice(2);
 const STEPS = new Set(args.length ? args : ['render-htx','render-asy','rasterize','ssim','html']);
