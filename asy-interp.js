@@ -6530,9 +6530,19 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'label' || dc.cmd === 'dot') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
-        const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+        let fontSize = (dc.pen && dc.pen.fontsize) || 10;
         const text = dc.text || dc.label || '';
         const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
+
+        // Account for label transform (scale/rotate) in bbox estimation
+        let ltScale = 1, ltAngle = 0;
+        if (dc.labelTransform) {
+          const lt = dc.labelTransform;
+          ltScale = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+          if (ltScale > 0 && Math.abs(ltScale - 1) > 0.01) fontSize *= ltScale;
+          ltAngle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        }
+
         // Character width estimate for bbox: for size()-constrained diagrams,
         // use a tight glyph-bbox estimate (0.288 em) that keeps geometry scale
         // close to real Asymptote.  For auto-scaled diagrams, use the TeX
@@ -6543,10 +6553,18 @@ function renderSVG(result, opts) {
         const rawLabel = text;
         const hasFrac = /\\frac/.test(rawLabel);
         const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
-        const textWidthUser = effectiveLen * charWidthUser;
+        let textWidthUser = effectiveLen * charWidthUser;
         // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
         const heightFactor = autoScaled ? 0.7 : 0.48;
-        const textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
+        let textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
+
+        // For rotated labels, swap width and height in bbox computation
+        if (Math.abs(ltAngle) > 45) {
+          const tmp = textWidthUser;
+          textWidthUser = textHeightUser;
+          textHeightUser = tmp;
+        }
+
         let dx = 0, dy = 0;
         if (dc.align) {
           const ax = dc.align.x, ay = dc.align.y;
@@ -6958,9 +6976,10 @@ function renderSVG(result, opts) {
           // For W/E aligned rotated labels: the font height (which becomes the screen-space
           // "width" after rotation) needs to offset the center from the anchor.
           if (dc.align) {
-            // After rotation the text's visual width is its original height, so use halfH.
-            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5; // W: center left of anchor by halfH
-            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5; // E: center right of anchor by halfH
+            // After rotation the text's visual width is its original height, so use halfH + margin.
+            const rotMargin = 0.25 * effectiveFontSize;
+            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5 - rotMargin; // W: center left of anchor by halfH + margin
+            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5 + rotMargin; // E: center right of anchor by halfH + margin
           }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
           // With rotation, text-anchor must be 'middle' so the label is centered at the
