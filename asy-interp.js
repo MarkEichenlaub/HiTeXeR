@@ -2881,6 +2881,18 @@ function createInterpreter() {
     env.set('expi', (a) => { const v = toNumber(a); return makePair(Math.cos(v), Math.sin(v)); });
     env.set('xpart', (p) => toPair(p).x);
     env.set('ypart', (p) => toPair(p).y);
+    env.set('interp', (a, b, t) => {
+      const frac = toNumber(t);
+      if (isTriple(a) || isTriple(b)) {
+        const u = toTriple(a), v = toTriple(b);
+        return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
+      }
+      if (isPair(a) || isPair(b)) {
+        const u = toPair(a), v = toPair(b);
+        return makePair(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac);
+      }
+      return toNumber(a)*(1-frac) + toNumber(b)*frac;
+    });
     env.set('dot', (...args) => evalDot(args));
 
     // Path constructors
@@ -5741,19 +5753,6 @@ function createInterpreter() {
       const dx1 = v.x-u.x, dy1 = v.y-u.y, dz1 = v.z-u.z;
       const dx2 = w.x-u.x, dy2 = w.y-u.y, dz2 = w.z-u.z;
       return makeTriple(dy1*dz2-dz1*dy2, dz1*dx2-dx1*dz2, dx1*dy2-dy1*dx2);
-    });
-
-    env.set('interp', (a, b, t) => {
-      const frac = toNumber(t);
-      if (isTriple(a) || isTriple(b)) {
-        const u = toTriple(a), v = toTriple(b);
-        return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
-      }
-      if (isPair(a) || isPair(b)) {
-        const u = toPair(a), v = toPair(b);
-        return makePair(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac);
-      }
-      return toNumber(a)*(1-frac) + toNumber(b)*frac;
     });
 
     // Component accessors
