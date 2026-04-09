@@ -776,6 +776,12 @@ document.getElementById('collect-btn').addEventListener('click',()=>{
     });
   };
 });
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'&&e.shiftKey){
+    const next=[...document.querySelectorAll('.pag a')].find(a=>a.textContent.includes('Next'));
+    if(next)location.href=next.href;
+  }
+});
 </script></body></html>`;
 
       const fname = page === 0 ? 'index.html' : `page-${pageNum}.html`;
