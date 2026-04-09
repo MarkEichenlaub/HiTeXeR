@@ -2724,17 +2724,27 @@ function createInterpreter() {
     env.set('pointpen', makePen({}));
     env.set('currentpicture', currentPic);
     env.set('currentprojection', null);
-    // add() composites a picture into currentpicture, optionally with transform
+    // add() composites a picture into currentpicture (or a destination picture),
+    // optionally with a transform.
+    // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
     env.set('add', (...args) => {
-      let pic = null, t = null;
+      let pics = [], t = null;
       for (const a of args) {
-        if (a && a._tag === 'picture') pic = a;
+        if (a && a._tag === 'picture') pics.push(a);
         else if (isTransform(a)) t = a;
       }
-      if (pic) {
-        const cmds = t ? pic.commands.map(c => transformDrawCmd(t, c)) : pic.commands;
-        for (const c of cmds) currentPic.commands.push(c);
+      let dest, src;
+      if (pics.length >= 2) {
+        dest = pics[0];
+        src = pics[1];
+      } else if (pics.length === 1) {
+        dest = currentPic;
+        src = pics[0];
+      } else {
+        return;
       }
+      const cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
+      for (const c of cmds) dest.commands.push(c);
     });
     env.set('invisible', makePen({opacity:0}));
     env.set('solid', makePen({linestyle:'solid'}));
