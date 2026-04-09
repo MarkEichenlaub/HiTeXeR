@@ -3914,6 +3914,10 @@ function createInterpreter() {
       return {_tag:'axisshift', axis:'y', value:x};
     });
 
+    // XZero = XEquals(0), YZero = YEquals(0)
+    env.set('YZero', {_tag:'axisshift', axis:'x', value:0});
+    env.set('XZero', {_tag:'axisshift', axis:'y', value:0});
+
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
       let pic = currentPic;
@@ -3935,6 +3939,23 @@ function createInterpreter() {
           if ('p' in a) pen = a.p;
           if ('pen' in a) pen = a.pen;
           if ('above' in a) above = !!a.above;
+          if ('axis' in a) {
+            const ax = a.axis;
+            if (ax && ax._tag === 'axisshift' && ax.axis === 'x') axisShiftY = ax.value;
+            else if (ax && ax._tag === 'axisextent') extent = ax.type;
+          }
+          if ('arrow' in a) {
+            let ar = a.arrow;
+            if (typeof ar === 'function') { try { ar = ar(); } catch(e) {} }
+            if (ar && ar._tag === 'arrow') arrow = ar;
+          }
+          if ('L' in a) {
+            const lv = a.L;
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            else if (isString(lv)) label = lv;
+          }
+          if ('xmin' in a && typeof a.xmin === 'number') xmin = a.xmin;
+          if ('xmax' in a && typeof a.xmax === 'number') xmax = a.xmax;
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
@@ -4019,6 +4040,23 @@ function createInterpreter() {
           if ('p' in a) pen = a.p;
           if ('pen' in a) pen = a.pen;
           if ('above' in a) above = !!a.above;
+          if ('axis' in a) {
+            const ax = a.axis;
+            if (ax && ax._tag === 'axisshift' && ax.axis === 'y') axisShiftX = ax.value;
+            else if (ax && ax._tag === 'axisextent') extent = ax.type;
+          }
+          if ('arrow' in a) {
+            let ar = a.arrow;
+            if (typeof ar === 'function') { try { ar = ar(); } catch(e) {} }
+            if (ar && ar._tag === 'arrow') arrow = ar;
+          }
+          if ('L' in a) {
+            const lv = a.L;
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            else if (isString(lv)) label = lv;
+          }
+          if ('ymin' in a && typeof a.ymin === 'number') ymin = a.ymin;
+          if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
