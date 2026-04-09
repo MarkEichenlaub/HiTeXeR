@@ -6616,9 +6616,9 @@ function renderSVG(result, opts) {
           const ax = dc.align.x, ay = dc.align.y;
           const marginX = 0.20 * fontSize / roughPxPerUnitX;
           const marginY = 0.20 * fontSize / roughPxPerUnitY;
-          const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
-          const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
-          const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+          // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
+          const ax_n = ax * 0.5;
+          const ay_n = ay * 0.5;
           dx = ax_n * textWidthUser + ax * marginX;
           dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
         }
@@ -6992,9 +6992,10 @@ function renderSVG(result, opts) {
         const W = cleanLen * fontSizeSVG * 0.52;
         const H = fontSizeSVG;
         const margin = 0.25 * fontSizeSVG;   // Asymptote default: labelmargin=0.25
-        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
-        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
-        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+        // Asymptote drawlabel.cc: z = align * 0.5; offset = (z.x*W, z.y*H)
+        // The magnitude of align is NOT normalised — 2E pushes twice as far as E.
+        const ax_n = ax * 0.5;
+        const ay_n = ay * 0.5;
         dx = ax_n * W + ax * margin;
         dy = -(ay_n * H + ay * margin);   // negate: SVG y-axis is inverted
         anchor = 'middle';
@@ -7190,9 +7191,9 @@ function renderSVG(result, opts) {
       let dx = -imgW / 2, dy = -imgH / 2;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        const scale0 = Math.max(Math.abs(ax), Math.abs(ay)) || 1;
-        const ax_n = ax * 0.5 / scale0;
-        const ay_n = ay * 0.5 / scale0;
+        // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
+        const ax_n = ax * 0.5;
+        const ay_n = ay * 0.5;
         dx = ax_n * imgW - imgW / 2;
         dy = -(ay_n * imgH) - imgH / 2; // SVG y flipped
       }

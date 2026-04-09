@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.29</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.31</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2918,6 +2918,12 @@ function replaceForeignObjects(svgEl) {
     };
     // Convert LaTeX to Unicode text
     let displayText = label;
+    // Detect bold commands before stripping
+    const hasBold = /\\(?:mathbf|textbf)\s*\{/.test(label);
+    // Detect if all alphabetic content is inside upright font commands
+    let uprightTest = label.replace(/\\(?:mathrm|mathbf|textbf|text|mathsf|operatorname)\s*\{[^}]*\}/g, '');
+    uprightTest = uprightTest.replace(/\\[a-zA-Z]+/g, '');
+    const allUpright = !/[a-zA-Z]/.test(uprightTest) && /\\(?:mathrm|mathbf|textbf|text|mathsf|operatorname)\s*\{/.test(label);
     // Replace LaTeX commands with Unicode (longest first to avoid partial matches)
     for (const [cmd, ch] of Object.entries(LATEX_UNICODE)) {
       displayText = displayText.split(cmd).join(ch);
@@ -2963,7 +2969,8 @@ function replaceForeignObjects(svgEl) {
     textEl.setAttribute('text-anchor', textAnchor);
     textEl.setAttribute('dominant-baseline', 'central');
     textEl.setAttribute('font-family', 'serif');
-    textEl.setAttribute('font-style', 'italic');
+    textEl.setAttribute('font-style', allUpright ? 'normal' : 'italic');
+    if (hasBold) textEl.setAttribute('font-weight', 'bold');
     if (opacity) textEl.setAttribute('opacity', opacity);
     textEl.textContent = displayText;
 
