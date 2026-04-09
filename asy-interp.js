@@ -3503,7 +3503,15 @@ function createInterpreter() {
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
       'ArcArrow','ArcArrows','Bar','Bars','None'];
     for (const name of arrowNames) {
-      env.set(name, (...args) => ({_tag:'arrow', style:name, size: args.length>0?toNumber(args[0]):6}));
+      env.set(name, (...args) => {
+        // Arrow(arrowhead, real size) — first arg may be a null arrowhead type (TeXHead etc.)
+        // Find the first numeric argument to use as size
+        let sz = 6;
+        for (const a of args) {
+          if (typeof a === 'number') { sz = a; break; }
+        }
+        return {_tag:'arrow', style:name, size: sz};
+      });
     }
 
     // Fill types — return tagged objects so label rendering can detect them
@@ -5652,9 +5660,21 @@ function createInterpreter() {
       env.set('currentprojection', projection);
     }
 
-    // 3D math functions
-    env.set('cross', (a, b) => {
-      const u = toTriple(a), v = toTriple(b);
+    // 3D math functions / 2D marker cross
+    env.set('cross', (...args) => {
+      // cross(int n) — marker path: n-pointed asterisk (from plain_markers.asy)
+      if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
+        const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        const segs = [];
+        for (let i = 0; i < n; i++) {
+          const angle = i * Math.PI / n;
+          const dx = Math.cos(angle), dy = Math.sin(angle);
+          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+        }
+        return makePath(segs, false);
+      }
+      // cross(triple, triple) — 3D vector cross product
+      const u = toTriple(args[0]), v = toTriple(args[1]);
       return makeTriple(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
     });
 
@@ -5851,7 +5871,7 @@ function createInterpreter() {
       return;
     }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
-    let labelText = null, labelAlign = null;
+    let labelText = null, labelAlign = null, labelPosition = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -5867,7 +5887,7 @@ function createInterpreter() {
         try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
       }
       else if (a && a._tag === 'label') {
-        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; }
+        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
       }
       else if (isString(a) && !labelText && !pathArg) { labelText = a; }
       else if (isTriple(a) && !pathArg) {
@@ -5901,11 +5921,21 @@ function createInterpreter() {
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
       if (drawPen) dc.drawPen = drawPen;
       target.commands.push(dc);
-      // If draw call has a label, place it at the path midpoint
+      // If draw call has a label, place it along the path at the specified position
       if (labelText && pathArg.segs && pathArg.segs.length > 0) {
-        const midSeg = pathArg.segs[Math.floor(pathArg.segs.length/2)];
-        const midPos = makePair((midSeg.p0.x+midSeg.p3.x)/2, (midSeg.p0.y+midSeg.p3.y)/2);
-        target.commands.push({cmd:'label', text:labelText, pos:midPos, align:labelAlign, pen, line: args._line || 0});
+        const t = (labelPosition != null) ? labelPosition : 0.5; // default midpoint
+        // Compute position at parameter t along the path (0=begin, 1=end)
+        const totalSegs = pathArg.segs.length;
+        const segParam = t * totalSegs;
+        const segIdx = Math.min(Math.floor(segParam), totalSegs - 1);
+        const localT = segParam - segIdx;
+        const seg = pathArg.segs[segIdx];
+        // De Casteljau evaluation for cubic Bezier at localT
+        const b = (1 - localT);
+        const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
+        const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
+        const labelPos = makePair(px, py);
+        target.commands.push({cmd:'label', text:labelText, pos:labelPos, align:labelAlign, pen, line: args._line || 0});
       }
     }
   }
