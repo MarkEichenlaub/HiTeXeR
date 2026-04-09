@@ -410,19 +410,24 @@ async function main() {
           continue;
         }
 
-        // Use a common target size: scale both to fit in 400px max dimension,
-        // then pad to the SAME canvas size so SSIM compares matching pixels.
+        // Use a SINGLE scale factor so both images are scaled equally, then
+        // pad to the same canvas size so SSIM compares matching pixels.
         const MAX = 400;
 
-        // Scale Asymptote image to fit in MAXxMAX
-        const asyScale = Math.min(MAX / (asyMeta.width || 1), MAX / (asyMeta.height || 1), 1);
-        const asyW = Math.round((asyMeta.width || 1) * asyScale);
-        const asyH = Math.round((asyMeta.height || 1) * asyScale);
+        const aw = asyMeta.width || 1, ah = asyMeta.height || 1;
+        const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
 
-        // Scale HiTeXeR image to fit in MAXxMAX
-        const htxScale = Math.min(MAX / (htxMeta.width || 1), MAX / (htxMeta.height || 1), 1);
-        const htxW = Math.round((htxMeta.width || 1) * htxScale);
-        const htxH = Math.round((htxMeta.height || 1) * htxScale);
+        // Derive one scale factor from whichever image is larger in each axis
+        const commonScale = Math.min(
+          MAX / Math.max(aw, hw),
+          MAX / Math.max(ah, hh),
+          1
+        );
+
+        const asyW = Math.round(aw * commonScale);
+        const asyH = Math.round(ah * commonScale);
+        const htxW = Math.round(hw * commonScale);
+        const htxH = Math.round(hh * commonScale);
 
         // Common canvas: use the max of both scaled dimensions
         const canvasW = Math.max(asyW, htxW, 8);
