@@ -2715,6 +2715,8 @@ function createInterpreter() {
     env.set('left', makePair(-1,0));
     env.set('CCW', true);
     env.set('CW', false);
+    env.set('Aspect', true);
+    env.set('IgnoreAspect', false);
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
@@ -3158,6 +3160,8 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
       if (pos.length >= 1) sizeW = toNumber(pos[0]);
       if (pos.length >= 2) sizeH = toNumber(pos[1]);
+      // 3rd positional arg is keepAspect (e.g. size(w, h, IgnoreAspect))
+      if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
     });
     env.set('defaultpen', (p) => {
       if (isPen(p)) defaultPen = mergePens(defaultPen, p);
