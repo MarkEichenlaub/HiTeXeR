@@ -7392,6 +7392,8 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   };
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
+  // Handle \<space> (TeX inter-word space) and \~ (TeX non-breaking space) → space
+  s = s.replace(/\\[ ~]/g, ' ');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
   s = s.replace(/[{}]/g, '');
@@ -7569,6 +7571,8 @@ function stripLaTeX(text) {
   for (const [cmd, uni] of sortedEntries) {
     s = s.split(cmd).join(uni);
   }
+  // Handle \<space> (TeX inter-word space) and \~ (TeX non-breaking space) → space
+  s = s.replace(/\\[ ~]/g, ' ');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
