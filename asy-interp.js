@@ -1076,10 +1076,13 @@ function mergePens(a,b) {
   if (bHasColor) {
     const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
     if (aHasColor) {
-      // Both have color: add RGB (Asymptote pen addition semantics)
-      r.r = Math.min(1, a.r + b.r);
-      r.g = Math.min(1, a.g + b.g);
-      r.b = Math.min(1, a.b + b.b);
+      // Both have color: add RGB then proportionally scale if saturated
+      // (Asymptote's rgbrange() divides all components by the max, preserving hue)
+      r.r = a.r + b.r;
+      r.g = a.g + b.g;
+      r.b = a.b + b.b;
+      const sat = Math.max(r.r, r.g, r.b);
+      if (sat > 1) { const s = 1 / sat; r.r *= s; r.g *= s; r.b *= s; }
     } else {
       r.r = b.r; r.g = b.g; r.b = b.b;
     }
