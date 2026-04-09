@@ -7075,8 +7075,45 @@ function renderSVG(result, opts) {
 
       const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
       const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
+
+      // Check if math content uses only LaTeX commands with known Unicode equivalents
+      // (Greek letters, operators, etc.) plus simple ^/_ scripts.  Such labels render
+      // more reliably as SVG <text> (scales with the viewBox) than as KaTeX foreignObject
+      // (where CSS px sizing may mismatch the SVG coordinate system).
+      let unicodeSafe = false;
+      if (hasMath && !hasLaTeX) {
+        let probe = displayText.replace(/\$/g, '');
+        // Remove font-wrapper and spacing commands that renderLabelWithScripts handles
+        probe = probe.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{[^}]*\}/g, '');
+        probe = probe.replace(/\\hspace\s*\{[^}]*\}/g, '');
+        // Remove all LaTeX commands that renderLabelWithScripts maps to Unicode
+        const unicodeCmds = [
+          '\\leftrightarrow','\\rightarrow','\\leftarrow','\\Rightarrow','\\Leftarrow',
+          '\\operatorname','\\parallel','\\triangle','\\upsilon','\\epsilon',
+          '\\lambda','\\approx','\\bullet','\\otimes','\\subset','\\supset',
+          '\\dagger','\\forall','\\exists','\\oplus',
+          '\\alpha','\\beta','\\gamma','\\delta','\\theta','\\kappa',
+          '\\sigma','\\omega','\\Gamma','\\Delta','\\Theta','\\Omega',
+          '\\Lambda','\\Sigma','\\infty','\\wedge','\\angle','\\prime',
+          '\\cdots','\\ldots','\\ddots','\\vdots',
+          '\\zeta','\\iota','\\cdot','\\dots','\\perp','\\circ','\\star',
+          '\\eta','\\mu','\\nu','\\xi','\\pi','\\le','\\ge',
+          '\\rho','\\tau','\\phi','\\chi','\\psi',
+          '\\Xi','\\Pi','\\Phi','\\Psi',
+          '\\pm','\\mp','\\in',
+          '\\times','\\div','\\leq','\\geq','\\neq','\\equiv',
+          '\\notin','\\cup','\\cap','\\neg','\\vee','\\ell',
+          '\\cos','\\sin','\\tan','\\log','\\ln',
+          '\\left','\\right',
+        ];
+        for (const cmd of unicodeCmds) {
+          while (probe.includes(cmd)) probe = probe.replace(cmd, '');
+        }
+        unicodeSafe = !/\\[a-zA-Z]/.test(probe);
+      }
+
       let labelEl;
-      if (typeof katex !== 'undefined' && hasMath) {
+      if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
         // Check for \mathbf-only labels: render as bold SVG text — works in all rendering
         // contexts (sharp, <img>, <object>) without needing KaTeX CSS.
         const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
@@ -7095,10 +7132,11 @@ function renderSVG(result, opts) {
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
       } else {
         // Render with superscript/subscript support using tspan.
-        // If the label was originally $...$ math (wasStrippedMath) AND contains Latin
-        // letters, use math italic font.  Pure digit/punctuation content (e.g. coordinates
-        // like $(-6,4)$) stays upright — digits and punctuation are upright in LaTeX math.
-        if (wasStrippedMath && /[a-zA-Z]/.test(displayText)) {
+        // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
+        // contains Latin letters, use math italic font.  Pure digit/punctuation content
+        // (e.g. coordinates like $(-6,4)$) stays upright — digits and punctuation are
+        // upright in LaTeX math.
+        if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText)) {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
         } else {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
