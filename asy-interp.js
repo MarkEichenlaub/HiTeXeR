@@ -6661,20 +6661,28 @@ function renderSVG(result, opts) {
   // Store unshrunk dimensions for PNG export (before container shrink-to-fit)
   const intrinsicW = svgW, intrinsicH = svgH;
 
-  // If container dimensions provided, shrink to fit
+  // If container dimensions provided, shrink to fit (or enlarge unitsize diagrams)
   let displayPercent = 100;
   const containerW = opts.containerW || 0;
   const containerH = opts.containerH || 0;
   if (containerW > 0 && containerH > 0) {
     const scaleX = containerW / svgW;
     const scaleY = containerH / svgH;
-    if (scaleX < 1 || scaleY < 1) {
-      const shrink = Math.min(scaleX, scaleY);
-      displayPercent = Math.round(shrink * 100);
-      svgW *= shrink;
-      svgH *= shrink;
+    // Always shrink oversized diagrams. Also scale up unitsize() diagrams whose
+    // natural display size is tiny — unitsize sets an absolute coordinate scale
+    // (user units → bp) so the output can be microscopic. Real Asymptote/TeXeR
+    // renders to a high-DPI bitmap that fills the display; we match by enlarging
+    // the SVG display dimensions (the viewBox stays the same so geometry/fonts
+    // scale together correctly via the bpCSSPixel factor).
+    const needsShrink = scaleX < 1 || scaleY < 1;
+    const needsEnlarge = hasUnitScale && scaleX > 1 && scaleY > 1;
+    if (needsShrink || needsEnlarge) {
+      const fitScale = Math.min(scaleX, scaleY);
+      displayPercent = Math.round(fitScale * 100);
+      svgW *= fitScale;
+      svgH *= fitScale;
       // We don't change pxPerUnit or viewBox — we just set SVG width/height
-      // smaller and let the browser scale via viewBox
+      // and let the browser scale via viewBox
     }
   }
 
