@@ -6493,46 +6493,73 @@ function renderSVG(result, opts) {
   const pad = 0.5 / roughPxPerUnitForPad;      // 0.5 bp → user coords
   minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
-  // Expand bbox for labels so text doesn't get clipped
-  // Estimate label extent in user coordinates
-  for (const dc of drawCommands) {
-    if (dc.cmd === 'label' || dc.cmd === 'dot') {
-      const pos = dc.pos || dc;
-      if (!pos || pos.x === undefined) continue;
-      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
-      const text = dc.text || dc.label || '';
-      const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
-      const bboxSpan = maxX - minX || 1;
-      // Use actual unitScale when available; fall back to rough estimate from size().
-      const roughPxPerUnit = hasUnitScale ? unitScale
-        : (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
-      // Effective glyph ratio: Asymptote uses tight TeX bounding boxes.  For
-      // single-character math labels the visible bbox is well below the full
-      // cap height (~0.68 em).  Using 0.45 approximates the tight bbox and
-      // keeps size()-constrained output close to real Asymptote dimensions.
-      const capRatio = 0.48;
-      const charWidthUser = fontSize * capRatio * 0.6 / roughPxPerUnit;
-      // For labels with fractions, estimate wider width
-      const rawLabel = text;
-      const hasFrac = /\\frac/.test(rawLabel);
-      const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
-      const textWidthUser = effectiveLen * charWidthUser;
-      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) * capRatio / roughPxPerUnit;
-      let dx = 0, dy = 0;
-      if (dc.align) {
-        const ax = dc.align.x, ay = dc.align.y;
-        const margin = 0.20 * fontSize / roughPxPerUnit;
-        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
-        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
-        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
-        dx = ax_n * textWidthUser + ax * margin;
-        dy = ay_n * textHeightUser + ay * margin;   // Asymptote y-up, no inversion
+  // Expand bbox for labels so text doesn't get clipped.
+  // Estimate label extent in user coordinates.  We iterate because the scale
+  // (pxPerUnit) depends on the bbox, and labels expand the bbox.  Two passes
+  // suffice: the first expands coarsely, the second refines with the updated bbox.
+  const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
+  for (let labelPass = 0; labelPass < 2; labelPass++) {
+    // Compute the rough pxPerUnit from current bbox (mirrors the final scale logic)
+    const curBboxW = (maxX - minX) || 1;
+    const curBboxH = (maxY - minY) || 1;
+    let roughPxPerUnit;
+    if (hasUnitScale) {
+      roughPxPerUnit = unitScale;
+    } else if (sizeW > 0 || sizeH > 0) {
+      const tW = sizeW > 0 ? sizeW : Infinity;
+      const tH = sizeH > 0 ? sizeH : Infinity;
+      roughPxPerUnit = Math.min(tW / curBboxW, tH / curBboxH);
+    } else {
+      // No size/unitsize: default size(200) — scale by the binding dimension
+      roughPxPerUnit = Math.min(200 / curBboxW, 200 / curBboxH);
+    }
+
+    // Reset bbox to geometry-only extents before re-expanding with labels
+    if (labelPass > 0) {
+      minX = geoMinX; minY = geoMinY; maxX = geoMaxX; maxY = geoMaxY;
+    }
+
+    // Auto-scaled diagrams (no size/unitsize) need wider char width estimate
+    // to match Asymptote's shipout(bbox()) sizing where labels dominate the bbox.
+    const autoScaled = !hasUnitScale && sizeW <= 0 && sizeH <= 0;
+
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'label' || dc.cmd === 'dot') {
+        const pos = dc.pos || dc;
+        if (!pos || pos.x === undefined) continue;
+        const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+        const text = dc.text || dc.label || '';
+        const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
+        // Character width estimate for bbox: for size()-constrained diagrams,
+        // use a tight glyph-bbox estimate (0.288 em) that keeps geometry scale
+        // close to real Asymptote.  For auto-scaled diagrams, use the TeX
+        // advance width (~0.50 em) so label-dominated layouts match Asymptote.
+        const charWidthBp = fontSize * (autoScaled ? 0.50 : 0.48 * 0.6);
+        const charWidthUser = charWidthBp / roughPxPerUnit;
+        // For labels with fractions, estimate wider width
+        const rawLabel = text;
+        const hasFrac = /\\frac/.test(rawLabel);
+        const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
+        const textWidthUser = effectiveLen * charWidthUser;
+        // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
+        const heightFactor = autoScaled ? 0.7 : 0.48;
+        const textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnit;
+        let dx = 0, dy = 0;
+        if (dc.align) {
+          const ax = dc.align.x, ay = dc.align.y;
+          const margin = 0.20 * fontSize / roughPxPerUnit;
+          const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
+          const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
+          const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+          dx = ax_n * textWidthUser + ax * margin;
+          dy = ay_n * textHeightUser + ay * margin;   // Asymptote y-up, no inversion
+        }
+        // Expand bbox to include estimated text bounds
+        const cx = pos.x + dx;
+        const cy = pos.y + dy;
+        expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
+        expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
       }
-      // Expand bbox to include estimated text bounds
-      const cx = pos.x + dx;
-      const cy = pos.y + dy;
-      expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
-      expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
     }
   }
 
