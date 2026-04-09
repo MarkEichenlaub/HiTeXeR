@@ -6546,14 +6546,20 @@ function renderSVG(result, opts) {
     if (hasUnitScale) {
       roughPxPerUnit = roughPxPerUnitX = roughPxPerUnitY = unitScale;
     } else if (sizeW > 0 || sizeH > 0) {
+      // Use geometry-only bbox for scale estimation, matching the final
+      // pxPerUnit logic (labels don't shrink geometry in real Asymptote).
+      const geoW = (geoMaxX - geoMinX) || 1;
+      const geoH = (geoMaxY - geoMinY) || 1;
       const tW = sizeW > 0 ? sizeW : Infinity;
       const tH = sizeH > 0 ? sizeH : Infinity;
-      roughPxPerUnit = Math.min(tW / curBboxW, tH / curBboxH);
-      roughPxPerUnitX = keepAspect ? roughPxPerUnit : (sizeW > 0 ? sizeW / curBboxW : roughPxPerUnit);
-      roughPxPerUnitY = keepAspect ? roughPxPerUnit : (sizeH > 0 ? sizeH / curBboxH : roughPxPerUnit);
+      roughPxPerUnit = Math.min(tW / geoW, tH / geoH);
+      roughPxPerUnitX = keepAspect ? roughPxPerUnit : (sizeW > 0 ? sizeW / geoW : roughPxPerUnit);
+      roughPxPerUnitY = keepAspect ? roughPxPerUnit : (sizeH > 0 ? sizeH / geoH : roughPxPerUnit);
     } else {
       // No size/unitsize: default size(200) — scale by the binding dimension
-      roughPxPerUnit = Math.min(200 / curBboxW, 200 / curBboxH);
+      const geoW = (geoMaxX - geoMinX) || 1;
+      const geoH = (geoMaxY - geoMinY) || 1;
+      roughPxPerUnit = Math.min(200 / geoW, 200 / geoH);
       roughPxPerUnitX = roughPxPerUnitY = roughPxPerUnit;
     }
 
@@ -6651,15 +6657,21 @@ function renderSVG(result, opts) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
   } else if (sizeW > 0 || sizeH > 0) {
-    // size() without unitsize(): scale so the full picture (geometry + labels)
-    // fits in the requested size — matching real Asymptote behaviour.
+    // size() without unitsize(): scale geometry to fit the requested size.
+    // Real Asymptote constrains geometry scale via size(); labels are placed at
+    // absolute point sizes and simply make the output bigger.  Using the
+    // geometry-only bbox (before label expansion) for the scale denominator
+    // matches that behaviour — labels are allowed to extend beyond the size()
+    // box (rendered via overflow:visible).
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
-    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    const scaleRefW = (geoMaxX - geoMinX) || 1;
+    const scaleRefH = (geoMaxY - geoMinY) || 1;
+    pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
     if (!keepAspect && sizeW > 0 && sizeH > 0) {
       // IgnoreAspect: independent scaling per axis
-      pxPerUnitX = sizeW / (bboxW || 1);
-      pxPerUnitY = sizeH / (bboxH || 1);
+      pxPerUnitX = sizeW / scaleRefW;
+      pxPerUnitY = sizeH / scaleRefH;
     } else {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
     }
@@ -6668,7 +6680,9 @@ function renderSVG(result, opts) {
     const defaultSize = 200;
     const targetW = defaultSize;
     const targetH = defaultSize;
-    pxPerUnit = Math.min(targetW / (bboxW || 1), targetH / (bboxH || 1));
+    const scaleRefW2 = (geoMaxX - geoMinX) || 1;
+    const scaleRefH2 = (geoMaxY - geoMinY) || 1;
+    pxPerUnit = Math.min(targetW / scaleRefW2, targetH / scaleRefH2);
     pxPerUnitX = pxPerUnitY = pxPerUnit;
     sizeW = defaultSize;
     sizeH = defaultSize;
@@ -6702,11 +6716,15 @@ function renderSVG(result, opts) {
       svgH = naturalH;
     }
   } else if (sizeW > 0) {
-    svgW = sizeW;
-    svgH = naturalW > 0 ? sizeW * (naturalH / naturalW) : naturalH;
+    // Use natural dimensions (geometry-scaled) so that preserveAspectRatio
+    // doesn't re-shrink the geometry to fit sizeW.  Labels extend the
+    // natural size beyond sizeW, which is correct — real Asymptote does
+    // the same (labels make the output bigger than size()).
+    svgW = naturalW;
+    svgH = naturalH;
   } else if (sizeH > 0) {
-    svgH = sizeH;
-    svgW = naturalH > 0 ? sizeH * (naturalW / naturalH) : naturalW;
+    svgW = naturalW;
+    svgH = naturalH;
   }
 
   // In real Asymptote the pen-width overshoot extends the output slightly beyond
