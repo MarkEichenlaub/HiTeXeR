@@ -209,7 +209,7 @@ async function main() {
       if (!A.canInterpret(code)) { skip++; continue; }
 
       try {
-        const r = A.render(code, { containerW: 500, containerH: 400 });
+        const r = A.render(code, {});
         fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), r.svg);
         ok++;
       } catch (e) { fail++; }
