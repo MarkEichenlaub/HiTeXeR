@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 66/119</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -43,8 +44,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 66 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">529 Good</b>
-<b style="background:#c0820a">2498 Fair</b>
+<b style="background:#2d8a4e">530 Good</b>
+<b style="background:#c0820a">2497 Fair</b>
 <b style="background:#c0392b">8869 Poor</b>
 
 </div>
@@ -2634,148 +2635,7 @@ label(scale(0.9)*&quot;$15^{\circ}$&quot;, (A+B)/3);
 </div>
 <div class="card" id="pair-6535">
   <div class="card-header">
-    <h2>#6535 &mdash; c186_L15_script_4.asy</h2>
-    <span class="badge" style="background:#c0820a">SSIM 0.7656 &middot; Poor</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01781.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01781.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(200);
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
-    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-pair O, X, Y, B, tailX, tailY, tailB;
-
-O = (0,0);
-X = (1,2); 
-Y = (3,1);
-B = 2X-Y;
-
-tailX = O; 
-tailY = tailX;
-tailB = -X - Y;
-
-//Change these to scale the grid: 
-int xmin, xmax, ymin, ymax; 
-xmin = -8; xmax = 8; 
-ymin = -5; ymax = 5;
-
-gridLines(xmin,xmax,ymin,ymax);
-
-for (int i = -8; i &lt; 10; ++i)
-{    
-     draw(maxLine(i*X + 10*Y, i*X - 10*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
-     draw(maxLine(10*X + i*Y, -10*X + i*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
-}
-
-draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7));
-draw(tailY -- tailY + Y,green+linewidth(0.8), Arrow(7));
-draw(tailB -- tailB  + B, brown, Arrow(7)); 
-draw(tailB -- tailB + 2X, blue+linewidth(0.8), Arrow(7)); 
-draw(tailB+2X -- tailB + 2X - Y, green+linewidth(0.8), Arrow(7));
-
-label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
-label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
-label(&quot;$\mathbf{b}$&quot;, tailB--tailB + B, SW, UnFill); 
-label(&quot;$2\mathbf{x}$&quot;, tailB -- tailB + 2X, SE, UnFill); 
-label(&quot;$-\mathbf{y}$&quot;, tailB+2X -- tailB + 2X - Y,NW, UnFill);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(200)%3B%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20real%20s%20%3D%20abs(xmax)%20%2B%20abs(xmin)%20%2B%20abs(ymax)%20%2B%20abs(ymin)%20%2B%20abs(A.x%20-%20xmin)%20%2B%20abs(A.x-xmax)%20%2B%20abs(A.y%20-%20ymin)%20%2B%20abs(A.y%20-%20ymax)%3B%20%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B2s*unit(B-A)%20--%20A-2s*unit(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0D%0Apair%20O%2C%20X%2C%20Y%2C%20B%2C%20tailX%2C%20tailY%2C%20tailB%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0D%0AX%20%3D%20(1%2C2)%3B%20%0D%0D%0AY%20%3D%20(3%2C1)%3B%0D%0D%0AB%20%3D%202X-Y%3B%0D%0A%0D%0AtailX%20%3D%20O%3B%20%0D%0D%0AtailY%20%3D%20tailX%3B%0D%0D%0AtailB%20%3D%20-X%20-%20Y%3B%0D%0A%0D%0A%2F%2FChange%20these%20to%20scale%20the%20grid%3A%20%0D%0D%0Aint%20xmin%2C%20xmax%2C%20ymin%2C%20ymax%3B%20%0D%0D%0Axmin%20%3D%20-8%3B%20xmax%20%3D%208%3B%20%0D%0D%0Aymin%20%3D%20-5%3B%20ymax%20%3D%205%3B%0D%0A%0D%0AgridLines(xmin%2Cxmax%2Cymin%2Cymax)%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0D%0A%7B%20%20%20%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*X%20%2B%2010*Y%2C%20i*X%20-%2010*Y%2C%20xmin%2Cxmax%2Cymin%2Cymax)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(10*X%20%2B%20i*Y%2C%20-10*X%20%2B%20i*Y%2C%20xmin%2Cxmax%2Cymin%2Cymax)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%7D%0D%0A%0D%0Adraw(tailX--%20tailX%20%2B%20X%2C%20blue%2Blinewidth(0.8)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailY%20--%20tailY%20%2B%20Y%2Cgreen%2Blinewidth(0.8)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailB%20--%20tailB%20%20%2B%20B%2C%20brown%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(tailB%20--%20tailB%20%2B%202X%2C%20blue%2Blinewidth(0.8)%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(tailB%2B2X%20--%20tailB%20%2B%202X%20-%20Y%2C%20green%2Blinewidth(0.8)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20tailX%20%2B%20X%2F2%2C%20W%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%5Cmathbf%7By%7D%24%22%2C%20tailY%2B%20Y%2F2%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bb%7D%24%22%2C%20tailB--tailB%20%2B%20B%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%242%5Cmathbf%7Bx%7D%24%22%2C%20tailB%20--%20tailB%20%2B%202X%2C%20SE%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24-%5Cmathbf%7By%7D%24%22%2C%20tailB%2B2X%20--%20tailB%20%2B%202X%20-%20Y%2CNW%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(200);
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
-    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-pair O, X, Y, B, tailX, tailY, tailB;
-
-O = (0,0);
-X = (1,2); 
-Y = (3,1);
-B = 2X-Y;
-
-tailX = O; 
-tailY = tailX;
-tailB = -X - Y;
-
-//Change these to scale the grid: 
-int xmin, xmax, ymin, ymax; 
-xmin = -8; xmax = 8; 
-ymin = -5; ymax = 5;
-
-gridLines(xmin,xmax,ymin,ymax);
-
-for (int i = -8; i &lt; 10; ++i)
-{    
-     draw(maxLine(i*X + 10*Y, i*X - 10*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
-     draw(maxLine(10*X + i*Y, -10*X + i*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
-}
-
-draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7));
-draw(tailY -- tailY + Y,green+linewidth(0.8), Arrow(7));
-draw(tailB -- tailB  + B, brown, Arrow(7)); 
-draw(tailB -- tailB + 2X, blue+linewidth(0.8), Arrow(7)); 
-draw(tailB+2X -- tailB + 2X - Y, green+linewidth(0.8), Arrow(7));
-
-label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
-label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
-label(&quot;$\mathbf{b}$&quot;, tailB--tailB + B, SW, UnFill); 
-label(&quot;$2\mathbf{x}$&quot;, tailB -- tailB + 2X, SE, UnFill); 
-label(&quot;$-\mathbf{y}$&quot;, tailB+2X -- tailB + 2X - Y,NW, UnFill);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="6535" data-id="01781" data-file="c186_L15_script_4.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-6536">
-  <div class="card-header">
-    <h2>#6536 &mdash; c268_L13_script_5.asy</h2>
+    <h2>#6535 &mdash; c268_L13_script_5.asy</h2>
     <span class="badge" style="background:#c0820a">SSIM 0.7657 &middot; Poor</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2808,13 +2668,13 @@ draw(circle((1,1), 0.1));
 draw((0,1)--(1,1));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="6536" data-id="04026" data-file="c268_L13_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="6535" data-id="04026" data-file="c268_L13_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-6537">
+<div class="card" id="pair-6536">
   <div class="card-header">
-    <h2>#6537 &mdash; c186_LNone_script_17.asy</h2>
+    <h2>#6536 &mdash; c186_LNone_script_17.asy</h2>
     <span class="badge" style="background:#c0820a">SSIM 0.7657 &middot; Poor</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2877,7 +2737,124 @@ draw(Cos(alpha)*dir(beta)--(Cos(alpha)*dir(beta)+dir(beta+90)),brown);
 dot((Cos(alpha)*dir(beta)+dir(beta+90)),brown);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="6537" data-id="03244" data-file="c186_LNone_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="6536" data-id="03244" data-file="c186_LNone_script_17.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-6537">
+  <div class="card-header">
+    <h2>#6537 &mdash; c186_L15_p36931_solution_text_1.asy</h2>
+    <span class="badge" style="background:#c0820a">SSIM 0.7658 &middot; Poor</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01743.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01743.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair col1, col2; 
+pair V, DV, O; 
+pair tailV, tailDV;
+
+O = (0,0);
+
+//Columns of the D matrix:
+col1 = (0,-1); 
+col2 = (-1,0);
+
+//Input vector
+V = (3, 1);
+
+//Output vector:
+DV = multByMat(V, col1, col2);
+
+tailV = O; 
+tailDV = tailV;
+
+gridLines(-5, 5,-6,4);
+
+draw(tailV--tailV + V, blue, Arrow(7));
+draw(tailDV--tailDV + DV, heavygreen, Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
+label(&quot;$\mathbf D \mathbf{v}$&quot;, tailDV + DV/2, NW, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0A%7B%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0A%7B%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%7D%0D%0Apair%20col1%2C%20col2%3B%20%0D%0Apair%20V%2C%20DV%2C%20O%3B%20%0D%0Apair%20tailV%2C%20tailDV%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FColumns%20of%20the%20D%20matrix%3A%0D%0Acol1%20%3D%20(0%2C-1)%3B%20%0D%0Acol2%20%3D%20(-1%2C0)%3B%0D%0A%0D%0A%2F%2FInput%20vector%0D%0AV%20%3D%20(3%2C%201)%3B%0D%0A%0D%0A%2F%2FOutput%20vector%3A%0D%0ADV%20%3D%20multByMat(V%2C%20col1%2C%20col2)%3B%0D%0A%0D%0AtailV%20%3D%20O%3B%20%0D%0AtailDV%20%3D%20tailV%3B%0D%0A%0D%0AgridLines(-5%2C%205%2C-6%2C4)%3B%0D%0A%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20blue%2C%20Arrow(7))%3B%0D%0Adraw(tailDV--tailDV%20%2B%20DV%2C%20heavygreen%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%20%2B%20V%2F2%2C%20NW%2C%20UnFill)%3B%20%0D%0Alabel(%22%24%5Cmathbf%20D%20%5Cmathbf%7Bv%7D%24%22%2C%20tailDV%20%2B%20DV%2F2%2C%20NW%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+pair col1, col2; 
+pair V, DV, O; 
+pair tailV, tailDV;
+
+O = (0,0);
+
+//Columns of the D matrix:
+col1 = (0,-1); 
+col2 = (-1,0);
+
+//Input vector
+V = (3, 1);
+
+//Output vector:
+DV = multByMat(V, col1, col2);
+
+tailV = O; 
+tailDV = tailV;
+
+gridLines(-5, 5,-6,4);
+
+draw(tailV--tailV + V, blue, Arrow(7));
+draw(tailDV--tailDV + DV, heavygreen, Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
+label(&quot;$\mathbf D \mathbf{v}$&quot;, tailDV + DV/2, NW, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="6537" data-id="01743" data-file="c186_L15_p36931_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -3918,118 +3895,142 @@ draw(arc(center,sqrt(2/3), -165,75));
 </div>
 <div class="card" id="pair-6553">
   <div class="card-header">
-    <h2>#6553 &mdash; c186_L15_p36931_solution_text_1.asy</h2>
+    <h2>#6553 &mdash; c186_L15_script_4.asy</h2>
     <span class="badge" style="background:#c0820a">SSIM 0.7663 &middot; Poor</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01743.png"></div>
+      <div class="img-wrap"><img src="asy_pngs/01781.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01743.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01781.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>size(180);
+      <div class="code-box"><code>size(200);
 
-//Multiply a matrix with columns col1 and col2 by the vector X
-pair multByMat (pair X, pair col1, pair col2)
-{
-     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
 }
 
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
+    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+pair O, X, Y, B, tailX, tailY, tailB;
+
+O = (0,0);
+X = (1,2); 
+Y = (3,1);
+B = 2X-Y;
+
+tailX = O; 
+tailY = tailX;
+tailB = -X - Y;
+
+//Change these to scale the grid: 
+int xmin, xmax, ymin, ymax; 
+xmin = -8; xmax = 8; 
+ymin = -5; ymax = 5;
+
+gridLines(xmin,xmax,ymin,ymax);
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(maxLine(i*X + 10*Y, i*X - 10*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
+     draw(maxLine(10*X + i*Y, -10*X + i*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
 }
-pair col1, col2; 
-pair V, DV, O; 
-pair tailV, tailDV;
 
-O = (0,0);
+draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7));
+draw(tailY -- tailY + Y,green+linewidth(0.8), Arrow(7));
+draw(tailB -- tailB  + B, brown, Arrow(7)); 
+draw(tailB -- tailB + 2X, blue+linewidth(0.8), Arrow(7)); 
+draw(tailB+2X -- tailB + 2X - Y, green+linewidth(0.8), Arrow(7));
 
-//Columns of the D matrix:
-col1 = (0,-1); 
-col2 = (-1,0);
-
-//Input vector
-V = (3, 1);
-
-//Output vector:
-DV = multByMat(V, col1, col2);
-
-tailV = O; 
-tailDV = tailV;
-
-gridLines(-5, 5,-6,4);
-
-draw(tailV--tailV + V, blue, Arrow(7));
-draw(tailDV--tailDV + DV, heavygreen, Arrow(7));
-
-label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
-label(&quot;$\mathbf D \mathbf{v}$&quot;, tailDV + DV/2, NW, UnFill);</code></div>
+label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
+label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
+label(&quot;$\mathbf{b}$&quot;, tailB--tailB + B, SW, UnFill); 
+label(&quot;$2\mathbf{x}$&quot;, tailB -- tailB + 2X, SE, UnFill); 
+label(&quot;$-\mathbf{y}$&quot;, tailB+2X -- tailB + 2X - Y,NW, UnFill);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0A%7B%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0A%7B%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0A%20%20%7D%0D%0A%7D%0D%0Apair%20col1%2C%20col2%3B%20%0D%0Apair%20V%2C%20DV%2C%20O%3B%20%0D%0Apair%20tailV%2C%20tailDV%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FColumns%20of%20the%20D%20matrix%3A%0D%0Acol1%20%3D%20(0%2C-1)%3B%20%0D%0Acol2%20%3D%20(-1%2C0)%3B%0D%0A%0D%0A%2F%2FInput%20vector%0D%0AV%20%3D%20(3%2C%201)%3B%0D%0A%0D%0A%2F%2FOutput%20vector%3A%0D%0ADV%20%3D%20multByMat(V%2C%20col1%2C%20col2)%3B%0D%0A%0D%0AtailV%20%3D%20O%3B%20%0D%0AtailDV%20%3D%20tailV%3B%0D%0A%0D%0AgridLines(-5%2C%205%2C-6%2C4)%3B%0D%0A%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20blue%2C%20Arrow(7))%3B%0D%0Adraw(tailDV--tailDV%20%2B%20DV%2C%20heavygreen%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%20%2B%20V%2F2%2C%20NW%2C%20UnFill)%3B%20%0D%0Alabel(%22%24%5Cmathbf%20D%20%5Cmathbf%7Bv%7D%24%22%2C%20tailDV%20%2B%20DV%2F2%2C%20NW%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(200)%3B%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20real%20s%20%3D%20abs(xmax)%20%2B%20abs(xmin)%20%2B%20abs(ymax)%20%2B%20abs(ymin)%20%2B%20abs(A.x%20-%20xmin)%20%2B%20abs(A.x-xmax)%20%2B%20abs(A.y%20-%20ymin)%20%2B%20abs(A.y%20-%20ymax)%3B%20%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B2s*unit(B-A)%20--%20A-2s*unit(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0D%0Apair%20O%2C%20X%2C%20Y%2C%20B%2C%20tailX%2C%20tailY%2C%20tailB%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0D%0AX%20%3D%20(1%2C2)%3B%20%0D%0D%0AY%20%3D%20(3%2C1)%3B%0D%0D%0AB%20%3D%202X-Y%3B%0D%0A%0D%0AtailX%20%3D%20O%3B%20%0D%0D%0AtailY%20%3D%20tailX%3B%0D%0D%0AtailB%20%3D%20-X%20-%20Y%3B%0D%0A%0D%0A%2F%2FChange%20these%20to%20scale%20the%20grid%3A%20%0D%0D%0Aint%20xmin%2C%20xmax%2C%20ymin%2C%20ymax%3B%20%0D%0D%0Axmin%20%3D%20-8%3B%20xmax%20%3D%208%3B%20%0D%0D%0Aymin%20%3D%20-5%3B%20ymax%20%3D%205%3B%0D%0A%0D%0AgridLines(xmin%2Cxmax%2Cymin%2Cymax)%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0D%0A%7B%20%20%20%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*X%20%2B%2010*Y%2C%20i*X%20-%2010*Y%2C%20xmin%2Cxmax%2Cymin%2Cymax)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(10*X%20%2B%20i*Y%2C%20-10*X%20%2B%20i*Y%2C%20xmin%2Cxmax%2Cymin%2Cymax)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%7D%0D%0A%0D%0Adraw(tailX--%20tailX%20%2B%20X%2C%20blue%2Blinewidth(0.8)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailY%20--%20tailY%20%2B%20Y%2Cgreen%2Blinewidth(0.8)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailB%20--%20tailB%20%20%2B%20B%2C%20brown%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(tailB%20--%20tailB%20%2B%202X%2C%20blue%2Blinewidth(0.8)%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(tailB%2B2X%20--%20tailB%20%2B%202X%20-%20Y%2C%20green%2Blinewidth(0.8)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20tailX%20%2B%20X%2F2%2C%20W%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%5Cmathbf%7By%7D%24%22%2C%20tailY%2B%20Y%2F2%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bb%7D%24%22%2C%20tailB--tailB%20%2B%20B%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%242%5Cmathbf%7Bx%7D%24%22%2C%20tailB%20--%20tailB%20%2B%202X%2C%20SE%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24-%5Cmathbf%7By%7D%24%22%2C%20tailB%2B2X%20--%20tailB%20%2B%202X%20-%20Y%2CNW%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-size(180);
+size(200);
 
-//Multiply a matrix with columns col1 and col2 by the vector X
-pair multByMat (pair X, pair col1, pair col2)
-{
-     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
 }
 
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
+    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+pair O, X, Y, B, tailX, tailY, tailB;
+
+O = (0,0);
+X = (1,2); 
+Y = (3,1);
+B = 2X-Y;
+
+tailX = O; 
+tailY = tailX;
+tailB = -X - Y;
+
+//Change these to scale the grid: 
+int xmin, xmax, ymin, ymax; 
+xmin = -8; xmax = 8; 
+ymin = -5; ymax = 5;
+
+gridLines(xmin,xmax,ymin,ymax);
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(maxLine(i*X + 10*Y, i*X - 10*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
+     draw(maxLine(10*X + i*Y, -10*X + i*Y, xmin,xmax,ymin,ymax), linewidth(0.4)); 
 }
-pair col1, col2; 
-pair V, DV, O; 
-pair tailV, tailDV;
 
-O = (0,0);
+draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7));
+draw(tailY -- tailY + Y,green+linewidth(0.8), Arrow(7));
+draw(tailB -- tailB  + B, brown, Arrow(7)); 
+draw(tailB -- tailB + 2X, blue+linewidth(0.8), Arrow(7)); 
+draw(tailB+2X -- tailB + 2X - Y, green+linewidth(0.8), Arrow(7));
 
-//Columns of the D matrix:
-col1 = (0,-1); 
-col2 = (-1,0);
-
-//Input vector
-V = (3, 1);
-
-//Output vector:
-DV = multByMat(V, col1, col2);
-
-tailV = O; 
-tailDV = tailV;
-
-gridLines(-5, 5,-6,4);
-
-draw(tailV--tailV + V, blue, Arrow(7));
-draw(tailDV--tailDV + DV, heavygreen, Arrow(7));
-
-label(&quot;$\mathbf{v}$&quot;, tailV + V/2, NW, UnFill); 
-label(&quot;$\mathbf D \mathbf{v}$&quot;, tailDV + DV/2, NW, UnFill);
+label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
+label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
+label(&quot;$\mathbf{b}$&quot;, tailB--tailB + B, SW, UnFill); 
+label(&quot;$2\mathbf{x}$&quot;, tailB -- tailB + 2X, SE, UnFill); 
+label(&quot;$-\mathbf{y}$&quot;, tailB+2X -- tailB + 2X - Y,NW, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="6553" data-id="01743" data-file="c186_L15_p36931_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="6553" data-id="01781" data-file="c186_L15_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

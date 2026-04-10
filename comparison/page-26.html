@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 26/119</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -43,8 +44,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 26 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">529 Good</b>
-<b style="background:#c0820a">2498 Fair</b>
+<b style="background:#2d8a4e">530 Good</b>
+<b style="background:#c0820a">2497 Fair</b>
 <b style="background:#c0392b">8869 Poor</b>
 
 </div>
@@ -52,128 +53,388 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 
 <div class="card" id="pair-2501">
   <div class="card-header">
-    <h2>#2501 &mdash; c186_L15_script_29.asy</h2>
+    <h2>#2501 &mdash; c539_L11_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5956 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01769.png"></div>
+      <div class="img-wrap"><img src="asy_pngs/08767.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01769.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08767.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>size(190); 
-import olympiad;
+      <div class="code-box"><code>//https://artofproblemsolving.com/texer/bpppxvsy
 
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
+size(12cm, 8cm);
+
+//============ MAIN CONTROLS ============
+int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
+bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
+                             // false = both ends are nodes (like fixed string)
+//=======================================
+
+//========== ADJUSTABLE PARAMETERS ==========
+// Dot diagram settings
+real base_density = 0.3;
+real section_width = 1.0;
+real section_height = 3.0;
+int num_sections = 15;
+bool show_dot_sections = true;
+
+// Amplitude overlay settings
+bool show_amplitude_curve = true;
+real amplitude_offset = 0.8;      // Gap between dots and curve baseline
+real amplitude_scale = 1.2;       // Height of the envelope peaks
+
+// Inner loop settings
+real inner_amplitude_1 = 0.7;
+real inner_amplitude_2 = 0.35;
+
+// Label settings
+bool show_labels = false;
+real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
+real node_dot_size = 5;           // Size of the node marker dots
+//===========================================
+
+// Dot appearance
+real dot_size = 1.5;
+pen dot_color = rgb(100/255, 143/255, 255/255);
+
+// Calculated values
+real total_width = num_sections * section_width;
+real start_x = -total_width / 2;
+
+// Amplitude baseline
+real baseline_y = 0;
+
+// Wave factor: determines the spatial frequency of the standing wave
+// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
+// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
+real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
+
+// ------------------------------------------------------
+// DENSITY FUNCTION
+// ------------------------------------------------------
+real density_at(real x_normalized) {
+    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
 }
 
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
+// ------------------------------------------------------
+// DRAW DOT SECTIONS
+// ------------------------------------------------------
+if(show_dot_sections) {
+    for(int i = 0; i &lt; num_sections; ++i) {
+        real left_x = start_x + i * section_width;
+        real right_x = left_x + section_width;
+        real bottom_y = -section_height / 2;
+        real top_y = section_height / 2;
+
+if(i &lt; num_sections - 1) {
+    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
+    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
 }
 
-pair U, V, P, O, tailU, tailV, tailP;
+if(i == 0) {
+    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
+}
 
-O = (0,0); 
-U = (-1,0);
-V = (2,3);
+        real center_normalized = (i + 0.5) / num_sections;
+        real current_density = base_density * density_at(center_normalized);
 
-tailU = U;
-tailV = O; 
-tailP = tailV;
+        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
+        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
 
-P = foot(V-tailV, U, O) + tailV; //The projection vector
+        for(int row = 0; row &lt; num_rows; ++row) {
+            for(int col = 0; col &lt; dots_per_row; ++col) {
+                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
+                             + (unitrand() - 0.5) * 0.1;
+                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
+                             + (unitrand() - 0.5) * 0.1;
 
-gridLines(-3, 4, -2,4);
+                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
+                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
+                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
+                }
+            }
+        }
+    }
+}
 
-draw(maxLine(O, U, -3, 4, -2,4)); 
-draw(tailP--tailP + P, heavygreen, Arrow(7)); 
-draw(tailU -- tailU + U, green, Arrow(7)); 
-draw(tailV--tailV + V, blue, Arrow(7));
-draw(tailP + P--tailV + V, dashed); 
-draw(rightanglemark(-4U, tailP + P, tailV + V, 10));
+// ------------------------------------------------------
+// AMPLITUDE ENVELOPE WITH LOOPS
+// ------------------------------------------------------
+if(show_amplitude_curve) {
+    int num_points = 200;
 
-label(&quot;The projection of $\mathbf{v}$ onto $\mathbf{u}$&quot;,tailP + P/2,SSE, UnFill);
-label(&quot;$\mathbf{u}$&quot;, tailU + U/2, S, UnFill);
-label(&quot;$\mathbf{v}$&quot;,tailV + V/2, NW, UnFill);
+    path build_envelope(real amp_fraction, int sign) {
+        path p;
+        for(int i = 0; i &lt;= num_points; ++i) {
+            real x_norm = i * 1.0 / num_points;
+            real x = start_x + x_norm * total_width;
+            real y = baseline_y + sign * amp_fraction * amplitude_scale 
+                     * abs(sin(wave_factor * pi * x_norm));
 
-dot(tailU, green); 
-dot(tailV, blue);</code></div>
+            if(i == 0) {
+                p = (x, y);
+            } else {
+                p = p -- (x, y);
+            }
+        }
+        return p;
+    }
+
+    // Baseline (equilibrium)
+    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
+         gray + linewidth(0.5pt));
+
+    // Outer envelope (solid)
+    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
+    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
+
+    // Inner loops (dashed)
+    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
+}
+
+// ------------------------------------------------------
+// NODE AND ANTINODE MARKERS
+// ------------------------------------------------------
+if(show_labels) {
+    // Calculate envelope extents for antinode lines
+    real envelope_top = baseline_y + amplitude_scale;
+    real envelope_bottom = baseline_y - amplitude_scale;
+
+    // Number of nodes differs between modes:
+    // - Normal mode: num_antinodes + 1 nodes (at both ends)
+    // - Half-cycle mode: num_antinodes nodes (only at left end)
+    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
+
+    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
+    // Position formula: k / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_nodes; ++k) {
+        real node_x_norm = k / wave_factor;
+        real node_x = start_x + node_x_norm * total_width;
+
+        // Dot aligned with amplitude diagram baseline
+        dot((node_x, baseline_y), black + linewidth(node_dot_size));
+
+        // &quot;N&quot; label below everything
+        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
+    }
+
+    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
+    // Position formula: (k + 0.5) / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_antinodes; ++k) {
+        real antinode_x_norm = (k + 0.5) / wave_factor;
+        real antinode_x = start_x + antinode_x_norm * total_width;
+
+        // Dashed line extends from below dot diagram through amplitude envelope
+        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
+             dashed + linewidth(1pt));
+
+        // &quot;A&quot; label below everything
+        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
+    }
+}
+draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
+draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
+draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
+label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
+label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
+label(&quot;$\ell$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(190)%3B%20%0D%0D%0Aimport%20olympiad%3B%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20U%2C%20V%2C%20P%2C%20O%2C%20tailU%2C%20tailV%2C%20tailP%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%20%0D%0D%0AU%20%3D%20(-1%2C0)%3B%0D%0D%0AV%20%3D%20(2%2C3)%3B%0D%0A%0D%0AtailU%20%3D%20U%3B%0D%0D%0AtailV%20%3D%20O%3B%20%0D%0D%0AtailP%20%3D%20tailV%3B%0D%0A%0D%0AP%20%3D%20foot(V-tailV%2C%20U%2C%20O)%20%2B%20tailV%3B%20%2F%2FThe%20projection%20vector%0D%0A%0D%0AgridLines(-3%2C%204%2C%20-2%2C4)%3B%0D%0A%0D%0Adraw(maxLine(O%2C%20U%2C%20-3%2C%204%2C%20-2%2C4))%3B%20%0D%0D%0Adraw(tailP--tailP%20%2B%20P%2C%20heavygreen%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(tailU%20--%20tailU%20%2B%20U%2C%20green%2C%20Arrow(7))%3B%20%0D%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20blue%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailP%20%2B%20P--tailV%20%2B%20V%2C%20dashed)%3B%20%0D%0D%0Adraw(rightanglemark(-4U%2C%20tailP%20%2B%20P%2C%20tailV%20%2B%20V%2C%2010))%3B%0D%0A%0D%0Alabel(%22The%20projection%20of%20%24%5Cmathbf%7Bv%7D%24%20onto%20%24%5Cmathbf%7Bu%7D%24%22%2CtailP%20%2B%20P%2F2%2CSSE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bu%7D%24%22%2C%20tailU%20%2B%20U%2F2%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2CtailV%20%2B%20V%2F2%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Adot(tailU%2C%20green)%3B%20%0D%0D%0Adot(tailV%2C%20blue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fbpppxvsy%0D%0A%0D%0Asize(12cm%2C%208cm)%3B%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20MAIN%20CONTROLS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aint%20num_antinodes%20%3D%201%3B%20%20%20%20%20%20%20%2F%2F%20SET%20THIS%3A%201%2C%202%2C%203%2C%204%2C%20or%205%0D%0Abool%20half_cycle_mode%20%3D%20true%3B%20%2F%2F%20true%20%3D%20left%20node%2C%20right%20antinode%20(like%20closed%20pipe)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20false%20%3D%20both%20ends%20are%20nodes%20(like%20fixed%20string)%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20ADJUSTABLE%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Dot%20diagram%20settings%0D%0Areal%20base_density%20%3D%200.3%3B%0D%0Areal%20section_width%20%3D%201.0%3B%0D%0Areal%20section_height%20%3D%203.0%3B%0D%0Aint%20num_sections%20%3D%2015%3B%0D%0Abool%20show_dot_sections%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20overlay%20settings%0D%0Abool%20show_amplitude_curve%20%3D%20true%3B%0D%0Areal%20amplitude_offset%20%3D%200.8%3B%20%20%20%20%20%20%2F%2F%20Gap%20between%20dots%20and%20curve%20baseline%0D%0Areal%20amplitude_scale%20%3D%201.2%3B%20%20%20%20%20%20%20%2F%2F%20Height%20of%20the%20envelope%20peaks%0D%0A%0D%0A%2F%2F%20Inner%20loop%20settings%0D%0Areal%20inner_amplitude_1%20%3D%200.7%3B%0D%0Areal%20inner_amplitude_2%20%3D%200.35%3B%0D%0A%0D%0A%2F%2F%20Label%20settings%0D%0Abool%20show_labels%20%3D%20false%3B%0D%0Areal%20label_y%20%3D%20-2.3%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Y%20position%20for%20%22N%22%20and%20%22A%22%20text%20labels%0D%0Areal%20node_dot_size%20%3D%205%3B%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Size%20of%20the%20node%20marker%20dots%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Dot%20appearance%0D%0Areal%20dot_size%20%3D%201.5%3B%0D%0Apen%20dot_color%20%3D%20rgb(100%2F255%2C%20143%2F255%2C%20255%2F255)%3B%0D%0A%0D%0A%2F%2F%20Calculated%20values%0D%0Areal%20total_width%20%3D%20num_sections%20*%20section_width%3B%0D%0Areal%20start_x%20%3D%20-total_width%20%2F%202%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20baseline%0D%0Areal%20baseline_y%20%3D%200%3B%0D%0A%0D%0A%2F%2F%20Wave%20factor%3A%20determines%20the%20spatial%20frequency%20of%20the%20standing%20wave%0D%0A%2F%2F%20-%20Normal%20mode%3A%20wave_factor%20%3D%20num_antinodes%20(nodes%20at%20both%20ends)%0D%0A%2F%2F%20-%20Half-cycle%20mode%3A%20wave_factor%20%3D%20num_antinodes%20-%200.5%20(node%20at%20left%2C%20antinode%20at%20right)%0D%0Areal%20wave_factor%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20-%200.5%20%3A%20num_antinodes%3B%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DENSITY%20FUNCTION%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20density_at(real%20x_normalized)%20%7B%0D%0A%20%20%20%20return%201.0%20%2B%20abs(sin(wave_factor%20*%20pi%20*%20x_normalized))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DRAW%20DOT%20SECTIONS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_dot_sections)%20%7B%0D%0A%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%20num_sections%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20left_x%20%3D%20start_x%20%2B%20i%20*%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20right_x%20%3D%20left_x%20%2B%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20bottom_y%20%3D%20-section_height%20%2F%202%3B%0D%0A%20%20%20%20%20%20%20%20real%20top_y%20%3D%20section_height%20%2F%202%3B%0D%0A%0D%0Aif(i%20%3C%20num_sections%20-%201)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(right_x%2C%20bottom_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%2F%2F%20bottom%0D%0A%20%20%20%20draw((left_x%2C%20top_y)--(right_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%20%20%20%20%20%20%2F%2F%20top%0D%0A%7D%0D%0A%0D%0Aif(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(left_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%20%20%20%20%20%20%20%20real%20center_normalized%20%3D%20(i%20%2B%200.5)%20%2F%20num_sections%3B%0D%0A%20%20%20%20%20%20%20%20real%20current_density%20%3D%20base_density%20*%20density_at(center_normalized)%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20int%20dots_per_row%20%3D%20floor(section_width%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%20%20%20%20%20%20%20%20int%20num_rows%20%3D%20floor(section_height%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20num_rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20dots_per_row%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20x_pos%20%3D%20left_x%20%2B%20(col%20%2B%200.5)%20*%20section_width%20%2F%20dots_per_row%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20y_pos%20%3D%20bottom_y%20%2B%20(row%20%2B%200.5)%20*%20section_height%20%2F%20num_rows%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20if(x_pos%20%3E%20left_x%20%2B%200.05%20%26%26%20x_pos%20%3C%20right_x%20-%200.05%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y_pos%20%3E%20bottom_y%20%2B%200.05%20%26%26%20y_pos%20%3C%20top_y%20-%200.05)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x_pos%2C%20y_pos)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20AMPLITUDE%20ENVELOPE%20WITH%20LOOPS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_amplitude_curve)%20%7B%0D%0A%20%20%20%20int%20num_points%20%3D%20200%3B%0D%0A%0D%0A%20%20%20%20path%20build_envelope(real%20amp_fraction%2C%20int%20sign)%20%7B%0D%0A%20%20%20%20%20%20%20%20path%20p%3B%0D%0A%20%20%20%20%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%3D%20num_points%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x_norm%20%3D%20i%20*%201.0%20%2F%20num_points%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20start_x%20%2B%20x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20baseline_y%20%2B%20sign%20*%20amp_fraction%20*%20amplitude_scale%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20*%20abs(sin(wave_factor%20*%20pi%20*%20x_norm))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20p%20--%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20return%20p%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20Baseline%20(equilibrium)%0D%0A%20%20%20%20draw((start_x%2C%20baseline_y)%20--%20(start_x%20%2B%20total_width%2C%20baseline_y)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20gray%20%2B%20linewidth(0.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Outer%20envelope%20(solid)%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20%2B1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20-1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Inner%20loops%20(dashed)%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20NODE%20AND%20ANTINODE%20MARKERS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_labels)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20envelope%20extents%20for%20antinode%20lines%0D%0A%20%20%20%20real%20envelope_top%20%3D%20baseline_y%20%2B%20amplitude_scale%3B%0D%0A%20%20%20%20real%20envelope_bottom%20%3D%20baseline_y%20-%20amplitude_scale%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Number%20of%20nodes%20differs%20between%20modes%3A%0D%0A%20%20%20%20%2F%2F%20-%20Normal%20mode%3A%20num_antinodes%20%2B%201%20nodes%20(at%20both%20ends)%0D%0A%20%20%20%20%2F%2F%20-%20Half-cycle%20mode%3A%20num_antinodes%20nodes%20(only%20at%20left%20end)%0D%0A%20%20%20%20int%20num_nodes%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20%3A%20num_antinodes%20%2B%201%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20NODES%3A%20dots%20on%20the%20amplitude%20baseline%2C%20%22N%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20k%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_nodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20node_x_norm%20%3D%20k%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20node_x%20%3D%20start_x%20%2B%20node_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dot%20aligned%20with%20amplitude%20diagram%20baseline%0D%0A%20%20%20%20%20%20%20%20dot((node_x%2C%20baseline_y)%2C%20black%20%2B%20linewidth(node_dot_size))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22N%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22N%22%2C%20(node_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20ANTINODES%3A%20dashed%20lines%20through%20amplitude%20envelope%2C%20%22A%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20(k%20%2B%200.5)%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_antinodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x_norm%20%3D%20(k%20%2B%200.5)%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x%20%3D%20start_x%20%2B%20antinode_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dashed%20line%20extends%20from%20below%20dot%20diagram%20through%20amplitude%20envelope%0D%0A%20%20%20%20%20%20%20%20draw((antinode_x%2C%20-section_height%2F2)%20--%20(antinode_x%2C%20envelope_top)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22A%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22A%22%2C%20(antinode_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0Adraw((-num_sections%2F2%2C-3)--(num_sections%2F2%2C-3)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw((-num_sections%2F2%2C-2)--((num_sections-2)%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw(((num_sections-2)%2F2%2C-2)--(num_sections%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(1)%2C%20Arrows(5))%3B%0D%0Alabel(%22length%22%2C(0%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22effective%20length%22%2C(0%2C-3)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22%24%5Cell%24%22%2C((num_sections-1)%2F2%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-size(190); 
-import olympiad;
+//https://artofproblemsolving.com/texer/bpppxvsy
 
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
+size(12cm, 8cm);
+
+//============ MAIN CONTROLS ============
+int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
+bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
+                             // false = both ends are nodes (like fixed string)
+//=======================================
+
+//========== ADJUSTABLE PARAMETERS ==========
+// Dot diagram settings
+real base_density = 0.3;
+real section_width = 1.0;
+real section_height = 3.0;
+int num_sections = 15;
+bool show_dot_sections = true;
+
+// Amplitude overlay settings
+bool show_amplitude_curve = true;
+real amplitude_offset = 0.8;      // Gap between dots and curve baseline
+real amplitude_scale = 1.2;       // Height of the envelope peaks
+
+// Inner loop settings
+real inner_amplitude_1 = 0.7;
+real inner_amplitude_2 = 0.35;
+
+// Label settings
+bool show_labels = false;
+real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
+real node_dot_size = 5;           // Size of the node marker dots
+//===========================================
+
+// Dot appearance
+real dot_size = 1.5;
+pen dot_color = rgb(100/255, 143/255, 255/255);
+
+// Calculated values
+real total_width = num_sections * section_width;
+real start_x = -total_width / 2;
+
+// Amplitude baseline
+real baseline_y = 0;
+
+// Wave factor: determines the spatial frequency of the standing wave
+// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
+// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
+real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
+
+// ------------------------------------------------------
+// DENSITY FUNCTION
+// ------------------------------------------------------
+real density_at(real x_normalized) {
+    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
 }
 
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
+// ------------------------------------------------------
+// DRAW DOT SECTIONS
+// ------------------------------------------------------
+if(show_dot_sections) {
+    for(int i = 0; i &lt; num_sections; ++i) {
+        real left_x = start_x + i * section_width;
+        real right_x = left_x + section_width;
+        real bottom_y = -section_height / 2;
+        real top_y = section_height / 2;
+
+if(i &lt; num_sections - 1) {
+    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
+    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
 }
 
-pair U, V, P, O, tailU, tailV, tailP;
+if(i == 0) {
+    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
+}
 
-O = (0,0); 
-U = (-1,0);
-V = (2,3);
+        real center_normalized = (i + 0.5) / num_sections;
+        real current_density = base_density * density_at(center_normalized);
 
-tailU = U;
-tailV = O; 
-tailP = tailV;
+        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
+        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
 
-P = foot(V-tailV, U, O) + tailV; //The projection vector
+        for(int row = 0; row &lt; num_rows; ++row) {
+            for(int col = 0; col &lt; dots_per_row; ++col) {
+                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
+                             + (unitrand() - 0.5) * 0.1;
+                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
+                             + (unitrand() - 0.5) * 0.1;
 
-gridLines(-3, 4, -2,4);
+                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
+                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
+                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
+                }
+            }
+        }
+    }
+}
 
-draw(maxLine(O, U, -3, 4, -2,4)); 
-draw(tailP--tailP + P, heavygreen, Arrow(7)); 
-draw(tailU -- tailU + U, green, Arrow(7)); 
-draw(tailV--tailV + V, blue, Arrow(7));
-draw(tailP + P--tailV + V, dashed); 
-draw(rightanglemark(-4U, tailP + P, tailV + V, 10));
+// ------------------------------------------------------
+// AMPLITUDE ENVELOPE WITH LOOPS
+// ------------------------------------------------------
+if(show_amplitude_curve) {
+    int num_points = 200;
 
-label(&quot;The projection of $\mathbf{v}$ onto $\mathbf{u}$&quot;,tailP + P/2,SSE, UnFill);
-label(&quot;$\mathbf{u}$&quot;, tailU + U/2, S, UnFill);
-label(&quot;$\mathbf{v}$&quot;,tailV + V/2, NW, UnFill);
+    path build_envelope(real amp_fraction, int sign) {
+        path p;
+        for(int i = 0; i &lt;= num_points; ++i) {
+            real x_norm = i * 1.0 / num_points;
+            real x = start_x + x_norm * total_width;
+            real y = baseline_y + sign * amp_fraction * amplitude_scale 
+                     * abs(sin(wave_factor * pi * x_norm));
 
-dot(tailU, green); 
-dot(tailV, blue);
+            if(i == 0) {
+                p = (x, y);
+            } else {
+                p = p -- (x, y);
+            }
+        }
+        return p;
+    }
+
+    // Baseline (equilibrium)
+    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
+         gray + linewidth(0.5pt));
+
+    // Outer envelope (solid)
+    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
+    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
+
+    // Inner loops (dashed)
+    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
+}
+
+// ------------------------------------------------------
+// NODE AND ANTINODE MARKERS
+// ------------------------------------------------------
+if(show_labels) {
+    // Calculate envelope extents for antinode lines
+    real envelope_top = baseline_y + amplitude_scale;
+    real envelope_bottom = baseline_y - amplitude_scale;
+
+    // Number of nodes differs between modes:
+    // - Normal mode: num_antinodes + 1 nodes (at both ends)
+    // - Half-cycle mode: num_antinodes nodes (only at left end)
+    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
+
+    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
+    // Position formula: k / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_nodes; ++k) {
+        real node_x_norm = k / wave_factor;
+        real node_x = start_x + node_x_norm * total_width;
+
+        // Dot aligned with amplitude diagram baseline
+        dot((node_x, baseline_y), black + linewidth(node_dot_size));
+
+        // &quot;N&quot; label below everything
+        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
+    }
+
+    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
+    // Position formula: (k + 0.5) / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_antinodes; ++k) {
+        real antinode_x_norm = (k + 0.5) / wave_factor;
+        real antinode_x = start_x + antinode_x_norm * total_width;
+
+        // Dashed line extends from below dot diagram through amplitude envelope
+        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
+             dashed + linewidth(1pt));
+
+        // &quot;A&quot; label below everything
+        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
+    }
+}
+draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
+draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
+draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
+label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
+label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
+label(&quot;$\ell$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2501" data-id="01769" data-file="c186_L15_script_29.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2501" data-id="08767" data-file="c539_L11_script_9.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -3709,94 +3970,7 @@ label(&quot;$\mathcal{R}_4$&quot;, (5.5,4.5));
 </div>
 <div class="card" id="pair-2542">
   <div class="card-header">
-    <h2>#2542 &mdash; c186_L18_p5679_solution_text_3.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5980 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01972.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01972.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(300);
-
-pair translate = (4,0);
-
-for(int i = 0; i &lt;= 4; ++i) {
-  draw(dir(360/5*i)--dir(360/5*(i + 1)));
-  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
-}
-
-draw((-1.2,0)--(1.2,0));
-draw((0,-1.2)--(0,1.2));
-draw(shift(translate)*((-1.2,0)--(1.2,0)));
-draw(shift(translate)*((0,-1.2)--(0,1.2)));
-draw((1.5,0)--(2.5,0),Arrow(8));
-
-label(&quot;$x$&quot;, (1.2,0), NE);
-label(&quot;$y$&quot;, (0,1.2), NE);
-label(&quot;$x$&quot;, (1.2,0) + translate, NE);
-label(&quot;$y$&quot;, (0,1.2) + translate, NE);
-
-label(&quot;$1$&quot;, dir(0), NE);
-label(&quot;$2$&quot;, dir(360/5), N);
-label(&quot;$3$&quot;, dir(2*360/5), NW);
-label(&quot;$4$&quot;, dir(3*360/5), SW);
-label(&quot;$5$&quot;, dir(4*360/5), S);
-label(&quot;$2$&quot;, dir(0) + translate, NE);
-label(&quot;$1$&quot;, dir(360/5) + translate, N);
-label(&quot;$5$&quot;, dir(2*360/5) + translate, NW);
-label(&quot;$4$&quot;, dir(3*360/5) + translate, SW);
-label(&quot;$3$&quot;, dir(4*360/5) + translate, S);
-label(&quot;$\mathbf{A} \mathbf{B}$&quot;, (2,0.2));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(300)%3B%0D%0A%0D%0Apair%20translate%20%3D%20(4%2C0)%3B%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%3D%204%3B%20%2B%2Bi)%20%7B%0D%0A%20%20draw(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201)))%3B%0D%0A%20%20draw(shift(translate)*(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201))))%3B%0D%0A%7D%0D%0A%0D%0Adraw((-1.2%2C0)--(1.2%2C0))%3B%0D%0Adraw((0%2C-1.2)--(0%2C1.2))%3B%0D%0Adraw(shift(translate)*((-1.2%2C0)--(1.2%2C0)))%3B%0D%0Adraw(shift(translate)*((0%2C-1.2)--(0%2C1.2)))%3B%0D%0Adraw((1.5%2C0)--(2.5%2C0)%2CArrow(8))%3B%0D%0A%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%2C%20NE)%3B%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%20%2B%20translate%2C%20NE)%3B%0D%0A%0D%0Alabel(%22%241%24%22%2C%20dir(0)%2C%20NE)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(360%2F5)%2C%20N)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(2*360%2F5)%2C%20NW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(3*360%2F5)%2C%20SW)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(4*360%2F5)%2C%20S)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%241%24%22%2C%20dir(360%2F5)%20%2B%20translate%2C%20N)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(2*360%2F5)%20%2B%20translate%2C%20NW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(3*360%2F5)%20%2B%20translate%2C%20SW)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(4*360%2F5)%20%2B%20translate%2C%20S)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%20%5Cmathbf%7BB%7D%24%22%2C%20(2%2C0.2))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(300);
-
-pair translate = (4,0);
-
-for(int i = 0; i &lt;= 4; ++i) {
-  draw(dir(360/5*i)--dir(360/5*(i + 1)));
-  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
-}
-
-draw((-1.2,0)--(1.2,0));
-draw((0,-1.2)--(0,1.2));
-draw(shift(translate)*((-1.2,0)--(1.2,0)));
-draw(shift(translate)*((0,-1.2)--(0,1.2)));
-draw((1.5,0)--(2.5,0),Arrow(8));
-
-label(&quot;$x$&quot;, (1.2,0), NE);
-label(&quot;$y$&quot;, (0,1.2), NE);
-label(&quot;$x$&quot;, (1.2,0) + translate, NE);
-label(&quot;$y$&quot;, (0,1.2) + translate, NE);
-
-label(&quot;$1$&quot;, dir(0), NE);
-label(&quot;$2$&quot;, dir(360/5), N);
-label(&quot;$3$&quot;, dir(2*360/5), NW);
-label(&quot;$4$&quot;, dir(3*360/5), SW);
-label(&quot;$5$&quot;, dir(4*360/5), S);
-label(&quot;$2$&quot;, dir(0) + translate, NE);
-label(&quot;$1$&quot;, dir(360/5) + translate, N);
-label(&quot;$5$&quot;, dir(2*360/5) + translate, NW);
-label(&quot;$4$&quot;, dir(3*360/5) + translate, SW);
-label(&quot;$3$&quot;, dir(4*360/5) + translate, S);
-label(&quot;$\mathbf{A} \mathbf{B}$&quot;, (2,0.2));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="2542" data-id="01972" data-file="c186_L18_p5679_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-2543">
-  <div class="card-header">
-    <h2>#2543 &mdash; c57_L10_script_9.asy</h2>
+    <h2>#2542 &mdash; c57_L10_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5980 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3877,13 +4051,13 @@ label(&#39;$O$&#39;, O, SW);
 label(&quot;4&quot;, (B+C)/2, dir(0));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2543" data-id="09632" data-file="c57_L10_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2542" data-id="09632" data-file="c57_L10_script_9.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2544">
+<div class="card" id="pair-2543">
   <div class="card-header">
-    <h2>#2544 &mdash; c71_L5_script_16.asy</h2>
+    <h2>#2543 &mdash; c71_L5_script_16.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5980 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4000,13 +4174,13 @@ pair CENTER = (FRONT+BACK)/2;
 draw(D--DA--CENTER--TOP--D);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2544" data-id="12423" data-file="c71_L5_script_16.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2543" data-id="12423" data-file="c71_L5_script_16.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2545">
+<div class="card" id="pair-2544">
   <div class="card-header">
-    <h2>#2545 &mdash; c401_L8_script_3.asy</h2>
+    <h2>#2544 &mdash; c401_L8_script_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5980 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4051,185 +4225,14 @@ label(&quot;$E$&quot;,e,N);
 label(&quot;$F$&quot;,f,S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2545" data-id="05823" data-file="c401_L8_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2544" data-id="05823" data-file="c401_L8_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2546">
+<div class="card" id="pair-2545">
   <div class="card-header">
-    <h2>#2546 &mdash; c57_L23_script_51.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5982 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10824.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/10824.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>import olympiad; import cse5; import geometry; size(150);
-defaultpen(fontsize(10pt));
-defaultpen(0.8);
-dotfactor = 4;
-
-pair A = origin;
-pair B = A+0.6*dir(65);
-pair C = A+dir(5);
-pair D = extension(A,A+dir(35),B,C);
-pair EE = D+0.275*dir(35);
-label(&quot;$E$&quot;,EE,NE);
-
-label(&quot;$A$&quot;,A,W);
-label(&quot;$B$&quot;,B,NW);
-label(&quot;$D$&quot;,D,S);
-label(&quot;$C$&quot;,C,SE);
-
-label(&quot;$x$&quot;, A+ 0.08*(unit(B-A) + unit(EE-A)));
-label(&quot;$x$&quot;, A+ 0.08*(unit(C-A) + unit(EE-A)));
-label(&quot;$x$&quot;, B+ 0.08*(unit(C-B) + unit(EE-B)));
-label(&quot;$x$&quot;, C + 0.08*(unit(B-C) + unit(EE-C)));
-
-draw(A--EE--B--C--A--B);
-draw(EE--C); 
-draw(circumcircle(A,B,C));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20olympiad%3B%20import%20cse5%3B%20import%20geometry%3B%20size(150)%3B%0D%0D%0Adefaultpen(fontsize(10pt))%3B%0D%0D%0Adefaultpen(0.8)%3B%0D%0D%0Adotfactor%20%3D%204%3B%0D%0A%0D%0Apair%20A%20%3D%20origin%3B%0D%0D%0Apair%20B%20%3D%20A%2B0.6*dir(65)%3B%0D%0D%0Apair%20C%20%3D%20A%2Bdir(5)%3B%0D%0D%0Apair%20D%20%3D%20extension(A%2CA%2Bdir(35)%2CB%2CC)%3B%0D%0D%0Apair%20EE%20%3D%20D%2B0.275*dir(35)%3B%0D%0D%0Alabel(%22%24E%24%22%2CEE%2CNE)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2CA%2CW)%3B%0D%0D%0Alabel(%22%24B%24%22%2CB%2CNW)%3B%0D%0D%0Alabel(%22%24D%24%22%2CD%2CS)%3B%0D%0D%0Alabel(%22%24C%24%22%2CC%2CSE)%3B%0D%0A%0D%0Alabel(%22%24x%24%22%2C%20A%2B%200.08*(unit(B-A)%20%2B%20unit(EE-A)))%3B%0D%0D%0Alabel(%22%24x%24%22%2C%20A%2B%200.08*(unit(C-A)%20%2B%20unit(EE-A)))%3B%0D%0D%0Alabel(%22%24x%24%22%2C%20B%2B%200.08*(unit(C-B)%20%2B%20unit(EE-B)))%3B%0D%0D%0Alabel(%22%24x%24%22%2C%20C%20%2B%200.08*(unit(B-C)%20%2B%20unit(EE-C)))%3B%0D%0A%0D%0Adraw(A--EE--B--C--A--B)%3B%0D%0D%0Adraw(EE--C)%3B%20%0D%0D%0Adraw(circumcircle(A%2CB%2CC))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-import olympiad; import cse5; import geometry; size(150);
-defaultpen(fontsize(10pt));
-defaultpen(0.8);
-dotfactor = 4;
-
-pair A = origin;
-pair B = A+0.6*dir(65);
-pair C = A+dir(5);
-pair D = extension(A,A+dir(35),B,C);
-pair EE = D+0.275*dir(35);
-label(&quot;$E$&quot;,EE,NE);
-
-label(&quot;$A$&quot;,A,W);
-label(&quot;$B$&quot;,B,NW);
-label(&quot;$D$&quot;,D,S);
-label(&quot;$C$&quot;,C,SE);
-
-label(&quot;$x$&quot;, A+ 0.08*(unit(B-A) + unit(EE-A)));
-label(&quot;$x$&quot;, A+ 0.08*(unit(C-A) + unit(EE-A)));
-label(&quot;$x$&quot;, B+ 0.08*(unit(C-B) + unit(EE-B)));
-label(&quot;$x$&quot;, C + 0.08*(unit(B-C) + unit(EE-C)));
-
-draw(A--EE--B--C--A--B);
-draw(EE--C); 
-draw(circumcircle(A,B,C));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="2546" data-id="10824" data-file="c57_L23_script_51.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-2547">
-  <div class="card-header">
-    <h2>#2547 &mdash; c401_L10_p36178_solution_text_8.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5982 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05272.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/05272.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(3cm);
-pair A = (0,0);
-pair B = (sqrt(3),1);
-pair C = (1,-sqrt(3));
-pair D = (-sqrt(3),1);
-pair E = (-1,-sqrt(3));
-pair F = (0,-2*sqrt(3));
-
-filldraw(A--B--C--F--E--D--cycle,red+white+red);
-filldraw(A--C--F--E--cycle,lightblue);
-draw(A--F);
-draw(C--E);
-draw((B+C)/2--A--(D+E)/2);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(3cm)%3B%0D%0Apair%20A%20%3D%20(0%2C0)%3B%0D%0Apair%20B%20%3D%20(sqrt(3)%2C1)%3B%0D%0Apair%20C%20%3D%20(1%2C-sqrt(3))%3B%0D%0Apair%20D%20%3D%20(-sqrt(3)%2C1)%3B%0D%0Apair%20E%20%3D%20(-1%2C-sqrt(3))%3B%0D%0Apair%20F%20%3D%20(0%2C-2*sqrt(3))%3B%0D%0A%0D%0Afilldraw(A--B--C--F--E--D--cycle%2Cred%2Bwhite%2Bred)%3B%0D%0Afilldraw(A--C--F--E--cycle%2Clightblue)%3B%0D%0Adraw(A--F)%3B%0D%0Adraw(C--E)%3B%0D%0Adraw((B%2BC)%2F2--A--(D%2BE)%2F2)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(3cm);
-pair A = (0,0);
-pair B = (sqrt(3),1);
-pair C = (1,-sqrt(3));
-pair D = (-sqrt(3),1);
-pair E = (-1,-sqrt(3));
-pair F = (0,-2*sqrt(3));
-
-filldraw(A--B--C--F--E--D--cycle,red+white+red);
-filldraw(A--C--F--E--cycle,lightblue);
-draw(A--F);
-draw(C--E);
-draw((B+C)/2--A--(D+E)/2);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="2547" data-id="05272" data-file="c401_L10_p36178_solution_text_8.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-2548">
-  <div class="card-header">
-    <h2>#2548 &mdash; c190_L5_script_14.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5983 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03512.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03512.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/dkligjtk
-
-draw(unitcircle);
-draw(shift(4,0)*unitcircle);
-draw((0,0)--(0.8,0), arrow = Arrow(6));
-label(&quot;$v/2$&quot;,(.4,0),S);
-//draw((0,0)--(-.8,0), arrow = Arrow(6),red);
-draw((4,0)--(3.2,0), arrow = Arrow(6));
-//label(&quot;$v/2$&quot;,(-.4,0),N, red);
-label(&quot;$v/2$&quot;,(3.6,0),S);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fdkligjtk%0D%0A%0D%0Adraw(unitcircle)%3B%0D%0Adraw(shift(4%2C0)*unitcircle)%3B%0D%0Adraw((0%2C0)--(0.8%2C0)%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0Alabel(%22%24v%2F2%24%22%2C(.4%2C0)%2CS)%3B%0D%0A%2F%2Fdraw((0%2C0)--(-.8%2C0)%2C%20arrow%20%3D%20Arrow(6)%2Cred)%3B%0D%0Adraw((4%2C0)--(3.2%2C0)%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%2F%2Flabel(%22%24v%2F2%24%22%2C(-.4%2C0)%2CN%2C%20red)%3B%0D%0Alabel(%22%24v%2F2%24%22%2C(3.6%2C0)%2CS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/dkligjtk
-
-draw(unitcircle);
-draw(shift(4,0)*unitcircle);
-draw((0,0)--(0.8,0), arrow = Arrow(6));
-label(&quot;$v/2$&quot;,(.4,0),S);
-//draw((0,0)--(-.8,0), arrow = Arrow(6),red);
-draw((4,0)--(3.2,0), arrow = Arrow(6));
-//label(&quot;$v/2$&quot;,(-.4,0),N, red);
-label(&quot;$v/2$&quot;,(3.6,0),S);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="2548" data-id="03512" data-file="c190_L5_script_14.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-2549">
-  <div class="card-header">
-    <h2>#2549 &mdash; c186_L21_script_45.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5986 &middot; Bad</span>
+    <h2>#2545 &mdash; c186_L21_script_45.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5981 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -4479,7 +4482,265 @@ dot(Q);
 dot(R);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2549" data-id="02424" data-file="c186_L21_script_45.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2545" data-id="02424" data-file="c186_L21_script_45.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-2546">
+  <div class="card-header">
+    <h2>#2546 &mdash; c57_L23_script_51.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5982 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/10824.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/10824.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import olympiad; import cse5; import geometry; size(150);
+defaultpen(fontsize(10pt));
+defaultpen(0.8);
+dotfactor = 4;
+
+pair A = origin;
+pair B = A+0.6*dir(65);
+pair C = A+dir(5);
+pair D = extension(A,A+dir(35),B,C);
+pair EE = D+0.275*dir(35);
+label(&quot;$E$&quot;,EE,NE);
+
+label(&quot;$A$&quot;,A,W);
+label(&quot;$B$&quot;,B,NW);
+label(&quot;$D$&quot;,D,S);
+label(&quot;$C$&quot;,C,SE);
+
+label(&quot;$x$&quot;, A+ 0.08*(unit(B-A) + unit(EE-A)));
+label(&quot;$x$&quot;, A+ 0.08*(unit(C-A) + unit(EE-A)));
+label(&quot;$x$&quot;, B+ 0.08*(unit(C-B) + unit(EE-B)));
+label(&quot;$x$&quot;, C + 0.08*(unit(B-C) + unit(EE-C)));
+
+draw(A--EE--B--C--A--B);
+draw(EE--C); 
+draw(circumcircle(A,B,C));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20olympiad%3B%20import%20cse5%3B%20import%20geometry%3B%20size(150)%3B%0D%0D%0Adefaultpen(fontsize(10pt))%3B%0D%0D%0Adefaultpen(0.8)%3B%0D%0D%0Adotfactor%20%3D%204%3B%0D%0A%0D%0Apair%20A%20%3D%20origin%3B%0D%0D%0Apair%20B%20%3D%20A%2B0.6*dir(65)%3B%0D%0D%0Apair%20C%20%3D%20A%2Bdir(5)%3B%0D%0D%0Apair%20D%20%3D%20extension(A%2CA%2Bdir(35)%2CB%2CC)%3B%0D%0D%0Apair%20EE%20%3D%20D%2B0.275*dir(35)%3B%0D%0D%0Alabel(%22%24E%24%22%2CEE%2CNE)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2CA%2CW)%3B%0D%0D%0Alabel(%22%24B%24%22%2CB%2CNW)%3B%0D%0D%0Alabel(%22%24D%24%22%2CD%2CS)%3B%0D%0D%0Alabel(%22%24C%24%22%2CC%2CSE)%3B%0D%0A%0D%0Alabel(%22%24x%24%22%2C%20A%2B%200.08*(unit(B-A)%20%2B%20unit(EE-A)))%3B%0D%0D%0Alabel(%22%24x%24%22%2C%20A%2B%200.08*(unit(C-A)%20%2B%20unit(EE-A)))%3B%0D%0D%0Alabel(%22%24x%24%22%2C%20B%2B%200.08*(unit(C-B)%20%2B%20unit(EE-B)))%3B%0D%0D%0Alabel(%22%24x%24%22%2C%20C%20%2B%200.08*(unit(B-C)%20%2B%20unit(EE-C)))%3B%0D%0A%0D%0Adraw(A--EE--B--C--A--B)%3B%0D%0D%0Adraw(EE--C)%3B%20%0D%0D%0Adraw(circumcircle(A%2CB%2CC))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import olympiad; import cse5; import geometry; size(150);
+defaultpen(fontsize(10pt));
+defaultpen(0.8);
+dotfactor = 4;
+
+pair A = origin;
+pair B = A+0.6*dir(65);
+pair C = A+dir(5);
+pair D = extension(A,A+dir(35),B,C);
+pair EE = D+0.275*dir(35);
+label(&quot;$E$&quot;,EE,NE);
+
+label(&quot;$A$&quot;,A,W);
+label(&quot;$B$&quot;,B,NW);
+label(&quot;$D$&quot;,D,S);
+label(&quot;$C$&quot;,C,SE);
+
+label(&quot;$x$&quot;, A+ 0.08*(unit(B-A) + unit(EE-A)));
+label(&quot;$x$&quot;, A+ 0.08*(unit(C-A) + unit(EE-A)));
+label(&quot;$x$&quot;, B+ 0.08*(unit(C-B) + unit(EE-B)));
+label(&quot;$x$&quot;, C + 0.08*(unit(B-C) + unit(EE-C)));
+
+draw(A--EE--B--C--A--B);
+draw(EE--C); 
+draw(circumcircle(A,B,C));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="2546" data-id="10824" data-file="c57_L23_script_51.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-2547">
+  <div class="card-header">
+    <h2>#2547 &mdash; c401_L10_p36178_solution_text_8.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5982 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/05272.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/05272.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(3cm);
+pair A = (0,0);
+pair B = (sqrt(3),1);
+pair C = (1,-sqrt(3));
+pair D = (-sqrt(3),1);
+pair E = (-1,-sqrt(3));
+pair F = (0,-2*sqrt(3));
+
+filldraw(A--B--C--F--E--D--cycle,red+white+red);
+filldraw(A--C--F--E--cycle,lightblue);
+draw(A--F);
+draw(C--E);
+draw((B+C)/2--A--(D+E)/2);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(3cm)%3B%0D%0Apair%20A%20%3D%20(0%2C0)%3B%0D%0Apair%20B%20%3D%20(sqrt(3)%2C1)%3B%0D%0Apair%20C%20%3D%20(1%2C-sqrt(3))%3B%0D%0Apair%20D%20%3D%20(-sqrt(3)%2C1)%3B%0D%0Apair%20E%20%3D%20(-1%2C-sqrt(3))%3B%0D%0Apair%20F%20%3D%20(0%2C-2*sqrt(3))%3B%0D%0A%0D%0Afilldraw(A--B--C--F--E--D--cycle%2Cred%2Bwhite%2Bred)%3B%0D%0Afilldraw(A--C--F--E--cycle%2Clightblue)%3B%0D%0Adraw(A--F)%3B%0D%0Adraw(C--E)%3B%0D%0Adraw((B%2BC)%2F2--A--(D%2BE)%2F2)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(3cm);
+pair A = (0,0);
+pair B = (sqrt(3),1);
+pair C = (1,-sqrt(3));
+pair D = (-sqrt(3),1);
+pair E = (-1,-sqrt(3));
+pair F = (0,-2*sqrt(3));
+
+filldraw(A--B--C--F--E--D--cycle,red+white+red);
+filldraw(A--C--F--E--cycle,lightblue);
+draw(A--F);
+draw(C--E);
+draw((B+C)/2--A--(D+E)/2);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="2547" data-id="05272" data-file="c401_L10_p36178_solution_text_8.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-2548">
+  <div class="card-header">
+    <h2>#2548 &mdash; c190_L5_script_14.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5983 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/03512.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03512.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/dkligjtk
+
+draw(unitcircle);
+draw(shift(4,0)*unitcircle);
+draw((0,0)--(0.8,0), arrow = Arrow(6));
+label(&quot;$v/2$&quot;,(.4,0),S);
+//draw((0,0)--(-.8,0), arrow = Arrow(6),red);
+draw((4,0)--(3.2,0), arrow = Arrow(6));
+//label(&quot;$v/2$&quot;,(-.4,0),N, red);
+label(&quot;$v/2$&quot;,(3.6,0),S);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fdkligjtk%0D%0A%0D%0Adraw(unitcircle)%3B%0D%0Adraw(shift(4%2C0)*unitcircle)%3B%0D%0Adraw((0%2C0)--(0.8%2C0)%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0Alabel(%22%24v%2F2%24%22%2C(.4%2C0)%2CS)%3B%0D%0A%2F%2Fdraw((0%2C0)--(-.8%2C0)%2C%20arrow%20%3D%20Arrow(6)%2Cred)%3B%0D%0Adraw((4%2C0)--(3.2%2C0)%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%2F%2Flabel(%22%24v%2F2%24%22%2C(-.4%2C0)%2CN%2C%20red)%3B%0D%0Alabel(%22%24v%2F2%24%22%2C(3.6%2C0)%2CS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//TeXeR source: https://artofproblemsolving.com/texer/dkligjtk
+
+draw(unitcircle);
+draw(shift(4,0)*unitcircle);
+draw((0,0)--(0.8,0), arrow = Arrow(6));
+label(&quot;$v/2$&quot;,(.4,0),S);
+//draw((0,0)--(-.8,0), arrow = Arrow(6),red);
+draw((4,0)--(3.2,0), arrow = Arrow(6));
+//label(&quot;$v/2$&quot;,(-.4,0),N, red);
+label(&quot;$v/2$&quot;,(3.6,0),S);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="2548" data-id="03512" data-file="c190_L5_script_14.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-2549">
+  <div class="card-header">
+    <h2>#2549 &mdash; c186_L18_p5679_solution_text_3.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5984 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01972.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01972.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(300);
+
+pair translate = (4,0);
+
+for(int i = 0; i &lt;= 4; ++i) {
+  draw(dir(360/5*i)--dir(360/5*(i + 1)));
+  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
+}
+
+draw((-1.2,0)--(1.2,0));
+draw((0,-1.2)--(0,1.2));
+draw(shift(translate)*((-1.2,0)--(1.2,0)));
+draw(shift(translate)*((0,-1.2)--(0,1.2)));
+draw((1.5,0)--(2.5,0),Arrow(8));
+
+label(&quot;$x$&quot;, (1.2,0), NE);
+label(&quot;$y$&quot;, (0,1.2), NE);
+label(&quot;$x$&quot;, (1.2,0) + translate, NE);
+label(&quot;$y$&quot;, (0,1.2) + translate, NE);
+
+label(&quot;$1$&quot;, dir(0), NE);
+label(&quot;$2$&quot;, dir(360/5), N);
+label(&quot;$3$&quot;, dir(2*360/5), NW);
+label(&quot;$4$&quot;, dir(3*360/5), SW);
+label(&quot;$5$&quot;, dir(4*360/5), S);
+label(&quot;$2$&quot;, dir(0) + translate, NE);
+label(&quot;$1$&quot;, dir(360/5) + translate, N);
+label(&quot;$5$&quot;, dir(2*360/5) + translate, NW);
+label(&quot;$4$&quot;, dir(3*360/5) + translate, SW);
+label(&quot;$3$&quot;, dir(4*360/5) + translate, S);
+label(&quot;$\mathbf{A} \mathbf{B}$&quot;, (2,0.2));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(300)%3B%0D%0A%0D%0Apair%20translate%20%3D%20(4%2C0)%3B%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%3D%204%3B%20%2B%2Bi)%20%7B%0D%0A%20%20draw(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201)))%3B%0D%0A%20%20draw(shift(translate)*(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201))))%3B%0D%0A%7D%0D%0A%0D%0Adraw((-1.2%2C0)--(1.2%2C0))%3B%0D%0Adraw((0%2C-1.2)--(0%2C1.2))%3B%0D%0Adraw(shift(translate)*((-1.2%2C0)--(1.2%2C0)))%3B%0D%0Adraw(shift(translate)*((0%2C-1.2)--(0%2C1.2)))%3B%0D%0Adraw((1.5%2C0)--(2.5%2C0)%2CArrow(8))%3B%0D%0A%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%2C%20NE)%3B%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%20%2B%20translate%2C%20NE)%3B%0D%0A%0D%0Alabel(%22%241%24%22%2C%20dir(0)%2C%20NE)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(360%2F5)%2C%20N)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(2*360%2F5)%2C%20NW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(3*360%2F5)%2C%20SW)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(4*360%2F5)%2C%20S)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%241%24%22%2C%20dir(360%2F5)%20%2B%20translate%2C%20N)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(2*360%2F5)%20%2B%20translate%2C%20NW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(3*360%2F5)%20%2B%20translate%2C%20SW)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(4*360%2F5)%20%2B%20translate%2C%20S)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%20%5Cmathbf%7BB%7D%24%22%2C%20(2%2C0.2))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(300);
+
+pair translate = (4,0);
+
+for(int i = 0; i &lt;= 4; ++i) {
+  draw(dir(360/5*i)--dir(360/5*(i + 1)));
+  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
+}
+
+draw((-1.2,0)--(1.2,0));
+draw((0,-1.2)--(0,1.2));
+draw(shift(translate)*((-1.2,0)--(1.2,0)));
+draw(shift(translate)*((0,-1.2)--(0,1.2)));
+draw((1.5,0)--(2.5,0),Arrow(8));
+
+label(&quot;$x$&quot;, (1.2,0), NE);
+label(&quot;$y$&quot;, (0,1.2), NE);
+label(&quot;$x$&quot;, (1.2,0) + translate, NE);
+label(&quot;$y$&quot;, (0,1.2) + translate, NE);
+
+label(&quot;$1$&quot;, dir(0), NE);
+label(&quot;$2$&quot;, dir(360/5), N);
+label(&quot;$3$&quot;, dir(2*360/5), NW);
+label(&quot;$4$&quot;, dir(3*360/5), SW);
+label(&quot;$5$&quot;, dir(4*360/5), S);
+label(&quot;$2$&quot;, dir(0) + translate, NE);
+label(&quot;$1$&quot;, dir(360/5) + translate, N);
+label(&quot;$5$&quot;, dir(2*360/5) + translate, NW);
+label(&quot;$4$&quot;, dir(3*360/5) + translate, SW);
+label(&quot;$3$&quot;, dir(4*360/5) + translate, S);
+label(&quot;$\mathbf{A} \mathbf{B}$&quot;, (2,0.2));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="2549" data-id="01972" data-file="c186_L18_p5679_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -6111,94 +6372,7 @@ dot(&quot;$(50,0)$&quot;, (50,0), SW, fontsize(10));
 </div>
 <div class="card" id="pair-2566">
   <div class="card-header">
-    <h2>#2566 &mdash; c186_L18_p5679_solution_text_1.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5992 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01970.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01970.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(300);
-
-pair translate = (4,0);
-
-for(int i = 0; i &lt;= 4; ++i) {
-  draw(dir(360/5*i)--dir(360/5*(i + 1)));
-  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
-}
-
-draw((-1.2,0)--(1.2,0));
-draw((0,-1.2)--(0,1.2));
-draw(shift(translate)*((-1.2,0)--(1.2,0)));
-draw(shift(translate)*((0,-1.2)--(0,1.2)));
-draw((1.5,0)--(2.5,0),Arrow(8));
-
-label(&quot;$x$&quot;, (1.2,0), NE);
-label(&quot;$y$&quot;, (0,1.2), NE);
-label(&quot;$x$&quot;, (1.2,0) + translate, NE);
-label(&quot;$y$&quot;, (0,1.2) + translate, NE);
-
-label(&quot;$1$&quot;, dir(0), NE);
-label(&quot;$2$&quot;, dir(360/5), N);
-label(&quot;$3$&quot;, dir(2*360/5), NW);
-label(&quot;$4$&quot;, dir(3*360/5), SW);
-label(&quot;$5$&quot;, dir(4*360/5), S);
-label(&quot;$5$&quot;, dir(0) + translate, NE);
-label(&quot;$1$&quot;, dir(360/5) + translate, N);
-label(&quot;$2$&quot;, dir(2*360/5) + translate, NW);
-label(&quot;$3$&quot;, dir(3*360/5) + translate, SW);
-label(&quot;$4$&quot;, dir(4*360/5) + translate, S);
-label(&quot;$\mathbf{A}$&quot;, (2,0.2));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(300)%3B%0D%0A%0D%0Apair%20translate%20%3D%20(4%2C0)%3B%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%3D%204%3B%20%2B%2Bi)%20%7B%0D%0A%20%20draw(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201)))%3B%0D%0A%20%20draw(shift(translate)*(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201))))%3B%0D%0A%7D%0D%0A%0D%0Adraw((-1.2%2C0)--(1.2%2C0))%3B%0D%0Adraw((0%2C-1.2)--(0%2C1.2))%3B%0D%0Adraw(shift(translate)*((-1.2%2C0)--(1.2%2C0)))%3B%0D%0Adraw(shift(translate)*((0%2C-1.2)--(0%2C1.2)))%3B%0D%0Adraw((1.5%2C0)--(2.5%2C0)%2CArrow(8))%3B%0D%0A%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%2C%20NE)%3B%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%20%2B%20translate%2C%20NE)%3B%0D%0A%0D%0Alabel(%22%241%24%22%2C%20dir(0)%2C%20NE)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(360%2F5)%2C%20N)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(2*360%2F5)%2C%20NW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(3*360%2F5)%2C%20SW)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(4*360%2F5)%2C%20S)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%241%24%22%2C%20dir(360%2F5)%20%2B%20translate%2C%20N)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(2*360%2F5)%20%2B%20translate%2C%20NW)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(3*360%2F5)%20%2B%20translate%2C%20SW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(4*360%2F5)%20%2B%20translate%2C%20S)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%24%22%2C%20(2%2C0.2))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(300);
-
-pair translate = (4,0);
-
-for(int i = 0; i &lt;= 4; ++i) {
-  draw(dir(360/5*i)--dir(360/5*(i + 1)));
-  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
-}
-
-draw((-1.2,0)--(1.2,0));
-draw((0,-1.2)--(0,1.2));
-draw(shift(translate)*((-1.2,0)--(1.2,0)));
-draw(shift(translate)*((0,-1.2)--(0,1.2)));
-draw((1.5,0)--(2.5,0),Arrow(8));
-
-label(&quot;$x$&quot;, (1.2,0), NE);
-label(&quot;$y$&quot;, (0,1.2), NE);
-label(&quot;$x$&quot;, (1.2,0) + translate, NE);
-label(&quot;$y$&quot;, (0,1.2) + translate, NE);
-
-label(&quot;$1$&quot;, dir(0), NE);
-label(&quot;$2$&quot;, dir(360/5), N);
-label(&quot;$3$&quot;, dir(2*360/5), NW);
-label(&quot;$4$&quot;, dir(3*360/5), SW);
-label(&quot;$5$&quot;, dir(4*360/5), S);
-label(&quot;$5$&quot;, dir(0) + translate, NE);
-label(&quot;$1$&quot;, dir(360/5) + translate, N);
-label(&quot;$2$&quot;, dir(2*360/5) + translate, NW);
-label(&quot;$3$&quot;, dir(3*360/5) + translate, SW);
-label(&quot;$4$&quot;, dir(4*360/5) + translate, S);
-label(&quot;$\mathbf{A}$&quot;, (2,0.2));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="2566" data-id="01970" data-file="c186_L18_p5679_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-2567">
-  <div class="card-header">
-    <h2>#2567 &mdash; c462_L11_script_75.asy</h2>
+    <h2>#2566 &mdash; c462_L11_script_75.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5992 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6281,13 +6455,13 @@ label(&quot;$G$&quot;, G, dir(0));
 label(&quot;$H$&quot;, H, N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2567" data-id="06832" data-file="c462_L11_script_75.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2566" data-id="06832" data-file="c462_L11_script_75.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2568">
+<div class="card" id="pair-2567">
   <div class="card-header">
-    <h2>#2568 &mdash; c289_L4_p38989_solution_text_0.asy</h2>
+    <h2>#2567 &mdash; c289_L4_p38989_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5993 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6372,13 +6546,13 @@ draw(short(ngs[4],nhs[0]),red,Arrow(2mm),BeginBar);
 draw(short(ngs[5],nhs[2]),red,Arrow(2mm),BeginBar);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2568" data-id="04332" data-file="c289_L4_p38989_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2567" data-id="04332" data-file="c289_L4_p38989_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2569">
+<div class="card" id="pair-2568">
   <div class="card-header">
-    <h2>#2569 &mdash; c289_L10_script_11.asy</h2>
+    <h2>#2568 &mdash; c289_L10_script_11.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5993 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6409,7 +6583,94 @@ draw((0,0)--v,Arrow(2mm));
 draw((0,0)--w,Arrow(2mm));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2569" data-id="04202" data-file="c289_L10_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2568" data-id="04202" data-file="c289_L10_script_11.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-2569">
+  <div class="card-header">
+    <h2>#2569 &mdash; c186_L18_p5679_solution_text_1.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5993 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01970.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01970.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(300);
+
+pair translate = (4,0);
+
+for(int i = 0; i &lt;= 4; ++i) {
+  draw(dir(360/5*i)--dir(360/5*(i + 1)));
+  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
+}
+
+draw((-1.2,0)--(1.2,0));
+draw((0,-1.2)--(0,1.2));
+draw(shift(translate)*((-1.2,0)--(1.2,0)));
+draw(shift(translate)*((0,-1.2)--(0,1.2)));
+draw((1.5,0)--(2.5,0),Arrow(8));
+
+label(&quot;$x$&quot;, (1.2,0), NE);
+label(&quot;$y$&quot;, (0,1.2), NE);
+label(&quot;$x$&quot;, (1.2,0) + translate, NE);
+label(&quot;$y$&quot;, (0,1.2) + translate, NE);
+
+label(&quot;$1$&quot;, dir(0), NE);
+label(&quot;$2$&quot;, dir(360/5), N);
+label(&quot;$3$&quot;, dir(2*360/5), NW);
+label(&quot;$4$&quot;, dir(3*360/5), SW);
+label(&quot;$5$&quot;, dir(4*360/5), S);
+label(&quot;$5$&quot;, dir(0) + translate, NE);
+label(&quot;$1$&quot;, dir(360/5) + translate, N);
+label(&quot;$2$&quot;, dir(2*360/5) + translate, NW);
+label(&quot;$3$&quot;, dir(3*360/5) + translate, SW);
+label(&quot;$4$&quot;, dir(4*360/5) + translate, S);
+label(&quot;$\mathbf{A}$&quot;, (2,0.2));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(300)%3B%0D%0A%0D%0Apair%20translate%20%3D%20(4%2C0)%3B%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%3D%204%3B%20%2B%2Bi)%20%7B%0D%0A%20%20draw(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201)))%3B%0D%0A%20%20draw(shift(translate)*(dir(360%2F5*i)--dir(360%2F5*(i%20%2B%201))))%3B%0D%0A%7D%0D%0A%0D%0Adraw((-1.2%2C0)--(1.2%2C0))%3B%0D%0Adraw((0%2C-1.2)--(0%2C1.2))%3B%0D%0Adraw(shift(translate)*((-1.2%2C0)--(1.2%2C0)))%3B%0D%0Adraw(shift(translate)*((0%2C-1.2)--(0%2C1.2)))%3B%0D%0Adraw((1.5%2C0)--(2.5%2C0)%2CArrow(8))%3B%0D%0A%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%2C%20NE)%3B%0D%0Alabel(%22%24x%24%22%2C%20(1.2%2C0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%24y%24%22%2C%20(0%2C1.2)%20%2B%20translate%2C%20NE)%3B%0D%0A%0D%0Alabel(%22%241%24%22%2C%20dir(0)%2C%20NE)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(360%2F5)%2C%20N)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(2*360%2F5)%2C%20NW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(3*360%2F5)%2C%20SW)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(4*360%2F5)%2C%20S)%3B%0D%0Alabel(%22%245%24%22%2C%20dir(0)%20%2B%20translate%2C%20NE)%3B%0D%0Alabel(%22%241%24%22%2C%20dir(360%2F5)%20%2B%20translate%2C%20N)%3B%0D%0Alabel(%22%242%24%22%2C%20dir(2*360%2F5)%20%2B%20translate%2C%20NW)%3B%0D%0Alabel(%22%243%24%22%2C%20dir(3*360%2F5)%20%2B%20translate%2C%20SW)%3B%0D%0Alabel(%22%244%24%22%2C%20dir(4*360%2F5)%20%2B%20translate%2C%20S)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%24%22%2C%20(2%2C0.2))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(300);
+
+pair translate = (4,0);
+
+for(int i = 0; i &lt;= 4; ++i) {
+  draw(dir(360/5*i)--dir(360/5*(i + 1)));
+  draw(shift(translate)*(dir(360/5*i)--dir(360/5*(i + 1))));
+}
+
+draw((-1.2,0)--(1.2,0));
+draw((0,-1.2)--(0,1.2));
+draw(shift(translate)*((-1.2,0)--(1.2,0)));
+draw(shift(translate)*((0,-1.2)--(0,1.2)));
+draw((1.5,0)--(2.5,0),Arrow(8));
+
+label(&quot;$x$&quot;, (1.2,0), NE);
+label(&quot;$y$&quot;, (0,1.2), NE);
+label(&quot;$x$&quot;, (1.2,0) + translate, NE);
+label(&quot;$y$&quot;, (0,1.2) + translate, NE);
+
+label(&quot;$1$&quot;, dir(0), NE);
+label(&quot;$2$&quot;, dir(360/5), N);
+label(&quot;$3$&quot;, dir(2*360/5), NW);
+label(&quot;$4$&quot;, dir(3*360/5), SW);
+label(&quot;$5$&quot;, dir(4*360/5), S);
+label(&quot;$5$&quot;, dir(0) + translate, NE);
+label(&quot;$1$&quot;, dir(360/5) + translate, N);
+label(&quot;$2$&quot;, dir(2*360/5) + translate, NW);
+label(&quot;$3$&quot;, dir(3*360/5) + translate, SW);
+label(&quot;$4$&quot;, dir(4*360/5) + translate, S);
+label(&quot;$\mathbf{A}$&quot;, (2,0.2));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="2569" data-id="01970" data-file="c186_L18_p5679_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

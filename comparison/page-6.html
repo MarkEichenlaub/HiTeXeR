@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 6/119</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -43,8 +44,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 6 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">529 Good</b>
-<b style="background:#c0820a">2498 Fair</b>
+<b style="background:#2d8a4e">530 Good</b>
+<b style="background:#c0820a">2497 Fair</b>
 <b style="background:#c0392b">8869 Poor</b>
 
 </div>
@@ -52,8 +53,125 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 
 <div class="card" id="pair-501">
   <div class="card-header">
-    <h2>#501 &mdash; c186_L18_script_19.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3174 &middot; Bad</span>
+    <h2>#501 &mdash; c186_L19_script_45.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3175 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02099.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02099.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 3;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, SW, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%203%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%22%20%2B%20string(t)%20%2B%20%22%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 3;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, SW, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="501" data-id="02099" data-file="c186_L19_script_45.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-502">
+  <div class="card-header">
+    <h2>#502 &mdash; c186_L18_script_19.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3176 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -235,14 +353,14 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="501" data-id="01984" data-file="c186_L18_script_19.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="502" data-id="01984" data-file="c186_L18_script_19.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-502">
+<div class="card" id="pair-503">
   <div class="card-header">
-    <h2>#502 &mdash; c186_L18_script_20.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3174 &middot; Bad</span>
+    <h2>#503 &mdash; c186_L18_script_20.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3176 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -424,14 +542,14 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="502" data-id="01986" data-file="c186_L18_script_20.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="503" data-id="01986" data-file="c186_L18_script_20.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-503">
+<div class="card" id="pair-504">
   <div class="card-header">
-    <h2>#503 &mdash; c186_L18_script_23.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3174 &middot; Bad</span>
+    <h2>#504 &mdash; c186_L18_script_23.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3176 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -613,124 +731,7 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="503" data-id="01989" data-file="c186_L18_script_23.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-504">
-  <div class="card-header">
-    <h2>#504 &mdash; c186_L19_script_45.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3175 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02099.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02099.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-pair V, P, D, tD, tailV, tailP, tailD, tailtD;
-real t;
-
-t = 3;
-
-P = (4,-1); 
-D = (-2,3); 
-tD = t*D;
-
-V= g(t, P, D);
-
-tailV = (0,0);
-tailP = tailV; 
-tailD = tailV; 
-tailtD = tailP + P;
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
-draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
-draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
-draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
-draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
-
-label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, SW, UnFill);
-label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
-label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
-label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
-
-dot(V);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%203%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%22%20%2B%20string(t)%20%2B%20%22%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-pair V, P, D, tD, tailV, tailP, tailD, tailtD;
-real t;
-
-t = 3;
-
-P = (4,-1); 
-D = (-2,3); 
-tD = t*D;
-
-V= g(t, P, D);
-
-tailV = (0,0);
-tailP = tailV; 
-tailD = tailV; 
-tailtD = tailP + P;
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
-draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
-draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
-draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
-draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
-
-label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, SW, UnFill);
-label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
-label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
-label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
-
-dot(V);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="504" data-id="02099" data-file="c186_L19_script_45.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="504" data-id="01989" data-file="c186_L18_script_23.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -895,8 +896,566 @@ color((1,1),0,red);
 </div>
 <div class="card" id="pair-506">
   <div class="card-header">
-    <h2>#506 &mdash; c539_L11_script_8.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3180 &middot; Bad</span>
+    <h2>#506 &mdash; c186_L11_script_15.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3182 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01415.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01415.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    path[] endpoints; 
+    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
+    return endpoints[1]--endpoints[0]; 
+}
+
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+
+pair Z = (2,1);
+pair O = (0,0);
+
+draw(maxLine(O, Z, -7,7, -7, 7), gray + linewidth(0.4));
+draw(Z -- 2Z, brown, Arrow(5));
+
+dot(&quot;$0$&quot;,O,NW);
+dot(&quot;$z$&quot;,Z,N);
+dot(&quot;$2z$&quot;,2Z,N,red);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20path%5B%5D%20endpoints%3B%20%0D%0D%0A%20%20%20%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%20%0D%0D%0A%20%20%20%20return%20endpoints%5B1%5D--endpoints%5B0%5D%3B%20%0D%0D%0A%7D%0D%0A%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20Z%20%3D%20(2%2C1)%3B%0D%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(maxLine(O%2C%20Z%2C%20-7%2C7%2C%20-7%2C%207)%2C%20gray%20%2B%20linewidth(0.4))%3B%0D%0D%0Adraw(Z%20--%202Z%2C%20brown%2C%20Arrow(5))%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CNW)%3B%0D%0D%0Adot(%22%24z%24%22%2CZ%2CN)%3B%0D%0D%0Adot(%22%242z%24%22%2C2Z%2CN%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    path[] endpoints; 
+    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
+    return endpoints[1]--endpoints[0]; 
+}
+
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+
+pair Z = (2,1);
+pair O = (0,0);
+
+draw(maxLine(O, Z, -7,7, -7, 7), gray + linewidth(0.4));
+draw(Z -- 2Z, brown, Arrow(5));
+
+dot(&quot;$0$&quot;,O,NW);
+dot(&quot;$z$&quot;,Z,N);
+dot(&quot;$2z$&quot;,2Z,N,red);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="506" data-id="01415" data-file="c186_L11_script_15.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-507">
+  <div class="card-header">
+    <h2>#507 &mdash; c289_L2_script_7.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3183 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/04307.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04307.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220);
+label(&quot;$4$&quot;,(0,0));
+label(&quot;$4$&quot;,(2,0));
+label(&quot;$5$&quot;,(4,0));
+label(&quot;$6$&quot;,(6,0));
+label(&quot;$7$&quot;,(8,0)); 
+draw((0.2,0)--(1.8,0),Arrow); 
+draw((2.2,0)--(3.8,0),Arrow); 
+draw((4.2,0)--(5.8,0),Arrow); 
+draw((6.2,0)--(7.8,0),Arrow); 
+label(&quot;$\scriptscriptstyle{(56)}$&quot;,(1,0),N);
+label(&quot;$\scriptscriptstyle{(45)}$&quot;,(3,0),N);
+label(&quot;$\scriptscriptstyle{(56)}$&quot;,(5,0),N);
+label(&quot;$\scriptscriptstyle{(67)}$&quot;,(7,0),N);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%0D%0D%0Alabel(%22%244%24%22%2C(0%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(2%2C0))%3B%0D%0D%0Alabel(%22%245%24%22%2C(4%2C0))%3B%0D%0D%0Alabel(%22%246%24%22%2C(6%2C0))%3B%0D%0D%0Alabel(%22%247%24%22%2C(8%2C0))%3B%20%0D%0D%0Adraw((0.2%2C0)--(1.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((2.2%2C0)--(3.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((4.2%2C0)--(5.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((6.2%2C0)--(7.8%2C0)%2CArrow)%3B%20%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(1%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(45)%7D%24%22%2C(3%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(5%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(67)%7D%24%22%2C(7%2C0)%2CN)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220);
+label(&quot;$4$&quot;,(0,0));
+label(&quot;$4$&quot;,(2,0));
+label(&quot;$5$&quot;,(4,0));
+label(&quot;$6$&quot;,(6,0));
+label(&quot;$7$&quot;,(8,0)); 
+draw((0.2,0)--(1.8,0),Arrow); 
+draw((2.2,0)--(3.8,0),Arrow); 
+draw((4.2,0)--(5.8,0),Arrow); 
+draw((6.2,0)--(7.8,0),Arrow); 
+label(&quot;$\scriptscriptstyle{(56)}$&quot;,(1,0),N);
+label(&quot;$\scriptscriptstyle{(45)}$&quot;,(3,0),N);
+label(&quot;$\scriptscriptstyle{(56)}$&quot;,(5,0),N);
+label(&quot;$\scriptscriptstyle{(67)}$&quot;,(7,0),N);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="507" data-id="04307" data-file="c289_L2_script_7.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-508">
+  <div class="card-header">
+    <h2>#508 &mdash; c186_L15_script_35.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3183 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01776.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01776.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+import olympiad; 
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+
+pair Z = (3,1);
+pair O = (0,0);
+
+draw(O--Z); 
+draw(O--(0,1)*Z);
+draw(rightanglemark(Z, O, (0,1)*Z, 20), gray+ linewidth(0.4));
+draw(arc(O,Z, Z*expi(pi/2)), blue, Arrow(5));
+
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,S);
+dot(&quot;$iz$&quot;, (0,1)*Z, N, red);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Aimport%20olympiad%3B%20%0D%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20Z%20%3D%20(3%2C1)%3B%0D%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(O--Z)%3B%20%0D%0D%0Adraw(O--(0%2C1)*Z)%3B%0D%0D%0Adraw(rightanglemark(Z%2C%20O%2C%20(0%2C1)*Z%2C%2020)%2C%20gray%2B%20linewidth(0.4))%3B%0D%0D%0Adraw(arc(O%2CZ%2C%20Z*expi(pi%2F2))%2C%20blue%2C%20Arrow(5))%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0D%0Adot(%22%24z%24%22%2CZ%2CS)%3B%0D%0D%0Adot(%22%24iz%24%22%2C%20(0%2C1)*Z%2C%20N%2C%20red)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+import olympiad; 
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+
+pair Z = (3,1);
+pair O = (0,0);
+
+draw(O--Z); 
+draw(O--(0,1)*Z);
+draw(rightanglemark(Z, O, (0,1)*Z, 20), gray+ linewidth(0.4));
+draw(arc(O,Z, Z*expi(pi/2)), blue, Arrow(5));
+
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,S);
+dot(&quot;$iz$&quot;, (0,1)*Z, N, red);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="508" data-id="01776" data-file="c186_L15_script_35.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-509">
+  <div class="card-header">
+    <h2>#509 &mdash; c186_L19_script_49.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3187 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02103.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02103.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 1.5;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%201.5%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%22%20%2B%20string(t)%20%2B%20%22%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tD, tailV, tailP, tailD, tailtD;
+real t;
+
+t = 1.5;
+
+P = (4,-1); 
+D = (-2,3); 
+tD = t*D;
+
+V= g(t, P, D);
+
+tailV = (0,0);
+tailP = tailV; 
+tailD = tailV; 
+tailtD = tailP + P;
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
+draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
+
+label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
+label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
+
+dot(V);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="509" data-id="02103" data-file="c186_L19_script_49.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-510">
+  <div class="card-header">
+    <h2>#510 &mdash; c398_L13_script_8.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3187 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/04928.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04928.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(150);
+
+// set bounds of the grid
+real xmin = -7.5, xmax = 7.5, ymin = -7.5, ymax = 7.5;
+
+// draw your graph
+real f (real x) {return (x^2);}
+real g (real x) {return (x + 2);}
+real h (real x) {return (14 - x^2);}
+draw(graph(f,xmin,0),blue);
+draw(graph(f,0,xmax),blue + dotted + 1.5*bp);
+draw(graph(g,xmin,0),heavygreen + dotted + 1.5*bp);
+draw(graph(g,0,3),heavygreen);
+draw(graph(g,3,xmax),heavygreen + dotted + 1.5*bp);
+draw(graph(h,xmin,3),fuchsia + dotted + 1.5*bp);
+draw(graph(h,3,xmax),fuchsia);
+limits((xmin,ymin),(xmax,ymax),Crop);
+
+// set parameters of the grid lines
+ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
+
+// draw axes and grid lines
+xaxis(xmin, xmax, Arrows(6), above = true);
+yaxis(ymin, ymax, Arrows(6), above = true);
+xaxis(BottomTop, xmin, xmax, invisible, tgrid);
+yaxis(LeftRight, ymin, ymax, invisible, tgrid);
+
+// add axis labels
+label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
+label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
+
+filldraw(Circle((0,0),0.2), blue, blue);
+filldraw(Circle((0,2),0.2), white, heavygreen);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0A%0D%0A%2F%2F%20set%20bounds%20of%20the%20grid%0D%0D%0Areal%20xmin%20%3D%20-7.5%2C%20xmax%20%3D%207.5%2C%20ymin%20%3D%20-7.5%2C%20ymax%20%3D%207.5%3B%0D%0A%0D%0A%2F%2F%20draw%20your%20graph%0D%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x%5E2)%3B%7D%0D%0D%0Areal%20g%20(real%20x)%20%7Breturn%20(x%20%2B%202)%3B%7D%0D%0D%0Areal%20h%20(real%20x)%20%7Breturn%20(14%20-%20x%5E2)%3B%7D%0D%0D%0Adraw(graph(f%2Cxmin%2C0)%2Cblue)%3B%0D%0D%0Adraw(graph(f%2C0%2Cxmax)%2Cblue%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(g%2Cxmin%2C0)%2Cheavygreen%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(g%2C0%2C3)%2Cheavygreen)%3B%0D%0D%0Adraw(graph(g%2C3%2Cxmax)%2Cheavygreen%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(h%2Cxmin%2C3)%2Cfuchsia%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(h%2C3%2Cxmax)%2Cfuchsia)%3B%0D%0D%0Alimits((xmin%2Cymin)%2C(xmax%2Cymax)%2CCrop)%3B%0D%0A%0D%0A%2F%2F%20set%20parameters%20of%20the%20grid%20lines%0D%0D%0Aticks%20tgrid%20%3D%20Ticks(Label(%22%25%22)%2C%20Step%20%3D%201%2C%20extend%20%3D%20true%2C%20rgb(0%2C0.7%2C0.7)%20%2B%200.4*bp)%3B%0D%0A%0D%0A%2F%2F%20draw%20axes%20and%20grid%20lines%0D%0D%0Axaxis(xmin%2C%20xmax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Ayaxis(ymin%2C%20ymax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Axaxis(BottomTop%2C%20xmin%2C%20xmax%2C%20invisible%2C%20tgrid)%3B%0D%0D%0Ayaxis(LeftRight%2C%20ymin%2C%20ymax%2C%20invisible%2C%20tgrid)%3B%0D%0A%0D%0A%2F%2F%20add%20axis%20labels%0D%0D%0Alabel(%22%24x%24%22%2C%20(xmax%2C0)%2C%20E%2C%20fontsize(10))%3B%0D%0D%0Alabel(%22%24y%24%22%2C%20(0%2Cymax)%2C%20N%2C%20fontsize(10))%3B%0D%0A%0D%0Afilldraw(Circle((0%2C0)%2C0.2)%2C%20blue%2C%20blue)%3B%0D%0D%0Afilldraw(Circle((0%2C2)%2C0.2)%2C%20white%2C%20heavygreen)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(150);
+
+// set bounds of the grid
+real xmin = -7.5, xmax = 7.5, ymin = -7.5, ymax = 7.5;
+
+// draw your graph
+real f (real x) {return (x^2);}
+real g (real x) {return (x + 2);}
+real h (real x) {return (14 - x^2);}
+draw(graph(f,xmin,0),blue);
+draw(graph(f,0,xmax),blue + dotted + 1.5*bp);
+draw(graph(g,xmin,0),heavygreen + dotted + 1.5*bp);
+draw(graph(g,0,3),heavygreen);
+draw(graph(g,3,xmax),heavygreen + dotted + 1.5*bp);
+draw(graph(h,xmin,3),fuchsia + dotted + 1.5*bp);
+draw(graph(h,3,xmax),fuchsia);
+limits((xmin,ymin),(xmax,ymax),Crop);
+
+// set parameters of the grid lines
+ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
+
+// draw axes and grid lines
+xaxis(xmin, xmax, Arrows(6), above = true);
+yaxis(ymin, ymax, Arrows(6), above = true);
+xaxis(BottomTop, xmin, xmax, invisible, tgrid);
+yaxis(LeftRight, ymin, ymax, invisible, tgrid);
+
+// add axis labels
+label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
+label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
+
+filldraw(Circle((0,0),0.2), blue, blue);
+filldraw(Circle((0,2),0.2), white, heavygreen);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="510" data-id="04928" data-file="c398_L13_script_8.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-511">
+  <div class="card-header">
+    <h2>#511 &mdash; c186_L9_script_14.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3189 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/03205.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03205.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
+pair Z = (2,-2);
+pair WW = (2,3);
+pair O = (0,0);
+draw(Z--O,blue);
+draw(WW--O, red);   
+draw(Z+WW--O, heavygreen); 
+draw(WW--WW+Z, blue); 
+draw(Z--WW+Z, red); 
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,S);
+dot(&quot;$w$&quot;,WW,N);
+dot(&quot;$z+w$&quot;,Z+WW,NE);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue%2C%20usegrid%20%3D%20true)%3B%0D%0Apair%20Z%20%3D%20(2%2C-2)%3B%0D%0Apair%20WW%20%3D%20(2%2C3)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0Adraw(Z--O%2Cblue)%3B%0D%0Adraw(WW--O%2C%20red)%3B%20%20%20%0D%0Adraw(Z%2BWW--O%2C%20heavygreen)%3B%20%0D%0Adraw(WW--WW%2BZ%2C%20blue)%3B%20%0D%0Adraw(Z--WW%2BZ%2C%20red)%3B%20%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CS)%3B%0D%0Adot(%22%24w%24%22%2CWW%2CN)%3B%0D%0Adot(%22%24z%2Bw%24%22%2CZ%2BWW%2CNE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
+pair Z = (2,-2);
+pair WW = (2,3);
+pair O = (0,0);
+draw(Z--O,blue);
+draw(WW--O, red);   
+draw(Z+WW--O, heavygreen); 
+draw(WW--WW+Z, blue); 
+draw(Z--WW+Z, red); 
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,S);
+dot(&quot;$w$&quot;,WW,N);
+dot(&quot;$z+w$&quot;,Z+WW,NE);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="511" data-id="03205" data-file="c186_L9_script_14.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-512">
+  <div class="card-header">
+    <h2>#512 &mdash; c186_L9_script_31.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3195 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/03224.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03224.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
+
+pair O, WW, Z; 
+O = (0,0);
+Z = (2,-2);
+WW = sqrt(13)*dir(-45);
+
+draw(Z--O,blue);
+//draw(O--WW, red); 
+//draw(O--Z+WW, heavygreen);
+draw(Z--Z+WW, red);
+
+draw(circle(O, sqrt(13)), dashed);
+
+dot(&quot;$0$&quot;,O,NW);
+dot(&quot;$z$&quot;,Z,W);
+dot(&quot;$w$&quot;,WW, E);
+dot(&quot;$z+w$&quot;,Z+WW,SSE);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue%2C%20usegrid%20%3D%20true)%3B%0D%0A%0D%0Apair%20O%2C%20WW%2C%20Z%3B%20%0D%0AO%20%3D%20(0%2C0)%3B%0D%0AZ%20%3D%20(2%2C-2)%3B%0D%0AWW%20%3D%20sqrt(13)*dir(-45)%3B%0D%0A%0D%0Adraw(Z--O%2Cblue)%3B%0D%0A%2F%2Fdraw(O--WW%2C%20red)%3B%20%0D%0A%2F%2Fdraw(O--Z%2BWW%2C%20heavygreen)%3B%0D%0Adraw(Z--Z%2BWW%2C%20red)%3B%0D%0A%0D%0Adraw(circle(O%2C%20sqrt(13))%2C%20dashed)%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CNW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CW)%3B%0D%0Adot(%22%24w%24%22%2CWW%2C%20E)%3B%0D%0Adot(%22%24z%2Bw%24%22%2CZ%2BWW%2CSSE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
+
+pair O, WW, Z; 
+O = (0,0);
+Z = (2,-2);
+WW = sqrt(13)*dir(-45);
+
+draw(Z--O,blue);
+//draw(O--WW, red); 
+//draw(O--Z+WW, heavygreen);
+draw(Z--Z+WW, red);
+
+draw(circle(O, sqrt(13)), dashed);
+
+dot(&quot;$0$&quot;,O,NW);
+dot(&quot;$z$&quot;,Z,W);
+dot(&quot;$w$&quot;,WW, E);
+dot(&quot;$z+w$&quot;,Z+WW,SSE);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="512" data-id="03224" data-file="c186_L9_script_31.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-513">
+  <div class="card-header">
+    <h2>#513 &mdash; c186_L9_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3200 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/03231.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03231.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+pair Z = (2,4);
+pair WW = (3,-1);
+pair O = (0,0);
+draw(O--WW, red); 
+draw(O--Z-WW, heavygreen); 
+draw(WW--Z, heavygreen); 
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,NW);
+dot(&quot;$w$&quot;,WW,SE);
+dot(&quot;$z-w$&quot;,Z-WW,W);
+//draw((0,0)--Z, dotted);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0Apair%20Z%20%3D%20(2%2C4)%3B%0D%0Apair%20WW%20%3D%20(3%2C-1)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0Adraw(O--WW%2C%20red)%3B%20%0D%0Adraw(O--Z-WW%2C%20heavygreen)%3B%20%0D%0Adraw(WW--Z%2C%20heavygreen)%3B%20%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CNW)%3B%0D%0Adot(%22%24w%24%22%2CWW%2CSE)%3B%0D%0Adot(%22%24z-w%24%22%2CZ-WW%2CW)%3B%0D%0A%2F%2Fdraw((0%2C0)--Z%2C%20dotted)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+pair Z = (2,4);
+pair WW = (3,-1);
+pair O = (0,0);
+draw(O--WW, red); 
+draw(O--Z-WW, heavygreen); 
+draw(WW--Z, heavygreen); 
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,NW);
+dot(&quot;$w$&quot;,WW,SE);
+dot(&quot;$z-w$&quot;,Z-WW,W);
+//draw((0,0)--Z, dotted);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="513" data-id="03231" data-file="c186_L9_script_6.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-514">
+  <div class="card-header">
+    <h2>#514 &mdash; c539_L11_script_8.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3202 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -1264,101 +1823,107 @@ draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows
 label(&quot;$\frac{\lambda}{4}$&quot;,(0,-3),S,brown+fontsize(18pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="506" data-id="08766" data-file="c539_L11_script_8.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="514" data-id="08766" data-file="c539_L11_script_8.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-507">
+<div class="card" id="pair-515">
   <div class="card-header">
-    <h2>#507 &mdash; c186_L11_script_15.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3182 &middot; Bad</span>
+    <h2>#515 &mdash; c186_L10_p32295_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3202 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01415.png"></div>
+      <div class="img-wrap"><img src="asy_pngs/01331.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01415.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01331.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>size(170); 
+      <div class="code-box"><code>size(250); 
 import TrigMacros;
 
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    path[] endpoints; 
-    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
-    return endpoints[1]--endpoints[0]; 
+real big = 5;
+
+for (int i = 1; i &lt; big+1; ++i)
+{
+    draw(Circle((0,0),i), lightblue + linewidth(0.4));
 }
 
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+for(int i=0;i&lt;360;i+=15) {
+draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
+}
 
-pair Z = (2,1);
-pair O = (0,0);
+rr_cartesian_axes(-big,big,-big,big,complexplane=true);
 
-draw(maxLine(O, Z, -7,7, -7, 7), gray + linewidth(0.4));
-draw(Z -- 2Z, brown, Arrow(5));
+pair V, Z, WW;
 
-dot(&quot;$0$&quot;,O,NW);
-dot(&quot;$z$&quot;,Z,N);
-dot(&quot;$2z$&quot;,2Z,N,red);</code></div>
+V= 3*dir(75); 
+WW = 2*dir(135); 
+Z = 4*dir(-15); 
+
+dot(&quot;$v$&quot;, V, N);
+dot(&quot;$w$&quot;, WW, N);
+dot(&quot;$z$&quot;, Z, S);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20path%5B%5D%20endpoints%3B%20%0D%0D%0A%20%20%20%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%20%0D%0D%0A%20%20%20%20return%20endpoints%5B1%5D--endpoints%5B0%5D%3B%20%0D%0D%0A%7D%0D%0A%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20Z%20%3D%20(2%2C1)%3B%0D%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(maxLine(O%2C%20Z%2C%20-7%2C7%2C%20-7%2C%207)%2C%20gray%20%2B%20linewidth(0.4))%3B%0D%0D%0Adraw(Z%20--%202Z%2C%20brown%2C%20Arrow(5))%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CNW)%3B%0D%0D%0Adot(%22%24z%24%22%2CZ%2CN)%3B%0D%0D%0Adot(%22%242z%24%22%2C2Z%2CN%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(250)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Areal%20big%20%3D%205%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%201%3B%20i%20%3C%20big%2B1%3B%20%2B%2Bi)%0D%0A%7B%0D%0A%20%20%20%20draw(Circle((0%2C0)%2Ci)%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Afor(int%20i%3D0%3Bi%3C360%3Bi%2B%3D15)%20%7B%0D%0Adraw(rotate(i)*((-big%2C0)--(big%2C0))%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Arr_cartesian_axes(-big%2Cbig%2C-big%2Cbig%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20V%2C%20Z%2C%20WW%3B%0D%0A%0D%0AV%3D%203*dir(75)%3B%20%0D%0AWW%20%3D%202*dir(135)%3B%20%0D%0AZ%20%3D%204*dir(-15)%3B%20%0D%0A%0D%0Adot(%22%24v%24%22%2C%20V%2C%20N)%3B%0D%0Adot(%22%24w%24%22%2C%20WW%2C%20N)%3B%0D%0Adot(%22%24z%24%22%2C%20Z%2C%20S)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-size(170); 
+size(250); 
 import TrigMacros;
 
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    path[] endpoints; 
-    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
-    return endpoints[1]--endpoints[0]; 
+real big = 5;
+
+for (int i = 1; i &lt; big+1; ++i)
+{
+    draw(Circle((0,0),i), lightblue + linewidth(0.4));
 }
 
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+for(int i=0;i&lt;360;i+=15) {
+draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
+}
 
-pair Z = (2,1);
-pair O = (0,0);
+rr_cartesian_axes(-big,big,-big,big,complexplane=true);
 
-draw(maxLine(O, Z, -7,7, -7, 7), gray + linewidth(0.4));
-draw(Z -- 2Z, brown, Arrow(5));
+pair V, Z, WW;
 
-dot(&quot;$0$&quot;,O,NW);
-dot(&quot;$z$&quot;,Z,N);
-dot(&quot;$2z$&quot;,2Z,N,red);
+V= 3*dir(75); 
+WW = 2*dir(135); 
+Z = 4*dir(-15); 
+
+dot(&quot;$v$&quot;, V, N);
+dot(&quot;$w$&quot;, WW, N);
+dot(&quot;$z$&quot;, Z, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="507" data-id="01415" data-file="c186_L11_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="515" data-id="01331" data-file="c186_L10_p32295_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-508">
+<div class="card" id="pair-516">
   <div class="card-header">
-    <h2>#508 &mdash; c289_L2_script_7.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3183 &middot; Bad</span>
+    <h2>#516 &mdash; c289_L2_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3203 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04307.png"></div>
+      <div class="img-wrap"><img src="asy_pngs/04306.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04307.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04306.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
       <div class="code-box"><code>size(220);
-label(&quot;$4$&quot;,(0,0));
-label(&quot;$4$&quot;,(2,0));
-label(&quot;$5$&quot;,(4,0));
-label(&quot;$6$&quot;,(6,0));
-label(&quot;$7$&quot;,(8,0)); 
+label(&quot;$6$&quot;,(0,0));
+label(&quot;$5$&quot;,(2,0));
+label(&quot;$4$&quot;,(4,0));
+label(&quot;$4$&quot;,(6,0));
+label(&quot;$4$&quot;,(8,0)); 
 draw((0.2,0)--(1.8,0),Arrow); 
 draw((2.2,0)--(3.8,0),Arrow); 
 draw((4.2,0)--(5.8,0),Arrow); 
@@ -1368,14 +1933,14 @@ label(&quot;$\scriptscriptstyle{(45)}$&quot;,(3,0),N);
 label(&quot;$\scriptscriptstyle{(56)}$&quot;,(5,0),N);
 label(&quot;$\scriptscriptstyle{(67)}$&quot;,(7,0),N);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%0D%0D%0Alabel(%22%244%24%22%2C(0%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(2%2C0))%3B%0D%0D%0Alabel(%22%245%24%22%2C(4%2C0))%3B%0D%0D%0Alabel(%22%246%24%22%2C(6%2C0))%3B%0D%0D%0Alabel(%22%247%24%22%2C(8%2C0))%3B%20%0D%0D%0Adraw((0.2%2C0)--(1.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((2.2%2C0)--(3.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((4.2%2C0)--(5.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((6.2%2C0)--(7.8%2C0)%2CArrow)%3B%20%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(1%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(45)%7D%24%22%2C(3%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(5%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(67)%7D%24%22%2C(7%2C0)%2CN)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%0D%0D%0Alabel(%22%246%24%22%2C(0%2C0))%3B%0D%0D%0Alabel(%22%245%24%22%2C(2%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(4%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(6%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(8%2C0))%3B%20%0D%0D%0Adraw((0.2%2C0)--(1.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((2.2%2C0)--(3.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((4.2%2C0)--(5.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((6.2%2C0)--(7.8%2C0)%2CArrow)%3B%20%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(1%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(45)%7D%24%22%2C(3%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(5%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(67)%7D%24%22%2C(7%2C0)%2CN)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
 size(220);
-label(&quot;$4$&quot;,(0,0));
-label(&quot;$4$&quot;,(2,0));
-label(&quot;$5$&quot;,(4,0));
-label(&quot;$6$&quot;,(6,0));
-label(&quot;$7$&quot;,(8,0)); 
+label(&quot;$6$&quot;,(0,0));
+label(&quot;$5$&quot;,(2,0));
+label(&quot;$4$&quot;,(4,0));
+label(&quot;$4$&quot;,(6,0));
+label(&quot;$4$&quot;,(8,0)); 
 draw((0.2,0)--(1.8,0),Arrow); 
 draw((2.2,0)--(3.8,0),Arrow); 
 draw((4.2,0)--(5.8,0),Arrow); 
@@ -1386,397 +1951,89 @@ label(&quot;$\scriptscriptstyle{(56)}$&quot;,(5,0),N);
 label(&quot;$\scriptscriptstyle{(67)}$&quot;,(7,0),N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="508" data-id="04307" data-file="c289_L2_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="516" data-id="04306" data-file="c289_L2_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-509">
+<div class="card" id="pair-517">
   <div class="card-header">
-    <h2>#509 &mdash; c186_L15_script_35.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3183 &middot; Bad</span>
+    <h2>#517 &mdash; c186_L10_p32294_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3203 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01776.png"></div>
+      <div class="img-wrap"><img src="asy_pngs/01329.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01776.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01329.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>size(170); 
-import TrigMacros;
-import olympiad; 
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+      <div class="code-box"><code>size(250); 
+import TrigMacros;
 
-pair Z = (3,1);
-pair O = (0,0);
+real big = 5;
 
-draw(O--Z); 
-draw(O--(0,1)*Z);
-draw(rightanglemark(Z, O, (0,1)*Z, 20), gray+ linewidth(0.4));
-draw(arc(O,Z, Z*expi(pi/2)), blue, Arrow(5));
-
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,S);
-dot(&quot;$iz$&quot;, (0,1)*Z, N, red);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Aimport%20olympiad%3B%20%0D%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20Z%20%3D%20(3%2C1)%3B%0D%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(O--Z)%3B%20%0D%0D%0Adraw(O--(0%2C1)*Z)%3B%0D%0D%0Adraw(rightanglemark(Z%2C%20O%2C%20(0%2C1)*Z%2C%2020)%2C%20gray%2B%20linewidth(0.4))%3B%0D%0D%0Adraw(arc(O%2CZ%2C%20Z*expi(pi%2F2))%2C%20blue%2C%20Arrow(5))%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0D%0Adot(%22%24z%24%22%2CZ%2CS)%3B%0D%0D%0Adot(%22%24iz%24%22%2C%20(0%2C1)*Z%2C%20N%2C%20red)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(170); 
-import TrigMacros;
-import olympiad; 
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
-
-pair Z = (3,1);
-pair O = (0,0);
-
-draw(O--Z); 
-draw(O--(0,1)*Z);
-draw(rightanglemark(Z, O, (0,1)*Z, 20), gray+ linewidth(0.4));
-draw(arc(O,Z, Z*expi(pi/2)), blue, Arrow(5));
-
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,S);
-dot(&quot;$iz$&quot;, (0,1)*Z, N, red);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="509" data-id="01776" data-file="c186_L15_script_35.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-510">
-  <div class="card-header">
-    <h2>#510 &mdash; c186_L19_script_49.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3186 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02103.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02103.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
+for (int i = 1; i &lt; big+1; ++i)
+{
+    draw(Circle((0,0),i), lightblue + linewidth(0.4));
 }
 
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
+for(int i=0;i&lt;360;i+=15) {
+draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
 }
 
-pair V, P, D, tD, tailV, tailP, tailD, tailtD;
-real t;
+rr_cartesian_axes(-big,big,-big,big,complexplane=true);
 
-t = 1.5;
+pair V, Z, WW;
 
-P = (4,-1); 
-D = (-2,3); 
-tD = t*D;
+V= (sqrt(2), -sqrt(2)); 
+WW = 2(sqrt(3), 1)*dir(-15); 
+Z = (-3,0);  
 
-V= g(t, P, D);
-
-tailV = (0,0);
-tailP = tailV; 
-tailD = tailV; 
-tailtD = tailP + P;
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
-draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
-draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
-draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
-
-label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
-label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
-label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
-label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
-
-dot(V);</code></div>
+dot(&quot;$v$&quot;, V, N);
+dot(&quot;$w$&quot;, WW, N);
+dot(&quot;$z$&quot;, Z, S);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tD%2C%20tailV%2C%20tailP%2C%20tailD%2C%20tailtD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0At%20%3D%201.5%3B%0D%0A%0D%0AP%20%3D%20(4%2C-1)%3B%20%0D%0D%0AD%20%3D%20(-2%2C3)%3B%20%0D%0D%0AtD%20%3D%20t*D%3B%0D%0A%0D%0AV%3D%20g(t%2C%20P%2C%20D)%3B%0D%0A%0D%0AtailV%20%3D%20(0%2C0)%3B%0D%0D%0AtailP%20%3D%20tailV%3B%20%0D%0D%0AtailD%20%3D%20tailV%3B%20%0D%0D%0AtailtD%20%3D%20tailP%20%2B%20P%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailV%20--%20tailV%20%2B%20V%2C%20heavygreen%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailtD%20--%20tailtD%20%2B%20tD%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20%22%20%2B%20string(t)%20%2B%20%22%24%22%2C%20V%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20--%20tailD%20%2B%20D%2C%20SW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%22%20%2B%20string(t)%20%2B%20%22%5Cmathbf%7Bd%7D%24%22%2C%20tailtD%20--%20tailtD%20%2B%20tD%2C%20NE%2C%20UnFill)%3B%0D%0A%0D%0Adot(V)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(250)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Areal%20big%20%3D%205%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%201%3B%20i%20%3C%20big%2B1%3B%20%2B%2Bi)%0D%0A%7B%0D%0A%20%20%20%20draw(Circle((0%2C0)%2Ci)%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Afor(int%20i%3D0%3Bi%3C360%3Bi%2B%3D15)%20%7B%0D%0Adraw(rotate(i)*((-big%2C0)--(big%2C0))%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Arr_cartesian_axes(-big%2Cbig%2C-big%2Cbig%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20V%2C%20Z%2C%20WW%3B%0D%0A%0D%0AV%3D%20(sqrt(2)%2C%20-sqrt(2))%3B%20%0D%0AWW%20%3D%202(sqrt(3)%2C%201)*dir(-15)%3B%20%0D%0AZ%20%3D%20(-3%2C0)%3B%20%20%0D%0A%0D%0Adot(%22%24v%24%22%2C%20V%2C%20N)%3B%0D%0Adot(%22%24w%24%22%2C%20WW%2C%20N)%3B%0D%0Adot(%22%24z%24%22%2C%20Z%2C%20S)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
+size(250); 
+import TrigMacros;
+
+real big = 5;
+
+for (int i = 1; i &lt; big+1; ++i)
+{
+    draw(Circle((0,0),i), lightblue + linewidth(0.4));
 }
 
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
+for(int i=0;i&lt;360;i+=15) {
+draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
 }
 
-pair V, P, D, tD, tailV, tailP, tailD, tailtD;
-real t;
+rr_cartesian_axes(-big,big,-big,big,complexplane=true);
 
-t = 1.5;
+pair V, Z, WW;
 
-P = (4,-1); 
-D = (-2,3); 
-tD = t*D;
+V= (sqrt(2), -sqrt(2)); 
+WW = 2(sqrt(3), 1)*dir(-15); 
+Z = (-3,0);  
 
-V= g(t, P, D);
-
-tailV = (0,0);
-tailP = tailV; 
-tailD = tailV; 
-tailtD = tailP + P;
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
-draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
-draw(tailV -- tailV + V, heavygreen + linewidth(1.0), Arrow(7));
-draw(tailtD -- tailtD + tD, red + linewidth(1.0), Arrow(7));
-
-label(&quot;$t = &quot; + string(t) + &quot;$&quot;, V, NE, UnFill);
-label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
-label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
-label(&quot;$&quot; + string(t) + &quot;\mathbf{d}$&quot;, tailtD -- tailtD + tD, NE, UnFill);
-
-dot(V);
+dot(&quot;$v$&quot;, V, N);
+dot(&quot;$w$&quot;, WW, N);
+dot(&quot;$z$&quot;, Z, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="510" data-id="02103" data-file="c186_L19_script_49.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="517" data-id="01329" data-file="c186_L10_p32294_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-511">
+<div class="card" id="pair-518">
   <div class="card-header">
-    <h2>#511 &mdash; c398_L13_script_8.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3187 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04928.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04928.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(150);
-
-// set bounds of the grid
-real xmin = -7.5, xmax = 7.5, ymin = -7.5, ymax = 7.5;
-
-// draw your graph
-real f (real x) {return (x^2);}
-real g (real x) {return (x + 2);}
-real h (real x) {return (14 - x^2);}
-draw(graph(f,xmin,0),blue);
-draw(graph(f,0,xmax),blue + dotted + 1.5*bp);
-draw(graph(g,xmin,0),heavygreen + dotted + 1.5*bp);
-draw(graph(g,0,3),heavygreen);
-draw(graph(g,3,xmax),heavygreen + dotted + 1.5*bp);
-draw(graph(h,xmin,3),fuchsia + dotted + 1.5*bp);
-draw(graph(h,3,xmax),fuchsia);
-limits((xmin,ymin),(xmax,ymax),Crop);
-
-// set parameters of the grid lines
-ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
-
-// draw axes and grid lines
-xaxis(xmin, xmax, Arrows(6), above = true);
-yaxis(ymin, ymax, Arrows(6), above = true);
-xaxis(BottomTop, xmin, xmax, invisible, tgrid);
-yaxis(LeftRight, ymin, ymax, invisible, tgrid);
-
-// add axis labels
-label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
-label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
-
-filldraw(Circle((0,0),0.2), blue, blue);
-filldraw(Circle((0,2),0.2), white, heavygreen);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0A%0D%0A%2F%2F%20set%20bounds%20of%20the%20grid%0D%0D%0Areal%20xmin%20%3D%20-7.5%2C%20xmax%20%3D%207.5%2C%20ymin%20%3D%20-7.5%2C%20ymax%20%3D%207.5%3B%0D%0A%0D%0A%2F%2F%20draw%20your%20graph%0D%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x%5E2)%3B%7D%0D%0D%0Areal%20g%20(real%20x)%20%7Breturn%20(x%20%2B%202)%3B%7D%0D%0D%0Areal%20h%20(real%20x)%20%7Breturn%20(14%20-%20x%5E2)%3B%7D%0D%0D%0Adraw(graph(f%2Cxmin%2C0)%2Cblue)%3B%0D%0D%0Adraw(graph(f%2C0%2Cxmax)%2Cblue%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(g%2Cxmin%2C0)%2Cheavygreen%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(g%2C0%2C3)%2Cheavygreen)%3B%0D%0D%0Adraw(graph(g%2C3%2Cxmax)%2Cheavygreen%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(h%2Cxmin%2C3)%2Cfuchsia%20%2B%20dotted%20%2B%201.5*bp)%3B%0D%0D%0Adraw(graph(h%2C3%2Cxmax)%2Cfuchsia)%3B%0D%0D%0Alimits((xmin%2Cymin)%2C(xmax%2Cymax)%2CCrop)%3B%0D%0A%0D%0A%2F%2F%20set%20parameters%20of%20the%20grid%20lines%0D%0D%0Aticks%20tgrid%20%3D%20Ticks(Label(%22%25%22)%2C%20Step%20%3D%201%2C%20extend%20%3D%20true%2C%20rgb(0%2C0.7%2C0.7)%20%2B%200.4*bp)%3B%0D%0A%0D%0A%2F%2F%20draw%20axes%20and%20grid%20lines%0D%0D%0Axaxis(xmin%2C%20xmax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Ayaxis(ymin%2C%20ymax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Axaxis(BottomTop%2C%20xmin%2C%20xmax%2C%20invisible%2C%20tgrid)%3B%0D%0D%0Ayaxis(LeftRight%2C%20ymin%2C%20ymax%2C%20invisible%2C%20tgrid)%3B%0D%0A%0D%0A%2F%2F%20add%20axis%20labels%0D%0D%0Alabel(%22%24x%24%22%2C%20(xmax%2C0)%2C%20E%2C%20fontsize(10))%3B%0D%0D%0Alabel(%22%24y%24%22%2C%20(0%2Cymax)%2C%20N%2C%20fontsize(10))%3B%0D%0A%0D%0Afilldraw(Circle((0%2C0)%2C0.2)%2C%20blue%2C%20blue)%3B%0D%0D%0Afilldraw(Circle((0%2C2)%2C0.2)%2C%20white%2C%20heavygreen)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(150);
-
-// set bounds of the grid
-real xmin = -7.5, xmax = 7.5, ymin = -7.5, ymax = 7.5;
-
-// draw your graph
-real f (real x) {return (x^2);}
-real g (real x) {return (x + 2);}
-real h (real x) {return (14 - x^2);}
-draw(graph(f,xmin,0),blue);
-draw(graph(f,0,xmax),blue + dotted + 1.5*bp);
-draw(graph(g,xmin,0),heavygreen + dotted + 1.5*bp);
-draw(graph(g,0,3),heavygreen);
-draw(graph(g,3,xmax),heavygreen + dotted + 1.5*bp);
-draw(graph(h,xmin,3),fuchsia + dotted + 1.5*bp);
-draw(graph(h,3,xmax),fuchsia);
-limits((xmin,ymin),(xmax,ymax),Crop);
-
-// set parameters of the grid lines
-ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
-
-// draw axes and grid lines
-xaxis(xmin, xmax, Arrows(6), above = true);
-yaxis(ymin, ymax, Arrows(6), above = true);
-xaxis(BottomTop, xmin, xmax, invisible, tgrid);
-yaxis(LeftRight, ymin, ymax, invisible, tgrid);
-
-// add axis labels
-label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
-label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
-
-filldraw(Circle((0,0),0.2), blue, blue);
-filldraw(Circle((0,2),0.2), white, heavygreen);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="511" data-id="04928" data-file="c398_L13_script_8.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-512">
-  <div class="card-header">
-    <h2>#512 &mdash; c186_L9_script_14.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3189 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03205.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03205.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
-pair Z = (2,-2);
-pair WW = (2,3);
-pair O = (0,0);
-draw(Z--O,blue);
-draw(WW--O, red);   
-draw(Z+WW--O, heavygreen); 
-draw(WW--WW+Z, blue); 
-draw(Z--WW+Z, red); 
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,S);
-dot(&quot;$w$&quot;,WW,N);
-dot(&quot;$z+w$&quot;,Z+WW,NE);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue%2C%20usegrid%20%3D%20true)%3B%0D%0Apair%20Z%20%3D%20(2%2C-2)%3B%0D%0Apair%20WW%20%3D%20(2%2C3)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0Adraw(Z--O%2Cblue)%3B%0D%0Adraw(WW--O%2C%20red)%3B%20%20%20%0D%0Adraw(Z%2BWW--O%2C%20heavygreen)%3B%20%0D%0Adraw(WW--WW%2BZ%2C%20blue)%3B%20%0D%0Adraw(Z--WW%2BZ%2C%20red)%3B%20%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CS)%3B%0D%0Adot(%22%24w%24%22%2CWW%2CN)%3B%0D%0Adot(%22%24z%2Bw%24%22%2CZ%2BWW%2CNE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
-pair Z = (2,-2);
-pair WW = (2,3);
-pair O = (0,0);
-draw(Z--O,blue);
-draw(WW--O, red);   
-draw(Z+WW--O, heavygreen); 
-draw(WW--WW+Z, blue); 
-draw(Z--WW+Z, red); 
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,S);
-dot(&quot;$w$&quot;,WW,N);
-dot(&quot;$z+w$&quot;,Z+WW,NE);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="512" data-id="03205" data-file="c186_L9_script_14.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-513">
-  <div class="card-header">
-    <h2>#513 &mdash; c186_L9_script_31.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3195 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03224.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03224.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
-
-pair O, WW, Z; 
-O = (0,0);
-Z = (2,-2);
-WW = sqrt(13)*dir(-45);
-
-draw(Z--O,blue);
-//draw(O--WW, red); 
-//draw(O--Z+WW, heavygreen);
-draw(Z--Z+WW, red);
-
-draw(circle(O, sqrt(13)), dashed);
-
-dot(&quot;$0$&quot;,O,NW);
-dot(&quot;$z$&quot;,Z,W);
-dot(&quot;$w$&quot;,WW, E);
-dot(&quot;$z+w$&quot;,Z+WW,SSE);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue%2C%20usegrid%20%3D%20true)%3B%0D%0A%0D%0Apair%20O%2C%20WW%2C%20Z%3B%20%0D%0AO%20%3D%20(0%2C0)%3B%0D%0AZ%20%3D%20(2%2C-2)%3B%0D%0AWW%20%3D%20sqrt(13)*dir(-45)%3B%0D%0A%0D%0Adraw(Z--O%2Cblue)%3B%0D%0A%2F%2Fdraw(O--WW%2C%20red)%3B%20%0D%0A%2F%2Fdraw(O--Z%2BWW%2C%20heavygreen)%3B%0D%0Adraw(Z--Z%2BWW%2C%20red)%3B%0D%0A%0D%0Adraw(circle(O%2C%20sqrt(13))%2C%20dashed)%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CNW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CW)%3B%0D%0Adot(%22%24w%24%22%2CWW%2C%20E)%3B%0D%0Adot(%22%24z%2Bw%24%22%2CZ%2BWW%2CSSE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true, usegrid = true);
-
-pair O, WW, Z; 
-O = (0,0);
-Z = (2,-2);
-WW = sqrt(13)*dir(-45);
-
-draw(Z--O,blue);
-//draw(O--WW, red); 
-//draw(O--Z+WW, heavygreen);
-draw(Z--Z+WW, red);
-
-draw(circle(O, sqrt(13)), dashed);
-
-dot(&quot;$0$&quot;,O,NW);
-dot(&quot;$z$&quot;,Z,W);
-dot(&quot;$w$&quot;,WW, E);
-dot(&quot;$z+w$&quot;,Z+WW,SSE);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="513" data-id="03224" data-file="c186_L9_script_31.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-514">
-  <div class="card-header">
-    <h2>#514 &mdash; c539_L11_script_14.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3197 &middot; Bad</span>
+    <h2>#518 &mdash; c539_L11_script_14.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3206 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -2144,270 +2401,95 @@ draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows
 label(&quot;$\frac{\lambda}{4}$&quot;,(0,-3),S,brown+fontsize(18pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="514" data-id="08756" data-file="c539_L11_script_14.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-515">
-  <div class="card-header">
-    <h2>#515 &mdash; c186_L9_script_6.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3200 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03231.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03231.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
-pair Z = (2,4);
-pair WW = (3,-1);
-pair O = (0,0);
-draw(O--WW, red); 
-draw(O--Z-WW, heavygreen); 
-draw(WW--Z, heavygreen); 
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,NW);
-dot(&quot;$w$&quot;,WW,SE);
-dot(&quot;$z-w$&quot;,Z-WW,W);
-//draw((0,0)--Z, dotted);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0Apair%20Z%20%3D%20(2%2C4)%3B%0D%0Apair%20WW%20%3D%20(3%2C-1)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0Adraw(O--WW%2C%20red)%3B%20%0D%0Adraw(O--Z-WW%2C%20heavygreen)%3B%20%0D%0Adraw(WW--Z%2C%20heavygreen)%3B%20%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CNW)%3B%0D%0Adot(%22%24w%24%22%2CWW%2CSE)%3B%0D%0Adot(%22%24z-w%24%22%2CZ-WW%2CW)%3B%0D%0A%2F%2Fdraw((0%2C0)--Z%2C%20dotted)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
-pair Z = (2,4);
-pair WW = (3,-1);
-pair O = (0,0);
-draw(O--WW, red); 
-draw(O--Z-WW, heavygreen); 
-draw(WW--Z, heavygreen); 
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,NW);
-dot(&quot;$w$&quot;,WW,SE);
-dot(&quot;$z-w$&quot;,Z-WW,W);
-//draw((0,0)--Z, dotted);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="515" data-id="03231" data-file="c186_L9_script_6.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-516">
-  <div class="card-header">
-    <h2>#516 &mdash; c186_L10_p32295_problem_text_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3202 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01331.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01331.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(250); 
-import TrigMacros;
-
-real big = 5;
-
-for (int i = 1; i &lt; big+1; ++i)
-{
-    draw(Circle((0,0),i), lightblue + linewidth(0.4));
-}
-
-for(int i=0;i&lt;360;i+=15) {
-draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
-}
-
-rr_cartesian_axes(-big,big,-big,big,complexplane=true);
-
-pair V, Z, WW;
-
-V= 3*dir(75); 
-WW = 2*dir(135); 
-Z = 4*dir(-15); 
-
-dot(&quot;$v$&quot;, V, N);
-dot(&quot;$w$&quot;, WW, N);
-dot(&quot;$z$&quot;, Z, S);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(250)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Areal%20big%20%3D%205%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%201%3B%20i%20%3C%20big%2B1%3B%20%2B%2Bi)%0D%0A%7B%0D%0A%20%20%20%20draw(Circle((0%2C0)%2Ci)%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Afor(int%20i%3D0%3Bi%3C360%3Bi%2B%3D15)%20%7B%0D%0Adraw(rotate(i)*((-big%2C0)--(big%2C0))%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Arr_cartesian_axes(-big%2Cbig%2C-big%2Cbig%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20V%2C%20Z%2C%20WW%3B%0D%0A%0D%0AV%3D%203*dir(75)%3B%20%0D%0AWW%20%3D%202*dir(135)%3B%20%0D%0AZ%20%3D%204*dir(-15)%3B%20%0D%0A%0D%0Adot(%22%24v%24%22%2C%20V%2C%20N)%3B%0D%0Adot(%22%24w%24%22%2C%20WW%2C%20N)%3B%0D%0Adot(%22%24z%24%22%2C%20Z%2C%20S)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(250); 
-import TrigMacros;
-
-real big = 5;
-
-for (int i = 1; i &lt; big+1; ++i)
-{
-    draw(Circle((0,0),i), lightblue + linewidth(0.4));
-}
-
-for(int i=0;i&lt;360;i+=15) {
-draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
-}
-
-rr_cartesian_axes(-big,big,-big,big,complexplane=true);
-
-pair V, Z, WW;
-
-V= 3*dir(75); 
-WW = 2*dir(135); 
-Z = 4*dir(-15); 
-
-dot(&quot;$v$&quot;, V, N);
-dot(&quot;$w$&quot;, WW, N);
-dot(&quot;$z$&quot;, Z, S);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="516" data-id="01331" data-file="c186_L10_p32295_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-517">
-  <div class="card-header">
-    <h2>#517 &mdash; c289_L2_script_6.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3203 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04306.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04306.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(220);
-label(&quot;$6$&quot;,(0,0));
-label(&quot;$5$&quot;,(2,0));
-label(&quot;$4$&quot;,(4,0));
-label(&quot;$4$&quot;,(6,0));
-label(&quot;$4$&quot;,(8,0)); 
-draw((0.2,0)--(1.8,0),Arrow); 
-draw((2.2,0)--(3.8,0),Arrow); 
-draw((4.2,0)--(5.8,0),Arrow); 
-draw((6.2,0)--(7.8,0),Arrow); 
-label(&quot;$\scriptscriptstyle{(56)}$&quot;,(1,0),N);
-label(&quot;$\scriptscriptstyle{(45)}$&quot;,(3,0),N);
-label(&quot;$\scriptscriptstyle{(56)}$&quot;,(5,0),N);
-label(&quot;$\scriptscriptstyle{(67)}$&quot;,(7,0),N);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%0D%0D%0Alabel(%22%246%24%22%2C(0%2C0))%3B%0D%0D%0Alabel(%22%245%24%22%2C(2%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(4%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(6%2C0))%3B%0D%0D%0Alabel(%22%244%24%22%2C(8%2C0))%3B%20%0D%0D%0Adraw((0.2%2C0)--(1.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((2.2%2C0)--(3.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((4.2%2C0)--(5.8%2C0)%2CArrow)%3B%20%0D%0D%0Adraw((6.2%2C0)--(7.8%2C0)%2CArrow)%3B%20%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(1%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(45)%7D%24%22%2C(3%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(56)%7D%24%22%2C(5%2C0)%2CN)%3B%0D%0D%0Alabel(%22%24%5Cscriptscriptstyle%7B(67)%7D%24%22%2C(7%2C0)%2CN)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(220);
-label(&quot;$6$&quot;,(0,0));
-label(&quot;$5$&quot;,(2,0));
-label(&quot;$4$&quot;,(4,0));
-label(&quot;$4$&quot;,(6,0));
-label(&quot;$4$&quot;,(8,0)); 
-draw((0.2,0)--(1.8,0),Arrow); 
-draw((2.2,0)--(3.8,0),Arrow); 
-draw((4.2,0)--(5.8,0),Arrow); 
-draw((6.2,0)--(7.8,0),Arrow); 
-label(&quot;$\scriptscriptstyle{(56)}$&quot;,(1,0),N);
-label(&quot;$\scriptscriptstyle{(45)}$&quot;,(3,0),N);
-label(&quot;$\scriptscriptstyle{(56)}$&quot;,(5,0),N);
-label(&quot;$\scriptscriptstyle{(67)}$&quot;,(7,0),N);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="517" data-id="04306" data-file="c289_L2_script_6.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-518">
-  <div class="card-header">
-    <h2>#518 &mdash; c186_L10_p32294_problem_text_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3203 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01329.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01329.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(250); 
-import TrigMacros;
-
-real big = 5;
-
-for (int i = 1; i &lt; big+1; ++i)
-{
-    draw(Circle((0,0),i), lightblue + linewidth(0.4));
-}
-
-for(int i=0;i&lt;360;i+=15) {
-draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
-}
-
-rr_cartesian_axes(-big,big,-big,big,complexplane=true);
-
-pair V, Z, WW;
-
-V= (sqrt(2), -sqrt(2)); 
-WW = 2(sqrt(3), 1)*dir(-15); 
-Z = (-3,0);  
-
-dot(&quot;$v$&quot;, V, N);
-dot(&quot;$w$&quot;, WW, N);
-dot(&quot;$z$&quot;, Z, S);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(250)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Areal%20big%20%3D%205%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%201%3B%20i%20%3C%20big%2B1%3B%20%2B%2Bi)%0D%0A%7B%0D%0A%20%20%20%20draw(Circle((0%2C0)%2Ci)%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Afor(int%20i%3D0%3Bi%3C360%3Bi%2B%3D15)%20%7B%0D%0Adraw(rotate(i)*((-big%2C0)--(big%2C0))%2C%20lightblue%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0Arr_cartesian_axes(-big%2Cbig%2C-big%2Cbig%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20V%2C%20Z%2C%20WW%3B%0D%0A%0D%0AV%3D%20(sqrt(2)%2C%20-sqrt(2))%3B%20%0D%0AWW%20%3D%202(sqrt(3)%2C%201)*dir(-15)%3B%20%0D%0AZ%20%3D%20(-3%2C0)%3B%20%20%0D%0A%0D%0Adot(%22%24v%24%22%2C%20V%2C%20N)%3B%0D%0Adot(%22%24w%24%22%2C%20WW%2C%20N)%3B%0D%0Adot(%22%24z%24%22%2C%20Z%2C%20S)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(250); 
-import TrigMacros;
-
-real big = 5;
-
-for (int i = 1; i &lt; big+1; ++i)
-{
-    draw(Circle((0,0),i), lightblue + linewidth(0.4));
-}
-
-for(int i=0;i&lt;360;i+=15) {
-draw(rotate(i)*((-big,0)--(big,0)), lightblue + linewidth(0.4));
-}
-
-rr_cartesian_axes(-big,big,-big,big,complexplane=true);
-
-pair V, Z, WW;
-
-V= (sqrt(2), -sqrt(2)); 
-WW = 2(sqrt(3), 1)*dir(-15); 
-Z = (-3,0);  
-
-dot(&quot;$v$&quot;, V, N);
-dot(&quot;$w$&quot;, WW, N);
-dot(&quot;$z$&quot;, Z, S);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="518" data-id="01329" data-file="c186_L10_p32294_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="518" data-id="08756" data-file="c539_L11_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-519">
   <div class="card-header">
-    <h2>#519 &mdash; c186_L19_script_27.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3204 &middot; Bad</span>
+    <h2>#519 &mdash; c398_L5_script_10.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3207 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/05026.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/05026.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(150);
+
+// set bounds of the grid
+real xmin = -5.5, xmax = 5.5, ymin = -5.5, ymax = 5.5;
+
+// draw your graph
+real f (real x) {return (x^2 - x - 1);}
+draw(graph(f,xmin,(1 - sqrt(5))/2),orange);
+draw(graph(f,(1 - sqrt(5))/2,(1 + sqrt(5))/2),blue);
+draw(graph(f,(1 + sqrt(5))/2,xmax),orange);
+limits((xmin,ymin),(xmax,ymax),Crop);
+
+// set parameters of the grid lines
+ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
+ticks taxes = Ticks(Label(fontsize(8)), NoZeroFormat, Step = 1, Size = 0.1pt);
+
+// draw axes and grid lines
+xaxis(xmin, xmax, taxes, Arrows(6), above = true);
+yaxis(ymin, ymax, taxes, Arrows(6), above = true);
+xaxis(BottomTop, xmin, xmax, invisible, tgrid);
+yaxis(LeftRight, ymin, ymax, invisible, tgrid);
+
+// add axis labels
+label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
+label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
+
+dot(((1 - sqrt(5))/2,0), red);
+dot(((1 + sqrt(5))/2,0), red);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0A%0D%0A%2F%2F%20set%20bounds%20of%20the%20grid%0D%0D%0Areal%20xmin%20%3D%20-5.5%2C%20xmax%20%3D%205.5%2C%20ymin%20%3D%20-5.5%2C%20ymax%20%3D%205.5%3B%0D%0A%0D%0A%2F%2F%20draw%20your%20graph%0D%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x%5E2%20-%20x%20-%201)%3B%7D%0D%0D%0Adraw(graph(f%2Cxmin%2C(1%20-%20sqrt(5))%2F2)%2Corange)%3B%0D%0D%0Adraw(graph(f%2C(1%20-%20sqrt(5))%2F2%2C(1%20%2B%20sqrt(5))%2F2)%2Cblue)%3B%0D%0D%0Adraw(graph(f%2C(1%20%2B%20sqrt(5))%2F2%2Cxmax)%2Corange)%3B%0D%0D%0Alimits((xmin%2Cymin)%2C(xmax%2Cymax)%2CCrop)%3B%0D%0A%0D%0A%2F%2F%20set%20parameters%20of%20the%20grid%20lines%0D%0D%0Aticks%20tgrid%20%3D%20Ticks(Label(%22%25%22)%2C%20Step%20%3D%201%2C%20extend%20%3D%20true%2C%20rgb(0%2C0.7%2C0.7)%20%2B%200.4*bp)%3B%0D%0D%0Aticks%20taxes%20%3D%20Ticks(Label(fontsize(8))%2C%20NoZeroFormat%2C%20Step%20%3D%201%2C%20Size%20%3D%200.1pt)%3B%0D%0A%0D%0A%2F%2F%20draw%20axes%20and%20grid%20lines%0D%0D%0Axaxis(xmin%2C%20xmax%2C%20taxes%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Ayaxis(ymin%2C%20ymax%2C%20taxes%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Axaxis(BottomTop%2C%20xmin%2C%20xmax%2C%20invisible%2C%20tgrid)%3B%0D%0D%0Ayaxis(LeftRight%2C%20ymin%2C%20ymax%2C%20invisible%2C%20tgrid)%3B%0D%0A%0D%0A%2F%2F%20add%20axis%20labels%0D%0D%0Alabel(%22%24x%24%22%2C%20(xmax%2C0)%2C%20E%2C%20fontsize(10))%3B%0D%0D%0Alabel(%22%24y%24%22%2C%20(0%2Cymax)%2C%20N%2C%20fontsize(10))%3B%0D%0A%0D%0Adot(((1%20-%20sqrt(5))%2F2%2C0)%2C%20red)%3B%0D%0D%0Adot(((1%20%2B%20sqrt(5))%2F2%2C0)%2C%20red)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(150);
+
+// set bounds of the grid
+real xmin = -5.5, xmax = 5.5, ymin = -5.5, ymax = 5.5;
+
+// draw your graph
+real f (real x) {return (x^2 - x - 1);}
+draw(graph(f,xmin,(1 - sqrt(5))/2),orange);
+draw(graph(f,(1 - sqrt(5))/2,(1 + sqrt(5))/2),blue);
+draw(graph(f,(1 + sqrt(5))/2,xmax),orange);
+limits((xmin,ymin),(xmax,ymax),Crop);
+
+// set parameters of the grid lines
+ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
+ticks taxes = Ticks(Label(fontsize(8)), NoZeroFormat, Step = 1, Size = 0.1pt);
+
+// draw axes and grid lines
+xaxis(xmin, xmax, taxes, Arrows(6), above = true);
+yaxis(ymin, ymax, taxes, Arrows(6), above = true);
+xaxis(BottomTop, xmin, xmax, invisible, tgrid);
+yaxis(LeftRight, ymin, ymax, invisible, tgrid);
+
+// add axis labels
+label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
+label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
+
+dot(((1 - sqrt(5))/2,0), red);
+dot(((1 + sqrt(5))/2,0), red);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="519" data-id="05026" data-file="c398_L5_script_10.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-520">
+  <div class="card-header">
+    <h2>#520 &mdash; c186_L19_script_27.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3207 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -2595,14 +2677,14 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="519" data-id="02079" data-file="c186_L19_script_27.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="520" data-id="02079" data-file="c186_L19_script_27.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-520">
+<div class="card" id="pair-521">
   <div class="card-header">
-    <h2>#520 &mdash; c186_L19_script_35.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3204 &middot; Bad</span>
+    <h2>#521 &mdash; c186_L19_script_35.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3207 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -2790,88 +2872,7 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="520" data-id="02088" data-file="c186_L19_script_35.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-521">
-  <div class="card-header">
-    <h2>#521 &mdash; c398_L5_script_10.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3207 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05026.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/05026.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(150);
-
-// set bounds of the grid
-real xmin = -5.5, xmax = 5.5, ymin = -5.5, ymax = 5.5;
-
-// draw your graph
-real f (real x) {return (x^2 - x - 1);}
-draw(graph(f,xmin,(1 - sqrt(5))/2),orange);
-draw(graph(f,(1 - sqrt(5))/2,(1 + sqrt(5))/2),blue);
-draw(graph(f,(1 + sqrt(5))/2,xmax),orange);
-limits((xmin,ymin),(xmax,ymax),Crop);
-
-// set parameters of the grid lines
-ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
-ticks taxes = Ticks(Label(fontsize(8)), NoZeroFormat, Step = 1, Size = 0.1pt);
-
-// draw axes and grid lines
-xaxis(xmin, xmax, taxes, Arrows(6), above = true);
-yaxis(ymin, ymax, taxes, Arrows(6), above = true);
-xaxis(BottomTop, xmin, xmax, invisible, tgrid);
-yaxis(LeftRight, ymin, ymax, invisible, tgrid);
-
-// add axis labels
-label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
-label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
-
-dot(((1 - sqrt(5))/2,0), red);
-dot(((1 + sqrt(5))/2,0), red);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0A%0D%0A%2F%2F%20set%20bounds%20of%20the%20grid%0D%0D%0Areal%20xmin%20%3D%20-5.5%2C%20xmax%20%3D%205.5%2C%20ymin%20%3D%20-5.5%2C%20ymax%20%3D%205.5%3B%0D%0A%0D%0A%2F%2F%20draw%20your%20graph%0D%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x%5E2%20-%20x%20-%201)%3B%7D%0D%0D%0Adraw(graph(f%2Cxmin%2C(1%20-%20sqrt(5))%2F2)%2Corange)%3B%0D%0D%0Adraw(graph(f%2C(1%20-%20sqrt(5))%2F2%2C(1%20%2B%20sqrt(5))%2F2)%2Cblue)%3B%0D%0D%0Adraw(graph(f%2C(1%20%2B%20sqrt(5))%2F2%2Cxmax)%2Corange)%3B%0D%0D%0Alimits((xmin%2Cymin)%2C(xmax%2Cymax)%2CCrop)%3B%0D%0A%0D%0A%2F%2F%20set%20parameters%20of%20the%20grid%20lines%0D%0D%0Aticks%20tgrid%20%3D%20Ticks(Label(%22%25%22)%2C%20Step%20%3D%201%2C%20extend%20%3D%20true%2C%20rgb(0%2C0.7%2C0.7)%20%2B%200.4*bp)%3B%0D%0D%0Aticks%20taxes%20%3D%20Ticks(Label(fontsize(8))%2C%20NoZeroFormat%2C%20Step%20%3D%201%2C%20Size%20%3D%200.1pt)%3B%0D%0A%0D%0A%2F%2F%20draw%20axes%20and%20grid%20lines%0D%0D%0Axaxis(xmin%2C%20xmax%2C%20taxes%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Ayaxis(ymin%2C%20ymax%2C%20taxes%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Axaxis(BottomTop%2C%20xmin%2C%20xmax%2C%20invisible%2C%20tgrid)%3B%0D%0D%0Ayaxis(LeftRight%2C%20ymin%2C%20ymax%2C%20invisible%2C%20tgrid)%3B%0D%0A%0D%0A%2F%2F%20add%20axis%20labels%0D%0D%0Alabel(%22%24x%24%22%2C%20(xmax%2C0)%2C%20E%2C%20fontsize(10))%3B%0D%0D%0Alabel(%22%24y%24%22%2C%20(0%2Cymax)%2C%20N%2C%20fontsize(10))%3B%0D%0A%0D%0Adot(((1%20-%20sqrt(5))%2F2%2C0)%2C%20red)%3B%0D%0D%0Adot(((1%20%2B%20sqrt(5))%2F2%2C0)%2C%20red)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(150);
-
-// set bounds of the grid
-real xmin = -5.5, xmax = 5.5, ymin = -5.5, ymax = 5.5;
-
-// draw your graph
-real f (real x) {return (x^2 - x - 1);}
-draw(graph(f,xmin,(1 - sqrt(5))/2),orange);
-draw(graph(f,(1 - sqrt(5))/2,(1 + sqrt(5))/2),blue);
-draw(graph(f,(1 + sqrt(5))/2,xmax),orange);
-limits((xmin,ymin),(xmax,ymax),Crop);
-
-// set parameters of the grid lines
-ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
-ticks taxes = Ticks(Label(fontsize(8)), NoZeroFormat, Step = 1, Size = 0.1pt);
-
-// draw axes and grid lines
-xaxis(xmin, xmax, taxes, Arrows(6), above = true);
-yaxis(ymin, ymax, taxes, Arrows(6), above = true);
-xaxis(BottomTop, xmin, xmax, invisible, tgrid);
-yaxis(LeftRight, ymin, ymax, invisible, tgrid);
-
-// add axis labels
-label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
-label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
-
-dot(((1 - sqrt(5))/2,0), red);
-dot(((1 + sqrt(5))/2,0), red);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="521" data-id="05026" data-file="c398_L5_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="521" data-id="02088" data-file="c186_L19_script_35.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -3431,8 +3432,374 @@ label(&quot;Outputs:&quot;, shift(O2)*((big + 1.5)*J));
 </div>
 <div class="card" id="pair-526">
   <div class="card-header">
-    <h2>#526 &mdash; c186_L18_script_25.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3213 &middot; Bad</span>
+    <h2>#526 &mdash; c186_L10_script_17.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3214 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01360.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01360.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(210); 
+import TrigMacros;
+
+int big = 2;
+int numRays = 24;
+
+//Draws a polar grid that goes out to a number of circles 
+//equal to big, with numRays specifying the number of rays: 
+void polarGrid(int big, int numRays) 
+{
+  for (int i = 1; i &lt; big+1; ++i)
+  {
+    draw(Circle((0,0),i), gray+ linewidth(0.4));
+  }
+  for(int i=0;i&lt;numRays;++i) 
+  draw(rotate(i*360/numRays)*((-big,0)--(big,0)),gray+ linewidth(0.4));
+}
+
+polarGrid(big, numRays);
+rr_cartesian_axes(-big,big,-big,big,complexplane=true);
+
+pair O = (0,0); 
+int n = 5;
+
+pair A[];
+for(int i = 0; i &lt;= n-1; i+=1) {
+  A[i] = rotate(360*i/n + 360*3/25)*(1,0); 
+}
+
+label(&quot;$e^{6\pi i/25}$&quot;, A[0], dir(A[0]), UnFill); 
+label(&quot;$e^{16\pi i/25}$&quot;, A[1], dir(A[1]), UnFill); 
+label(&quot;$e^{26\pi i/25}$&quot;, A[2], S, UnFill); 
+label(&quot;$e^{36\pi i/25}$&quot;, A[3], dir(A[3]), UnFill); 
+label(&quot;$e^{46\pi i/25}$&quot;, A[4], dir(A[4]), UnFill);
+
+label(&quot;$e^{6\pi i/25} + e^{16\pi i/25}$&quot;, A[0] + A[1], NNE, UnFill);
+
+draw(O--A[0], red);
+draw(O--A[1], blue);
+draw(A[0]--A[0] + A[1], blue);
+
+for(int i = 0; i&lt; n; ++i) dot(A[i]); 
+dot(O); 
+dot(A[0]+ A[1]);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(210)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Aint%20big%20%3D%202%3B%0D%0Aint%20numRays%20%3D%2024%3B%0D%0A%0D%0A%2F%2FDraws%20a%20polar%20grid%20that%20goes%20out%20to%20a%20number%20of%20circles%20%0D%0A%2F%2Fequal%20to%20big%2C%20with%20numRays%20specifying%20the%20number%20of%20rays%3A%20%0D%0Avoid%20polarGrid(int%20big%2C%20int%20numRays)%20%0D%0A%7B%0D%0A%20%20for%20(int%20i%20%3D%201%3B%20i%20%3C%20big%2B1%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20draw(Circle((0%2C0)%2Ci)%2C%20gray%2B%20linewidth(0.4))%3B%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%3D0%3Bi%3CnumRays%3B%2B%2Bi)%20%0D%0A%20%20draw(rotate(i*360%2FnumRays)*((-big%2C0)--(big%2C0))%2Cgray%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0ApolarGrid(big%2C%20numRays)%3B%0D%0Arr_cartesian_axes(-big%2Cbig%2C-big%2Cbig%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20O%20%3D%20(0%2C0)%3B%20%0D%0Aint%20n%20%3D%205%3B%0D%0A%0D%0Apair%20A%5B%5D%3B%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%3D%20n-1%3B%20i%2B%3D1)%20%7B%0D%0A%20%20A%5Bi%5D%20%3D%20rotate(360*i%2Fn%20%2B%20360*3%2F25)*(1%2C0)%3B%20%0D%0A%7D%0D%0A%0D%0Alabel(%22%24e%5E%7B6%5Cpi%20i%2F25%7D%24%22%2C%20A%5B0%5D%2C%20dir(A%5B0%5D)%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B16%5Cpi%20i%2F25%7D%24%22%2C%20A%5B1%5D%2C%20dir(A%5B1%5D)%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B26%5Cpi%20i%2F25%7D%24%22%2C%20A%5B2%5D%2C%20S%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B36%5Cpi%20i%2F25%7D%24%22%2C%20A%5B3%5D%2C%20dir(A%5B3%5D)%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B46%5Cpi%20i%2F25%7D%24%22%2C%20A%5B4%5D%2C%20dir(A%5B4%5D)%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24e%5E%7B6%5Cpi%20i%2F25%7D%20%2B%20e%5E%7B16%5Cpi%20i%2F25%7D%24%22%2C%20A%5B0%5D%20%2B%20A%5B1%5D%2C%20NNE%2C%20UnFill)%3B%0D%0A%0D%0Adraw(O--A%5B0%5D%2C%20red)%3B%0D%0Adraw(O--A%5B1%5D%2C%20blue)%3B%0D%0Adraw(A%5B0%5D--A%5B0%5D%20%2B%20A%5B1%5D%2C%20blue)%3B%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%3C%20n%3B%20%2B%2Bi)%20dot(A%5Bi%5D)%3B%20%0D%0Adot(O)%3B%20%0D%0Adot(A%5B0%5D%2B%20A%5B1%5D)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(210); 
+import TrigMacros;
+
+int big = 2;
+int numRays = 24;
+
+//Draws a polar grid that goes out to a number of circles 
+//equal to big, with numRays specifying the number of rays: 
+void polarGrid(int big, int numRays) 
+{
+  for (int i = 1; i &lt; big+1; ++i)
+  {
+    draw(Circle((0,0),i), gray+ linewidth(0.4));
+  }
+  for(int i=0;i&lt;numRays;++i) 
+  draw(rotate(i*360/numRays)*((-big,0)--(big,0)),gray+ linewidth(0.4));
+}
+
+polarGrid(big, numRays);
+rr_cartesian_axes(-big,big,-big,big,complexplane=true);
+
+pair O = (0,0); 
+int n = 5;
+
+pair A[];
+for(int i = 0; i &lt;= n-1; i+=1) {
+  A[i] = rotate(360*i/n + 360*3/25)*(1,0); 
+}
+
+label(&quot;$e^{6\pi i/25}$&quot;, A[0], dir(A[0]), UnFill); 
+label(&quot;$e^{16\pi i/25}$&quot;, A[1], dir(A[1]), UnFill); 
+label(&quot;$e^{26\pi i/25}$&quot;, A[2], S, UnFill); 
+label(&quot;$e^{36\pi i/25}$&quot;, A[3], dir(A[3]), UnFill); 
+label(&quot;$e^{46\pi i/25}$&quot;, A[4], dir(A[4]), UnFill);
+
+label(&quot;$e^{6\pi i/25} + e^{16\pi i/25}$&quot;, A[0] + A[1], NNE, UnFill);
+
+draw(O--A[0], red);
+draw(O--A[1], blue);
+draw(A[0]--A[0] + A[1], blue);
+
+for(int i = 0; i&lt; n; ++i) dot(A[i]); 
+dot(O); 
+dot(A[0]+ A[1]);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="526" data-id="01360" data-file="c186_L10_script_17.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-527">
+  <div class="card-header">
+    <h2>#527 &mdash; c539_L12_script_18.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3214 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/08786.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08786.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//https://artofproblemsolving.com/texer/mrpkergn
+
+size(12cm, 10cm);
+
+//Separation &quot;L&quot;
+real L = 2;
+
+pair Center1 = (0,0);
+pair Center2 = (L,0);
+
+// Toggle each source on or off
+bool showLeft = true;
+bool showRight = true;
+
+// Draw the wavefronts
+for (int i = 1; i &lt;= 10; i += 1) {
+  if (showLeft) draw(circle(Center1, i), gray+linewidth(0.5));
+  if (showRight) draw(circle(Center2, i), gray+linewidth(0.5));
+}
+
+// Find and mark all intersection points (constructive interference)
+if (showLeft &amp;&amp; showRight) {
+for (int m = 1; m &lt;= 10; m += 1) {        // radius from source 1
+  for (int n = 1; n &lt;= 10; n += 1) {      // radius from source 2
+    // Circles only intersect if the distance L is between |r1-r2| and r1+r2
+    if (abs(m - n) &lt;= L &amp;&amp; m + n &gt;= L) {
+      real x = (L*L + m*m - n*n) / (2*L); // x-coordinate of intersection
+      real ysq = m*m - x*x;               // y² (may need to check it&#39;s positive)
+      if (ysq &gt;= 0) {
+        real y = sqrt(ysq);
+        // Each pair of circles meets at two points (above and below the axis)
+        dot((x, y), heavygreen+3);
+        dot((x, -y), heavygreen+3);
+      }
+    }
+  }
+}
+}
+
+draw((0.5*L,5*L)--(0.5*L,-5*L),heavygreen+linewidth(3pt));
+draw((-5*L,0)--(0,0),heavygreen+linewidth(3pt));
+draw((L,0)--(6*L,0),heavygreen+linewidth(3pt));
+
+if (showLeft) dot(Center1, red+5);
+if (showRight) dot(Center2, blue+5);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fmrpkergn%0D%0A%0D%0Asize(12cm%2C%2010cm)%3B%0D%0A%0D%0A%2F%2FSeparation%20%22L%22%0D%0Areal%20L%20%3D%202%3B%0D%0A%0D%0Apair%20Center1%20%3D%20(0%2C0)%3B%0D%0Apair%20Center2%20%3D%20(L%2C0)%3B%0D%0A%0D%0A%2F%2F%20Toggle%20each%20source%20on%20or%20off%0D%0Abool%20showLeft%20%3D%20true%3B%0D%0Abool%20showRight%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Draw%20the%20wavefronts%0D%0Afor%20(int%20i%20%3D%201%3B%20i%20%3C%3D%2010%3B%20i%20%2B%3D%201)%20%7B%0D%0A%20%20if%20(showLeft)%20draw(circle(Center1%2C%20i)%2C%20gray%2Blinewidth(0.5))%3B%0D%0A%20%20if%20(showRight)%20draw(circle(Center2%2C%20i)%2C%20gray%2Blinewidth(0.5))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20Find%20and%20mark%20all%20intersection%20points%20(constructive%20interference)%0D%0Aif%20(showLeft%20%26%26%20showRight)%20%7B%0D%0Afor%20(int%20m%20%3D%201%3B%20m%20%3C%3D%2010%3B%20m%20%2B%3D%201)%20%7B%20%20%20%20%20%20%20%20%2F%2F%20radius%20from%20source%201%0D%0A%20%20for%20(int%20n%20%3D%201%3B%20n%20%3C%3D%2010%3B%20n%20%2B%3D%201)%20%7B%20%20%20%20%20%20%2F%2F%20radius%20from%20source%202%0D%0A%20%20%20%20%2F%2F%20Circles%20only%20intersect%20if%20the%20distance%20L%20is%20between%20%7Cr1-r2%7C%20and%20r1%2Br2%0D%0A%20%20%20%20if%20(abs(m%20-%20n)%20%3C%3D%20L%20%26%26%20m%20%2B%20n%20%3E%3D%20L)%20%7B%0D%0A%20%20%20%20%20%20real%20x%20%3D%20(L*L%20%2B%20m*m%20-%20n*n)%20%2F%20(2*L)%3B%20%2F%2F%20x-coordinate%20of%20intersection%0D%0A%20%20%20%20%20%20real%20ysq%20%3D%20m*m%20-%20x*x%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20y%C2%B2%20(may%20need%20to%20check%20it's%20positive)%0D%0A%20%20%20%20%20%20if%20(ysq%20%3E%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20y%20%3D%20sqrt(ysq)%3B%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Each%20pair%20of%20circles%20meets%20at%20two%20points%20(above%20and%20below%20the%20axis)%0D%0A%20%20%20%20%20%20%20%20dot((x%2C%20y)%2C%20heavygreen%2B3)%3B%0D%0A%20%20%20%20%20%20%20%20dot((x%2C%20-y)%2C%20heavygreen%2B3)%3B%0D%0A%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%20%20%7D%0D%0A%7D%0D%0A%7D%0D%0A%0D%0Adraw((0.5*L%2C5*L)--(0.5*L%2C-5*L)%2Cheavygreen%2Blinewidth(3pt))%3B%0D%0Adraw((-5*L%2C0)--(0%2C0)%2Cheavygreen%2Blinewidth(3pt))%3B%0D%0Adraw((L%2C0)--(6*L%2C0)%2Cheavygreen%2Blinewidth(3pt))%3B%0D%0A%0D%0Aif%20(showLeft)%20dot(Center1%2C%20red%2B5)%3B%0D%0Aif%20(showRight)%20dot(Center2%2C%20blue%2B5)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//https://artofproblemsolving.com/texer/mrpkergn
+
+size(12cm, 10cm);
+
+//Separation &quot;L&quot;
+real L = 2;
+
+pair Center1 = (0,0);
+pair Center2 = (L,0);
+
+// Toggle each source on or off
+bool showLeft = true;
+bool showRight = true;
+
+// Draw the wavefronts
+for (int i = 1; i &lt;= 10; i += 1) {
+  if (showLeft) draw(circle(Center1, i), gray+linewidth(0.5));
+  if (showRight) draw(circle(Center2, i), gray+linewidth(0.5));
+}
+
+// Find and mark all intersection points (constructive interference)
+if (showLeft &amp;&amp; showRight) {
+for (int m = 1; m &lt;= 10; m += 1) {        // radius from source 1
+  for (int n = 1; n &lt;= 10; n += 1) {      // radius from source 2
+    // Circles only intersect if the distance L is between |r1-r2| and r1+r2
+    if (abs(m - n) &lt;= L &amp;&amp; m + n &gt;= L) {
+      real x = (L*L + m*m - n*n) / (2*L); // x-coordinate of intersection
+      real ysq = m*m - x*x;               // y² (may need to check it&#39;s positive)
+      if (ysq &gt;= 0) {
+        real y = sqrt(ysq);
+        // Each pair of circles meets at two points (above and below the axis)
+        dot((x, y), heavygreen+3);
+        dot((x, -y), heavygreen+3);
+      }
+    }
+  }
+}
+}
+
+draw((0.5*L,5*L)--(0.5*L,-5*L),heavygreen+linewidth(3pt));
+draw((-5*L,0)--(0,0),heavygreen+linewidth(3pt));
+draw((L,0)--(6*L,0),heavygreen+linewidth(3pt));
+
+if (showLeft) dot(Center1, red+5);
+if (showRight) dot(Center2, blue+5);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="527" data-id="08786" data-file="c539_L12_script_18.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-528">
+  <div class="card-header">
+    <h2>#528 &mdash; c10_L7_script_5.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3215 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00441.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00441.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import graph;
+ticks stdticks=Ticks(&quot;%&quot;,Size=2,n=1,begin=false,end=false);
+size(7cm);
+real f(real x){return (x^3 - 3*x + 1);}
+xlimits( -1,3);
+draw(graph(f,0,2),black+1bp);
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), stdticks,Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), stdticks,Arrow);
+//dot((sqrt(5/3),-(5/3)*sqrt(5/3)));
+//label(&quot;$(\sqrt{\frac53},-\frac{10}{3}\sqrt{\frac53})$&quot;,(sqrt(5/3),-(5/3)*sqrt(5/3)),S);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20graph%3B%0D%0D%0Aticks%20stdticks%3DTicks(%22%25%22%2CSize%3D2%2Cn%3D1%2Cbegin%3Dfalse%2Cend%3Dfalse)%3B%0D%0D%0Asize(7cm)%3B%0D%0D%0Areal%20f(real%20x)%7Breturn%20(x%5E3%20-%203*x%20%2B%201)%3B%7D%0D%0D%0Axlimits(%20-1%2C3)%3B%0D%0D%0Adraw(graph(f%2C0%2C2)%2Cblack%2B1bp)%3B%0D%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20stdticks%2CArrow)%3B%0D%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20stdticks%2CArrow)%3B%0D%0D%0A%2F%2Fdot((sqrt(5%2F3)%2C-(5%2F3)*sqrt(5%2F3)))%3B%0D%0D%0A%2F%2Flabel(%22%24(%5Csqrt%7B%5Cfrac53%7D%2C-%5Cfrac%7B10%7D%7B3%7D%5Csqrt%7B%5Cfrac53%7D)%24%22%2C(sqrt(5%2F3)%2C-(5%2F3)*sqrt(5%2F3))%2CS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import graph;
+ticks stdticks=Ticks(&quot;%&quot;,Size=2,n=1,begin=false,end=false);
+size(7cm);
+real f(real x){return (x^3 - 3*x + 1);}
+xlimits( -1,3);
+draw(graph(f,0,2),black+1bp);
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), stdticks,Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), stdticks,Arrow);
+//dot((sqrt(5/3),-(5/3)*sqrt(5/3)));
+//label(&quot;$(\sqrt{\frac53},-\frac{10}{3}\sqrt{\frac53})$&quot;,(sqrt(5/3),-(5/3)*sqrt(5/3)),S);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="528" data-id="00441" data-file="c10_L7_script_5.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-529">
+  <div class="card-header">
+    <h2>#529 &mdash; c186_L6_script_17.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3215 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02894.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02894.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220);
+import TrigMacros;
+import olympiad;
+import markers;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    path[] endpoints; 
+    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
+    return endpoints[1]--endpoints[0]; 
+}
+
+pair f(real x) 
+{
+   return (x, (10 - 2x)/3); 
+}
+
+pair g(real x) 
+{
+   return (x, 16 + 4x);  
+}
+
+pair intPoint = extension(f(0), f(1), g(0), g(1));
+
+markangle(&quot;$	heta$&quot;, g(-5), intPoint, f(2), radius = 10, red + linewidth(1));
+markangle(&quot;$\alpha$&quot;, (10,0), g(-4), intPoint, radius = 10, heavygreen + linewidth(1));
+
+draw(maxLine(f(0),f(1), -8,8,-8,8));
+draw(maxLine(g(0),g(1), -8,8,-8,8));
+rr_cartesian_axes(-8,8,-8,8,complexplane=false,usegrid=true);
+
+label(&quot;$-4x + y = 16$&quot;, g(-5), UnFill); 
+label(&quot;$2x + 3y = 10$&quot;, f(5) - 2.5*N, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Aimport%20olympiad%3B%0D%0D%0Aimport%20markers%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20path%5B%5D%20endpoints%3B%20%0D%0D%0A%20%20%20%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%20%0D%0D%0A%20%20%20%20return%20endpoints%5B1%5D--endpoints%5B0%5D%3B%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20f(real%20x)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20return%20(x%2C%20(10%20-%202x)%2F3)%3B%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20g(real%20x)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20return%20(x%2C%2016%20%2B%204x)%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20intPoint%20%3D%20extension(f(0)%2C%20f(1)%2C%20g(0)%2C%20g(1))%3B%0D%0A%0D%0Amarkangle(%22%24%09heta%24%22%2C%20g(-5)%2C%20intPoint%2C%20f(2)%2C%20radius%20%3D%2010%2C%20red%20%2B%20linewidth(1))%3B%0D%0D%0Amarkangle(%22%24%5Calpha%24%22%2C%20(10%2C0)%2C%20g(-4)%2C%20intPoint%2C%20radius%20%3D%2010%2C%20heavygreen%20%2B%20linewidth(1))%3B%0D%0A%0D%0Adraw(maxLine(f(0)%2Cf(1)%2C%20-8%2C8%2C-8%2C8))%3B%0D%0D%0Adraw(maxLine(g(0)%2Cg(1)%2C%20-8%2C8%2C-8%2C8))%3B%0D%0D%0Arr_cartesian_axes(-8%2C8%2C-8%2C8%2Ccomplexplane%3Dfalse%2Cusegrid%3Dtrue)%3B%0D%0A%0D%0Alabel(%22%24-4x%20%2B%20y%20%3D%2016%24%22%2C%20g(-5)%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%242x%20%2B%203y%20%3D%2010%24%22%2C%20f(5)%20-%202.5*N%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220);
+import TrigMacros;
+import olympiad;
+import markers;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    path[] endpoints; 
+    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
+    return endpoints[1]--endpoints[0]; 
+}
+
+pair f(real x) 
+{
+   return (x, (10 - 2x)/3); 
+}
+
+pair g(real x) 
+{
+   return (x, 16 + 4x);  
+}
+
+pair intPoint = extension(f(0), f(1), g(0), g(1));
+
+markangle(&quot;$	heta$&quot;, g(-5), intPoint, f(2), radius = 10, red + linewidth(1));
+markangle(&quot;$\alpha$&quot;, (10,0), g(-4), intPoint, radius = 10, heavygreen + linewidth(1));
+
+draw(maxLine(f(0),f(1), -8,8,-8,8));
+draw(maxLine(g(0),g(1), -8,8,-8,8));
+rr_cartesian_axes(-8,8,-8,8,complexplane=false,usegrid=true);
+
+label(&quot;$-4x + y = 16$&quot;, g(-5), UnFill); 
+label(&quot;$2x + 3y = 10$&quot;, f(5) - 2.5*N, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="529" data-id="02894" data-file="c186_L6_script_17.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-530">
+  <div class="card-header">
+    <h2>#530 &mdash; c186_L18_script_25.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3216 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -3614,373 +3981,7 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="526" data-id="01991" data-file="c186_L18_script_25.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-527">
-  <div class="card-header">
-    <h2>#527 &mdash; c186_L10_script_17.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3214 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01360.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01360.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(210); 
-import TrigMacros;
-
-int big = 2;
-int numRays = 24;
-
-//Draws a polar grid that goes out to a number of circles 
-//equal to big, with numRays specifying the number of rays: 
-void polarGrid(int big, int numRays) 
-{
-  for (int i = 1; i &lt; big+1; ++i)
-  {
-    draw(Circle((0,0),i), gray+ linewidth(0.4));
-  }
-  for(int i=0;i&lt;numRays;++i) 
-  draw(rotate(i*360/numRays)*((-big,0)--(big,0)),gray+ linewidth(0.4));
-}
-
-polarGrid(big, numRays);
-rr_cartesian_axes(-big,big,-big,big,complexplane=true);
-
-pair O = (0,0); 
-int n = 5;
-
-pair A[];
-for(int i = 0; i &lt;= n-1; i+=1) {
-  A[i] = rotate(360*i/n + 360*3/25)*(1,0); 
-}
-
-label(&quot;$e^{6\pi i/25}$&quot;, A[0], dir(A[0]), UnFill); 
-label(&quot;$e^{16\pi i/25}$&quot;, A[1], dir(A[1]), UnFill); 
-label(&quot;$e^{26\pi i/25}$&quot;, A[2], S, UnFill); 
-label(&quot;$e^{36\pi i/25}$&quot;, A[3], dir(A[3]), UnFill); 
-label(&quot;$e^{46\pi i/25}$&quot;, A[4], dir(A[4]), UnFill);
-
-label(&quot;$e^{6\pi i/25} + e^{16\pi i/25}$&quot;, A[0] + A[1], NNE, UnFill);
-
-draw(O--A[0], red);
-draw(O--A[1], blue);
-draw(A[0]--A[0] + A[1], blue);
-
-for(int i = 0; i&lt; n; ++i) dot(A[i]); 
-dot(O); 
-dot(A[0]+ A[1]);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(210)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0Aint%20big%20%3D%202%3B%0D%0Aint%20numRays%20%3D%2024%3B%0D%0A%0D%0A%2F%2FDraws%20a%20polar%20grid%20that%20goes%20out%20to%20a%20number%20of%20circles%20%0D%0A%2F%2Fequal%20to%20big%2C%20with%20numRays%20specifying%20the%20number%20of%20rays%3A%20%0D%0Avoid%20polarGrid(int%20big%2C%20int%20numRays)%20%0D%0A%7B%0D%0A%20%20for%20(int%20i%20%3D%201%3B%20i%20%3C%20big%2B1%3B%20%2B%2Bi)%0D%0A%20%20%7B%0D%0A%20%20%20%20draw(Circle((0%2C0)%2Ci)%2C%20gray%2B%20linewidth(0.4))%3B%0D%0A%20%20%7D%0D%0A%20%20for(int%20i%3D0%3Bi%3CnumRays%3B%2B%2Bi)%20%0D%0A%20%20draw(rotate(i*360%2FnumRays)*((-big%2C0)--(big%2C0))%2Cgray%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0ApolarGrid(big%2C%20numRays)%3B%0D%0Arr_cartesian_axes(-big%2Cbig%2C-big%2Cbig%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20O%20%3D%20(0%2C0)%3B%20%0D%0Aint%20n%20%3D%205%3B%0D%0A%0D%0Apair%20A%5B%5D%3B%0D%0Afor(int%20i%20%3D%200%3B%20i%20%3C%3D%20n-1%3B%20i%2B%3D1)%20%7B%0D%0A%20%20A%5Bi%5D%20%3D%20rotate(360*i%2Fn%20%2B%20360*3%2F25)*(1%2C0)%3B%20%0D%0A%7D%0D%0A%0D%0Alabel(%22%24e%5E%7B6%5Cpi%20i%2F25%7D%24%22%2C%20A%5B0%5D%2C%20dir(A%5B0%5D)%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B16%5Cpi%20i%2F25%7D%24%22%2C%20A%5B1%5D%2C%20dir(A%5B1%5D)%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B26%5Cpi%20i%2F25%7D%24%22%2C%20A%5B2%5D%2C%20S%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B36%5Cpi%20i%2F25%7D%24%22%2C%20A%5B3%5D%2C%20dir(A%5B3%5D)%2C%20UnFill)%3B%20%0D%0Alabel(%22%24e%5E%7B46%5Cpi%20i%2F25%7D%24%22%2C%20A%5B4%5D%2C%20dir(A%5B4%5D)%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24e%5E%7B6%5Cpi%20i%2F25%7D%20%2B%20e%5E%7B16%5Cpi%20i%2F25%7D%24%22%2C%20A%5B0%5D%20%2B%20A%5B1%5D%2C%20NNE%2C%20UnFill)%3B%0D%0A%0D%0Adraw(O--A%5B0%5D%2C%20red)%3B%0D%0Adraw(O--A%5B1%5D%2C%20blue)%3B%0D%0Adraw(A%5B0%5D--A%5B0%5D%20%2B%20A%5B1%5D%2C%20blue)%3B%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%3C%20n%3B%20%2B%2Bi)%20dot(A%5Bi%5D)%3B%20%0D%0Adot(O)%3B%20%0D%0Adot(A%5B0%5D%2B%20A%5B1%5D)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(210); 
-import TrigMacros;
-
-int big = 2;
-int numRays = 24;
-
-//Draws a polar grid that goes out to a number of circles 
-//equal to big, with numRays specifying the number of rays: 
-void polarGrid(int big, int numRays) 
-{
-  for (int i = 1; i &lt; big+1; ++i)
-  {
-    draw(Circle((0,0),i), gray+ linewidth(0.4));
-  }
-  for(int i=0;i&lt;numRays;++i) 
-  draw(rotate(i*360/numRays)*((-big,0)--(big,0)),gray+ linewidth(0.4));
-}
-
-polarGrid(big, numRays);
-rr_cartesian_axes(-big,big,-big,big,complexplane=true);
-
-pair O = (0,0); 
-int n = 5;
-
-pair A[];
-for(int i = 0; i &lt;= n-1; i+=1) {
-  A[i] = rotate(360*i/n + 360*3/25)*(1,0); 
-}
-
-label(&quot;$e^{6\pi i/25}$&quot;, A[0], dir(A[0]), UnFill); 
-label(&quot;$e^{16\pi i/25}$&quot;, A[1], dir(A[1]), UnFill); 
-label(&quot;$e^{26\pi i/25}$&quot;, A[2], S, UnFill); 
-label(&quot;$e^{36\pi i/25}$&quot;, A[3], dir(A[3]), UnFill); 
-label(&quot;$e^{46\pi i/25}$&quot;, A[4], dir(A[4]), UnFill);
-
-label(&quot;$e^{6\pi i/25} + e^{16\pi i/25}$&quot;, A[0] + A[1], NNE, UnFill);
-
-draw(O--A[0], red);
-draw(O--A[1], blue);
-draw(A[0]--A[0] + A[1], blue);
-
-for(int i = 0; i&lt; n; ++i) dot(A[i]); 
-dot(O); 
-dot(A[0]+ A[1]);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="527" data-id="01360" data-file="c186_L10_script_17.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-528">
-  <div class="card-header">
-    <h2>#528 &mdash; c539_L12_script_18.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3214 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08786.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08786.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//https://artofproblemsolving.com/texer/mrpkergn
-
-size(12cm, 10cm);
-
-//Separation &quot;L&quot;
-real L = 2;
-
-pair Center1 = (0,0);
-pair Center2 = (L,0);
-
-// Toggle each source on or off
-bool showLeft = true;
-bool showRight = true;
-
-// Draw the wavefronts
-for (int i = 1; i &lt;= 10; i += 1) {
-  if (showLeft) draw(circle(Center1, i), gray+linewidth(0.5));
-  if (showRight) draw(circle(Center2, i), gray+linewidth(0.5));
-}
-
-// Find and mark all intersection points (constructive interference)
-if (showLeft &amp;&amp; showRight) {
-for (int m = 1; m &lt;= 10; m += 1) {        // radius from source 1
-  for (int n = 1; n &lt;= 10; n += 1) {      // radius from source 2
-    // Circles only intersect if the distance L is between |r1-r2| and r1+r2
-    if (abs(m - n) &lt;= L &amp;&amp; m + n &gt;= L) {
-      real x = (L*L + m*m - n*n) / (2*L); // x-coordinate of intersection
-      real ysq = m*m - x*x;               // y² (may need to check it&#39;s positive)
-      if (ysq &gt;= 0) {
-        real y = sqrt(ysq);
-        // Each pair of circles meets at two points (above and below the axis)
-        dot((x, y), heavygreen+3);
-        dot((x, -y), heavygreen+3);
-      }
-    }
-  }
-}
-}
-
-draw((0.5*L,5*L)--(0.5*L,-5*L),heavygreen+linewidth(3pt));
-draw((-5*L,0)--(0,0),heavygreen+linewidth(3pt));
-draw((L,0)--(6*L,0),heavygreen+linewidth(3pt));
-
-if (showLeft) dot(Center1, red+5);
-if (showRight) dot(Center2, blue+5);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fmrpkergn%0D%0A%0D%0Asize(12cm%2C%2010cm)%3B%0D%0A%0D%0A%2F%2FSeparation%20%22L%22%0D%0Areal%20L%20%3D%202%3B%0D%0A%0D%0Apair%20Center1%20%3D%20(0%2C0)%3B%0D%0Apair%20Center2%20%3D%20(L%2C0)%3B%0D%0A%0D%0A%2F%2F%20Toggle%20each%20source%20on%20or%20off%0D%0Abool%20showLeft%20%3D%20true%3B%0D%0Abool%20showRight%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Draw%20the%20wavefronts%0D%0Afor%20(int%20i%20%3D%201%3B%20i%20%3C%3D%2010%3B%20i%20%2B%3D%201)%20%7B%0D%0A%20%20if%20(showLeft)%20draw(circle(Center1%2C%20i)%2C%20gray%2Blinewidth(0.5))%3B%0D%0A%20%20if%20(showRight)%20draw(circle(Center2%2C%20i)%2C%20gray%2Blinewidth(0.5))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20Find%20and%20mark%20all%20intersection%20points%20(constructive%20interference)%0D%0Aif%20(showLeft%20%26%26%20showRight)%20%7B%0D%0Afor%20(int%20m%20%3D%201%3B%20m%20%3C%3D%2010%3B%20m%20%2B%3D%201)%20%7B%20%20%20%20%20%20%20%20%2F%2F%20radius%20from%20source%201%0D%0A%20%20for%20(int%20n%20%3D%201%3B%20n%20%3C%3D%2010%3B%20n%20%2B%3D%201)%20%7B%20%20%20%20%20%20%2F%2F%20radius%20from%20source%202%0D%0A%20%20%20%20%2F%2F%20Circles%20only%20intersect%20if%20the%20distance%20L%20is%20between%20%7Cr1-r2%7C%20and%20r1%2Br2%0D%0A%20%20%20%20if%20(abs(m%20-%20n)%20%3C%3D%20L%20%26%26%20m%20%2B%20n%20%3E%3D%20L)%20%7B%0D%0A%20%20%20%20%20%20real%20x%20%3D%20(L*L%20%2B%20m*m%20-%20n*n)%20%2F%20(2*L)%3B%20%2F%2F%20x-coordinate%20of%20intersection%0D%0A%20%20%20%20%20%20real%20ysq%20%3D%20m*m%20-%20x*x%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20y%C2%B2%20(may%20need%20to%20check%20it's%20positive)%0D%0A%20%20%20%20%20%20if%20(ysq%20%3E%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20y%20%3D%20sqrt(ysq)%3B%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Each%20pair%20of%20circles%20meets%20at%20two%20points%20(above%20and%20below%20the%20axis)%0D%0A%20%20%20%20%20%20%20%20dot((x%2C%20y)%2C%20heavygreen%2B3)%3B%0D%0A%20%20%20%20%20%20%20%20dot((x%2C%20-y)%2C%20heavygreen%2B3)%3B%0D%0A%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%20%20%7D%0D%0A%7D%0D%0A%7D%0D%0A%0D%0Adraw((0.5*L%2C5*L)--(0.5*L%2C-5*L)%2Cheavygreen%2Blinewidth(3pt))%3B%0D%0Adraw((-5*L%2C0)--(0%2C0)%2Cheavygreen%2Blinewidth(3pt))%3B%0D%0Adraw((L%2C0)--(6*L%2C0)%2Cheavygreen%2Blinewidth(3pt))%3B%0D%0A%0D%0Aif%20(showLeft)%20dot(Center1%2C%20red%2B5)%3B%0D%0Aif%20(showRight)%20dot(Center2%2C%20blue%2B5)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//https://artofproblemsolving.com/texer/mrpkergn
-
-size(12cm, 10cm);
-
-//Separation &quot;L&quot;
-real L = 2;
-
-pair Center1 = (0,0);
-pair Center2 = (L,0);
-
-// Toggle each source on or off
-bool showLeft = true;
-bool showRight = true;
-
-// Draw the wavefronts
-for (int i = 1; i &lt;= 10; i += 1) {
-  if (showLeft) draw(circle(Center1, i), gray+linewidth(0.5));
-  if (showRight) draw(circle(Center2, i), gray+linewidth(0.5));
-}
-
-// Find and mark all intersection points (constructive interference)
-if (showLeft &amp;&amp; showRight) {
-for (int m = 1; m &lt;= 10; m += 1) {        // radius from source 1
-  for (int n = 1; n &lt;= 10; n += 1) {      // radius from source 2
-    // Circles only intersect if the distance L is between |r1-r2| and r1+r2
-    if (abs(m - n) &lt;= L &amp;&amp; m + n &gt;= L) {
-      real x = (L*L + m*m - n*n) / (2*L); // x-coordinate of intersection
-      real ysq = m*m - x*x;               // y² (may need to check it&#39;s positive)
-      if (ysq &gt;= 0) {
-        real y = sqrt(ysq);
-        // Each pair of circles meets at two points (above and below the axis)
-        dot((x, y), heavygreen+3);
-        dot((x, -y), heavygreen+3);
-      }
-    }
-  }
-}
-}
-
-draw((0.5*L,5*L)--(0.5*L,-5*L),heavygreen+linewidth(3pt));
-draw((-5*L,0)--(0,0),heavygreen+linewidth(3pt));
-draw((L,0)--(6*L,0),heavygreen+linewidth(3pt));
-
-if (showLeft) dot(Center1, red+5);
-if (showRight) dot(Center2, blue+5);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="528" data-id="08786" data-file="c539_L12_script_18.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-529">
-  <div class="card-header">
-    <h2>#529 &mdash; c10_L7_script_5.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3215 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/00441.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00441.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>import graph;
-ticks stdticks=Ticks(&quot;%&quot;,Size=2,n=1,begin=false,end=false);
-size(7cm);
-real f(real x){return (x^3 - 3*x + 1);}
-xlimits( -1,3);
-draw(graph(f,0,2),black+1bp);
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), stdticks,Arrow);
-yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), stdticks,Arrow);
-//dot((sqrt(5/3),-(5/3)*sqrt(5/3)));
-//label(&quot;$(\sqrt{\frac53},-\frac{10}{3}\sqrt{\frac53})$&quot;,(sqrt(5/3),-(5/3)*sqrt(5/3)),S);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20graph%3B%0D%0D%0Aticks%20stdticks%3DTicks(%22%25%22%2CSize%3D2%2Cn%3D1%2Cbegin%3Dfalse%2Cend%3Dfalse)%3B%0D%0D%0Asize(7cm)%3B%0D%0D%0Areal%20f(real%20x)%7Breturn%20(x%5E3%20-%203*x%20%2B%201)%3B%7D%0D%0D%0Axlimits(%20-1%2C3)%3B%0D%0D%0Adraw(graph(f%2C0%2C2)%2Cblack%2B1bp)%3B%0D%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20stdticks%2CArrow)%3B%0D%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20stdticks%2CArrow)%3B%0D%0D%0A%2F%2Fdot((sqrt(5%2F3)%2C-(5%2F3)*sqrt(5%2F3)))%3B%0D%0D%0A%2F%2Flabel(%22%24(%5Csqrt%7B%5Cfrac53%7D%2C-%5Cfrac%7B10%7D%7B3%7D%5Csqrt%7B%5Cfrac53%7D)%24%22%2C(sqrt(5%2F3)%2C-(5%2F3)*sqrt(5%2F3))%2CS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-import graph;
-ticks stdticks=Ticks(&quot;%&quot;,Size=2,n=1,begin=false,end=false);
-size(7cm);
-real f(real x){return (x^3 - 3*x + 1);}
-xlimits( -1,3);
-draw(graph(f,0,2),black+1bp);
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), stdticks,Arrow);
-yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), stdticks,Arrow);
-//dot((sqrt(5/3),-(5/3)*sqrt(5/3)));
-//label(&quot;$(\sqrt{\frac53},-\frac{10}{3}\sqrt{\frac53})$&quot;,(sqrt(5/3),-(5/3)*sqrt(5/3)),S);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="529" data-id="00441" data-file="c10_L7_script_5.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-530">
-  <div class="card-header">
-    <h2>#530 &mdash; c186_L6_script_17.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3215 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02894.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02894.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(220);
-import TrigMacros;
-import olympiad;
-import markers;
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    path[] endpoints; 
-    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
-    return endpoints[1]--endpoints[0]; 
-}
-
-pair f(real x) 
-{
-   return (x, (10 - 2x)/3); 
-}
-
-pair g(real x) 
-{
-   return (x, 16 + 4x);  
-}
-
-pair intPoint = extension(f(0), f(1), g(0), g(1));
-
-markangle(&quot;$	heta$&quot;, g(-5), intPoint, f(2), radius = 10, red + linewidth(1));
-markangle(&quot;$\alpha$&quot;, (10,0), g(-4), intPoint, radius = 10, heavygreen + linewidth(1));
-
-draw(maxLine(f(0),f(1), -8,8,-8,8));
-draw(maxLine(g(0),g(1), -8,8,-8,8));
-rr_cartesian_axes(-8,8,-8,8,complexplane=false,usegrid=true);
-
-label(&quot;$-4x + y = 16$&quot;, g(-5), UnFill); 
-label(&quot;$2x + 3y = 10$&quot;, f(5) - 2.5*N, UnFill);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Aimport%20olympiad%3B%0D%0D%0Aimport%20markers%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20path%5B%5D%20endpoints%3B%20%0D%0D%0A%20%20%20%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%20%0D%0D%0A%20%20%20%20return%20endpoints%5B1%5D--endpoints%5B0%5D%3B%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20f(real%20x)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20return%20(x%2C%20(10%20-%202x)%2F3)%3B%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20g(real%20x)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20return%20(x%2C%2016%20%2B%204x)%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20intPoint%20%3D%20extension(f(0)%2C%20f(1)%2C%20g(0)%2C%20g(1))%3B%0D%0A%0D%0Amarkangle(%22%24%09heta%24%22%2C%20g(-5)%2C%20intPoint%2C%20f(2)%2C%20radius%20%3D%2010%2C%20red%20%2B%20linewidth(1))%3B%0D%0D%0Amarkangle(%22%24%5Calpha%24%22%2C%20(10%2C0)%2C%20g(-4)%2C%20intPoint%2C%20radius%20%3D%2010%2C%20heavygreen%20%2B%20linewidth(1))%3B%0D%0A%0D%0Adraw(maxLine(f(0)%2Cf(1)%2C%20-8%2C8%2C-8%2C8))%3B%0D%0D%0Adraw(maxLine(g(0)%2Cg(1)%2C%20-8%2C8%2C-8%2C8))%3B%0D%0D%0Arr_cartesian_axes(-8%2C8%2C-8%2C8%2Ccomplexplane%3Dfalse%2Cusegrid%3Dtrue)%3B%0D%0A%0D%0Alabel(%22%24-4x%20%2B%20y%20%3D%2016%24%22%2C%20g(-5)%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%242x%20%2B%203y%20%3D%2010%24%22%2C%20f(5)%20-%202.5*N%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(220);
-import TrigMacros;
-import olympiad;
-import markers;
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    path[] endpoints; 
-    endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle); 
-    return endpoints[1]--endpoints[0]; 
-}
-
-pair f(real x) 
-{
-   return (x, (10 - 2x)/3); 
-}
-
-pair g(real x) 
-{
-   return (x, 16 + 4x);  
-}
-
-pair intPoint = extension(f(0), f(1), g(0), g(1));
-
-markangle(&quot;$	heta$&quot;, g(-5), intPoint, f(2), radius = 10, red + linewidth(1));
-markangle(&quot;$\alpha$&quot;, (10,0), g(-4), intPoint, radius = 10, heavygreen + linewidth(1));
-
-draw(maxLine(f(0),f(1), -8,8,-8,8));
-draw(maxLine(g(0),g(1), -8,8,-8,8));
-rr_cartesian_axes(-8,8,-8,8,complexplane=false,usegrid=true);
-
-label(&quot;$-4x + y = 16$&quot;, g(-5), UnFill); 
-label(&quot;$2x + 3y = 10$&quot;, f(5) - 2.5*N, UnFill);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="530" data-id="02894" data-file="c186_L6_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="530" data-id="01991" data-file="c186_L18_script_25.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -4074,7 +4075,7 @@ dot(&quot;$u$&quot;, U, dir(U));
 <div class="card" id="pair-532">
   <div class="card-header">
     <h2>#532 &mdash; c186_L19_script_47.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3218 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.3219 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -4189,7 +4190,7 @@ dot(V);
 <div class="card" id="pair-533">
   <div class="card-header">
     <h2>#533 &mdash; c186_L19_script_46.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3218 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.3219 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -6162,53 +6163,8 @@ label(&quot;$z+w$&quot;,Z+WW,N);
 </div>
 <div class="card" id="pair-557">
   <div class="card-header">
-    <h2>#557 &mdash; c186_L11_script_14.asy</h2>
+    <h2>#557 &mdash; c186_L20_script_8.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3268 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01414.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01414.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
-
-pair Z = (2,1);
-pair O = (0,0);
-
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,N);
-dot(&quot;$2z$&quot;,2Z,N,red);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20Z%20%3D%20(2%2C1)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CN)%3B%0D%0Adot(%22%242z%24%22%2C2Z%2CN%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(170); 
-import TrigMacros;
-rr_cartesian_axes(-7,7,-7,7,complexplane=true);
-
-pair Z = (2,1);
-pair O = (0,0);
-
-dot(&quot;$0$&quot;,O,SW);
-dot(&quot;$z$&quot;,Z,N);
-dot(&quot;$2z$&quot;,2Z,N,red);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="557" data-id="01414" data-file="c186_L11_script_14.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-558">
-  <div class="card-header">
-    <h2>#558 &mdash; c186_L20_script_8.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3273 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -6316,160 +6272,59 @@ dot(SS);
 dot(R);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="558" data-id="02356" data-file="c186_L20_script_8.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="557" data-id="02356" data-file="c186_L20_script_8.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-558">
+  <div class="card-header">
+    <h2>#558 &mdash; c186_L11_script_14.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3268 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01414.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01414.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+
+pair Z = (2,1);
+pair O = (0,0);
+
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,N);
+dot(&quot;$2z$&quot;,2Z,N,red);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(170)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0Arr_cartesian_axes(-7%2C7%2C-7%2C7%2Ccomplexplane%3Dtrue)%3B%0D%0A%0D%0Apair%20Z%20%3D%20(2%2C1)%3B%0D%0Apair%20O%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adot(%22%240%24%22%2CO%2CSW)%3B%0D%0Adot(%22%24z%24%22%2CZ%2CN)%3B%0D%0Adot(%22%242z%24%22%2C2Z%2CN%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(170); 
+import TrigMacros;
+rr_cartesian_axes(-7,7,-7,7,complexplane=true);
+
+pair Z = (2,1);
+pair O = (0,0);
+
+dot(&quot;$0$&quot;,O,SW);
+dot(&quot;$z$&quot;,Z,N);
+dot(&quot;$2z$&quot;,2Z,N,red);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="558" data-id="01414" data-file="c186_L11_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-559">
   <div class="card-header">
-    <h2>#559 &mdash; c186_L20_script_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3273 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02283.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02283.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-pair V, P, D, tailV, tailP, tailD;
-real t;
-
-P = (2,4); 
-D = (2,1);
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-label(&quot;$t = -2$&quot;, g(-2, P, D), NW, UnFill); 
-label(&quot;$t = 0$&quot;, g(0, P, D), NW, UnFill); 
-label(&quot;$t = 2$&quot;, g(2, P, D), NW, UnFill);
-
-dot(g(-2, P, D));
-dot(g(0, P, D)); 
-dot(g(2, P, D));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tailV%2C%20tailP%2C%20tailD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20-2%24%22%2C%20g(-2%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%200%24%22%2C%20g(0%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%202%24%22%2C%20g(2%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Adot(g(-2%2C%20P%2C%20D))%3B%0D%0D%0Adot(g(0%2C%20P%2C%20D))%3B%20%0D%0D%0Adot(g(2%2C%20P%2C%20D))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-pair V, P, D, tailV, tailP, tailD;
-real t;
-
-P = (2,4); 
-D = (2,1);
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-label(&quot;$t = -2$&quot;, g(-2, P, D), NW, UnFill); 
-label(&quot;$t = 0$&quot;, g(0, P, D), NW, UnFill); 
-label(&quot;$t = 2$&quot;, g(2, P, D), NW, UnFill);
-
-dot(g(-2, P, D));
-dot(g(0, P, D)); 
-dot(g(2, P, D));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="559" data-id="02283" data-file="c186_L20_script_0.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-560">
-  <div class="card-header">
-    <h2>#560 &mdash; c175_L13_script_15.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3275 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01027.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01027.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/wfrezngi
-
-unitsize(.5cm);
-
-//plano-convex lens
-
-real R = 20; //radius of curvature
-real t = 1; // thickness at thickest part
-real x = R-t; //distance from center of curvature to flat side of lens
-
-real h = sqrt(R^2 - (R-t)^2); //half the height
-
-real theta = atan(h/(R-t)); //half angle subtended by lens, from center of curvature
-real theta_deg = theta * 180/pi;
-
-draw(arc((0,0),R,180-theta_deg, 180 + theta_deg) );
-draw((-x,-h)--(-x,h));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fwfrezngi%0D%0A%0D%0Aunitsize(.5cm)%3B%0D%0A%0D%0A%2F%2Fplano-convex%20lens%0D%0A%0D%0Areal%20R%20%3D%2020%3B%20%2F%2Fradius%20of%20curvature%0D%0Areal%20t%20%3D%201%3B%20%2F%2F%20thickness%20at%20thickest%20part%0D%0Areal%20x%20%3D%20R-t%3B%20%2F%2Fdistance%20from%20center%20of%20curvature%20to%20flat%20side%20of%20lens%0D%0A%0D%0Areal%20h%20%3D%20sqrt(R%5E2%20-%20(R-t)%5E2)%3B%20%2F%2Fhalf%20the%20height%0D%0A%0D%0Areal%20theta%20%3D%20atan(h%2F(R-t))%3B%20%2F%2Fhalf%20angle%20subtended%20by%20lens%2C%20from%20center%20of%20curvature%0D%0Areal%20theta_deg%20%3D%20theta%20*%20180%2Fpi%3B%0D%0A%0D%0Adraw(arc((0%2C0)%2CR%2C180-theta_deg%2C%20180%20%2B%20theta_deg)%20)%3B%0D%0Adraw((-x%2C-h)--(-x%2Ch))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/wfrezngi
-
-unitsize(.5cm);
-
-//plano-convex lens
-
-real R = 20; //radius of curvature
-real t = 1; // thickness at thickest part
-real x = R-t; //distance from center of curvature to flat side of lens
-
-real h = sqrt(R^2 - (R-t)^2); //half the height
-
-real theta = atan(h/(R-t)); //half angle subtended by lens, from center of curvature
-real theta_deg = theta * 180/pi;
-
-draw(arc((0,0),R,180-theta_deg, 180 + theta_deg) );
-draw((-x,-h)--(-x,h));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="560" data-id="01027" data-file="c175_L13_script_15.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-561">
-  <div class="card-header">
-    <h2>#561 &mdash; c186_L20_script_7.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3275 &middot; Bad</span>
+    <h2>#559 &mdash; c186_L20_script_7.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3270 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -6575,7 +6430,153 @@ dot(SS);
 dot(R);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="561" data-id="02350" data-file="c186_L20_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="559" data-id="02350" data-file="c186_L20_script_7.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-560">
+  <div class="card-header">
+    <h2>#560 &mdash; c186_L20_script_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3273 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02283.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02283.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tailV, tailP, tailD;
+real t;
+
+P = (2,4); 
+D = (2,1);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$t = -2$&quot;, g(-2, P, D), NW, UnFill); 
+label(&quot;$t = 0$&quot;, g(0, P, D), NW, UnFill); 
+label(&quot;$t = 2$&quot;, g(2, P, D), NW, UnFill);
+
+dot(g(-2, P, D));
+dot(g(0, P, D)); 
+dot(g(2, P, D));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20V%2C%20P%2C%20D%2C%20tailV%2C%20tailP%2C%20tailD%3B%0D%0D%0Areal%20t%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Alabel(%22%24t%20%3D%20-2%24%22%2C%20g(-2%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%200%24%22%2C%20g(0%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24t%20%3D%202%24%22%2C%20g(2%2C%20P%2C%20D)%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Adot(g(-2%2C%20P%2C%20D))%3B%0D%0D%0Adot(g(0%2C%20P%2C%20D))%3B%20%0D%0D%0Adot(g(2%2C%20P%2C%20D))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair V, P, D, tailV, tailP, tailD;
+real t;
+
+P = (2,4); 
+D = (2,1);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+label(&quot;$t = -2$&quot;, g(-2, P, D), NW, UnFill); 
+label(&quot;$t = 0$&quot;, g(0, P, D), NW, UnFill); 
+label(&quot;$t = 2$&quot;, g(2, P, D), NW, UnFill);
+
+dot(g(-2, P, D));
+dot(g(0, P, D)); 
+dot(g(2, P, D));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="560" data-id="02283" data-file="c186_L20_script_0.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-561">
+  <div class="card-header">
+    <h2>#561 &mdash; c175_L13_script_15.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3275 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01027.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01027.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/wfrezngi
+
+unitsize(.5cm);
+
+//plano-convex lens
+
+real R = 20; //radius of curvature
+real t = 1; // thickness at thickest part
+real x = R-t; //distance from center of curvature to flat side of lens
+
+real h = sqrt(R^2 - (R-t)^2); //half the height
+
+real theta = atan(h/(R-t)); //half angle subtended by lens, from center of curvature
+real theta_deg = theta * 180/pi;
+
+draw(arc((0,0),R,180-theta_deg, 180 + theta_deg) );
+draw((-x,-h)--(-x,h));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fwfrezngi%0D%0A%0D%0Aunitsize(.5cm)%3B%0D%0A%0D%0A%2F%2Fplano-convex%20lens%0D%0A%0D%0Areal%20R%20%3D%2020%3B%20%2F%2Fradius%20of%20curvature%0D%0Areal%20t%20%3D%201%3B%20%2F%2F%20thickness%20at%20thickest%20part%0D%0Areal%20x%20%3D%20R-t%3B%20%2F%2Fdistance%20from%20center%20of%20curvature%20to%20flat%20side%20of%20lens%0D%0A%0D%0Areal%20h%20%3D%20sqrt(R%5E2%20-%20(R-t)%5E2)%3B%20%2F%2Fhalf%20the%20height%0D%0A%0D%0Areal%20theta%20%3D%20atan(h%2F(R-t))%3B%20%2F%2Fhalf%20angle%20subtended%20by%20lens%2C%20from%20center%20of%20curvature%0D%0Areal%20theta_deg%20%3D%20theta%20*%20180%2Fpi%3B%0D%0A%0D%0Adraw(arc((0%2C0)%2CR%2C180-theta_deg%2C%20180%20%2B%20theta_deg)%20)%3B%0D%0Adraw((-x%2C-h)--(-x%2Ch))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//TeXeR source: https://artofproblemsolving.com/texer/wfrezngi
+
+unitsize(.5cm);
+
+//plano-convex lens
+
+real R = 20; //radius of curvature
+real t = 1; // thickness at thickest part
+real x = R-t; //distance from center of curvature to flat side of lens
+
+real h = sqrt(R^2 - (R-t)^2); //half the height
+
+real theta = atan(h/(R-t)); //half angle subtended by lens, from center of curvature
+real theta_deg = theta * 180/pi;
+
+draw(arc((0,0),R,180-theta_deg, 180 + theta_deg) );
+draw((-x,-h)--(-x,h));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="561" data-id="01027" data-file="c175_L13_script_15.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -7106,7 +7107,7 @@ label(&quot;$2x + 3y = 10$&quot;, f(5) - 2.5*N, UnFill);
 <div class="card" id="pair-566">
   <div class="card-header">
     <h2>#566 &mdash; c186_L19_script_48.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3280 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.3281 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -8465,7 +8466,112 @@ draw(rightanglemark(B,E,A,6));
 </div>
 <div class="card" id="pair-586">
   <div class="card-header">
-    <h2>#586 &mdash; c400_L2_script_21.asy</h2>
+    <h2>#586 &mdash; c186_L20_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3317 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02339.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02339.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, R, SS, tailP, tailD;
+
+P = (2,4); 
+D = (2,1);
+R = (6,3);
+SS = foot(R, P, P+D);
+
+tailP = (0,0); 
+tailD = (0,0);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(R--SS, dashed);
+draw(rightanglemark(R, SS, P, 15));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$R$&quot;, R, S, UnFill);
+label(&quot;$S$&quot;, SS, NNW, UnFill);
+
+dot(R);
+dot(SS);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20P%2C%20D%2C%20R%2C%20SS%2C%20tailP%2C%20tailD%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0D%0AR%20%3D%20(6%2C3)%3B%0D%0D%0ASS%20%3D%20foot(R%2C%20P%2C%20P%2BD)%3B%0D%0A%0D%0AtailP%20%3D%20(0%2C0)%3B%20%0D%0D%0AtailD%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(R--SS%2C%20dashed)%3B%0D%0D%0Adraw(rightanglemark(R%2C%20SS%2C%20P%2C%2015))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%20D%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24S%24%22%2C%20SS%2C%20NNW%2C%20UnFill)%3B%0D%0A%0D%0Adot(R)%3B%0D%0D%0Adot(SS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(220); 
+import TrigMacros;
+rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
+pair g(real t, pair P, pair D)
+{
+  return P + t*D;  
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+pair P, D, R, SS, tailP, tailD;
+
+P = (2,4); 
+D = (2,1);
+R = (6,3);
+SS = foot(R, P, P+D);
+
+tailP = (0,0); 
+tailD = (0,0);
+
+draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
+
+draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
+draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
+draw(R--SS, dashed);
+draw(rightanglemark(R, SS, P, 15));
+
+label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
+label(&quot;$R$&quot;, R, S, UnFill);
+label(&quot;$S$&quot;, SS, NNW, UnFill);
+
+dot(R);
+dot(SS);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="586" data-id="02339" data-file="c186_L20_script_6.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-587">
+  <div class="card-header">
+    <h2>#587 &mdash; c400_L2_script_21.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3319 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8570,13 +8676,13 @@ add(shift(4,0)*xscale(1/gamma)*lizzie());
 add(shift(3.9,0)*barnclosed());
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="586" data-id="05193" data-file="c400_L2_script_21.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="587" data-id="05193" data-file="c400_L2_script_21.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-587">
+<div class="card" id="pair-588">
   <div class="card-header">
-    <h2>#587 &mdash; c95_L1_script_4.asy</h2>
+    <h2>#588 &mdash; c95_L1_script_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3319 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8639,92 +8745,7 @@ label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
 label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="587" data-id="12489" data-file="c95_L1_script_4.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-588">
-  <div class="card-header">
-    <h2>#588 &mdash; c398_L4_script_1.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3319 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04990.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04990.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(150);
-
-// set bounds of the grid
-real xmin = -5.5, xmax = 5.5, ymin = -1.5, ymax = 9.5;
-
-// draw your graph
-real f (real x) {return (x^2);}
-draw(graph(f,xmin,xmax),red);
-limits((xmin,ymin),(xmax,ymax),Crop);
-
-// set parameters of the grid lines
-ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
-
-// draw axes and grid lines
-xaxis(xmin, xmax, Arrows(6), above = true);
-yaxis(ymin, ymax, Arrows(6), above = true);
-xaxis(BottomTop, xmin, xmax, invisible, tgrid);
-yaxis(LeftRight, ymin, ymax, invisible, tgrid);
-
-// add axis labels
-label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
-label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
-
-dot((0,0));
-dot((-1,1));
-dot((-2,4));
-dot((-3,9));
-dot((1,1));
-dot((2,4));
-dot((3,9));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0A%0D%0A%2F%2F%20set%20bounds%20of%20the%20grid%0D%0D%0Areal%20xmin%20%3D%20-5.5%2C%20xmax%20%3D%205.5%2C%20ymin%20%3D%20-1.5%2C%20ymax%20%3D%209.5%3B%0D%0A%0D%0A%2F%2F%20draw%20your%20graph%0D%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x%5E2)%3B%7D%0D%0D%0Adraw(graph(f%2Cxmin%2Cxmax)%2Cred)%3B%0D%0D%0Alimits((xmin%2Cymin)%2C(xmax%2Cymax)%2CCrop)%3B%0D%0A%0D%0A%2F%2F%20set%20parameters%20of%20the%20grid%20lines%0D%0D%0Aticks%20tgrid%20%3D%20Ticks(Label(%22%25%22)%2C%20Step%20%3D%201%2C%20extend%20%3D%20true%2C%20rgb(0%2C0.7%2C0.7)%20%2B%200.4*bp)%3B%0D%0A%0D%0A%2F%2F%20draw%20axes%20and%20grid%20lines%0D%0D%0Axaxis(xmin%2C%20xmax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Ayaxis(ymin%2C%20ymax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Axaxis(BottomTop%2C%20xmin%2C%20xmax%2C%20invisible%2C%20tgrid)%3B%0D%0D%0Ayaxis(LeftRight%2C%20ymin%2C%20ymax%2C%20invisible%2C%20tgrid)%3B%0D%0A%0D%0A%2F%2F%20add%20axis%20labels%0D%0D%0Alabel(%22%24x%24%22%2C%20(xmax%2C0)%2C%20E%2C%20fontsize(10))%3B%0D%0D%0Alabel(%22%24y%24%22%2C%20(0%2Cymax)%2C%20N%2C%20fontsize(10))%3B%0D%0A%0D%0Adot((0%2C0))%3B%0D%0D%0Adot((-1%2C1))%3B%0D%0D%0Adot((-2%2C4))%3B%0D%0D%0Adot((-3%2C9))%3B%0D%0D%0Adot((1%2C1))%3B%0D%0D%0Adot((2%2C4))%3B%0D%0D%0Adot((3%2C9))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(150);
-
-// set bounds of the grid
-real xmin = -5.5, xmax = 5.5, ymin = -1.5, ymax = 9.5;
-
-// draw your graph
-real f (real x) {return (x^2);}
-draw(graph(f,xmin,xmax),red);
-limits((xmin,ymin),(xmax,ymax),Crop);
-
-// set parameters of the grid lines
-ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
-
-// draw axes and grid lines
-xaxis(xmin, xmax, Arrows(6), above = true);
-yaxis(ymin, ymax, Arrows(6), above = true);
-xaxis(BottomTop, xmin, xmax, invisible, tgrid);
-yaxis(LeftRight, ymin, ymax, invisible, tgrid);
-
-// add axis labels
-label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
-label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
-
-dot((0,0));
-dot((-1,1));
-dot((-2,4));
-dot((-3,9));
-dot((1,1));
-dot((2,4));
-dot((3,9));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="588" data-id="04990" data-file="c398_L4_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="588" data-id="12489" data-file="c95_L1_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -8863,7 +8884,92 @@ dot(tailV, blue);
 </div>
 <div class="card" id="pair-590">
   <div class="card-header">
-    <h2>#590 &mdash; c321_L10_p48315_solution_text_0.asy</h2>
+    <h2>#590 &mdash; c398_L4_script_1.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3319 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/04990.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04990.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(150);
+
+// set bounds of the grid
+real xmin = -5.5, xmax = 5.5, ymin = -1.5, ymax = 9.5;
+
+// draw your graph
+real f (real x) {return (x^2);}
+draw(graph(f,xmin,xmax),red);
+limits((xmin,ymin),(xmax,ymax),Crop);
+
+// set parameters of the grid lines
+ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
+
+// draw axes and grid lines
+xaxis(xmin, xmax, Arrows(6), above = true);
+yaxis(ymin, ymax, Arrows(6), above = true);
+xaxis(BottomTop, xmin, xmax, invisible, tgrid);
+yaxis(LeftRight, ymin, ymax, invisible, tgrid);
+
+// add axis labels
+label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
+label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
+
+dot((0,0));
+dot((-1,1));
+dot((-2,4));
+dot((-3,9));
+dot((1,1));
+dot((2,4));
+dot((3,9));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0A%0D%0A%2F%2F%20set%20bounds%20of%20the%20grid%0D%0D%0Areal%20xmin%20%3D%20-5.5%2C%20xmax%20%3D%205.5%2C%20ymin%20%3D%20-1.5%2C%20ymax%20%3D%209.5%3B%0D%0A%0D%0A%2F%2F%20draw%20your%20graph%0D%0D%0Areal%20f%20(real%20x)%20%7Breturn%20(x%5E2)%3B%7D%0D%0D%0Adraw(graph(f%2Cxmin%2Cxmax)%2Cred)%3B%0D%0D%0Alimits((xmin%2Cymin)%2C(xmax%2Cymax)%2CCrop)%3B%0D%0A%0D%0A%2F%2F%20set%20parameters%20of%20the%20grid%20lines%0D%0D%0Aticks%20tgrid%20%3D%20Ticks(Label(%22%25%22)%2C%20Step%20%3D%201%2C%20extend%20%3D%20true%2C%20rgb(0%2C0.7%2C0.7)%20%2B%200.4*bp)%3B%0D%0A%0D%0A%2F%2F%20draw%20axes%20and%20grid%20lines%0D%0D%0Axaxis(xmin%2C%20xmax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Ayaxis(ymin%2C%20ymax%2C%20Arrows(6)%2C%20above%20%3D%20true)%3B%0D%0D%0Axaxis(BottomTop%2C%20xmin%2C%20xmax%2C%20invisible%2C%20tgrid)%3B%0D%0D%0Ayaxis(LeftRight%2C%20ymin%2C%20ymax%2C%20invisible%2C%20tgrid)%3B%0D%0A%0D%0A%2F%2F%20add%20axis%20labels%0D%0D%0Alabel(%22%24x%24%22%2C%20(xmax%2C0)%2C%20E%2C%20fontsize(10))%3B%0D%0D%0Alabel(%22%24y%24%22%2C%20(0%2Cymax)%2C%20N%2C%20fontsize(10))%3B%0D%0A%0D%0Adot((0%2C0))%3B%0D%0D%0Adot((-1%2C1))%3B%0D%0D%0Adot((-2%2C4))%3B%0D%0D%0Adot((-3%2C9))%3B%0D%0D%0Adot((1%2C1))%3B%0D%0D%0Adot((2%2C4))%3B%0D%0D%0Adot((3%2C9))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(150);
+
+// set bounds of the grid
+real xmin = -5.5, xmax = 5.5, ymin = -1.5, ymax = 9.5;
+
+// draw your graph
+real f (real x) {return (x^2);}
+draw(graph(f,xmin,xmax),red);
+limits((xmin,ymin),(xmax,ymax),Crop);
+
+// set parameters of the grid lines
+ticks tgrid = Ticks(Label(&quot;%&quot;), Step = 1, extend = true, rgb(0,0.7,0.7) + 0.4*bp);
+
+// draw axes and grid lines
+xaxis(xmin, xmax, Arrows(6), above = true);
+yaxis(ymin, ymax, Arrows(6), above = true);
+xaxis(BottomTop, xmin, xmax, invisible, tgrid);
+yaxis(LeftRight, ymin, ymax, invisible, tgrid);
+
+// add axis labels
+label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
+label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
+
+dot((0,0));
+dot((-1,1));
+dot((-2,4));
+dot((-3,9));
+dot((1,1));
+dot((2,4));
+dot((3,9));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="590" data-id="04990" data-file="c398_L4_script_1.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-591">
+  <div class="card-header">
+    <h2>#591 &mdash; c321_L10_p48315_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3320 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8932,14 +9038,14 @@ dot((5,0));
 dot((0,-15/4));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="590" data-id="04461" data-file="c321_L10_p48315_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="591" data-id="04461" data-file="c321_L10_p48315_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-591">
+<div class="card" id="pair-592">
   <div class="card-header">
-    <h2>#591 &mdash; c186_L19_script_44.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3321 &middot; Bad</span>
+    <h2>#592 &mdash; c186_L19_script_44.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3322 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -9035,112 +9141,7 @@ label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, S, UnFill);
 label(&quot;$\mathbf{d}$&quot;, tailD -- tailD + D, SW, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="591" data-id="02098" data-file="c186_L19_script_44.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-592">
-  <div class="card-header">
-    <h2>#592 &mdash; c186_L20_script_6.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.3322 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02339.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02339.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-pair P, D, R, SS, tailP, tailD;
-
-P = (2,4); 
-D = (2,1);
-R = (6,3);
-SS = foot(R, P, P+D);
-
-tailP = (0,0); 
-tailD = (0,0);
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
-draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
-draw(R--SS, dashed);
-draw(rightanglemark(R, SS, P, 15));
-
-label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
-label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
-label(&quot;$R$&quot;, R, S, UnFill);
-label(&quot;$S$&quot;, SS, NNW, UnFill);
-
-dot(R);
-dot(SS);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(220)%3B%20%0D%0D%0Aimport%20TrigMacros%3B%0D%0D%0Arr_cartesian_axes(-9%2C9%2C-9%2C9%2Ccomplexplane%3Dfalse%2C%20usegrid%20%3D%20true)%3B%0D%0D%0Apair%20g(real%20t%2C%20pair%20P%2C%20pair%20D)%0D%0D%0A%7B%0D%0D%0A%20%20return%20P%20%2B%20t*D%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0Apair%20P%2C%20D%2C%20R%2C%20SS%2C%20tailP%2C%20tailD%3B%0D%0A%0D%0AP%20%3D%20(2%2C4)%3B%20%0D%0D%0AD%20%3D%20(2%2C1)%3B%0D%0D%0AR%20%3D%20(6%2C3)%3B%0D%0D%0ASS%20%3D%20foot(R%2C%20P%2C%20P%2BD)%3B%0D%0A%0D%0AtailP%20%3D%20(0%2C0)%3B%20%0D%0D%0AtailD%20%3D%20(0%2C0)%3B%0D%0A%0D%0Adraw(maxLine(g(0%2C%20P%2CD)%2C%20g(1%2C%20P%2C%20D)%2C%20-9%2C9%2C-9%2C9)%2C%20purple)%3B%0D%0A%0D%0Adraw(tailP%20--%20tailP%20%2B%20P%2C%20blue%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailD%20--%20tailD%20%2B%20D%2C%20red%20%2B%20linewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(R--SS%2C%20dashed)%3B%0D%0D%0Adraw(rightanglemark(R%2C%20SS%2C%20P%2C%2015))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP%20--%20tailP%20%2B%20P%2C%20NW%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20tailD%20%2B%20D%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24S%24%22%2C%20SS%2C%20NNW%2C%20UnFill)%3B%0D%0A%0D%0Adot(R)%3B%0D%0D%0Adot(SS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(220); 
-import TrigMacros;
-rr_cartesian_axes(-9,9,-9,9,complexplane=false, usegrid = true);
-pair g(real t, pair P, pair D)
-{
-  return P + t*D;  
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-pair P, D, R, SS, tailP, tailD;
-
-P = (2,4); 
-D = (2,1);
-R = (6,3);
-SS = foot(R, P, P+D);
-
-tailP = (0,0); 
-tailD = (0,0);
-
-draw(maxLine(g(0, P,D), g(1, P, D), -9,9,-9,9), purple);
-
-draw(tailP -- tailP + P, blue + linewidth(1.0), Arrow(7));
-draw(tailD -- tailD + D, red + linewidth(1.0), Arrow(7));
-draw(R--SS, dashed);
-draw(rightanglemark(R, SS, P, 15));
-
-label(&quot;$\mathbf{p}$&quot;, tailP -- tailP + P, NW, UnFill);
-label(&quot;$\mathbf{d}$&quot;, tailD + D, NE, UnFill);
-label(&quot;$R$&quot;, R, S, UnFill);
-label(&quot;$S$&quot;, SS, NNW, UnFill);
-
-dot(R);
-dot(SS);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="592" data-id="02339" data-file="c186_L20_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="592" data-id="02098" data-file="c186_L19_script_44.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

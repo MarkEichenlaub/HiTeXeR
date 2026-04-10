@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 1/119</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -43,8 +44,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 1 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">529 Good</b>
-<b style="background:#c0820a">2498 Fair</b>
+<b style="background:#2d8a4e">530 Good</b>
+<b style="background:#c0820a">2497 Fair</b>
 <b style="background:#c0392b">8869 Poor</b>
 
 </div>
@@ -796,7 +797,7 @@ dot((-13,4)^^(-4,0)^^(-1,2)^^(11,-4));
 <div class="card" id="pair-10">
   <div class="card-header">
     <h2>#10 &mdash; c186_L18_p37375_problem_text_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.0626 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.0627 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -1175,7 +1176,7 @@ dot(&quot;$F_2$&quot;, rotate(30)*(0,-sqrt(13)), SE, red + fontsize(10));
 <div class="card" id="pair-13">
   <div class="card-header">
     <h2>#13 &mdash; c539_L11_p52840_solutiontext_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.0867 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.0866 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -1933,7 +1934,7 @@ label(&quot;$y = g(x)$&quot;, (8,3), UnFill);
 <div class="card" id="pair-17">
   <div class="card-header">
     <h2>#17 &mdash; c186_L18_script_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1048 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.1050 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -2767,7 +2768,288 @@ dot(&quot;$(x,y)$&quot;, (2.5,4.25), SE, fontsize(10));
 </div>
 <div class="card" id="pair-24">
   <div class="card-header">
-    <h2>#24 &mdash; c186_L20_script_14.asy</h2>
+    <h2>#24 &mdash; c186_L20_script_17.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1159 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02292.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02292.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(230);
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Size of the grids: 
+int big = 7;
+
+picture pic1, pic2; 
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q,R, tailV, tailW, tailP, tailQ, tailR;
+pair outV, outW, outP, outQ, outR, tailoutV, tailoutW, tailoutP, tailoutQ, tailoutR;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 1, 0);
+
+//The standard coordinate axes: 
+I = (1,0); 
+J = (0,1);
+
+//The columns of our matrix: 
+col1 = (1,-1); 
+col2 = (1,3);
+
+//Input vectors; 
+V = (1,1);
+WW = (2, -1); 
+P = 2V+WW; 
+Q = -V; 
+R = (-3,1);
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+
+//Output vectors: 
+outV =  multByMat(V, col1, col2);
+outW = multByMat(WW, col1, col2);
+outP = multByMat(P, col1, col2);
+outQ = multByMat(Q, col1, col2);
+outR = multByMat(R, col1, col2);
+
+//Draw grid lines parallel to the axes
+for (int i = -big + 1; i &lt; big; ++i)
+{
+     draw(i*I+ big*J--i*I  - big*J, mediumgray+ linewidth(0.5)); 
+     draw(i*J + big*I--i*J - big*I, mediumgray + linewidth(0.5)); 
+     draw(shift(O2)*(i*I+ big*J--i*I  - big*J), mediumgray + linewidth(0.5)); 
+     draw(shift(O2)*(i*J + big*I--i*J - big*I), mediumgray + linewidth(0.5)); 
+}
+
+//Draw axes: 
+draw(-big*I -- big*I, linewidth(0.6), Arrows(5));
+draw(-big*J -- big*J, linewidth(0.6), Arrows(5));
+
+draw(shift(O2)*(-big*I -- big*I), linewidth(0.6), Arrows(5));
+draw(shift(O2)*(-big*J -- big*J), linewidth(0.6), Arrows(5));
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, brown+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV+V, ENE, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW +WW, SE, UnFill);
+
+draw(shift(O2)*(tailoutV -- tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutV -- tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutR--tailoutR + outR), brown+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV+outV), NE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW +outW), E, UnFill);
+
+label(&quot;Inputs:&quot;, (big+1.5)*J); 
+label(&quot;Outputs:&quot;, shift(O2)*((big + 1.5)*J));
+
+label(&quot;$P$&quot;, P, N, UnFill); 
+label(&quot;$Q$&quot;, Q, SW, UnFill); 
+label(&quot;$R$&quot;, R, NW, UnFill);
+
+label(&quot;$C$&quot;, shift(O2)*outP, S, UnFill); 
+label(&quot;$D$&quot;, shift(O2)*outQ, SW, UnFill); 
+label(&quot;$B$&quot;, shift(O2)*outR, W, UnFill);
+
+dot(shift(O2)*outP); 
+dot(shift(O2)*outQ); 
+dot(shift(O2)*outR);
+
+dot(P); 
+dot(Q); 
+dot(R);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(230)%3B%0D%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FSize%20of%20the%20grids%3A%20%0D%0D%0Aint%20big%20%3D%207%3B%0D%0A%0D%0Apicture%20pic1%2C%20pic2%3B%20%0D%0D%0Apair%20O1%2C%20O2%2C%20I%2C%20J%2C%20col1%2C%20col2%3B%0D%0D%0Apair%20V%2C%20WW%2C%20P%2C%20Q%2CR%2C%20tailV%2C%20tailW%2C%20tailP%2C%20tailQ%2C%20tailR%3B%0D%0D%0Apair%20outV%2C%20outW%2C%20outP%2C%20outQ%2C%20outR%2C%20tailoutV%2C%20tailoutW%2C%20tailoutP%2C%20tailoutQ%2C%20tailoutR%3B%0D%0A%0D%0A%2F%2FCenters%20of%20input%20and%20output%20grids%2C%20respectively%3A%20%0D%0D%0AO1%20%3D%20(0%2C0)%3B%20%0D%0D%0AO2%20%3D%20(2*big%20%2B%201%2C%200)%3B%0D%0A%0D%0A%2F%2FThe%20standard%20coordinate%20axes%3A%20%0D%0D%0AI%20%3D%20(1%2C0)%3B%20%0D%0D%0AJ%20%3D%20(0%2C1)%3B%0D%0A%0D%0A%2F%2FThe%20columns%20of%20our%20matrix%3A%20%0D%0D%0Acol1%20%3D%20(1%2C-1)%3B%20%0D%0D%0Acol2%20%3D%20(1%2C3)%3B%0D%0A%0D%0A%2F%2FInput%20vectors%3B%20%0D%0D%0AV%20%3D%20(1%2C1)%3B%0D%0D%0AWW%20%3D%20(2%2C%20-1)%3B%20%0D%0D%0AP%20%3D%202V%2BWW%3B%20%0D%0D%0AQ%20%3D%20-V%3B%20%0D%0D%0AR%20%3D%20(-3%2C1)%3B%0D%0A%0D%0A%2F%2FTails%20of%20input%20vectors%3A%20%0D%0D%0AtailV%20%3D%20(0%2C0)%3B%20%0D%0D%0AtailW%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FOutput%20vectors%3A%20%0D%0D%0AoutV%20%3D%20%20multByMat(V%2C%20col1%2C%20col2)%3B%0D%0D%0AoutW%20%3D%20multByMat(WW%2C%20col1%2C%20col2)%3B%0D%0D%0AoutP%20%3D%20multByMat(P%2C%20col1%2C%20col2)%3B%0D%0D%0AoutQ%20%3D%20multByMat(Q%2C%20col1%2C%20col2)%3B%0D%0D%0AoutR%20%3D%20multByMat(R%2C%20col1%2C%20col2)%3B%0D%0A%0D%0A%2F%2FDraw%20grid%20lines%20parallel%20to%20the%20axes%0D%0D%0Afor%20(int%20i%20%3D%20-big%20%2B%201%3B%20i%20%3C%20big%3B%20%2B%2Bi)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20draw(i*I%2B%20big*J--i*I%20%20-%20big*J%2C%20mediumgray%2B%20linewidth(0.5))%3B%20%0D%0D%0A%20%20%20%20%20draw(i*J%20%2B%20big*I--i*J%20-%20big*I%2C%20mediumgray%20%2B%20linewidth(0.5))%3B%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*(i*I%2B%20big*J--i*I%20%20-%20big*J)%2C%20mediumgray%20%2B%20linewidth(0.5))%3B%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*(i*J%20%2B%20big*I--i*J%20-%20big*I)%2C%20mediumgray%20%2B%20linewidth(0.5))%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraw%20axes%3A%20%0D%0D%0Adraw(-big*I%20--%20big*I%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0D%0Adraw(-big*J%20--%20big*J%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0A%0D%0Adraw(shift(O2)*(-big*I%20--%20big*I)%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0D%0Adraw(shift(O2)*(-big*J%20--%20big*J)%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0A%0D%0A%2F%2FDraw%20output%20grid%20lines%20parallel%20to%20col1%20and%20col2.%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0D%0A%7B%20%20%20%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outV%2C%20i*outV%20%2B%20outW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outW%2C%20i*outW%20%2B%20outV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*V%2C%20i*V%20%2B%20WW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*WW%2C%20i*WW%20%2B%20V%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%7D%0D%0A%0D%0Adraw(tailV--tailV%2BV%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailW--tailW%20%2BWW%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailR--tailR%20%2BR%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%2BV%2C%20ENE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20tailW%20%2BWW%2C%20SE%2C%20UnFill)%3B%0D%0A%0D%0Adraw(shift(O2)*(tailoutV%20--%20tailoutV%2BoutV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(shift(O2)*(tailoutV%20--%20tailoutW%20%2BoutW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(shift(O2)*(tailoutR--tailoutR%20%2B%20outR)%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(O2)*(tailoutV%2BoutV)%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(O2)*(tailoutW%20%2BoutW)%2C%20E%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22Inputs%3A%22%2C%20(big%2B1.5)*J)%3B%20%0D%0D%0Alabel(%22Outputs%3A%22%2C%20shift(O2)*((big%20%2B%201.5)*J))%3B%0D%0A%0D%0Alabel(%22%24P%24%22%2C%20P%2C%20N%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24Q%24%22%2C%20Q%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24C%24%22%2C%20shift(O2)*outP%2C%20S%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24D%24%22%2C%20shift(O2)*outQ%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24B%24%22%2C%20shift(O2)*outR%2C%20W%2C%20UnFill)%3B%0D%0A%0D%0Adot(shift(O2)*outP)%3B%20%0D%0D%0Adot(shift(O2)*outQ)%3B%20%0D%0D%0Adot(shift(O2)*outR)%3B%0D%0A%0D%0Adot(P)%3B%20%0D%0D%0Adot(Q)%3B%20%0D%0D%0Adot(R)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(230);
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Multiply a matrix with columns col1 and col2 by the vector X
+pair multByMat (pair X, pair col1, pair col2)
+{
+     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
+}
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Size of the grids: 
+int big = 7;
+
+picture pic1, pic2; 
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q,R, tailV, tailW, tailP, tailQ, tailR;
+pair outV, outW, outP, outQ, outR, tailoutV, tailoutW, tailoutP, tailoutQ, tailoutR;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 1, 0);
+
+//The standard coordinate axes: 
+I = (1,0); 
+J = (0,1);
+
+//The columns of our matrix: 
+col1 = (1,-1); 
+col2 = (1,3);
+
+//Input vectors; 
+V = (1,1);
+WW = (2, -1); 
+P = 2V+WW; 
+Q = -V; 
+R = (-3,1);
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+
+//Output vectors: 
+outV =  multByMat(V, col1, col2);
+outW = multByMat(WW, col1, col2);
+outP = multByMat(P, col1, col2);
+outQ = multByMat(Q, col1, col2);
+outR = multByMat(R, col1, col2);
+
+//Draw grid lines parallel to the axes
+for (int i = -big + 1; i &lt; big; ++i)
+{
+     draw(i*I+ big*J--i*I  - big*J, mediumgray+ linewidth(0.5)); 
+     draw(i*J + big*I--i*J - big*I, mediumgray + linewidth(0.5)); 
+     draw(shift(O2)*(i*I+ big*J--i*I  - big*J), mediumgray + linewidth(0.5)); 
+     draw(shift(O2)*(i*J + big*I--i*J - big*I), mediumgray + linewidth(0.5)); 
+}
+
+//Draw axes: 
+draw(-big*I -- big*I, linewidth(0.6), Arrows(5));
+draw(-big*J -- big*J, linewidth(0.6), Arrows(5));
+
+draw(shift(O2)*(-big*I -- big*I), linewidth(0.6), Arrows(5));
+draw(shift(O2)*(-big*J -- big*J), linewidth(0.6), Arrows(5));
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, brown+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV+V, ENE, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW +WW, SE, UnFill);
+
+draw(shift(O2)*(tailoutV -- tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutV -- tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutR--tailoutR + outR), brown+linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV+outV), NE, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW +outW), E, UnFill);
+
+label(&quot;Inputs:&quot;, (big+1.5)*J); 
+label(&quot;Outputs:&quot;, shift(O2)*((big + 1.5)*J));
+
+label(&quot;$P$&quot;, P, N, UnFill); 
+label(&quot;$Q$&quot;, Q, SW, UnFill); 
+label(&quot;$R$&quot;, R, NW, UnFill);
+
+label(&quot;$C$&quot;, shift(O2)*outP, S, UnFill); 
+label(&quot;$D$&quot;, shift(O2)*outQ, SW, UnFill); 
+label(&quot;$B$&quot;, shift(O2)*outR, W, UnFill);
+
+dot(shift(O2)*outP); 
+dot(shift(O2)*outQ); 
+dot(shift(O2)*outR);
+
+dot(P); 
+dot(Q); 
+dot(R);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="24" data-id="02292" data-file="c186_L20_script_17.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-25">
+  <div class="card-header">
+    <h2>#25 &mdash; c186_L20_script_14.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1160 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -3050,295 +3332,14 @@ dot(Q);
 dot(R);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="24" data-id="02289" data-file="c186_L20_script_14.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-25">
-  <div class="card-header">
-    <h2>#25 &mdash; c186_L20_script_17.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1161 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02292.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02292.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(230);
-import TrigMacros;
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-//Multiply a matrix with columns col1 and col2 by the vector X
-pair multByMat (pair X, pair col1, pair col2)
-{
-     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
-}
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-
-//Size of the grids: 
-int big = 7;
-
-picture pic1, pic2; 
-pair O1, O2, I, J, col1, col2;
-pair V, WW, P, Q,R, tailV, tailW, tailP, tailQ, tailR;
-pair outV, outW, outP, outQ, outR, tailoutV, tailoutW, tailoutP, tailoutQ, tailoutR;
-
-//Centers of input and output grids, respectively: 
-O1 = (0,0); 
-O2 = (2*big + 1, 0);
-
-//The standard coordinate axes: 
-I = (1,0); 
-J = (0,1);
-
-//The columns of our matrix: 
-col1 = (1,-1); 
-col2 = (1,3);
-
-//Input vectors; 
-V = (1,1);
-WW = (2, -1); 
-P = 2V+WW; 
-Q = -V; 
-R = (-3,1);
-
-//Tails of input vectors: 
-tailV = (0,0); 
-tailW = (0,0);
-
-//Output vectors: 
-outV =  multByMat(V, col1, col2);
-outW = multByMat(WW, col1, col2);
-outP = multByMat(P, col1, col2);
-outQ = multByMat(Q, col1, col2);
-outR = multByMat(R, col1, col2);
-
-//Draw grid lines parallel to the axes
-for (int i = -big + 1; i &lt; big; ++i)
-{
-     draw(i*I+ big*J--i*I  - big*J, mediumgray+ linewidth(0.5)); 
-     draw(i*J + big*I--i*J - big*I, mediumgray + linewidth(0.5)); 
-     draw(shift(O2)*(i*I+ big*J--i*I  - big*J), mediumgray + linewidth(0.5)); 
-     draw(shift(O2)*(i*J + big*I--i*J - big*I), mediumgray + linewidth(0.5)); 
-}
-
-//Draw axes: 
-draw(-big*I -- big*I, linewidth(0.6), Arrows(5));
-draw(-big*J -- big*J, linewidth(0.6), Arrows(5));
-
-draw(shift(O2)*(-big*I -- big*I), linewidth(0.6), Arrows(5));
-draw(shift(O2)*(-big*J -- big*J), linewidth(0.6), Arrows(5));
-
-//Draw output grid lines parallel to col1 and col2.
-
-for (int i = -8; i &lt; 10; ++i)
-{    
-     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
-     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
-     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
-     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
-}
-
-draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
-draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
-draw(tailR--tailR +R, brown+linewidth(1.0), Arrow(7));
-
-label(&quot;$\mathbf{v}$&quot;, tailV+V, ENE, UnFill);
-label(&quot;$\mathbf{w}$&quot;, tailW +WW, SE, UnFill);
-
-draw(shift(O2)*(tailoutV -- tailoutV+outV), red+linewidth(1.0), Arrow(7));
-draw(shift(O2)*(tailoutV -- tailoutW +outW), blue+linewidth(1.0), Arrow(7));
-draw(shift(O2)*(tailoutR--tailoutR + outR), brown+linewidth(1.0), Arrow(7));
-
-label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV+outV), NE, UnFill);
-label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW +outW), E, UnFill);
-
-label(&quot;Inputs:&quot;, (big+1.5)*J); 
-label(&quot;Outputs:&quot;, shift(O2)*((big + 1.5)*J));
-
-label(&quot;$P$&quot;, P, N, UnFill); 
-label(&quot;$Q$&quot;, Q, SW, UnFill); 
-label(&quot;$R$&quot;, R, NW, UnFill);
-
-label(&quot;$C$&quot;, shift(O2)*outP, S, UnFill); 
-label(&quot;$D$&quot;, shift(O2)*outQ, SW, UnFill); 
-label(&quot;$B$&quot;, shift(O2)*outR, W, UnFill);
-
-dot(shift(O2)*outP); 
-dot(shift(O2)*outQ); 
-dot(shift(O2)*outR);
-
-dot(P); 
-dot(Q); 
-dot(R);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(230)%3B%0D%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FSize%20of%20the%20grids%3A%20%0D%0D%0Aint%20big%20%3D%207%3B%0D%0A%0D%0Apicture%20pic1%2C%20pic2%3B%20%0D%0D%0Apair%20O1%2C%20O2%2C%20I%2C%20J%2C%20col1%2C%20col2%3B%0D%0D%0Apair%20V%2C%20WW%2C%20P%2C%20Q%2CR%2C%20tailV%2C%20tailW%2C%20tailP%2C%20tailQ%2C%20tailR%3B%0D%0D%0Apair%20outV%2C%20outW%2C%20outP%2C%20outQ%2C%20outR%2C%20tailoutV%2C%20tailoutW%2C%20tailoutP%2C%20tailoutQ%2C%20tailoutR%3B%0D%0A%0D%0A%2F%2FCenters%20of%20input%20and%20output%20grids%2C%20respectively%3A%20%0D%0D%0AO1%20%3D%20(0%2C0)%3B%20%0D%0D%0AO2%20%3D%20(2*big%20%2B%201%2C%200)%3B%0D%0A%0D%0A%2F%2FThe%20standard%20coordinate%20axes%3A%20%0D%0D%0AI%20%3D%20(1%2C0)%3B%20%0D%0D%0AJ%20%3D%20(0%2C1)%3B%0D%0A%0D%0A%2F%2FThe%20columns%20of%20our%20matrix%3A%20%0D%0D%0Acol1%20%3D%20(1%2C-1)%3B%20%0D%0D%0Acol2%20%3D%20(1%2C3)%3B%0D%0A%0D%0A%2F%2FInput%20vectors%3B%20%0D%0D%0AV%20%3D%20(1%2C1)%3B%0D%0D%0AWW%20%3D%20(2%2C%20-1)%3B%20%0D%0D%0AP%20%3D%202V%2BWW%3B%20%0D%0D%0AQ%20%3D%20-V%3B%20%0D%0D%0AR%20%3D%20(-3%2C1)%3B%0D%0A%0D%0A%2F%2FTails%20of%20input%20vectors%3A%20%0D%0D%0AtailV%20%3D%20(0%2C0)%3B%20%0D%0D%0AtailW%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FOutput%20vectors%3A%20%0D%0D%0AoutV%20%3D%20%20multByMat(V%2C%20col1%2C%20col2)%3B%0D%0D%0AoutW%20%3D%20multByMat(WW%2C%20col1%2C%20col2)%3B%0D%0D%0AoutP%20%3D%20multByMat(P%2C%20col1%2C%20col2)%3B%0D%0D%0AoutQ%20%3D%20multByMat(Q%2C%20col1%2C%20col2)%3B%0D%0D%0AoutR%20%3D%20multByMat(R%2C%20col1%2C%20col2)%3B%0D%0A%0D%0A%2F%2FDraw%20grid%20lines%20parallel%20to%20the%20axes%0D%0D%0Afor%20(int%20i%20%3D%20-big%20%2B%201%3B%20i%20%3C%20big%3B%20%2B%2Bi)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20draw(i*I%2B%20big*J--i*I%20%20-%20big*J%2C%20mediumgray%2B%20linewidth(0.5))%3B%20%0D%0D%0A%20%20%20%20%20draw(i*J%20%2B%20big*I--i*J%20-%20big*I%2C%20mediumgray%20%2B%20linewidth(0.5))%3B%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*(i*I%2B%20big*J--i*I%20%20-%20big*J)%2C%20mediumgray%20%2B%20linewidth(0.5))%3B%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*(i*J%20%2B%20big*I--i*J%20-%20big*I)%2C%20mediumgray%20%2B%20linewidth(0.5))%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraw%20axes%3A%20%0D%0D%0Adraw(-big*I%20--%20big*I%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0D%0Adraw(-big*J%20--%20big*J%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0A%0D%0Adraw(shift(O2)*(-big*I%20--%20big*I)%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0D%0Adraw(shift(O2)*(-big*J%20--%20big*J)%2C%20linewidth(0.6)%2C%20Arrows(5))%3B%0D%0A%0D%0A%2F%2FDraw%20output%20grid%20lines%20parallel%20to%20col1%20and%20col2.%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0D%0A%7B%20%20%20%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outV%2C%20i*outV%20%2B%20outW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outW%2C%20i*outW%20%2B%20outV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*V%2C%20i*V%20%2B%20WW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*WW%2C%20i*WW%20%2B%20V%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%7D%0D%0A%0D%0Adraw(tailV--tailV%2BV%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailW--tailW%20%2BWW%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailR--tailR%20%2BR%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%2BV%2C%20ENE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20tailW%20%2BWW%2C%20SE%2C%20UnFill)%3B%0D%0A%0D%0Adraw(shift(O2)*(tailoutV%20--%20tailoutV%2BoutV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(shift(O2)*(tailoutV%20--%20tailoutW%20%2BoutW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0D%0Adraw(shift(O2)*(tailoutR--tailoutR%20%2B%20outR)%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(O2)*(tailoutV%2BoutV)%2C%20NE%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(O2)*(tailoutW%20%2BoutW)%2C%20E%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22Inputs%3A%22%2C%20(big%2B1.5)*J)%3B%20%0D%0D%0Alabel(%22Outputs%3A%22%2C%20shift(O2)*((big%20%2B%201.5)*J))%3B%0D%0A%0D%0Alabel(%22%24P%24%22%2C%20P%2C%20N%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24Q%24%22%2C%20Q%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24R%24%22%2C%20R%2C%20NW%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22%24C%24%22%2C%20shift(O2)*outP%2C%20S%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24D%24%22%2C%20shift(O2)*outQ%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24B%24%22%2C%20shift(O2)*outR%2C%20W%2C%20UnFill)%3B%0D%0A%0D%0Adot(shift(O2)*outP)%3B%20%0D%0D%0Adot(shift(O2)*outQ)%3B%20%0D%0D%0Adot(shift(O2)*outR)%3B%0D%0A%0D%0Adot(P)%3B%20%0D%0D%0Adot(Q)%3B%20%0D%0D%0Adot(R)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(230);
-import TrigMacros;
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-
-//Multiply a matrix with columns col1 and col2 by the vector X
-pair multByMat (pair X, pair col1, pair col2)
-{
-     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
-}
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-
-//Size of the grids: 
-int big = 7;
-
-picture pic1, pic2; 
-pair O1, O2, I, J, col1, col2;
-pair V, WW, P, Q,R, tailV, tailW, tailP, tailQ, tailR;
-pair outV, outW, outP, outQ, outR, tailoutV, tailoutW, tailoutP, tailoutQ, tailoutR;
-
-//Centers of input and output grids, respectively: 
-O1 = (0,0); 
-O2 = (2*big + 1, 0);
-
-//The standard coordinate axes: 
-I = (1,0); 
-J = (0,1);
-
-//The columns of our matrix: 
-col1 = (1,-1); 
-col2 = (1,3);
-
-//Input vectors; 
-V = (1,1);
-WW = (2, -1); 
-P = 2V+WW; 
-Q = -V; 
-R = (-3,1);
-
-//Tails of input vectors: 
-tailV = (0,0); 
-tailW = (0,0);
-
-//Output vectors: 
-outV =  multByMat(V, col1, col2);
-outW = multByMat(WW, col1, col2);
-outP = multByMat(P, col1, col2);
-outQ = multByMat(Q, col1, col2);
-outR = multByMat(R, col1, col2);
-
-//Draw grid lines parallel to the axes
-for (int i = -big + 1; i &lt; big; ++i)
-{
-     draw(i*I+ big*J--i*I  - big*J, mediumgray+ linewidth(0.5)); 
-     draw(i*J + big*I--i*J - big*I, mediumgray + linewidth(0.5)); 
-     draw(shift(O2)*(i*I+ big*J--i*I  - big*J), mediumgray + linewidth(0.5)); 
-     draw(shift(O2)*(i*J + big*I--i*J - big*I), mediumgray + linewidth(0.5)); 
-}
-
-//Draw axes: 
-draw(-big*I -- big*I, linewidth(0.6), Arrows(5));
-draw(-big*J -- big*J, linewidth(0.6), Arrows(5));
-
-draw(shift(O2)*(-big*I -- big*I), linewidth(0.6), Arrows(5));
-draw(shift(O2)*(-big*J -- big*J), linewidth(0.6), Arrows(5));
-
-//Draw output grid lines parallel to col1 and col2.
-
-for (int i = -8; i &lt; 10; ++i)
-{    
-     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
-     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
-     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
-     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
-}
-
-draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
-draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
-draw(tailR--tailR +R, brown+linewidth(1.0), Arrow(7));
-
-label(&quot;$\mathbf{v}$&quot;, tailV+V, ENE, UnFill);
-label(&quot;$\mathbf{w}$&quot;, tailW +WW, SE, UnFill);
-
-draw(shift(O2)*(tailoutV -- tailoutV+outV), red+linewidth(1.0), Arrow(7));
-draw(shift(O2)*(tailoutV -- tailoutW +outW), blue+linewidth(1.0), Arrow(7));
-draw(shift(O2)*(tailoutR--tailoutR + outR), brown+linewidth(1.0), Arrow(7));
-
-label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV+outV), NE, UnFill);
-label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW +outW), E, UnFill);
-
-label(&quot;Inputs:&quot;, (big+1.5)*J); 
-label(&quot;Outputs:&quot;, shift(O2)*((big + 1.5)*J));
-
-label(&quot;$P$&quot;, P, N, UnFill); 
-label(&quot;$Q$&quot;, Q, SW, UnFill); 
-label(&quot;$R$&quot;, R, NW, UnFill);
-
-label(&quot;$C$&quot;, shift(O2)*outP, S, UnFill); 
-label(&quot;$D$&quot;, shift(O2)*outQ, SW, UnFill); 
-label(&quot;$B$&quot;, shift(O2)*outR, W, UnFill);
-
-dot(shift(O2)*outP); 
-dot(shift(O2)*outQ); 
-dot(shift(O2)*outR);
-
-dot(P); 
-dot(Q); 
-dot(R);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="25" data-id="02292" data-file="c186_L20_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="25" data-id="02289" data-file="c186_L20_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-26">
   <div class="card-header">
     <h2>#26 &mdash; c186_L20_script_16.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1163 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.1161 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -4191,8 +4192,487 @@ label(&quot;$Y$&quot;,shift(16,0)*(2,0),S); label(&quot;$Z$&quot;,shift(16,0)*(6
 </div>
 <div class="card" id="pair-32">
   <div class="card-header">
-    <h2>#32 &mdash; c539_L11_script_4.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1255 &middot; Bad</span>
+    <h2>#32 &mdash; c463_L20_script_5.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1284 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/07894.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07894.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+//defaultpen(fontsize(9pt));
+
+void plainbox(int i, int j) 
+{
+  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
+}
+
+bool labeled(int i, int j)
+{
+  return (true);
+}
+
+bool isnew(int i, int j)
+{
+  return (i==0 &amp;&amp; j==1);
+}
+
+void labbox(int i, int j)
+{
+  //if (i+j == 0) {return;}
+  plainbox(i,j);
+  string[] labs = {&quot;L&quot;,&quot;W&quot;};
+  pen[] colors = {yellow,invisible};
+  int index = (((i-j)%4)^4)%5;
+  if (labeled(i,j))
+  {
+    filldraw(box((0,0),(1,1)), colors[index]);
+    label(labs[index],(1/2,1/2));
+  }
+}
+
+void drawboard(int x, int y, void checker(int,int)=plainbox)
+{
+  for (int i=0; i&lt;x; ++i) {
+  label(string(i),(-1/2,i+1/2));
+  label(string(i),(i+1/2,-1/2));
+  for (int j=0; j&lt;y; ++j) {
+    currentpicture = shift(-i,-j)*currentpicture;
+    checker(i,j);
+    currentpicture = shift(i,j)*currentpicture;
+  }}
+}
+
+drawboard(9,9,labbox);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0A%2F%2Fdefaultpen(fontsize(9pt))%3B%0D%0A%0D%0Avoid%20plainbox(int%20i%2C%20int%20j)%20%0D%0D%0A%7B%0D%0D%0A%20%20draw((0%2C0)--(1%2C0)--(1%2C1)--(0%2C1)--cycle)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20labeled(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(true)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20isnew(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(i%3D%3D0%20%26%26%20j%3D%3D1)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20labbox(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20%2F%2Fif%20(i%2Bj%20%3D%3D%200)%20%7Breturn%3B%7D%0D%0D%0A%20%20plainbox(i%2Cj)%3B%0D%0D%0A%20%20string%5B%5D%20labs%20%3D%20%7B%22L%22%2C%22W%22%7D%3B%0D%0D%0A%20%20pen%5B%5D%20colors%20%3D%20%7Byellow%2Cinvisible%7D%3B%0D%0D%0A%20%20int%20index%20%3D%20(((i-j)%254)%5E4)%255%3B%0D%0D%0A%20%20if%20(labeled(i%2Cj))%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20filldraw(box((0%2C0)%2C(1%2C1))%2C%20colors%5Bindex%5D)%3B%0D%0D%0A%20%20%20%20label(labs%5Bindex%5D%2C(1%2F2%2C1%2F2))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawboard(int%20x%2C%20int%20y%2C%20void%20checker(int%2Cint)%3Dplainbox)%0D%0D%0A%7B%0D%0D%0A%20%20for%20(int%20i%3D0%3B%20i%3Cx%3B%20%2B%2Bi)%20%7B%0D%0D%0A%20%20label(string(i)%2C(-1%2F2%2Ci%2B1%2F2))%3B%0D%0D%0A%20%20label(string(i)%2C(i%2B1%2F2%2C-1%2F2))%3B%0D%0D%0A%20%20for%20(int%20j%3D0%3B%20j%3Cy%3B%20%2B%2Bj)%20%7B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(-i%2C-j)*currentpicture%3B%0D%0D%0A%20%20%20%20checker(i%2Cj)%3B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(i%2Cj)*currentpicture%3B%0D%0D%0A%20%20%7D%7D%0D%0D%0A%7D%0D%0A%0D%0Adrawboard(9%2C9%2Clabbox)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+//defaultpen(fontsize(9pt));
+
+void plainbox(int i, int j) 
+{
+  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
+}
+
+bool labeled(int i, int j)
+{
+  return (true);
+}
+
+bool isnew(int i, int j)
+{
+  return (i==0 &amp;&amp; j==1);
+}
+
+void labbox(int i, int j)
+{
+  //if (i+j == 0) {return;}
+  plainbox(i,j);
+  string[] labs = {&quot;L&quot;,&quot;W&quot;};
+  pen[] colors = {yellow,invisible};
+  int index = (((i-j)%4)^4)%5;
+  if (labeled(i,j))
+  {
+    filldraw(box((0,0),(1,1)), colors[index]);
+    label(labs[index],(1/2,1/2));
+  }
+}
+
+void drawboard(int x, int y, void checker(int,int)=plainbox)
+{
+  for (int i=0; i&lt;x; ++i) {
+  label(string(i),(-1/2,i+1/2));
+  label(string(i),(i+1/2,-1/2));
+  for (int j=0; j&lt;y; ++j) {
+    currentpicture = shift(-i,-j)*currentpicture;
+    checker(i,j);
+    currentpicture = shift(i,j)*currentpicture;
+  }}
+}
+
+drawboard(9,9,labbox);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="32" data-id="07894" data-file="c463_L20_script_5.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-33">
+  <div class="card-header">
+    <h2>#33 &mdash; c463_L20_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1284 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/07895.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07895.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+//defaultpen(fontsize(9pt));
+
+void plainbox(int i, int j) 
+{
+  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
+}
+
+bool labeled(int i, int j)
+{
+  return (true);
+}
+
+bool isnew(int i, int j)
+{
+  return (i==0 &amp;&amp; j==1);
+}
+
+void labbox(int i, int j)
+{
+  //if (i+j == 0) {return;}
+  plainbox(i,j);
+  string[] labs = {&quot;L&quot;,&quot;W&quot;};
+  pen[] colors = {yellow,invisible};
+  int index = (((i-j)%4)^4)%5;
+  if (labeled(i,j))
+  {
+    filldraw(box((0,0),(1,1)), colors[index]);
+    label(labs[index],(1/2,1/2));
+  }
+}
+
+void drawboard(int x, int y, void checker(int,int)=plainbox)
+{
+  for (int i=0; i&lt;x; ++i) {
+  label(string(i),(-1/2,i+1/2));
+  label(string(i),(i+1/2,-1/2));
+  for (int j=0; j&lt;y; ++j) {
+    currentpicture = shift(-i,-j)*currentpicture;
+    checker(i,j);
+    currentpicture = shift(i,j)*currentpicture;
+  }}
+}
+
+drawboard(9,9,labbox);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0A%2F%2Fdefaultpen(fontsize(9pt))%3B%0D%0A%0D%0Avoid%20plainbox(int%20i%2C%20int%20j)%20%0D%0D%0A%7B%0D%0D%0A%20%20draw((0%2C0)--(1%2C0)--(1%2C1)--(0%2C1)--cycle)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20labeled(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(true)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20isnew(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(i%3D%3D0%20%26%26%20j%3D%3D1)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20labbox(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20%2F%2Fif%20(i%2Bj%20%3D%3D%200)%20%7Breturn%3B%7D%0D%0D%0A%20%20plainbox(i%2Cj)%3B%0D%0D%0A%20%20string%5B%5D%20labs%20%3D%20%7B%22L%22%2C%22W%22%7D%3B%0D%0D%0A%20%20pen%5B%5D%20colors%20%3D%20%7Byellow%2Cinvisible%7D%3B%0D%0D%0A%20%20int%20index%20%3D%20(((i-j)%254)%5E4)%255%3B%0D%0D%0A%20%20if%20(labeled(i%2Cj))%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20filldraw(box((0%2C0)%2C(1%2C1))%2C%20colors%5Bindex%5D)%3B%0D%0D%0A%20%20%20%20label(labs%5Bindex%5D%2C(1%2F2%2C1%2F2))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawboard(int%20x%2C%20int%20y%2C%20void%20checker(int%2Cint)%3Dplainbox)%0D%0D%0A%7B%0D%0D%0A%20%20for%20(int%20i%3D0%3B%20i%3Cx%3B%20%2B%2Bi)%20%7B%0D%0D%0A%20%20label(string(i)%2C(-1%2F2%2Ci%2B1%2F2))%3B%0D%0D%0A%20%20label(string(i)%2C(i%2B1%2F2%2C-1%2F2))%3B%0D%0D%0A%20%20for%20(int%20j%3D0%3B%20j%3Cy%3B%20%2B%2Bj)%20%7B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(-i%2C-j)*currentpicture%3B%0D%0D%0A%20%20%20%20checker(i%2Cj)%3B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(i%2Cj)*currentpicture%3B%0D%0D%0A%20%20%7D%7D%0D%0D%0A%7D%0D%0A%0D%0Adrawboard(9%2C9%2Clabbox)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+//defaultpen(fontsize(9pt));
+
+void plainbox(int i, int j) 
+{
+  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
+}
+
+bool labeled(int i, int j)
+{
+  return (true);
+}
+
+bool isnew(int i, int j)
+{
+  return (i==0 &amp;&amp; j==1);
+}
+
+void labbox(int i, int j)
+{
+  //if (i+j == 0) {return;}
+  plainbox(i,j);
+  string[] labs = {&quot;L&quot;,&quot;W&quot;};
+  pen[] colors = {yellow,invisible};
+  int index = (((i-j)%4)^4)%5;
+  if (labeled(i,j))
+  {
+    filldraw(box((0,0),(1,1)), colors[index]);
+    label(labs[index],(1/2,1/2));
+  }
+}
+
+void drawboard(int x, int y, void checker(int,int)=plainbox)
+{
+  for (int i=0; i&lt;x; ++i) {
+  label(string(i),(-1/2,i+1/2));
+  label(string(i),(i+1/2,-1/2));
+  for (int j=0; j&lt;y; ++j) {
+    currentpicture = shift(-i,-j)*currentpicture;
+    checker(i,j);
+    currentpicture = shift(i,j)*currentpicture;
+  }}
+}
+
+drawboard(9,9,labbox);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="33" data-id="07895" data-file="c463_L20_script_6.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-34">
+  <div class="card-header">
+    <h2>#34 &mdash; c463_L20_script_7.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1284 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/07896.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07896.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+//defaultpen(fontsize(9pt));
+
+void plainbox(int i, int j) 
+{
+  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
+}
+
+bool labeled(int i, int j)
+{
+  return (true);
+}
+
+bool isnew(int i, int j)
+{
+  return (i==0 &amp;&amp; j==1);
+}
+
+void labbox(int i, int j)
+{
+  //if (i+j == 0) {return;}
+  plainbox(i,j);
+  string[] labs = {&quot;L&quot;,&quot;W&quot;};
+  pen[] colors = {yellow,invisible};
+  int index = (((i-j)%4)^4)%5;
+  if (labeled(i,j))
+  {
+    filldraw(box((0,0),(1,1)), colors[index]);
+    label(labs[index],(1/2,1/2));
+  }
+}
+
+void drawboard(int x, int y, void checker(int,int)=plainbox)
+{
+  for (int i=0; i&lt;x; ++i) {
+  label(string(i),(-1/2,i+1/2));
+  label(string(i),(i+1/2,-1/2));
+  for (int j=0; j&lt;y; ++j) {
+    currentpicture = shift(-i,-j)*currentpicture;
+    checker(i,j);
+    currentpicture = shift(i,j)*currentpicture;
+  }}
+}
+
+drawboard(9,9,labbox);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0A%2F%2Fdefaultpen(fontsize(9pt))%3B%0D%0A%0D%0Avoid%20plainbox(int%20i%2C%20int%20j)%20%0D%0D%0A%7B%0D%0D%0A%20%20draw((0%2C0)--(1%2C0)--(1%2C1)--(0%2C1)--cycle)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20labeled(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(true)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20isnew(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(i%3D%3D0%20%26%26%20j%3D%3D1)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20labbox(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20%2F%2Fif%20(i%2Bj%20%3D%3D%200)%20%7Breturn%3B%7D%0D%0D%0A%20%20plainbox(i%2Cj)%3B%0D%0D%0A%20%20string%5B%5D%20labs%20%3D%20%7B%22L%22%2C%22W%22%7D%3B%0D%0D%0A%20%20pen%5B%5D%20colors%20%3D%20%7Byellow%2Cinvisible%7D%3B%0D%0D%0A%20%20int%20index%20%3D%20(((i-j)%254)%5E4)%255%3B%0D%0D%0A%20%20if%20(labeled(i%2Cj))%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20filldraw(box((0%2C0)%2C(1%2C1))%2C%20colors%5Bindex%5D)%3B%0D%0D%0A%20%20%20%20label(labs%5Bindex%5D%2C(1%2F2%2C1%2F2))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawboard(int%20x%2C%20int%20y%2C%20void%20checker(int%2Cint)%3Dplainbox)%0D%0D%0A%7B%0D%0D%0A%20%20for%20(int%20i%3D0%3B%20i%3Cx%3B%20%2B%2Bi)%20%7B%0D%0D%0A%20%20label(string(i)%2C(-1%2F2%2Ci%2B1%2F2))%3B%0D%0D%0A%20%20label(string(i)%2C(i%2B1%2F2%2C-1%2F2))%3B%0D%0D%0A%20%20for%20(int%20j%3D0%3B%20j%3Cy%3B%20%2B%2Bj)%20%7B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(-i%2C-j)*currentpicture%3B%0D%0D%0A%20%20%20%20checker(i%2Cj)%3B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(i%2Cj)*currentpicture%3B%0D%0D%0A%20%20%7D%7D%0D%0D%0A%7D%0D%0A%0D%0Adrawboard(9%2C9%2Clabbox)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+//defaultpen(fontsize(9pt));
+
+void plainbox(int i, int j) 
+{
+  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
+}
+
+bool labeled(int i, int j)
+{
+  return (true);
+}
+
+bool isnew(int i, int j)
+{
+  return (i==0 &amp;&amp; j==1);
+}
+
+void labbox(int i, int j)
+{
+  //if (i+j == 0) {return;}
+  plainbox(i,j);
+  string[] labs = {&quot;L&quot;,&quot;W&quot;};
+  pen[] colors = {yellow,invisible};
+  int index = (((i-j)%4)^4)%5;
+  if (labeled(i,j))
+  {
+    filldraw(box((0,0),(1,1)), colors[index]);
+    label(labs[index],(1/2,1/2));
+  }
+}
+
+void drawboard(int x, int y, void checker(int,int)=plainbox)
+{
+  for (int i=0; i&lt;x; ++i) {
+  label(string(i),(-1/2,i+1/2));
+  label(string(i),(i+1/2,-1/2));
+  for (int j=0; j&lt;y; ++j) {
+    currentpicture = shift(-i,-j)*currentpicture;
+    checker(i,j);
+    currentpicture = shift(i,j)*currentpicture;
+  }}
+}
+
+drawboard(9,9,labbox);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="34" data-id="07896" data-file="c463_L20_script_7.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-35">
+  <div class="card-header">
+    <h2>#35 &mdash; c10_L22_script_5.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1306 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00272.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00272.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import slopefield;
+real func(real x, real y) {return -y/x;}
+ add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
+ add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20slopefield%3B%0D%0Areal%20func(real%20x%2C%20real%20y)%20%7Breturn%20-y%2Fx%3B%7D%0D%0A%20add(slopefield(func%2C(-3%2C-3)%2C(-0.1%2C3)%2C11%2CArrow))%3B%0D%0A%20add(slopefield(func%2C(0.1%2C-3)%2C(3%2C3)%2C11%2CArrow))%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20Arrow)%3B%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20Arrow)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import slopefield;
+real func(real x, real y) {return -y/x;}
+ add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
+ add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="35" data-id="00272" data-file="c10_L22_script_5.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-36">
+  <div class="card-header">
+    <h2>#36 &mdash; c10_L22_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1309 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00273.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00273.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import slopefield;
+real func(real x, real y) {return -y/x;}
+ add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
+ add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
+draw(curve((-1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,-1),func,(-3,-3),(3,3)),blue);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20slopefield%3B%0D%0Areal%20func(real%20x%2C%20real%20y)%20%7Breturn%20-y%2Fx%3B%7D%0D%0A%20add(slopefield(func%2C(-3%2C-3)%2C(-0.1%2C3)%2C11%2CArrow))%3B%0D%0A%20add(slopefield(func%2C(0.1%2C-3)%2C(3%2C3)%2C11%2CArrow))%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20Arrow)%3B%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20Arrow)%3B%0D%0Adraw(curve((-1%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((2%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((3%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((.25%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-2%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-3%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-.25%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((2%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((3%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((.25%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-2%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-3%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-.25%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import slopefield;
+real func(real x, real y) {return -y/x;}
+ add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
+ add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
+draw(curve((-1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,-1),func,(-3,-3),(3,3)),blue);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="36" data-id="00273" data-file="c10_L22_script_6.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-37">
+  <div class="card-header">
+    <h2>#37 &mdash; c539_L11_script_4.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1311 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -4564,486 +5044,7 @@ label(&quot;closed end&quot;,(-section_width/2,-2),brown);
 label(&quot;open end&quot;,(section_width/2,-2),brown);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="32" data-id="08762" data-file="c539_L11_script_4.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-33">
-  <div class="card-header">
-    <h2>#33 &mdash; c463_L20_script_5.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1284 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07894.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07894.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(180);
-//defaultpen(fontsize(9pt));
-
-void plainbox(int i, int j) 
-{
-  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
-}
-
-bool labeled(int i, int j)
-{
-  return (true);
-}
-
-bool isnew(int i, int j)
-{
-  return (i==0 &amp;&amp; j==1);
-}
-
-void labbox(int i, int j)
-{
-  //if (i+j == 0) {return;}
-  plainbox(i,j);
-  string[] labs = {&quot;L&quot;,&quot;W&quot;};
-  pen[] colors = {yellow,invisible};
-  int index = (((i-j)%4)^4)%5;
-  if (labeled(i,j))
-  {
-    filldraw(box((0,0),(1,1)), colors[index]);
-    label(labs[index],(1/2,1/2));
-  }
-}
-
-void drawboard(int x, int y, void checker(int,int)=plainbox)
-{
-  for (int i=0; i&lt;x; ++i) {
-  label(string(i),(-1/2,i+1/2));
-  label(string(i),(i+1/2,-1/2));
-  for (int j=0; j&lt;y; ++j) {
-    currentpicture = shift(-i,-j)*currentpicture;
-    checker(i,j);
-    currentpicture = shift(i,j)*currentpicture;
-  }}
-}
-
-drawboard(9,9,labbox);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0A%2F%2Fdefaultpen(fontsize(9pt))%3B%0D%0A%0D%0Avoid%20plainbox(int%20i%2C%20int%20j)%20%0D%0D%0A%7B%0D%0D%0A%20%20draw((0%2C0)--(1%2C0)--(1%2C1)--(0%2C1)--cycle)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20labeled(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(true)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20isnew(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(i%3D%3D0%20%26%26%20j%3D%3D1)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20labbox(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20%2F%2Fif%20(i%2Bj%20%3D%3D%200)%20%7Breturn%3B%7D%0D%0D%0A%20%20plainbox(i%2Cj)%3B%0D%0D%0A%20%20string%5B%5D%20labs%20%3D%20%7B%22L%22%2C%22W%22%7D%3B%0D%0D%0A%20%20pen%5B%5D%20colors%20%3D%20%7Byellow%2Cinvisible%7D%3B%0D%0D%0A%20%20int%20index%20%3D%20(((i-j)%254)%5E4)%255%3B%0D%0D%0A%20%20if%20(labeled(i%2Cj))%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20filldraw(box((0%2C0)%2C(1%2C1))%2C%20colors%5Bindex%5D)%3B%0D%0D%0A%20%20%20%20label(labs%5Bindex%5D%2C(1%2F2%2C1%2F2))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawboard(int%20x%2C%20int%20y%2C%20void%20checker(int%2Cint)%3Dplainbox)%0D%0D%0A%7B%0D%0D%0A%20%20for%20(int%20i%3D0%3B%20i%3Cx%3B%20%2B%2Bi)%20%7B%0D%0D%0A%20%20label(string(i)%2C(-1%2F2%2Ci%2B1%2F2))%3B%0D%0D%0A%20%20label(string(i)%2C(i%2B1%2F2%2C-1%2F2))%3B%0D%0D%0A%20%20for%20(int%20j%3D0%3B%20j%3Cy%3B%20%2B%2Bj)%20%7B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(-i%2C-j)*currentpicture%3B%0D%0D%0A%20%20%20%20checker(i%2Cj)%3B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(i%2Cj)*currentpicture%3B%0D%0D%0A%20%20%7D%7D%0D%0D%0A%7D%0D%0A%0D%0Adrawboard(9%2C9%2Clabbox)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(180);
-//defaultpen(fontsize(9pt));
-
-void plainbox(int i, int j) 
-{
-  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
-}
-
-bool labeled(int i, int j)
-{
-  return (true);
-}
-
-bool isnew(int i, int j)
-{
-  return (i==0 &amp;&amp; j==1);
-}
-
-void labbox(int i, int j)
-{
-  //if (i+j == 0) {return;}
-  plainbox(i,j);
-  string[] labs = {&quot;L&quot;,&quot;W&quot;};
-  pen[] colors = {yellow,invisible};
-  int index = (((i-j)%4)^4)%5;
-  if (labeled(i,j))
-  {
-    filldraw(box((0,0),(1,1)), colors[index]);
-    label(labs[index],(1/2,1/2));
-  }
-}
-
-void drawboard(int x, int y, void checker(int,int)=plainbox)
-{
-  for (int i=0; i&lt;x; ++i) {
-  label(string(i),(-1/2,i+1/2));
-  label(string(i),(i+1/2,-1/2));
-  for (int j=0; j&lt;y; ++j) {
-    currentpicture = shift(-i,-j)*currentpicture;
-    checker(i,j);
-    currentpicture = shift(i,j)*currentpicture;
-  }}
-}
-
-drawboard(9,9,labbox);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="33" data-id="07894" data-file="c463_L20_script_5.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-34">
-  <div class="card-header">
-    <h2>#34 &mdash; c463_L20_script_6.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1284 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07895.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07895.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(180);
-//defaultpen(fontsize(9pt));
-
-void plainbox(int i, int j) 
-{
-  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
-}
-
-bool labeled(int i, int j)
-{
-  return (true);
-}
-
-bool isnew(int i, int j)
-{
-  return (i==0 &amp;&amp; j==1);
-}
-
-void labbox(int i, int j)
-{
-  //if (i+j == 0) {return;}
-  plainbox(i,j);
-  string[] labs = {&quot;L&quot;,&quot;W&quot;};
-  pen[] colors = {yellow,invisible};
-  int index = (((i-j)%4)^4)%5;
-  if (labeled(i,j))
-  {
-    filldraw(box((0,0),(1,1)), colors[index]);
-    label(labs[index],(1/2,1/2));
-  }
-}
-
-void drawboard(int x, int y, void checker(int,int)=plainbox)
-{
-  for (int i=0; i&lt;x; ++i) {
-  label(string(i),(-1/2,i+1/2));
-  label(string(i),(i+1/2,-1/2));
-  for (int j=0; j&lt;y; ++j) {
-    currentpicture = shift(-i,-j)*currentpicture;
-    checker(i,j);
-    currentpicture = shift(i,j)*currentpicture;
-  }}
-}
-
-drawboard(9,9,labbox);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0A%2F%2Fdefaultpen(fontsize(9pt))%3B%0D%0A%0D%0Avoid%20plainbox(int%20i%2C%20int%20j)%20%0D%0D%0A%7B%0D%0D%0A%20%20draw((0%2C0)--(1%2C0)--(1%2C1)--(0%2C1)--cycle)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20labeled(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(true)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20isnew(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(i%3D%3D0%20%26%26%20j%3D%3D1)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20labbox(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20%2F%2Fif%20(i%2Bj%20%3D%3D%200)%20%7Breturn%3B%7D%0D%0D%0A%20%20plainbox(i%2Cj)%3B%0D%0D%0A%20%20string%5B%5D%20labs%20%3D%20%7B%22L%22%2C%22W%22%7D%3B%0D%0D%0A%20%20pen%5B%5D%20colors%20%3D%20%7Byellow%2Cinvisible%7D%3B%0D%0D%0A%20%20int%20index%20%3D%20(((i-j)%254)%5E4)%255%3B%0D%0D%0A%20%20if%20(labeled(i%2Cj))%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20filldraw(box((0%2C0)%2C(1%2C1))%2C%20colors%5Bindex%5D)%3B%0D%0D%0A%20%20%20%20label(labs%5Bindex%5D%2C(1%2F2%2C1%2F2))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawboard(int%20x%2C%20int%20y%2C%20void%20checker(int%2Cint)%3Dplainbox)%0D%0D%0A%7B%0D%0D%0A%20%20for%20(int%20i%3D0%3B%20i%3Cx%3B%20%2B%2Bi)%20%7B%0D%0D%0A%20%20label(string(i)%2C(-1%2F2%2Ci%2B1%2F2))%3B%0D%0D%0A%20%20label(string(i)%2C(i%2B1%2F2%2C-1%2F2))%3B%0D%0D%0A%20%20for%20(int%20j%3D0%3B%20j%3Cy%3B%20%2B%2Bj)%20%7B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(-i%2C-j)*currentpicture%3B%0D%0D%0A%20%20%20%20checker(i%2Cj)%3B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(i%2Cj)*currentpicture%3B%0D%0D%0A%20%20%7D%7D%0D%0D%0A%7D%0D%0A%0D%0Adrawboard(9%2C9%2Clabbox)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(180);
-//defaultpen(fontsize(9pt));
-
-void plainbox(int i, int j) 
-{
-  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
-}
-
-bool labeled(int i, int j)
-{
-  return (true);
-}
-
-bool isnew(int i, int j)
-{
-  return (i==0 &amp;&amp; j==1);
-}
-
-void labbox(int i, int j)
-{
-  //if (i+j == 0) {return;}
-  plainbox(i,j);
-  string[] labs = {&quot;L&quot;,&quot;W&quot;};
-  pen[] colors = {yellow,invisible};
-  int index = (((i-j)%4)^4)%5;
-  if (labeled(i,j))
-  {
-    filldraw(box((0,0),(1,1)), colors[index]);
-    label(labs[index],(1/2,1/2));
-  }
-}
-
-void drawboard(int x, int y, void checker(int,int)=plainbox)
-{
-  for (int i=0; i&lt;x; ++i) {
-  label(string(i),(-1/2,i+1/2));
-  label(string(i),(i+1/2,-1/2));
-  for (int j=0; j&lt;y; ++j) {
-    currentpicture = shift(-i,-j)*currentpicture;
-    checker(i,j);
-    currentpicture = shift(i,j)*currentpicture;
-  }}
-}
-
-drawboard(9,9,labbox);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="34" data-id="07895" data-file="c463_L20_script_6.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-35">
-  <div class="card-header">
-    <h2>#35 &mdash; c463_L20_script_7.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1284 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07896.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07896.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(180);
-//defaultpen(fontsize(9pt));
-
-void plainbox(int i, int j) 
-{
-  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
-}
-
-bool labeled(int i, int j)
-{
-  return (true);
-}
-
-bool isnew(int i, int j)
-{
-  return (i==0 &amp;&amp; j==1);
-}
-
-void labbox(int i, int j)
-{
-  //if (i+j == 0) {return;}
-  plainbox(i,j);
-  string[] labs = {&quot;L&quot;,&quot;W&quot;};
-  pen[] colors = {yellow,invisible};
-  int index = (((i-j)%4)^4)%5;
-  if (labeled(i,j))
-  {
-    filldraw(box((0,0),(1,1)), colors[index]);
-    label(labs[index],(1/2,1/2));
-  }
-}
-
-void drawboard(int x, int y, void checker(int,int)=plainbox)
-{
-  for (int i=0; i&lt;x; ++i) {
-  label(string(i),(-1/2,i+1/2));
-  label(string(i),(i+1/2,-1/2));
-  for (int j=0; j&lt;y; ++j) {
-    currentpicture = shift(-i,-j)*currentpicture;
-    checker(i,j);
-    currentpicture = shift(i,j)*currentpicture;
-  }}
-}
-
-drawboard(9,9,labbox);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0A%2F%2Fdefaultpen(fontsize(9pt))%3B%0D%0A%0D%0Avoid%20plainbox(int%20i%2C%20int%20j)%20%0D%0D%0A%7B%0D%0D%0A%20%20draw((0%2C0)--(1%2C0)--(1%2C1)--(0%2C1)--cycle)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20labeled(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(true)%3B%0D%0D%0A%7D%0D%0A%0D%0Abool%20isnew(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20return%20(i%3D%3D0%20%26%26%20j%3D%3D1)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20labbox(int%20i%2C%20int%20j)%0D%0D%0A%7B%0D%0D%0A%20%20%2F%2Fif%20(i%2Bj%20%3D%3D%200)%20%7Breturn%3B%7D%0D%0D%0A%20%20plainbox(i%2Cj)%3B%0D%0D%0A%20%20string%5B%5D%20labs%20%3D%20%7B%22L%22%2C%22W%22%7D%3B%0D%0D%0A%20%20pen%5B%5D%20colors%20%3D%20%7Byellow%2Cinvisible%7D%3B%0D%0D%0A%20%20int%20index%20%3D%20(((i-j)%254)%5E4)%255%3B%0D%0D%0A%20%20if%20(labeled(i%2Cj))%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20filldraw(box((0%2C0)%2C(1%2C1))%2C%20colors%5Bindex%5D)%3B%0D%0D%0A%20%20%20%20label(labs%5Bindex%5D%2C(1%2F2%2C1%2F2))%3B%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawboard(int%20x%2C%20int%20y%2C%20void%20checker(int%2Cint)%3Dplainbox)%0D%0D%0A%7B%0D%0D%0A%20%20for%20(int%20i%3D0%3B%20i%3Cx%3B%20%2B%2Bi)%20%7B%0D%0D%0A%20%20label(string(i)%2C(-1%2F2%2Ci%2B1%2F2))%3B%0D%0D%0A%20%20label(string(i)%2C(i%2B1%2F2%2C-1%2F2))%3B%0D%0D%0A%20%20for%20(int%20j%3D0%3B%20j%3Cy%3B%20%2B%2Bj)%20%7B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(-i%2C-j)*currentpicture%3B%0D%0D%0A%20%20%20%20checker(i%2Cj)%3B%0D%0D%0A%20%20%20%20currentpicture%20%3D%20shift(i%2Cj)*currentpicture%3B%0D%0D%0A%20%20%7D%7D%0D%0D%0A%7D%0D%0A%0D%0Adrawboard(9%2C9%2Clabbox)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(180);
-//defaultpen(fontsize(9pt));
-
-void plainbox(int i, int j) 
-{
-  draw((0,0)--(1,0)--(1,1)--(0,1)--cycle);
-}
-
-bool labeled(int i, int j)
-{
-  return (true);
-}
-
-bool isnew(int i, int j)
-{
-  return (i==0 &amp;&amp; j==1);
-}
-
-void labbox(int i, int j)
-{
-  //if (i+j == 0) {return;}
-  plainbox(i,j);
-  string[] labs = {&quot;L&quot;,&quot;W&quot;};
-  pen[] colors = {yellow,invisible};
-  int index = (((i-j)%4)^4)%5;
-  if (labeled(i,j))
-  {
-    filldraw(box((0,0),(1,1)), colors[index]);
-    label(labs[index],(1/2,1/2));
-  }
-}
-
-void drawboard(int x, int y, void checker(int,int)=plainbox)
-{
-  for (int i=0; i&lt;x; ++i) {
-  label(string(i),(-1/2,i+1/2));
-  label(string(i),(i+1/2,-1/2));
-  for (int j=0; j&lt;y; ++j) {
-    currentpicture = shift(-i,-j)*currentpicture;
-    checker(i,j);
-    currentpicture = shift(i,j)*currentpicture;
-  }}
-}
-
-drawboard(9,9,labbox);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="35" data-id="07896" data-file="c463_L20_script_7.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-36">
-  <div class="card-header">
-    <h2>#36 &mdash; c10_L22_script_5.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1306 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/00272.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00272.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>import slopefield;
-real func(real x, real y) {return -y/x;}
- add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
- add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
-yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20slopefield%3B%0D%0Areal%20func(real%20x%2C%20real%20y)%20%7Breturn%20-y%2Fx%3B%7D%0D%0A%20add(slopefield(func%2C(-3%2C-3)%2C(-0.1%2C3)%2C11%2CArrow))%3B%0D%0A%20add(slopefield(func%2C(0.1%2C-3)%2C(3%2C3)%2C11%2CArrow))%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20Arrow)%3B%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20Arrow)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-import slopefield;
-real func(real x, real y) {return -y/x;}
- add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
- add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
-yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="36" data-id="00272" data-file="c10_L22_script_5.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-37">
-  <div class="card-header">
-    <h2>#37 &mdash; c10_L22_script_6.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1309 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/00273.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00273.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>import slopefield;
-real func(real x, real y) {return -y/x;}
- add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
- add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
-yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
-draw(curve((-1,-1),func,(-3,-3),(3,3)),blue);
-draw(curve((-1,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((1,-1),func,(-3,-3),(3,3)),blue);
-draw(curve((1,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((-1,1),func,(-3,-3),(3,3)),blue);
-draw(curve((-1,2),func,(-3,-3),(3,3)),blue);
-draw(curve((1,1),func,(-3,-3),(3,3)),blue);
-draw(curve((1,2),func,(-3,-3),(3,3)),blue);
-draw(curve((2,2),func,(-3,-3),(3,3)),blue);
-draw(curve((3,2),func,(-3,-3),(3,3)),blue);
-draw(curve((.25,1),func,(-3,-3),(3,3)),blue);
-draw(curve((-2,2),func,(-3,-3),(3,3)),blue);
-draw(curve((-3,2),func,(-3,-3),(3,3)),blue);
-draw(curve((-.25,1),func,(-3,-3),(3,3)),blue);
-draw(curve((2,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((3,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((.25,-1),func,(-3,-3),(3,3)),blue);
-draw(curve((-2,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((-3,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((-.25,-1),func,(-3,-3),(3,3)),blue);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20slopefield%3B%0D%0Areal%20func(real%20x%2C%20real%20y)%20%7Breturn%20-y%2Fx%3B%7D%0D%0A%20add(slopefield(func%2C(-3%2C-3)%2C(-0.1%2C3)%2C11%2CArrow))%3B%0D%0A%20add(slopefield(func%2C(0.1%2C-3)%2C(3%2C3)%2C11%2CArrow))%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20Arrow)%3B%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20Arrow)%3B%0D%0Adraw(curve((-1%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((2%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((3%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((.25%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-2%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-3%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-.25%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((2%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((3%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((.25%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-2%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-3%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-.25%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-import slopefield;
-real func(real x, real y) {return -y/x;}
- add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
- add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
-yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
-draw(curve((-1,-1),func,(-3,-3),(3,3)),blue);
-draw(curve((-1,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((1,-1),func,(-3,-3),(3,3)),blue);
-draw(curve((1,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((-1,1),func,(-3,-3),(3,3)),blue);
-draw(curve((-1,2),func,(-3,-3),(3,3)),blue);
-draw(curve((1,1),func,(-3,-3),(3,3)),blue);
-draw(curve((1,2),func,(-3,-3),(3,3)),blue);
-draw(curve((2,2),func,(-3,-3),(3,3)),blue);
-draw(curve((3,2),func,(-3,-3),(3,3)),blue);
-draw(curve((.25,1),func,(-3,-3),(3,3)),blue);
-draw(curve((-2,2),func,(-3,-3),(3,3)),blue);
-draw(curve((-3,2),func,(-3,-3),(3,3)),blue);
-draw(curve((-.25,1),func,(-3,-3),(3,3)),blue);
-draw(curve((2,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((3,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((.25,-1),func,(-3,-3),(3,3)),blue);
-draw(curve((-2,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((-3,-2),func,(-3,-3),(3,3)),blue);
-draw(curve((-.25,-1),func,(-3,-3),(3,3)),blue);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="37" data-id="00273" data-file="c10_L22_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="37" data-id="08762" data-file="c539_L11_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -5936,7 +5937,7 @@ dot(B);
 <div class="card" id="pair-46">
   <div class="card-header">
     <h2>#46 &mdash; c186_L21_script_28.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1422 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.1423 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -6065,7 +6066,7 @@ label(&quot;$\mathbf{v}$&quot;, tailV+ V/2, NW, UnFill);
 <div class="card" id="pair-47">
   <div class="card-header">
     <h2>#47 &mdash; c186_L21_script_30.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1422 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.1423 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -10331,8 +10332,93 @@ dot(&quot;$z$&quot;, Z, NE, fontsize(10));
 </div>
 <div class="card" id="pair-90">
   <div class="card-header">
-    <h2>#90 &mdash; c186_L18_script_6.asy</h2>
+    <h2>#90 &mdash; c583_L7_p49089_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1676 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/12118.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/12118.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(600);
+
+dot((7,0),3+red);
+dot((11,0),3+red);
+draw((7,0)--(11,0),red+linewidth(1.2));
+
+dot((2,0),3+orange);
+dot((4,0),3+orange);
+draw((2,0)--(4,0),orange+linewidth(1.2));
+
+dot((13,0),3+lightolive);
+dot((15,0),3+lightolive);
+draw((13,0)--(15,0),lightolive+linewidth(1.2));
+
+dot((4,0.1),3+heavygreen);
+dot((6,0.1),3+heavygreen);
+draw((4,0.1)--(6,0.1),heavygreen+linewidth(1.2));
+
+dot((10,0.1),3+blue);
+dot((14,0.1),3+blue);
+draw((10,0.1)--(14,0.1),blue+linewidth(1.2));
+
+draw((0,-0.4)--(16,-0.4));
+int i;
+for (i = 0; i &lt;= 16; ++i) {
+draw((i,-0.3)--(i,-0.5));
+label(string(i), (i,-0.45), S,fontsize(12));
+}</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(600)%3B%0D%0A%0D%0Adot((7%2C0)%2C3%2Bred)%3B%0D%0Adot((11%2C0)%2C3%2Bred)%3B%0D%0Adraw((7%2C0)--(11%2C0)%2Cred%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((2%2C0)%2C3%2Borange)%3B%0D%0Adot((4%2C0)%2C3%2Borange)%3B%0D%0Adraw((2%2C0)--(4%2C0)%2Corange%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((13%2C0)%2C3%2Blightolive)%3B%0D%0Adot((15%2C0)%2C3%2Blightolive)%3B%0D%0Adraw((13%2C0)--(15%2C0)%2Clightolive%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((4%2C0.1)%2C3%2Bheavygreen)%3B%0D%0Adot((6%2C0.1)%2C3%2Bheavygreen)%3B%0D%0Adraw((4%2C0.1)--(6%2C0.1)%2Cheavygreen%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((10%2C0.1)%2C3%2Bblue)%3B%0D%0Adot((14%2C0.1)%2C3%2Bblue)%3B%0D%0Adraw((10%2C0.1)--(14%2C0.1)%2Cblue%2Blinewidth(1.2))%3B%0D%0A%0D%0Adraw((0%2C-0.4)--(16%2C-0.4))%3B%0D%0Aint%20i%3B%0D%0Afor%20(i%20%3D%200%3B%20i%20%3C%3D%2016%3B%20%2B%2Bi)%20%7B%0D%0Adraw((i%2C-0.3)--(i%2C-0.5))%3B%0D%0Alabel(string(i)%2C%20(i%2C-0.45)%2C%20S%2Cfontsize(12))%3B%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(600);
+
+dot((7,0),3+red);
+dot((11,0),3+red);
+draw((7,0)--(11,0),red+linewidth(1.2));
+
+dot((2,0),3+orange);
+dot((4,0),3+orange);
+draw((2,0)--(4,0),orange+linewidth(1.2));
+
+dot((13,0),3+lightolive);
+dot((15,0),3+lightolive);
+draw((13,0)--(15,0),lightolive+linewidth(1.2));
+
+dot((4,0.1),3+heavygreen);
+dot((6,0.1),3+heavygreen);
+draw((4,0.1)--(6,0.1),heavygreen+linewidth(1.2));
+
+dot((10,0.1),3+blue);
+dot((14,0.1),3+blue);
+draw((10,0.1)--(14,0.1),blue+linewidth(1.2));
+
+draw((0,-0.4)--(16,-0.4));
+int i;
+for (i = 0; i &lt;= 16; ++i) {
+draw((i,-0.3)--(i,-0.5));
+label(string(i), (i,-0.45), S,fontsize(12));
+}
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="90" data-id="12118" data-file="c583_L7_p49089_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-91">
+  <div class="card-header">
+    <h2>#91 &mdash; c186_L18_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1679 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -10450,92 +10536,7 @@ label(&quot;$\mathbf{x}$&quot;, tailX + X/2, NW, UnFill);
 label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, SW, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="90" data-id="02026" data-file="c186_L18_script_6.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-91">
-  <div class="card-header">
-    <h2>#91 &mdash; c583_L7_p49089_problem_text_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1676 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/12118.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/12118.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(600);
-
-dot((7,0),3+red);
-dot((11,0),3+red);
-draw((7,0)--(11,0),red+linewidth(1.2));
-
-dot((2,0),3+orange);
-dot((4,0),3+orange);
-draw((2,0)--(4,0),orange+linewidth(1.2));
-
-dot((13,0),3+lightolive);
-dot((15,0),3+lightolive);
-draw((13,0)--(15,0),lightolive+linewidth(1.2));
-
-dot((4,0.1),3+heavygreen);
-dot((6,0.1),3+heavygreen);
-draw((4,0.1)--(6,0.1),heavygreen+linewidth(1.2));
-
-dot((10,0.1),3+blue);
-dot((14,0.1),3+blue);
-draw((10,0.1)--(14,0.1),blue+linewidth(1.2));
-
-draw((0,-0.4)--(16,-0.4));
-int i;
-for (i = 0; i &lt;= 16; ++i) {
-draw((i,-0.3)--(i,-0.5));
-label(string(i), (i,-0.45), S,fontsize(12));
-}</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(600)%3B%0D%0A%0D%0Adot((7%2C0)%2C3%2Bred)%3B%0D%0Adot((11%2C0)%2C3%2Bred)%3B%0D%0Adraw((7%2C0)--(11%2C0)%2Cred%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((2%2C0)%2C3%2Borange)%3B%0D%0Adot((4%2C0)%2C3%2Borange)%3B%0D%0Adraw((2%2C0)--(4%2C0)%2Corange%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((13%2C0)%2C3%2Blightolive)%3B%0D%0Adot((15%2C0)%2C3%2Blightolive)%3B%0D%0Adraw((13%2C0)--(15%2C0)%2Clightolive%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((4%2C0.1)%2C3%2Bheavygreen)%3B%0D%0Adot((6%2C0.1)%2C3%2Bheavygreen)%3B%0D%0Adraw((4%2C0.1)--(6%2C0.1)%2Cheavygreen%2Blinewidth(1.2))%3B%0D%0A%0D%0Adot((10%2C0.1)%2C3%2Bblue)%3B%0D%0Adot((14%2C0.1)%2C3%2Bblue)%3B%0D%0Adraw((10%2C0.1)--(14%2C0.1)%2Cblue%2Blinewidth(1.2))%3B%0D%0A%0D%0Adraw((0%2C-0.4)--(16%2C-0.4))%3B%0D%0Aint%20i%3B%0D%0Afor%20(i%20%3D%200%3B%20i%20%3C%3D%2016%3B%20%2B%2Bi)%20%7B%0D%0Adraw((i%2C-0.3)--(i%2C-0.5))%3B%0D%0Alabel(string(i)%2C%20(i%2C-0.45)%2C%20S%2Cfontsize(12))%3B%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(600);
-
-dot((7,0),3+red);
-dot((11,0),3+red);
-draw((7,0)--(11,0),red+linewidth(1.2));
-
-dot((2,0),3+orange);
-dot((4,0),3+orange);
-draw((2,0)--(4,0),orange+linewidth(1.2));
-
-dot((13,0),3+lightolive);
-dot((15,0),3+lightolive);
-draw((13,0)--(15,0),lightolive+linewidth(1.2));
-
-dot((4,0.1),3+heavygreen);
-dot((6,0.1),3+heavygreen);
-draw((4,0.1)--(6,0.1),heavygreen+linewidth(1.2));
-
-dot((10,0.1),3+blue);
-dot((14,0.1),3+blue);
-draw((10,0.1)--(14,0.1),blue+linewidth(1.2));
-
-draw((0,-0.4)--(16,-0.4));
-int i;
-for (i = 0; i &lt;= 16; ++i) {
-draw((i,-0.3)--(i,-0.5));
-label(string(i), (i,-0.45), S,fontsize(12));
-}
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="91" data-id="12118" data-file="c583_L7_p49089_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="91" data-id="02026" data-file="c186_L18_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -10925,7 +10926,7 @@ dot((P.x,-P.y), red);
 <div class="card" id="pair-95">
   <div class="card-header">
     <h2>#95 &mdash; c186_L18_script_9.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1713 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.1718 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">

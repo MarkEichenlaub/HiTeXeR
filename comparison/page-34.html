@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 34/119</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -43,8 +44,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 34 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">529 Good</b>
-<b style="background:#c0820a">2498 Fair</b>
+<b style="background:#2d8a4e">530 Good</b>
+<b style="background:#c0820a">2497 Fair</b>
 <b style="background:#c0392b">8869 Poor</b>
 
 </div>
@@ -361,134 +362,7 @@ label(&quot;$110^\circ$&quot;,(0,0),E);
 </div>
 <div class="card" id="pair-3306">
   <div class="card-header">
-    <h2>#3306 &mdash; c186_L15_script_11.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.6451 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01750.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01750.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(180);
-import markers;
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
-    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-pair O, X, Y, V, WW, tailX, tailY, tailV, tailW;
-
-O = (0,0);
-X = (1,2); 
-Y = (3,1);
-V = X+Y;
-WW = 3X - 2Y; 
-tailX = -2X; 
-tailY = tailX;
-tailV= O; 
-tailW = O;
-
-//Change this to scale the grid: 
-int big = 6;
-
-for (int i = -8; i &lt; 10; ++i)
-{    
-     draw(maxLine(i*X, i*X + Y, -big, big, -big,big), linewidth(0.4)); 
-     draw(maxLine(i*Y, i*Y + X, -big, big, -big, big), linewidth(0.4)); 
-}
-draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7) );
-draw(tailY -- tailY + Y, green+linewidth(0.8), Arrow(7) );
-draw(tailV-- tailV + V, heavygreen+linewidth(0.8), Arrow(7) );
-
-label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
-label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
-label(&quot;$\mathbf{v}$&quot;, tailV+ V/2, ESE, UnFill);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0Aimport%20markers%3B%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20real%20s%20%3D%20abs(xmax)%20%2B%20abs(xmin)%20%2B%20abs(ymax)%20%2B%20abs(ymin)%20%2B%20abs(A.x%20-%20xmin)%20%2B%20abs(A.x-xmax)%20%2B%20abs(A.y%20-%20ymin)%20%2B%20abs(A.y%20-%20ymax)%3B%20%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B2s*unit(B-A)%20--%20A-2s*unit(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0D%0Apair%20O%2C%20X%2C%20Y%2C%20V%2C%20WW%2C%20tailX%2C%20tailY%2C%20tailV%2C%20tailW%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0D%0AX%20%3D%20(1%2C2)%3B%20%0D%0D%0AY%20%3D%20(3%2C1)%3B%0D%0D%0AV%20%3D%20X%2BY%3B%0D%0D%0AWW%20%3D%203X%20-%202Y%3B%20%0D%0D%0AtailX%20%3D%20-2X%3B%20%0D%0D%0AtailY%20%3D%20tailX%3B%0D%0D%0AtailV%3D%20O%3B%20%0D%0D%0AtailW%20%3D%20O%3B%0D%0A%0D%0A%2F%2FChange%20this%20to%20scale%20the%20grid%3A%20%0D%0D%0Aint%20big%20%3D%206%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0D%0A%7B%20%20%20%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*X%2C%20i*X%20%2B%20Y%2C%20-big%2C%20big%2C%20-big%2Cbig)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*Y%2C%20i*Y%20%2B%20X%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%7D%0D%0D%0Adraw(tailX--%20tailX%20%2B%20X%2C%20blue%2Blinewidth(0.8)%2C%20Arrow(7)%20)%3B%0D%0D%0Adraw(tailY%20--%20tailY%20%2B%20Y%2C%20green%2Blinewidth(0.8)%2C%20Arrow(7)%20)%3B%0D%0D%0Adraw(tailV--%20tailV%20%2B%20V%2C%20heavygreen%2Blinewidth(0.8)%2C%20Arrow(7)%20)%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20tailX%20%2B%20X%2F2%2C%20W%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%5Cmathbf%7By%7D%24%22%2C%20tailY%2B%20Y%2F2%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%2B%20V%2F2%2C%20ESE%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(180);
-import markers;
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-
-//Gives the maximum line that fits in the box. 
-path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
-{
-    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
-    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
-    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
-    else return nullpath;  
-}
-pair O, X, Y, V, WW, tailX, tailY, tailV, tailW;
-
-O = (0,0);
-X = (1,2); 
-Y = (3,1);
-V = X+Y;
-WW = 3X - 2Y; 
-tailX = -2X; 
-tailY = tailX;
-tailV= O; 
-tailW = O;
-
-//Change this to scale the grid: 
-int big = 6;
-
-for (int i = -8; i &lt; 10; ++i)
-{    
-     draw(maxLine(i*X, i*X + Y, -big, big, -big,big), linewidth(0.4)); 
-     draw(maxLine(i*Y, i*Y + X, -big, big, -big, big), linewidth(0.4)); 
-}
-draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7) );
-draw(tailY -- tailY + Y, green+linewidth(0.8), Arrow(7) );
-draw(tailV-- tailV + V, heavygreen+linewidth(0.8), Arrow(7) );
-
-label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
-label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
-label(&quot;$\mathbf{v}$&quot;, tailV+ V/2, ESE, UnFill);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="3306" data-id="01750" data-file="c186_L15_script_11.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-3307">
-  <div class="card-header">
-    <h2>#3307 &mdash; c463_L8_p49527_solution_text_6.asy</h2>
+    <h2>#3306 &mdash; c463_L8_p49527_solution_text_6.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6451 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -581,13 +455,13 @@ dot(&quot;$M$&quot;, M, S);
 dot(&quot;$O$&quot;, O, SE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3307" data-id="08367" data-file="c463_L8_p49527_solution_text_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3306" data-id="08367" data-file="c463_L8_p49527_solution_text_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3308">
+<div class="card" id="pair-3307">
   <div class="card-header">
-    <h2>#3308 &mdash; c462_L11_p48361_solution_text_0.asy</h2>
+    <h2>#3307 &mdash; c462_L11_p48361_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6451 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -650,13 +524,13 @@ label(&quot;$C$&quot;, C, SW);
 dot(&quot;$O$&quot;, O, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3308" data-id="06750" data-file="c462_L11_p48361_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3307" data-id="06750" data-file="c462_L11_p48361_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3309">
+<div class="card" id="pair-3308">
   <div class="card-header">
-    <h2>#3309 &mdash; c134_L3_script_10.asy</h2>
+    <h2>#3308 &mdash; c134_L3_script_10.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6452 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -701,13 +575,13 @@ pair P = tangent(M,rotate(a)*(x,0),1-x);
 draw(MP(&quot;A&quot;,A,NW,s)--MP(&quot;M&quot;,M,W,s)--MP(&quot;P&quot;,P,S,s)--MP(&quot;N&quot;,IPs(M--M+scale(5)*(P-M),Circle(origin,1))[1],E,s)--A--P);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3309" data-id="00648" data-file="c134_L3_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3308" data-id="00648" data-file="c134_L3_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3310">
+<div class="card" id="pair-3309">
   <div class="card-header">
-    <h2>#3310 &mdash; c321_L12_script_28.asy</h2>
+    <h2>#3309 &mdash; c321_L12_script_28.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6452 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -760,13 +634,13 @@ draw(((k - 300)/15,60)--((k + 50)/15,-10),blue);
 label(&quot;$k = 600$&quot;, ((k + 50)/15,-10), S, blue + fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3310" data-id="04546" data-file="c321_L12_script_28.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3309" data-id="04546" data-file="c321_L12_script_28.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3311">
+<div class="card" id="pair-3310">
   <div class="card-header">
-    <h2>#3311 &mdash; c268_L12_p41469_solutiontext_0.asy</h2>
+    <h2>#3310 &mdash; c268_L12_p41469_solutiontext_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6452 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -857,13 +731,13 @@ draw((2,1.1)--(1.4,1.1), arrow = Arrow(6));
 label(&quot;$v$&quot;,(1.7,1.1),N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3311" data-id="03958" data-file="c268_L12_p41469_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3310" data-id="03958" data-file="c268_L12_p41469_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3312">
+<div class="card" id="pair-3311">
   <div class="card-header">
-    <h2>#3312 &mdash; c463_L6_p48850_solution_text_0.asy</h2>
+    <h2>#3311 &mdash; c463_L6_p48850_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6452 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -952,7 +826,74 @@ label(&quot;$\omega$&quot;, circumcenter(Bz,Cz,X) + circumradius(Bz,Cz,X)*dir(31
 label(&quot;$\gamma$&quot;, circumcenter(A,Bz,Cz) + circumradius(A,Bz,Cz)*dir(20), E);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3312" data-id="08136" data-file="c463_L6_p48850_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3311" data-id="08136" data-file="c463_L6_p48850_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-3312">
+  <div class="card-header">
+    <h2>#3312 &mdash; c186_L22_p31692_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6453 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/02458.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02458.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(200);
+pair A, B, C, D, T, SS; 
+A = (0,0); 
+B=  (4,0); 
+D = (1,2); 
+C = B + D - A; 
+draw(A--B--C--D--cycle); 
+T = B/3 + 2C/3;
+SS = C/3 + 2D/3; 
+draw(A--T); 
+draw(B--SS); 
+draw(A--B, Arrow(6)); 
+draw(A--D, Arrow(6)); 
+label(&quot;$\mathbf{v}$&quot;, A--B, S); 
+label(&quot;$\mathbf{w}$&quot;, A--D, W); 
+dot(&quot;$A$&quot;, A, S); 
+dot(&quot;$S$&quot;, SS, N); 
+dot(&quot;$B$&quot;, B, S); 
+dot(&quot;$T$&quot;, T, E);
+dot(&quot;$C$&quot;, C, N); 
+dot(&quot;$D$&quot;, D, N);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(200)%3B%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20T%2C%20SS%3B%20%0D%0AA%20%3D%20(0%2C0)%3B%20%0D%0AB%3D%20%20(4%2C0)%3B%20%0D%0AD%20%3D%20(1%2C2)%3B%20%0D%0AC%20%3D%20B%20%2B%20D%20-%20A%3B%20%0D%0Adraw(A--B--C--D--cycle)%3B%20%0D%0AT%20%3D%20B%2F3%20%2B%202C%2F3%3B%0D%0ASS%20%3D%20C%2F3%20%2B%202D%2F3%3B%20%0D%0Adraw(A--T)%3B%20%0D%0Adraw(B--SS)%3B%20%0D%0Adraw(A--B%2C%20Arrow(6))%3B%20%0D%0Adraw(A--D%2C%20Arrow(6))%3B%20%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20A--B%2C%20S)%3B%20%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20A--D%2C%20W)%3B%20%0D%0Adot(%22%24A%24%22%2C%20A%2C%20S)%3B%20%0D%0Adot(%22%24S%24%22%2C%20SS%2C%20N)%3B%20%0D%0Adot(%22%24B%24%22%2C%20B%2C%20S)%3B%20%0D%0Adot(%22%24T%24%22%2C%20T%2C%20E)%3B%0D%0Adot(%22%24C%24%22%2C%20C%2C%20N)%3B%20%0D%0Adot(%22%24D%24%22%2C%20D%2C%20N)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(200);
+pair A, B, C, D, T, SS; 
+A = (0,0); 
+B=  (4,0); 
+D = (1,2); 
+C = B + D - A; 
+draw(A--B--C--D--cycle); 
+T = B/3 + 2C/3;
+SS = C/3 + 2D/3; 
+draw(A--T); 
+draw(B--SS); 
+draw(A--B, Arrow(6)); 
+draw(A--D, Arrow(6)); 
+label(&quot;$\mathbf{v}$&quot;, A--B, S); 
+label(&quot;$\mathbf{w}$&quot;, A--D, W); 
+dot(&quot;$A$&quot;, A, S); 
+dot(&quot;$S$&quot;, SS, N); 
+dot(&quot;$B$&quot;, B, S); 
+dot(&quot;$T$&quot;, T, E);
+dot(&quot;$C$&quot;, C, N); 
+dot(&quot;$D$&quot;, D, N);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="3312" data-id="02458" data-file="c186_L22_p31692_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -1663,74 +1604,7 @@ label(&quot;$z_1 = -pu + pv + uv$&quot;, (5.5,1));
 </div>
 <div class="card" id="pair-3322">
   <div class="card-header">
-    <h2>#3322 &mdash; c186_L22_p31692_solution_text_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.6455 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02458.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02458.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(200);
-pair A, B, C, D, T, SS; 
-A = (0,0); 
-B=  (4,0); 
-D = (1,2); 
-C = B + D - A; 
-draw(A--B--C--D--cycle); 
-T = B/3 + 2C/3;
-SS = C/3 + 2D/3; 
-draw(A--T); 
-draw(B--SS); 
-draw(A--B, Arrow(6)); 
-draw(A--D, Arrow(6)); 
-label(&quot;$\mathbf{v}$&quot;, A--B, S); 
-label(&quot;$\mathbf{w}$&quot;, A--D, W); 
-dot(&quot;$A$&quot;, A, S); 
-dot(&quot;$S$&quot;, SS, N); 
-dot(&quot;$B$&quot;, B, S); 
-dot(&quot;$T$&quot;, T, E);
-dot(&quot;$C$&quot;, C, N); 
-dot(&quot;$D$&quot;, D, N);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(200)%3B%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20T%2C%20SS%3B%20%0D%0AA%20%3D%20(0%2C0)%3B%20%0D%0AB%3D%20%20(4%2C0)%3B%20%0D%0AD%20%3D%20(1%2C2)%3B%20%0D%0AC%20%3D%20B%20%2B%20D%20-%20A%3B%20%0D%0Adraw(A--B--C--D--cycle)%3B%20%0D%0AT%20%3D%20B%2F3%20%2B%202C%2F3%3B%0D%0ASS%20%3D%20C%2F3%20%2B%202D%2F3%3B%20%0D%0Adraw(A--T)%3B%20%0D%0Adraw(B--SS)%3B%20%0D%0Adraw(A--B%2C%20Arrow(6))%3B%20%0D%0Adraw(A--D%2C%20Arrow(6))%3B%20%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20A--B%2C%20S)%3B%20%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20A--D%2C%20W)%3B%20%0D%0Adot(%22%24A%24%22%2C%20A%2C%20S)%3B%20%0D%0Adot(%22%24S%24%22%2C%20SS%2C%20N)%3B%20%0D%0Adot(%22%24B%24%22%2C%20B%2C%20S)%3B%20%0D%0Adot(%22%24T%24%22%2C%20T%2C%20E)%3B%0D%0Adot(%22%24C%24%22%2C%20C%2C%20N)%3B%20%0D%0Adot(%22%24D%24%22%2C%20D%2C%20N)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(200);
-pair A, B, C, D, T, SS; 
-A = (0,0); 
-B=  (4,0); 
-D = (1,2); 
-C = B + D - A; 
-draw(A--B--C--D--cycle); 
-T = B/3 + 2C/3;
-SS = C/3 + 2D/3; 
-draw(A--T); 
-draw(B--SS); 
-draw(A--B, Arrow(6)); 
-draw(A--D, Arrow(6)); 
-label(&quot;$\mathbf{v}$&quot;, A--B, S); 
-label(&quot;$\mathbf{w}$&quot;, A--D, W); 
-dot(&quot;$A$&quot;, A, S); 
-dot(&quot;$S$&quot;, SS, N); 
-dot(&quot;$B$&quot;, B, S); 
-dot(&quot;$T$&quot;, T, E);
-dot(&quot;$C$&quot;, C, N); 
-dot(&quot;$D$&quot;, D, N);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="3322" data-id="02458" data-file="c186_L22_p31692_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-3323">
-  <div class="card-header">
-    <h2>#3323 &mdash; c53_L9_p36858_solution_text_1.asy</h2>
+    <h2>#3322 &mdash; c53_L9_p36858_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6455 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1775,13 +1649,13 @@ label(&quot;$n - k$ $1 	imes 2$ tiles&quot;, (2,-1.8));
 label(&quot;$k - 1$ squares&quot;, (5.5,-0.6));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3323" data-id="09482" data-file="c53_L9_p36858_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3322" data-id="09482" data-file="c53_L9_p36858_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3324">
+<div class="card" id="pair-3323">
   <div class="card-header">
-    <h2>#3324 &mdash; c268_L12_script_0.asy</h2>
+    <h2>#3323 &mdash; c268_L12_script_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6457 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1824,13 +1698,13 @@ draw((1,.3)--(1,.7), linewidth(2pt));
 label(&quot;$B$&quot;,(1,.5),E);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3324" data-id="03960" data-file="c268_L12_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3323" data-id="03960" data-file="c268_L12_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3325">
+<div class="card" id="pair-3324">
   <div class="card-header">
-    <h2>#3325 &mdash; c401_L10_p2642_solution_text_0.asy</h2>
+    <h2>#3324 &mdash; c401_L10_p2642_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6457 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1881,13 +1755,13 @@ label(&quot;10&quot;,(a+x)/2,S);
 label(&quot;10&quot;,(x+z)/2,WNW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3325" data-id="05235" data-file="c401_L10_p2642_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3324" data-id="05235" data-file="c401_L10_p2642_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3326">
+<div class="card" id="pair-3325">
   <div class="card-header">
-    <h2>#3326 &mdash; c186_L14_p32512_problem_text_0.asy</h2>
+    <h2>#3325 &mdash; c186_L14_p32512_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6457 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1924,13 +1798,13 @@ A = (2, 1);
 dot(&quot;$A$&quot;, A, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3326" data-id="01640" data-file="c186_L14_p32512_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3325" data-id="01640" data-file="c186_L14_p32512_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3327">
+<div class="card" id="pair-3326">
   <div class="card-header">
-    <h2>#3327 &mdash; c95_L5_script_17.asy</h2>
+    <h2>#3326 &mdash; c95_L5_script_17.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6459 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1999,13 +1873,13 @@ label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
 label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3327" data-id="12601" data-file="c95_L5_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3326" data-id="12601" data-file="c95_L5_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3328">
+<div class="card" id="pair-3327">
   <div class="card-header">
-    <h2>#3328 &mdash; c463_L21_p50137_solution_text_1.asy</h2>
+    <h2>#3327 &mdash; c463_L21_p50137_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6459 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2080,13 +1954,13 @@ label(&quot;$E$&quot;, pE, E);
 fill(origin--B--pE--cycle, blue);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3328" data-id="07906" data-file="c463_L21_p50137_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3327" data-id="07906" data-file="c463_L21_p50137_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-3329">
+<div class="card" id="pair-3328">
   <div class="card-header">
-    <h2>#3329 &mdash; c57_L13_script_9.asy</h2>
+    <h2>#3328 &mdash; c57_L13_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.6459 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2141,7 +2015,134 @@ dot(&quot;$D$&quot;, D, D);
 dot(&quot;$O$&quot;, O, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="3329" data-id="09867" data-file="c57_L13_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="3328" data-id="09867" data-file="c57_L13_script_9.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-3329">
+  <div class="card-header">
+    <h2>#3329 &mdash; c186_L15_script_11.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.6460 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01750.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01750.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(180);
+import markers;
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
+    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+pair O, X, Y, V, WW, tailX, tailY, tailV, tailW;
+
+O = (0,0);
+X = (1,2); 
+Y = (3,1);
+V = X+Y;
+WW = 3X - 2Y; 
+tailX = -2X; 
+tailY = tailX;
+tailV= O; 
+tailW = O;
+
+//Change this to scale the grid: 
+int big = 6;
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(maxLine(i*X, i*X + Y, -big, big, -big,big), linewidth(0.4)); 
+     draw(maxLine(i*Y, i*Y + X, -big, big, -big, big), linewidth(0.4)); 
+}
+draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7) );
+draw(tailY -- tailY + Y, green+linewidth(0.8), Arrow(7) );
+draw(tailV-- tailV + V, heavygreen+linewidth(0.8), Arrow(7) );
+
+label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
+label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
+label(&quot;$\mathbf{v}$&quot;, tailV+ V/2, ESE, UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0D%0Aimport%20markers%3B%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20%20%20real%20s%20%3D%20abs(xmax)%20%2B%20abs(xmin)%20%2B%20abs(ymax)%20%2B%20abs(ymin)%20%2B%20abs(A.x%20-%20xmin)%20%2B%20abs(A.x-xmax)%20%2B%20abs(A.y%20-%20ymin)%20%2B%20abs(A.y%20-%20ymax)%3B%20%0D%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B2s*unit(B-A)%20--%20A-2s*unit(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0D%0A%7D%0D%0D%0Apair%20O%2C%20X%2C%20Y%2C%20V%2C%20WW%2C%20tailX%2C%20tailY%2C%20tailV%2C%20tailW%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0D%0AX%20%3D%20(1%2C2)%3B%20%0D%0D%0AY%20%3D%20(3%2C1)%3B%0D%0D%0AV%20%3D%20X%2BY%3B%0D%0D%0AWW%20%3D%203X%20-%202Y%3B%20%0D%0D%0AtailX%20%3D%20-2X%3B%20%0D%0D%0AtailY%20%3D%20tailX%3B%0D%0D%0AtailV%3D%20O%3B%20%0D%0D%0AtailW%20%3D%20O%3B%0D%0A%0D%0A%2F%2FChange%20this%20to%20scale%20the%20grid%3A%20%0D%0D%0Aint%20big%20%3D%206%3B%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0D%0A%7B%20%20%20%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*X%2C%20i*X%20%2B%20Y%2C%20-big%2C%20big%2C%20-big%2Cbig)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%20%20%20%20%20draw(maxLine(i*Y%2C%20i*Y%20%2B%20X%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0D%0A%7D%0D%0D%0Adraw(tailX--%20tailX%20%2B%20X%2C%20blue%2Blinewidth(0.8)%2C%20Arrow(7)%20)%3B%0D%0D%0Adraw(tailY%20--%20tailY%20%2B%20Y%2C%20green%2Blinewidth(0.8)%2C%20Arrow(7)%20)%3B%0D%0D%0Adraw(tailV--%20tailV%20%2B%20V%2C%20heavygreen%2Blinewidth(0.8)%2C%20Arrow(7)%20)%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bx%7D%24%22%2C%20tailX%20%2B%20X%2F2%2C%20W%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%5Cmathbf%7By%7D%24%22%2C%20tailY%2B%20Y%2F2%2C%20S%2C%20UnFill)%3B%0D%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV%2B%20V%2F2%2C%20ESE%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(180);
+import markers;
+
+//Draws grid lines with the given parameters: 
+void gridLines(int xmin, int xmax, int ymin, int ymax) 
+{
+  for(int i = ymin+1; i&lt; ymax; ++i)
+  {
+     draw((xmin,i)--(xmax,i), mediumgray); 
+  }
+  for(int i = xmin+1; i&lt; xmax; ++i)
+  {
+     draw((i,ymax)--(i,ymin), mediumgray); 
+  }
+}
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    real s = abs(xmax) + abs(xmin) + abs(ymax) + abs(ymin) + abs(A.x - xmin) + abs(A.x-xmax) + abs(A.y - ymin) + abs(A.y - ymax); 
+    pair[] endpoints = intersectionpoints(A+2s*unit(B-A) -- A-2s*unit(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+pair O, X, Y, V, WW, tailX, tailY, tailV, tailW;
+
+O = (0,0);
+X = (1,2); 
+Y = (3,1);
+V = X+Y;
+WW = 3X - 2Y; 
+tailX = -2X; 
+tailY = tailX;
+tailV= O; 
+tailW = O;
+
+//Change this to scale the grid: 
+int big = 6;
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(maxLine(i*X, i*X + Y, -big, big, -big,big), linewidth(0.4)); 
+     draw(maxLine(i*Y, i*Y + X, -big, big, -big, big), linewidth(0.4)); 
+}
+draw(tailX-- tailX + X, blue+linewidth(0.8), Arrow(7) );
+draw(tailY -- tailY + Y, green+linewidth(0.8), Arrow(7) );
+draw(tailV-- tailV + V, heavygreen+linewidth(0.8), Arrow(7) );
+
+label(&quot;$\mathbf{x}$&quot;, tailX + X/2, W, UnFill); 
+label(&quot;$\mathbf{y}$&quot;, tailY+ Y/2, S, UnFill);
+label(&quot;$\mathbf{v}$&quot;, tailV+ V/2, ESE, UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="3329" data-id="01750" data-file="c186_L15_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

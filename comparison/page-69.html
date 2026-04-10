@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 69/119</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -43,8 +44,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 69 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">529 Good</b>
-<b style="background:#c0820a">2498 Fair</b>
+<b style="background:#2d8a4e">530 Good</b>
+<b style="background:#c0820a">2497 Fair</b>
 <b style="background:#c0392b">8869 Poor</b>
 
 </div>
@@ -2614,7 +2615,7 @@ fill(shift(c)*scale(0.4)*star,red);
 <div class="card" id="pair-6836">
   <div class="card-header">
     <h2>#6836 &mdash; c186_L14_script_19.asy</h2>
-    <span class="badge" style="background:#c0820a">SSIM 0.7758 &middot; Poor</span>
+    <span class="badge" style="background:#c0820a">SSIM 0.7757 &middot; Poor</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
@@ -7473,7 +7474,236 @@ label(&quot;$D&#39;$&quot;, D[1], SW);
 </div>
 <div class="card" id="pair-6898">
   <div class="card-header">
-    <h2>#6898 &mdash; c289_L4_script_0.asy</h2>
+    <h2>#6898 &mdash; c186_L16_p32187_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0820a">SSIM 0.7777 &middot; Poor</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/01818.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01818.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(15); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Size of the grids: 
+int big = 7;
+
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q, R, SS, tailV, tailW, tailP, tailQ, tailR, tailS;
+pair outV, outW, A, B, C, D, tailoutV, tailoutW, tailA, tailB, tailC, tailD;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 2, 0);
+
+//The standard coordinate axes: 
+I = (1,0); 
+J = (0,1);
+
+
+//Input vectors; 
+V = (0.3, 2); 
+WW = (-1.3, -0.4); 
+P =  (-3.5, -6.8);
+Q = (1.6, 2.4); 
+R = (3.9, 1.2); 
+SS = (-0.7, 3.6); 
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+tailP = V+2WW;
+tailQ = -3V;
+tailR = -2WW- V;
+tailS = V+WW;
+
+
+//Output vectors: 
+outV =(1, -0.3);
+outW = (0.7, 2);  
+A= (0.3, -2.3);
+B = (2.7, 1.4);  
+C = (-2.1, -6); 
+D = (-1.6, 4.9);
+
+//Tails of output vectors: 
+tailoutV = (0,0);
+tailoutW = (0,0); 
+tailA = -4outV + outW; 
+tailB = -2outW;
+tailC = 2outW + 3outV;
+tailD = -2outV - 2outW;
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailP--tailP +P, heavycyan+linewidth(1.0), Arrow(7));
+draw(tailQ--tailQ + Q, brown+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, orange+linewidth(1.0), Arrow(7));
+draw(tailS--tailS +SS, black +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV--tailV+V, E, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW--tailW +WW, SE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP--tailP +P, E, UnFill);
+label(&quot;$\mathbf{q}$&quot;, tailQ--tailQ +Q, SE, UnFill);
+label(&quot;$\mathbf{r}$&quot;, tailR--tailR +R, S, UnFill);
+label(&quot;$\mathbf{s}$&quot;, tailS--tailS +SS, SW, UnFill);
+
+
+
+draw(shift(O2)*(tailoutV--tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutW--tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailA--tailA +A), heavygreen+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailB--tailB +B), purple+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailC--tailC+C), magenta+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailD--tailD+D), gray +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV--tailoutV+outV), SW, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW--tailoutW +outW), W, UnFill);
+label(&quot;$\mathbf{a}$&quot;, shift(O2)*(tailA--tailA +A), E, UnFill);
+label(&quot;$\mathbf{b}$&quot;, shift(O2)*(tailB--tailB +B), SE, UnFill);
+label(&quot;$\mathbf{c}$&quot;, shift(O2)*(tailC--tailC +C), NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, shift(O2)*(tailD--tailD +D), W, UnFill);
+
+label(&quot;Inputs:&quot;, (big+1)*J); 
+label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%20%0D%0Aimport%20TrigMacros%3B%0D%0A%0D%0A%2F%2FGives%20the%20maximum%20line%20that%20fits%20in%20the%20box.%20%0D%0Apath%20maxLine(pair%20A%2C%20pair%20B%2C%20real%20xmin%2C%20real%20xmax%2C%20real%20ymin%2C%20real%20ymax)%20%0D%0A%7B%0D%0A%20%20%20%20pair%5B%5D%20endpoints%20%3D%20intersectionpoints(A%2B10(B-A)%20--%20A-10(B-A)%2C%20(xmin%2C%20ymin)--(xmin%2C%20ymax)--(xmax%2C%20ymax)--(xmax%2C%20ymin)--cycle)%3B%0D%0A%20%20%20%20if%20(endpoints.length%20%3E%3D%202)%20return%20endpoints%5B0%5D--endpoints%5B1%5D%3B%0D%0A%20%20%20%20else%20return%20nullpath%3B%20%20%0D%0A%7D%0D%0A%0D%0A%2F%2FSize%20of%20the%20grids%3A%20%0D%0Aint%20big%20%3D%207%3B%0D%0A%0D%0Apair%20O1%2C%20O2%2C%20I%2C%20J%2C%20col1%2C%20col2%3B%0D%0Apair%20V%2C%20WW%2C%20P%2C%20Q%2C%20R%2C%20SS%2C%20tailV%2C%20tailW%2C%20tailP%2C%20tailQ%2C%20tailR%2C%20tailS%3B%0D%0Apair%20outV%2C%20outW%2C%20A%2C%20B%2C%20C%2C%20D%2C%20tailoutV%2C%20tailoutW%2C%20tailA%2C%20tailB%2C%20tailC%2C%20tailD%3B%0D%0A%0D%0A%2F%2FCenters%20of%20input%20and%20output%20grids%2C%20respectively%3A%20%0D%0AO1%20%3D%20(0%2C0)%3B%20%0D%0AO2%20%3D%20(2*big%20%2B%202%2C%200)%3B%0D%0A%0D%0A%2F%2FThe%20standard%20coordinate%20axes%3A%20%0D%0AI%20%3D%20(1%2C0)%3B%20%0D%0AJ%20%3D%20(0%2C1)%3B%0D%0A%0D%0A%0D%0A%2F%2FInput%20vectors%3B%20%0D%0AV%20%3D%20(0.3%2C%202)%3B%20%0D%0AWW%20%3D%20(-1.3%2C%20-0.4)%3B%20%0D%0AP%20%3D%20%20(-3.5%2C%20-6.8)%3B%0D%0AQ%20%3D%20(1.6%2C%202.4)%3B%20%0D%0AR%20%3D%20(3.9%2C%201.2)%3B%20%0D%0ASS%20%3D%20(-0.7%2C%203.6)%3B%20%0D%0A%0D%0A%2F%2FTails%20of%20input%20vectors%3A%20%0D%0AtailV%20%3D%20(0%2C0)%3B%20%0D%0AtailW%20%3D%20(0%2C0)%3B%0D%0AtailP%20%3D%20V%2B2WW%3B%0D%0AtailQ%20%3D%20-3V%3B%0D%0AtailR%20%3D%20-2WW-%20V%3B%0D%0AtailS%20%3D%20V%2BWW%3B%0D%0A%0D%0A%0D%0A%2F%2FOutput%20vectors%3A%20%0D%0AoutV%20%3D(1%2C%20-0.3)%3B%0D%0AoutW%20%3D%20(0.7%2C%202)%3B%20%20%0D%0AA%3D%20(0.3%2C%20-2.3)%3B%0D%0AB%20%3D%20(2.7%2C%201.4)%3B%20%20%0D%0AC%20%3D%20(-2.1%2C%20-6)%3B%20%0D%0AD%20%3D%20(-1.6%2C%204.9)%3B%0D%0A%0D%0A%2F%2FTails%20of%20output%20vectors%3A%20%0D%0AtailoutV%20%3D%20(0%2C0)%3B%0D%0AtailoutW%20%3D%20(0%2C0)%3B%20%0D%0AtailA%20%3D%20-4outV%20%2B%20outW%3B%20%0D%0AtailB%20%3D%20-2outW%3B%0D%0AtailC%20%3D%202outW%20%2B%203outV%3B%0D%0AtailD%20%3D%20-2outV%20-%202outW%3B%0D%0A%0D%0A%2F%2FDraw%20output%20grid%20lines%20parallel%20to%20col1%20and%20col2.%0D%0A%0D%0Afor%20(int%20i%20%3D%20-8%3B%20i%20%3C%2010%3B%20%2B%2Bi)%0D%0A%7B%20%20%20%20%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outV%2C%20i*outV%20%2B%20outW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(shift(O2)*maxLine(i*outW%2C%20i*outW%20%2B%20outV%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(maxLine(i*V%2C%20i*V%20%2B%20WW%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%20%20%20%20%20draw(maxLine(i*WW%2C%20i*WW%20%2B%20V%2C%20-big%2C%20big%2C%20-big%2C%20big)%2C%20linewidth(0.4))%3B%20%0D%0A%7D%0D%0A%0D%0Adraw(tailV--tailV%2BV%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailW--tailW%20%2BWW%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailP--tailP%20%2BP%2C%20heavycyan%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailQ--tailQ%20%2B%20Q%2C%20brown%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailR--tailR%20%2BR%2C%20orange%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(tailS--tailS%20%2BSS%2C%20black%20%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7Bv%7D%24%22%2C%20tailV--tailV%2BV%2C%20E%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bw%7D%24%22%2C%20tailW--tailW%20%2BWW%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bp%7D%24%22%2C%20tailP--tailP%20%2BP%2C%20E%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bq%7D%24%22%2C%20tailQ--tailQ%20%2BQ%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Br%7D%24%22%2C%20tailR--tailR%20%2BR%2C%20S%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bs%7D%24%22%2C%20tailS--tailS%20%2BSS%2C%20SW%2C%20UnFill)%3B%0D%0A%0D%0A%0D%0A%0D%0Adraw(shift(O2)*(tailoutV--tailoutV%2BoutV)%2C%20red%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailoutW--tailoutW%20%2BoutW)%2C%20blue%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailA--tailA%20%2BA)%2C%20heavygreen%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailB--tailB%20%2BB)%2C%20purple%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailC--tailC%2BC)%2C%20magenta%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0Adraw(shift(O2)*(tailD--tailD%2BD)%2C%20gray%20%2Blinewidth(1.0)%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bv%7D%24%22%2C%20shift(O2)*(tailoutV--tailoutV%2BoutV)%2C%20SW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7BA%7D%5Cmathbf%7Bw%7D%24%22%2C%20shift(O2)*(tailoutW--tailoutW%20%2BoutW)%2C%20W%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Ba%7D%24%22%2C%20shift(O2)*(tailA--tailA%20%2BA)%2C%20E%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bb%7D%24%22%2C%20shift(O2)*(tailB--tailB%20%2BB)%2C%20SE%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bc%7D%24%22%2C%20shift(O2)*(tailC--tailC%20%2BC)%2C%20NW%2C%20UnFill)%3B%0D%0Alabel(%22%24%5Cmathbf%7Bd%7D%24%22%2C%20shift(O2)*(tailD--tailD%20%2BD)%2C%20W%2C%20UnFill)%3B%0D%0A%0D%0Alabel(%22Inputs%3A%22%2C%20(big%2B1)*J)%3B%20%0D%0Alabel(%22Outputs%3A%22%2C%20shift(O2)*((big%20%2B%201)*J))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(15); 
+import TrigMacros;
+
+//Gives the maximum line that fits in the box. 
+path maxLine(pair A, pair B, real xmin, real xmax, real ymin, real ymax) 
+{
+    pair[] endpoints = intersectionpoints(A+10(B-A) -- A-10(B-A), (xmin, ymin)--(xmin, ymax)--(xmax, ymax)--(xmax, ymin)--cycle);
+    if (endpoints.length &gt;= 2) return endpoints[0]--endpoints[1];
+    else return nullpath;  
+}
+
+//Size of the grids: 
+int big = 7;
+
+pair O1, O2, I, J, col1, col2;
+pair V, WW, P, Q, R, SS, tailV, tailW, tailP, tailQ, tailR, tailS;
+pair outV, outW, A, B, C, D, tailoutV, tailoutW, tailA, tailB, tailC, tailD;
+
+//Centers of input and output grids, respectively: 
+O1 = (0,0); 
+O2 = (2*big + 2, 0);
+
+//The standard coordinate axes: 
+I = (1,0); 
+J = (0,1);
+
+
+//Input vectors; 
+V = (0.3, 2); 
+WW = (-1.3, -0.4); 
+P =  (-3.5, -6.8);
+Q = (1.6, 2.4); 
+R = (3.9, 1.2); 
+SS = (-0.7, 3.6); 
+
+//Tails of input vectors: 
+tailV = (0,0); 
+tailW = (0,0);
+tailP = V+2WW;
+tailQ = -3V;
+tailR = -2WW- V;
+tailS = V+WW;
+
+
+//Output vectors: 
+outV =(1, -0.3);
+outW = (0.7, 2);  
+A= (0.3, -2.3);
+B = (2.7, 1.4);  
+C = (-2.1, -6); 
+D = (-1.6, 4.9);
+
+//Tails of output vectors: 
+tailoutV = (0,0);
+tailoutW = (0,0); 
+tailA = -4outV + outW; 
+tailB = -2outW;
+tailC = 2outW + 3outV;
+tailD = -2outV - 2outW;
+
+//Draw output grid lines parallel to col1 and col2.
+
+for (int i = -8; i &lt; 10; ++i)
+{    
+     draw(shift(O2)*maxLine(i*outV, i*outV + outW, -big, big, -big, big), linewidth(0.4)); 
+     draw(shift(O2)*maxLine(i*outW, i*outW + outV, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*V, i*V + WW, -big, big, -big, big), linewidth(0.4)); 
+     draw(maxLine(i*WW, i*WW + V, -big, big, -big, big), linewidth(0.4)); 
+}
+
+draw(tailV--tailV+V, red+linewidth(1.0), Arrow(7));
+draw(tailW--tailW +WW, blue+linewidth(1.0), Arrow(7));
+draw(tailP--tailP +P, heavycyan+linewidth(1.0), Arrow(7));
+draw(tailQ--tailQ + Q, brown+linewidth(1.0), Arrow(7));
+draw(tailR--tailR +R, orange+linewidth(1.0), Arrow(7));
+draw(tailS--tailS +SS, black +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{v}$&quot;, tailV--tailV+V, E, UnFill);
+label(&quot;$\mathbf{w}$&quot;, tailW--tailW +WW, SE, UnFill);
+label(&quot;$\mathbf{p}$&quot;, tailP--tailP +P, E, UnFill);
+label(&quot;$\mathbf{q}$&quot;, tailQ--tailQ +Q, SE, UnFill);
+label(&quot;$\mathbf{r}$&quot;, tailR--tailR +R, S, UnFill);
+label(&quot;$\mathbf{s}$&quot;, tailS--tailS +SS, SW, UnFill);
+
+
+
+draw(shift(O2)*(tailoutV--tailoutV+outV), red+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailoutW--tailoutW +outW), blue+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailA--tailA +A), heavygreen+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailB--tailB +B), purple+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailC--tailC+C), magenta+linewidth(1.0), Arrow(7));
+draw(shift(O2)*(tailD--tailD+D), gray +linewidth(1.0), Arrow(7));
+
+label(&quot;$\mathbf{A}\mathbf{v}$&quot;, shift(O2)*(tailoutV--tailoutV+outV), SW, UnFill);
+label(&quot;$\mathbf{A}\mathbf{w}$&quot;, shift(O2)*(tailoutW--tailoutW +outW), W, UnFill);
+label(&quot;$\mathbf{a}$&quot;, shift(O2)*(tailA--tailA +A), E, UnFill);
+label(&quot;$\mathbf{b}$&quot;, shift(O2)*(tailB--tailB +B), SE, UnFill);
+label(&quot;$\mathbf{c}$&quot;, shift(O2)*(tailC--tailC +C), NW, UnFill);
+label(&quot;$\mathbf{d}$&quot;, shift(O2)*(tailD--tailD +D), W, UnFill);
+
+label(&quot;Inputs:&quot;, (big+1)*J); 
+label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="6898" data-id="01818" data-file="c186_L16_p32187_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-6899">
+  <div class="card-header">
+    <h2>#6899 &mdash; c289_L4_script_0.asy</h2>
     <span class="badge" style="background:#c0820a">SSIM 0.7777 &middot; Poor</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7512,13 +7742,13 @@ dot(V[1]);
 for(pair v : V) dot(v);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="6898" data-id="04333" data-file="c289_L4_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="6899" data-id="04333" data-file="c289_L4_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-6899">
+<div class="card" id="pair-6900">
   <div class="card-header">
-    <h2>#6899 &mdash; c539_L5_script_6.asy</h2>
+    <h2>#6900 &mdash; c539_L5_script_6.asy</h2>
     <span class="badge" style="background:#c0820a">SSIM 0.7777 &middot; Poor</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7599,58 +7829,7 @@ draw(rotate(theta)*anglemark((0,1), (0,0),rotate(-inc)*(0,1)), blue);
 label(&quot;\begin{tabular}{c}angle of \\ reflection\end{tabular}&quot;,(-.15,.47),blue+fontsize(10pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="6899" data-id="09020" data-file="c539_L5_script_6.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-6900">
-  <div class="card-header">
-    <h2>#6900 &mdash; c190_L11_p32690_problemtext_0.asy</h2>
-    <span class="badge" style="background:#c0820a">SSIM 0.7777 &middot; Poor</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03317.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03317.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(5cm);
-defaultpen(fontsize(10pt));
-
-real d = 5, r = 1, sh = 3, ceil_h = 0.4;
-
-fill(box((-r, d), (r + 2*sh, d + ceil_h)), gray(0.7));
-draw((-r, d)--(r + 2*sh, d));
-
-filldraw(circle((0, 0), r), gray(0.7)); draw((0, r)--(0, d)); label(&quot;A&quot;, (0, -r), 2*dir(-90));
-currentpicture = shift(-sh)*currentpicture;
-draw(circle((0, 0), r)); draw((0, r)--(0, d)); label(&quot;B&quot;, (0, -r), 2*dir(-90));
-currentpicture = shift(-sh)*currentpicture;
-dot((0, 0), linewidth(5)); draw((0, 0)--(0, d)); label(&quot;C&quot;, (0, -r), 2*dir(-90));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(5cm)%3B%0D%0Adefaultpen(fontsize(10pt))%3B%0D%0A%0D%0Areal%20d%20%3D%205%2C%20r%20%3D%201%2C%20sh%20%3D%203%2C%20ceil_h%20%3D%200.4%3B%0D%0A%0D%0Afill(box((-r%2C%20d)%2C%20(r%20%2B%202*sh%2C%20d%20%2B%20ceil_h))%2C%20gray(0.7))%3B%0D%0Adraw((-r%2C%20d)--(r%20%2B%202*sh%2C%20d))%3B%0D%0A%0D%0Afilldraw(circle((0%2C%200)%2C%20r)%2C%20gray(0.7))%3B%20draw((0%2C%20r)--(0%2C%20d))%3B%20label(%22A%22%2C%20(0%2C%20-r)%2C%202*dir(-90))%3B%0D%0Acurrentpicture%20%3D%20shift(-sh)*currentpicture%3B%0D%0Adraw(circle((0%2C%200)%2C%20r))%3B%20draw((0%2C%20r)--(0%2C%20d))%3B%20label(%22B%22%2C%20(0%2C%20-r)%2C%202*dir(-90))%3B%0D%0Acurrentpicture%20%3D%20shift(-sh)*currentpicture%3B%0D%0Adot((0%2C%200)%2C%20linewidth(5))%3B%20draw((0%2C%200)--(0%2C%20d))%3B%20label(%22C%22%2C%20(0%2C%20-r)%2C%202*dir(-90))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(5cm);
-defaultpen(fontsize(10pt));
-
-real d = 5, r = 1, sh = 3, ceil_h = 0.4;
-
-fill(box((-r, d), (r + 2*sh, d + ceil_h)), gray(0.7));
-draw((-r, d)--(r + 2*sh, d));
-
-filldraw(circle((0, 0), r), gray(0.7)); draw((0, r)--(0, d)); label(&quot;A&quot;, (0, -r), 2*dir(-90));
-currentpicture = shift(-sh)*currentpicture;
-draw(circle((0, 0), r)); draw((0, r)--(0, d)); label(&quot;B&quot;, (0, -r), 2*dir(-90));
-currentpicture = shift(-sh)*currentpicture;
-dot((0, 0), linewidth(5)); draw((0, 0)--(0, d)); label(&quot;C&quot;, (0, -r), 2*dir(-90));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="6900" data-id="03317" data-file="c190_L11_p32690_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="6900" data-id="09020" data-file="c539_L5_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
