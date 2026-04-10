@@ -646,7 +646,7 @@ async function main() {
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap">${hasSvg ? `<object data="htx_svgs/${id}.svg" type="image/svg+xml">SVG</object>` : '<em class="na">Not rendered</em>'}</div>
+      <div class="img-wrap">${hasSvg ? `<div class="htx-svg" data-svg="htx_svgs/${id}.svg"></div>` : '<em class="na">Not rendered</em>'}</div>
     </div>${texerCol}
     <div class="render-col col-source">
       <h3>Source</h3>
@@ -699,7 +699,7 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 .render-col:last-child{border-right:none}
 .render-col h3{font-size:.72em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
 .img-wrap{background:#fff;border:1px solid #ddd;border-radius:6px;min-height:80px;display:flex;align-items:center;justify-content:center;padding:8px;overflow:visible}
-.img-wrap img{max-width:100%;height:auto;display:block}.img-wrap object{width:100%;display:block}
+.img-wrap img{max-width:100%;height:auto;display:block}.htx-svg{width:100%}.htx-svg svg{display:block;max-width:100%;height:auto}
 .na{color:#999;font-size:.85em}
 .code-box{background:#f5f5f5;color:#333;font-family:Consolas,monospace;font-size:10.5px;line-height:1.35;padding:8px;border-radius:6px;border:1px solid #ddd;max-height:260px;overflow-y:auto;white-space:pre;word-wrap:normal}
 .link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
@@ -782,6 +782,11 @@ document.addEventListener('keydown',e=>{
     const next=[...document.querySelectorAll('.pag a')].find(a=>a.textContent.includes('Next'));
     if(next)location.href=next.href;
   }
+});
+document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
+  fetch(el.dataset.svg).then(r=>r.text()).then(svg=>{
+    el.innerHTML=svg;
+  }).catch(()=>{el.innerHTML='<em class="na">SVG load failed</em>';});
 });
 </script></body></html>`;
 
