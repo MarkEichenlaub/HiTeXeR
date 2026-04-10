@@ -7208,6 +7208,7 @@ function renderSVG(result, opts) {
   // This prevents fills drawn later in program order from covering earlier labels
   // Dots are rendered in program order (not deferred) to allow later fills to cover them
   const deferredLabels = []; // [{ci, dc}]
+  const aboveElementIndices = new Set(); // element indices from above=1 draw commands (excluded from crop clip)
 
   // Shorten a path from its end by `amount` viewport pixels.
   // Works on Bezier segments using de Casteljau subdivision.
@@ -7429,6 +7430,7 @@ function renderSVG(result, opts) {
     css.strokeWidth *= bpCSSPixel;
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
+    const elsBefore = elements.length;
     if (dc.cmd === 'label') {
       deferredLabels.push({ci, dc, css: {...css}});
     } else if (dc.cmd === 'image') {
@@ -7476,6 +7478,12 @@ function renderSVG(result, opts) {
       }
     } else if (dc.path) {
       renderPathCommand(ci, dc, css, dashArray);
+    }
+    // Mark elements from above=1 commands for crop clip exclusion
+    if (dc.above === 1) {
+      for (let ei = elsBefore; ei < elements.length; ei++) {
+        aboveElementIndices.add(ei);
+      }
     }
   }
 
@@ -7629,8 +7637,11 @@ function renderSVG(result, opts) {
       }
 
       // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
+      // Only strip $ when the entire label is $...$  (not mixed like "$W-1$ cells").
       let wasStrippedMath = false;
-      if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
+      const trimDT = displayText.trim();
+      const isFullyWrapped = trimDT.startsWith('$') && trimDT.endsWith('$') && trimDT.indexOf('$', 1) === trimDT.length - 1;
+      if (isFullyWrapped && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
         const stripped = displayText.replace(/\$/g, '').trim();
         if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
           displayText = stripped;
@@ -7645,8 +7656,11 @@ function renderSVG(result, opts) {
       // (Greek letters, operators, etc.) plus simple ^/_ scripts.  Such labels render
       // more reliably as SVG <text> (scales with the viewBox) than as KaTeX foreignObject
       // (where CSS px sizing may mismatch the SVG coordinate system).
+      // Mixed-content labels like "$W-1$ cells" must go through KaTeX, not the
+      // unicodeSafe SVG path, so that text outside $...$ renders upright.
+      const hasMixedDollars = /\$/.test(displayText) && !isFullyWrapped;
       let unicodeSafe = false;
-      if (hasMath && !hasLaTeX) {
+      if (hasMath && !hasLaTeX && !hasMixedDollars) {
         let probe = displayText.replace(/\$/g, '');
         // Remove font-wrapper and spacing commands that renderLabelWithScripts handles
         probe = probe.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{[^}]*\}/g, '');
@@ -7786,11 +7800,18 @@ function renderSVG(result, opts) {
     const defsStr = defsEls.length > 0 ? defsEls.join('\n') + '\n' : '';
     let bodyContent;
     if (cropClipId) {
-      // Crop: wrap non-label content, labels stay outside crop clip
-      const clipEls = contentEls.slice(0, contentFirstLabelIdx).map(e => e.el);
-      const labelEls = contentEls.slice(contentFirstLabelIdx).map(e => e.el);
+      // Crop: wrap non-label, non-above content; labels and above=true elements stay outside crop clip
+      const clipEls = [];
+      const unclipEls = [];
+      for (let i = 0; i < contentEls.length; i++) {
+        if (i >= contentFirstLabelIdx || aboveElementIndices.has(contentEls[i].origIdx)) {
+          unclipEls.push(contentEls[i].el);
+        } else {
+          clipEls.push(contentEls[i].el);
+        }
+      }
       bodyContent = `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
-        (labelEls.length > 0 ? '\n' + labelEls.join('\n') : '');
+        (unclipEls.length > 0 ? '\n' + unclipEls.join('\n') : '');
     } else {
       bodyContent = contentEls.map(e => e.el).join('\n');
     }
