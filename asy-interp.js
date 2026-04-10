@@ -59,6 +59,18 @@ function lex(source) {
     // Skip whitespace
     if (ch() === ' ' || ch() === '\t' || ch() === '\r' || ch() === '\n') { advance(); continue; }
 
+    // Handle literal \t \n \r escape sequences outside strings (some corpus files
+    // have tab/newline characters encoded as backslash + letter instead of real
+    // whitespace bytes).  We treat them the same as actual whitespace.  The
+    // LaTeX-lookahead that the string lexer uses (\textbf etc.) is unnecessary
+    // here because LaTeX commands only appear inside string literals.
+    if (ch() === '\\' && pos + 1 < len) {
+      const nc = source[pos + 1];
+      if (nc === 't' || nc === 'n' || nc === 'r') {
+        advance(); advance(); continue;
+      }
+    }
+
     // Line comments
     if (ch() === '/' && peek(1) === '/') {
       while (pos < len && ch() !== '\n') advance();
@@ -7559,6 +7571,17 @@ function renderSVG(result, opts) {
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
       // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
+      // Strip \definecolor{name}{model}{values} declarations and \color{name}
+      // commands before routing — these are unsupported by KaTeX/SVG rendering
+      // but the text content they wrap should still be displayed.
+      if (/\\definecolor|\\color/.test(displayText)) {
+        displayText = displayText.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+        displayText = displayText.replace(/\\color\s*\{[^}]*\}/g, '');
+        displayText = displayText.replace(/\\rm\b/g, '');
+        // Remove orphaned TeX grouping braces left behind (but keep ^{} and _{} groups)
+        displayText = displayText.replace(/(?<![_^])\{([^{}]*)\}/g, '$1');
+      }
+
       // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
       let wasStrippedMath = false;
       if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
@@ -7942,6 +7965,12 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
   // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
   s = s.replace(/\\[ ~;,:!]/g, ' ');
+  // Strip \definecolor{name}{model}{values} declarations (no visible output)
+  s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  // Strip \color{name} commands, keeping surrounding text
+  s = s.replace(/\\color\s*\{[^}]*\}/g, '');
+  // Strip \rm (font switch, not braced form)
+  s = s.replace(/\\rm\b/g, '');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // NOTE: Do NOT strip braces here — the subscript/superscript parser below
@@ -8129,6 +8158,12 @@ function stripLaTeX(text) {
   }
   // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
   s = s.replace(/\\[ ~;,:!]/g, ' ');
+  // Strip \definecolor{name}{model}{values} declarations (no visible output)
+  s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  // Strip \color{name} commands, keeping surrounding text
+  s = s.replace(/\\color\s*\{[^}]*\}/g, '');
+  // Strip \rm (font switch, not braced form)
+  s = s.replace(/\\rm\b/g, '');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
