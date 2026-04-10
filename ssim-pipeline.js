@@ -498,8 +498,9 @@ async function main() {
         const htxH = Math.round(hh * commonScale);
 
         // Common canvas: use the max of both scaled dimensions
-        const canvasW = Math.max(asyW, htxW, 8);
-        const canvasH = Math.max(asyH, htxH, 8);
+        // SSIM window size is 11, so canvas must be at least 11 in each dimension
+        const canvasW = Math.max(asyW, htxW, 11);
+        const canvasH = Math.max(asyH, htxH, 11);
 
         const asyBuf = await sharp(path.join(ASY_DIR, id + '.png'))
           .flatten({ background: { r: 255, g: 255, b: 255 } })
