@@ -4061,7 +4061,16 @@ function createInterpreter() {
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
           const fmtDefault = () => Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
-          if (ticks.format && ticks.format !== '%') {
+          if (ticks.labelFunc) {
+            // Custom label function: call it with the tick value
+            try {
+              const fn = ticks.labelFunc;
+              if (fn._tag === 'func') txt = callUserFuncValues(fn, [v]);
+              else txt = fn(v);
+              if (txt === null || txt === undefined) txt = fmtDefault();
+              else txt = String(txt);
+            } catch(e) { txt = fmtDefault(); }
+          } else if (ticks.format && ticks.format !== '%') {
             txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
               // Simple printf-style: %d→int, %f→fixed, %g→general
               if (spec.endsWith('d')) return String(Math.round(v));
@@ -4458,7 +4467,8 @@ function createInterpreter() {
           if (a < 0.5) { t.size = a; t.sizeExplicit = true; }
           else t.step = a;
         }
-        else if (isString(a)) { /* format string like "%" — stored but does not auto-enable labels */ }
+        else if (isString(a)) { t.format = a; t.labels = true; }
+        else if (typeof a === 'function' || (a && a._tag === 'func')) { t.labelFunc = a; t.labels = true; }
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
