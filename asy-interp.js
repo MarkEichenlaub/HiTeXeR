@@ -6987,7 +6987,7 @@ function renderSVG(result, opts) {
   svgH *= bpToCSSPx;
 
   // Store unshrunk dimensions for PNG export (before container shrink-to-fit)
-  const intrinsicW = svgW, intrinsicH = svgH;
+  let intrinsicW = svgW, intrinsicH = svgH;
 
   // If container dimensions provided, shrink to fit (or enlarge unitsize diagrams)
   let displayPercent = 100;
@@ -7015,8 +7015,8 @@ function renderSVG(result, opts) {
   }
 
   // Compute viewBox (in intrinsic coordinates, before any display shrink)
-  const viewW = naturalW;
-  const viewH = naturalH;
+  let viewW = naturalW;
+  let viewH = naturalH;
 
   // Build SVG
   const commandMap = []; // maps draw command index → SVG element index
@@ -7066,6 +7066,76 @@ function renderSVG(result, opts) {
   // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
   // Uses bpToCSSPx so strokes/fonts scale at the same effective DPI as the geometry.
   const bpCSSPixel = bpToCSSPx * cssPixel;
+
+  // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
+  // Now that bpCSSPixel is known, compute how far each element extends
+  // beyond its geometric center/path in viewBox units. Expand the viewBox
+  // so that librsvg/sharp (which clips to viewBox) renders identically
+  // to browsers (which honour overflow:visible).
+  {
+    let padL = 0, padR = 0, padT = 0, padB = 0; // extra space needed in viewBox units
+
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'dot') {
+        const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
+        const dotR = ((dc.pen && dc.pen._lwExplicit) ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        const sx = (dc.pos.x - minX) * pxPerUnitX;
+        const sy = (maxY - dc.pos.y) * pxPerUnitY;
+        padL = Math.max(padL, dotR - sx);
+        padR = Math.max(padR, (sx + dotR) - viewW);
+        padT = Math.max(padT, dotR - sy);
+        padB = Math.max(padB, (sy + dotR) - viewH);
+      } else if (dc.path && dc.path.segs.length > 0) {
+        const lw = dc.pen ? dc.pen.linewidth : 0.5;
+        const halfStroke = (lw * bpCSSPixel) / 2;
+        // Check path endpoints for stroke overshoot
+        for (const seg of dc.path.segs) {
+          for (const p of [seg.p0, seg.p3]) {
+            const sx = (p.x - minX) * pxPerUnitX;
+            const sy = (maxY - p.y) * pxPerUnitY;
+            padL = Math.max(padL, halfStroke - sx);
+            padR = Math.max(padR, (sx + halfStroke) - viewW);
+            padT = Math.max(padT, halfStroke - sy);
+            padB = Math.max(padB, (sy + halfStroke) - viewH);
+          }
+        }
+        // Arrow overshoot: arrowheads extend perpendicular to the path by ~arrowLen/3
+        if (dc.arrow && dc.cmd === 'draw') {
+          const baseSize = dc.arrow.size || 6;
+          const arrowLen = baseSize * bpCSSPixel;
+          const arrowR = arrowLen * 0.4; // perpendicular extent
+          for (const seg of [dc.path.segs[0], dc.path.segs[dc.path.segs.length - 1]]) {
+            for (const p of [seg.p0, seg.p3]) {
+              const sx = (p.x - minX) * pxPerUnitX;
+              const sy = (maxY - p.y) * pxPerUnitY;
+              padL = Math.max(padL, arrowR - sx);
+              padR = Math.max(padR, (sx + arrowR) - viewW);
+              padT = Math.max(padT, arrowR - sy);
+              padB = Math.max(padB, (sy + arrowR) - viewH);
+            }
+          }
+        }
+      }
+    }
+
+    // Apply padding: shift origin and expand viewBox/display dimensions
+    if (padL > 0 || padR > 0 || padT > 0 || padB > 0) {
+      // Shift minX left and maxY up in user coords so rendering coordinates adjust
+      minX -= padL / pxPerUnitX;
+      maxY += padT / pxPerUnitY;
+      const extraW = padL + padR;
+      const extraH = padT + padB;
+      const overshootScaleW = (viewW + extraW) / viewW;
+      const overshootScaleH = (viewH + extraH) / viewH;
+      viewW += extraW;
+      viewH += extraH;
+      // Scale display dimensions proportionally
+      svgW *= overshootScaleW;
+      svgH *= overshootScaleH;
+      intrinsicW *= overshootScaleW;
+      intrinsicH *= overshootScaleH;
+    }
+  }
 
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
@@ -7652,7 +7722,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     const ly = tipY - s*Math.sin(screenAngle - headAngle);
     const rx = tipX - s*Math.cos(screenAngle + headAngle);
     const ry = tipY - s*Math.sin(screenAngle + headAngle);
-    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled};
+    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled};
   }
 
   if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow' || style === 'EndArcArrow') {
@@ -7675,7 +7745,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const d = arrowParts.map(p => p.d).join(' ');
   const isFilled = arrowParts[0].filled;
   const fillAttr = isFilled ? css.stroke : 'none';
-  return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  if (isFilled) {
+    return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
+  }
+  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 // Render label text with superscript/subscript support as SVG
