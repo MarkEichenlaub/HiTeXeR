@@ -803,6 +803,13 @@ document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
     console.log(`  Wrote ${totalPages} pages\n`);
   }
 
+  // Regenerate blink-manifest.json so the Blink Comparator stays in sync
+  const manifestScript = path.join(OUT_DIR, 'generate-manifest.js');
+  if (fs.existsSync(manifestScript)) {
+    console.log('Regenerating blink-manifest.json...');
+    require('child_process').execSync(`node "${manifestScript}"`, {stdio: 'inherit'});
+  }
+
   console.log('Pipeline complete.');
 }
 
