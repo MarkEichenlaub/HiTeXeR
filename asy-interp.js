@@ -3477,7 +3477,7 @@ function createInterpreter() {
       for (const a of args) {
         if (isString(a)) text = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
-        else if (isPair(a)) align = a;
+        else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
           if ('position' in a) position = a.position;
           if ('align' in a) {
@@ -6187,7 +6187,13 @@ function createInterpreter() {
     let pos = null, pen = null, text = null, align = null, multiDots = null;
     let graphicData = null;
     for (const a of args) {
-      if (isGraphic(a) && !graphicData) graphicData = a;
+      if (a && a._tag === 'label') {
+        if (!text) text = a.text || '';
+        if (a.align && !align) align = a.align;
+        if (a.pen) pen = pen ? mergePens(pen, a.pen) : a.pen;
+        if (isPair(a.position) && !pos) pos = a.position;
+      }
+      else if (isGraphic(a) && !graphicData) graphicData = a;
       else if (isTriple(a)) {
         if (!pos) pos = projectTriple(a);
         else if (!align) align = projectTriple(a);
