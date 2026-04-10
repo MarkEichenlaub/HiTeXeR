@@ -7793,8 +7793,8 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   };
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
-  // Handle \<space> (TeX inter-word space) and \~ (TeX non-breaking space) → space
-  s = s.replace(/\\[ ~]/g, ' ');
+  // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
+  s = s.replace(/\\[ ~;,:!]/g, ' ');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // NOTE: Do NOT strip braces here — the subscript/superscript parser below
@@ -7980,8 +7980,8 @@ function stripLaTeX(text) {
   for (const [cmd, uni] of sortedEntries) {
     s = s.split(cmd).join(uni);
   }
-  // Handle \<space> (TeX inter-word space) and \~ (TeX non-breaking space) → space
-  s = s.replace(/\\[ ~]/g, ' ');
+  // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
+  s = s.replace(/\\[ ~;,:!]/g, ' ');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
