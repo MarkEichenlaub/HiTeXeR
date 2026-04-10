@@ -6196,6 +6196,7 @@ function createInterpreter() {
         if (!pos) pos = a;
         else if (!align) align = a;
       }
+      else if (typeof a === 'number' && !pos) { pos = makePair(a, 0); }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
       else if (isPath(a) && a.segs.length > 0 && !pos) {
         // Multi-dot: dot all segment endpoints (for ^^ paths)
