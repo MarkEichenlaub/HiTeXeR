@@ -7611,7 +7611,7 @@ function renderSVG(result, opts) {
       // Replace LaTeX dot/continuation symbols with Unicode so they render as SVG
       // text instead of KaTeX foreignObject (avoids MathML mspace artifact in \vdots).
       const LATEX_TO_UNICODE = {
-        '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '…',
+        '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '⋯',
       };
       let displayText = rawText;
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
@@ -7697,20 +7697,21 @@ function renderSVG(result, opts) {
       }
 
       let labelEl;
-      if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
-        // Check for \mathbf-only labels: render as bold SVG text — works in all rendering
-        // contexts (sharp, <img>, <object>) without needing KaTeX CSS.
-        const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
-        if (/^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
-          const boldContent = strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, '$1').trim();
-          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-        } else if (/^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
-          const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
-          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-        } else {
-          // Use KaTeX for math rendering via foreignObject
-          labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
-        }
+      // Check for \mathbf-only or \textbf-only labels first: render as bold upright SVG text.
+      // This works in all rendering contexts (sharp, <img>, <object>) without needing KaTeX CSS.
+      // Must be checked before the italic math path to avoid wrong font-style.
+      const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
+      if (hasMath && /^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+        // In math mode, spaces between \mathbf{X} \mathbf{Y} are ignored — concatenate directly.
+        let boldContent = '';
+        strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, (_, g) => { boldContent += g; });
+        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+      } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+        const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
+        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+      } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
+        // Use KaTeX for math rendering via foreignObject
+        labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
@@ -8009,7 +8010,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
-    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
@@ -8146,7 +8147,9 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
       if (seg.type === 'math') {
         html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'mathml'});
       } else {
-        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Preserve spaces: HTML collapses leading/trailing whitespace in text nodes
+        // adjacent to inline elements (KaTeX output).  Use &nbsp; for spaces.
+        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;');
       }
     }
   } else {
@@ -8205,7 +8208,7 @@ function stripLaTeX(text) {
     '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
-    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
@@ -8231,6 +8234,9 @@ function stripLaTeX(text) {
   s = s.replace(/\\color\s*\{[^}]*\}/g, '');
   // Strip \rm (font switch, not braced form)
   s = s.replace(/\\rm\b/g, '');
+  // Handle font-wrapper commands (\mathbf, \mathrm, etc.) — remove command, keep content.
+  // In math mode, spaces between these commands are ignored (e.g. \mathbf{C} \mathbf{i} → Ci).
+  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
