@@ -2608,6 +2608,9 @@ function createInterpreter() {
       installGraphPackage(env); // TrigMacros depends on graph
       installTrigMacros(env);
     }
+    if (mod.includes('slopefield')) {
+      installSlopefieldPackage(env);
+    }
     if (mod.includes('graph')) {
       installGraphPackage(env);
     }
@@ -2847,6 +2850,9 @@ function createInterpreter() {
           const len = Math.sqrt(t.x*t.x + t.y*t.y + t.z*t.z);
           return len > 0 ? makeTriple(t.x/len, t.y/len, t.z/len) : makeTriple(0,0,0);
         }
+        if (isPath(args[0])) {
+          return _dirOnPath(args[0], 0);
+        }
         if (isPair(args[0])) {
           const p = args[0];
           const len = Math.sqrt(p.x*p.x + p.y*p.y);
@@ -2854,6 +2860,19 @@ function createInterpreter() {
         }
         const a = toNumber(args[0]);
         return makePair(Math.cos(a*Math.PI/180), Math.sin(a*Math.PI/180));
+      }
+      if (args.length >= 2) {
+        // dir(path, time)
+        if (isPath(args[0])) {
+          return _dirOnPath(args[0], toNumber(args[1]));
+        }
+        // dir(pair, pair) => unit(b - a)
+        if (isPair(args[0]) && isPair(args[1])) {
+          const a = args[0], b = args[1];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const len = Math.sqrt(dx*dx + dy*dy);
+          return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
+        }
       }
       return makePair(1,0);
     });
@@ -3005,6 +3024,25 @@ function createInterpreter() {
     });
 
     // Path query functions
+    // Internal helper: unit tangent direction on path at given time
+    function _dirOnPath(p, t) {
+      if (!isPath(p) || p.segs.length === 0) return makePair(0,0);
+      const time = toNumber(t);
+      // Clamp time to valid range
+      const maxT = p.segs.length;
+      const clamped = Math.max(0, Math.min(maxT, time));
+      let i = Math.floor(clamped);
+      let frac = clamped - i;
+      if (i >= p.segs.length) { i = p.segs.length - 1; frac = 1; }
+      const seg = p.segs[i];
+      // Cubic Bezier derivative: B'(t) = 3(1-t)^2(cp1-p0) + 6(1-t)t(cp2-cp1) + 3t^2(p3-cp2)
+      const u = 1 - frac;
+      const dx = 3*u*u*(seg.cp1.x-seg.p0.x) + 6*u*frac*(seg.cp2.x-seg.cp1.x) + 3*frac*frac*(seg.p3.x-seg.cp2.x);
+      const dy = 3*u*u*(seg.cp1.y-seg.p0.y) + 6*u*frac*(seg.cp2.y-seg.cp1.y) + 3*frac*frac*(seg.p3.y-seg.cp2.y);
+      const len = Math.sqrt(dx*dx + dy*dy);
+      return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
+    }
+
     // Internal helper for path point evaluation (avoids env.get shadowing issues)
     function _pointOnPath(p, t) {
       if (!isPath(p)) return makePair(0,0);
@@ -3575,14 +3613,152 @@ function createInterpreter() {
     env.set('HookHead', null);
     env.set('SimpleHead', null);
 
-    // markangle and related
-    env.set('markangle', (...args) => null);
+    // markangle: draws an angle arc at vertex B from ray BA to ray BC
+    // Signature: markangle(Label L="", int n=1, real r=0, real d=0, pen p=currentpen,
+    //            arrowbar arrow=None, margin margin=NoMargin, pair A, pair B, pair C)
+    env.set('markangle', (...args) => {
+      // Parse arguments: last 3 pairs are A, B (vertex), C
+      // Earlier args can be: label string, int n, pen, named params (radius/r, n, arrow)
+      let label = null;
+      let n = 1;
+      let radius = null;
+      let pen = null;
+      let arrow = null;
+      const pairs = [];
+
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('radius' in a) radius = toNumber(a.radius);
+          if ('r' in a) radius = toNumber(a.r);
+          if ('n' in a) n = Math.round(toNumber(a.n));
+          if ('arrow' in a) arrow = a.arrow;
+          continue;
+        }
+        if (isPair(a)) { pairs.push(toPair(a)); continue; }
+        if (isPen(a)) { pen = a; continue; }
+        if (isString(a)) { label = a; continue; }
+        if (a && a._tag === 'label') { label = a.text; if (a.pen) pen = a.pen; continue; }
+        if (a && (a._tag === 'arrow' || a === 'Arrow' || typeof a === 'function')) { arrow = a; continue; }
+        if (typeof a === 'number' && pairs.length === 0) { n = Math.round(a); continue; }
+      }
+
+      if (pairs.length < 3) return null;
+      const A = pairs[pairs.length - 3];
+      const B = pairs[pairs.length - 2]; // vertex
+      const C = pairs[pairs.length - 1];
+
+      // Default radius
+      if (radius === null) {
+        const msf = env.get('markscalefactor') || 0.03;
+        radius = 8 * msf;
+      }
+
+      // Angles from vertex B to A and C
+      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      // CCW sweep from BA to BC
+      while (a2 <= a1) a2 += 360;
+
+      if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+
+      // Draw n concentric arcs
+      const gap = radius * 0.15;
+      for (let i = 0; i < n; i++) {
+        const r = radius + i * gap;
+        const arcPath = makeArcPath(B, r, a1, a2);
+        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0});
+      }
+
+      // Label at the arc midpoint
+      if (label) {
+        const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
+        const labelR = radius + (n - 1) * gap + radius * 0.4;
+        const pos = makePair(B.x + labelR * Math.cos(midAngle), B.y + labelR * Math.sin(midAngle));
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0});
+      }
+      return null;
+    });
     env.set('markers', null);
   }
 
   // ============================================================
   // Graph Package
   // ============================================================
+
+  // ============================================================
+  // Slopefield Package
+  // ============================================================
+
+  let slopefieldPackageInstalled = false;
+
+  function installSlopefieldPackage(env) {
+    if (slopefieldPackageInstalled) return;
+    slopefieldPackageInstalled = true;
+
+    // slopefield(f, a, b, n, pen, arrow)
+    // f: function(real,real)->real giving slope dy/dx
+    // a: pair (lower-left corner)
+    // b: pair (upper-right corner)
+    // n: int (number of grid divisions)
+    // pen: optional pen for drawing
+    // arrow: optional arrow specification
+    env.set('slopefield', (...args) => {
+      let func = null;
+      let a = null, b = null;
+      let n = 10;
+      let pen = null;
+      let arrow = null;
+      const pairs = [];
+
+      for (const arg of args) {
+        if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
+          if (!func) func = arg;
+          continue;
+        }
+        if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
+        if (isPen(arg)) { pen = arg; continue; }
+        if (arg && (arg._tag === 'arrow' || arg === null)) { arrow = arg; continue; }
+        if (typeof arg === 'number') { n = Math.round(arg); continue; }
+        // Arrow constants
+        if (arg === env.get('Arrow') || arg === env.get('MidArrow') || arg === env.get('BeginArrow') || arg === env.get('EndArrow')) {
+          arrow = arg; continue;
+        }
+      }
+
+      if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
+      if (!a || !b || !func) return makePath([], false);
+      if (!pen) pen = clonePen(defaultPen);
+
+      const pic = {_tag:'picture', commands:[], transform: null};
+      const dx = (b.x - a.x) / n;
+      const dy = (b.y - a.y) / n;
+      // Length of each slope segment (half the cell diagonal, scaled)
+      const segLen = Math.min(Math.abs(dx), Math.abs(dy)) * 0.45;
+
+      for (let i = 0; i <= n; i++) {
+        for (let j = 0; j <= n; j++) {
+          const x = a.x + i * dx;
+          const y = a.y + j * dy;
+          let slope;
+          try {
+            slope = toNumber(invokeFunc(func, [x, y]));
+          } catch(e) {
+            continue; // skip undefined points
+          }
+          if (!isFinite(slope)) continue;
+          // Direction from slope
+          const len = Math.sqrt(1 + slope * slope);
+          const ux = segLen / len;
+          const uy = segLen * slope / len;
+          const p0 = makePair(x - ux, y - uy);
+          const p1 = makePair(x + ux, y + uy);
+          const seg = makePath([lineSegment(p0, p1)], false);
+          pic.commands.push({cmd:'draw', path:seg, pen:clonePen(pen), arrow: arrow || null, line:0});
+        }
+      }
+      return pic;
+    });
+  }
 
   let graphPackageInstalled = false;
 
