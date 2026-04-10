@@ -154,6 +154,7 @@
   <div class="blink-body">
     <div class="blink-image-area" id="blink-container">
       <img id="blink-img" src="" alt="">
+      <div id="blink-svg-inline" style="display:none"></div>
     </div>
     <div class="code-panel" id="code-panel">
       <div class="code-panel-header">
@@ -425,8 +426,39 @@
       else if (d.hasAsy) { src = `asy_pngs/${d.id}.png`; labelText = 'Asymptote (only)'; labelClass = 'asy'; blinkSource = 'asy'; displayScale = ASY_DISPLAY_SCALE; }
     }
 
-    img.onload = () => fitImage(img, img.naturalWidth * displayScale, img.naturalHeight * displayScale);
-    img.src = src;
+    const svgDiv = document.getElementById('blink-svg-inline');
+    const isSvg = src.endsWith('.svg');
+    if (isSvg) {
+      // Fetch SVG and inject inline so it inherits page @font-face rules (KaTeX fonts).
+      // SVGs loaded via <img> are sandboxed and can't access page fonts.
+      img.style.display = 'none';
+      svgDiv.style.display = '';
+      svgDiv.innerHTML = '';
+      fetch(src).then(r => r.text()).then(svgText => {
+        svgDiv.innerHTML = svgText;
+        const svgEl = svgDiv.querySelector('svg');
+        if (svgEl) {
+          const vb = svgEl.getAttribute('viewBox');
+          if (vb) {
+            const parts = vb.split(/\s+/);
+            const w = parseFloat(parts[2]) || 500;
+            const h = parseFloat(parts[3]) || 400;
+            fitImage(svgDiv, w * displayScale, h * displayScale);
+          } else {
+            fitImage(svgDiv, 500, 400);
+          }
+          svgEl.style.width = '100%';
+          svgEl.style.height = '100%';
+          svgEl.style.display = 'block';
+        }
+      });
+    } else {
+      svgDiv.style.display = 'none';
+      svgDiv.innerHTML = '';
+      img.style.display = '';
+      img.onload = () => fitImage(img, img.naturalWidth * displayScale, img.naturalHeight * displayScale);
+      img.src = src;
+    }
     label.textContent = labelText;
     label.className = 'source-label ' + labelClass;
     idEl.textContent = d.id;
