@@ -7081,10 +7081,13 @@ function renderSVG(result, opts) {
         const dotR = ((dc.pen && dc.pen._lwExplicit) ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
-        padL = Math.max(padL, dotR - sx);
-        padR = Math.max(padR, (sx + dotR) - viewW);
-        padT = Math.max(padT, dotR - sy);
-        padB = Math.max(padB, (sy + dotR) - viewH);
+        // Skip points far outside the viewport — their overshoot is invisible
+        if (sx >= -dotR && sx <= viewW + dotR && sy >= -dotR && sy <= viewH + dotR) {
+          padL = Math.max(padL, dotR - sx);
+          padR = Math.max(padR, (sx + dotR) - viewW);
+          padT = Math.max(padT, dotR - sy);
+          padB = Math.max(padB, (sy + dotR) - viewH);
+        }
       } else if (dc.path && dc.path.segs.length > 0) {
         const lw = dc.pen ? dc.pen.linewidth : 0.5;
         const halfStroke = (lw * bpCSSPixel) / 2;
@@ -7093,6 +7096,9 @@ function renderSVG(result, opts) {
           for (const p of [seg.p0, seg.p3]) {
             const sx = (p.x - minX) * pxPerUnitX;
             const sy = (maxY - p.y) * pxPerUnitY;
+            // Skip points far outside the viewport — their overshoot is invisible
+            if (sx < -halfStroke || sx > viewW + halfStroke ||
+                sy < -halfStroke || sy > viewH + halfStroke) continue;
             padL = Math.max(padL, halfStroke - sx);
             padR = Math.max(padR, (sx + halfStroke) - viewW);
             padT = Math.max(padT, halfStroke - sy);
@@ -7108,6 +7114,9 @@ function renderSVG(result, opts) {
             for (const p of [seg.p0, seg.p3]) {
               const sx = (p.x - minX) * pxPerUnitX;
               const sy = (maxY - p.y) * pxPerUnitY;
+              // Skip points far outside the viewport
+              if (sx < -arrowR || sx > viewW + arrowR ||
+                  sy < -arrowR || sy > viewH + arrowR) continue;
               padL = Math.max(padL, arrowR - sx);
               padR = Math.max(padR, (sx + arrowR) - viewW);
               padT = Math.max(padT, arrowR - sy);
@@ -7142,6 +7151,111 @@ function renderSVG(result, opts) {
   // Dots are rendered in program order (not deferred) to allow later fills to cover them
   const deferredLabels = []; // [{ci, dc}]
 
+  // Shorten a path from its end by `amount` viewport pixels.
+  // Works on Bezier segments using de Casteljau subdivision.
+  function shortenPathEnd(segs, amount, scaleX, scaleY) {
+    if (segs.length === 0) return segs;
+    let remaining = amount;
+    // Work backwards, removing/shortening segments from the end
+    while (remaining > 0 && segs.length > 0) {
+      const s = segs[segs.length - 1];
+      const segLen = bezierLength(s, scaleX, scaleY);
+      if (segLen <= remaining + 1e-9) {
+        // Remove entire segment
+        remaining -= segLen;
+        segs.pop();
+      } else {
+        // Shorten this segment: find parameter t where remaining arc length from end
+        const t = findBezierParam(s, 1 - remaining / segLen, scaleX, scaleY);
+        // Split at t, keep the first part
+        const split = splitBezier(s, t);
+        segs[segs.length - 1] = split[0];
+        remaining = 0;
+      }
+    }
+    return segs;
+  }
+
+  // Shorten a path from its beginning by `amount` viewport pixels.
+  function shortenPathBegin(segs, amount, scaleX, scaleY) {
+    if (segs.length === 0) return segs;
+    let remaining = amount;
+    // Work forwards, removing/shortening segments from the start
+    while (remaining > 0 && segs.length > 0) {
+      const s = segs[0];
+      const segLen = bezierLength(s, scaleX, scaleY);
+      if (segLen <= remaining + 1e-9) {
+        remaining -= segLen;
+        segs.shift();
+      } else {
+        const t = findBezierParam(s, remaining / segLen, scaleX, scaleY);
+        const split = splitBezier(s, t);
+        segs[0] = split[1];
+        remaining = 0;
+      }
+    }
+    return segs;
+  }
+
+  // Compute approximate arc length of a Bezier segment in viewport units
+  function bezierLength(seg, scaleX, scaleY) {
+    const steps = 16;
+    let len = 0;
+    let prevX = seg.p0.x * scaleX, prevY = seg.p0.y * scaleY;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const pt = evalBezierSeg(seg, t);
+      const cx = pt.x * scaleX, cy = pt.y * scaleY;
+      len += Math.sqrt((cx - prevX) * (cx - prevX) + (cy - prevY) * (cy - prevY));
+      prevX = cx; prevY = cy;
+    }
+    return len;
+  }
+
+  // Evaluate a cubic Bezier segment at parameter t
+  function evalBezierSeg(seg, t) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x,
+      y: u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y
+    };
+  }
+
+  // Find parameter t at which the arc length from start equals targetFraction * totalLength
+  function findBezierParam(seg, targetFraction, scaleX, scaleY) {
+    // Binary search for the parameter
+    const totalLen = bezierLength(seg, scaleX, scaleY);
+    const targetLen = targetFraction * totalLen;
+    let lo = 0, hi = 1;
+    for (let iter = 0; iter < 20; iter++) {
+      const mid = (lo + hi) / 2;
+      const subSeg = splitBezier(seg, mid)[0];
+      const subLen = bezierLength(subSeg, scaleX, scaleY);
+      if (subLen < targetLen) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  // Split a cubic Bezier segment at parameter t using de Casteljau algorithm
+  // Returns [firstHalf, secondHalf] as segment objects
+  function splitBezier(seg, t) {
+    const u = 1 - t;
+    // Level 1
+    const a1x = u*seg.p0.x + t*seg.cp1.x, a1y = u*seg.p0.y + t*seg.cp1.y;
+    const a2x = u*seg.cp1.x + t*seg.cp2.x, a2y = u*seg.cp1.y + t*seg.cp2.y;
+    const a3x = u*seg.cp2.x + t*seg.p3.x, a3y = u*seg.cp2.y + t*seg.p3.y;
+    // Level 2
+    const b1x = u*a1x + t*a2x, b1y = u*a1y + t*a2y;
+    const b2x = u*a2x + t*a3x, b2y = u*a2y + t*a3y;
+    // Level 3 (split point)
+    const cx = u*b1x + t*b2x, cy = u*b1y + t*b2y;
+    return [
+      {p0: {...seg.p0}, cp1: {x:a1x,y:a1y}, cp2: {x:b1x,y:b1y}, p3: {x:cx,y:cy}},
+      {p0: {x:cx,y:cy}, cp1: {x:b2x,y:b2y}, cp2: {x:a3x,y:a3y}, p3: {...seg.p3}}
+    ];
+  }
+
   function renderPathCommand(ci, dc, css, dashArray) {
     if (dc.path._singlePoint) {
       const p = dc.path._singlePoint;
@@ -7156,7 +7270,40 @@ function renderSVG(result, opts) {
     }
     if (dc.path.segs.length === 0) return;
 
-    const d = pathToD(dc.path, minX, maxY, pxPerUnitX, pxPerUnitY);
+    // Shorten path at arrow end(s) so the stroke doesn't extend under the arrowhead
+    let renderPath = dc.path;
+    if (dc.arrow && dc.cmd === 'draw') {
+      const style = dc.arrow.style;
+      const baseSize = dc.arrow.size || 6;
+      let arrowLen = baseSize * bpCSSPixel;
+      // Clamp arrow length to 70% of total path length (same as generateArrowHead)
+      let totalLen = 0;
+      for (const s of dc.path.segs) {
+        const dx = (s.p3.x - s.p0.x) * pxPerUnitX, dy = (s.p3.y - s.p0.y) * pxPerUnitY;
+        totalLen += Math.sqrt(dx*dx + dy*dy);
+      }
+      if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
+
+      const shortenEnd = (style === 'Arrow' || style === 'EndArrow' ||
+        style === 'ArcArrow' || style === 'EndArcArrow' || style === 'Arrows' || style === 'ArcArrows');
+      const shortenBegin = (style === 'BeginArrow' || style === 'BeginArcArrow' ||
+        style === 'Arrows' || style === 'ArcArrows');
+
+      if (shortenEnd || shortenBegin) {
+        let segs = dc.path.segs.map(s => ({p0:{...s.p0}, cp1:{...s.cp1}, cp2:{...s.cp2}, p3:{...s.p3}}));
+
+        if (shortenEnd && segs.length > 0) {
+          segs = shortenPathEnd(segs, arrowLen, pxPerUnitX, pxPerUnitY);
+        }
+        if (shortenBegin && segs.length > 0) {
+          segs = shortenPathBegin(segs, arrowLen, pxPerUnitX, pxPerUnitY);
+        }
+
+        renderPath = {segs, closed: dc.path.closed, _tag: dc.path._tag};
+      }
+    }
+
+    const d = pathToD(renderPath, minX, maxY, pxPerUnitX, pxPerUnitY);
     let fill = 'none', stroke = 'none', strokeW = 0;
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
