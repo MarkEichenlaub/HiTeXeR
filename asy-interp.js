@@ -7139,6 +7139,52 @@ function renderSVG(result, opts) {
       }
     }
 
+    // Label/text overshoot
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'label' && dc.cmd !== 'dot') continue;
+      // dot commands without text don't produce labels
+      if (dc.cmd === 'dot' && !dc.text) continue;
+
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
+      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+      const fontSizeSVG = fontSize * bpCSSPixel;
+      const cleanText = stripLaTeX(dc.text || '');
+      let cleanLen, numLines;
+      if (cleanText.includes('\n')) {
+        const clines = cleanText.split('\n').filter(l => l.length > 0);
+        cleanLen = Math.max(...clines.map(l => l.length)) || 1;
+        numLines = clines.length;
+      } else {
+        cleanLen = cleanText.length || 1;
+        numLines = 1;
+      }
+      const W = cleanLen * fontSizeSVG * 0.52;
+      const H = fontSizeSVG * numLines;
+
+      // Compute offset from alignment (same logic as label rendering)
+      let dx = 0, dy = 0;
+      if (dc.align) {
+        const ax = dc.align.x, ay = dc.align.y;
+        const margin = 0.25 * fontSizeSVG;
+        const ax_n = ax * 0.5, ay_n = ay * 0.5;
+        dx = ax_n * W + ax * margin;
+        dy = -(ay_n * H + ay * margin);
+      }
+
+      // Text bounding box in viewBox coords (text-anchor="middle")
+      const cx = sx + dx, cy = sy + dy;
+      const left = cx - W / 2;
+      const right = cx + W / 2;
+      const top = cy - H / 2;
+      const bottom = cy + H / 2;
+
+      padL = Math.max(padL, -left);
+      padR = Math.max(padR, right - viewW);
+      padT = Math.max(padT, -top);
+      padB = Math.max(padB, bottom - viewH);
+    }
+
     // Apply padding: shift origin and expand viewBox/display dimensions
     if (padL > 0 || padR > 0 || padT > 0 || padB > 0) {
       // Shift minX left and maxY up in user coords so rendering coordinates adjust
