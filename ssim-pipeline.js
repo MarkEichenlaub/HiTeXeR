@@ -792,7 +792,14 @@ document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
 </script></body></html>`;
 
       const fname = page === 0 ? 'index.html' : `page-${pageNum}.html`;
-      fs.writeFileSync(path.join(OUT_DIR, fname), html);
+      const fpath = path.join(OUT_DIR, fname);
+      for (let _retry = 0; _retry < 5; _retry++) {
+        try { fs.writeFileSync(fpath, html); break; }
+        catch(e) {
+          if (_retry === 4) { console.warn(`  Warning: failed to write ${fname} after 5 retries: ${e.code}`); }
+          else { const t=Date.now(); while(Date.now()-t<200*(_retry+1)); }
+        }
+      }
     }
 
     // page-1.html alias

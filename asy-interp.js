@@ -2619,8 +2619,11 @@ function createInterpreter() {
     if (mod.includes('geometry')) {
       installGeometryPackage(env);
     }
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('palette') || mod.includes('trembling')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    }
+    if (mod.includes('contour')) {
+      installContourPackage(env);
     }
     if (mod.includes('trigmacros')) {
       installGraphPackage(env); // TrigMacros depends on graph
@@ -3553,11 +3556,13 @@ function createInterpreter() {
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
+          if ('s' in a && isString(a.s)) text = a.s;
           if ('position' in a) position = a.position;
           if ('align' in a) {
             if (isPair(a.align)) align = a.align;
             else if (typeof a.align === 'number') align = makePair(a.align, 0);
           }
+          if ('p' in a && isPen(a.p)) labelPen = labelPen ? mergePens(labelPen, a.p) : a.p;
         }
         else if (typeof a === 'number' && position === null) position = a;
       }
@@ -3768,6 +3773,146 @@ function createInterpreter() {
   // ============================================================
 
   // ============================================================
+  // Contour Package — marching squares for implicit curves
+  // ============================================================
+
+  let contourPackageInstalled = false;
+
+  function installContourPackage(env) {
+    if (contourPackageInstalled) return;
+    contourPackageInstalled = true;
+
+    // contour(f, a, b, levels, n=100)
+    // f: function(real,real)->real
+    // a: pair (lower-left corner)
+    // b: pair (upper-right corner)
+    // levels: real[] — contour values to trace
+    // n: int — grid resolution (default 100)
+    // Returns: guide[] (array of paths)
+    env.set('contour', (...args) => {
+      let func = null;
+      let a = null, b = null;
+      let levels = null;
+      let n = 100;
+      const pairs = [];
+      for (const arg of args) {
+        if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
+          if (!func) func = arg;
+          continue;
+        }
+        if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
+        if (isArray(arg)) { levels = arg.map(v => toNumber(v)); continue; }
+        if (typeof arg === 'number') { n = Math.round(arg); continue; }
+      }
+      if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
+      if (!func || !a || !b || !levels || levels.length === 0) return [];
+
+      const result = [];
+      const nx = n, ny = n;
+      const dx = (b.x - a.x) / nx;
+      const dy = (b.y - a.y) / ny;
+
+      // Evaluate f on grid
+      const grid = [];
+      for (let i = 0; i <= nx; i++) {
+        grid[i] = [];
+        for (let j = 0; j <= ny; j++) {
+          const x = a.x + i * dx;
+          const y = a.y + j * dy;
+          try {
+            const v = typeof func === 'function' ? func(x, y) : toNumber(callUserFuncValues(func, [x, y]));
+            grid[i][j] = isFinite(v) ? v : 0;
+          } catch(e) { grid[i][j] = 0; }
+        }
+      }
+
+      // Marching squares for each level
+      for (const level of levels) {
+        // Collect edge intersection segments
+        const segments = [];
+        for (let i = 0; i < nx; i++) {
+          for (let j = 0; j < ny; j++) {
+            const v00 = grid[i][j] - level;
+            const v10 = grid[i+1][j] - level;
+            const v01 = grid[i][j+1] - level;
+            const v11 = grid[i+1][j+1] - level;
+            const x0 = a.x + i * dx;
+            const x1 = a.x + (i+1) * dx;
+            const y0 = a.y + j * dy;
+            const y1 = a.y + (j+1) * dy;
+
+            // Classify corners: positive=1, negative=0
+            const c = ((v00>0?1:0)<<0) | ((v10>0?1:0)<<1) | ((v01>0?1:0)<<2) | ((v11>0?1:0)<<3);
+            if (c === 0 || c === 15) continue;
+
+            // Interpolation helper
+            const lerp = (va, vb, pa, pb) => {
+              const t = Math.abs(va) < 1e-30 && Math.abs(vb) < 1e-30 ? 0.5 : va / (va - vb);
+              return {x: pa.x + t * (pb.x - pa.x), y: pa.y + t * (pb.y - pa.y)};
+            };
+            const p0 = {x:x0,y:y0}, p1 = {x:x1,y:y0}, p2 = {x:x0,y:y1}, p3 = {x:x1,y:y1};
+            // Edge midpoints where contour crosses
+            const eB = lerp(v00, v10, p0, p1); // bottom
+            const eR = lerp(v10, v11, p1, p3); // right
+            const eT = lerp(v01, v11, p2, p3); // top
+            const eL = lerp(v00, v01, p0, p2); // left
+
+            const addSeg = (a, b) => segments.push([a, b]);
+            // Standard marching squares cases
+            switch(c) {
+              case 1: case 14: addSeg(eB, eL); break;
+              case 2: case 13: addSeg(eB, eR); break;
+              case 3: case 12: addSeg(eL, eR); break;
+              case 4: case 11: addSeg(eL, eT); break;
+              case 5: case 10: addSeg(eB, eT); break; // ambiguous, simplified
+              case 6: case 9: addSeg(eB, eL); addSeg(eT, eR); break; // saddle, simplified
+              case 7: case 8: addSeg(eT, eR); break;
+            }
+          }
+        }
+
+        // Chain segments into paths
+        const eps = dx * 0.01 + dy * 0.01;
+        const used = new Array(segments.length).fill(false);
+        const close = (a, b) => Math.abs(a.x-b.x) < eps && Math.abs(a.y-b.y) < eps;
+
+        for (let si = 0; si < segments.length; si++) {
+          if (used[si]) continue;
+          used[si] = true;
+          const chain = [segments[si][0], segments[si][1]];
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (let sj = 0; sj < segments.length; sj++) {
+              if (used[sj]) continue;
+              const s = segments[sj];
+              if (close(s[0], chain[chain.length-1])) {
+                chain.push(s[1]); used[sj] = true; changed = true;
+              } else if (close(s[1], chain[chain.length-1])) {
+                chain.push(s[0]); used[sj] = true; changed = true;
+              } else if (close(s[1], chain[0])) {
+                chain.unshift(s[0]); used[sj] = true; changed = true;
+              } else if (close(s[0], chain[0])) {
+                chain.unshift(s[1]); used[sj] = true; changed = true;
+              }
+            }
+          }
+          // Build path from chain
+          if (chain.length >= 2) {
+            const segs = [];
+            for (let k = 0; k < chain.length - 1; k++) {
+              segs.push(lineSegment(makePair(chain[k].x, chain[k].y), makePair(chain[k+1].x, chain[k+1].y)));
+            }
+            const closed = close(chain[0], chain[chain.length-1]);
+            result.push(makePath(segs, closed));
+          }
+        }
+      }
+      return result;
+    });
+  }
+
+  // ============================================================
   // Slopefield Package
   // ============================================================
 
@@ -3794,17 +3939,17 @@ function createInterpreter() {
 
       for (const arg of args) {
         if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
-          if (!func) func = arg;
+          if (!func) { func = arg; }
+          else {
+            // Second function — likely an arrow constructor like Arrow; call it to produce arrow object
+            try { arrow = invokeFunc(arg, []); } catch(e) {}
+          }
           continue;
         }
         if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
         if (isPen(arg)) { pen = arg; continue; }
-        if (arg && (arg._tag === 'arrow' || arg === null)) { arrow = arg; continue; }
+        if (arg && arg._tag === 'arrow') { arrow = arg; continue; }
         if (typeof arg === 'number') { n = Math.round(arg); continue; }
-        // Arrow constants
-        if (arg === env.get('Arrow') || arg === env.get('MidArrow') || arg === env.get('BeginArrow') || arg === env.get('EndArrow')) {
-          arrow = arg; continue;
-        }
       }
 
       if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
@@ -6278,6 +6423,19 @@ function createInterpreter() {
       target.commands.push({cmd:'marker', pos, markerPath, pen:markerPen, line: args._line || 0});
       return;
     }
+    // Handle draw(path[], pen) — array of paths (e.g. from contour())
+    if (args.length >= 1 && isArray(args[0]) && args[0].length > 0 && isPath(args[0][0])) {
+      const paths = args[0];
+      let p = null;
+      for (let i = 1; i < args.length; i++) {
+        if (isPen(args[i])) p = p ? mergePens(p, args[i]) : args[i];
+      }
+      if (!p) p = clonePen(defaultPen);
+      for (const path of paths) {
+        target.commands.push({cmd, path, pen:clonePen(p), arrow:null, line: args._line || 0});
+      }
+      return;
+    }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
     let labelText = null, labelAlign = null, labelPosition = null;
     let penCount = 0;
@@ -8182,6 +8340,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\sec':'sec','\\csc':'csc','\\cot':'cot','\\arcsin':'arcsin',
     '\\arccos':'arccos','\\arctan':'arctan','\\exp':'exp','\\min':'min','\\max':'max',
     '\\left':'','\\right':'',
+    '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
@@ -8374,6 +8533,7 @@ function stripLaTeX(text) {
     '\\ell':'ℓ', '\\prime':'′',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
     '\\left':'','\\right':'',
+    '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
   // Sort by key length descending so longer commands match first (e.g. \left before \le)
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
@@ -8649,10 +8809,8 @@ function canInterpret(code) {
   if (/\bstruct\b/.test(stripped)) return false;
   // 3D wireframe is supported; only block surface-heavy code
   if (/\bsurface\s*\(/.test(stripped) || /\bsurface\s+\w/.test(stripped)) return false;
-  if (/\bimport\s+contour\b/.test(stripped)) return false;
   if (/\bimport\s+flowchart\b/.test(stripped)) return false;
   if (/\bimport\s+animation\b/.test(stripped)) return false;
-  if (/\bimport\s+trembling\b/.test(stripped)) return false;
   if (/\bimport\s+palette\b/.test(stripped)) return false;
   if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
   if (/\bsettings\b/.test(stripped)) return false;
