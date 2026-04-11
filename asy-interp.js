@@ -1897,6 +1897,8 @@ function createInterpreter() {
       const t = existing ? composeTransforms(existing, left) : left;
       return Object.assign({}, right, {transform: t});
     }
+    // Transform * surface → surface stub (no-op for wireframe rendering)
+    if (isTransform(left) && right && right._tag === 'surface') return right;
     // Transform * string → Label with transform (e.g. scale(0.7)*"text", rotate(90)*"text")
     if (isTransform(left) && isString(right)) return {_tag:'label', text: right, transform: left};
     // Transform * label → label with composed transform
@@ -2646,6 +2648,9 @@ function createInterpreter() {
   // ============================================================
 
   function installStdlib(env) {
+    // settings stub — allows settings.prc=false, settings.outformat etc. without error
+    env.set('settings', {prc:true, outformat:'', render:0, tex:'pdflatex'});
+
     // Direction constants
     const dirs = {
       N:makePair(0,1), S:makePair(0,-1), E:makePair(1,0), W:makePair(-1,0),
@@ -3264,6 +3269,7 @@ function createInterpreter() {
       // linetype("dash pattern") or linetype(real[])
       let pattern = null;
       if (args.length >= 1 && isString(args[0])) pattern = args[0];
+      else if (args.length >= 1 && isArray(args[0])) pattern = args[0].map(n => toNumber(n)).join(' ');
       return makePen({linestyle: pattern || 'dashed'});
     });
     env.set('linecap', (n) => {
@@ -6345,6 +6351,12 @@ function createInterpreter() {
       return makeTransform(0, s, 0, 0, 0, s);
     });
 
+    // scale3(s) — uniform 3D scale (Asymptote built-in from three module)
+    env.set('scale3', (...args) => {
+      const s = toNumber(args[0]);
+      return {_tag:'transform', a:0, b:s, c:0, d:0, e:0, f:s, _scale3d:{x:s,y:s,z:s}};
+    });
+
     // Sin/Cos (degree-based trig)
     env.set('Sin', (deg) => Math.sin(toNumber(deg) * Math.PI / 180));
     env.set('Cos', (deg) => Math.cos(toNumber(deg) * Math.PI / 180));
@@ -6436,6 +6448,8 @@ function createInterpreter() {
       }
       return;
     }
+    // Skip draw calls on surfaces (no wireframe rendering for solid surfaces)
+    if (args.some(a => a && a._tag === 'surface')) return;
     let pathArg = null, pen = null, drawPen = null, arrow = null;
     let labelText = null, labelAlign = null, labelPosition = null;
     let penCount = 0;
@@ -8834,7 +8848,8 @@ function canInterpret(code) {
   if (/\bimport\s+animation\b/.test(stripped)) return false;
   if (/\bimport\s+palette\b/.test(stripped)) return false;
   if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
-  if (/\bsettings\b/.test(stripped)) return false;
+  // settings.prc, settings.outformat etc. — harmlessly ignore in interpreter
+  // Only block truly unsupported settings usage (none currently)
   if (/\btexpath\b/.test(stripped)) return false;
   if (/\bshipout\b/.test(stripped)) return false;
   // graphic() is now supported via pre-fetched image cache
