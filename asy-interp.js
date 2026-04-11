@@ -3305,6 +3305,7 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
       if (pos.length >= 1) sizeW = toNumber(pos[0]);
       if (pos.length >= 2) sizeH = toNumber(pos[1]);
+      else if (pos.length === 1) sizeH = sizeW;  // Asymptote default: size(x) means size(x,x)
       // 3rd positional arg is keepAspect (e.g. size(w, h, IgnoreAspect))
       if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
     });
@@ -4272,9 +4273,24 @@ function createInterpreter() {
       const noZero = ticks.noZero || false;
       const isExtend = extent && (extent === 'BottomTop' || extent === 'LeftRight' ||
                                    extent === 'TopBottom' || extent === 'RightLeft');
-      // Tick sizes in world coordinates
-      // Default major tick = 0.05 world units, minor = 0.025
-      let majorSize = ticks.size > 0 ? ticks.size : 0.05;
+      // Tick sizes: use the cross-axis range to determine a reasonable tick size.
+      // Ticks extend perpendicular to the axis, so the size should be proportional
+      // to the perpendicular axis extent, not the along-axis extent.
+      // This prevents tick marks from dominating the bbox when x and y scales differ.
+      const _isXAxis = (axisDir === 'x');
+      let perpAxisRange;
+      if (_isXAxis) {
+        // X-axis ticks extend in y → use y range
+        perpAxisRange = (_axisLimits.ymax !== null && _axisLimits.ymin !== null)
+          ? Math.abs(_axisLimits.ymax - _axisLimits.ymin) : Math.abs(max - min);
+      } else {
+        // Y-axis ticks extend in x → use x range
+        perpAxisRange = (_axisLimits.xmax !== null && _axisLimits.xmin !== null)
+          ? Math.abs(_axisLimits.xmax - _axisLimits.xmin) : Math.abs(max - min);
+      }
+      if (!perpAxisRange || perpAxisRange === 0) perpAxisRange = Math.abs(max - min) || 1;
+      const defaultTickSize = perpAxisRange * 0.015;
+      let majorSize = ticks.sizeExplicit ? ticks.size : defaultTickSize;
       let minorSize = majorSize * 0.5;
 
       // Compute major tick positions
@@ -4346,7 +4362,7 @@ function createInterpreter() {
         const tickPath = makePath([lineSegment(p0, p1)], false);
         // Extended gridlines (isExtend=true) go into background layer (above:-1) so they
         // always render below user-drawn paths regardless of source order.
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0)});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0), _isTickMark: !isExtend});
       }
 
       // Draw major ticks
@@ -7033,6 +7049,9 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'dot') {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
+      // Skip empty labels — they are no-ops in real Asymptote
+      const labelText = dc.text || '';
+      if (labelText.replace(/[\s{}$]/g, '').length === 0) continue;
       expandBBox(dc.pos.x, dc.pos.y);
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
@@ -7055,6 +7074,9 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'fill' && dc.pen && dc.pen.r >= 0.99 && dc.pen.g >= 0.99 && dc.pen.b >= 0.99) {
         continue;
       }
+      // Tick marks have fixed physical size — they should not inflate the geometry bbox.
+      // In real Asymptote, tick sizes are in bp (physical points), not user coordinates.
+      if (dc._isTickMark) continue;
       if (dc.path._singlePoint) {
         expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
       }
@@ -7805,6 +7827,9 @@ function renderSVG(result, opts) {
   // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
     if (dc.cmd === 'label') {
+      // Skip empty labels
+      const labelText = dc.text || '';
+      if (labelText.replace(/[\s{}$]/g, '').length === 0) continue;
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
       const fontSize = (dc.pen.fontsize || 10);

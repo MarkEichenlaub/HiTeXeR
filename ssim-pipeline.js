@@ -434,7 +434,15 @@ async function main() {
       }
 
       try {
-        const svgStr = fs.readFileSync(path.join(SVG_DIR, sf), 'utf8');
+        let svgStr = fs.readFileSync(path.join(SVG_DIR, sf), 'utf8');
+        // Use intrinsic dimensions (before container scaling) so the rasterized
+        // PNG matches Asymptote's output size rather than the 800x600 display container.
+        const iw = svgStr.match(/data-intrinsic-w="([^"]+)"/);
+        const ih = svgStr.match(/data-intrinsic-h="([^"]+)"/);
+        if (iw && ih) {
+          svgStr = svgStr.replace(/(<svg[^>]*)\bwidth="[^"]*"/, `$1width="${iw[1]}"`);
+          svgStr = svgStr.replace(/(<svg[^>]*)\bheight="[^"]*"/, `$1height="${ih[1]}"`);
+        }
         const svgExpanded = expandViewBox(svgStr);
         const svgWithFonts = embedFontsInSVG(svgExpanded, fontCSS);
         const svgBuf = Buffer.from(svgWithFonts, 'utf8');
