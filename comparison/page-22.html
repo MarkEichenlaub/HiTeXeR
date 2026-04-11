@@ -45,56 +45,396 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 22 of 119</p>
 <div class="stats">
 <b style="background:#2d8a4e">202 Good</b>
-<b style="background:#c0820a">1293 Fair</b>
-<b style="background:#c0392b">10400 Poor</b>
+<b style="background:#c0820a">1295 Fair</b>
+<b style="background:#c0392b">10398 Poor</b>
 <b style="background:#999">1 Err</b>
 </div>
 <div class="pag"><a href="page-21.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-15.html">15</a><a href="page-16.html">16</a><a href="page-17.html">17</a><a href="page-18.html">18</a><a href="page-19.html">19</a><a href="page-20.html">20</a><a href="page-21.html">21</a><span class="cur">22</span><a href="page-23.html">23</a><a href="page-24.html">24</a><a href="page-25.html">25</a><a href="page-26.html">26</a><a href="page-27.html">27</a><a href="page-28.html">28</a><a href="page-29.html">29</a><span class="dots">…</span><a href="page-119.html">119</a><a href="page-23.html">Next &raquo;</a></div>
 
 <div class="card" id="pair-2101">
   <div class="card-header">
-    <h2>#2101 &mdash; c36_L10_script_14.asy</h2>
+    <h2>#2101 &mdash; c539_L11_p52836_solutiontext_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5492 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04599.png"></div>
+      <div class="img-wrap"><img src="asy_pngs/08747.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04599.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08747.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>pair D=(0,0),A=(0,4), B=(8,4),C=(8,0), F = (0,2), EE = (4,4), G = (8/3,8/3);
-dot(A^^B^^C^^D^^EE^^F^^G^^(4,2));
-label(&quot;$A$&quot;,A,NW);
-label(&quot;$B$&quot;,B,NE);
-label(&quot;$C$&quot;,C,SE);
-label(&quot;$D$&quot;,D,SW);
-label(&quot;$E$&quot;,EE,N);
-label(&quot;$F$&quot;,F,W);
-label(&quot;$G$&quot;,G,S);
-draw(D--A--B--C--D^^D--EE^^F--B^^B--D);
-draw(A--(4,2),dotted);</code></div>
+      <div class="code-box"><code>//https://artofproblemsolving.com/texer/bpppxvsy
+
+size(12cm, 8cm);
+
+//============ MAIN CONTROLS ============
+int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
+bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
+                             // false = both ends are nodes (like fixed string)
+//=======================================
+
+//========== ADJUSTABLE PARAMETERS ==========
+// Dot diagram settings
+real base_density = 0.3;
+real section_width = 1.0;
+real section_height = 3.0;
+int num_sections = 15;
+bool show_dot_sections = true;
+
+// Amplitude overlay settings
+bool show_amplitude_curve = true;
+real amplitude_offset = 0.8;      // Gap between dots and curve baseline
+real amplitude_scale = 1.2;       // Height of the envelope peaks
+
+// Inner loop settings
+real inner_amplitude_1 = 0.7;
+real inner_amplitude_2 = 0.35;
+
+// Label settings
+bool show_labels = false;
+real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
+real node_dot_size = 5;           // Size of the node marker dots
+//===========================================
+
+// Dot appearance
+real dot_size = 1.5;
+pen dot_color = rgb(100/255, 143/255, 255/255);
+
+// Calculated values
+real total_width = num_sections * section_width;
+real start_x = -total_width / 2;
+
+// Amplitude baseline
+real baseline_y = 0;
+
+// Wave factor: determines the spatial frequency of the standing wave
+// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
+// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
+real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
+
+// ------------------------------------------------------
+// DENSITY FUNCTION
+// ------------------------------------------------------
+real density_at(real x_normalized) {
+    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
+}
+
+// ------------------------------------------------------
+// DRAW DOT SECTIONS
+// ------------------------------------------------------
+if(show_dot_sections) {
+    for(int i = 0; i &lt; num_sections; ++i) {
+        real left_x = start_x + i * section_width;
+        real right_x = left_x + section_width;
+        real bottom_y = -section_height / 2;
+        real top_y = section_height / 2;
+
+if(i &lt; num_sections - 1) {
+    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
+    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
+}
+
+if(i == 0) {
+    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
+}
+
+        real center_normalized = (i + 0.5) / num_sections;
+        real current_density = base_density * density_at(center_normalized);
+
+        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
+        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
+
+        for(int row = 0; row &lt; num_rows; ++row) {
+            for(int col = 0; col &lt; dots_per_row; ++col) {
+                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
+                             + (unitrand() - 0.5) * 0.1;
+                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
+                             + (unitrand() - 0.5) * 0.1;
+
+                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
+                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
+                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------
+// AMPLITUDE ENVELOPE WITH LOOPS
+// ------------------------------------------------------
+if(show_amplitude_curve) {
+    int num_points = 200;
+
+    path build_envelope(real amp_fraction, int sign) {
+        path p;
+        for(int i = 0; i &lt;= num_points; ++i) {
+            real x_norm = i * 1.0 / num_points;
+            real x = start_x + x_norm * total_width;
+            real y = baseline_y + sign * amp_fraction * amplitude_scale 
+                     * abs(sin(wave_factor * pi * x_norm));
+
+            if(i == 0) {
+                p = (x, y);
+            } else {
+                p = p -- (x, y);
+            }
+        }
+        return p;
+    }
+
+    // Baseline (equilibrium)
+    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
+         gray + linewidth(0.5pt));
+
+    // Outer envelope (solid)
+    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
+    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
+
+    // Inner loops (dashed)
+    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
+}
+
+// ------------------------------------------------------
+// NODE AND ANTINODE MARKERS
+// ------------------------------------------------------
+if(show_labels) {
+    // Calculate envelope extents for antinode lines
+    real envelope_top = baseline_y + amplitude_scale;
+    real envelope_bottom = baseline_y - amplitude_scale;
+
+    // Number of nodes differs between modes:
+    // - Normal mode: num_antinodes + 1 nodes (at both ends)
+    // - Half-cycle mode: num_antinodes nodes (only at left end)
+    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
+
+    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
+    // Position formula: k / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_nodes; ++k) {
+        real node_x_norm = k / wave_factor;
+        real node_x = start_x + node_x_norm * total_width;
+
+        // Dot aligned with amplitude diagram baseline
+        dot((node_x, baseline_y), black + linewidth(node_dot_size));
+
+        // &quot;N&quot; label below everything
+        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
+    }
+
+    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
+    // Position formula: (k + 0.5) / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_antinodes; ++k) {
+        real antinode_x_norm = (k + 0.5) / wave_factor;
+        real antinode_x = start_x + antinode_x_norm * total_width;
+
+        // Dashed line extends from below dot diagram through amplitude envelope
+        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
+             dashed + linewidth(1pt));
+
+        // &quot;A&quot; label below everything
+        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
+    }
+}
+draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
+draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
+draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
+label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
+label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
+label(&quot;$\ell\;\mathrm{cm}$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Apair%20D%3D(0%2C0)%2CA%3D(0%2C4)%2C%20B%3D(8%2C4)%2CC%3D(8%2C0)%2C%20F%20%3D%20(0%2C2)%2C%20EE%20%3D%20(4%2C4)%2C%20G%20%3D%20(8%2F3%2C8%2F3)%3B%0D%0D%0Adot(A%5E%5EB%5E%5EC%5E%5ED%5E%5EEE%5E%5EF%5E%5EG%5E%5E(4%2C2))%3B%0D%0D%0Alabel(%22%24A%24%22%2CA%2CNW)%3B%0D%0D%0Alabel(%22%24B%24%22%2CB%2CNE)%3B%0D%0D%0Alabel(%22%24C%24%22%2CC%2CSE)%3B%0D%0D%0Alabel(%22%24D%24%22%2CD%2CSW)%3B%0D%0D%0Alabel(%22%24E%24%22%2CEE%2CN)%3B%0D%0D%0Alabel(%22%24F%24%22%2CF%2CW)%3B%0D%0D%0Alabel(%22%24G%24%22%2CG%2CS)%3B%0D%0D%0Adraw(D--A--B--C--D%5E%5ED--EE%5E%5EF--B%5E%5EB--D)%3B%0D%0D%0Adraw(A--(4%2C2)%2Cdotted)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fbpppxvsy%0D%0A%0D%0Asize(12cm%2C%208cm)%3B%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20MAIN%20CONTROLS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aint%20num_antinodes%20%3D%201%3B%20%20%20%20%20%20%20%2F%2F%20SET%20THIS%3A%201%2C%202%2C%203%2C%204%2C%20or%205%0D%0Abool%20half_cycle_mode%20%3D%20true%3B%20%2F%2F%20true%20%3D%20left%20node%2C%20right%20antinode%20(like%20closed%20pipe)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20false%20%3D%20both%20ends%20are%20nodes%20(like%20fixed%20string)%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20ADJUSTABLE%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Dot%20diagram%20settings%0D%0Areal%20base_density%20%3D%200.3%3B%0D%0Areal%20section_width%20%3D%201.0%3B%0D%0Areal%20section_height%20%3D%203.0%3B%0D%0Aint%20num_sections%20%3D%2015%3B%0D%0Abool%20show_dot_sections%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20overlay%20settings%0D%0Abool%20show_amplitude_curve%20%3D%20true%3B%0D%0Areal%20amplitude_offset%20%3D%200.8%3B%20%20%20%20%20%20%2F%2F%20Gap%20between%20dots%20and%20curve%20baseline%0D%0Areal%20amplitude_scale%20%3D%201.2%3B%20%20%20%20%20%20%20%2F%2F%20Height%20of%20the%20envelope%20peaks%0D%0A%0D%0A%2F%2F%20Inner%20loop%20settings%0D%0Areal%20inner_amplitude_1%20%3D%200.7%3B%0D%0Areal%20inner_amplitude_2%20%3D%200.35%3B%0D%0A%0D%0A%2F%2F%20Label%20settings%0D%0Abool%20show_labels%20%3D%20false%3B%0D%0Areal%20label_y%20%3D%20-2.3%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Y%20position%20for%20%22N%22%20and%20%22A%22%20text%20labels%0D%0Areal%20node_dot_size%20%3D%205%3B%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Size%20of%20the%20node%20marker%20dots%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Dot%20appearance%0D%0Areal%20dot_size%20%3D%201.5%3B%0D%0Apen%20dot_color%20%3D%20rgb(100%2F255%2C%20143%2F255%2C%20255%2F255)%3B%0D%0A%0D%0A%2F%2F%20Calculated%20values%0D%0Areal%20total_width%20%3D%20num_sections%20*%20section_width%3B%0D%0Areal%20start_x%20%3D%20-total_width%20%2F%202%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20baseline%0D%0Areal%20baseline_y%20%3D%200%3B%0D%0A%0D%0A%2F%2F%20Wave%20factor%3A%20determines%20the%20spatial%20frequency%20of%20the%20standing%20wave%0D%0A%2F%2F%20-%20Normal%20mode%3A%20wave_factor%20%3D%20num_antinodes%20(nodes%20at%20both%20ends)%0D%0A%2F%2F%20-%20Half-cycle%20mode%3A%20wave_factor%20%3D%20num_antinodes%20-%200.5%20(node%20at%20left%2C%20antinode%20at%20right)%0D%0Areal%20wave_factor%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20-%200.5%20%3A%20num_antinodes%3B%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DENSITY%20FUNCTION%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20density_at(real%20x_normalized)%20%7B%0D%0A%20%20%20%20return%201.0%20%2B%20abs(sin(wave_factor%20*%20pi%20*%20x_normalized))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DRAW%20DOT%20SECTIONS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_dot_sections)%20%7B%0D%0A%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%20num_sections%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20left_x%20%3D%20start_x%20%2B%20i%20*%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20right_x%20%3D%20left_x%20%2B%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20bottom_y%20%3D%20-section_height%20%2F%202%3B%0D%0A%20%20%20%20%20%20%20%20real%20top_y%20%3D%20section_height%20%2F%202%3B%0D%0A%0D%0Aif(i%20%3C%20num_sections%20-%201)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(right_x%2C%20bottom_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%2F%2F%20bottom%0D%0A%20%20%20%20draw((left_x%2C%20top_y)--(right_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%20%20%20%20%20%20%2F%2F%20top%0D%0A%7D%0D%0A%0D%0Aif(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(left_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%20%20%20%20%20%20%20%20real%20center_normalized%20%3D%20(i%20%2B%200.5)%20%2F%20num_sections%3B%0D%0A%20%20%20%20%20%20%20%20real%20current_density%20%3D%20base_density%20*%20density_at(center_normalized)%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20int%20dots_per_row%20%3D%20floor(section_width%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%20%20%20%20%20%20%20%20int%20num_rows%20%3D%20floor(section_height%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20num_rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20dots_per_row%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20x_pos%20%3D%20left_x%20%2B%20(col%20%2B%200.5)%20*%20section_width%20%2F%20dots_per_row%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20y_pos%20%3D%20bottom_y%20%2B%20(row%20%2B%200.5)%20*%20section_height%20%2F%20num_rows%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20if(x_pos%20%3E%20left_x%20%2B%200.05%20%26%26%20x_pos%20%3C%20right_x%20-%200.05%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y_pos%20%3E%20bottom_y%20%2B%200.05%20%26%26%20y_pos%20%3C%20top_y%20-%200.05)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x_pos%2C%20y_pos)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20AMPLITUDE%20ENVELOPE%20WITH%20LOOPS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_amplitude_curve)%20%7B%0D%0A%20%20%20%20int%20num_points%20%3D%20200%3B%0D%0A%0D%0A%20%20%20%20path%20build_envelope(real%20amp_fraction%2C%20int%20sign)%20%7B%0D%0A%20%20%20%20%20%20%20%20path%20p%3B%0D%0A%20%20%20%20%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%3D%20num_points%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x_norm%20%3D%20i%20*%201.0%20%2F%20num_points%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20start_x%20%2B%20x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20baseline_y%20%2B%20sign%20*%20amp_fraction%20*%20amplitude_scale%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20*%20abs(sin(wave_factor%20*%20pi%20*%20x_norm))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20p%20--%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20return%20p%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20Baseline%20(equilibrium)%0D%0A%20%20%20%20draw((start_x%2C%20baseline_y)%20--%20(start_x%20%2B%20total_width%2C%20baseline_y)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20gray%20%2B%20linewidth(0.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Outer%20envelope%20(solid)%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20%2B1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20-1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Inner%20loops%20(dashed)%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20NODE%20AND%20ANTINODE%20MARKERS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_labels)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20envelope%20extents%20for%20antinode%20lines%0D%0A%20%20%20%20real%20envelope_top%20%3D%20baseline_y%20%2B%20amplitude_scale%3B%0D%0A%20%20%20%20real%20envelope_bottom%20%3D%20baseline_y%20-%20amplitude_scale%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Number%20of%20nodes%20differs%20between%20modes%3A%0D%0A%20%20%20%20%2F%2F%20-%20Normal%20mode%3A%20num_antinodes%20%2B%201%20nodes%20(at%20both%20ends)%0D%0A%20%20%20%20%2F%2F%20-%20Half-cycle%20mode%3A%20num_antinodes%20nodes%20(only%20at%20left%20end)%0D%0A%20%20%20%20int%20num_nodes%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20%3A%20num_antinodes%20%2B%201%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20NODES%3A%20dots%20on%20the%20amplitude%20baseline%2C%20%22N%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20k%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_nodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20node_x_norm%20%3D%20k%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20node_x%20%3D%20start_x%20%2B%20node_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dot%20aligned%20with%20amplitude%20diagram%20baseline%0D%0A%20%20%20%20%20%20%20%20dot((node_x%2C%20baseline_y)%2C%20black%20%2B%20linewidth(node_dot_size))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22N%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22N%22%2C%20(node_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20ANTINODES%3A%20dashed%20lines%20through%20amplitude%20envelope%2C%20%22A%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20(k%20%2B%200.5)%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_antinodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x_norm%20%3D%20(k%20%2B%200.5)%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x%20%3D%20start_x%20%2B%20antinode_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dashed%20line%20extends%20from%20below%20dot%20diagram%20through%20amplitude%20envelope%0D%0A%20%20%20%20%20%20%20%20draw((antinode_x%2C%20-section_height%2F2)%20--%20(antinode_x%2C%20envelope_top)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22A%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22A%22%2C%20(antinode_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0Adraw((-num_sections%2F2%2C-3)--(num_sections%2F2%2C-3)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw((-num_sections%2F2%2C-2)--((num_sections-2)%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw(((num_sections-2)%2F2%2C-2)--(num_sections%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(1)%2C%20Arrows(5))%3B%0D%0Alabel(%22length%22%2C(0%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22effective%20length%22%2C(0%2C-3)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22%24%5Cell%5C%3B%5Cmathrm%7Bcm%7D%24%22%2C((num_sections-1)%2F2%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-pair D=(0,0),A=(0,4), B=(8,4),C=(8,0), F = (0,2), EE = (4,4), G = (8/3,8/3);
-dot(A^^B^^C^^D^^EE^^F^^G^^(4,2));
-label(&quot;$A$&quot;,A,NW);
-label(&quot;$B$&quot;,B,NE);
-label(&quot;$C$&quot;,C,SE);
-label(&quot;$D$&quot;,D,SW);
-label(&quot;$E$&quot;,EE,N);
-label(&quot;$F$&quot;,F,W);
-label(&quot;$G$&quot;,G,S);
-draw(D--A--B--C--D^^D--EE^^F--B^^B--D);
-draw(A--(4,2),dotted);
+//https://artofproblemsolving.com/texer/bpppxvsy
+
+size(12cm, 8cm);
+
+//============ MAIN CONTROLS ============
+int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
+bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
+                             // false = both ends are nodes (like fixed string)
+//=======================================
+
+//========== ADJUSTABLE PARAMETERS ==========
+// Dot diagram settings
+real base_density = 0.3;
+real section_width = 1.0;
+real section_height = 3.0;
+int num_sections = 15;
+bool show_dot_sections = true;
+
+// Amplitude overlay settings
+bool show_amplitude_curve = true;
+real amplitude_offset = 0.8;      // Gap between dots and curve baseline
+real amplitude_scale = 1.2;       // Height of the envelope peaks
+
+// Inner loop settings
+real inner_amplitude_1 = 0.7;
+real inner_amplitude_2 = 0.35;
+
+// Label settings
+bool show_labels = false;
+real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
+real node_dot_size = 5;           // Size of the node marker dots
+//===========================================
+
+// Dot appearance
+real dot_size = 1.5;
+pen dot_color = rgb(100/255, 143/255, 255/255);
+
+// Calculated values
+real total_width = num_sections * section_width;
+real start_x = -total_width / 2;
+
+// Amplitude baseline
+real baseline_y = 0;
+
+// Wave factor: determines the spatial frequency of the standing wave
+// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
+// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
+real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
+
+// ------------------------------------------------------
+// DENSITY FUNCTION
+// ------------------------------------------------------
+real density_at(real x_normalized) {
+    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
+}
+
+// ------------------------------------------------------
+// DRAW DOT SECTIONS
+// ------------------------------------------------------
+if(show_dot_sections) {
+    for(int i = 0; i &lt; num_sections; ++i) {
+        real left_x = start_x + i * section_width;
+        real right_x = left_x + section_width;
+        real bottom_y = -section_height / 2;
+        real top_y = section_height / 2;
+
+if(i &lt; num_sections - 1) {
+    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
+    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
+}
+
+if(i == 0) {
+    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
+}
+
+        real center_normalized = (i + 0.5) / num_sections;
+        real current_density = base_density * density_at(center_normalized);
+
+        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
+        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
+
+        for(int row = 0; row &lt; num_rows; ++row) {
+            for(int col = 0; col &lt; dots_per_row; ++col) {
+                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
+                             + (unitrand() - 0.5) * 0.1;
+                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
+                             + (unitrand() - 0.5) * 0.1;
+
+                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
+                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
+                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------
+// AMPLITUDE ENVELOPE WITH LOOPS
+// ------------------------------------------------------
+if(show_amplitude_curve) {
+    int num_points = 200;
+
+    path build_envelope(real amp_fraction, int sign) {
+        path p;
+        for(int i = 0; i &lt;= num_points; ++i) {
+            real x_norm = i * 1.0 / num_points;
+            real x = start_x + x_norm * total_width;
+            real y = baseline_y + sign * amp_fraction * amplitude_scale 
+                     * abs(sin(wave_factor * pi * x_norm));
+
+            if(i == 0) {
+                p = (x, y);
+            } else {
+                p = p -- (x, y);
+            }
+        }
+        return p;
+    }
+
+    // Baseline (equilibrium)
+    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
+         gray + linewidth(0.5pt));
+
+    // Outer envelope (solid)
+    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
+    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
+
+    // Inner loops (dashed)
+    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
+}
+
+// ------------------------------------------------------
+// NODE AND ANTINODE MARKERS
+// ------------------------------------------------------
+if(show_labels) {
+    // Calculate envelope extents for antinode lines
+    real envelope_top = baseline_y + amplitude_scale;
+    real envelope_bottom = baseline_y - amplitude_scale;
+
+    // Number of nodes differs between modes:
+    // - Normal mode: num_antinodes + 1 nodes (at both ends)
+    // - Half-cycle mode: num_antinodes nodes (only at left end)
+    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
+
+    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
+    // Position formula: k / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_nodes; ++k) {
+        real node_x_norm = k / wave_factor;
+        real node_x = start_x + node_x_norm * total_width;
+
+        // Dot aligned with amplitude diagram baseline
+        dot((node_x, baseline_y), black + linewidth(node_dot_size));
+
+        // &quot;N&quot; label below everything
+        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
+    }
+
+    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
+    // Position formula: (k + 0.5) / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_antinodes; ++k) {
+        real antinode_x_norm = (k + 0.5) / wave_factor;
+        real antinode_x = start_x + antinode_x_norm * total_width;
+
+        // Dashed line extends from below dot diagram through amplitude envelope
+        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
+             dashed + linewidth(1pt));
+
+        // &quot;A&quot; label below everything
+        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
+    }
+}
+draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
+draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
+draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
+label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
+label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
+label(&quot;$\ell\;\mathrm{cm}$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2101" data-id="04599" data-file="c36_L10_script_14.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2101" data-id="08747" data-file="c539_L11_p52836_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -8623,46 +8963,7 @@ draw(0.8*dir(90 - 2.5*360/7)--1.2*dir(90 - 2.5*360/7), linewidth(2*bp) + red);
 </div>
 <div class="card" id="pair-2197">
   <div class="card-header">
-    <h2>#2197 &mdash; c10_L14_script_11.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5586 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/00066.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00066.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>real f(real x){return (3*x+1);};
-draw(graph(f,0,3.7), red+dashed+0.8bp, Arrows(5));
-draw(graph(f,1,3), blue+1.2bp);
-dot((1,4), blue+3bp);
-dot((3,10), blue+3bp);
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=NE),xmin=0, xmax=3.7, Ticks(NoZeroFormat, step=1)); 
-yaxis(Label(&quot;$y$&quot;,position=EndPoint,  align=NE),ymin=0, ymax=11.7,Ticks(NoZeroFormat));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Areal%20f(real%20x)%7Breturn%20(3*x%2B1)%3B%7D%3B%0D%0Adraw(graph(f%2C0%2C3.7)%2C%20red%2Bdashed%2B0.8bp%2C%20Arrows(5))%3B%0D%0Adraw(graph(f%2C1%2C3)%2C%20blue%2B1.2bp)%3B%0D%0Adot((1%2C4)%2C%20blue%2B3bp)%3B%0D%0Adot((3%2C10)%2C%20blue%2B3bp)%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DNE)%2Cxmin%3D0%2C%20xmax%3D3.7%2C%20Ticks(NoZeroFormat%2C%20step%3D1))%3B%20%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20%20align%3DNE)%2Cymin%3D0%2C%20ymax%3D11.7%2CTicks(NoZeroFormat))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-real f(real x){return (3*x+1);};
-draw(graph(f,0,3.7), red+dashed+0.8bp, Arrows(5));
-draw(graph(f,1,3), blue+1.2bp);
-dot((1,4), blue+3bp);
-dot((3,10), blue+3bp);
-xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=NE),xmin=0, xmax=3.7, Ticks(NoZeroFormat, step=1)); 
-yaxis(Label(&quot;$y$&quot;,position=EndPoint,  align=NE),ymin=0, ymax=11.7,Ticks(NoZeroFormat));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="2197" data-id="00066" data-file="c10_L14_script_11.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-2198">
-  <div class="card-header">
-    <h2>#2198 &mdash; c539_L5_script_23.asy</h2>
+    <h2>#2197 &mdash; c539_L5_script_23.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5588 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -9095,13 +9396,13 @@ label(&quot;mirror&quot;, (0, mirrorBottom), S, fontsize(35pt));
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2198" data-id="08999" data-file="c539_L5_script_23.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2197" data-id="08999" data-file="c539_L5_script_23.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2199">
+<div class="card" id="pair-2198">
   <div class="card-header">
-    <h2>#2199 &mdash; c57_L19_p32336_solution_text_0.asy</h2>
+    <h2>#2198 &mdash; c57_L19_p32336_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5589 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -9176,13 +9477,13 @@ label(&quot;$P$&quot;,P,dir(260));
 label(&quot;$P&#39;$&quot;,Pp,dir(315));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2199" data-id="10336" data-file="c57_L19_p32336_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2198" data-id="10336" data-file="c57_L19_p32336_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-2200">
+<div class="card" id="pair-2199">
   <div class="card-header">
-    <h2>#2200 &mdash; c462_L17_p49631_solution_text_4.asy</h2>
+    <h2>#2199 &mdash; c462_L17_p49631_solution_text_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5590 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -9275,7 +9576,102 @@ dot(&quot;$S$&quot;, S, NE);
 dot(&quot;$T$&quot;, T, NW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="2200" data-id="06963" data-file="c462_L17_p49631_solution_text_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="2199" data-id="06963" data-file="c462_L17_p49631_solution_text_4.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-2200">
+  <div class="card-header">
+    <h2>#2200 &mdash; c57_L8_p32332_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5590 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/11458.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/11458.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>size(10cm);
+
+pair A = dir(120);
+pair B = dir(215);
+pair C = dir(325);
+pair Bp = 2*B-A;
+pair Cp = 2*C-A;
+pair I= incenter(A,B,C);
+pair Ma = foot(-A,A,I);
+pair Mb = foot(-B,B,I);
+pair Mc = foot(-C,C,I);
+pair X = 2*Ma-I;
+pair Y = 2*Mb-I;
+pair Z = 2*Mc-I;
+pair D = extension(A,X,B,C);
+pair E = extension(B,Y,C,A);
+pair F = extension(C,Z,A,B);
+
+draw(A--B--C--A);
+draw(circumcircle(A,B,C));
+draw(X--Y--Z--X);
+draw(A--I);
+draw(B--I);
+draw(C--I);
+
+dot(&quot;$A$&quot;,A,dir(A));
+dot(&quot;$B$&quot;,B,dir(B));
+dot(&quot;$C$&quot;,C,dir(0));
+dot(&quot;$I$&quot;,I,dir(245));
+dot(&quot;$X$&quot;,X,dir(X));
+dot(&quot;$Y$&quot;,Y,dir(Y));
+dot(&quot;$Z$&quot;,Z,dir(Z));
+label(&quot;$l_A$&quot;,(A+Y)/2,NNW);
+label(&quot;$l_B$&quot;,(B+Z)/2,SSW);
+label(&quot;$l_C$&quot;,(C+Y)/2,SE);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(10cm)%3B%0D%0A%0D%0Apair%20A%20%3D%20dir(120)%3B%0D%0Apair%20B%20%3D%20dir(215)%3B%0D%0Apair%20C%20%3D%20dir(325)%3B%0D%0Apair%20Bp%20%3D%202*B-A%3B%0D%0Apair%20Cp%20%3D%202*C-A%3B%0D%0Apair%20I%3D%20incenter(A%2CB%2CC)%3B%0D%0Apair%20Ma%20%3D%20foot(-A%2CA%2CI)%3B%0D%0Apair%20Mb%20%3D%20foot(-B%2CB%2CI)%3B%0D%0Apair%20Mc%20%3D%20foot(-C%2CC%2CI)%3B%0D%0Apair%20X%20%3D%202*Ma-I%3B%0D%0Apair%20Y%20%3D%202*Mb-I%3B%0D%0Apair%20Z%20%3D%202*Mc-I%3B%0D%0Apair%20D%20%3D%20extension(A%2CX%2CB%2CC)%3B%0D%0Apair%20E%20%3D%20extension(B%2CY%2CC%2CA)%3B%0D%0Apair%20F%20%3D%20extension(C%2CZ%2CA%2CB)%3B%0D%0A%0D%0Adraw(A--B--C--A)%3B%0D%0Adraw(circumcircle(A%2CB%2CC))%3B%0D%0Adraw(X--Y--Z--X)%3B%0D%0Adraw(A--I)%3B%0D%0Adraw(B--I)%3B%0D%0Adraw(C--I)%3B%0D%0A%0D%0Adot(%22%24A%24%22%2CA%2Cdir(A))%3B%0D%0Adot(%22%24B%24%22%2CB%2Cdir(B))%3B%0D%0Adot(%22%24C%24%22%2CC%2Cdir(0))%3B%0D%0Adot(%22%24I%24%22%2CI%2Cdir(245))%3B%0D%0Adot(%22%24X%24%22%2CX%2Cdir(X))%3B%0D%0Adot(%22%24Y%24%22%2CY%2Cdir(Y))%3B%0D%0Adot(%22%24Z%24%22%2CZ%2Cdir(Z))%3B%0D%0Alabel(%22%24l_A%24%22%2C(A%2BY)%2F2%2CNNW)%3B%0D%0Alabel(%22%24l_B%24%22%2C(B%2BZ)%2F2%2CSSW)%3B%0D%0Alabel(%22%24l_C%24%22%2C(C%2BY)%2F2%2CSE)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+size(10cm);
+
+pair A = dir(120);
+pair B = dir(215);
+pair C = dir(325);
+pair Bp = 2*B-A;
+pair Cp = 2*C-A;
+pair I= incenter(A,B,C);
+pair Ma = foot(-A,A,I);
+pair Mb = foot(-B,B,I);
+pair Mc = foot(-C,C,I);
+pair X = 2*Ma-I;
+pair Y = 2*Mb-I;
+pair Z = 2*Mc-I;
+pair D = extension(A,X,B,C);
+pair E = extension(B,Y,C,A);
+pair F = extension(C,Z,A,B);
+
+draw(A--B--C--A);
+draw(circumcircle(A,B,C));
+draw(X--Y--Z--X);
+draw(A--I);
+draw(B--I);
+draw(C--I);
+
+dot(&quot;$A$&quot;,A,dir(A));
+dot(&quot;$B$&quot;,B,dir(B));
+dot(&quot;$C$&quot;,C,dir(0));
+dot(&quot;$I$&quot;,I,dir(245));
+dot(&quot;$X$&quot;,X,dir(X));
+dot(&quot;$Y$&quot;,Y,dir(Y));
+dot(&quot;$Z$&quot;,Z,dir(Z));
+label(&quot;$l_A$&quot;,(A+Y)/2,NNW);
+label(&quot;$l_B$&quot;,(B+Z)/2,SSW);
+label(&quot;$l_C$&quot;,(C+Y)/2,SE);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="2200" data-id="11458" data-file="c57_L8_p32332_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

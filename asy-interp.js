@@ -4768,7 +4768,7 @@ function createInterpreter() {
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
     function _makeTicks(args, defaults) {
-      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:false, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
+      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:true, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
       let positionalNumCount = 0;
       for (const a of args) {
         if (a === null || a === undefined) continue;
@@ -8001,6 +8001,7 @@ function renderSVG(result, opts) {
           '\\nabla','\\partial','\\surd','\\checkmark',
           '\\varnothing','\\emptyset',
           '\\left','\\right',
+          '\\vec','\\hat','\\bar','\\tilde','\\dot','\\ddot','\\overline','\\underline','\\overrightarrow',
         ];
         for (const cmd of unicodeCmds) {
           while (probe.includes(cmd)) probe = probe.replace(cmd, '');
@@ -8352,6 +8353,16 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   s = s.replace(/\\color\s*\{[^}]*\}/g, '');
   // Strip \rm (font switch, not braced form)
   s = s.replace(/\\rm\b/g, '');
+  // Handle accent commands: \vec{X} → X⃗, \hat{X} → X̂, \bar{X} → X̄, etc.
+  s = s.replace(/\\vec\s*\{([^}]*)\}/g, '$1\u20D7');
+  s = s.replace(/\\hat\s*\{([^}]*)\}/g, '$1\u0302');
+  s = s.replace(/\\bar\s*\{([^}]*)\}/g, '$1\u0304');
+  s = s.replace(/\\tilde\s*\{([^}]*)\}/g, '$1\u0303');
+  s = s.replace(/\\dot\s*\{([^}]*)\}/g, '$1\u0307');
+  s = s.replace(/\\ddot\s*\{([^}]*)\}/g, '$1\u0308');
+  s = s.replace(/\\overline\s*\{([^}]*)\}/g, '$1\u0305');
+  s = s.replace(/\\underline\s*\{([^}]*)\}/g, '$1\u0332');
+  s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // NOTE: Do NOT strip braces here — the subscript/superscript parser below
@@ -8551,6 +8562,16 @@ function stripLaTeX(text) {
   // Handle font-wrapper commands (\mathbf, \mathrm, etc.) — remove command, keep content.
   // In math mode, spaces between these commands are ignored (e.g. \mathbf{C} \mathbf{i} → Ci).
   s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // Handle accent commands: \vec{X} → X⃗, \hat{X} → X̂, \bar{X} → X̄, etc.
+  s = s.replace(/\\vec\s*\{([^}]*)\}/g, '$1\u20D7');
+  s = s.replace(/\\hat\s*\{([^}]*)\}/g, '$1\u0302');
+  s = s.replace(/\\bar\s*\{([^}]*)\}/g, '$1\u0304');
+  s = s.replace(/\\tilde\s*\{([^}]*)\}/g, '$1\u0303');
+  s = s.replace(/\\dot\s*\{([^}]*)\}/g, '$1\u0307');
+  s = s.replace(/\\ddot\s*\{([^}]*)\}/g, '$1\u0308');
+  s = s.replace(/\\overline\s*\{([^}]*)\}/g, '$1\u0305');
+  s = s.replace(/\\underline\s*\{([^}]*)\}/g, '$1\u0332');
+  s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
