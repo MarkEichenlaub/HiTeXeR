@@ -2698,6 +2698,14 @@ function createInterpreter() {
       darkbrown:'#400000', // = darkred
       pink:'#ffbfff',    // = palemagenta
       salmon:'#ff8080',  // = lightred
+      // Grey aliases (British spelling)
+      grey:'#808080',
+      lightgrey:'#e6e6e6',
+      mediumgrey:'#bfbfbf',
+      heavygrey:'#404040',
+      deepgrey:'#1a1a1a',
+      darkgrey:'#0d0d0d',
+      palegrey:'#f2f2f2',
     };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
       const r = parseInt(hex.substr(1,2),16)/255;
@@ -2818,10 +2826,58 @@ function createInterpreter() {
     env.set('atan', (x) => Math.atan(toNumber(x)));
     env.set('atan2', (y,x) => Math.atan2(toNumber(y),toNumber(x)));
     env.set('sqrt', (x) => Math.sqrt(toNumber(x)));
+    env.set('cbrt', (x) => Math.cbrt(toNumber(x)));
     env.set('abs', (x) => {
       if (isTriple(x)) return Math.sqrt(x.x*x.x + x.y*x.y + x.z*x.z);
       if (isPair(x)) return Math.sqrt(x.x*x.x + x.y*x.y);
       return Math.abs(toNumber(x));
+    });
+
+    // brace(a, b, amplitude) — curly brace path between two points
+    env.set('brace', (...args) => {
+      let a = null, b = null, amplitude = 0.5;
+      const pairs = [];
+      for (const arg of args) {
+        if (isPair(arg)) pairs.push(toPair(arg));
+        else if (typeof arg === 'number') amplitude = arg;
+      }
+      if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
+      if (!a || !b) return makePath([], false);
+      // Build curly brace as cubic Bezier path
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      // Normal direction (perpendicular)
+      const nx = -dy / len * amplitude, ny = dx / len * amplitude;
+      // Control points for first half (a -> midpoint tip)
+      const c1 = makePair(a.x + nx * 0.6, a.y + ny * 0.6);
+      const c4 = makePair(mx + nx * 1.5, my + ny * 1.5);
+      const mid = makePair(mx + nx, my + ny);
+      // Control points for second half (midpoint tip -> b)
+      const c5 = makePair(mx + nx * 1.5, my + ny * 1.5);
+      const c8 = makePair(b.x + nx * 0.6, b.y + ny * 0.6);
+      // Sample cubic Bezier curves for each half
+      const nPts = 40;
+      const points = [];
+      for (let i = 0; i <= nPts; i++) {
+        const t = i / nPts;
+        let px, py;
+        if (t <= 0.5) {
+          const s = t * 2;
+          px = (1-s)*(1-s)*(1-s)*a.x + 3*(1-s)*(1-s)*s*c1.x + 3*(1-s)*s*s*c4.x + s*s*s*mid.x;
+          py = (1-s)*(1-s)*(1-s)*a.y + 3*(1-s)*(1-s)*s*c1.y + 3*(1-s)*s*s*c4.y + s*s*s*mid.y;
+        } else {
+          const s = (t - 0.5) * 2;
+          px = (1-s)*(1-s)*(1-s)*mid.x + 3*(1-s)*(1-s)*s*c5.x + 3*(1-s)*s*s*c8.x + s*s*s*b.x;
+          py = (1-s)*(1-s)*(1-s)*mid.y + 3*(1-s)*(1-s)*s*c5.y + 3*(1-s)*s*s*c8.y + s*s*s*b.y;
+        }
+        points.push(makePair(px, py));
+      }
+      const segs = [];
+      for (let i = 0; i < points.length - 1; i++) {
+        segs.push(lineSegment(points[i], points[i+1]));
+      }
+      return makePath(segs, false);
     });
     env.set('log', (x) => Math.log(toNumber(x)));
     env.set('exp', (x) => Math.exp(toNumber(x)));
@@ -3547,7 +3603,11 @@ function createInterpreter() {
       if (isArray(arr)) return arr.slice();
       return arr;
     });
-    env.set('array', (...args) => args);
+    env.set('array', (...args) => {
+      // If single string argument, split into array of characters
+      if (args.length === 1 && isString(args[0])) return args[0].split('');
+      return args;
+    });
     env.set('sequence', (f, n) => {
       // sequence(n) or sequence(func, n)
       if (n === undefined) { n = f; f = null; }
@@ -3600,7 +3660,11 @@ function createInterpreter() {
       return {_tag:'filltype', style:'FillDraw', pen};
     });
     env.set('Fill', (...args) => {
-      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : makePen({r:1,g:1,b:1});
+      let pen = makePen({r:1,g:1,b:1});
+      for (const a of args) {
+        if (isPen(a)) { pen = a; break; }
+        if (a && typeof a === 'object' && a._named && 'p' in a && isPen(a.p)) { pen = a.p; break; }
+      }
       return {_tag:'filltype', style:'Fill', pen};
     });
     env.set('Draw', (...args) => {
@@ -3769,6 +3833,84 @@ function createInterpreter() {
         }
       }
       return pic;
+    });
+
+    // curve(initial, f, a, b) -- trace an ODE solution curve using RK4
+    // initial: pair (x0, y0) starting point
+    // f: function(real,real)->real giving dy/dx
+    // a, b: real x-bounds for the curve
+    env.set('curve', (...args) => {
+      let func = null, initial = null;
+      let xmin = null, xmax = null, ymin = null, ymax = null;
+      const pairs = [];
+      const nums = [];
+      for (const arg of args) {
+        if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
+          if (!func) func = arg;
+          continue;
+        }
+        if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
+        if (typeof arg === 'number') { nums.push(arg); continue; }
+      }
+      // curve(initial, f, a, b) — a,b are bound pairs
+      if (pairs.length >= 3) {
+        initial = pairs[0];
+        xmin = Math.min(pairs[1].x, pairs[2].x);
+        xmax = Math.max(pairs[1].x, pairs[2].x);
+        ymin = Math.min(pairs[1].y, pairs[2].y);
+        ymax = Math.max(pairs[1].y, pairs[2].y);
+      } else if (pairs.length >= 1) {
+        initial = pairs[0];
+        if (nums.length >= 2) { xmin = nums[0]; xmax = nums[1]; }
+      }
+      if (!func || !initial) return makePath([], false);
+      if (xmin === null) xmin = initial.x - 5;
+      if (xmax === null) xmax = initial.x + 5;
+      // RK4 integration
+      const nSteps = 200;
+      // Forward integration from initial.x to xmax
+      let x = initial.x, y = initial.y;
+      const hFwd = (xmax - x) / nSteps;
+      const fwdPts = [makePair(x, y)];
+      if (Math.abs(hFwd) > 1e-12) {
+        for (let i = 0; i < nSteps; i++) {
+          const k1 = toNumber(invokeFunc(func, [x, y]));
+          const k2 = toNumber(invokeFunc(func, [x + hFwd/2, y + hFwd/2*k1]));
+          const k3 = toNumber(invokeFunc(func, [x + hFwd/2, y + hFwd/2*k2]));
+          const k4 = toNumber(invokeFunc(func, [x + hFwd, y + hFwd*k3]));
+          y += hFwd * (k1 + 2*k2 + 2*k3 + k4) / 6;
+          x += hFwd;
+          if (!isFinite(y)) break;
+          if (ymin !== null && (y < ymin - 10 || y > ymax + 10)) break;
+          fwdPts.push(makePair(x, y));
+        }
+      }
+      // Backward integration from initial.x to xmin
+      x = initial.x; y = initial.y;
+      const hBwd = (xmin - x) / nSteps;
+      const bwdPts = [];
+      if (Math.abs(hBwd) > 1e-12) {
+        for (let i = 0; i < nSteps; i++) {
+          const k1 = toNumber(invokeFunc(func, [x, y]));
+          const k2 = toNumber(invokeFunc(func, [x + hBwd/2, y + hBwd/2*k1]));
+          const k3 = toNumber(invokeFunc(func, [x + hBwd/2, y + hBwd/2*k2]));
+          const k4 = toNumber(invokeFunc(func, [x + hBwd, y + hBwd*k3]));
+          y += hBwd * (k1 + 2*k2 + 2*k3 + k4) / 6;
+          x += hBwd;
+          if (!isFinite(y)) break;
+          if (ymin !== null && (y < ymin - 10 || y > ymax + 10)) break;
+          bwdPts.push(makePair(x, y));
+        }
+      }
+      // Combine: reverse backward points + forward points
+      bwdPts.reverse();
+      const allPts = bwdPts.concat(fwdPts);
+      if (allPts.length < 2) return makePath([], false);
+      const segs = [];
+      for (let i = 0; i < allPts.length - 1; i++) {
+        segs.push(lineSegment(allPts[i], allPts[i+1]));
+      }
+      return makePath(segs, false);
     });
   }
 
@@ -4449,35 +4591,41 @@ function createInterpreter() {
 
     // labelx / labely — place a label on an axis
     env.set('labelx', (...args) => {
-      let text = '', x = 0, pen = null;
+      let text = '', x = 0, pen = null, align = null;
       for (const a of args) {
         if (isString(a) && !text) text = a;
+        else if (isPair(a)) align = toPair(a);
         else if (typeof a === 'number') x = a;
         else if (isPen(a)) pen = a;
       }
       if (!pen) pen = clonePen(defaultPen);
-      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
+      if (!align) align = {x:0, y:-1};
+      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align, pen, line:0});
     });
     env.set('labely', (...args) => {
-      let text = '', y = 0, pen = null;
+      let text = '', y = 0, pen = null, align = null;
       for (const a of args) {
         if (isString(a) && !text) text = a;
+        else if (isPair(a)) align = toPair(a);
         else if (typeof a === 'number') y = a;
         else if (isPen(a)) pen = a;
       }
       if (!pen) pen = clonePen(defaultPen);
-      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
+      if (!align) align = {x:-1, y:0};
+      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align, pen, line:0});
     });
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
     function _makeTicks(args, defaults) {
       const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:false, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
+      let positionalNumCount = 0;
       for (const a of args) {
         if (a === null || a === undefined) continue;
         if (typeof a === 'number') {
-          // Could be Step or Size — small numbers (<1) are likely Size
-          if (a < 0.5) { t.size = a; t.sizeExplicit = true; }
-          else t.step = a;
+          positionalNumCount++;
+          if (positionalNumCount === 1) t.step = a;       // first number = Step (major)
+          else if (positionalNumCount === 2) t.subStep = a; // second = step (minor)
+          else { t.size = a; t.sizeExplicit = true; }      // third+ = Size
         }
         else if (isString(a)) { t.format = a; t.labels = true; }
         else if (typeof a === 'function' || (a && a._tag === 'func')) { t.labelFunc = a; t.labels = true; }
@@ -4488,7 +4636,7 @@ function createInterpreter() {
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('Step' in a) t.step = a.Step;
-          if ('step' in a) t.step = a.step;
+          if ('step' in a) t.subStep = a.step;
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
           if ('size' in a) { t.size = a.size; t.sizeExplicit = true; }
           if ('extend' in a) t.extend = a.extend;
