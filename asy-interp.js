@@ -7049,9 +7049,6 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'dot') {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
-      // Skip empty labels — they are no-ops in real Asymptote
-      const labelText = dc.text || '';
-      if (labelText.replace(/[\s{}$]/g, '').length === 0) continue;
       expandBBox(dc.pos.x, dc.pos.y);
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
@@ -7828,8 +7825,6 @@ function renderSVG(result, opts) {
   for (const {ci, dc, css} of deferredLabels) {
     if (dc.cmd === 'label') {
       // Skip empty labels
-      const labelText = dc.text || '';
-      if (labelText.replace(/[\s{}$]/g, '').length === 0) continue;
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
       const fontSize = (dc.pen.fontsize || 10);

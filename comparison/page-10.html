@@ -46,8 +46,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <div class="stats">
 <b style="background:#2d8a4e">192 Good</b>
 <b style="background:#c0820a">1933 Fair</b>
-<b style="background:#c0392b">9552 Poor</b>
-<b style="background:#999">2 Err</b>
+<b style="background:#c0392b">9553 Poor</b>
+<b style="background:#999">1 Err</b>
 </div>
 <div class="pag"><a href="page-9.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-3.html">3</a><a href="page-4.html">4</a><a href="page-5.html">5</a><a href="page-6.html">6</a><a href="page-7.html">7</a><a href="page-8.html">8</a><a href="page-9.html">9</a><span class="cur">10</span><a href="page-11.html">11</a><a href="page-12.html">12</a><a href="page-13.html">13</a><a href="page-14.html">14</a><a href="page-15.html">15</a><a href="page-16.html">16</a><a href="page-17.html">17</a><span class="dots">…</span><a href="page-117.html">117</a><a href="page-11.html">Next &raquo;</a></div>
 
@@ -3079,7 +3079,254 @@ label(&quot;$\mathbf{d}$&quot;, tailD + D/3, W);
 </div>
 <div class="card" id="pair-931">
   <div class="card-header">
-    <h2>#931 &mdash; c186_L20_p37566_solution_text_1.asy</h2>
+    <h2>#931 &mdash; c539_L10_script_3.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.3976 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/08739.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08739.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//https://artofproblemsolving.com/texer/yekttvfg
+
+size(12cm, 0);
+
+// ============== DENSITY PARAMETERS ==============
+// Adjust these values to control dot density in each region
+// Higher values = more dots (try 0.2 to 1.0)
+
+real density_outside_far = 0.6;     // Leftmost outside zone
+real density_outside_mid = 0.6;     // Middle outside zone
+real density_outside_near = 0.6;    // Zone closest to membrane
+real density_inside = 0.6;          // Inside the chamber
+
+// ============== DOT APPEARANCE ==============
+real dot_size = 1.2;
+pen dot_color = blue;
+
+// ============== HOUSING DIMENSIONS ==============
+real outerHeight = 1.6;
+real outerWidth = 3.0;
+real wallThickness = 0.15;
+real membraneWidth = 0.1;
+
+// Calculated inner boundaries
+real innerTop = outerHeight/2 - wallThickness;
+real innerBottom = -outerHeight/2 + wallThickness;
+
+// ============== FUNCTION TO FILL A REGION WITH DOTS ==============
+// This function takes a rectangular region and fills it with dots.
+// Parameters:
+//   left, right, bottom, top: boundaries of the rectangle
+//   density: controls how many dots (0.2 = sparse, 1.0 = dense)
+void fillWithDots(real left, real right, real bottom, real top, real density) {
+    // Calculate grid spacing based on density
+    // Higher density = smaller spacing = more dots
+    real spacing = 0.15 / sqrt(density);
+
+    // Calculate how many dots fit in each direction
+    int cols = floor((right - left) / spacing);
+    int rows = floor((top - bottom) / spacing);
+
+    // Prevent division by zero for very small regions
+    if(cols &lt; 1) cols = 1;
+    if(rows &lt; 1) rows = 1;
+
+    // Place dots in a grid with random offset for natural look
+    for(int row = 0; row &lt; rows; ++row) {
+        for(int col = 0; col &lt; cols; ++col) {
+            // Calculate base position (center of each grid cell)
+            real x = left + (col + 0.5) * (right - left) / cols;
+            real y = bottom + (row + 0.5) * (top - bottom) / rows;
+
+            // Add small random offset so dots don&#39;t look too regular
+            x += (unitrand() - 0.5) * 0.08;
+            y += (unitrand() - 0.5) * 0.08;
+
+            // Only draw if dot is within the region (with small margin)
+            if(x &gt; left + 0.03 &amp;&amp; x &lt; right - 0.03 &amp;&amp; 
+               y &gt; bottom + 0.03 &amp;&amp; y &lt; top - 0.03) {
+                dot((x, y), dot_color + linewidth(dot_size));
+            }
+        }
+    }
+}
+
+// ============== DRAW DOTS IN EACH REGION ==============
+
+// Outside zones (left of membrane, extending leftward by outerWidth)
+real outsideLeft = -outerWidth;  // Left edge of outside air region
+real zoneWidth = outerWidth / 3; // Each zone is 1/3 of the total outside width
+
+// Zone 1: Far from membrane (leftmost)
+fillWithDots(outsideLeft, outsideLeft + zoneWidth, 
+             -outerHeight/2, outerHeight/2, 
+             density_outside_far);
+
+// Zone 2: Middle distance
+fillWithDots(outsideLeft + zoneWidth, outsideLeft + 2*zoneWidth, 
+             -outerHeight/2, outerHeight/2, 
+             density_outside_mid);
+
+// Zone 3: Near membrane (rightmost outside zone)
+fillWithDots(outsideLeft + 2*zoneWidth, 0, 
+             -outerHeight/2, outerHeight/2, 
+             density_outside_near);
+
+// Inside chamber (between membrane and right wall)
+fillWithDots(membraneWidth, outerWidth - wallThickness, 
+             innerBottom, innerTop, 
+             density_inside);
+
+// ============== DRAW HOUSING STRUCTURE ==============
+pen housingColor = gray;
+pen membraneColor = lightolive;
+
+// Top wall
+fill(box((0, innerTop), (outerWidth, outerHeight/2)), housingColor);
+
+// Bottom wall  
+fill(box((0, -outerHeight/2), (outerWidth, innerBottom)), housingColor);
+
+// Right wall
+fill(box((outerWidth - wallThickness, -outerHeight/2), (outerWidth, outerHeight/2)), housingColor);
+
+// Membrane
+fill(box((0, innerBottom), (membraneWidth, innerTop)), membraneColor);
+
+label (&quot;Membrane&quot;,(0,-outerHeight/2), S, lightolive+fontsize(12));
+pen labelPen = darkblue;
+label(&quot;1 atm&quot;,(-outerHeight/2,0),labelPen+fontsize(14),UnFill);
+label(&quot;1 atm&quot;,(outerHeight/2,0),labelPen+fontsize(14),UnFill);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fyekttvfg%0D%0A%0D%0Asize(12cm%2C%200)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DENSITY%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Adjust%20these%20values%20to%20control%20dot%20density%20in%20each%20region%0D%0A%2F%2F%20Higher%20values%20%3D%20more%20dots%20(try%200.2%20to%201.0)%0D%0A%0D%0Areal%20density_outside_far%20%3D%200.6%3B%20%20%20%20%20%2F%2F%20Leftmost%20outside%20zone%0D%0Areal%20density_outside_mid%20%3D%200.6%3B%20%20%20%20%20%2F%2F%20Middle%20outside%20zone%0D%0Areal%20density_outside_near%20%3D%200.6%3B%20%20%20%20%2F%2F%20Zone%20closest%20to%20membrane%0D%0Areal%20density_inside%20%3D%200.6%3B%20%20%20%20%20%20%20%20%20%20%2F%2F%20Inside%20the%20chamber%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DOT%20APPEARANCE%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Areal%20dot_size%20%3D%201.2%3B%0D%0Apen%20dot_color%20%3D%20blue%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20HOUSING%20DIMENSIONS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Areal%20outerHeight%20%3D%201.6%3B%0D%0Areal%20outerWidth%20%3D%203.0%3B%0D%0Areal%20wallThickness%20%3D%200.15%3B%0D%0Areal%20membraneWidth%20%3D%200.1%3B%0D%0A%0D%0A%2F%2F%20Calculated%20inner%20boundaries%0D%0Areal%20innerTop%20%3D%20outerHeight%2F2%20-%20wallThickness%3B%0D%0Areal%20innerBottom%20%3D%20-outerHeight%2F2%20%2B%20wallThickness%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20FUNCTION%20TO%20FILL%20A%20REGION%20WITH%20DOTS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20This%20function%20takes%20a%20rectangular%20region%20and%20fills%20it%20with%20dots.%0D%0A%2F%2F%20Parameters%3A%0D%0A%2F%2F%20%20%20left%2C%20right%2C%20bottom%2C%20top%3A%20boundaries%20of%20the%20rectangle%0D%0A%2F%2F%20%20%20density%3A%20controls%20how%20many%20dots%20(0.2%20%3D%20sparse%2C%201.0%20%3D%20dense)%0D%0Avoid%20fillWithDots(real%20left%2C%20real%20right%2C%20real%20bottom%2C%20real%20top%2C%20real%20density)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20grid%20spacing%20based%20on%20density%0D%0A%20%20%20%20%2F%2F%20Higher%20density%20%3D%20smaller%20spacing%20%3D%20more%20dots%0D%0A%20%20%20%20real%20spacing%20%3D%200.15%20%2F%20sqrt(density)%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Calculate%20how%20many%20dots%20fit%20in%20each%20direction%0D%0A%20%20%20%20int%20cols%20%3D%20floor((right%20-%20left)%20%2F%20spacing)%3B%0D%0A%20%20%20%20int%20rows%20%3D%20floor((top%20-%20bottom)%20%2F%20spacing)%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Prevent%20division%20by%20zero%20for%20very%20small%20regions%0D%0A%20%20%20%20if(cols%20%3C%201)%20cols%20%3D%201%3B%0D%0A%20%20%20%20if(rows%20%3C%201)%20rows%20%3D%201%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Place%20dots%20in%20a%20grid%20with%20random%20offset%20for%20natural%20look%0D%0A%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20cols%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Calculate%20base%20position%20(center%20of%20each%20grid%20cell)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20left%20%2B%20(col%20%2B%200.5)%20*%20(right%20-%20left)%20%2F%20cols%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20bottom%20%2B%20(row%20%2B%200.5)%20*%20(top%20-%20bottom)%20%2F%20rows%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Add%20small%20random%20offset%20so%20dots%20don't%20look%20too%20regular%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20x%20%2B%3D%20(unitrand()%20-%200.5)%20*%200.08%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20y%20%2B%3D%20(unitrand()%20-%200.5)%20*%200.08%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Only%20draw%20if%20dot%20is%20within%20the%20region%20(with%20small%20margin)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(x%20%3E%20left%20%2B%200.03%20%26%26%20x%20%3C%20right%20-%200.03%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y%20%3E%20bottom%20%2B%200.03%20%26%26%20y%20%3C%20top%20-%200.03)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x%2C%20y)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DRAW%20DOTS%20IN%20EACH%20REGION%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Outside%20zones%20(left%20of%20membrane%2C%20extending%20leftward%20by%20outerWidth)%0D%0Areal%20outsideLeft%20%3D%20-outerWidth%3B%20%20%2F%2F%20Left%20edge%20of%20outside%20air%20region%0D%0Areal%20zoneWidth%20%3D%20outerWidth%20%2F%203%3B%20%2F%2F%20Each%20zone%20is%201%2F3%20of%20the%20total%20outside%20width%0D%0A%0D%0A%2F%2F%20Zone%201%3A%20Far%20from%20membrane%20(leftmost)%0D%0AfillWithDots(outsideLeft%2C%20outsideLeft%20%2B%20zoneWidth%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20-outerHeight%2F2%2C%20outerHeight%2F2%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_outside_far)%3B%0D%0A%0D%0A%2F%2F%20Zone%202%3A%20Middle%20distance%0D%0AfillWithDots(outsideLeft%20%2B%20zoneWidth%2C%20outsideLeft%20%2B%202*zoneWidth%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20-outerHeight%2F2%2C%20outerHeight%2F2%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_outside_mid)%3B%0D%0A%0D%0A%2F%2F%20Zone%203%3A%20Near%20membrane%20(rightmost%20outside%20zone)%0D%0AfillWithDots(outsideLeft%20%2B%202*zoneWidth%2C%200%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20-outerHeight%2F2%2C%20outerHeight%2F2%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_outside_near)%3B%0D%0A%0D%0A%2F%2F%20Inside%20chamber%20(between%20membrane%20and%20right%20wall)%0D%0AfillWithDots(membraneWidth%2C%20outerWidth%20-%20wallThickness%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20innerBottom%2C%20innerTop%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_inside)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DRAW%20HOUSING%20STRUCTURE%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Apen%20housingColor%20%3D%20gray%3B%0D%0Apen%20membraneColor%20%3D%20lightolive%3B%0D%0A%0D%0A%2F%2F%20Top%20wall%0D%0Afill(box((0%2C%20innerTop)%2C%20(outerWidth%2C%20outerHeight%2F2))%2C%20housingColor)%3B%0D%0A%0D%0A%2F%2F%20Bottom%20wall%20%20%0D%0Afill(box((0%2C%20-outerHeight%2F2)%2C%20(outerWidth%2C%20innerBottom))%2C%20housingColor)%3B%0D%0A%0D%0A%2F%2F%20Right%20wall%0D%0Afill(box((outerWidth%20-%20wallThickness%2C%20-outerHeight%2F2)%2C%20(outerWidth%2C%20outerHeight%2F2))%2C%20housingColor)%3B%0D%0A%0D%0A%2F%2F%20Membrane%0D%0Afill(box((0%2C%20innerBottom)%2C%20(membraneWidth%2C%20innerTop))%2C%20membraneColor)%3B%0D%0A%0D%0Alabel%20(%22Membrane%22%2C(0%2C-outerHeight%2F2)%2C%20S%2C%20lightolive%2Bfontsize(12))%3B%0D%0Apen%20labelPen%20%3D%20darkblue%3B%0D%0Alabel(%221%20atm%22%2C(-outerHeight%2F2%2C0)%2ClabelPen%2Bfontsize(14)%2CUnFill)%3B%0D%0Alabel(%221%20atm%22%2C(outerHeight%2F2%2C0)%2ClabelPen%2Bfontsize(14)%2CUnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//https://artofproblemsolving.com/texer/yekttvfg
+
+size(12cm, 0);
+
+// ============== DENSITY PARAMETERS ==============
+// Adjust these values to control dot density in each region
+// Higher values = more dots (try 0.2 to 1.0)
+
+real density_outside_far = 0.6;     // Leftmost outside zone
+real density_outside_mid = 0.6;     // Middle outside zone
+real density_outside_near = 0.6;    // Zone closest to membrane
+real density_inside = 0.6;          // Inside the chamber
+
+// ============== DOT APPEARANCE ==============
+real dot_size = 1.2;
+pen dot_color = blue;
+
+// ============== HOUSING DIMENSIONS ==============
+real outerHeight = 1.6;
+real outerWidth = 3.0;
+real wallThickness = 0.15;
+real membraneWidth = 0.1;
+
+// Calculated inner boundaries
+real innerTop = outerHeight/2 - wallThickness;
+real innerBottom = -outerHeight/2 + wallThickness;
+
+// ============== FUNCTION TO FILL A REGION WITH DOTS ==============
+// This function takes a rectangular region and fills it with dots.
+// Parameters:
+//   left, right, bottom, top: boundaries of the rectangle
+//   density: controls how many dots (0.2 = sparse, 1.0 = dense)
+void fillWithDots(real left, real right, real bottom, real top, real density) {
+    // Calculate grid spacing based on density
+    // Higher density = smaller spacing = more dots
+    real spacing = 0.15 / sqrt(density);
+
+    // Calculate how many dots fit in each direction
+    int cols = floor((right - left) / spacing);
+    int rows = floor((top - bottom) / spacing);
+
+    // Prevent division by zero for very small regions
+    if(cols &lt; 1) cols = 1;
+    if(rows &lt; 1) rows = 1;
+
+    // Place dots in a grid with random offset for natural look
+    for(int row = 0; row &lt; rows; ++row) {
+        for(int col = 0; col &lt; cols; ++col) {
+            // Calculate base position (center of each grid cell)
+            real x = left + (col + 0.5) * (right - left) / cols;
+            real y = bottom + (row + 0.5) * (top - bottom) / rows;
+
+            // Add small random offset so dots don&#39;t look too regular
+            x += (unitrand() - 0.5) * 0.08;
+            y += (unitrand() - 0.5) * 0.08;
+
+            // Only draw if dot is within the region (with small margin)
+            if(x &gt; left + 0.03 &amp;&amp; x &lt; right - 0.03 &amp;&amp; 
+               y &gt; bottom + 0.03 &amp;&amp; y &lt; top - 0.03) {
+                dot((x, y), dot_color + linewidth(dot_size));
+            }
+        }
+    }
+}
+
+// ============== DRAW DOTS IN EACH REGION ==============
+
+// Outside zones (left of membrane, extending leftward by outerWidth)
+real outsideLeft = -outerWidth;  // Left edge of outside air region
+real zoneWidth = outerWidth / 3; // Each zone is 1/3 of the total outside width
+
+// Zone 1: Far from membrane (leftmost)
+fillWithDots(outsideLeft, outsideLeft + zoneWidth, 
+             -outerHeight/2, outerHeight/2, 
+             density_outside_far);
+
+// Zone 2: Middle distance
+fillWithDots(outsideLeft + zoneWidth, outsideLeft + 2*zoneWidth, 
+             -outerHeight/2, outerHeight/2, 
+             density_outside_mid);
+
+// Zone 3: Near membrane (rightmost outside zone)
+fillWithDots(outsideLeft + 2*zoneWidth, 0, 
+             -outerHeight/2, outerHeight/2, 
+             density_outside_near);
+
+// Inside chamber (between membrane and right wall)
+fillWithDots(membraneWidth, outerWidth - wallThickness, 
+             innerBottom, innerTop, 
+             density_inside);
+
+// ============== DRAW HOUSING STRUCTURE ==============
+pen housingColor = gray;
+pen membraneColor = lightolive;
+
+// Top wall
+fill(box((0, innerTop), (outerWidth, outerHeight/2)), housingColor);
+
+// Bottom wall  
+fill(box((0, -outerHeight/2), (outerWidth, innerBottom)), housingColor);
+
+// Right wall
+fill(box((outerWidth - wallThickness, -outerHeight/2), (outerWidth, outerHeight/2)), housingColor);
+
+// Membrane
+fill(box((0, innerBottom), (membraneWidth, innerTop)), membraneColor);
+
+label (&quot;Membrane&quot;,(0,-outerHeight/2), S, lightolive+fontsize(12));
+pen labelPen = darkblue;
+label(&quot;1 atm&quot;,(-outerHeight/2,0),labelPen+fontsize(14),UnFill);
+label(&quot;1 atm&quot;,(outerHeight/2,0),labelPen+fontsize(14),UnFill);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="931" data-id="08739" data-file="c539_L10_script_3.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-932">
+  <div class="card-header">
+    <h2>#932 &mdash; c186_L20_p37566_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3977 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3142,13 +3389,13 @@ dot(R);
 dot(SS);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="931" data-id="02281" data-file="c186_L20_p37566_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="932" data-id="02281" data-file="c186_L20_p37566_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-932">
+<div class="card" id="pair-933">
   <div class="card-header">
-    <h2>#932 &mdash; c186_L7_p31999_problem_text_0.asy</h2>
+    <h2>#933 &mdash; c186_L7_p31999_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3977 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3219,13 +3466,13 @@ label(&quot;$P_1$&quot;, P1, SE);
 label(&quot;$P_4$&quot;, P4, SE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="932" data-id="02968" data-file="c186_L7_p31999_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="933" data-id="02968" data-file="c186_L7_p31999_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-933">
+<div class="card" id="pair-934">
   <div class="card-header">
-    <h2>#933 &mdash; c539_L11_script_15.asy</h2>
+    <h2>#934 &mdash; c539_L11_script_15.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3977 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3554,13 +3801,13 @@ if(show_labels) {
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="933" data-id="08757" data-file="c539_L11_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="934" data-id="08757" data-file="c539_L11_script_15.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-934">
+<div class="card" id="pair-935">
   <div class="card-header">
-    <h2>#934 &mdash; c51_L12_script_1.asy</h2>
+    <h2>#935 &mdash; c51_L12_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3984 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3609,13 +3856,13 @@ label( &quot;Imag.&quot;, (0,5), N );
 label( &quot;$2 + 3i$&quot;, (2,3), NE );
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="934" data-id="08728" data-file="c51_L12_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="935" data-id="08728" data-file="c51_L12_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-935">
+<div class="card" id="pair-936">
   <div class="card-header">
-    <h2>#935 &mdash; c36_L11_p1746_solution_text_0.asy</h2>
+    <h2>#936 &mdash; c36_L11_p1746_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3984 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3680,13 +3927,13 @@ label(&quot;$6$&quot;, (2.5,0.5));
 label(&quot;$4$&quot;, (3.5,0.5));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="935" data-id="04649" data-file="c36_L11_p1746_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="936" data-id="04649" data-file="c36_L11_p1746_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-936">
+<div class="card" id="pair-937">
   <div class="card-header">
-    <h2>#936 &mdash; c268_L10_script_0.asy</h2>
+    <h2>#937 &mdash; c268_L10_script_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3984 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3923,13 +4170,13 @@ yaxis(BottomTop, invisible, Ticks(Step = ySubtickSpacing, extend = true, lightgr
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="936" data-id="03896" data-file="c268_L10_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="937" data-id="03896" data-file="c268_L10_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-937">
+<div class="card" id="pair-938">
   <div class="card-header">
-    <h2>#937 &mdash; c186_L7_script_21.asy</h2>
+    <h2>#938 &mdash; c186_L7_script_21.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3988 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3980,13 +4227,13 @@ label(&quot;$t = -1$&quot;, C, NW);
 label(&quot;$t = 0.5$&quot;, D, NW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="937" data-id="03001" data-file="c186_L7_script_21.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="938" data-id="03001" data-file="c186_L7_script_21.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-938">
+<div class="card" id="pair-939">
   <div class="card-header">
-    <h2>#938 &mdash; c186_L2_script_25.asy</h2>
+    <h2>#939 &mdash; c186_L2_script_25.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3989 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4037,13 +4284,13 @@ for(int i=-2;i&lt;3;i+=1){
 label(&quot;$y = 	an x$&quot;,(-3,1.25),N,UnFill(0.1mm));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="938" data-id="02585" data-file="c186_L2_script_25.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="939" data-id="02585" data-file="c186_L2_script_25.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-939">
+<div class="card" id="pair-940">
   <div class="card-header">
-    <h2>#939 &mdash; c186_L2_script_68.asy</h2>
+    <h2>#940 &mdash; c186_L2_script_68.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3989 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4094,13 +4341,13 @@ for(int i=-2;i&lt;3;i+=1){
 label(&quot;$y = 	an x$&quot;,(-3,1.25),N,UnFill(0.1mm));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="939" data-id="02632" data-file="c186_L2_script_68.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="940" data-id="02632" data-file="c186_L2_script_68.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-940">
+<div class="card" id="pair-941">
   <div class="card-header">
-    <h2>#940 &mdash; c10_L19_p5947_solution_text_0.asy</h2>
+    <h2>#941 &mdash; c10_L19_p5947_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3991 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4155,13 +4402,13 @@ yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);
 //
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="940" data-id="00127" data-file="c10_L19_p5947_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="941" data-id="00127" data-file="c10_L19_p5947_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-941">
+<div class="card" id="pair-942">
   <div class="card-header">
-    <h2>#941 &mdash; c462_L22_script_51.asy</h2>
+    <h2>#942 &mdash; c462_L22_script_51.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3995 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4310,13 +4557,13 @@ dot(&quot;$C_3$&quot;, C[3] + trans, E);
 dot(&quot;$M$&quot;, M + trans, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="941" data-id="07397" data-file="c462_L22_script_51.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="942" data-id="07397" data-file="c462_L22_script_51.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-942">
+<div class="card" id="pair-943">
   <div class="card-header">
-    <h2>#942 &mdash; c186_L7_script_13.asy</h2>
+    <h2>#943 &mdash; c186_L7_script_13.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3997 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4361,13 +4608,13 @@ label(&quot;$t = 1$&quot;, C, SE, UnFill);
 draw(A--C, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="942" data-id="02992" data-file="c186_L7_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="943" data-id="02992" data-file="c186_L7_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-943">
+<div class="card" id="pair-944">
   <div class="card-header">
-    <h2>#943 &mdash; c186_L12_p32401_solution_text_0.asy</h2>
+    <h2>#944 &mdash; c186_L12_p32401_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3999 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4444,13 +4691,13 @@ dot(&quot;$z$&quot;, Z, dir(Z));
 dot(&quot;$z+w$&quot;, Z+WW, dir(Z+WW));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="943" data-id="01481" data-file="c186_L12_p32401_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="944" data-id="01481" data-file="c186_L12_p32401_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-944">
+<div class="card" id="pair-945">
   <div class="card-header">
-    <h2>#944 &mdash; c583_L10_p50522_solution_text_0.asy</h2>
+    <h2>#945 &mdash; c583_L10_p50522_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3999 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4533,13 +4780,13 @@ label(string(more_nums[5*(4-j)+i]),(off+i+0.5,v_off+j+0.5),fontsize(fs));
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="944" data-id="12045" data-file="c583_L10_p50522_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="945" data-id="12045" data-file="c583_L10_p50522_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-945">
+<div class="card" id="pair-946">
   <div class="card-header">
-    <h2>#945 &mdash; c463_L6_p48840_solution_text_3.asy</h2>
+    <h2>#946 &mdash; c463_L6_p48840_solution_text_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.3999 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4612,13 +4859,13 @@ dot(&quot;$O$&quot;, O, SE);
 label(&quot;$X$&quot;, X, E);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="945" data-id="08121" data-file="c463_L6_p48840_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="946" data-id="08121" data-file="c463_L6_p48840_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-946">
+<div class="card" id="pair-947">
   <div class="card-header">
-    <h2>#946 &mdash; c402_L13_script_1.asy</h2>
+    <h2>#947 &mdash; c402_L13_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4002 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4695,13 +4942,13 @@ for (int i = 0; i &lt; n; ++i) {
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="946" data-id="05907" data-file="c402_L13_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="947" data-id="05907" data-file="c402_L13_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-947">
+<div class="card" id="pair-948">
   <div class="card-header">
-    <h2>#947 &mdash; c186_L7_script_0.asy</h2>
+    <h2>#948 &mdash; c186_L7_script_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4002 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4746,13 +4993,13 @@ label(&quot;$t = 0$&quot;, g(0), SE);
 label(&quot;$t = 1$&quot;, g(1), SE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="947" data-id="02987" data-file="c186_L7_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="948" data-id="02987" data-file="c186_L7_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-948">
+<div class="card" id="pair-949">
   <div class="card-header">
-    <h2>#948 &mdash; c539_L11_script_17.asy</h2>
+    <h2>#949 &mdash; c539_L11_script_17.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4004 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5121,13 +5368,13 @@ draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows
 label(&quot;$ 2 \cdot \lambda$&quot;,(0,-3),S,brown+fontsize(18pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="948" data-id="08759" data-file="c539_L11_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="949" data-id="08759" data-file="c539_L11_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-949">
+<div class="card" id="pair-950">
   <div class="card-header">
-    <h2>#949 &mdash; c510_L1_p52040_solution_text_4.asy</h2>
+    <h2>#950 &mdash; c510_L1_p52040_solution_text_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4007 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5190,13 +5437,13 @@ label(&quot;$(10,7)$&quot;,(10,7),NE,fontsize(10));
 label(&quot;$y=5$&quot;,(11,5),E,orange+fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="949" data-id="08631" data-file="c510_L1_p52040_solution_text_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="950" data-id="08631" data-file="c510_L1_p52040_solution_text_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-950">
+<div class="card" id="pair-951">
   <div class="card-header">
-    <h2>#950 &mdash; c186_L7_script_42.asy</h2>
+    <h2>#951 &mdash; c186_L7_script_42.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4008 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5245,13 +5492,13 @@ dot(f(pi/2), red);
 dot(f(pi), red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="950" data-id="03024" data-file="c186_L7_script_42.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="951" data-id="03024" data-file="c186_L7_script_42.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-951">
+<div class="card" id="pair-952">
   <div class="card-header">
-    <h2>#951 &mdash; c405_L2_script_5.asy</h2>
+    <h2>#952 &mdash; c405_L2_script_5.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4015 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5370,13 +5617,13 @@ label(&quot;$t \quad (\mathrm{s})$&quot;,(dx*7,-.4),S);
 draw((-dx/2,0)--(5*dx,1.1)--(9*dx,1.1)--(14.5*dx,0)--(xmax,0),red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="951" data-id="06459" data-file="c405_L2_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="952" data-id="06459" data-file="c405_L2_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-952">
+<div class="card" id="pair-953">
   <div class="card-header">
-    <h2>#952 &mdash; c95_L19_script_5.asy</h2>
+    <h2>#953 &mdash; c95_L19_script_5.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4018 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5451,13 +5698,13 @@ label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
 label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="952" data-id="12473" data-file="c95_L19_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="953" data-id="12473" data-file="c95_L19_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-953">
+<div class="card" id="pair-954">
   <div class="card-header">
-    <h2>#953 &mdash; c398_L8_script_7.asy</h2>
+    <h2>#954 &mdash; c398_L8_script_7.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4019 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5500,13 +5747,13 @@ label(&#39;$f$&#39;,(X+Y)/2,2*N);
 label(&#39;$g$&#39;,(Y+Z)/2,2*N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="953" data-id="05072" data-file="c398_L8_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="954" data-id="05072" data-file="c398_L8_script_7.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-954">
+<div class="card" id="pair-955">
   <div class="card-header">
-    <h2>#954 &mdash; c398_L8_script_8.asy</h2>
+    <h2>#955 &mdash; c398_L8_script_8.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4022 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5549,13 +5796,13 @@ label(&#39;$g$&#39;,(X+Y)/2,2*N);
 label(&#39;$f$&#39;,(Y+Z)/2,2*N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="954" data-id="05073" data-file="c398_L8_script_8.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="955" data-id="05073" data-file="c398_L8_script_8.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-955">
+<div class="card" id="pair-956">
   <div class="card-header">
-    <h2>#955 &mdash; c462_L22_p50275_solution_text_4.asy</h2>
+    <h2>#956 &mdash; c462_L22_p50275_solution_text_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4023 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5650,13 +5897,13 @@ dot(&quot;$Y$&quot;, Y, NE);
 dot(&quot;$Z$&quot;, Z, W);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="955" data-id="07337" data-file="c462_L22_p50275_solution_text_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="956" data-id="07337" data-file="c462_L22_p50275_solution_text_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-956">
+<div class="card" id="pair-957">
   <div class="card-header">
-    <h2>#956 &mdash; c583_L10_p50522_problem_text_3.asy</h2>
+    <h2>#957 &mdash; c583_L10_p50522_problem_text_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4026 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5741,13 +5988,13 @@ label(string(more_nums[5*(4-j)+i]),(off+i+0.5,v_off+j+0.5),fontsize(fs));
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="956" data-id="12044" data-file="c583_L10_p50522_problem_text_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="957" data-id="12044" data-file="c583_L10_p50522_problem_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-957">
+<div class="card" id="pair-958">
   <div class="card-header">
-    <h2>#957 &mdash; c398_L11_script_3.asy</h2>
+    <h2>#958 &mdash; c398_L11_script_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4027 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5812,13 +6059,13 @@ label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 label(&quot;$f(x) = 2^x$&quot;, (0,-2.5), fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="957" data-id="04893" data-file="c398_L11_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="958" data-id="04893" data-file="c398_L11_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-958">
+<div class="card" id="pair-959">
   <div class="card-header">
-    <h2>#958 &mdash; c462_L9_p47905_solution_text_1.asy</h2>
+    <h2>#959 &mdash; c462_L9_p47905_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4028 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5893,394 +6140,7 @@ label(&quot;$D$&quot;, D, NE);
 label(&quot;$E$&quot;, E, NW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="958" data-id="07549" data-file="c462_L9_p47905_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-959">
-  <div class="card-header">
-    <h2>#959 &mdash; c539_L11_script_5.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.4033 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08763.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08763.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//https://artofproblemsolving.com/texer/bpppxvsy
-
-size(12cm, 8cm);
-
-//============ MAIN CONTROLS ============
-int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
-bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
-                             // false = both ends are nodes (like fixed string)
-//=======================================
-
-//========== ADJUSTABLE PARAMETERS ==========
-// Dot diagram settings
-real base_density = 0.3;
-real section_width = 1;
-real section_height = 3.0;
-int num_sections = 15;
-bool show_dot_sections = true;
-
-// Amplitude overlay settings
-bool show_amplitude_curve = false;
-real amplitude_offset = 0.8;      // Gap between dots and curve baseline
-real amplitude_scale = 1.2;       // Height of the envelope peaks
-
-// Inner loop settings
-real inner_amplitude_1 = 0.7;
-real inner_amplitude_2 = 0.35;
-
-// Label settings
-bool show_labels = false;
-real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
-real node_dot_size = 5;           // Size of the node marker dots
-//===========================================
-
-// Dot appearance
-real dot_size = 1.5;
-pen dot_color = rgb(100/255, 143/255, 255/255);
-
-// Calculated values
-real total_width = num_sections * section_width;
-real start_x = -total_width / 2;
-
-// Amplitude baseline
-real baseline_y = 0;
-
-// Wave factor: determines the spatial frequency of the standing wave
-// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
-// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
-real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
-
-// ------------------------------------------------------
-// DENSITY FUNCTION
-// ------------------------------------------------------
-real density_at(real x_normalized) {
-    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
-}
-
-// ------------------------------------------------------
-// DRAW DOT SECTIONS
-// ------------------------------------------------------
-if(show_dot_sections) {
-    for(int i = 0; i &lt; num_sections; ++i) {
-        real left_x = start_x + i * section_width;
-        real right_x = left_x + section_width;
-        real bottom_y = -section_height / 2;
-        real top_y = section_height / 2;
-
-if(i &lt; num_sections - 1) {
-    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
-    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
-}
-
-if(i == 0) {
-    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
-}
-
-        real center_normalized = (i + 0.5) / num_sections;
-        real current_density = base_density * density_at(center_normalized);
-
-        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
-        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
-
-        for(int row = 0; row &lt; num_rows; ++row) {
-            for(int col = 0; col &lt; dots_per_row; ++col) {
-                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
-                             + (unitrand() - 0.5) * 0.1;
-                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
-                             + (unitrand() - 0.5) * 0.1;
-
-                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
-                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
-                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
-                }
-            }
-        }
-    }
-}
-
-// ------------------------------------------------------
-// AMPLITUDE ENVELOPE WITH LOOPS
-// ------------------------------------------------------
-if(show_amplitude_curve) {
-    int num_points = 200;
-
-    path build_envelope(real amp_fraction, int sign) {
-        path p;
-        for(int i = 0; i &lt;= num_points; ++i) {
-            real x_norm = i * 1.0 / num_points;
-            real x = start_x + x_norm * total_width;
-            real y = baseline_y + sign * amp_fraction * amplitude_scale 
-                     * abs(sin(wave_factor * pi * x_norm));
-
-            if(i == 0) {
-                p = (x, y);
-            } else {
-                p = p -- (x, y);
-            }
-        }
-        return p;
-    }
-
-    // Baseline (equilibrium)
-    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
-         gray + linewidth(0.5pt));
-
-    // Outer envelope (solid)
-    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
-    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
-
-    // Inner loops (dashed)
-    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
-}
-
-// ------------------------------------------------------
-// NODE AND ANTINODE MARKERS
-// ------------------------------------------------------
-if(show_labels) {
-    // Calculate envelope extents for antinode lines
-    real envelope_top = baseline_y + amplitude_scale;
-    real envelope_bottom = baseline_y - amplitude_scale;
-
-    // Number of nodes differs between modes:
-    // - Normal mode: num_antinodes + 1 nodes (at both ends)
-    // - Half-cycle mode: num_antinodes nodes (only at left end)
-    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
-
-    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
-    // Position formula: k / wave_factor (works for both modes)
-    for(int k = 0; k &lt; num_nodes; ++k) {
-        real node_x_norm = k / wave_factor;
-        real node_x = start_x + node_x_norm * total_width;
-
-        // Dot aligned with amplitude diagram baseline
-        dot((node_x, baseline_y), black + linewidth(node_dot_size));
-
-        // &quot;N&quot; label below everything
-        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
-    }
-
-    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
-    // Position formula: (k + 0.5) / wave_factor (works for both modes)
-    for(int k = 0; k &lt; num_antinodes; ++k) {
-        real antinode_x_norm = (k + 0.5) / wave_factor;
-        real antinode_x = start_x + antinode_x_norm * total_width;
-
-        // Dashed line extends from below dot diagram through amplitude envelope
-        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
-             dashed + linewidth(1pt));
-
-        // &quot;A&quot; label below everything
-        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
-    }
-}
-draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
-draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
-draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
-label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
-label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
-label(&quot;$\ell$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fbpppxvsy%0D%0A%0D%0Asize(12cm%2C%208cm)%3B%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20MAIN%20CONTROLS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aint%20num_antinodes%20%3D%201%3B%20%20%20%20%20%20%20%2F%2F%20SET%20THIS%3A%201%2C%202%2C%203%2C%204%2C%20or%205%0D%0Abool%20half_cycle_mode%20%3D%20true%3B%20%2F%2F%20true%20%3D%20left%20node%2C%20right%20antinode%20(like%20closed%20pipe)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20false%20%3D%20both%20ends%20are%20nodes%20(like%20fixed%20string)%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20ADJUSTABLE%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Dot%20diagram%20settings%0D%0Areal%20base_density%20%3D%200.3%3B%0D%0Areal%20section_width%20%3D%201%3B%0D%0Areal%20section_height%20%3D%203.0%3B%0D%0Aint%20num_sections%20%3D%2015%3B%0D%0Abool%20show_dot_sections%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20overlay%20settings%0D%0Abool%20show_amplitude_curve%20%3D%20false%3B%0D%0Areal%20amplitude_offset%20%3D%200.8%3B%20%20%20%20%20%20%2F%2F%20Gap%20between%20dots%20and%20curve%20baseline%0D%0Areal%20amplitude_scale%20%3D%201.2%3B%20%20%20%20%20%20%20%2F%2F%20Height%20of%20the%20envelope%20peaks%0D%0A%0D%0A%2F%2F%20Inner%20loop%20settings%0D%0Areal%20inner_amplitude_1%20%3D%200.7%3B%0D%0Areal%20inner_amplitude_2%20%3D%200.35%3B%0D%0A%0D%0A%2F%2F%20Label%20settings%0D%0Abool%20show_labels%20%3D%20false%3B%0D%0Areal%20label_y%20%3D%20-2.3%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Y%20position%20for%20%22N%22%20and%20%22A%22%20text%20labels%0D%0Areal%20node_dot_size%20%3D%205%3B%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Size%20of%20the%20node%20marker%20dots%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Dot%20appearance%0D%0Areal%20dot_size%20%3D%201.5%3B%0D%0Apen%20dot_color%20%3D%20rgb(100%2F255%2C%20143%2F255%2C%20255%2F255)%3B%0D%0A%0D%0A%2F%2F%20Calculated%20values%0D%0Areal%20total_width%20%3D%20num_sections%20*%20section_width%3B%0D%0Areal%20start_x%20%3D%20-total_width%20%2F%202%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20baseline%0D%0Areal%20baseline_y%20%3D%200%3B%0D%0A%0D%0A%2F%2F%20Wave%20factor%3A%20determines%20the%20spatial%20frequency%20of%20the%20standing%20wave%0D%0A%2F%2F%20-%20Normal%20mode%3A%20wave_factor%20%3D%20num_antinodes%20(nodes%20at%20both%20ends)%0D%0A%2F%2F%20-%20Half-cycle%20mode%3A%20wave_factor%20%3D%20num_antinodes%20-%200.5%20(node%20at%20left%2C%20antinode%20at%20right)%0D%0Areal%20wave_factor%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20-%200.5%20%3A%20num_antinodes%3B%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DENSITY%20FUNCTION%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20density_at(real%20x_normalized)%20%7B%0D%0A%20%20%20%20return%201.0%20%2B%20abs(sin(wave_factor%20*%20pi%20*%20x_normalized))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DRAW%20DOT%20SECTIONS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_dot_sections)%20%7B%0D%0A%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%20num_sections%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20left_x%20%3D%20start_x%20%2B%20i%20*%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20right_x%20%3D%20left_x%20%2B%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20bottom_y%20%3D%20-section_height%20%2F%202%3B%0D%0A%20%20%20%20%20%20%20%20real%20top_y%20%3D%20section_height%20%2F%202%3B%0D%0A%0D%0Aif(i%20%3C%20num_sections%20-%201)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(right_x%2C%20bottom_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%2F%2F%20bottom%0D%0A%20%20%20%20draw((left_x%2C%20top_y)--(right_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%20%20%20%20%20%20%2F%2F%20top%0D%0A%7D%0D%0A%0D%0Aif(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(left_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%20%20%20%20%20%20%20%20real%20center_normalized%20%3D%20(i%20%2B%200.5)%20%2F%20num_sections%3B%0D%0A%20%20%20%20%20%20%20%20real%20current_density%20%3D%20base_density%20*%20density_at(center_normalized)%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20int%20dots_per_row%20%3D%20floor(section_width%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%20%20%20%20%20%20%20%20int%20num_rows%20%3D%20floor(section_height%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20num_rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20dots_per_row%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20x_pos%20%3D%20left_x%20%2B%20(col%20%2B%200.5)%20*%20section_width%20%2F%20dots_per_row%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20y_pos%20%3D%20bottom_y%20%2B%20(row%20%2B%200.5)%20*%20section_height%20%2F%20num_rows%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20if(x_pos%20%3E%20left_x%20%2B%200.05%20%26%26%20x_pos%20%3C%20right_x%20-%200.05%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y_pos%20%3E%20bottom_y%20%2B%200.05%20%26%26%20y_pos%20%3C%20top_y%20-%200.05)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x_pos%2C%20y_pos)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20AMPLITUDE%20ENVELOPE%20WITH%20LOOPS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_amplitude_curve)%20%7B%0D%0A%20%20%20%20int%20num_points%20%3D%20200%3B%0D%0A%0D%0A%20%20%20%20path%20build_envelope(real%20amp_fraction%2C%20int%20sign)%20%7B%0D%0A%20%20%20%20%20%20%20%20path%20p%3B%0D%0A%20%20%20%20%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%3D%20num_points%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x_norm%20%3D%20i%20*%201.0%20%2F%20num_points%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20start_x%20%2B%20x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20baseline_y%20%2B%20sign%20*%20amp_fraction%20*%20amplitude_scale%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20*%20abs(sin(wave_factor%20*%20pi%20*%20x_norm))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20p%20--%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20return%20p%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20Baseline%20(equilibrium)%0D%0A%20%20%20%20draw((start_x%2C%20baseline_y)%20--%20(start_x%20%2B%20total_width%2C%20baseline_y)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20gray%20%2B%20linewidth(0.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Outer%20envelope%20(solid)%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20%2B1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20-1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Inner%20loops%20(dashed)%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20NODE%20AND%20ANTINODE%20MARKERS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_labels)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20envelope%20extents%20for%20antinode%20lines%0D%0A%20%20%20%20real%20envelope_top%20%3D%20baseline_y%20%2B%20amplitude_scale%3B%0D%0A%20%20%20%20real%20envelope_bottom%20%3D%20baseline_y%20-%20amplitude_scale%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Number%20of%20nodes%20differs%20between%20modes%3A%0D%0A%20%20%20%20%2F%2F%20-%20Normal%20mode%3A%20num_antinodes%20%2B%201%20nodes%20(at%20both%20ends)%0D%0A%20%20%20%20%2F%2F%20-%20Half-cycle%20mode%3A%20num_antinodes%20nodes%20(only%20at%20left%20end)%0D%0A%20%20%20%20int%20num_nodes%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20%3A%20num_antinodes%20%2B%201%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20NODES%3A%20dots%20on%20the%20amplitude%20baseline%2C%20%22N%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20k%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_nodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20node_x_norm%20%3D%20k%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20node_x%20%3D%20start_x%20%2B%20node_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dot%20aligned%20with%20amplitude%20diagram%20baseline%0D%0A%20%20%20%20%20%20%20%20dot((node_x%2C%20baseline_y)%2C%20black%20%2B%20linewidth(node_dot_size))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22N%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22N%22%2C%20(node_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20ANTINODES%3A%20dashed%20lines%20through%20amplitude%20envelope%2C%20%22A%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20(k%20%2B%200.5)%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_antinodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x_norm%20%3D%20(k%20%2B%200.5)%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x%20%3D%20start_x%20%2B%20antinode_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dashed%20line%20extends%20from%20below%20dot%20diagram%20through%20amplitude%20envelope%0D%0A%20%20%20%20%20%20%20%20draw((antinode_x%2C%20-section_height%2F2)%20--%20(antinode_x%2C%20envelope_top)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22A%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22A%22%2C%20(antinode_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0Adraw((-num_sections%2F2%2C-3)--(num_sections%2F2%2C-3)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw((-num_sections%2F2%2C-2)--((num_sections-2)%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw(((num_sections-2)%2F2%2C-2)--(num_sections%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(1)%2C%20Arrows(5))%3B%0D%0Alabel(%22length%22%2C(0%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22effective%20length%22%2C(0%2C-3)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22%24%5Cell%24%22%2C((num_sections-1)%2F2%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//https://artofproblemsolving.com/texer/bpppxvsy
-
-size(12cm, 8cm);
-
-//============ MAIN CONTROLS ============
-int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
-bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
-                             // false = both ends are nodes (like fixed string)
-//=======================================
-
-//========== ADJUSTABLE PARAMETERS ==========
-// Dot diagram settings
-real base_density = 0.3;
-real section_width = 1;
-real section_height = 3.0;
-int num_sections = 15;
-bool show_dot_sections = true;
-
-// Amplitude overlay settings
-bool show_amplitude_curve = false;
-real amplitude_offset = 0.8;      // Gap between dots and curve baseline
-real amplitude_scale = 1.2;       // Height of the envelope peaks
-
-// Inner loop settings
-real inner_amplitude_1 = 0.7;
-real inner_amplitude_2 = 0.35;
-
-// Label settings
-bool show_labels = false;
-real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
-real node_dot_size = 5;           // Size of the node marker dots
-//===========================================
-
-// Dot appearance
-real dot_size = 1.5;
-pen dot_color = rgb(100/255, 143/255, 255/255);
-
-// Calculated values
-real total_width = num_sections * section_width;
-real start_x = -total_width / 2;
-
-// Amplitude baseline
-real baseline_y = 0;
-
-// Wave factor: determines the spatial frequency of the standing wave
-// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
-// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
-real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
-
-// ------------------------------------------------------
-// DENSITY FUNCTION
-// ------------------------------------------------------
-real density_at(real x_normalized) {
-    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
-}
-
-// ------------------------------------------------------
-// DRAW DOT SECTIONS
-// ------------------------------------------------------
-if(show_dot_sections) {
-    for(int i = 0; i &lt; num_sections; ++i) {
-        real left_x = start_x + i * section_width;
-        real right_x = left_x + section_width;
-        real bottom_y = -section_height / 2;
-        real top_y = section_height / 2;
-
-if(i &lt; num_sections - 1) {
-    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
-    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
-}
-
-if(i == 0) {
-    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
-}
-
-        real center_normalized = (i + 0.5) / num_sections;
-        real current_density = base_density * density_at(center_normalized);
-
-        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
-        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
-
-        for(int row = 0; row &lt; num_rows; ++row) {
-            for(int col = 0; col &lt; dots_per_row; ++col) {
-                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
-                             + (unitrand() - 0.5) * 0.1;
-                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
-                             + (unitrand() - 0.5) * 0.1;
-
-                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
-                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
-                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
-                }
-            }
-        }
-    }
-}
-
-// ------------------------------------------------------
-// AMPLITUDE ENVELOPE WITH LOOPS
-// ------------------------------------------------------
-if(show_amplitude_curve) {
-    int num_points = 200;
-
-    path build_envelope(real amp_fraction, int sign) {
-        path p;
-        for(int i = 0; i &lt;= num_points; ++i) {
-            real x_norm = i * 1.0 / num_points;
-            real x = start_x + x_norm * total_width;
-            real y = baseline_y + sign * amp_fraction * amplitude_scale 
-                     * abs(sin(wave_factor * pi * x_norm));
-
-            if(i == 0) {
-                p = (x, y);
-            } else {
-                p = p -- (x, y);
-            }
-        }
-        return p;
-    }
-
-    // Baseline (equilibrium)
-    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
-         gray + linewidth(0.5pt));
-
-    // Outer envelope (solid)
-    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
-    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
-
-    // Inner loops (dashed)
-    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
-}
-
-// ------------------------------------------------------
-// NODE AND ANTINODE MARKERS
-// ------------------------------------------------------
-if(show_labels) {
-    // Calculate envelope extents for antinode lines
-    real envelope_top = baseline_y + amplitude_scale;
-    real envelope_bottom = baseline_y - amplitude_scale;
-
-    // Number of nodes differs between modes:
-    // - Normal mode: num_antinodes + 1 nodes (at both ends)
-    // - Half-cycle mode: num_antinodes nodes (only at left end)
-    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
-
-    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
-    // Position formula: k / wave_factor (works for both modes)
-    for(int k = 0; k &lt; num_nodes; ++k) {
-        real node_x_norm = k / wave_factor;
-        real node_x = start_x + node_x_norm * total_width;
-
-        // Dot aligned with amplitude diagram baseline
-        dot((node_x, baseline_y), black + linewidth(node_dot_size));
-
-        // &quot;N&quot; label below everything
-        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
-    }
-
-    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
-    // Position formula: (k + 0.5) / wave_factor (works for both modes)
-    for(int k = 0; k &lt; num_antinodes; ++k) {
-        real antinode_x_norm = (k + 0.5) / wave_factor;
-        real antinode_x = start_x + antinode_x_norm * total_width;
-
-        // Dashed line extends from below dot diagram through amplitude envelope
-        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
-             dashed + linewidth(1pt));
-
-        // &quot;A&quot; label below everything
-        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
-    }
-}
-draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
-draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
-draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
-label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
-label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
-label(&quot;$\ell$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="959" data-id="08763" data-file="c539_L11_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="959" data-id="07549" data-file="c462_L9_p47905_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -7504,254 +7364,7 @@ add(graf[1]);
 </div>
 <div class="card" id="pair-972">
   <div class="card-header">
-    <h2>#972 &mdash; c539_L10_script_3.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.4075 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08739.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08739.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//https://artofproblemsolving.com/texer/yekttvfg
-
-size(12cm, 0);
-
-// ============== DENSITY PARAMETERS ==============
-// Adjust these values to control dot density in each region
-// Higher values = more dots (try 0.2 to 1.0)
-
-real density_outside_far = 0.6;     // Leftmost outside zone
-real density_outside_mid = 0.6;     // Middle outside zone
-real density_outside_near = 0.6;    // Zone closest to membrane
-real density_inside = 0.6;          // Inside the chamber
-
-// ============== DOT APPEARANCE ==============
-real dot_size = 1.2;
-pen dot_color = blue;
-
-// ============== HOUSING DIMENSIONS ==============
-real outerHeight = 1.6;
-real outerWidth = 3.0;
-real wallThickness = 0.15;
-real membraneWidth = 0.1;
-
-// Calculated inner boundaries
-real innerTop = outerHeight/2 - wallThickness;
-real innerBottom = -outerHeight/2 + wallThickness;
-
-// ============== FUNCTION TO FILL A REGION WITH DOTS ==============
-// This function takes a rectangular region and fills it with dots.
-// Parameters:
-//   left, right, bottom, top: boundaries of the rectangle
-//   density: controls how many dots (0.2 = sparse, 1.0 = dense)
-void fillWithDots(real left, real right, real bottom, real top, real density) {
-    // Calculate grid spacing based on density
-    // Higher density = smaller spacing = more dots
-    real spacing = 0.15 / sqrt(density);
-
-    // Calculate how many dots fit in each direction
-    int cols = floor((right - left) / spacing);
-    int rows = floor((top - bottom) / spacing);
-
-    // Prevent division by zero for very small regions
-    if(cols &lt; 1) cols = 1;
-    if(rows &lt; 1) rows = 1;
-
-    // Place dots in a grid with random offset for natural look
-    for(int row = 0; row &lt; rows; ++row) {
-        for(int col = 0; col &lt; cols; ++col) {
-            // Calculate base position (center of each grid cell)
-            real x = left + (col + 0.5) * (right - left) / cols;
-            real y = bottom + (row + 0.5) * (top - bottom) / rows;
-
-            // Add small random offset so dots don&#39;t look too regular
-            x += (unitrand() - 0.5) * 0.08;
-            y += (unitrand() - 0.5) * 0.08;
-
-            // Only draw if dot is within the region (with small margin)
-            if(x &gt; left + 0.03 &amp;&amp; x &lt; right - 0.03 &amp;&amp; 
-               y &gt; bottom + 0.03 &amp;&amp; y &lt; top - 0.03) {
-                dot((x, y), dot_color + linewidth(dot_size));
-            }
-        }
-    }
-}
-
-// ============== DRAW DOTS IN EACH REGION ==============
-
-// Outside zones (left of membrane, extending leftward by outerWidth)
-real outsideLeft = -outerWidth;  // Left edge of outside air region
-real zoneWidth = outerWidth / 3; // Each zone is 1/3 of the total outside width
-
-// Zone 1: Far from membrane (leftmost)
-fillWithDots(outsideLeft, outsideLeft + zoneWidth, 
-             -outerHeight/2, outerHeight/2, 
-             density_outside_far);
-
-// Zone 2: Middle distance
-fillWithDots(outsideLeft + zoneWidth, outsideLeft + 2*zoneWidth, 
-             -outerHeight/2, outerHeight/2, 
-             density_outside_mid);
-
-// Zone 3: Near membrane (rightmost outside zone)
-fillWithDots(outsideLeft + 2*zoneWidth, 0, 
-             -outerHeight/2, outerHeight/2, 
-             density_outside_near);
-
-// Inside chamber (between membrane and right wall)
-fillWithDots(membraneWidth, outerWidth - wallThickness, 
-             innerBottom, innerTop, 
-             density_inside);
-
-// ============== DRAW HOUSING STRUCTURE ==============
-pen housingColor = gray;
-pen membraneColor = lightolive;
-
-// Top wall
-fill(box((0, innerTop), (outerWidth, outerHeight/2)), housingColor);
-
-// Bottom wall  
-fill(box((0, -outerHeight/2), (outerWidth, innerBottom)), housingColor);
-
-// Right wall
-fill(box((outerWidth - wallThickness, -outerHeight/2), (outerWidth, outerHeight/2)), housingColor);
-
-// Membrane
-fill(box((0, innerBottom), (membraneWidth, innerTop)), membraneColor);
-
-label (&quot;Membrane&quot;,(0,-outerHeight/2), S, lightolive+fontsize(12));
-pen labelPen = darkblue;
-label(&quot;1 atm&quot;,(-outerHeight/2,0),labelPen+fontsize(14),UnFill);
-label(&quot;1 atm&quot;,(outerHeight/2,0),labelPen+fontsize(14),UnFill);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fyekttvfg%0D%0A%0D%0Asize(12cm%2C%200)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DENSITY%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Adjust%20these%20values%20to%20control%20dot%20density%20in%20each%20region%0D%0A%2F%2F%20Higher%20values%20%3D%20more%20dots%20(try%200.2%20to%201.0)%0D%0A%0D%0Areal%20density_outside_far%20%3D%200.6%3B%20%20%20%20%20%2F%2F%20Leftmost%20outside%20zone%0D%0Areal%20density_outside_mid%20%3D%200.6%3B%20%20%20%20%20%2F%2F%20Middle%20outside%20zone%0D%0Areal%20density_outside_near%20%3D%200.6%3B%20%20%20%20%2F%2F%20Zone%20closest%20to%20membrane%0D%0Areal%20density_inside%20%3D%200.6%3B%20%20%20%20%20%20%20%20%20%20%2F%2F%20Inside%20the%20chamber%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DOT%20APPEARANCE%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Areal%20dot_size%20%3D%201.2%3B%0D%0Apen%20dot_color%20%3D%20blue%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20HOUSING%20DIMENSIONS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Areal%20outerHeight%20%3D%201.6%3B%0D%0Areal%20outerWidth%20%3D%203.0%3B%0D%0Areal%20wallThickness%20%3D%200.15%3B%0D%0Areal%20membraneWidth%20%3D%200.1%3B%0D%0A%0D%0A%2F%2F%20Calculated%20inner%20boundaries%0D%0Areal%20innerTop%20%3D%20outerHeight%2F2%20-%20wallThickness%3B%0D%0Areal%20innerBottom%20%3D%20-outerHeight%2F2%20%2B%20wallThickness%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20FUNCTION%20TO%20FILL%20A%20REGION%20WITH%20DOTS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20This%20function%20takes%20a%20rectangular%20region%20and%20fills%20it%20with%20dots.%0D%0A%2F%2F%20Parameters%3A%0D%0A%2F%2F%20%20%20left%2C%20right%2C%20bottom%2C%20top%3A%20boundaries%20of%20the%20rectangle%0D%0A%2F%2F%20%20%20density%3A%20controls%20how%20many%20dots%20(0.2%20%3D%20sparse%2C%201.0%20%3D%20dense)%0D%0Avoid%20fillWithDots(real%20left%2C%20real%20right%2C%20real%20bottom%2C%20real%20top%2C%20real%20density)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20grid%20spacing%20based%20on%20density%0D%0A%20%20%20%20%2F%2F%20Higher%20density%20%3D%20smaller%20spacing%20%3D%20more%20dots%0D%0A%20%20%20%20real%20spacing%20%3D%200.15%20%2F%20sqrt(density)%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Calculate%20how%20many%20dots%20fit%20in%20each%20direction%0D%0A%20%20%20%20int%20cols%20%3D%20floor((right%20-%20left)%20%2F%20spacing)%3B%0D%0A%20%20%20%20int%20rows%20%3D%20floor((top%20-%20bottom)%20%2F%20spacing)%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Prevent%20division%20by%20zero%20for%20very%20small%20regions%0D%0A%20%20%20%20if(cols%20%3C%201)%20cols%20%3D%201%3B%0D%0A%20%20%20%20if(rows%20%3C%201)%20rows%20%3D%201%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Place%20dots%20in%20a%20grid%20with%20random%20offset%20for%20natural%20look%0D%0A%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20cols%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Calculate%20base%20position%20(center%20of%20each%20grid%20cell)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20left%20%2B%20(col%20%2B%200.5)%20*%20(right%20-%20left)%20%2F%20cols%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20bottom%20%2B%20(row%20%2B%200.5)%20*%20(top%20-%20bottom)%20%2F%20rows%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Add%20small%20random%20offset%20so%20dots%20don't%20look%20too%20regular%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20x%20%2B%3D%20(unitrand()%20-%200.5)%20*%200.08%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20y%20%2B%3D%20(unitrand()%20-%200.5)%20*%200.08%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Only%20draw%20if%20dot%20is%20within%20the%20region%20(with%20small%20margin)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(x%20%3E%20left%20%2B%200.03%20%26%26%20x%20%3C%20right%20-%200.03%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y%20%3E%20bottom%20%2B%200.03%20%26%26%20y%20%3C%20top%20-%200.03)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x%2C%20y)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DRAW%20DOTS%20IN%20EACH%20REGION%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Outside%20zones%20(left%20of%20membrane%2C%20extending%20leftward%20by%20outerWidth)%0D%0Areal%20outsideLeft%20%3D%20-outerWidth%3B%20%20%2F%2F%20Left%20edge%20of%20outside%20air%20region%0D%0Areal%20zoneWidth%20%3D%20outerWidth%20%2F%203%3B%20%2F%2F%20Each%20zone%20is%201%2F3%20of%20the%20total%20outside%20width%0D%0A%0D%0A%2F%2F%20Zone%201%3A%20Far%20from%20membrane%20(leftmost)%0D%0AfillWithDots(outsideLeft%2C%20outsideLeft%20%2B%20zoneWidth%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20-outerHeight%2F2%2C%20outerHeight%2F2%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_outside_far)%3B%0D%0A%0D%0A%2F%2F%20Zone%202%3A%20Middle%20distance%0D%0AfillWithDots(outsideLeft%20%2B%20zoneWidth%2C%20outsideLeft%20%2B%202*zoneWidth%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20-outerHeight%2F2%2C%20outerHeight%2F2%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_outside_mid)%3B%0D%0A%0D%0A%2F%2F%20Zone%203%3A%20Near%20membrane%20(rightmost%20outside%20zone)%0D%0AfillWithDots(outsideLeft%20%2B%202*zoneWidth%2C%200%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20-outerHeight%2F2%2C%20outerHeight%2F2%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_outside_near)%3B%0D%0A%0D%0A%2F%2F%20Inside%20chamber%20(between%20membrane%20and%20right%20wall)%0D%0AfillWithDots(membraneWidth%2C%20outerWidth%20-%20wallThickness%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20innerBottom%2C%20innerTop%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20density_inside)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20DRAW%20HOUSING%20STRUCTURE%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Apen%20housingColor%20%3D%20gray%3B%0D%0Apen%20membraneColor%20%3D%20lightolive%3B%0D%0A%0D%0A%2F%2F%20Top%20wall%0D%0Afill(box((0%2C%20innerTop)%2C%20(outerWidth%2C%20outerHeight%2F2))%2C%20housingColor)%3B%0D%0A%0D%0A%2F%2F%20Bottom%20wall%20%20%0D%0Afill(box((0%2C%20-outerHeight%2F2)%2C%20(outerWidth%2C%20innerBottom))%2C%20housingColor)%3B%0D%0A%0D%0A%2F%2F%20Right%20wall%0D%0Afill(box((outerWidth%20-%20wallThickness%2C%20-outerHeight%2F2)%2C%20(outerWidth%2C%20outerHeight%2F2))%2C%20housingColor)%3B%0D%0A%0D%0A%2F%2F%20Membrane%0D%0Afill(box((0%2C%20innerBottom)%2C%20(membraneWidth%2C%20innerTop))%2C%20membraneColor)%3B%0D%0A%0D%0Alabel%20(%22Membrane%22%2C(0%2C-outerHeight%2F2)%2C%20S%2C%20lightolive%2Bfontsize(12))%3B%0D%0Apen%20labelPen%20%3D%20darkblue%3B%0D%0Alabel(%221%20atm%22%2C(-outerHeight%2F2%2C0)%2ClabelPen%2Bfontsize(14)%2CUnFill)%3B%0D%0Alabel(%221%20atm%22%2C(outerHeight%2F2%2C0)%2ClabelPen%2Bfontsize(14)%2CUnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//https://artofproblemsolving.com/texer/yekttvfg
-
-size(12cm, 0);
-
-// ============== DENSITY PARAMETERS ==============
-// Adjust these values to control dot density in each region
-// Higher values = more dots (try 0.2 to 1.0)
-
-real density_outside_far = 0.6;     // Leftmost outside zone
-real density_outside_mid = 0.6;     // Middle outside zone
-real density_outside_near = 0.6;    // Zone closest to membrane
-real density_inside = 0.6;          // Inside the chamber
-
-// ============== DOT APPEARANCE ==============
-real dot_size = 1.2;
-pen dot_color = blue;
-
-// ============== HOUSING DIMENSIONS ==============
-real outerHeight = 1.6;
-real outerWidth = 3.0;
-real wallThickness = 0.15;
-real membraneWidth = 0.1;
-
-// Calculated inner boundaries
-real innerTop = outerHeight/2 - wallThickness;
-real innerBottom = -outerHeight/2 + wallThickness;
-
-// ============== FUNCTION TO FILL A REGION WITH DOTS ==============
-// This function takes a rectangular region and fills it with dots.
-// Parameters:
-//   left, right, bottom, top: boundaries of the rectangle
-//   density: controls how many dots (0.2 = sparse, 1.0 = dense)
-void fillWithDots(real left, real right, real bottom, real top, real density) {
-    // Calculate grid spacing based on density
-    // Higher density = smaller spacing = more dots
-    real spacing = 0.15 / sqrt(density);
-
-    // Calculate how many dots fit in each direction
-    int cols = floor((right - left) / spacing);
-    int rows = floor((top - bottom) / spacing);
-
-    // Prevent division by zero for very small regions
-    if(cols &lt; 1) cols = 1;
-    if(rows &lt; 1) rows = 1;
-
-    // Place dots in a grid with random offset for natural look
-    for(int row = 0; row &lt; rows; ++row) {
-        for(int col = 0; col &lt; cols; ++col) {
-            // Calculate base position (center of each grid cell)
-            real x = left + (col + 0.5) * (right - left) / cols;
-            real y = bottom + (row + 0.5) * (top - bottom) / rows;
-
-            // Add small random offset so dots don&#39;t look too regular
-            x += (unitrand() - 0.5) * 0.08;
-            y += (unitrand() - 0.5) * 0.08;
-
-            // Only draw if dot is within the region (with small margin)
-            if(x &gt; left + 0.03 &amp;&amp; x &lt; right - 0.03 &amp;&amp; 
-               y &gt; bottom + 0.03 &amp;&amp; y &lt; top - 0.03) {
-                dot((x, y), dot_color + linewidth(dot_size));
-            }
-        }
-    }
-}
-
-// ============== DRAW DOTS IN EACH REGION ==============
-
-// Outside zones (left of membrane, extending leftward by outerWidth)
-real outsideLeft = -outerWidth;  // Left edge of outside air region
-real zoneWidth = outerWidth / 3; // Each zone is 1/3 of the total outside width
-
-// Zone 1: Far from membrane (leftmost)
-fillWithDots(outsideLeft, outsideLeft + zoneWidth, 
-             -outerHeight/2, outerHeight/2, 
-             density_outside_far);
-
-// Zone 2: Middle distance
-fillWithDots(outsideLeft + zoneWidth, outsideLeft + 2*zoneWidth, 
-             -outerHeight/2, outerHeight/2, 
-             density_outside_mid);
-
-// Zone 3: Near membrane (rightmost outside zone)
-fillWithDots(outsideLeft + 2*zoneWidth, 0, 
-             -outerHeight/2, outerHeight/2, 
-             density_outside_near);
-
-// Inside chamber (between membrane and right wall)
-fillWithDots(membraneWidth, outerWidth - wallThickness, 
-             innerBottom, innerTop, 
-             density_inside);
-
-// ============== DRAW HOUSING STRUCTURE ==============
-pen housingColor = gray;
-pen membraneColor = lightolive;
-
-// Top wall
-fill(box((0, innerTop), (outerWidth, outerHeight/2)), housingColor);
-
-// Bottom wall  
-fill(box((0, -outerHeight/2), (outerWidth, innerBottom)), housingColor);
-
-// Right wall
-fill(box((outerWidth - wallThickness, -outerHeight/2), (outerWidth, outerHeight/2)), housingColor);
-
-// Membrane
-fill(box((0, innerBottom), (membraneWidth, innerTop)), membraneColor);
-
-label (&quot;Membrane&quot;,(0,-outerHeight/2), S, lightolive+fontsize(12));
-pen labelPen = darkblue;
-label(&quot;1 atm&quot;,(-outerHeight/2,0),labelPen+fontsize(14),UnFill);
-label(&quot;1 atm&quot;,(outerHeight/2,0),labelPen+fontsize(14),UnFill);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="972" data-id="08739" data-file="c539_L10_script_3.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-973">
-  <div class="card-header">
-    <h2>#973 &mdash; c462_L12_script_5.asy</h2>
+    <h2>#972 &mdash; c462_L12_script_5.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4077 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7794,13 +7407,13 @@ void drawpizza(pair P, real r, string toppings){
 drawpizza((0,0),2,&quot;PPGGPPGG&quot;);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="973" data-id="06861" data-file="c462_L12_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="972" data-id="06861" data-file="c462_L12_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-974">
+<div class="card" id="pair-973">
   <div class="card-header">
-    <h2>#974 &mdash; c398_L11_script_2.asy</h2>
+    <h2>#973 &mdash; c398_L11_script_2.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4078 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7911,13 +7524,13 @@ for (n = -12; n &lt;= 12; ++n) {
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="974" data-id="04892" data-file="c398_L11_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="973" data-id="04892" data-file="c398_L11_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-975">
+<div class="card" id="pair-974">
   <div class="card-header">
-    <h2>#975 &mdash; c186_L7_script_4.asy</h2>
+    <h2>#974 &mdash; c186_L7_script_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4078 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8002,13 +7615,13 @@ label(&quot;$t = -2$&quot;, D, NW);
 //label(&quot;$t = 1.5$&quot;, EE, 2*E);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="975" data-id="03021" data-file="c186_L7_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="974" data-id="03021" data-file="c186_L7_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-976">
+<div class="card" id="pair-975">
   <div class="card-header">
-    <h2>#976 &mdash; c95_L4_script_13.asy</h2>
+    <h2>#975 &mdash; c95_L4_script_13.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4079 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8093,13 +7706,13 @@ dot(&quot;$A = (0,\frac{1}{4})$&quot;, A, NW, fontsize(10));
 dot(B);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="976" data-id="12570" data-file="c95_L4_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="975" data-id="12570" data-file="c95_L4_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-977">
+<div class="card" id="pair-976">
   <div class="card-header">
-    <h2>#977 &mdash; c134_L11_script_4.asy</h2>
+    <h2>#976 &mdash; c134_L11_script_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4083 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8144,13 +7757,13 @@ markangle(n=2,radius=30,A,C,E,blue);markangle(n=2,radius=32,E,C,B,blue);
 markangle(n=1,radius=20,D,C,E,heavyred);markangle(n=1,radius=22,E,C,M,heavyred);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="977" data-id="00568" data-file="c134_L11_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="976" data-id="00568" data-file="c134_L11_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-978">
+<div class="card" id="pair-977">
   <div class="card-header">
-    <h2>#978 &mdash; c53_L16_script_23.asy</h2>
+    <h2>#977 &mdash; c53_L16_script_23.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4083 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8221,13 +7834,13 @@ for(int i = 1; i &lt; 10; ++i)
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="978" data-id="09233" data-file="c53_L16_script_23.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="977" data-id="09233" data-file="c53_L16_script_23.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-979">
+<div class="card" id="pair-978">
   <div class="card-header">
-    <h2>#979 &mdash; c10_L19_script_14.asy</h2>
+    <h2>#978 &mdash; c10_L19_script_14.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4084 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8270,13 +7883,13 @@ yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);
 //
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="979" data-id="00138" data-file="c10_L19_script_14.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="978" data-id="00138" data-file="c10_L19_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-980">
+<div class="card" id="pair-979">
   <div class="card-header">
-    <h2>#980 &mdash; c4_L9_p3294_solution_text_0.asy</h2>
+    <h2>#979 &mdash; c4_L9_p3294_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4084 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8311,13 +7924,13 @@ label(&quot;$M$&quot;,(1,.5),E);
 label(&quot;$N$&quot;,(.5,1),N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="980" data-id="08602" data-file="c4_L9_p3294_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="979" data-id="08602" data-file="c4_L9_p3294_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-981">
+<div class="card" id="pair-980">
   <div class="card-header">
-    <h2>#981 &mdash; c186_L7_script_17.asy</h2>
+    <h2>#980 &mdash; c186_L7_script_17.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4087 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8376,13 +7989,13 @@ label(&quot;$t = -1$&quot;, A[1], SW, UnFill);
 //label(&quot;$t = 2$&quot;, A[4], dir(A[4]-(4,0)));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="981" data-id="02996" data-file="c186_L7_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="980" data-id="02996" data-file="c186_L7_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-982">
+<div class="card" id="pair-981">
   <div class="card-header">
-    <h2>#982 &mdash; c10_L19_p5946_solution_text_0.asy</h2>
+    <h2>#981 &mdash; c10_L19_p5946_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4089 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8425,13 +8038,13 @@ yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);
 //
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="982" data-id="00126" data-file="c10_L19_p5946_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="981" data-id="00126" data-file="c10_L19_p5946_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-983">
+<div class="card" id="pair-982">
   <div class="card-header">
-    <h2>#983 &mdash; c321_L10_script_23.asy</h2>
+    <h2>#982 &mdash; c321_L10_script_23.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4092 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8486,13 +8099,13 @@ draw((2,-1)--(-2,1),p=darkgreen+0.7bp,Arrows(size=0.2cm));
 label(&quot;$	extnormal{Slope}=-0.5$&quot;,(2,-1),E,p=darkgreen);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="983" data-id="04485" data-file="c321_L10_script_23.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="982" data-id="04485" data-file="c321_L10_script_23.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-984">
+<div class="card" id="pair-983">
   <div class="card-header">
-    <h2>#984 &mdash; c463_L1_script_0.asy</h2>
+    <h2>#983 &mdash; c463_L1_script_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4092 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8537,13 +8150,13 @@ drawArrow((6,0),(8,0));
 label(&quot;$C_{k}$&quot;,(8,0));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="984" data-id="07827" data-file="c463_L1_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="983" data-id="07827" data-file="c463_L1_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-985">
+<div class="card" id="pair-984">
   <div class="card-header">
-    <h2>#985 &mdash; c462_L11_script_77.asy</h2>
+    <h2>#984 &mdash; c462_L11_script_77.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.4093 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8652,7 +8265,394 @@ label(&quot;$G$&quot;, G, dir(0));
 label(&quot;$H$&quot;, H, N);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="985" data-id="06834" data-file="c462_L11_script_77.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="984" data-id="06834" data-file="c462_L11_script_77.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-985">
+  <div class="card-header">
+    <h2>#985 &mdash; c539_L11_script_5.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.4097 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/08763.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08763.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//https://artofproblemsolving.com/texer/bpppxvsy
+
+size(12cm, 8cm);
+
+//============ MAIN CONTROLS ============
+int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
+bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
+                             // false = both ends are nodes (like fixed string)
+//=======================================
+
+//========== ADJUSTABLE PARAMETERS ==========
+// Dot diagram settings
+real base_density = 0.3;
+real section_width = 1;
+real section_height = 3.0;
+int num_sections = 15;
+bool show_dot_sections = true;
+
+// Amplitude overlay settings
+bool show_amplitude_curve = false;
+real amplitude_offset = 0.8;      // Gap between dots and curve baseline
+real amplitude_scale = 1.2;       // Height of the envelope peaks
+
+// Inner loop settings
+real inner_amplitude_1 = 0.7;
+real inner_amplitude_2 = 0.35;
+
+// Label settings
+bool show_labels = false;
+real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
+real node_dot_size = 5;           // Size of the node marker dots
+//===========================================
+
+// Dot appearance
+real dot_size = 1.5;
+pen dot_color = rgb(100/255, 143/255, 255/255);
+
+// Calculated values
+real total_width = num_sections * section_width;
+real start_x = -total_width / 2;
+
+// Amplitude baseline
+real baseline_y = 0;
+
+// Wave factor: determines the spatial frequency of the standing wave
+// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
+// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
+real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
+
+// ------------------------------------------------------
+// DENSITY FUNCTION
+// ------------------------------------------------------
+real density_at(real x_normalized) {
+    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
+}
+
+// ------------------------------------------------------
+// DRAW DOT SECTIONS
+// ------------------------------------------------------
+if(show_dot_sections) {
+    for(int i = 0; i &lt; num_sections; ++i) {
+        real left_x = start_x + i * section_width;
+        real right_x = left_x + section_width;
+        real bottom_y = -section_height / 2;
+        real top_y = section_height / 2;
+
+if(i &lt; num_sections - 1) {
+    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
+    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
+}
+
+if(i == 0) {
+    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
+}
+
+        real center_normalized = (i + 0.5) / num_sections;
+        real current_density = base_density * density_at(center_normalized);
+
+        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
+        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
+
+        for(int row = 0; row &lt; num_rows; ++row) {
+            for(int col = 0; col &lt; dots_per_row; ++col) {
+                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
+                             + (unitrand() - 0.5) * 0.1;
+                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
+                             + (unitrand() - 0.5) * 0.1;
+
+                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
+                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
+                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------
+// AMPLITUDE ENVELOPE WITH LOOPS
+// ------------------------------------------------------
+if(show_amplitude_curve) {
+    int num_points = 200;
+
+    path build_envelope(real amp_fraction, int sign) {
+        path p;
+        for(int i = 0; i &lt;= num_points; ++i) {
+            real x_norm = i * 1.0 / num_points;
+            real x = start_x + x_norm * total_width;
+            real y = baseline_y + sign * amp_fraction * amplitude_scale 
+                     * abs(sin(wave_factor * pi * x_norm));
+
+            if(i == 0) {
+                p = (x, y);
+            } else {
+                p = p -- (x, y);
+            }
+        }
+        return p;
+    }
+
+    // Baseline (equilibrium)
+    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
+         gray + linewidth(0.5pt));
+
+    // Outer envelope (solid)
+    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
+    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
+
+    // Inner loops (dashed)
+    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
+}
+
+// ------------------------------------------------------
+// NODE AND ANTINODE MARKERS
+// ------------------------------------------------------
+if(show_labels) {
+    // Calculate envelope extents for antinode lines
+    real envelope_top = baseline_y + amplitude_scale;
+    real envelope_bottom = baseline_y - amplitude_scale;
+
+    // Number of nodes differs between modes:
+    // - Normal mode: num_antinodes + 1 nodes (at both ends)
+    // - Half-cycle mode: num_antinodes nodes (only at left end)
+    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
+
+    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
+    // Position formula: k / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_nodes; ++k) {
+        real node_x_norm = k / wave_factor;
+        real node_x = start_x + node_x_norm * total_width;
+
+        // Dot aligned with amplitude diagram baseline
+        dot((node_x, baseline_y), black + linewidth(node_dot_size));
+
+        // &quot;N&quot; label below everything
+        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
+    }
+
+    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
+    // Position formula: (k + 0.5) / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_antinodes; ++k) {
+        real antinode_x_norm = (k + 0.5) / wave_factor;
+        real antinode_x = start_x + antinode_x_norm * total_width;
+
+        // Dashed line extends from below dot diagram through amplitude envelope
+        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
+             dashed + linewidth(1pt));
+
+        // &quot;A&quot; label below everything
+        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
+    }
+}
+draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
+draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
+draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
+label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
+label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
+label(&quot;$\ell$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fbpppxvsy%0D%0A%0D%0Asize(12cm%2C%208cm)%3B%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20MAIN%20CONTROLS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aint%20num_antinodes%20%3D%201%3B%20%20%20%20%20%20%20%2F%2F%20SET%20THIS%3A%201%2C%202%2C%203%2C%204%2C%20or%205%0D%0Abool%20half_cycle_mode%20%3D%20true%3B%20%2F%2F%20true%20%3D%20left%20node%2C%20right%20antinode%20(like%20closed%20pipe)%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20false%20%3D%20both%20ends%20are%20nodes%20(like%20fixed%20string)%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20ADJUSTABLE%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Dot%20diagram%20settings%0D%0Areal%20base_density%20%3D%200.3%3B%0D%0Areal%20section_width%20%3D%201%3B%0D%0Areal%20section_height%20%3D%203.0%3B%0D%0Aint%20num_sections%20%3D%2015%3B%0D%0Abool%20show_dot_sections%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20overlay%20settings%0D%0Abool%20show_amplitude_curve%20%3D%20false%3B%0D%0Areal%20amplitude_offset%20%3D%200.8%3B%20%20%20%20%20%20%2F%2F%20Gap%20between%20dots%20and%20curve%20baseline%0D%0Areal%20amplitude_scale%20%3D%201.2%3B%20%20%20%20%20%20%20%2F%2F%20Height%20of%20the%20envelope%20peaks%0D%0A%0D%0A%2F%2F%20Inner%20loop%20settings%0D%0Areal%20inner_amplitude_1%20%3D%200.7%3B%0D%0Areal%20inner_amplitude_2%20%3D%200.35%3B%0D%0A%0D%0A%2F%2F%20Label%20settings%0D%0Abool%20show_labels%20%3D%20false%3B%0D%0Areal%20label_y%20%3D%20-2.3%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Y%20position%20for%20%22N%22%20and%20%22A%22%20text%20labels%0D%0Areal%20node_dot_size%20%3D%205%3B%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Size%20of%20the%20node%20marker%20dots%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Dot%20appearance%0D%0Areal%20dot_size%20%3D%201.5%3B%0D%0Apen%20dot_color%20%3D%20rgb(100%2F255%2C%20143%2F255%2C%20255%2F255)%3B%0D%0A%0D%0A%2F%2F%20Calculated%20values%0D%0Areal%20total_width%20%3D%20num_sections%20*%20section_width%3B%0D%0Areal%20start_x%20%3D%20-total_width%20%2F%202%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20baseline%0D%0Areal%20baseline_y%20%3D%200%3B%0D%0A%0D%0A%2F%2F%20Wave%20factor%3A%20determines%20the%20spatial%20frequency%20of%20the%20standing%20wave%0D%0A%2F%2F%20-%20Normal%20mode%3A%20wave_factor%20%3D%20num_antinodes%20(nodes%20at%20both%20ends)%0D%0A%2F%2F%20-%20Half-cycle%20mode%3A%20wave_factor%20%3D%20num_antinodes%20-%200.5%20(node%20at%20left%2C%20antinode%20at%20right)%0D%0Areal%20wave_factor%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20-%200.5%20%3A%20num_antinodes%3B%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DENSITY%20FUNCTION%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20density_at(real%20x_normalized)%20%7B%0D%0A%20%20%20%20return%201.0%20%2B%20abs(sin(wave_factor%20*%20pi%20*%20x_normalized))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DRAW%20DOT%20SECTIONS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_dot_sections)%20%7B%0D%0A%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%20num_sections%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20left_x%20%3D%20start_x%20%2B%20i%20*%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20right_x%20%3D%20left_x%20%2B%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20bottom_y%20%3D%20-section_height%20%2F%202%3B%0D%0A%20%20%20%20%20%20%20%20real%20top_y%20%3D%20section_height%20%2F%202%3B%0D%0A%0D%0Aif(i%20%3C%20num_sections%20-%201)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(right_x%2C%20bottom_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%2F%2F%20bottom%0D%0A%20%20%20%20draw((left_x%2C%20top_y)--(right_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%20%20%20%20%20%20%2F%2F%20top%0D%0A%7D%0D%0A%0D%0Aif(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20draw((left_x%2C%20bottom_y)--(left_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%20%20%20%20%20%20%20%20real%20center_normalized%20%3D%20(i%20%2B%200.5)%20%2F%20num_sections%3B%0D%0A%20%20%20%20%20%20%20%20real%20current_density%20%3D%20base_density%20*%20density_at(center_normalized)%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20int%20dots_per_row%20%3D%20floor(section_width%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%20%20%20%20%20%20%20%20int%20num_rows%20%3D%20floor(section_height%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20num_rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20dots_per_row%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20x_pos%20%3D%20left_x%20%2B%20(col%20%2B%200.5)%20*%20section_width%20%2F%20dots_per_row%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20y_pos%20%3D%20bottom_y%20%2B%20(row%20%2B%200.5)%20*%20section_height%20%2F%20num_rows%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20if(x_pos%20%3E%20left_x%20%2B%200.05%20%26%26%20x_pos%20%3C%20right_x%20-%200.05%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y_pos%20%3E%20bottom_y%20%2B%200.05%20%26%26%20y_pos%20%3C%20top_y%20-%200.05)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x_pos%2C%20y_pos)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20AMPLITUDE%20ENVELOPE%20WITH%20LOOPS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_amplitude_curve)%20%7B%0D%0A%20%20%20%20int%20num_points%20%3D%20200%3B%0D%0A%0D%0A%20%20%20%20path%20build_envelope(real%20amp_fraction%2C%20int%20sign)%20%7B%0D%0A%20%20%20%20%20%20%20%20path%20p%3B%0D%0A%20%20%20%20%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%3D%20num_points%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x_norm%20%3D%20i%20*%201.0%20%2F%20num_points%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20start_x%20%2B%20x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20baseline_y%20%2B%20sign%20*%20amp_fraction%20*%20amplitude_scale%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20*%20abs(sin(wave_factor%20*%20pi%20*%20x_norm))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20p%20--%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20return%20p%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20Baseline%20(equilibrium)%0D%0A%20%20%20%20draw((start_x%2C%20baseline_y)%20--%20(start_x%20%2B%20total_width%2C%20baseline_y)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20gray%20%2B%20linewidth(0.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Outer%20envelope%20(solid)%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20%2B1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20-1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Inner%20loops%20(dashed)%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20NODE%20AND%20ANTINODE%20MARKERS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_labels)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20envelope%20extents%20for%20antinode%20lines%0D%0A%20%20%20%20real%20envelope_top%20%3D%20baseline_y%20%2B%20amplitude_scale%3B%0D%0A%20%20%20%20real%20envelope_bottom%20%3D%20baseline_y%20-%20amplitude_scale%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Number%20of%20nodes%20differs%20between%20modes%3A%0D%0A%20%20%20%20%2F%2F%20-%20Normal%20mode%3A%20num_antinodes%20%2B%201%20nodes%20(at%20both%20ends)%0D%0A%20%20%20%20%2F%2F%20-%20Half-cycle%20mode%3A%20num_antinodes%20nodes%20(only%20at%20left%20end)%0D%0A%20%20%20%20int%20num_nodes%20%3D%20half_cycle_mode%20%3F%20num_antinodes%20%3A%20num_antinodes%20%2B%201%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20NODES%3A%20dots%20on%20the%20amplitude%20baseline%2C%20%22N%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20k%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_nodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20node_x_norm%20%3D%20k%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20node_x%20%3D%20start_x%20%2B%20node_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dot%20aligned%20with%20amplitude%20diagram%20baseline%0D%0A%20%20%20%20%20%20%20%20dot((node_x%2C%20baseline_y)%2C%20black%20%2B%20linewidth(node_dot_size))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22N%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22N%22%2C%20(node_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%2F%2F%20ANTINODES%3A%20dashed%20lines%20through%20amplitude%20envelope%2C%20%22A%22%20labels%20below%0D%0A%20%20%20%20%2F%2F%20Position%20formula%3A%20(k%20%2B%200.5)%20%2F%20wave_factor%20(works%20for%20both%20modes)%0D%0A%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_antinodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x_norm%20%3D%20(k%20%2B%200.5)%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20real%20antinode_x%20%3D%20start_x%20%2B%20antinode_x_norm%20*%20total_width%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Dashed%20line%20extends%20from%20below%20dot%20diagram%20through%20amplitude%20envelope%0D%0A%20%20%20%20%20%20%20%20draw((antinode_x%2C%20-section_height%2F2)%20--%20(antinode_x%2C%20envelope_top)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20%22A%22%20label%20below%20everything%0D%0A%20%20%20%20%20%20%20%20label(%22A%22%2C%20(antinode_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0Adraw((-num_sections%2F2%2C-3)--(num_sections%2F2%2C-3)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw((-num_sections%2F2%2C-2)--((num_sections-2)%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(2)%2C%20Arrows(6))%3B%0D%0Adraw(((num_sections-2)%2F2%2C-2)--(num_sections%2F2%2C-2)%2Cbrown%2Bdotted%2Blinewidth(1)%2C%20Arrows(5))%3B%0D%0Alabel(%22length%22%2C(0%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22effective%20length%22%2C(0%2C-3)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0D%0Alabel(%22%24%5Cell%24%22%2C((num_sections-1)%2F2%2C-2)%2CS%2Cbrown%2Bfontsize(12pt))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//https://artofproblemsolving.com/texer/bpppxvsy
+
+size(12cm, 8cm);
+
+//============ MAIN CONTROLS ============
+int num_antinodes = 1;       // SET THIS: 1, 2, 3, 4, or 5
+bool half_cycle_mode = true; // true = left node, right antinode (like closed pipe)
+                             // false = both ends are nodes (like fixed string)
+//=======================================
+
+//========== ADJUSTABLE PARAMETERS ==========
+// Dot diagram settings
+real base_density = 0.3;
+real section_width = 1;
+real section_height = 3.0;
+int num_sections = 15;
+bool show_dot_sections = true;
+
+// Amplitude overlay settings
+bool show_amplitude_curve = false;
+real amplitude_offset = 0.8;      // Gap between dots and curve baseline
+real amplitude_scale = 1.2;       // Height of the envelope peaks
+
+// Inner loop settings
+real inner_amplitude_1 = 0.7;
+real inner_amplitude_2 = 0.35;
+
+// Label settings
+bool show_labels = false;
+real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
+real node_dot_size = 5;           // Size of the node marker dots
+//===========================================
+
+// Dot appearance
+real dot_size = 1.5;
+pen dot_color = rgb(100/255, 143/255, 255/255);
+
+// Calculated values
+real total_width = num_sections * section_width;
+real start_x = -total_width / 2;
+
+// Amplitude baseline
+real baseline_y = 0;
+
+// Wave factor: determines the spatial frequency of the standing wave
+// - Normal mode: wave_factor = num_antinodes (nodes at both ends)
+// - Half-cycle mode: wave_factor = num_antinodes - 0.5 (node at left, antinode at right)
+real wave_factor = half_cycle_mode ? num_antinodes - 0.5 : num_antinodes;
+
+// ------------------------------------------------------
+// DENSITY FUNCTION
+// ------------------------------------------------------
+real density_at(real x_normalized) {
+    return 1.0 + abs(sin(wave_factor * pi * x_normalized));
+}
+
+// ------------------------------------------------------
+// DRAW DOT SECTIONS
+// ------------------------------------------------------
+if(show_dot_sections) {
+    for(int i = 0; i &lt; num_sections; ++i) {
+        real left_x = start_x + i * section_width;
+        real right_x = left_x + section_width;
+        real bottom_y = -section_height / 2;
+        real top_y = section_height / 2;
+
+if(i &lt; num_sections - 1) {
+    draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
+    draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
+}
+
+if(i == 0) {
+    draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
+}
+
+        real center_normalized = (i + 0.5) / num_sections;
+        real current_density = base_density * density_at(center_normalized);
+
+        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
+        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
+
+        for(int row = 0; row &lt; num_rows; ++row) {
+            for(int col = 0; col &lt; dots_per_row; ++col) {
+                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
+                             + (unitrand() - 0.5) * 0.1;
+                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
+                             + (unitrand() - 0.5) * 0.1;
+
+                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
+                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
+                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------
+// AMPLITUDE ENVELOPE WITH LOOPS
+// ------------------------------------------------------
+if(show_amplitude_curve) {
+    int num_points = 200;
+
+    path build_envelope(real amp_fraction, int sign) {
+        path p;
+        for(int i = 0; i &lt;= num_points; ++i) {
+            real x_norm = i * 1.0 / num_points;
+            real x = start_x + x_norm * total_width;
+            real y = baseline_y + sign * amp_fraction * amplitude_scale 
+                     * abs(sin(wave_factor * pi * x_norm));
+
+            if(i == 0) {
+                p = (x, y);
+            } else {
+                p = p -- (x, y);
+            }
+        }
+        return p;
+    }
+
+    // Baseline (equilibrium)
+    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
+         gray + linewidth(0.5pt));
+
+    // Outer envelope (solid)
+    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
+    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
+
+    // Inner loops (dashed)
+    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
+    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
+}
+
+// ------------------------------------------------------
+// NODE AND ANTINODE MARKERS
+// ------------------------------------------------------
+if(show_labels) {
+    // Calculate envelope extents for antinode lines
+    real envelope_top = baseline_y + amplitude_scale;
+    real envelope_bottom = baseline_y - amplitude_scale;
+
+    // Number of nodes differs between modes:
+    // - Normal mode: num_antinodes + 1 nodes (at both ends)
+    // - Half-cycle mode: num_antinodes nodes (only at left end)
+    int num_nodes = half_cycle_mode ? num_antinodes : num_antinodes + 1;
+
+    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
+    // Position formula: k / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_nodes; ++k) {
+        real node_x_norm = k / wave_factor;
+        real node_x = start_x + node_x_norm * total_width;
+
+        // Dot aligned with amplitude diagram baseline
+        dot((node_x, baseline_y), black + linewidth(node_dot_size));
+
+        // &quot;N&quot; label below everything
+        label(&quot;N&quot;, (node_x, label_y), fontsize(10));
+    }
+
+    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
+    // Position formula: (k + 0.5) / wave_factor (works for both modes)
+    for(int k = 0; k &lt; num_antinodes; ++k) {
+        real antinode_x_norm = (k + 0.5) / wave_factor;
+        real antinode_x = start_x + antinode_x_norm * total_width;
+
+        // Dashed line extends from below dot diagram through amplitude envelope
+        draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
+             dashed + linewidth(1pt));
+
+        // &quot;A&quot; label below everything
+        label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
+    }
+}
+draw((-num_sections/2,-3)--(num_sections/2,-3),brown+dotted+linewidth(2), Arrows(6));
+draw((-num_sections/2,-2)--((num_sections-2)/2,-2),brown+dotted+linewidth(2), Arrows(6));
+draw(((num_sections-2)/2,-2)--(num_sections/2,-2),brown+dotted+linewidth(1), Arrows(5));
+label(&quot;length&quot;,(0,-2),S,brown+fontsize(12pt));
+label(&quot;effective length&quot;,(0,-3),S,brown+fontsize(12pt));
+label(&quot;$\ell$&quot;,((num_sections-1)/2,-2),S,brown+fontsize(12pt));
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="985" data-id="08763" data-file="c539_L11_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
