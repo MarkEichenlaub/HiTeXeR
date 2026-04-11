@@ -93,7 +93,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v3</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v4</span></h1>
 
   <div class="filter-group">
     <label>Collection:</label>
@@ -431,26 +431,18 @@
     if (isSvg) {
       // Fetch SVG and inject inline so it inherits page @font-face rules (KaTeX fonts).
       // SVGs loaded via <img> are sandboxed and can't access page fonts.
-      // The inline SVG scales to fill the container, matching real HiTeXeR behavior
-      // (which uses max-width:100%; max-height:100% on SVG elements).
       img.style.display = 'none';
-      svgDiv.style.display = 'flex';
-      svgDiv.style.alignItems = 'center';
-      svgDiv.style.justifyContent = 'center';
-      svgDiv.style.width = '100%';
-      svgDiv.style.height = '100%';
+      svgDiv.style.display = '';
       svgDiv.innerHTML = '';
       fetch(src).then(r => r.text()).then(svgText => {
         svgDiv.innerHTML = svgText;
         const svgEl = svgDiv.querySelector('svg');
         if (svgEl) {
-          // Remove explicit width/height so the SVG scales to fill container via viewBox,
-          // matching real HiTeXeR's behavior (#preview-container svg { max-width/height: 100% }).
-          svgEl.removeAttribute('width');
-          svgEl.removeAttribute('height');
+          // Same styling as real HiTeXeR: #preview-container svg { display:block; max-width:100%; max-height:100% }
+          // Keep width/height attributes so the SVG has its intrinsic size/aspect ratio.
+          svgEl.style.display = 'block';
           svgEl.style.maxWidth = '100%';
           svgEl.style.maxHeight = '100%';
-          svgEl.style.display = 'block';
         }
       });
     } else {
