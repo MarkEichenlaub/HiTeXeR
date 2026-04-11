@@ -45,15 +45,296 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 18 of 119</p>
 <div class="stats">
 <b style="background:#2d8a4e">202 Good</b>
-<b style="background:#c0820a">1289 Fair</b>
-<b style="background:#c0392b">10404 Poor</b>
+<b style="background:#c0820a">1293 Fair</b>
+<b style="background:#c0392b">10400 Poor</b>
 <b style="background:#999">1 Err</b>
 </div>
 <div class="pag"><a href="page-17.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-11.html">11</a><a href="page-12.html">12</a><a href="page-13.html">13</a><a href="page-14.html">14</a><a href="page-15.html">15</a><a href="page-16.html">16</a><a href="page-17.html">17</a><span class="cur">18</span><a href="page-19.html">19</a><a href="page-20.html">20</a><a href="page-21.html">21</a><a href="page-22.html">22</a><a href="page-23.html">23</a><a href="page-24.html">24</a><a href="page-25.html">25</a><span class="dots">…</span><a href="page-119.html">119</a><a href="page-19.html">Next &raquo;</a></div>
 
 <div class="card" id="pair-1701">
   <div class="card-header">
-    <h2>#1701 &mdash; c463_L6_script_67.asy</h2>
+    <h2>#1701 &mdash; c462_L13_script_19.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.5078 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/06905.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/06905.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(25);
+pen light = lightgray+0.5;
+pen dark = black+1.5;
+pen erase = white+2;
+
+int top = 0;
+int bottom = 0;
+
+int pos = 0;
+
+void drawShape(string ch, real x, real y) {
+    if (ch == &#39;S&#39;) {
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;F&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(2,1)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;I&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(1,2)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;P&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(2,2)--(2,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;Q&#39;) {
+        draw(shift(x,y-1)*((2,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((2,0)--(2,2)--(0,2)--(0,1)--(1,1)--(1,0)--(2,0)),dark);
+    }
+    if (ch == &#39;D&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)--(2,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,2)--(2,2)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;B&#39;) {
+        draw(shift(x,y-1)*((1,0)--(1,1)--(0,1)),light);
+        draw(shift(x,y-1)*((2,0)--(2,1)--(1,1)--(1,2)--(0,2)--(0,0)--(2,0)),dark);
+    }
+    else {
+    }
+}
+
+void drawTilePhrase(pair initialPoint, string s) {
+	top = 0;
+	bottom = 0;
+    int idx = 0;
+    while (idx &lt; length(s)) {
+        string ch = substr(s, idx, 1);
+
+        int targetX = top;
+        int targetY = 1;
+        if (top &gt; bottom) {
+            targetX = bottom;
+            targetY = 0;
+        }
+
+        if (ch == &#39;S&#39;) {
+        	if (idx &gt; 0 &amp;&amp; substr(s, idx - 1, 1) == &#39;Q&#39; &amp;&amp; top != bottom) {
+                targetY = 0;
+                targetX -= 1;
+            }
+            if (targetY == 1) {
+                top += 1;
+            } else {
+                bottom += 1;
+            }
+        }
+        if (ch == &#39;F&#39;) {
+            if (targetY == 1) {
+                top += 2;
+            } else {
+                bottom += 2;
+            }
+        }
+        if (ch == &#39;I&#39;) {
+            top += 1;
+            bottom += 1;
+        }
+        if (ch == &#39;P&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;Q&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;B&#39;) {
+            top += 1;
+            bottom += 2;
+        }
+        if (ch == &#39;D&#39;) {
+            top += 1;
+            bottom += 2;
+        }      
+        if (ch == &#39;1&#39;) {
+            bottom += 1;
+        }
+        if (ch == &#39;2&#39;) {
+            top += 1;
+        }  
+        drawShape(ch,initialPoint.x+targetX,initialPoint.y+targetY);
+        idx += 1;
+    }
+}
+
+void drawOpenTilePhrase(pair initialPoint, string s) {
+    draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(0,2)),light);
+	draw(shift(initialPoint.x,initialPoint.y)*((1,0)--(-1,0)),dark);   
+    draw(shift(initialPoint.x,initialPoint.y)*((1,2)--(-1,2)),dark);
+    label(&quot;$\cdots$&quot;,shift(initialPoint.x,initialPoint.y)*(-0.5,1));
+    drawTilePhrase(initialPoint,s);
+}
+
+void drawRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)--cycle),dark);   
+}
+
+void drawOpenRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)),dark);   
+}
+
+drawOpenRect((0,0),3);
+drawOpenTilePhrase((0,0),&#39;12FSS&#39;);
+
+drawOpenRect((5,0),4);
+drawOpenTilePhrase((5,0),&#39;12BFS&#39;);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(25)%3B%0D%0D%0Apen%20light%20%3D%20lightgray%2B0.5%3B%0D%0D%0Apen%20dark%20%3D%20black%2B1.5%3B%0D%0D%0Apen%20erase%20%3D%20white%2B2%3B%0D%0A%0D%0Aint%20top%20%3D%200%3B%0D%0D%0Aint%20bottom%20%3D%200%3B%0D%0A%0D%0Aint%20pos%20%3D%200%3B%0D%0A%0D%0Avoid%20drawShape(string%20ch%2C%20real%20x%2C%20real%20y)%20%7B%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'S')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((0%2C0)--(0%2C1)--(1%2C1)--(1%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'F')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((1%2C0)--(1%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((0%2C0)--(0%2C1)--(2%2C1)--(2%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'I')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C1)--(1%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C0)--(0%2C2)--(1%2C2)--(1%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'P')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C1)--(1%2C1)--(1%2C2))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C0)--(0%2C2)--(2%2C2)--(2%2C1)--(1%2C1)--(1%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'Q')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((2%2C1)--(1%2C1)--(1%2C2))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((2%2C0)--(2%2C2)--(0%2C2)--(0%2C1)--(1%2C1)--(1%2C0)--(2%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'D')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((1%2C0)--(1%2C1)--(2%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((0%2C0)--(0%2C1)--(1%2C1)--(1%2C2)--(2%2C2)--(2%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'B')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((1%2C0)--(1%2C1)--(0%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((2%2C0)--(2%2C1)--(1%2C1)--(1%2C2)--(0%2C2)--(0%2C0)--(2%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20else%20%7B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawTilePhrase(pair%20initialPoint%2C%20string%20s)%20%7B%0D%0D%0A%09top%20%3D%200%3B%0D%0D%0A%09bottom%20%3D%200%3B%0D%0D%0A%20%20%20%20int%20idx%20%3D%200%3B%0D%0D%0A%20%20%20%20while%20(idx%20%3C%20length(s))%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20string%20ch%20%3D%20substr(s%2C%20idx%2C%201)%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20int%20targetX%20%3D%20top%3B%0D%0D%0A%20%20%20%20%20%20%20%20int%20targetY%20%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20if%20(top%20%3E%20bottom)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20targetX%20%3D%20bottom%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20targetY%20%3D%200%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'S')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%09if%20(idx%20%3E%200%20%26%26%20substr(s%2C%20idx%20-%201%2C%201)%20%3D%3D%20'Q'%20%26%26%20top%20!%3D%20bottom)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20targetY%20%3D%200%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20targetX%20-%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if%20(targetY%20%3D%3D%201)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'F')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if%20(targetY%20%3D%3D%201)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'I')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'P')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'Q')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'B')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'D')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%20%20%20%20%20%20%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'1')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'2')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%20%20%0D%0D%0A%20%20%20%20%20%20%20%20drawShape(ch%2CinitialPoint.x%2BtargetX%2CinitialPoint.y%2BtargetY)%3B%0D%0D%0A%20%20%20%20%20%20%20%20idx%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawOpenTilePhrase(pair%20initialPoint%2C%20string%20s)%20%7B%0D%0D%0A%20%20%20%20draw(shift(initialPoint.x%2CinitialPoint.y)*((0%2C0)--(0%2C2))%2Clight)%3B%0D%0D%0A%09draw(shift(initialPoint.x%2CinitialPoint.y)*((1%2C0)--(-1%2C0))%2Cdark)%3B%20%20%20%0D%0D%0A%20%20%20%20draw(shift(initialPoint.x%2CinitialPoint.y)*((1%2C2)--(-1%2C2))%2Cdark)%3B%0D%0D%0A%20%20%20%20label(%22%24%5Ccdots%24%22%2Cshift(initialPoint.x%2CinitialPoint.y)*(-0.5%2C1))%3B%0D%0D%0A%20%20%20%20drawTilePhrase(initialPoint%2Cs)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawRect(pair%20initialPoint%2C%20int%20n)%20%7B%0D%0D%0A%20%20%20%20add(shift(initialPoint.x%2CinitialPoint.y)*(grid(n%2C2%2Clight)))%3B%0D%0D%0A%09draw(shift(initialPoint.x%2CinitialPoint.y)*((0%2C0)--(n%2C0)--(n%2C2)--(0%2C2)--cycle)%2Cdark)%3B%20%20%20%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawOpenRect(pair%20initialPoint%2C%20int%20n)%20%7B%0D%0D%0A%20%20%20%20add(shift(initialPoint.x%2CinitialPoint.y)*(grid(n%2C2%2Clight)))%3B%0D%0D%0A%09draw(shift(initialPoint.x%2CinitialPoint.y)*((0%2C0)--(n%2C0)--(n%2C2)--(0%2C2))%2Cdark)%3B%20%20%20%0D%0D%0A%7D%0D%0A%0D%0AdrawOpenRect((0%2C0)%2C3)%3B%0D%0D%0AdrawOpenTilePhrase((0%2C0)%2C'12FSS')%3B%0D%0A%0D%0AdrawOpenRect((5%2C0)%2C4)%3B%0D%0D%0AdrawOpenTilePhrase((5%2C0)%2C'12BFS')%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(25);
+pen light = lightgray+0.5;
+pen dark = black+1.5;
+pen erase = white+2;
+
+int top = 0;
+int bottom = 0;
+
+int pos = 0;
+
+void drawShape(string ch, real x, real y) {
+    if (ch == &#39;S&#39;) {
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;F&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(2,1)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;I&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(1,2)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;P&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(2,2)--(2,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;Q&#39;) {
+        draw(shift(x,y-1)*((2,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((2,0)--(2,2)--(0,2)--(0,1)--(1,1)--(1,0)--(2,0)),dark);
+    }
+    if (ch == &#39;D&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)--(2,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,2)--(2,2)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;B&#39;) {
+        draw(shift(x,y-1)*((1,0)--(1,1)--(0,1)),light);
+        draw(shift(x,y-1)*((2,0)--(2,1)--(1,1)--(1,2)--(0,2)--(0,0)--(2,0)),dark);
+    }
+    else {
+    }
+}
+
+void drawTilePhrase(pair initialPoint, string s) {
+	top = 0;
+	bottom = 0;
+    int idx = 0;
+    while (idx &lt; length(s)) {
+        string ch = substr(s, idx, 1);
+
+        int targetX = top;
+        int targetY = 1;
+        if (top &gt; bottom) {
+            targetX = bottom;
+            targetY = 0;
+        }
+
+        if (ch == &#39;S&#39;) {
+        	if (idx &gt; 0 &amp;&amp; substr(s, idx - 1, 1) == &#39;Q&#39; &amp;&amp; top != bottom) {
+                targetY = 0;
+                targetX -= 1;
+            }
+            if (targetY == 1) {
+                top += 1;
+            } else {
+                bottom += 1;
+            }
+        }
+        if (ch == &#39;F&#39;) {
+            if (targetY == 1) {
+                top += 2;
+            } else {
+                bottom += 2;
+            }
+        }
+        if (ch == &#39;I&#39;) {
+            top += 1;
+            bottom += 1;
+        }
+        if (ch == &#39;P&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;Q&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;B&#39;) {
+            top += 1;
+            bottom += 2;
+        }
+        if (ch == &#39;D&#39;) {
+            top += 1;
+            bottom += 2;
+        }      
+        if (ch == &#39;1&#39;) {
+            bottom += 1;
+        }
+        if (ch == &#39;2&#39;) {
+            top += 1;
+        }  
+        drawShape(ch,initialPoint.x+targetX,initialPoint.y+targetY);
+        idx += 1;
+    }
+}
+
+void drawOpenTilePhrase(pair initialPoint, string s) {
+    draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(0,2)),light);
+	draw(shift(initialPoint.x,initialPoint.y)*((1,0)--(-1,0)),dark);   
+    draw(shift(initialPoint.x,initialPoint.y)*((1,2)--(-1,2)),dark);
+    label(&quot;$\cdots$&quot;,shift(initialPoint.x,initialPoint.y)*(-0.5,1));
+    drawTilePhrase(initialPoint,s);
+}
+
+void drawRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)--cycle),dark);   
+}
+
+void drawOpenRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)),dark);   
+}
+
+drawOpenRect((0,0),3);
+drawOpenTilePhrase((0,0),&#39;12FSS&#39;);
+
+drawOpenRect((5,0),4);
+drawOpenTilePhrase((5,0),&#39;12BFS&#39;);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="1701" data-id="06905" data-file="c462_L13_script_19.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-1702">
+  <div class="card-header">
+    <h2>#1702 &mdash; c463_L6_script_67.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5080 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -194,13 +475,13 @@ label(&quot;$\gamma$&quot;, O + mixtilinearcircleradius(A,B,C)*dir(-45), NW);
 label(&quot;$\omega$&quot;, circumcenter(A,B,C) + circumradius(A,B,C)*dir(-45), SE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1701" data-id="08232" data-file="c463_L6_script_67.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1702" data-id="08232" data-file="c463_L6_script_67.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1702">
+<div class="card" id="pair-1703">
   <div class="card-header">
-    <h2>#1702 &mdash; c402_L15_p2983_problem_text_0.asy</h2>
+    <h2>#1703 &mdash; c402_L15_p2983_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5081 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -241,13 +522,13 @@ label(&quot;$\ell$&quot;,(6,10),N); draw((5.3,10+.9)--(0,10+.9),EndArrow(TeXHead
 label(&quot;$w$&quot;,(12,5),E); draw((12.9,5.7)--(12.9,10),EndArrow(TeXHead)); draw((12.9,4.3)--(12.9,0),EndArrow(TeXHead));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1702" data-id="05918" data-file="c402_L15_p2983_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1703" data-id="05918" data-file="c402_L15_p2983_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1703">
+<div class="card" id="pair-1704">
   <div class="card-header">
-    <h2>#1703 &mdash; c186_L7_p32034_solution_text_1.asy</h2>
+    <h2>#1704 &mdash; c186_L7_p32034_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5081 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -328,13 +609,13 @@ label(&quot;$t  = \frac{2\pi}{3}$&quot;, T, W, UnFill);
 label(&quot;$t  = \frac{5\pi}{6}$&quot;, U, NW, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1703" data-id="02978" data-file="c186_L7_p32034_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1704" data-id="02978" data-file="c186_L7_p32034_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1704">
+<div class="card" id="pair-1705">
   <div class="card-header">
-    <h2>#1704 &mdash; c186_L17_script_10.asy</h2>
+    <h2>#1705 &mdash; c186_L17_script_10.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5081 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -589,13 +870,13 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1704" data-id="01907" data-file="c186_L17_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1705" data-id="01907" data-file="c186_L17_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1705">
+<div class="card" id="pair-1706">
   <div class="card-header">
-    <h2>#1705 &mdash; c186_L17_script_11.asy</h2>
+    <h2>#1706 &mdash; c186_L17_script_11.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5081 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -850,13 +1131,13 @@ label(&quot;Inputs:&quot;, (big+1)*J);
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1705" data-id="01908" data-file="c186_L17_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1706" data-id="01908" data-file="c186_L17_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1706">
+<div class="card" id="pair-1707">
   <div class="card-header">
-    <h2>#1706 &mdash; c462_L18_p49831_solution_text_3.asy</h2>
+    <h2>#1707 &mdash; c462_L18_p49831_solution_text_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5081 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -951,13 +1232,13 @@ dot(&quot;$X$&quot;, X, S);
 label(&quot;$\omega$&quot;, circumcenter(A,K,L) + circumradius(A,K,L)*dir(120), NW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1706" data-id="07048" data-file="c462_L18_p49831_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1707" data-id="07048" data-file="c462_L18_p49831_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1707">
+<div class="card" id="pair-1708">
   <div class="card-header">
-    <h2>#1707 &mdash; c289_L7_p38943_solution_text_0.asy</h2>
+    <h2>#1708 &mdash; c289_L7_p38943_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5083 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -994,13 +1275,13 @@ draw(vs[0]--vs[4],green);draw(vs[1]--vs[4],green);
 draw(vs[0]--vs[1]); draw(vs[2]--vs[3],dotted); draw(vs[2]--vs[4],dotted); draw(vs[3]--vs[4]);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1707" data-id="04373" data-file="c289_L7_p38943_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1708" data-id="04373" data-file="c289_L7_p38943_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1708">
+<div class="card" id="pair-1709">
   <div class="card-header">
-    <h2>#1708 &mdash; c186_L22_p33509_solution_text_0.asy</h2>
+    <h2>#1709 &mdash; c186_L22_p33509_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5085 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1107,13 +1388,13 @@ dot(&quot;$R$&quot;,R, SE);
 dot(&quot;$O$&quot;,O, 2*dir(-140));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1708" data-id="02465" data-file="c186_L22_p33509_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1709" data-id="02465" data-file="c186_L22_p33509_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1709">
+<div class="card" id="pair-1710">
   <div class="card-header">
-    <h2>#1709 &mdash; c289_L1_script_1.asy</h2>
+    <h2>#1710 &mdash; c289_L1_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5086 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1144,13 +1425,13 @@ draw(Circle((6,0),1),red);
 draw((6.9,.1)--(7,0)--(7.1,.1));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1709" data-id="04290" data-file="c289_L1_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1710" data-id="04290" data-file="c289_L1_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1710">
+<div class="card" id="pair-1711">
   <div class="card-header">
-    <h2>#1710 &mdash; c289_LNone_script_1.asy</h2>
+    <h2>#1711 &mdash; c289_LNone_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5086 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1181,13 +1462,13 @@ draw(Circle((6,0),1),red);
 draw((6.9,.1)--(7,0)--(7.1,.1));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1710" data-id="04444" data-file="c289_LNone_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1711" data-id="04444" data-file="c289_LNone_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1711">
+<div class="card" id="pair-1712">
   <div class="card-header">
-    <h2>#1711 &mdash; c186_L6_script_10.asy</h2>
+    <h2>#1712 &mdash; c186_L6_script_10.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5086 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1244,13 +1525,13 @@ draw(rightanglemark(P,B,O,3));
 draw(rightanglemark(O,A,P,3));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1711" data-id="02887" data-file="c186_L6_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1712" data-id="02887" data-file="c186_L6_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1712">
+<div class="card" id="pair-1713">
   <div class="card-header">
-    <h2>#1712 &mdash; c53_L1_script_1.asy</h2>
+    <h2>#1713 &mdash; c53_L1_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5087 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1299,13 +1580,13 @@ for(int i = 0; i &lt; n; ++i){
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1712" data-id="09333" data-file="c53_L1_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1713" data-id="09333" data-file="c53_L1_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1713">
+<div class="card" id="pair-1714">
   <div class="card-header">
-    <h2>#1713 &mdash; c462_L21_script_17.asy</h2>
+    <h2>#1714 &mdash; c462_L21_script_17.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5087 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1408,13 +1689,13 @@ dot(&quot;$\pm uv$&quot;, F + trans, F);
 dot(I + trans);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1713" data-id="07270" data-file="c462_L21_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1714" data-id="07270" data-file="c462_L21_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1714">
+<div class="card" id="pair-1715">
   <div class="card-header">
-    <h2>#1714 &mdash; c462_L11_p48208_solution_text_0.asy</h2>
+    <h2>#1715 &mdash; c462_L11_p48208_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5088 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1535,13 +1816,13 @@ label(&quot;$C&#39;$&quot;, (6*Cos(320),6*Sin(320),0) + transone, SE);
 label(&quot;$D&#39;$&quot;, (6*Cos(80),6*Sin(80),0) + transone, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1714" data-id="06731" data-file="c462_L11_p48208_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1715" data-id="06731" data-file="c462_L11_p48208_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1715">
+<div class="card" id="pair-1716">
   <div class="card-header">
-    <h2>#1715 &mdash; c647_L6_script_1.asy</h2>
+    <h2>#1716 &mdash; c647_L6_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5092 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1706,13 +1987,13 @@ draw((legendx, legendy - 2.40)--(legendx + 0.4, legendy - 2.40), magenta + linew
 label(&quot;gcd = 9&quot;, (legendx + 0.5, legendy - 2.40), E, fontsize(7pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1715" data-id="12378" data-file="c647_L6_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1716" data-id="12378" data-file="c647_L6_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1716">
+<div class="card" id="pair-1717">
   <div class="card-header">
-    <h2>#1716 &mdash; c647_LNone_script_7.asy</h2>
+    <h2>#1717 &mdash; c647_LNone_script_7.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5092 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1877,13 +2158,13 @@ draw((legendx, legendy - 2.40)--(legendx + 0.4, legendy - 2.40), magenta + linew
 label(&quot;gcd = 9&quot;, (legendx + 0.5, legendy - 2.40), E, fontsize(7pt));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1716" data-id="12402" data-file="c647_LNone_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1717" data-id="12402" data-file="c647_LNone_script_7.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1717">
+<div class="card" id="pair-1718">
   <div class="card-header">
-    <h2>#1717 &mdash; c36_L7_script_1.asy</h2>
+    <h2>#1718 &mdash; c36_L7_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5092 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -1938,13 +2219,13 @@ label(&quot;$B$&quot;,B,NE);
 draw(A--(10,0)--(10,30)--B, linewidth(2));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1717" data-id="04748" data-file="c36_L7_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1718" data-id="04748" data-file="c36_L7_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1718">
+<div class="card" id="pair-1719">
   <div class="card-header">
-    <h2>#1718 &mdash; c53_L4_script_11.asy</h2>
+    <h2>#1719 &mdash; c53_L4_script_11.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5097 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2023,13 +2304,13 @@ filldraw(shift(dir(th*t))*scale(.15)*unitcircle,white);
 label(&quot;$L$&quot;,dir(th*t));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1718" data-id="09380" data-file="c53_L4_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1719" data-id="09380" data-file="c53_L4_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1719">
+<div class="card" id="pair-1720">
   <div class="card-header">
-    <h2>#1719 &mdash; c510_L1_script_0.asy</h2>
+    <h2>#1720 &mdash; c510_L1_script_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5097 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2098,13 +2379,13 @@ label(&quot;$(7,7)$&quot;,(7,7),NE);
 dot((7,7),3+black);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1719" data-id="08636" data-file="c510_L1_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1720" data-id="08636" data-file="c510_L1_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1720">
+<div class="card" id="pair-1721">
   <div class="card-header">
-    <h2>#1720 &mdash; c53_L4_script_5.asy</h2>
+    <h2>#1721 &mdash; c53_L4_script_5.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5101 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2183,13 +2464,13 @@ filldraw(shift(dir(th*t))*scale(.15)*unitcircle,white);
 label(&quot;$4$&quot;,dir(th*t));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1720" data-id="09421" data-file="c53_L4_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1721" data-id="09421" data-file="c53_L4_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1721">
+<div class="card" id="pair-1722">
   <div class="card-header">
-    <h2>#1721 &mdash; c53_L4_script_6.asy</h2>
+    <h2>#1722 &mdash; c53_L4_script_6.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5101 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2268,13 +2549,13 @@ filldraw(shift(dir(th*t))*scale(.15)*unitcircle,white);
 label(&quot;$5$&quot;,dir(th*t));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1721" data-id="09422" data-file="c53_L4_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1722" data-id="09422" data-file="c53_L4_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1722">
+<div class="card" id="pair-1723">
   <div class="card-header">
-    <h2>#1722 &mdash; c186_L15_p31448_solution_text_0.asy</h2>
+    <h2>#1723 &mdash; c186_L15_p31448_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5103 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2389,13 +2670,13 @@ label(&quot;$\mathbf{u}$&quot;, -3U/2, S);
 label(&quot;$\mathbf{v}$&quot;,V/2,NW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1722" data-id="01715" data-file="c186_L15_p31448_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1723" data-id="01715" data-file="c186_L15_p31448_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1723">
+<div class="card" id="pair-1724">
   <div class="card-header">
-    <h2>#1723 &mdash; c462_L21_script_19.asy</h2>
+    <h2>#1724 &mdash; c462_L21_script_19.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5104 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2498,13 +2779,13 @@ dot(&quot;$-uv$&quot;, F + trans, F);
 dot(&quot;$z$&quot;, I + trans, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1723" data-id="07272" data-file="c462_L21_script_19.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1724" data-id="07272" data-file="c462_L21_script_19.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1724">
+<div class="card" id="pair-1725">
   <div class="card-header">
-    <h2>#1724 &mdash; c462_L21_script_55.asy</h2>
+    <h2>#1725 &mdash; c462_L21_script_55.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5104 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2607,13 +2888,13 @@ dot(&quot;$-uv$&quot;, F + trans, F);
 dot(&quot;$z$&quot;, I + trans, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1724" data-id="07312" data-file="c462_L21_script_55.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1725" data-id="07312" data-file="c462_L21_script_55.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1725">
+<div class="card" id="pair-1726">
   <div class="card-header">
-    <h2>#1725 &mdash; c462_L17_script_32.asy</h2>
+    <h2>#1726 &mdash; c462_L17_script_32.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5106 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2712,13 +2993,13 @@ dot(&quot;$R$&quot;, R, NE);
 dot(&quot;$S$&quot;, S, SE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1725" data-id="07023" data-file="c462_L17_script_32.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1726" data-id="07023" data-file="c462_L17_script_32.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1726">
+<div class="card" id="pair-1727">
   <div class="card-header">
-    <h2>#1726 &mdash; c186_L22_script_4.asy</h2>
+    <h2>#1727 &mdash; c186_L22_script_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5107 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2833,13 +3114,13 @@ dot(M);
 dot(O);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1726" data-id="02511" data-file="c186_L22_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1727" data-id="02511" data-file="c186_L22_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1727">
+<div class="card" id="pair-1728">
   <div class="card-header">
-    <h2>#1727 &mdash; c463_L7_p49145_solution_text_0.asy</h2>
+    <h2>#1728 &mdash; c463_L7_p49145_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5107 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2922,13 +3203,13 @@ dot(&quot;$P_1$&quot;, P, SW);
 dot(&quot;$P_2$&quot;, P, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1727" data-id="08266" data-file="c463_L7_p49145_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1728" data-id="08266" data-file="c463_L7_p49145_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1728">
+<div class="card" id="pair-1729">
   <div class="card-header">
-    <h2>#1728 &mdash; c191_L5_script_13.asy</h2>
+    <h2>#1729 &mdash; c191_L5_script_13.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5109 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -2977,13 +3258,13 @@ draw(arc((1.3,-1),1.62,140,90),dashed);
 draw(&quot;$\phi$&quot;,arc((1.1,.6),.4,225,195));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1728" data-id="03835" data-file="c191_L5_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1729" data-id="03835" data-file="c191_L5_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1729">
+<div class="card" id="pair-1730">
   <div class="card-header">
-    <h2>#1729 &mdash; c405_L2_script_9.asy</h2>
+    <h2>#1730 &mdash; c405_L2_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5111 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3080,13 +3361,13 @@ draw((9*dx,1.1)--(14.5*dx,1.1), brown+dashed);
 label(&quot;$\Delta t$&quot;,((9+14.5)*dx/2,1.1), UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1729" data-id="06463" data-file="c405_L2_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1730" data-id="06463" data-file="c405_L2_script_9.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1730">
+<div class="card" id="pair-1731">
   <div class="card-header">
-    <h2>#1730 &mdash; c401_L10_script_37.asy</h2>
+    <h2>#1731 &mdash; c401_L10_script_37.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5114 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3135,13 +3416,13 @@ label(scale(0.8)*&quot;$45^\circ$&quot;,g+(0.13,-0.33));
 label(scale(0.8)*&quot;$45^\circ$&quot;,h+(-0.3,0.1));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1730" data-id="05305" data-file="c401_L10_script_37.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1731" data-id="05305" data-file="c401_L10_script_37.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1731">
+<div class="card" id="pair-1732">
   <div class="card-header">
-    <h2>#1731 &mdash; c53_L16_script_36.asy</h2>
+    <h2>#1732 &mdash; c53_L16_script_36.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5118 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3208,13 +3489,13 @@ for(int i = 0; i &lt; 5; ++i)
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1731" data-id="09247" data-file="c53_L16_script_36.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1732" data-id="09247" data-file="c53_L16_script_36.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1732">
+<div class="card" id="pair-1733">
   <div class="card-header">
-    <h2>#1732 &mdash; c186_L14_script_16.asy</h2>
+    <h2>#1733 &mdash; c186_L14_script_16.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5120 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3275,13 +3556,13 @@ draw(tailV--tailV+ V, red, Arrow(7));
 dot(tailV, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1732" data-id="01653" data-file="c186_L14_script_16.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1733" data-id="01653" data-file="c186_L14_script_16.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1733">
+<div class="card" id="pair-1734">
   <div class="card-header">
-    <h2>#1733 &mdash; c405_L9_p44492_solutiontext_0.asy</h2>
+    <h2>#1734 &mdash; c405_L9_p44492_solutiontext_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5122 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3374,13 +3655,13 @@ dot((z2,f(z2)),red+5);
 dot((z3,f(z3)),red+5);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1733" data-id="06621" data-file="c405_L9_p44492_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1734" data-id="06621" data-file="c405_L9_p44492_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1734">
+<div class="card" id="pair-1735">
   <div class="card-header">
-    <h2>#1734 &mdash; c401_L12_script_2.asy</h2>
+    <h2>#1735 &mdash; c401_L12_script_2.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5127 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3459,13 +3740,13 @@ for (i = 15; i &lt;= 20; ++i) {
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1734" data-id="05425" data-file="c401_L12_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1735" data-id="05425" data-file="c401_L12_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1735">
+<div class="card" id="pair-1736">
   <div class="card-header">
-    <h2>#1735 &mdash; c51_L3_p4990_problem_text_0.asy</h2>
+    <h2>#1736 &mdash; c51_L3_p4990_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5127 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3526,13 +3807,13 @@ label(&quot;I&quot;, (A + D + P)/3);
 label(&quot;II&quot;, (B + C + P)/3);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1735" data-id="08730" data-file="c51_L3_p4990_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1736" data-id="08730" data-file="c51_L3_p4990_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1736">
+<div class="card" id="pair-1737">
   <div class="card-header">
-    <h2>#1736 &mdash; c186_L14_script_15.asy</h2>
+    <h2>#1737 &mdash; c186_L14_script_15.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5130 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3593,13 +3874,13 @@ draw(tailV--tailV+ V, red, Arrow(7));
 dot(tailV, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1736" data-id="01652" data-file="c186_L14_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1737" data-id="01652" data-file="c186_L14_script_15.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1737">
+<div class="card" id="pair-1738">
   <div class="card-header">
-    <h2>#1737 &mdash; c186_L14_script_14.asy</h2>
+    <h2>#1738 &mdash; c186_L14_script_14.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5133 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3654,13 +3935,13 @@ pair P = B + 0.6(B-A);
 draw(maxLine(A,B, -6, -6, 6, 6));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1737" data-id="01651" data-file="c186_L14_script_14.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1738" data-id="01651" data-file="c186_L14_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1738">
+<div class="card" id="pair-1739">
   <div class="card-header">
-    <h2>#1738 &mdash; c57_L10_script_15.asy</h2>
+    <h2>#1739 &mdash; c57_L10_script_15.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5135 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3753,13 +4034,13 @@ label(&quot;4&quot;, (B+C)/2, dir(0));
 draw(rightanglemark(A,X,O,5));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1738" data-id="09600" data-file="c57_L10_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1739" data-id="09600" data-file="c57_L10_script_15.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1739">
+<div class="card" id="pair-1740">
   <div class="card-header">
-    <h2>#1739 &mdash; c268_L3_script_6.asy</h2>
+    <h2>#1740 &mdash; c268_L3_script_6.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5136 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3846,13 +4127,13 @@ draw(rightanglemark(A,X,O,5));
   label(&quot;NO&quot;, (b + 5*n/8, y + 1*n/6),red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1739" data-id="04075" data-file="c268_L3_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1740" data-id="04075" data-file="c268_L3_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1740">
+<div class="card" id="pair-1741">
   <div class="card-header">
-    <h2>#1740 &mdash; c186_L14_p31129_solution_text_0.asy</h2>
+    <h2>#1741 &mdash; c186_L14_p31129_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5136 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -3893,13 +4174,13 @@ dot(&quot;$B$&quot;, B, NW);
 dot(&quot;$C$&quot;, C, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1740" data-id="01614" data-file="c186_L14_p31129_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1741" data-id="01614" data-file="c186_L14_p31129_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1741">
+<div class="card" id="pair-1742">
   <div class="card-header">
-    <h2>#1741 &mdash; c57_L100_script_10.asy</h2>
+    <h2>#1742 &mdash; c57_L100_script_10.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5137 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4000,13 +4281,13 @@ for (j = i + 1; j &lt;= 20; ++j) {
 }}
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1741" data-id="09524" data-file="c57_L100_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1742" data-id="09524" data-file="c57_L100_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1742">
+<div class="card" id="pair-1743">
   <div class="card-header">
-    <h2>#1742 &mdash; c405_L9_p44492_solutiontext_2.asy</h2>
+    <h2>#1743 &mdash; c405_L9_p44492_solutiontext_2.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5138 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4089,13 +4370,13 @@ draw(shift(94.2,0)*((0,0)--(0,omega_a/10)));
 draw(shift(94.2,omega_a)*((0,0)--(0,-omega_a/10)));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1742" data-id="06623" data-file="c405_L9_p44492_solutiontext_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1743" data-id="06623" data-file="c405_L9_p44492_solutiontext_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1743">
+<div class="card" id="pair-1744">
   <div class="card-header">
-    <h2>#1743 &mdash; c57_L18_p6139_solution_text_0.asy</h2>
+    <h2>#1744 &mdash; c57_L18_p6139_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5138 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4150,13 +4431,13 @@ label(&quot;$5$&quot;, A/2, W, red);
 draw(rightanglemark(A,O,B,20));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1743" data-id="10306" data-file="c57_L18_p6139_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1744" data-id="10306" data-file="c57_L18_p6139_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1744">
+<div class="card" id="pair-1745">
   <div class="card-header">
-    <h2>#1744 &mdash; c175_L15_p32095_solutiontext_0.asy</h2>
+    <h2>#1745 &mdash; c175_L15_p32095_solutiontext_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5138 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4197,13 +4478,13 @@ draw((0,i)--(3,3+i),dotted);
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1744" data-id="01088" data-file="c175_L15_p32095_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1745" data-id="01088" data-file="c175_L15_p32095_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1745">
+<div class="card" id="pair-1746">
   <div class="card-header">
-    <h2>#1745 &mdash; c268_L11_script_15.asy</h2>
+    <h2>#1746 &mdash; c268_L11_script_15.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5139 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4286,13 +4567,13 @@ draw((2,-.05-3)--(3,-.05-3), arrow = Arrow(6));
 label(&quot;$v$&quot;, (3,-.05-3),E);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1745" data-id="03929" data-file="c268_L11_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1746" data-id="03929" data-file="c268_L11_script_15.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1746">
+<div class="card" id="pair-1747">
   <div class="card-header">
-    <h2>#1746 &mdash; c539_L1_p50204_solutiontext_0.asy</h2>
+    <h2>#1747 &mdash; c539_L1_p50204_solutiontext_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5141 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4399,13 +4680,13 @@ unitsize(1cm);
   filldraw(shift((x_m,0))*scale(R_m)*unitcircle, gray);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1746" data-id="08835" data-file="c539_L1_p50204_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1747" data-id="08835" data-file="c539_L1_p50204_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1747">
+<div class="card" id="pair-1748">
   <div class="card-header">
-    <h2>#1747 &mdash; c186_L22_script_40.asy</h2>
+    <h2>#1748 &mdash; c186_L22_script_40.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5142 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4542,13 +4823,13 @@ dot(R);
 dot(O);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1747" data-id="02512" data-file="c186_L22_script_40.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1748" data-id="02512" data-file="c186_L22_script_40.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1748">
+<div class="card" id="pair-1749">
   <div class="card-header">
-    <h2>#1748 &mdash; c405_L2_script_4.asy</h2>
+    <h2>#1749 &mdash; c405_L2_script_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5142 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4663,13 +4944,13 @@ label(string(i*5),(myx,0),S);
 label(&quot;$t \quad (\mathrm{s})$&quot;,(dx*7,-.4),S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1748" data-id="06458" data-file="c405_L2_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1749" data-id="06458" data-file="c405_L2_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1749">
+<div class="card" id="pair-1750">
   <div class="card-header">
-    <h2>#1749 &mdash; c462_L21_p49894_solution_text_0.asy</h2>
+    <h2>#1750 &mdash; c462_L21_p49894_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5145 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4768,13 +5049,13 @@ dot(&quot;$p$&quot;, P + trans, W);
 dot(&quot;$q$&quot;, Q + trans, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1749" data-id="07242" data-file="c462_L21_p49894_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1750" data-id="07242" data-file="c462_L21_p49894_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1750">
+<div class="card" id="pair-1751">
   <div class="card-header">
-    <h2>#1750 &mdash; c10_L4_script_5.asy</h2>
+    <h2>#1751 &mdash; c10_L4_script_5.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5146 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4845,13 +5126,13 @@ label(&quot;$f(b)-f(a)$&quot;,(Q+R)/2,E);
 // end
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1750" data-id="00344" data-file="c10_L4_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1751" data-id="00344" data-file="c10_L4_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1751">
+<div class="card" id="pair-1752">
   <div class="card-header">
-    <h2>#1751 &mdash; c10_L8_script_7.asy</h2>
+    <h2>#1752 &mdash; c10_L8_script_7.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5147 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4886,13 +5167,13 @@ xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),Ticks(&quot;%&quot;), A
 yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1751" data-id="00459" data-file="c10_L8_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1752" data-id="00459" data-file="c10_L8_script_7.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1752">
+<div class="card" id="pair-1753">
   <div class="card-header">
-    <h2>#1752 &mdash; c186_L8_script_2.asy</h2>
+    <h2>#1753 &mdash; c186_L8_script_2.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5148 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -4963,13 +5244,13 @@ label(&quot;$\frac{11\pi}{6}$&quot;, rotate(330)*(5.7, 0));
 draw(Circle((0,0),4), red + linewidth(1.2));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1752" data-id="03093" data-file="c186_L8_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1753" data-id="03093" data-file="c186_L8_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1753">
+<div class="card" id="pair-1754">
   <div class="card-header">
-    <h2>#1753 &mdash; c401_L12_script_12.asy</h2>
+    <h2>#1754 &mdash; c401_L12_script_12.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5149 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5028,13 +5309,13 @@ label(&quot;$4$&quot;, (4,-0.1), S);
 label(&quot;$5$&quot;, (5,-0.1), S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1753" data-id="05419" data-file="c401_L12_script_12.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1754" data-id="05419" data-file="c401_L12_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1754">
+<div class="card" id="pair-1755">
   <div class="card-header">
-    <h2>#1754 &mdash; c463_L16_script_19.asy</h2>
+    <h2>#1755 &mdash; c463_L16_script_19.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5149 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5107,13 +5388,13 @@ label(&quot;$a_4$&quot;, (a[4],-0.05), S);
 label(&quot;$ = \frac{4}{3} a_3$&quot;, (a[4],-0.2), S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1754" data-id="07801" data-file="c463_L16_script_19.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1755" data-id="07801" data-file="c463_L16_script_19.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1755">
+<div class="card" id="pair-1756">
   <div class="card-header">
-    <h2>#1755 &mdash; c57_L11_p31051_solution_text_0.asy</h2>
+    <h2>#1756 &mdash; c57_L11_p31051_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5151 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5210,13 +5491,13 @@ dot(&quot;$M$&quot;, M, NE);
 dot(&quot;$N$&quot;, N, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1755" data-id="09634" data-file="c57_L11_p31051_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1756" data-id="09634" data-file="c57_L11_p31051_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1756">
+<div class="card" id="pair-1757">
   <div class="card-header">
-    <h2>#1756 &mdash; c582_L9_p31051_solution_text_0.asy</h2>
+    <h2>#1757 &mdash; c582_L9_p31051_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5151 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5313,13 +5594,13 @@ dot(&quot;$M$&quot;, M, NE);
 dot(&quot;$N$&quot;, N, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1756" data-id="12023" data-file="c582_L9_p31051_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1757" data-id="12023" data-file="c582_L9_p31051_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1757">
+<div class="card" id="pair-1758">
   <div class="card-header">
-    <h2>#1757 &mdash; c134_L5_script_9.asy</h2>
+    <h2>#1758 &mdash; c134_L5_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5152 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5378,13 +5659,13 @@ MP(&quot;G&quot;,G,scale(2)*dir(60),s);
 draw(rightanglemark(A,C,B,2.5)^^rightanglemark(A,G,C,2.5));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1757" data-id="00758" data-file="c134_L5_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1758" data-id="00758" data-file="c134_L5_script_9.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1758">
+<div class="card" id="pair-1759">
   <div class="card-header">
-    <h2>#1758 &mdash; c405_L9_p46194_solutiontext_0.asy</h2>
+    <h2>#1759 &mdash; c405_L9_p46194_solutiontext_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5154 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5463,13 +5744,13 @@ draw(shift(94.2,0)*((0,0)--(0,omega_a/10)));
 draw(shift(94.2,omega_a)*((0,0)--(0,-omega_a/10)));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1758" data-id="06624" data-file="c405_L9_p46194_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1759" data-id="06624" data-file="c405_L9_p46194_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1759">
+<div class="card" id="pair-1760">
   <div class="card-header">
-    <h2>#1759 &mdash; c10_L10_script_16.asy</h2>
+    <h2>#1760 &mdash; c10_L10_script_16.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5155 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5548,13 +5829,13 @@ label(&quot;$(1,1)$&quot;,(a,f(a)),N+0.5W);
 // end
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1759" data-id="00013" data-file="c10_L10_script_16.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1760" data-id="00013" data-file="c10_L10_script_16.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1760">
+<div class="card" id="pair-1761">
   <div class="card-header">
-    <h2>#1760 &mdash; c462_L22_p50275_solution_text_1.asy</h2>
+    <h2>#1761 &mdash; c462_L22_p50275_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5156 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5631,13 +5912,13 @@ dot(&quot;$M$&quot;, M, S);
 dot(&quot;$X$&quot;, X, W);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1760" data-id="07334" data-file="c462_L22_p50275_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1761" data-id="07334" data-file="c462_L22_p50275_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1761">
+<div class="card" id="pair-1762">
   <div class="card-header">
-    <h2>#1761 &mdash; c405_L6_script_9.asy</h2>
+    <h2>#1762 &mdash; c405_L6_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5157 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5696,13 +5977,13 @@ draw(shift(-.35,.03)*scale(.1)*box((0,0),(3,3)) );
 draw(shift(2.18*2,dy)*shift(1.9,0)*scale(.1)*box((.1,.1),(.4,.4)) );
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1761" data-id="06551" data-file="c405_L6_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1762" data-id="06551" data-file="c405_L6_script_9.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1762">
+<div class="card" id="pair-1763">
   <div class="card-header">
-    <h2>#1762 &mdash; c53_L17_p5470_solution_text_0.asy</h2>
+    <h2>#1763 &mdash; c53_L17_p5470_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5157 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5793,13 +6074,13 @@ label(&quot;$d=5$&quot;,(47.5,-4));
 label(&quot;$V=16$&quot;,(47.5,-6));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1762" data-id="09262" data-file="c53_L17_p5470_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1763" data-id="09262" data-file="c53_L17_p5470_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1763">
+<div class="card" id="pair-1764">
   <div class="card-header">
-    <h2>#1763 &mdash; c463_L17_script_6.asy</h2>
+    <h2>#1764 &mdash; c463_L17_script_6.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5158 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5856,13 +6137,13 @@ label(&quot;$a_{k - 1}$&quot;, aPenu);
 label(&quot;$y$&quot;, y);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1763" data-id="07823" data-file="c463_L17_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1764" data-id="07823" data-file="c463_L17_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1764">
+<div class="card" id="pair-1765">
   <div class="card-header">
-    <h2>#1764 &mdash; c53_L17_p33524_solution_text_0.asy</h2>
+    <h2>#1765 &mdash; c53_L17_p33524_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5159 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5907,13 +6188,13 @@ draw(w2--w4);
 dot(w1); dot(w2); dot(w3); dot(w4); dot(w5,red+4);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1764" data-id="09259" data-file="c53_L17_p33524_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1765" data-id="09259" data-file="c53_L17_p33524_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1765">
+<div class="card" id="pair-1766">
   <div class="card-header">
-    <h2>#1765 &mdash; c398_L15_p43530_solution_text_1.asy</h2>
+    <h2>#1766 &mdash; c398_L15_p43530_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5159 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -5956,13 +6237,13 @@ dot(&quot;$\frac{3}{16}$&quot;, (3/16,0), N);
 label(&quot;$\frac{9}{64}$&quot;, (9/64,-0.04/8), W, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1765" data-id="04931" data-file="c398_L15_p43530_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1766" data-id="04931" data-file="c398_L15_p43530_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1766">
+<div class="card" id="pair-1767">
   <div class="card-header">
-    <h2>#1766 &mdash; c289_L7_p38945_solution_text_2.asy</h2>
+    <h2>#1767 &mdash; c289_L7_p38945_solution_text_2.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5161 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6049,13 +6330,13 @@ label(&quot;$c$&quot;,c); label(&quot;$ac$&quot;,ac); label(&quot;$a^2c$&quot;,a
 label(&quot;$bc$&quot;,bc); label(&quot;$abc$&quot;,abc); label(&quot;$a^2bc$&quot;,a2bc);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1766" data-id="04380" data-file="c289_L7_p38945_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1767" data-id="04380" data-file="c289_L7_p38945_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1767">
+<div class="card" id="pair-1768">
   <div class="card-header">
-    <h2>#1767 &mdash; c463_L5_p48451_solution_text_1.asy</h2>
+    <h2>#1768 &mdash; c463_L5_p48451_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5162 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6150,13 +6431,13 @@ dot(&quot;$M_1$&quot;, M[1], NW);
 dot(&quot;$O$&quot;, O, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1767" data-id="08044" data-file="c463_L5_p48451_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1768" data-id="08044" data-file="c463_L5_p48451_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1768">
+<div class="card" id="pair-1769">
   <div class="card-header">
-    <h2>#1768 &mdash; c398_L15_p43530_solution_text_0.asy</h2>
+    <h2>#1769 &mdash; c398_L15_p43530_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5164 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6199,13 +6480,13 @@ dot(&quot;$\frac{1}{2}$&quot;, (1/2,0), N);
 label(&quot;$\frac{1}{8}$&quot;, (1/8,-0.04), W, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1768" data-id="04930" data-file="c398_L15_p43530_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1769" data-id="04930" data-file="c398_L15_p43530_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1769">
+<div class="card" id="pair-1770">
   <div class="card-header">
-    <h2>#1769 &mdash; c57_L11_script_12.asy</h2>
+    <h2>#1770 &mdash; c57_L11_script_12.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5164 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6282,13 +6563,13 @@ label(&quot;$x$&quot;, dir(2*360/n) + (-0.1,-0.1));
 label(&quot;$x$&quot;, dir(3*360/n) + (0.1,-0.05));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1769" data-id="09671" data-file="c57_L11_script_12.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1770" data-id="09671" data-file="c57_L11_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1770">
+<div class="card" id="pair-1771">
   <div class="card-header">
-    <h2>#1770 &mdash; c10_L7_p32476_problem_text_0.asy</h2>
+    <h2>#1771 &mdash; c10_L7_p32476_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5164 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6347,13 +6628,13 @@ label(&quot;$E$&quot;, E, N);
 label(&quot;$F$&quot;, F, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1770" data-id="00411" data-file="c10_L7_p32476_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1771" data-id="00411" data-file="c10_L7_p32476_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1771">
+<div class="card" id="pair-1772">
   <div class="card-header">
-    <h2>#1771 &mdash; c463_L16_script_3.asy</h2>
+    <h2>#1772 &mdash; c463_L16_script_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5169 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6418,13 +6699,13 @@ draw(Circle((0,0),0.3));
 draw((-0.3,0.5)--(2.3,0.5), Arrow(6));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1771" data-id="07810" data-file="c463_L16_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1772" data-id="07810" data-file="c463_L16_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1772">
+<div class="card" id="pair-1773">
   <div class="card-header">
-    <h2>#1772 &mdash; c186_L2_p31780_problem_text_0.asy</h2>
+    <h2>#1773 &mdash; c186_L2_p31780_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5169 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6483,13 +6764,13 @@ dot(A, red+linewidth(3.5));
 dot(B, red+linewidth(3.5));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1772" data-id="02523" data-file="c186_L2_p31780_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1773" data-id="02523" data-file="c186_L2_p31780_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1773">
+<div class="card" id="pair-1774">
   <div class="card-header">
-    <h2>#1773 &mdash; c186_L14_p31128_solution_text_0.asy</h2>
+    <h2>#1774 &mdash; c186_L14_p31128_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5170 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6530,13 +6811,13 @@ dot(&quot;$B$&quot;, B, NW);
 dot(&quot;$C$&quot;, C, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1773" data-id="01613" data-file="c186_L14_p31128_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1774" data-id="01613" data-file="c186_L14_p31128_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1774">
+<div class="card" id="pair-1775">
   <div class="card-header">
-    <h2>#1774 &mdash; c57_L6_p6023_solution_text_0.asy</h2>
+    <h2>#1775 &mdash; c57_L6_p6023_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5170 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6591,13 +6872,13 @@ draw(rightanglemark(Y,X,A,3));
 draw(rightanglemark(A,B,X,3));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1774" data-id="11296" data-file="c57_L6_p6023_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1775" data-id="11296" data-file="c57_L6_p6023_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1775">
+<div class="card" id="pair-1776">
   <div class="card-header">
-    <h2>#1775 &mdash; c57_L14_p32333_problem_text_0.asy</h2>
+    <h2>#1776 &mdash; c57_L14_p32333_problem_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5172 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6662,13 +6943,13 @@ label(&quot;$E$&quot;, E, SW);
 label(&quot;$F$&quot;, F, NW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1775" data-id="09868" data-file="c57_L14_p32333_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1776" data-id="09868" data-file="c57_L14_p32333_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1776">
+<div class="card" id="pair-1777">
   <div class="card-header">
-    <h2>#1776 &mdash; c462_L9_script_37.asy</h2>
+    <h2>#1777 &mdash; c462_L9_script_37.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5177 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6749,13 +7030,13 @@ label(&quot;$7$&quot;, interp(D,C,0.6), NE, red);
 label(&quot;$7$&quot;, interp(A,B,0.6), NW, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1776" data-id="07588" data-file="c462_L9_script_37.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1777" data-id="07588" data-file="c462_L9_script_37.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1777">
+<div class="card" id="pair-1778">
   <div class="card-header">
-    <h2>#1777 &mdash; c36_L9_p1713_solution_text_0.asy</h2>
+    <h2>#1778 &mdash; c36_L9_p1713_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5178 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -6812,13 +7093,13 @@ label(&quot;$15$&quot;, (A + B)/2, NW);
 label(&quot;$41$&quot;, (A + C)/2, NE);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1777" data-id="04797" data-file="c36_L9_p1713_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1778" data-id="04797" data-file="c36_L9_p1713_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1778">
+<div class="card" id="pair-1779">
   <div class="card-header">
-    <h2>#1778 &mdash; c405_L7_script_24.asy</h2>
+    <h2>#1779 &mdash; c405_L7_script_24.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5181 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7047,13 +7328,13 @@ draw(shift(9,0)*scale(1/50*1.45)*coaster);
 label(&quot;C&quot;,(8+1.5,0),S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1778" data-id="06569" data-file="c405_L7_script_24.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1779" data-id="06569" data-file="c405_L7_script_24.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1779">
+<div class="card" id="pair-1780">
   <div class="card-header">
-    <h2>#1779 &mdash; c647_L5_script_13.asy</h2>
+    <h2>#1780 &mdash; c647_L5_script_13.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5181 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7166,13 +7447,13 @@ label(minipage(&quot;{	iny1:1}\vspace{-0.2cm} \ {	iny 2:2} \vspace{-0.2cm}\ {	in
 label(minipage(&quot;{	iny	extbf{1:5}}\vspace{-0.25cm} \ 	extbf{{	iny 2:??}} \vspace{-0.8cm}\ 	extbf{{	iny 3:??}}&quot;, 0.5cm), (0.5, 1.7), W);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1779" data-id="12362" data-file="c647_L5_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1780" data-id="12362" data-file="c647_L5_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1780">
+<div class="card" id="pair-1781">
   <div class="card-header">
-    <h2>#1780 &mdash; c405_L2_script_30.asy</h2>
+    <h2>#1781 &mdash; c405_L2_script_30.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5181 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7413,13 +7694,13 @@ yaxis(BottomTop, invisible, Ticks(Step = ySubtickSpacing, extend = true, lightgr
 }
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1780" data-id="06453" data-file="c405_L2_script_30.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1781" data-id="06453" data-file="c405_L2_script_30.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1781">
+<div class="card" id="pair-1782">
   <div class="card-header">
-    <h2>#1781 &mdash; c10_L1_script_29.asy</h2>
+    <h2>#1782 &mdash; c10_L1_script_29.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5182 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7460,13 +7741,13 @@ xaxis(Label(&quot;$x$&quot;,position=EndPoint,align=NE),Ticks(&quot;%&quot;,Step
 yaxis(Label(&quot;$y$&quot;,position=EndPoint,align=NE),Ticks(&quot;%&quot;,Step=1),Arrow(2mm));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1781" data-id="00176" data-file="c10_L1_script_29.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1782" data-id="00176" data-file="c10_L1_script_29.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1782">
+<div class="card" id="pair-1783">
   <div class="card-header">
-    <h2>#1782 &mdash; c134_L2_script_8.asy</h2>
+    <h2>#1783 &mdash; c134_L2_script_8.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5183 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7535,13 +7816,13 @@ draw(P--MP(&quot;S&quot;,S,WSW,s));
 draw(rightanglemark(N,Q,M,3));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1782" data-id="00640" data-file="c134_L2_script_8.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1783" data-id="00640" data-file="c134_L2_script_8.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1783">
+<div class="card" id="pair-1784">
   <div class="card-header">
-    <h2>#1783 &mdash; c186_L8_script_3.asy</h2>
+    <h2>#1784 &mdash; c186_L8_script_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5183 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7612,13 +7893,13 @@ label(&quot;$\frac{11\pi}{6}$&quot;, rotate(330)*(5.7, 0));
 draw(Circle((0,0),2), red + linewidth(1.2));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1783" data-id="03104" data-file="c186_L8_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1784" data-id="03104" data-file="c186_L8_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1784">
+<div class="card" id="pair-1785">
   <div class="card-header">
-    <h2>#1784 &mdash; c53_L9_p32446_solution_text_0.asy</h2>
+    <h2>#1785 &mdash; c53_L9_p32446_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5185 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7673,13 +7954,13 @@ label(&quot;$n + 1$&quot;, (4.5,0), S, fontsize(10));
 label(&quot;$2n$&quot;, (7.5,0), S, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1784" data-id="09478" data-file="c53_L9_p32446_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1785" data-id="09478" data-file="c53_L9_p32446_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1785">
+<div class="card" id="pair-1786">
   <div class="card-header">
-    <h2>#1785 &mdash; c186_L2_script_22.asy</h2>
+    <h2>#1786 &mdash; c186_L2_script_22.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5186 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7752,13 +8033,13 @@ dot((pi +pi, g(pi +pi)), heavygreen);
 label(&quot;$y = 	an x$&quot;,(-3,1.25),N,UnFill(0.1mm));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1785" data-id="02582" data-file="c186_L2_script_22.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1786" data-id="02582" data-file="c186_L2_script_22.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1786">
+<div class="card" id="pair-1787">
   <div class="card-header">
-    <h2>#1786 &mdash; c57_L17_script_7.asy</h2>
+    <h2>#1787 &mdash; c57_L17_script_7.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5187 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7847,13 +8128,13 @@ label(&quot;$3$&quot;, (G + H)/2, SE, red);
 label(&quot;$2$&quot;, (D + H)/2, dir(0), red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1786" data-id="10281" data-file="c57_L17_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1787" data-id="10281" data-file="c57_L17_script_7.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1787">
+<div class="card" id="pair-1788">
   <div class="card-header">
-    <h2>#1787 &mdash; c191_L17_script_3.asy</h2>
+    <h2>#1788 &mdash; c191_L17_script_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5189 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7930,13 +8211,13 @@ draw((.41,-.44)--(.02,-.95), arrow = Arrow(6),red);
 label(&quot;$r$&quot;,(-0.02,-.6),E,red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1787" data-id="03688" data-file="c191_L17_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1788" data-id="03688" data-file="c191_L17_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1788">
+<div class="card" id="pair-1789">
   <div class="card-header">
-    <h2>#1788 &mdash; c186_L8_script_9.asy</h2>
+    <h2>#1789 &mdash; c186_L8_script_9.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5193 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8021,13 +8302,13 @@ return (t*cos(t), t*sin(t));
 draw(graph(F, 0, 19.2*pi/12), red + linewidth(1.0));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1788" data-id="03149" data-file="c186_L8_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1789" data-id="03149" data-file="c186_L8_script_9.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1789">
+<div class="card" id="pair-1790">
   <div class="card-header">
-    <h2>#1789 &mdash; c462_L8_script_57.asy</h2>
+    <h2>#1790 &mdash; c462_L8_script_57.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5196 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8104,13 +8385,13 @@ label(&quot;$25$&quot;, (P + Q)/2, N, red);
 label(&quot;$15$&quot;, (Q + Y)/2, N, red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1789" data-id="07508" data-file="c462_L8_script_57.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1790" data-id="07508" data-file="c462_L8_script_57.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1790">
+<div class="card" id="pair-1791">
   <div class="card-header">
-    <h2>#1790 &mdash; c36_L2_script_10.asy</h2>
+    <h2>#1791 &mdash; c36_L2_script_10.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5199 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8207,13 +8488,13 @@ label(&quot;$5a+1$&quot;,(11,-3));
 label(&quot;$\vdots$&quot;,(11,-7));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1790" data-id="04705" data-file="c36_L2_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1791" data-id="04705" data-file="c36_L2_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1791">
+<div class="card" id="pair-1792">
   <div class="card-header">
-    <h2>#1791 &mdash; c400_L2_script_38.asy</h2>
+    <h2>#1792 &mdash; c400_L2_script_38.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5199 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8296,13 +8577,13 @@ draw((0,1)--(3,1), brown+dotted+1bp, Arrows(2mm));
 label(&quot;$ut$&quot;,(1.5,1),brown, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1791" data-id="05211" data-file="c400_L2_script_38.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1792" data-id="05211" data-file="c400_L2_script_38.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1792">
+<div class="card" id="pair-1793">
   <div class="card-header">
-    <h2>#1792 &mdash; c57_L6_script_25.asy</h2>
+    <h2>#1793 &mdash; c57_L6_script_25.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5200 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8365,13 +8646,13 @@ label(&quot;$O$&quot;, O, S);
 label(&quot;$X$&quot;, X, SW);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1792" data-id="11316" data-file="c57_L6_script_25.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1793" data-id="11316" data-file="c57_L6_script_25.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1793">
+<div class="card" id="pair-1794">
   <div class="card-header">
-    <h2>#1793 &mdash; c583_L11_p50276_solution_text_0.asy</h2>
+    <h2>#1794 &mdash; c583_L11_p50276_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5200 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8412,13 +8693,13 @@ draw(Circle((58, 45), 22));
 draw(Circle((44, 20.8), 22));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1793" data-id="12063" data-file="c583_L11_p50276_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1794" data-id="12063" data-file="c583_L11_p50276_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1794">
+<div class="card" id="pair-1795">
   <div class="card-header">
-    <h2>#1794 &mdash; c10_L10_script_13.asy</h2>
+    <h2>#1795 &mdash; c10_L10_script_13.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5201 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8493,13 +8774,13 @@ label(&quot;$(1,1)$&quot;,(a,f(a)),N+0.5W);
 // end
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1794" data-id="00010" data-file="c10_L10_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1795" data-id="00010" data-file="c10_L10_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1795">
+<div class="card" id="pair-1796">
   <div class="card-header">
-    <h2>#1795 &mdash; c10_L10_script_14.asy</h2>
+    <h2>#1796 &mdash; c10_L10_script_14.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5201 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8574,13 +8855,13 @@ label(&quot;$(1,1)$&quot;,(a,f(a)),N+0.5W);
 // end
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1795" data-id="00011" data-file="c10_L10_script_14.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1796" data-id="00011" data-file="c10_L10_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1796">
+<div class="card" id="pair-1797">
   <div class="card-header">
-    <h2>#1796 &mdash; c463_L7_script_0.asy</h2>
+    <h2>#1797 &mdash; c463_L7_script_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5203 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8631,13 +8912,13 @@ dot(&quot;$C$&quot;, C, S);
 dot(&quot;$D$&quot;, D, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1796" data-id="08284" data-file="c463_L7_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1797" data-id="08284" data-file="c463_L7_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1797">
+<div class="card" id="pair-1798">
   <div class="card-header">
-    <h2>#1797 &mdash; c463_L7_script_1.asy</h2>
+    <h2>#1798 &mdash; c463_L7_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5203 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8688,13 +8969,13 @@ dot(&quot;$C$&quot;, C, S);
 dot(&quot;$D$&quot;, D, S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1797" data-id="08285" data-file="c463_L7_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1798" data-id="08285" data-file="c463_L7_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1798">
+<div class="card" id="pair-1799">
   <div class="card-header">
-    <h2>#1798 &mdash; c36_L2_script_11.asy</h2>
+    <h2>#1799 &mdash; c36_L2_script_11.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5204 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8793,13 +9074,13 @@ label(&quot;$5a$&quot;,(11,-1));
 label(&quot;$(a-1)b$&quot;,(11,-7),fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1798" data-id="04706" data-file="c36_L2_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1799" data-id="04706" data-file="c36_L2_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-1799">
+<div class="card" id="pair-1800">
   <div class="card-header">
-    <h2>#1799 &mdash; c647_L5_script_12.asy</h2>
+    <h2>#1800 &mdash; c647_L5_script_12.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.5206 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -8912,62 +9193,7 @@ label(minipage(&quot;{	iny1:1}\vspace{-0.2cm} \ {	iny 2:2} \vspace{-0.2cm}\ {	in
 label(minipage(&quot;{	iny	extbf{1:??}}\vspace{-0.25cm} \ 	extbf{{	iny 2:??}} \vspace{-0.8cm}\ 	extbf{{	iny 3:??}}&quot;, 0.5cm), (0.5, 1.7), W);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="1799" data-id="12361" data-file="c647_L5_script_12.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-1800">
-  <div class="card-header">
-    <h2>#1800 &mdash; c95_L2_script_2.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.5207 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/12521.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/12521.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>draw(unitcircle);
-draw(shift(-4)*unitcircle);
-draw(shift(4)*unitcircle);
-draw((1.2,0)--(2.8,0),Arrow);
-draw((-2.8,0)--(-1.2,0),Arrow);
-
-draw(arc((0,1.2),4,-140,-40),Arrow);
-
-label(&quot;$g$&quot;,(-2,0),N*1.2);
-label(&quot;$f$&quot;,(2,0),N);
-label(&quot;$h$&quot;,(0,-2.8),N);
-
-label(&quot;$B$&quot;,(0,0));
-label(&quot;$A$&quot;,(-4,0));
-label(&quot;$C$&quot;,(4,0));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Adraw(unitcircle)%3B%0D%0Adraw(shift(-4)*unitcircle)%3B%0D%0Adraw(shift(4)*unitcircle)%3B%0D%0Adraw((1.2%2C0)--(2.8%2C0)%2CArrow)%3B%0D%0Adraw((-2.8%2C0)--(-1.2%2C0)%2CArrow)%3B%0D%0A%0D%0Adraw(arc((0%2C1.2)%2C4%2C-140%2C-40)%2CArrow)%3B%0D%0A%0D%0Alabel(%22%24g%24%22%2C(-2%2C0)%2CN*1.2)%3B%0D%0Alabel(%22%24f%24%22%2C(2%2C0)%2CN)%3B%0D%0Alabel(%22%24h%24%22%2C(0%2C-2.8)%2CN)%3B%0D%0A%0D%0Alabel(%22%24B%24%22%2C(0%2C0))%3B%0D%0Alabel(%22%24A%24%22%2C(-4%2C0))%3B%0D%0Alabel(%22%24C%24%22%2C(4%2C0))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-draw(unitcircle);
-draw(shift(-4)*unitcircle);
-draw(shift(4)*unitcircle);
-draw((1.2,0)--(2.8,0),Arrow);
-draw((-2.8,0)--(-1.2,0),Arrow);
-
-draw(arc((0,1.2),4,-140,-40),Arrow);
-
-label(&quot;$g$&quot;,(-2,0),N*1.2);
-label(&quot;$f$&quot;,(2,0),N);
-label(&quot;$h$&quot;,(0,-2.8),N);
-
-label(&quot;$B$&quot;,(0,0));
-label(&quot;$A$&quot;,(-4,0));
-label(&quot;$C$&quot;,(4,0));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="1800" data-id="12521" data-file="c95_L2_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="1800" data-id="12361" data-file="c647_L5_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

@@ -45,8 +45,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 1 of 119</p>
 <div class="stats">
 <b style="background:#2d8a4e">202 Good</b>
-<b style="background:#c0820a">1289 Fair</b>
-<b style="background:#c0392b">10404 Poor</b>
+<b style="background:#c0820a">1293 Fair</b>
+<b style="background:#c0392b">10400 Poor</b>
 <b style="background:#999">1 Err</b>
 </div>
 <div class="pag"><span class="cur">1</span><a href="page-2.html">2</a><a href="page-3.html">3</a><a href="page-4.html">4</a><a href="page-5.html">5</a><a href="page-6.html">6</a><a href="page-7.html">7</a><a href="page-8.html">8</a><a href="page-9.html">9</a><a href="page-10.html">10</a><a href="page-11.html">11</a><a href="page-12.html">12</a><a href="page-13.html">13</a><a href="page-14.html">14</a><a href="page-15.html">15</a><span class="dots">…</span><a href="page-119.html">119</a><a href="page-2.html">Next &raquo;</a></div>
@@ -2755,520 +2755,7 @@ for (i = 0; i &lt;= 9; ++i) {
 </div>
 <div class="card" id="pair-25">
   <div class="card-header">
-    <h2>#25 &mdash; c539_L11_p52840_solutiontext_0.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.0859 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08748.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08748.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//https://artofproblemsolving.com/texer/zpqidkqk
-
-size(12cm, 8cm);
-
-//============ MAIN CONTROLS ============
-int num_antinodes = 4;       // Number of antinodes in the standing wave
-
-string boundary_mode = &quot;node-node&quot;;  
-// Options:
-//   &quot;node-node&quot;         - nodes at both ends (like fixed string)
-//   &quot;node-antinode&quot;     - node at left, antinode at right (like closed pipe)
-//   &quot;antinode-antinode&quot; - antinodes at both ends (like open pipe)
-//
-// Valid num_antinodes for each mode:
-//   node-node:         1, 2, 3, 4, 5, ...
-//   node-antinode:     1, 2, 3, 4, 5, ...
-//   antinode-antinode: 2, 3, 4, 5, ... (minimum is 2)
-//=======================================
-
-//========== ADJUSTABLE PARAMETERS ==========
-// Dot diagram settings
-real base_density = 0.3;
-real section_width = 1.0;
-real section_height = 3.0;
-int num_sections = 15;
-bool show_dot_sections = true;
-
-// Amplitude overlay settings
-bool show_amplitude_curve = true;
-real amplitude_offset = 0.8;      // Gap between dots and curve baseline
-real amplitude_scale = 1.2;       // Height of the envelope peaks
-
-// Inner loop settings
-real inner_amplitude_1 = 0.7;
-real inner_amplitude_2 = 0.35;
-
-// Label settings
-bool show_labels = true;
-real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
-real node_dot_size = 5;           // Size of the node marker dots
-//===========================================
-
-// Dot appearance
-real dot_size = 1.5;
-pen dot_color = rgb(100/255, 143/255, 255/255);
-
-// Calculated values
-real total_width = num_sections * section_width;
-real start_x = -total_width / 2;
-
-// Amplitude baseline
-real baseline_y = 0;
-
-// ------------------------------------------------------
-// WAVE FACTOR CALCULATION
-// Determines the spatial frequency of the standing wave
-// ------------------------------------------------------
-real wave_factor;
-if (boundary_mode == &quot;node-node&quot;) {
-    // Both ends are nodes: n antinodes means n half-wavelengths
-    wave_factor = num_antinodes;
-} else if (boundary_mode == &quot;node-antinode&quot;) {
-    // Node at left, antinode at right: n antinodes means (2n-1)/4 wavelengths
-    wave_factor = num_antinodes - 0.5;
-} else {
-    // Both ends are antinodes: n antinodes means (n-1) half-wavelengths
-    wave_factor = num_antinodes - 1;
-}
-
-// ------------------------------------------------------
-// ENVELOPE FUNCTION
-// Returns the amplitude envelope value at a given position
-// Uses sin() for modes with a node at x=0, cos() for antinode at x=0
-// ------------------------------------------------------
-real envelope_at(real x_norm) {
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        return abs(cos(wave_factor * pi * x_norm));
-    } else {
-        return abs(sin(wave_factor * pi * x_norm));
-    }
-}
-
-// ------------------------------------------------------
-// DENSITY FUNCTION (for dot visualization)
-// ------------------------------------------------------
-real density_at(real x_normalized) {
-    return 1.0 + envelope_at(x_normalized);
-}
-
-// ------------------------------------------------------
-// DRAW DOT SECTIONS
-// ------------------------------------------------------
-if(show_dot_sections) {
-    real bottom_y = -section_height / 2;
-    real top_y = section_height / 2;
-
-     
-
-    for(int i = 0; i &lt; num_sections; ++i) {
-        real left_x = start_x + i * section_width;
-        real right_x = left_x + section_width;
-        
-        draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
-        draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
-
-        // Right edge vertical line (always drawn for last section)
-        if(i == num_sections - 1) {
-            draw((right_x, bottom_y)--(right_x, top_y), black + linewidth(1pt));
-
-        }
-        if(i == 0) {
-            draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
-
-        }
-        
-        real center_normalized = (i + 0.5) / num_sections;
-        real current_density = base_density * density_at(center_normalized);
-        
-        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
-        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
-        
-        for(int row = 0; row &lt; num_rows; ++row) {
-            for(int col = 0; col &lt; dots_per_row; ++col) {
-                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
-                             + (unitrand() - 0.5) * 0.1;
-                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
-                             + (unitrand() - 0.5) * 0.1;
-                
-                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
-                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
-                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
-                }
-            }
-        }
-    }
-    
-    // Left edge vertical line (only for antinode-antinode mode)
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        draw((start_x, bottom_y)--(start_x, top_y), black + linewidth(1pt));
-    }
-}
-
-// ------------------------------------------------------
-// AMPLITUDE ENVELOPE WITH LOOPS
-// ------------------------------------------------------
-if(show_amplitude_curve) {
-    int num_points = 200;
-    
-    path build_envelope(real amp_fraction, int sign) {
-        path p;
-        for(int i = 0; i &lt;= num_points; ++i) {
-            real x_norm = i * 1.0 / num_points;
-            real x = start_x + x_norm * total_width;
-            real y = baseline_y + sign * amp_fraction * amplitude_scale 
-                     * envelope_at(x_norm);
-            
-            if(i == 0) {
-                p = (x, y);
-            } else {
-                p = p -- (x, y);
-            }
-        }
-        return p;
-    }
-    
-    // Baseline (equilibrium)
-    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
-         gray + linewidth(0.5pt));
-    
-    // Outer envelope (solid)
-    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
-    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
-    
-    // Inner loops (dashed)
-    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
-}
-
-// ------------------------------------------------------
-// NODE AND ANTINODE MARKERS
-// ------------------------------------------------------
-if(show_labels) {
-    // Calculate envelope extents for antinode lines
-    real envelope_top = baseline_y + amplitude_scale;
-    real envelope_bottom = baseline_y - amplitude_scale;
-    
-    // Number of nodes and antinodes depends on boundary mode
-    int num_nodes;
-    if (boundary_mode == &quot;node-node&quot;) {
-        num_nodes = num_antinodes + 1;
-    } else if (boundary_mode == &quot;node-antinode&quot;) {
-        num_nodes = num_antinodes;
-    } else {
-        num_nodes = num_antinodes - 1;
-    }
-    
-    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        // A-A mode: nodes at interior positions (k + 0.5) / wave_factor
-        for(int k = 0; k &lt; num_nodes; ++k) {
-            real node_x_norm = (k + 0.5) / wave_factor;
-            real node_x = start_x + node_x_norm * total_width;
-            
-            dot((node_x, baseline_y), black + linewidth(node_dot_size));
-            label(&quot;N&quot;, (node_x, label_y), fontsize(10));
-        }
-    } else {
-        // N-N and N-A modes: nodes at k / wave_factor (starting from left edge)
-        for(int k = 0; k &lt; num_nodes; ++k) {
-            real node_x_norm = k / wave_factor;
-            real node_x = start_x + node_x_norm * total_width;
-            
-            dot((node_x, baseline_y), black + linewidth(node_dot_size));
-            label(&quot;N&quot;, (node_x, label_y), fontsize(10));
-        }
-    }
-    
-    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        // A-A mode: antinodes at k / wave_factor (including both edges)
-        for(int k = 0; k &lt; num_antinodes; ++k) {
-            real antinode_x_norm = k / wave_factor;
-            real antinode_x = start_x + antinode_x_norm * total_width;
-            
-            draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
-                 dashed + linewidth(1pt));
-            label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
-        }
-    } else {
-        // N-N and N-A modes: antinodes at (k + 0.5) / wave_factor
-        for(int k = 0; k &lt; num_antinodes; ++k) {
-            real antinode_x_norm = (k + 0.5) / wave_factor;
-            real antinode_x = start_x + antinode_x_norm * total_width;
-            
-            draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
-                 dashed + linewidth(1pt));
-            label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
-        }
-    }
-}</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fzpqidkqk%0D%0A%0D%0Asize(12cm%2C%208cm)%3B%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20MAIN%20CONTROLS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aint%20num_antinodes%20%3D%204%3B%20%20%20%20%20%20%20%2F%2F%20Number%20of%20antinodes%20in%20the%20standing%20wave%0D%0A%0D%0Astring%20boundary_mode%20%3D%20%22node-node%22%3B%20%20%0D%0A%2F%2F%20Options%3A%0D%0A%2F%2F%20%20%20%22node-node%22%20%20%20%20%20%20%20%20%20-%20nodes%20at%20both%20ends%20(like%20fixed%20string)%0D%0A%2F%2F%20%20%20%22node-antinode%22%20%20%20%20%20-%20node%20at%20left%2C%20antinode%20at%20right%20(like%20closed%20pipe)%0D%0A%2F%2F%20%20%20%22antinode-antinode%22%20-%20antinodes%20at%20both%20ends%20(like%20open%20pipe)%0D%0A%2F%2F%0D%0A%2F%2F%20Valid%20num_antinodes%20for%20each%20mode%3A%0D%0A%2F%2F%20%20%20node-node%3A%20%20%20%20%20%20%20%20%201%2C%202%2C%203%2C%204%2C%205%2C%20...%0D%0A%2F%2F%20%20%20node-antinode%3A%20%20%20%20%201%2C%202%2C%203%2C%204%2C%205%2C%20...%0D%0A%2F%2F%20%20%20antinode-antinode%3A%202%2C%203%2C%204%2C%205%2C%20...%20(minimum%20is%202)%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%20ADJUSTABLE%20PARAMETERS%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Dot%20diagram%20settings%0D%0Areal%20base_density%20%3D%200.3%3B%0D%0Areal%20section_width%20%3D%201.0%3B%0D%0Areal%20section_height%20%3D%203.0%3B%0D%0Aint%20num_sections%20%3D%2015%3B%0D%0Abool%20show_dot_sections%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20overlay%20settings%0D%0Abool%20show_amplitude_curve%20%3D%20true%3B%0D%0Areal%20amplitude_offset%20%3D%200.8%3B%20%20%20%20%20%20%2F%2F%20Gap%20between%20dots%20and%20curve%20baseline%0D%0Areal%20amplitude_scale%20%3D%201.2%3B%20%20%20%20%20%20%20%2F%2F%20Height%20of%20the%20envelope%20peaks%0D%0A%0D%0A%2F%2F%20Inner%20loop%20settings%0D%0Areal%20inner_amplitude_1%20%3D%200.7%3B%0D%0Areal%20inner_amplitude_2%20%3D%200.35%3B%0D%0A%0D%0A%2F%2F%20Label%20settings%0D%0Abool%20show_labels%20%3D%20true%3B%0D%0Areal%20label_y%20%3D%20-2.3%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Y%20position%20for%20%22N%22%20and%20%22A%22%20text%20labels%0D%0Areal%20node_dot_size%20%3D%205%3B%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20Size%20of%20the%20node%20marker%20dots%0D%0A%2F%2F%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Dot%20appearance%0D%0Areal%20dot_size%20%3D%201.5%3B%0D%0Apen%20dot_color%20%3D%20rgb(100%2F255%2C%20143%2F255%2C%20255%2F255)%3B%0D%0A%0D%0A%2F%2F%20Calculated%20values%0D%0Areal%20total_width%20%3D%20num_sections%20*%20section_width%3B%0D%0Areal%20start_x%20%3D%20-total_width%20%2F%202%3B%0D%0A%0D%0A%2F%2F%20Amplitude%20baseline%0D%0Areal%20baseline_y%20%3D%200%3B%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20WAVE%20FACTOR%20CALCULATION%0D%0A%2F%2F%20Determines%20the%20spatial%20frequency%20of%20the%20standing%20wave%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20wave_factor%3B%0D%0Aif%20(boundary_mode%20%3D%3D%20%22node-node%22)%20%7B%0D%0A%20%20%20%20%2F%2F%20Both%20ends%20are%20nodes%3A%20n%20antinodes%20means%20n%20half-wavelengths%0D%0A%20%20%20%20wave_factor%20%3D%20num_antinodes%3B%0D%0A%7D%20else%20if%20(boundary_mode%20%3D%3D%20%22node-antinode%22)%20%7B%0D%0A%20%20%20%20%2F%2F%20Node%20at%20left%2C%20antinode%20at%20right%3A%20n%20antinodes%20means%20(2n-1)%2F4%20wavelengths%0D%0A%20%20%20%20wave_factor%20%3D%20num_antinodes%20-%200.5%3B%0D%0A%7D%20else%20%7B%0D%0A%20%20%20%20%2F%2F%20Both%20ends%20are%20antinodes%3A%20n%20antinodes%20means%20(n-1)%20half-wavelengths%0D%0A%20%20%20%20wave_factor%20%3D%20num_antinodes%20-%201%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20ENVELOPE%20FUNCTION%0D%0A%2F%2F%20Returns%20the%20amplitude%20envelope%20value%20at%20a%20given%20position%0D%0A%2F%2F%20Uses%20sin()%20for%20modes%20with%20a%20node%20at%20x%3D0%2C%20cos()%20for%20antinode%20at%20x%3D0%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20envelope_at(real%20x_norm)%20%7B%0D%0A%20%20%20%20if%20(boundary_mode%20%3D%3D%20%22antinode-antinode%22)%20%7B%0D%0A%20%20%20%20%20%20%20%20return%20abs(cos(wave_factor%20*%20pi%20*%20x_norm))%3B%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20return%20abs(sin(wave_factor%20*%20pi%20*%20x_norm))%3B%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DENSITY%20FUNCTION%20(for%20dot%20visualization)%0D%0A%2F%2F%20------------------------------------------------------%0D%0Areal%20density_at(real%20x_normalized)%20%7B%0D%0A%20%20%20%20return%201.0%20%2B%20envelope_at(x_normalized)%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20DRAW%20DOT%20SECTIONS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_dot_sections)%20%7B%0D%0A%20%20%20%20real%20bottom_y%20%3D%20-section_height%20%2F%202%3B%0D%0A%20%20%20%20real%20top_y%20%3D%20section_height%20%2F%202%3B%0D%0A%0D%0A%20%20%20%20%20%0D%0A%0D%0A%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%20num_sections%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20real%20left_x%20%3D%20start_x%20%2B%20i%20*%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20real%20right_x%20%3D%20left_x%20%2B%20section_width%3B%0D%0A%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20draw((left_x%2C%20bottom_y)--(right_x%2C%20bottom_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%2F%2F%20bottom%0D%0A%20%20%20%20%20%20%20%20draw((left_x%2C%20top_y)--(right_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%20%20%20%20%20%20%20%20%2F%2F%20top%0D%0A%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20Right%20edge%20vertical%20line%20(always%20drawn%20for%20last%20section)%0D%0A%20%20%20%20%20%20%20%20if(i%20%3D%3D%20num_sections%20-%201)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20draw((right_x%2C%20bottom_y)--(right_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20if(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20draw((left_x%2C%20bottom_y)--(left_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20real%20center_normalized%20%3D%20(i%20%2B%200.5)%20%2F%20num_sections%3B%0D%0A%20%20%20%20%20%20%20%20real%20current_density%20%3D%20base_density%20*%20density_at(center_normalized)%3B%0D%0A%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20int%20dots_per_row%20%3D%20floor(section_width%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%20%20%20%20%20%20%20%20int%20num_rows%20%3D%20floor(section_height%20%2F%200.15%20*%20sqrt(current_density))%3B%0D%0A%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20for(int%20row%20%3D%200%3B%20row%20%3C%20num_rows%3B%20%2B%2Brow)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20for(int%20col%20%3D%200%3B%20col%20%3C%20dots_per_row%3B%20%2B%2Bcol)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20x_pos%20%3D%20left_x%20%2B%20(col%20%2B%200.5)%20*%20section_width%20%2F%20dots_per_row%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20real%20y_pos%20%3D%20bottom_y%20%2B%20(row%20%2B%200.5)%20*%20section_height%20%2F%20num_rows%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2B%20(unitrand()%20-%200.5)%20*%200.1%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20if(x_pos%20%3E%20left_x%20%2B%200.05%20%26%26%20x_pos%20%3C%20right_x%20-%200.05%20%26%26%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20y_pos%20%3E%20bottom_y%20%2B%200.05%20%26%26%20y_pos%20%3C%20top_y%20-%200.05)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dot((x_pos%2C%20y_pos)%2C%20dot_color%20%2B%20linewidth(dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20Left%20edge%20vertical%20line%20(only%20for%20antinode-antinode%20mode)%0D%0A%20%20%20%20if%20(boundary_mode%20%3D%3D%20%22antinode-antinode%22)%20%7B%0D%0A%20%20%20%20%20%20%20%20draw((start_x%2C%20bottom_y)--(start_x%2C%20top_y)%2C%20black%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20AMPLITUDE%20ENVELOPE%20WITH%20LOOPS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_amplitude_curve)%20%7B%0D%0A%20%20%20%20int%20num_points%20%3D%20200%3B%0D%0A%20%20%20%20%0D%0A%20%20%20%20path%20build_envelope(real%20amp_fraction%2C%20int%20sign)%20%7B%0D%0A%20%20%20%20%20%20%20%20path%20p%3B%0D%0A%20%20%20%20%20%20%20%20for(int%20i%20%3D%200%3B%20i%20%3C%3D%20num_points%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x_norm%20%3D%20i%20*%201.0%20%2F%20num_points%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20x%20%3D%20start_x%20%2B%20x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20y%20%3D%20baseline_y%20%2B%20sign%20*%20amp_fraction%20*%20amplitude_scale%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20*%20envelope_at(x_norm)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if(i%20%3D%3D%200)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20p%20%3D%20p%20--%20(x%2C%20y)%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%20%20%20%20return%20p%3B%0D%0A%20%20%20%20%7D%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20Baseline%20(equilibrium)%0D%0A%20%20%20%20draw((start_x%2C%20baseline_y)%20--%20(start_x%20%2B%20total_width%2C%20baseline_y)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20gray%20%2B%20linewidth(0.5pt))%3B%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20Outer%20envelope%20(solid)%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20%2B1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%20%20%20%20draw(build_envelope(1.0%2C%20-1)%2C%20magenta%20%2B%20linewidth(1.5pt))%3B%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20Inner%20loops%20(dashed)%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_1%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20%2B1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20draw(build_envelope(inner_amplitude_2%2C%20-1)%2C%20magenta%20%2B%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20------------------------------------------------------%0D%0A%2F%2F%20NODE%20AND%20ANTINODE%20MARKERS%0D%0A%2F%2F%20------------------------------------------------------%0D%0Aif(show_labels)%20%7B%0D%0A%20%20%20%20%2F%2F%20Calculate%20envelope%20extents%20for%20antinode%20lines%0D%0A%20%20%20%20real%20envelope_top%20%3D%20baseline_y%20%2B%20amplitude_scale%3B%0D%0A%20%20%20%20real%20envelope_bottom%20%3D%20baseline_y%20-%20amplitude_scale%3B%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20Number%20of%20nodes%20and%20antinodes%20depends%20on%20boundary%20mode%0D%0A%20%20%20%20int%20num_nodes%3B%0D%0A%20%20%20%20if%20(boundary_mode%20%3D%3D%20%22node-node%22)%20%7B%0D%0A%20%20%20%20%20%20%20%20num_nodes%20%3D%20num_antinodes%20%2B%201%3B%0D%0A%20%20%20%20%7D%20else%20if%20(boundary_mode%20%3D%3D%20%22node-antinode%22)%20%7B%0D%0A%20%20%20%20%20%20%20%20num_nodes%20%3D%20num_antinodes%3B%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20num_nodes%20%3D%20num_antinodes%20-%201%3B%0D%0A%20%20%20%20%7D%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20NODES%3A%20dots%20on%20the%20amplitude%20baseline%2C%20%22N%22%20labels%20below%0D%0A%20%20%20%20if%20(boundary_mode%20%3D%3D%20%22antinode-antinode%22)%20%7B%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20A-A%20mode%3A%20nodes%20at%20interior%20positions%20(k%20%2B%200.5)%20%2F%20wave_factor%0D%0A%20%20%20%20%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_nodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20node_x_norm%20%3D%20(k%20%2B%200.5)%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20node_x%20%3D%20start_x%20%2B%20node_x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20dot((node_x%2C%20baseline_y)%2C%20black%20%2B%20linewidth(node_dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20label(%22N%22%2C%20(node_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20N-N%20and%20N-A%20modes%3A%20nodes%20at%20k%20%2F%20wave_factor%20(starting%20from%20left%20edge)%0D%0A%20%20%20%20%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_nodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20node_x_norm%20%3D%20k%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20node_x%20%3D%20start_x%20%2B%20node_x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20dot((node_x%2C%20baseline_y)%2C%20black%20%2B%20linewidth(node_dot_size))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20label(%22N%22%2C%20(node_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%20%20%20%20%0D%0A%20%20%20%20%2F%2F%20ANTINODES%3A%20dashed%20lines%20through%20amplitude%20envelope%2C%20%22A%22%20labels%20below%0D%0A%20%20%20%20if%20(boundary_mode%20%3D%3D%20%22antinode-antinode%22)%20%7B%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20A-A%20mode%3A%20antinodes%20at%20k%20%2F%20wave_factor%20(including%20both%20edges)%0D%0A%20%20%20%20%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_antinodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20antinode_x_norm%20%3D%20k%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20antinode_x%20%3D%20start_x%20%2B%20antinode_x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20draw((antinode_x%2C%20-section_height%2F2)%20--%20(antinode_x%2C%20envelope_top)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20label(%22A%22%2C%20(antinode_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0A%20%20%20%20%20%20%20%20%2F%2F%20N-N%20and%20N-A%20modes%3A%20antinodes%20at%20(k%20%2B%200.5)%20%2F%20wave_factor%0D%0A%20%20%20%20%20%20%20%20for(int%20k%20%3D%200%3B%20k%20%3C%20num_antinodes%3B%20%2B%2Bk)%20%7B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20antinode_x_norm%20%3D%20(k%20%2B%200.5)%20%2F%20wave_factor%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20real%20antinode_x%20%3D%20start_x%20%2B%20antinode_x_norm%20*%20total_width%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20draw((antinode_x%2C%20-section_height%2F2)%20--%20(antinode_x%2C%20envelope_top)%2C%20%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20dashed%20%2B%20linewidth(1pt))%3B%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20label(%22A%22%2C%20(antinode_x%2C%20label_y)%2C%20fontsize(10))%3B%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%20%20%20%20%7D%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//https://artofproblemsolving.com/texer/zpqidkqk
-
-size(12cm, 8cm);
-
-//============ MAIN CONTROLS ============
-int num_antinodes = 4;       // Number of antinodes in the standing wave
-
-string boundary_mode = &quot;node-node&quot;;  
-// Options:
-//   &quot;node-node&quot;         - nodes at both ends (like fixed string)
-//   &quot;node-antinode&quot;     - node at left, antinode at right (like closed pipe)
-//   &quot;antinode-antinode&quot; - antinodes at both ends (like open pipe)
-//
-// Valid num_antinodes for each mode:
-//   node-node:         1, 2, 3, 4, 5, ...
-//   node-antinode:     1, 2, 3, 4, 5, ...
-//   antinode-antinode: 2, 3, 4, 5, ... (minimum is 2)
-//=======================================
-
-//========== ADJUSTABLE PARAMETERS ==========
-// Dot diagram settings
-real base_density = 0.3;
-real section_width = 1.0;
-real section_height = 3.0;
-int num_sections = 15;
-bool show_dot_sections = true;
-
-// Amplitude overlay settings
-bool show_amplitude_curve = true;
-real amplitude_offset = 0.8;      // Gap between dots and curve baseline
-real amplitude_scale = 1.2;       // Height of the envelope peaks
-
-// Inner loop settings
-real inner_amplitude_1 = 0.7;
-real inner_amplitude_2 = 0.35;
-
-// Label settings
-bool show_labels = true;
-real label_y = -2.3;              // Y position for &quot;N&quot; and &quot;A&quot; text labels
-real node_dot_size = 5;           // Size of the node marker dots
-//===========================================
-
-// Dot appearance
-real dot_size = 1.5;
-pen dot_color = rgb(100/255, 143/255, 255/255);
-
-// Calculated values
-real total_width = num_sections * section_width;
-real start_x = -total_width / 2;
-
-// Amplitude baseline
-real baseline_y = 0;
-
-// ------------------------------------------------------
-// WAVE FACTOR CALCULATION
-// Determines the spatial frequency of the standing wave
-// ------------------------------------------------------
-real wave_factor;
-if (boundary_mode == &quot;node-node&quot;) {
-    // Both ends are nodes: n antinodes means n half-wavelengths
-    wave_factor = num_antinodes;
-} else if (boundary_mode == &quot;node-antinode&quot;) {
-    // Node at left, antinode at right: n antinodes means (2n-1)/4 wavelengths
-    wave_factor = num_antinodes - 0.5;
-} else {
-    // Both ends are antinodes: n antinodes means (n-1) half-wavelengths
-    wave_factor = num_antinodes - 1;
-}
-
-// ------------------------------------------------------
-// ENVELOPE FUNCTION
-// Returns the amplitude envelope value at a given position
-// Uses sin() for modes with a node at x=0, cos() for antinode at x=0
-// ------------------------------------------------------
-real envelope_at(real x_norm) {
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        return abs(cos(wave_factor * pi * x_norm));
-    } else {
-        return abs(sin(wave_factor * pi * x_norm));
-    }
-}
-
-// ------------------------------------------------------
-// DENSITY FUNCTION (for dot visualization)
-// ------------------------------------------------------
-real density_at(real x_normalized) {
-    return 1.0 + envelope_at(x_normalized);
-}
-
-// ------------------------------------------------------
-// DRAW DOT SECTIONS
-// ------------------------------------------------------
-if(show_dot_sections) {
-    real bottom_y = -section_height / 2;
-    real top_y = section_height / 2;
-
-     
-
-    for(int i = 0; i &lt; num_sections; ++i) {
-        real left_x = start_x + i * section_width;
-        real right_x = left_x + section_width;
-        
-        draw((left_x, bottom_y)--(right_x, bottom_y), black + linewidth(1pt));  // bottom
-        draw((left_x, top_y)--(right_x, top_y), black + linewidth(1pt));        // top
-
-        // Right edge vertical line (always drawn for last section)
-        if(i == num_sections - 1) {
-            draw((right_x, bottom_y)--(right_x, top_y), black + linewidth(1pt));
-
-        }
-        if(i == 0) {
-            draw((left_x, bottom_y)--(left_x, top_y), black + linewidth(1pt));
-
-        }
-        
-        real center_normalized = (i + 0.5) / num_sections;
-        real current_density = base_density * density_at(center_normalized);
-        
-        int dots_per_row = floor(section_width / 0.15 * sqrt(current_density));
-        int num_rows = floor(section_height / 0.15 * sqrt(current_density));
-        
-        for(int row = 0; row &lt; num_rows; ++row) {
-            for(int col = 0; col &lt; dots_per_row; ++col) {
-                real x_pos = left_x + (col + 0.5) * section_width / dots_per_row 
-                             + (unitrand() - 0.5) * 0.1;
-                real y_pos = bottom_y + (row + 0.5) * section_height / num_rows 
-                             + (unitrand() - 0.5) * 0.1;
-                
-                if(x_pos &gt; left_x + 0.05 &amp;&amp; x_pos &lt; right_x - 0.05 &amp;&amp; 
-                   y_pos &gt; bottom_y + 0.05 &amp;&amp; y_pos &lt; top_y - 0.05) {
-                    dot((x_pos, y_pos), dot_color + linewidth(dot_size));
-                }
-            }
-        }
-    }
-    
-    // Left edge vertical line (only for antinode-antinode mode)
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        draw((start_x, bottom_y)--(start_x, top_y), black + linewidth(1pt));
-    }
-}
-
-// ------------------------------------------------------
-// AMPLITUDE ENVELOPE WITH LOOPS
-// ------------------------------------------------------
-if(show_amplitude_curve) {
-    int num_points = 200;
-    
-    path build_envelope(real amp_fraction, int sign) {
-        path p;
-        for(int i = 0; i &lt;= num_points; ++i) {
-            real x_norm = i * 1.0 / num_points;
-            real x = start_x + x_norm * total_width;
-            real y = baseline_y + sign * amp_fraction * amplitude_scale 
-                     * envelope_at(x_norm);
-            
-            if(i == 0) {
-                p = (x, y);
-            } else {
-                p = p -- (x, y);
-            }
-        }
-        return p;
-    }
-    
-    // Baseline (equilibrium)
-    draw((start_x, baseline_y) -- (start_x + total_width, baseline_y), 
-         gray + linewidth(0.5pt));
-    
-    // Outer envelope (solid)
-    draw(build_envelope(1.0, +1), magenta + linewidth(1.5pt));
-    draw(build_envelope(1.0, -1), magenta + linewidth(1.5pt));
-    
-    // Inner loops (dashed)
-    draw(build_envelope(inner_amplitude_1, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_1, -1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, +1), magenta + dashed + linewidth(1pt));
-    draw(build_envelope(inner_amplitude_2, -1), magenta + dashed + linewidth(1pt));
-}
-
-// ------------------------------------------------------
-// NODE AND ANTINODE MARKERS
-// ------------------------------------------------------
-if(show_labels) {
-    // Calculate envelope extents for antinode lines
-    real envelope_top = baseline_y + amplitude_scale;
-    real envelope_bottom = baseline_y - amplitude_scale;
-    
-    // Number of nodes and antinodes depends on boundary mode
-    int num_nodes;
-    if (boundary_mode == &quot;node-node&quot;) {
-        num_nodes = num_antinodes + 1;
-    } else if (boundary_mode == &quot;node-antinode&quot;) {
-        num_nodes = num_antinodes;
-    } else {
-        num_nodes = num_antinodes - 1;
-    }
-    
-    // NODES: dots on the amplitude baseline, &quot;N&quot; labels below
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        // A-A mode: nodes at interior positions (k + 0.5) / wave_factor
-        for(int k = 0; k &lt; num_nodes; ++k) {
-            real node_x_norm = (k + 0.5) / wave_factor;
-            real node_x = start_x + node_x_norm * total_width;
-            
-            dot((node_x, baseline_y), black + linewidth(node_dot_size));
-            label(&quot;N&quot;, (node_x, label_y), fontsize(10));
-        }
-    } else {
-        // N-N and N-A modes: nodes at k / wave_factor (starting from left edge)
-        for(int k = 0; k &lt; num_nodes; ++k) {
-            real node_x_norm = k / wave_factor;
-            real node_x = start_x + node_x_norm * total_width;
-            
-            dot((node_x, baseline_y), black + linewidth(node_dot_size));
-            label(&quot;N&quot;, (node_x, label_y), fontsize(10));
-        }
-    }
-    
-    // ANTINODES: dashed lines through amplitude envelope, &quot;A&quot; labels below
-    if (boundary_mode == &quot;antinode-antinode&quot;) {
-        // A-A mode: antinodes at k / wave_factor (including both edges)
-        for(int k = 0; k &lt; num_antinodes; ++k) {
-            real antinode_x_norm = k / wave_factor;
-            real antinode_x = start_x + antinode_x_norm * total_width;
-            
-            draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
-                 dashed + linewidth(1pt));
-            label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
-        }
-    } else {
-        // N-N and N-A modes: antinodes at (k + 0.5) / wave_factor
-        for(int k = 0; k &lt; num_antinodes; ++k) {
-            real antinode_x_norm = (k + 0.5) / wave_factor;
-            real antinode_x = start_x + antinode_x_norm * total_width;
-            
-            draw((antinode_x, -section_height/2) -- (antinode_x, envelope_top), 
-                 dashed + linewidth(1pt));
-            label(&quot;A&quot;, (antinode_x, label_y), fontsize(10));
-        }
-    }
-}
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="25" data-id="08748" data-file="c539_L11_p52840_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-26">
-  <div class="card-header">
-    <h2>#26 &mdash; c398_L9_p43174_solution_text_1.asy</h2>
+    <h2>#25 &mdash; c398_L9_p43174_solution_text_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.0897 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -3359,13 +2846,13 @@ dot((1,6));
 dot((9,-12));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="26" data-id="05087" data-file="c398_L9_p43174_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="25" data-id="05087" data-file="c398_L9_p43174_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-27">
+<div class="card" id="pair-26">
   <div class="card-header">
-    <h2>#27 &mdash; c10_L24_script_4.asy</h2>
+    <h2>#26 &mdash; c10_L24_script_4.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.0962 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -3452,7 +2939,88 @@ xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
 yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="27" data-id="00288" data-file="c10_L24_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="26" data-id="00288" data-file="c10_L24_script_4.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-27">
+  <div class="card-header">
+    <h2>#27 &mdash; c10_L22_script_6.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.0981 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/00273.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00273.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>import slopefield;
+real func(real x, real y) {return -y/x;}
+ add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
+ add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
+draw(curve((-1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,-1),func,(-3,-3),(3,3)),blue);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20slopefield%3B%0D%0Areal%20func(real%20x%2C%20real%20y)%20%7Breturn%20-y%2Fx%3B%7D%0D%0A%20add(slopefield(func%2C(-3%2C-3)%2C(-0.1%2C3)%2C11%2CArrow))%3B%0D%0A%20add(slopefield(func%2C(0.1%2C-3)%2C(3%2C3)%2C11%2CArrow))%3B%0D%0Axaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2C%20Arrow)%3B%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2C%20Arrow)%3B%0D%0Adraw(curve((-1%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-1%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((1%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((2%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((3%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((.25%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-2%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-3%2C2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-.25%2C1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((2%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((3%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((.25%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-2%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-3%2C-2)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0D%0Adraw(curve((-.25%2C-1)%2Cfunc%2C(-3%2C-3)%2C(3%2C3))%2Cblue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+import slopefield;
+real func(real x, real y) {return -y/x;}
+ add(slopefield(func,(-3,-3),(-0.1,3),11,Arrow));
+ add(slopefield(func,(0.1,-3),(3,3),11,Arrow));
+xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW), Arrow);
+draw(curve((-1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((1,1),func,(-3,-3),(3,3)),blue);
+draw(curve((1,2),func,(-3,-3),(3,3)),blue);
+draw(curve((2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,1),func,(-3,-3),(3,3)),blue);
+draw(curve((2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((.25,-1),func,(-3,-3),(3,3)),blue);
+draw(curve((-2,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-3,-2),func,(-3,-3),(3,3)),blue);
+draw(curve((-.25,-1),func,(-3,-3),(3,3)),blue);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="27" data-id="00273" data-file="c10_L22_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -5838,7 +5406,7 @@ label(string(i), (i,-0.45), S,fontsize(12));
 <div class="card" id="pair-45">
   <div class="card-header">
     <h2>#45 &mdash; c539_L11_script_4.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1264 &middot; Bad</span>
+    <span class="badge" style="background:#c0392b">SSIM 0.1267 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
     <div class="render-col">
@@ -8061,7 +7629,161 @@ dot(A);
 </div>
 <div class="card" id="pair-63">
   <div class="card-header">
-    <h2>#63 &mdash; c95_L3_script_12.asy</h2>
+    <h2>#63 &mdash; c53_L9_script_11.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1435 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/09486.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09486.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(15);
+pen light = gray+0.5;
+pen dark = black+1.5;
+pen redln = red+1.5;
+
+void board(pair pos, int n, string s){
+  int spos = 0, bpos = 1;
+  while(bpos &lt; n) {
+    if (substr(s, spos, 1) == &quot;D&quot;){
+      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
+      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
+      spos += 1; bpos += 2;
+    } else {
+      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
+      spos += 1; bpos += 1;
+    }
+  }
+  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
+}
+
+board((0, 0), 8, &#39;DSDDS&#39;);
+board((12, 0), 5, &#39;DSD&#39;);
+board((18, 0), 3, &#39;DS&#39;);
+draw((5,0)---(5,1),redln);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%0D%0D%0Apen%20light%20%3D%20gray%2B0.5%3B%0D%0D%0Apen%20dark%20%3D%20black%2B1.5%3B%0D%0D%0Apen%20redln%20%3D%20red%2B1.5%3B%0D%0A%0D%0Avoid%20board(pair%20pos%2C%20int%20n%2C%20string%20s)%7B%0D%0D%0A%20%20int%20spos%20%3D%200%2C%20bpos%20%3D%201%3B%0D%0D%0A%20%20while(bpos%20%3C%20n)%20%7B%0D%0D%0A%20%20%20%20if%20(substr(s%2C%20spos%2C%201)%20%3D%3D%20%22D%22)%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2B1%2C0)---(bpos%2B1%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%7D%0D%0D%0A%20%20draw(shift(pos)*((0%2C0)---(n%2C0)---(n%2C1)---(0%2C1)---cycle)%2Cdark)%3B%0D%0D%0A%7D%0D%0A%0D%0Aboard((0%2C%200)%2C%208%2C%20'DSDDS')%3B%0D%0D%0Aboard((12%2C%200)%2C%205%2C%20'DSD')%3B%0D%0D%0Aboard((18%2C%200)%2C%203%2C%20'DS')%3B%0D%0D%0Adraw((5%2C0)---(5%2C1)%2Credln)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(15);
+pen light = gray+0.5;
+pen dark = black+1.5;
+pen redln = red+1.5;
+
+void board(pair pos, int n, string s){
+  int spos = 0, bpos = 1;
+  while(bpos &lt; n) {
+    if (substr(s, spos, 1) == &quot;D&quot;){
+      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
+      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
+      spos += 1; bpos += 2;
+    } else {
+      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
+      spos += 1; bpos += 1;
+    }
+  }
+  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
+}
+
+board((0, 0), 8, &#39;DSDDS&#39;);
+board((12, 0), 5, &#39;DSD&#39;);
+board((18, 0), 3, &#39;DS&#39;);
+draw((5,0)---(5,1),redln);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="63" data-id="09486" data-file="c53_L9_script_11.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-64">
+  <div class="card-header">
+    <h2>#64 &mdash; c53_LNone_script_14.asy</h2>
+    <span class="badge" style="background:#c0392b">SSIM 0.1435 &middot; Bad</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/09507.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09507.svg"></div></div>
+    </div>
+    <div class="render-col">
+      <h3>AoPS TeXeR</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(15);
+pen light = gray+0.5;
+pen dark = black+1.5;
+pen redln = red+1.5;
+
+void board(pair pos, int n, string s){
+  int spos = 0, bpos = 1;
+  while(bpos &lt; n) {
+    if (substr(s, spos, 1) == &quot;D&quot;){
+      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
+      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
+      spos += 1; bpos += 2;
+    } else {
+      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
+      spos += 1; bpos += 1;
+    }
+  }
+  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
+}
+
+board((0, 0), 8, &#39;DSDDS&#39;);
+board((12, 0), 5, &#39;DSD&#39;);
+board((18, 0), 3, &#39;DS&#39;);
+draw((5,0)---(5,1),redln);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%0D%0D%0Apen%20light%20%3D%20gray%2B0.5%3B%0D%0D%0Apen%20dark%20%3D%20black%2B1.5%3B%0D%0D%0Apen%20redln%20%3D%20red%2B1.5%3B%0D%0A%0D%0Avoid%20board(pair%20pos%2C%20int%20n%2C%20string%20s)%7B%0D%0D%0A%20%20int%20spos%20%3D%200%2C%20bpos%20%3D%201%3B%0D%0D%0A%20%20while(bpos%20%3C%20n)%20%7B%0D%0D%0A%20%20%20%20if%20(substr(s%2C%20spos%2C%201)%20%3D%3D%20%22D%22)%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2B1%2C0)---(bpos%2B1%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%7D%0D%0D%0A%20%20draw(shift(pos)*((0%2C0)---(n%2C0)---(n%2C1)---(0%2C1)---cycle)%2Cdark)%3B%0D%0D%0A%7D%0D%0A%0D%0Aboard((0%2C%200)%2C%208%2C%20'DSDDS')%3B%0D%0D%0Aboard((12%2C%200)%2C%205%2C%20'DSD')%3B%0D%0D%0Aboard((18%2C%200)%2C%203%2C%20'DS')%3B%0D%0D%0Adraw((5%2C0)---(5%2C1)%2Credln)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(15);
+pen light = gray+0.5;
+pen dark = black+1.5;
+pen redln = red+1.5;
+
+void board(pair pos, int n, string s){
+  int spos = 0, bpos = 1;
+  while(bpos &lt; n) {
+    if (substr(s, spos, 1) == &quot;D&quot;){
+      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
+      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
+      spos += 1; bpos += 2;
+    } else {
+      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
+      spos += 1; bpos += 1;
+    }
+  }
+  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
+}
+
+board((0, 0), 8, &#39;DSDDS&#39;);
+board((12, 0), 5, &#39;DSD&#39;);
+board((18, 0), 3, &#39;DS&#39;);
+draw((5,0)---(5,1),redln);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="64" data-id="09507" data-file="c53_LNone_script_14.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-65">
+  <div class="card-header">
+    <h2>#65 &mdash; c95_L3_script_12.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1437 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8150,13 +7872,13 @@ dot(&quot;$w$&quot;, W, NE, fontsize(10));
 dot(&quot;$-w$&quot;, -W, SW, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="63" data-id="12535" data-file="c95_L3_script_12.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="65" data-id="12535" data-file="c95_L3_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-64">
+<div class="card" id="pair-66">
   <div class="card-header">
-    <h2>#64 &mdash; c95_L3_script_3.asy</h2>
+    <h2>#66 &mdash; c95_L3_script_3.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1441 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8245,13 +7967,13 @@ dot(&quot;$-z$&quot;, W, SW, fontsize(10));
 dot(&quot;$z$&quot;, Z, NE, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="64" data-id="12554" data-file="c95_L3_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="66" data-id="12554" data-file="c95_L3_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-65">
+<div class="card" id="pair-67">
   <div class="card-header">
-    <h2>#65 &mdash; c186_L21_script_12.asy</h2>
+    <h2>#67 &mdash; c186_L21_script_12.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1441 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8348,13 +8070,13 @@ label(&quot;$\mathbf{d}_1$&quot;, tailD1 + D1, E, UnFill);
 label(&quot;$\mathbf{d}_2$&quot;, tailD2 + D2, W, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="65" data-id="02388" data-file="c186_L21_script_12.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="67" data-id="02388" data-file="c186_L21_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-66">
+<div class="card" id="pair-68">
   <div class="card-header">
-    <h2>#66 &mdash; c186_L7_p4690_solution_text_0.asy</h2>
+    <h2>#68 &mdash; c186_L7_p4690_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1453 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8491,13 +8213,13 @@ draw(Circle((2,-3+2*sqrt(2)),4),red);
 draw(Circle((2,-3-2*sqrt(2)),4),red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="66" data-id="02985" data-file="c186_L7_p4690_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="68" data-id="02985" data-file="c186_L7_p4690_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-67">
+<div class="card" id="pair-69">
   <div class="card-header">
-    <h2>#67 &mdash; c321_L11_script_11.asy</h2>
+    <h2>#69 &mdash; c321_L11_script_11.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1458 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8578,13 +8300,13 @@ label(&quot;$4$&quot;, (10,0), S);
 label(&quot;$5$&quot;, (11,0), S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="67" data-id="04506" data-file="c321_L11_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="69" data-id="04506" data-file="c321_L11_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-68">
+<div class="card" id="pair-70">
   <div class="card-header">
-    <h2>#68 &mdash; c402_L14_script_1.asy</h2>
+    <h2>#70 &mdash; c402_L14_script_1.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1464 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8657,13 +8379,13 @@ label(&quot;$0.75$&quot;, (0.75,-0.01), S);
 label(&quot;$0.8$&quot;, (0.8,-0.01), S);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="68" data-id="05917" data-file="c402_L14_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="70" data-id="05917" data-file="c402_L14_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-69">
+<div class="card" id="pair-71">
   <div class="card-header">
-    <h2>#69 &mdash; c321_L10_script_17.asy</h2>
+    <h2>#71 &mdash; c321_L10_script_17.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1466 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8734,13 +8456,13 @@ label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 label(&quot;$0$&quot;, (0,0), SE, fontsize(8));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="69" data-id="04478" data-file="c321_L10_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="71" data-id="04478" data-file="c321_L10_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-70">
+<div class="card" id="pair-72">
   <div class="card-header">
-    <h2>#70 &mdash; c583_L8_p50252_solution_text_0.asy</h2>
+    <h2>#72 &mdash; c583_L8_p50252_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1469 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8815,13 +8537,13 @@ label(&quot;$\cdot$&quot;,(off+1,0.5),fontsize(16));
 label(&quot;$\cdot$&quot;,(off+1.5,0.5),fontsize(16));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="70" data-id="12123" data-file="c583_L8_p50252_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="72" data-id="12123" data-file="c583_L8_p50252_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-71">
+<div class="card" id="pair-73">
   <div class="card-header">
-    <h2>#71 &mdash; c398_L9_script_28.asy</h2>
+    <h2>#73 &mdash; c398_L9_script_28.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1470 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8896,13 +8618,13 @@ label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
 label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="71" data-id="05113" data-file="c398_L9_script_28.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="73" data-id="05113" data-file="c398_L9_script_28.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-72">
+<div class="card" id="pair-74">
   <div class="card-header">
-    <h2>#72 &mdash; c321_L10_script_18.asy</h2>
+    <h2>#74 &mdash; c321_L10_script_18.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1488 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -8985,13 +8707,13 @@ dot((-4,3), red);
 dot((-8,6), red);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="72" data-id="04479" data-file="c321_L10_script_18.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="74" data-id="04479" data-file="c321_L10_script_18.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-73">
+<div class="card" id="pair-75">
   <div class="card-header">
-    <h2>#73 &mdash; c462_L12_script_6.asy</h2>
+    <h2>#75 &mdash; c462_L12_script_6.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1490 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -9044,13 +8766,13 @@ drawpizza((10,0),2,&quot;GGPPGGPP&quot;);
 drawpizza((15,0),2,&quot;PGGPPGGP&quot;);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="73" data-id="06862" data-file="c462_L12_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="75" data-id="06862" data-file="c462_L12_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-74">
+<div class="card" id="pair-76">
   <div class="card-header">
-    <h2>#74 &mdash; c289_L6_script_10.asy</h2>
+    <h2>#76 &mdash; c289_L6_script_10.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1496 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -9203,13 +8925,13 @@ draw((16.7,-.5)--(17.1,.35),gray+1.5bp);h(17,0,0,0,1,0);
 label(&quot;$-$&quot;,(17.3,.4));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="74" data-id="04352" data-file="c289_L6_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="76" data-id="04352" data-file="c289_L6_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-75">
+<div class="card" id="pair-77">
   <div class="card-header">
-    <h2>#75 &mdash; c186_L19_p37378_solution_text_0.asy</h2>
+    <h2>#77 &mdash; c186_L19_p37378_solution_text_0.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1501 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -9330,13 +9052,13 @@ dot(C);
 dot(DD);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="75" data-id="02052" data-file="c186_L19_p37378_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="77" data-id="02052" data-file="c186_L19_p37378_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-76">
+<div class="card" id="pair-78">
   <div class="card-header">
-    <h2>#76 &mdash; c398_L9_p43174_solution_text_2.asy</h2>
+    <h2>#78 &mdash; c398_L9_p43174_solution_text_2.asy</h2>
     <span class="badge" style="background:#c0392b">SSIM 0.1503 &middot; Bad</span>
   </div>
   <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
@@ -9403,161 +9125,7 @@ label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
 label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="76" data-id="05088" data-file="c398_L9_p43174_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-77">
-  <div class="card-header">
-    <h2>#77 &mdash; c53_L9_script_11.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1510 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09486.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09486.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>unitsize(15);
-pen light = gray+0.5;
-pen dark = black+1.5;
-pen redln = red+1.5;
-
-void board(pair pos, int n, string s){
-  int spos = 0, bpos = 1;
-  while(bpos &lt; n) {
-    if (substr(s, spos, 1) == &quot;D&quot;){
-      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
-      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
-      spos += 1; bpos += 2;
-    } else {
-      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
-      spos += 1; bpos += 1;
-    }
-  }
-  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
-}
-
-board((0, 0), 8, &#39;DSDDS&#39;);
-board((12, 0), 5, &#39;DSD&#39;);
-board((18, 0), 3, &#39;DS&#39;);
-draw((5,0)---(5,1),redln);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%0D%0D%0Apen%20light%20%3D%20gray%2B0.5%3B%0D%0D%0Apen%20dark%20%3D%20black%2B1.5%3B%0D%0D%0Apen%20redln%20%3D%20red%2B1.5%3B%0D%0A%0D%0Avoid%20board(pair%20pos%2C%20int%20n%2C%20string%20s)%7B%0D%0D%0A%20%20int%20spos%20%3D%200%2C%20bpos%20%3D%201%3B%0D%0D%0A%20%20while(bpos%20%3C%20n)%20%7B%0D%0D%0A%20%20%20%20if%20(substr(s%2C%20spos%2C%201)%20%3D%3D%20%22D%22)%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2B1%2C0)---(bpos%2B1%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%7D%0D%0D%0A%20%20draw(shift(pos)*((0%2C0)---(n%2C0)---(n%2C1)---(0%2C1)---cycle)%2Cdark)%3B%0D%0D%0A%7D%0D%0A%0D%0Aboard((0%2C%200)%2C%208%2C%20'DSDDS')%3B%0D%0D%0Aboard((12%2C%200)%2C%205%2C%20'DSD')%3B%0D%0D%0Aboard((18%2C%200)%2C%203%2C%20'DS')%3B%0D%0D%0Adraw((5%2C0)---(5%2C1)%2Credln)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-unitsize(15);
-pen light = gray+0.5;
-pen dark = black+1.5;
-pen redln = red+1.5;
-
-void board(pair pos, int n, string s){
-  int spos = 0, bpos = 1;
-  while(bpos &lt; n) {
-    if (substr(s, spos, 1) == &quot;D&quot;){
-      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
-      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
-      spos += 1; bpos += 2;
-    } else {
-      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
-      spos += 1; bpos += 1;
-    }
-  }
-  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
-}
-
-board((0, 0), 8, &#39;DSDDS&#39;);
-board((12, 0), 5, &#39;DSD&#39;);
-board((18, 0), 3, &#39;DS&#39;);
-draw((5,0)---(5,1),redln);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="77" data-id="09486" data-file="c53_L9_script_11.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-78">
-  <div class="card-header">
-    <h2>#78 &mdash; c53_LNone_script_14.asy</h2>
-    <span class="badge" style="background:#c0392b">SSIM 0.1510 &middot; Bad</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:25% 25% 25% 25%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09507.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09507.svg"></div></div>
-    </div>
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>unitsize(15);
-pen light = gray+0.5;
-pen dark = black+1.5;
-pen redln = red+1.5;
-
-void board(pair pos, int n, string s){
-  int spos = 0, bpos = 1;
-  while(bpos &lt; n) {
-    if (substr(s, spos, 1) == &quot;D&quot;){
-      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
-      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
-      spos += 1; bpos += 2;
-    } else {
-      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
-      spos += 1; bpos += 1;
-    }
-  }
-  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
-}
-
-board((0, 0), 8, &#39;DSDDS&#39;);
-board((12, 0), 5, &#39;DSD&#39;);
-board((18, 0), 3, &#39;DS&#39;);
-draw((5,0)---(5,1),redln);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(15)%3B%0D%0D%0Apen%20light%20%3D%20gray%2B0.5%3B%0D%0D%0Apen%20dark%20%3D%20black%2B1.5%3B%0D%0D%0Apen%20redln%20%3D%20red%2B1.5%3B%0D%0A%0D%0Avoid%20board(pair%20pos%2C%20int%20n%2C%20string%20s)%7B%0D%0D%0A%20%20int%20spos%20%3D%200%2C%20bpos%20%3D%201%3B%0D%0D%0A%20%20while(bpos%20%3C%20n)%20%7B%0D%0D%0A%20%20%20%20if%20(substr(s%2C%20spos%2C%201)%20%3D%3D%20%22D%22)%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2B1%2C0)---(bpos%2B1%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20draw(shift(pos)*((bpos%2C0)---(bpos%2C1))%2Cdark)%3B%0D%0D%0A%20%20%20%20%20%20spos%20%2B%3D%201%3B%20bpos%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%7D%0D%0D%0A%20%20draw(shift(pos)*((0%2C0)---(n%2C0)---(n%2C1)---(0%2C1)---cycle)%2Cdark)%3B%0D%0D%0A%7D%0D%0A%0D%0Aboard((0%2C%200)%2C%208%2C%20'DSDDS')%3B%0D%0D%0Aboard((12%2C%200)%2C%205%2C%20'DSD')%3B%0D%0D%0Aboard((18%2C%200)%2C%203%2C%20'DS')%3B%0D%0D%0Adraw((5%2C0)---(5%2C1)%2Credln)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-unitsize(15);
-pen light = gray+0.5;
-pen dark = black+1.5;
-pen redln = red+1.5;
-
-void board(pair pos, int n, string s){
-  int spos = 0, bpos = 1;
-  while(bpos &lt; n) {
-    if (substr(s, spos, 1) == &quot;D&quot;){
-      draw(shift(pos)*((bpos,0)---(bpos,1)),light);
-      draw(shift(pos)*((bpos+1,0)---(bpos+1,1)),dark);
-      spos += 1; bpos += 2;
-    } else {
-      draw(shift(pos)*((bpos,0)---(bpos,1)),dark);
-      spos += 1; bpos += 1;
-    }
-  }
-  draw(shift(pos)*((0,0)---(n,0)---(n,1)---(0,1)---cycle),dark);
-}
-
-board((0, 0), 8, &#39;DSDDS&#39;);
-board((12, 0), 5, &#39;DSD&#39;);
-board((18, 0), 3, &#39;DS&#39;);
-draw((5,0)---(5,1),redln);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="78" data-id="09507" data-file="c53_LNone_script_14.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="78" data-id="05088" data-file="c398_L9_p43174_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

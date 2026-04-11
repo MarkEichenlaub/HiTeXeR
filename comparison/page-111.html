@@ -45,8 +45,8 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <p class="sub">11896 diagrams sorted by SSIM (worst first) — Page 111 of 119</p>
 <div class="stats">
 <b style="background:#2d8a4e">202 Good</b>
-<b style="background:#c0820a">1289 Fair</b>
-<b style="background:#c0392b">10404 Poor</b>
+<b style="background:#c0820a">1293 Fair</b>
+<b style="background:#c0392b">10400 Poor</b>
 <b style="background:#999">1 Err</b>
 </div>
 <div class="pag"><a href="page-110.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-104.html">104</a><a href="page-105.html">105</a><a href="page-106.html">106</a><a href="page-107.html">107</a><a href="page-108.html">108</a><a href="page-109.html">109</a><a href="page-110.html">110</a><span class="cur">111</span><a href="page-112.html">112</a><a href="page-113.html">113</a><a href="page-114.html">114</a><a href="page-115.html">115</a><a href="page-116.html">116</a><a href="page-117.html">117</a><a href="page-118.html">118</a><span class="dots">…</span><a href="page-119.html">119</a><a href="page-112.html">Next &raquo;</a></div>
@@ -7479,7 +7479,282 @@ label(Label(&quot;10&quot;, (A+C)/2, S));
 </div>
 <div class="card" id="pair-11099">
   <div class="card-header">
-    <h2>#11099 &mdash; c95_L5_script_3.asy</h2>
+    <h2>#11099 &mdash; c462_L13_script_23.asy</h2>
+    <span class="badge" style="background:#6a9f2a">SSIM 0.8952 &middot; Fair</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><img src="asy_pngs/06910.png"></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/06910.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>unitsize(25);
+pen light = lightgray+0.5;
+pen dark = black+1.5;
+pen erase = white+2;
+
+int top = 0;
+int bottom = 0;
+
+int pos = 0;
+
+void drawShape(string ch, real x, real y) {
+    if (ch == &#39;S&#39;) {
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;F&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(2,1)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;I&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(1,2)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;P&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(2,2)--(2,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;Q&#39;) {
+        draw(shift(x,y-1)*((2,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((2,0)--(2,2)--(0,2)--(0,1)--(1,1)--(1,0)--(2,0)),dark);
+    }
+    if (ch == &#39;D&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)--(2,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,2)--(2,2)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;B&#39;) {
+        draw(shift(x,y-1)*((1,0)--(1,1)--(0,1)),light);
+        draw(shift(x,y-1)*((2,0)--(2,1)--(1,1)--(1,2)--(0,2)--(0,0)--(2,0)),dark);
+    }
+    else {
+    }
+}
+
+void drawTilePhrase(pair initialPoint, string s) {
+	top = 0;
+	bottom = 0;
+    int idx = 0;
+    while (idx &lt; length(s)) {
+        string ch = substr(s, idx, 1);
+
+        int targetX = top;
+        int targetY = 1;
+        if (top &gt; bottom) {
+            targetX = bottom;
+            targetY = 0;
+        }
+
+        if (ch == &#39;S&#39;) {
+        	if (idx &gt; 0 &amp;&amp; substr(s, idx - 1, 1) == &#39;Q&#39; &amp;&amp; top != bottom) {
+                targetY = 0;
+                targetX -= 1;
+            }
+            if (targetY == 1) {
+                top += 1;
+            } else {
+                bottom += 1;
+            }
+        }
+        if (ch == &#39;F&#39;) {
+            if (targetY == 1) {
+                top += 2;
+            } else {
+                bottom += 2;
+            }
+        }
+        if (ch == &#39;I&#39;) {
+            top += 1;
+            bottom += 1;
+        }
+        if (ch == &#39;P&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;Q&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;B&#39;) {
+            top += 1;
+            bottom += 2;
+        }
+        if (ch == &#39;D&#39;) {
+            top += 1;
+            bottom += 2;
+        }      
+        if (ch == &#39;1&#39;) {
+            bottom += 1;
+        }
+        if (ch == &#39;2&#39;) {
+            top += 1;
+        }  
+        drawShape(ch,initialPoint.x+targetX,initialPoint.y+targetY);
+        idx += 1;
+    }
+}
+
+void drawOpenTilePhrase(pair initialPoint, string s) {
+    draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(0,2)),light);
+	draw(shift(initialPoint.x,initialPoint.y)*((1,0)--(-1,0)),dark);   
+    draw(shift(initialPoint.x,initialPoint.y)*((1,2)--(-1,2)),dark);
+    label(&quot;$\cdots$&quot;,shift(initialPoint.x,initialPoint.y)*(-0.5,1));
+    drawTilePhrase(initialPoint,s);
+}
+
+void drawRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)--cycle),dark);   
+}
+
+void drawOpenRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)),dark);   
+}
+
+drawOpenRect((0,0),2);
+drawOpenTilePhrase((0,0),&#39;12S&#39;);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(25)%3B%0D%0D%0Apen%20light%20%3D%20lightgray%2B0.5%3B%0D%0D%0Apen%20dark%20%3D%20black%2B1.5%3B%0D%0D%0Apen%20erase%20%3D%20white%2B2%3B%0D%0A%0D%0Aint%20top%20%3D%200%3B%0D%0D%0Aint%20bottom%20%3D%200%3B%0D%0A%0D%0Aint%20pos%20%3D%200%3B%0D%0A%0D%0Avoid%20drawShape(string%20ch%2C%20real%20x%2C%20real%20y)%20%7B%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'S')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((0%2C0)--(0%2C1)--(1%2C1)--(1%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'F')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((1%2C0)--(1%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((0%2C0)--(0%2C1)--(2%2C1)--(2%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'I')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C1)--(1%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C0)--(0%2C2)--(1%2C2)--(1%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'P')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C1)--(1%2C1)--(1%2C2))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((0%2C0)--(0%2C2)--(2%2C2)--(2%2C1)--(1%2C1)--(1%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'Q')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((2%2C1)--(1%2C1)--(1%2C2))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((2%2C0)--(2%2C2)--(0%2C2)--(0%2C1)--(1%2C1)--(1%2C0)--(2%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'D')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((1%2C0)--(1%2C1)--(2%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy)*((0%2C0)--(0%2C1)--(1%2C1)--(1%2C2)--(2%2C2)--(2%2C0)--(0%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20if%20(ch%20%3D%3D%20'B')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((1%2C0)--(1%2C1)--(0%2C1))%2Clight)%3B%0D%0D%0A%20%20%20%20%20%20%20%20draw(shift(x%2Cy-1)*((2%2C0)--(2%2C1)--(1%2C1)--(1%2C2)--(0%2C2)--(0%2C0)--(2%2C0))%2Cdark)%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%20%20%20%20else%20%7B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawTilePhrase(pair%20initialPoint%2C%20string%20s)%20%7B%0D%0D%0A%09top%20%3D%200%3B%0D%0D%0A%09bottom%20%3D%200%3B%0D%0D%0A%20%20%20%20int%20idx%20%3D%200%3B%0D%0D%0A%20%20%20%20while%20(idx%20%3C%20length(s))%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20string%20ch%20%3D%20substr(s%2C%20idx%2C%201)%3B%0D%0A%0D%0A%20%20%20%20%20%20%20%20int%20targetX%20%3D%20top%3B%0D%0D%0A%20%20%20%20%20%20%20%20int%20targetY%20%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20if%20(top%20%3E%20bottom)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20targetX%20%3D%20bottom%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20targetY%20%3D%200%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0A%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'S')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%09if%20(idx%20%3E%200%20%26%26%20substr(s%2C%20idx%20-%201%2C%201)%20%3D%3D%20'Q'%20%26%26%20top%20!%3D%20bottom)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20targetY%20%3D%200%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20targetX%20-%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if%20(targetY%20%3D%3D%201)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'F')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20if%20(targetY%20%3D%3D%201)%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%20else%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'I')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'P')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'Q')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'B')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'D')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%202%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%20%20%20%20%20%20%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'1')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20bottom%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%0D%0D%0A%20%20%20%20%20%20%20%20if%20(ch%20%3D%3D%20'2')%20%7B%0D%0D%0A%20%20%20%20%20%20%20%20%20%20%20%20top%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%20%20%20%20%7D%20%20%0D%0D%0A%20%20%20%20%20%20%20%20drawShape(ch%2CinitialPoint.x%2BtargetX%2CinitialPoint.y%2BtargetY)%3B%0D%0D%0A%20%20%20%20%20%20%20%20idx%20%2B%3D%201%3B%0D%0D%0A%20%20%20%20%7D%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawOpenTilePhrase(pair%20initialPoint%2C%20string%20s)%20%7B%0D%0D%0A%20%20%20%20draw(shift(initialPoint.x%2CinitialPoint.y)*((0%2C0)--(0%2C2))%2Clight)%3B%0D%0D%0A%09draw(shift(initialPoint.x%2CinitialPoint.y)*((1%2C0)--(-1%2C0))%2Cdark)%3B%20%20%20%0D%0D%0A%20%20%20%20draw(shift(initialPoint.x%2CinitialPoint.y)*((1%2C2)--(-1%2C2))%2Cdark)%3B%0D%0D%0A%20%20%20%20label(%22%24%5Ccdots%24%22%2Cshift(initialPoint.x%2CinitialPoint.y)*(-0.5%2C1))%3B%0D%0D%0A%20%20%20%20drawTilePhrase(initialPoint%2Cs)%3B%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawRect(pair%20initialPoint%2C%20int%20n)%20%7B%0D%0D%0A%20%20%20%20add(shift(initialPoint.x%2CinitialPoint.y)*(grid(n%2C2%2Clight)))%3B%0D%0D%0A%09draw(shift(initialPoint.x%2CinitialPoint.y)*((0%2C0)--(n%2C0)--(n%2C2)--(0%2C2)--cycle)%2Cdark)%3B%20%20%20%0D%0D%0A%7D%0D%0A%0D%0Avoid%20drawOpenRect(pair%20initialPoint%2C%20int%20n)%20%7B%0D%0D%0A%20%20%20%20add(shift(initialPoint.x%2CinitialPoint.y)*(grid(n%2C2%2Clight)))%3B%0D%0D%0A%09draw(shift(initialPoint.x%2CinitialPoint.y)*((0%2C0)--(n%2C0)--(n%2C2)--(0%2C2))%2Cdark)%3B%20%20%20%0D%0D%0A%7D%0D%0A%0D%0AdrawOpenRect((0%2C0)%2C2)%3B%0D%0D%0AdrawOpenTilePhrase((0%2C0)%2C'12S')%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+unitsize(25);
+pen light = lightgray+0.5;
+pen dark = black+1.5;
+pen erase = white+2;
+
+int top = 0;
+int bottom = 0;
+
+int pos = 0;
+
+void drawShape(string ch, real x, real y) {
+    if (ch == &#39;S&#39;) {
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;F&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(2,1)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;I&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(1,2)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;P&#39;) {
+        draw(shift(x,y-1)*((0,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((0,0)--(0,2)--(2,2)--(2,1)--(1,1)--(1,0)--(0,0)),dark);
+    }
+    if (ch == &#39;Q&#39;) {
+        draw(shift(x,y-1)*((2,1)--(1,1)--(1,2)),light);
+        draw(shift(x,y-1)*((2,0)--(2,2)--(0,2)--(0,1)--(1,1)--(1,0)--(2,0)),dark);
+    }
+    if (ch == &#39;D&#39;) {
+        draw(shift(x,y)*((1,0)--(1,1)--(2,1)),light);
+        draw(shift(x,y)*((0,0)--(0,1)--(1,1)--(1,2)--(2,2)--(2,0)--(0,0)),dark);
+    }
+    if (ch == &#39;B&#39;) {
+        draw(shift(x,y-1)*((1,0)--(1,1)--(0,1)),light);
+        draw(shift(x,y-1)*((2,0)--(2,1)--(1,1)--(1,2)--(0,2)--(0,0)--(2,0)),dark);
+    }
+    else {
+    }
+}
+
+void drawTilePhrase(pair initialPoint, string s) {
+	top = 0;
+	bottom = 0;
+    int idx = 0;
+    while (idx &lt; length(s)) {
+        string ch = substr(s, idx, 1);
+
+        int targetX = top;
+        int targetY = 1;
+        if (top &gt; bottom) {
+            targetX = bottom;
+            targetY = 0;
+        }
+
+        if (ch == &#39;S&#39;) {
+        	if (idx &gt; 0 &amp;&amp; substr(s, idx - 1, 1) == &#39;Q&#39; &amp;&amp; top != bottom) {
+                targetY = 0;
+                targetX -= 1;
+            }
+            if (targetY == 1) {
+                top += 1;
+            } else {
+                bottom += 1;
+            }
+        }
+        if (ch == &#39;F&#39;) {
+            if (targetY == 1) {
+                top += 2;
+            } else {
+                bottom += 2;
+            }
+        }
+        if (ch == &#39;I&#39;) {
+            top += 1;
+            bottom += 1;
+        }
+        if (ch == &#39;P&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;Q&#39;) {
+            top += 2;
+            bottom += 1;
+        }
+        if (ch == &#39;B&#39;) {
+            top += 1;
+            bottom += 2;
+        }
+        if (ch == &#39;D&#39;) {
+            top += 1;
+            bottom += 2;
+        }      
+        if (ch == &#39;1&#39;) {
+            bottom += 1;
+        }
+        if (ch == &#39;2&#39;) {
+            top += 1;
+        }  
+        drawShape(ch,initialPoint.x+targetX,initialPoint.y+targetY);
+        idx += 1;
+    }
+}
+
+void drawOpenTilePhrase(pair initialPoint, string s) {
+    draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(0,2)),light);
+	draw(shift(initialPoint.x,initialPoint.y)*((1,0)--(-1,0)),dark);   
+    draw(shift(initialPoint.x,initialPoint.y)*((1,2)--(-1,2)),dark);
+    label(&quot;$\cdots$&quot;,shift(initialPoint.x,initialPoint.y)*(-0.5,1));
+    drawTilePhrase(initialPoint,s);
+}
+
+void drawRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)--cycle),dark);   
+}
+
+void drawOpenRect(pair initialPoint, int n) {
+    add(shift(initialPoint.x,initialPoint.y)*(grid(n,2,light)));
+	draw(shift(initialPoint.x,initialPoint.y)*((0,0)--(n,0)--(n,2)--(0,2)),dark);   
+}
+
+drawOpenRect((0,0),2);
+drawOpenTilePhrase((0,0),&#39;12S&#39;);
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="11099" data-id="06910" data-file="c462_L13_script_23.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-11100">
+  <div class="card-header">
+    <h2>#11100 &mdash; c95_L5_script_3.asy</h2>
     <span class="badge" style="background:#6a9f2a">SSIM 0.8952 &middot; Fair</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
@@ -7536,142 +7811,7 @@ label(&quot;$x$&quot;, (xmax,0), E, fontsize(10));
 label(&quot;$y$&quot;, (0,ymax), N, fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="11099" data-id="12611" data-file="c95_L5_script_3.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-11100">
-  <div class="card-header">
-    <h2>#11100 &mdash; c463_L6_script_51.asy</h2>
-    <span class="badge" style="background:#6a9f2a">SSIM 0.8953 &middot; Fair</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08215.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08215.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>import markers;
-
-defaultpen(fontsize(10));
-unitsize(2 cm);
-
-pair A, B, C, D, O, E, F, K, P, Q, T;
-
-B = dir(110);
-O = (0,0);
-D = (0,-1);
-E = (-0.8,-1);
-F = (2,-1);
-A = O + reflect(B,E)*(O) - B;
-C = O + reflect(B,F)*(O) - B;
-T = extension(E, E + C - D, F, F + A - D);
-K = T + reflect(E,F)*(T) - D;
-P = extension(A,C,T,E);
-Q = extension(A,C,T,F);
-
-markangle(A,B,D,radius=15,blue);
-markangle(A,C,D,radius=10,blue);
-markangle(A,D,E,radius=15,blue);
-markangle(T,F,E,radius=15,blue);
-markangle(A,P,E,radius=10,blue);
-markangle(Q,P,T,radius=10,blue);
-markangle(2,D,B,C,radius=12,blue);
-markangle(2,D,A,C,radius=6,blue);
-markangle(2,F,D,C,radius=10,blue);
-markangle(2,F,E,T,radius=8,blue);
-markangle(2,F,Q,C,radius=6,blue);
-markangle(2,T,Q,P,radius=6,blue);
-draw(B--E--F--cycle, gray(0.7));
-draw(E--T--F, gray(0.7));
-draw(A--C--D--cycle, gray(0.7));
-draw(B--D, gray(0.7));
-draw(D--T--K, gray(0.7));
-draw(D--Q, gray(0.7));
-draw(D--P, gray(0.7));
-draw(Circle(O,1));
-draw(arc(circumcenter(E,F,P),circumradius(E,F,P),30,150),red);
-
-label(&quot;$A$&quot;, A, W);
-label(&quot;$B$&quot;, B, N);
-label(&quot;$C$&quot;, C, NE);
-label(&quot;$D$&quot;, D, S);
-label(&quot;$E$&quot;, E, SW);
-label(&quot;$F$&quot;, F, SE);
-label(&quot;$K$&quot;, K, S);
-dot(&quot;$P$&quot;, P, N);
-dot(&quot;$Q$&quot;, Q, N);
-label(&quot;$T$&quot;, T, N);
-label(&quot;$BD \parallel TK?$&quot;, (3.5,1));
-label(&quot;$QCFD$ is cyclic&quot;, (3.5,0.7));
-label(&quot;$PAED$ is cyclic&quot;, (3.5,0.4));
-label(&quot;$EFQP$ is cyclic&quot;, (3.5,0.1));</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20markers%3B%0D%0A%0D%0Adefaultpen(fontsize(10))%3B%0D%0Aunitsize(2%20cm)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20O%2C%20E%2C%20F%2C%20K%2C%20P%2C%20Q%2C%20T%3B%0D%0A%0D%0AB%20%3D%20dir(110)%3B%0D%0AO%20%3D%20(0%2C0)%3B%0D%0AD%20%3D%20(0%2C-1)%3B%0D%0AE%20%3D%20(-0.8%2C-1)%3B%0D%0AF%20%3D%20(2%2C-1)%3B%0D%0AA%20%3D%20O%20%2B%20reflect(B%2CE)*(O)%20-%20B%3B%0D%0AC%20%3D%20O%20%2B%20reflect(B%2CF)*(O)%20-%20B%3B%0D%0AT%20%3D%20extension(E%2C%20E%20%2B%20C%20-%20D%2C%20F%2C%20F%20%2B%20A%20-%20D)%3B%0D%0AK%20%3D%20T%20%2B%20reflect(E%2CF)*(T)%20-%20D%3B%0D%0AP%20%3D%20extension(A%2CC%2CT%2CE)%3B%0D%0AQ%20%3D%20extension(A%2CC%2CT%2CF)%3B%0D%0A%0D%0Amarkangle(A%2CB%2CD%2Cradius%3D15%2Cblue)%3B%0D%0Amarkangle(A%2CC%2CD%2Cradius%3D10%2Cblue)%3B%0D%0Amarkangle(A%2CD%2CE%2Cradius%3D15%2Cblue)%3B%0D%0Amarkangle(T%2CF%2CE%2Cradius%3D15%2Cblue)%3B%0D%0Amarkangle(A%2CP%2CE%2Cradius%3D10%2Cblue)%3B%0D%0Amarkangle(Q%2CP%2CT%2Cradius%3D10%2Cblue)%3B%0D%0Amarkangle(2%2CD%2CB%2CC%2Cradius%3D12%2Cblue)%3B%0D%0Amarkangle(2%2CD%2CA%2CC%2Cradius%3D6%2Cblue)%3B%0D%0Amarkangle(2%2CF%2CD%2CC%2Cradius%3D10%2Cblue)%3B%0D%0Amarkangle(2%2CF%2CE%2CT%2Cradius%3D8%2Cblue)%3B%0D%0Amarkangle(2%2CF%2CQ%2CC%2Cradius%3D6%2Cblue)%3B%0D%0Amarkangle(2%2CT%2CQ%2CP%2Cradius%3D6%2Cblue)%3B%0D%0Adraw(B--E--F--cycle%2C%20gray(0.7))%3B%0D%0Adraw(E--T--F%2C%20gray(0.7))%3B%0D%0Adraw(A--C--D--cycle%2C%20gray(0.7))%3B%0D%0Adraw(B--D%2C%20gray(0.7))%3B%0D%0Adraw(D--T--K%2C%20gray(0.7))%3B%0D%0Adraw(D--Q%2C%20gray(0.7))%3B%0D%0Adraw(D--P%2C%20gray(0.7))%3B%0D%0Adraw(Circle(O%2C1))%3B%0D%0Adraw(arc(circumcenter(E%2CF%2CP)%2Ccircumradius(E%2CF%2CP)%2C30%2C150)%2Cred)%3B%0D%0A%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20W)%3B%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20N)%3B%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20NE)%3B%0D%0Alabel(%22%24D%24%22%2C%20D%2C%20S)%3B%0D%0Alabel(%22%24E%24%22%2C%20E%2C%20SW)%3B%0D%0Alabel(%22%24F%24%22%2C%20F%2C%20SE)%3B%0D%0Alabel(%22%24K%24%22%2C%20K%2C%20S)%3B%0D%0Adot(%22%24P%24%22%2C%20P%2C%20N)%3B%0D%0Adot(%22%24Q%24%22%2C%20Q%2C%20N)%3B%0D%0Alabel(%22%24T%24%22%2C%20T%2C%20N)%3B%0D%0Alabel(%22%24BD%20%5Cparallel%20TK%3F%24%22%2C%20(3.5%2C1))%3B%0D%0Alabel(%22%24QCFD%24%20is%20cyclic%22%2C%20(3.5%2C0.7))%3B%0D%0Alabel(%22%24PAED%24%20is%20cyclic%22%2C%20(3.5%2C0.4))%3B%0D%0Alabel(%22%24EFQP%24%20is%20cyclic%22%2C%20(3.5%2C0.1))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-import markers;
-
-defaultpen(fontsize(10));
-unitsize(2 cm);
-
-pair A, B, C, D, O, E, F, K, P, Q, T;
-
-B = dir(110);
-O = (0,0);
-D = (0,-1);
-E = (-0.8,-1);
-F = (2,-1);
-A = O + reflect(B,E)*(O) - B;
-C = O + reflect(B,F)*(O) - B;
-T = extension(E, E + C - D, F, F + A - D);
-K = T + reflect(E,F)*(T) - D;
-P = extension(A,C,T,E);
-Q = extension(A,C,T,F);
-
-markangle(A,B,D,radius=15,blue);
-markangle(A,C,D,radius=10,blue);
-markangle(A,D,E,radius=15,blue);
-markangle(T,F,E,radius=15,blue);
-markangle(A,P,E,radius=10,blue);
-markangle(Q,P,T,radius=10,blue);
-markangle(2,D,B,C,radius=12,blue);
-markangle(2,D,A,C,radius=6,blue);
-markangle(2,F,D,C,radius=10,blue);
-markangle(2,F,E,T,radius=8,blue);
-markangle(2,F,Q,C,radius=6,blue);
-markangle(2,T,Q,P,radius=6,blue);
-draw(B--E--F--cycle, gray(0.7));
-draw(E--T--F, gray(0.7));
-draw(A--C--D--cycle, gray(0.7));
-draw(B--D, gray(0.7));
-draw(D--T--K, gray(0.7));
-draw(D--Q, gray(0.7));
-draw(D--P, gray(0.7));
-draw(Circle(O,1));
-draw(arc(circumcenter(E,F,P),circumradius(E,F,P),30,150),red);
-
-label(&quot;$A$&quot;, A, W);
-label(&quot;$B$&quot;, B, N);
-label(&quot;$C$&quot;, C, NE);
-label(&quot;$D$&quot;, D, S);
-label(&quot;$E$&quot;, E, SW);
-label(&quot;$F$&quot;, F, SE);
-label(&quot;$K$&quot;, K, S);
-dot(&quot;$P$&quot;, P, N);
-dot(&quot;$Q$&quot;, Q, N);
-label(&quot;$T$&quot;, T, N);
-label(&quot;$BD \parallel TK?$&quot;, (3.5,1));
-label(&quot;$QCFD$ is cyclic&quot;, (3.5,0.7));
-label(&quot;$PAED$ is cyclic&quot;, (3.5,0.4));
-label(&quot;$EFQP$ is cyclic&quot;, (3.5,0.1));
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="11100" data-id="08215" data-file="c463_L6_script_51.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11100" data-id="12611" data-file="c95_L5_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>

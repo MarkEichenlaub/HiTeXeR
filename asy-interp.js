@@ -1906,9 +1906,15 @@ function createInterpreter() {
       return Object.assign({}, right, {transform: t});
     }
 
-    // String concatenation
+    // String ops (concatenation, comparison)
     if (isString(left) || isString(right)) {
       if (op === T.PLUS) return String(isTriple(left)?tripleToStr(left):isPair(left)?pairToStr(left):left) + String(isTriple(right)?tripleToStr(right):isPair(right)?pairToStr(right):right);
+      if (op === T.EQ) return String(left) === String(right);
+      if (op === T.NEQ) return String(left) !== String(right);
+      if (op === T.LT) return String(left) < String(right);
+      if (op === T.GT) return String(left) > String(right);
+      if (op === T.LE) return String(left) <= String(right);
+      if (op === T.GE) return String(left) >= String(right);
     }
 
     // Number ops
@@ -3881,7 +3887,7 @@ function createInterpreter() {
           y += hFwd * (k1 + 2*k2 + 2*k3 + k4) / 6;
           x += hFwd;
           if (!isFinite(y)) break;
-          if (ymin !== null && (y < ymin - 10 || y > ymax + 10)) break;
+          if (ymin !== null && (y < ymin || y > ymax)) break;
           fwdPts.push(makePair(x, y));
         }
       }
@@ -3898,7 +3904,7 @@ function createInterpreter() {
           y += hBwd * (k1 + 2*k2 + 2*k3 + k4) / 6;
           x += hBwd;
           if (!isFinite(y)) break;
-          if (ymin !== null && (y < ymin - 10 || y > ymax + 10)) break;
+          if (ymin !== null && (y < ymin || y > ymax)) break;
           bwdPts.push(makePair(x, y));
         }
       }
