@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.58</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.59</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3747,7 +3747,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (asyEndIdx >= 0) {
         const dotLines = undrawn.map(fp => {
           const ref = fp.varName || `(${fp.x}, ${fp.y})`;
-          return `dot(${ref}, red+linewidth(8bp)); // SLIDE_DOT`;
+          return `dot(${ref}, red+linewidth(0.5)); // SLIDE_DOT`;
         });
         lines.splice(asyEndIdx, 0, ...dotLines);
         slideInjectedDots = undrawn.map(fp => fp.varName || `(${fp.x}, ${fp.y})`);
@@ -3869,14 +3869,27 @@ document.addEventListener('DOMContentLoaded', () => {
       // Create a large visible hit circle at the point's position (in viewBox coords)
       let hitCircle = null;
       if (svgCX !== null) {
+        // Scale hit-circle radius relative to viewBox so it looks the same on any diagram
+        const vb = svg.getAttribute('viewBox');
+        let hitR = 18;
+        let hitStroke = 2.5;
+        let hitDash = '4 2';
+        if (vb) {
+          const parts = vb.split(/[\s,]+/).map(Number);
+          const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
+          // Target: ~2% of the viewBox diagonal
+          hitR = vbDiag * 0.02;
+          hitStroke = hitR * 0.14;
+          hitDash = `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`;
+        }
         hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         hitCircle.setAttribute('cx', svgCX);
         hitCircle.setAttribute('cy', svgCY);
-        hitCircle.setAttribute('r', '18');
+        hitCircle.setAttribute('r', hitR);
         hitCircle.setAttribute('fill', 'rgba(233,196,106,0.3)');
         hitCircle.setAttribute('stroke', '#e9c46a');
-        hitCircle.setAttribute('stroke-width', '2.5');
-        hitCircle.setAttribute('stroke-dasharray', '4 2');
+        hitCircle.setAttribute('stroke-width', hitStroke);
+        hitCircle.setAttribute('stroke-dasharray', hitDash);
         hitCircle.setAttribute('class', 'slide-hit-circle');
         svg.appendChild(hitCircle);
       }
@@ -4023,8 +4036,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const d = Math.hypot(clickSvgX - fp.svgCX, clickSvgY - fp.svgCY);
       if (d < bestDist) { bestDist = d; bestFP = fp; }
     }
-    // ~18 SVG units radius for hit circle; allow a bit more
-    if (!bestFP || bestDist > 25) return;
+    // Scale hit threshold relative to viewBox diagonal (same as hit circle radius)
+    const vb = svg.getAttribute('viewBox');
+    let hitThresh = 25;
+    if (vb) {
+      const parts = vb.split(/[\s,]+/).map(Number);
+      hitThresh = Math.hypot(parts[2] || 300, parts[3] || 300) * 0.03;
+    }
+    if (!bestFP || bestDist > hitThresh) return;
 
     svg.style.cursor = 'grabbing';
 
@@ -4113,7 +4132,7 @@ document.addEventListener('DOMContentLoaded', () => {
       fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
     }
     for (const el of fp.glowEls) {
-      el.setAttribute('transform', `translate(${dSvgX},${-dSvgY})`);
+      el.setAttribute('transform', `translate(${dSvgX},${dSvgY})`);
     }
   }
 
@@ -4205,7 +4224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const code = editor.getValue();
     const freeReals = findFreeReals(code);
     if (freeReals.length === 0) {
-      alert('No free real variables found. Add a line like: real t = 0.5;');
+      showWarnBadge('No free real variables. Add: real t = 0.5;');
       return;
     }
     // Deactivate slide mode if active
@@ -4427,7 +4446,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function generateGif(action) {
     if (!gifSelectedVar) return;
     if (typeof GIF === 'undefined') {
-      alert('gif.js library not loaded. Check your internet connection.');
+      showWarnBadge('gif.js library not loaded. Check your internet connection.');
       return;
     }
 
@@ -4439,7 +4458,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const blob = new Blob([text], { type: 'application/javascript' });
         gifWorkerBlobUrl = URL.createObjectURL(blob);
       } catch(e) {
-        alert('Failed to load gif.js worker script. Check your internet connection.');
+        showWarnBadge('Failed to load gif.js worker script. Check connection.');
         return;
       }
     }
@@ -4484,7 +4503,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Test that the renderer works
       const testResult = renderFrame(startVal);
       if (!testResult) {
-        alert('Cannot render with JS interpreter. GIF mode requires the built-in renderer.');
+        showWarnBadge('Cannot render with JS interpreter. GIF requires built-in renderer.');
         document.getElementById('gif-panel').classList.remove('gif-generating');
         gifStartPreview();
         return;
@@ -4509,7 +4528,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (!isFinite(minPpu) || !isFinite(uMinX)) {
-        alert('No frames could be rendered.');
+        showWarnBadge('No frames could be rendered.');
         document.getElementById('gif-panel').classList.remove('gif-generating');
         gifStartPreview();
         return;
@@ -5091,7 +5110,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (!code) {
-      alert('No Asymptote source code found in this file.');
+      showWarnBadge('No Asymptote source code found in this file.');
       return;
     }
 
@@ -5381,7 +5400,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     if (typeof window.jspdf === 'undefined') {
-      alert('jsPDF library not loaded. Check your internet connection.');
+      showWarnBadge('jsPDF library not loaded. Check your internet connection.');
       return;
     }
     try {
