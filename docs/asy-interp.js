@@ -4464,24 +4464,17 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
-          // Default format mimics Asymptote's "$%.4g$": use scientific notation
-          // for very large/small values, otherwise plain number
+          // Default format: Asymptote uses "$%.4g$" rendered via TeX.
+          // We approximate with plain number strings (no scientific notation)
+          // since we can't run TeX.  toPrecision(4) matches %.4g semantics.
           const fmtDefault = () => {
-            const av = Math.abs(v);
-            if (av === 0) return '0';
-            if (av >= 10000 || (av > 0 && av < 0.001)) {
-              // Scientific notation: 1×10⁴ style
-              const exp = Math.floor(Math.log10(av));
-              const coeff = v / Math.pow(10, exp);
-              const coeffStr = Math.abs(coeff - Math.round(coeff)) < 1e-9 ? String(Math.round(coeff)) : coeff.toPrecision(4).replace(/\.?0+$/, '');
-              const superDigits = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
-              const expStr = String(exp).split('').map(c => superDigits[c] || c).join('');
-              if (coeffStr === '1') return '10' + expStr;
-              if (coeffStr === '-1') return '-10' + expStr;
-              return coeffStr + '×10' + expStr;
-            }
-            if (Number.isInteger(v)) return String(v);
-            return String(Math.round(v * 1000) / 1000);
+            if (v === 0) return '0';
+            const s = v.toPrecision(4).replace(/\.?0+$/, '');
+            // toPrecision may produce exponential form for large/small values;
+            // convert back to plain number so labels don't get excessively wide.
+            const n = Number(s);
+            if (Number.isInteger(n)) return String(n);
+            return String(n);
           };
           if (ticks.labelFunc) {
             // Custom label function: call it with the tick value
@@ -7327,11 +7320,18 @@ function renderSVG(result, opts) {
         const heightFactor = autoScaled ? 0.7 : 0.48;
         let textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
 
-        // For rotated labels, swap width and height in bbox computation
+        // For rotated labels, the visual width becomes the original height
+        // and vice versa.  In IgnoreAspect mode the x and y scale factors
+        // differ, so we must recompute in the correct axis units rather
+        // than simply swapping the pre-divided values.
         if (Math.abs(ltAngle) > 45) {
-          const tmp = textWidthUser;
-          textWidthUser = textHeightUser;
-          textHeightUser = tmp;
+          // Original dimensions in bp (before dividing by axis scale)
+          const textWidthBp = effectiveLen * charWidthBp;
+          const textHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
+          // After ~90° rotation: visual width (x-extent) ← original height,
+          //                       visual height (y-extent) ← original width
+          textWidthUser = textHeightBp / roughPxPerUnitX;
+          textHeightUser = textWidthBp / roughPxPerUnitY;
         }
 
         let dx = 0, dy = 0;

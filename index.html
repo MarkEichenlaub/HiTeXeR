@@ -4111,6 +4111,9 @@ document.addEventListener('DOMContentLoaded', () => {
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
+        // Rebuild element mappings for the new SVG so applySlideOverlay
+        // can locate elements via localToViewBox (old refs are disconnected)
+        setupSvgInteractivityDirect(newCode, result.commandMap);
         // Re-apply slide overlay on the new SVG
         applySlideOverlay();
         return;
