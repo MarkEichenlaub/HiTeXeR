@@ -4407,7 +4407,7 @@ function createInterpreter() {
           }
           const labelPen = clonePen(ticks.labelPen || tickPen);
           labelPen.fontsize = labelPen.fontsize || 8;
-          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0});
+          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0, _isTickLabel: true});
         }
       }
     }
@@ -4632,7 +4632,7 @@ function createInterpreter() {
         const lAlign = labelAlign || {x:-1, y:1};
         let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0, labelTransform: makeTransform(0, 0, -1, 0, 1, 0)});
       }
     });
 
@@ -7159,6 +7159,7 @@ function renderSVG(result, opts) {
     const autoScaled = !hasUnitScale && sizeW <= 0 && sizeH <= 0;
 
     for (const dc of drawCommands) {
+      if (dc.cmd === 'label' && dc._isTickLabel) continue;
       if (dc.cmd === 'label' || dc.cmd === 'dot') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
@@ -7242,6 +7243,16 @@ function renderSVG(result, opts) {
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
+    // Truesize: ensure output isn't microscopic when unitsize is very small
+    const naturalBpW = (maxX - minX) * unitScale;
+    const naturalBpH = (maxY - minY) * unitScale;
+    const minDimBp = 50; // minimum 50bp output
+    if (naturalBpW > 0 && naturalBpW < minDimBp && naturalBpH < minDimBp) {
+      const boost = minDimBp / Math.max(naturalBpW, naturalBpH);
+      pxPerUnit *= boost;
+      pxPerUnitX *= boost;
+      pxPerUnitY *= boost;
+    }
   } else if (sizeW > 0 || sizeH > 0) {
     // size() without unitsize(): scale geometry to fit the requested size.
     // Real Asymptote constrains geometry scale via size(); labels are placed at
@@ -7421,7 +7432,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const dotR = ((dc.pen && dc.pen._lwExplicit) ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
@@ -7770,11 +7781,9 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: if linewidth was explicitly set by user (n+pen or linewidth(n)),
-      // Asymptote uses radius = linewidth/2 directly (the number IS the dot size).
-      // If linewidth is default (no explicit set), apply dotfactor: radius = dotfactor/2 * linewidth.
+      // Dot radius: Asymptote dot() always applies dotfactor: radius = dotfactor/2 * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+      const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
