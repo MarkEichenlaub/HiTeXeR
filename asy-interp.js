@@ -3212,6 +3212,7 @@ function createInterpreter() {
     });
 
     env.set('subpath', (p, a, b) => {
+      p = geoToPath(p);
       if (!isPath(p)) return p;
       // Simplified: extract segments in range
       const segs = [];
@@ -3375,7 +3376,30 @@ function createInterpreter() {
       return [0, 0];
     });
 
+    // Convert geometry types (geoCircle, geoLine, etc.) to drawable paths
+    function geoToPath(a) {
+      if (isPath(a)) return a;
+      if (isGeoCircle(a)) {
+        const C = toPair(a.C);
+        return makeCirclePath(C, a.r);
+      }
+      if (isGeoLine(a)) {
+        const A = locatePoint(a.A), B = locatePoint(a.B);
+        let p0 = A, p1 = B;
+        if (a.extendA || a.extendB) {
+          const dx = B.x-A.x, dy = B.y-A.y;
+          const len = Math.sqrt(dx*dx+dy*dy) || 1;
+          const far = 200;
+          if (a.extendA) p0 = makePair(A.x - far*dx/len, A.y - far*dy/len);
+          if (a.extendB) p1 = makePair(B.x + far*dx/len, B.y + far*dy/len);
+        }
+        return makePath([lineSegment(p0, p1)], false);
+      }
+      return a;
+    }
+
     env.set('intersectionpoint', (p1, p2) => {
+      p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return makePair(0,0);
       // Basic: try to find actual intersection
       for (const s1 of p1.segs) {
@@ -3388,6 +3412,7 @@ function createInterpreter() {
     });
 
     env.set('intersectionpoints', (p1, p2) => {
+      p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
       const pts = [];
       for (const s1 of p1.segs) {
@@ -4391,6 +4416,10 @@ function createInterpreter() {
 
       const isX = (axisDir === 'x');
 
+      // Tick side: 'left'/'right' for y-axis ticks (LeftTicks/RightTicks)
+      // 'left' for y-axis means ticks extend to the left (negative x), 'right' to positive x
+      const tickSide = ticks.side || null;
+
       // Draw function for a single tick mark
       function drawTick(v, sz) {
         if (noZero && Math.abs(v) < 1e-10) return;
@@ -4401,6 +4430,14 @@ function createInterpreter() {
           const cMax = crossMax !== undefined ? crossMax : 5;
           p0 = isX ? {x:v, y:cMin} : {x:cMin, y:v};
           p1 = isX ? {x:v, y:cMax} : {x:cMax, y:v};
+        } else if (tickSide === 'left') {
+          // Ticks on the left/bottom side only
+          p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
+          p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
+        } else if (tickSide === 'right') {
+          // Ticks on the right/top side only
+          p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
+          p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         } else {
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
@@ -4439,13 +4476,22 @@ function createInterpreter() {
             } catch(e) { txt = fmtDefault(); }
           } else if (ticks.format && ticks.format !== '%') {
             txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
-              // Simple printf-style: %d→int, %f→fixed, %g→general
+              // Simple printf-style: %d→int, %f→fixed, %e→scientific, %g→general
               if (spec.endsWith('d')) return String(Math.round(v));
               if (spec.endsWith('f')) {
                 const m = spec.match(/\.(\d+)/);
                 return v.toFixed(m ? parseInt(m[1]) : 6);
               }
-              // %g, %e, %s — use general format
+              if (spec.endsWith('e')) {
+                const m = spec.match(/\.(\d+)/);
+                return v.toExponential(m ? parseInt(m[1]) : 6);
+              }
+              if (spec.endsWith('g')) {
+                const m = spec.match(/\.(\d+)/);
+                const prec = m ? parseInt(m[1]) : 6;
+                return v.toPrecision(prec).replace(/\.?0+$/, '');
+              }
+              // %s — string
               return fmtDefault();
             });
           } else {
@@ -8657,8 +8703,23 @@ function stripLaTeX(text) {
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
   s = s.replace(/[{}]/g, '');
-  // Remove ^ and _ with single char
-  s = s.replace(/[_^](.)/g, '$1');
+  // Convert ^{...} and _{...} to Unicode superscripts/subscripts
+  const superMap = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹',
+    '+':'⁺','-':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ','a':'ᵃ','b':'ᵇ','c':'ᶜ','d':'ᵈ',
+    'e':'ᵉ','f':'ᶠ','g':'ᵍ','h':'ʰ','j':'ʲ','k':'ᵏ','l':'ˡ','m':'ᵐ','o':'ᵒ','p':'ᵖ',
+    'r':'ʳ','s':'ˢ','t':'ᵗ','u':'ᵘ','v':'ᵛ','w':'ʷ','x':'ˣ','y':'ʸ','z':'ᶻ'};
+  const subMap = {'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉',
+    '+':'₊','-':'₋','=':'₌','(':'₍',')':'₎','a':'ₐ','e':'ₑ','h':'ₕ','i':'ᵢ','j':'ⱼ',
+    'k':'ₖ','l':'ₗ','m':'ₘ','n':'ₙ','o':'ₒ','p':'ₚ','r':'ᵣ','s':'ₛ','t':'ₜ','u':'ᵤ',
+    'v':'ᵥ','x':'ₓ'};
+  function toSuper(ch) { return superMap[ch] || ch; }
+  function toSub(ch) { return subMap[ch] || ch; }
+  // ^{multi} and _{multi}
+  s = s.replace(/\^{([^}]*)}/g, (_, g) => [...g].map(toSuper).join(''));
+  s = s.replace(/_{([^}]*)}/g, (_, g) => [...g].map(toSub).join(''));
+  // ^single and _single character
+  s = s.replace(/\^(.)/g, (_, ch) => toSuper(ch));
+  s = s.replace(/_(.)/g, (_, ch) => toSub(ch));
   // Collapse multiple spaces and remove spaces adjacent to parentheses/brackets
   s = s.replace(/\s+/g, ' ');
   s = s.replace(/\s+\(/g, '(');

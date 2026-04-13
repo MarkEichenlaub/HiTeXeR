@@ -8,57 +8,57 @@ const { ssim: computeSSIM } = require('ssim.js');
 const HTX_DIR = 'comparison/htx_pngs';
 const ASY_DIR = 'comparison/asy_pngs';
 const MAX = 400;
+const SIGMA = 0.15;
 
 // IDs whose SVGs changed and need updated scores
 const updateIds = new Set(['05616','05632','05666']);
 
-async function computeSSIMForPair(asyPath, htxPath) {
+function toRGBA(buf, width, height) {
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    rgba[i*4]=buf[i*3]; rgba[i*4+1]=buf[i*3+1]; rgba[i*4+2]=buf[i*3+2]; rgba[i*4+3]=255;
+  }
+  return rgba;
+}
+
+async function computeMetricsForPair(asyPath, htxPath) {
   const asyMeta = await sharp(asyPath).metadata();
   const htxMeta = await sharp(htxPath).metadata();
 
+  const aw = asyMeta.width || 1, ah = asyMeta.height || 1;
+  const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
+
   const MIN_DIM = 8;
-  if ((asyMeta.width||0) < MIN_DIM || (asyMeta.height||0) < MIN_DIM ||
-      (htxMeta.width||0) < MIN_DIM || (htxMeta.height||0) < MIN_DIM) {
-    return -1;
+  if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
+    return { ssim: -1, sizeScore: -1, combined: -1,
+      wRatio: hw / aw, hRatio: hh / ah, asyDims: [aw, ah], htxDims: [hw, hh] };
   }
 
-  const asyScale = Math.min(MAX / asyMeta.width, MAX / asyMeta.height, 1);
-  const asyW = Math.round(asyMeta.width * asyScale);
-  const asyH = Math.round(asyMeta.height * asyScale);
+  // Dimension ratios & size score
+  const wRatio = hw / aw;
+  const hRatio = hh / ah;
+  const sizeScore = Math.exp(-((wRatio - 1) ** 2 + (hRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
 
-  const htxScale = Math.min(MAX / htxMeta.width, MAX / htxMeta.height, 1);
-  const htxW = Math.round(htxMeta.width * htxScale);
-  const htxH = Math.round(htxMeta.height * htxScale);
-
-  const canvasW = Math.max(asyW, htxW, 8);
-  const canvasH = Math.max(asyH, htxH, 8);
+  // Content SSIM: resize both to Asymptote's aspect at ≤400px
+  const asyScale = Math.min(MAX / aw, MAX / ah, 1);
+  const targetW = Math.max(Math.round(aw * asyScale), 11);
+  const targetH = Math.max(Math.round(ah * asyScale), 11);
 
   const asyBuf = await sharp(asyPath).flatten({ background: {r:255,g:255,b:255} })
-    .resize(asyW, asyH, { fit: 'fill' })
-    .extend({ top: Math.round((canvasH-asyH)/2), bottom: canvasH-asyH-Math.round((canvasH-asyH)/2),
-              left: Math.round((canvasW-asyW)/2), right: canvasW-asyW-Math.round((canvasW-asyW)/2),
-              background: {r:255,g:255,b:255} })
+    .resize(targetW, targetH, { fit: 'fill' })
     .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
   const htxBuf = await sharp(htxPath).flatten({ background: {r:255,g:255,b:255} })
-    .resize(htxW, htxH, { fit: 'fill' })
-    .extend({ top: Math.round((canvasH-htxH)/2), bottom: canvasH-htxH-Math.round((canvasH-htxH)/2),
-              left: Math.round((canvasW-htxW)/2), right: canvasW-htxW-Math.round((canvasW-htxW)/2),
-              background: {r:255,g:255,b:255} })
+    .resize(targetW, targetH, { fit: 'fill' })
     .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
   const w = asyBuf.info.width, h = asyBuf.info.height;
-  function toRGBA(buf, width, height) {
-    const rgba = new Uint8ClampedArray(width * height * 4);
-    for (let i = 0; i < width * height; i++) {
-      rgba[i*4]=buf[i*3]; rgba[i*4+1]=buf[i*3+1]; rgba[i*4+2]=buf[i*3+2]; rgba[i*4+3]=255;
-    }
-    return rgba;
-  }
   const asyImg = { data: toRGBA(asyBuf.data,w,h), width: w, height: h };
   const htxImg = { data: toRGBA(htxBuf.data,w,h), width: w, height: h };
   const { mssim } = computeSSIM(asyImg, htxImg);
-  return mssim;
+  const combined = mssim * sizeScore;
+
+  return { ssim: mssim, sizeScore, combined, wRatio, hRatio, asyDims: [aw, ah], htxDims: [hw, hh] };
 }
 
 async function main() {
@@ -71,15 +71,17 @@ async function main() {
     const asyPath = path.join(ASY_DIR, r.id + '.png');
     const htxPath = path.join(HTX_DIR, r.id + '.png');
     if (!fs.existsSync(asyPath) || !fs.existsSync(htxPath)) continue;
-    const oldSsim = r.ssim;
-    r.ssim = await computeSSIMForPair(asyPath, htxPath);
+    const oldCombined = r.combined != null ? r.combined : r.ssim;
+    const metrics = await computeMetricsForPair(asyPath, htxPath);
+    Object.assign(r, metrics);
     delete r.error;
-    console.log(r.id + ': ' + oldSsim.toFixed(4) + ' -> ' + r.ssim.toFixed(4) + ' (' + r.corpusFile + ')');
+    console.log(r.id + ': combined ' + oldCombined.toFixed(4) + ' -> ' + r.combined.toFixed(4) +
+      ' (ssim=' + r.ssim.toFixed(4) + ' size=' + r.sizeScore.toFixed(4) + ') (' + r.corpusFile + ')');
     updated++;
   }
 
-  // Re-sort by ssim
-  results.sort((a, b) => a.ssim - b.ssim);
+  // Re-sort by combined
+  results.sort((a, b) => (a.combined != null ? a.combined : a.ssim) - (b.combined != null ? b.combined : b.ssim));
   fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
   console.log('Updated ' + updated + ' entries and re-sorted ssim-results.json');
 }

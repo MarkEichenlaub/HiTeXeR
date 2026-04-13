@@ -468,6 +468,17 @@ async function main() {
 
     const results = [];
 
+    function rgbToRgba(buf, width, height) {
+      const rgba = new Uint8ClampedArray(width * height * 4);
+      for (let i = 0; i < width * height; i++) {
+        rgba[i * 4]     = buf[i * 3];
+        rgba[i * 4 + 1] = buf[i * 3 + 1];
+        rgba[i * 4 + 2] = buf[i * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+      }
+      return rgba;
+    }
+
     for (let pi = 0; pi < pairs.length; pi++) {
       const id = pairs[pi];
       const idx = parseInt(id, 10) - 1;
@@ -478,95 +489,63 @@ async function main() {
         const asyMeta = await sharp(path.join(ASY_DIR, id + '.png')).metadata();
         const htxMeta = await sharp(path.join(HTX_DIR, id + '.png')).metadata();
 
-        // Skip images that are too small (likely failed renders)
-        const MIN_DIM = 8;
-        if ((asyMeta.width || 0) < MIN_DIM || (asyMeta.height || 0) < MIN_DIM ||
-            (htxMeta.width || 0) < MIN_DIM || (htxMeta.height || 0) < MIN_DIM) {
-          results.push({ id, idx, corpusFile, ssim: -1, error: 'Image too small' });
-          continue;
-        }
-
-        // Use a SINGLE scale factor so both images are scaled equally, then
-        // pad to the same canvas size so SSIM compares matching pixels.
-        const MAX = 400;
-
         const aw = asyMeta.width || 1, ah = asyMeta.height || 1;
         const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
 
-        // Derive one scale factor from whichever image is larger in each axis
-        const commonScale = Math.min(
-          MAX / Math.max(aw, hw),
-          MAX / Math.max(ah, hh),
-          1
-        );
+        // Skip images that are too small (likely failed renders)
+        const MIN_DIM = 8;
+        if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
+          results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: 'Image too small',
+            wRatio: hw / aw, hRatio: hh / ah, asyDims: [aw, ah], htxDims: [hw, hh] });
+          continue;
+        }
 
-        const asyW = Math.round(aw * commonScale);
-        const asyH = Math.round(ah * commonScale);
-        const htxW = Math.round(hw * commonScale);
-        const htxH = Math.round(hh * commonScale);
+        // ── Dimension ratios & size score ──
+        const wRatio = hw / aw;
+        const hRatio = hh / ah;
+        const SIGMA = 0.15;
+        const sizeScore = Math.exp(-((wRatio - 1) ** 2 + (hRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
 
-        // Common canvas: use the max of both scaled dimensions
-        // SSIM window size is 11, so canvas must be at least 11 in each dimension
-        const canvasW = Math.max(asyW, htxW, 11);
-        const canvasH = Math.max(asyH, htxH, 11);
+        // ── Content SSIM: resize BOTH to Asymptote's aspect at ≤400px ──
+        const MAX = 400;
+        const asyScale = Math.min(MAX / aw, MAX / ah, 1);
+        const targetW = Math.max(Math.round(aw * asyScale), 11);
+        const targetH = Math.max(Math.round(ah * asyScale), 11);
 
         const asyBuf = await sharp(path.join(ASY_DIR, id + '.png'))
           .flatten({ background: { r: 255, g: 255, b: 255 } })
-          .resize(asyW, asyH, { fit: 'fill' })
-          .extend({
-            top: Math.round((canvasH - asyH) / 2),
-            bottom: canvasH - asyH - Math.round((canvasH - asyH) / 2),
-            left: Math.round((canvasW - asyW) / 2),
-            right: canvasW - asyW - Math.round((canvasW - asyW) / 2),
-            background: { r: 255, g: 255, b: 255 }
-          })
+          .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
         const htxBuf = await sharp(path.join(HTX_DIR, id + '.png'))
           .flatten({ background: { r: 255, g: 255, b: 255 } })
-          .resize(htxW, htxH, { fit: 'fill' })
-          .extend({
-            top: Math.round((canvasH - htxH) / 2),
-            bottom: canvasH - htxH - Math.round((canvasH - htxH) / 2),
-            left: Math.round((canvasW - htxW) / 2),
-            right: canvasW - htxW - Math.round((canvasW - htxW) / 2),
-            background: { r: 255, g: 255, b: 255 }
-          })
+          .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
         const w = asyBuf.info.width, h = asyBuf.info.height;
-
-        function rgbToRgba(buf, width, height) {
-          const rgba = new Uint8ClampedArray(width * height * 4);
-          for (let i = 0; i < width * height; i++) {
-            rgba[i * 4]     = buf[i * 3];
-            rgba[i * 4 + 1] = buf[i * 3 + 1];
-            rgba[i * 4 + 2] = buf[i * 3 + 2];
-            rgba[i * 4 + 3] = 255;
-          }
-          return rgba;
-        }
-
         const asyImg = { data: rgbToRgba(asyBuf.data, w, h), width: w, height: h };
         const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
 
         const { mssim } = computeSSIM(asyImg, htxImg);
-        results.push({ id, idx, corpusFile, ssim: mssim });
+        const combined = mssim * sizeScore;
+
+        results.push({ id, idx, corpusFile, ssim: mssim, sizeScore, combined,
+          wRatio, hRatio, asyDims: [aw, ah], htxDims: [hw, hh] });
       } catch (e) {
-        results.push({ id, idx, corpusFile, ssim: -1, error: e.message });
+        results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message });
       }
 
       if ((pi + 1) % 100 === 0)
         console.log(`  ${pi + 1}/${pairs.length}`);
     }
 
-    results.sort((a, b) => a.ssim - b.ssim);
+    results.sort((a, b) => a.combined - b.combined);
     fs.writeFileSync(path.join(OUT_DIR, 'ssim-results.json'), JSON.stringify(results, null, 2));
 
     console.log(`  Saved ${results.length} results to comparison/ssim-results.json`);
     console.log(`  Worst 10:`);
     for (const r of results.slice(0, 10))
-      console.log(`    #${r.id} (${r.corpusFile}) SSIM=${r.ssim.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
+      console.log(`    #${r.id} (${r.corpusFile}) combined=${r.combined.toFixed(4)} ssim=${r.ssim.toFixed(4)} size=${r.sizeScore.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
     console.log();
   }
 
@@ -603,10 +582,11 @@ async function main() {
       return 'Bad';
     }
 
-    const statsGood = results.filter(r => r.ssim >= 0.95).length;
-    const statsFair = results.filter(r => r.ssim >= 0.85 && r.ssim < 0.95).length;
-    const statsPoor = results.filter(r => r.ssim >= 0 && r.ssim < 0.85).length;
-    const statsErr  = results.filter(r => r.ssim < 0).length;
+    const sc = r => r.combined != null ? r.combined : r.ssim;
+    const statsGood = results.filter(r => sc(r) >= 0.95).length;
+    const statsFair = results.filter(r => sc(r) >= 0.85 && sc(r) < 0.95).length;
+    const statsPoor = results.filter(r => sc(r) >= 0 && sc(r) < 0.85).length;
+    const statsErr  = results.filter(r => sc(r) < 0).length;
 
     for (let page = 0; page < totalPages; page++) {
       const start = page * PER_PAGE;
@@ -645,7 +625,9 @@ async function main() {
 <div class="card" id="pair-${rank}">
   <div class="card-header">
     <h2>#${rank} &mdash; ${esc(r.corpusFile)}</h2>
-    <span class="badge" style="background:${ssimColor(r.ssim)}">SSIM ${r.ssim.toFixed(4)} &middot; ${ssimLabel(r.ssim)}</span>
+    <span class="badge" style="background:${ssimColor(r.combined != null ? r.combined : r.ssim)}">Combined ${(r.combined != null && r.combined >= 0) ? r.combined.toFixed(4) : (r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')} &middot; ${ssimLabel(r.combined != null ? r.combined : r.ssim)}</span>
+    <span class="badge" style="background:${ssimColor(r.ssim)};margin-left:4px">Content ${(r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')}</span>
+    <span class="badge" style="background:${ssimColor(r.sizeScore != null ? r.sizeScore : -1)};margin-left:4px">Size ${(r.sizeScore != null && r.sizeScore >= 0) ? r.sizeScore.toFixed(4) : 'N/A'}</span>
   </div>
   <div class="card-body" style="grid-template-columns:${gridCols}">
     <div class="render-col">
@@ -729,7 +711,7 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 </style></head><body>
 <div class="container">
 <h1>HiTeXeR vs Asymptote</h1>
-<p class="sub">${results.length} diagrams sorted by SSIM (worst first) — Page ${pageNum} of ${totalPages}</p>
+<p class="sub">${results.length} diagrams sorted by combined score (worst first) — Page ${pageNum} of ${totalPages}</p>
 <div class="stats">
 <b style="background:#2d8a4e">${statsGood} Good</b>
 <b style="background:#c0820a">${statsFair} Fair</b>
