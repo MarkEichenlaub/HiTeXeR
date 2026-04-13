@@ -1479,18 +1479,33 @@ function createInterpreter() {
     const proj = projection;
     if (!proj) return makePair(v.x, v.y); // no projection: drop z
 
-    // For perspective: check if this point needs camera adjustment
+    // For perspective: implement Asymptote's adjust=Adjust behavior.
+    // Ensure the camera is far enough back that the scene fits within
+    // a reasonable field of view (~45 degrees).
     if (proj.type === 'perspective') {
       const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
       const dx = proj.cx-tx, dy = proj.cy-ty, dz = proj.cz-tz;
       const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
       const fwx = dx/dist, fwy = dy/dist, fwz = dz/dist;
-      const depth = (v.x-tx)*fwx + (v.y-ty)*fwy + (v.z-tz)*fwz;
 
-      // If point is within 20% of camera distance, move camera back
-      if (depth > dist * 0.8) {
-        const newDist = depth / 0.5; // put farthest point at 50% of camera distance
-        const scaleFactor = newDist / dist;
+      // Compute the lateral extent of this point (perpendicular to view axis)
+      const px = v.x-tx, py = v.y-ty, pz = v.z-tz;
+      const depth = px*fwx + py*fwy + pz*fwz;
+      const lateralSq = (px*px + py*py + pz*pz) - depth*depth;
+      const lateral = Math.sqrt(Math.max(0, lateralSq));
+
+      // Required camera distance: lateral extent / tan(fov/2) + depth offset
+      // Using fov ≈ 45 degrees, tan(22.5°) ≈ 0.4142
+      const tanHalfFov = 0.4142;
+      const requiredDist = lateral / tanHalfFov + depth;
+
+      // Also ensure point is not within 50% of camera distance
+      const minDistForDepth = depth > 0 ? depth / 0.5 : dist;
+
+      const neededDist = Math.max(requiredDist, minDistForDepth);
+
+      if (neededDist > dist * 1.01) { // need to move camera back
+        const scaleFactor = neededDist / dist;
         proj.cx = tx + dx * scaleFactor;
         proj.cy = ty + dy * scaleFactor;
         proj.cz = tz + dz * scaleFactor;
@@ -1701,8 +1716,12 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = right; r._lwExplicit = true; return r; }
-    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = left; r._lwExplicit = true; return r; }
+    // In Asymptote: real + pen → (real * currentpen) + pen.  Since currentpen is
+    // normally black (0,0,0), multiplying by any number still gives black, and
+    // merging black with the explicit pen yields just the explicit pen.  The number
+    // does NOT set linewidth (use linewidth(n)+pen for that).
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { return clonePen(left); }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { return clonePen(right); }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -3735,10 +3754,37 @@ function createInterpreter() {
       const B = pairs[pairs.length - 2]; // vertex
       const C = pairs[pairs.length - 1];
 
-      // Default radius
+      // radius is in bp (PostScript points).  Convert to user coordinates.
       if (radius === null) {
-        const msf = env.get('markscalefactor') || 0.03;
-        radius = 8 * msf;
+        radius = 8; // default 8bp
+      }
+      {
+        // Estimate bp→user conversion from size() and current picture bounds
+        let bpPerUnit = 1;
+        if (sizeW > 0 || sizeH > 0) {
+          // Compute rough coordinate range from existing commands
+          let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
+          for (const c of currentPic.commands) {
+            if (c.path) for (const s of c.path.segs) {
+              for (const p of [s.p0, s.p3]) {
+                if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+                if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
+              }
+            }
+            if (c.pos) {
+              if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
+              if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
+            }
+          }
+          const rangeX = (cMaxX - cMinX) || 1;
+          const rangeY = (cMaxY - cMinY) || 1;
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
+        } else if (hasUnitScale) {
+          bpPerUnit = unitScale;
+        }
+        radius = radius / bpPerUnit;
       }
 
       // Angles from vertex B to A and C
@@ -4632,7 +4678,7 @@ function createInterpreter() {
         const lAlign = labelAlign || {x:-1, y:1};
         let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0, labelTransform: makeTransform(0, 0, -1, 0, 1, 0)});
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
       }
     });
 
@@ -7959,9 +8005,14 @@ function renderSVG(result, opts) {
       // rawText may look like "\reflectbox{$\ddots$}" or "$\vdots$" etc.
       let probeText = rawText.trim();
       probeText = probeText.replace(/^\$+(.*?)\$+$/, '$1').trim();
+      let isReflected = false;
       const reflectMatch2 = probeText.match(/^\\reflectbox\{([\s\S]*)\}$/);
-      if (reflectMatch2) probeText = reflectMatch2[1].trim().replace(/^\$+(.*?)\$+$/, '$1').trim();
-      if (LATEX_TO_UNICODE[probeText]) displayText = LATEX_TO_UNICODE[probeText];
+      if (reflectMatch2) { isReflected = true; probeText = reflectMatch2[1].trim().replace(/^\$+(.*?)\$+$/, '$1').trim(); }
+      if (LATEX_TO_UNICODE[probeText]) {
+        displayText = LATEX_TO_UNICODE[probeText];
+        // Apply horizontal reflection: ⋱ (ddots) reflected = ⋰ (iddots)
+        if (isReflected && displayText === '⋱') displayText = '⋰';
+      }
       else if (LATEX_TO_UNICODE[rawText.trim()]) displayText = LATEX_TO_UNICODE[rawText.trim()];
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
@@ -8030,7 +8081,8 @@ function renderSVG(result, opts) {
           '\\nabla','\\partial','\\surd','\\checkmark',
           '\\varnothing','\\emptyset',
           '\\left','\\right',
-          '\\vec','\\hat','\\bar','\\tilde','\\dot','\\ddot','\\overline','\\underline','\\overrightarrow',
+          // Accent commands (\vec, \hat, \bar, etc.) are NOT unicode-safe — combining
+          // diacriticals render poorly in SVG text.  Route them through KaTeX instead.
         ];
         for (const cmd of unicodeCmds) {
           while (probe.includes(cmd)) probe = probe.replace(cmd, '');
