@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/monokai.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/lint/lint.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -42,38 +44,80 @@ body {
 #main { display: flex; flex: 1; overflow: hidden; }
 
 #editor-panel {
-  width: 50%; display: flex; flex-direction: column; border-right: 2px solid #0f3460;
+  width: 50%; display: flex; flex-direction: column; border-right: 2px solid #0f3460; position: relative;
 }
+#editor-controls {
+  position: absolute; top: 6px; right: 6px; z-index: 10; display: flex; gap: 4px;
+}
+.editor-ctrl-btn {
+  background: rgba(22,33,62,0.92); color: #bbb; border: 1px solid rgba(255,255,255,0.18);
+  padding: 3px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;
+  font-family: system-ui, sans-serif; transition: background 0.15s;
+}
+.editor-ctrl-btn:hover { background: rgba(15,52,96,0.95); color: #eee; }
 #editor-panel .CodeMirror { flex: 1; height: auto; font-size: 14px; line-height: 1.5; }
 
 #preview-panel { width: 50%; display: flex; flex-direction: column; background: #fff; position: relative; }
-#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 20px; }
-#preview-container svg { max-width: 100%; max-height: 100%; }
+#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 20px; position: relative; cursor: grab; }
+#preview-container svg { display: block; max-width: 100%; max-height: 100%; }
 #preview-container .error {
   color: #e94560; font-family: monospace; font-size: 13px; white-space: pre-wrap;
   padding: 20px; background: #1a1a2e; border-radius: 4px; max-width: 90%;
 }
 #preview-container .placeholder { color: #999; font-size: 14px; text-align: center; }
-#preview-container { position: relative; }
 #preview-stale-badge {
-  display: none; position: absolute; top: 6px; left: 6px; z-index: 100;
+  display: none; position: absolute; top: 46px; left: 8px; z-index: 100;
   background: rgba(233,69,96,0.85); color: #fff; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
 }
 #preview-warn-badge {
-  display: none; position: absolute; top: 6px; right: 6px; z-index: 100;
+  display: none; position: absolute; top: 46px; right: 8px; z-index: 100;
   background: rgba(233,196,106,0.9); color: #1a1a2e; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
 }
 #clear-selection-btn {
-  display: none; position: absolute; top: 6px; right: 6px; z-index: 99;
+  display: none; position: absolute; top: 46px; right: 8px; z-index: 99;
   background: rgba(30,30,46,0.8); color: #eee; border: 1px solid rgba(255,255,255,0.2);
   padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;
   font-family: system-ui, sans-serif; transition: background 0.15s;
 }
 #clear-selection-btn:hover { background: rgba(233,69,96,0.8); }
+
+/* Canvas overlay controls */
+.canvas-controls {
+  position: absolute; z-index: 200; display: flex; gap: 4px; align-items: center; pointer-events: none;
+}
+.canvas-controls > * { pointer-events: all; }
+.canvas-controls-tl { top: 8px; left: 8px; }
+.canvas-controls-tr { top: 8px; right: 8px; }
+.canvas-ctrl-btn {
+  background: rgba(22,33,62,0.88); color: #bbb; border: 1px solid rgba(255,255,255,0.18);
+  padding: 4px 9px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
+  font-family: system-ui, sans-serif; transition: background 0.15s; user-select: none;
+}
+.canvas-ctrl-btn:hover { background: rgba(15,52,96,0.95); color: #eee; }
+.canvas-ctrl-btn.active { background: rgba(233,196,106,0.25); border-color: #e9c46a; color: #e9c46a; }
+.copy-btn-group { position: relative; display: inline-flex; }
+.copy-btn-group #btn-canvas-copy { border-radius: 4px 0 0 4px; border-right: none; }
+.copy-arrow-btn { border-radius: 0 4px 4px 0; padding: 4px 5px; font-size: 9px; }
+.copy-format-menu {
+  display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 1000;
+  background: rgba(22,33,62,0.97); border: 1px solid rgba(255,255,255,0.18); border-radius: 4px;
+  min-width: 70px; overflow: hidden;
+}
+.copy-format-menu.open { display: block; }
+.copy-format-menu div {
+  padding: 5px 12px; font-size: 12px; color: #bbb; cursor: pointer; white-space: nowrap;
+  font-family: system-ui, sans-serif;
+}
+.copy-format-menu div:hover { background: rgba(15,52,96,0.9); color: #eee; }
+#canvas-pan-overlay {
+  position: absolute; inset: 0; z-index: 50; pointer-events: none;
+}
+#preview-container.element-placement-active,
+#preview-container.element-placement-active * { cursor: crosshair !important; }
 
 /* Highlight styles for code lines */
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
@@ -171,6 +215,11 @@ body {
 .slide-hit-circle { cursor: grab !important; }
 .slide-hit-circle:active { cursor: grabbing !important; }
 
+/* GIF mode */
+#gif-panel input:focus, #gif-panel select:focus { outline: 1px solid #e9c46a; outline-offset: 0; }
+.gif-generating { pointer-events: none; }
+.gif-generating button { opacity: 0.45; cursor: not-allowed; }
+
 /* Add element menu items */
 #add-element-menu .ae-item {
   padding: 6px 12px; cursor: pointer; border-radius: 4px; font-size: 13px; color: #ccc;
@@ -234,7 +283,7 @@ body {
 }
 .chat-options label input { accent-color: #e9c46a; }
 #chat-messages { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
-.chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
+.chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
 .chat-msg.user { background: #0f3460; color: #eee; align-self: flex-end; border-bottom-right-radius: 2px; }
 .chat-msg.assistant { background: #2a2a3e; color: #ccc; align-self: flex-start; border-bottom-left-radius: 2px; }
 .chat-msg pre { background: #111; padding: 6px 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
@@ -245,17 +294,34 @@ body {
 .chat-msg .chat-actions .btn-accept { background: #2ecc71; color: #fff; }
 .chat-msg .chat-actions .btn-revert { background: #e94560; color: #fff; }
 .chat-input-area {
-  padding: 10px 14px; border-top: 1px solid #0f3460; display: flex; gap: 6px; flex-shrink: 0;
+  padding: 10px 14px; border-top: 1px solid #0f3460; display: flex; gap: 6px; flex-shrink: 0; align-items: flex-start;
 }
-.chat-input-area input {
+.chat-input-area textarea {
   flex: 1; background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
-  padding: 6px 10px; border-radius: 4px; font-size: 13px;
+  padding: 6px 10px; border-radius: 4px; font-size: 13px; resize: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word;
 }
 .chat-input-area button {
   background: #e94560; color: #fff; border: none; padding: 6px 14px;
   border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;
 }
 .chat-input-area button:hover { background: #c73e54; }
+#chat-image-preview { position: relative; width: fit-content; }
+#chat-image-preview img { max-width: 180px; max-height: 110px; border-radius: 4px; border: 1px solid #1a1a5e; display: block; }
+#chat-image-remove {
+  position: absolute; top: -6px; right: -6px; background: #e94560; color: #fff;
+  border: none; border-radius: 50%; width: 18px; height: 18px; cursor: pointer;
+  font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+}
+#chat-attach-btn {
+  background: #0f3460; color: #ccc; border: 1px solid #1a1a5e; padding: 5px 9px;
+  border-radius: 4px; cursor: pointer; font-size: 15px;
+}
+#chat-attach-btn:hover { background: #1a2a60; color: #eee; }
+.chat-input-wrapper { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.chat-input-buttons { display: flex; flex-direction: column; gap: 6px; }
+.chat-msg img.chat-msg-image { max-width: 100%; border-radius: 4px; display: block; margin-bottom: 4px; }
 
 /* CodeMirror lint overrides */
 .CodeMirror-lint-tooltip { background: #1e1e2e !important; border: 1px solid #e94560 !important; color: #ccc !important; border-radius: 4px !important; font-size: 12px !important; }
@@ -271,13 +337,14 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR</h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.62</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
       <div class="menu-dropdown">
         <div class="md-item" id="md-save">Save .asy</div>
         <div class="md-item" id="md-open">Open .asy</div>
+        <div class="md-item" id="md-open-image">Open Image...</div>
         <div class="md-separator"></div>
         <div class="md-item md-submenu">Export
           <div class="menu-dropdown">
@@ -294,8 +361,6 @@ body {
       <div class="menu-dropdown">
         <div class="md-item" id="md-clear">Clear</div>
         <div class="md-item" id="md-add-element">+ Element</div>
-        <div class="md-separator"></div>
-        <div class="md-item" id="md-ai-chat">AI Chat</div>
       </div>
     </div>
     <div class="menu-item" id="menu-view">
@@ -312,13 +377,16 @@ body {
     <div class="menu-item" id="menu-tools">
       <span>Tools</span>
       <div class="menu-dropdown">
-        <div class="md-item" id="md-slide">Slide Mode</div>
+        <div class="md-item checked" id="md-autocomplete">Autocomplete</div>
         <div class="md-item" id="md-real-asy">Use Real Asymptote</div>
         <div class="md-separator"></div>
         <div class="md-item" id="md-texer-import">Import from TeXeR...</div>
       </div>
     </div>
   </div>
+  <button id="btn-slide" title="Toggle slide mode (drag free points)">Slide</button>
+  <button id="btn-gif" title="Toggle GIF mode">GIF</button>
+  <button id="md-ai-chat" title="Toggle AI Chat">AI Chat</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
@@ -326,9 +394,13 @@ body {
 </div>
 <!-- Hidden file input for Open .asy -->
 <input type="file" id="file-open-input" accept=".asy" style="display:none">
+<input type="file" id="file-open-image-input" accept=".svg,.png,.jpg,.jpeg,.gif,.pdf" style="display:none">
 
 <div id="main">
   <div id="editor-panel">
+    <div id="editor-controls">
+      <button class="editor-ctrl-btn" id="btn-copy-code" title="Copy code to clipboard">Copy</button>
+    </div>
     <textarea id="code-editor">[asy]
 import geometry;
 unitsize(2.0 cm);
@@ -358,10 +430,46 @@ label("$C$", C, N);
   <div id="resizer"></div>
   <div id="preview-panel">
     <div id="preview-container">
+      <div class="canvas-controls canvas-controls-tl">
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-in" title="Zoom in">+</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-out" title="Zoom out">&#x2212;</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
+      </div>
+      <div class="canvas-controls canvas-controls-tr">
+        <div class="copy-btn-group">
+          <button class="canvas-ctrl-btn" id="btn-canvas-copy" title="Copy image to clipboard">Copy</button><button class="canvas-ctrl-btn copy-arrow-btn" id="btn-canvas-copy-arrow" title="Copy as...">&#9660;</button>
+          <div class="copy-format-menu" id="copy-format-menu">
+            <div data-format="png">PNG</div>
+            <div data-format="svg">SVG</div>
+            <div data-format="jpg">JPG</div>
+          </div>
+        </div>
+        <button class="canvas-ctrl-btn" id="btn-canvas-shrink" title="Shrink to fit">Fit</button>
+      </div>
       <div class="placeholder">Loading...</div>
       <div id="preview-stale-badge">not live; showing last render</div>
       <div id="preview-warn-badge"></div>
       <button id="clear-selection-btn">&#x2715; Clear selection</button>
+      <div id="canvas-pan-overlay" class="pan-inactive"></div>
+      <!-- GIF Mode Control Panel -->
+      <div id="gif-panel" style="display:none;position:absolute;top:0;left:0;right:0;background:rgba(30,30,46,0.95);border-bottom:2px solid #e9c46a;padding:8px 16px;z-index:5000;font-size:12px;color:#ccc;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="color:#e9c46a;font-weight:600;">GIF Mode</span>
+          <label>Var: <select id="gif-var-select" style="background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;"></select></label>
+          <label>Start: <input id="gif-start" type="text" value="0" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>End: <input id="gif-end" type="text" value="1" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>Width: <input id="gif-width" type="text" value="true" title="'true' = natural size, or pixels e.g. 400" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>Duration: <input id="gif-duration" type="text" value="3s" style="width:48px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"></label>
+          <label>Delay: <input id="gif-delay" type="number" value="2" min="1" max="100" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">x0.01s</span></label>
+          <label>Loop: <input id="gif-loop" type="number" value="0" min="0" style="width:36px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">0=inf</span></label>
+          <label>Pause first: <input id="gif-pause-first" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
+          <label>Pause last: <input id="gif-pause" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
+          <label style="cursor:pointer;"><input type="checkbox" id="gif-transparent" style="accent-color:#e9c46a;"> Transparent</label>
+          <button id="gif-save-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Save GIF</button>
+          <button id="gif-copy-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Copy GIF</button>
+          <span id="gif-progress" style="color:#e9c46a;font-size:11px;"></span>
+        </div>
+      </div>
     </div>
   </div>
   <div id="chat-resizer"></div>
@@ -378,9 +486,19 @@ label("$C$", C, N);
     </div>
     <div id="chat-messages"></div>
     <div class="chat-input-area">
-      <input type="text" id="chat-input" placeholder="Ask about your code...">
-      <button id="chat-send-btn">Send</button>
+      <div class="chat-input-wrapper">
+        <textarea id="chat-input" rows="6" placeholder="Ask about your code... (Ctrl+V to paste image)"></textarea>
+        <div id="chat-image-preview" style="display:none">
+          <img id="chat-image-thumb" src="" alt="Attached image">
+          <button id="chat-image-remove" title="Remove image">&times;</button>
+        </div>
+      </div>
+      <div class="chat-input-buttons">
+        <button id="chat-attach-btn" title="Attach image">&#128247;</button>
+        <button id="chat-send-btn">Send</button>
+      </div>
     </div>
+    <input type="file" id="chat-file-input" accept="image/*" style="display:none">
   </div>
 </div>
 
@@ -436,6 +554,7 @@ label("$C$", C, N);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/lint/lint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
 <script>
 'use strict';
 
@@ -500,31 +619,62 @@ const LINE_JOINS = [
 const AsyParser = {
   parse(code) {
     const lines = code.split('\n');
-    const drawCommands = [], assignments = [], imports = [];
+    const drawCommands = [], assignments = [], imports = [], funcDefs = [];
     const drawP = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
-    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
-    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
+    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const pushP = /^\s*([a-zA-Z_]\w*)\.(?:push|append|insert)\s*\(/;
+    const forInitP = /^\s*for\s*\(\s*(?:int|real|pair|path|guide|pen|bool|string)\s+([a-zA-Z_]\w*)\s*=/;
     const importP = /^\s*(import|access|from)\s+/;
     const sizeP = /^\s*(unitsize|size)\s*\(/;
     const commentP = /^\s*\/\//;
+    // Match user-defined function definitions by return type
+    const funcDefP = /^\s*(?:void|pair|path|real|int|bool|string|picture|transform|guide|pen)\s+([a-zA-Z_]\w*)\s*\(/;
 
     let braceDepth = 0;
+    const funcStack = []; // stack of {name, lineIndex, entryDepth}
+    let pendingFunc = null; // funcDef found but '{' not yet seen
+
     for (let i = 0; i < lines.length; i++) {
       const t = lines[i].trim();
       if (!t || commentP.test(t) || t === '[asy]' || t === '[/asy]') continue;
       const lineDepth = braceDepth;
-      // Track brace depth (simple count, ignoring strings/comments)
-      for (const ch of t) { if (ch==='{') braceDepth++; if (ch==='}') braceDepth--; }
+
+      // Detect function definition (must not be a draw command)
+      if (!drawP.test(t)) {
+        const fm = t.match(funcDefP);
+        if (fm) { pendingFunc = { name: fm[1], lineIndex: i }; funcDefs.push({ name: fm[1], lineIndex: i }); }
+      }
+
+      // Track brace depth; push/pop funcStack when entering/leaving function bodies
+      for (const ch of t) {
+        if (ch === '{') {
+          braceDepth++;
+          if (pendingFunc) { funcStack.push({ ...pendingFunc, entryDepth: braceDepth }); pendingFunc = null; }
+        } else if (ch === '}') {
+          braceDepth--;
+          if (funcStack.length > 0 && funcStack[funcStack.length - 1].entryDepth > braceDepth) funcStack.pop();
+        }
+      }
       if (braceDepth < 0) braceDepth = 0;
+
       if (importP.test(t)) { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
       if (sizeP.test(t))   { imports.push({lineIndex:i,lineText:lines[i]}); continue; }
-      if (drawP.test(t))   { drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i),braceDepth:lineDepth}); continue; }
+      if (drawP.test(t)) {
+        const enclosingFunc = funcStack.length > 0 ? { ...funcStack[funcStack.length - 1] } : null;
+        drawCommands.push({lineIndex:i,lineText:lines[i],vars:this.extractVariables(t,lines,i),braceDepth:lineDepth,enclosingFunc});
+        continue;
+      }
       const am = t.match(assignP);
-      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i]}); continue; }
+      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
+      const pm = t.match(pushP);
+      if (pm) { assignments.push({lineIndex:i,varName:pm[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
+      const fim = t.match(forInitP);
+      if (fim) { assignments.push({lineIndex:i,varName:fim[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
       const mm = t.match(multiP);
-      if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i]}); }
+      if (mm) { for (const vn of mm[1].split(',').map(v=>v.trim())) assignments.push({lineIndex:i,varName:vn,lineText:lines[i],braceDepth:lineDepth}); }
     }
-    return { drawCommands, assignments, imports, lines };
+    return { drawCommands, assignments, imports, funcDefs, lines };
   },
 
   extractVariables(lineText, allLines, lineIdx) {
@@ -538,16 +688,50 @@ const AsyParser = {
 
   findDependencies(drawCmd, assignments) {
     const deps = new Set(), visited = new Set(), q = [...drawCmd.vars];
+    const drawLine = drawCmd.lineIndex;
+    const drawDepth = drawCmd.braceDepth;
     while (q.length) {
       const v = q.shift(); if (visited.has(v)) continue; visited.add(v);
-      for (const a of assignments) { if (a.varName===v) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); } }
+      // Collect all assignments for this variable name
+      const matches = assignments.filter(a => a.varName === v);
+      if (matches.length <= 1) {
+        // Unique or absent — use it directly (no ambiguity)
+        for (const a of matches) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); }
+      } else {
+        // Multiple assignments with same name — scope-aware selection.
+        // Pick the nearest preceding assignment whose braceDepth <= draw's depth.
+        // This correctly selects the enclosing for-loop init over an identically
+        // named variable in a different loop.
+        let best = null;
+        for (const a of matches) {
+          if (a.lineIndex > drawLine) continue; // after the draw — skip
+          if (a.braceDepth !== undefined && a.braceDepth > drawDepth) continue; // deeper scope — skip
+          if (!best || a.lineIndex > best.lineIndex) best = a;
+        }
+        // Fallback: if nothing preceded the draw (e.g. forward reference), take closest overall
+        if (!best) best = matches.reduce((a, b) => Math.abs(a.lineIndex - drawLine) < Math.abs(b.lineIndex - drawLine) ? a : b);
+        deps.add(best.lineIndex); const rhs=best.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv);
+      }
     }
     return [...deps];
   },
 
   buildMapping(code) {
     const parsed = this.parse(code), mapping = [];
-    for (const cmd of parsed.drawCommands) mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:this.findDependencies(cmd,parsed.assignments), commandText:cmd.lineText.trim() });
+    for (const cmd of parsed.drawCommands) {
+      const depLines = this.findDependencies(cmd, parsed.assignments);
+      // If draw is inside a user-defined function, include the function definition
+      // line and all call sites so the dependency panel shows the full context.
+      if (cmd.enclosingFunc) {
+        depLines.push(cmd.enclosingFunc.lineIndex);
+        const callRe = new RegExp(`^\\s*${cmd.enclosingFunc.name}\\s*\\(`);
+        for (let i = 0; i < parsed.lines.length; i++) {
+          const t = parsed.lines[i].trim();
+          if (callRe.test(t) && i !== cmd.enclosingFunc.lineIndex) depLines.push(i);
+        }
+      }
+      mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:[...new Set(depLines)], commandText:cmd.lineText.trim() });
+    }
     return { mapping, parsed };
   }
 };
@@ -874,7 +1058,7 @@ const StyleMenu = {
       if (e.key==='Escape') {
         if (this.visible) { this.hide(); return; }
         if (multiSelected.size > 0) {
-          multiSelected.clear();
+          multiSelected.clear(); multiSelectedInterp.clear();
           clearHighlights(); clearSvgHighlights();
         }
       }
@@ -916,7 +1100,7 @@ const StyleMenu = {
     this._sharedPenName = null;
     this._sharedPenDefLine = -1;
     this._sharedPenProps = null;
-    if (wasMulti) multiSelected.clear();
+    if (wasMulti) { multiSelected.clear(); multiSelectedInterp.clear(); frozenVisibleLines = null; updateCodeFilter(); }
     clearHighlights();
     clearSvgHighlights();
     if (this.dirty) {
@@ -1480,7 +1664,7 @@ function initEditor() {
     tabSize: 2,
     matchBrackets: true,
     autoCloseBrackets: true,
-    lineWrapping: false,
+    lineWrapping: true,
   });
   editor.setOption('extraKeys', { 'Ctrl-Enter': doRender });
 
@@ -1499,27 +1683,24 @@ function initEditor() {
     }
   });
 
-  // Left-click on code lines for multi-select (with Ctrl held or always in multi-select mode)
+  // Left-click on code lines for multi-select (Ctrl/Meta click only)
   editor.getWrapperElement().addEventListener('click', (e) => {
     if (StyleMenu.visible) return;
+    if (!e.ctrlKey && !e.metaKey) return; // only toggle on Ctrl/Meta click
     const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
     const lineText = editor.getLine(pos.line);
     if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
-      if (multiSelected.size > 0 || e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        if (multiSelected.has(pos.line)) {
-          multiSelected.delete(pos.line);
-        } else {
-          multiSelected.add(pos.line);
-        }
-        renderMultiSelection(true);
+      e.preventDefault();
+      if (multiSelected.has(pos.line)) {
+        multiSelected.delete(pos.line);
+        // Also remove matching interpCi values
+        for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.delete(ic); }
+      } else {
+        multiSelected.add(pos.line);
+        // Also add any interpCi values for this line (highlight all draws on that line)
+        for (const [ic, li] of interpCmdToLineIdx) { if (li === pos.line) multiSelectedInterp.add(ic); }
       }
-    } else if (!e.ctrlKey && !e.metaKey) {
-      // Clicking on a non-draw line clears multi-selection
-      if (multiSelected.size > 0) {
-        multiSelected.clear();
-        clearHighlights(); clearSvgHighlights();
-      }
+      renderMultiSelection(true);
     }
   });
 }
@@ -1533,6 +1714,7 @@ function highlightLines(primaryLine, depLines) {
   clearHighlights();
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   if (window.hitexerSlideActive) return;
+  if (window.hitexerGifActive) return;
   for (const lineIdx of depLines) {
     if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
     highlightMarks.push(editor.markText(
@@ -1556,7 +1738,7 @@ const SERVER_URL = 'http://127.0.0.1:8080';
 
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let useRealAsy = false; // when true, skip JS interpreter and always use server
-let lastRenderInfo = null; // stores { pxPerUnit, minX, minY, maxX, maxY, displayPercent } from last JS render
+let lastRenderInfo = null; // stores { pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, displayPercent } from last JS render
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
 let gridActive = false; // grid overlay toggle state
@@ -1586,7 +1768,6 @@ async function prefetchGraphicImages(code) {
       }
     } catch (e) {
       console.warn('graphic() image pre-fetch failed:', e.message);
-      // Don't cache failures — let the interpreter throw and fall through to server
     }
   }
   return window._graphicCache;
@@ -1629,7 +1810,7 @@ function applyGridOverlay() {
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
 
-  const { pxPerUnit, minX, minY, maxX, maxY } = lastRenderInfo;
+  const { pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY } = lastRenderInfo;
   const ns = 'http://www.w3.org/2000/svg';
   const g = document.createElementNS(ns, 'g');
   g.setAttribute('id', 'hitexer-grid-overlay');
@@ -1641,12 +1822,12 @@ function applyGridOverlay() {
   const gridMaxY = Math.ceil(maxY);
 
   // viewBox dimensions for label placement
-  const viewW = (maxX - minX) * pxPerUnit;
-  const viewH = (maxY - minY) * pxPerUnit;
+  const viewW = (maxX - minX) * pxPerUnitX;
+  const viewH = (maxY - minY) * pxPerUnitY;
 
   // Vertical lines with X labels along bottom inside viewBox
   for (let x = gridMinX; x <= gridMaxX; x++) {
-    const sx = (x - minX) * pxPerUnit;
+    const sx = (x - minX) * pxPerUnitX;
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', sx); line.setAttribute('y1', 0);
     line.setAttribute('x2', sx); line.setAttribute('y2', viewH);
@@ -1662,7 +1843,7 @@ function applyGridOverlay() {
   }
   // Horizontal lines with Y labels along left inside viewBox
   for (let y = gridMinY; y <= gridMaxY; y++) {
-    const sy = (maxY - y) * pxPerUnit;
+    const sy = (maxY - y) * pxPerUnitY;
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', 0); line.setAttribute('y1', sy);
     line.setAttribute('x2', viewW); line.setAttribute('y2', sy);
@@ -1700,6 +1881,7 @@ async function doRender() {
       if (placeholder) placeholder.remove();
       previewEl.insertAdjacentHTML('afterbegin', result.svg);
       showStaleBadge(false);
+      applyCanvasTransform();
       // Show warnings
       const warns = [];
       if (result.warnings && result.warnings.includes('auto-scaled')) {
@@ -1710,7 +1892,7 @@ async function doRender() {
       }
       showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
-      lastRenderInfo = { pxPerUnit: result.pxPerUnit, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+      lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       lastJsRenderOk = true;
       if (gridActive) applyGridOverlay();
@@ -1772,6 +1954,7 @@ async function doRender() {
       previewEl.insertAdjacentHTML('afterbegin', data.svg);
       showStaleBadge(false);
       showWarnBadge('');
+      applyCanvasTransform();
       setupSvgInteractivity(code);
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
@@ -1818,10 +2001,14 @@ let probeGeneration = 0; // incremented each render to discard stale probes
 let lineToDepCommands = new Map();
 let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
+let multiSelectedInterp = new Set(); // interpreter cmdIdx values — per-draw granularity for SVG highlight
 let frozenVisibleLines = null; // When non-null, code filter is frozen to these line indices (Set)
+let interpCmdToElements = new Map(); // interpCmdIdx → SVGElement[]
+let interpCmdToLineIdx = new Map();  // interpCmdIdx → source lineIdx (0-based)
+let elementToInterpCmd = new Map();  // SVGElement → interpCmdIdx
 const clearSelBtn = document.getElementById('clear-selection-btn');
 clearSelBtn.addEventListener('click', () => {
-  multiSelected.clear();
+  multiSelected.clear(); multiSelectedInterp.clear();
   frozenVisibleLines = null;
   renderMultiSelection();
 });
@@ -1874,6 +2061,9 @@ function distToElementScreen(clientX, clientY, el) {
 /**
  * Apply code filter (hide/show lines) based on selection.
  * @param {boolean} userDriven — true when the user explicitly changed selection
+ *   (click on SVG element, deselect-all). When false (re-render after code edit),
+ *   use frozenVisibleLines instead of recalculating dependencies so the visible
+ *   line set doesn't change out from under the user while they are editing.
  */
 function updateCodeFilter(userDriven) {
   const total = editor.lineCount();
@@ -1883,14 +2073,18 @@ function updateCodeFilter(userDriven) {
     return;
   }
 
+  // If we have a frozen set and this is NOT a user-driven update, apply the
+  // frozen set directly without recalculating dependencies.
   if (!userDriven && frozenVisibleLines) {
     for (let i = 0; i < total; i++) {
       if (frozenVisibleLines.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
       else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
     }
+    // Don't scrollIntoView — the user is actively editing
     return;
   }
 
+  // User-driven update: recalculate dependency lines from scratch
   const relevant = new Set();
   for (const lineIdx of multiSelected) {
     const ci = lineToCommandIdx.get(lineIdx);
@@ -1898,13 +2092,14 @@ function updateCodeFilter(userDriven) {
       relevant.add(currentMapping[ci].primaryLine);
       for (const dl of currentMapping[ci].dependencyLines) relevant.add(dl);
     } else {
-      relevant.add(lineIdx);
+      relevant.add(lineIdx); // not yet in mapping (mid-edit) — show the line itself
     }
   }
   for (let i = 0; i < total; i++) {
     if (relevant.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
     else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
   }
+  // Freeze this set so subsequent re-renders don't change it
   frozenVisibleLines = new Set(relevant);
   const first = Math.min(...multiSelected);
   if (first >= 0 && first < total) editor.scrollIntoView({line: first, ch: 0}, 50);
@@ -1914,11 +2109,22 @@ function renderMultiSelection(userDriven) {
   clearHighlights(); clearSvgHighlights();
   clearSelBtn.style.display = multiSelected.size > 0 ? 'block' : 'none';
   if (multiSelected.size === 0) { updateCodeFilter(userDriven); return; }
-  for (const lineIdx of multiSelected) {
-    const ci = lineToCommandIdx.get(lineIdx);
-    if (ci !== undefined) {
-      for (const el of (svgElsByCommand.get(ci) || [])) highlightSvgElement(el, 'select');
+  // SVG highlight: use per-draw granularity when available (direct renderer),
+  // otherwise fall back to group-by-command (probe renderer)
+  if (multiSelectedInterp.size > 0) {
+    for (const interpCi of multiSelectedInterp) {
+      for (const el of (interpCmdToElements.get(interpCi) || [])) highlightSvgElement(el, 'select');
     }
+  } else {
+    for (const lineIdx of multiSelected) {
+      const ci = lineToCommandIdx.get(lineIdx);
+      if (ci !== undefined) {
+        for (const el of (svgElsByCommand.get(ci) || [])) highlightSvgElement(el, 'select');
+      }
+    }
+  }
+  // Code line highlight
+  for (const lineIdx of multiSelected) {
     if (lineIdx >= 0 && lineIdx < editor.lineCount()) {
       highlightMarks.push(editor.markText(
         {line: lineIdx, ch: 0}, {line: lineIdx, ch: editor.getLine(lineIdx).length},
@@ -1960,6 +2166,7 @@ function ensureGlowFilter(svg) {
 function highlightSvgElement(el, intensity) {
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   if (window.hitexerSlideActive) return;
+  if (window.hitexerGifActive) return;
   const svg = el.closest('svg');
   ensureGlowFilter(svg);
   const isSelect = intensity === 'select';
@@ -2117,7 +2324,7 @@ function setupSvgInteractivity(code) {
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
   const prevSelected = new Set(multiSelected);
-  multiSelected.clear();
+  multiSelected.clear(); multiSelectedInterp.clear();
   const thisGen = ++probeGeneration;
 
   const svg = document.querySelector('#preview-container svg');
@@ -2127,7 +2334,7 @@ function setupSvgInteractivity(code) {
   // Restore selection for lines still present in the new mapping
   for (const lineIdx of prevSelected) {
     if (lineToCommandIdx.has(lineIdx)) multiSelected.add(lineIdx);
-    else if (lineIdx < editor.lineCount()) multiSelected.add(lineIdx);
+    else if (lineIdx < editor.lineCount()) multiSelected.add(lineIdx); // keep selection through edits
   }
   if (multiSelected.size > 0) renderMultiSelection();
   else {
@@ -2177,6 +2384,7 @@ function setupSvgInteractivity(code) {
       }
     }
     statusEl.textContent = 'Rendered successfully'; statusEl.style.color = '#2ecc71';
+    if (multiSelected.size > 0) renderMultiSelection();
   }).catch(() => {
     if (probeGeneration !== thisGen) return;
     statusEl.textContent = 'Rendered (approx mapping)'; statusEl.style.color = '#e9c46a';
@@ -2319,8 +2527,11 @@ function setupSvgInteractivityDirect(code, commandMap) {
   svgElsByCommand = new Map();
   lineToCommandIdx = new Map();
   lineToDepCommands = new Map();
+  interpCmdToElements = new Map();
+  interpCmdToLineIdx = new Map();
+  elementToInterpCmd = new Map();
   const prevSelectedDirect = new Set(multiSelected);
-  multiSelected.clear();
+  multiSelected.clear(); multiSelectedInterp.clear();
   ++probeGeneration;
 
   const svg = document.querySelector('#preview-container svg');
@@ -2335,8 +2546,10 @@ function setupSvgInteractivityDirect(code, commandMap) {
     }
   }
 
-  // Get SVG elements (same selector as setupSvgInteractivity)
-  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, use')]
+  // Get SVG elements in document order.  Must include foreignObject so that
+  // KaTeX-rendered labels (which produce <foreignObject>) occupy the same
+  // index positions as in the renderer's elements[] array / commandMap.
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, foreignObject, use')]
     .filter(el => !el.closest('defs'));
   const elementToCommand = new Map();
 
@@ -2360,17 +2573,30 @@ function setupSvgInteractivityDirect(code, commandMap) {
         if (lineToCommandIdx.has(srcLine + d)) { ci = lineToCommandIdx.get(srcLine + d); break; }
       }
     }
+    // Track per-interpreter-command grouping (each draw call = unique interpCi)
+    const interpCi = mapEntry.cmdIdx;
+    elementToInterpCmd.set(svgElements[i], interpCi);
+    if (!interpCmdToElements.has(interpCi)) interpCmdToElements.set(interpCi, []);
+    interpCmdToElements.get(interpCi).push(svgElements[i]);
     if (ci >= 0) {
+      interpCmdToLineIdx.set(interpCi, mapping[ci].primaryLine);
       elementToCommand.set(svgElements[i], ci);
       if (!svgElsByCommand.has(ci)) svgElsByCommand.set(ci, []);
       svgElsByCommand.get(ci).push(svgElements[i]);
     }
   }
 
-  // Restore selection
+  // Restore selection; keep lines even if not yet in new mapping so the filter
+  // stays active while the user is mid-edit (deselect clears it explicitly).
   for (const lineIdx of prevSelectedDirect) {
-    if (lineToCommandIdx.has(lineIdx)) multiSelected.add(lineIdx);
-    else if (lineIdx < editor.lineCount()) multiSelected.add(lineIdx);
+    if (lineToCommandIdx.has(lineIdx)) {
+      multiSelected.add(lineIdx);
+      for (const [ic, li] of interpCmdToLineIdx) {
+        if (li === lineIdx) multiSelectedInterp.add(ic);
+      }
+    } else if (lineIdx < editor.lineCount()) {
+      multiSelected.add(lineIdx); // keep unmapped lines through edits
+    }
   }
   if (multiSelected.size > 0) renderMultiSelection();
   else {
@@ -2407,32 +2633,36 @@ function setupSvgInteractivityDirect(code, commandMap) {
       if (onlyMapped && ci < 0) continue;
       const d = distToElementScreen(clientX, clientY, el);
       if (d <= thr) {
+        const interpCi = elementToInterpCmd.get(el) ?? -1;
         const lineIdx = (ci >= 0 && mapping[ci]) ? mapping[ci].primaryLine : -1;
-        results.push({ ci, el, dist: d, lineIdx });
+        results.push({ ci, el, dist: d, lineIdx, interpCi });
       }
     }
-    const byLine = new Map();
+    // Deduplicate by interpCi so each individual draw call is a distinct candidate
+    const byInterp = new Map();
     for (const r of results) {
-      if (r.lineIdx < 0) continue;
-      if (!byLine.has(r.lineIdx) || r.dist < byLine.get(r.lineIdx).dist) {
-        byLine.set(r.lineIdx, r);
-      }
+      if (r.interpCi < 0) continue;
+      if (!byInterp.has(r.interpCi) || r.dist < byInterp.get(r.interpCi).dist)
+        byInterp.set(r.interpCi, r);
     }
-    return [...byLine.values()].sort((a, b) => a.dist - b.dist);
+    return [...byInterp.values()].sort((a, b) => a.dist - b.dist);
   }
 
   let lastHoveredCi = -1, lastHoveredEl = null;
   svg.addEventListener('mousemove', (e) => {
     if (StyleMenu.visible) return;
     const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
-    if (bestCi >= 0 && bestCi === lastHoveredCi) return;
-    if (bestCi < 0 && bestEl === lastHoveredEl) return;
+    // Re-render if either the element or the AsyParser command changed
+    if (bestEl === lastHoveredEl && bestCi === lastHoveredCi) return;
     lastHoveredCi = bestCi; lastHoveredEl = bestEl;
     clearHighlights(); clearSvgHighlights();
     if (multiSelected.size > 0) renderMultiSelection();
     if (bestCi >= 0) {
       const cmd = mapping[bestCi];
-      for (const svgEl of (svgElsByCommand.get(bestCi)||[])) highlightSvgElement(svgEl, 'strong');
+      // Highlight only this specific draw call's elements (not all loop iterations on the same line)
+      const hoverInterpCi = bestEl ? elementToInterpCmd.get(bestEl) : undefined;
+      const hoverEls = hoverInterpCi !== undefined ? interpCmdToElements.get(hoverInterpCi) : svgElsByCommand.get(bestCi);
+      for (const svgEl of (hoverEls || [])) highlightSvgElement(svgEl, 'strong');
       highlightLines(cmd.primaryLine, cmd.dependencyLines);
     } else if (bestEl) {
       highlightSvgElement(bestEl, 'strong');
@@ -2449,22 +2679,38 @@ function setupSvgInteractivityDirect(code, commandMap) {
     const candidates = findAllNear(e.clientX, e.clientY, true);
     if (candidates.length === 0) return;
     let target = candidates[0];
-    if (candidates.length > 1 && multiSelected.size > 0) {
+    if (candidates.length > 1 && multiSelectedInterp.size > 0) {
       const nearDist = target.dist;
       const close = candidates.filter(c => c.dist - nearDist < 5);
       if (close.length > 1) {
-        const selLines = [...multiSelected];
+        const selLineIdxs = [...multiSelectedInterp].map(ic => interpCmdToLineIdx.get(ic) ?? -1);
         let bestCandidate = null, bestProximity = Infinity;
         for (const c of close) {
-          if (multiSelected.has(c.lineIdx)) continue;
-          const proximity = Math.min(...selLines.map(s => Math.abs(c.lineIdx - s)));
+          if (multiSelectedInterp.has(c.interpCi)) continue;
+          const cLineIdx = interpCmdToLineIdx.get(c.interpCi) ?? c.lineIdx;
+          const proximity = Math.min(...selLineIdxs.map(s => Math.abs(cLineIdx - s)));
           if (proximity < bestProximity) { bestProximity = proximity; bestCandidate = c; }
         }
         if (bestCandidate) target = bestCandidate;
       }
     }
-    if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
-    else multiSelected.add(target.lineIdx);
+    const tInterpCi = target.interpCi ?? -1;
+    if (tInterpCi >= 0) {
+      if (multiSelectedInterp.has(tInterpCi)) {
+        multiSelectedInterp.delete(tInterpCi);
+        // Remove lineIdx from multiSelected if no remaining selected interp cmd maps to it
+        const tLineIdx = target.lineIdx;
+        if (tLineIdx >= 0 && ![...multiSelectedInterp].some(ic => interpCmdToLineIdx.get(ic) === tLineIdx))
+          multiSelected.delete(tLineIdx);
+      } else {
+        multiSelectedInterp.add(tInterpCi);
+        if (target.lineIdx >= 0) multiSelected.add(target.lineIdx);
+      }
+    } else {
+      // Fallback: no interpCi (element not tracked), use lineIdx
+      if (multiSelected.has(target.lineIdx)) multiSelected.delete(target.lineIdx);
+      else multiSelected.add(target.lineIdx);
+    }
     renderMultiSelection(true);
   });
   svg.addEventListener('contextmenu', (e) => {
@@ -2523,9 +2769,22 @@ function doCodeLineHover(lineIdx) {
       const rhs = a.lineText.split('=').slice(1).join('=');
       const vars = AsyParser.extractVariables(rhs,[rhs],0);
       const vis = new Set(vars), q = [...vars];
+      const hoverDepth = a.braceDepth !== undefined ? a.braceDepth : 0;
       while (q.length) {
         const v=q.shift();
-        for(const aa of parsed.assignments) { if(aa.varName===v) { depLines.add(aa.lineIndex); const ir=aa.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);} } }
+        const matches = parsed.assignments.filter(aa => aa.varName===v);
+        if (matches.length <= 1) {
+          for (const aa of matches) { depLines.add(aa.lineIndex); const ir=aa.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);} }
+        } else {
+          let best = null;
+          for (const aa of matches) {
+            if (aa.lineIndex > lineIdx) continue;
+            if (aa.braceDepth !== undefined && aa.braceDepth > hoverDepth) continue;
+            if (!best || aa.lineIndex > best.lineIndex) best = aa;
+          }
+          if (!best) best = matches.reduce((x, y) => Math.abs(x.lineIndex - lineIdx) < Math.abs(y.lineIndex - lineIdx) ? x : y);
+          depLines.add(best.lineIndex); const ir=best.lineText.split('=').slice(1).join('='); for(const iv of AsyParser.extractVariables(ir,[ir],0)) if(!vis.has(iv)){vis.add(iv);q.push(iv);}
+        }
       }
       break;
     }
@@ -2547,6 +2806,330 @@ function initResizer() {
   resizer.addEventListener('mousedown', e=>{resizing=true;document.body.style.cursor='col-resize';document.body.style.userSelect='none';e.preventDefault();});
   document.addEventListener('mousemove', e=>{if(!resizing)return;const w=(e.clientX/document.getElementById('main').offsetWidth)*100;if(w>20&&w<80){ep.style.width=w+'%';pp.style.width=(100-w)+'%';editor.refresh();}});
   document.addEventListener('mouseup', ()=>{if(resizing){resizing=false;document.body.style.cursor='';document.body.style.userSelect='';}});
+}
+
+// ============================================================
+// Canvas Pan / Visual Zoom / Copy
+// ============================================================
+let canvasZoom = 1.0;
+let canvasPanX = 0, canvasPanY = 0;
+let canvasPanDrag = null; // { startX, startY, startPanX, startPanY }
+
+function applyCanvasTransform() {
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+  if (canvasZoom === 1.0 && canvasPanX === 0 && canvasPanY === 0) {
+    // Default view: remove inline overrides and let CSS handle max-width/max-height
+    svg.style.transform = '';
+    svg.style.transformOrigin = '';
+    svg.style.maxWidth = '';
+    svg.style.maxHeight = '';
+  } else {
+    // Zoomed/panned: remove CSS size constraints, apply transform
+    svg.style.maxWidth = 'none';
+    svg.style.maxHeight = 'none';
+    svg.style.transformOrigin = 'center center';
+    svg.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasZoom})`;
+  }
+}
+
+function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); }
+function canvasZoomOut() { canvasZoom = Math.max(0.1, canvasZoom / 1.25); applyCanvasTransform(); }
+function canvasShrinkToFit() { canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; applyCanvasTransform(); }
+
+function initCanvasPan() {
+  const container = document.getElementById('preview-container');
+  if (!container) return;
+  let panPending = null; // pending pan start (not yet committed)
+
+  container.addEventListener('mousedown', (e) => {
+    // Ignore clicks on control buttons/overlays inside the container
+    if (e.target.closest('.canvas-controls') || e.target.closest('#clear-selection-btn') || e.target.closest('#canvas-pan-overlay')) return;
+
+    // Element placement: any click on canvas places the element
+    if (elementPlacementPending) {
+      handleElementPlacementClick(e);
+      return;
+    }
+    if (e.button !== 0 || window.hitexerSlideActive) return;
+    panPending = { startX: e.clientX, startY: e.clientY, startPanX: canvasPanX, startPanY: canvasPanY };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (panPending && !canvasPanDrag) {
+      const dist = Math.hypot(e.clientX - panPending.startX, e.clientY - panPending.startY);
+      if (dist > 4) {
+        canvasPanDrag = { ...panPending };
+        panPending = null;
+        container.style.cursor = 'grabbing';
+      }
+    }
+    if (canvasPanDrag) {
+      canvasPanX = canvasPanDrag.startPanX + (e.clientX - canvasPanDrag.startX);
+      canvasPanY = canvasPanDrag.startPanY + (e.clientY - canvasPanDrag.startY);
+      applyCanvasTransform();
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    panPending = null;
+    if (!canvasPanDrag) return;
+    canvasPanDrag = null;
+    container.style.cursor = '';
+  });
+}
+
+// Replace <foreignObject> (KaTeX/MathML labels) with SVG <text> fallbacks.
+// Browsers block <foreignObject> when rendering SVG as <img> via blob URL,
+// so we must convert to native SVG elements before rasterisation.
+function replaceForeignObjects(svgEl) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const fos = [...svgEl.querySelectorAll('foreignObject')];
+  for (const fo of fos) {
+    // Extract display text: prefer <annotation encoding="application/x-tex">,
+    // fall back to visible textContent
+    let label = '';
+    const ann = fo.querySelector('annotation[encoding="application/x-tex"]');
+    if (ann) {
+      label = ann.textContent.trim();
+    } else {
+      label = (fo.textContent || '').trim();
+    }
+
+    // Map common LaTeX commands to Unicode for the SVG text fallback
+    const LATEX_UNICODE = {
+      '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+      '\\varepsilon':'ε','\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\vartheta':'ϑ',
+      '\\iota':'ι','\\kappa':'κ','\\lambda':'λ','\\mu':'μ','\\nu':'ν',
+      '\\xi':'ξ','\\pi':'π','\\varpi':'ϖ','\\rho':'ρ','\\varrho':'ϱ',
+      '\\sigma':'σ','\\varsigma':'ς','\\tau':'τ','\\upsilon':'υ','\\phi':'ϕ',
+      '\\varphi':'φ','\\chi':'χ','\\psi':'ψ','\\omega':'ω',
+      '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
+      '\\Pi':'Π','\\Sigma':'Σ','\\Upsilon':'Υ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
+      '\\infty':'∞','\\partial':'∂','\\nabla':'∇','\\pm':'±','\\mp':'∓',
+      '\\times':'×','\\div':'÷','\\cdot':'·','\\leq':'≤','\\geq':'≥',
+      '\\neq':'≠','\\approx':'≈','\\equiv':'≡','\\sim':'∼','\\propto':'∝',
+      '\\angle':'∠','\\perp':'⊥','\\parallel':'∥','\\ell':'ℓ',
+      '\\forall':'∀','\\exists':'∃','\\in':'∈','\\notin':'∉',
+      '\\subset':'⊂','\\supset':'⊃','\\cup':'∪','\\cap':'∩',
+      '\\emptyset':'∅','\\neg':'¬','\\wedge':'∧','\\vee':'∨',
+      '\\oplus':'⊕','\\otimes':'⊗','\\rightarrow':'→','\\leftarrow':'←',
+      '\\Rightarrow':'⇒','\\Leftarrow':'⇐','\\leftrightarrow':'↔',
+      '\\vdots':'⋮','\\ddots':'⋱','\\cdots':'⋯','\\ldots':'…','\\dots':'…',
+      '\\prime':'′','\\circ':'∘','\\bullet':'•','\\star':'⋆',
+      '\\sqrt':'√','\\sum':'∑','\\prod':'∏','\\int':'∫',
+    };
+    // Convert LaTeX to Unicode text
+    let displayText = label;
+    // Detect bold commands before stripping
+    const hasBold = /\\(?:mathbf|textbf)\s*\{/.test(label);
+    // Detect if all alphabetic content is inside upright font commands
+    let uprightTest = label.replace(/\\(?:mathrm|mathbf|textbf|text|mathsf|operatorname)\s*\{[^}]*\}/g, '');
+    uprightTest = uprightTest.replace(/\\[a-zA-Z]+/g, '');
+    const allUpright = !/[a-zA-Z]/.test(uprightTest) && /\\(?:mathrm|mathbf|textbf|text|mathsf|operatorname)\s*\{/.test(label);
+    // Replace LaTeX commands with Unicode (longest first to avoid partial matches)
+    for (const [cmd, ch] of Object.entries(LATEX_UNICODE)) {
+      displayText = displayText.split(cmd).join(ch);
+    }
+    // Strip remaining LaTeX: braces, $, \mathrm{}, \mathbf{}, etc.
+    displayText = displayText.replace(/\\(?:mathrm|mathbf|textbf|mathit|mathsf|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+    displayText = displayText.replace(/\\[a-zA-Z]+/g, ''); // remove unknown commands
+    displayText = displayText.replace(/[{}$]/g, '').trim();
+
+    // Read position and style from the foreignObject
+    const fx = parseFloat(fo.getAttribute('x')) || 0;
+    const fy = parseFloat(fo.getAttribute('y')) || 0;
+    const fw = parseFloat(fo.getAttribute('width')) || 0;
+    const fh = parseFloat(fo.getAttribute('height')) || 0;
+    const opacity = fo.getAttribute('opacity') || '';
+
+    // Extract color and alignment from the inner div's style
+    const div = fo.querySelector('div');
+    let fill = '#000000', justifyContent = 'center';
+    if (div) {
+      const colMatch = div.getAttribute('style')?.match(/color:\s*([^;]+)/);
+      if (colMatch) fill = colMatch[1].trim();
+      if (/justify-content:\s*flex-end/.test(div.getAttribute('style') || '')) justifyContent = 'flex-end';
+      else if (/justify-content:\s*flex-start/.test(div.getAttribute('style') || '')) justifyContent = 'flex-start';
+    }
+    // Estimate SVG-unit font size from foreignObject height
+    // (renderLabelKaTeX sets estH = fontSizeSVG * 1.8, or * 3.0 for fractions)
+    const hasFrac = /\\frac/.test(label);
+    const fontSize = fh / (hasFrac ? 3.0 : 1.8);
+    // Map justify-content to text-anchor
+    const textAnchor = justifyContent === 'flex-end' ? 'end' : justifyContent === 'flex-start' ? 'start' : 'middle';
+    // Position text at center of foreignObject (adjust x for anchor)
+    let tx = fx + fw / 2;
+    if (textAnchor === 'start') tx = fx;
+    else if (textAnchor === 'end') tx = fx + fw;
+    const ty = fy + fh / 2;
+
+    const textEl = document.createElementNS(ns, 'text');
+    textEl.setAttribute('x', tx);
+    textEl.setAttribute('y', ty);
+    textEl.setAttribute('fill', fill);
+    textEl.setAttribute('font-size', fontSize);
+    textEl.setAttribute('text-anchor', textAnchor);
+    textEl.setAttribute('dominant-baseline', 'central');
+    textEl.setAttribute('font-family', 'serif');
+    textEl.setAttribute('font-style', allUpright ? 'normal' : 'italic');
+    if (hasBold) textEl.setAttribute('font-weight', 'bold');
+    if (opacity) textEl.setAttribute('opacity', opacity);
+    textEl.textContent = displayText;
+
+    // Preserve any parent <g> transform by replacing in-place
+    fo.parentNode.replaceChild(textEl, fo);
+  }
+}
+
+async function copyCanvasImage(format) {
+  format = format || 'png';
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg) return;
+  const btn = document.getElementById('btn-canvas-copy');
+  const flash = (msg) => { if (btn) { const o = btn.textContent; btn.textContent = msg; setTimeout(() => btn.textContent = o, 1200); } };
+  try {
+    const svgData = new XMLSerializer().serializeToString(svg);
+    if (format === 'svg') {
+      // Copy raw SVG markup as plain text
+      await navigator.clipboard.writeText(svgData);
+      flash('Copied!');
+      return;
+    }
+    // Clone SVG and replace foreignObject elements so it renders in <img> context
+    const svgClone = svg.cloneNode(true);
+    replaceForeignObjects(svgClone);
+    const rasterData = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([rasterData], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
+    // Use intrinsic (unshrunk) dimensions for export so PNG matches AoPS 240-DPI output
+    let w = svg.getAttribute('data-intrinsic-w') || svg.getAttribute('width');
+    let h = svg.getAttribute('data-intrinsic-h') || svg.getAttribute('height');
+    if (!w || !h) {
+      const vb = svg.getAttribute('viewBox');
+      w = vb ? vb.split(/[\s,]+/)[2] : 400;
+      h = vb ? vb.split(/[\s,]+/)[3] : 300;
+    }
+    w = parseFloat(w); h = parseFloat(h);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * 2); canvas.height = Math.round(h * 2);
+    const ctx = canvas.getContext('2d');
+    if (format === 'jpg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    ctx.scale(2, 2);
+    ctx.drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    canvas.toBlob(async (imgBlob) => {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ [mimeType]: imgBlob })]);
+        flash('Copied!');
+      } catch(err) { alert('Copy failed: ' + err.message); }
+    }, mimeType);
+  } catch(err) { alert('Copy failed: ' + err.message); }
+}
+
+function copyEditorCode() {
+  // Copy every line that is not hidden by the dependency filter.
+  // No element selected → all lines visible → copies full code.
+  // Element selected → only relevant lines visible → copies those.
+  // Either way: "everything visible if the editor were infinitely tall."
+  const lines = [];
+  for (let i = 0; i < editor.lineCount(); i++) {
+    const info = editor.lineInfo(i);
+    const hidden = info && info.wrapClass && info.wrapClass.split(' ').includes('cm-line-hidden');
+    if (!hidden) lines.push(editor.getLine(i));
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    const btn = document.getElementById('btn-copy-code');
+    if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
+  }).catch(err => alert('Copy failed: ' + err.message));
+}
+
+// ============================================================
+// Autocomplete Toggle
+// ============================================================
+let autocompleteEnabled = true;
+
+function toggleAutocomplete() {
+  autocompleteEnabled = !autocompleteEnabled;
+  const md = document.getElementById('md-autocomplete');
+  if (md) md.classList.toggle('checked', autocompleteEnabled);
+}
+
+// ============================================================
+// Element Placement Mode
+// ============================================================
+let elementPlacementPending = null; // { label, template }
+
+function startElementPlacement(label, template) {
+  elementPlacementPending = { label, template };
+  const previewContainer = document.getElementById('preview-container');
+  previewContainer.classList.add('element-placement-active');
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = `Click canvas to place ${label} (Esc to cancel)`;
+  statusEl.style.color = '#e9c46a';
+  document.addEventListener('keydown', cancelElementPlacementOnEsc);
+}
+
+function cancelElementPlacement() {
+  elementPlacementPending = null;
+  const previewContainer = document.getElementById('preview-container');
+  previewContainer.classList.remove('element-placement-active');
+  document.removeEventListener('keydown', cancelElementPlacementOnEsc);
+}
+
+function cancelElementPlacementOnEsc(e) {
+  if (e.key === 'Escape') { cancelElementPlacement(); document.getElementById('status').textContent = 'Ready'; document.getElementById('status').style.color = '#888'; }
+}
+
+function handleElementPlacementClick(e) {
+  const { label } = elementPlacementPending;
+  const svg = document.querySelector('#preview-container svg');
+  let mx = 0, my = 0;
+  if (svg && lastRenderInfo) {
+    const screenCTM = svg.getScreenCTM();
+    if (screenCTM) {
+      const inv = screenCTM.inverse();
+      const svgX = inv.a * e.clientX + inv.c * e.clientY + inv.e;
+      const svgY = inv.b * e.clientX + inv.d * e.clientY + inv.f;
+      mx = lastRenderInfo.minX + svgX / lastRenderInfo.pxPerUnitX;
+      my = lastRenderInfo.maxY - svgY / lastRenderInfo.pxPerUnitY;
+    }
+  }
+  placeElementAtCoords(label, mx, my);
+  cancelElementPlacement();
+}
+
+function placeElementAtCoords(label, mx, my) {
+  const x = mx.toFixed(2).replace(/\.?0+$/, '') || '0';
+  const y = my.toFixed(2).replace(/\.?0+$/, '') || '0';
+  let code;
+  if (label === 'Point') {
+    code = `pair P = (${x}, ${y});\ndot(P);\nlabel("$P$", P, N);`;
+  } else if (label === 'Circle') {
+    code = `draw(circle((${x}, ${y}), 1));`;
+  } else if (label === 'Ellipse') {
+    code = `draw(ellipse((${x}, ${y}), 1.5, 1));`;
+  } else if (label === 'Rectangle') {
+    const x2 = (parseFloat(x) + 2).toFixed(2).replace(/\.?0+$/, '');
+    const y2 = (parseFloat(y) + 1.5).toFixed(2).replace(/\.?0+$/, '');
+    code = `draw(box((${x}, ${y}), (${x2}, ${y2})));`;
+  } else if (label === 'Triangle') {
+    const x1 = (parseFloat(x) - 1).toFixed(2).replace(/\.?0+$/, '');
+    const x2 = (parseFloat(x) + 1).toFixed(2).replace(/\.?0+$/, '');
+    const y3 = (parseFloat(y) + Math.sqrt(3)).toFixed(2).replace(/\.?0+$/, '');
+    code = `pair T1 = (${x1}, ${y});\npair T2 = (${x2}, ${y});\npair T3 = (${x}, ${y3});\ndraw(T1--T2--T3--cycle);`;
+  } else {
+    code = `// placed ${label} at (${x}, ${y})`;
+  }
+  const editorCode = editor.getValue();
+  const endTag = editorCode.lastIndexOf('[/asy]');
+  if (endTag >= 0) {
+    editor.setValue(editorCode.substring(0, endTag) + code + '\n' + editorCode.substring(endTag));
+  } else {
+    editor.setValue(editorCode + '\n' + code);
+  }
+  doRender();
 }
 
 // ============================================================
@@ -2616,12 +3199,39 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-colorblind').addEventListener('click', () => toggleColorBlind());
   document.getElementById('md-zoom-in').addEventListener('click', () => adjustScale(1.25));
   document.getElementById('md-zoom-out').addEventListener('click', () => adjustScale(0.8));
-  document.getElementById('md-slide').addEventListener('click', () => toggleSlideMode());
+  document.getElementById('md-autocomplete').addEventListener('click', () => toggleAutocomplete());
   document.getElementById('md-texer-import').addEventListener('click', () => doTexerImport());
   document.getElementById('md-real-asy').addEventListener('click', () => toggleRealAsy());
+  // Toolbar Slide button
+  document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
+  // Toolbar GIF button
+  document.getElementById('btn-gif').addEventListener('click', () => toggleGifMode());
+  document.getElementById('gif-save-btn').addEventListener('click', () => generateGif('save'));
+  document.getElementById('gif-copy-btn').addEventListener('click', () => generateGif('copy'));
+  // Canvas controls
+  document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
+  document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
+  document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
+  document.getElementById('btn-canvas-copy').addEventListener('click', () => copyCanvasImage('png'));
+  document.getElementById('btn-canvas-copy-arrow').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('copy-format-menu').classList.toggle('open');
+  });
+  document.getElementById('copy-format-menu').addEventListener('click', (e) => {
+    const fmt = e.target.dataset.format;
+    if (fmt) { document.getElementById('copy-format-menu').classList.remove('open'); copyCanvasImage(fmt); }
+  });
+  document.addEventListener('click', () => document.getElementById('copy-format-menu').classList.remove('open'));
+  document.getElementById('btn-canvas-shrink').addEventListener('click', () => canvasShrinkToFit());
+  // Editor copy button
+  document.getElementById('btn-copy-code').addEventListener('click', () => copyEditorCode());
+  // Init canvas pan
+  initCanvasPan();
   document.getElementById('md-save').addEventListener('click', () => doSaveAsy());
   document.getElementById('md-open').addEventListener('click', () => document.getElementById('file-open-input').click());
   document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
+  document.getElementById('md-open-image').addEventListener('click', () => document.getElementById('file-open-image-input').click());
+  document.getElementById('file-open-image-input').addEventListener('change', (e) => doOpenImage(e));
   document.getElementById('md-export-svg').addEventListener('click', () => doExportSvg());
   document.getElementById('md-export-png').addEventListener('click', () => doExportPng());
   document.getElementById('md-export-jpg').addEventListener('click', () => doExportJpg());
@@ -2802,21 +3412,31 @@ document.addEventListener('DOMContentLoaded', () => {
   editor.on('change', (cm, changeObj) => {
     if (texerLoadedUrl) updateTexerModifiedIndicator();
 
-    // Adjust frozenVisibleLines and multiSelected when lines are added/removed
+    // Adjust frozenVisibleLines and multiSelected when lines are added/removed.
+    // This keeps the frozen code filter in sync with the actual editor content
+    // so the user doesn't get disoriented when adding/removing lines mid-edit.
     if (frozenVisibleLines && changeObj) {
       const fromLine = changeObj.from.line;
-      const removedCount = changeObj.removed.length - 1;
-      const addedCount = changeObj.text.length - 1;
+      const removedCount = changeObj.removed.length - 1; // lines removed (0 if within one line)
+      const addedCount = changeObj.text.length - 1;       // lines added (0 if within one line)
       const delta = addedCount - removedCount;
       if (delta !== 0) {
+        // Shift line numbers in frozenVisibleLines
         const shifted = new Set();
         for (const ln of frozenVisibleLines) {
-          if (ln <= fromLine) shifted.add(ln);
-          else if (ln > fromLine + removedCount) shifted.add(ln + delta);
+          if (ln <= fromLine) {
+            shifted.add(ln);
+          } else if (ln > fromLine + removedCount) {
+            shifted.add(ln + delta);
+          }
+          // Lines within the removed range are dropped
         }
+        // Any newly-inserted lines at the edit point should be visible
+        // (the user is typing there, so they need to see those lines)
         for (let i = 1; i <= addedCount; i++) shifted.add(fromLine + i);
         frozenVisibleLines = shifted;
 
+        // Also shift multiSelected (mutate in-place so closures keep the same reference)
         const oldSel = [...multiSelected];
         multiSelected.clear();
         for (const ln of oldSel) {
@@ -2828,6 +3448,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Don't schedule auto-render during slide drag/slider — those handlers render directly
     if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
+    // Re-sync GIF mode variable when code changes externally
+    if (gifActive && gifSelectedVar && !suppressAutoRender) {
+      const code = editor.getValue();
+      const freeReals = findFreeReals(code);
+      const match = freeReals.find(fr => fr.varName === gifSelectedVar.varName);
+      if (match) {
+        gifSelectedVar.lineIdx = match.lineIdx;
+      } else {
+        // Variable disappeared — deactivate GIF mode
+        deactivateGifMode();
+      }
+    }
   });
 
   // ============================================================
@@ -2894,6 +3526,8 @@ document.addEventListener('DOMContentLoaded', () => {
     gridActive = !gridActive;
     const gridMd = document.getElementById('md-grid');
     if (gridMd) gridMd.classList.toggle('checked', gridActive);
+    const gridCanvasBtn = document.getElementById('btn-canvas-grid');
+    if (gridCanvasBtn) gridCanvasBtn.classList.toggle('active', gridActive);
     if (gridActive) applyGridOverlay();
     else removeGridOverlay();
   }
@@ -2927,11 +3561,15 @@ document.addEventListener('DOMContentLoaded', () => {
     { icon: '\u22A5', label: 'Right angle mark', code: 'draw(rightanglemark({A}, {vertex}, {B}));' },
   ];
 
+  // Labels that support click-to-place on the canvas
+  const PLACEABLE_ELEMENTS = new Set(['Point', 'Circle', 'Ellipse', 'Rectangle', 'Triangle']);
+
   function showAddElementMenu(e) {
     if (addElMenu.style.display === 'block') { addElMenu.style.display = 'none'; return; }
     let html = '<div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:6px;">Add Element</div>';
     for (const t of ELEMENT_TEMPLATES) {
-      html += `<div class="ae-item" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}</div>`;
+      const hint = PLACEABLE_ELEMENTS.has(t.label) ? ' <span style="font-size:10px;color:#888;">(click canvas)</span>' : '';
+      html += `<div class="ae-item" data-label="${escapeHtml(t.label)}" data-code="${escapeHtml(t.code)}"><span class="ae-icon">${t.icon}</span>${t.label}${hint}</div>`;
     }
     addElMenu.innerHTML = html;
     const rect = (e && e.target) ? e.target.getBoundingClientRect() : { left: 200, bottom: 40 };
@@ -2941,28 +3579,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     addElMenu.querySelectorAll('.ae-item').forEach(item => {
       item.addEventListener('click', () => {
+        const label = item.dataset.label;
         const template = item.dataset.code;
-        // Find placeholders and prompt user for values
-        const placeholders = [...new Set(template.match(/\{[^}]+\}/g) || [])];
-        let code = template;
-        for (const ph of placeholders) {
-          const name = ph.slice(1, -1);
-          const val = prompt(`Enter value for ${name}:`, name === 'x' || name === 'y' ? '0' : name.includes('radius') ? '1' : name);
-          if (val === null) return; // cancelled
-          code = code.split(ph).join(val);
-        }
-        // Insert before [/asy]
-        const editorCode = editor.getValue();
-        const endTag = editorCode.lastIndexOf('[/asy]');
-        if (endTag >= 0) {
-          const before = editorCode.substring(0, endTag);
-          const after = editorCode.substring(endTag);
-          editor.setValue(before + code + '\n' + after);
-        } else {
-          editor.setValue(editorCode + '\n' + code);
-        }
         addElMenu.style.display = 'none';
-        doRender();
+
+        if (PLACEABLE_ELEMENTS.has(label)) {
+          // Enter placement mode — user clicks canvas to set position
+          startElementPlacement(label, template);
+        } else {
+          // Other elements: prompt for each placeholder
+          const placeholders = [...new Set(template.match(/\{[^}]+\}/g) || [])];
+          let code = template;
+          for (const ph of placeholders) {
+            const name = ph.slice(1, -1);
+            const val = prompt(`Enter value for ${name}:`, name === 'x' || name === 'y' ? '0' : name.includes('radius') ? '1' : name);
+            if (val === null) return;
+            code = code.split(ph).join(val);
+          }
+          const editorCode = editor.getValue();
+          const endTag = editorCode.lastIndexOf('[/asy]');
+          if (endTag >= 0) {
+            editor.setValue(editorCode.substring(0, endTag) + code + '\n' + editorCode.substring(endTag));
+          } else {
+            editor.setValue(editorCode + '\n' + code);
+          }
+          doRender();
+        }
       });
     });
   }
@@ -2984,12 +3626,15 @@ document.addEventListener('DOMContentLoaded', () => {
   let slideInjectedDots = [];
   let slideFreePointData = []; // [{varName, lineIdx, x, y, svgCX, svgCY, hitCircle, glowEls, matchStart, matchEnd, kind}]
   let slidePxPerUnit = 28.35;
+  let slideSliderRanges = {};  // {varName: {min, max, step}} — preserve ranges across rebuilds
 
   function toggleSlideMode() {
+    // Mutual exclusion: deactivate GIF mode if active
+    if (gifActive) deactivateGifMode();
     slideActive = !slideActive;
     window.hitexerSlideActive = slideActive;
-    const slideMd = document.getElementById('md-slide');
-    if (slideMd) slideMd.classList.toggle('checked', slideActive);
+    const btnSlide = document.getElementById('btn-slide');
+    if (btnSlide) btnSlide.classList.toggle('active', slideActive);
     if (slideActive) activateSlideMode();
     else deactivateSlideMode();
   }
@@ -3102,7 +3747,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (asyEndIdx >= 0) {
         const dotLines = undrawn.map(fp => {
           const ref = fp.varName || `(${fp.x}, ${fp.y})`;
-          return `dot(${ref}, red+linewidth(8bp)); // SLIDE_DOT`;
+          return `dot(${ref}, red+linewidth(0.5)); // SLIDE_DOT`;
         });
         lines.splice(asyEndIdx, 0, ...dotLines);
         slideInjectedDots = undrawn.map(fp => fp.varName || `(${fp.x}, ${fp.y})`);
@@ -3160,8 +3805,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper: convert math coordinates to SVG viewBox coordinates using lastRenderInfo
     function mathToSvg(mx, my) {
       if (lastRenderInfo) {
-        const { pxPerUnit, minX, maxY } = lastRenderInfo;
-        return { x: (mx - minX) * pxPerUnit, y: (maxY - my) * pxPerUnit };
+        const { pxPerUnitX, pxPerUnitY, minX, maxY } = lastRenderInfo;
+        return { x: (mx - minX) * pxPerUnitX, y: (maxY - my) * pxPerUnitY };
       }
       // Fallback: parse SVG viewBox when lastRenderInfo is null (server-rendered code)
       const svgEl = document.querySelector('#preview-container svg');
@@ -3224,14 +3869,27 @@ document.addEventListener('DOMContentLoaded', () => {
       // Create a large visible hit circle at the point's position (in viewBox coords)
       let hitCircle = null;
       if (svgCX !== null) {
+        // Scale hit-circle radius relative to viewBox so it looks the same on any diagram
+        const vb = svg.getAttribute('viewBox');
+        let hitR = 18;
+        let hitStroke = 2.5;
+        let hitDash = '4 2';
+        if (vb) {
+          const parts = vb.split(/[\s,]+/).map(Number);
+          const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
+          // Target: ~2% of the viewBox diagonal
+          hitR = vbDiag * 0.02;
+          hitStroke = hitR * 0.14;
+          hitDash = `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`;
+        }
         hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         hitCircle.setAttribute('cx', svgCX);
         hitCircle.setAttribute('cy', svgCY);
-        hitCircle.setAttribute('r', '18');
+        hitCircle.setAttribute('r', hitR);
         hitCircle.setAttribute('fill', 'rgba(233,196,106,0.3)');
         hitCircle.setAttribute('stroke', '#e9c46a');
-        hitCircle.setAttribute('stroke-width', '2.5');
-        hitCircle.setAttribute('stroke-dasharray', '4 2');
+        hitCircle.setAttribute('stroke-width', hitStroke);
+        hitCircle.setAttribute('stroke-dasharray', hitDash);
         hitCircle.setAttribute('class', 'slide-hit-circle');
         svg.appendChild(hitCircle);
       }
@@ -3242,6 +3900,13 @@ document.addEventListener('DOMContentLoaded', () => {
         hitCircle, glowEls,
         matchStart: fp.matchStart, matchEnd: fp.matchEnd, kind: fp.kind,
       });
+    }
+
+    // If a drag is in progress, reconnect slideDragState.fp to the newly rebuilt entry
+    if (slideDragState) {
+      const oldFp = slideDragState.fp;
+      const newFp = slideFreePointData.find(fp => fp.lineIdx === oldFp.lineIdx);
+      if (newFp) slideDragState.fp = newFp;
     }
 
     // Set up drag handling on the SVG (remove first to avoid duplicates on re-overlay)
@@ -3256,23 +3921,51 @@ document.addEventListener('DOMContentLoaded', () => {
     if (freeReals.length > 0) {
       slidePanel.style.display = 'block';
       const slidersDiv = document.getElementById('slide-sliders');
-      slidersDiv.innerHTML = '';
+      const existingSliders = slidersDiv.querySelectorAll('input[type=range]');
+      const existingByVar = {};
+      existingSliders.forEach(s => { existingByVar[s.dataset.var] = s; });
+      const currentVarNames = new Set(freeReals.map(fr => fr.varName));
+
+      // Remove rows for variables that no longer exist
+      existingSliders.forEach(s => {
+        if (!currentVarNames.has(s.dataset.var)) {
+          s.closest('div').remove();
+          delete slideSliderRanges[s.dataset.var];
+        }
+      });
+
       for (const fr of freeReals) {
-        const min = Math.min(-10, fr.value * 2);
-        const max = Math.max(10, fr.value * 2);
-        const step = Math.abs(fr.value) > 10 ? 1 : 0.1;
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
-        row.innerHTML = `<label style="color:#e9c46a;font-size:12px;min-width:60px;">${fr.varName}</label>
-          <input type="range" min="${min}" max="${max}" step="${step}" value="${fr.value}" data-line="${fr.lineIdx}" data-var="${fr.varName}" style="flex:1;">
-          <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
-        slidersDiv.appendChild(row);
-        const slider = row.querySelector('input[type=range]');
-        slider.addEventListener('input', () => {
-          const val = parseFloat(slider.value);
-          row.querySelector('.slide-val').textContent = val.toFixed(1);
-          updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
-        });
+        const existing = existingByVar[fr.varName];
+        if (existing) {
+          // Update existing slider: keep its min/max/step, just sync the value display
+          existing.dataset.line = fr.lineIdx;
+          const valSpan = existing.closest('div').querySelector('.slide-val');
+          if (valSpan) valSpan.textContent = parseFloat(fr.value).toFixed(1);
+          // Don't touch slider.value — user may be actively dragging it
+        } else {
+          // Create new slider with initial range, and remember it
+          let range = slideSliderRanges[fr.varName];
+          if (!range) {
+            range = {
+              min: Math.min(-10, fr.value * 2),
+              max: Math.max(10, fr.value * 2),
+              step: Math.abs(fr.value) > 10 ? 1 : 0.1,
+            };
+            slideSliderRanges[fr.varName] = range;
+          }
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
+          row.innerHTML = `<label style="color:#e9c46a;font-size:12px;min-width:60px;">${fr.varName}</label>
+            <input type="range" min="${range.min}" max="${range.max}" step="${range.step}" value="${fr.value}" data-line="${fr.lineIdx}" data-var="${fr.varName}" style="flex:1;">
+            <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
+          slidersDiv.appendChild(row);
+          const slider = row.querySelector('input[type=range]');
+          slider.addEventListener('input', () => {
+            const val = parseFloat(slider.value);
+            row.querySelector('.slide-val').textContent = val.toFixed(1);
+            updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
+          });
+        }
       }
     }
   }
@@ -3292,6 +3985,7 @@ document.addEventListener('DOMContentLoaded', () => {
     slideFreePointData = [];
     slidePanel.style.display = 'none';
     slideDragState = null;
+    slideSliderRanges = {};
 
     // Remove injected SLIDE_DOT lines and re-render
     if (slideInjectedDots.length > 0) {
@@ -3342,8 +4036,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const d = Math.hypot(clickSvgX - fp.svgCX, clickSvgY - fp.svgCY);
       if (d < bestDist) { bestDist = d; bestFP = fp; }
     }
-    // ~18 SVG units radius for hit circle; allow a bit more
-    if (!bestFP || bestDist > 25) return;
+    // Scale hit threshold relative to viewBox diagonal (same as hit circle radius)
+    const vb = svg.getAttribute('viewBox');
+    let hitThresh = 25;
+    if (vb) {
+      const parts = vb.split(/[\s,]+/).map(Number);
+      hitThresh = Math.hypot(parts[2] || 300, parts[3] || 300) * 0.03;
+    }
+    if (!bestFP || bestDist > hitThresh) return;
 
     svg.style.cursor = 'grabbing';
 
@@ -3355,6 +4055,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     slideDragState = {
       fp: bestFP,
+      startX: bestFP.x,  // math coords at drag start — stable across re-renders
+      startY: bestFP.y,
       startClientX: e.clientX,
       startClientY: e.clientY,
       screenPxPerMathUnit,
@@ -3368,13 +4070,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function slideMouseMove(e) {
     if (!slideDragState) return;
     e.preventDefault();
-    const { fp, startClientX, startClientY, screenPxPerMathUnit } = slideDragState;
+    const { fp, startX, startY, startClientX, startClientY, screenPxPerMathUnit } = slideDragState;
 
-    // Compute math-coordinate delta from stable screen-pixel delta
+    // Compute math-coordinate delta from stable screen-pixel delta.
+    // Use startX/startY (captured at drag start) not fp.x/fp.y which get updated
+    // by applySlideOverlay's reconnect logic on each re-render.
     const dx = (e.clientX - startClientX) / screenPxPerMathUnit;
     const dy = -(e.clientY - startClientY) / screenPxPerMathUnit; // screen Y is inverted
-    const newX = (fp.x + dx).toFixed(2).replace(/\.?0+$/, '');
-    const newY = (fp.y + dy).toFixed(2).replace(/\.?0+$/, '');
+    const newX = (startX + dx).toFixed(2).replace(/\.?0+$/, '');
+    const newY = (startY + dy).toFixed(2).replace(/\.?0+$/, '');
 
     const code = editor.getValue();
     const lines = code.split('\n');
@@ -3405,6 +4109,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
         // Re-apply slide overlay on the new SVG
         applySlideOverlay();
         return;
@@ -3426,7 +4132,7 @@ document.addEventListener('DOMContentLoaded', () => {
       fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
     }
     for (const el of fp.glowEls) {
-      el.setAttribute('transform', `translate(${dSvgX},${-dSvgY})`);
+      el.setAttribute('transform', `translate(${dSvgX},${dSvgY})`);
     }
   }
 
@@ -3447,6 +4153,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
         setupSvgInteractivityDirect(code, result.commandMap);
         if (slideActive) applySlideOverlay();
         return;
@@ -3471,7 +4179,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editor.setValue(newCode);
     suppressAutoRender = false;
 
-    // Try JS interpreter for instant response (don't rebuild slider overlay — it kills drag)
+    // Try JS interpreter for instant response
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
       try {
         const previewEl = document.getElementById('preview-container');
@@ -3481,7 +4189,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (oldSvg) oldSvg.remove();
         previewEl.insertAdjacentHTML('afterbegin', result.svg);
         showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         setupSvgInteractivityDirect(newCode, result.commandMap);
+        applyCanvasTransform();
+        if (slideActive) applySlideOverlay();
         return;
       } catch(e) { /* fall through to server */ }
     }
@@ -3490,6 +4201,601 @@ document.addEventListener('DOMContentLoaded', () => {
     doRender().then(() => probeReady).then(() => {
       if (slideActive) applySlideOverlay();
     });
+  }
+
+  // ============================================================
+  // Feature: GIF Mode
+  // ============================================================
+  let gifActive = false;
+  window.hitexerGifActive = false;
+  let gifPreviewAnimId = null;
+  let gifWorkerBlobUrl = null; // cached blob URL for gif.js worker (avoids CORS)
+  let gifSelectedVar = null;   // { lineIdx, varName, value }
+  let gifPreviewBounds = null; // {minX, minY, maxX, maxY, ppu} — stable bounds for preview
+  let gifOriginalValue = null; // original value of the variable before GIF preview
+  let gifAllOriginalValues = null; // map of lineIdx → {varName, value} for ALL free reals at entry
+
+  function toggleGifMode() {
+    if (gifActive) deactivateGifMode();
+    else activateGifMode();
+  }
+
+  function activateGifMode() {
+    const code = editor.getValue();
+    const freeReals = findFreeReals(code);
+    if (freeReals.length === 0) {
+      showWarnBadge('No free real variables. Add: real t = 0.5;');
+      return;
+    }
+    // Deactivate slide mode if active
+    if (slideActive) {
+      slideActive = false;
+      window.hitexerSlideActive = false;
+      const btnSlide = document.getElementById('btn-slide');
+      if (btnSlide) btnSlide.classList.toggle('active', false);
+      deactivateSlideMode();
+    }
+    gifActive = true;
+    window.hitexerGifActive = true;
+    const btnGif = document.getElementById('btn-gif');
+    if (btnGif) btnGif.classList.toggle('active', true);
+
+    // Snapshot all free-real variable values before any animation changes them
+    gifAllOriginalValues = {};
+    for (const fr of freeReals) gifAllOriginalValues[fr.lineIdx] = { varName: fr.varName, value: fr.value };
+
+    // Populate dropdown
+    const sel = document.getElementById('gif-var-select');
+    sel.innerHTML = '';
+    const blankOpt = document.createElement('option');
+    blankOpt.value = '';
+    blankOpt.textContent = '-- select variable --';
+    sel.appendChild(blankOpt);
+    for (const fr of freeReals) {
+      const opt = document.createElement('option');
+      opt.value = fr.varName;
+      opt.textContent = fr.varName;
+      opt.dataset.lineIdx = fr.lineIdx;
+      opt.dataset.initValue = fr.value;
+      sel.appendChild(opt);
+    }
+    sel.onchange = gifSelectVariable;
+
+    document.getElementById('gif-panel').style.display = 'block';
+  }
+
+  function gifSelectVariable() {
+    const sel = document.getElementById('gif-var-select');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || opt.value === '') {
+      if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+      gifSelectedVar = null;
+      return;
+    }
+    const initVal = parseFloat(opt.dataset.initValue);
+    gifSelectedVar = { lineIdx: parseInt(opt.dataset.lineIdx), varName: opt.value, value: initVal };
+    gifOriginalValue = initVal;
+    // Set default end value: init value if non-zero, else 1
+    document.getElementById('gif-end').value = (initVal === 0) ? '1' : String(initVal);
+    document.getElementById('gif-start').value = '0';
+    // Restart preview with new variable
+    gifStartPreview();
+  }
+
+  function gifParseDuration(str) {
+    str = str.trim().toLowerCase();
+    const msMatch = str.match(/^([\d.]+)\s*ms$/);
+    if (msMatch) return Math.max(100, parseFloat(msMatch[1]));
+    const sMatch = str.match(/^([\d.]+)\s*s?$/);
+    if (sMatch) return Math.max(100, parseFloat(sMatch[1]) * 1000);
+    return 3000; // default
+  }
+
+  // Pre-compute stable bounds by sampling the variable range
+  function gifComputePreviewBounds() {
+    gifPreviewBounds = null;
+    if (!gifSelectedVar) return;
+    const code = editor.getValue();
+    const lineIdx = gifSelectedVar.lineIdx;
+    const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
+    const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
+    // Sample several values to find the full extent of the drawing
+    const samples = 10;
+    let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+    let minPpu = Infinity;
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const val = startVal + (endVal - startVal) * t;
+      const framelines = code.split('\n');
+      framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${val};`);
+      const frameCode = framelines.join('\n');
+      if (!window.AsyInterp || !AsyInterp.canInterpret(frameCode)) continue;
+      try {
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(frameCode, { containerW: dims.w, containerH: dims.h });
+        bMinX = Math.min(bMinX, result.minX);
+        bMinY = Math.min(bMinY, result.minY);
+        bMaxX = Math.max(bMaxX, result.maxX);
+        bMaxY = Math.max(bMaxY, result.maxY);
+        minPpu = Math.min(minPpu, result.pxPerUnit);
+      } catch(e) { /* skip */ }
+    }
+    if (isFinite(minPpu) && isFinite(bMinX)) {
+      gifPreviewBounds = { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY, ppu: minPpu };
+    }
+  }
+
+  function gifStartPreview() {
+    if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+    if (!gifActive || !gifSelectedVar) return;
+    // Pre-compute stable bounds from sampled frames
+    gifComputePreviewBounds();
+    // Step through discrete frames at the specified delay to match actual GIF output.
+    // Uses recursive setTimeout so the delay is read fresh each tick.
+    // Step through the same discrete frames the GIF will have, at the same
+    // timing — but with a floor on the delay so the renderer can keep up.
+    // Long delays (e.g. 500ms) are honored faithfully so the preview matches
+    // the choppy look of the actual GIF.
+    let frameIndex = 0;
+    const PREVIEW_DELAY_FLOOR = 40; // ms — minimum preview delay (~25fps cap)
+    function stepFrame() {
+      if (!gifActive || !gifSelectedVar) { gifPreviewAnimId = null; return; }
+      const durationMs = gifParseDuration(document.getElementById('gif-duration').value);
+      const delayInput = parseInt(document.getElementById('gif-delay').value) || 2;
+      const frameDelay = Math.max(1, delayInput) * 10; // ms
+      const pauseMs = Math.round((parseFloat(document.getElementById('gif-pause').value) || 0) * 1000);
+      const pauseFirstMs = Math.round((parseFloat(document.getElementById('gif-pause-first').value) || 0) * 1000);
+      const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
+      const frameInCycle = frameIndex % totalFrames;
+      const t = totalFrames === 1 ? 0 : frameInCycle / (totalFrames - 1);
+      const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
+      const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
+      const value = startVal + (endVal - startVal) * t;
+      gifUpdateVariable(value);
+      frameIndex++;
+      let nextDelay = frameDelay;
+      if (frameInCycle === totalFrames - 1 && pauseMs > 0) nextDelay += pauseMs;
+      if (frameInCycle === 0 && pauseFirstMs > 0) nextDelay += pauseFirstMs;
+      gifPreviewAnimId = setTimeout(stepFrame, Math.max(nextDelay, PREVIEW_DELAY_FLOOR));
+    }
+    stepFrame();
+  }
+
+  function gifUpdateVariable(value) {
+    if (!gifSelectedVar) return;
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    const lineIdx = gifSelectedVar.lineIdx;
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    // Replace the value in the real declaration
+    const newLine = lines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
+    if (newLine === lines[lineIdx]) return; // no change
+    lines[lineIdx] = newLine;
+    const newCode = lines.join('\n');
+    const cursor = editor.getCursor();
+    const scrollInfo = editor.getScrollInfo();
+    suppressAutoRender = true;
+    editor.setValue(newCode);
+    editor.setCursor(cursor);
+    editor.scrollTo(scrollInfo.left, scrollInfo.top);
+    suppressAutoRender = false;
+    if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
+
+    // Use JS interpreter for instant render
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        // When GIF preview bounds are available, render with forced bounds and scale
+        // so every frame has the same coordinate system and scale
+        const renderOpts = { containerW: dims.w, containerH: dims.h };
+        if (gifPreviewBounds) {
+          renderOpts.forcedBounds = { minX: gifPreviewBounds.minX, minY: gifPreviewBounds.minY, maxX: gifPreviewBounds.maxX, maxY: gifPreviewBounds.maxY };
+          renderOpts.forcedPxPerUnit = gifPreviewBounds.ppu;
+        }
+        const result = AsyInterp.render(newCode, renderOpts);
+        const oldSvg = previewEl.querySelector('svg');
+        if (oldSvg) oldSvg.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
+      } catch(e) { /* ignore render errors during preview */ }
+    }
+  }
+
+  function deactivateGifMode() {
+    if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+    gifPreviewBounds = null;
+
+    // Restore ALL free-real variables to the values they had when GIF mode was entered
+    if (gifAllOriginalValues) {
+      const code = editor.getValue();
+      const lines = code.split('\n');
+      let changed = false;
+      for (const [lineIdxStr, { value }] of Object.entries(gifAllOriginalValues)) {
+        const lineIdx = parseInt(lineIdxStr);
+        if (lineIdx >= 0 && lineIdx < lines.length) {
+          const newLine = lines[lineIdx].replace(/=\s*[-\d.eE+]+\s*;/, `= ${value};`);
+          if (newLine !== lines[lineIdx]) { lines[lineIdx] = newLine; changed = true; }
+        }
+      }
+      if (changed) {
+        const cursor = editor.getCursor();
+        const scrollInfo = editor.getScrollInfo();
+        suppressAutoRender = true;
+        editor.setValue(lines.join('\n'));
+        editor.setCursor(cursor);
+        editor.scrollTo(scrollInfo.left, scrollInfo.top);
+        suppressAutoRender = false;
+        doRender();
+      }
+      gifAllOriginalValues = null;
+    }
+
+    gifActive = false;
+    window.hitexerGifActive = false;
+    gifSelectedVar = null;
+    gifOriginalValue = null;
+    const btnGif = document.getElementById('btn-gif');
+    if (btnGif) btnGif.classList.toggle('active', false);
+    document.getElementById('gif-panel').style.display = 'none';
+    document.getElementById('gif-progress').textContent = '';
+  }
+
+  async function generateGif(action) {
+    if (!gifSelectedVar) return;
+    if (typeof GIF === 'undefined') {
+      showWarnBadge('gif.js library not loaded. Check your internet connection.');
+      return;
+    }
+
+    // Fetch and cache the gif.js worker script as a blob URL to avoid CORS issues
+    if (!gifWorkerBlobUrl) {
+      try {
+        const resp = await fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js');
+        const text = await resp.text();
+        const blob = new Blob([text], { type: 'application/javascript' });
+        gifWorkerBlobUrl = URL.createObjectURL(blob);
+      } catch(e) {
+        showWarnBadge('Failed to load gif.js worker script. Check connection.');
+        return;
+      }
+    }
+
+    const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
+    const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
+    const durationMs = gifParseDuration(document.getElementById('gif-duration').value);
+    const delayInput = parseInt(document.getElementById('gif-delay').value) || 5;
+    const frameDelay = Math.max(1, delayInput) * 10; // convert to ms
+    const loopCount = parseInt(document.getElementById('gif-loop').value) || 0;
+    const pauseMs = Math.round((parseFloat(document.getElementById('gif-pause').value) || 0) * 1000);
+    const pauseFirstMs = Math.round((parseFloat(document.getElementById('gif-pause-first').value) || 0) * 1000);
+    const transparent = document.getElementById('gif-transparent').checked;
+    const widthStr = document.getElementById('gif-width').value.trim().toLowerCase();
+    const progressEl = document.getElementById('gif-progress');
+
+    const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
+    if (totalFrames > 500) {
+      if (!confirm(`This will generate ${totalFrames} frames. Continue?`)) return;
+    }
+
+    // Pause preview animation during generation
+    if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
+    document.getElementById('gif-panel').classList.add('gif-generating');
+    progressEl.textContent = 'Rendering frames...';
+
+    try {
+      const code = editor.getValue();
+      const lineIdx = gifSelectedVar.lineIdx;
+
+      function renderFrame(value, extraOpts) {
+        const framelines = code.split('\n');
+        framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
+        const frameCode = framelines.join('\n');
+        if (window.AsyInterp && AsyInterp.canInterpret(frameCode)) {
+          const dims = getPreviewDimensions();
+          return AsyInterp.render(frameCode, { containerW: dims.w, containerH: dims.h, ...extraOpts });
+        }
+        return null;
+      }
+
+      // Test that the renderer works
+      const testResult = renderFrame(startVal);
+      if (!testResult) {
+        showWarnBadge('Cannot render with JS interpreter. GIF requires built-in renderer.');
+        document.getElementById('gif-panel').classList.remove('gif-generating');
+        gifStartPreview();
+        return;
+      }
+
+      // Pass 1: render all frames to compute union bounding box and consistent scale
+      progressEl.textContent = 'Pass 1: computing bounds...';
+      let uMinX = Infinity, uMinY = Infinity, uMaxX = -Infinity, uMaxY = -Infinity;
+      let minPpu = Infinity;
+      for (let i = 0; i < totalFrames; i++) {
+        const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+        const value = startVal + (endVal - startVal) * t;
+        const result = renderFrame(value);
+        if (!result) continue;
+        // Accumulate union of math-coordinate bounds
+        uMinX = Math.min(uMinX, result.minX);
+        uMinY = Math.min(uMinY, result.minY);
+        uMaxX = Math.max(uMaxX, result.maxX);
+        uMaxY = Math.max(uMaxY, result.maxY);
+        minPpu = Math.min(minPpu, result.pxPerUnit);
+        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+
+      if (!isFinite(minPpu) || !isFinite(uMinX)) {
+        showWarnBadge('No frames could be rendered.');
+        document.getElementById('gif-panel').classList.remove('gif-generating');
+        gifStartPreview();
+        return;
+      }
+
+      const ppu = minPpu;
+      const forcedBounds = { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY };
+
+      // Union viewBox dimensions (in SVG/pixel units)
+      const natW = (uMaxX - uMinX) * ppu;
+      const natH = (uMaxY - uMinY) * ppu;
+
+      // Compute actual output dimensions
+      let outW, outH;
+      if (widthStr === 'true' || widthStr === '' || widthStr === 'auto') {
+        outW = Math.round(natW);
+        outH = Math.round(natH);
+      } else {
+        const wPx = parseInt(widthStr);
+        if (wPx > 0) {
+          outW = wPx;
+          outH = Math.round(natH * (wPx / natW));
+        } else {
+          outW = Math.round(natW);
+          outH = Math.round(natH);
+        }
+      }
+      // Safety floors
+      outW = Math.max(10, outW);
+      outH = Math.max(10, outH);
+
+      const gif = new GIF({
+        workers: 2,
+        quality: 10,
+        width: outW,
+        height: outH,
+        workerScript: gifWorkerBlobUrl,
+        repeat: loopCount,
+        transparent: transparent ? 0x00000000 : null,
+      });
+
+      // Pass 2: re-render each frame with forced bounds and scale, then rasterize
+      let framesAdded = 0;
+      for (let i = 0; i < totalFrames; i++) {
+        const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+        const value = startVal + (endVal - startVal) * t;
+        const result = renderFrame(value, { forcedBounds, forcedPxPerUnit: ppu });
+        if (!result) continue;
+
+        const frameDiv = document.createElement('div');
+        frameDiv.innerHTML = result.svg;
+        const frameSvg = frameDiv.querySelector('svg');
+        if (!frameSvg) continue;
+
+        frameSvg.setAttribute('width', outW);
+        frameSvg.setAttribute('height', outH);
+        // Remove overlays
+        frameSvg.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+
+        // If not transparent, add white background rect
+        if (!transparent) {
+          const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          bgRect.setAttribute('width', '100%');
+          bgRect.setAttribute('height', '100%');
+          bgRect.setAttribute('fill', 'white');
+          frameSvg.insertBefore(bgRect, frameSvg.firstChild);
+        }
+
+        try {
+          const canvas = await svgToCanvas(frameSvg, 1);
+          let delay = frameDelay;
+          if (i === totalFrames - 1 && pauseMs > 0) delay += pauseMs;
+          if (i === 0 && pauseFirstMs > 0) delay += pauseFirstMs;
+
+          gif.addFrame(canvas, { delay, copy: true });
+          framesAdded++;
+        } catch(e) {
+          console.warn('GIF frame render failed:', e);
+        }
+
+        progressEl.textContent = `Rendering frame ${i + 1}/${totalFrames}...`;
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      if (framesAdded === 0) {
+        throw new Error('No frames could be rasterized.');
+      }
+
+      progressEl.textContent = 'Encoding GIF...';
+
+      let blob = await new Promise((resolve, reject) => {
+        gif.on('finished', resolve);
+        gif.on('error', reject);
+        gif.render();
+      });
+
+      // Embed Asymptote code and GIF settings as a GIF comment extension
+      const gifMeta = JSON.stringify({
+        source: extractAsyCode(),
+        gif: {
+          var: gifSelectedVar ? gifSelectedVar.varName : null,
+          start: startVal, end: endVal,
+          duration: document.getElementById('gif-duration').value,
+          delay: delayInput, loop: loopCount,
+          pause: parseFloat(document.getElementById('gif-pause').value) || 0,
+          pauseFirst: parseFloat(document.getElementById('gif-pause-first').value) || 0,
+          width: widthStr, transparent,
+        },
+      });
+      blob = await gifAddComment(blob, gifMeta);
+
+      if (action === 'copy') {
+        // Chrome's Clipboard API only allows text/plain, text/html, and image/png.
+        // We encode the GIF as a base64 data URI inside an HTML <img> tag so it can
+        // be pasted into rich-text editors (Google Docs, EigenNode, etc.).
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(',')[1]);
+          r.onerror = rej;
+          r.readAsDataURL(blob);
+        });
+        const html = `<img src="data:image/gif;base64,${base64}">`;
+        const htmlBlob = new Blob([html], { type: 'text/html' });
+        let copied = false;
+        try {
+          await navigator.clipboard.write([new ClipboardItem({
+            'text/html': htmlBlob,
+          })]);
+          copied = true;
+        } catch(e) {
+          // Fallback: try writing as plain image/png (render first frame)
+          try {
+            const firstFrame = gif.frames && gif.frames[0];
+            if (firstFrame) {
+              const pngBlob = await new Promise(r => firstFrame.toBlob(r, 'image/png'));
+              await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+              copied = true;
+            }
+          } catch(e2) { /* fall through to download */ }
+        }
+        if (copied) {
+          progressEl.textContent = 'Copied to clipboard!';
+        } else {
+          downloadBlob(blob, 'animation.gif');
+          progressEl.textContent = 'Clipboard not supported — downloaded instead.';
+        }
+      } else {
+        downloadBlob(blob, 'animation.gif');
+        progressEl.textContent = 'Saved!';
+      }
+    } catch(err) {
+      console.error('GIF generation failed:', err);
+      progressEl.textContent = 'Error: ' + err.message;
+    } finally {
+      document.getElementById('gif-panel').classList.remove('gif-generating');
+      // Restore original value and restart preview
+      if (gifActive && gifSelectedVar && gifOriginalValue !== null) {
+        gifUpdateVariable(gifOriginalValue);
+        gifStartPreview();
+      }
+    }
+  }
+
+  // ---- Metadata embedding helpers ----
+  // Inject a tEXt chunk into a PNG blob. The tEXt chunk stores a keyword/value
+  // pair as plain Latin-1 text. We insert it right after the IHDR chunk (the
+  // first chunk after the 8-byte PNG signature).
+  async function pngAddTextChunk(blob, keyword, value) {
+    const buf = await blob.arrayBuffer();
+    const src = new Uint8Array(buf);
+    // PNG signature = 8 bytes, then IHDR chunk = 4(len)+4(type)+13(data)+4(crc) = 25
+    const insertPos = 8 + 25; // right after IHDR
+    const enc = new TextEncoder();
+    const kwBytes = enc.encode(keyword);
+    const valBytes = enc.encode(value);
+    // tEXt data = keyword + null separator + value
+    const dataLen = kwBytes.length + 1 + valBytes.length;
+    const chunk = new Uint8Array(4 + 4 + dataLen + 4); // length + type + data + crc
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, dataLen); // chunk data length
+    chunk[4] = 0x74; chunk[5] = 0x45; chunk[6] = 0x58; chunk[7] = 0x74; // "tEXt"
+    chunk.set(kwBytes, 8);
+    chunk[8 + kwBytes.length] = 0; // null separator
+    chunk.set(valBytes, 8 + kwBytes.length + 1);
+    // CRC covers type + data
+    const crc = crc32(chunk.subarray(4, 4 + 4 + dataLen));
+    view.setUint32(4 + 4 + dataLen, crc);
+    // Build new PNG: [signature + IHDR] + [tEXt chunk] + [rest]
+    const result = new Uint8Array(src.length + chunk.length);
+    result.set(src.subarray(0, insertPos), 0);
+    result.set(chunk, insertPos);
+    result.set(src.subarray(insertPos), insertPos + chunk.length);
+    return new Blob([result], { type: 'image/png' });
+  }
+
+  // Insert a COM (comment) marker into a JPEG blob, right after the SOI marker.
+  async function jpgAddComment(blob, comment) {
+    const buf = await blob.arrayBuffer();
+    const src = new Uint8Array(buf);
+    const enc = new TextEncoder();
+    const commentBytes = enc.encode(comment.slice(0, 65531)); // COM segment max 65533 bytes incl. length
+    // COM marker: FF FE, then 2-byte length (including the 2 length bytes)
+    const segLen = 2 + commentBytes.length;
+    const marker = new Uint8Array(2 + 2 + commentBytes.length);
+    marker[0] = 0xFF; marker[1] = 0xFE; // COM marker
+    marker[2] = (segLen >> 8) & 0xFF; marker[3] = segLen & 0xFF;
+    marker.set(commentBytes, 4);
+    // Insert after SOI (first 2 bytes: FF D8)
+    const result = new Uint8Array(src.length + marker.length);
+    result.set(src.subarray(0, 2), 0); // SOI
+    result.set(marker, 2);
+    result.set(src.subarray(2), 2 + marker.length);
+    return new Blob([result], { type: 'image/jpeg' });
+  }
+
+  // Insert a Comment Extension block into a GIF blob, right after the
+  // GIF header + logical screen descriptor (+ global color table if present).
+  async function gifAddComment(blob, comment) {
+    const buf = await blob.arrayBuffer();
+    const src = new Uint8Array(buf);
+    // GIF header: 6 bytes ("GIF89a" or "GIF87a")
+    // Logical screen descriptor: 7 bytes (w, h, packed, bg, aspect)
+    const packed = src[10];
+    const hasGCT = (packed & 0x80) !== 0;
+    const gctSize = hasGCT ? 3 * (1 << ((packed & 0x07) + 1)) : 0;
+    const insertPos = 6 + 7 + gctSize; // after header + LSD + GCT
+    // Build comment extension: 0x21 0xFE, then sub-blocks (max 255 bytes each), then 0x00 terminator
+    const enc = new TextEncoder();
+    const commentBytes = enc.encode(comment);
+    const subBlocks = [];
+    for (let i = 0; i < commentBytes.length; i += 255) {
+      const chunk = commentBytes.subarray(i, Math.min(i + 255, commentBytes.length));
+      subBlocks.push(chunk.length); // sub-block size byte
+      subBlocks.push(...chunk);
+    }
+    const ext = new Uint8Array(2 + subBlocks.length + 1);
+    ext[0] = 0x21; // extension introducer
+    ext[1] = 0xFE; // comment label
+    ext.set(new Uint8Array(subBlocks), 2);
+    ext[ext.length - 1] = 0x00; // block terminator
+    const result = new Uint8Array(src.length + ext.length);
+    result.set(src.subarray(0, insertPos), 0);
+    result.set(ext, insertPos);
+    result.set(src.subarray(insertPos), insertPos + ext.length);
+    return new Blob([result], { type: 'image/gif' });
+  }
+
+  // CRC-32 for PNG chunks (ISO 3309 / ITU-T V.42)
+  function crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Delay revoke so the browser has time to start the download.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
   // ============================================================
@@ -3756,6 +5062,197 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = ''; // reset for re-open
   }
 
+  // Open an image file and extract embedded Asymptote source code from metadata.
+  // Supports SVG (<metadata>), PNG (tEXt chunk), JPG (COM marker), GIF (comment
+  // extension), and PDF (jsPDF subject property). For GIFs, also restores GIF
+  // mode settings if present.
+  async function doOpenImage(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = ''; // reset for re-open
+    const ext = file.name.split('.').pop().toLowerCase();
+    let code = null;
+    let gifSettings = null;
+
+    try {
+      if (ext === 'svg') {
+        const text = await file.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'image/svg+xml');
+        const meta = doc.querySelector('metadata');
+        if (meta) code = meta.textContent.trim();
+      } else if (ext === 'png') {
+        const buf = await file.arrayBuffer();
+        code = extractPngText(new Uint8Array(buf), 'Source');
+      } else if (ext === 'jpg' || ext === 'jpeg') {
+        const buf = await file.arrayBuffer();
+        code = extractJpgComment(new Uint8Array(buf));
+      } else if (ext === 'gif') {
+        const buf = await file.arrayBuffer();
+        const comment = extractGifComment(new Uint8Array(buf));
+        if (comment) {
+          // Try parsing as JSON (HiTeXeR GIF metadata)
+          try {
+            const meta = JSON.parse(comment);
+            code = meta.source || null;
+            gifSettings = meta.gif || null;
+          } catch(_) {
+            // Plain text comment — treat as source code
+            code = comment;
+          }
+        }
+      } else if (ext === 'pdf') {
+        const text = await file.text();
+        code = extractPdfSubject(text);
+      }
+    } catch(err) {
+      console.error('Failed to read image metadata:', err);
+    }
+
+    if (!code) {
+      showWarnBadge('No Asymptote source code found in this file.');
+      return;
+    }
+
+    // Load the code into the editor
+    let asyCode = code;
+    if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
+    if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
+    editor.setValue(asyCode);
+    doRender();
+
+    // For GIFs with settings, activate GIF mode and restore settings
+    if (gifSettings) {
+      // Wait a tick for the editor/render to settle
+      await new Promise(r => setTimeout(r, 100));
+      activateGifMode();
+      // Select the variable
+      if (gifSettings.var) {
+        const sel = document.getElementById('gif-var-select');
+        for (let i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === gifSettings.var) {
+            sel.selectedIndex = i;
+            gifSelectVariable();
+            break;
+          }
+        }
+      }
+      // Restore settings
+      if (gifSettings.start != null) document.getElementById('gif-start').value = String(gifSettings.start);
+      if (gifSettings.end != null) document.getElementById('gif-end').value = String(gifSettings.end);
+      if (gifSettings.duration != null) document.getElementById('gif-duration').value = String(gifSettings.duration);
+      if (gifSettings.delay != null) document.getElementById('gif-delay').value = String(gifSettings.delay);
+      if (gifSettings.loop != null) document.getElementById('gif-loop').value = String(gifSettings.loop);
+      if (gifSettings.pause != null) document.getElementById('gif-pause').value = String(gifSettings.pause);
+      if (gifSettings.pauseFirst != null) document.getElementById('gif-pause-first').value = String(gifSettings.pauseFirst);
+      if (gifSettings.width != null) document.getElementById('gif-width').value = String(gifSettings.width);
+      if (gifSettings.transparent != null) document.getElementById('gif-transparent').checked = !!gifSettings.transparent;
+      // Restart preview with restored settings
+      gifStartPreview();
+    }
+  }
+
+  // Extract a tEXt chunk value from a PNG file by keyword.
+  function extractPngText(data, keyword) {
+    // Walk PNG chunks: 8-byte signature, then [4-byte len][4-byte type][data][4-byte crc]
+    let pos = 8; // skip PNG signature
+    const dec = new TextDecoder('latin1');
+    while (pos + 8 <= data.length) {
+      const len = (data[pos] << 24) | (data[pos+1] << 16) | (data[pos+2] << 8) | data[pos+3];
+      const type = dec.decode(data.subarray(pos + 4, pos + 8));
+      if (type === 'tEXt') {
+        const chunkData = data.subarray(pos + 8, pos + 8 + len);
+        // keyword\0value
+        const nullIdx = chunkData.indexOf(0);
+        if (nullIdx >= 0) {
+          const kw = dec.decode(chunkData.subarray(0, nullIdx));
+          if (kw === keyword) {
+            return new TextDecoder('utf-8').decode(chunkData.subarray(nullIdx + 1));
+          }
+        }
+      }
+      if (type === 'IEND') break;
+      pos += 4 + 4 + len + 4; // len field + type + data + crc
+    }
+    return null;
+  }
+
+  // Extract the COM (comment) marker content from a JPEG file.
+  function extractJpgComment(data) {
+    // JPEG: FF D8 (SOI), then markers FF XX [2-byte length] [data]
+    let pos = 2; // skip SOI
+    while (pos + 4 <= data.length) {
+      if (data[pos] !== 0xFF) break;
+      const marker = data[pos + 1];
+      if (marker === 0xD9) break; // EOI
+      const segLen = (data[pos + 2] << 8) | data[pos + 3];
+      if (marker === 0xFE) { // COM
+        return new TextDecoder('utf-8').decode(data.subarray(pos + 4, pos + 2 + segLen));
+      }
+      pos += 2 + segLen;
+    }
+    return null;
+  }
+
+  // Extract the Comment Extension content from a GIF file.
+  function extractGifComment(data) {
+    // GIF: 6-byte header, 7-byte LSD, optional GCT, then blocks
+    const packed = data[10];
+    const hasGCT = (packed & 0x80) !== 0;
+    const gctSize = hasGCT ? 3 * (1 << ((packed & 0x07) + 1)) : 0;
+    let pos = 6 + 7 + gctSize;
+    while (pos < data.length) {
+      if (data[pos] === 0x3B) break; // trailer
+      if (data[pos] === 0x21 && pos + 1 < data.length) {
+        const label = data[pos + 1];
+        pos += 2;
+        if (label === 0xFE) {
+          // Comment extension: read sub-blocks
+          const parts = [];
+          while (pos < data.length && data[pos] !== 0) {
+            const blockLen = data[pos++];
+            parts.push(data.subarray(pos, pos + blockLen));
+            pos += blockLen;
+          }
+          pos++; // skip terminator
+          const total = parts.reduce((s, p) => s + p.length, 0);
+          const merged = new Uint8Array(total);
+          let off = 0;
+          for (const p of parts) { merged.set(p, off); off += p.length; }
+          return new TextDecoder('utf-8').decode(merged);
+        }
+        // Skip other extension sub-blocks
+        while (pos < data.length && data[pos] !== 0) { pos += 1 + data[pos]; }
+        pos++; // skip terminator
+      } else if (data[pos] === 0x2C) {
+        // Image descriptor: skip over it
+        pos += 10; // descriptor
+        const lpacked = data[pos - 1];
+        const hasLCT = (lpacked & 0x80) !== 0;
+        const lctSize = hasLCT ? 3 * (1 << ((lpacked & 0x07) + 1)) : 0;
+        pos += lctSize;
+        pos++; // LZW min code size
+        // Skip LZW sub-blocks
+        while (pos < data.length && data[pos] !== 0) { pos += 1 + data[pos]; }
+        pos++; // skip terminator
+      } else {
+        pos++;
+      }
+    }
+    return null;
+  }
+
+  // Extract the /Subject field from a PDF (text-based search; works for jsPDF output).
+  function extractPdfSubject(text) {
+    // jsPDF writes: /Subject (content)
+    // The content may contain escaped parens: \( \)
+    const m = text.match(/\/Subject\s*\(([^)]*(?:\\\)[^)]*)*)\)/);
+    if (m) {
+      return m[1].replace(/\\(.)/g, '$1'); // unescape
+    }
+    return null;
+  }
+
   function cloneSvgForExport() {
     const svg = document.querySelector('#preview-container svg');
     if (!svg) return null;
@@ -3784,6 +5281,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function svgToCanvas(clone, scale) {
+    // Replace foreignObject elements so SVG renders in <img> context
+    replaceForeignObjects(clone);
+    // Read intrinsic dimensions from SVG attributes (not img.width which
+    // may be affected by devicePixelRatio or container scaling)
+    const svgW = parseFloat(clone.getAttribute('width'));
+    const svgH = parseFloat(clone.getAttribute('height'));
     return new Promise((resolve, reject) => {
       const serializer = new XMLSerializer();
       const svgStr = serializer.serializeToString(clone);
@@ -3792,11 +5295,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const url = URL.createObjectURL(blob);
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
+        const w = Math.round(svgW * scale);
+        const h = Math.round(svgH * scale);
+        canvas.width = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
         ctx.scale(scale, scale);
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, svgW, svgH);
         URL.revokeObjectURL(url);
         resolve(canvas);
       };
@@ -3808,8 +5313,15 @@ document.addEventListener('DOMContentLoaded', () => {
   async function doExportPng() {
     const clone = cloneSvgForExport();
     if (!clone) return;
-    // Set explicit width/height if not present
-    if (!clone.hasAttribute('width')) {
+    // Restore unshrunk (intrinsic) dimensions for export.
+    // The display SVG may be shrunk to fit the container, but the PNG
+    // should use the full intrinsic size (matching AoPS 240-DPI output at 2× scale).
+    const iw = clone.getAttribute('data-intrinsic-w');
+    const ih = clone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      clone.setAttribute('width', iw);
+      clone.setAttribute('height', ih);
+    } else if (!clone.hasAttribute('width')) {
       const vb = clone.getAttribute('viewBox');
       if (vb) {
         const parts = vb.split(/[\s,]+/).map(Number);
@@ -3819,13 +5331,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     try {
       const canvas = await svgToCanvas(clone, 2);
-      canvas.toBlob(blob => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'diagram.png';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }, 'image/png');
+      const rawBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      const blob = await pngAddTextChunk(rawBlob, 'Source', extractAsyCode());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'diagram.png';
+      a.click();
+      URL.revokeObjectURL(a.href);
     } catch(err) {
       console.error('PNG export failed:', err);
     }
@@ -3834,7 +5346,13 @@ document.addEventListener('DOMContentLoaded', () => {
   async function doExportJpg() {
     const clone = cloneSvgForExport();
     if (!clone) return;
-    if (!clone.hasAttribute('width')) {
+    // Restore unshrunk dimensions for export
+    const iw = clone.getAttribute('data-intrinsic-w');
+    const ih = clone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      clone.setAttribute('width', iw);
+      clone.setAttribute('height', ih);
+    } else if (!clone.hasAttribute('width')) {
       const vb = clone.getAttribute('viewBox');
       if (vb) {
         const parts = vb.split(/[\s,]+/).map(Number);
@@ -3852,13 +5370,13 @@ document.addEventListener('DOMContentLoaded', () => {
       tmpCtx.fillStyle = '#ffffff';
       tmpCtx.fillRect(0, 0, tmp.width, tmp.height);
       tmpCtx.drawImage(canvas, 0, 0);
-      tmp.toBlob(blob => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'diagram.jpg';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }, 'image/jpeg', 0.95);
+      const rawBlob = await new Promise(r => tmp.toBlob(r, 'image/jpeg', 0.95));
+      const blob = await jpgAddComment(rawBlob, extractAsyCode());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'diagram.jpg';
+      a.click();
+      URL.revokeObjectURL(a.href);
     } catch(err) {
       console.error('JPG export failed:', err);
     }
@@ -3867,7 +5385,13 @@ document.addEventListener('DOMContentLoaded', () => {
   async function doExportPdf() {
     const clone = cloneSvgForExport();
     if (!clone) return;
-    if (!clone.hasAttribute('width')) {
+    // Restore unshrunk dimensions for export
+    const iw = clone.getAttribute('data-intrinsic-w');
+    const ih = clone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      clone.setAttribute('width', iw);
+      clone.setAttribute('height', ih);
+    } else if (!clone.hasAttribute('width')) {
       const vb = clone.getAttribute('viewBox');
       if (vb) {
         const parts = vb.split(/[\s,]+/).map(Number);
@@ -3876,7 +5400,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     if (typeof window.jspdf === 'undefined') {
-      alert('jsPDF library not loaded. Check your internet connection.');
+      showWarnBadge('jsPDF library not loaded. Check your internet connection.');
       return;
     }
     try {
@@ -3909,6 +5433,125 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatOptComments = document.getElementById('chat-opt-comments');
   let chatHistory = [];
   let chatRevertCode = null;
+  let chatPendingImage = null; // { data: base64string, type: 'image/png' }
+
+  // Image attachment handling
+  const chatAttachBtn = document.getElementById('chat-attach-btn');
+  const chatFileInput = document.getElementById('chat-file-input');
+  const chatImagePreview = document.getElementById('chat-image-preview');
+  const chatImageThumb = document.getElementById('chat-image-thumb');
+  const chatImageRemove = document.getElementById('chat-image-remove');
+
+  chatAttachBtn.addEventListener('click', () => chatFileInput.click());
+
+  chatFileInput.addEventListener('change', () => {
+    if (chatFileInput.files[0]) setChatImage(chatFileInput.files[0]);
+    chatFileInput.value = '';
+  });
+
+  chatImageRemove.addEventListener('click', clearChatImage);
+
+  chatInput.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        setChatImage(item.getAsFile());
+        return;
+      }
+    }
+  });
+
+  // Global paste handler: extract Asymptote source from pasted images.
+  // Handles two cases:
+  //  1. AoPS TeXeR images — clipboard HTML contains <img alt="[asy]...[/asy]">
+  //  2. HiTeXeR images — PNG with tEXt "Source" metadata chunk
+  document.addEventListener('paste', (e) => {
+    // Don't intercept pastes aimed at text inputs or the CodeMirror editor
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' ||
+        ae.closest('.CodeMirror'))) return;
+
+    const cd = e.clipboardData;
+    if (!cd) return;
+
+    // --- Case 1: TeXeR HTML with alt text containing [asy]...[/asy] ---
+    const html = cd.getData('text/html');
+    if (html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const imgs = doc.querySelectorAll('img[alt]');
+      for (const img of imgs) {
+        const alt = img.getAttribute('alt');
+        const m = alt.match(/\[asy\]([\s\S]*?)\[\/asy\]/);
+        if (m) {
+          e.preventDefault();
+          let code = m[1].trim();
+          code = '[asy]\n' + code + '\n[/asy]';
+          editor.setValue(code);
+          doRender();
+          return;
+        }
+      }
+    }
+
+    // --- Case 2: HiTeXeR PNG with embedded source metadata ---
+    let imageItem = null;
+    for (const item of cd.items) {
+      if (item.type.startsWith('image/')) { imageItem = item; break; }
+    }
+    if (!imageItem) return;
+
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+
+    file.arrayBuffer().then(buf => {
+      const data = new Uint8Array(buf);
+      let code = null;
+      // Try PNG tEXt chunk
+      if (data[0] === 0x89 && data[1] === 0x50) {
+        code = extractPngText(data, 'Source');
+      }
+      // Try JPEG COM marker
+      if (!code && data[0] === 0xFF && data[1] === 0xD8) {
+        code = extractJpgComment(data);
+      }
+      // Try GIF comment extension
+      if (!code && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
+        const comment = extractGifComment(data);
+        if (comment) {
+          try { code = JSON.parse(comment).source || null; } catch(_) { code = comment; }
+        }
+      }
+      if (!code) return; // no source found — do nothing
+      let asyCode = code;
+      if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
+      if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
+      editor.setValue(asyCode);
+      doRender();
+    }).catch(err => console.error('Paste image read failed:', err));
+  });
+
+  function setChatImage(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      // dataUrl is "data:<type>;base64,<data>"
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return;
+      chatPendingImage = { type: match[1], data: match[2] };
+      chatImageThumb.src = dataUrl;
+      chatImagePreview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearChatImage() {
+    chatPendingImage = null;
+    chatImageThumb.src = '';
+    chatImagePreview.style.display = 'none';
+  }
 
   // "No edits" disables other options
   chatOptNoEdits.addEventListener('change', () => {
@@ -3934,7 +5577,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   chatCloseBtn.addEventListener('click', toggleChatPanel);
   chatSendBtn.addEventListener('click', sendChatMessage);
-  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
 
   // Chat resizer
   (function() {
@@ -3952,10 +5597,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('mouseup', () => { if (dragging) { dragging = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; } });
   })();
 
-  function addChatMessage(role, text, codePayload) {
+  function addChatMessage(role, text, codePayload, imageDataUrl) {
     const div = document.createElement('div');
     div.className = 'chat-msg ' + role;
-    let html = escapeHtml(text).replace(/\n/g, '<br>');
+    let html = '';
+    if (imageDataUrl) {
+      html += `<img class="chat-msg-image" src="${imageDataUrl}" alt="Attached image">`;
+    }
+    html += escapeHtml(text).replace(/\n/g, '<br>');
     if (codePayload) {
       html += `<div class="chat-actions">
         <button class="btn-accept" onclick="applyChatCode(this)">Accept</button>
@@ -3989,9 +5638,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function sendChatMessage() {
     const text = chatInput.value.trim();
-    if (!text) return;
+    if (!text && !chatPendingImage) return;
     chatInput.value = '';
-    addChatMessage('user', text);
+
+    const imageToSend = chatPendingImage;
+    const imageDataUrl = imageToSend ? `data:${imageToSend.type};base64,${imageToSend.data}` : null;
+    clearChatImage();
+
+    addChatMessage('user', text, null, imageDataUrl);
     chatHistory.push({ role: 'user', content: text });
 
     const options = {
@@ -4005,12 +5659,15 @@ document.addEventListener('DOMContentLoaded', () => {
     statusEl.textContent = 'AI thinking...'; statusEl.style.color = '#e9c46a';
 
     try {
+      const body = {
+        action: 'chat', code: editor.getValue(),
+        prompt: text, options, history: chatHistory,
+      };
+      if (imageToSend) body.image = imageToSend;
+
       const resp = await fetch(`${SERVER_URL}/ai`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'chat', code: editor.getValue(),
-          prompt: text, options, history: chatHistory,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await resp.json();
       const msg = data.message || 'No response';
@@ -4135,6 +5792,79 @@ document.addEventListener('DOMContentLoaded', () => {
     'rightanglemark','anglemark','markangle',
   ];
 
+  // Function signatures: text → full signature string
+  const ASY_SIGNATURES = {
+    'draw': 'draw(path g, pen p = currentpen)',
+    'fill': 'fill(path g, pen p = currentpen)',
+    'filldraw': 'filldraw(path g, pen fillpen = currentpen, pen drawpen = currentpen)',
+    'label': 'label(string s, pair position, pair dir = (0,0), pen p = currentpen)',
+    'dot': 'dot(pair z, pen p = currentpen)',
+    'clip': 'clip(path g)',
+    'unfill': 'unfill(path g)',
+    'circle': 'circle(pair c, real r)',
+    'arc': 'arc(pair c, real r, real angle1, real angle2)',
+    'ellipse': 'ellipse(pair c, real a, real b)',
+    'box': 'box(pair a, pair b)',
+    'shift': 'shift(pair z)',
+    'rotate': 'rotate(real angle, pair z = (0,0))',
+    'scale': 'scale(real s)',
+    'reflect': 'reflect(pair a, pair b)',
+    'midpoint': 'midpoint(path g)',
+    'extension': 'extension(pair P, pair Q, pair R, pair S)',
+    'intersectionpoint': 'intersectionpoint(path g, path h)',
+    'intersectionpoints': 'intersectionpoints(path g, path h)',
+    'incircle': 'incircle(pair A, pair B, pair C)',
+    'circumcircle': 'circumcircle(pair A, pair B, pair C)',
+    'incenter': 'incenter(pair A, pair B, pair C)',
+    'circumcenter': 'circumcenter(pair A, pair B, pair C)',
+    'inradius': 'inradius(pair A, pair B, pair C)',
+    'circumradius': 'circumradius(pair A, pair B, pair C)',
+    'foot': 'foot(pair P, pair A, pair B)',
+    'bisectorpoint': 'bisectorpoint(pair A, pair B, pair C)',
+    'centroid': 'centroid(pair A, pair B, pair C)',
+    'orthocenter': 'orthocenter(pair A, pair B, pair C)',
+    'linewidth': 'linewidth(real w)',
+    'fontsize': 'fontsize(real size)',
+    'opacity': 'opacity(real o)',
+    'sqrt': 'sqrt(real x)',
+    'abs': 'abs(real x)',
+    'sin': 'sin(real x)',
+    'cos': 'cos(real x)',
+    'tan': 'tan(real x)',
+    'atan': 'atan(real x)',
+    'atan2': 'atan2(real y, real x)',
+    'log': 'log(real x)',
+    'exp': 'exp(real x)',
+    'min': 'min(real a, real b)',
+    'max': 'max(real a, real b)',
+    'floor': 'floor(real x)',
+    'ceil': 'ceil(real x)',
+    'unitsize': 'unitsize(real u)',
+    'size': 'size(real w, real h = 0)',
+    'defaultpen': 'defaultpen(pen p)',
+    'xpart': 'xpart(pair z)',
+    'ypart': 'ypart(pair z)',
+    'length': 'length(path g)',
+    'angle': 'angle(pair z)',
+    'degrees': 'degrees(real angle)',
+    'radians': 'radians(real angle)',
+    'arclength': 'arclength(path g)',
+    'point': 'point(path g, real t)',
+    'relpoint': 'relpoint(path g, real t)',
+    'dir': 'dir(real angle)',
+    'rightanglemark': 'rightanglemark(pair A, pair B, pair C, real size = 5)',
+    'anglemark': 'anglemark(pair A, pair B, pair C, real radius = 0)',
+    'markangle': 'markangle(pair A, pair B, pair C, real radius = 0, pen p = currentpen)',
+    'rgb': 'rgb(real r, real g, real b)',
+    'gray': 'gray(real g)',
+  };
+
+  // Build completion objects with displayText for functions
+  function makeCompletionObj(name) {
+    const sig = ASY_SIGNATURES[name];
+    return sig ? { text: name, displayText: sig } : { text: name, displayText: name };
+  }
+
   let acDebounceTimer = null;
 
   function asyHint(cm, callback) {
@@ -4148,7 +5878,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Local: filter built-in completions
     const lower = prefix.toLowerCase();
-    const localMatches = ASY_COMPLETIONS.filter(c => c.toLowerCase().startsWith(lower) && c !== prefix);
+    const localMatches = ASY_COMPLETIONS
+      .filter(c => c.toLowerCase().startsWith(lower) && c !== prefix)
+      .map(makeCompletionObj);
 
     // Also scan code for user-defined variables
     const code = cm.getValue();
@@ -4156,9 +5888,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let m;
     const userVars = new Set();
     while ((m = varRe.exec(code)) !== null) userVars.add(m[1]);
-    const userMatches = [...userVars].filter(v => v.toLowerCase().startsWith(lower) && v !== prefix && !localMatches.includes(v));
+    const localTexts = new Set(localMatches.map(c => c.text));
+    const userMatches = [...userVars]
+      .filter(v => v.toLowerCase().startsWith(lower) && v !== prefix && !localTexts.has(v))
+      .map(v => ({ text: v, displayText: v }));
 
-    const allLocal = [...new Set([...localMatches, ...userMatches])].slice(0, 10);
+    const allLocal = [...localMatches, ...userMatches].slice(0, 10);
 
     // Show locals immediately
     const result = { list: allLocal, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } };
@@ -4172,7 +5907,9 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({ action: 'autocomplete', code, cursor: cm.indexFromPos(cur), prefix }),
       }).then(r => r.json()).then(data => {
         if (data.completions && data.completions.length > 0) {
-          const merged = [...new Set([...allLocal, ...data.completions])].slice(0, 12);
+          const aiObjs = data.completions.map(makeCompletionObj);
+          const allTexts = new Set(allLocal.map(c => c.text));
+          const merged = [...allLocal, ...aiObjs.filter(o => !allTexts.has(o.text))].slice(0, 12);
           cm.showHint({ hint: () => ({ list: merged, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } }), completeSingle: false });
         }
       }).catch(() => {});
@@ -4180,8 +5917,76 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   asyHint.async = true;
 
-  // Auto-trigger on typing 2+ chars
+  // ============================================================
+  // Parameter hint tooltip (shows signature while typing args)
+  // ============================================================
+  const paramHintEl = document.createElement('div');
+  paramHintEl.id = 'asy-param-hint';
+  paramHintEl.style.cssText = 'position:fixed;background:#1e1e2e;border:1px solid #555;border-radius:4px;padding:3px 10px;font-size:12px;font-family:monospace;color:#ccc;z-index:9999;pointer-events:none;display:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);';
+  document.body.appendChild(paramHintEl);
+
+  function updateParamHint(cm) {
+    const cur = cm.getCursor();
+    const line = cm.getLine(cur.line);
+    if (!line) { paramHintEl.style.display = 'none'; return; }
+
+    // Walk back from cursor to find the innermost unmatched '('
+    let depth = 0;
+    let openParenPos = -1;
+    for (let i = cur.ch - 1; i >= 0; i--) {
+      const ch = line[i];
+      if (ch === ')') depth++;
+      else if (ch === '(') {
+        if (depth === 0) { openParenPos = i; break; }
+        depth--;
+      }
+    }
+    if (openParenPos < 0) { paramHintEl.style.display = 'none'; return; }
+
+    // Get function name immediately before '('
+    const before = line.slice(0, openParenPos);
+    const funcMatch = before.match(/([A-Za-z_]\w*)$/);
+    if (!funcMatch) { paramHintEl.style.display = 'none'; return; }
+
+    const sig = ASY_SIGNATURES[funcMatch[1]];
+    if (!sig) { paramHintEl.style.display = 'none'; return; }
+
+    // Count which argument index the cursor is at (commas at depth 0)
+    let argIdx = 0;
+    let d = 0;
+    for (let i = openParenPos + 1; i < cur.ch; i++) {
+      const ch = line[i];
+      if (ch === '(' || ch === '[') d++;
+      else if (ch === ')' || ch === ']') d--;
+      else if (ch === ',' && d === 0) argIdx++;
+    }
+
+    // Parse args from signature
+    const argsMatch = sig.match(/\(([^]*)\)$/);
+    if (!argsMatch) { paramHintEl.style.display = 'none'; return; }
+    const args = argsMatch[1].split(',').map(s => s.trim());
+
+    // Render with the current arg highlighted
+    const funcName = sig.slice(0, sig.indexOf('('));
+    paramHintEl.innerHTML = escapeHtml(funcName) + '(' + args.map((arg, i) =>
+      i === argIdx
+        ? `<span style="color:#e9c46a;font-weight:bold;">${escapeHtml(arg)}</span>`
+        : `<span style="color:#aaa;">${escapeHtml(arg)}</span>`
+    ).join('<span style="color:#666;">, </span>') + ')';
+
+    paramHintEl.style.display = 'block';
+    const coords = cm.cursorCoords(true, 'window');
+    const hintH = paramHintEl.offsetHeight || 22;
+    paramHintEl.style.left = coords.left + 'px';
+    paramHintEl.style.top = (coords.top - hintH - 6) + 'px';
+  }
+
+  editor.on('cursorActivity', updateParamHint);
+  editor.on('blur', () => { paramHintEl.style.display = 'none'; });
+
+  // Auto-trigger on typing 2+ chars (gated by autocompleteEnabled)
   editor.on('inputRead', (cm, change) => {
+    if (!autocompleteEnabled) return;
     if (change.origin !== '+input') return;
     const token = cm.getTokenAt(cm.getCursor());
     if (token.string.length >= 2 && /^[A-Za-z_]/.test(token.string)) {

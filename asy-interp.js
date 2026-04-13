@@ -4464,7 +4464,25 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
-          const fmtDefault = () => Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+          // Default format mimics Asymptote's "$%.4g$": use scientific notation
+          // for very large/small values, otherwise plain number
+          const fmtDefault = () => {
+            const av = Math.abs(v);
+            if (av === 0) return '0';
+            if (av >= 10000 || (av > 0 && av < 0.001)) {
+              // Scientific notation: 1×10⁴ style
+              const exp = Math.floor(Math.log10(av));
+              const coeff = v / Math.pow(10, exp);
+              const coeffStr = Math.abs(coeff - Math.round(coeff)) < 1e-9 ? String(Math.round(coeff)) : coeff.toPrecision(4).replace(/\.?0+$/, '');
+              const superDigits = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
+              const expStr = String(exp).split('').map(c => superDigits[c] || c).join('');
+              if (coeffStr === '1') return '10' + expStr;
+              if (coeffStr === '-1') return '-10' + expStr;
+              return coeffStr + '×10' + expStr;
+            }
+            if (Number.isInteger(v)) return String(v);
+            return String(Math.round(v * 1000) / 1000);
+          };
           if (ticks.labelFunc) {
             // Custom label function: call it with the tick value
             try {
@@ -4721,10 +4739,12 @@ function createInterpreter() {
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:-1, y:1};
-        let labelY = ymax;
+        const lAlign = labelAlign || {x:-1, y:0};
+        let labelY = (ymin + ymax) / 2;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
+        // Y-axis labels are rotated 90° CCW by default in Asymptote
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0,
+          labelTransform: {a:0, b:0, c:-1, d:0, e:1, f:0}});
       }
     });
 
@@ -6460,14 +6480,22 @@ function createInterpreter() {
 
     // (intersectionpoints defined earlier with proper implementation)
 
-    // surface/revolution stubs for non-wireframe usage (draw calls on these are no-ops)
-    env.set('surface', (...args) => ({_tag:'surface'}));
+    // surface(): capture boundary path for rendering as filled polygon
+    env.set('surface', (...args) => {
+      if (args.length >= 1 && isPath(args[0])) {
+        return { _tag: 'surface', boundary: args[0] };
+      }
+      return { _tag: 'surface' };
+    });
     env.set('revolution', (...args) => ({_tag:'surface'}));
     env.set('unitsphere', {_tag:'surface'});
     env.set('unitdisk', {_tag:'surface'});
     env.set('unitplane', {_tag:'surface'});
     env.set('unitcube', {_tag:'surface'});
     env.set('extrude', (...args) => ({_tag:'surface'}));
+
+    // settings object — properties like settings.render are silently accepted
+    env.set('settings', { render: 0, outformat: '', prc: false, tex: 'pdflatex' });
 
     // light stubs
     env.set('light', (...args) => ({_tag:'light'}));
@@ -6543,6 +6571,22 @@ function createInterpreter() {
         target.commands.push({cmd, path, pen:clonePen(p), arrow:null, line: args._line || 0});
       }
       return;
+    }
+    // Handle draw(surface(path3), pen) — render as filled polygon
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a && a._tag === 'surface' && a.boundary) {
+        const surfPath = a.boundary;
+        projectPathTriples(surfPath);
+        let surfPen = null;
+        for (let j = 0; j < args.length; j++) {
+          if (j === i) continue;
+          if (isPen(args[j])) surfPen = surfPen ? mergePens(surfPen, args[j]) : args[j];
+        }
+        if (!surfPen) surfPen = clonePen(defaultPen);
+        target.commands.push({ cmd: 'fill', path: surfPath, pen: surfPen, line: args._line || 0 });
+        return;
+      }
     }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
     let labelText = null, labelAlign = null, labelPosition = null;
@@ -7497,16 +7541,16 @@ function renderSVG(result, opts) {
     elements.push(clipDefs);
   }
 
-  // Scale factor: how many viewBox units = 1 CSS pixel.
-  // With preserveAspectRatio="xMidYMid meet" (browser default / keepAspect), the viewBox is
-  // scaled by min(svgW/viewW, svgH/viewH) CSS-px per unit.  Inverting gives the correct
-  // cssPixel = max(viewW/svgW, viewH/svgH).  Using only viewW/svgW was wrong for
-  // height-limited pictures (naturalW < sizeW) and made fontSizeSVG too small, placing
-  // labels too close to the drawing.
+  // Scale factor: how many viewBox units = 1 CSS pixel at intrinsic size.
+  // We use intrinsicW/H (before container fit-scaling) so that stroke widths,
+  // dot radii, and font sizes are independent of the display container.  The
+  // browser's viewBox→display mapping scales everything uniformly, so strokes
+  // look correct at any display size.  For rasterization (librsvg/sharp) the
+  // intrinsic dimensions determine the actual rendered stroke weight.
   // With keepAspect=false the non-uniform scaling is baked into coordinates via
   // pxPerUnitX/Y, so viewBox matches svgW/svgH and cssPixel ≈ 1.
   const cssPixel = keepAspect
-    ? Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1))
+    ? Math.max(viewW / (intrinsicW || viewW || 1), viewH / (intrinsicH || viewH || 1))
     : viewW / (svgW || viewW || 1);
   // Like cssPixel but includes the bp→display conversion.  Use for anything whose
   // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
@@ -8970,13 +9014,12 @@ function canInterpret(code) {
   const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   // Reject features we can't handle
   if (/\bstruct\b/.test(stripped)) return false;
-  // 3D wireframe is supported; only block surface-heavy code
-  if (/\bsurface\s*\(/.test(stripped) || /\bsurface\s+\w/.test(stripped)) return false;
+  // 3D wireframe and basic surface() are supported
   if (/\bimport\s+flowchart\b/.test(stripped)) return false;
   if (/\bimport\s+animation\b/.test(stripped)) return false;
   if (/\bimport\s+palette\b/.test(stripped)) return false;
   if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
-  if (/\bsettings\b/.test(stripped)) return false;
+  // settings.render etc. are now accepted (silently ignored)
   if (/\btexpath\b/.test(stripped)) return false;
   if (/\bshipout\b/.test(stripped)) return false;
   // graphic() is now supported via pre-fetched image cache

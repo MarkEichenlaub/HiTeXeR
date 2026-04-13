@@ -37,6 +37,9 @@ const TYPE_NAMES = new Set([
   'int','real','pair','triple','string','bool','bool3','pen','path','path3','guide',
   'picture','transform','void','var','Label','file',
   'projection','revolution','surface','material',
+  'coordsys','point','vector',
+  'line','segment','circle','triangle',
+  'side','vertex',
 ]);
 
 // ============================================================
@@ -55,6 +58,18 @@ function lex(source) {
   while (pos < len) {
     // Skip whitespace
     if (ch() === ' ' || ch() === '\t' || ch() === '\r' || ch() === '\n') { advance(); continue; }
+
+    // Handle literal \t \n \r escape sequences outside strings (some corpus files
+    // have tab/newline characters encoded as backslash + letter instead of real
+    // whitespace bytes).  We treat them the same as actual whitespace.  The
+    // LaTeX-lookahead that the string lexer uses (\textbf etc.) is unnecessary
+    // here because LaTeX commands only appear inside string literals.
+    if (ch() === '\\' && pos + 1 < len) {
+      const nc = source[pos + 1];
+      if (nc === 't' || nc === 'n' || nc === 'r') {
+        advance(); advance(); continue;
+      }
+    }
 
     // Line comments
     if (ch() === '/' && peek(1) === '/') {
@@ -962,7 +977,18 @@ function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
 // seg = {p0:{x,y}, cp1:{x,y}, cp2:{x,y}, p3:{x,y}}
 function makeSeg(p0,cp1,cp2,p3) { return {p0,cp1,cp2,p3}; }
-function lineSegment(a,b) { return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b); }
+function lineSegment(a,b) {
+  // If either endpoint is a triple, keep control points as triples so
+  // projectPathTriples() can project them correctly later.
+  if ((a && a._tag === 'triple') || (b && b._tag === 'triple')) {
+    const az = a.z || 0, bz = b.z || 0;
+    return makeSeg(a,
+      {_tag:'triple', x:a.x+(b.x-a.x)/3, y:a.y+(b.y-a.y)/3, z:az+(bz-az)/3},
+      {_tag:'triple', x:a.x+2*(b.x-a.x)/3, y:a.y+2*(b.y-a.y)/3, z:az+2*(bz-az)/3},
+      b);
+  }
+  return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b);
+}
 
 function isPair(v) { return v && v._tag === 'pair'; }
 function isTriple(v) { return v && v._tag === 'triple'; }
@@ -975,6 +1001,70 @@ function isNumber(v) { return typeof v === 'number'; }
 function isArray(v) { return Array.isArray(v); }
 function isCallable(v) { return typeof v === 'function' || (v && v._tag === 'func'); }
 function isGraphic(v) { return v && v._tag === 'graphic'; }
+
+// Geometry package types
+function makeCoordSys(O, i, j) {
+  // O, i, j are pairs in default coordinates
+  // Build the 2×2 matrix P = [i | j] and its inverse
+  const det = i.x * j.y - i.y * j.x;
+  const idet = det !== 0 ? 1 / det : 0;
+  const iPxx = j.y * idet, iPxy = -j.x * idet;
+  const iPyx = -i.y * idet, iPyy = i.x * idet;
+  return {
+    _tag: 'coordsys',
+    O: O, i: i, j: j,
+    relativeToDefault: function(p) {
+      return makePair(O.x + p.x * i.x + p.y * j.x, O.y + p.x * i.y + p.y * j.y);
+    },
+    defaultToRelative: function(p) {
+      const dx = p.x - O.x, dy = p.y - O.y;
+      return makePair(iPxx * dx + iPxy * dy, iPyx * dx + iPyy * dy);
+    },
+  };
+}
+function isCoordSys(v) { return v && v._tag === 'coordsys'; }
+
+function makePoint(R, coords, mass) {
+  return { _tag: 'point', coordsys: R, coordinates: coords, x: coords.x, y: coords.y, m: mass || 1 };
+}
+function isPoint(v) { return v && v._tag === 'point'; }
+
+function locatePoint(P) { return P.coordsys.relativeToDefault(P.coordinates); }
+
+function makeGeoVector(R, coords) {
+  return { _tag: 'vector', v: makePoint(R, coords, 1) };
+}
+function isGeoVector(v) { return v && v._tag === 'vector'; }
+
+function locateVector(v) {
+  // Vector is displacement only — subtract origin
+  const p = locatePoint(v.v);
+  const O = v.v.coordsys.O;
+  return makePair(p.x - O.x, p.y - O.y);
+}
+
+// Geometry line type
+function makeGeoLine(A, B, extendA, extendB) {
+  // A, B are points; extendA/B control ray/segment/line
+  return { _tag: 'geoline', A: A, B: B, extendA: extendA !== false, extendB: extendB !== false };
+}
+function isGeoLine(v) { return v && v._tag === 'geoline'; }
+
+function makeSegment(A, B) {
+  return makeGeoLine(A, B, false, false);
+}
+
+// Geometry circle type
+function makeGeoCircle(C, r) {
+  return { _tag: 'geocircle', C: C, r: r };
+}
+function isGeoCircle(v) { return v && v._tag === 'geocircle'; }
+
+// Geometry triangle type
+function makeTriangleGeo(A, B, C) {
+  return { _tag: 'geotriangle', A: A, B: B, C: C };
+}
+function isTriangleGeo(v) { return v && v._tag === 'geotriangle'; }
 
 function penToCSS(pen) {
   if (!pen || !isPen(pen)) return {stroke:'#000000',strokeWidth:0.5,opacity:1};
@@ -998,10 +1088,13 @@ function mergePens(a,b) {
   if (bHasColor) {
     const aHasColor = (a.r !== 0 || a.g !== 0 || a.b !== 0);
     if (aHasColor) {
-      // Both have color: add RGB (Asymptote pen addition semantics)
-      r.r = Math.min(1, a.r + b.r);
-      r.g = Math.min(1, a.g + b.g);
-      r.b = Math.min(1, a.b + b.b);
+      // Both have color: add RGB then proportionally scale if saturated
+      // (Asymptote's rgbrange() divides all components by the max, preserving hue)
+      r.r = a.r + b.r;
+      r.g = a.g + b.g;
+      r.b = a.b + b.b;
+      const sat = Math.max(r.r, r.g, r.b);
+      if (sat > 1) { const s = 1 / sat; r.r *= s; r.g *= s; r.b *= s; }
     } else {
       r.r = b.r; r.g = b.g; r.b = b.b;
     }
@@ -1047,12 +1140,14 @@ function composeTransforms(t1, t2) {
 // Hobby's Algorithm for smooth '..' paths
 // ============================================================
 
-function hobbySpline(knots, closed) {
+function hobbySpline(knots, closed, directions) {
   const n = knots.length;
   if (n < 2) return [];
   if (n === 2) {
     // Simple case: single segment with default smooth tangents
-    return [hobbyTwoPointSegment(knots[0], knots[1])];
+    const dOut = directions && directions[0] ? directions[0].dirOut : null;
+    const dIn = directions && directions[1] ? directions[1].dirIn : null;
+    return [hobbyTwoPointSegment(knots[0], knots[1], dOut, dIn)];
   }
 
   // Compute chord distances and turning angles
@@ -1082,22 +1177,92 @@ function hobbySpline(knots, closed) {
     while (psi[0] < -Math.PI) psi[0] += 2*Math.PI;
   }
 
+  // Build clamped theta array from direction constraints.
+  // For knot i, if a direction is specified, we compute the desired theta[i]
+  // (offset of tangent from chord) and mark it as clamped.
+  // dirOut of knot i constrains the outgoing tangent at knot i → theta[i].
+  // dirIn of knot i constrains the incoming tangent at knot i → phi at knot i-1 side,
+  //   but it is easier to express as theta[i] relative to the incoming chord.
+  // We combine: if dirOut is set, that directly gives theta. If only dirIn is set and
+  // dirOut is not, we convert it to an equivalent theta constraint.
+  const clampedTheta = new Array(n).fill(null);
+  if (directions) {
+    for (let i = 0; i < n; i++) {
+      const dir = directions[i];
+      if (!dir) continue;
+      if (dir.dirOut != null) {
+        // theta[i] = dirOut - delta[i] (outgoing chord angle at i)
+        let th = dir.dirOut - delta[i % m];
+        while (th > Math.PI) th -= 2*Math.PI;
+        while (th < -Math.PI) th += 2*Math.PI;
+        clampedTheta[i] = th;
+      } else if (dir.dirIn != null && !closed) {
+        // For an interior knot with only dirIn: the incoming tangent at knot i
+        // should be dir.dirIn. The incoming tangent angle = delta[i-1] - phi[i-1].
+        // Using the relation phi[i-1] = -psi[i] - theta[i], we get:
+        // incoming angle = delta[i-1] + psi[i] + theta[i]
+        // Setting this equal to dirIn gives theta[i] = dirIn - delta[i-1] - psi[i].
+        // But it's simpler to just treat dirIn as constraining the outgoing direction
+        // at knot i to the same angle (smooth through the knot).
+        if (i > 0 && i < n-1) {
+          let th = dir.dirIn - delta[i % m];
+          while (th > Math.PI) th -= 2*Math.PI;
+          while (th < -Math.PI) th += 2*Math.PI;
+          clampedTheta[i] = th;
+        } else if (i === n-1) {
+          // Last knot: dirIn constrains the incoming tangent at the endpoint.
+          // theta[n-1] relates to the incoming side: incoming angle = delta[n-2] + psi[n-1] + theta[n-1]
+          // We want incoming angle + PI = dirIn (direction of arrival), so
+          // incoming angle = dirIn + PI (since dirIn points inward).
+          // Actually: the incoming tangent at knot n-1 points from cp2 to p3,
+          // i.e. angle = delta[m-1] - phi[m-1] = delta[m-1] + psi[n-1] + theta[n-1].
+          // We want it to equal dirIn, so:
+          // theta[n-1] = dirIn - delta[m-1] - psi[n-1]
+          let th = dir.dirIn - delta[m-1] - psi[n-1];
+          while (th > Math.PI) th -= 2*Math.PI;
+          while (th < -Math.PI) th += 2*Math.PI;
+          clampedTheta[n-1] = th;
+        }
+      }
+    }
+  }
+
   // Solve for theta (tangent angle offsets at each knot)
   const theta = new Array(n).fill(0);
   const phi = new Array(n).fill(0);
 
   if (closed) {
     // Cyclic tridiagonal system
-    solveCyclicTridiag(n, d, psi, theta);
+    solveCyclicTridiag(n, d, psi, theta, clampedTheta);
   } else {
     // Open: natural end conditions (theta[0]=0 approx, theta[n-1]=0)
-    solveOpenTridiag(n, d, psi, theta);
+    solveOpenTridiag(n, d, psi, theta, clampedTheta);
   }
 
-  // Compute phi from theta and psi
-  for (let i = 0; i < m; i++) {
-    const j = (i+1) % n;
-    phi[i] = -psi[j] - theta[j];
+  // Override phi for knots where dirIn is specified (incoming tangent constraint)
+  // This handles the case where dirIn constrains the incoming control point
+  // independently from the outgoing direction.
+  if (directions) {
+    for (let i = 0; i < m; i++) {
+      const j = (i+1) % n;
+      phi[i] = -psi[j] - theta[j];
+      // If next knot has dirIn, override phi to match
+      const dirJ = directions[j];
+      if (dirJ && dirJ.dirIn != null && dirJ.dirOut != null && dirJ.dirIn !== dirJ.dirOut) {
+        // Both dirIn and dirOut specified and different: phi controls incoming angle
+        // phi[i] = delta[i] - dirIn + PI, normalized
+        let p = delta[i] - dirJ.dirIn + Math.PI;
+        while (p > Math.PI) p -= 2*Math.PI;
+        while (p < -Math.PI) p += 2*Math.PI;
+        phi[i] = p;
+      }
+    }
+  } else {
+    // Compute phi from theta and psi (original code)
+    for (let i = 0; i < m; i++) {
+      const j = (i+1) % n;
+      phi[i] = -psi[j] - theta[j];
+    }
   }
 
   // Generate Bezier control points
@@ -1132,20 +1297,30 @@ function hobbyRho(theta, phi) {
   return Math.max(0.1, num / den);
 }
 
-function hobbyTwoPointSegment(a, b) {
+function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
   // Default smooth tangents for two-point spline
   const dx = b.x - a.x, dy = b.y - a.y;
   const d = Math.sqrt(dx*dx + dy*dy);
-  const alpha = d / 3;
-  const angle = Math.atan2(dy, dx);
+  const chordAngle = Math.atan2(dy, dx);
+  const angleA = (dirOut != null) ? dirOut : chordAngle;
+  const angleB = (dirIn != null) ? dirIn : chordAngle;
+  // Compute theta/phi offsets from chord for Hobby's rho function
+  const thetaA = angleA - chordAngle;
+  const phiB = chordAngle - angleB + Math.PI;
+  // Normalize to [-pi, pi]
+  const normAngle = v => { while (v > Math.PI) v -= 2*Math.PI; while (v < -Math.PI) v += 2*Math.PI; return v; };
+  const theta = normAngle(thetaA);
+  const phi = normAngle(phiB);
+  const alpha = hobbyRho(theta, phi) * d / 3;
+  const beta = hobbyRho(phi, theta) * d / 3;
   return makeSeg(a,
-    {x: a.x + alpha*Math.cos(angle), y: a.y + alpha*Math.sin(angle)},
-    {x: b.x - alpha*Math.cos(angle), y: b.y - alpha*Math.sin(angle)},
+    {x: a.x + alpha*Math.cos(angleA), y: a.y + alpha*Math.sin(angleA)},
+    {x: b.x - beta*Math.cos(angleB), y: b.y - beta*Math.sin(angleB)},
     b
   );
 }
 
-function solveOpenTridiag(n, d, psi, theta) {
+function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
   if (n <= 2) { theta[0] = 0; if(n>1) theta[1] = 0; return; }
   const m = n - 1;
   // Build tridiagonal: A[i]*theta[i-1] + B[i]*theta[i] + C[i]*theta[i+1] = D[i]
@@ -1163,6 +1338,15 @@ function solveOpenTridiag(n, d, psi, theta) {
   }
   B[m] = 1; A[m] = 1; D[m] = 0;
 
+  // Apply clamped theta constraints: replace row with identity equation
+  if (clampedTheta) {
+    for (let i = 0; i < n; i++) {
+      if (clampedTheta[i] != null) {
+        A[i] = 0; B[i] = 1; C[i] = 0; D[i] = clampedTheta[i];
+      }
+    }
+  }
+
   // Thomas algorithm
   for (let i = 1; i < n; i++) {
     const w = A[i] / B[i-1];
@@ -1175,7 +1359,7 @@ function solveOpenTridiag(n, d, psi, theta) {
   }
 }
 
-function solveCyclicTridiag(n, d, psi, theta) {
+function solveCyclicTridiag(n, d, psi, theta, clampedTheta) {
   // Use Sherman-Morrison trick for cyclic tridiagonal
   if (n < 3) { theta.fill(0); return; }
   const A = new Array(n).fill(0), B = new Array(n).fill(0);
@@ -1188,6 +1372,15 @@ function solveCyclicTridiag(n, d, psi, theta) {
     B[i] = (2*di_1 + 2*di) / (di_1 * di);
     C[i] = 1/di;
     D[i] = -(2*psi[i]*di + psi[(i+1)%n]*di_1) / (di_1 * di);
+  }
+
+  // Apply clamped theta constraints: replace row with identity equation
+  if (clampedTheta) {
+    for (let i = 0; i < n; i++) {
+      if (clampedTheta[i] != null) {
+        A[i] = 0; B[i] = 1; C[i] = 0; D[i] = clampedTheta[i];
+      }
+    }
   }
 
   // Sherman-Morrison: modify first eq to break cycle
@@ -1229,6 +1422,35 @@ const BREAK_SIG = {_sig:'break'};
 const CONTINUE_SIG = {_sig:'continue'};
 function ReturnSig(v) { return {_sig:'return', value:v}; }
 
+// Raw 3D→2D projection (module-scope so both interpreter and renderer can use it)
+function _projectTripleRaw(v, proj) {
+  const cx = proj.cx, cy = proj.cy, cz = proj.cz;
+  const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+  const dx = cx-tx, dy = cy-ty, dz = cz-tz;
+  const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+  const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
+  const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
+  let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
+  const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
+  rx /= rlen; ry /= rlen; rz /= rlen;
+  const upx = fw.y*rz - fw.z*ry, upy = fw.z*rx - fw.x*rz, upz = fw.x*ry - fw.y*rx;
+  const px = v.x - tx, py = v.y - ty, pz = v.z - tz;
+
+  if (proj.type === 'perspective') {
+    const depth = px*fw.x + py*fw.y + pz*fw.z;
+    const denom = dist - depth;
+    const safeDenom = Math.abs(denom) < 0.01 * dist
+      ? (denom >= 0 ? 1 : -1) * 0.01 * dist : denom;
+    const scale = dist / safeDenom;
+    const sx = px*rx + py*ry + pz*rz;
+    const sy = px*upx + py*upy + pz*upz;
+    return makePair(sx * scale, sy * scale);
+  }
+  const sx = px*rx + py*ry + pz*rz;
+  const sy = px*upx + py*upy + pz*upz;
+  return makePair(sx, sy);
+}
+
 function createInterpreter() {
   // Draw commands output
   const drawCommands = [];
@@ -1236,6 +1458,9 @@ function createInterpreter() {
   let currentPic = {_tag:'picture', commands:[]};
   // 3D projection (set by import three / currentprojection = ...)
   let projection = null; // null = no 3D; {type, camera, target, up, ...}
+  // Track all projected triples for camera auto-adjust (perspective adjust=true)
+  // Each entry: { triple, target } where target is {obj, key} pointing to the 2D result
+  let _projectedTriples = [];
   // Settings
   let unitScale = 1;       // unitsize value in points
   let hasUnitScale = false; // whether unitsize() was explicitly called
@@ -1245,44 +1470,62 @@ function createInterpreter() {
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
 
-  // Project a triple to a pair using the current 3D projection
+  // Project a triple to a pair using the current 3D projection.
+  // For perspective projections, implements Asymptote's adjust=true:
+  // if a point is near/behind the camera, immediately scale the camera
+  // outward and re-project all previously projected points in-place.
   function projectTriple(v) {
     if (!isTriple(v)) return isPair(v) ? v : makePair(0,0);
     const proj = projection;
     if (!proj) return makePair(v.x, v.y); // no projection: drop z
-    // Camera (eye) position
-    const cx = proj.cx, cy = proj.cy, cz = proj.cz;
-    // Target (look-at) position
-    const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
-    // View direction
-    const dx = cx-tx, dy = cy-ty, dz = cz-tz;
-    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-    // Forward (into screen), right, up vectors
-    const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
-    // Up hint
-    const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
-    // Right = up x forward
-    let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
-    const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
-    rx /= rlen; ry /= rlen; rz /= rlen;
-    // True up = forward x right
-    const upx = fw.y*rz - fw.z*ry, upy = fw.z*rx - fw.x*rz, upz = fw.x*ry - fw.y*rx;
 
-    // Translate point relative to target
-    const px = v.x - tx, py = v.y - ty, pz = v.z - tz;
-
+    // For perspective: implement Asymptote's adjust=Adjust behavior.
+    // Ensure the camera is far enough back that the scene fits within
+    // a reasonable field of view (~45 degrees).
     if (proj.type === 'perspective') {
-      // Perspective projection
-      const depth = px*fw.x + py*fw.y + pz*fw.z;
-      const scale = dist / (dist - depth || 1);
-      const sx = px*rx + py*ry + pz*rz;
-      const sy = px*upx + py*upy + pz*upz;
-      return makePair(sx * scale, sy * scale);
+      const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+      const dx = proj.cx-tx, dy = proj.cy-ty, dz = proj.cz-tz;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      const fwx = dx/dist, fwy = dy/dist, fwz = dz/dist;
+
+      // Compute the lateral extent of this point (perpendicular to view axis)
+      const px = v.x-tx, py = v.y-ty, pz = v.z-tz;
+      const depth = px*fwx + py*fwy + pz*fwz;
+      const lateralSq = (px*px + py*py + pz*pz) - depth*depth;
+      const lateral = Math.sqrt(Math.max(0, lateralSq));
+
+      // Required camera distance: lateral extent / tan(fov/2) + depth offset
+      // Using fov ≈ 45 degrees, tan(22.5°) ≈ 0.4142
+      const tanHalfFov = 0.4142;
+      const requiredDist = lateral / tanHalfFov + depth;
+
+      // Also ensure point is not within 50% of camera distance
+      const minDistForDepth = depth > 0 ? depth / 0.5 : dist;
+
+      const neededDist = Math.max(requiredDist, minDistForDepth);
+
+      if (neededDist > dist * 1.01) { // need to move camera back
+        const scaleFactor = neededDist / dist;
+        proj.cx = tx + dx * scaleFactor;
+        proj.cy = ty + dy * scaleFactor;
+        proj.cz = tz + dz * scaleFactor;
+
+        // Re-project all previously tracked triples with new camera
+        for (const entry of _projectedTriples) {
+          const t = entry.triple;
+          const rp = _projectTripleRaw(t, proj);
+          entry.result.x = rp.x;
+          entry.result.y = rp.y;
+        }
+      }
     }
-    // Orthographic projection (default)
-    const sx = px*rx + py*ry + pz*rz;
-    const sy = px*upx + py*upy + pz*upz;
-    return makePair(sx, sy);
+
+    const result = _projectTripleRaw(v, proj);
+    // Track for later potential re-projection
+    if (proj.type === 'perspective') {
+      _projectedTriples.push({ triple: {x:v.x, y:v.y, z:v.z}, result });
+    }
+    return result;
   }
 
   // Transform a single draw command by an affine transform
@@ -1338,14 +1581,14 @@ function createInterpreter() {
     const origUpdate = globalEnv.update.bind(globalEnv);
     globalEnv.set = (name, val) => {
       const cur = globalEnv.get(name);
-      if (typeof cur === 'function' && typeof val !== 'function' && !_builtinFuncs.has(name)) {
+      if (typeof cur === 'function' && !_builtinFuncs.has(name)) {
         _builtinFuncs.set(name, cur);
       }
       origSet(name, val);
     };
     globalEnv.update = (name, val) => {
       const cur = globalEnv.get(name);
-      if (typeof cur === 'function' && typeof val !== 'function' && !_builtinFuncs.has(name)) {
+      if (typeof cur === 'function' && !_builtinFuncs.has(name)) {
         _builtinFuncs.set(name, cur);
       }
       return origUpdate(name, val);
@@ -1426,6 +1669,8 @@ function createInterpreter() {
   }
   function toPair(v) {
     if (isPair(v)) return v;
+    if (isPoint(v)) return locatePoint(v);
+    if (isGeoVector(v)) return locateVector(v);
     if (isTriple(v)) return projectTriple(v);
     if (typeof v === 'number') return makePair(v, 0);
     return makePair(0,0);
@@ -1471,8 +1716,12 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (op === T.PLUS && isPen(left) && isNumber(right)) { const r = clonePen(left); r.linewidth = right; r._lwExplicit = true; return r; }
-    if (op === T.PLUS && isNumber(left) && isPen(right)) { const r = clonePen(right); r.linewidth = left; r._lwExplicit = true; return r; }
+    // In Asymptote: real + pen → (real * currentpen) + pen.  Since currentpen is
+    // normally black (0,0,0), multiplying by any number still gives black, and
+    // merging black with the explicit pen yields just the explicit pen.  The number
+    // does NOT set linewidth (use linewidth(n)+pen for that).
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { return clonePen(left); }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { return clonePen(right); }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
@@ -1481,6 +1730,118 @@ function createInterpreter() {
     }
     if (op === T.STAR && isPen(left) && isNumber(right)) {
       return makePen(Object.assign({}, left, {r:right*left.r, g:right*left.g, b:right*left.b}));
+    }
+
+    // Geometry point/vector ops
+    if (isPoint(left) || isPoint(right) || isGeoVector(left) || isGeoVector(right)) {
+      // point + vector → point (shift point by vector displacement)
+      if (op === T.PLUS && isPoint(left) && isGeoVector(right)) {
+        const d = locateVector(right);
+        const lp = locatePoint(left);
+        const rp = makePair(lp.x + d.x, lp.y + d.y);
+        return makePoint(left.coordsys, left.coordsys.defaultToRelative(rp), left.m);
+      }
+      if (op === T.PLUS && isGeoVector(left) && isPoint(right)) {
+        const d = locateVector(left);
+        const rp = locatePoint(right);
+        const np = makePair(rp.x + d.x, rp.y + d.y);
+        return makePoint(right.coordsys, right.coordsys.defaultToRelative(np), right.m);
+      }
+      // point - vector → point
+      if (op === T.MINUS && isPoint(left) && isGeoVector(right)) {
+        const d = locateVector(right);
+        const lp = locatePoint(left);
+        const rp = makePair(lp.x - d.x, lp.y - d.y);
+        return makePoint(left.coordsys, left.coordsys.defaultToRelative(rp), left.m);
+      }
+      // point + pair → point (pair interpreted as coords in point's coordsys)
+      if (op === T.PLUS && isPoint(left) && isPair(right)) {
+        return makePoint(left.coordsys, makePair(left.x + right.x, left.y + right.y), left.m);
+      }
+      if (op === T.PLUS && isPair(left) && isPoint(right)) {
+        return makePoint(right.coordsys, makePair(left.x + right.x, left.y + right.y), right.m);
+      }
+      // point - pair → point
+      if (op === T.MINUS && isPoint(left) && isPair(right)) {
+        return makePoint(left.coordsys, makePair(left.x - right.x, left.y - right.y), left.m);
+      }
+      // point - point → vector (in default coordsys)
+      if (op === T.MINUS && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(lp.x - rp.x, lp.y - rp.y));
+      }
+      // point + point → point (barycentric-like addition, convert both to default)
+      if (op === T.PLUS && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        return makePoint(left.coordsys, left.coordsys.defaultToRelative(makePair(lp.x + rp.x, lp.y + rp.y)), left.m + right.m);
+      }
+      // real * point → point (scale coordinates)
+      if (op === T.STAR && isNumber(left) && isPoint(right)) {
+        return makePoint(right.coordsys, makePair(left * right.x, left * right.y), right.m);
+      }
+      if (op === T.STAR && isPoint(left) && isNumber(right)) {
+        return makePoint(left.coordsys, makePair(left.x * right, left.y * right), left.m);
+      }
+      // point / real → point
+      if (op === T.SLASH && isPoint(left) && isNumber(right)) {
+        return right !== 0 ? makePoint(left.coordsys, makePair(left.x / right, left.y / right), left.m) : left;
+      }
+      // vector + vector → vector
+      if (op === T.PLUS && isGeoVector(left) && isGeoVector(right)) {
+        const ld = locateVector(left), rd = locateVector(right);
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(ld.x + rd.x, ld.y + rd.y));
+      }
+      // vector - vector → vector
+      if (op === T.MINUS && isGeoVector(left) && isGeoVector(right)) {
+        const ld = locateVector(left), rd = locateVector(right);
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(ld.x - rd.x, ld.y - rd.y));
+      }
+      // real * vector → vector
+      if (op === T.STAR && isNumber(left) && isGeoVector(right)) {
+        return makeGeoVector(right.v.coordsys, makePair(left * right.v.x, left * right.v.y));
+      }
+      if (op === T.STAR && isGeoVector(left) && isNumber(right)) {
+        return makeGeoVector(left.v.coordsys, makePair(left.v.x * right, left.v.y * right));
+      }
+      // vector / real → vector
+      if (op === T.SLASH && isGeoVector(left) && isNumber(right)) {
+        return right !== 0 ? makeGeoVector(left.v.coordsys, makePair(left.v.x / right, left.v.y / right)) : left;
+      }
+      // point == point
+      if (op === T.EQ && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        return Math.abs(lp.x - rp.x) < 1e-10 && Math.abs(lp.y - rp.y) < 1e-10;
+      }
+      if (op === T.NEQ && isPoint(left) && isPoint(right)) {
+        const lp = locatePoint(left), rp = locatePoint(right);
+        return Math.abs(lp.x - rp.x) >= 1e-10 || Math.abs(lp.y - rp.y) >= 1e-10;
+      }
+      // coordsys * pair → pair (convert from R's coords to default)
+      if (op === T.STAR && isCoordSys(left) && isPair(right)) {
+        return left.relativeToDefault(right);
+      }
+      // pair / coordsys → pair (convert from default to R's coords)
+      if (op === T.SLASH && isPair(left) && isCoordSys(right)) {
+        return right.defaultToRelative(left);
+      }
+      // transform * point → point (apply transform, keep coordsys)
+      if (op === T.STAR && isTransform(left) && isPoint(right)) {
+        const p = locatePoint(right);
+        const tp = applyTransformPair(left, p);
+        return makePoint(right.coordsys, right.coordsys.defaultToRelative(tp), right.m);
+      }
+      // Fall through to pair ops by converting to pair
+      if (isPoint(left) || isGeoVector(left) || isPoint(right) || isGeoVector(right)) {
+        const lp = toPair(left), rp = toPair(right);
+        if (op === T.PLUS) return makePair(lp.x + rp.x, lp.y + rp.y);
+        if (op === T.MINUS) return makePair(lp.x - rp.x, lp.y - rp.y);
+        if (op === T.STAR) return makePair(lp.x*rp.x - lp.y*rp.y, lp.x*rp.y + lp.y*rp.x);
+        if (op === T.EQ) return Math.abs(lp.x-rp.x)<1e-10 && Math.abs(lp.y-rp.y)<1e-10;
+        if (op === T.NEQ) return Math.abs(lp.x-rp.x)>=1e-10 || Math.abs(lp.y-rp.y)>=1e-10;
+      }
     }
 
     // Triple ops
@@ -1564,9 +1925,15 @@ function createInterpreter() {
       return Object.assign({}, right, {transform: t});
     }
 
-    // String concatenation
+    // String ops (concatenation, comparison)
     if (isString(left) || isString(right)) {
       if (op === T.PLUS) return String(isTriple(left)?tripleToStr(left):isPair(left)?pairToStr(left):left) + String(isTriple(right)?tripleToStr(right):isPair(right)?pairToStr(right):right);
+      if (op === T.EQ) return String(left) === String(right);
+      if (op === T.NEQ) return String(left) !== String(right);
+      if (op === T.LT) return String(left) < String(right);
+      if (op === T.GT) return String(left) > String(right);
+      if (op === T.LE) return String(left) <= String(right);
+      if (op === T.GE) return String(left) >= String(right);
     }
 
     // Number ops
@@ -1618,6 +1985,8 @@ function createInterpreter() {
   function evalUnary(node, env) {
     const v = evalNode(node.operand, env);
     if (node.op === '-') {
+      if (isPoint(v)) return makePoint(v.coordsys, makePair(-v.x, -v.y), v.m);
+      if (isGeoVector(v)) return makeGeoVector(v.v.coordsys, makePair(-v.v.x, -v.v.y));
       if (isTriple(v)) return makeTriple(-v.x, -v.y, -v.z);
       if (isPair(v)) return makePair(-v.x, -v.y);
       return -toNumber(v);
@@ -1665,6 +2034,11 @@ function createInterpreter() {
         if (args.length === 2 && isPair(args[0]) && isPair(args[1])) {
           return args[0].x*args[1].x + args[0].y*args[1].y;
         }
+        // dot(point, point) or dot(vector, vector) → dot product
+        if (args.length === 2 && (isPoint(args[0]) || isGeoVector(args[0])) && (isPoint(args[1]) || isGeoVector(args[1]))) {
+          const a = toPair(args[0]), b = toPair(args[1]);
+          return a.x*b.x + a.y*b.y;
+        }
         return evalDot(args);
       }
       return evalDraw(calleeName, args);
@@ -1682,6 +2056,18 @@ function createInterpreter() {
       return callee(...args);
     }
     if (callee && callee._tag === 'func') {
+      // Arity-based overload: if arg count doesn't match user func params,
+      // try the saved built-in (Asymptote supports same-name functions with
+      // different signatures, e.g. user-defined scale(s,D,E,p) vs built-in scale(s)).
+      const nArgs = node.args.filter(a => a.type !== 'NamedArg').length;
+      const nParams = callee.params ? callee.params.length : 0;
+      if (nArgs !== nParams && calleeName) {
+        const builtin = _builtinFuncs.get(calleeName);
+        if (builtin) {
+          const args = node.args.map(a => evalNode(a, env));
+          return builtin(...args);
+        }
+      }
       return callUserFunc(callee, node.args, env);
     }
 
@@ -1891,6 +2277,21 @@ function createInterpreter() {
     }
   }
 
+  // Convert a direction AST spec ({x,y} pair or {x, singleExpr:true} angle) to radians
+  function evalDirSpec(dir, env) {
+    if (!dir) return null;
+    if (dir.singleExpr) {
+      // Single expression: interpret as degrees (e.g. {dir(225)})
+      const val = evalNode(dir.x, env);
+      if (isPair(val)) return Math.atan2(val.y, val.x);
+      const deg = toNumber(val);
+      return deg * Math.PI / 180;
+    }
+    const vx = toNumber(evalNode(dir.x, env));
+    const vy = toNumber(evalNode(dir.y, env));
+    return Math.atan2(vy, vx);
+  }
+
   function evalPathExpr(node, env) {
     // First pass: evaluate all nodes, collecting pairs and inline paths
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
@@ -1903,14 +2304,16 @@ function createInterpreter() {
         continue;
       }
       const val = evalNode(n.point, env);
+      const eDirIn = evalDirSpec(n.dirIn, env);
+      const eDirOut = evalDirSpec(n.dirOut, env);
       if (isPath(val) && val.segs.length > 0) {
-        elements.push({type:'path', segs:val.segs, join:n.join});
+        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
       } else if (isPath(val) && val.segs.length === 0) {
         // Empty path/guide (e.g. uninitialized "guide g") — skip entirely.
         // Converting to (0,0) via toPair would create a stray segment from the origin.
         continue;
       } else {
-        elements.push({type:'pair', pt:toPair(val), join:n.join});
+        elements.push({type:'pair', pt:toPair(val), join:n.join, dirIn:eDirIn, dirOut:eDirOut});
       }
     }
 
@@ -1983,6 +2386,9 @@ function createInterpreter() {
       if (elements[i].join) joins.push(elements[i].join);
     }
 
+    // Build per-knot direction constraints: {dirIn, dirOut} for each point
+    const directions = elements.map(e => ({dirIn: e.dirIn || null, dirOut: e.dirOut || null}));
+
     if (points.length < 2) return makePath([], false);
 
     // Handle ^^ (path concatenation) - split into separate sub-paths
@@ -1999,8 +2405,9 @@ function createInterpreter() {
       for (const hi of [...hathatIndices, joins.length]) {
         const subPoints = points.slice(start, hi + 1);
         const subJoins = joins.slice(start, hi);
+        const subDirs = directions.slice(start, hi + 1);
         if (subPoints.length >= 2) {
-          const subSegs = buildPathSegs(subPoints, subJoins, false);
+          const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs);
           allSegs.push(...subSegs);
         } else if (subPoints.length === 1) {
           // Single point joined via ^^: zero-length segment (used by dot(a^^b^^c) to mark positions)
@@ -2011,10 +2418,10 @@ function createInterpreter() {
       return makePath(allSegs, false);
     }
 
-    return makePath(buildPathSegs(points, joins, hasCycle), hasCycle);
+    return makePath(buildPathSegs(points, joins, hasCycle, directions), hasCycle);
   }
 
-  function buildPathSegs(points, joins, hasCycle) {
+  function buildPathSegs(points, joins, hasCycle, directions) {
     // Check if all joins are '--' (straight line)
     const allStraight = joins.every(j => j === '--');
 
@@ -2030,7 +2437,7 @@ function createInterpreter() {
 
     // Hobby's algorithm for '..' joins
     if (joins.every(j => j === '..')) {
-      return hobbySpline(points, hasCycle);
+      return hobbySpline(points, hasCycle, directions);
     }
 
     // Mixed joins: segment by segment
@@ -2041,7 +2448,9 @@ function createInterpreter() {
       if (joins[i] === '--') {
         segs.push(lineSegment(points[i], points[j]));
       } else {
-        const s = hobbySpline([points[i], points[j]], false);
+        // Pass per-segment directions for the two-knot sub-spline
+        const subDirs = directions ? [directions[i], directions[j]] : null;
+        const s = hobbySpline([points[i], points[j]], false, subDirs);
         segs.push(...s);
       }
     }
@@ -2050,8 +2459,23 @@ function createInterpreter() {
 
   function evalVarDecl(node, env) {
     let val = null;
-    if (node.init) val = evalNode(node.init, env);
-    else {
+    if (node.init) {
+      val = evalNode(node.init, env);
+      // Implicit type coercion for geometry types
+      if (node.varType === 'point' && !isPoint(val)) {
+        const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        if (isPair(val)) val = makePoint(cs, val, 1);
+        else if (isGeoVector(val)) val = val.v; // vector → point
+        else val = makePoint(cs, toPair(val), 1);
+      } else if (node.varType === 'vector' && !isGeoVector(val)) {
+        const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        if (isPoint(val)) val = makeGeoVector(val.coordsys, val.coordinates);
+        else if (isPair(val)) val = makeGeoVector(cs, val);
+        else val = makeGeoVector(cs, toPair(val));
+      } else if (node.varType === 'pair' && (isPoint(val) || isGeoVector(val))) {
+        val = toPair(val);
+      }
+    } else {
       // Default values by type
       if (node.varType.endsWith('[]')) {
         val = [];
@@ -2066,6 +2490,17 @@ function createInterpreter() {
           case 'string': val = ''; break;
           case 'bool': val = false; break;
           case 'picture': val = {_tag:'picture', commands:[]}; break;
+          case 'coordsys': val = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1)); break;
+          case 'point': {
+            const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+            val = makePoint(cs, makePair(0,0), 1);
+            break;
+          }
+          case 'vector': {
+            const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+            val = makeGeoVector(cs, makePair(0,0));
+            break;
+          }
         }
       }
     }
@@ -2200,12 +2635,21 @@ function createInterpreter() {
 
   function evalImport(node, env) {
     const mod = node.module.toLowerCase();
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('geometry') || mod.includes('math') || mod.includes('markers') || mod.includes('contour') || mod.includes('palette')) {
+    if (mod.includes('geometry')) {
+      installGeometryPackage(env);
+    }
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('palette') || mod.includes('trembling')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    }
+    if (mod.includes('contour')) {
+      installContourPackage(env);
     }
     if (mod.includes('trigmacros')) {
       installGraphPackage(env); // TrigMacros depends on graph
       installTrigMacros(env);
+    }
+    if (mod.includes('slopefield')) {
+      installSlopefieldPackage(env);
     }
     if (mod.includes('graph')) {
       installGraphPackage(env);
@@ -2282,6 +2726,14 @@ function createInterpreter() {
       darkbrown:'#400000', // = darkred
       pink:'#ffbfff',    // = palemagenta
       salmon:'#ff8080',  // = lightred
+      // Grey aliases (British spelling)
+      grey:'#808080',
+      lightgrey:'#e6e6e6',
+      mediumgrey:'#bfbfbf',
+      heavygrey:'#404040',
+      deepgrey:'#1a1a1a',
+      darkgrey:'#0d0d0d',
+      palegrey:'#f2f2f2',
     };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
       const r = parseInt(hex.substr(1,2),16)/255;
@@ -2315,22 +2767,38 @@ function createInterpreter() {
     env.set('down', makePair(0,-1));
     env.set('right', makePair(1,0));
     env.set('left', makePair(-1,0));
+    env.set('CCW', true);
+    env.set('CW', false);
+    env.set('Aspect', true);
+    env.set('IgnoreAspect', false);
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
+    env.set('pathpen', makePen({}));
+    env.set('pointpen', makePen({}));
     env.set('currentpicture', currentPic);
     env.set('currentprojection', null);
-    // add() composites a picture into currentpicture, optionally with transform
+    // add() composites a picture into currentpicture (or a destination picture),
+    // optionally with a transform.
+    // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
     env.set('add', (...args) => {
-      let pic = null, t = null;
+      let pics = [], t = null;
       for (const a of args) {
-        if (a && a._tag === 'picture') pic = a;
+        if (a && a._tag === 'picture') pics.push(a);
         else if (isTransform(a)) t = a;
       }
-      if (pic) {
-        const cmds = t ? pic.commands.map(c => transformDrawCmd(t, c)) : pic.commands;
-        for (const c of cmds) currentPic.commands.push(c);
+      let dest, src;
+      if (pics.length >= 2) {
+        dest = pics[0];
+        src = pics[1];
+      } else if (pics.length === 1) {
+        dest = currentPic;
+        src = pics[0];
+      } else {
+        return;
       }
+      const cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
+      for (const c of cmds) dest.commands.push(c);
     });
     env.set('invisible', makePen({opacity:0}));
     env.set('solid', makePen({linestyle:'solid'}));
@@ -2386,10 +2854,58 @@ function createInterpreter() {
     env.set('atan', (x) => Math.atan(toNumber(x)));
     env.set('atan2', (y,x) => Math.atan2(toNumber(y),toNumber(x)));
     env.set('sqrt', (x) => Math.sqrt(toNumber(x)));
+    env.set('cbrt', (x) => Math.cbrt(toNumber(x)));
     env.set('abs', (x) => {
       if (isTriple(x)) return Math.sqrt(x.x*x.x + x.y*x.y + x.z*x.z);
       if (isPair(x)) return Math.sqrt(x.x*x.x + x.y*x.y);
       return Math.abs(toNumber(x));
+    });
+
+    // brace(a, b, amplitude) — curly brace path between two points
+    env.set('brace', (...args) => {
+      let a = null, b = null, amplitude = 0.5;
+      const pairs = [];
+      for (const arg of args) {
+        if (isPair(arg)) pairs.push(toPair(arg));
+        else if (typeof arg === 'number') amplitude = arg;
+      }
+      if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
+      if (!a || !b) return makePath([], false);
+      // Build curly brace as cubic Bezier path
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      // Normal direction (perpendicular)
+      const nx = -dy / len * amplitude, ny = dx / len * amplitude;
+      // Control points for first half (a -> midpoint tip)
+      const c1 = makePair(a.x + nx * 0.6, a.y + ny * 0.6);
+      const c4 = makePair(mx + nx * 1.5, my + ny * 1.5);
+      const mid = makePair(mx + nx, my + ny);
+      // Control points for second half (midpoint tip -> b)
+      const c5 = makePair(mx + nx * 1.5, my + ny * 1.5);
+      const c8 = makePair(b.x + nx * 0.6, b.y + ny * 0.6);
+      // Sample cubic Bezier curves for each half
+      const nPts = 40;
+      const points = [];
+      for (let i = 0; i <= nPts; i++) {
+        const t = i / nPts;
+        let px, py;
+        if (t <= 0.5) {
+          const s = t * 2;
+          px = (1-s)*(1-s)*(1-s)*a.x + 3*(1-s)*(1-s)*s*c1.x + 3*(1-s)*s*s*c4.x + s*s*s*mid.x;
+          py = (1-s)*(1-s)*(1-s)*a.y + 3*(1-s)*(1-s)*s*c1.y + 3*(1-s)*s*s*c4.y + s*s*s*mid.y;
+        } else {
+          const s = (t - 0.5) * 2;
+          px = (1-s)*(1-s)*(1-s)*mid.x + 3*(1-s)*(1-s)*s*c5.x + 3*(1-s)*s*s*c8.x + s*s*s*b.x;
+          py = (1-s)*(1-s)*(1-s)*mid.y + 3*(1-s)*(1-s)*s*c5.y + 3*(1-s)*s*s*c8.y + s*s*s*b.y;
+        }
+        points.push(makePair(px, py));
+      }
+      const segs = [];
+      for (let i = 0; i < points.length - 1; i++) {
+        segs.push(lineSegment(points[i], points[i+1]));
+      }
+      return makePath(segs, false);
     });
     env.set('log', (x) => Math.log(toNumber(x)));
     env.set('exp', (x) => Math.exp(toNumber(x)));
@@ -2430,8 +2946,29 @@ function createInterpreter() {
           const len = Math.sqrt(t.x*t.x + t.y*t.y + t.z*t.z);
           return len > 0 ? makeTriple(t.x/len, t.y/len, t.z/len) : makeTriple(0,0,0);
         }
+        if (isPath(args[0])) {
+          return _dirOnPath(args[0], 0);
+        }
+        if (isPair(args[0])) {
+          const p = args[0];
+          const len = Math.sqrt(p.x*p.x + p.y*p.y);
+          return len > 0 ? makePair(p.x/len, p.y/len) : makePair(0,0);
+        }
         const a = toNumber(args[0]);
         return makePair(Math.cos(a*Math.PI/180), Math.sin(a*Math.PI/180));
+      }
+      if (args.length >= 2) {
+        // dir(path, time)
+        if (isPath(args[0])) {
+          return _dirOnPath(args[0], toNumber(args[1]));
+        }
+        // dir(pair, pair) => unit(b - a)
+        if (isPair(args[0]) && isPair(args[1])) {
+          const a = args[0], b = args[1];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const len = Math.sqrt(dx*dx + dy*dy);
+          return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
+        }
       }
       return makePair(1,0);
     });
@@ -2459,6 +2996,18 @@ function createInterpreter() {
     env.set('expi', (a) => { const v = toNumber(a); return makePair(Math.cos(v), Math.sin(v)); });
     env.set('xpart', (p) => toPair(p).x);
     env.set('ypart', (p) => toPair(p).y);
+    env.set('interp', (a, b, t) => {
+      const frac = toNumber(t);
+      if (isTriple(a) || isTriple(b)) {
+        const u = toTriple(a), v = toTriple(b);
+        return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
+      }
+      if (isPair(a) || isPair(b)) {
+        const u = toPair(a), v = toPair(b);
+        return makePair(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac);
+      }
+      return toNumber(a)*(1-frac) + toNumber(b)*frac;
+    });
     env.set('dot', (...args) => evalDot(args));
 
     // Path constructors
@@ -2474,17 +3023,24 @@ function createInterpreter() {
     });
 
     env.set('arc', (...args) => {
-      // Asymptote: arc(center, radius, angle1, angle2, direction=CCW)
-      // Default direction is CCW (counterclockwise).
-      // CCW: normalize so angle2 > angle1 (positive sweep)
-      // CW:  normalize so angle2 < angle1 (negative sweep)
+      // Asymptote: arc(center, radius, angle1, angle2, direction)
+      // With explicit direction: CCW normalizes angle2 > angle1, CW normalizes angle2 < angle1.
+      // WITHOUT explicit direction (4-arg form): direction is CCW if angle2 >= angle1, CW otherwise.
+      // This matches Asymptote: arc(c,r,a1,a2) => arc(c,r,a1,a2, a2>=a1 ? CCW : CW)
       if (args.length >= 4 && !isPair(args[1])) {
         const c = toPair(args[0]);
+        let r = toNumber(args[1]);
         let a1 = toNumber(args[2]), a2 = toNumber(args[3]);
-        const ccw = args.length >= 5 ? !!args[4] : true;
+        // Negative radius: draw complementary arc with |r|
+        if (r < 0) {
+          r = -r;
+          const tmp = a1; a1 = a2; a2 = tmp;
+        }
+        // Determine direction: explicit 5th arg, or infer from angle relationship
+        const ccw = args.length >= 5 ? !!args[4] : (a2 >= a1);
         if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
         else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
-        return makeArcPath(c, toNumber(args[1]), a1, a2);
+        return makeArcPath(c, r, a1, a2);
       }
       if (args.length >= 3 && isPair(args[1])) {
         // arc(center, point1, point2) — arc from p1 to p2 around center
@@ -2504,6 +3060,9 @@ function createInterpreter() {
       }
       return makePath([], false);
     });
+    // Arc (uppercase, from Asymptote's graph module) is a higher-accuracy arc;
+    // for our Bezier approximation the behaviour is identical to arc.
+    env.set('Arc', env.get('arc'));
 
     env.set('ellipse', (center, a, b) => {
       const c = toPair(center);
@@ -2561,6 +3120,25 @@ function createInterpreter() {
     });
 
     // Path query functions
+    // Internal helper: unit tangent direction on path at given time
+    function _dirOnPath(p, t) {
+      if (!isPath(p) || p.segs.length === 0) return makePair(0,0);
+      const time = toNumber(t);
+      // Clamp time to valid range
+      const maxT = p.segs.length;
+      const clamped = Math.max(0, Math.min(maxT, time));
+      let i = Math.floor(clamped);
+      let frac = clamped - i;
+      if (i >= p.segs.length) { i = p.segs.length - 1; frac = 1; }
+      const seg = p.segs[i];
+      // Cubic Bezier derivative: B'(t) = 3(1-t)^2(cp1-p0) + 6(1-t)t(cp2-cp1) + 3t^2(p3-cp2)
+      const u = 1 - frac;
+      const dx = 3*u*u*(seg.cp1.x-seg.p0.x) + 6*u*frac*(seg.cp2.x-seg.cp1.x) + 3*frac*frac*(seg.p3.x-seg.cp2.x);
+      const dy = 3*u*u*(seg.cp1.y-seg.p0.y) + 6*u*frac*(seg.cp2.y-seg.cp1.y) + 3*frac*frac*(seg.p3.y-seg.cp2.y);
+      const len = Math.sqrt(dx*dx + dy*dy);
+      return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
+    }
+
     // Internal helper for path point evaluation (avoids env.get shadowing issues)
     function _pointOnPath(p, t) {
       if (!isPath(p)) return makePair(0,0);
@@ -2634,6 +3212,7 @@ function createInterpreter() {
     });
 
     env.set('subpath', (p, a, b) => {
+      p = geoToPath(p);
       if (!isPath(p)) return p;
       // Simplified: extract segments in range
       const segs = [];
@@ -2746,6 +3325,9 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
       if (pos.length >= 1) sizeW = toNumber(pos[0]);
       if (pos.length >= 2) sizeH = toNumber(pos[1]);
+      else if (pos.length === 1) sizeH = sizeW;  // Asymptote default: size(x) means size(x,x)
+      // 3rd positional arg is keepAspect (e.g. size(w, h, IgnoreAspect))
+      if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
     });
     env.set('defaultpen', (p) => {
       if (isPen(p)) defaultPen = mergePens(defaultPen, p);
@@ -2794,7 +3376,30 @@ function createInterpreter() {
       return [0, 0];
     });
 
+    // Convert geometry types (geoCircle, geoLine, etc.) to drawable paths
+    function geoToPath(a) {
+      if (isPath(a)) return a;
+      if (isGeoCircle(a)) {
+        const C = toPair(a.C);
+        return makeCirclePath(C, a.r);
+      }
+      if (isGeoLine(a)) {
+        const A = locatePoint(a.A), B = locatePoint(a.B);
+        let p0 = A, p1 = B;
+        if (a.extendA || a.extendB) {
+          const dx = B.x-A.x, dy = B.y-A.y;
+          const len = Math.sqrt(dx*dx+dy*dy) || 1;
+          const far = 200;
+          if (a.extendA) p0 = makePair(A.x - far*dx/len, A.y - far*dy/len);
+          if (a.extendB) p1 = makePair(B.x + far*dx/len, B.y + far*dy/len);
+        }
+        return makePath([lineSegment(p0, p1)], false);
+      }
+      return a;
+    }
+
     env.set('intersectionpoint', (p1, p2) => {
+      p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return makePair(0,0);
       // Basic: try to find actual intersection
       for (const s1 of p1.segs) {
@@ -2807,6 +3412,7 @@ function createInterpreter() {
     });
 
     env.set('intersectionpoints', (p1, p2) => {
+      p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
       const pts = [];
       for (const s1 of p1.segs) {
@@ -2823,6 +3429,43 @@ function createInterpreter() {
         }
       }
       return pts;
+    });
+
+    // Aliases for intersectionpoint(s) — cse5/olympiad shorthand
+    env.set('IP', (p1, p2) => invokeFunc(env.get('intersectionpoint'), [p1, p2]));
+    env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+
+    // MP (Marked Point) — cse5/olympiad: draws a dot + label, returns the pair
+    env.set('MP', (...args) => {
+      // Signature variants: MP(label, pair, dir, pen), MP(label, pair, dir), MP(label, pair)
+      let text = null, pos = null, align = null, pen = null;
+      for (const a of args) {
+        if (isString(a) && text === null) text = a;
+        else if (isPair(a) && !pos) pos = a;
+        else if (isPair(a) && !align) align = a;
+        else if (isPen(a)) pen = a;
+      }
+      if (!pos) return makePair(0, 0);
+      // Draw the dot using pointpen (or given pen)
+      const dotPen = pen || env.get('pointpen') || clonePen(defaultPen);
+      evalDot([pos, dotPen]);
+      // Draw the label if provided
+      if (text) {
+        const labelPen = pen || clonePen(defaultPen);
+        const labelArgs = [text, pos];
+        if (align) labelArgs.push(align);
+        labelArgs.push(labelPen);
+        evalLabel(labelArgs);
+      }
+      return pos;
+    });
+
+    // D() — cse5/olympiad shorthand for draw that returns its path
+    env.set('D', (...args) => {
+      evalDraw('draw', args);
+      // Return the first path argument so D() can be chained
+      for (const a of args) { if (isPath(a)) return a; }
+      return makePath([], false);
     });
 
     // Geometry (olympiad/cse5 package)
@@ -2899,7 +3542,7 @@ function createInterpreter() {
     // Right angle mark: draws a small square at vertex B
     env.set('rightanglemark', (A, B, C, ...rest) => {
       const a = toPair(A), b = toPair(B), c = toPair(C);
-      const rawS = rest.length > 0 ? toNumber(rest[0]) : 10;
+      const rawS = rest.length > 0 ? toNumber(rest[0]) : 8;
       const msf = env.get('markscalefactor') || 0.03;
       const s = rawS * msf;
       // Normalize BA and BC directions
@@ -2916,17 +3559,34 @@ function createInterpreter() {
       return makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
     });
 
-    // anglemark: draw arc CCW from ray BA to ray BC at vertex B (matching Asymptote)
+    // anglemark: matching olympiad.asy — arc CCW from ray BA to ray BC, closed back through vertex B
     env.set('anglemark', (...args) => {
       if (args.length < 3) return makePath([], false);
       const A = toPair(args[0]), B = toPair(args[1]), C = toPair(args[2]);
-      const rawR = args.length > 3 ? toNumber(args[3]) : 10;
+      // olympiad.asy: default t=8, extra radii via rest args (s[])
+      const t = args.length > 3 ? toNumber(args[3]) : 8;
       const msf = env.get('markscalefactor') || 0.03;
-      const r = rawR * msf;
-      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
-      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      const r = t * msf;
+      // M = point on ray BA at distance r from B
+      const baLen = Math.sqrt((A.x-B.x)*(A.x-B.x) + (A.y-B.y)*(A.y-B.y)) || 1;
+      const bcLen = Math.sqrt((C.x-B.x)*(C.x-B.x) + (C.y-B.y)*(C.y-B.y)) || 1;
+      const M = makePair(B.x + r*(A.x-B.x)/baLen, B.y + r*(A.y-B.y)/baLen);
+      const N = makePair(B.x + r*(C.x-B.x)/bcLen, B.y + r*(C.y-B.y)/bcLen);
+      // Arc CCW from M to N around B (matching arc(B,M,N) default CCW)
+      let a1 = Math.atan2(M.y - B.y, M.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(N.y - B.y, N.x - B.x) * 180 / Math.PI;
       while (a2 < a1) a2 += 360;
-      return makeArcPath(B, r, a1, a2);
+      const arcPath = makeArcPath(B, r, a1, a2);
+      // Close: arc -- B -- cycle (wedge/sector shape matching olympiad.asy)
+      const bPair = makePair(B.x, B.y);
+      const lastSeg = arcPath.segs[arcPath.segs.length - 1];
+      const arcEnd = lastSeg ? lastSeg.p3 : N;
+      const firstSeg = arcPath.segs[0];
+      const arcStart = firstSeg ? firstSeg.p0 : M;
+      arcPath.segs.push(lineSegment(arcEnd, bPair));
+      arcPath.segs.push(lineSegment(bPair, arcStart));
+      arcPath.closed = true;
+      return arcPath;
     });
 
     // Labeling helpers
@@ -2941,11 +3601,13 @@ function createInterpreter() {
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
+          if ('s' in a && isString(a.s)) text = a.s;
           if ('position' in a) position = a.position;
           if ('align' in a) {
             if (isPair(a.align)) align = a.align;
             else if (typeof a.align === 'number') align = makePair(a.align, 0);
           }
+          if ('p' in a && isPen(a.p)) labelPen = labelPen ? mergePens(labelPen, a.p) : a.p;
         }
         else if (typeof a === 'number' && position === null) position = a;
       }
@@ -2997,7 +3659,11 @@ function createInterpreter() {
       if (isArray(arr)) return arr.slice();
       return arr;
     });
-    env.set('array', (...args) => args);
+    env.set('array', (...args) => {
+      // If single string argument, split into array of characters
+      if (args.length === 1 && isString(args[0])) return args[0].split('');
+      return args;
+    });
     env.set('sequence', (f, n) => {
       // sequence(n) or sequence(func, n)
       if (n === undefined) { n = f; f = null; }
@@ -3031,9 +3697,17 @@ function createInterpreter() {
 
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
-      'ArcArrow','ArcArrows','Bar','Bars','None'];
+      'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars','None'];
     for (const name of arrowNames) {
-      env.set(name, (...args) => ({_tag:'arrow', style:name, size: args.length>0?toNumber(args[0]):6}));
+      env.set(name, (...args) => {
+        // Arrow(arrowhead, real size) — first arg may be a null arrowhead type (TeXHead etc.)
+        // Find the first numeric argument to use as size
+        let sz = 6;
+        for (const a of args) {
+          if (typeof a === 'number') { sz = a; break; }
+        }
+        return {_tag:'arrow', style:name, size: sz};
+      });
     }
 
     // Fill types — return tagged objects so label rendering can detect them
@@ -3042,7 +3716,11 @@ function createInterpreter() {
       return {_tag:'filltype', style:'FillDraw', pen};
     });
     env.set('Fill', (...args) => {
-      const pen = args.length >= 1 && isPen(args[0]) ? args[0] : makePen({r:1,g:1,b:1});
+      let pen = makePen({r:1,g:1,b:1});
+      for (const a of args) {
+        if (isPen(a)) { pen = a; break; }
+        if (a && typeof a === 'object' && a._named && 'p' in a && isPen(a.p)) { pen = a.p; break; }
+      }
       return {_tag:'filltype', style:'Fill', pen};
     });
     env.set('Draw', (...args) => {
@@ -3067,14 +3745,397 @@ function createInterpreter() {
     env.set('HookHead', null);
     env.set('SimpleHead', null);
 
-    // markangle and related
-    env.set('markangle', (...args) => null);
+    // markangle: draws an angle arc at vertex B from ray BA to ray BC
+    // Signature: markangle(Label L="", int n=1, real r=0, real d=0, pen p=currentpen,
+    //            arrowbar arrow=None, margin margin=NoMargin, pair A, pair B, pair C)
+    env.set('markangle', (...args) => {
+      // Parse arguments: last 3 pairs are A, B (vertex), C
+      // Earlier args can be: label string, int n, pen, named params (radius/r, n, arrow)
+      let label = null;
+      let n = 1;
+      let radius = null;
+      let pen = null;
+      let arrow = null;
+      const pairs = [];
+
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('radius' in a) radius = toNumber(a.radius);
+          if ('r' in a) radius = toNumber(a.r);
+          if ('n' in a) n = Math.round(toNumber(a.n));
+          if ('arrow' in a) arrow = a.arrow;
+          continue;
+        }
+        if (isPair(a)) { pairs.push(toPair(a)); continue; }
+        if (isPen(a)) { pen = a; continue; }
+        if (isString(a)) { label = a; continue; }
+        if (a && a._tag === 'label') { label = a.text; if (a.pen) pen = a.pen; continue; }
+        if (a && (a._tag === 'arrow' || a === 'Arrow' || typeof a === 'function')) { arrow = a; continue; }
+        if (typeof a === 'number' && pairs.length === 0) { n = Math.round(a); continue; }
+      }
+
+      if (pairs.length < 3) return null;
+      const A = pairs[pairs.length - 3];
+      const B = pairs[pairs.length - 2]; // vertex
+      const C = pairs[pairs.length - 1];
+
+      // radius is in bp (PostScript points).  Convert to user coordinates.
+      if (radius === null) {
+        radius = 8; // default 8bp
+      }
+      {
+        // Estimate bp→user conversion from size() and current picture bounds
+        let bpPerUnit = 1;
+        if (sizeW > 0 || sizeH > 0) {
+          // Compute rough coordinate range from existing commands
+          let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
+          for (const c of currentPic.commands) {
+            if (c.path) for (const s of c.path.segs) {
+              for (const p of [s.p0, s.p3]) {
+                if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+                if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
+              }
+            }
+            if (c.pos) {
+              if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
+              if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
+            }
+          }
+          const rangeX = (cMaxX - cMinX) || 1;
+          const rangeY = (cMaxY - cMinY) || 1;
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
+        } else if (hasUnitScale) {
+          bpPerUnit = unitScale;
+        }
+        radius = radius / bpPerUnit;
+      }
+
+      // Angles from vertex B to A and C
+      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      // CCW sweep from BA to BC
+      while (a2 <= a1) a2 += 360;
+
+      if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+
+      // Draw n concentric arcs
+      const gap = radius * 0.15;
+      for (let i = 0; i < n; i++) {
+        const r = radius + i * gap;
+        const arcPath = makeArcPath(B, r, a1, a2);
+        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0});
+      }
+
+      // Label at the arc midpoint
+      if (label) {
+        const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
+        const labelR = radius + (n - 1) * gap + radius * 0.4;
+        const pos = makePair(B.x + labelR * Math.cos(midAngle), B.y + labelR * Math.sin(midAngle));
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0});
+      }
+      return null;
+    });
     env.set('markers', null);
   }
 
   // ============================================================
   // Graph Package
   // ============================================================
+
+  // ============================================================
+  // Contour Package — marching squares for implicit curves
+  // ============================================================
+
+  let contourPackageInstalled = false;
+
+  function installContourPackage(env) {
+    if (contourPackageInstalled) return;
+    contourPackageInstalled = true;
+
+    // contour(f, a, b, levels, n=100)
+    // f: function(real,real)->real
+    // a: pair (lower-left corner)
+    // b: pair (upper-right corner)
+    // levels: real[] — contour values to trace
+    // n: int — grid resolution (default 100)
+    // Returns: guide[] (array of paths)
+    env.set('contour', (...args) => {
+      let func = null;
+      let a = null, b = null;
+      let levels = null;
+      let n = 100;
+      const pairs = [];
+      for (const arg of args) {
+        if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
+          if (!func) func = arg;
+          continue;
+        }
+        if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
+        if (isArray(arg)) { levels = arg.map(v => toNumber(v)); continue; }
+        if (typeof arg === 'number') { n = Math.round(arg); continue; }
+      }
+      if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
+      if (!func || !a || !b || !levels || levels.length === 0) return [];
+
+      const result = [];
+      const nx = n, ny = n;
+      const dx = (b.x - a.x) / nx;
+      const dy = (b.y - a.y) / ny;
+
+      // Evaluate f on grid
+      const grid = [];
+      for (let i = 0; i <= nx; i++) {
+        grid[i] = [];
+        for (let j = 0; j <= ny; j++) {
+          const x = a.x + i * dx;
+          const y = a.y + j * dy;
+          try {
+            const v = typeof func === 'function' ? func(x, y) : toNumber(callUserFuncValues(func, [x, y]));
+            grid[i][j] = isFinite(v) ? v : 0;
+          } catch(e) { grid[i][j] = 0; }
+        }
+      }
+
+      // Marching squares for each level
+      for (const level of levels) {
+        // Collect edge intersection segments
+        const segments = [];
+        for (let i = 0; i < nx; i++) {
+          for (let j = 0; j < ny; j++) {
+            const v00 = grid[i][j] - level;
+            const v10 = grid[i+1][j] - level;
+            const v01 = grid[i][j+1] - level;
+            const v11 = grid[i+1][j+1] - level;
+            const x0 = a.x + i * dx;
+            const x1 = a.x + (i+1) * dx;
+            const y0 = a.y + j * dy;
+            const y1 = a.y + (j+1) * dy;
+
+            // Classify corners: positive=1, negative=0
+            const c = ((v00>0?1:0)<<0) | ((v10>0?1:0)<<1) | ((v01>0?1:0)<<2) | ((v11>0?1:0)<<3);
+            if (c === 0 || c === 15) continue;
+
+            // Interpolation helper
+            const lerp = (va, vb, pa, pb) => {
+              const t = Math.abs(va) < 1e-30 && Math.abs(vb) < 1e-30 ? 0.5 : va / (va - vb);
+              return {x: pa.x + t * (pb.x - pa.x), y: pa.y + t * (pb.y - pa.y)};
+            };
+            const p0 = {x:x0,y:y0}, p1 = {x:x1,y:y0}, p2 = {x:x0,y:y1}, p3 = {x:x1,y:y1};
+            // Edge midpoints where contour crosses
+            const eB = lerp(v00, v10, p0, p1); // bottom
+            const eR = lerp(v10, v11, p1, p3); // right
+            const eT = lerp(v01, v11, p2, p3); // top
+            const eL = lerp(v00, v01, p0, p2); // left
+
+            const addSeg = (a, b) => segments.push([a, b]);
+            // Standard marching squares cases
+            switch(c) {
+              case 1: case 14: addSeg(eB, eL); break;
+              case 2: case 13: addSeg(eB, eR); break;
+              case 3: case 12: addSeg(eL, eR); break;
+              case 4: case 11: addSeg(eL, eT); break;
+              case 5: case 10: addSeg(eB, eT); break; // ambiguous, simplified
+              case 6: case 9: addSeg(eB, eL); addSeg(eT, eR); break; // saddle, simplified
+              case 7: case 8: addSeg(eT, eR); break;
+            }
+          }
+        }
+
+        // Chain segments into paths
+        const eps = dx * 0.01 + dy * 0.01;
+        const used = new Array(segments.length).fill(false);
+        const close = (a, b) => Math.abs(a.x-b.x) < eps && Math.abs(a.y-b.y) < eps;
+
+        for (let si = 0; si < segments.length; si++) {
+          if (used[si]) continue;
+          used[si] = true;
+          const chain = [segments[si][0], segments[si][1]];
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (let sj = 0; sj < segments.length; sj++) {
+              if (used[sj]) continue;
+              const s = segments[sj];
+              if (close(s[0], chain[chain.length-1])) {
+                chain.push(s[1]); used[sj] = true; changed = true;
+              } else if (close(s[1], chain[chain.length-1])) {
+                chain.push(s[0]); used[sj] = true; changed = true;
+              } else if (close(s[1], chain[0])) {
+                chain.unshift(s[0]); used[sj] = true; changed = true;
+              } else if (close(s[0], chain[0])) {
+                chain.unshift(s[1]); used[sj] = true; changed = true;
+              }
+            }
+          }
+          // Build path from chain
+          if (chain.length >= 2) {
+            const segs = [];
+            for (let k = 0; k < chain.length - 1; k++) {
+              segs.push(lineSegment(makePair(chain[k].x, chain[k].y), makePair(chain[k+1].x, chain[k+1].y)));
+            }
+            const closed = close(chain[0], chain[chain.length-1]);
+            result.push(makePath(segs, closed));
+          }
+        }
+      }
+      return result;
+    });
+  }
+
+  // ============================================================
+  // Slopefield Package
+  // ============================================================
+
+  let slopefieldPackageInstalled = false;
+
+  function installSlopefieldPackage(env) {
+    if (slopefieldPackageInstalled) return;
+    slopefieldPackageInstalled = true;
+
+    // slopefield(f, a, b, n, pen, arrow)
+    // f: function(real,real)->real giving slope dy/dx
+    // a: pair (lower-left corner)
+    // b: pair (upper-right corner)
+    // n: int (number of grid divisions)
+    // pen: optional pen for drawing
+    // arrow: optional arrow specification
+    env.set('slopefield', (...args) => {
+      let func = null;
+      let a = null, b = null;
+      let n = 10;
+      let pen = null;
+      let arrow = null;
+      const pairs = [];
+
+      for (const arg of args) {
+        if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
+          if (!func) { func = arg; }
+          else {
+            // Second function — likely an arrow constructor like Arrow; call it to produce arrow object
+            try { arrow = invokeFunc(arg, []); } catch(e) {}
+          }
+          continue;
+        }
+        if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
+        if (isPen(arg)) { pen = arg; continue; }
+        if (arg && arg._tag === 'arrow') { arrow = arg; continue; }
+        if (typeof arg === 'number') { n = Math.round(arg); continue; }
+      }
+
+      if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
+      if (!a || !b || !func) return makePath([], false);
+      if (!pen) pen = clonePen(defaultPen);
+
+      const pic = {_tag:'picture', commands:[], transform: null};
+      const dx = (b.x - a.x) / n;
+      const dy = (b.y - a.y) / n;
+      // Length of each slope segment (half the cell diagonal, scaled)
+      const segLen = Math.min(Math.abs(dx), Math.abs(dy)) * 0.45;
+
+      for (let i = 0; i <= n; i++) {
+        for (let j = 0; j <= n; j++) {
+          const x = a.x + i * dx;
+          const y = a.y + j * dy;
+          let slope;
+          try {
+            slope = toNumber(invokeFunc(func, [x, y]));
+          } catch(e) {
+            continue; // skip undefined points
+          }
+          if (!isFinite(slope)) continue;
+          // Direction from slope
+          const len = Math.sqrt(1 + slope * slope);
+          const ux = segLen / len;
+          const uy = segLen * slope / len;
+          const p0 = makePair(x - ux, y - uy);
+          const p1 = makePair(x + ux, y + uy);
+          const seg = makePath([lineSegment(p0, p1)], false);
+          pic.commands.push({cmd:'draw', path:seg, pen:clonePen(pen), arrow: arrow || null, line:0});
+        }
+      }
+      return pic;
+    });
+
+    // curve(initial, f, a, b) -- trace an ODE solution curve using RK4
+    // initial: pair (x0, y0) starting point
+    // f: function(real,real)->real giving dy/dx
+    // a, b: real x-bounds for the curve
+    env.set('curve', (...args) => {
+      let func = null, initial = null;
+      let xmin = null, xmax = null, ymin = null, ymax = null;
+      const pairs = [];
+      const nums = [];
+      for (const arg of args) {
+        if (typeof arg === 'function' || (arg && arg._tag === 'func')) {
+          if (!func) func = arg;
+          continue;
+        }
+        if (isPair(arg)) { pairs.push(toPair(arg)); continue; }
+        if (typeof arg === 'number') { nums.push(arg); continue; }
+      }
+      // curve(initial, f, a, b) — a,b are bound pairs
+      if (pairs.length >= 3) {
+        initial = pairs[0];
+        xmin = Math.min(pairs[1].x, pairs[2].x);
+        xmax = Math.max(pairs[1].x, pairs[2].x);
+        ymin = Math.min(pairs[1].y, pairs[2].y);
+        ymax = Math.max(pairs[1].y, pairs[2].y);
+      } else if (pairs.length >= 1) {
+        initial = pairs[0];
+        if (nums.length >= 2) { xmin = nums[0]; xmax = nums[1]; }
+      }
+      if (!func || !initial) return makePath([], false);
+      if (xmin === null) xmin = initial.x - 5;
+      if (xmax === null) xmax = initial.x + 5;
+      // RK4 integration
+      const nSteps = 200;
+      // Forward integration from initial.x to xmax
+      let x = initial.x, y = initial.y;
+      const hFwd = (xmax - x) / nSteps;
+      const fwdPts = [makePair(x, y)];
+      if (Math.abs(hFwd) > 1e-12) {
+        for (let i = 0; i < nSteps; i++) {
+          const k1 = toNumber(invokeFunc(func, [x, y]));
+          const k2 = toNumber(invokeFunc(func, [x + hFwd/2, y + hFwd/2*k1]));
+          const k3 = toNumber(invokeFunc(func, [x + hFwd/2, y + hFwd/2*k2]));
+          const k4 = toNumber(invokeFunc(func, [x + hFwd, y + hFwd*k3]));
+          y += hFwd * (k1 + 2*k2 + 2*k3 + k4) / 6;
+          x += hFwd;
+          if (!isFinite(y)) break;
+          if (ymin !== null && (y < ymin || y > ymax)) break;
+          fwdPts.push(makePair(x, y));
+        }
+      }
+      // Backward integration from initial.x to xmin
+      x = initial.x; y = initial.y;
+      const hBwd = (xmin - x) / nSteps;
+      const bwdPts = [];
+      if (Math.abs(hBwd) > 1e-12) {
+        for (let i = 0; i < nSteps; i++) {
+          const k1 = toNumber(invokeFunc(func, [x, y]));
+          const k2 = toNumber(invokeFunc(func, [x + hBwd/2, y + hBwd/2*k1]));
+          const k3 = toNumber(invokeFunc(func, [x + hBwd/2, y + hBwd/2*k2]));
+          const k4 = toNumber(invokeFunc(func, [x + hBwd, y + hBwd*k3]));
+          y += hBwd * (k1 + 2*k2 + 2*k3 + k4) / 6;
+          x += hBwd;
+          if (!isFinite(y)) break;
+          if (ymin !== null && (y < ymin || y > ymax)) break;
+          bwdPts.push(makePair(x, y));
+        }
+      }
+      // Combine: reverse backward points + forward points
+      bwdPts.reverse();
+      const allPts = bwdPts.concat(fwdPts);
+      if (allPts.length < 2) return makePath([], false);
+      const segs = [];
+      for (let i = 0; i < allPts.length - 1; i++) {
+        segs.push(lineSegment(allPts[i], allPts[i+1]));
+      }
+      return makePath(segs, false);
+    });
+  }
 
   let graphPackageInstalled = false;
 
@@ -3283,9 +4344,24 @@ function createInterpreter() {
       const noZero = ticks.noZero || false;
       const isExtend = extent && (extent === 'BottomTop' || extent === 'LeftRight' ||
                                    extent === 'TopBottom' || extent === 'RightLeft');
-      // Tick sizes in world coordinates
-      // Default major tick = 0.05 world units, minor = 0.025
-      let majorSize = ticks.size > 0 ? ticks.size : 0.05;
+      // Tick sizes: use the cross-axis range to determine a reasonable tick size.
+      // Ticks extend perpendicular to the axis, so the size should be proportional
+      // to the perpendicular axis extent, not the along-axis extent.
+      // This prevents tick marks from dominating the bbox when x and y scales differ.
+      const _isXAxis = (axisDir === 'x');
+      let perpAxisRange;
+      if (_isXAxis) {
+        // X-axis ticks extend in y → use y range
+        perpAxisRange = (_axisLimits.ymax !== null && _axisLimits.ymin !== null)
+          ? Math.abs(_axisLimits.ymax - _axisLimits.ymin) : Math.abs(max - min);
+      } else {
+        // Y-axis ticks extend in x → use x range
+        perpAxisRange = (_axisLimits.xmax !== null && _axisLimits.xmin !== null)
+          ? Math.abs(_axisLimits.xmax - _axisLimits.xmin) : Math.abs(max - min);
+      }
+      if (!perpAxisRange || perpAxisRange === 0) perpAxisRange = Math.abs(max - min) || 1;
+      const defaultTickSize = perpAxisRange * 0.015;
+      let majorSize = ticks.sizeExplicit ? ticks.size : defaultTickSize;
       let minorSize = majorSize * 0.5;
 
       // Compute major tick positions
@@ -3340,6 +4416,10 @@ function createInterpreter() {
 
       const isX = (axisDir === 'x');
 
+      // Tick side: 'left'/'right' for y-axis ticks (LeftTicks/RightTicks)
+      // 'left' for y-axis means ticks extend to the left (negative x), 'right' to positive x
+      const tickSide = ticks.side || null;
+
       // Draw function for a single tick mark
       function drawTick(v, sz) {
         if (noZero && Math.abs(v) < 1e-10) return;
@@ -3350,6 +4430,14 @@ function createInterpreter() {
           const cMax = crossMax !== undefined ? crossMax : 5;
           p0 = isX ? {x:v, y:cMin} : {x:cMin, y:v};
           p1 = isX ? {x:v, y:cMax} : {x:cMax, y:v};
+        } else if (tickSide === 'left') {
+          // Ticks on the left/bottom side only
+          p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
+          p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
+        } else if (tickSide === 'right') {
+          // Ticks on the right/top side only
+          p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
+          p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         } else {
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
@@ -3357,7 +4445,7 @@ function createInterpreter() {
         const tickPath = makePath([lineSegment(p0, p1)], false);
         // Extended gridlines (isExtend=true) go into background layer (above:-1) so they
         // always render below user-drawn paths regardless of source order.
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0)});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0), _isTickMark: !isExtend});
       }
 
       // Draw major ticks
@@ -3376,14 +4464,60 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
-          if (ticks.format) {
-            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, () => Number.isInteger(v) ? String(v) : v.toFixed(1));
+          // Default format mimics Asymptote's "$%.4g$": use scientific notation
+          // for very large/small values, otherwise plain number
+          const fmtDefault = () => {
+            const av = Math.abs(v);
+            if (av === 0) return '0';
+            if (av >= 10000 || (av > 0 && av < 0.001)) {
+              // Scientific notation: 1×10⁴ style
+              const exp = Math.floor(Math.log10(av));
+              const coeff = v / Math.pow(10, exp);
+              const coeffStr = Math.abs(coeff - Math.round(coeff)) < 1e-9 ? String(Math.round(coeff)) : coeff.toPrecision(4).replace(/\.?0+$/, '');
+              const superDigits = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
+              const expStr = String(exp).split('').map(c => superDigits[c] || c).join('');
+              if (coeffStr === '1') return '10' + expStr;
+              if (coeffStr === '-1') return '-10' + expStr;
+              return coeffStr + '×10' + expStr;
+            }
+            if (Number.isInteger(v)) return String(v);
+            return String(Math.round(v * 1000) / 1000);
+          };
+          if (ticks.labelFunc) {
+            // Custom label function: call it with the tick value
+            try {
+              const fn = ticks.labelFunc;
+              if (fn._tag === 'func') txt = callUserFuncValues(fn, [v]);
+              else txt = fn(v);
+              if (txt === null || txt === undefined) txt = fmtDefault();
+              else txt = String(txt);
+            } catch(e) { txt = fmtDefault(); }
+          } else if (ticks.format && ticks.format !== '%') {
+            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
+              // Simple printf-style: %d→int, %f→fixed, %e→scientific, %g→general
+              if (spec.endsWith('d')) return String(Math.round(v));
+              if (spec.endsWith('f')) {
+                const m = spec.match(/\.(\d+)/);
+                return v.toFixed(m ? parseInt(m[1]) : 6);
+              }
+              if (spec.endsWith('e')) {
+                const m = spec.match(/\.(\d+)/);
+                return v.toExponential(m ? parseInt(m[1]) : 6);
+              }
+              if (spec.endsWith('g')) {
+                const m = spec.match(/\.(\d+)/);
+                const prec = m ? parseInt(m[1]) : 6;
+                return v.toPrecision(prec).replace(/\.?0+$/, '');
+              }
+              // %s — string
+              return fmtDefault();
+            });
           } else {
-            txt = Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+            txt = fmtDefault();
           }
           const labelPen = clonePen(ticks.labelPen || tickPen);
           labelPen.fontsize = labelPen.fontsize || 8;
-          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0});
+          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0, _isTickLabel: true});
         }
       }
     }
@@ -3408,6 +4542,10 @@ function createInterpreter() {
       return {_tag:'axisshift', axis:'y', value:x};
     });
 
+    // XZero = XEquals(0), YZero = YEquals(0)
+    env.set('YZero', {_tag:'axisshift', axis:'x', value:0});
+    env.set('XZero', {_tag:'axisshift', axis:'y', value:0});
+
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
       let pic = currentPic;
@@ -3429,6 +4567,23 @@ function createInterpreter() {
           if ('p' in a) pen = a.p;
           if ('pen' in a) pen = a.pen;
           if ('above' in a) above = !!a.above;
+          if ('axis' in a) {
+            const ax = a.axis;
+            if (ax && ax._tag === 'axisshift' && ax.axis === 'x') axisShiftY = ax.value;
+            else if (ax && ax._tag === 'axisextent') extent = ax.type;
+          }
+          if ('arrow' in a) {
+            let ar = a.arrow;
+            if (typeof ar === 'function') { try { ar = ar(); } catch(e) {} }
+            if (ar && ar._tag === 'arrow') arrow = ar;
+          }
+          if ('L' in a) {
+            const lv = a.L;
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            else if (isString(lv)) label = lv;
+          }
+          if ('xmin' in a && typeof a.xmin === 'number') xmin = a.xmin;
+          if ('xmax' in a && typeof a.xmax === 'number') xmax = a.xmax;
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
@@ -3513,6 +4668,23 @@ function createInterpreter() {
           if ('p' in a) pen = a.p;
           if ('pen' in a) pen = a.pen;
           if ('above' in a) above = !!a.above;
+          if ('axis' in a) {
+            const ax = a.axis;
+            if (ax && ax._tag === 'axisshift' && ax.axis === 'y') axisShiftX = ax.value;
+            else if (ax && ax._tag === 'axisextent') extent = ax.type;
+          }
+          if ('arrow' in a) {
+            let ar = a.arrow;
+            if (typeof ar === 'function') { try { ar = ar(); } catch(e) {} }
+            if (ar && ar._tag === 'arrow') arrow = ar;
+          }
+          if ('L' in a) {
+            const lv = a.L;
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            else if (isString(lv)) label = lv;
+          }
+          if ('ymin' in a && typeof a.ymin === 'number') ymin = a.ymin;
+          if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
@@ -3567,19 +4739,33 @@ function createInterpreter() {
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:-1, y:1};
-        let labelY = ymax;
+        const lAlign = labelAlign || {x:-1, y:0};
+        let labelY = (ymin + ymax) / 2;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
+        // Y-axis labels are rotated 90° CCW by default in Asymptote
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0,
+          labelTransform: {a:0, b:0, c:-1, d:0, e:1, f:0}});
       }
     });
 
     // xequals / yequals — draw vertical/horizontal line at a given coordinate
     env.set('xequals', (...args) => {
       let x = 0, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let above = false;
       let gotX = false;
       for (const a of args) {
-        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a === null || a === undefined) continue;
+        if (a === true || a === false) { above = a; continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('ymin' in a) ymin = a.ymin;
+          if ('ymax' in a) ymax = a.ymax;
+          if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+          if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
+          if ('above' in a) above = !!a.above;
+          if ('Ticks' in a && a.Ticks && a.Ticks._tag === 'ticks') ticks = a.Ticks;
+          if ('ticks' in a && a.ticks && a.ticks._tag === 'ticks') ticks = a.ticks;
+          continue;
+        }
         if (typeof a === 'number' && !gotX) { x = a; gotX = true; }
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
@@ -3593,7 +4779,7 @@ function createInterpreter() {
       if (ymax === null) ymax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x,y:ymin},{x,y:ymax})], false);
-      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0});
+      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -3604,7 +4790,7 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
-          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
           if (ticks.labels) {
             currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
           }
@@ -3614,9 +4800,21 @@ function createInterpreter() {
 
     env.set('yequals', (...args) => {
       let y = 0, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let above = false;
       let gotY = false;
       for (const a of args) {
-        if (a === null || a === undefined || a === true || a === false) continue;
+        if (a === null || a === undefined) continue;
+        if (a === true || a === false) { above = a; continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('xmin' in a) xmin = a.xmin;
+          if ('xmax' in a) xmax = a.xmax;
+          if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+          if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
+          if ('above' in a) above = !!a.above;
+          if ('Ticks' in a && a.Ticks && a.Ticks._tag === 'ticks') ticks = a.Ticks;
+          if ('ticks' in a && a.ticks && a.ticks._tag === 'ticks') ticks = a.ticks;
+          continue;
+        }
         if (typeof a === 'number' && !gotY) { y = a; gotY = true; }
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
@@ -3630,7 +4828,7 @@ function createInterpreter() {
       if (xmax === null) xmax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x:xmin,y},{x:xmax,y})], false);
-      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0});
+      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -3641,7 +4839,7 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
-          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
           if (ticks.labels) {
             currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
           }
@@ -3672,37 +4870,44 @@ function createInterpreter() {
 
     // labelx / labely — place a label on an axis
     env.set('labelx', (...args) => {
-      let text = '', x = 0, pen = null;
+      let text = '', x = 0, pen = null, align = null;
       for (const a of args) {
         if (isString(a) && !text) text = a;
+        else if (isPair(a)) align = toPair(a);
         else if (typeof a === 'number') x = a;
         else if (isPen(a)) pen = a;
       }
       if (!pen) pen = clonePen(defaultPen);
-      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align:{x:0,y:-1}, pen, line:0});
+      if (!align) align = {x:0, y:-1};
+      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align, pen, line:0});
     });
     env.set('labely', (...args) => {
-      let text = '', y = 0, pen = null;
+      let text = '', y = 0, pen = null, align = null;
       for (const a of args) {
         if (isString(a) && !text) text = a;
+        else if (isPair(a)) align = toPair(a);
         else if (typeof a === 'number') y = a;
         else if (isPen(a)) pen = a;
       }
       if (!pen) pen = clonePen(defaultPen);
-      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align:{x:-1,y:0}, pen, line:0});
+      if (!align) align = {x:-1, y:0};
+      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align, pen, line:0});
     });
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
     function _makeTicks(args, defaults) {
-      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:false, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
+      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:true, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
+      let positionalNumCount = 0;
       for (const a of args) {
         if (a === null || a === undefined) continue;
         if (typeof a === 'number') {
-          // Could be Step or Size — small numbers (<1) are likely Size
-          if (a < 0.5) { t.size = a; t.sizeExplicit = true; }
-          else t.step = a;
+          positionalNumCount++;
+          if (positionalNumCount === 1) t.step = a;       // first number = Step (major)
+          else if (positionalNumCount === 2) t.subStep = a; // second = step (minor)
+          else { t.size = a; t.sizeExplicit = true; }      // third+ = Size
         }
-        else if (isString(a)) { /* format string like "%" — stored but does not auto-enable labels */ }
+        else if (isString(a)) { t.format = a; t.labels = true; }
+        else if (typeof a === 'function' || (a && a._tag === 'func')) { t.labelFunc = a; t.labels = true; }
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
@@ -3710,7 +4915,7 @@ function createInterpreter() {
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('Step' in a) t.step = a.Step;
-          if ('step' in a) t.step = a.step;
+          if ('step' in a) t.subStep = a.step;
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
           if ('size' in a) { t.size = a.size; t.sizeExplicit = true; }
           if ('extend' in a) t.extend = a.extend;
@@ -3789,6 +4994,1184 @@ function createInterpreter() {
   }
 
   // ============================================================
+  // Geometry Package (coordsys, point, vector, line, circle, etc.)
+  // ============================================================
+
+  function installGeometryPackage(env) {
+    // Default coordinate system: standard Cartesian
+    const defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+    env.set('defaultcoordsys', defaultCS);
+    env.set('currentcoordsys', defaultCS);
+
+    // cartesiansystem(pair O, pair i, pair j) → coordsys
+    env.set('cartesiansystem', (...args) => {
+      let O = makePair(0,0), i = makePair(1,0), j = makePair(0,1);
+      let posIdx = 0;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('i' in a) i = toPair(a.i);
+          if ('j' in a) j = toPair(a.j);
+        } else if (isPair(a) || isNumber(a)) {
+          if (posIdx === 0) O = toPair(a);
+          else if (posIdx === 1) i = toPair(a);
+          else if (posIdx === 2) j = toPair(a);
+          posIdx++;
+        }
+      }
+      return makeCoordSys(O, i, j);
+    });
+
+    // show(Label lo, Label li, Label lj, coordsys R, pen dotpen, pen xpen, pen ypen, pen ipen, pen jpen, arrowbar arrow)
+    // Draws the axes and basis vectors of a coordinate system
+    env.set('show', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0];
+        args = args.slice(1);
+      }
+      // Extract coordsys, labels, pens
+      let R = null;
+      const labels = []; // up to 3: origin label, i label, j label
+      let dotpen = null, xpen = null, ypen = null, ipen = null, jpen = null;
+      let arrow = null;
+
+      for (const a of args) {
+        if (a === null || a === undefined) continue;
+        if (isCoordSys(a)) R = a;
+        else if (a && a._tag === 'arrow') arrow = a;
+        else if (typeof a === 'function' && !arrow) {
+          try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
+        }
+        else if (isString(a) || (a && a._tag === 'label')) labels.push(a);
+        else if (isPen(a)) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('xpen' in a) xpen = a.xpen;
+            if ('ypen' in a) ypen = a.ypen;
+            if ('ipen' in a) ipen = a.ipen;
+            if ('jpen' in a) jpen = a.jpen;
+            if ('dotpen' in a) dotpen = a.dotpen;
+          } else {
+            // Positional pens: xpen, ypen, ipen, jpen
+            if (!xpen) xpen = a;
+            else if (!ypen) ypen = a;
+            else if (!ipen) ipen = a;
+            else if (!jpen) jpen = a;
+          }
+        }
+        else if (a && typeof a === 'object' && a._named) {
+          if ('xpen' in a) xpen = isPen(a.xpen) ? a.xpen : null;
+          if ('ypen' in a) ypen = isPen(a.ypen) ? a.ypen : null;
+          if ('ipen' in a) ipen = isPen(a.ipen) ? a.ipen : null;
+          if ('jpen' in a) jpen = isPen(a.jpen) ? a.jpen : null;
+          if ('dotpen' in a) dotpen = isPen(a.dotpen) ? a.dotpen : null;
+        }
+      }
+
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      if (!arrow) arrow = {_tag:'arrow', style:'Arrow', size:6};
+      if (!ipen) ipen = makePen({r:1,g:0,b:0}); // red
+      if (!jpen) jpen = ipen;
+      if (!xpen) xpen = clonePen(defaultPen);
+      if (!ypen) ypen = xpen;
+      if (!dotpen) dotpen = clonePen(defaultPen);
+
+      const O = R.O;
+      const iVec = R.i;
+      const jVec = R.j;
+
+      const loText = labels[0] || '$O$';
+      const liText = labels[1] || '$\\vec{\\imath}$';
+      const ljText = labels[2] || '$\\vec{\\jmath}$';
+
+      // Draw x-axis (infinite line through O in direction i) — if xpen not invisible
+      if (xpen.opacity > 0) {
+        const far = 100; // extend far in each direction
+        const xA = makePair(O.x - far * iVec.x, O.y - far * iVec.y);
+        const xB = makePair(O.x + far * iVec.x, O.y + far * iVec.y);
+        const xPath = makePath([lineSegment(xA, xB)], false);
+        target.commands.push({cmd:'draw', path:xPath, pen:xpen, arrow:null, line:0});
+      }
+      // Draw y-axis (infinite line through O in direction j) — if ypen not invisible
+      if (ypen.opacity > 0) {
+        const far = 100;
+        const yA = makePair(O.x - far * jVec.x, O.y - far * jVec.y);
+        const yB = makePair(O.x + far * jVec.x, O.y + far * jVec.y);
+        const yPath = makePath([lineSegment(yA, yB)], false);
+        target.commands.push({cmd:'draw', path:yPath, pen:ypen, arrow:null, line:0});
+      }
+
+      // Draw i basis vector (arrow from O to O+i)
+      const iEnd = makePair(O.x + iVec.x, O.y + iVec.y);
+      const iPath = makePath([lineSegment(O, iEnd)], false);
+      target.commands.push({cmd:'draw', path:iPath, pen:ipen, arrow:arrow, line:0});
+      // Label for i vector
+      const iMid = makePair((O.x + iEnd.x)/2, (O.y + iEnd.y)/2);
+      const liStr = (typeof liText === 'string') ? liText : (liText.text || '');
+      if (liStr) {
+        // Place label aligned perpendicular to the vector direction
+        const iNorm = Math.sqrt(iVec.x*iVec.x + iVec.y*iVec.y) || 1;
+        const perpAlign = makePair(-iVec.y / iNorm, iVec.x / iNorm);
+        target.commands.push({cmd:'label', text:liStr, pos:iMid, align:perpAlign, pen:ipen, line:0});
+      }
+
+      // Draw j basis vector (arrow from O to O+j)
+      const jEnd = makePair(O.x + jVec.x, O.y + jVec.y);
+      const jPath = makePath([lineSegment(O, jEnd)], false);
+      target.commands.push({cmd:'draw', path:jPath, pen:jpen, arrow:arrow, line:0});
+      // Label for j vector
+      const jMid = makePair((O.x + jEnd.x)/2, (O.y + jEnd.y)/2);
+      const ljStr = (typeof ljText === 'string') ? ljText : (ljText.text || '');
+      if (ljStr) {
+        const jNorm = Math.sqrt(jVec.x*jVec.x + jVec.y*jVec.y) || 1;
+        const perpAlign = makePair(-jVec.y / jNorm, jVec.x / jNorm);
+        target.commands.push({cmd:'label', text:ljStr, pos:jMid, align:perpAlign, pen:jpen, line:0});
+      }
+
+      // Dot at origin
+      target.commands.push({cmd:'dot', pos:O, pen:dotpen, line:0});
+      // Origin label
+      const loStr = (typeof loText === 'string') ? loText : (loText.text || '');
+      if (loStr) {
+        target.commands.push({cmd:'label', text:loStr, pos:O, align:makePair(-1,-1), pen:dotpen, line:0});
+      }
+    });
+
+    // origin — as a variable: point(defaultcoordsys, (0,0))
+    env.set('origin', makePoint(defaultCS, makePair(0,0), 1));
+
+    // origin() — as a function: point(currentcoordsys, (0,0))
+    // We use a dual mechanism: the env has 'origin' as a point,
+    // but we also register _builtinFuncs so origin() works as a function call.
+    const originFunc = (...args) => {
+      let R = null;
+      for (const a of args) {
+        if (isCoordSys(a)) R = a;
+      }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      return makePoint(R, makePair(0,0), 1);
+    };
+    // Store in builtins so it can be called even if overridden by variable
+    _builtinFuncs.set('origin', originFunc);
+
+    // locate(point) → pair in default coords
+    // locate(vector) → pair displacement in default coords
+    // locate(pair) → pair (identity)
+    env.set('locate', (...args) => {
+      const v = args[0];
+      if (isPoint(v)) return locatePoint(v);
+      if (isGeoVector(v)) return locateVector(v);
+      if (isPair(v)) return v;
+      return toPair(v);
+    });
+
+    // point(coordsys R, pair p, real m=1) → point
+    env.set('point', (...args) => {
+      let R = null, p = null, m = 1;
+      for (const a of args) {
+        if (isCoordSys(a) && !R) R = a;
+        else if (isPoint(a) && !p) {
+          // point(coordsys R, point M) — re-express M in R
+          if (R) {
+            const loc = locatePoint(a);
+            p = R.defaultToRelative(loc);
+            m = a.m;
+          } else {
+            return a; // just return the point
+          }
+        }
+        else if ((isPair(a) || isNumber(a)) && !p) p = toPair(a);
+        else if (typeof a === 'number' && p) m = a;
+      }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      if (!p) p = makePair(0,0);
+      return makePoint(R, p, m);
+    });
+
+    // vector(coordsys R, pair v) → vector
+    env.set('vector', (...args) => {
+      let R = null, p = null;
+      for (const a of args) {
+        if (isCoordSys(a) && !R) R = a;
+        else if (isPoint(a)) {
+          // vector(point M) → OM vector
+          return makeGeoVector(a.coordsys, a.coordinates);
+        }
+        else if (isGeoVector(a)) return a;
+        else if ((isPair(a) || isNumber(a)) && !p) p = toPair(a);
+      }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      if (!p) p = makePair(0,0);
+      return makeGeoVector(R, p);
+    });
+
+    // changecoordsys(coordsys R, point M) — same physical location, different system
+    env.set('changecoordsys', (...args) => {
+      let R = null;
+      for (const a of args) {
+        if (isCoordSys(a) && !R) R = a;
+        else if (isPoint(a)) {
+          if (!R) R = env.get('currentcoordsys') || defaultCS;
+          const loc = locatePoint(a);
+          return makePoint(R, R.defaultToRelative(loc), a.m);
+        }
+        else if (isGeoVector(a)) {
+          if (!R) R = env.get('currentcoordsys') || defaultCS;
+          const d = locateVector(a);
+          // Vector displacement: express in new system without origin offset
+          const di = R.defaultToRelative(makePair(R.O.x + d.x, R.O.y + d.y));
+          return makeGeoVector(R, di);
+        }
+      }
+      return null;
+    });
+
+    // coordsys(point M) → M.coordsys
+    // coordsys(line l) → l.A.coordsys
+    const coordsysFunc = (...args) => {
+      const v = args[0];
+      if (isPoint(v)) return v.coordsys;
+      if (isGeoVector(v)) return v.v.coordsys;
+      if (isGeoLine(v)) return v.A.coordsys;
+      if (isCoordSys(v)) return v;
+      return env.get('currentcoordsys') || defaultCS;
+    };
+    env.set('coordsys', coordsysFunc);
+    _builtinFuncs.set('coordsys', coordsysFunc);
+
+    // drawline(picture pic, pair A, pair B, pen p)
+    // Draws an infinite line through two points
+    env.set('drawline', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0]; args = args.slice(1);
+      }
+      let A = null, B = null, pen = null;
+      for (const a of args) {
+        if (isPair(a) || isPoint(a)) {
+          const p = toPair(a);
+          if (!A) A = p; else if (!B) B = p;
+        } else if (isPen(a)) pen = a;
+      }
+      if (!A || !B) return;
+      if (!pen) pen = clonePen(defaultPen);
+      // Extend the line far in both directions
+      const dx = B.x - A.x, dy = B.y - A.y;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      const far = 200;
+      const p0 = makePair(A.x - far * dx/len, A.y - far * dy/len);
+      const p1 = makePair(B.x + far * dx/len, B.y + far * dy/len);
+      target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen, arrow:null, line:0});
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Line / Segment
+    // ────────────────────────────────────────────────────────────
+
+    // line(point A, bool extendA=true, point B, bool extendB=true)
+    env.set('line', (...args) => {
+      let pts = [], extA = true, extB = true;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (typeof a === 'boolean') {
+          if (pts.length <= 1) extA = a; else extB = a;
+        }
+        else if (a && typeof a === 'object' && a._named) {
+          if ('extendA' in a) extA = !!a.extendA;
+          if ('extendB' in a) extB = !!a.extendB;
+        }
+      }
+      if (pts.length < 2) return null;
+      return makeGeoLine(pts[0], pts[1], extA, extB);
+    });
+
+    // segment(point A, point B)
+    env.set('segment', (...args) => {
+      let pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 2) return null;
+      return makeSegment(pts[0], pts[1]);
+    });
+
+    // Ox(coordsys R) → x-axis line
+    env.set('Ox', (...args) => {
+      let R = null;
+      for (const a of args) { if (isCoordSys(a)) R = a; }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      const O = makePoint(R, makePair(0,0), 1);
+      const I = makePoint(R, makePair(1,0), 1);
+      return makeGeoLine(O, I, true, true);
+    });
+
+    // Oy(coordsys R) → y-axis line
+    env.set('Oy', (...args) => {
+      let R = null;
+      for (const a of args) { if (isCoordSys(a)) R = a; }
+      if (!R) R = env.get('currentcoordsys') || defaultCS;
+      const O = makePoint(R, makePair(0,0), 1);
+      const J = makePoint(R, makePair(0,1), 1);
+      return makeGeoLine(O, J, true, true);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Circle
+    // ────────────────────────────────────────────────────────────
+
+    // circle(point C, real r) or circle(point A, point B) [diameter]
+    env.set('circle', (...args) => {
+      let pts = [], r = null;
+      for (const a of args) {
+        if (isPoint(a) || isPair(a)) pts.push(a);
+        else if (typeof a === 'number' && r === null) r = a;
+      }
+      if (pts.length >= 1 && r !== null) {
+        return makeGeoCircle(pts[0], r);
+      }
+      if (pts.length >= 2) {
+        // Diameter: center = midpoint, radius = half distance
+        const A = toPair(pts[0]), B = toPair(pts[1]);
+        const C = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const cs = env.get('currentcoordsys') || defaultCS;
+        const rad = Math.sqrt((B.x-A.x)*(B.x-A.x) + (B.y-A.y)*(B.y-A.y)) / 2;
+        return makeGeoCircle(makePoint(cs, cs.defaultToRelative(C), 1), rad);
+      }
+      return null;
+    });
+
+    // circumcircle(point A, point B, point C)
+    env.set('circumcircle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+      }
+      if (pts.length < 3) return null;
+      const ax = pts[0].x, ay = pts[0].y;
+      const bx = pts[1].x, by = pts[1].y;
+      const cx = pts[2].x, cy = pts[2].y;
+      const D = 2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+      if (Math.abs(D) < 1e-12) return null;
+      const ux = ((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/D;
+      const uy = ((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/D;
+      const r = Math.sqrt((ax-ux)*(ax-ux)+(ay-uy)*(ay-uy));
+      const cs = env.get('currentcoordsys') || defaultCS;
+      return makeGeoCircle(makePoint(cs, cs.defaultToRelative(makePair(ux,uy)),1), r);
+    });
+
+    // incircle(point A, point B, point C)
+    env.set('incircle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+      }
+      if (pts.length < 3) return null;
+      const A = pts[0], B = pts[1], C = pts[2];
+      const a = Math.sqrt((B.x-C.x)*(B.x-C.x)+(B.y-C.y)*(B.y-C.y));
+      const b = Math.sqrt((A.x-C.x)*(A.x-C.x)+(A.y-C.y)*(A.y-C.y));
+      const c = Math.sqrt((A.x-B.x)*(A.x-B.x)+(A.y-B.y)*(A.y-B.y));
+      const P = a+b+c;
+      if (P < 1e-12) return null;
+      const ix = (a*A.x+b*B.x+c*C.x)/P;
+      const iy = (a*A.y+b*B.y+c*C.y)/P;
+      // Inradius = area / semi-perimeter
+      const area = Math.abs((B.x-A.x)*(C.y-A.y)-(C.x-A.x)*(B.y-A.y))/2;
+      const r = area / (P/2);
+      const cs = env.get('currentcoordsys') || defaultCS;
+      return makeGeoCircle(makePoint(cs, cs.defaultToRelative(makePair(ix,iy)),1), r);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Triangle
+    // ────────────────────────────────────────────────────────────
+
+    // triangle(point A, point B, point C)
+    env.set('triangle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      return makeTriangleGeo(pts[0], pts[1], pts[2]);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Geometric constructions
+    // ────────────────────────────────────────────────────────────
+
+    // midpoint(point A, point B) or midpoint(segment)
+    env.set('midpoint', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (isGeoLine(a)) {
+          // midpoint of segment
+          pts.push(a.A, a.B);
+        }
+      }
+      if (pts.length < 2) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]);
+      const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(M), 1);
+    });
+
+    // perpendicular(point M, line l) → line perpendicular to l through M
+    env.set('perpendicular', (...args) => {
+      let M = null, l = null, normal = null;
+      for (const a of args) {
+        if (isPoint(a) && !M) M = a;
+        else if (isPair(a) && !M) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          M = makePoint(cs, a, 1);
+        }
+        else if (isGeoLine(a)) l = a;
+        else if (isGeoVector(a) && !normal) normal = a;
+      }
+      if (!M) return null;
+      if (l) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x - A.x, dy = B.y - A.y;
+        // Perpendicular direction
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x - dy, Ml.y + dx);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      if (normal) {
+        const d = locateVector(normal);
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x + d.x, Ml.y + d.y);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      return null;
+    });
+
+    // parallel(point M, line l) → line parallel to l through M
+    env.set('parallel', (...args) => {
+      let M = null, l = null, dir = null;
+      for (const a of args) {
+        if (isPoint(a) && !M) M = a;
+        else if (isPair(a) && !M) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          M = makePoint(cs, a, 1);
+        }
+        else if (isGeoLine(a)) l = a;
+        else if (isGeoVector(a) && !dir) dir = a;
+      }
+      if (!M) return null;
+      if (l) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x + dx, Ml.y + dy);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      if (dir) {
+        const d = locateVector(dir);
+        const Ml = locatePoint(M);
+        const B2 = makePair(Ml.x + d.x, Ml.y + d.y);
+        const cs = M.coordsys;
+        return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
+      }
+      return null;
+    });
+
+    // foot(point P, point A, point B) — foot of perpendicular from P to line AB
+    env.set('foot', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (isGeoLine(a)) { pts.push(a.A, a.B); }
+      }
+      if (pts.length < 3) return null;
+      const P = locatePoint(pts[0]), A = locatePoint(pts[1]), B = locatePoint(pts[2]);
+      const dx = B.x - A.x, dy = B.y - A.y;
+      const t = ((P.x-A.x)*dx + (P.y-A.y)*dy) / (dx*dx + dy*dy);
+      const F = makePair(A.x + t*dx, A.y + t*dy);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(F), 1);
+    });
+
+    // intersectionpoint(line l1, line l2) → point
+    // Also handles geoline types
+    const geoIntersectionPoint = (...args) => {
+      const lines = [];
+      for (const a of args) {
+        if (isGeoLine(a)) lines.push(a);
+      }
+      if (lines.length >= 2) {
+        const A = locatePoint(lines[0].A), B = locatePoint(lines[0].B);
+        const C = locatePoint(lines[1].A), D = locatePoint(lines[1].B);
+        const denom = (A.x-B.x)*(C.y-D.y)-(A.y-B.y)*(C.x-D.x);
+        if (Math.abs(denom) < 1e-12) return null;
+        const t = ((A.x-C.x)*(C.y-D.y)-(A.y-C.y)*(C.x-D.x)) / denom;
+        const P = makePair(A.x + t*(B.x-A.x), A.y + t*(B.y-A.y));
+        const cs = lines[0].A.coordsys;
+        return makePoint(cs, cs.defaultToRelative(P), 1);
+      }
+      return null;
+    };
+    // Register but don't override existing intersectionpoint
+    const existingIP = env.get('intersectionpoint');
+    env.set('intersectionpoint', (...args) => {
+      // If any arg is a geoline, use geometry version
+      if (args.some(a => isGeoLine(a))) return geoIntersectionPoint(...args);
+      // Otherwise fall back to existing
+      if (typeof existingIP === 'function') return existingIP(...args);
+      return null;
+    });
+
+    // intersectionpoints for geometry types (circle-line, circle-circle)
+    const existingIPs = env.get('intersectionpoints');
+    env.set('intersectionpoints', (...args) => {
+      // circle-line intersection
+      const circles = args.filter(a => isGeoCircle(a));
+      const glines = args.filter(a => isGeoLine(a));
+      if (circles.length >= 1 && glines.length >= 1) {
+        const c = circles[0], l = glines[0];
+        const C = toPair(c.C), r = c.r;
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const fx = A.x-C.x, fy = A.y-C.y;
+        const a = dx*dx+dy*dy, b = 2*(fx*dx+fy*dy), cc = fx*fx+fy*fy-r*r;
+        const disc = b*b - 4*a*cc;
+        if (disc < 0) return [];
+        const results = [];
+        const cs = env.get('currentcoordsys') || defaultCS;
+        const t1 = (-b - Math.sqrt(disc)) / (2*a);
+        results.push(makePoint(cs, cs.defaultToRelative(makePair(A.x+t1*dx, A.y+t1*dy)), 1));
+        if (disc > 1e-12) {
+          const t2 = (-b + Math.sqrt(disc)) / (2*a);
+          results.push(makePoint(cs, cs.defaultToRelative(makePair(A.x+t2*dx, A.y+t2*dy)), 1));
+        }
+        return results;
+      }
+      // circle-circle intersection
+      if (circles.length >= 2) {
+        const c1 = circles[0], c2 = circles[1];
+        const C1 = toPair(c1.C), r1 = c1.r;
+        const C2 = toPair(c2.C), r2 = c2.r;
+        const dx = C2.x-C1.x, dy = C2.y-C1.y;
+        const d = Math.sqrt(dx*dx+dy*dy);
+        if (d > r1+r2 || d < Math.abs(r1-r2) || d < 1e-12) return [];
+        const a = (r1*r1-r2*r2+d*d)/(2*d);
+        const h = Math.sqrt(Math.max(0, r1*r1-a*a));
+        const mx = C1.x+a*dx/d, my = C1.y+a*dy/d;
+        const cs = env.get('currentcoordsys') || defaultCS;
+        const results = [];
+        results.push(makePoint(cs, cs.defaultToRelative(makePair(mx+h*dy/d, my-h*dx/d)), 1));
+        if (h > 1e-12) {
+          results.push(makePoint(cs, cs.defaultToRelative(makePair(mx-h*dy/d, my+h*dx/d)), 1));
+        }
+        return results;
+      }
+      // Fallback to existing
+      if (typeof existingIPs === 'function') return existingIPs(...args);
+      return [];
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Triangle centers and special lines
+    // ────────────────────────────────────────────────────────────
+
+    env.set('circumcenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const D = 2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));
+      if (Math.abs(D) < 1e-12) return null;
+      const ux = ((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/D;
+      const uy = ((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/D;
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(makePair(ux,uy)), 1);
+    });
+
+    env.set('centroid', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const G = makePair((A.x+B.x+C.x)/3, (A.y+B.y+C.y)/3);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(G), 1);
+    });
+
+    env.set('incenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const a = Math.sqrt((B.x-C.x)*(B.x-C.x)+(B.y-C.y)*(B.y-C.y));
+      const b = Math.sqrt((A.x-C.x)*(A.x-C.x)+(A.y-C.y)*(A.y-C.y));
+      const c = Math.sqrt((A.x-B.x)*(A.x-B.x)+(A.y-B.y)*(A.y-B.y));
+      const P = a+b+c;
+      if (P < 1e-12) return null;
+      const I = makePair((a*A.x+b*B.x+c*C.x)/P, (a*A.y+b*B.y+c*C.y)/P);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(I), 1);
+    });
+
+    env.set('orthocenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      // H = A + B + C - 2*circumcenter
+      const D = 2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));
+      if (Math.abs(D) < 1e-12) return null;
+      const ux = ((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/D;
+      const uy = ((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/D;
+      const H = makePair(A.x+B.x+C.x - 2*ux, A.y+B.y+C.y - 2*uy);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(H), 1);
+    });
+
+    // altitude(vertex V, triangle t) — altitude from vertex
+    env.set('altitude', (...args) => {
+      // Accept: vertex point + opposite side (line or triangle)
+      let V = null, tri = null, oppLine = null;
+      for (const a of args) {
+        if (isTriangleGeo(a)) tri = a;
+        else if (isGeoLine(a)) oppLine = a;
+        else if (isPoint(a)) V = a;
+      }
+      if (tri && V) {
+        const Vl = locatePoint(V);
+        const verts = [locatePoint(tri.A), locatePoint(tri.B), locatePoint(tri.C)];
+        // Find which vertex V is closest to
+        let minD = Infinity, idx = 0;
+        for (let i = 0; i < 3; i++) {
+          const d = (Vl.x-verts[i].x)*(Vl.x-verts[i].x)+(Vl.y-verts[i].y)*(Vl.y-verts[i].y);
+          if (d < minD) { minD = d; idx = i; }
+        }
+        const A = verts[(idx+1)%3], B = verts[(idx+2)%3];
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const t = ((Vl.x-A.x)*dx+(Vl.y-A.y)*dy)/(dx*dx+dy*dy);
+        const F = makePair(A.x+t*dx, A.y+t*dy);
+        const cs = V.coordsys;
+        return makeGeoLine(V, makePoint(cs, cs.defaultToRelative(F), 1), false, false);
+      }
+      return null;
+    });
+
+    // median(vertex V, triangle t)
+    env.set('median', (...args) => {
+      let V = null, tri = null;
+      for (const a of args) {
+        if (isTriangleGeo(a)) tri = a;
+        else if (isPoint(a)) V = a;
+      }
+      if (tri && V) {
+        const Vl = locatePoint(V);
+        const verts = [locatePoint(tri.A), locatePoint(tri.B), locatePoint(tri.C)];
+        let minD = Infinity, idx = 0;
+        for (let i = 0; i < 3; i++) {
+          const d = (Vl.x-verts[i].x)*(Vl.x-verts[i].x)+(Vl.y-verts[i].y)*(Vl.y-verts[i].y);
+          if (d < minD) { minD = d; idx = i; }
+        }
+        const A = verts[(idx+1)%3], B = verts[(idx+2)%3];
+        const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const cs = V.coordsys;
+        return makeGeoLine(V, makePoint(cs, cs.defaultToRelative(M), 1), false, true);
+      }
+      return null;
+    });
+
+    // bisector(point A, point O, point B) or bisector(line l) [perpendicular bisector]
+    env.set('bisector', (...args) => {
+      const pts = [];
+      let l = null;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+        else if (isGeoLine(a)) l = a;
+      }
+      // Perpendicular bisector of segment/line
+      if (l) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const P2 = makePair(M.x - dy, M.y + dx);
+        const cs = l.A.coordsys;
+        return makeGeoLine(makePoint(cs, cs.defaultToRelative(M), 1), makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
+      }
+      // Angle bisector: bisector(A, O, B) — bisects angle AOB
+      if (pts.length >= 3) {
+        const A = locatePoint(pts[0]), O = locatePoint(pts[1]), B = locatePoint(pts[2]);
+        const dA = Math.sqrt((A.x-O.x)*(A.x-O.x)+(A.y-O.y)*(A.y-O.y)) || 1;
+        const dB = Math.sqrt((B.x-O.x)*(B.x-O.x)+(B.y-O.y)*(B.y-O.y)) || 1;
+        const uA = makePair((A.x-O.x)/dA, (A.y-O.y)/dA);
+        const uB = makePair((B.x-O.x)/dB, (B.y-O.y)/dB);
+        const bisDir = makePair(uA.x+uB.x, uA.y+uB.y);
+        const P2 = makePair(O.x+bisDir.x, O.y+bisDir.y);
+        const cs = pts[1].coordsys;
+        return makeGeoLine(pts[1], makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
+      }
+      // Perpendicular bisector of two points
+      if (pts.length >= 2) {
+        const A = locatePoint(pts[0]), B = locatePoint(pts[1]);
+        const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const P2 = makePair(M.x - dy, M.y + dx);
+        const cs = pts[0].coordsys;
+        return makeGeoLine(makePoint(cs, cs.defaultToRelative(M), 1), makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
+      }
+      return null;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Transforms
+    // ────────────────────────────────────────────────────────────
+
+    // reflect(line l) → transform (reflection about line)
+    const existingReflect = env.get('reflect');
+    env.set('reflect', (...args) => {
+      // If args are geolines, reflect about line
+      if (args.length === 1 && isGeoLine(args[0])) {
+        const A = locatePoint(args[0].A), B = locatePoint(args[0].B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        // Reflection matrix about line through A with direction (dx,dy)
+        const cos2 = (dx*dx-dy*dy)/d2, sin2 = 2*dx*dy/d2;
+        // T = translate(-A) * reflect * translate(A)
+        const tx = A.x - cos2*A.x - sin2*A.y;
+        const ty = A.y - sin2*A.x + cos2*A.y;
+        return makeTransform(tx, cos2, sin2, ty, sin2, -cos2);
+      }
+      // Fall back to existing reflect(pair, pair)
+      if (typeof existingReflect === 'function') return existingReflect(...args);
+      // Default: reflect about two points
+      if (args.length >= 2) {
+        const A = toPair(args[0]), B = toPair(args[1]);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        const cos2 = (dx*dx-dy*dy)/d2, sin2 = 2*dx*dy/d2;
+        const tx = A.x - cos2*A.x - sin2*A.y;
+        const ty = A.y - sin2*A.x + cos2*A.y;
+        return makeTransform(tx, cos2, sin2, ty, sin2, -cos2);
+      }
+      return makeTransform(0,1,0,0,0,1);
+    });
+
+    // projection(line l) → transform (orthogonal projection on line)
+    env.set('projection', (...args) => {
+      if (args.length === 1 && isGeoLine(args[0])) {
+        const A = locatePoint(args[0].A), B = locatePoint(args[0].B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        const c2 = dx*dx/d2, s2 = dx*dy/d2;
+        const tx = A.x - c2*A.x - s2*A.y;
+        const ty = A.y - s2*A.x - (dy*dy/d2)*A.y + (dy*dy/d2)*A.y;
+        // Projection: P = A + ((X-A)·u)u  where u = (dx,dy)/|d|
+        // As transform: [c², cs; cs, s²] * X + (I - M)*A
+        const cs2 = dx*dy/d2, ss = dy*dy/d2;
+        return makeTransform(
+          A.x*(1-c2) - A.y*cs2, c2, cs2,
+          A.y*(1-ss) - A.x*cs2, cs2, ss
+        );
+      }
+      // projection(point A, point B) → same as projection(line(A,B))
+      if (args.length >= 2) {
+        const A = toPair(args[0]), B = toPair(args[1]);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return makeTransform(0,1,0,0,0,1);
+        const c2 = dx*dx/d2, cs2 = dx*dy/d2, ss = dy*dy/d2;
+        return makeTransform(
+          A.x*(1-c2) - A.y*cs2, c2, cs2,
+          A.y*(1-ss) - A.x*cs2, cs2, ss
+        );
+      }
+      return makeTransform(0,1,0,0,0,1);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Distance / length / abs for geometry types
+    // ────────────────────────────────────────────────────────────
+
+    // Enhance abs to handle points/vectors
+    const existingAbs = env.get('abs');
+    env.set('abs', (...args) => {
+      const v = args[0];
+      if (isPoint(v)) {
+        // abs in M's own coordinate system metric
+        return Math.sqrt(v.x*v.x + v.y*v.y);
+      }
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        return Math.sqrt(d.x*d.x + d.y*d.y);
+      }
+      if (typeof existingAbs === 'function') return existingAbs(...args);
+      return Math.abs(toNumber(args[0]));
+    });
+
+    // length for geometry types
+    const existingLength = env.get('length');
+    env.set('length', (...args) => {
+      const v = args[0];
+      if (isGeoLine(v) && !v.extendA && !v.extendB) {
+        // segment length
+        const A = locatePoint(v.A), B = locatePoint(v.B);
+        return Math.sqrt((B.x-A.x)*(B.x-A.x) + (B.y-A.y)*(B.y-A.y));
+      }
+      if (isPoint(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        return Math.sqrt(d.x*d.x + d.y*d.y);
+      }
+      if (typeof existingLength === 'function') return existingLength(...args);
+      if (isPath(v)) return v.segs.length;
+      if (isArray(v)) return v.length;
+      if (isString(v)) return v.length;
+      return 0;
+    });
+
+    // unit(point/vector) → unit vector in default coords direction
+    const existingUnit = env.get('unit');
+    env.set('unit', (...args) => {
+      const v = args[0];
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        const len = Math.sqrt(d.x*d.x + d.y*d.y);
+        if (len < 1e-12) return makeGeoVector(v.v.coordsys, makePair(0,0));
+        const _defaultCS = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
+        return makeGeoVector(_defaultCS, makePair(d.x/len, d.y/len));
+      }
+      if (isPoint(v)) {
+        const p = locatePoint(v);
+        const len = Math.sqrt(p.x*p.x + p.y*p.y);
+        if (len < 1e-12) return makePair(0,0);
+        return makePair(p.x/len, p.y/len);
+      }
+      if (typeof existingUnit === 'function') return existingUnit(...args);
+      if (isPair(v)) {
+        const len = Math.sqrt(v.x*v.x + v.y*v.y);
+        return len > 0 ? makePair(v.x/len, v.y/len) : makePair(0,0);
+      }
+      return makePair(0,0);
+    });
+
+    // degrees/angle for geometry types
+    const existingDegrees = env.get('degrees');
+    env.set('degrees', (...args) => {
+      const v = args[0];
+      if (isGeoVector(v)) {
+        const d = locateVector(v);
+        return Math.atan2(d.y, d.x) * 180 / Math.PI;
+      }
+      if (isPoint(v)) {
+        const p = locatePoint(v);
+        return Math.atan2(p.y, p.x) * 180 / Math.PI;
+      }
+      if (typeof existingDegrees === 'function') return existingDegrees(...args);
+      if (isPair(v)) return Math.atan2(v.y, v.x) * 180 / Math.PI;
+      return toNumber(v) * 180 / Math.PI;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // NOTE: draw/fill/filldraw/dot/label handle geometry types
+    // directly via conversion in evalDraw/evalDot/evalLabel.
+    // ────────────────────────────────────────────────────────────
+
+    // ────────────────────────────────────────────────────────────
+    // Predicate functions
+    // ────────────────────────────────────────────────────────────
+
+    env.set('collinear', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+        else if (isGeoVector(a)) pts.push(locateVector(a));
+      }
+      if (pts.length >= 3) {
+        const A = pts[0], B = pts[1], C = pts[2];
+        return Math.abs((B.x-A.x)*(C.y-A.y) - (C.x-A.x)*(B.y-A.y)) < 1e-10;
+      }
+      if (pts.length === 2) {
+        // Two vectors: check if parallel
+        return Math.abs(pts[0].x*pts[1].y - pts[0].y*pts[1].x) < 1e-10;
+      }
+      return false;
+    });
+
+    env.set('sameside', (...args) => {
+      const pts = [];
+      let l = null;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+        else if (isGeoLine(a)) l = a;
+      }
+      if (l && pts.length >= 2) {
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const s1 = (pts[0].x-A.x)*dy - (pts[0].y-A.y)*dx;
+        const s2 = (pts[1].x-A.x)*dy - (pts[1].y-A.y)*dx;
+        return s1*s2 > 0;
+      }
+      if (pts.length >= 3) {
+        // sameside(M, N, O): M and N on same side of O
+        const M = pts[0], N = pts[1], O = pts[2];
+        return (M.x-O.x)*(N.x-O.x) + (M.y-O.y)*(N.y-O.y) > 0;
+      }
+      return false;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Distance function (visual measurement)
+    // ────────────────────────────────────────────────────────────
+
+    // distance(point M, line l) → real
+    // (Not the visual distance() that draws measurement arrows)
+    const existingDistance = env.get('distance');
+    env.set('distance', (...args) => {
+      let pt = null, l = null;
+      for (const a of args) {
+        if (isPoint(a) && !pt) pt = a;
+        else if (isPair(a) && !pt) pt = makePoint(defaultCS, a, 1);
+        else if (isGeoLine(a)) l = a;
+      }
+      if (pt && l) {
+        const M = locatePoint(pt);
+        const A = locatePoint(l.A), B = locatePoint(l.B);
+        const dx = B.x-A.x, dy = B.y-A.y;
+        const d2 = dx*dx+dy*dy;
+        if (d2 < 1e-12) return Math.sqrt((M.x-A.x)*(M.x-A.x)+(M.y-A.y)*(M.y-A.y));
+        return Math.abs((M.x-A.x)*dy - (M.y-A.y)*dx) / Math.sqrt(d2);
+      }
+      // distance(point, point) → Euclidean distance
+      const pts = [];
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+      }
+      if (pts.length >= 2) {
+        const dx = pts[1].x-pts[0].x, dy = pts[1].y-pts[0].y;
+        return Math.sqrt(dx*dx+dy*dy);
+      }
+      if (typeof existingDistance === 'function') return existingDistance(...args);
+      return 0;
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Perpendicular mark / right angle mark
+    // ────────────────────────────────────────────────────────────
+
+    env.set('perpendicularmark', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0]; args = args.slice(1);
+      }
+      let z = null, alignDir = null, dir = null, sz = 10, pen = null;
+      for (const a of args) {
+        if (isPoint(a) && !z) z = locatePoint(a);
+        else if (isPair(a)) {
+          if (!z) z = a;
+          else if (!alignDir) alignDir = a;
+          else if (!dir) dir = a;
+        }
+        else if (typeof a === 'number') sz = a;
+        else if (isPen(a)) pen = a;
+        else if (isGeoVector(a)) {
+          if (!alignDir) alignDir = locateVector(a);
+          else if (!dir) dir = locateVector(a);
+        }
+      }
+      if (!z || !alignDir) return;
+      if (!dir) dir = makePair(-alignDir.y, alignDir.x);
+      if (!pen) pen = clonePen(defaultPen);
+      // Draw the right angle mark (small square corner)
+      const s = sz / 28.35; // convert from bp to user units approximately
+      const uA = {x: alignDir.x, y: alignDir.y};
+      const uD = {x: dir.x, y: dir.y};
+      const lA = Math.sqrt(uA.x*uA.x+uA.y*uA.y) || 1;
+      const lD = Math.sqrt(uD.x*uD.x+uD.y*uD.y) || 1;
+      const nA = {x: uA.x/lA*s, y: uA.y/lA*s};
+      const nD = {x: uD.x/lD*s, y: uD.y/lD*s};
+      const p1 = makePair(z.x+nA.x, z.y+nA.y);
+      const p2 = makePair(z.x+nA.x+nD.x, z.y+nA.y+nD.y);
+      const p3 = makePair(z.x+nD.x, z.y+nD.y);
+      const path = makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
+      target.commands.push({cmd:'draw', path, pen, arrow:null, line:0});
+    });
+
+    env.set('markrightangle', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0]; args = args.slice(1);
+      }
+      const pts = [];
+      let sz = 10, pen = null;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(locatePoint(a));
+        else if (isPair(a)) pts.push(a);
+        else if (typeof a === 'number') sz = a;
+        else if (isPen(a)) pen = a;
+      }
+      if (pts.length < 3) return;
+      if (!pen) pen = clonePen(defaultPen);
+      const A = pts[0], O = pts[1], B = pts[2];
+      const s = sz / 28.35;
+      const dA = Math.sqrt((A.x-O.x)*(A.x-O.x)+(A.y-O.y)*(A.y-O.y)) || 1;
+      const dB = Math.sqrt((B.x-O.x)*(B.x-O.x)+(B.y-O.y)*(B.y-O.y)) || 1;
+      const uA = {x:(A.x-O.x)/dA*s, y:(A.y-O.y)/dA*s};
+      const uB = {x:(B.x-O.x)/dB*s, y:(B.y-O.y)/dB*s};
+      const p1 = makePair(O.x+uA.x, O.y+uA.y);
+      const p2 = makePair(O.x+uA.x+uB.x, O.y+uA.y+uB.y);
+      const p3 = makePair(O.x+uB.x, O.y+uB.y);
+      const path = makePath([lineSegment(p1,p2), lineSegment(p2,p3)], false);
+      target.commands.push({cmd:'draw', path, pen, arrow:null, line:0});
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Stubs for less-common features
+    // ────────────────────────────────────────────────────────────
+
+    // mass, abscissa, bqe, inversion — stub types
+    env.set('mass', (...args) => {
+      const pts = [];
+      let m = 1;
+      for (const a of args) {
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) pts.push(makePoint(defaultCS, a, 1));
+        else if (typeof a === 'number') m = a;
+      }
+      if (pts.length > 0) return makePoint(pts[0].coordsys, pts[0].coordinates, m);
+      return null;
+    });
+
+    env.set('masscenter', (...args) => {
+      // masscenter(point[] P) — weighted average
+      const pts = [];
+      for (const a of args) {
+        if (isArray(a)) {
+          for (const p of a) { if (isPoint(p)) pts.push(p); }
+        }
+        else if (isPoint(a)) pts.push(a);
+      }
+      if (pts.length === 0) return null;
+      let totalM = 0, sx = 0, sy = 0;
+      for (const p of pts) {
+        const loc = locatePoint(p);
+        totalM += p.m;
+        sx += p.m * loc.x;
+        sy += p.m * loc.y;
+      }
+      if (totalM < 1e-12) return null;
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(makePair(sx/totalM, sy/totalM)), totalM);
+    });
+
+    // Stub for trilinear
+    env.set('trilinear', (...args) => null);
+
+    // rotateO, scaleO — transforms relative to currentcoordsys origin
+    env.set('rotateO', (deg) => {
+      const R = env.get('currentcoordsys') || defaultCS;
+      const O = R.O;
+      const rad = toNumber(deg) * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return makeTransform(O.x - c*O.x + s*O.y, c, -s, O.y - s*O.x - c*O.y, s, c);
+    });
+
+    env.set('scaleO', (k) => {
+      const R = env.get('currentcoordsys') || defaultCS;
+      const O = R.O;
+      const kk = toNumber(k);
+      return makeTransform(O.x*(1-kk), kk, 0, O.y*(1-kk), 0, kk);
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Conversion helpers accessible to user code
+    // ────────────────────────────────────────────────────────────
+
+    env.set('samecoordsys', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isArray(a)) { for (const p of a) if (isPoint(p)) pts.push(p); }
+        else if (isPoint(a)) pts.push(a);
+      }
+      if (pts.length < 2) return true;
+      const first = pts[0].coordsys;
+      return pts.every(p => p.coordsys === first ||
+        (Math.abs(p.coordsys.O.x-first.O.x)<1e-10 && Math.abs(p.coordsys.O.y-first.O.y)<1e-10 &&
+         Math.abs(p.coordsys.i.x-first.i.x)<1e-10 && Math.abs(p.coordsys.i.y-first.i.y)<1e-10 &&
+         Math.abs(p.coordsys.j.x-first.j.x)<1e-10 && Math.abs(p.coordsys.j.y-first.j.y)<1e-10));
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // Boolean / membership
+    // ────────────────────────────────────────────────────────────
+
+    // inside(path, pair) — already in stdlib; add geometry overloads
+    // degenerate(circle) — true if radius is infinite
+    env.set('degenerate', (c) => {
+      if (isGeoCircle(c)) return !isFinite(c.r);
+      return false;
+    });
+  }
+
+  // ============================================================
   // TrigMacros Package (AoPS custom axes/grid)
   // ============================================================
 
@@ -3846,16 +6229,16 @@ function createInterpreter() {
       if (_axisLimits.ymin === null || ybottom < _axisLimits.ymin) _axisLimits.ymin = ybottom;
       if (_axisLimits.ymax === null || ytop > _axisLimits.ymax) _axisLimits.ymax = ytop;
 
-      // Grid lines
+      // Grid lines (exclude boundary lines to avoid drawing a rectangular border)
       if (usegrid) {
         const gridPen = makePen({r:0.75,g:0.75,b:0.75, linewidth:0.4});
-        for (let i = xleft; i <= xright; i += xstep) {
+        for (let i = xleft + xstep; i < xright; i += xstep) {
           if (Math.abs(i) > 0.01) {
             const path = makePath([lineSegment({x:i,y:ybottom},{x:i,y:ytop})], false);
             pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
           }
         }
-        for (let i = ybottom; i <= ytop; i += ystep) {
+        for (let i = ybottom + ystep; i < ytop; i += ystep) {
           if (Math.abs(i) > 0.01) {
             const path = makePath([lineSegment({x:xleft,y:i},{x:xright,y:i})], false);
             pic.commands.push({cmd:'draw', path, pen:gridPen, arrow:null, line:0});
@@ -3872,26 +6255,17 @@ function createInterpreter() {
       const hPath = makePath([lineSegment({x:xleft,y:0},{x:xright,y:0})], false);
       pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
 
-      // Tick labels
-      const tickPen = clonePen(defaultPen);
-      tickPen.fontsize = 8;
-      for (let i = xleft + xstep; i < xright; i += xstep) {
-        const iv = Math.round(i * 1000) / 1000;
-        if (Math.abs(iv) < 0.01) continue;
-        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
-        pic.commands.push({cmd:'label', text:'$' + label + '$', pos:{x:iv, y:0}, align:{x:0,y:-1}, pen:clonePen(tickPen), filltype:null, line:0});
-        if (useticks) {
+      // Tick marks (no numeric labels — labels are added by user code)
+      if (useticks) {
+        for (let i = xleft + xstep; i < xright; i += xstep) {
+          const iv = Math.round(i * 1000) / 1000;
+          if (Math.abs(iv) < 0.01) continue;
           const tPath = makePath([lineSegment({x:iv,y:-0.15},{x:iv,y:0.15})], false);
           pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
         }
-      }
-      for (let i = ybottom + ystep; i < ytop; i += ystep) {
-        const iv = Math.round(i * 1000) / 1000;
-        if (Math.abs(iv) < 0.01) continue;
-        const label = Number.isInteger(iv) ? String(iv) : iv.toFixed(1);
-        const suffix = complexplane ? 'i' : '';
-        pic.commands.push({cmd:'label', text:'$' + label + suffix + '$', pos:{x:0, y:iv}, align:{x:-1,y:0}, pen:clonePen(tickPen), filltype:null, line:0});
-        if (useticks) {
+        for (let i = ybottom + ystep; i < ytop; i += ystep) {
+          const iv = Math.round(i * 1000) / 1000;
+          if (Math.abs(iv) < 0.01) continue;
           const tPath = makePath([lineSegment({x:-0.15,y:iv},{x:0.15,y:iv})], false);
           pic.commands.push({cmd:'draw', path:tPath, pen:makePen({r:0,g:0,b:0,linewidth:0.8}), arrow:null, line:0});
         }
@@ -3980,9 +6354,21 @@ function createInterpreter() {
       env.set('currentprojection', projection);
     }
 
-    // 3D math functions
-    env.set('cross', (a, b) => {
-      const u = toTriple(a), v = toTriple(b);
+    // 3D math functions / 2D marker cross
+    env.set('cross', (...args) => {
+      // cross(int n) — marker path: n-pointed asterisk (from plain_markers.asy)
+      if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
+        const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        const segs = [];
+        for (let i = 0; i < n; i++) {
+          const angle = i * Math.PI / n;
+          const dx = Math.cos(angle), dy = Math.sin(angle);
+          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+        }
+        return makePath(segs, false);
+      }
+      // cross(triple, triple) — 3D vector cross product
+      const u = toTriple(args[0]), v = toTriple(args[1]);
       return makeTriple(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
     });
 
@@ -3992,19 +6378,6 @@ function createInterpreter() {
       const dx1 = v.x-u.x, dy1 = v.y-u.y, dz1 = v.z-u.z;
       const dx2 = w.x-u.x, dy2 = w.y-u.y, dz2 = w.z-u.z;
       return makeTriple(dy1*dz2-dz1*dy2, dz1*dx2-dx1*dz2, dx1*dy2-dy1*dx2);
-    });
-
-    env.set('interp', (a, b, t) => {
-      const frac = toNumber(t);
-      if (isTriple(a) || isTriple(b)) {
-        const u = toTriple(a), v = toTriple(b);
-        return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
-      }
-      if (isPair(a) || isPair(b)) {
-        const u = toPair(a), v = toPair(b);
-        return makePair(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac);
-      }
-      return toNumber(a)*(1-frac) + toNumber(b)*frac;
     });
 
     // Component accessors
@@ -4107,14 +6480,22 @@ function createInterpreter() {
 
     // (intersectionpoints defined earlier with proper implementation)
 
-    // surface/revolution stubs for non-wireframe usage (draw calls on these are no-ops)
-    env.set('surface', (...args) => ({_tag:'surface'}));
+    // surface(): capture boundary path for rendering as filled polygon
+    env.set('surface', (...args) => {
+      if (args.length >= 1 && isPath(args[0])) {
+        return { _tag: 'surface', boundary: args[0] };
+      }
+      return { _tag: 'surface' };
+    });
     env.set('revolution', (...args) => ({_tag:'surface'}));
     env.set('unitsphere', {_tag:'surface'});
     env.set('unitdisk', {_tag:'surface'});
     env.set('unitplane', {_tag:'surface'});
     env.set('unitcube', {_tag:'surface'});
     env.set('extrude', (...args) => ({_tag:'surface'}));
+
+    // settings object — properties like settings.render are silently accepted
+    env.set('settings', { render: 0, outformat: '', prc: false, tex: 'pdflatex' });
 
     // light stubs
     env.set('light', (...args) => ({_tag:'light'}));
@@ -4137,6 +6518,34 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Convert geometry types to drawable paths
+    const savedLine = args._line;
+    args = args.map(a => {
+      if (isPoint(a)) return locatePoint(a);
+      if (isGeoVector(a)) return locateVector(a);
+      if (isGeoLine(a)) {
+        const A = locatePoint(a.A), B = locatePoint(a.B);
+        let p0 = A, p1 = B;
+        if (a.extendA || a.extendB) {
+          const dx = B.x-A.x, dy = B.y-A.y;
+          const len = Math.sqrt(dx*dx+dy*dy) || 1;
+          const far = 200;
+          if (a.extendA) p0 = makePair(A.x - far*dx/len, A.y - far*dy/len);
+          if (a.extendB) p1 = makePair(B.x + far*dx/len, B.y + far*dy/len);
+        }
+        return makePath([lineSegment(p0, p1)], false);
+      }
+      if (isGeoCircle(a)) {
+        const C = toPair(a.C);
+        return makeCirclePath(C, a.r);
+      }
+      if (isTriangleGeo(a)) {
+        const A = locatePoint(a.A), B = locatePoint(a.B), C = locatePoint(a.C);
+        return makePath([lineSegment(A,B), lineSegment(B,C), lineSegment(C,A)], true);
+      }
+      return a;
+    });
+    args._line = savedLine;
     // Detect draw(pair, path, pen) marker syntax: marker path is in bp/px units (fixed size)
     // In Asymptote, draw(pair z, path g, pen p) renders g in bp space at coordinate position z
     if (args.length >= 2 && isPair(args[0]) && isPath(args[1]) && args[1].segs && args[1].segs.length > 0) {
@@ -4150,7 +6559,37 @@ function createInterpreter() {
       target.commands.push({cmd:'marker', pos, markerPath, pen:markerPen, line: args._line || 0});
       return;
     }
+    // Handle draw(path[], pen) — array of paths (e.g. from contour())
+    if (args.length >= 1 && isArray(args[0]) && args[0].length > 0 && isPath(args[0][0])) {
+      const paths = args[0];
+      let p = null;
+      for (let i = 1; i < args.length; i++) {
+        if (isPen(args[i])) p = p ? mergePens(p, args[i]) : args[i];
+      }
+      if (!p) p = clonePen(defaultPen);
+      for (const path of paths) {
+        target.commands.push({cmd, path, pen:clonePen(p), arrow:null, line: args._line || 0});
+      }
+      return;
+    }
+    // Handle draw(surface(path3), pen) — render as filled polygon
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a && a._tag === 'surface' && a.boundary) {
+        const surfPath = a.boundary;
+        projectPathTriples(surfPath);
+        let surfPen = null;
+        for (let j = 0; j < args.length; j++) {
+          if (j === i) continue;
+          if (isPen(args[j])) surfPen = surfPen ? mergePens(surfPen, args[j]) : args[j];
+        }
+        if (!surfPen) surfPen = clonePen(defaultPen);
+        target.commands.push({ cmd: 'fill', path: surfPath, pen: surfPen, line: args._line || 0 });
+        return;
+      }
+    }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
+    let labelText = null, labelAlign = null, labelPosition = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -4165,13 +6604,21 @@ function createInterpreter() {
       else if (typeof a === 'function' && !arrow) {
         try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
       }
+      else if (a && a._tag === 'label') {
+        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+      }
+      else if (isString(a) && !labelText && !pathArg) { labelText = a; }
       else if (isTriple(a) && !pathArg) {
         pathArg = makePath([], false);
         pathArg._singlePoint = projectTriple(a);
       }
-      else if (isPair(a) && !pathArg) {
-        pathArg = makePath([], false);
-        pathArg._singlePoint = a;
+      else if (isPair(a)) {
+        if (!pathArg && !labelText) {
+          pathArg = makePath([], false);
+          pathArg._singlePoint = a;
+        } else if (labelText && !labelAlign) {
+          labelAlign = a; // alignment for draw label
+        }
       }
     }
     if (!pathArg && args.length > 0) {
@@ -4192,6 +6639,22 @@ function createInterpreter() {
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
       if (drawPen) dc.drawPen = drawPen;
       target.commands.push(dc);
+      // If draw call has a label, place it along the path at the specified position
+      if (labelText && pathArg.segs && pathArg.segs.length > 0) {
+        const t = (labelPosition != null) ? labelPosition : 0.5; // default midpoint
+        // Compute position at parameter t along the path (0=begin, 1=end)
+        const totalSegs = pathArg.segs.length;
+        const segParam = t * totalSegs;
+        const segIdx = Math.min(Math.floor(segParam), totalSegs - 1);
+        const localT = segParam - segIdx;
+        const seg = pathArg.segs[segIdx];
+        // De Casteljau evaluation for cubic Bezier at localT
+        const b = (1 - localT);
+        const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
+        const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
+        const labelPos = makePair(px, py);
+        target.commands.push({cmd:'label', text:labelText, pos:labelPos, align:labelAlign, pen, line: args._line || 0});
+      }
     }
   }
 
@@ -4203,6 +6666,10 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Convert geometry points to pairs
+    const savedLine = args._line;
+    args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
+    args._line = savedLine;
     let pos = null, pen = null, text = null, align = null, multiDots = null;
     let graphicData = null;
     for (const a of args) {
@@ -4221,6 +6688,7 @@ function createInterpreter() {
         if (!pos) pos = a;
         else if (!align) align = a;
       }
+      else if (typeof a === 'number' && !pos) { pos = makePair(a, 0); }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
       else if (isPath(a) && a.segs.length > 0 && !pos) {
         // Multi-dot: dot all segment endpoints (for ^^ paths)
@@ -4263,6 +6731,10 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Convert geometry points to pairs
+    const savedLine = args._line;
+    args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
+    args._line = savedLine;
     let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     let graphicData = null;
     for (const a of args) {
@@ -4684,6 +7156,30 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Collect clip commands: in Asymptote, clip() constrains the bounding box
+  // to the intersection of all clip regions.
+  let clipMinX = -Infinity, clipMinY = -Infinity, clipMaxX = Infinity, clipMaxY = Infinity;
+  let hasClip = false;
+  for (const dc of drawCommands) {
+    if (dc.cmd === 'clip' && dc.path && dc.path.segs.length > 0) {
+      hasClip = true;
+      let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+      for (const seg of dc.path.segs) {
+        for (const p of [seg.p0, seg.p3]) {
+          if (p.x < cMinX) cMinX = p.x;
+          if (p.x > cMaxX) cMaxX = p.x;
+          if (p.y < cMinY) cMinY = p.y;
+          if (p.y > cMaxY) cMaxY = p.y;
+        }
+      }
+      // Intersect with any previous clip regions
+      clipMinX = Math.max(clipMinX, cMinX);
+      clipMinY = Math.max(clipMinY, cMinY);
+      clipMaxX = Math.min(clipMaxX, cMaxX);
+      clipMaxY = Math.min(clipMaxY, cMaxY);
+    }
+  }
+
   // Compute bounding box from all draw commands
   for (const dc of drawCommands) {
     if (dc.cmd === 'dot') {
@@ -4702,17 +7198,31 @@ function renderSVG(result, opts) {
     } else if (dc.cmd === 'marker') {
       // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
       expandBBox(dc.pos.x, dc.pos.y);
+    } else if (dc.cmd === 'clip') {
+      // clip commands don't contribute to bbox — they constrain it (handled below)
+      continue;
     } else if (dc.path) {
       // Skip white fills for bbox: fill(box(...), white) is a background erase
       // that shouldn't define the bounding box (matches Asymptote behavior)
       if (dc.cmd === 'fill' && dc.pen && dc.pen.r >= 0.99 && dc.pen.g >= 0.99 && dc.pen.b >= 0.99) {
         continue;
       }
+      // Tick marks have fixed physical size — they should not inflate the geometry bbox.
+      // In real Asymptote, tick sizes are in bp (physical points), not user coordinates.
+      if (dc._isTickMark) continue;
       if (dc.path._singlePoint) {
         expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
       }
       for (const seg of dc.path.segs) expandBezierBBox(seg);
     }
+  }
+
+  // Constrain bbox to clip region (Asymptote clip() restricts the bounding box)
+  if (hasClip) {
+    minX = Math.max(minX, clipMinX);
+    minY = Math.max(minY, clipMinY);
+    maxX = Math.min(maxX, clipMaxX);
+    maxY = Math.min(maxY, clipMaxY);
   }
 
   // When Crop is enabled, constrain bbox to axis limits (plus padding for labels/axes)
@@ -4728,128 +7238,275 @@ function renderSVG(result, opts) {
     maxY = Math.min(maxY, axisLimits.ymax + yMargin);
   }
 
-  // Add padding
+  // Add padding for stroke overshoot
   if (!isFinite(minX)) { minX=0; minY=0; maxX=1; maxY=1; }
-  const pad = 0.5;
-  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
 
-  // Save geometry-only bbox before label expansion.
+  // Save geometry-only bbox before label expansion (and before padding).
   // In real Asymptote, size() scales geometry to fit the requested dimensions;
   // labels are placed at absolute point sizes and don't shrink the geometry.
-  // Using the label-expanded bbox for pxPerUnit made geometry too small relative
-  // to labels, causing text to appear disproportionately wide.
-  const geoBboxW = maxX - minX || 1;
-  const geoBboxH = maxY - minY || 1;
+  const geoBboxW = (maxX - minX) || 1;
+  const geoBboxH = (maxY - minY) || 1;
 
-  // Expand bbox for labels so text doesn't get clipped
-  // Estimate label extent in user coordinates
-  for (const dc of drawCommands) {
-    if (dc.cmd === 'label' || dc.cmd === 'dot') {
-      const pos = dc.pos || dc;
-      if (!pos || pos.x === undefined) continue;
-      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
-      const text = dc.text || dc.label || '';
-      const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
-      // Approximate character width ~0.6 * fontSize
-      const bboxSpan = maxX - minX || 1;
-      // Rough pxPerUnit estimate for sizing
-      const roughPxPerUnit = (sizeW > 0 ? sizeW : (sizeH > 0 ? sizeH : 340)) / bboxSpan;
-      // Font size in SVG user units: fontSize (pt) * (96/72) converts pt→CSS px, then
-      // divide by roughPxPerUnit to get user-coordinate units.  Omitting the 96/72
-      // factor caused the bbox to be ~33% too small, with labels extending outside it.
-      const ptToPx = 96 / 72;
-      const charWidthUser = fontSize * ptToPx * 0.6 / roughPxPerUnit;
-      // For labels with fractions, estimate wider width
-      const rawLabel = text;
-      const hasFrac = /\\frac/.test(rawLabel);
-      const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
-      const textWidthUser = effectiveLen * charWidthUser;
-      const textHeightUser = (hasFrac ? fontSize * 1.5 : fontSize) * ptToPx / roughPxPerUnit;
-      let dx = 0, dy = 0;
-      if (dc.align) {
-        const ax = dc.align.x, ay = dc.align.y;
-        const margin = 0.28 * fontSize * ptToPx / roughPxPerUnit;
-        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
-        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
-        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
-        dx = ax_n * textWidthUser + ax * margin;
-        dy = ay_n * textHeightUser + ay * margin;   // Asymptote y-up, no inversion
-      }
-      // Expand bbox to include estimated text bounds
-      const cx = pos.x + dx;
-      const cy = pos.y + dy;
-      expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
-      expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
+  // Padding in bp, converted to user coordinates.  Real Asymptote expands the
+  // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
+  // on each side) so the value doesn't depend on user-coordinate scale.
+  const roughPxPerUnitForPad = hasUnitScale ? unitScale
+    : (sizeW > 0 ? sizeW / geoBboxW : (sizeH > 0 ? sizeH / geoBboxH : 200 / geoBboxW));
+  const pad = 0.5 / roughPxPerUnitForPad;      // 0.5 bp → user coords
+  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+
+  // Expand bbox for labels so text doesn't get clipped.
+  // Estimate label extent in user coordinates.  We iterate because the scale
+  // (pxPerUnit) depends on the bbox, and labels expand the bbox.  Two passes
+  // suffice: the first expands coarsely, the second refines with the updated bbox.
+  const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
+  for (let labelPass = 0; labelPass < 2; labelPass++) {
+    // Compute the rough pxPerUnit from current bbox (mirrors the final scale logic)
+    const curBboxW = (maxX - minX) || 1;
+    const curBboxH = (maxY - minY) || 1;
+    let roughPxPerUnit, roughPxPerUnitX, roughPxPerUnitY;
+    if (hasUnitScale) {
+      roughPxPerUnit = roughPxPerUnitX = roughPxPerUnitY = unitScale;
+    } else if (sizeW > 0 || sizeH > 0) {
+      // Use geometry-only bbox for scale estimation, matching the final
+      // pxPerUnit logic (labels don't shrink geometry in real Asymptote).
+      const geoW = (geoMaxX - geoMinX) || 1;
+      const geoH = (geoMaxY - geoMinY) || 1;
+      const tW = sizeW > 0 ? sizeW : Infinity;
+      const tH = sizeH > 0 ? sizeH : Infinity;
+      roughPxPerUnit = Math.min(tW / geoW, tH / geoH);
+      roughPxPerUnitX = keepAspect ? roughPxPerUnit : (sizeW > 0 ? sizeW / geoW : roughPxPerUnit);
+      roughPxPerUnitY = keepAspect ? roughPxPerUnit : (sizeH > 0 ? sizeH / geoH : roughPxPerUnit);
+    } else {
+      // No size/unitsize: default size(200) — scale by the binding dimension
+      const geoW = (geoMaxX - geoMinX) || 1;
+      const geoH = (geoMaxY - geoMinY) || 1;
+      roughPxPerUnit = Math.min(200 / geoW, 200 / geoH);
+      roughPxPerUnitX = roughPxPerUnitY = roughPxPerUnit;
     }
+
+    // Reset bbox to geometry-only extents before re-expanding with labels
+    if (labelPass > 0) {
+      minX = geoMinX; minY = geoMinY; maxX = geoMaxX; maxY = geoMaxY;
+    }
+
+    // Auto-scaled diagrams (no size/unitsize) need wider char width estimate
+    // to match Asymptote's shipout(bbox()) sizing where labels dominate the bbox.
+    const autoScaled = !hasUnitScale && sizeW <= 0 && sizeH <= 0;
+
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'label' && dc._isTickLabel) continue;
+      if (dc.cmd === 'label' || dc.cmd === 'dot') {
+        const pos = dc.pos || dc;
+        if (!pos || pos.x === undefined) continue;
+        let fontSize = (dc.pen && dc.pen.fontsize) || 10;
+        const text = dc.text || dc.label || '';
+        const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
+
+        // Account for label transform (scale/rotate) in bbox estimation
+        let ltScale = 1, ltAngle = 0;
+        if (dc.labelTransform) {
+          const lt = dc.labelTransform;
+          ltScale = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+          if (ltScale > 0 && Math.abs(ltScale - 1) > 0.01) fontSize *= ltScale;
+          ltAngle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        }
+
+        // Character width estimate for bbox: for size()-constrained diagrams,
+        // use a tight glyph-bbox estimate (0.288 em) that keeps geometry scale
+        // close to real Asymptote.  For auto-scaled diagrams, use the TeX
+        // advance width (~0.50 em) so label-dominated layouts match Asymptote.
+        const charWidthBp = fontSize * (autoScaled ? 0.50 : 0.48 * 0.6);
+        const charWidthUser = charWidthBp / roughPxPerUnitX;
+        // For labels with fractions, estimate wider width
+        const rawLabel = text;
+        const hasFrac = /\\frac/.test(rawLabel);
+        const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
+        let textWidthUser = effectiveLen * charWidthUser;
+        // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
+        const heightFactor = autoScaled ? 0.7 : 0.48;
+        let textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
+
+        // For rotated labels, swap width and height in bbox computation
+        if (Math.abs(ltAngle) > 45) {
+          const tmp = textWidthUser;
+          textWidthUser = textHeightUser;
+          textHeightUser = tmp;
+        }
+
+        let dx = 0, dy = 0;
+        if (dc.align) {
+          const ax = dc.align.x, ay = dc.align.y;
+          const marginX = 0.20 * fontSize / roughPxPerUnitX;
+          const marginY = 0.20 * fontSize / roughPxPerUnitY;
+          // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
+          const ax_n = ax * 0.5;
+          const ay_n = ay * 0.5;
+          dx = ax_n * textWidthUser + ax * marginX;
+          dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
+        }
+        // Expand bbox to include estimated text bounds
+        const cx = pos.x + dx;
+        const cy = pos.y + dy;
+        expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
+        expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
+      }
+    }
+  }
+
+  // Re-constrain bbox after label expansion: clip() must not be expanded by labels
+  if (hasClip) {
+    minX = Math.max(minX, clipMinX - pad);
+    minY = Math.max(minY, clipMinY - pad);
+    maxX = Math.min(maxX, clipMaxX + pad);
+    maxY = Math.min(maxY, clipMaxY + pad);
+  }
+
+  // GIF mode: override bounds with union bounds across all frames so that
+  // every frame uses the same coordinate system and points don't drift.
+  if (opts.forcedBounds) {
+    minX = opts.forcedBounds.minX;
+    minY = opts.forcedBounds.minY;
+    maxX = opts.forcedBounds.maxX;
+    maxY = opts.forcedBounds.maxY;
   }
 
   const warnings = [];
 
-  // Determine scale — use geometry-only bbox so labels don't shrink geometry
+  // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
-  let pxPerUnit;
+  let pxPerUnit, pxPerUnitX, pxPerUnitY;
   if (hasUnitScale) {
-    // unitsize() was called: user coords → bp directly
-    pxPerUnit = unitScale;
+    // unitsize() was called: user coords → bp directly (labels just expand output)
+    pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
+    // Truesize: ensure output isn't microscopic when unitsize is very small
+    const naturalBpW = (maxX - minX) * unitScale;
+    const naturalBpH = (maxY - minY) * unitScale;
+    const minDimBp = 50; // minimum 50bp output
+    if (naturalBpW > 0 && naturalBpW < minDimBp && naturalBpH < minDimBp) {
+      const boost = minDimBp / Math.max(naturalBpW, naturalBpH);
+      pxPerUnit *= boost;
+      pxPerUnitX *= boost;
+      pxPerUnitY *= boost;
+    }
   } else if (sizeW > 0 || sizeH > 0) {
-    // size() without unitsize(): scale user coords to fit in the requested size.
-    // Use geometry-only bbox so labels don't shrink the drawing.
+    // size() without unitsize(): scale geometry to fit the requested size.
+    // Real Asymptote constrains geometry scale via size(); labels are placed at
+    // absolute point sizes and simply make the output bigger.  Using the
+    // geometry-only bbox (before label expansion) for the scale denominator
+    // matches that behaviour — labels are allowed to extend beyond the size()
+    // box (rendered via overflow:visible).
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
-    pxPerUnit = Math.min(targetW / geoBboxW, targetH / geoBboxH);
+    const scaleRefW = (geoMaxX - geoMinX) || 1;
+    const scaleRefH = (geoMaxY - geoMinY) || 1;
+    pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
+    if (!keepAspect && sizeW > 0 && sizeH > 0) {
+      // IgnoreAspect: independent scaling per axis
+      pxPerUnitX = sizeW / scaleRefW;
+      pxPerUnitY = sizeH / scaleRefH;
+    } else {
+      pxPerUnitX = pxPerUnitY = pxPerUnit;
+    }
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
     const defaultSize = 200;
     const targetW = defaultSize;
     const targetH = defaultSize;
-    pxPerUnit = Math.min(targetW / (geoBboxW || 1), targetH / (geoBboxH || 1));
+    const scaleRefW2 = (geoMaxX - geoMinX) || 1;
+    const scaleRefH2 = (geoMaxY - geoMinY) || 1;
+    pxPerUnit = Math.min(targetW / scaleRefW2, targetH / scaleRefH2);
+    pxPerUnitX = pxPerUnitY = pxPerUnit;
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');
   }
 
-  const naturalW = (maxX - minX) * pxPerUnit;
-  const naturalH = (maxY - minY) * pxPerUnit;
-
-  // Apply explicit size() if given
-  let svgW = naturalW, svgH = naturalH;
-  if (sizeW > 0) svgW = sizeW;
-  if (sizeH > 0) svgH = sizeH;
-
-  // Enforce minimum display size: scale so that font labels (~16 CSS px for 12pt) are
-  // proportionally small relative to cells (target ~50% of cell height).
-  // Target: 32 CSS px per user coordinate unit → font/cell ≈ 16/32 = 0.5.
-  // Hard minimum: 100px. Cap at 500px to avoid oversized SVGs for large drawings.
-  if (hasUnitScale) {
-    const bboxUnitsMax = Math.max((maxX - minX) || 1, (maxY - minY) || 1);
-    const fontAwareMin = Math.min(Math.max(32 * bboxUnitsMax, 100), 500);
-    if (svgW < fontAwareMin && svgH < fontAwareMin) {
-      const upscale = fontAwareMin / Math.max(svgW, svgH);
-      svgW *= upscale;
-      svgH *= upscale;
-    }
+  // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
+  if (opts.forcedPxPerUnit) {
+    pxPerUnit = pxPerUnitX = pxPerUnitY = opts.forcedPxPerUnit;
   }
 
-  // If container dimensions provided, shrink to fit
+  const naturalW = (maxX - minX) * pxPerUnitX;
+  const naturalH = (maxY - minY) * pxPerUnitY;
+
+  // Apply explicit size() if given (sizes are in bp = 1/72 inch).
+  // When only one dimension is constrained, scale the other to maintain
+  // the natural (label-expanded) aspect ratio — otherwise the display
+  // distorts because the constrained axis uses sizeW/H while the
+  // unconstrained one uses the full label-expanded natural size.
+  let svgW = naturalW, svgH = naturalH;
+  if (sizeW > 0 && sizeH > 0) {
+    if (keepAspect) {
+      // size(w,h) with keepAspect means "fit within w×h box, maintaining aspect ratio".
+      // Use the natural (content-fitting) dimensions — the binding constraint dimension
+      // equals the size() value, the other is smaller to preserve aspect ratio.
+      svgW = naturalW;
+      svgH = naturalH;
+    } else {
+      // IgnoreAspect: naturalW/H already equal sizeW/H (independent scaling)
+      svgW = naturalW;
+      svgH = naturalH;
+    }
+  } else if (sizeW > 0) {
+    // Use natural dimensions (geometry-scaled) so that preserveAspectRatio
+    // doesn't re-shrink the geometry to fit sizeW.  Labels extend the
+    // natural size beyond sizeW, which is correct — real Asymptote does
+    // the same (labels make the output bigger than size()).
+    svgW = naturalW;
+    svgH = naturalH;
+  } else if (sizeH > 0) {
+    svgW = naturalW;
+    svgH = naturalH;
+  }
+
+  // In real Asymptote the pen-width overshoot extends the output slightly beyond
+  // the size() constraint.  For unitsize() cases the padding is already in the
+  // bbox, but for size()-constrained output we add ~1 bp (0.5 bp per side) to
+  // the constrained axis(es) so the final image matches AoPS TeXeR.
+  if (!hasUnitScale) {
+    if (sizeW > 0) svgW += 1;   // 0.5 bp padding each side
+    if (sizeH > 0) svgH += 1;
+  }
+
+  // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
+  // (1 bp = 1/72 in).  The AoPS TeXeR renders at an effective 120 DPI for web
+  // display, so we use 120/72 = 5/3 to match its output size.
+  const bpToCSSPx = 120 / 72;
+  svgW *= bpToCSSPx;
+  svgH *= bpToCSSPx;
+
+  // Store unshrunk dimensions for PNG export (before container shrink-to-fit)
+  let intrinsicW = svgW, intrinsicH = svgH;
+
+  // If container dimensions provided, shrink to fit (or enlarge unitsize diagrams)
   let displayPercent = 100;
   const containerW = opts.containerW || 0;
   const containerH = opts.containerH || 0;
   if (containerW > 0 && containerH > 0) {
     const scaleX = containerW / svgW;
     const scaleY = containerH / svgH;
-    if (scaleX < 1 || scaleY < 1) {
-      const shrink = Math.min(scaleX, scaleY);
-      displayPercent = Math.round(shrink * 100);
-      svgW *= shrink;
-      svgH *= shrink;
+    // Always shrink oversized diagrams. Also scale up unitsize() diagrams whose
+    // natural display size is tiny — unitsize sets an absolute coordinate scale
+    // (user units → bp) so the output can be microscopic. Real Asymptote/TeXeR
+    // renders to a high-DPI bitmap that fills the display; we match by enlarging
+    // the SVG display dimensions (the viewBox stays the same so geometry/fonts
+    // scale together correctly via the bpCSSPixel factor).
+    const needsShrink = scaleX < 1 || scaleY < 1;
+    const needsEnlarge = hasUnitScale && scaleX > 1 && scaleY > 1;
+    if (needsShrink || needsEnlarge) {
+      const fitScale = Math.min(scaleX, scaleY);
+      displayPercent = Math.round(fitScale * 100);
+      svgW *= fitScale;
+      svgH *= fitScale;
       // We don't change pxPerUnit or viewBox — we just set SVG width/height
-      // smaller and let the browser scale via viewBox
+      // and let the browser scale via viewBox
     }
   }
 
   // Compute viewBox (in intrinsic coordinates, before any display shrink)
-  const viewW = naturalW;
-  const viewH = naturalH;
+  let viewW = naturalW;
+  let viewH = naturalH;
 
   // Build SVG
   const commandMap = []; // maps draw command index → SVG element index
@@ -4862,45 +7519,328 @@ function renderSVG(result, opts) {
       axisLimits.xmin !== null && axisLimits.xmax !== null &&
       axisLimits.ymin !== null && axisLimits.ymax !== null) {
     cropClipId = 'crop-clip';
-    const cx1 = (axisLimits.xmin - minX) * pxPerUnit;
-    const cy1 = (maxY - axisLimits.ymax) * pxPerUnit;
-    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnit;
-    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnit;
+    const cx1 = (axisLimits.xmin - minX) * pxPerUnitX;
+    const cy1 = (maxY - axisLimits.ymax) * pxPerUnitY;
+    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnitX;
+    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnitY;
     elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
   }
 
-  // Scale factor: how many viewBox units = 1 CSS pixel.
-  // With preserveAspectRatio="xMidYMid meet" (browser default / keepAspect), the viewBox is
-  // scaled by min(svgW/viewW, svgH/viewH) CSS-px per unit.  Inverting gives the correct
-  // cssPixel = max(viewW/svgW, viewH/svgH).  Using only viewW/svgW was wrong for
-  // height-limited pictures (naturalW < sizeW) and made fontSizeSVG too small, placing
-  // labels too close to the drawing.
-  // With preserveAspectRatio="none" (keepAspect=false), the viewBox stretches to fill
-  // the SVG exactly, so use the X-direction scale for font sizing.
+  // Asymptote clip(): create SVG clipPath from clip commands.
+  // Unlike crop clipping (which excludes labels), clip() clips everything.
+  let userClipId = null;
+  if (hasClip) {
+    userClipId = 'user-clip';
+    let clipDefs = '<defs><clipPath id="user-clip">';
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'clip' && dc.path && dc.path.segs.length > 0) {
+        clipDefs += `<path d="${pathToD(dc.path, minX, maxY, pxPerUnitX, pxPerUnitY)}"/>`;
+      }
+    }
+    clipDefs += '</clipPath></defs>';
+    elements.push(clipDefs);
+  }
+
+  // Scale factor: how many viewBox units = 1 CSS pixel at intrinsic size.
+  // We use intrinsicW/H (before container fit-scaling) so that stroke widths,
+  // dot radii, and font sizes are independent of the display container.  The
+  // browser's viewBox→display mapping scales everything uniformly, so strokes
+  // look correct at any display size.  For rasterization (librsvg/sharp) the
+  // intrinsic dimensions determine the actual rendered stroke weight.
+  // With keepAspect=false the non-uniform scaling is baked into coordinates via
+  // pxPerUnitX/Y, so viewBox matches svgW/svgH and cssPixel ≈ 1.
   const cssPixel = keepAspect
-    ? Math.max(viewW / (svgW || viewW || 1), viewH / (svgH || viewH || 1))
+    ? Math.max(viewW / (intrinsicW || viewW || 1), viewH / (intrinsicH || viewH || 1))
     : viewW / (svgW || viewW || 1);
+  // Like cssPixel but includes the bp→display conversion.  Use for anything whose
+  // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
+  // Uses bpToCSSPx so strokes/fonts scale at the same effective DPI as the geometry.
+  const bpCSSPixel = bpToCSSPx * cssPixel;
+
+  // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
+  // Now that bpCSSPixel is known, compute how far each element extends
+  // beyond its geometric center/path in viewBox units. Expand the viewBox
+  // so that librsvg/sharp (which clips to viewBox) renders identically
+  // to browsers (which honour overflow:visible).
+  {
+    let padL = 0, padR = 0, padT = 0, padB = 0; // extra space needed in viewBox units
+
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'dot') {
+        const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
+        const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
+        const sx = (dc.pos.x - minX) * pxPerUnitX;
+        const sy = (maxY - dc.pos.y) * pxPerUnitY;
+        // Skip points far outside the viewport — their overshoot is invisible
+        if (sx >= -dotR && sx <= viewW + dotR && sy >= -dotR && sy <= viewH + dotR) {
+          padL = Math.max(padL, dotR - sx);
+          padR = Math.max(padR, (sx + dotR) - viewW);
+          padT = Math.max(padT, dotR - sy);
+          padB = Math.max(padB, (sy + dotR) - viewH);
+        }
+      } else if (dc.path && dc.path.segs.length > 0) {
+        const lw = dc.pen ? dc.pen.linewidth : 0.5;
+        const halfStroke = (lw * bpCSSPixel) / 2;
+        // Check path endpoints for stroke overshoot
+        for (const seg of dc.path.segs) {
+          for (const p of [seg.p0, seg.p3]) {
+            const sx = (p.x - minX) * pxPerUnitX;
+            const sy = (maxY - p.y) * pxPerUnitY;
+            // Skip points far outside the viewport — their overshoot is invisible
+            if (sx < -halfStroke || sx > viewW + halfStroke ||
+                sy < -halfStroke || sy > viewH + halfStroke) continue;
+            padL = Math.max(padL, halfStroke - sx);
+            padR = Math.max(padR, (sx + halfStroke) - viewW);
+            padT = Math.max(padT, halfStroke - sy);
+            padB = Math.max(padB, (sy + halfStroke) - viewH);
+          }
+        }
+        // Arrow overshoot: arrowheads extend perpendicular to the path by ~arrowLen/3
+        if (dc.arrow && dc.cmd === 'draw') {
+          const baseSize = dc.arrow.size || 6;
+          const arrowLen = baseSize * bpCSSPixel;
+          const arrowR = arrowLen * 0.4; // perpendicular extent
+          for (const seg of [dc.path.segs[0], dc.path.segs[dc.path.segs.length - 1]]) {
+            for (const p of [seg.p0, seg.p3]) {
+              const sx = (p.x - minX) * pxPerUnitX;
+              const sy = (maxY - p.y) * pxPerUnitY;
+              // Skip points far outside the viewport
+              if (sx < -arrowR || sx > viewW + arrowR ||
+                  sy < -arrowR || sy > viewH + arrowR) continue;
+              padL = Math.max(padL, arrowR - sx);
+              padR = Math.max(padR, (sx + arrowR) - viewW);
+              padT = Math.max(padT, arrowR - sy);
+              padB = Math.max(padB, (sy + arrowR) - viewH);
+            }
+          }
+        }
+      }
+    }
+
+    // Label/text overshoot
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'label' && dc.cmd !== 'dot') continue;
+      // dot commands without text don't produce labels
+      if (dc.cmd === 'dot' && !dc.text) continue;
+
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
+      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+      const fontSizeSVG = fontSize * bpCSSPixel;
+      const cleanText = stripLaTeX(dc.text || '');
+      let cleanLen, numLines;
+      if (cleanText.includes('\n')) {
+        const clines = cleanText.split('\n').filter(l => l.length > 0);
+        cleanLen = Math.max(...clines.map(l => l.length)) || 1;
+        numLines = clines.length;
+      } else {
+        cleanLen = cleanText.length || 1;
+        numLines = 1;
+      }
+      const W = cleanLen * fontSizeSVG * 0.52;
+      const H = fontSizeSVG * numLines;
+
+      // Compute offset from alignment (same logic as label rendering)
+      let dx = 0, dy = 0;
+      if (dc.align) {
+        const ax = dc.align.x, ay = dc.align.y;
+        const margin = 0.25 * fontSizeSVG;
+        const ax_n = ax * 0.5, ay_n = ay * 0.5;
+        dx = ax_n * W + ax * margin;
+        dy = -(ay_n * H + ay * margin);
+      }
+
+      // Text bounding box in viewBox coords (text-anchor="middle")
+      const cx = sx + dx, cy = sy + dy;
+      const left = cx - W / 2;
+      const right = cx + W / 2;
+      const top = cy - H / 2;
+      const bottom = cy + H / 2;
+
+      padL = Math.max(padL, -left);
+      padR = Math.max(padR, right - viewW);
+      padT = Math.max(padT, -top);
+      padB = Math.max(padB, bottom - viewH);
+    }
+
+    // Apply padding: shift origin and expand viewBox/display dimensions
+    if (padL > 0 || padR > 0 || padT > 0 || padB > 0) {
+      // Shift minX left and maxY up in user coords so rendering coordinates adjust
+      minX -= padL / pxPerUnitX;
+      maxY += padT / pxPerUnitY;
+      const extraW = padL + padR;
+      const extraH = padT + padB;
+      const overshootScaleW = (viewW + extraW) / viewW;
+      const overshootScaleH = (viewH + extraH) / viewH;
+      viewW += extraW;
+      viewH += extraH;
+      // Scale display dimensions proportionally
+      svgW *= overshootScaleW;
+      svgH *= overshootScaleH;
+      intrinsicW *= overshootScaleW;
+      intrinsicH *= overshootScaleH;
+    }
+  }
 
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
   // Dots are rendered in program order (not deferred) to allow later fills to cover them
   const deferredLabels = []; // [{ci, dc}]
+  const aboveElementIndices = new Set(); // element indices from above=1 draw commands (excluded from crop clip)
+
+  // Shorten a path from its end by `amount` viewport pixels.
+  // Works on Bezier segments using de Casteljau subdivision.
+  function shortenPathEnd(segs, amount, scaleX, scaleY) {
+    if (segs.length === 0) return segs;
+    let remaining = amount;
+    // Work backwards, removing/shortening segments from the end
+    while (remaining > 0 && segs.length > 0) {
+      const s = segs[segs.length - 1];
+      const segLen = bezierLength(s, scaleX, scaleY);
+      if (segLen <= remaining + 1e-9) {
+        // Remove entire segment
+        remaining -= segLen;
+        segs.pop();
+      } else {
+        // Shorten this segment: find parameter t where remaining arc length from end
+        const t = findBezierParam(s, 1 - remaining / segLen, scaleX, scaleY);
+        // Split at t, keep the first part
+        const split = splitBezier(s, t);
+        segs[segs.length - 1] = split[0];
+        remaining = 0;
+      }
+    }
+    return segs;
+  }
+
+  // Shorten a path from its beginning by `amount` viewport pixels.
+  function shortenPathBegin(segs, amount, scaleX, scaleY) {
+    if (segs.length === 0) return segs;
+    let remaining = amount;
+    // Work forwards, removing/shortening segments from the start
+    while (remaining > 0 && segs.length > 0) {
+      const s = segs[0];
+      const segLen = bezierLength(s, scaleX, scaleY);
+      if (segLen <= remaining + 1e-9) {
+        remaining -= segLen;
+        segs.shift();
+      } else {
+        const t = findBezierParam(s, remaining / segLen, scaleX, scaleY);
+        const split = splitBezier(s, t);
+        segs[0] = split[1];
+        remaining = 0;
+      }
+    }
+    return segs;
+  }
+
+  // Compute approximate arc length of a Bezier segment in viewport units
+  function bezierLength(seg, scaleX, scaleY) {
+    const steps = 16;
+    let len = 0;
+    let prevX = seg.p0.x * scaleX, prevY = seg.p0.y * scaleY;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const pt = evalBezierSeg(seg, t);
+      const cx = pt.x * scaleX, cy = pt.y * scaleY;
+      len += Math.sqrt((cx - prevX) * (cx - prevX) + (cy - prevY) * (cy - prevY));
+      prevX = cx; prevY = cy;
+    }
+    return len;
+  }
+
+  // Evaluate a cubic Bezier segment at parameter t
+  function evalBezierSeg(seg, t) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x,
+      y: u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y
+    };
+  }
+
+  // Find parameter t at which the arc length from start equals targetFraction * totalLength
+  function findBezierParam(seg, targetFraction, scaleX, scaleY) {
+    // Binary search for the parameter
+    const totalLen = bezierLength(seg, scaleX, scaleY);
+    const targetLen = targetFraction * totalLen;
+    let lo = 0, hi = 1;
+    for (let iter = 0; iter < 20; iter++) {
+      const mid = (lo + hi) / 2;
+      const subSeg = splitBezier(seg, mid)[0];
+      const subLen = bezierLength(subSeg, scaleX, scaleY);
+      if (subLen < targetLen) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  // Split a cubic Bezier segment at parameter t using de Casteljau algorithm
+  // Returns [firstHalf, secondHalf] as segment objects
+  function splitBezier(seg, t) {
+    const u = 1 - t;
+    // Level 1
+    const a1x = u*seg.p0.x + t*seg.cp1.x, a1y = u*seg.p0.y + t*seg.cp1.y;
+    const a2x = u*seg.cp1.x + t*seg.cp2.x, a2y = u*seg.cp1.y + t*seg.cp2.y;
+    const a3x = u*seg.cp2.x + t*seg.p3.x, a3y = u*seg.cp2.y + t*seg.p3.y;
+    // Level 2
+    const b1x = u*a1x + t*a2x, b1y = u*a1y + t*a2y;
+    const b2x = u*a2x + t*a3x, b2y = u*a2y + t*a3y;
+    // Level 3 (split point)
+    const cx = u*b1x + t*b2x, cy = u*b1y + t*b2y;
+    return [
+      {p0: {...seg.p0}, cp1: {x:a1x,y:a1y}, cp2: {x:b1x,y:b1y}, p3: {x:cx,y:cy}},
+      {p0: {x:cx,y:cy}, cp1: {x:b2x,y:b2y}, cp2: {x:a3x,y:a3y}, p3: {...seg.p3}}
+    ];
+  }
 
   function renderPathCommand(ci, dc, css, dashArray) {
     if (dc.path._singlePoint) {
       const p = dc.path._singlePoint;
-      const sx = (p.x - minX) * pxPerUnit;
-      const sy = (maxY - p.y) * pxPerUnit;
+      const sx = (p.x - minX) * pxPerUnitX;
+      const sy = (maxY - p.y) * pxPerUnitY;
       // Asymptote: single-point draw = zero-length stroke, radius = linewidth/2 (no dotfactor)
       const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
-      const singleDotR = (singleDotLw / 2) * cssPixel;
+      const singleDotR = (singleDotLw / 2) * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
     }
     if (dc.path.segs.length === 0) return;
 
-    const d = pathToD(dc.path, minX, maxY, pxPerUnit);
+    // Shorten path at arrow end(s) so the stroke doesn't extend under the arrowhead
+    let renderPath = dc.path;
+    if (dc.arrow && dc.cmd === 'draw') {
+      const style = dc.arrow.style;
+      const baseSize = dc.arrow.size || 6;
+      let arrowLen = baseSize * bpCSSPixel;
+      // Clamp arrow length to 70% of total path length (same as generateArrowHead)
+      let totalLen = 0;
+      for (const s of dc.path.segs) {
+        const dx = (s.p3.x - s.p0.x) * pxPerUnitX, dy = (s.p3.y - s.p0.y) * pxPerUnitY;
+        totalLen += Math.sqrt(dx*dx + dy*dy);
+      }
+      if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
+
+      const shortenEnd = (style === 'Arrow' || style === 'EndArrow' ||
+        style === 'ArcArrow' || style === 'EndArcArrow' || style === 'Arrows' || style === 'ArcArrows');
+      const shortenBegin = (style === 'BeginArrow' || style === 'BeginArcArrow' ||
+        style === 'Arrows' || style === 'ArcArrows');
+
+      if (shortenEnd || shortenBegin) {
+        let segs = dc.path.segs.map(s => ({p0:{...s.p0}, cp1:{...s.cp1}, cp2:{...s.cp2}, p3:{...s.p3}}));
+
+        if (shortenEnd && segs.length > 0) {
+          segs = shortenPathEnd(segs, arrowLen, pxPerUnitX, pxPerUnitY);
+        }
+        if (shortenBegin && segs.length > 0) {
+          segs = shortenPathBegin(segs, arrowLen, pxPerUnitX, pxPerUnitY);
+        }
+
+        renderPath = {segs, closed: dc.path.closed, _tag: dc.path._tag};
+      }
+    }
+
+    const d = pathToD(renderPath, minX, maxY, pxPerUnitX, pxPerUnitY);
     let fill = 'none', stroke = 'none', strokeW = 0;
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
@@ -4909,7 +7849,7 @@ function renderSVG(result, opts) {
       fill = css.fill;
       if (dc.drawPen) {
         const drawCSS = penToCSS(dc.drawPen);
-        drawCSS.strokeWidth *= cssPixel;
+        drawCSS.strokeWidth *= bpCSSPixel;
         stroke = drawCSS.stroke;
         strokeW = drawCSS.strokeWidth;
       } else {
@@ -4917,7 +7857,7 @@ function renderSVG(result, opts) {
         strokeW = css.strokeWidth;
       }
     } else if (dc.cmd === 'clip') {
-      return; // skip clip for now
+      return; // clip is handled via SVG <clipPath> defs
     } else {
       // draw
       stroke = css.stroke;
@@ -4929,8 +7869,8 @@ function renderSVG(result, opts) {
     if (stroke !== 'none') {
       attrs += ` stroke="${stroke}" stroke-width="${fmt(strokeW)}"`;
       if (dashArray) attrs += ` stroke-dasharray="${dashArray}"`;
-      if (dc.pen && dc.pen.linecap) attrs += ` stroke-linecap="${dc.pen.linecap}"`;
-      if (dc.pen && dc.pen.linejoin) attrs += ` stroke-linejoin="${dc.pen.linejoin}"`;
+      attrs += ` stroke-linecap="${(dc.pen && dc.pen.linecap) || 'round'}"`;
+      attrs += ` stroke-linejoin="${(dc.pen && dc.pen.linejoin) || 'round'}"`;
     }
     attrs += opacityAttr(css.opacity);
 
@@ -4939,7 +7879,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnit, cssPixel, css);
+      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css);
       if (arrowEl) {
         elements.push(arrowEl);
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -4965,28 +7905,27 @@ function renderSVG(result, opts) {
   for (const ci of renderOrder) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
-    css.strokeWidth *= cssPixel;
+    css.strokeWidth *= bpCSSPixel;
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
+    const elsBefore = elements.length;
     if (dc.cmd === 'label') {
       deferredLabels.push({ci, dc, css: {...css}});
     } else if (dc.cmd === 'image') {
       deferredLabels.push({ci, dc, css: {...css}});
     } else if (dc.cmd === 'dot') {
       // Render dots in program order so later fills can cover them
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
-      // Dot radius: if linewidth was explicitly set by user (n+pen or linewidth(n)),
-      // Asymptote uses radius = linewidth/2 directly (the number IS the dot size).
-      // If linewidth is default (no explicit set), apply dotfactor: radius = dotfactor/2 * linewidth.
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
+      // Dot radius: Asymptote dot() always applies dotfactor: radius = dotfactor/2 * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * cssPixel;
+      const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
       // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
-      const svgCX = (dc.pos.x - minX) * pxPerUnit;
-      const svgCY = (maxY - dc.pos.y) * pxPerUnit;
+      const svgCX = (dc.pos.x - minX) * pxPerUnitX;
+      const svgCY = (maxY - dc.pos.y) * pxPerUnitY;
       const mPath = dc.markerPath;
       if (mPath.segs.length > 0) {
         let d = '';
@@ -5016,6 +7955,12 @@ function renderSVG(result, opts) {
     } else if (dc.path) {
       renderPathCommand(ci, dc, css, dashArray);
     }
+    // Mark elements from above=1 commands for crop clip exclusion
+    if (dc.above === 1) {
+      for (let ei = elsBefore; ei < elements.length; ei++) {
+        aboveElementIndices.add(ei);
+      }
+    }
   }
 
   // Track where label elements begin (for crop clip exclusion)
@@ -5024,16 +7969,19 @@ function renderSVG(result, opts) {
   // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
     if (dc.cmd === 'label') {
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      // Skip empty labels
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
       const fontSize = (dc.pen.fontsize || 10);
       // Convert font size from PostScript points to SVG user units at the actual display scale.
       // font-size="12" in SVG user units renders as 12*(svgW/viewW) CSS px — at the default
       // 100px display size for a 14pt viewBox that is ~85 CSS px per character, completely
       // covering the drawing. Use cssPixel (viewW/svgW) to express the absolute pt size
       // as the correct fractional SVG user-unit value.
-      const fontSizeSVG = fontSize * (96 / 72) * cssPixel; // SVG user units (absolute pt size)
-      const fontSizeCSS = fontSize * (96 / 72);            // CSS px at 96 dpi (for foreignObject)
+      const fontSizeSVG = fontSize * bpCSSPixel;  // SVG user units (bp → display px → viewBox)
+      // foreignObject CSS is scaled by the SVG viewBox→display mapping (≈ bpToCSSPx),
+      // so use raw pt value — the SVG transform provides the bp→CSS px conversion.
+      const fontSizeCSS = fontSize;
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
@@ -5043,13 +7991,23 @@ function renderSVG(result, opts) {
         //   text center = S + (ax_n * W, ay_n * H)     (L∞-normalised box offset)
         // where ax_n = ax * 0.5 / max(|ax|,|ay|), same for y.
         const ax = dc.align.x, ay = dc.align.y;
-        const cleanLen = stripLaTeX(dc.text || '').length || 1;
+        const cleanText = stripLaTeX(dc.text || '');
+        let cleanLen, numLines;
+        if (cleanText.includes('\n')) {
+          const clines = cleanText.split('\n').filter(l => l.length > 0);
+          cleanLen = Math.max(...clines.map(l => l.length)) || 1;
+          numLines = clines.length;
+        } else {
+          cleanLen = cleanText.length || 1;
+          numLines = 1;
+        }
         const W = cleanLen * fontSizeSVG * 0.52;
-        const H = fontSizeSVG;
-        const margin = 0.28 * fontSizeSVG;   // labelmargin = 0.28 * fontsize
-        const scale0 = Math.max(Math.abs(ax), Math.abs(ay));
-        const ax_n = scale0 > 0 ? ax * 0.5 / scale0 : 0;
-        const ay_n = scale0 > 0 ? ay * 0.5 / scale0 : 0;
+        const H = fontSizeSVG * numLines;
+        const margin = 0.25 * fontSizeSVG;   // Asymptote default: labelmargin=0.25
+        // Asymptote drawlabel.cc: z = align * 0.5; offset = (z.x*W, z.y*H)
+        // The magnitude of align is NOT normalised — 2E pushes twice as far as E.
+        const ax_n = ax * 0.5;
+        const ay_n = ay * 0.5;
         dx = ax_n * W + ax * margin;
         dy = -(ay_n * H + ay * margin);   // negate: SVG y-axis is inverted
         anchor = 'middle';
@@ -5097,9 +8055,10 @@ function renderSVG(result, opts) {
           // For W/E aligned rotated labels: the font height (which becomes the screen-space
           // "width" after rotation) needs to offset the center from the anchor.
           if (dc.align) {
-            // After rotation the text's visual width is its original height, so use halfH.
-            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5; // W: center left of anchor by halfH
-            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5; // E: center right of anchor by halfH
+            // After rotation the text's visual width is its original height, so use halfH + margin.
+            const rotMargin = 0.25 * effectiveFontSize;
+            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5 - rotMargin; // W: center left of anchor by halfH + margin
+            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5 + rotMargin; // E: center right of anchor by halfH + margin
           }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
           // With rotation, text-anchor must be 'middle' so the label is centered at the
@@ -5118,7 +8077,7 @@ function renderSVG(result, opts) {
         let tspans = '';
         lines.forEach((line, i) => {
           const lineDy = i === 0 ? -totalOffset / 2 : lineHeight;
-          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(line.trim())}</tspan>`;
+          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(stripLaTeX(line.trim()))}</tspan>`;
         });
         const mlLabel = `<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
         elements.push(labelTransformAttr ? `<g${labelTransformAttr}>${mlLabel}</g>` : mlLabel);
@@ -5129,23 +8088,42 @@ function renderSVG(result, opts) {
       // Replace LaTeX dot/continuation symbols with Unicode so they render as SVG
       // text instead of KaTeX foreignObject (avoids MathML mspace artifact in \vdots).
       const LATEX_TO_UNICODE = {
-        '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '…',
+        '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '⋯',
       };
       let displayText = rawText;
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
       // rawText may look like "\reflectbox{$\ddots$}" or "$\vdots$" etc.
       let probeText = rawText.trim();
       probeText = probeText.replace(/^\$+(.*?)\$+$/, '$1').trim();
+      let isReflected = false;
       const reflectMatch2 = probeText.match(/^\\reflectbox\{([\s\S]*)\}$/);
-      if (reflectMatch2) probeText = reflectMatch2[1].trim().replace(/^\$+(.*?)\$+$/, '$1').trim();
-      if (LATEX_TO_UNICODE[probeText]) displayText = LATEX_TO_UNICODE[probeText];
+      if (reflectMatch2) { isReflected = true; probeText = reflectMatch2[1].trim().replace(/^\$+(.*?)\$+$/, '$1').trim(); }
+      if (LATEX_TO_UNICODE[probeText]) {
+        displayText = LATEX_TO_UNICODE[probeText];
+        // Apply horizontal reflection: ⋱ (ddots) reflected = ⋰ (iddots)
+        if (isReflected && displayText === '⋱') displayText = '⋰';
+      }
       else if (LATEX_TO_UNICODE[rawText.trim()]) displayText = LATEX_TO_UNICODE[rawText.trim()];
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
       // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
+      // Strip \definecolor{name}{model}{values} declarations and \color{name}
+      // commands before routing — these are unsupported by KaTeX/SVG rendering
+      // but the text content they wrap should still be displayed.
+      if (/\\definecolor|\\color/.test(displayText)) {
+        displayText = displayText.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+        displayText = displayText.replace(/\\color\s*\{[^}]*\}/g, '');
+        displayText = displayText.replace(/\\rm\b/g, '');
+        // Remove orphaned TeX grouping braces left behind (but keep ^{} and _{} groups)
+        displayText = displayText.replace(/(?<![_^])\{([^{}]*)\}/g, '$1');
+      }
+
       // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
+      // Only strip $ when the entire label is $...$  (not mixed like "$W-1$ cells").
       let wasStrippedMath = false;
-      if (/\$/.test(displayText) && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
+      const trimDT = displayText.trim();
+      const isFullyWrapped = trimDT.startsWith('$') && trimDT.endsWith('$') && trimDT.indexOf('$', 1) === trimDT.length - 1;
+      if (isFullyWrapped && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
         const stripped = displayText.replace(/\$/g, '').trim();
         if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
           displayText = stripped;
@@ -5160,8 +8138,11 @@ function renderSVG(result, opts) {
       // (Greek letters, operators, etc.) plus simple ^/_ scripts.  Such labels render
       // more reliably as SVG <text> (scales with the viewBox) than as KaTeX foreignObject
       // (where CSS px sizing may mismatch the SVG coordinate system).
+      // Mixed-content labels like "$W-1$ cells" must go through KaTeX, not the
+      // unicodeSafe SVG path, so that text outside $...$ renders upright.
+      const hasMixedDollars = /\$/.test(displayText) && !isFullyWrapped;
       let unicodeSafe = false;
-      if (hasMath && !hasLaTeX) {
+      if (hasMath && !hasLaTeX && !hasMixedDollars) {
         let probe = displayText.replace(/\$/g, '');
         // Remove font-wrapper and spacing commands that renderLabelWithScripts handles
         probe = probe.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{[^}]*\}/g, '');
@@ -5184,7 +8165,14 @@ function renderSVG(result, opts) {
           '\\times','\\div','\\leq','\\geq','\\neq','\\equiv',
           '\\notin','\\cup','\\cap','\\neg','\\vee','\\ell',
           '\\cos','\\sin','\\tan','\\log','\\ln',
+          '\\sec','\\csc','\\cot','\\arcsin','\\arccos','\\arctan','\\exp','\\min','\\max',
+          '\\spadesuit','\\heartsuit','\\diamondsuit','\\clubsuit',
+          '\\square','\\blacksquare','\\lozenge',
+          '\\nabla','\\partial','\\surd','\\checkmark',
+          '\\varnothing','\\emptyset',
           '\\left','\\right',
+          // Accent commands (\vec, \hat, \bar, etc.) are NOT unicode-safe — combining
+          // diacriticals render poorly in SVG text.  Route them through KaTeX instead.
         ];
         for (const cmd of unicodeCmds) {
           while (probe.includes(cmd)) probe = probe.replace(cmd, '');
@@ -5193,20 +8181,21 @@ function renderSVG(result, opts) {
       }
 
       let labelEl;
-      if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
-        // Check for \mathbf-only labels: render as bold SVG text — works in all rendering
-        // contexts (sharp, <img>, <object>) without needing KaTeX CSS.
-        const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
-        if (/^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
-          const boldContent = strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, '$1').trim();
-          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-        } else if (/^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
-          const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
-          labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-        } else {
-          // Use KaTeX for math rendering via foreignObject
-          labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
-        }
+      // Check for \mathbf-only or \textbf-only labels first: render as bold upright SVG text.
+      // This works in all rendering contexts (sharp, <img>, <object>) without needing KaTeX CSS.
+      // Must be checked before the italic math path to avoid wrong font-style.
+      const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
+      if (hasMath && /^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+        // In math mode, spaces between \mathbf{X} \mathbf{Y} are ignored — concatenate directly.
+        let boldContent = '';
+        strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, (_, g) => { boldContent += g; });
+        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+      } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+        const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
+        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+      } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
+        // Use KaTeX for math rendering via foreignObject
+        labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
@@ -5233,20 +8222,20 @@ function renderSVG(result, opts) {
       const imgSize = computeGraphicDisplaySize(g, unitScale, hasUnitScale);
 
       // Display size in SVG viewBox units (user coords × pxPerUnit)
-      let imgW = imgSize.w_user * pxPerUnit;
-      let imgH = imgSize.h_user * pxPerUnit;
+      let imgW = imgSize.w_user * pxPerUnitX;
+      let imgH = imgSize.h_user * pxPerUnitY;
 
       // Position at label coordinates in SVG space
-      const sx = (dc.pos.x - minX) * pxPerUnit;
-      const sy = (maxY - dc.pos.y) * pxPerUnit;
+      const sx = (dc.pos.x - minX) * pxPerUnitX;
+      const sy = (maxY - dc.pos.y) * pxPerUnitY;
 
       // Alignment offset: center by default, shift by align direction
       let dx = -imgW / 2, dy = -imgH / 2;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        const scale0 = Math.max(Math.abs(ax), Math.abs(ay)) || 1;
-        const ax_n = ax * 0.5 / scale0;
-        const ay_n = ay * 0.5 / scale0;
+        // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
+        const ax_n = ax * 0.5;
+        const ay_n = ay * 0.5;
         dx = ax_n * imgW - imgW / 2;
         dy = -(ay_n * imgH) - imgH / 2; // SVG y flipped
       }
@@ -5277,34 +8266,71 @@ function renderSVG(result, opts) {
 
   // If crop clipping is active, wrap drawing elements (not <defs> or labels) in a <g clip-path>
   // Labels are excluded from clipping so axis labels outside the plot area remain visible
+  // If user clip (Asymptote clip()) is active, wrap ALL elements (including labels) in <g clip-path>
   let innerContent;
-  if (cropClipId) {
-    const defsEl = elements.length > 0 && elements[0].startsWith('<defs>') ? elements[0] : null;
-    const startIdx = defsEl ? 1 : 0;
-    const clipEls = elements.slice(startIdx, firstLabelIdx);
-    const labelEls = elements.slice(firstLabelIdx);
-    innerContent = (defsEl ? defsEl + '\n' : '') +
-      `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
-      (labelEls.length > 0 ? '\n' + labelEls.join('\n') : '');
+
+  // Separate <defs> elements from content elements
+  const defsEls = [];
+  const contentEls = [];
+  for (let i = 0; i < elements.length; i++) {
+    if (elements[i].startsWith('<defs>')) {
+      defsEls.push(elements[i]);
+    } else {
+      contentEls.push({el: elements[i], origIdx: i});
+    }
+  }
+  const contentFirstLabelIdx = firstLabelIdx - defsEls.length;
+
+  if (cropClipId || userClipId) {
+    const defsStr = defsEls.length > 0 ? defsEls.join('\n') + '\n' : '';
+    let bodyContent;
+    if (cropClipId) {
+      // Crop: wrap non-label, non-above content; labels and above=true elements stay outside crop clip
+      const clipEls = [];
+      const unclipEls = [];
+      for (let i = 0; i < contentEls.length; i++) {
+        if (i >= contentFirstLabelIdx || aboveElementIndices.has(contentEls[i].origIdx)) {
+          unclipEls.push(contentEls[i].el);
+        } else {
+          clipEls.push(contentEls[i].el);
+        }
+      }
+      bodyContent = `<g clip-path="url(#${cropClipId})">\n${clipEls.join('\n')}\n</g>` +
+        (unclipEls.length > 0 ? '\n' + unclipEls.join('\n') : '');
+    } else {
+      bodyContent = contentEls.map(e => e.el).join('\n');
+    }
+    // User clip wraps everything (including labels) — matches Asymptote behavior
+    if (userClipId) {
+      bodyContent = `<g clip-path="url(#${userClipId})">\n${bodyContent}\n</g>`;
+    }
+    innerContent = defsStr + bodyContent;
   } else {
     innerContent = elements.join('\n');
   }
-  const parAttr = keepAspect ? '' : ' preserveAspectRatio="none"';
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible">\n${innerContent}\n</svg>`;
+  // With keepAspect=false, non-uniform scaling is baked into coordinates via
+  // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
+  const parAttr = '';
+  // Thin SVG text to better match TeX Computer Modern bitmap rendering.
+  // paint-order:stroke renders a thin white stroke beneath the fill, visually
+  // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
+  const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
-  return { svg: svgContent, commandMap, pxPerUnit, minX, minY, maxX, maxY, warnings, displayPercent };
+  return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
 }
 
-function pathToD(path, minX, maxY, scale) {
+function pathToD(path, minX, maxY, scaleX, scaleY) {
+  if (scaleY === undefined) scaleY = scaleX; // backward compat
   const segs = path.segs;
   if (segs.length === 0) return '';
   let d = '';
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
-    const p0x = (s.p0.x - minX)*scale, p0y = (maxY - s.p0.y)*scale;
-    const cp1x = (s.cp1.x - minX)*scale, cp1y = (maxY - s.cp1.y)*scale;
-    const cp2x = (s.cp2.x - minX)*scale, cp2y = (maxY - s.cp2.y)*scale;
-    const p3x = (s.p3.x - minX)*scale, p3y = (maxY - s.p3.y)*scale;
+    const p0x = (s.p0.x - minX)*scaleX, p0y = (maxY - s.p0.y)*scaleY;
+    const cp1x = (s.cp1.x - minX)*scaleX, cp1y = (maxY - s.cp1.y)*scaleY;
+    const cp2x = (s.cp2.x - minX)*scaleX, cp2y = (maxY - s.cp2.y)*scaleY;
+    const p3x = (s.p3.x - minX)*scaleX, p3y = (maxY - s.p3.y)*scaleY;
 
     // Emit M at start or when there's a gap (^^ path concatenation)
     if (i === 0) {
@@ -5342,30 +8368,37 @@ function isLinear(seg) {
 function linestyleToDasharray(style, strokeWidth) {
   if (!style || style === 'solid') return null;
   const w = strokeWidth || 0.5;
+  // Asymptote dash patterns from plain_pens.asy (in linewidth units when scale=true):
+  //   dotted = linetype({0, 4})  — dot, 4× gap
+  //   dashed = linetype({8, 8})
+  //   longdashed = linetype({24, 8})
+  //   dashdotted = linetype({8, 8, 0, 8})
+  //   longdashdotted = linetype({24, 8, 0, 8})
+  // SVG stroke-dasharray with round linecap: "0.01 X" produces round dots.
   switch(style) {
-    case 'dashed': return `${6*w} ${4*w}`;
-    case 'dotted': return `${1*w} ${3*w}`;
-    case 'longdashed': return `${12*w} ${6*w}`;
-    case 'dashdotted': return `${6*w} ${3*w} ${1*w} ${3*w}`;
-    case 'longdashdotted': return `${12*w} ${4*w} ${1*w} ${4*w}`;
+    case 'dashed': return `${8*w} ${8*w}`;
+    case 'dotted': return `0.01 ${4*w}`;
+    case 'longdashed': return `${24*w} ${8*w}`;
+    case 'dashdotted': return `${8*w} ${8*w} 0.01 ${8*w}`;
+    case 'longdashdotted': return `${24*w} ${8*w} 0.01 ${8*w}`;
     default:
       // Custom dash pattern from linetype("a b c ...") — space-separated numbers
       if (/^[\d.\s]+$/.test(style)) {
         const nums = style.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
         if (nums.length > 0) {
-          return nums.map(n => n * w * 4).join(' ');
+          return nums.map(n => (n === 0 ? 0.01 : n * w)).join(' ');
         }
       }
       return null;
   }
 }
 
-function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
+function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
-  // Arrow size in CSS pixels: base size (default 6bp) scaled by cssPixel to viewBox units
+  // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel
   const baseSize = dc.arrow.size || 6;
-  let arrowLen = baseSize * cssPixel;
+  let arrowLen = baseSize * bpCSSPixel;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
@@ -5374,7 +8407,7 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   // Compute total path length in viewBox units and clamp arrowhead size
   let totalLen = 0;
   for (const s of segs) {
-    const dx = (s.p3.x - s.p0.x) * scale, dy = (s.p3.y - s.p0.y) * scale;
+    const dx = (s.p3.x - s.p0.x) * scaleX, dy = (s.p3.y - s.p0.y) * scaleY;
     totalLen += Math.sqrt(dx*dx + dy*dy);
   }
   // Don't let arrowhead exceed 70% of path length
@@ -5387,22 +8420,22 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
     let tip, tangentAngle;
     if (atEnd) {
       tip = seg.p3;
-      const dx = seg.p3.x - seg.cp2.x, dy = seg.p3.y - seg.cp2.y;
+      const dx = (seg.p3.x - seg.cp2.x) * scaleX, dy = (seg.p3.y - seg.cp2.y) * scaleY;
       tangentAngle = Math.atan2(dy, dx);
       if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) {
-        const ddx = seg.p3.x - seg.p0.x, ddy = seg.p3.y - seg.p0.y;
+        const ddx = (seg.p3.x - seg.p0.x) * scaleX, ddy = (seg.p3.y - seg.p0.y) * scaleY;
         tangentAngle = Math.atan2(ddy, ddx);
       }
     } else {
       tip = seg.p0;
-      const dx = seg.p0.x - seg.cp1.x, dy = seg.p0.y - seg.cp1.y;
+      const dx = (seg.p0.x - seg.cp1.x) * scaleX, dy = (seg.p0.y - seg.cp1.y) * scaleY;
       tangentAngle = Math.atan2(dy, dx);
       if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) {
-        const ddx = seg.p0.x - seg.p3.x, ddy = seg.p0.y - seg.p3.y;
+        const ddx = (seg.p0.x - seg.p3.x) * scaleX, ddy = (seg.p0.y - seg.p3.y) * scaleY;
         tangentAngle = Math.atan2(ddy, ddx);
       }
     }
-    const tipX = (tip.x - minX)*scale, tipY = (maxY - tip.y)*scale;
+    const tipX = (tip.x - minX)*scaleX, tipY = (maxY - tip.y)*scaleY;
     const headAngle = 15 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
@@ -5411,12 +8444,12 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
     const ly = tipY - s*Math.sin(screenAngle - headAngle);
     const rx = tipX - s*Math.cos(screenAngle + headAngle);
     const ry = tipY - s*Math.sin(screenAngle + headAngle);
-    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled};
+    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled};
   }
 
-  if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow') {
+  if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow' || style === 'EndArcArrow') {
     arrowParts.push(arrowAt(segs[segs.length-1], true));
-  } else if (style === 'BeginArrow') {
+  } else if (style === 'BeginArrow' || style === 'BeginArcArrow') {
     arrowParts.push(arrowAt(segs[0], false));
   } else if (style === 'Arrows' || style === 'ArcArrows') {
     arrowParts.push(arrowAt(segs[segs.length-1], true));
@@ -5434,7 +8467,10 @@ function generateArrowHead(dc, minX, maxY, scale, cssPixel, css) {
   const d = arrowParts.map(p => p.d).join(' ');
   const isFilled = arrowParts[0].filled;
   const fillAttr = isFilled ? css.stroke : 'none';
-  return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  if (isFilled) {
+    return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
+  }
+  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 // Render label text with superscript/subscript support as SVG
@@ -5458,7 +8494,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
-    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
@@ -5468,14 +8504,41 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ','\\prime':'′',
+    '\\spadesuit':'♠','\\heartsuit':'♥','\\diamondsuit':'♦','\\clubsuit':'♣',
+    '\\square':'□','\\blacksquare':'■','\\lozenge':'◊',
+    '\\nabla':'∇','\\partial':'∂','\\surd':'√','\\checkmark':'✓',
+    '\\varnothing':'∅','\\emptyset':'∅',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\sec':'sec','\\csc':'csc','\\cot':'cot','\\arcsin':'arcsin',
+    '\\arccos':'arccos','\\arctan':'arctan','\\exp':'exp','\\min':'min','\\max':'max',
     '\\left':'','\\right':'',
+    '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
+  // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
+  s = s.replace(/\\[ ~;,:!]/g, ' ');
+  // Strip \definecolor{name}{model}{values} declarations (no visible output)
+  s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  // Strip \color{name} commands, keeping surrounding text
+  s = s.replace(/\\color\s*\{[^}]*\}/g, '');
+  // Strip \rm (font switch, not braced form)
+  s = s.replace(/\\rm\b/g, '');
+  // Handle accent commands: \vec{X} → X⃗, \hat{X} → X̂, \bar{X} → X̄, etc.
+  s = s.replace(/\\vec\s*\{([^}]*)\}/g, '$1\u20D7');
+  s = s.replace(/\\hat\s*\{([^}]*)\}/g, '$1\u0302');
+  s = s.replace(/\\bar\s*\{([^}]*)\}/g, '$1\u0304');
+  s = s.replace(/\\tilde\s*\{([^}]*)\}/g, '$1\u0303');
+  s = s.replace(/\\dot\s*\{([^}]*)\}/g, '$1\u0307');
+  s = s.replace(/\\ddot\s*\{([^}]*)\}/g, '$1\u0308');
+  s = s.replace(/\\overline\s*\{([^}]*)\}/g, '$1\u0305');
+  s = s.replace(/\\underline\s*\{([^}]*)\}/g, '$1\u0332');
+  s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
-  s = s.replace(/[{}]/g, '');
+  // NOTE: Do NOT strip braces here — the subscript/superscript parser below
+  // needs them to detect multi-character groups like _{k-1}.  Stray braces
+  // are cleaned up after parsing (see below).
   s = s.replace(/\s+/g, ' ').trim();
 
   // Check for super/subscripts
@@ -5517,6 +8580,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     }
   }
   if (cur) parts.push({text: cur, mode});
+
+  // Strip any leftover braces from part text (braces were preserved for
+  // subscript/superscript group detection above, clean up now).
+  for (const p of parts) p.text = p.text.replace(/[{}]/g, '');
 
   // Build SVG text with tspan elements
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
@@ -5575,7 +8642,9 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
       if (seg.type === 'math') {
         html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'mathml'});
       } else {
-        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Preserve spaces: HTML collapses leading/trailing whitespace in text nodes
+        // adjacent to inline elements (KaTeX output).  Use &nbsp; for spaces.
+        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;');
       }
     }
   } else {
@@ -5603,7 +8672,10 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorStyle = `color:${fill || '#000000'};`;
   const reflectStyle = reflectX ? 'transform:scaleX(-1);' : '';
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fmt(fontSizeCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  // KaTeX CSS applies .katex { font-size: 1.21em } internally, so divide by 1.21
+  // to get the correct effective size matching Asymptote/LaTeX output.
+  const katexCSS = fontSizeCSS / 1.21;
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(katexCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 function stripLaTeX(text) {
@@ -5617,6 +8689,8 @@ function stripLaTeX(text) {
   s = s.replace(/\\(?:underbrace|overbrace)\s*\{[^}]*\}/g, '');
   // Handle \hspace{...} → space
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // Handle \vspace{...} → remove entirely (vertical spacing)
+  s = s.replace(/\\vspace\s*\{[^}]*\}/g, '');
   // Handle \sqrt{a} → √a
   s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode
@@ -5629,7 +8703,7 @@ function stripLaTeX(text) {
     '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
-    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'…',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
@@ -5641,18 +8715,55 @@ function stripLaTeX(text) {
     '\\ell':'ℓ', '\\prime':'′',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
     '\\left':'','\\right':'',
+    '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
   // Sort by key length descending so longer commands match first (e.g. \left before \le)
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
   for (const [cmd, uni] of sortedEntries) {
     s = s.split(cmd).join(uni);
   }
+  // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
+  s = s.replace(/\\[ ~;,:!]/g, ' ');
+  // Strip \definecolor{name}{model}{values} declarations (no visible output)
+  s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  // Strip \color{name} commands, keeping surrounding text
+  s = s.replace(/\\color\s*\{[^}]*\}/g, '');
+  // Strip \rm (font switch, not braced form)
+  s = s.replace(/\\rm\b/g, '');
+  // Handle font-wrapper commands (\mathbf, \mathrm, etc.) — remove command, keep content.
+  // In math mode, spaces between these commands are ignored (e.g. \mathbf{C} \mathbf{i} → Ci).
+  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // Handle accent commands: \vec{X} → X⃗, \hat{X} → X̂, \bar{X} → X̄, etc.
+  s = s.replace(/\\vec\s*\{([^}]*)\}/g, '$1\u20D7');
+  s = s.replace(/\\hat\s*\{([^}]*)\}/g, '$1\u0302');
+  s = s.replace(/\\bar\s*\{([^}]*)\}/g, '$1\u0304');
+  s = s.replace(/\\tilde\s*\{([^}]*)\}/g, '$1\u0303');
+  s = s.replace(/\\dot\s*\{([^}]*)\}/g, '$1\u0307');
+  s = s.replace(/\\ddot\s*\{([^}]*)\}/g, '$1\u0308');
+  s = s.replace(/\\overline\s*\{([^}]*)\}/g, '$1\u0305');
+  s = s.replace(/\\underline\s*\{([^}]*)\}/g, '$1\u0332');
+  s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
   // Remove braces
   s = s.replace(/[{}]/g, '');
-  // Remove ^ and _ with single char
-  s = s.replace(/[_^](.)/g, '$1');
+  // Convert ^{...} and _{...} to Unicode superscripts/subscripts
+  const superMap = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹',
+    '+':'⁺','-':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ','a':'ᵃ','b':'ᵇ','c':'ᶜ','d':'ᵈ',
+    'e':'ᵉ','f':'ᶠ','g':'ᵍ','h':'ʰ','j':'ʲ','k':'ᵏ','l':'ˡ','m':'ᵐ','o':'ᵒ','p':'ᵖ',
+    'r':'ʳ','s':'ˢ','t':'ᵗ','u':'ᵘ','v':'ᵛ','w':'ʷ','x':'ˣ','y':'ʸ','z':'ᶻ'};
+  const subMap = {'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉',
+    '+':'₊','-':'₋','=':'₌','(':'₍',')':'₎','a':'ₐ','e':'ₑ','h':'ₕ','i':'ᵢ','j':'ⱼ',
+    'k':'ₖ','l':'ₗ','m':'ₘ','n':'ₙ','o':'ₒ','p':'ₚ','r':'ᵣ','s':'ₛ','t':'ₜ','u':'ᵤ',
+    'v':'ᵥ','x':'ₓ'};
+  function toSuper(ch) { return superMap[ch] || ch; }
+  function toSub(ch) { return subMap[ch] || ch; }
+  // ^{multi} and _{multi}
+  s = s.replace(/\^{([^}]*)}/g, (_, g) => [...g].map(toSuper).join(''));
+  s = s.replace(/_{([^}]*)}/g, (_, g) => [...g].map(toSub).join(''));
+  // ^single and _single character
+  s = s.replace(/\^(.)/g, (_, ch) => toSuper(ch));
+  s = s.replace(/_(.)/g, (_, ch) => toSub(ch));
   // Collapse multiple spaces and remove spaces adjacent to parentheses/brackets
   s = s.replace(/\s+/g, ' ');
   s = s.replace(/\s+\(/g, '(');
@@ -5903,15 +9014,12 @@ function canInterpret(code) {
   const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   // Reject features we can't handle
   if (/\bstruct\b/.test(stripped)) return false;
-  // 3D wireframe is supported; only block surface-heavy code
-  if (/\bsurface\s*\(/.test(stripped) || /\bsurface\s+\w/.test(stripped)) return false;
-  if (/\bimport\s+contour\b/.test(stripped)) return false;
+  // 3D wireframe and basic surface() are supported
   if (/\bimport\s+flowchart\b/.test(stripped)) return false;
   if (/\bimport\s+animation\b/.test(stripped)) return false;
-  if (/\bimport\s+trembling\b/.test(stripped)) return false;
   if (/\bimport\s+palette\b/.test(stripped)) return false;
   if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
-  if (/\bsettings\b/.test(stripped)) return false;
+  // settings.render etc. are now accepted (silently ignored)
   if (/\btexpath\b/.test(stripped)) return false;
   if (/\bshipout\b/.test(stripped)) return false;
   // graphic() is now supported via pre-fetched image cache
