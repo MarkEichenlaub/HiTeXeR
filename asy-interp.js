@@ -4732,12 +4732,10 @@ function createInterpreter() {
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:-1, y:0};
-        let labelY = (ymin + ymax) / 2;
+        const lAlign = labelAlign || {x:-1, y:1};
+        let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        // Y-axis labels are rotated 90° CCW by default in Asymptote
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0,
-          labelTransform: {a:0, b:0, c:-1, d:0, e:1, f:0}});
+        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
       }
     });
 
