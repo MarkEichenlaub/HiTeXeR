@@ -7628,12 +7628,21 @@ function renderSVG(result, opts) {
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
-    // Note: we intentionally do NOT boost pxPerUnit for small unitsize values.
-    // Boosting pxPerUnit changes the font-to-geometry ratio (labels become
-    // disproportionately small relative to paths) because font sizes are
-    // expressed in absolute bp via bpCSSPixel.  Instead we let the output
-    // be at its natural scale and rely on the display-level minimum size
-    // (svgW/svgH scaling below) to prevent microscopic rendering.
+    // When unitsize() makes cells much smaller than the default label font size
+    // (10bp), labels overwhelm the geometry.  Real Asymptote/TeXeR keeps labels
+    // at truesize (fixed bp) while the geometry scales to fit the output — so
+    // small unitsize diagrams get their geometry boosted to a reasonable size.
+    // We mimic this by ensuring pxPerUnit is at least large enough to fit the
+    // geometry within the default output size (200bp, same as the no-unitsize
+    // fallback).  This uses the geometry-only bbox (before label expansion) so
+    // labels remain truesize via bpCSSPixel.
+    const geoW = (geoMaxX - geoMinX) || 1;
+    const geoH = (geoMaxY - geoMinY) || 1;
+    const defaultSize = 200;  // match no-unitsize default
+    const minScale = Math.min(defaultSize / geoW, defaultSize / geoH);
+    if (pxPerUnit < minScale) {
+      pxPerUnit = pxPerUnitX = pxPerUnitY = minScale;
+    }
   } else if (sizeW > 0 || sizeH > 0) {
     // size() without unitsize(): scale geometry to fit the requested size.
     // Real Asymptote constrains geometry scale via size(); labels are placed at
@@ -7721,26 +7730,8 @@ function renderSVG(result, opts) {
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
 
-  // Store unshrunk dimensions for PNG export (before container shrink-to-fit).
-  // Set BEFORE the display boost so that intrinsicW/H reflect the natural
-  // scale.  cssPixel (= viewW/intrinsicW) then gives the true bp↔CSS
-  // conversion, keeping fontSizeSVG correct relative to geometry.
+  // Store unshrunk dimensions for PNG export (before container shrink-to-fit)
   let intrinsicW = svgW, intrinsicH = svgH;
-
-  // For unitsize() diagrams that would be very small, scale up the display
-  // dimensions so the output isn't microscopic.  This only affects svgW/svgH
-  // (the CSS width/height of the <svg>), NOT intrinsicW/H.  The browser's
-  // viewBox→display mapping scales everything uniformly, so the font-to-
-  // geometry ratio stays correct — matching real Asymptote output.
-  if (hasUnitScale) {
-    const minDisplayBp = 50;  // minimum display size in bp
-    const minDisplayPx = minDisplayBp * bpToCSSPx;
-    if (svgW > 0 && svgW < minDisplayPx && svgH < minDisplayPx) {
-      const displayBoost = minDisplayPx / Math.max(svgW, svgH);
-      svgW *= displayBoost;
-      svgH *= displayBoost;
-    }
-  }
 
   // If container dimensions provided, shrink oversized diagrams to fit
   let displayPercent = 100;
