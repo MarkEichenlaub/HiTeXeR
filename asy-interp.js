@@ -7562,7 +7562,8 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
+        const lwExplicit = dc.pen ? dc.pen._lwExplicit : false;
+        const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
@@ -7911,9 +7912,11 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: Asymptote dot() always applies dotfactor: radius = dotfactor/2 * linewidth.
+      // Dot radius: when the pen has an explicit linewidth, the dot diameter
+      // equals the linewidth (no dotfactor); otherwise diameter = dotfactor * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
+      const lwExplicit = dc.pen._lwExplicit;
+      const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
