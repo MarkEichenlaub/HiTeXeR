@@ -3415,22 +3415,22 @@ function createInterpreter() {
       return makePair(p.x + t*d1x, p.y + t*d1y);
     });
 
-    // times(path, real) — return sorted array of time values where path.y == val
+    // times(path, real) — return sorted array of time values where path.x == val
+    // (intersections with the vertical line x = val)
     env.set('times', (p, val) => {
       p = geoToPath(p);
       if (!isPath(p)) return [];
-      const y0 = toNumber(val);
+      const x0 = toNumber(val);
       const results = [];
       const tol = 1e-8;
       for (let i = 0; i < p.segs.length; i++) {
         const seg = p.segs[i];
-        // Solve cubic Bezier: (1-t)^3*a + 3(1-t)^2*t*b + 3(1-t)*t^2*c + t^3*d = y0
-        // Rewrite as cubic in t: At^3 + Bt^2 + Ct + D = 0
-        const a = seg.p0.y, b = seg.cp1.y, c = seg.cp2.y, d = seg.p3.y;
+        // Solve cubic Bezier x(t) = x0
+        const a = seg.p0.x, b = seg.cp1.x, c = seg.cp2.x, d = seg.p3.x;
         const A = -a + 3*b - 3*c + d;
         const B = 3*a - 6*b + 3*c;
         const C = -3*a + 3*b;
-        const D = a - y0;
+        const D = a - x0;
         const roots = solveCubicReal(A, B, C, D);
         for (const t of roots) {
           if (t >= -tol && t <= 1 + tol) {
