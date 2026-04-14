@@ -6476,10 +6476,10 @@ function createInterpreter() {
         // tick
         const tPath = makePath([lineSegment({x, y:-0.15}, {x, y:0.15})], false);
         pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
-        // label
+        // label (positioned below the tick mark, not on the axis)
         const n = Math.round(x / xstep);
         pic.commands.push({
-          cmd:'label', text:formatPiLabel(n), pos:{x, y:0},
+          cmd:'label', text:formatPiLabel(n), pos:{x, y:-0.35},
           align:{x:0, y:-1}, pen:clonePen(labelPen), line:0,
           _trigXLabel:true, _trigIndex:n
         });
@@ -6492,6 +6492,18 @@ function createInterpreter() {
         const tPath = makePath([lineSegment({x:-0.15, y}, {x:0.15, y})], false);
         pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
       }
+
+      // ── Axis labels "x" and "y" ──
+      const axisLabelPen = clonePen(defaultPen);
+      axisLabelPen.fontsize = 10;
+      pic.commands.push({
+        cmd:'label', text:'$x$', pos:{x:xright, y:0},
+        align:{x:1, y:0}, pen:clonePen(axisLabelPen), line:0
+      });
+      pic.commands.push({
+        cmd:'label', text:'$y$', pos:{x:0, y:ytop},
+        align:{x:0, y:1}, pen:clonePen(axisLabelPen), line:0
+      });
     });
 
     // ── rm_trig_labels(nmin, nmax, step) ─────────────────────────
