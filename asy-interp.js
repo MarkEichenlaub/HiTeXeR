@@ -4311,8 +4311,13 @@ function createInterpreter() {
     env.set('graph', (...args) => {
       // Filter out non-essential args: find functions, numbers, arrays, operators, bool3 funcs
       const smooth = wantsSmooth(args);
-      // Strip operator/bool3/picture args for cleaner matching
-      const coreArgs = args.filter(a => !isOperator(a));
+      // Extract named arguments (e.g. n=700, join=operator ..)
+      let namedN = null;
+      for (const a of args) {
+        if (a && a._named && a.n !== undefined) namedN = Math.floor(a.n);
+      }
+      // Strip operator/bool3/picture args and named args for cleaner matching
+      const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named));
 
       // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
       if (coreArgs.length >= 2 && isArray(coreArgs[0]) && isArray(coreArgs[1])) {
@@ -4345,7 +4350,7 @@ function createInterpreter() {
         }
         const a = nums[0] !== undefined ? nums[0] : 0;
         const b = nums[1] !== undefined ? nums[1] : 1;
-        const n = nums[2] !== undefined ? Math.floor(nums[2]) : 100;
+        const n = namedN !== null ? namedN : (nums[2] !== undefined ? Math.floor(nums[2]) : 100);
 
         // Determine mode: two-function parametric, single pair-returning function, or y=f(x)
         const isTwoFuncParametric = funcArg2 !== null;
@@ -6480,25 +6485,19 @@ function createInterpreter() {
         });
       }
 
-      // ── Tick marks & labels on y-axis ──
+      // ── Tick marks on y-axis (no labels, matching TeXeR TrigMacros) ──
       for (let y = ybottom; y <= ytop + ystep * 0.01; y += ystep) {
         if (Math.abs(y) < 0.01) continue;
         if (y < ybottom - 0.001 || y > ytop + 0.001) continue;
         const tPath = makePath([lineSegment({x:-0.15, y}, {x:0.15, y})], false);
         pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
-        const yInt = Math.round(y / ystep) * ystep;
-        // Format: integer when ystep divides evenly, otherwise decimal
-        const yLabel = (ystep >= 1 && Math.abs(yInt - y) < 0.001) ? String(yInt) : String(Math.round(y * 100) / 100);
-        pic.commands.push({
-          cmd:'label', text:'$' + yLabel + '$', pos:{x:0, y},
-          align:{x:-1, y:0}, pen:clonePen(labelPen), line:0
-        });
       }
     });
 
     // ── rm_trig_labels(nmin, nmax, step) ─────────────────────────
-    // Removes x-axis π-labels placed by trig_axes for tick indices
-    // in [nmin..nmax] whose index is NOT a multiple of `step`.
+    // In real AoPS TrigMacros, this removes labels outside the visible
+    // range while keeping all labels within. The x-axis labels placed
+    // by trig_axes at every xstep remain visible.
     env.set('rm_trig_labels', (...args) => {
       const nums = [];
       for (const a of args) {
@@ -6506,14 +6505,12 @@ function createInterpreter() {
       }
       const nmin = nums.length >= 1 ? nums[0] : -5;
       const nmax = nums.length >= 2 ? nums[1] :  5;
-      const step = nums.length >= 3 ? nums[2] :  2;
 
       const pic = currentPic;
       pic.commands = pic.commands.filter(cmd => {
         if (!cmd._trigXLabel) return true;          // keep non-trig commands
         const n = cmd._trigIndex;
-        if (n < nmin || n > nmax) return true;      // outside range → keep
-        return (n % step === 0);                    // keep multiples of step
+        return (n >= nmin && n <= nmax);             // keep labels inside range
       });
     });
 
