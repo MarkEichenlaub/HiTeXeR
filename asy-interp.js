@@ -6263,6 +6263,140 @@ function createInterpreter() {
       }
     });
 
+    // ── trig_axes(xleft, xright, ybottom, ytop, xstep, ystep) ──────
+    // Draws trig-style axes with grid, tick marks, and π-formatted
+    // labels on the x-axis and integer labels on the y-axis.
+    env.set('trig_axes', (...args) => {
+      const nums = [];
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+      }
+      const xleft   = nums.length >= 1 ? nums[0] : -3 * Math.PI;
+      const xright  = nums.length >= 2 ? nums[1] :  3 * Math.PI;
+      const ybottom = nums.length >= 3 ? nums[2] : -3;
+      const ytop    = nums.length >= 4 ? nums[3] :  3;
+      const xstep   = nums.length >= 5 ? nums[4] : Math.PI / 2;
+      const ystep   = nums.length >= 6 ? nums[5] : 1;
+
+      const pic = currentPic;
+
+      // Store state so rm_trig_labels can modify labels later
+      pic._trigAxesState = { xleft, xright, ybottom, ytop, xstep, ystep };
+
+      // Set axis limits
+      if (_axisLimits.xmin === null || xleft  < _axisLimits.xmin) _axisLimits.xmin = xleft;
+      if (_axisLimits.xmax === null || xright > _axisLimits.xmax) _axisLimits.xmax = xright;
+      if (_axisLimits.ymin === null || ybottom < _axisLimits.ymin) _axisLimits.ymin = ybottom;
+      if (_axisLimits.ymax === null || ytop    > _axisLimits.ymax) _axisLimits.ymax = ytop;
+
+      // ── Grid lines ──
+      const gridPen = makePen({r:0.75, g:0.75, b:0.75, linewidth:0.4});
+      for (let x = xleft + xstep; x < xright - xstep * 0.01; x += xstep) {
+        if (Math.abs(x) > 0.01) {
+          const path = makePath([lineSegment({x, y:ybottom}, {x, y:ytop})], false);
+          pic.commands.push({cmd:'draw', path, pen:clonePen(gridPen), arrow:null, line:0});
+        }
+      }
+      for (let y = ybottom + ystep; y < ytop - ystep * 0.01; y += ystep) {
+        if (Math.abs(y) > 0.01) {
+          const path = makePath([lineSegment({x:xleft, y}, {x:xright, y})], false);
+          pic.commands.push({cmd:'draw', path, pen:clonePen(gridPen), arrow:null, line:0});
+        }
+      }
+
+      // ── Axis lines with arrows ──
+      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const vPath = makePath([lineSegment({x:0, y:ybottom}, {x:0, y:ytop})], false);
+      pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+      const hPath = makePath([lineSegment({x:xleft, y:0}, {x:xright, y:0})], false);
+      pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+
+      // ── Helper: GCD for simplifying fractions ──
+      function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { [a, b] = [b, a % b]; } return a; }
+
+      // ── Helper: format tick index n as a LaTeX π-label ──
+      // xstep = piNum * π / piDen  (rational multiple of π)
+      // position = n * xstep = n * piNum * π / piDen
+      const piRatio = xstep / Math.PI;          // e.g. 0.5 for π/2
+      // Find piNum / piDen ≈ piRatio with small denominator
+      let piDen = 1;
+      for (let d = 1; d <= 12; d++) {
+        if (Math.abs(piRatio * d - Math.round(piRatio * d)) < 0.001) { piDen = d; break; }
+      }
+      const piNum = Math.round(piRatio * piDen); // e.g. piNum=1, piDen=2 for π/2
+
+      function formatPiLabel(n) {
+        let num = n * piNum;
+        let den = piDen;
+        const g = gcd(Math.abs(num), den);
+        num /= g;
+        den /= g;
+        const sign = num < 0 ? '-' : '';
+        const absNum = Math.abs(num);
+        if (den === 1) {
+          if (absNum === 1) return '$' + sign + '\\pi$';
+          return '$' + sign + absNum + '\\pi$';
+        }
+        if (absNum === 1) return '$' + sign + '\\frac{\\pi}{' + den + '}$';
+        return '$' + sign + '\\frac{' + absNum + '\\pi}{' + den + '}$';
+      }
+
+      // ── Tick marks & labels on x-axis ──
+      const tickPen = makePen({r:0, g:0, b:0, linewidth:0.8});
+      const labelPen = clonePen(defaultPen);
+      labelPen.fontsize = 8;
+      for (let x = xleft; x <= xright + xstep * 0.01; x += xstep) {
+        if (Math.abs(x) < 0.01) continue;
+        if (x < xleft - 0.001 || x > xright + 0.001) continue;
+        // tick
+        const tPath = makePath([lineSegment({x, y:-0.15}, {x, y:0.15})], false);
+        pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
+        // label
+        const n = Math.round(x / xstep);
+        pic.commands.push({
+          cmd:'label', text:formatPiLabel(n), pos:{x, y:0},
+          align:{x:0, y:-1}, pen:clonePen(labelPen), line:0,
+          _trigXLabel:true, _trigIndex:n
+        });
+      }
+
+      // ── Tick marks & labels on y-axis ──
+      for (let y = ybottom; y <= ytop + ystep * 0.01; y += ystep) {
+        if (Math.abs(y) < 0.01) continue;
+        if (y < ybottom - 0.001 || y > ytop + 0.001) continue;
+        const tPath = makePath([lineSegment({x:-0.15, y}, {x:0.15, y})], false);
+        pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
+        const yInt = Math.round(y / ystep) * ystep;
+        // Format: integer when ystep divides evenly, otherwise decimal
+        const yLabel = (ystep >= 1 && Math.abs(yInt - y) < 0.001) ? String(yInt) : String(Math.round(y * 100) / 100);
+        pic.commands.push({
+          cmd:'label', text:'$' + yLabel + '$', pos:{x:0, y},
+          align:{x:-1, y:0}, pen:clonePen(labelPen), line:0
+        });
+      }
+    });
+
+    // ── rm_trig_labels(nmin, nmax, step) ─────────────────────────
+    // Removes x-axis π-labels placed by trig_axes for tick indices
+    // in [nmin..nmax] whose index is NOT a multiple of `step`.
+    env.set('rm_trig_labels', (...args) => {
+      const nums = [];
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+      }
+      const nmin = nums.length >= 1 ? nums[0] : -5;
+      const nmax = nums.length >= 2 ? nums[1] :  5;
+      const step = nums.length >= 3 ? nums[2] :  2;
+
+      const pic = currentPic;
+      pic.commands = pic.commands.filter(cmd => {
+        if (!cmd._trigXLabel) return true;          // keep non-trig commands
+        const n = cmd._trigIndex;
+        if (n < nmin || n > nmax) return true;      // outside range → keep
+        return (n % step === 0);                    // keep multiples of step
+      });
+    });
+
     // TrigMacros constants
     env.set('ticklength', ticklength);
     env.set('axisarrowsize', axisarrowsize);
