@@ -3213,12 +3213,58 @@ function createInterpreter() {
 
     env.set('subpath', (p, a, b) => {
       p = geoToPath(p);
-      if (!isPath(p)) return p;
-      // Simplified: extract segments in range
+      if (!isPath(p) || p.segs.length === 0) return p;
+      const ta = toNumber(a), tb = toNumber(b);
+      const n = p.segs.length;
+      // Clamp
+      const tStart = Math.max(0, Math.min(n, ta));
+      const tEnd = Math.max(0, Math.min(n, tb));
+      if (tStart >= tEnd) return makePath([], false);
+      const iStart = Math.floor(tStart);
+      const iEnd = Math.floor(tEnd);
+      const fracStart = tStart - iStart;
+      const fracEnd = tEnd - iEnd;
+      // de Casteljau split
+      function splitSeg(seg, t) {
+        const u = 1 - t;
+        const a1 = {x: u*seg.p0.x + t*seg.cp1.x, y: u*seg.p0.y + t*seg.cp1.y};
+        const a2 = {x: u*seg.cp1.x + t*seg.cp2.x, y: u*seg.cp1.y + t*seg.cp2.y};
+        const a3 = {x: u*seg.cp2.x + t*seg.p3.x, y: u*seg.cp2.y + t*seg.p3.y};
+        const b1 = {x: u*a1.x + t*a2.x, y: u*a1.y + t*a2.y};
+        const b2 = {x: u*a2.x + t*a3.x, y: u*a2.y + t*a3.y};
+        const c1 = {x: u*b1.x + t*b2.x, y: u*b1.y + t*b2.y};
+        return [
+          makeSeg(seg.p0, a1, b1, c1),
+          makeSeg(c1, b2, a3, seg.p3)
+        ];
+      }
       const segs = [];
-      const start = Math.max(0, Math.floor(toNumber(a)));
-      const end = Math.min(p.segs.length, Math.ceil(toNumber(b)));
-      for (let i = start; i < end; i++) segs.push(p.segs[i]);
+      if (iStart === iEnd && iStart < n) {
+        // Both start and end within the same segment
+        let seg = p.segs[iStart];
+        if (fracStart > 1e-12) seg = splitSeg(seg, fracStart)[1];
+        // Remap fracEnd within remaining portion
+        const remapped = fracStart > 1e-12 ? (fracEnd - fracStart) / (1 - fracStart) : fracEnd;
+        if (remapped < 1 - 1e-12) seg = splitSeg(seg, remapped)[0];
+        segs.push(seg);
+      } else {
+        // First (partial) segment
+        if (iStart < n) {
+          let seg = p.segs[iStart];
+          if (fracStart > 1e-12) seg = splitSeg(seg, fracStart)[1];
+          segs.push(seg);
+        }
+        // Full middle segments
+        for (let i = iStart + 1; i < Math.min(iEnd, n); i++) {
+          segs.push(p.segs[i]);
+        }
+        // Last (partial) segment
+        if (iEnd < n && fracEnd > 1e-12) {
+          let seg = p.segs[iEnd];
+          seg = splitSeg(seg, fracEnd)[0];
+          segs.push(seg);
+        }
+      }
       return makePath(segs, false);
     });
 
@@ -3368,6 +3414,80 @@ function createInterpreter() {
       const t = ((r.x-p.x)*d2y - (r.y-p.y)*d2x) / cross;
       return makePair(p.x + t*d1x, p.y + t*d1y);
     });
+
+    // times(path, real) — return sorted array of time values where path.y == val
+    env.set('times', (p, val) => {
+      p = geoToPath(p);
+      if (!isPath(p)) return [];
+      const y0 = toNumber(val);
+      const results = [];
+      const tol = 1e-8;
+      for (let i = 0; i < p.segs.length; i++) {
+        const seg = p.segs[i];
+        // Solve cubic Bezier: (1-t)^3*a + 3(1-t)^2*t*b + 3(1-t)*t^2*c + t^3*d = y0
+        // Rewrite as cubic in t: At^3 + Bt^2 + Ct + D = 0
+        const a = seg.p0.y, b = seg.cp1.y, c = seg.cp2.y, d = seg.p3.y;
+        const A = -a + 3*b - 3*c + d;
+        const B = 3*a - 6*b + 3*c;
+        const C = -3*a + 3*b;
+        const D = a - y0;
+        const roots = solveCubicReal(A, B, C, D);
+        for (const t of roots) {
+          if (t >= -tol && t <= 1 + tol) {
+            const tc = Math.max(0, Math.min(1, t));
+            results.push(i + tc);
+          }
+        }
+      }
+      results.sort((a, b) => a - b);
+      return results;
+    });
+
+    // Solve At^3 + Bt^2 + Ct + D = 0 for real roots
+    function solveCubicReal(A, B, C, D) {
+      const eps = 1e-12;
+      if (Math.abs(A) < eps) {
+        // Quadratic or linear
+        if (Math.abs(B) < eps) {
+          // Linear
+          if (Math.abs(C) < eps) return [];
+          return [-D / C];
+        }
+        const disc = C * C - 4 * B * D;
+        if (disc < 0) return [];
+        const sq = Math.sqrt(disc);
+        return [(-C + sq) / (2 * B), (-C - sq) / (2 * B)];
+      }
+      // Normalize: t^3 + pt^2 + qt + r = 0
+      const p = B / A, q = C / A, r = D / A;
+      // Depressed cubic substitution t = u - p/3
+      const p3 = p / 3;
+      const Q = (3 * q - p * p) / 9;
+      const R = (9 * p * q - 27 * r - 2 * p * p * p) / 54;
+      const disc = Q * Q * Q + R * R;
+      if (disc > eps) {
+        // One real root
+        const sqD = Math.sqrt(disc);
+        const S = Math.cbrt(R + sqD);
+        const T = Math.cbrt(R - sqD);
+        return [S + T - p3];
+      } else if (Math.abs(disc) <= eps) {
+        // Three real roots, at least two equal
+        const S = Math.cbrt(R);
+        const r1 = 2 * S - p3;
+        const r2 = -S - p3;
+        return [r1, r2];
+      } else {
+        // Three distinct real roots (casus irreducibilis)
+        const theta = Math.acos(R / Math.sqrt(-Q * Q * Q));
+        const sqQ = 2 * Math.sqrt(-Q);
+        return [
+          sqQ * Math.cos(theta / 3) - p3,
+          sqQ * Math.cos((theta + 2 * Math.PI) / 3) - p3,
+          sqQ * Math.cos((theta + 4 * Math.PI) / 3) - p3,
+        ];
+      }
+    }
 
     env.set('intersect', (p1, p2) => {
       if (!isPath(p1) || !isPath(p2)) return [0, 0];
