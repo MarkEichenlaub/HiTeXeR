@@ -4401,8 +4401,8 @@ function createInterpreter() {
       // Compute sub-tick positions (minor ticks between major ticks)
       let minorPositions = [];
       if (!isExtend) {
-        // Default: 2 sub-ticks per major step (like Asymptote)
-        const subN = ticks.subStep > 0 ? Math.round(step / ticks.subStep) : 2;
+        // Only draw minor ticks when an explicit sub-step was requested (Asymptote default N=0 means no minor ticks)
+        const subN = ticks.subStep > 0 ? Math.round(step / ticks.subStep) : 1;
         if (subN > 1) {
           const subStep = step / subN;
           for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
