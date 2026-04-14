@@ -4443,9 +4443,9 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        // Extended gridlines (isExtend=true) go into background layer (above:-1) so they
-        // always render below user-drawn paths regardless of source order.
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0), _isTickMark: !isExtend});
+        // Extended gridlines default to background layer (above:-1) so they render below
+        // user-drawn paths, but respect above=true to render in foreground when requested.
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? (above ? 1 : -1) : (above ? 1 : 0), _isTickMark: !isExtend});
       }
 
       // Draw major ticks
