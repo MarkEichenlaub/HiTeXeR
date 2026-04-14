@@ -4754,10 +4754,10 @@ function createInterpreter() {
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
       _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:1, y:-1};
+        const lAlign = labelAlign || {x:0, y:-1};
         let labelX = xmax;
         if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
       }
     });
 
@@ -4852,10 +4852,10 @@ function createInterpreter() {
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:-1, y:1};
+        const lAlign = labelAlign || {x:-1, y:0};
         let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
       }
     });
 
