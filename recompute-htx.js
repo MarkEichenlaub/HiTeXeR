@@ -401,6 +401,7 @@ async function main() {
       <div class="link-row">
         <a class="btn" href="${openUrl}" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="${esc('[asy]\n'+code+'\n[/asy]')}">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="${id}" data-file="${esc(r.corpusFile)}" data-rank="${rank}" data-ssim="${sc(r) >= 0 ? sc(r).toFixed(4) : 'N/A'}" data-ssim-content="${r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A'}" data-ssim-size="${r.sizeScore != null && r.sizeScore >= 0 ? r.sizeScore.toFixed(4) : 'N/A'}">Fix</button>
       </div>
       <textarea class="feedback-box" data-rank="${rank}" data-id="${id}" data-file="${esc(r.corpusFile)}" placeholder="Notes about this pair..."></textarea>
     </div>
@@ -451,6 +452,7 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 .link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .btn{display:inline-block;padding:4px 10px;font-size:.78em;font-weight:600;color:#1a1a2e;background:#e8e8f0;border:1px solid #c0c0d0;border-radius:4px;text-decoration:none;cursor:pointer;font-family:inherit}
 .btn:hover{background:#1a1a2e;color:#fff}
+.btn-fix{background:#1a5c2e;color:#fff;border-color:#1a5c2e}.btn-fix:hover{background:#0f3a1d;color:#fff}
 .pag{text-align:center;margin:24px 0}
 .pag a,.pag span{display:inline-block;padding:5px 10px;margin:1px;border-radius:4px;font-size:.85em;text-decoration:none}
 .pag a{background:#e8e8f0;color:#1a1a2e}
@@ -531,6 +533,60 @@ document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
   fetch(el.dataset.svg).then(r=>r.text()).then(svg=>{
     el.innerHTML=svg;
   }).catch(()=>{el.innerHTML='<em class="na">SVG load failed</em>';});
+});
+function buildFixPrompt(id,file,rank,ssim,ssimContent,ssimSize,source){
+  return 'You are working on the HiTeXeR Asymptote interpreter (asy-interp.js) in C:\\\\Users\\\\Mark Eichenlaub\\\\github\\\\hitexer.\\n\\n'+
+    'Your task: fix diagram #'+rank+' \\u2014 '+file+' (ID: '+id+') so HiTeXeR renders it to match the Asymptote reference.\\n\\n'+
+    'Combined SSIM: '+ssim+' | Content SSIM: '+ssimContent+' | Size score: '+ssimSize+'\\n'+
+    '(Higher is better; target > 0.9. -1 means render failed.)\\n\\n'+
+    'Asymptote source (comparison/asy_src/'+id+'.asy):\\n'+
+    '\`\`\`\\n'+source+'\\n\`\`\`\\n\\n'+
+    'Reference render: comparison/asy_pngs/'+id+'.png (Asymptote-generated)\\n'+
+    'Current HiTeXeR SVG: comparison/htx_svgs/'+id+'.svg\\n\\n'+
+    'Workflow:\\n'+
+    '1. Read the source and reference PNG to understand what the diagram should look like.\\n'+
+    '2. Quick render test: node render-hitexer.js comparison/asy_src/'+id+'.asy\\n'+
+    '   (outputs SVG to stdout; visually compare with the reference PNG)\\n'+
+    '3. Identify all differences (missing elements, wrong color, wrong position/size, wrong stroke, etc.)\\n'+
+    '4. Fix asy-interp.js with targeted, minimal changes. Avoid breaking other diagrams.\\n'+
+    '5. Re-test: node render-hitexer.js comparison/asy_src/'+id+'.asy\\n'+
+    '6. When the render looks correct, bump the version in index.html and run:\\n'+
+    '   node recompute-htx.js render-htx rasterize ssim html\\n'+
+    '7. Check the new SSIM for this diagram and watch for regressions in overall stats.\\n'+
+    '8. Repeat from step 2 until SSIM > 0.9 or no further improvement is possible.\\n\\n'+
+    'Always run recompute-htx.js after any asy-interp.js fix to catch regressions across all diagrams.';
+}
+document.querySelectorAll('.fix-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var card=btn.closest('.card');
+    var id=btn.dataset.id;
+    var file=btn.dataset.file;
+    var rank=btn.dataset.rank;
+    var ssim=btn.dataset.ssim;
+    var ssimContent=btn.dataset.ssimContent;
+    var ssimSize=btn.dataset.ssimSize;
+    var source=card.querySelector('.code-box code').textContent;
+    var prompt=buildFixPrompt(id,file,rank,ssim,ssimContent,ssimSize,source);
+    var orig=btn.textContent;
+    fetch('http://localhost:7842/fix',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id,prompt:prompt})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        btn.textContent='Launched!';
+        btn.style.background='#2d8a4e';
+        setTimeout(function(){btn.textContent=orig;btn.style.background='';},3000);
+      }else{
+        alert('fix-server error: '+d.error);
+      }
+    }).catch(function(){
+      navigator.clipboard.writeText(prompt).then(function(){
+        btn.textContent='Copied (run: node fix-server.js)';
+        setTimeout(function(){btn.textContent=orig;},4000);
+      });
+    });
+  });
 });
 </script></body></html>`;
 

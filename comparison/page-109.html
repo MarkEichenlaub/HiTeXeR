@@ -11,12 +11,11 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 .sub{text-align:center;color:#666;font-size:.92em;margin-bottom:6px}
 .stats{text-align:center;margin-bottom:20px;font-size:.88em}
 .stats b{display:inline-block;padding:2px 10px;border-radius:10px;color:#fff;margin:0 3px;font-weight:600;font-size:.82em}
-
 .card{background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:24px;overflow:visible}
 .card-header{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px 10px 0 0}
 .card-header h2{font-size:1em;font-weight:600}
 .badge{padding:3px 12px;border-radius:12px;font-size:.75em;font-weight:700;color:#fff;white-space:nowrap}
-.card-body{display:grid;grid-template-columns:35% 35% 30%;gap:0}
+.card-body{display:grid;gap:0}
 .render-col{padding:14px;border-right:1px solid #eee}
 .render-col:last-child{border-right:none}
 .render-col h3{font-size:.72em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;text-align:center}
@@ -27,6 +26,7 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 .link-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .btn{display:inline-block;padding:4px 10px;font-size:.78em;font-weight:600;color:#1a1a2e;background:#e8e8f0;border:1px solid #c0c0d0;border-radius:4px;text-decoration:none;cursor:pointer;font-family:inherit}
 .btn:hover{background:#1a1a2e;color:#fff}
+.btn-fix{background:#1a5c2e;color:#fff;border-color:#1a5c2e}.btn-fix:hover{background:#0f3a1d;color:#fff}
 .pag{text-align:center;margin:24px 0}
 .pag a,.pag span{display:inline-block;padding:5px 10px;margin:1px;border-radius:4px;font-size:.85em;text-decoration:none}
 .pag a{background:#e8e8f0;color:#1a1a2e}
@@ -44,143 +44,24 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11889 diagrams sorted by combined score (worst first) — Page 109 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">276 Good</b>
+<b style="background:#2d8a4e">277 Good</b>
 <b style="background:#c0820a">1349 Fair</b>
-<b style="background:#c0392b">10262 Poor</b>
+<b style="background:#c0392b">10261 Poor</b>
 <b style="background:#999">2 Err</b>
 </div>
 <div class="pag"><a href="page-108.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-102.html">102</a><a href="page-103.html">103</a><a href="page-104.html">104</a><a href="page-105.html">105</a><a href="page-106.html">106</a><a href="page-107.html">107</a><a href="page-108.html">108</a><span class="cur">109</span><a href="page-110.html">110</a><a href="page-111.html">111</a><a href="page-112.html">112</a><a href="page-113.html">113</a><a href="page-114.html">114</a><a href="page-115.html">115</a><a href="page-116.html">116</a><span class="dots">…</span><a href="page-119.html">119</a><a href="page-110.html">Next &raquo;</a></div>
 
 <div class="card" id="pair-10801">
   <div class="card-header">
-    <h2>#10801 &mdash; c186_L17_script_29.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8898 &middot; Fair</span>
-    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8907</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9989</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01927.png"></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/01927.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>size(180);
-
-//Multiply a matrix with columns col1 and col2 by the vector X
-pair multByMat (pair X, pair col1, pair col2)
-{
-     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
-}
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-pair col1, col2; 
-pair V, BV, O; 
-pair tailV, tailBV;
-
-O = (0,0);
-
-//Columns of the matrix:
-col1 = (0,-1); 
-col2 = (1,0);
-
-//Input vector
-V = (-1, 4);
-
-//Output vector:
-BV = multByMat(V, col1, col2);
-
-tailV = O; 
-tailBV = tailV;
-
-gridLines(-4, 6,-2,5);
-
-draw(tailV--tailV + V, heavygreen, Arrow(7));
-draw(tailBV--tailBV + BV, blue, Arrow(7));
-
-label(&quot;$\mathbf{B}^{-1}\mathbf{w}$&quot;, tailV + V/2, SW, UnFill); 
-label(&quot;$ \mathbf{w}$&quot;, tailBV + BV/2, SE, UnFill);</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(180)%3B%0D%0A%0D%0A%2F%2FMultiply%20a%20matrix%20with%20columns%20col1%20and%20col2%20by%20the%20vector%20X%0D%0D%0Apair%20multByMat%20(pair%20X%2C%20pair%20col1%2C%20pair%20col2)%0D%0D%0A%7B%0D%0D%0A%20%20%20%20%20return%20(col1.x*X.x%20%2B%20col2.x*X.y%2C%20col1.y*X.x%20%2B%20col2.y*X.y)%3B%20%0D%0D%0A%7D%0D%0A%0D%0A%2F%2FDraws%20grid%20lines%20with%20the%20given%20parameters%3A%20%0D%0D%0Avoid%20gridLines(int%20xmin%2C%20int%20xmax%2C%20int%20ymin%2C%20int%20ymax)%20%0D%0D%0A%7B%0D%0D%0A%20%20for(int%20i%20%3D%20ymin%2B1%3B%20i%3C%20ymax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((xmin%2Ci)--(xmax%2Ci)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%20%20for(int%20i%20%3D%20xmin%2B1%3B%20i%3C%20xmax%3B%20%2B%2Bi)%0D%0D%0A%20%20%7B%0D%0D%0A%20%20%20%20%20draw((i%2Cymax)--(i%2Cymin)%2C%20mediumgray)%3B%20%0D%0D%0A%20%20%7D%0D%0D%0A%7D%0D%0D%0Apair%20col1%2C%20col2%3B%20%0D%0D%0Apair%20V%2C%20BV%2C%20O%3B%20%0D%0D%0Apair%20tailV%2C%20tailBV%3B%0D%0A%0D%0AO%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2FColumns%20of%20the%20matrix%3A%0D%0D%0Acol1%20%3D%20(0%2C-1)%3B%20%0D%0D%0Acol2%20%3D%20(1%2C0)%3B%0D%0A%0D%0A%2F%2FInput%20vector%0D%0D%0AV%20%3D%20(-1%2C%204)%3B%0D%0A%0D%0A%2F%2FOutput%20vector%3A%0D%0D%0ABV%20%3D%20multByMat(V%2C%20col1%2C%20col2)%3B%0D%0A%0D%0AtailV%20%3D%20O%3B%20%0D%0D%0AtailBV%20%3D%20tailV%3B%0D%0A%0D%0AgridLines(-4%2C%206%2C-2%2C5)%3B%0D%0A%0D%0Adraw(tailV--tailV%20%2B%20V%2C%20heavygreen%2C%20Arrow(7))%3B%0D%0D%0Adraw(tailBV--tailBV%20%2B%20BV%2C%20blue%2C%20Arrow(7))%3B%0D%0A%0D%0Alabel(%22%24%5Cmathbf%7BB%7D%5E%7B-1%7D%5Cmathbf%7Bw%7D%24%22%2C%20tailV%20%2B%20V%2F2%2C%20SW%2C%20UnFill)%3B%20%0D%0D%0Alabel(%22%24%20%5Cmathbf%7Bw%7D%24%22%2C%20tailBV%20%2B%20BV%2F2%2C%20SE%2C%20UnFill)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-size(180);
-
-//Multiply a matrix with columns col1 and col2 by the vector X
-pair multByMat (pair X, pair col1, pair col2)
-{
-     return (col1.x*X.x + col2.x*X.y, col1.y*X.x + col2.y*X.y); 
-}
-
-//Draws grid lines with the given parameters: 
-void gridLines(int xmin, int xmax, int ymin, int ymax) 
-{
-  for(int i = ymin+1; i&lt; ymax; ++i)
-  {
-     draw((xmin,i)--(xmax,i), mediumgray); 
-  }
-  for(int i = xmin+1; i&lt; xmax; ++i)
-  {
-     draw((i,ymax)--(i,ymin), mediumgray); 
-  }
-}
-pair col1, col2; 
-pair V, BV, O; 
-pair tailV, tailBV;
-
-O = (0,0);
-
-//Columns of the matrix:
-col1 = (0,-1); 
-col2 = (1,0);
-
-//Input vector
-V = (-1, 4);
-
-//Output vector:
-BV = multByMat(V, col1, col2);
-
-tailV = O; 
-tailBV = tailV;
-
-gridLines(-4, 6,-2,5);
-
-draw(tailV--tailV + V, heavygreen, Arrow(7));
-draw(tailBV--tailBV + BV, blue, Arrow(7));
-
-label(&quot;$\mathbf{B}^{-1}\mathbf{w}$&quot;, tailV + V/2, SW, UnFill); 
-label(&quot;$ \mathbf{w}$&quot;, tailBV + BV/2, SE, UnFill);
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="10801" data-id="01927" data-file="c186_L17_script_29.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-10802">
-  <div class="card-header">
-    <h2>#10802 &mdash; c463_L22_script_26.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8899 &middot; Fair</span>
+    <h2>#10801 &mdash; c463_L22_script_26.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8899 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8899</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08009.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -286,22 +167,23 @@ for (int i=1; i&lt;=n; ++i) {
 peak(4,1);
 nonpeak(5,1);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08009" data-file="c463_L22_script_26.asy" data-rank="10801" data-ssim="0.8899" data-ssim-content="0.8899" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10802" data-id="08009" data-file="c463_L22_script_26.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10801" data-id="08009" data-file="c463_L22_script_26.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10803">
+<div class="card" id="pair-10802">
   <div class="card-header">
-    <h2>#10803 &mdash; c463_L22_script_18.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8899 &middot; Fair</span>
+    <h2>#10802 &mdash; c463_L22_script_18.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8899 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8899</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08000.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -387,22 +269,23 @@ nonpeak(2,3);
 for (int i=1; i&lt;=n; ++i)
   {nonpeak(1,i);}
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08000" data-file="c463_L22_script_18.asy" data-rank="10802" data-ssim="0.8899" data-ssim-content="0.8899" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10803" data-id="08000" data-file="c463_L22_script_18.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10802" data-id="08000" data-file="c463_L22_script_18.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10804">
+<div class="card" id="pair-10803">
   <div class="card-header">
-    <h2>#10804 &mdash; c57_L12_script_12.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8899 &middot; Fair</span>
+    <h2>#10803 &mdash; c57_L12_script_12.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8899 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8939</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9956</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09748.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -450,22 +333,23 @@ dot(P);
 label(&quot;$a$&quot;, (B + C)/2, S);
 label(&quot;$c$&quot;, (B + P)/2, SW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09748" data-file="c57_L12_script_12.asy" data-rank="10803" data-ssim="0.8899" data-ssim-content="0.8939" data-ssim-size="0.9956">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10804" data-id="09748" data-file="c57_L12_script_12.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10803" data-id="09748" data-file="c57_L12_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10805">
+<div class="card" id="pair-10804">
   <div class="card-header">
-    <h2>#10805 &mdash; c57_L12_script_15.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8899 &middot; Fair</span>
+    <h2>#10804 &mdash; c57_L12_script_15.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8899 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8939</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9956</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09751.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -513,22 +397,23 @@ dot(P);
 label(&quot;$a$&quot;, (B + C)/2, S);
 label(&quot;$c$&quot;, (B + P)/2, SW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09751" data-file="c57_L12_script_15.asy" data-rank="10804" data-ssim="0.8899" data-ssim-content="0.8939" data-ssim-size="0.9956">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10805" data-id="09751" data-file="c57_L12_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10804" data-id="09751" data-file="c57_L12_script_15.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10806">
+<div class="card" id="pair-10805">
   <div class="card-header">
-    <h2>#10806 &mdash; c463_L22_script_25.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8900 &middot; Fair</span>
+    <h2>#10805 &mdash; c463_L22_script_25.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8900 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8900</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08008.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -630,22 +515,23 @@ for (int i=1; i&lt;=n; ++i) {
   if (i&gt;2) {nonpeak(4,i);}
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08008" data-file="c463_L22_script_25.asy" data-rank="10805" data-ssim="0.8900" data-ssim-content="0.8900" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10806" data-id="08008" data-file="c463_L22_script_25.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10805" data-id="08008" data-file="c463_L22_script_25.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10807">
+<div class="card" id="pair-10806">
   <div class="card-header">
-    <h2>#10807 &mdash; c186_L17_script_12.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8900 &middot; Fair</span>
+    <h2>#10806 &mdash; c186_L17_script_12.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8900 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8913</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9986</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01909.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -881,22 +767,23 @@ label(&quot;$\mathbf{R}\mathbf{v}$&quot;, shift(O2)*(tailoutV +outV), SW, UnFill
 label(&quot;Inputs:&quot;, (big+1)*J); 
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01909" data-file="c186_L17_script_12.asy" data-rank="10806" data-ssim="0.8900" data-ssim-content="0.8913" data-ssim-size="0.9986">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10807" data-id="01909" data-file="c186_L17_script_12.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10806" data-id="01909" data-file="c186_L17_script_12.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10808">
+<div class="card" id="pair-10807">
   <div class="card-header">
-    <h2>#10808 &mdash; c510_L8_p52744_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8901 &middot; Fair</span>
+    <h2>#10807 &mdash; c510_L8_p52744_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8901 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8940</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9956</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08703.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1046,22 +933,23 @@ label(&quot;$5$&quot;, e5);
 filldraw(circle(e6, vertexRadius), white, black + linewidth(1));
 label(&quot;$6$&quot;, e6);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08703" data-file="c510_L8_p52744_problem_text_0.asy" data-rank="10807" data-ssim="0.8901" data-ssim-content="0.8940" data-ssim-size="0.9956">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10808" data-id="08703" data-file="c510_L8_p52744_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10807" data-id="08703" data-file="c510_L8_p52744_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10809">
+<div class="card" id="pair-10808">
   <div class="card-header">
-    <h2>#10809 &mdash; c186_L16_p32178_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8902 &middot; Fair</span>
+    <h2>#10808 &mdash; c186_L16_p32178_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8902 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8902</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01813.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1173,22 +1061,23 @@ draw(rightanglemark(3U, P, V, 15));
 label(&quot;$\mathbf{u}$&quot;, -3U/2, SE);
 label(&quot;$\mathbf{v}$&quot;, P/2, ESE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01813" data-file="c186_L16_p32178_solution_text_0.asy" data-rank="10808" data-ssim="0.8902" data-ssim-content="0.8902" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10809" data-id="01813" data-file="c186_L16_p32178_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10808" data-id="01813" data-file="c186_L16_p32178_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10810">
+<div class="card" id="pair-10809">
   <div class="card-header">
-    <h2>#10810 &mdash; c405_L3_script_16.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8904 &middot; Fair</span>
+    <h2>#10809 &mdash; c405_L3_script_16.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8904 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9001</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9892</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06475.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1230,22 +1119,23 @@ draw((0,0)--(.5,0)--(.5,1),dashed+red);
 label(&quot;$v_x$&quot;,(.35,0),S,red);
 label(&quot;$v_y$&quot;,(.5,.5),E,red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06475" data-file="c405_L3_script_16.asy" data-rank="10809" data-ssim="0.8904" data-ssim-content="0.9001" data-ssim-size="0.9892">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10810" data-id="06475" data-file="c405_L3_script_16.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10809" data-id="06475" data-file="c405_L3_script_16.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10811">
+<div class="card" id="pair-10810">
   <div class="card-header">
-    <h2>#10811 &mdash; c401_L8_script_46.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8904 &middot; Fair</span>
+    <h2>#10810 &mdash; c401_L8_script_46.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8904 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9004</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9889</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05841.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1265,22 +1155,23 @@ path p=Arc((7,0),7,0,180)--Arc((3,0),3,180,0)--Arc((10,0),4,180,0)--cycle;
 fill(p,gray);
 draw(p);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05841" data-file="c401_L8_script_46.asy" data-rank="10810" data-ssim="0.8904" data-ssim-content="0.9004" data-ssim-size="0.9889">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10811" data-id="05841" data-file="c401_L8_script_46.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10810" data-id="05841" data-file="c401_L8_script_46.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10812">
+<div class="card" id="pair-10811">
   <div class="card-header">
-    <h2>#10812 &mdash; c405_L11_script_32.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8905 &middot; Fair</span>
+    <h2>#10811 &mdash; c405_L11_script_32.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8905 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8916</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9988</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06046.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1358,22 +1249,23 @@ label(&quot;$\theta$&quot;,loc + dir(-90+theta/2)*.27);
 draw((loc + (0,v.y))--(loc + v), dashed + red);
 draw(loc--(loc + (0,v.y)), dashed+red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06046" data-file="c405_L11_script_32.asy" data-rank="10811" data-ssim="0.8905" data-ssim-content="0.8916" data-ssim-size="0.9988">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10812" data-id="06046" data-file="c405_L11_script_32.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10811" data-id="06046" data-file="c405_L11_script_32.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10813">
+<div class="card" id="pair-10812">
   <div class="card-header">
-    <h2>#10813 &mdash; c186_L6_p4579_solution_text_3.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8908 &middot; Fair</span>
+    <h2>#10812 &mdash; c186_L6_p4579_solution_text_3.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8908 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9055</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9838</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02877.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1437,22 +1329,23 @@ draw(maxLine(P, P+Q, -7, 20, -7, 20));
 markangle(&quot;$	heta$&quot;,(10,0), P, A, radius = 7, red);  
 markangle(&quot;$	heta$&quot;,A, P, P+Q, radius = 7, red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="02877" data-file="c186_L6_p4579_solution_text_3.asy" data-rank="10812" data-ssim="0.8908" data-ssim-content="0.9055" data-ssim-size="0.9838">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10813" data-id="02877" data-file="c186_L6_p4579_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10812" data-id="02877" data-file="c186_L6_p4579_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10814">
+<div class="card" id="pair-10813">
   <div class="card-header">
-    <h2>#10814 &mdash; c190_L9_p32603_problemtext_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8909 &middot; Fair</span>
+    <h2>#10813 &mdash; c190_L9_p32603_problemtext_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8909 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8930</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9976</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03613.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1488,22 +1381,23 @@ unfill(shift(0, 1)*scale(0.03)*unitcircle); draw(shift(0, 1)*scale(0.03)*unitcir
 
 draw((1/2, 1)--(1, 1/2));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="03613" data-file="c190_L9_p32603_problemtext_0.asy" data-rank="10813" data-ssim="0.8909" data-ssim-content="0.8930" data-ssim-size="0.9976">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10814" data-id="03613" data-file="c190_L9_p32603_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10813" data-id="03613" data-file="c190_L9_p32603_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10815">
+<div class="card" id="pair-10814">
   <div class="card-header">
-    <h2>#10815 &mdash; c57_L5_p39192_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8909 &middot; Fair</span>
+    <h2>#10814 &mdash; c57_L5_p39192_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8909 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8976</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9926</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/11177.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1563,22 +1457,23 @@ dot(&quot;$R$&quot;, R, SE);
 dot(&quot;$S$&quot;, S, dir(270));
 dot(&quot;$T$&quot;, T, NE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="11177" data-file="c57_L5_p39192_solution_text_0.asy" data-rank="10814" data-ssim="0.8909" data-ssim-content="0.8976" data-ssim-size="0.9926">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10815" data-id="11177" data-file="c57_L5_p39192_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10814" data-id="11177" data-file="c57_L5_p39192_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10816">
+<div class="card" id="pair-10815">
   <div class="card-header">
-    <h2>#10816 &mdash; c582_L5_p39192_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8909 &middot; Fair</span>
+    <h2>#10815 &mdash; c582_L5_p39192_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8909 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8976</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9926</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/11924.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1638,22 +1533,23 @@ dot(&quot;$R$&quot;, R, SE);
 dot(&quot;$S$&quot;, S, dir(270));
 dot(&quot;$T$&quot;, T, NE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="11924" data-file="c582_L5_p39192_solution_text_0.asy" data-rank="10815" data-ssim="0.8909" data-ssim-content="0.8976" data-ssim-size="0.9926">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10816" data-id="11924" data-file="c582_L5_p39192_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10815" data-id="11924" data-file="c582_L5_p39192_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10817">
+<div class="card" id="pair-10816">
   <div class="card-header">
-    <h2>#10817 &mdash; c405_L8_script_25.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8909 &middot; Fair</span>
+    <h2>#10816 &mdash; c405_L8_script_25.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8909 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8940</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9965</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06601.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1711,22 +1607,23 @@ label(&quot;$d$&quot;,dir(-90+theta/2)*1.05);
 draw((loc.x,-1)--loc, dotted);
 label(&quot;$y$&quot;,(loc.x,(-1 + loc.y)/2),E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06601" data-file="c405_L8_script_25.asy" data-rank="10816" data-ssim="0.8909" data-ssim-content="0.8940" data-ssim-size="0.9965">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10817" data-id="06601" data-file="c405_L8_script_25.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10816" data-id="06601" data-file="c405_L8_script_25.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10818">
+<div class="card" id="pair-10817">
   <div class="card-header">
-    <h2>#10818 &mdash; c539_L8_script_25.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8909 &middot; Fair</span>
+    <h2>#10817 &mdash; c539_L8_script_25.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8909 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8940</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9965</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09100.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1784,22 +1681,23 @@ label(&quot;$d$&quot;,dir(-90+theta/2)*1.05);
 draw((loc.x,-1)--loc, dotted);
 label(&quot;$y$&quot;,(loc.x,(-1 + loc.y)/2),E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09100" data-file="c539_L8_script_25.asy" data-rank="10817" data-ssim="0.8909" data-ssim-content="0.8940" data-ssim-size="0.9965">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10818" data-id="09100" data-file="c539_L8_script_25.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10817" data-id="09100" data-file="c539_L8_script_25.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10819">
+<div class="card" id="pair-10818">
   <div class="card-header">
-    <h2>#10819 &mdash; c36_L10_p1736_solution_text_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8910 &middot; Fair</span>
+    <h2>#10818 &mdash; c36_L10_p1736_solution_text_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8910 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8931</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9976</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04592.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1837,22 +1735,23 @@ label(&quot;$x$&quot;, (0,3/4), W);
 label(&quot;$r$&quot;, 3/2*dir(30), SE);
 label(&quot;$\sqrt{r^2 - x^2}$&quot;, (3/2*sqrt(3)/2, 3/2), N);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="04592" data-file="c36_L10_p1736_solution_text_1.asy" data-rank="10818" data-ssim="0.8910" data-ssim-content="0.8931" data-ssim-size="0.9976">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10819" data-id="04592" data-file="c36_L10_p1736_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10818" data-id="04592" data-file="c36_L10_p1736_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10820">
+<div class="card" id="pair-10819">
   <div class="card-header">
-    <h2>#10820 &mdash; c186_L15_p32517_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8910 &middot; Fair</span>
+    <h2>#10819 &mdash; c186_L15_p32517_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8910 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8912</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01730.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -1960,22 +1859,23 @@ draw(tailB -- tailB + B,red+linewidth(0.8), Arrow(7) );
 label(&quot;$\mathbf{a}$&quot;, tailA + A/2, NW); 
 label(&quot;$\mathbf{b}$&quot;, tailB+ B/2, SW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01730" data-file="c186_L15_p32517_solution_text_0.asy" data-rank="10819" data-ssim="0.8910" data-ssim-content="0.8912" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10820" data-id="01730" data-file="c186_L15_p32517_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10819" data-id="01730" data-file="c186_L15_p32517_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10821">
+<div class="card" id="pair-10820">
   <div class="card-header">
-    <h2>#10821 &mdash; c405_L17_p44988_solutiontext_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8911 &middot; Fair</span>
+    <h2>#10820 &mdash; c405_L17_p44988_solutiontext_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8911 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9163</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9725</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06168.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2025,22 +1925,23 @@ label(&quot;$\theta_1$&quot;,.56*dir(180-theta1/2));
 draw(arc((0,0),.3,0,theta2));
 label(&quot;$\theta_2$&quot;,.36*dir(theta2/2));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06168" data-file="c405_L17_p44988_solutiontext_0.asy" data-rank="10820" data-ssim="0.8911" data-ssim-content="0.9163" data-ssim-size="0.9725">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10821" data-id="06168" data-file="c405_L17_p44988_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10820" data-id="06168" data-file="c405_L17_p44988_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10822">
+<div class="card" id="pair-10821">
   <div class="card-header">
-    <h2>#10822 &mdash; c405_L17_p44988_solutiontext_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8911 &middot; Fair</span>
+    <h2>#10821 &mdash; c405_L17_p44988_solutiontext_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8911 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9163</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9725</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06170.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2090,22 +1991,23 @@ label(&quot;$\theta_1$&quot;,.56*dir(180-theta1/2));
 draw(arc((0,0),.3,0,theta2));
 label(&quot;$\theta_2$&quot;,.36*dir(theta2/2));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06170" data-file="c405_L17_p44988_solutiontext_2.asy" data-rank="10821" data-ssim="0.8911" data-ssim-content="0.9163" data-ssim-size="0.9725">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10822" data-id="06170" data-file="c405_L17_p44988_solutiontext_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10821" data-id="06170" data-file="c405_L17_p44988_solutiontext_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10823">
+<div class="card" id="pair-10822">
   <div class="card-header">
-    <h2>#10823 &mdash; c57_L18_p48276_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8912 &middot; Fair</span>
+    <h2>#10822 &mdash; c57_L18_p48276_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8912 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8941</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9967</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10298.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2149,22 +2051,23 @@ draw((0,0)--A, dashed);
 dot((0,0));
 label(&quot;$4$&quot;, C/2, N, red, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10298" data-file="c57_L18_p48276_problem_text_0.asy" data-rank="10822" data-ssim="0.8912" data-ssim-content="0.8941" data-ssim-size="0.9967">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10823" data-id="10298" data-file="c57_L18_p48276_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10822" data-id="10298" data-file="c57_L18_p48276_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10824">
+<div class="card" id="pair-10823">
   <div class="card-header">
-    <h2>#10824 &mdash; c57_L18_p49930_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8912 &middot; Fair</span>
+    <h2>#10823 &mdash; c57_L18_p49930_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8912 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8941</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9967</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10302.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2208,22 +2111,23 @@ draw((0,0)--A, dashed);
 dot((0,0));
 label(&quot;$4$&quot;, C/2, N, red, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10302" data-file="c57_L18_p49930_problem_text_0.asy" data-rank="10823" data-ssim="0.8912" data-ssim-content="0.8941" data-ssim-size="0.9967">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10824" data-id="10302" data-file="c57_L18_p49930_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10823" data-id="10302" data-file="c57_L18_p49930_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10825">
+<div class="card" id="pair-10824">
   <div class="card-header">
-    <h2>#10825 &mdash; c582_L15_p49930_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8912 &middot; Fair</span>
+    <h2>#10824 &mdash; c582_L15_p49930_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8912 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8941</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9967</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/11793.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2267,22 +2171,23 @@ draw((0,0)--A, dashed);
 dot((0,0));
 label(&quot;$4$&quot;, C/2, N, red, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="11793" data-file="c582_L15_p49930_problem_text_0.asy" data-rank="10824" data-ssim="0.8912" data-ssim-content="0.8941" data-ssim-size="0.9967">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10825" data-id="11793" data-file="c582_L15_p49930_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10824" data-id="11793" data-file="c582_L15_p49930_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10826">
+<div class="card" id="pair-10825">
   <div class="card-header">
-    <h2>#10826 &mdash; c186_L18_p32523_problem_text_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8913 &middot; Fair</span>
+    <h2>#10825 &mdash; c186_L18_p32523_problem_text_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8913 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9239</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9647</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01949.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2344,22 +2249,23 @@ label(&quot;$\mathbf{w}$&quot;,tailW--tailW+WW, SW);
 label(&quot;$\mathbf{x}$&quot;, tailX--tailX+X, SE); 
 label(&quot;$\mathbf{y}$&quot;, tailY--tailY+Y, E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01949" data-file="c186_L18_p32523_problem_text_1.asy" data-rank="10825" data-ssim="0.8913" data-ssim-content="0.9239" data-ssim-size="0.9647">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10826" data-id="01949" data-file="c186_L18_p32523_problem_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10825" data-id="01949" data-file="c186_L18_p32523_problem_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10827">
+<div class="card" id="pair-10826">
   <div class="card-header">
-    <h2>#10827 &mdash; c463_L22_script_23.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8914 &middot; Fair</span>
+    <h2>#10826 &mdash; c463_L22_script_23.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8914 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8914</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08006.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2453,22 +2359,23 @@ for (int i=1; i&lt;=n; ++i) {
   if (i%2 == 1) {peak(3,i);}
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08006" data-file="c463_L22_script_23.asy" data-rank="10826" data-ssim="0.8914" data-ssim-content="0.8914" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10827" data-id="08006" data-file="c463_L22_script_23.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10826" data-id="08006" data-file="c463_L22_script_23.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10828">
+<div class="card" id="pair-10827">
   <div class="card-header">
-    <h2>#10828 &mdash; c186_L6_p4579_solution_text_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8914 &middot; Fair</span>
+    <h2>#10827 &mdash; c186_L6_p4579_solution_text_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8914 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9061</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9838</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02876.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2530,22 +2437,23 @@ label(&quot;(2,1)&quot;,A,4*N,UnFill);
 dot((2,1));
 dot(&quot;(8,9)&quot;,B,NW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="02876" data-file="c186_L6_p4579_solution_text_2.asy" data-rank="10827" data-ssim="0.8914" data-ssim-content="0.9061" data-ssim-size="0.9838">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10828" data-id="02876" data-file="c186_L6_p4579_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10827" data-id="02876" data-file="c186_L6_p4579_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10829">
+<div class="card" id="pair-10828">
   <div class="card-header">
-    <h2>#10829 &mdash; c398_L15_script_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8916 &middot; Fair</span>
+    <h2>#10828 &mdash; c398_L15_script_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8916 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8981</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9927</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04934.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2593,22 +2501,23 @@ for (n = 1; n &lt;= 6; ++n) {
 
 draw((0,0)--(1,0)--(1,1)--(0,1)--cycle,linewidth(2*bp) + red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="04934" data-file="c398_L15_script_0.asy" data-rank="10828" data-ssim="0.8916" data-ssim-content="0.8981" data-ssim-size="0.9927">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10829" data-id="04934" data-file="c398_L15_script_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10828" data-id="04934" data-file="c398_L15_script_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10830">
+<div class="card" id="pair-10829">
   <div class="card-header">
-    <h2>#10830 &mdash; c57_L11_script_3.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8916 &middot; Fair</span>
+    <h2>#10829 &mdash; c57_L11_script_3.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8916 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8943</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9969</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09690.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2650,22 +2559,23 @@ draw(P--B);
 draw(P--C);
 draw(P--D);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09690" data-file="c57_L11_script_3.asy" data-rank="10829" data-ssim="0.8916" data-ssim-content="0.8943" data-ssim-size="0.9969">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10830" data-id="09690" data-file="c57_L11_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10829" data-id="09690" data-file="c57_L11_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10831">
+<div class="card" id="pair-10830">
   <div class="card-header">
-    <h2>#10831 &mdash; c4_L11_script_4.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8916 &middot; Fair</span>
+    <h2>#10830 &mdash; c4_L11_script_4.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8916 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8917</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08535.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2687,22 +2597,23 @@ draw(circle((-10,0),4));
 draw(circle((4,0),10));
 draw((-13.5,2.8)--(6.5,12.3));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08535" data-file="c4_L11_script_4.asy" data-rank="10830" data-ssim="0.8916" data-ssim-content="0.8917" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10831" data-id="08535" data-file="c4_L11_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10830" data-id="08535" data-file="c4_L11_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10832">
+<div class="card" id="pair-10831">
   <div class="card-header">
-    <h2>#10832 &mdash; c462_L18_script_30.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8916 &middot; Fair</span>
+    <h2>#10831 &mdash; c462_L18_script_30.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8916 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8919</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9996</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07092.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2790,22 +2701,23 @@ dot(&quot;$N$&quot;, N, dir(90));
 dot(&quot;$N&#39;$&quot;, Np, S);
 dot(&quot;$O$&quot;, O, E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="07092" data-file="c462_L18_script_30.asy" data-rank="10831" data-ssim="0.8916" data-ssim-content="0.8919" data-ssim-size="0.9996">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10832" data-id="07092" data-file="c462_L18_script_30.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10831" data-id="07092" data-file="c462_L18_script_30.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10833">
+<div class="card" id="pair-10832">
   <div class="card-header">
-    <h2>#10833 &mdash; c57_L2_script_35.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8917 &middot; Fair</span>
+    <h2>#10832 &mdash; c57_L2_script_35.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8917 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8936</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9978</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10988.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2851,22 +2763,23 @@ dot(&quot;$B$&quot;, B, E);
 dot(&quot;$C_1$&quot;, C1, 1.5*dir(80));
 dot(&quot;$C_2$&quot;, C2, 1.5*dir(280));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10988" data-file="c57_L2_script_35.asy" data-rank="10832" data-ssim="0.8917" data-ssim-content="0.8936" data-ssim-size="0.9978">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10833" data-id="10988" data-file="c57_L2_script_35.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10832" data-id="10988" data-file="c57_L2_script_35.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10834">
+<div class="card" id="pair-10833">
   <div class="card-header">
-    <h2>#10834 &mdash; c401_L5_script_49.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8917 &middot; Fair</span>
+    <h2>#10833 &mdash; c401_L5_script_49.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8917 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9181</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9713</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05624.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -2904,22 +2817,23 @@ label(&quot;$75^\circ$&quot;,(-0.05,-0.05),NW);
 label(&quot;$80^\circ$&quot;,(0,-0.1),SW);
 label(&quot;$85^\circ$&quot;,(0,-0.05),SE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05624" data-file="c401_L5_script_49.asy" data-rank="10833" data-ssim="0.8917" data-ssim-content="0.9181" data-ssim-size="0.9713">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10834" data-id="05624" data-file="c401_L5_script_49.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10833" data-id="05624" data-file="c401_L5_script_49.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10835">
+<div class="card" id="pair-10834">
   <div class="card-header">
-    <h2>#10835 &mdash; c186_L16_p32173_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8918 &middot; Fair</span>
+    <h2>#10834 &mdash; c186_L16_p32173_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8918 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8933</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9983</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01801.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3019,22 +2933,23 @@ label(&quot;$\mathbf{c}$&quot;, tailC--tailC + C, NE, UnFill);
 label(&quot;$\mathbf{d}$&quot;, tailD--tailD + D, W, UnFill);
 label(&quot;$\mathbf{v}$&quot;, tailV--tailV + V, N, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01801" data-file="c186_L16_p32173_problem_text_0.asy" data-rank="10834" data-ssim="0.8918" data-ssim-content="0.8933" data-ssim-size="0.9983">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10835" data-id="01801" data-file="c186_L16_p32173_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10834" data-id="01801" data-file="c186_L16_p32173_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10836">
+<div class="card" id="pair-10835">
   <div class="card-header">
-    <h2>#10836 &mdash; c462_L18_script_31.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8918 &middot; Fair</span>
+    <h2>#10835 &mdash; c462_L18_script_31.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8918 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8922</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9996</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07093.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3130,22 +3045,23 @@ dot(&quot;$N$&quot;, N, dir(90));
 dot(&quot;$N&#39;$&quot;, Np, S);
 dot(&quot;$O$&quot;, O, E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="07093" data-file="c462_L18_script_31.asy" data-rank="10835" data-ssim="0.8918" data-ssim-content="0.8922" data-ssim-size="0.9996">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10836" data-id="07093" data-file="c462_L18_script_31.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10835" data-id="07093" data-file="c462_L18_script_31.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10837">
+<div class="card" id="pair-10836">
   <div class="card-header">
-    <h2>#10837 &mdash; c268_L13_p36372_problemtext_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8919 &middot; Fair</span>
+    <h2>#10836 &mdash; c268_L13_p36372_problemtext_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8919 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8936</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9981</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03997.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3211,22 +3127,23 @@ label(&quot;$1$&quot;, (0.5,-0.04));
 label(&quot;$\tan(\theta)$&quot;, (1.1,0.35));
 label(&quot;$\sec(\theta)$&quot;, (0.45, 0.4));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="03997" data-file="c268_L13_p36372_problemtext_0.asy" data-rank="10836" data-ssim="0.8919" data-ssim-content="0.8936" data-ssim-size="0.9981">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10837" data-id="03997" data-file="c268_L13_p36372_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10836" data-id="03997" data-file="c268_L13_p36372_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10838">
+<div class="card" id="pair-10837">
   <div class="card-header">
-    <h2>#10838 &mdash; c463_L22_script_24.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8919 &middot; Fair</span>
+    <h2>#10837 &mdash; c463_L22_script_24.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8919 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8919</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08007.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3328,22 +3245,23 @@ for (int i=1; i&lt;=n; ++i) {
   if (i%2 == 1 &amp;&amp; i&gt;1) {nonpeak(4,i);}
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08007" data-file="c463_L22_script_24.asy" data-rank="10837" data-ssim="0.8919" data-ssim-content="0.8919" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10838" data-id="08007" data-file="c463_L22_script_24.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10837" data-id="08007" data-file="c463_L22_script_24.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10839">
+<div class="card" id="pair-10838">
   <div class="card-header">
-    <h2>#10839 &mdash; c57_L1_p5953_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8919 &middot; Fair</span>
+    <h2>#10838 &mdash; c57_L1_p5953_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8919 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9395</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.9494</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10469.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3381,22 +3299,23 @@ draw(C--D,Arrows(size=0.15cm));
 label(&quot;$a$&quot;, (-0.1,0.1));
 label(&quot;$b$&quot;, (0.3,0.15));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10469" data-file="c57_L1_p5953_problem_text_0.asy" data-rank="10838" data-ssim="0.8919" data-ssim-content="0.9395" data-ssim-size="0.9494">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10839" data-id="10469" data-file="c57_L1_p5953_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10838" data-id="10469" data-file="c57_L1_p5953_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10840">
+<div class="card" id="pair-10839">
   <div class="card-header">
-    <h2>#10840 &mdash; c57_L1_p5953_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8919 &middot; Fair</span>
+    <h2>#10839 &mdash; c57_L1_p5953_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8919 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9395</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.9494</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10470.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3434,22 +3353,23 @@ draw(C--D,Arrows(size=0.15cm));
 label(&quot;$a$&quot;, (-0.1,0.1));
 label(&quot;$b$&quot;, (0.3,0.15));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10470" data-file="c57_L1_p5953_solution_text_0.asy" data-rank="10839" data-ssim="0.8919" data-ssim-content="0.9395" data-ssim-size="0.9494">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10840" data-id="10470" data-file="c57_L1_p5953_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10839" data-id="10470" data-file="c57_L1_p5953_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10841">
+<div class="card" id="pair-10840">
   <div class="card-header">
-    <h2>#10841 &mdash; c582_L2_p5953_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8919 &middot; Fair</span>
+    <h2>#10840 &mdash; c582_L2_p5953_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8919 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9395</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.9494</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/11895.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3487,22 +3407,23 @@ draw(C--D,Arrows(size=0.15cm));
 label(&quot;$a$&quot;, (-0.1,0.1));
 label(&quot;$b$&quot;, (0.3,0.15));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="11895" data-file="c582_L2_p5953_problem_text_0.asy" data-rank="10840" data-ssim="0.8919" data-ssim-content="0.9395" data-ssim-size="0.9494">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10841" data-id="11895" data-file="c582_L2_p5953_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10840" data-id="11895" data-file="c582_L2_p5953_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10842">
+<div class="card" id="pair-10841">
   <div class="card-header">
-    <h2>#10842 &mdash; c582_L2_p5953_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8919 &middot; Fair</span>
+    <h2>#10841 &mdash; c582_L2_p5953_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8919 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9395</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.9494</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/11896.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3540,22 +3461,23 @@ draw(C--D,Arrows(size=0.15cm));
 label(&quot;$a$&quot;, (-0.1,0.1));
 label(&quot;$b$&quot;, (0.3,0.15));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="11896" data-file="c582_L2_p5953_solution_text_0.asy" data-rank="10841" data-ssim="0.8919" data-ssim-content="0.9395" data-ssim-size="0.9494">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10842" data-id="11896" data-file="c582_L2_p5953_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10841" data-id="11896" data-file="c582_L2_p5953_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10843">
+<div class="card" id="pair-10842">
   <div class="card-header">
-    <h2>#10843 &mdash; c400_L1_script_31.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8920 &middot; Fair</span>
+    <h2>#10842 &mdash; c400_L1_script_31.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8920 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8930</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9989</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05166.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3665,22 +3587,23 @@ add(shift(3.8,2.2)*clock(40));
 
 draw(shift(1,2.5)*xscale(sqrt(8/9)*3)*shift(-1,-2.5)*((1,2.5)--(1.3,2.8)--(1.9,2.2)--(2.5,2.8)),dotted);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05166" data-file="c400_L1_script_31.asy" data-rank="10842" data-ssim="0.8920" data-ssim-content="0.8930" data-ssim-size="0.9989">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10843" data-id="05166" data-file="c400_L1_script_31.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10842" data-id="05166" data-file="c400_L1_script_31.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10844">
+<div class="card" id="pair-10843">
   <div class="card-header">
-    <h2>#10844 &mdash; c186_L14_script_27.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8920 &middot; Fair</span>
+    <h2>#10843 &mdash; c186_L14_script_27.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8920 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9286</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9606</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01665.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3724,22 +3647,23 @@ label(&quot;$\mathbf{a}$&quot;, tailA--tailA +A, S);
 label(&quot;$\mathbf{b}$&quot;, tailB--tailB +B, E); 
 label(&quot;$\mathbf{c}$&quot;, tailC--tailC +C, SW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01665" data-file="c186_L14_script_27.asy" data-rank="10843" data-ssim="0.8920" data-ssim-content="0.9286" data-ssim-size="0.9606">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10844" data-id="01665" data-file="c186_L14_script_27.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10843" data-id="01665" data-file="c186_L14_script_27.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10845">
+<div class="card" id="pair-10844">
   <div class="card-header">
-    <h2>#10845 &mdash; c57_L15_script_66.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8920 &middot; Fair</span>
+    <h2>#10844 &mdash; c57_L15_script_66.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8920 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8968</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9947</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10096.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3789,22 +3713,23 @@ label(&quot;$y$&quot;, (1,0), W, red);
 label(&quot;$x$&quot;, (-1,0), W, red);
 label(&quot;$\frac{x - y}{2}$&quot;, A + (-0.5,0), red + fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10096" data-file="c57_L15_script_66.asy" data-rank="10844" data-ssim="0.8920" data-ssim-content="0.8968" data-ssim-size="0.9947">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10845" data-id="10096" data-file="c57_L15_script_66.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10844" data-id="10096" data-file="c57_L15_script_66.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10846">
+<div class="card" id="pair-10845">
   <div class="card-header">
-    <h2>#10846 &mdash; c186_L17_p31495_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8921 &middot; Fair</span>
+    <h2>#10845 &mdash; c186_L17_p31495_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8921 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8929</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9991</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01879.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -3906,22 +3831,23 @@ label(&quot;$\mathbf{P} \mathbf{v}$&quot;,P/2,SW);
 label(&quot;$\mathbf{u}$&quot;, -3U/2, S);
 label(&quot;$\mathbf{v}$&quot;,V/2,NW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01879" data-file="c186_L17_p31495_solution_text_0.asy" data-rank="10845" data-ssim="0.8921" data-ssim-content="0.8929" data-ssim-size="0.9991">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10846" data-id="01879" data-file="c186_L17_p31495_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10845" data-id="01879" data-file="c186_L17_p31495_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10847">
+<div class="card" id="pair-10846">
   <div class="card-header">
-    <h2>#10847 &mdash; c186_L16_p32173_solution_text_3.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8921 &middot; Fair</span>
+    <h2>#10846 &mdash; c186_L16_p32173_solution_text_3.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8921 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8922</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9999</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01805.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4067,22 +3993,23 @@ draw(rightanglemark(2U, P, AV, 10));
 label(&quot;$(\mathbf{D} \mathbf{A})\mathbf{v}$&quot;,P/2,SE, UnFill);
 label(&quot;$\mathbf{A}\mathbf{v}$&quot;,tailAV + AV/2,SW, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01805" data-file="c186_L16_p32173_solution_text_3.asy" data-rank="10846" data-ssim="0.8921" data-ssim-content="0.8922" data-ssim-size="0.9999">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10847" data-id="01805" data-file="c186_L16_p32173_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10846" data-id="01805" data-file="c186_L16_p32173_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10848">
+<div class="card" id="pair-10847">
   <div class="card-header">
-    <h2>#10848 &mdash; c462_L3_p49443_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8921 &middot; Fair</span>
+    <h2>#10847 &mdash; c462_L3_p49443_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8921 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8931</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9989</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07417.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4152,22 +4079,23 @@ label(&quot;$-2$&quot;, (-0.1,-2), W, UnFill);
 
 label(&quot;$y = f(x)$&quot;, (2.8,1), red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="07417" data-file="c462_L3_p49443_solution_text_0.asy" data-rank="10847" data-ssim="0.8921" data-ssim-content="0.8931" data-ssim-size="0.9989">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10848" data-id="07417" data-file="c462_L3_p49443_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10847" data-id="07417" data-file="c462_L3_p49443_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10849">
+<div class="card" id="pair-10848">
   <div class="card-header">
-    <h2>#10849 &mdash; c186_L6_p4579_solution_text_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8922 &middot; Fair</span>
+    <h2>#10848 &mdash; c186_L6_p4579_solution_text_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8922 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9068</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9838</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02875.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4225,22 +4153,23 @@ label(&quot;(2,1)&quot;,A,4*N,UnFill);
 dot((2,1));
 dot(&quot;(8,9)&quot;,B,NW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="02875" data-file="c186_L6_p4579_solution_text_1.asy" data-rank="10848" data-ssim="0.8922" data-ssim-content="0.9068" data-ssim-size="0.9838">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10849" data-id="02875" data-file="c186_L6_p4579_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10848" data-id="02875" data-file="c186_L6_p4579_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10850">
+<div class="card" id="pair-10849">
   <div class="card-header">
-    <h2>#10850 &mdash; c401_L16_script_13.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8922 &middot; Fair</span>
+    <h2>#10849 &mdash; c401_L16_script_13.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8922 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8925</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9997</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05521.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4278,22 +4207,23 @@ for(int i=10; i&lt;15; ++i){
  }
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05521" data-file="c401_L16_script_13.asy" data-rank="10849" data-ssim="0.8922" data-ssim-content="0.8925" data-ssim-size="0.9997">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10850" data-id="05521" data-file="c401_L16_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10849" data-id="05521" data-file="c401_L16_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10851">
+<div class="card" id="pair-10850">
   <div class="card-header">
-    <h2>#10851 &mdash; c462_L13_p49794_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8923 &middot; Fair</span>
+    <h2>#10850 &mdash; c462_L13_p49794_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8923 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8924</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9999</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06881.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4345,22 +4275,23 @@ label(&quot;C&quot;,shift((0,0))*(((0,0)+dir(60)+dir(120))/3));
 label(&quot;F&quot;,shift(dir(240))*(((0,0)+dir(60)+dir(120))/3));
 label(&quot;H&quot;,shift(dir(300))*(((0,0)+dir(60)+dir(120))/3));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06881" data-file="c462_L13_p49794_problem_text_0.asy" data-rank="10850" data-ssim="0.8923" data-ssim-content="0.8924" data-ssim-size="0.9999">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10851" data-id="06881" data-file="c462_L13_p49794_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10850" data-id="06881" data-file="c462_L13_p49794_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10852">
+<div class="card" id="pair-10851">
   <div class="card-header">
-    <h2>#10852 &mdash; c405_L11_script_34.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8923 &middot; Fair</span>
+    <h2>#10851 &mdash; c405_L11_script_34.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8923 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8934</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9988</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06048.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4442,22 +4373,23 @@ draw(loc--(loc + (0,v.y)), deepgreen);
 
 label(&quot;$-v_{Ry}$&quot;,loc+(0,v.y/2),W, deepgreen);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06048" data-file="c405_L11_script_34.asy" data-rank="10851" data-ssim="0.8923" data-ssim-content="0.8934" data-ssim-size="0.9988">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10852" data-id="06048" data-file="c405_L11_script_34.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10851" data-id="06048" data-file="c405_L11_script_34.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10853">
+<div class="card" id="pair-10852">
   <div class="card-header">
-    <h2>#10853 &mdash; c175_L2_script_4.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8923 &middot; Fair</span>
+    <h2>#10852 &mdash; c175_L2_script_4.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8923 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8928</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9995</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01165.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4499,22 +4431,23 @@ label(&quot;$\vec{a}_{\mathrm{disk}}$&quot;,(.2,.5),S);
 label(&quot;$\vec{a}_c$&quot;,(-.15,.2));
 label(&quot;$\vec{a}_t$&quot;,(.1,.6),N);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01165" data-file="c175_L2_script_4.asy" data-rank="10852" data-ssim="0.8923" data-ssim-content="0.8928" data-ssim-size="0.9995">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10853" data-id="01165" data-file="c175_L2_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10852" data-id="01165" data-file="c175_L2_script_4.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10854">
+<div class="card" id="pair-10853">
   <div class="card-header">
-    <h2>#10854 &mdash; c401_L6_script_27.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8924 &middot; Fair</span>
+    <h2>#10853 &mdash; c401_L6_script_27.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8924 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8943</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9979</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05665.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4546,22 +4479,23 @@ mangle(v10,v11,v12,0.2);
 mangle(v11,v12,v9,0.18);
 mangle(v12,v9,v10,0.2);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05665" data-file="c401_L6_script_27.asy" data-rank="10853" data-ssim="0.8924" data-ssim-content="0.8943" data-ssim-size="0.9979">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10854" data-id="05665" data-file="c401_L6_script_27.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10853" data-id="05665" data-file="c401_L6_script_27.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10855">
+<div class="card" id="pair-10854">
   <div class="card-header">
-    <h2>#10855 &mdash; c405_L22_script_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8925 &middot; Fair</span>
+    <h2>#10854 &mdash; c405_L22_script_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8925 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8944</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9979</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06353.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4645,22 +4579,23 @@ label(&quot;$\omega_0$&quot;,yscale(b)*(0,-r-.05),S);
 draw(shift(s)*((0,0)--(r,0)), dotted);
 label(&quot;$r$&quot;,(.5*r,0)+s,N);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06353" data-file="c405_L22_script_1.asy" data-rank="10854" data-ssim="0.8925" data-ssim-content="0.8944" data-ssim-size="0.9979">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10855" data-id="06353" data-file="c405_L22_script_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10854" data-id="06353" data-file="c405_L22_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10856">
+<div class="card" id="pair-10855">
   <div class="card-header">
-    <h2>#10856 &mdash; c462_L13_p49901_solution_text_7.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8926 &middot; Fair</span>
+    <h2>#10855 &mdash; c462_L13_p49901_solution_text_7.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8926 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9022</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9893</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06892.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -4978,22 +4913,23 @@ int sd[][] = {{},{0,6}};
 int xd[][] = {{},{1,5}};
 drawShapeCLong((7,0),sd,xd);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06892" data-file="c462_L13_p49901_solution_text_7.asy" data-rank="10855" data-ssim="0.8926" data-ssim-content="0.9022" data-ssim-size="0.9893">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10856" data-id="06892" data-file="c462_L13_p49901_solution_text_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10855" data-id="06892" data-file="c462_L13_p49901_solution_text_7.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10857">
+<div class="card" id="pair-10856">
   <div class="card-header">
-    <h2>#10857 &mdash; c175_L2_script_3.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8926 &middot; Fair</span>
+    <h2>#10856 &mdash; c175_L2_script_3.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8926 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8931</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9995</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01164.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5035,22 +4971,23 @@ label(&quot;$\vec{a}_{\mathrm{disk}}$&quot;,(.2,-.2),S);
 label(&quot;$\vec{a}_c$&quot;,(-.25,-.1),SE);
 label(&quot;$\vec{a}_t$&quot;,(-.6,.1),WSW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01164" data-file="c175_L2_script_3.asy" data-rank="10856" data-ssim="0.8926" data-ssim-content="0.8931" data-ssim-size="0.9995">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10857" data-id="01164" data-file="c175_L2_script_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10856" data-id="01164" data-file="c175_L2_script_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10858">
+<div class="card" id="pair-10857">
   <div class="card-header">
-    <h2>#10858 &mdash; c186_L16_p32187_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8926 &middot; Fair</span>
+    <h2>#10857 &mdash; c186_L16_p32187_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8926 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8927</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01818.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5266,22 +5203,23 @@ label(&quot;$\mathbf{d}$&quot;, shift(O2)*(tailD--tailD +D), W, UnFill);
 label(&quot;Inputs:&quot;, (big+1)*J); 
 label(&quot;Outputs:&quot;, shift(O2)*((big + 1)*J));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01818" data-file="c186_L16_p32187_problem_text_0.asy" data-rank="10857" data-ssim="0.8926" data-ssim-content="0.8927" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10858" data-id="01818" data-file="c186_L16_p32187_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10857" data-id="01818" data-file="c186_L16_p32187_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10859">
+<div class="card" id="pair-10858">
   <div class="card-header">
-    <h2>#10859 &mdash; c463_L22_script_28.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8927 &middot; Fair</span>
+    <h2>#10858 &mdash; c463_L22_script_28.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8927 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8927</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08011.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5407,22 +5345,23 @@ for (int i=1; i&lt;=n; ++i) {
 }
 nonpeak(5,1);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08011" data-file="c463_L22_script_28.asy" data-rank="10858" data-ssim="0.8927" data-ssim-content="0.8927" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10859" data-id="08011" data-file="c463_L22_script_28.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10858" data-id="08011" data-file="c463_L22_script_28.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10860">
+<div class="card" id="pair-10859">
   <div class="card-header">
-    <h2>#10860 &mdash; c175_L13_script_11.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8927 &middot; Fair</span>
+    <h2>#10859 &mdash; c175_L13_script_11.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8927 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8932</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9995</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01023.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5478,22 +5417,23 @@ draw((-1,1)--(-0.8,0)--(1,1),dotted);
 //draw((-1,1)--(1,0)--(1,1),dotted);
 //draw((-1,1)--(1.2,0)--(1,1),dotted);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01023" data-file="c175_L13_script_11.asy" data-rank="10859" data-ssim="0.8927" data-ssim-content="0.8932" data-ssim-size="0.9995">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10860" data-id="01023" data-file="c175_L13_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10859" data-id="01023" data-file="c175_L13_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10861">
+<div class="card" id="pair-10860">
   <div class="card-header">
-    <h2>#10861 &mdash; c405_L12_p44734_solutiontext_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8927 &middot; Fair</span>
+    <h2>#10860 &mdash; c405_L12_p44734_solutiontext_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8927 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9097</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9814</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/06056.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5515,22 +5455,23 @@ unitsize(3cm);
   draw((-1.3,-.2)--(1.3,-.2));
   dot((1,0),black+6);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="06056" data-file="c405_L12_p44734_solutiontext_0.asy" data-rank="10860" data-ssim="0.8927" data-ssim-content="0.9097" data-ssim-size="0.9814">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10861" data-id="06056" data-file="c405_L12_p44734_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10860" data-id="06056" data-file="c405_L12_p44734_solutiontext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10862">
+<div class="card" id="pair-10861">
   <div class="card-header">
-    <h2>#10862 &mdash; c57_L14_p6103_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8928 &middot; Fair</span>
+    <h2>#10861 &mdash; c57_L14_p6103_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8928 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8941</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9986</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09898.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5596,22 +5537,23 @@ dot(&quot;$O_2$&quot;, O[2], E);
 label(&quot;$S$&quot;, dir(135), NW);
 label(&quot;$T$&quot;, O[2] + dir(45), NE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09898" data-file="c57_L14_p6103_solution_text_0.asy" data-rank="10861" data-ssim="0.8928" data-ssim-content="0.8941" data-ssim-size="0.9986">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10862" data-id="09898" data-file="c57_L14_p6103_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10861" data-id="09898" data-file="c57_L14_p6103_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10863">
+<div class="card" id="pair-10862">
   <div class="card-header">
-    <h2>#10863 &mdash; c57_L15_script_36.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8929 &middot; Fair</span>
+    <h2>#10862 &mdash; c57_L15_script_36.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8929 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8951</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9975</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10063.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5659,22 +5601,23 @@ dot(&quot;$O$&quot;, O, S);
 dot(&quot;$P$&quot;, P, S);
 dot(&quot;$T$&quot;, T, NE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10063" data-file="c57_L15_script_36.asy" data-rank="10862" data-ssim="0.8929" data-ssim-content="0.8951" data-ssim-size="0.9975">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10863" data-id="10063" data-file="c57_L15_script_36.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10862" data-id="10063" data-file="c57_L15_script_36.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10864">
+<div class="card" id="pair-10863">
   <div class="card-header">
-    <h2>#10864 &mdash; c190_L11_script_35.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8929 &middot; Fair</span>
+    <h2>#10863 &mdash; c190_L11_script_35.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8929 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9128</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9782</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03351.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5706,22 +5649,23 @@ yaxis(0, 3.5, Arrow());
 draw(graph(new real(real t){ return t^2/2; }, -2.6, 2.6), rgb(0, 0.6, 1));
 draw(graph(new real(real t){ return 1 - cos(t); }, -2.7, 2.7), rgb(0, 0.6, 0.2));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="03351" data-file="c190_L11_script_35.asy" data-rank="10863" data-ssim="0.8929" data-ssim-content="0.9128" data-ssim-size="0.9782">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10864" data-id="03351" data-file="c190_L11_script_35.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10863" data-id="03351" data-file="c190_L11_script_35.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10865">
+<div class="card" id="pair-10864">
   <div class="card-header">
-    <h2>#10865 &mdash; c463_L22_script_27.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8931 &middot; Fair</span>
+    <h2>#10864 &mdash; c463_L22_script_27.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8931 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8931</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08010.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5841,22 +5785,23 @@ nonpeak(6,3);
 nonpeak(6,5);
 nonpeak(6,7);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08010" data-file="c463_L22_script_27.asy" data-rank="10864" data-ssim="0.8931" data-ssim-content="0.8931" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10865" data-id="08010" data-file="c463_L22_script_27.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10864" data-id="08010" data-file="c463_L22_script_27.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10866">
+<div class="card" id="pair-10865">
   <div class="card-header">
-    <h2>#10866 &mdash; c186_L15_script_30.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8935 &middot; Fair</span>
+    <h2>#10865 &mdash; c186_L15_script_30.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8935 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8941</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9994</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01771.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -5962,22 +5907,23 @@ label(&quot;$\mathbf{v}$&quot;,tailV + V/2, S, UnFill);
 dot(tailU, green); 
 dot(tailV, blue);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01771" data-file="c186_L15_script_30.asy" data-rank="10865" data-ssim="0.8935" data-ssim-content="0.8941" data-ssim-size="0.9994">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10866" data-id="01771" data-file="c186_L15_script_30.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10865" data-id="01771" data-file="c186_L15_script_30.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10867">
+<div class="card" id="pair-10866">
   <div class="card-header">
-    <h2>#10867 &mdash; c175_L8_script_17.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8936 &middot; Fair</span>
+    <h2>#10866 &mdash; c175_L8_script_17.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8936 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9420</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.9486</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01291.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6005,22 +5951,23 @@ label(&quot;$q$&quot;,(0,1),E);
 draw((0,0)..(0,1),dotted);
 label(&quot;$d$&quot;,(0,.5),E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01291" data-file="c175_L8_script_17.asy" data-rank="10866" data-ssim="0.8936" data-ssim-content="0.9420" data-ssim-size="0.9486">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10867" data-id="01291" data-file="c175_L8_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10866" data-id="01291" data-file="c175_L8_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10868">
+<div class="card" id="pair-10867">
   <div class="card-header">
-    <h2>#10868 &mdash; c539_L12_script_10.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8936 &middot; Fair</span>
+    <h2>#10867 &mdash; c539_L12_script_10.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8936 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8938</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08778.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6076,22 +6023,23 @@ for (int i = 1; i &lt;= 10; i += 1) {
 if (showLeft) dot(Center1, red+5);
 if (showRight) dot(Center2, blue+5);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08778" data-file="c539_L12_script_10.asy" data-rank="10867" data-ssim="0.8936" data-ssim-content="0.8938" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10868" data-id="08778" data-file="c539_L12_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10867" data-id="08778" data-file="c539_L12_script_10.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10869">
+<div class="card" id="pair-10868">
   <div class="card-header">
-    <h2>#10869 &mdash; c53_L10_p32310_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8937 &middot; Fair</span>
+    <h2>#10868 &mdash; c53_L10_p32310_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8937 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8963</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9971</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09141.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6141,22 +6089,23 @@ draw(shift((8,0))*((0,0)--(1,0)--(1,1)--(3,1)--(3,3)),linewidth(1.5*bp) + red);
 draw(shift((12,0))*((0,0)--(2,0)--(2,2)--(3,2)--(3,3)),linewidth(1.5*bp) + red);
 draw(shift((16,0))*((0,0)--(1,0)--(1,1)--(2,1)--(2,2)--(3,2)--(3,3)),linewidth(1.5*bp) + red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09141" data-file="c53_L10_p32310_problem_text_0.asy" data-rank="10868" data-ssim="0.8937" data-ssim-content="0.8963" data-ssim-size="0.9971">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10869" data-id="09141" data-file="c53_L10_p32310_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10868" data-id="09141" data-file="c53_L10_p32310_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10870">
+<div class="card" id="pair-10869">
   <div class="card-header">
-    <h2>#10870 &mdash; c186_L16_p31141_solution_text_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8937 &middot; Fair</span>
+    <h2>#10869 &mdash; c186_L16_p31141_solution_text_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8937 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8939</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01791.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6262,22 +6211,23 @@ label(&quot;$\mathbf{P}\mathbf{v}$&quot;,P/2,SW);
 label(&quot;$\mathbf{u}$&quot;, -3U/2, SW);
 label(&quot;$\mathbf{v}$&quot;,V/2,NW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01791" data-file="c186_L16_p31141_solution_text_1.asy" data-rank="10869" data-ssim="0.8937" data-ssim-content="0.8939" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10870" data-id="01791" data-file="c186_L16_p31141_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10869" data-id="01791" data-file="c186_L16_p31141_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10871">
+<div class="card" id="pair-10870">
   <div class="card-header">
-    <h2>#10871 &mdash; c10_L18_script_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8938 &middot; Fair</span>
+    <h2>#10870 &mdash; c10_L18_script_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8938 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8999</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9933</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/00117.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6343,22 +6293,23 @@ label(&quot;$a$&quot;, O, 4S);
 label(&quot;$a-R$&quot;, A, 4SSW);
 label(&quot;$a+R$&quot;, B, 4SSE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="00117" data-file="c10_L18_script_2.asy" data-rank="10870" data-ssim="0.8938" data-ssim-content="0.8999" data-ssim-size="0.9933">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10871" data-id="00117" data-file="c10_L18_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10870" data-id="00117" data-file="c10_L18_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10872">
+<div class="card" id="pair-10871">
   <div class="card-header">
-    <h2>#10872 &mdash; c57_L2_p5968_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8938 &middot; Fair</span>
+    <h2>#10871 &mdash; c57_L2_p5968_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8938 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8970</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9964</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10951.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6420,22 +6371,23 @@ label(&quot;$50^\circ$&quot;, M + (0.05,0), NE);
 label(&quot;$75^\circ$&quot;, L + (-0.04,0.03), NW);
 label(&quot;$x^\circ$&quot;, J + (-0.01,0), NE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10951" data-file="c57_L2_p5968_problem_text_0.asy" data-rank="10871" data-ssim="0.8938" data-ssim-content="0.8970" data-ssim-size="0.9964">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10872" data-id="10951" data-file="c57_L2_p5968_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10871" data-id="10951" data-file="c57_L2_p5968_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10873">
+<div class="card" id="pair-10872">
   <div class="card-header">
-    <h2>#10873 &mdash; c582_L2_p5968_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8938 &middot; Fair</span>
+    <h2>#10872 &mdash; c582_L2_p5968_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8938 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8970</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9964</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/11900.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6497,22 +6449,23 @@ label(&quot;$50^\circ$&quot;, M + (0.05,0), NE);
 label(&quot;$75^\circ$&quot;, L + (-0.04,0.03), NW);
 label(&quot;$x^\circ$&quot;, J + (-0.01,0), NE);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="11900" data-file="c582_L2_p5968_problem_text_0.asy" data-rank="10872" data-ssim="0.8938" data-ssim-content="0.8970" data-ssim-size="0.9964">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10873" data-id="11900" data-file="c582_L2_p5968_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10872" data-id="11900" data-file="c582_L2_p5968_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10874">
+<div class="card" id="pair-10873">
   <div class="card-header">
-    <h2>#10874 &mdash; c190_L4_p32349_solutiontext_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8939 &middot; Fair</span>
+    <h2>#10873 &mdash; c190_L4_p32349_solutiontext_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8939 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8946</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9992</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03473.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6562,22 +6515,23 @@ label(&quot;$m$&quot;, blockpos + (1/2, 1), dir(90));
 label(&quot;$v_0$&quot;, blockpos + (2 + eps2, 1/2), dir(90));
 label(&quot;$M$&quot;, shift(slopepos)*(0.25*top+0.55*right), dir(90));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="03473" data-file="c190_L4_p32349_solutiontext_1.asy" data-rank="10873" data-ssim="0.8939" data-ssim-content="0.8946" data-ssim-size="0.9992">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10874" data-id="03473" data-file="c190_L4_p32349_solutiontext_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10873" data-id="03473" data-file="c190_L4_p32349_solutiontext_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10875">
+<div class="card" id="pair-10874">
   <div class="card-header">
-    <h2>#10875 &mdash; c186_L16_script_29.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8941 &middot; Fair</span>
+    <h2>#10874 &mdash; c186_L16_script_29.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8941 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8951</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9989</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01860.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6681,22 +6635,23 @@ draw(tailAV--tailAV + AV, heavygreen, Arrow(7));
 label(&quot;$\mathbf{v}$&quot;, tailV + V/2, SW, UnFill); 
 label(&quot;$\mathbf A \mathbf{v}$&quot;, tailAV + AV/2, SE, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01860" data-file="c186_L16_script_29.asy" data-rank="10874" data-ssim="0.8941" data-ssim-content="0.8951" data-ssim-size="0.9989">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10875" data-id="01860" data-file="c186_L16_script_29.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10874" data-id="01860" data-file="c186_L16_script_29.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10876">
+<div class="card" id="pair-10875">
   <div class="card-header">
-    <h2>#10876 &mdash; c401_L8_script_43.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8943 &middot; Fair</span>
+    <h2>#10875 &mdash; c401_L8_script_43.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8943 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9051</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9880</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05838.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6712,22 +6667,23 @@ draw( Arc((0,0),1,0,180) );</code></div>
 size(3cm);
 draw( Arc((0,0),1,0,180) );
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05838" data-file="c401_L8_script_43.asy" data-rank="10875" data-ssim="0.8943" data-ssim-content="0.9051" data-ssim-size="0.9880">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10876" data-id="05838" data-file="c401_L8_script_43.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10875" data-id="05838" data-file="c401_L8_script_43.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10877">
+<div class="card" id="pair-10876">
   <div class="card-header">
-    <h2>#10877 &mdash; c186_L15_p32181_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8945 &middot; Fair</span>
+    <h2>#10876 &mdash; c186_L15_p32181_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8945 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8961</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9983</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01721.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6825,22 +6781,23 @@ label(&quot;$\mathbf{c}$&quot;, tailC--tailC + C, NW, UnFill);
 label(&quot;$\mathbf{d}$&quot;, tailD--tailD + D, NW, UnFill);
 label(&quot;$\mathbf{v}$&quot;, tailV--tailV + V, NW, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01721" data-file="c186_L15_p32181_problem_text_0.asy" data-rank="10876" data-ssim="0.8945" data-ssim-content="0.8961" data-ssim-size="0.9983">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10877" data-id="01721" data-file="c186_L15_p32181_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10876" data-id="01721" data-file="c186_L15_p32181_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10878">
+<div class="card" id="pair-10877">
   <div class="card-header">
-    <h2>#10878 &mdash; c400_L1_script_21.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8946 &middot; Fair</span>
+    <h2>#10877 &mdash; c400_L1_script_21.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8946 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8956</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9989</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05155.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -6950,22 +6907,23 @@ add(shift(3.4,2.2)*clock(40));
 
 draw((1,2.5)--(1.3,2.8)--(1.9,2.2)--(2.5,2.8)--(3.1,2.2)--(3.7,2.8)--(4,2.5),dotted);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05155" data-file="c400_L1_script_21.asy" data-rank="10877" data-ssim="0.8946" data-ssim-content="0.8956" data-ssim-size="0.9989">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10878" data-id="05155" data-file="c400_L1_script_21.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10877" data-id="05155" data-file="c400_L1_script_21.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10879">
+<div class="card" id="pair-10878">
   <div class="card-header">
-    <h2>#10879 &mdash; c186_L17_p37044_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8946 &middot; Fair</span>
+    <h2>#10878 &mdash; c186_L17_p37044_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8946 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8984</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9958</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01895.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7085,22 +7043,23 @@ label(&quot;$\mathbf{v}$&quot;,tailV + V/2, NE, UnFill);
 dot(tailU, red); 
 dot(tailV, blue);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01895" data-file="c186_L17_p37044_solution_text_0.asy" data-rank="10878" data-ssim="0.8946" data-ssim-content="0.8984" data-ssim-size="0.9958">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10879" data-id="01895" data-file="c186_L17_p37044_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10878" data-id="01895" data-file="c186_L17_p37044_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10880">
+<div class="card" id="pair-10879">
   <div class="card-header">
-    <h2>#10880 &mdash; c186_L15_script_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8949 &middot; Fair</span>
+    <h2>#10879 &mdash; c186_L15_script_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8949 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8951</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9997</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01759.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7228,22 +7187,23 @@ label(&quot;$\mathbf{c}$&quot;, tailC--tailC + C, SE, UnFill);
 label(&quot;$\mathbf{x}$&quot;, tailC + X/2, W, UnFill); 
 label(&quot;$\mathbf{y}$&quot;, tailC+ X + Y/2, N, UnFill);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01759" data-file="c186_L15_script_2.asy" data-rank="10879" data-ssim="0.8949" data-ssim-content="0.8951" data-ssim-size="0.9997">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10880" data-id="01759" data-file="c186_L15_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10879" data-id="01759" data-file="c186_L15_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10881">
+<div class="card" id="pair-10880">
   <div class="card-header">
-    <h2>#10881 &mdash; c186_L17_p31535_solution_text_3.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8950 &middot; Fair</span>
+    <h2>#10880 &mdash; c186_L17_p31535_solution_text_3.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8950 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8962</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9987</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01884.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7345,22 +7305,23 @@ draw(rightanglemark(2U, P, V1, 10));
 
 label(&quot;$\mathbf{u}$&quot;, -3U/2, S);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01884" data-file="c186_L17_p31535_solution_text_3.asy" data-rank="10880" data-ssim="0.8950" data-ssim-content="0.8962" data-ssim-size="0.9987">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10881" data-id="01884" data-file="c186_L17_p31535_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10880" data-id="01884" data-file="c186_L17_p31535_solution_text_3.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10882">
+<div class="card" id="pair-10881">
   <div class="card-header">
-    <h2>#10882 &mdash; c186_L6_p4579_solution_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8950 &middot; Fair</span>
+    <h2>#10881 &mdash; c186_L6_p4579_solution_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8950 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9097</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9838</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/02874.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7416,22 +7377,23 @@ draw(maxLine(P, P+Q, -7, 20, -7, 20));
 label(&quot;(2,1)&quot;,A,4*N, UnFill);
 label(&quot;(8,9)&quot;,B,NW);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="02874" data-file="c186_L6_p4579_solution_text_0.asy" data-rank="10881" data-ssim="0.8950" data-ssim-content="0.9097" data-ssim-size="0.9838">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10882" data-id="02874" data-file="c186_L6_p4579_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10881" data-id="02874" data-file="c186_L6_p4579_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10883">
+<div class="card" id="pair-10882">
   <div class="card-header">
-    <h2>#10883 &mdash; c57_L2_script_34.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8951 &middot; Fair</span>
+    <h2>#10882 &mdash; c57_L2_script_34.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8951 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8970</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9978</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/10987.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7473,22 +7435,23 @@ dot(&quot;$B$&quot;, B, E);
 dot(&quot;$C_1$&quot;, C1, 1.5*dir(80));
 dot(&quot;$C_2$&quot;, C2, 1.5*dir(280));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="10987" data-file="c57_L2_script_34.asy" data-rank="10882" data-ssim="0.8951" data-ssim-content="0.8970" data-ssim-size="0.9978">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10883" data-id="10987" data-file="c57_L2_script_34.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10882" data-id="10987" data-file="c57_L2_script_34.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10884">
+<div class="card" id="pair-10883">
   <div class="card-header">
-    <h2>#10884 &mdash; c36_L5_p1661_solution_text_1.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8951 &middot; Fair</span>
+    <h2>#10883 &mdash; c36_L5_p1661_solution_text_1.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8951 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9400</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9523</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/04728.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7514,22 +7477,23 @@ draw((0,0)--dir(248), blue, EndArrow);
 draw((0,0)--dir(138), red, EndArrow);
 draw(anglemark(dir(138), (0,0), dir(248)));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="04728" data-file="c36_L5_p1661_solution_text_1.asy" data-rank="10883" data-ssim="0.8951" data-ssim-content="0.9400" data-ssim-size="0.9523">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10884" data-id="04728" data-file="c36_L5_p1661_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10883" data-id="04728" data-file="c36_L5_p1661_solution_text_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10885">
+<div class="card" id="pair-10884">
   <div class="card-header">
-    <h2>#10885 &mdash; c134_L12_script_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8952 &middot; Fair</span>
+    <h2>#10884 &mdash; c134_L12_script_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8952 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9030</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9914</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/00581.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7557,22 +7521,23 @@ defaultpen(black+0.75);
 draw(Circle((0,0),1));
 draw((1.7,-1.2)--(1.7,2));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="00581" data-file="c134_L12_script_2.asy" data-rank="10884" data-ssim="0.8952" data-ssim-content="0.9030" data-ssim-size="0.9914">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10885" data-id="00581" data-file="c134_L12_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10884" data-id="00581" data-file="c134_L12_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10886">
+<div class="card" id="pair-10885">
   <div class="card-header">
-    <h2>#10886 &mdash; c539_L5_script_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8953 &middot; Fair</span>
+    <h2>#10885 &mdash; c539_L5_script_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8953 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9021</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9925</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08995.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7614,22 +7579,23 @@ draw(rotate(theta)*((0,0)--(0,1)), dotted);
 markscalefactor = 0.025;
 draw(rightanglemark(rotate(theta)*(1,0),(0,0),rotate(theta)*(0,1)),red);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08995" data-file="c539_L5_script_2.asy" data-rank="10885" data-ssim="0.8953" data-ssim-content="0.9021" data-ssim-size="0.9925">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10886" data-id="08995" data-file="c539_L5_script_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10885" data-id="08995" data-file="c539_L5_script_2.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10887">
+<div class="card" id="pair-10886">
   <div class="card-header">
-    <h2>#10887 &mdash; c190_L7_script_11.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8953 &middot; Fair</span>
+    <h2>#10886 &mdash; c190_L7_script_11.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8953 &middot; Fair</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9511</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.9414</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03571.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7667,22 +7633,23 @@ dot((-L/2, 0));
 real mass_pos = -2/3;
 dot((L/2, mass_pos));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="03571" data-file="c190_L7_script_11.asy" data-rank="10886" data-ssim="0.8953" data-ssim-content="0.9511" data-ssim-size="0.9414">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10887" data-id="03571" data-file="c190_L7_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10886" data-id="03571" data-file="c190_L7_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10888">
+<div class="card" id="pair-10887">
   <div class="card-header">
-    <h2>#10888 &mdash; c401_L5_script_38.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8953 &middot; Fair</span>
+    <h2>#10887 &mdash; c401_L5_script_38.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8953 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8991</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9959</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05612.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7718,22 +7685,23 @@ label(&quot;$s^\circ$&quot;,(0.15,0.1));
 label(&quot;$u^\circ$&quot;,(-0.2,-0.1));
 label(&quot;$v^\circ$&quot;,(0.15,-0.1));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05612" data-file="c401_L5_script_38.asy" data-rank="10887" data-ssim="0.8953" data-ssim-content="0.8991" data-ssim-size="0.9959">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10888" data-id="05612" data-file="c401_L5_script_38.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10887" data-id="05612" data-file="c401_L5_script_38.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10889">
+<div class="card" id="pair-10888">
   <div class="card-header">
-    <h2>#10889 &mdash; c463_L22_script_41.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8955 &middot; Fair</span>
+    <h2>#10888 &mdash; c463_L22_script_41.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8955 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8956</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08026.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7779,22 +7747,23 @@ draw((i,-s/2)--(i,s/2));
 draw((-s/2,i)--(s/2,i));
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08026" data-file="c463_L22_script_41.asy" data-rank="10888" data-ssim="0.8955" data-ssim-content="0.8956" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10889" data-id="08026" data-file="c463_L22_script_41.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10888" data-id="08026" data-file="c463_L22_script_41.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10890">
+<div class="card" id="pair-10889">
   <div class="card-header">
-    <h2>#10890 &mdash; c401_L6_script_42.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8955 &middot; Fair</span>
+    <h2>#10889 &mdash; c401_L6_script_42.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8955 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8963</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9991</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05682.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7830,22 +7799,23 @@ draw((2.5,0)+v1--(2.5,0)+v2--(2.5,0)+v3--(2.5,0)+v4--(2.5,0)+v5--(2.5,0)+v6--(2.
 draw((2.5,0)+v6--(2.5,0)+v8);
 label(&quot;11-sided&quot;,(2.52,0.05));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05682" data-file="c401_L6_script_42.asy" data-rank="10889" data-ssim="0.8955" data-ssim-content="0.8963" data-ssim-size="0.9991">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10890" data-id="05682" data-file="c401_L6_script_42.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10889" data-id="05682" data-file="c401_L6_script_42.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10891">
+<div class="card" id="pair-10890">
   <div class="card-header">
-    <h2>#10891 &mdash; c462_L18_script_29.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8956 &middot; Fair</span>
+    <h2>#10890 &mdash; c462_L18_script_29.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8956 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8959</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9996</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/07090.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7929,22 +7899,23 @@ dot(&quot;$N$&quot;, N, dir(90));
 dot(&quot;$N&#39;$&quot;, Np, S);
 dot(&quot;$O$&quot;, O, E);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="07090" data-file="c462_L18_script_29.asy" data-rank="10890" data-ssim="0.8956" data-ssim-content="0.8959" data-ssim-size="0.9996">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10891" data-id="07090" data-file="c462_L18_script_29.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10890" data-id="07090" data-file="c462_L18_script_29.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10892">
+<div class="card" id="pair-10891">
   <div class="card-header">
-    <h2>#10892 &mdash; c539_L4_script_5.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8956 &middot; Fair</span>
+    <h2>#10891 &mdash; c539_L4_script_5.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8956 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9018</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9932</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08961.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -7992,22 +7963,23 @@ draw((.05,.4)--(.25,.2)--(.45,.4),   arrow = Arrow(6) , green+linewidth(2pt));
 //blue light
 draw((.1,.4)--(.3,.2)--(.5,.4),   arrow = Arrow(6) , blue+linewidth(2pt));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08961" data-file="c539_L4_script_5.asy" data-rank="10891" data-ssim="0.8956" data-ssim-content="0.9018" data-ssim-size="0.9932">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10892" data-id="08961" data-file="c539_L4_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10891" data-id="08961" data-file="c539_L4_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10893">
+<div class="card" id="pair-10892">
   <div class="card-header">
-    <h2>#10893 &mdash; c268_L12_script_20.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8957 &middot; Fair</span>
+    <h2>#10892 &mdash; c268_L12_script_20.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8957 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8981</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9974</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/03973.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8069,22 +8041,23 @@ draw((0,-3)--(0,-2), dotted);
 label(&quot;$h$&quot;,(0,-2.5),W);
 label(&quot;(C)&quot;,(-.5,-2.5),W);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="03973" data-file="c268_L12_script_20.asy" data-rank="10892" data-ssim="0.8957" data-ssim-content="0.8981" data-ssim-size="0.9974">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10893" data-id="03973" data-file="c268_L12_script_20.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10892" data-id="03973" data-file="c268_L12_script_20.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10894">
+<div class="card" id="pair-10893">
   <div class="card-header">
-    <h2>#10894 &mdash; c401_L8_script_44.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8958 &middot; Fair</span>
+    <h2>#10893 &mdash; c401_L8_script_44.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8958 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9067</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9880</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05839.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8104,22 +8077,23 @@ path p=Arc((0,0),1,0,180)--(1,0)--cycle;
 fill(p,gray);
 draw(p);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05839" data-file="c401_L8_script_44.asy" data-rank="10893" data-ssim="0.8958" data-ssim-content="0.9067" data-ssim-size="0.9880">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10894" data-id="05839" data-file="c401_L8_script_44.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10893" data-id="05839" data-file="c401_L8_script_44.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10895">
+<div class="card" id="pair-10894">
   <div class="card-header">
-    <h2>#10895 &mdash; c57_L15_p39946_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8958 &middot; Fair</span>
+    <h2>#10894 &mdash; c57_L15_p39946_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8958 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8980</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9976</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09994.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8171,22 +8145,23 @@ dot(&quot;$Q$&quot;, B, S);
 label(&quot;$8$&quot;, (B + E)/2, W);
 label(&quot;$10$&quot;, (A + D)/2, W);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09994" data-file="c57_L15_p39946_problem_text_0.asy" data-rank="10894" data-ssim="0.8958" data-ssim-content="0.8980" data-ssim-size="0.9976">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10895" data-id="09994" data-file="c57_L15_p39946_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10894" data-id="09994" data-file="c57_L15_p39946_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10896">
+<div class="card" id="pair-10895">
   <div class="card-header">
-    <h2>#10896 &mdash; c57_L100_script_5.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8958 &middot; Fair</span>
+    <h2>#10895 &mdash; c57_L100_script_5.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8958 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8960</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09548.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8278,22 +8253,23 @@ for (i = 1; i &lt;= 6; ++i) {
   dot(O[i]);
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09548" data-file="c57_L100_script_5.asy" data-rank="10895" data-ssim="0.8958" data-ssim-content="0.8960" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10896" data-id="09548" data-file="c57_L100_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10895" data-id="09548" data-file="c57_L100_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10897">
+<div class="card" id="pair-10896">
   <div class="card-header">
-    <h2>#10897 &mdash; c510_L11_p52846_problem_text_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8959 &middot; Fair</span>
+    <h2>#10896 &mdash; c510_L11_p52846_problem_text_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8959 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8961</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9998</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/08621.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8375,22 +8351,23 @@ for (int i = 0; i &lt; 6; ++i) {
     label(string(i+1), vertices[i]);
 }
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="08621" data-file="c510_L11_p52846_problem_text_0.asy" data-rank="10896" data-ssim="0.8959" data-ssim-content="0.8961" data-ssim-size="0.9998">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10897" data-id="08621" data-file="c510_L11_p52846_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10896" data-id="08621" data-file="c510_L11_p52846_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10898">
+<div class="card" id="pair-10897">
   <div class="card-header">
-    <h2>#10898 &mdash; c539_L6_script_17.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8959 &middot; Fair</span>
+    <h2>#10897 &mdash; c539_L6_script_17.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8959 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9017</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9936</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/09042.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8842,22 +8819,23 @@ label(&quot;Motorcycle&quot;, (70+dx, -12), fontsize(14));
 label(&quot;Mirror&quot;, (mirrorMidX+12, mirrorTop+12), fontsize(14));
 label(&quot;Virtual image&quot;, virtualSource + (0, -virtualR1 - 10), fontsize(10));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="09042" data-file="c539_L6_script_17.asy" data-rank="10897" data-ssim="0.8959" data-ssim-content="0.9017" data-ssim-size="0.9936">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10898" data-id="09042" data-file="c539_L6_script_17.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10897" data-id="09042" data-file="c539_L6_script_17.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10899">
+<div class="card" id="pair-10898">
   <div class="card-header">
-    <h2>#10899 &mdash; c400_L2_p43167_problemtext_0.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8960 &middot; Fair</span>
+    <h2>#10898 &mdash; c400_L2_p43167_problemtext_0.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8960 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8960</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/05173.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -8945,22 +8923,23 @@ label(&quot;$\ell/\gamma$&quot;,(.7,1), brown, UnFill);
 
 add(shift(7,.75)*clock(10));
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05173" data-file="c400_L2_p43167_problemtext_0.asy" data-rank="10898" data-ssim="0.8960" data-ssim-content="0.8960" data-ssim-size="1.0000">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10899" data-id="05173" data-file="c400_L2_p43167_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10898" data-id="05173" data-file="c400_L2_p43167_problemtext_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-10900">
+<div class="card" id="pair-10899">
   <div class="card-header">
-    <h2>#10900 &mdash; c186_L17_p31535_solution_text_2.asy</h2>
-    <span class="badge" style="background:#6a9f2a">Combined 0.8960 &middot; Fair</span>
+    <h2>#10899 &mdash; c186_L17_p31535_solution_text_2.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8960 &middot; Fair</span>
     <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8972</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9987</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><img src="asy_pngs/01883.png"></div>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
@@ -9060,8 +9039,139 @@ draw(rightanglemark(2U, P, V, 10));
 
 label(&quot;$\mathbf{u}$&quot;, -3U/2, S);
 [/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="01883" data-file="c186_L17_p31535_solution_text_2.asy" data-rank="10899" data-ssim="0.8960" data-ssim-content="0.8972" data-ssim-size="0.9987">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="10900" data-id="01883" data-file="c186_L17_p31535_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="10899" data-id="01883" data-file="c186_L17_p31535_solution_text_2.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-10900">
+  <div class="card-header">
+    <h2>#10900 &mdash; c400_L1_script_26.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8960 &middot; Fair</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8974</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9985</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/05160.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/qsrhfaqh
+
+unitsize(3cm);
+
+void ship(pair pos, real v, string name){
+draw(shift(pos)* box((0,0),(2,1)));
+label(name,pos+(.1,.5),E);
+
+real v_factor = .5;
+
+if (v&gt;0){
+draw(shift(pos + (2.05,.5))*((0,0)--(v/v_factor,0)),arrow = Arrow(6));
+string speed = string(v) + &quot;$c$&quot;;
+//label(speed,pos + (2.1,.5) + (v/(2*v_factor),0),S);
+}
+if(v&lt;0){
+draw(shift(pos + (-0.1,.5))*((0,0)--(v/v_factor,0)),arrow = Arrow(6));
+string speed = string(-v) + &quot;$v$&quot;;
+label(speed,pos + (-.1,.5) + (v/(2*v_factor),0),S);
+}
+}
+
+path star;
+star=expi(0)--(scale((3-sqrt(5))/2)*expi(pi/5))--expi(2*pi/5)--
+     (scale((3-sqrt(5))/2)*expi(3*pi/5))--expi(4pi/5)--
+     (scale((3-sqrt(5))/2)*expi(5*pi/5))--expi(6*pi/5)--
+     (scale((3-sqrt(5))/2)*expi(7*pi/5))--expi(8*pi/5)--
+     (scale((3-sqrt(5))/2)*expi(9*pi/5))--cycle;
+star = scale(.1)*rotate(15)*star;
+
+picture clock(real t){
+picture lc;
+draw(lc, (0,0)--(2,0), linewidth(2));
+draw(lc, (0,1)--(2,1), linewidth(2));
+filldraw(lc, shift(1,.5)*star, yellow);
+draw(lc, shift(1.2,.2)*scale(.1)*unitcircle);
+draw(lc, shift(1.2,.2)*scale(.1)*rotate(- t)*((0,0)--(0,1)));
+return scale(.6)*lc;
+}
+
+ship((0,.5),0,&quot;A&quot;);
+ship((0,2),.3,&quot;L, earlier&quot;);
+ship((3,2),.3,&quot;L, later&quot;);
+
+add(shift(.4,.7)*clock(10));
+label(&quot;$v$&quot;,(2.4,2.5),N);
+add(shift(.4,2.2)*clock(10));
+add(shift(3.4,2.2)*clock(40));
+label(&quot;$v$&quot;,(5.4,2.5),N);
+
+draw((1,2.5)--(1.3,2.8)--(1.9,2.2)--(2.5,2.8)--(3.1,2.2)--(3.7,2.8)--(4,2.5),dotted);</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fqsrhfaqh%0D%0A%0D%0Aunitsize(3cm)%3B%0D%0A%0D%0Avoid%20ship(pair%20pos%2C%20real%20v%2C%20string%20name)%7B%0D%0Adraw(shift(pos)*%20box((0%2C0)%2C(2%2C1)))%3B%0D%0Alabel(name%2Cpos%2B(.1%2C.5)%2CE)%3B%0D%0A%0D%0Areal%20v_factor%20%3D%20.5%3B%0D%0A%0D%0Aif%20(v%3E0)%7B%0D%0Adraw(shift(pos%20%2B%20(2.05%2C.5))*((0%2C0)--(v%2Fv_factor%2C0))%2Carrow%20%3D%20Arrow(6))%3B%0D%0Astring%20speed%20%3D%20string(v)%20%2B%20%22%24c%24%22%3B%0D%0A%2F%2Flabel(speed%2Cpos%20%2B%20(2.1%2C.5)%20%2B%20(v%2F(2*v_factor)%2C0)%2CS)%3B%0D%0A%7D%0D%0Aif(v%3C0)%7B%0D%0Adraw(shift(pos%20%2B%20(-0.1%2C.5))*((0%2C0)--(v%2Fv_factor%2C0))%2Carrow%20%3D%20Arrow(6))%3B%0D%0Astring%20speed%20%3D%20string(-v)%20%2B%20%22%24v%24%22%3B%0D%0Alabel(speed%2Cpos%20%2B%20(-.1%2C.5)%20%2B%20(v%2F(2*v_factor)%2C0)%2CS)%3B%0D%0A%7D%0D%0A%7D%0D%0A%0D%0Apath%20star%3B%0D%0Astar%3Dexpi(0)--(scale((3-sqrt(5))%2F2)*expi(pi%2F5))--expi(2*pi%2F5)--%0D%0A%20%20%20%20%20(scale((3-sqrt(5))%2F2)*expi(3*pi%2F5))--expi(4pi%2F5)--%0D%0A%20%20%20%20%20(scale((3-sqrt(5))%2F2)*expi(5*pi%2F5))--expi(6*pi%2F5)--%0D%0A%20%20%20%20%20(scale((3-sqrt(5))%2F2)*expi(7*pi%2F5))--expi(8*pi%2F5)--%0D%0A%20%20%20%20%20(scale((3-sqrt(5))%2F2)*expi(9*pi%2F5))--cycle%3B%0D%0Astar%20%3D%20scale(.1)*rotate(15)*star%3B%0D%0A%0D%0Apicture%20clock(real%20t)%7B%0D%0Apicture%20lc%3B%0D%0Adraw(lc%2C%20(0%2C0)--(2%2C0)%2C%20linewidth(2))%3B%0D%0Adraw(lc%2C%20(0%2C1)--(2%2C1)%2C%20linewidth(2))%3B%0D%0Afilldraw(lc%2C%20shift(1%2C.5)*star%2C%20yellow)%3B%0D%0Adraw(lc%2C%20shift(1.2%2C.2)*scale(.1)*unitcircle)%3B%0D%0Adraw(lc%2C%20shift(1.2%2C.2)*scale(.1)*rotate(-%20t)*((0%2C0)--(0%2C1)))%3B%0D%0Areturn%20scale(.6)*lc%3B%0D%0A%7D%0D%0A%0D%0Aship((0%2C.5)%2C0%2C%22A%22)%3B%0D%0Aship((0%2C2)%2C.3%2C%22L%2C%20earlier%22)%3B%0D%0Aship((3%2C2)%2C.3%2C%22L%2C%20later%22)%3B%0D%0A%0D%0Aadd(shift(.4%2C.7)*clock(10))%3B%0D%0Alabel(%22%24v%24%22%2C(2.4%2C2.5)%2CN)%3B%0D%0Aadd(shift(.4%2C2.2)*clock(10))%3B%0D%0Aadd(shift(3.4%2C2.2)*clock(40))%3B%0D%0Alabel(%22%24v%24%22%2C(5.4%2C2.5)%2CN)%3B%0D%0A%0D%0Adraw((1%2C2.5)--(1.3%2C2.8)--(1.9%2C2.2)--(2.5%2C2.8)--(3.1%2C2.2)--(3.7%2C2.8)--(4%2C2.5)%2Cdotted)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//TeXeR source: https://artofproblemsolving.com/texer/qsrhfaqh
+
+unitsize(3cm);
+
+void ship(pair pos, real v, string name){
+draw(shift(pos)* box((0,0),(2,1)));
+label(name,pos+(.1,.5),E);
+
+real v_factor = .5;
+
+if (v&gt;0){
+draw(shift(pos + (2.05,.5))*((0,0)--(v/v_factor,0)),arrow = Arrow(6));
+string speed = string(v) + &quot;$c$&quot;;
+//label(speed,pos + (2.1,.5) + (v/(2*v_factor),0),S);
+}
+if(v&lt;0){
+draw(shift(pos + (-0.1,.5))*((0,0)--(v/v_factor,0)),arrow = Arrow(6));
+string speed = string(-v) + &quot;$v$&quot;;
+label(speed,pos + (-.1,.5) + (v/(2*v_factor),0),S);
+}
+}
+
+path star;
+star=expi(0)--(scale((3-sqrt(5))/2)*expi(pi/5))--expi(2*pi/5)--
+     (scale((3-sqrt(5))/2)*expi(3*pi/5))--expi(4pi/5)--
+     (scale((3-sqrt(5))/2)*expi(5*pi/5))--expi(6*pi/5)--
+     (scale((3-sqrt(5))/2)*expi(7*pi/5))--expi(8*pi/5)--
+     (scale((3-sqrt(5))/2)*expi(9*pi/5))--cycle;
+star = scale(.1)*rotate(15)*star;
+
+picture clock(real t){
+picture lc;
+draw(lc, (0,0)--(2,0), linewidth(2));
+draw(lc, (0,1)--(2,1), linewidth(2));
+filldraw(lc, shift(1,.5)*star, yellow);
+draw(lc, shift(1.2,.2)*scale(.1)*unitcircle);
+draw(lc, shift(1.2,.2)*scale(.1)*rotate(- t)*((0,0)--(0,1)));
+return scale(.6)*lc;
+}
+
+ship((0,.5),0,&quot;A&quot;);
+ship((0,2),.3,&quot;L, earlier&quot;);
+ship((3,2),.3,&quot;L, later&quot;);
+
+add(shift(.4,.7)*clock(10));
+label(&quot;$v$&quot;,(2.4,2.5),N);
+add(shift(.4,2.2)*clock(10));
+add(shift(3.4,2.2)*clock(40));
+label(&quot;$v$&quot;,(5.4,2.5),N);
+
+draw((1,2.5)--(1.3,2.8)--(1.9,2.2)--(2.5,2.8)--(3.1,2.2)--(3.7,2.8)--(4,2.5),dotted);
+[/asy]">Copy &amp; TeXeR</button>
+        <button class="btn btn-fix fix-btn" data-id="05160" data-file="c400_L1_script_26.asy" data-rank="10900" data-ssim="0.8960" data-ssim-content="0.8974" data-ssim-size="0.9985">Fix</button>
+      </div>
+      <textarea class="feedback-box" data-rank="10900" data-id="05160" data-file="c400_L1_script_26.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
@@ -9087,9 +9197,7 @@ document.getElementById('collect-btn').addEventListener('click',()=>{
   const items=[];
   boxes.forEach(b=>{
     const msg=b.value.trim();
-    if(msg){
-      items.push({rank:b.dataset.rank,id:b.dataset.id,file:b.dataset.file,message:msg});
-    }
+    if(msg) items.push({rank:b.dataset.rank,id:b.dataset.id,file:b.dataset.file,message:msg});
   });
   if(items.length===0){alert('No feedback entered.');return;}
   let prompt='You are working on the HiTeXeR Asymptote interpreter (asy-interp.js). '+
@@ -9100,7 +9208,7 @@ document.getElementById('collect-btn').addEventListener('click',()=>{
   for(const it of items){
     prompt+='--- #'+it.rank+' ('+it.file+', id='+it.id+') ---\n'+it.message+'\n\n';
   }
-  prompt+='Please fix these issues in asy-interp.js, then re-run the SSIM pipeline: node ssim-pipeline.js render-htx rasterize ssim html';
+  prompt+='Please fix these issues in asy-interp.js, then re-run: node recompute-htx.js render-htx rasterize ssim html';
   const out=document.getElementById('prompt-output');
   out.style.display='block';
   out.value=prompt;
@@ -9123,5 +9231,59 @@ document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
   fetch(el.dataset.svg).then(r=>r.text()).then(svg=>{
     el.innerHTML=svg;
   }).catch(()=>{el.innerHTML='<em class="na">SVG load failed</em>';});
+});
+function buildFixPrompt(id,file,rank,ssim,ssimContent,ssimSize,source){
+  return 'You are working on the HiTeXeR Asymptote interpreter (asy-interp.js) in C:\\Users\\Mark Eichenlaub\\github\\hitexer.\n\n'+
+    'Your task: fix diagram #'+rank+' \u2014 '+file+' (ID: '+id+') so HiTeXeR renders it to match the Asymptote reference.\n\n'+
+    'Combined SSIM: '+ssim+' | Content SSIM: '+ssimContent+' | Size score: '+ssimSize+'\n'+
+    '(Higher is better; target > 0.9. -1 means render failed.)\n\n'+
+    'Asymptote source (comparison/asy_src/'+id+'.asy):\n'+
+    '```\n'+source+'\n```\n\n'+
+    'Reference render: comparison/asy_pngs/'+id+'.png (Asymptote-generated)\n'+
+    'Current HiTeXeR SVG: comparison/htx_svgs/'+id+'.svg\n\n'+
+    'Workflow:\n'+
+    '1. Read the source and reference PNG to understand what the diagram should look like.\n'+
+    '2. Quick render test: node render-hitexer.js comparison/asy_src/'+id+'.asy\n'+
+    '   (outputs SVG to stdout; visually compare with the reference PNG)\n'+
+    '3. Identify all differences (missing elements, wrong color, wrong position/size, wrong stroke, etc.)\n'+
+    '4. Fix asy-interp.js with targeted, minimal changes. Avoid breaking other diagrams.\n'+
+    '5. Re-test: node render-hitexer.js comparison/asy_src/'+id+'.asy\n'+
+    '6. When the render looks correct, bump the version in index.html and run:\n'+
+    '   node recompute-htx.js render-htx rasterize ssim html\n'+
+    '7. Check the new SSIM for this diagram and watch for regressions in overall stats.\n'+
+    '8. Repeat from step 2 until SSIM > 0.9 or no further improvement is possible.\n\n'+
+    'Always run recompute-htx.js after any asy-interp.js fix to catch regressions across all diagrams.';
+}
+document.querySelectorAll('.fix-btn').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var card=btn.closest('.card');
+    var id=btn.dataset.id;
+    var file=btn.dataset.file;
+    var rank=btn.dataset.rank;
+    var ssim=btn.dataset.ssim;
+    var ssimContent=btn.dataset.ssimContent;
+    var ssimSize=btn.dataset.ssimSize;
+    var source=card.querySelector('.code-box code').textContent;
+    var prompt=buildFixPrompt(id,file,rank,ssim,ssimContent,ssimSize,source);
+    var orig=btn.textContent;
+    fetch('http://localhost:7842/fix',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id,prompt:prompt})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        btn.textContent='Launched!';
+        btn.style.background='#2d8a4e';
+        setTimeout(function(){btn.textContent=orig;btn.style.background='';},3000);
+      }else{
+        alert('fix-server error: '+d.error);
+      }
+    }).catch(function(){
+      navigator.clipboard.writeText(prompt).then(function(){
+        btn.textContent='Copied (run: node fix-server.js)';
+        setTimeout(function(){btn.textContent=orig;},4000);
+      });
+    });
+  });
 });
 </script></body></html>
