@@ -1716,12 +1716,10 @@ function createInterpreter() {
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    // In Asymptote: real + pen → (real * currentpen) + pen.  Since currentpen is
-    // normally black (0,0,0), multiplying by any number still gives black, and
-    // merging black with the explicit pen yields just the explicit pen.  The number
-    // does NOT set linewidth (use linewidth(n)+pen for that).
-    if (op === T.PLUS && isPen(left) && isNumber(right)) { return clonePen(left); }
-    if (op === T.PLUS && isNumber(left) && isPen(right)) { return clonePen(right); }
+    // In Asymptote: pen + real implicitly casts real to linewidth(real), then merges.
+    // e.g. black+2 means black pen with linewidth 2.
+    if (op === T.PLUS && isPen(left) && isNumber(right)) { return mergePens(left, makePen({linewidth:right, _lwExplicit:true})); }
+    if (op === T.PLUS && isNumber(left) && isPen(right)) { return mergePens(makePen({linewidth:left, _lwExplicit:true}), right); }
     if (op === T.PLUS && isPen(left)) return mergePens(left, isPen(right) ? right : makePen({r:0,g:0,b:0}));
     if (op === T.PLUS && isPen(right)) return mergePens(isPen(left) ? left : makePen({r:0,g:0,b:0}), right);
     // number * pen = scale color (e.g. 0.9*white = light gray, .6white)
