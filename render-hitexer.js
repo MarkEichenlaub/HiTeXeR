@@ -35,6 +35,10 @@ if (!A.canInterpret(code)) {
 
 try {
   const result = A.render(code, { containerW: 500, containerH: 400 });
+  // Ensure UTF-8 encoding on Windows
+  if (process.stdout.setEncoding) {
+    process.stdout.setEncoding('utf8');
+  }
   process.stdout.write(result.svg);
 } catch (e) {
   process.stderr.write(`Render failed: ${e.message}\n${e.stack || ''}\n`);
