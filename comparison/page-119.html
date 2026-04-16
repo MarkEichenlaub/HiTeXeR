@@ -44,2020 +44,856 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">11812 diagrams sorted by combined score (worst first) — Page 119 of 119</p>
 <div class="stats">
-<b style="background:#2d8a4e">31 Good</b>
-<b style="background:#c0820a">73 Fair</b>
-<b style="background:#c0392b">11638 Poor</b>
-<b style="background:#999">70 Err</b>
+<b style="background:#2d8a4e">0 Good</b>
+<b style="background:#c0820a">3 Fair</b>
+<b style="background:#c0392b">11733 Poor</b>
+<b style="background:#999">76 Err</b>
 </div>
 <div class="pag"><a href="page-118.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-105.html">105</a><a href="page-106.html">106</a><a href="page-107.html">107</a><a href="page-108.html">108</a><a href="page-109.html">109</a><a href="page-110.html">110</a><a href="page-111.html">111</a><a href="page-112.html">112</a><a href="page-113.html">113</a><a href="page-114.html">114</a><a href="page-115.html">115</a><a href="page-116.html">116</a><a href="page-117.html">117</a><a href="page-118.html">118</a><span class="cur">119</span></div>
 
 <div class="card" id="pair-11801">
   <div class="card-header">
-    <h2>#11801 &mdash; c539_L5_script_8.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9762 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9763</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11801 &mdash; c539_L12_script_5.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7137 &middot; Poor</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8689</span>
+    <span class="badge" style="background:#c0820a;margin-left:4px">Size 0.8214</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/09022.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/08796.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09022.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08796.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//source: light_reflection_mirror
-import olympiad;
+      <div class="code-box"><code>//https://artofproblemsolving.com/texer/qaumuntd
 
-unitsize(4cm);
+// Canvas
+size(12cm, 10cm);
 
-real theta = -60;
-pair A = (-.5,-.5);
+// Speaker
+pair speaker1_pos = (-5,0);
+filldraw(circle(speaker1_pos, 0.25), gray, black+linewidth(1pt));
+filldraw(circle(speaker1_pos, 0.08), darkgray, black+linewidth(0.5pt));
 
-//mirrors
-draw((-1,-1)--(0,0)--(1,-1), linewidth(2pt));
+pair speaker2_pos = (-3,.1);
+filldraw(circle(speaker2_pos, 0.25), gray, black+linewidth(1pt));
+filldraw(circle(speaker2_pos, 0.08), darkgray, black+linewidth(0.5pt));
 
-//laser
-draw(shift(A)*rotate(theta)*((1,-1)--(0,0)),   arrow = Arrow(6) ,heavygreen);
+// Microphone
+pair mic_pos = (15.5,0);  // Microphone at center
 
-//normal
-draw(shift(A)*((0,0)--(1,-1)), dotted);
+path mic_shape = (-0.15, 0.3)--(-0.15, -0.3)--(0.15, -0.3)--(0.15, 0.3)--cycle;
+filldraw(shift(mic_pos)*mic_shape, darkgray, black+linewidth(1pt));
+for(int i = -1; i &lt;= 1; ++i) {
+    draw(shift(mic_pos)*((-0.12, i*0.08)--(0.12, i*0.08)), white+linewidth(0.5pt));
+}
+draw(mic_pos--(mic_pos + (0, -0.5)), black+linewidth(2pt));
+fill(circle(mic_pos + (0, -0.5), 0.08), black);
 
-//angle of incidence marker
-markscalefactor = 0.04;
-draw(anglemark(A+rotate(theta)*(1,-1),A,A+(1,-1)),blue);
+draw((speaker1_pos.x,-2)--(mic_pos.x,-2),brown+dotted+2,arrow=Arrows(6));
+label(&quot;$L$&quot;,((speaker1_pos.x,-2)+(mic_pos.x,-2))/2,S,brown+2);
 
-label(&quot;$60^\circ$&quot;,(-.5,-.5)+(.05,-.3),SE,blue);
+dot((-5,11),red);
+label(&quot;?&quot;,(-5,11),N,red);
 
-markscalefactor = 0.02;
-draw(rightanglemark((-1,-1),(0,0),(1,-1)),red);</code></div>
+dot((-12,-10),blue);
+label(&quot;?&quot;,(-12,-10),N,blue);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20light_reflection_mirror%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0Areal%20theta%20%3D%20-60%3B%0D%0Apair%20A%20%3D%20(-.5%2C-.5)%3B%0D%0A%0D%0A%2F%2Fmirrors%0D%0Adraw((-1%2C-1)--(0%2C0)--(1%2C-1)%2C%20linewidth(2pt))%3B%0D%0A%0D%0A%2F%2Flaser%0D%0Adraw(shift(A)*rotate(theta)*((1%2C-1)--(0%2C0))%2C%20%20%20arrow%20%3D%20Arrow(6)%20%2Cheavygreen)%3B%0D%0A%0D%0A%2F%2Fnormal%0D%0Adraw(shift(A)*((0%2C0)--(1%2C-1))%2C%20dotted)%3B%0D%0A%0D%0A%2F%2Fangle%20of%20incidence%20marker%0D%0Amarkscalefactor%20%3D%200.04%3B%0D%0Adraw(anglemark(A%2Brotate(theta)*(1%2C-1)%2CA%2CA%2B(1%2C-1))%2Cblue)%3B%0D%0A%0D%0Alabel(%22%2460%5E%5Ccirc%24%22%2C(-.5%2C-.5)%2B(.05%2C-.3)%2CSE%2Cblue)%3B%0D%0A%0D%0Amarkscalefactor%20%3D%200.02%3B%0D%0Adraw(rightanglemark((-1%2C-1)%2C(0%2C0)%2C(1%2C-1))%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fhttps%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fqaumuntd%0D%0A%0D%0A%2F%2F%20Canvas%0D%0Asize(12cm%2C%2010cm)%3B%0D%0A%0D%0A%2F%2F%20Speaker%0D%0Apair%20speaker1_pos%20%3D%20(-5%2C0)%3B%0D%0Afilldraw(circle(speaker1_pos%2C%200.25)%2C%20gray%2C%20black%2Blinewidth(1pt))%3B%0D%0Afilldraw(circle(speaker1_pos%2C%200.08)%2C%20darkgray%2C%20black%2Blinewidth(0.5pt))%3B%0D%0A%0D%0Apair%20speaker2_pos%20%3D%20(-3%2C.1)%3B%0D%0Afilldraw(circle(speaker2_pos%2C%200.25)%2C%20gray%2C%20black%2Blinewidth(1pt))%3B%0D%0Afilldraw(circle(speaker2_pos%2C%200.08)%2C%20darkgray%2C%20black%2Blinewidth(0.5pt))%3B%0D%0A%0D%0A%2F%2F%20Microphone%0D%0Apair%20mic_pos%20%3D%20(15.5%2C0)%3B%20%20%2F%2F%20Microphone%20at%20center%0D%0A%0D%0Apath%20mic_shape%20%3D%20(-0.15%2C%200.3)--(-0.15%2C%20-0.3)--(0.15%2C%20-0.3)--(0.15%2C%200.3)--cycle%3B%0D%0Afilldraw(shift(mic_pos)*mic_shape%2C%20darkgray%2C%20black%2Blinewidth(1pt))%3B%0D%0Afor(int%20i%20%3D%20-1%3B%20i%20%3C%3D%201%3B%20%2B%2Bi)%20%7B%0D%0A%20%20%20%20draw(shift(mic_pos)*((-0.12%2C%20i*0.08)--(0.12%2C%20i*0.08))%2C%20white%2Blinewidth(0.5pt))%3B%0D%0A%7D%0D%0Adraw(mic_pos--(mic_pos%20%2B%20(0%2C%20-0.5))%2C%20black%2Blinewidth(2pt))%3B%0D%0Afill(circle(mic_pos%20%2B%20(0%2C%20-0.5)%2C%200.08)%2C%20black)%3B%0D%0A%0D%0Adraw((speaker1_pos.x%2C-2)--(mic_pos.x%2C-2)%2Cbrown%2Bdotted%2B2%2Carrow%3DArrows(6))%3B%0D%0Alabel(%22%24L%24%22%2C((speaker1_pos.x%2C-2)%2B(mic_pos.x%2C-2))%2F2%2CS%2Cbrown%2B2)%3B%0D%0A%0D%0Adot((-5%2C11)%2Cred)%3B%0D%0Alabel(%22%3F%22%2C(-5%2C11)%2CN%2Cred)%3B%0D%0A%0D%0Adot((-12%2C-10)%2Cblue)%3B%0D%0Alabel(%22%3F%22%2C(-12%2C-10)%2CN%2Cblue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//source: light_reflection_mirror
-import olympiad;
+//https://artofproblemsolving.com/texer/qaumuntd
 
-unitsize(4cm);
+// Canvas
+size(12cm, 10cm);
 
-real theta = -60;
-pair A = (-.5,-.5);
+// Speaker
+pair speaker1_pos = (-5,0);
+filldraw(circle(speaker1_pos, 0.25), gray, black+linewidth(1pt));
+filldraw(circle(speaker1_pos, 0.08), darkgray, black+linewidth(0.5pt));
 
-//mirrors
-draw((-1,-1)--(0,0)--(1,-1), linewidth(2pt));
+pair speaker2_pos = (-3,.1);
+filldraw(circle(speaker2_pos, 0.25), gray, black+linewidth(1pt));
+filldraw(circle(speaker2_pos, 0.08), darkgray, black+linewidth(0.5pt));
 
-//laser
-draw(shift(A)*rotate(theta)*((1,-1)--(0,0)),   arrow = Arrow(6) ,heavygreen);
+// Microphone
+pair mic_pos = (15.5,0);  // Microphone at center
 
-//normal
-draw(shift(A)*((0,0)--(1,-1)), dotted);
+path mic_shape = (-0.15, 0.3)--(-0.15, -0.3)--(0.15, -0.3)--(0.15, 0.3)--cycle;
+filldraw(shift(mic_pos)*mic_shape, darkgray, black+linewidth(1pt));
+for(int i = -1; i &lt;= 1; ++i) {
+    draw(shift(mic_pos)*((-0.12, i*0.08)--(0.12, i*0.08)), white+linewidth(0.5pt));
+}
+draw(mic_pos--(mic_pos + (0, -0.5)), black+linewidth(2pt));
+fill(circle(mic_pos + (0, -0.5), 0.08), black);
 
-//angle of incidence marker
-markscalefactor = 0.04;
-draw(anglemark(A+rotate(theta)*(1,-1),A,A+(1,-1)),blue);
+draw((speaker1_pos.x,-2)--(mic_pos.x,-2),brown+dotted+2,arrow=Arrows(6));
+label(&quot;$L$&quot;,((speaker1_pos.x,-2)+(mic_pos.x,-2))/2,S,brown+2);
 
-label(&quot;$60^\circ$&quot;,(-.5,-.5)+(.05,-.3),SE,blue);
+dot((-5,11),red);
+label(&quot;?&quot;,(-5,11),N,red);
 
-markscalefactor = 0.02;
-draw(rightanglemark((-1,-1),(0,0),(1,-1)),red);
+dot((-12,-10),blue);
+label(&quot;?&quot;,(-12,-10),N,blue);
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="09022" data-file="c539_L5_script_8.asy" data-rank="11801" data-ssim="0.9762" data-ssim-content="0.9763" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="08796" data-file="c539_L12_script_5.asy" data-rank="11801" data-ssim="0.7137" data-ssim-content="0.8689" data-ssim-size="0.8214">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11801" data-id="09022" data-file="c539_L5_script_8.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11801" data-id="08796" data-file="c539_L12_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11802">
   <div class="card-header">
-    <h2>#11802 &mdash; c539_L5_script_13.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9804 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9805</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11802 &mdash; c57_L1_script_1.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7270 &middot; Poor</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8927</span>
+    <span class="badge" style="background:#c0820a;margin-left:4px">Size 0.8144</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/08988.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/10487.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08988.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/10487.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//source: laser_reflection_path_2
-import olympiad;
+      <div class="code-box"><code>unitsize(0.3 cm);
 
-unitsize(4cm);
+pair A, B, C, D, E, F, G, H, I, J;
 
-real theta = -60;
-pair A = (-.5,-.5);
-pair vertex = (0,0);
+A = (7,15);
+B = (9,7);
+C = (15,16);
+D = (18,14);
+E = (13,6);
+F = (16,2);
+G = (4,12);
+H = (14,10);
+I = (12,1);
+J = (18,9);
 
-// Mirrors
-draw((-1,-1)--vertex--(1,-1), linewidth(2pt));
-
-// Normal at first hit point (A)
-pair normal1 = (1,-1);
-//draw(shift(A)*((0,0)--normal1), dotted);
-
-// Laser 1: Incident ray
-pair incident_start = A + rotate(theta)*normal1;
-draw(incident_start--A, heavygreen);
-
-// --- CALCULATION FOR REFLECTION ---
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Intersection with the second mirror segment (0,0) to (1,-1)
-pair B = extension(A, A + reflected_dir, vertex, (1,-1));
-
-// Laser 2: Reflected ray hitting the second mirror
-draw(A--B, heavygreen, arrow = Arrow(6));
-
-// CORRECTED Normal at second hit point (B)
-// We rotate the mirror vector (1, -1) by -90 degrees to point &quot;out&quot; and &quot;up&quot;
-pair normal2 = rotate(-90)*(1,-1);
-draw(shift(B)*((0,0)--0.4*unit(normal2)), dotted);
-
-//second angle of incidence
-markscalefactor = 0.02;
-draw(anglemark((0,0),B,A),red);
-markscalefactor = 0.04;
-draw(anglemark(A,B,B+(-1,-1)),blue);
-label(&quot;$60^\circ$&quot;,B+(-.1,.05),2*W,red);
-label(&quot;$30^\circ$&quot;,B+(-.25,-.18),SW,blue);</code></div>
+dot(A);
+dot(B);
+dot(C);
+dot(D);
+dot(E);
+dot(F);
+dot(G);
+dot(H);
+dot(I);
+dot(J);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20laser_reflection_path_2%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0Areal%20theta%20%3D%20-60%3B%0D%0Apair%20A%20%3D%20(-.5%2C-.5)%3B%0D%0Apair%20vertex%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2F%20Mirrors%0D%0Adraw((-1%2C-1)--vertex--(1%2C-1)%2C%20linewidth(2pt))%3B%0D%0A%0D%0A%2F%2F%20Normal%20at%20first%20hit%20point%20(A)%0D%0Apair%20normal1%20%3D%20(1%2C-1)%3B%0D%0A%2F%2Fdraw(shift(A)*((0%2C0)--normal1)%2C%20dotted)%3B%0D%0A%0D%0A%2F%2F%20Laser%201%3A%20Incident%20ray%0D%0Apair%20incident_start%20%3D%20A%20%2B%20rotate(theta)*normal1%3B%0D%0Adraw(incident_start--A%2C%20heavygreen)%3B%0D%0A%0D%0A%2F%2F%20---%20CALCULATION%20FOR%20REFLECTION%20---%0D%0Apair%20reflected_dir%20%3D%20rotate(-theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20Intersection%20with%20the%20second%20mirror%20segment%20(0%2C0)%20to%20(1%2C-1)%0D%0Apair%20B%20%3D%20extension(A%2C%20A%20%2B%20reflected_dir%2C%20vertex%2C%20(1%2C-1))%3B%0D%0A%0D%0A%2F%2F%20Laser%202%3A%20Reflected%20ray%20hitting%20the%20second%20mirror%0D%0Adraw(A--B%2C%20heavygreen%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%0D%0A%2F%2F%20CORRECTED%20Normal%20at%20second%20hit%20point%20(B)%0D%0A%2F%2F%20We%20rotate%20the%20mirror%20vector%20(1%2C%20-1)%20by%20-90%20degrees%20to%20point%20%22out%22%20and%20%22up%22%0D%0Apair%20normal2%20%3D%20rotate(-90)*(1%2C-1)%3B%0D%0Adraw(shift(B)*((0%2C0)--0.4*unit(normal2))%2C%20dotted)%3B%0D%0A%0D%0A%2F%2Fsecond%20angle%20of%20incidence%0D%0Amarkscalefactor%20%3D%200.02%3B%0D%0Adraw(anglemark((0%2C0)%2CB%2CA)%2Cred)%3B%0D%0Amarkscalefactor%20%3D%200.04%3B%0D%0Adraw(anglemark(A%2CB%2CB%2B(-1%2C-1))%2Cblue)%3B%0D%0Alabel(%22%2460%5E%5Ccirc%24%22%2CB%2B(-.1%2C.05)%2C2*W%2Cred)%3B%0D%0Alabel(%22%2430%5E%5Ccirc%24%22%2CB%2B(-.25%2C-.18)%2CSW%2Cblue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(0.3%20cm)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%2C%20E%2C%20F%2C%20G%2C%20H%2C%20I%2C%20J%3B%0D%0A%0D%0AA%20%3D%20(7%2C15)%3B%0D%0AB%20%3D%20(9%2C7)%3B%0D%0AC%20%3D%20(15%2C16)%3B%0D%0AD%20%3D%20(18%2C14)%3B%0D%0AE%20%3D%20(13%2C6)%3B%0D%0AF%20%3D%20(16%2C2)%3B%0D%0AG%20%3D%20(4%2C12)%3B%0D%0AH%20%3D%20(14%2C10)%3B%0D%0AI%20%3D%20(12%2C1)%3B%0D%0AJ%20%3D%20(18%2C9)%3B%0D%0A%0D%0Adot(A)%3B%0D%0Adot(B)%3B%0D%0Adot(C)%3B%0D%0Adot(D)%3B%0D%0Adot(E)%3B%0D%0Adot(F)%3B%0D%0Adot(G)%3B%0D%0Adot(H)%3B%0D%0Adot(I)%3B%0D%0Adot(J)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//source: laser_reflection_path_2
-import olympiad;
+unitsize(0.3 cm);
 
-unitsize(4cm);
+pair A, B, C, D, E, F, G, H, I, J;
 
-real theta = -60;
-pair A = (-.5,-.5);
-pair vertex = (0,0);
+A = (7,15);
+B = (9,7);
+C = (15,16);
+D = (18,14);
+E = (13,6);
+F = (16,2);
+G = (4,12);
+H = (14,10);
+I = (12,1);
+J = (18,9);
 
-// Mirrors
-draw((-1,-1)--vertex--(1,-1), linewidth(2pt));
-
-// Normal at first hit point (A)
-pair normal1 = (1,-1);
-//draw(shift(A)*((0,0)--normal1), dotted);
-
-// Laser 1: Incident ray
-pair incident_start = A + rotate(theta)*normal1;
-draw(incident_start--A, heavygreen);
-
-// --- CALCULATION FOR REFLECTION ---
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Intersection with the second mirror segment (0,0) to (1,-1)
-pair B = extension(A, A + reflected_dir, vertex, (1,-1));
-
-// Laser 2: Reflected ray hitting the second mirror
-draw(A--B, heavygreen, arrow = Arrow(6));
-
-// CORRECTED Normal at second hit point (B)
-// We rotate the mirror vector (1, -1) by -90 degrees to point &quot;out&quot; and &quot;up&quot;
-pair normal2 = rotate(-90)*(1,-1);
-draw(shift(B)*((0,0)--0.4*unit(normal2)), dotted);
-
-//second angle of incidence
-markscalefactor = 0.02;
-draw(anglemark((0,0),B,A),red);
-markscalefactor = 0.04;
-draw(anglemark(A,B,B+(-1,-1)),blue);
-label(&quot;$60^\circ$&quot;,B+(-.1,.05),2*W,red);
-label(&quot;$30^\circ$&quot;,B+(-.25,-.18),SW,blue);
+dot(A);
+dot(B);
+dot(C);
+dot(D);
+dot(E);
+dot(F);
+dot(G);
+dot(H);
+dot(I);
+dot(J);
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="08988" data-file="c539_L5_script_13.asy" data-rank="11802" data-ssim="0.9804" data-ssim-content="0.9805" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="10487" data-file="c57_L1_script_1.asy" data-rank="11802" data-ssim="0.7270" data-ssim-content="0.8927" data-ssim-size="0.8144">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11802" data-id="08988" data-file="c539_L5_script_13.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11802" data-id="10487" data-file="c57_L1_script_1.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11803">
   <div class="card-header">
-    <h2>#11803 &mdash; c405_L23_script_14.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9821 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9834</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9986</span>
+    <h2>#11803 &mdash; c186_L6_script_14.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7341 &middot; Poor</span>
+    <span class="badge" style="background:#c0820a;margin-left:4px">Content 0.7459</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9843</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/06375.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/02891.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/06375.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02891.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/rwrsftop
+      <div class="code-box"><code>size(100);
 
-unitsize(4cm);
+pair A, B, C;
 
-fill(box((0,0),(1,1)), cyan);
+A =(0,0); 
+B= (1,0); 
+C = (1, 2);
 
-pair s = (.125,.125);
-pair center = (.5,.5);
-filldraw(box(center-s, center+s), white);
+draw(A--B--C--cycle);
 
-real f = .2;
-draw(shift(center)*shift(-s.x,0)*shift(-f,0)*((0,0)--(f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(s.x,0)*shift(f,0)*((0,0)--(-f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,s.y)*shift(0,f)*((0,0)--(0,-f)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,-s.y)*shift(0,-f)*((0,0)--(0,f)), arrow = Arrow(6), red+linewidth(2pt));</code></div>
+label(&quot;$\alpha$&quot;, A, 2*(dir(B-A) + dir(C-A)));
+
+label(&quot;$1$&quot;, A--B, S); 
+label(&quot;$2$&quot;, B--C, E);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Frwrsftop%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0Afill(box((0%2C0)%2C(1%2C1))%2C%20cyan)%3B%0D%0A%0D%0Apair%20s%20%3D%20(.125%2C.125)%3B%0D%0Apair%20center%20%3D%20(.5%2C.5)%3B%0D%0Afilldraw(box(center-s%2C%20center%2Bs)%2C%20white)%3B%0D%0A%0D%0Areal%20f%20%3D%20.2%3B%0D%0Adraw(shift(center)*shift(-s.x%2C0)*shift(-f%2C0)*((0%2C0)--(f%2C0))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0D%0Adraw(shift(center)*shift(s.x%2C0)*shift(f%2C0)*((0%2C0)--(-f%2C0))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0D%0Adraw(shift(center)*shift(0%2Cs.y)*shift(0%2Cf)*((0%2C0)--(0%2C-f))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0D%0Adraw(shift(center)*shift(0%2C-s.y)*shift(0%2C-f)*((0%2C0)--(0%2Cf))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(100)%3B%0D%0A%0D%0Apair%20A%2C%20B%2C%20C%3B%0D%0A%0D%0AA%20%3D(0%2C0)%3B%20%0D%0D%0AB%3D%20(1%2C0)%3B%20%0D%0D%0AC%20%3D%20(1%2C%202)%3B%0D%0A%0D%0Adraw(A--B--C--cycle)%3B%0D%0A%0D%0Alabel(%22%24%5Calpha%24%22%2C%20A%2C%202*(dir(B-A)%20%2B%20dir(C-A)))%3B%0D%0A%0D%0Alabel(%22%241%24%22%2C%20A--B%2C%20S)%3B%20%0D%0D%0Alabel(%22%242%24%22%2C%20B--C%2C%20E)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/rwrsftop
+size(100);
 
-unitsize(4cm);
+pair A, B, C;
 
-fill(box((0,0),(1,1)), cyan);
+A =(0,0); 
+B= (1,0); 
+C = (1, 2);
 
-pair s = (.125,.125);
-pair center = (.5,.5);
-filldraw(box(center-s, center+s), white);
+draw(A--B--C--cycle);
 
-real f = .2;
-draw(shift(center)*shift(-s.x,0)*shift(-f,0)*((0,0)--(f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(s.x,0)*shift(f,0)*((0,0)--(-f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,s.y)*shift(0,f)*((0,0)--(0,-f)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,-s.y)*shift(0,-f)*((0,0)--(0,f)), arrow = Arrow(6), red+linewidth(2pt));
+label(&quot;$\alpha$&quot;, A, 2*(dir(B-A) + dir(C-A)));
+
+label(&quot;$1$&quot;, A--B, S); 
+label(&quot;$2$&quot;, B--C, E);
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="06375" data-file="c405_L23_script_14.asy" data-rank="11803" data-ssim="0.9821" data-ssim-content="0.9834" data-ssim-size="0.9986">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="02891" data-file="c186_L6_script_14.asy" data-rank="11803" data-ssim="0.7341" data-ssim-content="0.7459" data-ssim-size="0.9843">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11803" data-id="06375" data-file="c405_L23_script_14.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11803" data-id="02891" data-file="c186_L6_script_14.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11804">
   <div class="card-header">
-    <h2>#11804 &mdash; c405_L23_script_18.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9821 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9834</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9986</span>
+    <h2>#11804 &mdash; c190_L7_script_11.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7592 &middot; Poor</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9548</span>
+    <span class="badge" style="background:#c0820a;margin-left:4px">Size 0.7952</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/06379.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/03571.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/06379.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03571.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>unitsize(4cm);
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/wcjdgmsu
 
-fill(box((0,0),(1,1)), cyan);
+size(4cm);
+defaultpen(fontsize(10pt));
 
-pair s = (.125,.125);
-pair center = (.5,.5);
-filldraw(box(center-s, center+s), white);
+real L = 2;
+draw((L/2, 0)--(-L/2, 0));
 
-real f = .2;
-draw(shift(center)*shift(-s.x,0)*shift(-f,0)*((0,0)--(f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(s.x,0)*shift(f,0)*((0,0)--(-f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,s.y)*shift(0,f)*((0,0)--(0,-f)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,-s.y)*shift(0,-f)*((0,0)--(0,f)), arrow = Arrow(6), red+linewidth(2pt));</code></div>
+dot((L/2, 0));
+dot((-L/2, 0));
+
+real mass_pos = -2/3;
+dot((L/2, mass_pos));</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0Aunitsize(4cm)%3B%0D%0A%0D%0Afill(box((0%2C0)%2C(1%2C1))%2C%20cyan)%3B%0D%0A%0D%0Apair%20s%20%3D%20(.125%2C.125)%3B%0D%0Apair%20center%20%3D%20(.5%2C.5)%3B%0D%0Afilldraw(box(center-s%2C%20center%2Bs)%2C%20white)%3B%0D%0A%0D%0Areal%20f%20%3D%20.2%3B%0D%0Adraw(shift(center)*shift(-s.x%2C0)*shift(-f%2C0)*((0%2C0)--(f%2C0))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0D%0Adraw(shift(center)*shift(s.x%2C0)*shift(f%2C0)*((0%2C0)--(-f%2C0))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0D%0Adraw(shift(center)*shift(0%2Cs.y)*shift(0%2Cf)*((0%2C0)--(0%2C-f))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0D%0Adraw(shift(center)*shift(0%2C-s.y)*shift(0%2C-f)*((0%2C0)--(0%2Cf))%2C%20arrow%20%3D%20Arrow(6)%2C%20red%2Blinewidth(2pt))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fwcjdgmsu%0D%0A%0D%0Asize(4cm)%3B%0D%0Adefaultpen(fontsize(10pt))%3B%0D%0A%0D%0Areal%20L%20%3D%202%3B%0D%0Adraw((L%2F2%2C%200)--(-L%2F2%2C%200))%3B%0D%0A%0D%0Adot((L%2F2%2C%200))%3B%0D%0Adot((-L%2F2%2C%200))%3B%0D%0A%0D%0Areal%20mass_pos%20%3D%20-2%2F3%3B%0D%0Adot((L%2F2%2C%20mass_pos))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-unitsize(4cm);
+//TeXeR source: https://artofproblemsolving.com/texer/wcjdgmsu
 
-fill(box((0,0),(1,1)), cyan);
+size(4cm);
+defaultpen(fontsize(10pt));
 
-pair s = (.125,.125);
-pair center = (.5,.5);
-filldraw(box(center-s, center+s), white);
+real L = 2;
+draw((L/2, 0)--(-L/2, 0));
 
-real f = .2;
-draw(shift(center)*shift(-s.x,0)*shift(-f,0)*((0,0)--(f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(s.x,0)*shift(f,0)*((0,0)--(-f,0)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,s.y)*shift(0,f)*((0,0)--(0,-f)), arrow = Arrow(6), red+linewidth(2pt));
-draw(shift(center)*shift(0,-s.y)*shift(0,-f)*((0,0)--(0,f)), arrow = Arrow(6), red+linewidth(2pt));
+dot((L/2, 0));
+dot((-L/2, 0));
+
+real mass_pos = -2/3;
+dot((L/2, mass_pos));
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="06379" data-file="c405_L23_script_18.asy" data-rank="11804" data-ssim="0.9821" data-ssim-content="0.9834" data-ssim-size="0.9986">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="03571" data-file="c190_L7_script_11.asy" data-rank="11804" data-ssim="0.7592" data-ssim-content="0.9548" data-ssim-size="0.7952">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11804" data-id="06379" data-file="c405_L23_script_18.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11804" data-id="03571" data-file="c190_L7_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11805">
   <div class="card-header">
-    <h2>#11805 &mdash; c539_L5_script_16.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9837 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9838</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11805 &mdash; c10_L7_script_13.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7682 &middot; Poor</span>
+    <span class="badge" style="background:#c0820a;margin-left:4px">Content 0.7768</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9889</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/08991.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/00433.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08991.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00433.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//source: light_mirror_reflection_2
-import olympiad;
-
-unitsize(4cm);
-
-real theta = -35;
-pair A = (-.5,-.5);
-pair vertex = (0,0);
-
-// Mirrors
-draw((-1,-1)--vertex--(1,-1), linewidth(2pt));
-
-// Normal at first hit point (A)
-pair normal1 = (1,-1);
-
-// Laser 1: Incident ray
-pair incident_start = A + rotate(theta)*normal1;
-
-// --- CALCULATION FOR REFLECTION ---
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Intersection with the second mirror segment (0,0) to (1,-1)
-pair B = extension(A, A + reflected_dir, vertex, (1,-1));
-
-//angle of incidence
-markscalefactor = 0.04;
-draw(anglemark(incident_start,A,A+normal1),blue);
-label(&quot;$x$&quot;,A + (.18,-.34),blue);
-
-//angle of reflection
-markscalefactor = 0.03;
-draw(anglemark(A+normal1,A,B),blue);
-label(&quot;$x$&quot;,A + (.28,-.13),blue);
-
-// Laser 2: Reflected ray hitting the second mirror
-draw(A--B, heavygreen, arrow = Arrow(6));
-
-// CORRECTED Normal at second hit point (B)
-// We rotate the mirror vector (1, -1) by -90 degrees to point &quot;out&quot; and &quot;up&quot;
-pair normal2 = rotate(-90)*(1,-1);
-//draw(shift(B)*((0,0)--0.4*unit(normal2)), dotted);
-
-draw(incident_start--A, heavygreen);
-draw(shift(A)*((0,0)--normal1), dotted);
-
-markscalefactor = 0.025;
-draw(anglemark(B,A,vertex),red);
-label(&quot;$A$&quot;,A + (.25,.05),red);</code></div>
+      <div class="code-box"><code>// damped spring e^(-t) * cos(t)
+import graph;
+size(7cm);
+real f(real x){return (5*exp(-x)*cos(x));}
+xlimits(0,8);
+draw(graph(f,0,8),black+1bp);
+xaxis(Label(&quot;$t$&quot;,position=EndPoint, align=SE),Ticks(&quot;%&quot;), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Ticks(&quot;%&quot;), Arrow);
+label(&quot;$1$&quot;,(0,5),2W);
+label(&quot;$1$&quot;,(1,0),2S);
+// end</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20light_mirror_reflection_2%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0Areal%20theta%20%3D%20-35%3B%0D%0Apair%20A%20%3D%20(-.5%2C-.5)%3B%0D%0Apair%20vertex%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2F%20Mirrors%0D%0Adraw((-1%2C-1)--vertex--(1%2C-1)%2C%20linewidth(2pt))%3B%0D%0A%0D%0A%2F%2F%20Normal%20at%20first%20hit%20point%20(A)%0D%0Apair%20normal1%20%3D%20(1%2C-1)%3B%0D%0A%0D%0A%2F%2F%20Laser%201%3A%20Incident%20ray%0D%0Apair%20incident_start%20%3D%20A%20%2B%20rotate(theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20---%20CALCULATION%20FOR%20REFLECTION%20---%0D%0Apair%20reflected_dir%20%3D%20rotate(-theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20Intersection%20with%20the%20second%20mirror%20segment%20(0%2C0)%20to%20(1%2C-1)%0D%0Apair%20B%20%3D%20extension(A%2C%20A%20%2B%20reflected_dir%2C%20vertex%2C%20(1%2C-1))%3B%0D%0A%0D%0A%2F%2Fangle%20of%20incidence%0D%0Amarkscalefactor%20%3D%200.04%3B%0D%0Adraw(anglemark(incident_start%2CA%2CA%2Bnormal1)%2Cblue)%3B%0D%0Alabel(%22%24x%24%22%2CA%20%2B%20(.18%2C-.34)%2Cblue)%3B%0D%0A%0D%0A%2F%2Fangle%20of%20reflection%0D%0Amarkscalefactor%20%3D%200.03%3B%0D%0Adraw(anglemark(A%2Bnormal1%2CA%2CB)%2Cblue)%3B%0D%0Alabel(%22%24x%24%22%2CA%20%2B%20(.28%2C-.13)%2Cblue)%3B%0D%0A%0D%0A%2F%2F%20Laser%202%3A%20Reflected%20ray%20hitting%20the%20second%20mirror%0D%0Adraw(A--B%2C%20heavygreen%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%0D%0A%2F%2F%20CORRECTED%20Normal%20at%20second%20hit%20point%20(B)%0D%0A%2F%2F%20We%20rotate%20the%20mirror%20vector%20(1%2C%20-1)%20by%20-90%20degrees%20to%20point%20%22out%22%20and%20%22up%22%0D%0Apair%20normal2%20%3D%20rotate(-90)*(1%2C-1)%3B%0D%0A%2F%2Fdraw(shift(B)*((0%2C0)--0.4*unit(normal2))%2C%20dotted)%3B%0D%0A%0D%0Adraw(incident_start--A%2C%20heavygreen)%3B%0D%0Adraw(shift(A)*((0%2C0)--normal1)%2C%20dotted)%3B%0D%0A%0D%0Amarkscalefactor%20%3D%200.025%3B%0D%0Adraw(anglemark(B%2CA%2Cvertex)%2Cred)%3B%0D%0Alabel(%22%24A%24%22%2CA%20%2B%20(.25%2C.05)%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2F%20damped%20spring%20e%5E(-t)%20*%20cos(t)%0D%0D%0Aimport%20graph%3B%0D%0D%0Asize(7cm)%3B%0D%0D%0Areal%20f(real%20x)%7Breturn%20(5*exp(-x)*cos(x))%3B%7D%0D%0D%0Axlimits(0%2C8)%3B%0D%0D%0Adraw(graph(f%2C0%2C8)%2Cblack%2B1bp)%3B%0D%0D%0Axaxis(Label(%22%24t%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2CTicks(%22%25%22)%2C%20Arrow)%3B%0D%0D%0Ayaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2CTicks(%22%25%22)%2C%20Arrow)%3B%0D%0D%0Alabel(%22%241%24%22%2C(0%2C5)%2C2W)%3B%0D%0D%0Alabel(%22%241%24%22%2C(1%2C0)%2C2S)%3B%0D%0D%0A%2F%2F%20end%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//source: light_mirror_reflection_2
-import olympiad;
-
-unitsize(4cm);
-
-real theta = -35;
-pair A = (-.5,-.5);
-pair vertex = (0,0);
-
-// Mirrors
-draw((-1,-1)--vertex--(1,-1), linewidth(2pt));
-
-// Normal at first hit point (A)
-pair normal1 = (1,-1);
-
-// Laser 1: Incident ray
-pair incident_start = A + rotate(theta)*normal1;
-
-// --- CALCULATION FOR REFLECTION ---
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Intersection with the second mirror segment (0,0) to (1,-1)
-pair B = extension(A, A + reflected_dir, vertex, (1,-1));
-
-//angle of incidence
-markscalefactor = 0.04;
-draw(anglemark(incident_start,A,A+normal1),blue);
-label(&quot;$x$&quot;,A + (.18,-.34),blue);
-
-//angle of reflection
-markscalefactor = 0.03;
-draw(anglemark(A+normal1,A,B),blue);
-label(&quot;$x$&quot;,A + (.28,-.13),blue);
-
-// Laser 2: Reflected ray hitting the second mirror
-draw(A--B, heavygreen, arrow = Arrow(6));
-
-// CORRECTED Normal at second hit point (B)
-// We rotate the mirror vector (1, -1) by -90 degrees to point &quot;out&quot; and &quot;up&quot;
-pair normal2 = rotate(-90)*(1,-1);
-//draw(shift(B)*((0,0)--0.4*unit(normal2)), dotted);
-
-draw(incident_start--A, heavygreen);
-draw(shift(A)*((0,0)--normal1), dotted);
-
-markscalefactor = 0.025;
-draw(anglemark(B,A,vertex),red);
-label(&quot;$A$&quot;,A + (.25,.05),red);
+// damped spring e^(-t) * cos(t)
+import graph;
+size(7cm);
+real f(real x){return (5*exp(-x)*cos(x));}
+xlimits(0,8);
+draw(graph(f,0,8),black+1bp);
+xaxis(Label(&quot;$t$&quot;,position=EndPoint, align=SE),Ticks(&quot;%&quot;), Arrow);
+yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Ticks(&quot;%&quot;), Arrow);
+label(&quot;$1$&quot;,(0,5),2W);
+label(&quot;$1$&quot;,(1,0),2S);
+// end
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="08991" data-file="c539_L5_script_16.asy" data-rank="11805" data-ssim="0.9837" data-ssim-content="0.9838" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="00433" data-file="c10_L7_script_13.asy" data-rank="11805" data-ssim="0.7682" data-ssim-content="0.7768" data-ssim-size="0.9889">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11805" data-id="08991" data-file="c539_L5_script_16.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11805" data-id="00433" data-file="c10_L7_script_13.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11806">
   <div class="card-header">
-    <h2>#11806 &mdash; c405_L24_script_9.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9855 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9856</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9999</span>
+    <h2>#11806 &mdash; c539_L1_script_16.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7692 &middot; Poor</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8869</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.8673</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/06416.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/08853.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/06416.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08853.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/lkfvrnog
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/svazzdbg
+size(12cm);
 
-unitsize(4cm);
+real b = 1.95; //length of a side of a block
+real n = 8; //number of blocks in the tower
+real h = n*b; //height of tower
+real fh = 183; //height of flashlight above floor
+real fl = 292; //how far back from tower the flashlight is horizontally
+real s = h*fl/(fh-h); //shadow length
 
-real r = 1;
-real dr = .1;
+pair Sh = (-s,0);
+pair T = (0,h); //top left corner of tower, where the shadow ray passes by
+pair F = (fl, fh); //part of flashlight the light comes out
 
-real a = .2;
-real b = 4;
-real t(real y){
-return a/(b-(y+2));
+draw((-50, 0)--(fl + 20,0)); // ground
+
+//draw the tower
+for(int i = 0; i&lt;n; ++i){
+pair bl = (0,i*b); //bottom left of block
+draw(shift(bl)*box((0,0),(b,b)), black);
 }
 
-path R_out = (r-dr+t(0),0);
+dot(F);
 
-int num_points = 100;
-for(int i = 0; i&lt;num_points; ++i){
-real theta = 360/num_points*i;
-pair p = (r-dr +t(Sin(theta)) )*dir(theta);
-R_out = R_out--p;
+//draw( F--Sh, black);
+
+label(&quot;Tower O&quot;,(0,h),NW, black);
+
+//now repeat for tower Y
+n = 4; //number of blocks in the tower
+h = n*b; //height of tower
+s = h*fl/(fh-h); //shadow length
+
+Sh = (-s,0);
+T = (0,h); //top left corner of tower, where the shadow ray passes by
+F = (fl, fh); //part of flashlight the light comes out
+
+for(int i = 0; i&lt;n; ++i){
+pair bl = (0,i*b); //bottom left of block
+draw(shift(bl)*box((0,0),(b,b)),red);
 }
-R_out = R_out--cycle;
 
-fill(R_out, cyan);
-fill(scale(1-dr)*unitcircle,white);
+//draw( F--Sh, red);
 
-//draw(scale(1 + dr)*unitcircle,linewidth(2pt));
-draw(scale(1-dr)*unitcircle, linewidth(2pt));
-draw(R_out, linewidth(2pt));
+label(&quot;Tower Y&quot;,(b,h*0.75),E,red);
 
-//draw((0,0)--(1,0), dotted);
-//label(&quot;$R$&quot;,(.5,0),N);
-
-draw(arc((0,0),1,40,50), arrow = Arrow(6),blue);
-draw(arc((0,0),1,130,140), arrow = Arrow(6),blue);
-draw(arc((0,0),.94,210,240), arrow = Arrow(6),blue);
-draw(arc((0,0),.94,300,330), arrow = Arrow(6),blue);</code></div>
+label(&quot;flashlight&quot;,F,S);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Flkfvrnog%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0Areal%20r%20%3D%201%3B%0D%0Areal%20dr%20%3D%20.1%3B%0D%0A%0D%0Areal%20a%20%3D%20.2%3B%0D%0Areal%20b%20%3D%204%3B%0D%0Areal%20t(real%20y)%7B%0D%0Areturn%20a%2F(b-(y%2B2))%3B%0D%0A%7D%0D%0A%0D%0Apath%20R_out%20%3D%20(r-dr%2Bt(0)%2C0)%3B%0D%0A%0D%0Aint%20num_points%20%3D%20100%3B%0D%0Afor(int%20i%20%3D%200%3B%20i%3Cnum_points%3B%20%2B%2Bi)%7B%0D%0Areal%20theta%20%3D%20360%2Fnum_points*i%3B%0D%0Apair%20p%20%3D%20(r-dr%20%2Bt(Sin(theta))%20)*dir(theta)%3B%0D%0AR_out%20%3D%20R_out--p%3B%0D%0A%7D%0D%0AR_out%20%3D%20R_out--cycle%3B%0D%0A%0D%0Afill(R_out%2C%20cyan)%3B%0D%0Afill(scale(1-dr)*unitcircle%2Cwhite)%3B%0D%0A%0D%0A%2F%2Fdraw(scale(1%20%2B%20dr)*unitcircle%2Clinewidth(2pt))%3B%0D%0Adraw(scale(1-dr)*unitcircle%2C%20linewidth(2pt))%3B%0D%0Adraw(R_out%2C%20linewidth(2pt))%3B%0D%0A%0D%0A%2F%2Fdraw((0%2C0)--(1%2C0)%2C%20dotted)%3B%0D%0A%2F%2Flabel(%22%24R%24%22%2C(.5%2C0)%2CN)%3B%0D%0A%0D%0Adraw(arc((0%2C0)%2C1%2C40%2C50)%2C%20arrow%20%3D%20Arrow(6)%2Cblue)%3B%0D%0Adraw(arc((0%2C0)%2C1%2C130%2C140)%2C%20arrow%20%3D%20Arrow(6)%2Cblue)%3B%0D%0Adraw(arc((0%2C0)%2C.94%2C210%2C240)%2C%20arrow%20%3D%20Arrow(6)%2Cblue)%3B%0D%0Adraw(arc((0%2C0)%2C.94%2C300%2C330)%2C%20arrow%20%3D%20Arrow(6)%2Cblue)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fsvazzdbg%0D%0Asize(12cm)%3B%0D%0A%0D%0Areal%20b%20%3D%201.95%3B%20%2F%2Flength%20of%20a%20side%20of%20a%20block%0D%0Areal%20n%20%3D%208%3B%20%2F%2Fnumber%20of%20blocks%20in%20the%20tower%0D%0Areal%20h%20%3D%20n*b%3B%20%2F%2Fheight%20of%20tower%0D%0Areal%20fh%20%3D%20183%3B%20%2F%2Fheight%20of%20flashlight%20above%20floor%0D%0Areal%20fl%20%3D%20292%3B%20%2F%2Fhow%20far%20back%20from%20tower%20the%20flashlight%20is%20horizontally%0D%0Areal%20s%20%3D%20h*fl%2F(fh-h)%3B%20%2F%2Fshadow%20length%0D%0A%0D%0Apair%20Sh%20%3D%20(-s%2C0)%3B%0D%0Apair%20T%20%3D%20(0%2Ch)%3B%20%2F%2Ftop%20left%20corner%20of%20tower%2C%20where%20the%20shadow%20ray%20passes%20by%0D%0Apair%20F%20%3D%20(fl%2C%20fh)%3B%20%2F%2Fpart%20of%20flashlight%20the%20light%20comes%20out%0D%0A%0D%0Adraw((-50%2C%200)--(fl%20%2B%2020%2C0))%3B%20%2F%2F%20ground%0D%0A%0D%0A%2F%2Fdraw%20the%20tower%0D%0Afor(int%20i%20%3D%200%3B%20i%3Cn%3B%20%2B%2Bi)%7B%0D%0Apair%20bl%20%3D%20(0%2Ci*b)%3B%20%2F%2Fbottom%20left%20of%20block%0D%0Adraw(shift(bl)*box((0%2C0)%2C(b%2Cb))%2C%20black)%3B%0D%0A%7D%0D%0A%0D%0Adot(F)%3B%0D%0A%0D%0A%2F%2Fdraw(%20F--Sh%2C%20black)%3B%0D%0A%0D%0Alabel(%22Tower%20O%22%2C(0%2Ch)%2CNW%2C%20black)%3B%0D%0A%0D%0A%2F%2Fnow%20repeat%20for%20tower%20Y%0D%0An%20%3D%204%3B%20%2F%2Fnumber%20of%20blocks%20in%20the%20tower%0D%0Ah%20%3D%20n*b%3B%20%2F%2Fheight%20of%20tower%0D%0As%20%3D%20h*fl%2F(fh-h)%3B%20%2F%2Fshadow%20length%0D%0A%0D%0ASh%20%3D%20(-s%2C0)%3B%0D%0AT%20%3D%20(0%2Ch)%3B%20%2F%2Ftop%20left%20corner%20of%20tower%2C%20where%20the%20shadow%20ray%20passes%20by%0D%0AF%20%3D%20(fl%2C%20fh)%3B%20%2F%2Fpart%20of%20flashlight%20the%20light%20comes%20out%0D%0A%0D%0Afor(int%20i%20%3D%200%3B%20i%3Cn%3B%20%2B%2Bi)%7B%0D%0Apair%20bl%20%3D%20(0%2Ci*b)%3B%20%2F%2Fbottom%20left%20of%20block%0D%0Adraw(shift(bl)*box((0%2C0)%2C(b%2Cb))%2Cred)%3B%0D%0A%7D%0D%0A%0D%0A%2F%2Fdraw(%20F--Sh%2C%20red)%3B%0D%0A%0D%0Alabel(%22Tower%20Y%22%2C(b%2Ch*0.75)%2CE%2Cred)%3B%0D%0A%0D%0Alabel(%22flashlight%22%2CF%2CS)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/lkfvrnog
+//TeXeR source: https://artofproblemsolving.com/texer/svazzdbg
+size(12cm);
 
-unitsize(4cm);
+real b = 1.95; //length of a side of a block
+real n = 8; //number of blocks in the tower
+real h = n*b; //height of tower
+real fh = 183; //height of flashlight above floor
+real fl = 292; //how far back from tower the flashlight is horizontally
+real s = h*fl/(fh-h); //shadow length
 
-real r = 1;
-real dr = .1;
+pair Sh = (-s,0);
+pair T = (0,h); //top left corner of tower, where the shadow ray passes by
+pair F = (fl, fh); //part of flashlight the light comes out
 
-real a = .2;
-real b = 4;
-real t(real y){
-return a/(b-(y+2));
+draw((-50, 0)--(fl + 20,0)); // ground
+
+//draw the tower
+for(int i = 0; i&lt;n; ++i){
+pair bl = (0,i*b); //bottom left of block
+draw(shift(bl)*box((0,0),(b,b)), black);
 }
 
-path R_out = (r-dr+t(0),0);
+dot(F);
 
-int num_points = 100;
-for(int i = 0; i&lt;num_points; ++i){
-real theta = 360/num_points*i;
-pair p = (r-dr +t(Sin(theta)) )*dir(theta);
-R_out = R_out--p;
+//draw( F--Sh, black);
+
+label(&quot;Tower O&quot;,(0,h),NW, black);
+
+//now repeat for tower Y
+n = 4; //number of blocks in the tower
+h = n*b; //height of tower
+s = h*fl/(fh-h); //shadow length
+
+Sh = (-s,0);
+T = (0,h); //top left corner of tower, where the shadow ray passes by
+F = (fl, fh); //part of flashlight the light comes out
+
+for(int i = 0; i&lt;n; ++i){
+pair bl = (0,i*b); //bottom left of block
+draw(shift(bl)*box((0,0),(b,b)),red);
 }
-R_out = R_out--cycle;
 
-fill(R_out, cyan);
-fill(scale(1-dr)*unitcircle,white);
+//draw( F--Sh, red);
 
-//draw(scale(1 + dr)*unitcircle,linewidth(2pt));
-draw(scale(1-dr)*unitcircle, linewidth(2pt));
-draw(R_out, linewidth(2pt));
+label(&quot;Tower Y&quot;,(b,h*0.75),E,red);
 
-//draw((0,0)--(1,0), dotted);
-//label(&quot;$R$&quot;,(.5,0),N);
-
-draw(arc((0,0),1,40,50), arrow = Arrow(6),blue);
-draw(arc((0,0),1,130,140), arrow = Arrow(6),blue);
-draw(arc((0,0),.94,210,240), arrow = Arrow(6),blue);
-draw(arc((0,0),.94,300,330), arrow = Arrow(6),blue);
+label(&quot;flashlight&quot;,F,S);
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="06416" data-file="c405_L24_script_9.asy" data-rank="11806" data-ssim="0.9855" data-ssim-content="0.9856" data-ssim-size="0.9999">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="08853" data-file="c539_L1_script_16.asy" data-rank="11806" data-ssim="0.7692" data-ssim-content="0.8869" data-ssim-size="0.8673">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11806" data-id="06416" data-file="c405_L24_script_9.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11806" data-id="08853" data-file="c539_L1_script_16.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11807">
   <div class="card-header">
-    <h2>#11807 &mdash; c539_L5_script_15.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9872 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9872</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11807 &mdash; c539_L1_script_5.asy</h2>
+    <span class="badge" style="background:#c0820a">0.7807 &middot; Poor</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.9001</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Size 0.8673</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/08990.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/08861.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08990.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08861.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//source: laser_mirror_reflection
-import olympiad;
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/kcfmeczv
+size(12cm);
 
-unitsize(4cm);
+real b = 1.95; //length of a side of a block
+real n = 4; //number of blocks in the tower
+real h = n*b; //height of tower
+real fh = 183; //height of flashlight above floor
+real s = 13; //shadow length
+real fl = (fh - h)*(s/h); //how far back from tower the flashlight is horizontally
 
-real theta = -35;
-pair A = (-.5,-.5);
-pair vertex = (0,0);
+pair T = (0,h); //top left corner of tower, where the shadow ray passes by
+pair F = (fl, fh); //part of flashlight the light comes out
 
-// Mirrors
-draw((-1,-1)--vertex--(1,-1), linewidth(2pt));
+//draw the tower
+for(int i = 0; i&lt;n; ++i){
+pair bl = (0,i*b); //bottom left of block
+draw(shift(bl)*box((0,0),(b,b)));
+}
 
-// Normal at first hit point (A)
-pair normal1 = (1,-1);
+draw((-50, 0)--(fl + 20,0)); // ground
 
-// Laser 1: Incident ray
-pair incident_start = A + rotate(theta)*normal1;
+label(&quot;floor&quot;,(-25 + 10 + fl/2,0),S);
+label(&quot;Tower Y&quot;,(0,0),S);
+label(&quot;flashlight&quot;,F, N);
 
-// --- CALCULATION FOR REFLECTION ---
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Intersection with the second mirror segment (0,0) to (1,-1)
-pair B = extension(A, A + reflected_dir, vertex, (1,-1));
-
-//angle of incidence
-markscalefactor = 0.04;
-draw(anglemark(incident_start,A,A+normal1),blue);
-label(&quot;$x$&quot;,A + (.18,-.34),blue);
-
-// Laser 2: Reflected ray hitting the second mirror
-draw(A--B, heavygreen, arrow = Arrow(6));
-
-// CORRECTED Normal at second hit point (B)
-// We rotate the mirror vector (1, -1) by -90 degrees to point &quot;out&quot; and &quot;up&quot;
-pair normal2 = rotate(-90)*(1,-1);
-//draw(shift(B)*((0,0)--0.4*unit(normal2)), dotted);
-
-draw(incident_start--A, heavygreen);
-draw(shift(A)*((0,0)--normal1), dotted);</code></div>
+dot(F);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20laser_mirror_reflection%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0Areal%20theta%20%3D%20-35%3B%0D%0Apair%20A%20%3D%20(-.5%2C-.5)%3B%0D%0Apair%20vertex%20%3D%20(0%2C0)%3B%0D%0A%0D%0A%2F%2F%20Mirrors%0D%0Adraw((-1%2C-1)--vertex--(1%2C-1)%2C%20linewidth(2pt))%3B%0D%0A%0D%0A%2F%2F%20Normal%20at%20first%20hit%20point%20(A)%0D%0Apair%20normal1%20%3D%20(1%2C-1)%3B%0D%0A%0D%0A%2F%2F%20Laser%201%3A%20Incident%20ray%0D%0Apair%20incident_start%20%3D%20A%20%2B%20rotate(theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20---%20CALCULATION%20FOR%20REFLECTION%20---%0D%0Apair%20reflected_dir%20%3D%20rotate(-theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20Intersection%20with%20the%20second%20mirror%20segment%20(0%2C0)%20to%20(1%2C-1)%0D%0Apair%20B%20%3D%20extension(A%2C%20A%20%2B%20reflected_dir%2C%20vertex%2C%20(1%2C-1))%3B%0D%0A%0D%0A%2F%2Fangle%20of%20incidence%0D%0Amarkscalefactor%20%3D%200.04%3B%0D%0Adraw(anglemark(incident_start%2CA%2CA%2Bnormal1)%2Cblue)%3B%0D%0Alabel(%22%24x%24%22%2CA%20%2B%20(.18%2C-.34)%2Cblue)%3B%0D%0A%0D%0A%2F%2F%20Laser%202%3A%20Reflected%20ray%20hitting%20the%20second%20mirror%0D%0Adraw(A--B%2C%20heavygreen%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%0D%0A%2F%2F%20CORRECTED%20Normal%20at%20second%20hit%20point%20(B)%0D%0A%2F%2F%20We%20rotate%20the%20mirror%20vector%20(1%2C%20-1)%20by%20-90%20degrees%20to%20point%20%22out%22%20and%20%22up%22%0D%0Apair%20normal2%20%3D%20rotate(-90)*(1%2C-1)%3B%0D%0A%2F%2Fdraw(shift(B)*((0%2C0)--0.4*unit(normal2))%2C%20dotted)%3B%0D%0A%0D%0Adraw(incident_start--A%2C%20heavygreen)%3B%0D%0Adraw(shift(A)*((0%2C0)--normal1)%2C%20dotted)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fkcfmeczv%0D%0Asize(12cm)%3B%0D%0A%0D%0Areal%20b%20%3D%201.95%3B%20%2F%2Flength%20of%20a%20side%20of%20a%20block%0D%0Areal%20n%20%3D%204%3B%20%2F%2Fnumber%20of%20blocks%20in%20the%20tower%0D%0Areal%20h%20%3D%20n*b%3B%20%2F%2Fheight%20of%20tower%0D%0Areal%20fh%20%3D%20183%3B%20%2F%2Fheight%20of%20flashlight%20above%20floor%0D%0Areal%20s%20%3D%2013%3B%20%2F%2Fshadow%20length%0D%0Areal%20fl%20%3D%20(fh%20-%20h)*(s%2Fh)%3B%20%2F%2Fhow%20far%20back%20from%20tower%20the%20flashlight%20is%20horizontally%0D%0A%0D%0Apair%20T%20%3D%20(0%2Ch)%3B%20%2F%2Ftop%20left%20corner%20of%20tower%2C%20where%20the%20shadow%20ray%20passes%20by%0D%0Apair%20F%20%3D%20(fl%2C%20fh)%3B%20%2F%2Fpart%20of%20flashlight%20the%20light%20comes%20out%0D%0A%0D%0A%2F%2Fdraw%20the%20tower%0D%0Afor(int%20i%20%3D%200%3B%20i%3Cn%3B%20%2B%2Bi)%7B%0D%0Apair%20bl%20%3D%20(0%2Ci*b)%3B%20%2F%2Fbottom%20left%20of%20block%0D%0Adraw(shift(bl)*box((0%2C0)%2C(b%2Cb)))%3B%0D%0A%7D%0D%0A%0D%0Adraw((-50%2C%200)--(fl%20%2B%2020%2C0))%3B%20%2F%2F%20ground%0D%0A%0D%0Alabel(%22floor%22%2C(-25%20%2B%2010%20%2B%20fl%2F2%2C0)%2CS)%3B%0D%0Alabel(%22Tower%20Y%22%2C(0%2C0)%2CS)%3B%0D%0Alabel(%22flashlight%22%2CF%2C%20N)%3B%0D%0A%0D%0Adot(F)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//source: laser_mirror_reflection
-import olympiad;
+//TeXeR source: https://artofproblemsolving.com/texer/kcfmeczv
+size(12cm);
 
-unitsize(4cm);
+real b = 1.95; //length of a side of a block
+real n = 4; //number of blocks in the tower
+real h = n*b; //height of tower
+real fh = 183; //height of flashlight above floor
+real s = 13; //shadow length
+real fl = (fh - h)*(s/h); //how far back from tower the flashlight is horizontally
 
-real theta = -35;
-pair A = (-.5,-.5);
-pair vertex = (0,0);
+pair T = (0,h); //top left corner of tower, where the shadow ray passes by
+pair F = (fl, fh); //part of flashlight the light comes out
 
-// Mirrors
-draw((-1,-1)--vertex--(1,-1), linewidth(2pt));
+//draw the tower
+for(int i = 0; i&lt;n; ++i){
+pair bl = (0,i*b); //bottom left of block
+draw(shift(bl)*box((0,0),(b,b)));
+}
 
-// Normal at first hit point (A)
-pair normal1 = (1,-1);
+draw((-50, 0)--(fl + 20,0)); // ground
 
-// Laser 1: Incident ray
-pair incident_start = A + rotate(theta)*normal1;
+label(&quot;floor&quot;,(-25 + 10 + fl/2,0),S);
+label(&quot;Tower Y&quot;,(0,0),S);
+label(&quot;flashlight&quot;,F, N);
 
-// --- CALCULATION FOR REFLECTION ---
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Intersection with the second mirror segment (0,0) to (1,-1)
-pair B = extension(A, A + reflected_dir, vertex, (1,-1));
-
-//angle of incidence
-markscalefactor = 0.04;
-draw(anglemark(incident_start,A,A+normal1),blue);
-label(&quot;$x$&quot;,A + (.18,-.34),blue);
-
-// Laser 2: Reflected ray hitting the second mirror
-draw(A--B, heavygreen, arrow = Arrow(6));
-
-// CORRECTED Normal at second hit point (B)
-// We rotate the mirror vector (1, -1) by -90 degrees to point &quot;out&quot; and &quot;up&quot;
-pair normal2 = rotate(-90)*(1,-1);
-//draw(shift(B)*((0,0)--0.4*unit(normal2)), dotted);
-
-draw(incident_start--A, heavygreen);
-draw(shift(A)*((0,0)--normal1), dotted);
+dot(F);
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="08990" data-file="c539_L5_script_15.asy" data-rank="11807" data-ssim="0.9872" data-ssim-content="0.9872" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="08861" data-file="c539_L1_script_5.asy" data-rank="11807" data-ssim="0.7807" data-ssim-content="0.9001" data-ssim-size="0.8673">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11807" data-id="08990" data-file="c539_L5_script_15.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11807" data-id="08861" data-file="c539_L1_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11808">
   <div class="card-header">
-    <h2>#11808 &mdash; c539_L2_script_5.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9900 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9900</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11808 &mdash; c583_L7_p48864_problem_text_0.asy</h2>
+    <span class="badge" style="background:#c0820a">0.8335 &middot; Poor</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8502</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9804</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/08876.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/12117.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08876.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/12117.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/xkbxftwk
+      <div class="code-box"><code>size(200);
 
-//light bulb
+dot((0,11),3+red);
+dot((1,8),3+red);
+dot((2,9),3+red);
+dot((3,12),3+red);
+dot((4,12),3+red);
+dot((5,8),3+red);
+dot((6,13),3+red);
 
-picture bulb;
-currentpicture = bulb;
-
-pair A = (86,35);
-pair B = (86,49);
-pair C = (86,63);
-pair D = (86,80);
-pair E = (86,90);
-pair F = (81,98);
-pair G = (74,105);
-pair H = (68,113);
-pair I = (62,122);
-pair J = (57,132);
-pair K = (53,143);
-pair L = (52,157);
-pair M = (53,169);
-pair N = (58,183);
-pair O = (65,195);
-pair P = (76,205);
-pair Q = (89,212);
-pair R = (105,216);
-pair S = (121,216);
-pair T = (136,213);
-pair U = (148,206);
-pair V = (159,195);
-pair W = (167,183);
-pair X = (172,167);
-pair Y = (172,151);
-pair Z = (170,137);
-pair AA = (162,123);
-pair AB = (153,111);
-pair AC = (145,99);
-pair AD = (139,91);
-pair AE = (137,80);
-pair AF = (137,63);
-pair AG = (137,49);
-pair AH = (137,35);
-pair AI = (126,23);
-pair AJ = (98,22);
-path shape = A--B--C--D--E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..cycle;
-
-draw(shape);
-draw(A--AH);
-draw(B--AG);
-draw(C--AF);
-draw(D--AE);
-
-//lines of light
-pair AK = (51,120);
-pair AL = (29,108);
-pair AM = (40,156);
-pair AN = (16,156);
-pair AO = (50,191);
-pair AP = (28,203);
-pair AQ = (75,220);
-pair AR = (63,239);
-pair AS = (111,229);
-pair AT = (111,252);
-pair AU = (148,221);
-pair AV = (160,239);
-pair AW = (175,193);
-pair AX = (194,205);
-pair AY = (183,157);
-pair AZ = (207,157);
-pair BA = (173,121);
-pair BB = (192,109);
-
-real length = 2;
-
-draw(shift(AK)*((0,0)--(AL-AK)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AM)*((0,0)--(AN-AM)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AO)*((0,0)--(AP-AO)*9.8*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-draw(((AP-AO)*9.8*length+AO)--(10,550),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-draw(shift(AQ)*((0,0)--(AR-AQ)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AS)*((0,0)--(AT-AS)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AU)*((0,0)--(AV-AU)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AW)*((0,0)--(AX-AW)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AY)*((0,0)--(AZ-AY)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(BA)*((0,0)--(BB-BA)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-//////////////////////////
-
-picture scene;
-currentpicture = scene;
-unitsize(5cm);
-
-//background
-fill(box((-.2,-.2),(3,1.3)), gray);
-
-path house = ((0,0)--(1,0)--(1,.7)--(.5,1)--(0,.7)--cycle);
-path person = (-.1,0)--(0,.5)--(.1,0)--(0,.5)--(0,.75)--(-.35,.75)--(.35,.75)--(0,.75)--(0,.8)--shift(0,.9)*scale(.1)*rotate(-90)*unitcircle;
-
-filldraw(house, white+linewidth(2pt));
-draw((1,.3)--(1,.6), linewidth(4pt)); //window
-
-draw(shift(.6,0)*scale(.5)*person);
-
-add(shift(.61,1.01)*rotate(180)*scale(.001)*bulb);
-
-//tree
-
-pair A = (0.442,0.052);
-pair B = (0.485,0.046);
-pair C = (0.530,0.046);
-pair D = (0.559,0.056);
-pair E = (0.540,0.120);
-pair F = (0.528,0.183);
-pair G = (0.528,0.279);
-pair H = (0.559,0.353);
-pair I = (0.602,0.398);
-pair J = (0.629,0.407);
-pair K = (0.649,0.361);
-pair L = (0.693,0.350);
-pair M = (0.715,0.363);
-pair N = (0.744,0.340);
-pair O = (0.777,0.361);
-pair P = (0.812,0.350);
-pair Q = (0.829,0.379);
-pair R = (0.859,0.364);
-pair S = (0.903,0.424);
-pair T = (0.894,0.442);
-pair U = (0.915,0.483);
-pair V = (0.882,0.486);
-pair W = (0.929,0.523);
-pair X = (0.925,0.538);
-pair Y = (0.917,0.568);
-pair Z = (0.935,0.607);
-pair AA = (0.894,0.623);
-pair AB = (0.905,0.640);
-pair AC = (0.901,0.673);
-pair AD = (0.919,0.693);
-pair AE = (0.901,0.704);
-pair AF = (0.907,0.736);
-pair AG = (0.896,0.753);
-pair AH = (0.870,0.754);
-pair AI = (0.849,0.764);
-pair AJ = (0.855,0.778);
-pair AK = (0.843,0.795);
-pair AL = (0.824,0.797);
-pair AM = (0.808,0.817);
-pair AN = (0.816,0.830);
-pair AO = (0.804,0.852);
-pair AP = (0.789,0.860);
-pair AQ = (0.761,0.873);
-pair AR = (0.769,0.886);
-pair AS = (0.750,0.893);
-pair AT = (0.722,0.884);
-pair AU = (0.717,0.904);
-pair AV = (0.703,0.908);
-pair AW = (0.676,0.904);
-pair AX = (0.660,0.893);
-pair AY = (0.654,0.893);
-pair AZ = (0.649,0.915);
-pair BA = (0.633,0.921);
-pair BB = (0.610,0.919);
-pair BC = (0.619,0.948);
-pair BD = (0.582,0.960);
-pair BE = (0.571,0.954);
-pair BF = (0.557,0.967);
-pair BG = (0.540,0.956);
-pair BH = (0.522,0.923);
-pair BI = (0.505,0.939);
-pair BJ = (0.501,0.947);
-pair BK = (0.473,0.934);
-pair BL = (0.477,0.960);
-pair BM = (0.450,0.971);
-pair BN = (0.421,0.971);
-pair BO = (0.405,0.954);
-pair BP = (0.364,0.954);
-pair BQ = (0.359,0.919);
-pair BR = (0.357,0.904);
-pair BS = (0.318,0.906);
-pair BT = (0.275,0.889);
-pair BU = (0.271,0.849);
-pair BV = (0.238,0.838);
-pair BW = (0.228,0.858);
-pair BX = (0.189,0.834);
-pair BY = (0.174,0.819);
-pair BZ = (0.150,0.819);
-pair CA = (0.145,0.801);
-pair CB = (0.150,0.778);
-pair CC = (0.166,0.773);
-pair CD = (0.135,0.756);
-pair CE = (0.108,0.734);
-pair CF = (0.119,0.719);
-pair CG = (0.090,0.692);
-pair CH = (0.108,0.679);
-pair CI = (0.104,0.653);
-pair CJ = (0.086,0.625);
-pair CK = (0.090,0.607);
-pair CL = (0.119,0.601);
-pair CM = (0.110,0.575);
-pair CN = (0.137,0.553);
-pair CO = (0.117,0.523);
-pair CP = (0.104,0.497);
-pair CQ = (0.131,0.464);
-pair CR = (0.108,0.433);
-pair CS = (0.131,0.416);
-pair CT = (0.158,0.409);
-pair CU = (0.150,0.375);
-pair CV = (0.184,0.363);
-pair CW = (0.201,0.342);
-pair CX = (0.236,0.368);
-pair CY = (0.248,0.351);
-pair CZ = (0.273,0.359);
-pair DA = (0.306,0.390);
-pair DB = (0.361,0.394);
-pair DC = (0.384,0.403);
-pair DD = (0.429,0.383);
-pair DE = (0.460,0.342);
-pair DF = (0.475,0.290);
-pair DG = (0.475,0.196);
-pair DH = (0.462,0.093);
-
-path shape = A..B..C..D..E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..AK..AL..AM..AN..AO..AP..AQ..AR..AS..AT..AU..AV..AW..AX..AY..AZ..BA..BB..BC..BD..BE..BF..BG..BH..BI..BJ..BK..BL..BM..BN..BO..BP..BQ..BR..BS..BT..BU..BV..BW..BX..BY..BZ..CA..CB..CC..CD..CE..CF..CG..CH..CI..CJ..CK..CL..CM..CN..CO..CP..CQ..CR..CS..CT..CU..CV..CW..CX..CY..CZ..DA..DB..DC..DD..DE..DF..DG..DH..cycle;
-
-filldraw(shift(1.5,0)*(shape),darkgray);
-
-draw((2,.7)--(.6,.45),   arrow = Arrow(6), lightolive+linewidth(.5pt) );</code></div>
+draw((0,0)--(6,0));
+int i;
+for (i = 0; i &lt;= 6; ++i) {
+draw((i,-0.1)--(i,0.1));
+label(string(i), (i,-0.45), S,fontsize(12));
+}</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fxkbxftwk%0D%0A%0D%0A%2F%2Flight%20bulb%0D%0A%0D%0Apicture%20bulb%3B%0D%0Acurrentpicture%20%3D%20bulb%3B%0D%0A%0D%0Apair%20A%20%3D%20(86%2C35)%3B%0D%0Apair%20B%20%3D%20(86%2C49)%3B%0D%0Apair%20C%20%3D%20(86%2C63)%3B%0D%0Apair%20D%20%3D%20(86%2C80)%3B%0D%0Apair%20E%20%3D%20(86%2C90)%3B%0D%0Apair%20F%20%3D%20(81%2C98)%3B%0D%0Apair%20G%20%3D%20(74%2C105)%3B%0D%0Apair%20H%20%3D%20(68%2C113)%3B%0D%0Apair%20I%20%3D%20(62%2C122)%3B%0D%0Apair%20J%20%3D%20(57%2C132)%3B%0D%0Apair%20K%20%3D%20(53%2C143)%3B%0D%0Apair%20L%20%3D%20(52%2C157)%3B%0D%0Apair%20M%20%3D%20(53%2C169)%3B%0D%0Apair%20N%20%3D%20(58%2C183)%3B%0D%0Apair%20O%20%3D%20(65%2C195)%3B%0D%0Apair%20P%20%3D%20(76%2C205)%3B%0D%0Apair%20Q%20%3D%20(89%2C212)%3B%0D%0Apair%20R%20%3D%20(105%2C216)%3B%0D%0Apair%20S%20%3D%20(121%2C216)%3B%0D%0Apair%20T%20%3D%20(136%2C213)%3B%0D%0Apair%20U%20%3D%20(148%2C206)%3B%0D%0Apair%20V%20%3D%20(159%2C195)%3B%0D%0Apair%20W%20%3D%20(167%2C183)%3B%0D%0Apair%20X%20%3D%20(172%2C167)%3B%0D%0Apair%20Y%20%3D%20(172%2C151)%3B%0D%0Apair%20Z%20%3D%20(170%2C137)%3B%0D%0Apair%20AA%20%3D%20(162%2C123)%3B%0D%0Apair%20AB%20%3D%20(153%2C111)%3B%0D%0Apair%20AC%20%3D%20(145%2C99)%3B%0D%0Apair%20AD%20%3D%20(139%2C91)%3B%0D%0Apair%20AE%20%3D%20(137%2C80)%3B%0D%0Apair%20AF%20%3D%20(137%2C63)%3B%0D%0Apair%20AG%20%3D%20(137%2C49)%3B%0D%0Apair%20AH%20%3D%20(137%2C35)%3B%0D%0Apair%20AI%20%3D%20(126%2C23)%3B%0D%0Apair%20AJ%20%3D%20(98%2C22)%3B%0D%0Apath%20shape%20%3D%20A--B--C--D--E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..cycle%3B%0D%0A%0D%0Adraw(shape)%3B%0D%0Adraw(A--AH)%3B%0D%0Adraw(B--AG)%3B%0D%0Adraw(C--AF)%3B%0D%0Adraw(D--AE)%3B%0D%0A%0D%0A%2F%2Flines%20of%20light%0D%0Apair%20AK%20%3D%20(51%2C120)%3B%0D%0Apair%20AL%20%3D%20(29%2C108)%3B%0D%0Apair%20AM%20%3D%20(40%2C156)%3B%0D%0Apair%20AN%20%3D%20(16%2C156)%3B%0D%0Apair%20AO%20%3D%20(50%2C191)%3B%0D%0Apair%20AP%20%3D%20(28%2C203)%3B%0D%0Apair%20AQ%20%3D%20(75%2C220)%3B%0D%0Apair%20AR%20%3D%20(63%2C239)%3B%0D%0Apair%20AS%20%3D%20(111%2C229)%3B%0D%0Apair%20AT%20%3D%20(111%2C252)%3B%0D%0Apair%20AU%20%3D%20(148%2C221)%3B%0D%0Apair%20AV%20%3D%20(160%2C239)%3B%0D%0Apair%20AW%20%3D%20(175%2C193)%3B%0D%0Apair%20AX%20%3D%20(194%2C205)%3B%0D%0Apair%20AY%20%3D%20(183%2C157)%3B%0D%0Apair%20AZ%20%3D%20(207%2C157)%3B%0D%0Apair%20BA%20%3D%20(173%2C121)%3B%0D%0Apair%20BB%20%3D%20(192%2C109)%3B%0D%0A%0D%0Areal%20length%20%3D%202%3B%0D%0A%0D%0Adraw(shift(AK)*((0%2C0)--(AL-AK)*3)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AM)*((0%2C0)--(AN-AM)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AO)*((0%2C0)--(AP-AO)*9.8*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0A%0D%0Adraw(((AP-AO)*9.8*length%2BAO)--(10%2C550)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0A%0D%0Adraw(shift(AQ)*((0%2C0)--(AR-AQ)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AS)*((0%2C0)--(AT-AS)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AU)*((0%2C0)--(AV-AU)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AW)*((0%2C0)--(AX-AW)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AY)*((0%2C0)--(AZ-AY)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(BA)*((0%2C0)--(BB-BA)*3)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0A%0D%0A%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%0D%0A%0D%0Apicture%20scene%3B%0D%0Acurrentpicture%20%3D%20scene%3B%0D%0Aunitsize(5cm)%3B%0D%0A%0D%0A%2F%2Fbackground%0D%0Afill(box((-.2%2C-.2)%2C(3%2C1.3))%2C%20gray)%3B%0D%0A%0D%0Apath%20house%20%3D%20((0%2C0)--(1%2C0)--(1%2C.7)--(.5%2C1)--(0%2C.7)--cycle)%3B%0D%0Apath%20person%20%3D%20(-.1%2C0)--(0%2C.5)--(.1%2C0)--(0%2C.5)--(0%2C.75)--(-.35%2C.75)--(.35%2C.75)--(0%2C.75)--(0%2C.8)--shift(0%2C.9)*scale(.1)*rotate(-90)*unitcircle%3B%0D%0A%0D%0Afilldraw(house%2C%20white%2Blinewidth(2pt))%3B%0D%0Adraw((1%2C.3)--(1%2C.6)%2C%20linewidth(4pt))%3B%20%2F%2Fwindow%0D%0A%0D%0Adraw(shift(.6%2C0)*scale(.5)*person)%3B%0D%0A%0D%0Aadd(shift(.61%2C1.01)*rotate(180)*scale(.001)*bulb)%3B%0D%0A%0D%0A%2F%2Ftree%0D%0A%0D%0Apair%20A%20%3D%20(0.442%2C0.052)%3B%0D%0Apair%20B%20%3D%20(0.485%2C0.046)%3B%0D%0Apair%20C%20%3D%20(0.530%2C0.046)%3B%0D%0Apair%20D%20%3D%20(0.559%2C0.056)%3B%0D%0Apair%20E%20%3D%20(0.540%2C0.120)%3B%0D%0Apair%20F%20%3D%20(0.528%2C0.183)%3B%0D%0Apair%20G%20%3D%20(0.528%2C0.279)%3B%0D%0Apair%20H%20%3D%20(0.559%2C0.353)%3B%0D%0Apair%20I%20%3D%20(0.602%2C0.398)%3B%0D%0Apair%20J%20%3D%20(0.629%2C0.407)%3B%0D%0Apair%20K%20%3D%20(0.649%2C0.361)%3B%0D%0Apair%20L%20%3D%20(0.693%2C0.350)%3B%0D%0Apair%20M%20%3D%20(0.715%2C0.363)%3B%0D%0Apair%20N%20%3D%20(0.744%2C0.340)%3B%0D%0Apair%20O%20%3D%20(0.777%2C0.361)%3B%0D%0Apair%20P%20%3D%20(0.812%2C0.350)%3B%0D%0Apair%20Q%20%3D%20(0.829%2C0.379)%3B%0D%0Apair%20R%20%3D%20(0.859%2C0.364)%3B%0D%0Apair%20S%20%3D%20(0.903%2C0.424)%3B%0D%0Apair%20T%20%3D%20(0.894%2C0.442)%3B%0D%0Apair%20U%20%3D%20(0.915%2C0.483)%3B%0D%0Apair%20V%20%3D%20(0.882%2C0.486)%3B%0D%0Apair%20W%20%3D%20(0.929%2C0.523)%3B%0D%0Apair%20X%20%3D%20(0.925%2C0.538)%3B%0D%0Apair%20Y%20%3D%20(0.917%2C0.568)%3B%0D%0Apair%20Z%20%3D%20(0.935%2C0.607)%3B%0D%0Apair%20AA%20%3D%20(0.894%2C0.623)%3B%0D%0Apair%20AB%20%3D%20(0.905%2C0.640)%3B%0D%0Apair%20AC%20%3D%20(0.901%2C0.673)%3B%0D%0Apair%20AD%20%3D%20(0.919%2C0.693)%3B%0D%0Apair%20AE%20%3D%20(0.901%2C0.704)%3B%0D%0Apair%20AF%20%3D%20(0.907%2C0.736)%3B%0D%0Apair%20AG%20%3D%20(0.896%2C0.753)%3B%0D%0Apair%20AH%20%3D%20(0.870%2C0.754)%3B%0D%0Apair%20AI%20%3D%20(0.849%2C0.764)%3B%0D%0Apair%20AJ%20%3D%20(0.855%2C0.778)%3B%0D%0Apair%20AK%20%3D%20(0.843%2C0.795)%3B%0D%0Apair%20AL%20%3D%20(0.824%2C0.797)%3B%0D%0Apair%20AM%20%3D%20(0.808%2C0.817)%3B%0D%0Apair%20AN%20%3D%20(0.816%2C0.830)%3B%0D%0Apair%20AO%20%3D%20(0.804%2C0.852)%3B%0D%0Apair%20AP%20%3D%20(0.789%2C0.860)%3B%0D%0Apair%20AQ%20%3D%20(0.761%2C0.873)%3B%0D%0Apair%20AR%20%3D%20(0.769%2C0.886)%3B%0D%0Apair%20AS%20%3D%20(0.750%2C0.893)%3B%0D%0Apair%20AT%20%3D%20(0.722%2C0.884)%3B%0D%0Apair%20AU%20%3D%20(0.717%2C0.904)%3B%0D%0Apair%20AV%20%3D%20(0.703%2C0.908)%3B%0D%0Apair%20AW%20%3D%20(0.676%2C0.904)%3B%0D%0Apair%20AX%20%3D%20(0.660%2C0.893)%3B%0D%0Apair%20AY%20%3D%20(0.654%2C0.893)%3B%0D%0Apair%20AZ%20%3D%20(0.649%2C0.915)%3B%0D%0Apair%20BA%20%3D%20(0.633%2C0.921)%3B%0D%0Apair%20BB%20%3D%20(0.610%2C0.919)%3B%0D%0Apair%20BC%20%3D%20(0.619%2C0.948)%3B%0D%0Apair%20BD%20%3D%20(0.582%2C0.960)%3B%0D%0Apair%20BE%20%3D%20(0.571%2C0.954)%3B%0D%0Apair%20BF%20%3D%20(0.557%2C0.967)%3B%0D%0Apair%20BG%20%3D%20(0.540%2C0.956)%3B%0D%0Apair%20BH%20%3D%20(0.522%2C0.923)%3B%0D%0Apair%20BI%20%3D%20(0.505%2C0.939)%3B%0D%0Apair%20BJ%20%3D%20(0.501%2C0.947)%3B%0D%0Apair%20BK%20%3D%20(0.473%2C0.934)%3B%0D%0Apair%20BL%20%3D%20(0.477%2C0.960)%3B%0D%0Apair%20BM%20%3D%20(0.450%2C0.971)%3B%0D%0Apair%20BN%20%3D%20(0.421%2C0.971)%3B%0D%0Apair%20BO%20%3D%20(0.405%2C0.954)%3B%0D%0Apair%20BP%20%3D%20(0.364%2C0.954)%3B%0D%0Apair%20BQ%20%3D%20(0.359%2C0.919)%3B%0D%0Apair%20BR%20%3D%20(0.357%2C0.904)%3B%0D%0Apair%20BS%20%3D%20(0.318%2C0.906)%3B%0D%0Apair%20BT%20%3D%20(0.275%2C0.889)%3B%0D%0Apair%20BU%20%3D%20(0.271%2C0.849)%3B%0D%0Apair%20BV%20%3D%20(0.238%2C0.838)%3B%0D%0Apair%20BW%20%3D%20(0.228%2C0.858)%3B%0D%0Apair%20BX%20%3D%20(0.189%2C0.834)%3B%0D%0Apair%20BY%20%3D%20(0.174%2C0.819)%3B%0D%0Apair%20BZ%20%3D%20(0.150%2C0.819)%3B%0D%0Apair%20CA%20%3D%20(0.145%2C0.801)%3B%0D%0Apair%20CB%20%3D%20(0.150%2C0.778)%3B%0D%0Apair%20CC%20%3D%20(0.166%2C0.773)%3B%0D%0Apair%20CD%20%3D%20(0.135%2C0.756)%3B%0D%0Apair%20CE%20%3D%20(0.108%2C0.734)%3B%0D%0Apair%20CF%20%3D%20(0.119%2C0.719)%3B%0D%0Apair%20CG%20%3D%20(0.090%2C0.692)%3B%0D%0Apair%20CH%20%3D%20(0.108%2C0.679)%3B%0D%0Apair%20CI%20%3D%20(0.104%2C0.653)%3B%0D%0Apair%20CJ%20%3D%20(0.086%2C0.625)%3B%0D%0Apair%20CK%20%3D%20(0.090%2C0.607)%3B%0D%0Apair%20CL%20%3D%20(0.119%2C0.601)%3B%0D%0Apair%20CM%20%3D%20(0.110%2C0.575)%3B%0D%0Apair%20CN%20%3D%20(0.137%2C0.553)%3B%0D%0Apair%20CO%20%3D%20(0.117%2C0.523)%3B%0D%0Apair%20CP%20%3D%20(0.104%2C0.497)%3B%0D%0Apair%20CQ%20%3D%20(0.131%2C0.464)%3B%0D%0Apair%20CR%20%3D%20(0.108%2C0.433)%3B%0D%0Apair%20CS%20%3D%20(0.131%2C0.416)%3B%0D%0Apair%20CT%20%3D%20(0.158%2C0.409)%3B%0D%0Apair%20CU%20%3D%20(0.150%2C0.375)%3B%0D%0Apair%20CV%20%3D%20(0.184%2C0.363)%3B%0D%0Apair%20CW%20%3D%20(0.201%2C0.342)%3B%0D%0Apair%20CX%20%3D%20(0.236%2C0.368)%3B%0D%0Apair%20CY%20%3D%20(0.248%2C0.351)%3B%0D%0Apair%20CZ%20%3D%20(0.273%2C0.359)%3B%0D%0Apair%20DA%20%3D%20(0.306%2C0.390)%3B%0D%0Apair%20DB%20%3D%20(0.361%2C0.394)%3B%0D%0Apair%20DC%20%3D%20(0.384%2C0.403)%3B%0D%0Apair%20DD%20%3D%20(0.429%2C0.383)%3B%0D%0Apair%20DE%20%3D%20(0.460%2C0.342)%3B%0D%0Apair%20DF%20%3D%20(0.475%2C0.290)%3B%0D%0Apair%20DG%20%3D%20(0.475%2C0.196)%3B%0D%0Apair%20DH%20%3D%20(0.462%2C0.093)%3B%0D%0A%0D%0Apath%20shape%20%3D%20A..B..C..D..E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..AK..AL..AM..AN..AO..AP..AQ..AR..AS..AT..AU..AV..AW..AX..AY..AZ..BA..BB..BC..BD..BE..BF..BG..BH..BI..BJ..BK..BL..BM..BN..BO..BP..BQ..BR..BS..BT..BU..BV..BW..BX..BY..BZ..CA..CB..CC..CD..CE..CF..CG..CH..CI..CJ..CK..CL..CM..CN..CO..CP..CQ..CR..CS..CT..CU..CV..CW..CX..CY..CZ..DA..DB..DC..DD..DE..DF..DG..DH..cycle%3B%0D%0A%0D%0Afilldraw(shift(1.5%2C0)*(shape)%2Cdarkgray)%3B%0D%0A%0D%0Adraw((2%2C.7)--(.6%2C.45)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(.5pt)%20)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(200)%3B%0D%0A%0D%0Adot((0%2C11)%2C3%2Bred)%3B%0D%0Adot((1%2C8)%2C3%2Bred)%3B%0D%0Adot((2%2C9)%2C3%2Bred)%3B%0D%0Adot((3%2C12)%2C3%2Bred)%3B%0D%0Adot((4%2C12)%2C3%2Bred)%3B%0D%0Adot((5%2C8)%2C3%2Bred)%3B%0D%0Adot((6%2C13)%2C3%2Bred)%3B%0D%0A%0D%0Adraw((0%2C0)--(6%2C0))%3B%0D%0Aint%20i%3B%0D%0Afor%20(i%20%3D%200%3B%20i%20%3C%3D%206%3B%20%2B%2Bi)%20%7B%0D%0Adraw((i%2C-0.1)--(i%2C0.1))%3B%0D%0Alabel(string(i)%2C%20(i%2C-0.45)%2C%20S%2Cfontsize(12))%3B%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/xkbxftwk
+size(200);
 
-//light bulb
+dot((0,11),3+red);
+dot((1,8),3+red);
+dot((2,9),3+red);
+dot((3,12),3+red);
+dot((4,12),3+red);
+dot((5,8),3+red);
+dot((6,13),3+red);
 
-picture bulb;
-currentpicture = bulb;
-
-pair A = (86,35);
-pair B = (86,49);
-pair C = (86,63);
-pair D = (86,80);
-pair E = (86,90);
-pair F = (81,98);
-pair G = (74,105);
-pair H = (68,113);
-pair I = (62,122);
-pair J = (57,132);
-pair K = (53,143);
-pair L = (52,157);
-pair M = (53,169);
-pair N = (58,183);
-pair O = (65,195);
-pair P = (76,205);
-pair Q = (89,212);
-pair R = (105,216);
-pair S = (121,216);
-pair T = (136,213);
-pair U = (148,206);
-pair V = (159,195);
-pair W = (167,183);
-pair X = (172,167);
-pair Y = (172,151);
-pair Z = (170,137);
-pair AA = (162,123);
-pair AB = (153,111);
-pair AC = (145,99);
-pair AD = (139,91);
-pair AE = (137,80);
-pair AF = (137,63);
-pair AG = (137,49);
-pair AH = (137,35);
-pair AI = (126,23);
-pair AJ = (98,22);
-path shape = A--B--C--D--E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..cycle;
-
-draw(shape);
-draw(A--AH);
-draw(B--AG);
-draw(C--AF);
-draw(D--AE);
-
-//lines of light
-pair AK = (51,120);
-pair AL = (29,108);
-pair AM = (40,156);
-pair AN = (16,156);
-pair AO = (50,191);
-pair AP = (28,203);
-pair AQ = (75,220);
-pair AR = (63,239);
-pair AS = (111,229);
-pair AT = (111,252);
-pair AU = (148,221);
-pair AV = (160,239);
-pair AW = (175,193);
-pair AX = (194,205);
-pair AY = (183,157);
-pair AZ = (207,157);
-pair BA = (173,121);
-pair BB = (192,109);
-
-real length = 2;
-
-draw(shift(AK)*((0,0)--(AL-AK)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AM)*((0,0)--(AN-AM)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AO)*((0,0)--(AP-AO)*9.8*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-draw(((AP-AO)*9.8*length+AO)--(10,550),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-draw(shift(AQ)*((0,0)--(AR-AQ)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AS)*((0,0)--(AT-AS)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AU)*((0,0)--(AV-AU)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AW)*((0,0)--(AX-AW)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AY)*((0,0)--(AZ-AY)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(BA)*((0,0)--(BB-BA)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-//////////////////////////
-
-picture scene;
-currentpicture = scene;
-unitsize(5cm);
-
-//background
-fill(box((-.2,-.2),(3,1.3)), gray);
-
-path house = ((0,0)--(1,0)--(1,.7)--(.5,1)--(0,.7)--cycle);
-path person = (-.1,0)--(0,.5)--(.1,0)--(0,.5)--(0,.75)--(-.35,.75)--(.35,.75)--(0,.75)--(0,.8)--shift(0,.9)*scale(.1)*rotate(-90)*unitcircle;
-
-filldraw(house, white+linewidth(2pt));
-draw((1,.3)--(1,.6), linewidth(4pt)); //window
-
-draw(shift(.6,0)*scale(.5)*person);
-
-add(shift(.61,1.01)*rotate(180)*scale(.001)*bulb);
-
-//tree
-
-pair A = (0.442,0.052);
-pair B = (0.485,0.046);
-pair C = (0.530,0.046);
-pair D = (0.559,0.056);
-pair E = (0.540,0.120);
-pair F = (0.528,0.183);
-pair G = (0.528,0.279);
-pair H = (0.559,0.353);
-pair I = (0.602,0.398);
-pair J = (0.629,0.407);
-pair K = (0.649,0.361);
-pair L = (0.693,0.350);
-pair M = (0.715,0.363);
-pair N = (0.744,0.340);
-pair O = (0.777,0.361);
-pair P = (0.812,0.350);
-pair Q = (0.829,0.379);
-pair R = (0.859,0.364);
-pair S = (0.903,0.424);
-pair T = (0.894,0.442);
-pair U = (0.915,0.483);
-pair V = (0.882,0.486);
-pair W = (0.929,0.523);
-pair X = (0.925,0.538);
-pair Y = (0.917,0.568);
-pair Z = (0.935,0.607);
-pair AA = (0.894,0.623);
-pair AB = (0.905,0.640);
-pair AC = (0.901,0.673);
-pair AD = (0.919,0.693);
-pair AE = (0.901,0.704);
-pair AF = (0.907,0.736);
-pair AG = (0.896,0.753);
-pair AH = (0.870,0.754);
-pair AI = (0.849,0.764);
-pair AJ = (0.855,0.778);
-pair AK = (0.843,0.795);
-pair AL = (0.824,0.797);
-pair AM = (0.808,0.817);
-pair AN = (0.816,0.830);
-pair AO = (0.804,0.852);
-pair AP = (0.789,0.860);
-pair AQ = (0.761,0.873);
-pair AR = (0.769,0.886);
-pair AS = (0.750,0.893);
-pair AT = (0.722,0.884);
-pair AU = (0.717,0.904);
-pair AV = (0.703,0.908);
-pair AW = (0.676,0.904);
-pair AX = (0.660,0.893);
-pair AY = (0.654,0.893);
-pair AZ = (0.649,0.915);
-pair BA = (0.633,0.921);
-pair BB = (0.610,0.919);
-pair BC = (0.619,0.948);
-pair BD = (0.582,0.960);
-pair BE = (0.571,0.954);
-pair BF = (0.557,0.967);
-pair BG = (0.540,0.956);
-pair BH = (0.522,0.923);
-pair BI = (0.505,0.939);
-pair BJ = (0.501,0.947);
-pair BK = (0.473,0.934);
-pair BL = (0.477,0.960);
-pair BM = (0.450,0.971);
-pair BN = (0.421,0.971);
-pair BO = (0.405,0.954);
-pair BP = (0.364,0.954);
-pair BQ = (0.359,0.919);
-pair BR = (0.357,0.904);
-pair BS = (0.318,0.906);
-pair BT = (0.275,0.889);
-pair BU = (0.271,0.849);
-pair BV = (0.238,0.838);
-pair BW = (0.228,0.858);
-pair BX = (0.189,0.834);
-pair BY = (0.174,0.819);
-pair BZ = (0.150,0.819);
-pair CA = (0.145,0.801);
-pair CB = (0.150,0.778);
-pair CC = (0.166,0.773);
-pair CD = (0.135,0.756);
-pair CE = (0.108,0.734);
-pair CF = (0.119,0.719);
-pair CG = (0.090,0.692);
-pair CH = (0.108,0.679);
-pair CI = (0.104,0.653);
-pair CJ = (0.086,0.625);
-pair CK = (0.090,0.607);
-pair CL = (0.119,0.601);
-pair CM = (0.110,0.575);
-pair CN = (0.137,0.553);
-pair CO = (0.117,0.523);
-pair CP = (0.104,0.497);
-pair CQ = (0.131,0.464);
-pair CR = (0.108,0.433);
-pair CS = (0.131,0.416);
-pair CT = (0.158,0.409);
-pair CU = (0.150,0.375);
-pair CV = (0.184,0.363);
-pair CW = (0.201,0.342);
-pair CX = (0.236,0.368);
-pair CY = (0.248,0.351);
-pair CZ = (0.273,0.359);
-pair DA = (0.306,0.390);
-pair DB = (0.361,0.394);
-pair DC = (0.384,0.403);
-pair DD = (0.429,0.383);
-pair DE = (0.460,0.342);
-pair DF = (0.475,0.290);
-pair DG = (0.475,0.196);
-pair DH = (0.462,0.093);
-
-path shape = A..B..C..D..E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..AK..AL..AM..AN..AO..AP..AQ..AR..AS..AT..AU..AV..AW..AX..AY..AZ..BA..BB..BC..BD..BE..BF..BG..BH..BI..BJ..BK..BL..BM..BN..BO..BP..BQ..BR..BS..BT..BU..BV..BW..BX..BY..BZ..CA..CB..CC..CD..CE..CF..CG..CH..CI..CJ..CK..CL..CM..CN..CO..CP..CQ..CR..CS..CT..CU..CV..CW..CX..CY..CZ..DA..DB..DC..DD..DE..DF..DG..DH..cycle;
-
-filldraw(shift(1.5,0)*(shape),darkgray);
-
-draw((2,.7)--(.6,.45),   arrow = Arrow(6), lightolive+linewidth(.5pt) );
+draw((0,0)--(6,0));
+int i;
+for (i = 0; i &lt;= 6; ++i) {
+draw((i,-0.1)--(i,0.1));
+label(string(i), (i,-0.45), S,fontsize(12));
+}
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="08876" data-file="c539_L2_script_5.asy" data-rank="11808" data-ssim="0.9900" data-ssim-content="0.9900" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="12117" data-file="c583_L7_p48864_problem_text_0.asy" data-rank="11808" data-ssim="0.8335" data-ssim-content="0.8502" data-ssim-size="0.9804">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11808" data-id="08876" data-file="c539_L2_script_5.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11808" data-id="12117" data-file="c583_L7_p48864_problem_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11809">
   <div class="card-header">
-    <h2>#11809 &mdash; c539_L2_script_4.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9904 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9904</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11809 &mdash; c186_L5_p31914_solution_text_0.asy</h2>
+    <span class="badge" style="background:#c0820a">0.8354 &middot; Poor</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8505</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9823</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/08875.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/02761.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08875.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/02761.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/ukubesgj
-
-//light bulb
-
-picture bulb;
-currentpicture = bulb;
-
-pair A = (86,35);
-pair B = (86,49);
-pair C = (86,63);
-pair D = (86,80);
-pair E = (86,90);
-pair F = (81,98);
-pair G = (74,105);
-pair H = (68,113);
-pair I = (62,122);
-pair J = (57,132);
-pair K = (53,143);
-pair L = (52,157);
-pair M = (53,169);
-pair N = (58,183);
-pair O = (65,195);
-pair P = (76,205);
-pair Q = (89,212);
-pair R = (105,216);
-pair S = (121,216);
-pair T = (136,213);
-pair U = (148,206);
-pair V = (159,195);
-pair W = (167,183);
-pair X = (172,167);
-pair Y = (172,151);
-pair Z = (170,137);
-pair AA = (162,123);
-pair AB = (153,111);
-pair AC = (145,99);
-pair AD = (139,91);
-pair AE = (137,80);
-pair AF = (137,63);
-pair AG = (137,49);
-pair AH = (137,35);
-pair AI = (126,23);
-pair AJ = (98,22);
-path shape = A--B--C--D--E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..cycle;
-
-draw(shape);
-draw(A--AH);
-draw(B--AG);
-draw(C--AF);
-draw(D--AE);
-
-//lines of light
-pair AK = (51,120);
-pair AL = (29,108);
-pair AM = (40,156);
-pair AN = (16,156);
-pair AO = (50,191);
-pair AP = (28,203);
-pair AQ = (75,220);
-pair AR = (63,239);
-pair AS = (111,229);
-pair AT = (111,252);
-pair AU = (148,221);
-pair AV = (160,239);
-pair AW = (175,193);
-pair AX = (194,205);
-pair AY = (183,157);
-pair AZ = (207,157);
-pair BA = (173,121);
-pair BB = (192,109);
-
-real length = 2;
-
-draw(shift(AK)*((0,0)--(AL-AK)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AM)*((0,0)--(AN-AM)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AO)*((0,0)--(AP-AO)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AQ)*((0,0)--(AR-AQ)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AS)*((0,0)--(AT-AS)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AU)*((0,0)--(AV-AU)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AW)*((0,0)--(AX-AW)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AY)*((0,0)--(AZ-AY)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(BA)*((0,0)--(BB-BA)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-//////////////////////////
-
-picture scene;
-currentpicture = scene;
-unitsize(5cm);
-
-//background
-fill(box((-.2,-.2),(3,1.3)), gray);
-
-path house = ((0,0)--(1,0)--(1,.7)--(.5,1)--(0,.7)--cycle);
-path person = (-.1,0)--(0,.5)--(.1,0)--(0,.5)--(0,.75)--(-.35,.75)--(.35,.75)--(0,.75)--(0,.8)--shift(0,.9)*scale(.1)*rotate(-90)*unitcircle;
-
-filldraw(house, white+linewidth(2pt));
-draw((1,.3)--(1,.6), linewidth(4pt)); //window
-
-draw(shift(.6,0)*scale(.5)*person);
-
-add(shift(.61,1.01)*rotate(180)*scale(.001)*bulb);
-
-//tree
-
-pair A = (0.442,0.052);
-pair B = (0.485,0.046);
-pair C = (0.530,0.046);
-pair D = (0.559,0.056);
-pair E = (0.540,0.120);
-pair F = (0.528,0.183);
-pair G = (0.528,0.279);
-pair H = (0.559,0.353);
-pair I = (0.602,0.398);
-pair J = (0.629,0.407);
-pair K = (0.649,0.361);
-pair L = (0.693,0.350);
-pair M = (0.715,0.363);
-pair N = (0.744,0.340);
-pair O = (0.777,0.361);
-pair P = (0.812,0.350);
-pair Q = (0.829,0.379);
-pair R = (0.859,0.364);
-pair S = (0.903,0.424);
-pair T = (0.894,0.442);
-pair U = (0.915,0.483);
-pair V = (0.882,0.486);
-pair W = (0.929,0.523);
-pair X = (0.925,0.538);
-pair Y = (0.917,0.568);
-pair Z = (0.935,0.607);
-pair AA = (0.894,0.623);
-pair AB = (0.905,0.640);
-pair AC = (0.901,0.673);
-pair AD = (0.919,0.693);
-pair AE = (0.901,0.704);
-pair AF = (0.907,0.736);
-pair AG = (0.896,0.753);
-pair AH = (0.870,0.754);
-pair AI = (0.849,0.764);
-pair AJ = (0.855,0.778);
-pair AK = (0.843,0.795);
-pair AL = (0.824,0.797);
-pair AM = (0.808,0.817);
-pair AN = (0.816,0.830);
-pair AO = (0.804,0.852);
-pair AP = (0.789,0.860);
-pair AQ = (0.761,0.873);
-pair AR = (0.769,0.886);
-pair AS = (0.750,0.893);
-pair AT = (0.722,0.884);
-pair AU = (0.717,0.904);
-pair AV = (0.703,0.908);
-pair AW = (0.676,0.904);
-pair AX = (0.660,0.893);
-pair AY = (0.654,0.893);
-pair AZ = (0.649,0.915);
-pair BA = (0.633,0.921);
-pair BB = (0.610,0.919);
-pair BC = (0.619,0.948);
-pair BD = (0.582,0.960);
-pair BE = (0.571,0.954);
-pair BF = (0.557,0.967);
-pair BG = (0.540,0.956);
-pair BH = (0.522,0.923);
-pair BI = (0.505,0.939);
-pair BJ = (0.501,0.947);
-pair BK = (0.473,0.934);
-pair BL = (0.477,0.960);
-pair BM = (0.450,0.971);
-pair BN = (0.421,0.971);
-pair BO = (0.405,0.954);
-pair BP = (0.364,0.954);
-pair BQ = (0.359,0.919);
-pair BR = (0.357,0.904);
-pair BS = (0.318,0.906);
-pair BT = (0.275,0.889);
-pair BU = (0.271,0.849);
-pair BV = (0.238,0.838);
-pair BW = (0.228,0.858);
-pair BX = (0.189,0.834);
-pair BY = (0.174,0.819);
-pair BZ = (0.150,0.819);
-pair CA = (0.145,0.801);
-pair CB = (0.150,0.778);
-pair CC = (0.166,0.773);
-pair CD = (0.135,0.756);
-pair CE = (0.108,0.734);
-pair CF = (0.119,0.719);
-pair CG = (0.090,0.692);
-pair CH = (0.108,0.679);
-pair CI = (0.104,0.653);
-pair CJ = (0.086,0.625);
-pair CK = (0.090,0.607);
-pair CL = (0.119,0.601);
-pair CM = (0.110,0.575);
-pair CN = (0.137,0.553);
-pair CO = (0.117,0.523);
-pair CP = (0.104,0.497);
-pair CQ = (0.131,0.464);
-pair CR = (0.108,0.433);
-pair CS = (0.131,0.416);
-pair CT = (0.158,0.409);
-pair CU = (0.150,0.375);
-pair CV = (0.184,0.363);
-pair CW = (0.201,0.342);
-pair CX = (0.236,0.368);
-pair CY = (0.248,0.351);
-pair CZ = (0.273,0.359);
-pair DA = (0.306,0.390);
-pair DB = (0.361,0.394);
-pair DC = (0.384,0.403);
-pair DD = (0.429,0.383);
-pair DE = (0.460,0.342);
-pair DF = (0.475,0.290);
-pair DG = (0.475,0.196);
-pair DH = (0.462,0.093);
-
-path shape = A..B..C..D..E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..AK..AL..AM..AN..AO..AP..AQ..AR..AS..AT..AU..AV..AW..AX..AY..AZ..BA..BB..BC..BD..BE..BF..BG..BH..BI..BJ..BK..BL..BM..BN..BO..BP..BQ..BR..BS..BT..BU..BV..BW..BX..BY..BZ..CA..CB..CC..CD..CE..CF..CG..CH..CI..CJ..CK..CL..CM..CN..CO..CP..CQ..CR..CS..CT..CU..CV..CW..CX..CY..CZ..DA..DB..DC..DD..DE..DF..DG..DH..cycle;
-
-filldraw(shift(1.5,0)*(shape),darkgray);</code></div>
+      <div class="code-box"><code>import olympiad; 
+picture pic; 
+size(200); 
+pair A, B, C, D;
+C = (0, 0); 
+A = 10*dir(60); 
+B = intersectionpoints(Circle(A, 9), C--(10,0))[0]; 
+draw(A--B--C--cycle); 
+label(&quot;$9$&quot;, A--B, E); 
+label(&quot;$10$&quot;, A--C, W); 
+label(&quot;$a$&quot;, B--C, S); 
+label(&quot;$60^{\circ}$&quot;, C + 0.6*(unit(B-C) + unit(A-C))); 
+label(&quot;$A$&quot;, A, N); 
+label(&quot;$C$&quot;, C, S);
+label(&quot;$B$&quot;, B, S);</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fukubesgj%0D%0A%0D%0A%2F%2Flight%20bulb%0D%0A%0D%0Apicture%20bulb%3B%0D%0Acurrentpicture%20%3D%20bulb%3B%0D%0A%0D%0Apair%20A%20%3D%20(86%2C35)%3B%0D%0Apair%20B%20%3D%20(86%2C49)%3B%0D%0Apair%20C%20%3D%20(86%2C63)%3B%0D%0Apair%20D%20%3D%20(86%2C80)%3B%0D%0Apair%20E%20%3D%20(86%2C90)%3B%0D%0Apair%20F%20%3D%20(81%2C98)%3B%0D%0Apair%20G%20%3D%20(74%2C105)%3B%0D%0Apair%20H%20%3D%20(68%2C113)%3B%0D%0Apair%20I%20%3D%20(62%2C122)%3B%0D%0Apair%20J%20%3D%20(57%2C132)%3B%0D%0Apair%20K%20%3D%20(53%2C143)%3B%0D%0Apair%20L%20%3D%20(52%2C157)%3B%0D%0Apair%20M%20%3D%20(53%2C169)%3B%0D%0Apair%20N%20%3D%20(58%2C183)%3B%0D%0Apair%20O%20%3D%20(65%2C195)%3B%0D%0Apair%20P%20%3D%20(76%2C205)%3B%0D%0Apair%20Q%20%3D%20(89%2C212)%3B%0D%0Apair%20R%20%3D%20(105%2C216)%3B%0D%0Apair%20S%20%3D%20(121%2C216)%3B%0D%0Apair%20T%20%3D%20(136%2C213)%3B%0D%0Apair%20U%20%3D%20(148%2C206)%3B%0D%0Apair%20V%20%3D%20(159%2C195)%3B%0D%0Apair%20W%20%3D%20(167%2C183)%3B%0D%0Apair%20X%20%3D%20(172%2C167)%3B%0D%0Apair%20Y%20%3D%20(172%2C151)%3B%0D%0Apair%20Z%20%3D%20(170%2C137)%3B%0D%0Apair%20AA%20%3D%20(162%2C123)%3B%0D%0Apair%20AB%20%3D%20(153%2C111)%3B%0D%0Apair%20AC%20%3D%20(145%2C99)%3B%0D%0Apair%20AD%20%3D%20(139%2C91)%3B%0D%0Apair%20AE%20%3D%20(137%2C80)%3B%0D%0Apair%20AF%20%3D%20(137%2C63)%3B%0D%0Apair%20AG%20%3D%20(137%2C49)%3B%0D%0Apair%20AH%20%3D%20(137%2C35)%3B%0D%0Apair%20AI%20%3D%20(126%2C23)%3B%0D%0Apair%20AJ%20%3D%20(98%2C22)%3B%0D%0Apath%20shape%20%3D%20A--B--C--D--E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..cycle%3B%0D%0A%0D%0Adraw(shape)%3B%0D%0Adraw(A--AH)%3B%0D%0Adraw(B--AG)%3B%0D%0Adraw(C--AF)%3B%0D%0Adraw(D--AE)%3B%0D%0A%0D%0A%2F%2Flines%20of%20light%0D%0Apair%20AK%20%3D%20(51%2C120)%3B%0D%0Apair%20AL%20%3D%20(29%2C108)%3B%0D%0Apair%20AM%20%3D%20(40%2C156)%3B%0D%0Apair%20AN%20%3D%20(16%2C156)%3B%0D%0Apair%20AO%20%3D%20(50%2C191)%3B%0D%0Apair%20AP%20%3D%20(28%2C203)%3B%0D%0Apair%20AQ%20%3D%20(75%2C220)%3B%0D%0Apair%20AR%20%3D%20(63%2C239)%3B%0D%0Apair%20AS%20%3D%20(111%2C229)%3B%0D%0Apair%20AT%20%3D%20(111%2C252)%3B%0D%0Apair%20AU%20%3D%20(148%2C221)%3B%0D%0Apair%20AV%20%3D%20(160%2C239)%3B%0D%0Apair%20AW%20%3D%20(175%2C193)%3B%0D%0Apair%20AX%20%3D%20(194%2C205)%3B%0D%0Apair%20AY%20%3D%20(183%2C157)%3B%0D%0Apair%20AZ%20%3D%20(207%2C157)%3B%0D%0Apair%20BA%20%3D%20(173%2C121)%3B%0D%0Apair%20BB%20%3D%20(192%2C109)%3B%0D%0A%0D%0Areal%20length%20%3D%202%3B%0D%0A%0D%0Adraw(shift(AK)*((0%2C0)--(AL-AK)*3)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AM)*((0%2C0)--(AN-AM)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AO)*((0%2C0)--(AP-AO)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AQ)*((0%2C0)--(AR-AQ)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AS)*((0%2C0)--(AT-AS)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AU)*((0%2C0)--(AV-AU)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AW)*((0%2C0)--(AX-AW)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(AY)*((0%2C0)--(AZ-AY)*3*length)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0Adraw(shift(BA)*((0%2C0)--(BB-BA)*3)%2C%20%20%20arrow%20%3D%20Arrow(6)%2C%20lightolive%2Blinewidth(2pt)%20)%3B%0D%0A%0D%0A%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%0D%0A%0D%0Apicture%20scene%3B%0D%0Acurrentpicture%20%3D%20scene%3B%0D%0Aunitsize(5cm)%3B%0D%0A%0D%0A%2F%2Fbackground%0D%0Afill(box((-.2%2C-.2)%2C(3%2C1.3))%2C%20gray)%3B%0D%0A%0D%0Apath%20house%20%3D%20((0%2C0)--(1%2C0)--(1%2C.7)--(.5%2C1)--(0%2C.7)--cycle)%3B%0D%0Apath%20person%20%3D%20(-.1%2C0)--(0%2C.5)--(.1%2C0)--(0%2C.5)--(0%2C.75)--(-.35%2C.75)--(.35%2C.75)--(0%2C.75)--(0%2C.8)--shift(0%2C.9)*scale(.1)*rotate(-90)*unitcircle%3B%0D%0A%0D%0Afilldraw(house%2C%20white%2Blinewidth(2pt))%3B%0D%0Adraw((1%2C.3)--(1%2C.6)%2C%20linewidth(4pt))%3B%20%2F%2Fwindow%0D%0A%0D%0Adraw(shift(.6%2C0)*scale(.5)*person)%3B%0D%0A%0D%0Aadd(shift(.61%2C1.01)*rotate(180)*scale(.001)*bulb)%3B%0D%0A%0D%0A%2F%2Ftree%0D%0A%0D%0Apair%20A%20%3D%20(0.442%2C0.052)%3B%0D%0Apair%20B%20%3D%20(0.485%2C0.046)%3B%0D%0Apair%20C%20%3D%20(0.530%2C0.046)%3B%0D%0Apair%20D%20%3D%20(0.559%2C0.056)%3B%0D%0Apair%20E%20%3D%20(0.540%2C0.120)%3B%0D%0Apair%20F%20%3D%20(0.528%2C0.183)%3B%0D%0Apair%20G%20%3D%20(0.528%2C0.279)%3B%0D%0Apair%20H%20%3D%20(0.559%2C0.353)%3B%0D%0Apair%20I%20%3D%20(0.602%2C0.398)%3B%0D%0Apair%20J%20%3D%20(0.629%2C0.407)%3B%0D%0Apair%20K%20%3D%20(0.649%2C0.361)%3B%0D%0Apair%20L%20%3D%20(0.693%2C0.350)%3B%0D%0Apair%20M%20%3D%20(0.715%2C0.363)%3B%0D%0Apair%20N%20%3D%20(0.744%2C0.340)%3B%0D%0Apair%20O%20%3D%20(0.777%2C0.361)%3B%0D%0Apair%20P%20%3D%20(0.812%2C0.350)%3B%0D%0Apair%20Q%20%3D%20(0.829%2C0.379)%3B%0D%0Apair%20R%20%3D%20(0.859%2C0.364)%3B%0D%0Apair%20S%20%3D%20(0.903%2C0.424)%3B%0D%0Apair%20T%20%3D%20(0.894%2C0.442)%3B%0D%0Apair%20U%20%3D%20(0.915%2C0.483)%3B%0D%0Apair%20V%20%3D%20(0.882%2C0.486)%3B%0D%0Apair%20W%20%3D%20(0.929%2C0.523)%3B%0D%0Apair%20X%20%3D%20(0.925%2C0.538)%3B%0D%0Apair%20Y%20%3D%20(0.917%2C0.568)%3B%0D%0Apair%20Z%20%3D%20(0.935%2C0.607)%3B%0D%0Apair%20AA%20%3D%20(0.894%2C0.623)%3B%0D%0Apair%20AB%20%3D%20(0.905%2C0.640)%3B%0D%0Apair%20AC%20%3D%20(0.901%2C0.673)%3B%0D%0Apair%20AD%20%3D%20(0.919%2C0.693)%3B%0D%0Apair%20AE%20%3D%20(0.901%2C0.704)%3B%0D%0Apair%20AF%20%3D%20(0.907%2C0.736)%3B%0D%0Apair%20AG%20%3D%20(0.896%2C0.753)%3B%0D%0Apair%20AH%20%3D%20(0.870%2C0.754)%3B%0D%0Apair%20AI%20%3D%20(0.849%2C0.764)%3B%0D%0Apair%20AJ%20%3D%20(0.855%2C0.778)%3B%0D%0Apair%20AK%20%3D%20(0.843%2C0.795)%3B%0D%0Apair%20AL%20%3D%20(0.824%2C0.797)%3B%0D%0Apair%20AM%20%3D%20(0.808%2C0.817)%3B%0D%0Apair%20AN%20%3D%20(0.816%2C0.830)%3B%0D%0Apair%20AO%20%3D%20(0.804%2C0.852)%3B%0D%0Apair%20AP%20%3D%20(0.789%2C0.860)%3B%0D%0Apair%20AQ%20%3D%20(0.761%2C0.873)%3B%0D%0Apair%20AR%20%3D%20(0.769%2C0.886)%3B%0D%0Apair%20AS%20%3D%20(0.750%2C0.893)%3B%0D%0Apair%20AT%20%3D%20(0.722%2C0.884)%3B%0D%0Apair%20AU%20%3D%20(0.717%2C0.904)%3B%0D%0Apair%20AV%20%3D%20(0.703%2C0.908)%3B%0D%0Apair%20AW%20%3D%20(0.676%2C0.904)%3B%0D%0Apair%20AX%20%3D%20(0.660%2C0.893)%3B%0D%0Apair%20AY%20%3D%20(0.654%2C0.893)%3B%0D%0Apair%20AZ%20%3D%20(0.649%2C0.915)%3B%0D%0Apair%20BA%20%3D%20(0.633%2C0.921)%3B%0D%0Apair%20BB%20%3D%20(0.610%2C0.919)%3B%0D%0Apair%20BC%20%3D%20(0.619%2C0.948)%3B%0D%0Apair%20BD%20%3D%20(0.582%2C0.960)%3B%0D%0Apair%20BE%20%3D%20(0.571%2C0.954)%3B%0D%0Apair%20BF%20%3D%20(0.557%2C0.967)%3B%0D%0Apair%20BG%20%3D%20(0.540%2C0.956)%3B%0D%0Apair%20BH%20%3D%20(0.522%2C0.923)%3B%0D%0Apair%20BI%20%3D%20(0.505%2C0.939)%3B%0D%0Apair%20BJ%20%3D%20(0.501%2C0.947)%3B%0D%0Apair%20BK%20%3D%20(0.473%2C0.934)%3B%0D%0Apair%20BL%20%3D%20(0.477%2C0.960)%3B%0D%0Apair%20BM%20%3D%20(0.450%2C0.971)%3B%0D%0Apair%20BN%20%3D%20(0.421%2C0.971)%3B%0D%0Apair%20BO%20%3D%20(0.405%2C0.954)%3B%0D%0Apair%20BP%20%3D%20(0.364%2C0.954)%3B%0D%0Apair%20BQ%20%3D%20(0.359%2C0.919)%3B%0D%0Apair%20BR%20%3D%20(0.357%2C0.904)%3B%0D%0Apair%20BS%20%3D%20(0.318%2C0.906)%3B%0D%0Apair%20BT%20%3D%20(0.275%2C0.889)%3B%0D%0Apair%20BU%20%3D%20(0.271%2C0.849)%3B%0D%0Apair%20BV%20%3D%20(0.238%2C0.838)%3B%0D%0Apair%20BW%20%3D%20(0.228%2C0.858)%3B%0D%0Apair%20BX%20%3D%20(0.189%2C0.834)%3B%0D%0Apair%20BY%20%3D%20(0.174%2C0.819)%3B%0D%0Apair%20BZ%20%3D%20(0.150%2C0.819)%3B%0D%0Apair%20CA%20%3D%20(0.145%2C0.801)%3B%0D%0Apair%20CB%20%3D%20(0.150%2C0.778)%3B%0D%0Apair%20CC%20%3D%20(0.166%2C0.773)%3B%0D%0Apair%20CD%20%3D%20(0.135%2C0.756)%3B%0D%0Apair%20CE%20%3D%20(0.108%2C0.734)%3B%0D%0Apair%20CF%20%3D%20(0.119%2C0.719)%3B%0D%0Apair%20CG%20%3D%20(0.090%2C0.692)%3B%0D%0Apair%20CH%20%3D%20(0.108%2C0.679)%3B%0D%0Apair%20CI%20%3D%20(0.104%2C0.653)%3B%0D%0Apair%20CJ%20%3D%20(0.086%2C0.625)%3B%0D%0Apair%20CK%20%3D%20(0.090%2C0.607)%3B%0D%0Apair%20CL%20%3D%20(0.119%2C0.601)%3B%0D%0Apair%20CM%20%3D%20(0.110%2C0.575)%3B%0D%0Apair%20CN%20%3D%20(0.137%2C0.553)%3B%0D%0Apair%20CO%20%3D%20(0.117%2C0.523)%3B%0D%0Apair%20CP%20%3D%20(0.104%2C0.497)%3B%0D%0Apair%20CQ%20%3D%20(0.131%2C0.464)%3B%0D%0Apair%20CR%20%3D%20(0.108%2C0.433)%3B%0D%0Apair%20CS%20%3D%20(0.131%2C0.416)%3B%0D%0Apair%20CT%20%3D%20(0.158%2C0.409)%3B%0D%0Apair%20CU%20%3D%20(0.150%2C0.375)%3B%0D%0Apair%20CV%20%3D%20(0.184%2C0.363)%3B%0D%0Apair%20CW%20%3D%20(0.201%2C0.342)%3B%0D%0Apair%20CX%20%3D%20(0.236%2C0.368)%3B%0D%0Apair%20CY%20%3D%20(0.248%2C0.351)%3B%0D%0Apair%20CZ%20%3D%20(0.273%2C0.359)%3B%0D%0Apair%20DA%20%3D%20(0.306%2C0.390)%3B%0D%0Apair%20DB%20%3D%20(0.361%2C0.394)%3B%0D%0Apair%20DC%20%3D%20(0.384%2C0.403)%3B%0D%0Apair%20DD%20%3D%20(0.429%2C0.383)%3B%0D%0Apair%20DE%20%3D%20(0.460%2C0.342)%3B%0D%0Apair%20DF%20%3D%20(0.475%2C0.290)%3B%0D%0Apair%20DG%20%3D%20(0.475%2C0.196)%3B%0D%0Apair%20DH%20%3D%20(0.462%2C0.093)%3B%0D%0A%0D%0Apath%20shape%20%3D%20A..B..C..D..E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..AK..AL..AM..AN..AO..AP..AQ..AR..AS..AT..AU..AV..AW..AX..AY..AZ..BA..BB..BC..BD..BE..BF..BG..BH..BI..BJ..BK..BL..BM..BN..BO..BP..BQ..BR..BS..BT..BU..BV..BW..BX..BY..BZ..CA..CB..CC..CD..CE..CF..CG..CH..CI..CJ..CK..CL..CM..CN..CO..CP..CQ..CR..CS..CT..CU..CV..CW..CX..CY..CZ..DA..DB..DC..DD..DE..DF..DG..DH..cycle%3B%0D%0A%0D%0Afilldraw(shift(1.5%2C0)*(shape)%2Cdarkgray)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Aimport%20olympiad%3B%20%0D%0Apicture%20pic%3B%20%0D%0Asize(200)%3B%20%0D%0Apair%20A%2C%20B%2C%20C%2C%20D%3B%0D%0AC%20%3D%20(0%2C%200)%3B%20%0D%0AA%20%3D%2010*dir(60)%3B%20%0D%0AB%20%3D%20intersectionpoints(Circle(A%2C%209)%2C%20C--(10%2C0))%5B0%5D%3B%20%0D%0Adraw(A--B--C--cycle)%3B%20%0D%0Alabel(%22%249%24%22%2C%20A--B%2C%20E)%3B%20%0D%0Alabel(%22%2410%24%22%2C%20A--C%2C%20W)%3B%20%0D%0Alabel(%22%24a%24%22%2C%20B--C%2C%20S)%3B%20%0D%0Alabel(%22%2460%5E%7B%5Ccirc%7D%24%22%2C%20C%20%2B%200.6*(unit(B-C)%20%2B%20unit(A-C)))%3B%20%0D%0Alabel(%22%24A%24%22%2C%20A%2C%20N)%3B%20%0D%0Alabel(%22%24C%24%22%2C%20C%2C%20S)%3B%0D%0Alabel(%22%24B%24%22%2C%20B%2C%20S)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/ukubesgj
-
-//light bulb
-
-picture bulb;
-currentpicture = bulb;
-
-pair A = (86,35);
-pair B = (86,49);
-pair C = (86,63);
-pair D = (86,80);
-pair E = (86,90);
-pair F = (81,98);
-pair G = (74,105);
-pair H = (68,113);
-pair I = (62,122);
-pair J = (57,132);
-pair K = (53,143);
-pair L = (52,157);
-pair M = (53,169);
-pair N = (58,183);
-pair O = (65,195);
-pair P = (76,205);
-pair Q = (89,212);
-pair R = (105,216);
-pair S = (121,216);
-pair T = (136,213);
-pair U = (148,206);
-pair V = (159,195);
-pair W = (167,183);
-pair X = (172,167);
-pair Y = (172,151);
-pair Z = (170,137);
-pair AA = (162,123);
-pair AB = (153,111);
-pair AC = (145,99);
-pair AD = (139,91);
-pair AE = (137,80);
-pair AF = (137,63);
-pair AG = (137,49);
-pair AH = (137,35);
-pair AI = (126,23);
-pair AJ = (98,22);
-path shape = A--B--C--D--E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..cycle;
-
-draw(shape);
-draw(A--AH);
-draw(B--AG);
-draw(C--AF);
-draw(D--AE);
-
-//lines of light
-pair AK = (51,120);
-pair AL = (29,108);
-pair AM = (40,156);
-pair AN = (16,156);
-pair AO = (50,191);
-pair AP = (28,203);
-pair AQ = (75,220);
-pair AR = (63,239);
-pair AS = (111,229);
-pair AT = (111,252);
-pair AU = (148,221);
-pair AV = (160,239);
-pair AW = (175,193);
-pair AX = (194,205);
-pair AY = (183,157);
-pair AZ = (207,157);
-pair BA = (173,121);
-pair BB = (192,109);
-
-real length = 2;
-
-draw(shift(AK)*((0,0)--(AL-AK)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AM)*((0,0)--(AN-AM)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AO)*((0,0)--(AP-AO)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AQ)*((0,0)--(AR-AQ)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AS)*((0,0)--(AT-AS)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AU)*((0,0)--(AV-AU)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AW)*((0,0)--(AX-AW)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(AY)*((0,0)--(AZ-AY)*3*length),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-draw(shift(BA)*((0,0)--(BB-BA)*3),   arrow = Arrow(6), lightolive+linewidth(2pt) );
-
-//////////////////////////
-
-picture scene;
-currentpicture = scene;
-unitsize(5cm);
-
-//background
-fill(box((-.2,-.2),(3,1.3)), gray);
-
-path house = ((0,0)--(1,0)--(1,.7)--(.5,1)--(0,.7)--cycle);
-path person = (-.1,0)--(0,.5)--(.1,0)--(0,.5)--(0,.75)--(-.35,.75)--(.35,.75)--(0,.75)--(0,.8)--shift(0,.9)*scale(.1)*rotate(-90)*unitcircle;
-
-filldraw(house, white+linewidth(2pt));
-draw((1,.3)--(1,.6), linewidth(4pt)); //window
-
-draw(shift(.6,0)*scale(.5)*person);
-
-add(shift(.61,1.01)*rotate(180)*scale(.001)*bulb);
-
-//tree
-
-pair A = (0.442,0.052);
-pair B = (0.485,0.046);
-pair C = (0.530,0.046);
-pair D = (0.559,0.056);
-pair E = (0.540,0.120);
-pair F = (0.528,0.183);
-pair G = (0.528,0.279);
-pair H = (0.559,0.353);
-pair I = (0.602,0.398);
-pair J = (0.629,0.407);
-pair K = (0.649,0.361);
-pair L = (0.693,0.350);
-pair M = (0.715,0.363);
-pair N = (0.744,0.340);
-pair O = (0.777,0.361);
-pair P = (0.812,0.350);
-pair Q = (0.829,0.379);
-pair R = (0.859,0.364);
-pair S = (0.903,0.424);
-pair T = (0.894,0.442);
-pair U = (0.915,0.483);
-pair V = (0.882,0.486);
-pair W = (0.929,0.523);
-pair X = (0.925,0.538);
-pair Y = (0.917,0.568);
-pair Z = (0.935,0.607);
-pair AA = (0.894,0.623);
-pair AB = (0.905,0.640);
-pair AC = (0.901,0.673);
-pair AD = (0.919,0.693);
-pair AE = (0.901,0.704);
-pair AF = (0.907,0.736);
-pair AG = (0.896,0.753);
-pair AH = (0.870,0.754);
-pair AI = (0.849,0.764);
-pair AJ = (0.855,0.778);
-pair AK = (0.843,0.795);
-pair AL = (0.824,0.797);
-pair AM = (0.808,0.817);
-pair AN = (0.816,0.830);
-pair AO = (0.804,0.852);
-pair AP = (0.789,0.860);
-pair AQ = (0.761,0.873);
-pair AR = (0.769,0.886);
-pair AS = (0.750,0.893);
-pair AT = (0.722,0.884);
-pair AU = (0.717,0.904);
-pair AV = (0.703,0.908);
-pair AW = (0.676,0.904);
-pair AX = (0.660,0.893);
-pair AY = (0.654,0.893);
-pair AZ = (0.649,0.915);
-pair BA = (0.633,0.921);
-pair BB = (0.610,0.919);
-pair BC = (0.619,0.948);
-pair BD = (0.582,0.960);
-pair BE = (0.571,0.954);
-pair BF = (0.557,0.967);
-pair BG = (0.540,0.956);
-pair BH = (0.522,0.923);
-pair BI = (0.505,0.939);
-pair BJ = (0.501,0.947);
-pair BK = (0.473,0.934);
-pair BL = (0.477,0.960);
-pair BM = (0.450,0.971);
-pair BN = (0.421,0.971);
-pair BO = (0.405,0.954);
-pair BP = (0.364,0.954);
-pair BQ = (0.359,0.919);
-pair BR = (0.357,0.904);
-pair BS = (0.318,0.906);
-pair BT = (0.275,0.889);
-pair BU = (0.271,0.849);
-pair BV = (0.238,0.838);
-pair BW = (0.228,0.858);
-pair BX = (0.189,0.834);
-pair BY = (0.174,0.819);
-pair BZ = (0.150,0.819);
-pair CA = (0.145,0.801);
-pair CB = (0.150,0.778);
-pair CC = (0.166,0.773);
-pair CD = (0.135,0.756);
-pair CE = (0.108,0.734);
-pair CF = (0.119,0.719);
-pair CG = (0.090,0.692);
-pair CH = (0.108,0.679);
-pair CI = (0.104,0.653);
-pair CJ = (0.086,0.625);
-pair CK = (0.090,0.607);
-pair CL = (0.119,0.601);
-pair CM = (0.110,0.575);
-pair CN = (0.137,0.553);
-pair CO = (0.117,0.523);
-pair CP = (0.104,0.497);
-pair CQ = (0.131,0.464);
-pair CR = (0.108,0.433);
-pair CS = (0.131,0.416);
-pair CT = (0.158,0.409);
-pair CU = (0.150,0.375);
-pair CV = (0.184,0.363);
-pair CW = (0.201,0.342);
-pair CX = (0.236,0.368);
-pair CY = (0.248,0.351);
-pair CZ = (0.273,0.359);
-pair DA = (0.306,0.390);
-pair DB = (0.361,0.394);
-pair DC = (0.384,0.403);
-pair DD = (0.429,0.383);
-pair DE = (0.460,0.342);
-pair DF = (0.475,0.290);
-pair DG = (0.475,0.196);
-pair DH = (0.462,0.093);
-
-path shape = A..B..C..D..E..F..G..H..I..J..K..L..M..N..O..P..Q..R..S..T..U..V..W..X..Y..Z..AA..AB..AC..AD..AE..AF..AG..AH..AI..AJ..AK..AL..AM..AN..AO..AP..AQ..AR..AS..AT..AU..AV..AW..AX..AY..AZ..BA..BB..BC..BD..BE..BF..BG..BH..BI..BJ..BK..BL..BM..BN..BO..BP..BQ..BR..BS..BT..BU..BV..BW..BX..BY..BZ..CA..CB..CC..CD..CE..CF..CG..CH..CI..CJ..CK..CL..CM..CN..CO..CP..CQ..CR..CS..CT..CU..CV..CW..CX..CY..CZ..DA..DB..DC..DD..DE..DF..DG..DH..cycle;
-
-filldraw(shift(1.5,0)*(shape),darkgray);
+import olympiad; 
+picture pic; 
+size(200); 
+pair A, B, C, D;
+C = (0, 0); 
+A = 10*dir(60); 
+B = intersectionpoints(Circle(A, 9), C--(10,0))[0]; 
+draw(A--B--C--cycle); 
+label(&quot;$9$&quot;, A--B, E); 
+label(&quot;$10$&quot;, A--C, W); 
+label(&quot;$a$&quot;, B--C, S); 
+label(&quot;$60^{\circ}$&quot;, C + 0.6*(unit(B-C) + unit(A-C))); 
+label(&quot;$A$&quot;, A, N); 
+label(&quot;$C$&quot;, C, S);
+label(&quot;$B$&quot;, B, S);
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="08875" data-file="c539_L2_script_4.asy" data-rank="11809" data-ssim="0.9904" data-ssim-content="0.9904" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="02761" data-file="c186_L5_p31914_solution_text_0.asy" data-rank="11809" data-ssim="0.8354" data-ssim-content="0.8505" data-ssim-size="0.9823">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11809" data-id="08875" data-file="c539_L2_script_4.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11809" data-id="02761" data-file="c186_L5_p31914_solution_text_0.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11810">
   <div class="card-header">
-    <h2>#11810 &mdash; c539_L5_script_10.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9912 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9912</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11810 &mdash; c463_L21_script_30.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8594 &middot; Fair</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8910</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9645</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/08985.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/07938.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/08985.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/07938.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//source: laser_mirror_reflection_3
-import olympiad;
+      <div class="code-box"><code>size(6cm);
+pen red=RGB(224,109,128);
+pen blue=RGB(136,204,238);
 
-// ===== CONFIGURATION =====
-unitsize(4cm);
+srand(7);
 
-// Geometry
-real theta = -60;                   // incident angle (negative = from left)
-pair A = (-.5,-.5);                 // first hit point (on left mirror)
-pair vertex = (0,0);                // mirror vertex
+pair[] reds = {(0,5),(2,1),(2,3),(4,1),(4,3)};
+pair[] blues = {(1,2),(1,4),(3,0),(3,4),(5,0),(5,2)};
 
-// Normal display
-real normalLength = -0.4;            // length of dotted normal lines
-
-// Angle mark
-real angleMarkRadius = 0.25;        // radius of the blue angle arc
-
-// Toggles
-bool showAngleMark = true;         // blue angle arc + &quot;?&quot; label
-
-// Pens
-pen mirrorPen   = linewidth(2pt);
-pen laserPen    = heavygreen;
-pen normalPen   = dotted;
-pen anglePen    = blue;
-pen rightAnglePen = red;
-
-// ===== DEFINE OBJECTS =====
-
-// Mirror endpoints
-pair mirrorL = (-1,-1);
-pair mirrorR = (1,-1);
-
-// Normal at first hit point (perpendicular to left mirror, pointing outward)
-pair normal1 = (1,-1);
-
-// Incident ray start
-pair incident_start = A + rotate(theta)*normal1;
-
-// Reflected direction off first mirror
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Second hit point: intersection of reflected ray with right mirror
-pair B = extension(A, A + reflected_dir, vertex, mirrorR);
-
-// Normal at second hit point
-// Rotate mirror direction (1,-1) by +90° to point outward/upward
-pair normal2 = rotate(90)*(1,-1);
-pair normalBase = B;
-pair normalTip  = B + normalLength*unit(normal2);
-
-// ===== DRAW =====
-
-// Mirrors
-draw(mirrorL--vertex--mirrorR, mirrorPen);
-
-// Right-angle mark at vertex
-markscalefactor = 0.02;
-draw(rightanglemark(mirrorL, vertex, mirrorR), rightAnglePen);
-
-// Incident ray (laser -&gt; first mirror)
-draw(incident_start--A, laserPen);
-
-// Reflected ray (first mirror -&gt; second mirror)
-draw(A--B, laserPen, arrow=Arrow(6));
-
-// Dotted normal at second hit point
-draw(normalBase--normalTip, normalPen);
-
-// ===== ANGLE MARK (between normal and incoming ray at B) =====
-if (showAngleMark) {
-    // Directions from B toward the normal tip and back along the ray to A
-    real angNormal = degrees(unit(normalTip - B));
-    real angRay    = degrees(unit(A - B));
-
-    // Sweep CCW from normal to ray (the smaller angle between them)
-    real ang1 = angNormal; // start from normal direction
-    real ang2 = angRay;    // end at ray direction
-
-    // Draw arc from normal to ray (CCW = shorter arc on the left side)
-    draw(arc(B, angleMarkRadius, ang1, ang2), anglePen);
-
-    // Label at the bisector of the arc
-    real angMid = (ang1 + ang2) / 2;
-    pair labelPos = B + 1.25*angleMarkRadius * dir(angMid);
-    label(&quot;$?$&quot;, labelPos, anglePen);
+for(int i=0; i&lt;reds.length; ++i){
+  pair p = (0.7*unitrand()-0.35,0.7*unitrand()-0.35);
+  dot(reds[i]+p,red);
+  label(&quot;R&quot;,reds[i]+p,S);
+}
+for(int i=0; i&lt;blues.length; ++i){
+  pair p = (0.7*unitrand()-0.35,0.7*unitrand()-0.35);
+  dot(blues[i]+p,blue);
+  label(&quot;B&quot;,blues[i]+p,S);
 }</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20laser_mirror_reflection_3%0D%0Aimport%20olympiad%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%20CONFIGURATION%20%3D%3D%3D%3D%3D%0D%0Aunitsize(4cm)%3B%0D%0A%0D%0A%2F%2F%20Geometry%0D%0Areal%20theta%20%3D%20-60%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20incident%20angle%20(negative%20%3D%20from%20left)%0D%0Apair%20A%20%3D%20(-.5%2C-.5)%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20first%20hit%20point%20(on%20left%20mirror)%0D%0Apair%20vertex%20%3D%20(0%2C0)%3B%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20mirror%20vertex%0D%0A%0D%0A%2F%2F%20Normal%20display%0D%0Areal%20normalLength%20%3D%20-0.4%3B%20%20%20%20%20%20%20%20%20%20%20%20%2F%2F%20length%20of%20dotted%20normal%20lines%0D%0A%0D%0A%2F%2F%20Angle%20mark%0D%0Areal%20angleMarkRadius%20%3D%200.25%3B%20%20%20%20%20%20%20%20%2F%2F%20radius%20of%20the%20blue%20angle%20arc%0D%0A%0D%0A%2F%2F%20Toggles%0D%0Abool%20showAngleMark%20%3D%20true%3B%20%20%20%20%20%20%20%20%20%2F%2F%20blue%20angle%20arc%20%2B%20%22%3F%22%20label%0D%0A%0D%0A%2F%2F%20Pens%0D%0Apen%20mirrorPen%20%20%20%3D%20linewidth(2pt)%3B%0D%0Apen%20laserPen%20%20%20%20%3D%20heavygreen%3B%0D%0Apen%20normalPen%20%20%20%3D%20dotted%3B%0D%0Apen%20anglePen%20%20%20%20%3D%20blue%3B%0D%0Apen%20rightAnglePen%20%3D%20red%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%20DEFINE%20OBJECTS%20%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Mirror%20endpoints%0D%0Apair%20mirrorL%20%3D%20(-1%2C-1)%3B%0D%0Apair%20mirrorR%20%3D%20(1%2C-1)%3B%0D%0A%0D%0A%2F%2F%20Normal%20at%20first%20hit%20point%20(perpendicular%20to%20left%20mirror%2C%20pointing%20outward)%0D%0Apair%20normal1%20%3D%20(1%2C-1)%3B%0D%0A%0D%0A%2F%2F%20Incident%20ray%20start%0D%0Apair%20incident_start%20%3D%20A%20%2B%20rotate(theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20Reflected%20direction%20off%20first%20mirror%0D%0Apair%20reflected_dir%20%3D%20rotate(-theta)*normal1%3B%0D%0A%0D%0A%2F%2F%20Second%20hit%20point%3A%20intersection%20of%20reflected%20ray%20with%20right%20mirror%0D%0Apair%20B%20%3D%20extension(A%2C%20A%20%2B%20reflected_dir%2C%20vertex%2C%20mirrorR)%3B%0D%0A%0D%0A%2F%2F%20Normal%20at%20second%20hit%20point%0D%0A%2F%2F%20Rotate%20mirror%20direction%20(1%2C-1)%20by%20%2B90%C2%B0%20to%20point%20outward%2Fupward%0D%0Apair%20normal2%20%3D%20rotate(90)*(1%2C-1)%3B%0D%0Apair%20normalBase%20%3D%20B%3B%0D%0Apair%20normalTip%20%20%3D%20B%20%2B%20normalLength*unit(normal2)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%20DRAW%20%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Mirrors%0D%0Adraw(mirrorL--vertex--mirrorR%2C%20mirrorPen)%3B%0D%0A%0D%0A%2F%2F%20Right-angle%20mark%20at%20vertex%0D%0Amarkscalefactor%20%3D%200.02%3B%0D%0Adraw(rightanglemark(mirrorL%2C%20vertex%2C%20mirrorR)%2C%20rightAnglePen)%3B%0D%0A%0D%0A%2F%2F%20Incident%20ray%20(laser%20-%3E%20first%20mirror)%0D%0Adraw(incident_start--A%2C%20laserPen)%3B%0D%0A%0D%0A%2F%2F%20Reflected%20ray%20(first%20mirror%20-%3E%20second%20mirror)%0D%0Adraw(A--B%2C%20laserPen%2C%20arrow%3DArrow(6))%3B%0D%0A%0D%0A%2F%2F%20Dotted%20normal%20at%20second%20hit%20point%0D%0Adraw(normalBase--normalTip%2C%20normalPen)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%20ANGLE%20MARK%20(between%20normal%20and%20incoming%20ray%20at%20B)%20%3D%3D%3D%3D%3D%0D%0Aif%20(showAngleMark)%20%7B%0D%0A%20%20%20%20%2F%2F%20Directions%20from%20B%20toward%20the%20normal%20tip%20and%20back%20along%20the%20ray%20to%20A%0D%0A%20%20%20%20real%20angNormal%20%3D%20degrees(unit(normalTip%20-%20B))%3B%0D%0A%20%20%20%20real%20angRay%20%20%20%20%3D%20degrees(unit(A%20-%20B))%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Sweep%20CCW%20from%20normal%20to%20ray%20(the%20smaller%20angle%20between%20them)%0D%0A%20%20%20%20real%20ang1%20%3D%20angNormal%3B%20%2F%2F%20start%20from%20normal%20direction%0D%0A%20%20%20%20real%20ang2%20%3D%20angRay%3B%20%20%20%20%2F%2F%20end%20at%20ray%20direction%0D%0A%0D%0A%20%20%20%20%2F%2F%20Draw%20arc%20from%20normal%20to%20ray%20(CCW%20%3D%20shorter%20arc%20on%20the%20left%20side)%0D%0A%20%20%20%20draw(arc(B%2C%20angleMarkRadius%2C%20ang1%2C%20ang2)%2C%20anglePen)%3B%0D%0A%0D%0A%20%20%20%20%2F%2F%20Label%20at%20the%20bisector%20of%20the%20arc%0D%0A%20%20%20%20real%20angMid%20%3D%20(ang1%20%2B%20ang2)%20%2F%202%3B%0D%0A%20%20%20%20pair%20labelPos%20%3D%20B%20%2B%201.25*angleMarkRadius%20*%20dir(angMid)%3B%0D%0A%20%20%20%20label(%22%24%3F%24%22%2C%20labelPos%2C%20anglePen)%3B%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(6cm)%3B%0D%0D%0Apen%20red%3DRGB(224%2C109%2C128)%3B%0D%0D%0Apen%20blue%3DRGB(136%2C204%2C238)%3B%0D%0A%0D%0Asrand(7)%3B%0D%0A%0D%0Apair%5B%5D%20reds%20%3D%20%7B(0%2C5)%2C(2%2C1)%2C(2%2C3)%2C(4%2C1)%2C(4%2C3)%7D%3B%0D%0D%0Apair%5B%5D%20blues%20%3D%20%7B(1%2C2)%2C(1%2C4)%2C(3%2C0)%2C(3%2C4)%2C(5%2C0)%2C(5%2C2)%7D%3B%0D%0A%0D%0Afor(int%20i%3D0%3B%20i%3Creds.length%3B%20%2B%2Bi)%7B%0D%0D%0A%20%20pair%20p%20%3D%20(0.7*unitrand()-0.35%2C0.7*unitrand()-0.35)%3B%0D%0D%0A%20%20dot(reds%5Bi%5D%2Bp%2Cred)%3B%0D%0D%0A%20%20label(%22R%22%2Creds%5Bi%5D%2Bp%2CS)%3B%0D%0D%0A%7D%0D%0D%0Afor(int%20i%3D0%3B%20i%3Cblues.length%3B%20%2B%2Bi)%7B%0D%0D%0A%20%20pair%20p%20%3D%20(0.7*unitrand()-0.35%2C0.7*unitrand()-0.35)%3B%0D%0D%0A%20%20dot(blues%5Bi%5D%2Bp%2Cblue)%3B%0D%0D%0A%20%20label(%22B%22%2Cblues%5Bi%5D%2Bp%2CS)%3B%0D%0D%0A%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//source: laser_mirror_reflection_3
-import olympiad;
+size(6cm);
+pen red=RGB(224,109,128);
+pen blue=RGB(136,204,238);
 
-// ===== CONFIGURATION =====
-unitsize(4cm);
+srand(7);
 
-// Geometry
-real theta = -60;                   // incident angle (negative = from left)
-pair A = (-.5,-.5);                 // first hit point (on left mirror)
-pair vertex = (0,0);                // mirror vertex
+pair[] reds = {(0,5),(2,1),(2,3),(4,1),(4,3)};
+pair[] blues = {(1,2),(1,4),(3,0),(3,4),(5,0),(5,2)};
 
-// Normal display
-real normalLength = -0.4;            // length of dotted normal lines
-
-// Angle mark
-real angleMarkRadius = 0.25;        // radius of the blue angle arc
-
-// Toggles
-bool showAngleMark = true;         // blue angle arc + &quot;?&quot; label
-
-// Pens
-pen mirrorPen   = linewidth(2pt);
-pen laserPen    = heavygreen;
-pen normalPen   = dotted;
-pen anglePen    = blue;
-pen rightAnglePen = red;
-
-// ===== DEFINE OBJECTS =====
-
-// Mirror endpoints
-pair mirrorL = (-1,-1);
-pair mirrorR = (1,-1);
-
-// Normal at first hit point (perpendicular to left mirror, pointing outward)
-pair normal1 = (1,-1);
-
-// Incident ray start
-pair incident_start = A + rotate(theta)*normal1;
-
-// Reflected direction off first mirror
-pair reflected_dir = rotate(-theta)*normal1;
-
-// Second hit point: intersection of reflected ray with right mirror
-pair B = extension(A, A + reflected_dir, vertex, mirrorR);
-
-// Normal at second hit point
-// Rotate mirror direction (1,-1) by +90° to point outward/upward
-pair normal2 = rotate(90)*(1,-1);
-pair normalBase = B;
-pair normalTip  = B + normalLength*unit(normal2);
-
-// ===== DRAW =====
-
-// Mirrors
-draw(mirrorL--vertex--mirrorR, mirrorPen);
-
-// Right-angle mark at vertex
-markscalefactor = 0.02;
-draw(rightanglemark(mirrorL, vertex, mirrorR), rightAnglePen);
-
-// Incident ray (laser -&gt; first mirror)
-draw(incident_start--A, laserPen);
-
-// Reflected ray (first mirror -&gt; second mirror)
-draw(A--B, laserPen, arrow=Arrow(6));
-
-// Dotted normal at second hit point
-draw(normalBase--normalTip, normalPen);
-
-// ===== ANGLE MARK (between normal and incoming ray at B) =====
-if (showAngleMark) {
-    // Directions from B toward the normal tip and back along the ray to A
-    real angNormal = degrees(unit(normalTip - B));
-    real angRay    = degrees(unit(A - B));
-
-    // Sweep CCW from normal to ray (the smaller angle between them)
-    real ang1 = angNormal; // start from normal direction
-    real ang2 = angRay;    // end at ray direction
-
-    // Draw arc from normal to ray (CCW = shorter arc on the left side)
-    draw(arc(B, angleMarkRadius, ang1, ang2), anglePen);
-
-    // Label at the bisector of the arc
-    real angMid = (ang1 + ang2) / 2;
-    pair labelPos = B + 1.25*angleMarkRadius * dir(angMid);
-    label(&quot;$?$&quot;, labelPos, anglePen);
+for(int i=0; i&lt;reds.length; ++i){
+  pair p = (0.7*unitrand()-0.35,0.7*unitrand()-0.35);
+  dot(reds[i]+p,red);
+  label(&quot;R&quot;,reds[i]+p,S);
+}
+for(int i=0; i&lt;blues.length; ++i){
+  pair p = (0.7*unitrand()-0.35,0.7*unitrand()-0.35);
+  dot(blues[i]+p,blue);
+  label(&quot;B&quot;,blues[i]+p,S);
 }
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="08985" data-file="c539_L5_script_10.asy" data-rank="11810" data-ssim="0.9912" data-ssim-content="0.9912" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="07938" data-file="c463_L21_script_30.asy" data-rank="11810" data-ssim="0.8594" data-ssim-content="0.8910" data-ssim-size="0.9645">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11810" data-id="08985" data-file="c539_L5_script_10.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11810" data-id="07938" data-file="c463_L21_script_30.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11811">
   <div class="card-header">
-    <h2>#11811 &mdash; c268_L11_script_6.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9958 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9958</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11811 &mdash; c10_L14_script_5.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.8645 &middot; Fair</span>
+    <span class="badge" style="background:#6a9f2a;margin-left:4px">Content 0.8676</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9965</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/03943.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/00078.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/03943.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/00078.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/krbdxbvv
+      <div class="code-box"><code>// cylinder
+import graph;
+size(5cm);
+real a,b,xn, xm;
+a=1; b=3;
+xn = 2; xm = 2.5;
+real f(real x){return (8/3);}
+real g(real x){return (-1*f(x));}
+real h(real x){return ((1/3)*x^3 - (3/2)*x^2 + 2*x + 2);}
+//draw((a,0)--(a,h(a)),black+0.75bp+dashed);
+//draw((b,0)--(b,h(b)),black+0.75bp+dashed);
+//draw(graph(h,0,3.5),black+1bp);
+path rc = xscale(.3)*yscale(f(xm))*unitcircle;
+path lc = xscale(.3)*yscale(f(xn))*unitcircle;
+draw(shift(xn,0)*lc,black+0.75bp);
+fill(buildcycle((xn,g(xn))--(xn,f(xn)),(xn, f(xn)) --(xm, f(xn)),(xm,f(xm))--(xm,g(xm)), (xm, g(xm))--(xn,g(xn))),rgb(.8,.8,.8));
+fill(shift(xm,0)*rc,white);
+fill(shift(xn,0)*lc,rgb(.8,.8,.8));
+draw(graph(f,xn,xm),black+1bp);
+draw(graph(g,xn,xm),black+1bp);
+draw(shift(xm,0)*rc,black+0.75bp);
+//draw((-2,0)--(1.5,0));
+//draw((2.5,0)--(4,0));
+draw((3,0)--(2.5,0),dotted);
+draw((3,f(xm))--(2.5,f(xm)),dotted);
+//xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),dashed,Arrow);
+//yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);
+//label(&quot;$a$&quot;,(a,0),1.5*S);
+//label(&quot;$b$&quot;,(b,0),S);
 
-import olympiad;
-
-unitsize(2cm);
-
-//ball radius
-real r = .1;
-
-//slopes of ramps
-real leftangle = 45;
-real rightangle = 5;
-
-//set automatically, used for calculating where to draw the ramp
-real leftslope = -1*Tan(leftangle);
-real rightslope = Tan(rightangle);
-
-//height of ramps
-real height = 1;
-
-//how long it takes the ramp to go from sloped to flat
-real transitionx = .3;
-//how long it stays flat
-real flatx = .4;
-
-//used to calculate the transition from flat to slopes
-real h1 = -.5*transitionx*leftslope;
-real h2 = .5*transitionx*rightslope;
-
-//used to calculate how far the ramp should go in the x direction
-real leftx = (height-h1) / leftslope;
-real rightx = (height - h2) / rightslope;
-
-draw((-1*transitionx-flatx+leftx,height)--(-1*transitionx-flatx,h1){1,leftslope}..{1,0}(-1*flatx,0)--(flatx,0){1,0}..{1,rightslope}(flatx+transitionx,h2)--(flatx+transitionx + rightx,height),linewidth(2pt));
-
-//first and last balls
-//draw(shift((r+.02)*dir(90-leftangle))*shift(-1*flatx-transitionx+leftx,height)*scale(.1)*unitcircle,dotted);
-
-//draw(shift((r+.02)*dir(180-rightangle))*shift(flatx+transitionx+rightx,height)*scale(.1)*unitcircle);
-
-//ball on the flat
-//draw(shift(0,r+.02)*scale(.1)*unitcircle, dotted);
-
-//returns a point a fraction &quot;p&quot; down the flat part of the left hand slope
-pair fleft(real p){
-return (1-p)*(-1*flatx-transitionx+leftx,height)+p*(-flatx-transitionx,h1);
-}
-
-//returns a point a fraction &quot;p&quot; down the flat part of the right hand slope
-pair fright(real p){
-return (1-p)*(flatx+transitionx+rightx,height)+p*(flatx+transitionx,h2);
-}
-
-//balls on left incline
-real pp = .3;
-//draw(shift((r+.02)*dir(90-leftangle))*shift(fleft(.3))*scale(.1)*unitcircle,dotted);
-draw(shift((r+.02)*dir(90-leftangle))*shift(fleft(pp))*scale(.1)*unitcircle);
-pair pos1 = shift((r+.02)*dir(90-leftangle))*fleft(pp);
-
-//balls on right incline
-real rightpp = 1 - (1-pp)*sqrt((1 + 1/leftslope^2)/(1 + 1/rightslope^2));
-//draw(shift((r+.05)*dir(180-rightangle))*shift(fright(rightpp))*scale(.1)*unitcircle);
-pair pos2 = shift((r+.05)*dir(180-rightangle))*fright(rightpp);
-//draw(shift((r+.02)*dir(180-rightangle))*shift(fright(.8))*scale(.23)*((0,0)--(1,rightslope)), arrow = Arrow(6));
-//draw(shift((r+.02)*dir(180-rightangle))*shift(fright(.8))*scale(.1)*unitcircle,dotted);
-
-//draw(pos1--( shift((r+.02)*dir(90-leftangle))*(-1*flatx-transitionx,0) ),dotted+red);
-//draw(pos1--shift((r+.02)*dir(90-leftangle))*fleft(1),dashed+red);
-//label(&quot;$\ell$&quot;,fleft(.6)+(.2,.2),red);
-
-//draw(pos2--shift((r+.05)*dir(180-rightangle))*fright(1),dashed+red);
-//label(&quot;$\ell$&quot;,fright(.8)+(-.15,.2),red);</code></div>
+label(&quot;$r = f(x)$&quot;, (3.5,0)--(3.5,f(xm)), E);
+label(&quot;$h = dx$&quot;, (xn,g(xn))--(xm,g(xm)), S);
+draw(brace((xm+0.5,f(xm)),(xm+0.5,0)));</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fkrbdxbvv%0D%0A%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Aunitsize(2cm)%3B%0D%0A%0D%0A%2F%2Fball%20radius%0D%0Areal%20r%20%3D%20.1%3B%0D%0A%0D%0A%2F%2Fslopes%20of%20ramps%0D%0Areal%20leftangle%20%3D%2045%3B%0D%0Areal%20rightangle%20%3D%205%3B%0D%0A%0D%0A%2F%2Fset%20automatically%2C%20used%20for%20calculating%20where%20to%20draw%20the%20ramp%0D%0Areal%20leftslope%20%3D%20-1*Tan(leftangle)%3B%0D%0Areal%20rightslope%20%3D%20Tan(rightangle)%3B%0D%0A%0D%0A%2F%2Fheight%20of%20ramps%0D%0Areal%20height%20%3D%201%3B%0D%0A%0D%0A%2F%2Fhow%20long%20it%20takes%20the%20ramp%20to%20go%20from%20sloped%20to%20flat%0D%0Areal%20transitionx%20%3D%20.3%3B%0D%0A%2F%2Fhow%20long%20it%20stays%20flat%0D%0Areal%20flatx%20%3D%20.4%3B%0D%0A%0D%0A%2F%2Fused%20to%20calculate%20the%20transition%20from%20flat%20to%20slopes%0D%0Areal%20h1%20%3D%20-.5*transitionx*leftslope%3B%0D%0Areal%20h2%20%3D%20.5*transitionx*rightslope%3B%0D%0A%0D%0A%2F%2Fused%20to%20calculate%20how%20far%20the%20ramp%20should%20go%20in%20the%20x%20direction%0D%0Areal%20leftx%20%3D%20(height-h1)%20%2F%20leftslope%3B%0D%0Areal%20rightx%20%3D%20(height%20-%20h2)%20%2F%20rightslope%3B%0D%0A%0D%0Adraw((-1*transitionx-flatx%2Bleftx%2Cheight)--(-1*transitionx-flatx%2Ch1)%7B1%2Cleftslope%7D..%7B1%2C0%7D(-1*flatx%2C0)--(flatx%2C0)%7B1%2C0%7D..%7B1%2Crightslope%7D(flatx%2Btransitionx%2Ch2)--(flatx%2Btransitionx%20%2B%20rightx%2Cheight)%2Clinewidth(2pt))%3B%0D%0A%0D%0A%2F%2Ffirst%20and%20last%20balls%0D%0A%2F%2Fdraw(shift((r%2B.02)*dir(90-leftangle))*shift(-1*flatx-transitionx%2Bleftx%2Cheight)*scale(.1)*unitcircle%2Cdotted)%3B%0D%0A%0D%0A%2F%2Fdraw(shift((r%2B.02)*dir(180-rightangle))*shift(flatx%2Btransitionx%2Brightx%2Cheight)*scale(.1)*unitcircle)%3B%0D%0A%0D%0A%2F%2Fball%20on%20the%20flat%0D%0A%2F%2Fdraw(shift(0%2Cr%2B.02)*scale(.1)*unitcircle%2C%20dotted)%3B%0D%0A%0D%0A%2F%2Freturns%20a%20point%20a%20fraction%20%22p%22%20down%20the%20flat%20part%20of%20the%20left%20hand%20slope%0D%0Apair%20fleft(real%20p)%7B%0D%0Areturn%20(1-p)*(-1*flatx-transitionx%2Bleftx%2Cheight)%2Bp*(-flatx-transitionx%2Ch1)%3B%0D%0A%7D%0D%0A%0D%0A%2F%2Freturns%20a%20point%20a%20fraction%20%22p%22%20down%20the%20flat%20part%20of%20the%20right%20hand%20slope%0D%0Apair%20fright(real%20p)%7B%0D%0Areturn%20(1-p)*(flatx%2Btransitionx%2Brightx%2Cheight)%2Bp*(flatx%2Btransitionx%2Ch2)%3B%0D%0A%7D%0D%0A%0D%0A%2F%2Fballs%20on%20left%20incline%0D%0Areal%20pp%20%3D%20.3%3B%0D%0A%2F%2Fdraw(shift((r%2B.02)*dir(90-leftangle))*shift(fleft(.3))*scale(.1)*unitcircle%2Cdotted)%3B%0D%0Adraw(shift((r%2B.02)*dir(90-leftangle))*shift(fleft(pp))*scale(.1)*unitcircle)%3B%0D%0Apair%20pos1%20%3D%20shift((r%2B.02)*dir(90-leftangle))*fleft(pp)%3B%0D%0A%0D%0A%2F%2Fballs%20on%20right%20incline%0D%0Areal%20rightpp%20%3D%201%20-%20(1-pp)*sqrt((1%20%2B%201%2Fleftslope%5E2)%2F(1%20%2B%201%2Frightslope%5E2))%3B%0D%0A%2F%2Fdraw(shift((r%2B.05)*dir(180-rightangle))*shift(fright(rightpp))*scale(.1)*unitcircle)%3B%0D%0Apair%20pos2%20%3D%20shift((r%2B.05)*dir(180-rightangle))*fright(rightpp)%3B%0D%0A%2F%2Fdraw(shift((r%2B.02)*dir(180-rightangle))*shift(fright(.8))*scale(.23)*((0%2C0)--(1%2Crightslope))%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%2F%2Fdraw(shift((r%2B.02)*dir(180-rightangle))*shift(fright(.8))*scale(.1)*unitcircle%2Cdotted)%3B%0D%0A%0D%0A%2F%2Fdraw(pos1--(%20shift((r%2B.02)*dir(90-leftangle))*(-1*flatx-transitionx%2C0)%20)%2Cdotted%2Bred)%3B%0D%0A%2F%2Fdraw(pos1--shift((r%2B.02)*dir(90-leftangle))*fleft(1)%2Cdashed%2Bred)%3B%0D%0A%2F%2Flabel(%22%24%5Cell%24%22%2Cfleft(.6)%2B(.2%2C.2)%2Cred)%3B%0D%0A%0D%0A%2F%2Fdraw(pos2--shift((r%2B.05)*dir(180-rightangle))*fright(1)%2Cdashed%2Bred)%3B%0D%0A%2F%2Flabel(%22%24%5Cell%24%22%2Cfright(.8)%2B(-.15%2C.2)%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2F%20cylinder%0D%0Aimport%20graph%3B%0D%0Asize(5cm)%3B%0D%0Areal%20a%2Cb%2Cxn%2C%20xm%3B%0D%0Aa%3D1%3B%20b%3D3%3B%0D%0Axn%20%3D%202%3B%20xm%20%3D%202.5%3B%0D%0Areal%20f(real%20x)%7Breturn%20(8%2F3)%3B%7D%0D%0Areal%20g(real%20x)%7Breturn%20(-1*f(x))%3B%7D%0D%0Areal%20h(real%20x)%7Breturn%20((1%2F3)*x%5E3%20-%20(3%2F2)*x%5E2%20%2B%202*x%20%2B%202)%3B%7D%0D%0A%2F%2Fdraw((a%2C0)--(a%2Ch(a))%2Cblack%2B0.75bp%2Bdashed)%3B%0D%0A%2F%2Fdraw((b%2C0)--(b%2Ch(b))%2Cblack%2B0.75bp%2Bdashed)%3B%0D%0A%2F%2Fdraw(graph(h%2C0%2C3.5)%2Cblack%2B1bp)%3B%0D%0Apath%20rc%20%3D%20xscale(.3)*yscale(f(xm))*unitcircle%3B%0D%0Apath%20lc%20%3D%20xscale(.3)*yscale(f(xn))*unitcircle%3B%0D%0Adraw(shift(xn%2C0)*lc%2Cblack%2B0.75bp)%3B%0D%0Afill(buildcycle((xn%2Cg(xn))--(xn%2Cf(xn))%2C(xn%2C%20f(xn))%20--(xm%2C%20f(xn))%2C(xm%2Cf(xm))--(xm%2Cg(xm))%2C%20(xm%2C%20g(xm))--(xn%2Cg(xn)))%2Crgb(.8%2C.8%2C.8))%3B%0D%0Afill(shift(xm%2C0)*rc%2Cwhite)%3B%0D%0Afill(shift(xn%2C0)*lc%2Crgb(.8%2C.8%2C.8))%3B%0D%0Adraw(graph(f%2Cxn%2Cxm)%2Cblack%2B1bp)%3B%0D%0Adraw(graph(g%2Cxn%2Cxm)%2Cblack%2B1bp)%3B%0D%0Adraw(shift(xm%2C0)*rc%2Cblack%2B0.75bp)%3B%0D%0A%2F%2Fdraw((-2%2C0)--(1.5%2C0))%3B%0D%0A%2F%2Fdraw((2.5%2C0)--(4%2C0))%3B%0D%0Adraw((3%2C0)--(2.5%2C0)%2Cdotted)%3B%0D%0Adraw((3%2Cf(xm))--(2.5%2Cf(xm))%2Cdotted)%3B%0D%0A%2F%2Fxaxis(Label(%22%24x%24%22%2Cposition%3DEndPoint%2C%20align%3DSE)%2Cdashed%2CArrow)%3B%0D%0A%2F%2Fyaxis(Label(%22%24y%24%22%2Cposition%3DEndPoint%2C%20align%3DNW)%2CArrow)%3B%0D%0A%2F%2Flabel(%22%24a%24%22%2C(a%2C0)%2C1.5*S)%3B%0D%0A%2F%2Flabel(%22%24b%24%22%2C(b%2C0)%2CS)%3B%0D%0A%0D%0Alabel(%22%24r%20%3D%20f(x)%24%22%2C%20(3.5%2C0)--(3.5%2Cf(xm))%2C%20E)%3B%0D%0Alabel(%22%24h%20%3D%20dx%24%22%2C%20(xn%2Cg(xn))--(xm%2Cg(xm))%2C%20S)%3B%0D%0Adraw(brace((xm%2B0.5%2Cf(xm))%2C(xm%2B0.5%2C0)))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//TeXeR source: https://artofproblemsolving.com/texer/krbdxbvv
+// cylinder
+import graph;
+size(5cm);
+real a,b,xn, xm;
+a=1; b=3;
+xn = 2; xm = 2.5;
+real f(real x){return (8/3);}
+real g(real x){return (-1*f(x));}
+real h(real x){return ((1/3)*x^3 - (3/2)*x^2 + 2*x + 2);}
+//draw((a,0)--(a,h(a)),black+0.75bp+dashed);
+//draw((b,0)--(b,h(b)),black+0.75bp+dashed);
+//draw(graph(h,0,3.5),black+1bp);
+path rc = xscale(.3)*yscale(f(xm))*unitcircle;
+path lc = xscale(.3)*yscale(f(xn))*unitcircle;
+draw(shift(xn,0)*lc,black+0.75bp);
+fill(buildcycle((xn,g(xn))--(xn,f(xn)),(xn, f(xn)) --(xm, f(xn)),(xm,f(xm))--(xm,g(xm)), (xm, g(xm))--(xn,g(xn))),rgb(.8,.8,.8));
+fill(shift(xm,0)*rc,white);
+fill(shift(xn,0)*lc,rgb(.8,.8,.8));
+draw(graph(f,xn,xm),black+1bp);
+draw(graph(g,xn,xm),black+1bp);
+draw(shift(xm,0)*rc,black+0.75bp);
+//draw((-2,0)--(1.5,0));
+//draw((2.5,0)--(4,0));
+draw((3,0)--(2.5,0),dotted);
+draw((3,f(xm))--(2.5,f(xm)),dotted);
+//xaxis(Label(&quot;$x$&quot;,position=EndPoint, align=SE),dashed,Arrow);
+//yaxis(Label(&quot;$y$&quot;,position=EndPoint, align=NW),Arrow);
+//label(&quot;$a$&quot;,(a,0),1.5*S);
+//label(&quot;$b$&quot;,(b,0),S);
 
-import olympiad;
-
-unitsize(2cm);
-
-//ball radius
-real r = .1;
-
-//slopes of ramps
-real leftangle = 45;
-real rightangle = 5;
-
-//set automatically, used for calculating where to draw the ramp
-real leftslope = -1*Tan(leftangle);
-real rightslope = Tan(rightangle);
-
-//height of ramps
-real height = 1;
-
-//how long it takes the ramp to go from sloped to flat
-real transitionx = .3;
-//how long it stays flat
-real flatx = .4;
-
-//used to calculate the transition from flat to slopes
-real h1 = -.5*transitionx*leftslope;
-real h2 = .5*transitionx*rightslope;
-
-//used to calculate how far the ramp should go in the x direction
-real leftx = (height-h1) / leftslope;
-real rightx = (height - h2) / rightslope;
-
-draw((-1*transitionx-flatx+leftx,height)--(-1*transitionx-flatx,h1){1,leftslope}..{1,0}(-1*flatx,0)--(flatx,0){1,0}..{1,rightslope}(flatx+transitionx,h2)--(flatx+transitionx + rightx,height),linewidth(2pt));
-
-//first and last balls
-//draw(shift((r+.02)*dir(90-leftangle))*shift(-1*flatx-transitionx+leftx,height)*scale(.1)*unitcircle,dotted);
-
-//draw(shift((r+.02)*dir(180-rightangle))*shift(flatx+transitionx+rightx,height)*scale(.1)*unitcircle);
-
-//ball on the flat
-//draw(shift(0,r+.02)*scale(.1)*unitcircle, dotted);
-
-//returns a point a fraction &quot;p&quot; down the flat part of the left hand slope
-pair fleft(real p){
-return (1-p)*(-1*flatx-transitionx+leftx,height)+p*(-flatx-transitionx,h1);
-}
-
-//returns a point a fraction &quot;p&quot; down the flat part of the right hand slope
-pair fright(real p){
-return (1-p)*(flatx+transitionx+rightx,height)+p*(flatx+transitionx,h2);
-}
-
-//balls on left incline
-real pp = .3;
-//draw(shift((r+.02)*dir(90-leftangle))*shift(fleft(.3))*scale(.1)*unitcircle,dotted);
-draw(shift((r+.02)*dir(90-leftangle))*shift(fleft(pp))*scale(.1)*unitcircle);
-pair pos1 = shift((r+.02)*dir(90-leftangle))*fleft(pp);
-
-//balls on right incline
-real rightpp = 1 - (1-pp)*sqrt((1 + 1/leftslope^2)/(1 + 1/rightslope^2));
-//draw(shift((r+.05)*dir(180-rightangle))*shift(fright(rightpp))*scale(.1)*unitcircle);
-pair pos2 = shift((r+.05)*dir(180-rightangle))*fright(rightpp);
-//draw(shift((r+.02)*dir(180-rightangle))*shift(fright(.8))*scale(.23)*((0,0)--(1,rightslope)), arrow = Arrow(6));
-//draw(shift((r+.02)*dir(180-rightangle))*shift(fright(.8))*scale(.1)*unitcircle,dotted);
-
-//draw(pos1--( shift((r+.02)*dir(90-leftangle))*(-1*flatx-transitionx,0) ),dotted+red);
-//draw(pos1--shift((r+.02)*dir(90-leftangle))*fleft(1),dashed+red);
-//label(&quot;$\ell$&quot;,fleft(.6)+(.2,.2),red);
-
-//draw(pos2--shift((r+.05)*dir(180-rightangle))*fright(1),dashed+red);
-//label(&quot;$\ell$&quot;,fright(.8)+(-.15,.2),red);
+label(&quot;$r = f(x)$&quot;, (3.5,0)--(3.5,f(xm)), E);
+label(&quot;$h = dx$&quot;, (xn,g(xn))--(xm,g(xm)), S);
+draw(brace((xm+0.5,f(xm)),(xm+0.5,0)));
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="03943" data-file="c268_L11_script_6.asy" data-rank="11811" data-ssim="0.9958" data-ssim-content="0.9958" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="00078" data-file="c10_L14_script_5.asy" data-rank="11811" data-ssim="0.8645" data-ssim-content="0.8676" data-ssim-size="0.9965">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11811" data-id="03943" data-file="c268_L11_script_6.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11811" data-id="00078" data-file="c10_L14_script_5.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
 <div class="card" id="pair-11812">
   <div class="card-header">
-    <h2>#11812 &mdash; c539_L5_script_7.asy</h2>
-    <span class="badge" style="background:#2d8a4e">0.9970 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9971</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 1.0000</span>
+    <h2>#11812 &mdash; c289_L7_script_16.asy</h2>
+    <span class="badge" style="background:#6a9f2a">0.9357 &middot; Fair</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9597</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9750</span>
   </div>
   <div class="card-body" style="grid-template-columns:35% 35% 30%">
     <div class="render-col">
       <h3>TeXeR (Reference)</h3>
-      <div class="img-wrap"><img src="texer_pngs/09021.png"></div>
+      <div class="img-wrap"><img src="texer_pngs/04393.png"></div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09021.svg"></div></div>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/04393.svg"></div></div>
     </div>
     <div class="render-col col-source">
       <h3>Source</h3>
-      <div class="code-box"><code>//source: laser_mirror_reflection_2
-import olympiad;
-
-unitsize(4cm);
-real theta = -60;
-pair A = (-.5,-.5);
-
-//mirrors
-draw((-1,-1)--(0,0)--(1,-1), linewidth(2pt));
-
-//laser
-draw(shift(A)*rotate(theta)*((1,-1)--(0,0)),   arrow = Arrow(6) ,heavygreen);
-
-markscalefactor = 0.02;
-draw(rightanglemark((-1,-1),(0,0),(1,-1)),red);</code></div>
+      <div class="code-box"><code>size(150);
+label(&quot;$g$&quot;,(-1,1));
+label(&quot;$e$&quot;,(0,0));</code></div>
       <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20laser_mirror_reflection_2%0D%0Aimport%20olympiad%3B%0D%0A%0D%0Aunitsize(4cm)%3B%0D%0Areal%20theta%20%3D%20-60%3B%0D%0Apair%20A%20%3D%20(-.5%2C-.5)%3B%0D%0A%0D%0A%2F%2Fmirrors%0D%0Adraw((-1%2C-1)--(0%2C0)--(1%2C-1)%2C%20linewidth(2pt))%3B%0D%0A%0D%0A%2F%2Flaser%0D%0Adraw(shift(A)*rotate(theta)*((1%2C-1)--(0%2C0))%2C%20%20%20arrow%20%3D%20Arrow(6)%20%2Cheavygreen)%3B%0D%0A%0D%0Amarkscalefactor%20%3D%200.02%3B%0D%0Adraw(rightanglemark((-1%2C-1)%2C(0%2C0)%2C(1%2C-1))%2Cred)%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <a class="btn" href="../index.html#code=%5Basy%5D%0Asize(150)%3B%0D%0D%0Alabel(%22%24g%24%22%2C(-1%2C1))%3B%0D%0D%0Alabel(%22%24e%24%22%2C(0%2C0))%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
         <button class="btn texer-btn" data-code="[asy]
-//source: laser_mirror_reflection_2
-import olympiad;
-
-unitsize(4cm);
-real theta = -60;
-pair A = (-.5,-.5);
-
-//mirrors
-draw((-1,-1)--(0,0)--(1,-1), linewidth(2pt));
-
-//laser
-draw(shift(A)*rotate(theta)*((1,-1)--(0,0)),   arrow = Arrow(6) ,heavygreen);
-
-markscalefactor = 0.02;
-draw(rightanglemark((-1,-1),(0,0),(1,-1)),red);
+size(150);
+label(&quot;$g$&quot;,(-1,1));
+label(&quot;$e$&quot;,(0,0));
 [/asy]">Copy &amp; TeXeR</button>
-        <button class="btn btn-fix fix-btn" data-id="09021" data-file="c539_L5_script_7.asy" data-rank="11812" data-ssim="0.9970" data-ssim-content="0.9971" data-ssim-size="1.0000">Fix</button>
+        <button class="btn btn-fix fix-btn" data-id="04393" data-file="c289_L7_script_16.asy" data-rank="11812" data-ssim="0.9357" data-ssim-content="0.9597" data-ssim-size="0.9750">Fix</button>
       </div>
-      <textarea class="feedback-box" data-rank="11812" data-id="09021" data-file="c539_L5_script_7.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="11812" data-id="04393" data-file="c289_L7_script_16.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
