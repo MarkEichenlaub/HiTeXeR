@@ -3824,6 +3824,43 @@ function createInterpreter() {
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
     env.set('unitrand', () => Math.random());
 
+    // Seeded PRNG for rand()/srand() — matches glibc TYPE_3 (degree-31
+    // trinomial feedback shift register), which is the default RNG used by
+    // glibc's rand()/srand().  This is what real Asymptote (via C stdlib)
+    // uses on Linux, so seeded sequences will match the TeXeR server.
+    const RAND_MAX = 2147483647; // 2^31 - 1
+    const _randTbl = new Int32Array(31);
+    let _randFptr = 3;  // front pointer (index into table)
+    let _randRptr = 0;  // rear pointer
+    function _srand(seed) {
+      seed = (toNumber(seed) | 0) >>> 0;
+      _randTbl[0] = seed;
+      for (let i = 1; i < 31; i++) {
+        // glibc init: state[i] = (16807 * state[i-1]) % 2147483647
+        // Use BigInt to avoid overflow
+        let v = Number(BigInt(16807) * BigInt(_randTbl[i - 1] >>> 0) % BigInt(2147483647));
+        _randTbl[i] = v | 0;
+      }
+      _randFptr = 3;
+      _randRptr = 0;
+      // glibc runs 310 warm-up calls after seeding
+      for (let i = 0; i < 310; i++) _rand();
+    }
+    function _rand() {
+      let val = (_randTbl[_randFptr] + _randTbl[_randRptr]) | 0;
+      _randTbl[_randFptr] = val;
+      val = (val >>> 1);  // discard low bit
+      _randFptr++;
+      if (_randFptr >= 31) _randFptr = 0;
+      _randRptr++;
+      if (_randRptr >= 31) _randRptr = 0;
+      return val;
+    }
+    _srand(1); // default seed
+    env.set('srand', (seed) => _srand(seed));
+    env.set('rand', () => _rand());
+    env.set('randMax', RAND_MAX);
+
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
       'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars','None'];
