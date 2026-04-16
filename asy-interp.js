@@ -2449,18 +2449,33 @@ function createInterpreter() {
       return hobbySpline(points, hasCycle, directions);
     }
 
-    // Mixed joins: segment by segment
+    // Mixed joins: group consecutive '..' runs and solve each as a multi-point
+    // Hobby spline (with natural curl-1 end conditions at '--' boundaries),
+    // matching Asymptote's behaviour.
     const segs = [];
     const len = hasCycle ? points.length : points.length - 1;
-    for (let i = 0; i < len; i++) {
-      const j = (i+1) % points.length;
+
+    let i = 0;
+    while (i < len) {
       if (joins[i] === '--') {
-        segs.push(lineSegment(points[i], points[j]));
+        segs.push(lineSegment(points[i], points[(i + 1) % points.length]));
+        i++;
       } else {
-        // Pass per-segment directions for the two-knot sub-spline
-        const subDirs = directions ? [directions[i], directions[j]] : null;
-        const s = hobbySpline([points[i], points[j]], false, subDirs);
-        segs.push(...s);
+        // Collect a contiguous run of '..' joins starting at i
+        const runStart = i;
+        while (i < len && joins[i] === '..') i++;
+        // The run covers joins[runStart..i-1], touching points runStart..i
+        // (indices mod points.length when cyclic)
+        const runKnots = [];
+        const runDirs = [];
+        for (let k = runStart; k <= i; k++) {
+          const idx = k % points.length;
+          runKnots.push(points[idx]);
+          runDirs.push(directions ? Object.assign({}, directions[idx]) : {dirIn: null, dirOut: null});
+        }
+
+        const runSegs = hobbySpline(runKnots, false, runDirs);
+        segs.push(...runSegs);
       }
     }
     return segs;
