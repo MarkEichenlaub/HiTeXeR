@@ -109,7 +109,7 @@ function lex(source) {
       while (pos < len && ch() !== '"') {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't' && !/[a-zA-Z]/.test(peek(1))) { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
           else if (ch() === '\\') { s += '\\\\'; } else if (ch() === '"') { s += '"'; }
           else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
@@ -125,7 +125,7 @@ function lex(source) {
       while (pos < len && ch() !== "'") {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't' && !/[a-zA-Z]/.test(peek(1))) { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
           else if (ch() === '\\') { s += '\\'; } else if (ch() === "'") { s += "'"; }
           else { s += '\\'; s += ch(); }
         } else { s += ch(); }
@@ -1327,16 +1327,16 @@ function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
   const A = new Array(n).fill(0), B = new Array(n).fill(0);
   const C = new Array(n).fill(0), D = new Array(n).fill(0);
 
-  // Natural end conditions: theta[0] has a mock equation
-  B[0] = 1; C[0] = 1; D[0] = -psi[1];
+  // Natural end conditions with curl=1 (Hobby's default)
+  B[0] = 2; C[0] = 1; D[0] = -psi[1];
   for (let i = 1; i < m; i++) {
     const di_1 = d[i-1] || 1, di = d[i] || 1;
     A[i] = 1/di_1;
     B[i] = (2*di_1 + 2*di) / (di_1 * di);
     C[i] = 1/di;
-    D[i] = -(2*psi[i]*di + psi[i]*di_1) / (di_1 * di);
+    D[i] = -(2*psi[i]*di + psi[i+1]*di_1) / (di_1 * di);
   }
-  B[m] = 1; A[m] = 1; D[m] = 0;
+  B[m] = 2; A[m] = 1; D[m] = 0;
 
   // Apply clamped theta constraints: replace row with identity equation
   if (clampedTheta) {
@@ -1655,7 +1655,18 @@ function createInterpreter() {
   function toNumber(v) {
     if (typeof v === 'number') return v;
     if (typeof v === 'boolean') return v ? 1 : 0;
-    if (typeof v === 'string') return parseFloat(v) || 0;
+    if (typeof v === 'string') {
+      // Handle unit suffixes: mm, cm, inch, in, pt
+      const match = v.match(/^(-?\d*\.?\d+)\s*(mm|cm|inch|in|pt)?$/);
+      if (!match) return 0;
+      const num = parseFloat(match[1]);
+      const unit = match[2];
+      if (!unit || unit === 'pt') return num; // pt is the default unit
+      if (unit === 'mm') return num * 72 / 25.4;
+      if (unit === 'cm') return num * 72 / 2.54;
+      if (unit === 'inch' || unit === 'in') return num * 72;
+      return num;
+    }
     if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
     if (isTriple(v)) return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
     return 0;
@@ -2836,8 +2847,8 @@ function createInterpreter() {
     // Units
     env.set('bp', 1);
     env.set('pt', 1);
-    env.set('cm', 28.35);
-    env.set('mm', 2.835);
+    env.set('cm', 72 / 2.54);
+    env.set('mm', 72 / 25.4);
     env.set('inch', 72);
 
     // Dot sizing
@@ -3211,12 +3222,58 @@ function createInterpreter() {
 
     env.set('subpath', (p, a, b) => {
       p = geoToPath(p);
-      if (!isPath(p)) return p;
-      // Simplified: extract segments in range
+      if (!isPath(p) || p.segs.length === 0) return p;
+      const ta = toNumber(a), tb = toNumber(b);
+      const n = p.segs.length;
+      // Clamp
+      const tStart = Math.max(0, Math.min(n, ta));
+      const tEnd = Math.max(0, Math.min(n, tb));
+      if (tStart >= tEnd) return makePath([], false);
+      const iStart = Math.floor(tStart);
+      const iEnd = Math.floor(tEnd);
+      const fracStart = tStart - iStart;
+      const fracEnd = tEnd - iEnd;
+      // de Casteljau split
+      function splitSeg(seg, t) {
+        const u = 1 - t;
+        const a1 = {x: u*seg.p0.x + t*seg.cp1.x, y: u*seg.p0.y + t*seg.cp1.y};
+        const a2 = {x: u*seg.cp1.x + t*seg.cp2.x, y: u*seg.cp1.y + t*seg.cp2.y};
+        const a3 = {x: u*seg.cp2.x + t*seg.p3.x, y: u*seg.cp2.y + t*seg.p3.y};
+        const b1 = {x: u*a1.x + t*a2.x, y: u*a1.y + t*a2.y};
+        const b2 = {x: u*a2.x + t*a3.x, y: u*a2.y + t*a3.y};
+        const c1 = {x: u*b1.x + t*b2.x, y: u*b1.y + t*b2.y};
+        return [
+          makeSeg(seg.p0, a1, b1, c1),
+          makeSeg(c1, b2, a3, seg.p3)
+        ];
+      }
       const segs = [];
-      const start = Math.max(0, Math.floor(toNumber(a)));
-      const end = Math.min(p.segs.length, Math.ceil(toNumber(b)));
-      for (let i = start; i < end; i++) segs.push(p.segs[i]);
+      if (iStart === iEnd && iStart < n) {
+        // Both start and end within the same segment
+        let seg = p.segs[iStart];
+        if (fracStart > 1e-12) seg = splitSeg(seg, fracStart)[1];
+        // Remap fracEnd within remaining portion
+        const remapped = fracStart > 1e-12 ? (fracEnd - fracStart) / (1 - fracStart) : fracEnd;
+        if (remapped < 1 - 1e-12) seg = splitSeg(seg, remapped)[0];
+        segs.push(seg);
+      } else {
+        // First (partial) segment
+        if (iStart < n) {
+          let seg = p.segs[iStart];
+          if (fracStart > 1e-12) seg = splitSeg(seg, fracStart)[1];
+          segs.push(seg);
+        }
+        // Full middle segments
+        for (let i = iStart + 1; i < Math.min(iEnd, n); i++) {
+          segs.push(p.segs[i]);
+        }
+        // Last (partial) segment
+        if (iEnd < n && fracEnd > 1e-12) {
+          let seg = p.segs[iEnd];
+          seg = splitSeg(seg, fracEnd)[0];
+          segs.push(seg);
+        }
+      }
       return makePath(segs, false);
     });
 
@@ -3238,6 +3295,14 @@ function createInterpreter() {
           p.y - s*p.x - c*p.y, s, c
         );
       }
+      return makeTransform(0, c, -s, 0, s, c);
+    });
+    // Rotate(pair dir) — rotation transform that aligns with direction vector
+    env.set('Rotate', (dir) => {
+      const p = toPair(dir);
+      const angle = Math.atan2(p.y, p.x) * 180 / Math.PI;
+      const a = angle * Math.PI / 180;
+      const c = Math.cos(a), s = Math.sin(a);
       return makeTransform(0, c, -s, 0, s, c);
     });
     env.set('scale', (...args) => {
@@ -3366,6 +3431,80 @@ function createInterpreter() {
       const t = ((r.x-p.x)*d2y - (r.y-p.y)*d2x) / cross;
       return makePair(p.x + t*d1x, p.y + t*d1y);
     });
+
+    // times(path, real) — return sorted array of time values where path.x == val
+    // (intersections with the vertical line x = val)
+    env.set('times', (p, val) => {
+      p = geoToPath(p);
+      if (!isPath(p)) return [];
+      const x0 = toNumber(val);
+      const results = [];
+      const tol = 1e-8;
+      for (let i = 0; i < p.segs.length; i++) {
+        const seg = p.segs[i];
+        // Solve cubic Bezier x(t) = x0
+        const a = seg.p0.x, b = seg.cp1.x, c = seg.cp2.x, d = seg.p3.x;
+        const A = -a + 3*b - 3*c + d;
+        const B = 3*a - 6*b + 3*c;
+        const C = -3*a + 3*b;
+        const D = a - x0;
+        const roots = solveCubicReal(A, B, C, D);
+        for (const t of roots) {
+          if (t >= -tol && t <= 1 + tol) {
+            const tc = Math.max(0, Math.min(1, t));
+            results.push(i + tc);
+          }
+        }
+      }
+      results.sort((a, b) => a - b);
+      return results;
+    });
+
+    // Solve At^3 + Bt^2 + Ct + D = 0 for real roots
+    function solveCubicReal(A, B, C, D) {
+      const eps = 1e-12;
+      if (Math.abs(A) < eps) {
+        // Quadratic or linear
+        if (Math.abs(B) < eps) {
+          // Linear
+          if (Math.abs(C) < eps) return [];
+          return [-D / C];
+        }
+        const disc = C * C - 4 * B * D;
+        if (disc < 0) return [];
+        const sq = Math.sqrt(disc);
+        return [(-C + sq) / (2 * B), (-C - sq) / (2 * B)];
+      }
+      // Normalize: t^3 + pt^2 + qt + r = 0
+      const p = B / A, q = C / A, r = D / A;
+      // Depressed cubic substitution t = u - p/3
+      const p3 = p / 3;
+      const Q = (3 * q - p * p) / 9;
+      const R = (9 * p * q - 27 * r - 2 * p * p * p) / 54;
+      const disc = Q * Q * Q + R * R;
+      if (disc > eps) {
+        // One real root
+        const sqD = Math.sqrt(disc);
+        const S = Math.cbrt(R + sqD);
+        const T = Math.cbrt(R - sqD);
+        return [S + T - p3];
+      } else if (Math.abs(disc) <= eps) {
+        // Three real roots, at least two equal
+        const S = Math.cbrt(R);
+        const r1 = 2 * S - p3;
+        const r2 = -S - p3;
+        return [r1, r2];
+      } else {
+        // Three distinct real roots (casus irreducibilis)
+        const theta = Math.acos(R / Math.sqrt(-Q * Q * Q));
+        const sqQ = 2 * Math.sqrt(-Q);
+        return [
+          sqQ * Math.cos(theta / 3) - p3,
+          sqQ * Math.cos((theta + 2 * Math.PI) / 3) - p3,
+          sqQ * Math.cos((theta + 4 * Math.PI) / 3) - p3,
+        ];
+      }
+    }
 
     env.set('intersect', (p1, p2) => {
       if (!isPath(p1) || !isPath(p2)) return [0, 0];
@@ -3594,8 +3733,10 @@ function createInterpreter() {
       let align = null;
       let position = null;
       let labelPen = null;
+      let labelTransform = null;
       for (const a of args) {
         if (isString(a)) text = a;
+        else if (isTransform(a)) labelTransform = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
@@ -3612,6 +3753,7 @@ function createInterpreter() {
       const lbl = {_tag:'label', text, align};
       if (position !== null) lbl.position = position;
       if (labelPen) lbl.pen = labelPen;
+      if (labelTransform) lbl.transform = labelTransform;
       return lbl;
     });
     env.set('EndPoint', 1);
@@ -3748,12 +3890,13 @@ function createInterpreter() {
     //            arrowbar arrow=None, margin margin=NoMargin, pair A, pair B, pair C)
     env.set('markangle', (...args) => {
       // Parse arguments: last 3 pairs are A, B (vertex), C
-      // Earlier args can be: label string, int n, pen, named params (radius/r, n, arrow)
+      // Earlier args can be: label string, int n, pen, named params (radius/r, n, arrow, marker)
       let label = null;
       let n = 1;
       let radius = null;
       let pen = null;
       let arrow = null;
+      let marker = null;
       const pairs = [];
 
       for (const a of args) {
@@ -3762,6 +3905,7 @@ function createInterpreter() {
           if ('r' in a) radius = toNumber(a.r);
           if ('n' in a) n = Math.round(toNumber(a.n));
           if ('arrow' in a) arrow = a.arrow;
+          if ('marker' in a) marker = a.marker;
           continue;
         }
         if (isPair(a)) { pairs.push(toPair(a)); continue; }
@@ -3769,6 +3913,7 @@ function createInterpreter() {
         if (isString(a)) { label = a; continue; }
         if (a && a._tag === 'label') { label = a.text; if (a.pen) pen = a.pen; continue; }
         if (a && (a._tag === 'arrow' || a === 'Arrow' || typeof a === 'function')) { arrow = a; continue; }
+        if (a && a._tag === 'marker') { marker = a; continue; }
         if (typeof a === 'number' && pairs.length === 0) { n = Math.round(a); continue; }
       }
 
@@ -3822,8 +3967,79 @@ function createInterpreter() {
       const gap = radius * 0.15;
       for (let i = 0; i < n; i++) {
         const r = radius + i * gap;
-        const arcPath = makeArcPath(B, r, a1, a2);
-        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0});
+
+        // Check if we have a marker with stickframe
+        if (marker && marker._tag === 'marker' && marker.frame &&
+            marker.frame._tag === 'markinterval' && marker.frame.frame &&
+            marker.frame.frame._tag === 'stickframe') {
+
+          const stickframe = marker.frame.frame;
+          const numTicks = stickframe.n;
+          const tickLength = stickframe.length;
+
+          // Convert tick length from mm to user coordinates
+          let tickLen = tickLength;
+          {
+            // Estimate bp→user conversion (same as radius conversion)
+            let bpPerUnit = 1;
+            if (sizeW > 0 || sizeH > 0) {
+              let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
+              for (const c of currentPic.commands) {
+                if (c.path) for (const s of c.path.segs) {
+                  for (const p of [s.p0, s.p3]) {
+                    if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+                    if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
+                  }
+                }
+                if (c.pos) {
+                  if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
+                  if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
+                }
+              }
+              const rangeX = (cMaxX - cMinX) || 1;
+              const rangeY = (cMaxY - cMinY) || 1;
+              const sw = sizeW > 0 ? sizeW : sizeH;
+              const sh = sizeH > 0 ? sizeH : sizeW;
+              bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
+            } else if (hasUnitScale) {
+              bpPerUnit = unitScale;
+            }
+            // Convert from mm to bp (1mm = 2.834645669bp) then to user units
+            tickLen = (tickLength * 2.834645669) / bpPerUnit;
+          }
+
+          // Draw ticks at the midpoint of the arc
+          const midAngle = (a1 + a2) / 2;
+          const midAngleRad = midAngle * Math.PI / 180;
+
+          // Draw tick marks
+          const tickGap = tickLen * 0.3; // Small gap between multiple ticks
+          const totalTickWidth = numTicks * tickLen + (numTicks - 1) * tickGap;
+          const startOffset = -totalTickWidth / 2;
+
+          for (let t = 0; t < numTicks; t++) {
+            const tickOffset = startOffset + t * (tickLen + tickGap) + tickLen / 2;
+
+            // Calculate tick endpoints perpendicular to the arc
+            const perpAngle = midAngleRad + Math.PI / 2;
+            const tickStart = makePair(
+              B.x + r * Math.cos(midAngleRad) + tickOffset * Math.cos(perpAngle),
+              B.y + r * Math.sin(midAngleRad) + tickOffset * Math.sin(perpAngle)
+            );
+            const tickEnd = makePair(
+              B.x + r * Math.cos(midAngleRad) - tickOffset * Math.cos(perpAngle),
+              B.y + r * Math.sin(midAngleRad) - tickOffset * Math.sin(perpAngle)
+            );
+
+            // Draw the tick mark
+            const tickPath = makePath([tickStart, tickEnd]);
+            currentPic.commands.push({cmd:'draw', path:tickPath, pen:clonePen(pen), arrow: null, line:0});
+          }
+        } else {
+          // Normal arc without markers
+          const arcPath = makeArcPath(B, r, a1, a2);
+          currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0});
+        }
       }
 
       // Label at the arc midpoint
@@ -3835,6 +4051,32 @@ function createInterpreter() {
       }
       return null;
     });
+
+    // Marker module functions
+    env.set('marker', (f) => {
+      // Create a marker object
+      return { _tag: 'marker', frame: f };
+    });
+
+    env.set('markinterval', (frame, rotated = false) => {
+      // Create a markinterval object
+      return { _tag: 'markinterval', frame: frame, rotated: rotated };
+    });
+
+    env.set('stickframe', (...args) => {
+      // Parse stickframe parameters
+      let n = 1;
+      let length = 2; // default 2mm
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('n' in a) n = Math.round(toNumber(a.n));
+          continue;
+        }
+        if (typeof a === 'number') length = a;
+      }
+      return { _tag: 'stickframe', n: n, length: length };
+    });
+
     env.set('markers', null);
   }
 
@@ -4189,8 +4431,13 @@ function createInterpreter() {
     env.set('graph', (...args) => {
       // Filter out non-essential args: find functions, numbers, arrays, operators, bool3 funcs
       const smooth = wantsSmooth(args);
-      // Strip operator/bool3/picture args for cleaner matching
-      const coreArgs = args.filter(a => !isOperator(a));
+      // Extract named arguments (e.g. n=700, join=operator ..)
+      let namedN = null;
+      for (const a of args) {
+        if (a && a._named && a.n !== undefined) namedN = Math.floor(a.n);
+      }
+      // Strip operator/bool3/picture args and named args for cleaner matching
+      const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named));
 
       // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
       if (coreArgs.length >= 2 && isArray(coreArgs[0]) && isArray(coreArgs[1])) {
@@ -4223,7 +4470,7 @@ function createInterpreter() {
         }
         const a = nums[0] !== undefined ? nums[0] : 0;
         const b = nums[1] !== undefined ? nums[1] : 1;
-        const n = nums[2] !== undefined ? Math.floor(nums[2]) : 100;
+        const n = namedN !== null ? namedN : (nums[2] !== undefined ? Math.floor(nums[2]) : 100);
 
         // Determine mode: two-function parametric, single pair-returning function, or y=f(x)
         const isTwoFuncParametric = funcArg2 !== null;
@@ -4399,8 +4646,8 @@ function createInterpreter() {
       // Compute sub-tick positions (minor ticks between major ticks)
       let minorPositions = [];
       if (!isExtend) {
-        // Default: 2 sub-ticks per major step (like Asymptote)
-        const subN = ticks.subStep > 0 ? Math.round(step / ticks.subStep) : 2;
+        // Only draw minor ticks when an explicit sub-step was requested (Asymptote default N=0 means no minor ticks)
+        const subN = ticks.subStep > 0 ? Math.round(step / ticks.subStep) : 1;
         if (subN > 1) {
           const subStep = step / subN;
           for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
@@ -4441,9 +4688,9 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        // Extended gridlines (isExtend=true) go into background layer (above:-1) so they
-        // always render below user-drawn paths regardless of source order.
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? -1 : (above ? 1 : 0), _isTickMark: !isExtend});
+        // Extended gridlines default to background layer (above:-1) so they render below
+        // user-drawn paths, but respect above=true to render in foreground when requested.
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? (above ? 1 : -1) : (above ? 1 : 0), _isTickMark: !isExtend});
       }
 
       // Draw major ticks
@@ -4632,10 +4879,10 @@ function createInterpreter() {
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
       _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:1, y:-1};
+        const lAlign = labelAlign || {x:0, y:-1};
         let labelX = xmax;
         if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
       }
     });
 
@@ -4731,11 +4978,9 @@ function createInterpreter() {
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:-1, y:0};
-        let labelY = (ymin + ymax) / 2;
+        let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        // Y-axis labels are rotated 90° CCW by default in Asymptote
-        pic.commands.push({cmd:'label', text: stripLaTeX(label), pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0,
-          labelTransform: {a:0, b:0, c:-1, d:0, e:1, f:0}});
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
       }
     });
 
@@ -5291,6 +5536,56 @@ function createInterpreter() {
       }
       if (pts.length < 2) return null;
       return makeSegment(pts[0], pts[1]);
+    });
+
+    // Line(pair A, pair B, real extendA, real extendB)
+    env.set('Line', (...args) => {
+      // Expecting Line(point/pair A, point/pair B, real extendA, real extendB)
+      let pts = [];
+      let extA = 0, extB = 0;
+      let numIdx = 0;
+
+      for (const a of args) {
+        if (isPoint(a)) {
+          pts.push(a);
+        } else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        } else if (typeof a === 'number') {
+          if (numIdx === 0) extA = a;
+          else if (numIdx === 1) extB = a;
+          numIdx++;
+        }
+      }
+
+      if (pts.length < 2) return null;
+
+      // Convert points to pairs
+      const A = locatePoint(pts[0]);
+      const B = locatePoint(pts[1]);
+
+      // Calculate direction vector
+      const dx = B.x - A.x;
+      const dy = B.y - A.y;
+      const len = Math.sqrt(dx*dx + dy*dy);
+
+      if (len === 0) return makeGeoLine(pts[0], pts[1], false, false);
+
+      // Normalize direction
+      const ux = dx / len;
+      const uy = dy / len;
+
+      // Extend points by the specified amounts
+      const newA = makePair(A.x - extA * ux, A.y - extA * uy);
+      const newB = makePair(B.x + extB * ux, B.y + extB * uy);
+
+      // Create extended points in the coordinate system
+      const cs = pts[0].coordsys;
+      const extPtA = makePoint(cs, cs.defaultToRelative(newA), 1);
+      const extPtB = makePoint(cs, cs.defaultToRelative(newB), 1);
+
+      // Return a segment (not extended further) between the extended points
+      return makeGeoLine(extPtA, extPtB, false, false);
     });
 
     // Ox(coordsys R) → x-axis line
@@ -6263,6 +6558,144 @@ function createInterpreter() {
       }
     });
 
+    // ── trig_axes(xleft, xright, ybottom, ytop, xstep, ystep) ──────
+    // Draws trig-style axes with grid, tick marks, and π-formatted
+    // labels on the x-axis and integer labels on the y-axis.
+    env.set('trig_axes', (...args) => {
+      const nums = [];
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+      }
+      const xleft   = nums.length >= 1 ? nums[0] : -3 * Math.PI;
+      const xright  = nums.length >= 2 ? nums[1] :  3 * Math.PI;
+      const ybottom = nums.length >= 3 ? nums[2] : -3;
+      const ytop    = nums.length >= 4 ? nums[3] :  3;
+      const xstep   = nums.length >= 5 ? nums[4] : Math.PI / 2;
+      const ystep   = nums.length >= 6 ? nums[5] : 1;
+
+      const pic = currentPic;
+
+      // Store state so rm_trig_labels can modify labels later
+      pic._trigAxesState = { xleft, xright, ybottom, ytop, xstep, ystep };
+
+      // Set axis limits
+      if (_axisLimits.xmin === null || xleft  < _axisLimits.xmin) _axisLimits.xmin = xleft;
+      if (_axisLimits.xmax === null || xright > _axisLimits.xmax) _axisLimits.xmax = xright;
+      if (_axisLimits.ymin === null || ybottom < _axisLimits.ymin) _axisLimits.ymin = ybottom;
+      if (_axisLimits.ymax === null || ytop    > _axisLimits.ymax) _axisLimits.ymax = ytop;
+
+      // ── Grid lines ──
+      const gridPen = makePen({r:0.75, g:0.75, b:0.75, linewidth:0.4});
+      for (let x = xleft + xstep; x < xright - xstep * 0.01; x += xstep) {
+        if (Math.abs(x) > 0.01) {
+          const path = makePath([lineSegment({x, y:ybottom}, {x, y:ytop})], false);
+          pic.commands.push({cmd:'draw', path, pen:clonePen(gridPen), arrow:null, line:0});
+        }
+      }
+      for (let y = ybottom + ystep; y < ytop - ystep * 0.01; y += ystep) {
+        if (Math.abs(y) > 0.01) {
+          const path = makePath([lineSegment({x:xleft, y}, {x:xright, y})], false);
+          pic.commands.push({cmd:'draw', path, pen:clonePen(gridPen), arrow:null, line:0});
+        }
+      }
+
+      // ── Axis lines with arrows ──
+      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const vPath = makePath([lineSegment({x:0, y:ybottom}, {x:0, y:ytop})], false);
+      pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+      const hPath = makePath([lineSegment({x:xleft, y:0}, {x:xright, y:0})], false);
+      pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+
+      // ── Helper: GCD for simplifying fractions ──
+      function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { [a, b] = [b, a % b]; } return a; }
+
+      // ── Helper: format tick index n as a LaTeX π-label ──
+      // xstep = piNum * π / piDen  (rational multiple of π)
+      // position = n * xstep = n * piNum * π / piDen
+      const piRatio = xstep / Math.PI;          // e.g. 0.5 for π/2
+      // Find piNum / piDen ≈ piRatio with small denominator
+      let piDen = 1;
+      for (let d = 1; d <= 12; d++) {
+        if (Math.abs(piRatio * d - Math.round(piRatio * d)) < 0.001) { piDen = d; break; }
+      }
+      const piNum = Math.round(piRatio * piDen); // e.g. piNum=1, piDen=2 for π/2
+
+      function formatPiLabel(n) {
+        let num = n * piNum;
+        let den = piDen;
+        const g = gcd(Math.abs(num), den);
+        num /= g;
+        den /= g;
+        const sign = num < 0 ? '-' : '';
+        const absNum = Math.abs(num);
+        if (den === 1) {
+          if (absNum === 1) return '$' + sign + '\\pi$';
+          return '$' + sign + absNum + '\\pi$';
+        }
+        if (absNum === 1) return '$' + sign + '\\frac{\\pi}{' + den + '}$';
+        return '$' + sign + '\\frac{' + absNum + '\\pi}{' + den + '}$';
+      }
+
+      // ── Tick marks & labels on x-axis ──
+      const tickPen = makePen({r:0, g:0, b:0, linewidth:0.8});
+      const labelPen = clonePen(defaultPen);
+      labelPen.fontsize = 8;
+      for (let x = xleft; x <= xright + xstep * 0.01; x += xstep) {
+        if (Math.abs(x) < 0.01) continue;
+        if (x < xleft - 0.001 || x > xright + 0.001) continue;
+        // tick
+        const tPath = makePath([lineSegment({x, y:-0.15}, {x, y:0.15})], false);
+        pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
+        // label (positioned below the tick mark, not on the axis)
+        const n = Math.round(x / xstep);
+        pic.commands.push({
+          cmd:'label', text:formatPiLabel(n), pos:{x, y:-0.35},
+          align:{x:0, y:-1}, pen:clonePen(labelPen), line:0,
+          _trigXLabel:true, _trigIndex:n
+        });
+      }
+
+      // ── Tick marks on y-axis (no labels, matching TeXeR TrigMacros) ──
+      for (let y = ybottom; y <= ytop + ystep * 0.01; y += ystep) {
+        if (Math.abs(y) < 0.01) continue;
+        if (y < ybottom - 0.001 || y > ytop + 0.001) continue;
+        const tPath = makePath([lineSegment({x:-0.15, y}, {x:0.15, y})], false);
+        pic.commands.push({cmd:'draw', path:tPath, pen:clonePen(tickPen), arrow:null, line:0});
+      }
+
+      // ── Axis labels "x" and "y" ──
+      const axisLabelPen = clonePen(defaultPen);
+      axisLabelPen.fontsize = 10;
+      pic.commands.push({
+        cmd:'label', text:'$x$', pos:{x:xright, y:0},
+        align:{x:1, y:0}, pen:clonePen(axisLabelPen), line:0
+      });
+      pic.commands.push({
+        cmd:'label', text:'$y$', pos:{x:0, y:ytop},
+        align:{x:0, y:1}, pen:clonePen(axisLabelPen), line:0
+      });
+    });
+
+    // ── rm_trig_labels(nmin, nmax, step) ─────────────────────────
+    // In real AoPS TrigMacros, this removes labels outside the visible
+    // range while keeping all labels within. The x-axis labels placed
+    // by trig_axes at every xstep remain visible.
+    env.set('rm_trig_labels', (...args) => {
+      const nums = [];
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+      }
+      const nmin = nums.length >= 1 ? nums[0] : -5;
+      const nmax = nums.length >= 2 ? nums[1] :  5;
+
+      const pic = currentPic;
+      pic.commands = pic.commands.filter(cmd => {
+        if (!cmd._trigXLabel) return true;          // keep non-trig commands
+        const n = cmd._trigIndex;
+        return (n >= nmin && n <= nmax);             // keep labels inside range
+      });
+    });
+
     // TrigMacros constants
     env.set('ticklength', ticklength);
     env.set('axisarrowsize', axisarrowsize);
@@ -6422,17 +6855,14 @@ function createInterpreter() {
         for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
         return makePath(segs, true);
       }
-      // Fallback to 2D circle (handled by existing builtin)
-      const c = toPair(args[0]), r2 = toNumber(args[1]);
-      const pts2 = [];
-      const n2 = 36;
-      for (let i = 0; i <= n2; i++) {
-        const theta2 = 2*Math.PI*i/n2;
-        pts2.push(makePair(c.x + r2*Math.cos(theta2), c.y + r2*Math.sin(theta2)));
+      // Fallback to 2D circle - use proper geometry circle
+      if (args.length >= 2) {
+        const center = args[0];
+        const radius = toNumber(args[1]);
+        return makeGeoCircle(center, radius);
       }
-      const segs2 = [];
-      for (let i = 0; i < pts2.length - 1; i++) segs2.push(lineSegment(pts2[i], pts2[i+1]));
-      return makePath(segs2, true);
+      // If insufficient arguments, return null
+      return null;
     });
 
     // shift for triples
@@ -6669,6 +7099,8 @@ function createInterpreter() {
         if (a.align && !align) align = a.align;
         if (a.pen) pen = pen ? mergePens(pen, a.pen) : a.pen;
         if (isPair(a.position) && !pos) pos = a.position;
+        // Handle case where position is stored in align field (e.g., Label(text, position, alignment))
+        if (!pos && isPair(a.align)) pos = a.align;
       }
       else if (isGraphic(a) && !graphicData) graphicData = a;
       else if (isTriple(a)) {
@@ -6708,7 +7140,7 @@ function createInterpreter() {
       target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
     }
     // If dot has a label, add it too
-    else if (text) {
+    else if (text && text.trim()) {
       if (!align) align = makePair(1, 1);
       target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
     }
@@ -7176,6 +7608,8 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'dot') {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
+      // Include all labels in geometry bbox, even invisible ones
+      // (matches Asymptote behavior for unitsize scaling)
       expandBBox(dc.pos.x, dc.pos.y);
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
@@ -7290,6 +7724,8 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'label' || dc.cmd === 'dot') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
+        // Skip invisible labels (opacity 0) from bbox expansion
+        if (dc.pen && dc.pen.opacity === 0) continue;
         let fontSize = (dc.pen && dc.pen.fontsize) || 10;
         const text = dc.text || dc.label || '';
         const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
@@ -7306,8 +7742,8 @@ function renderSVG(result, opts) {
         // Character width estimate for bbox: for size()-constrained diagrams,
         // use a tight glyph-bbox estimate (0.288 em) that keeps geometry scale
         // close to real Asymptote.  For auto-scaled diagrams, use the TeX
-        // advance width (~0.50 em) so label-dominated layouts match Asymptote.
-        const charWidthBp = fontSize * (autoScaled ? 0.50 : 0.48 * 0.6);
+        // advance width (~0.75 em) so label-dominated layouts match Asymptote.
+        const charWidthBp = fontSize * (autoScaled ? 0.75 : 0.48 * 0.6);
         const charWidthUser = charWidthBp / roughPxPerUnitX;
         // For labels with fractions, estimate wider width
         const rawLabel = text;
@@ -7335,8 +7771,8 @@ function renderSVG(result, opts) {
         let dx = 0, dy = 0;
         if (dc.align) {
           const ax = dc.align.x, ay = dc.align.y;
-          const marginX = 0.20 * fontSize / roughPxPerUnitX;
-          const marginY = 0.20 * fontSize / roughPxPerUnitY;
+          const marginX = 0.40 * fontSize / roughPxPerUnitX;
+          const marginY = 0.40 * fontSize / roughPxPerUnitY;
           // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
           const ax_n = ax * 0.5;
           const ay_n = ay * 0.5;
@@ -7346,6 +7782,20 @@ function renderSVG(result, opts) {
         // Expand bbox to include estimated text bounds
         const cx = pos.x + dx;
         const cy = pos.y + dy;
+
+        // Debug: log label expansion for diagrams with single character labels positioned at origin
+        if (cleanText.length === 1 && Math.abs(pos.x) < 0.01 && Math.abs(pos.y) < 0.01) {
+          console.error(`DEBUG: Label "${text}" at (${pos.x},${pos.y})`);
+          console.error(`  align: (${dc.align ? dc.align.x : 0}, ${dc.align ? dc.align.y : 0})`);
+          console.error(`  fontSize: ${fontSize}, autoScaled: ${autoScaled}`);
+          console.error(`  charWidthBp: ${charWidthBp}, roughPxPerUnitX: ${roughPxPerUnitX}`);
+          console.error(`  textWidthUser: ${textWidthUser}, textHeightUser: ${textHeightUser}`);
+          console.error(`  marginX: ${0.20 * fontSize / roughPxPerUnitX}, marginY: ${0.20 * fontSize / roughPxPerUnitY}`);
+          console.error(`  dx: ${dx}, dy: ${dy}`);
+          console.error(`  label bounds: x:[${cx - textWidthUser/2}, ${cx + textWidthUser/2}], y:[${cy - textHeightUser/2}, ${cy + textHeightUser/2}]`);
+          console.error(`  current bbox before: x:[${minX}, ${maxX}], y:[${minY}, ${maxY}]`);
+        }
+
         expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
         expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
       }
@@ -7371,21 +7821,34 @@ function renderSVG(result, opts) {
 
   const warnings = [];
 
+  // Debug: log final bounds before scale calculation
+  console.error(`DEBUG: Final bounds after label expansion: x:[${minX}, ${maxX}], y:[${minY}, ${maxY}]`);
+  console.error(`  bbox dimensions: ${maxX - minX} x ${maxY - minY}`);
+
   // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit, pxPerUnitX, pxPerUnitY;
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
-    // Truesize: ensure output isn't microscopic when unitsize is very small
-    const naturalBpW = (maxX - minX) * unitScale;
-    const naturalBpH = (maxY - minY) * unitScale;
-    const minDimBp = 50; // minimum 50bp output
-    if (naturalBpW > 0 && naturalBpW < minDimBp && naturalBpH < minDimBp) {
-      const boost = minDimBp / Math.max(naturalBpW, naturalBpH);
-      pxPerUnit *= boost;
-      pxPerUnitX *= boost;
-      pxPerUnitY *= boost;
+    // When unitsize() makes cells much smaller than the default label font size
+    // (10bp), labels overwhelm the geometry.  Real Asymptote/TeXeR keeps labels
+    // at truesize (fixed bp) while the geometry scales to fit the output — so
+    // small unitsize diagrams get their geometry boosted to a reasonable size.
+    // We mimic this by ensuring pxPerUnit is at least large enough to fit the
+    // geometry within the default output size (200bp, same as the no-unitsize
+    // fallback).  This uses the geometry-only bbox (before label expansion) so
+    // labels remain truesize via bpCSSPixel.
+    const geoW = (geoMaxX - geoMinX) || 1;
+    const geoH = (geoMaxY - geoMinY) || 1;
+    const defaultSize = 200;  // match no-unitsize default
+    // When boosting unitsize, preserve the natural aspect ratio
+    const naturalW = geoW * unitScale;
+    const naturalH = geoH * unitScale;
+    if (naturalW < defaultSize && naturalH < defaultSize) {
+      // Scale up while maintaining aspect ratio
+      const boostScale = Math.min(defaultSize / naturalW, defaultSize / naturalH);
+      pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
     }
   } else if (sizeW > 0 || sizeH > 0) {
     // size() without unitsize(): scale geometry to fit the requested size.
@@ -7407,13 +7870,16 @@ function renderSVG(result, opts) {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
     }
   } else {
-    // No unitsize/size: mimic AoPS TeXeR behavior (equivalent to size(200))
-    const defaultSize = 200;
+    // No unitsize/size: mimic AoPS TeXeR behavior
+    // TeXeR produces diagrams 2.47x larger than the old default of 200
+    const defaultSize = 493;
     const targetW = defaultSize;
     const targetH = defaultSize;
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
     const scaleRefH2 = (geoMaxY - geoMinY) || 1;
-    pxPerUnit = Math.min(targetW / scaleRefW2, targetH / scaleRefH2);
+    // Scale to fit the larger dimension to defaultSize, maintaining aspect ratio
+    const maxDim = Math.max(scaleRefW2, scaleRefH2);
+    pxPerUnit = defaultSize / maxDim;
     pxPerUnitX = pxPerUnitY = pxPerUnit;
     sizeW = defaultSize;
     sizeH = defaultSize;
@@ -7470,7 +7936,8 @@ function renderSVG(result, opts) {
   // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
   // (1 bp = 1/72 in).  The AoPS TeXeR renders at an effective 120 DPI for web
   // display, so we use 120/72 = 5/3 to match its output size.
-  const bpToCSSPx = 120 / 72;
+  // Adjusted by factor 0.8884 to match TeXeR PNG sizes at 144 DPI
+  const bpToCSSPx = 1.4807;
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
 
@@ -7560,7 +8027,8 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
+        const lwExplicit = dc.pen ? dc.pen._lwExplicit : false;
+        const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
@@ -7845,8 +8313,10 @@ function renderSVG(result, opts) {
         stroke = drawCSS.stroke;
         strokeW = drawCSS.strokeWidth;
       } else {
-        stroke = css.stroke;
-        strokeW = css.strokeWidth;
+        // When filldraw has only one pen: fill with that pen, stroke with default pen (black)
+        const defaultCSS = penToCSS(defaultPen);
+        stroke = defaultCSS.stroke;
+        strokeW = defaultCSS.strokeWidth * bpCSSPixel;
       }
     } else if (dc.cmd === 'clip') {
       return; // clip is handled via SVG <clipPath> defs
@@ -7909,9 +8379,11 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: Asymptote dot() always applies dotfactor: radius = dotfactor/2 * linewidth.
+      // Dot radius: when the pen has an explicit linewidth, the dot diameter
+      // equals the linewidth (no dotfactor); otherwise diameter = dotfactor * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dotfactor / 2) * dotLw * bpCSSPixel;
+      const lwExplicit = dc.pen._lwExplicit;
+      const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
       elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
@@ -8142,6 +8614,7 @@ function renderSVG(result, opts) {
         // Remove all LaTeX commands that renderLabelWithScripts maps to Unicode
         const unicodeCmds = [
           '\\leftrightarrow','\\rightarrow','\\leftarrow','\\Rightarrow','\\Leftarrow',
+          '\\longrightarrow','\\longleftarrow','\\Longrightarrow','\\Longleftarrow',
           '\\operatorname','\\parallel','\\triangle','\\upsilon','\\epsilon',
           '\\lambda','\\approx','\\bullet','\\otimes','\\subset','\\supset',
           '\\dagger','\\forall','\\exists','\\oplus',
@@ -8185,12 +8658,12 @@ function renderSVG(result, opts) {
       } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
         labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-      } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
-        // Use KaTeX for math rendering via foreignObject
-        labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
+      } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
+        // Use KaTeX for math rendering via foreignObject
+        labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -8307,7 +8780,7 @@ function renderSVG(result, opts) {
   // paint-order:stroke renders a thin white stroke beneath the fill, visually
   // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
   const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
-  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
+  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -8492,8 +8965,9 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
     '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
     '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
-    '\\rightarrow':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐',
-    '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
+    '\\rightarrow':'\u2192','\\leftarrow':'\u2190','\\Rightarrow':'\u21D2','\\Leftarrow':'\u21D0',
+    '\\longrightarrow':'\u2192','\\longleftarrow':'\u2190','\\Longrightarrow':'\u21D2','\\Longleftarrow':'\u21D0',
+    '\\leftrightarrow':'\u2194','\\triangle':'\u25B3','\\angle':'\u2220','\\perp':'\u22A5',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ','\\prime':'′',
     '\\spadesuit':'♠','\\heartsuit':'♥','\\diamondsuit':'♦','\\clubsuit':'♣',
@@ -8701,8 +9175,9 @@ function stripLaTeX(text) {
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
     '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
     '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
-    '\\rightarrow':'→','\\leftarrow':'←','\\Rightarrow':'⇒','\\Leftarrow':'⇐',
-    '\\leftrightarrow':'↔','\\triangle':'△','\\angle':'∠','\\perp':'⊥',
+    '\\rightarrow':'\u2192','\\leftarrow':'\u2190','\\Rightarrow':'\u21D2','\\Leftarrow':'\u21D0',
+    '\\longrightarrow':'\u2192','\\longleftarrow':'\u2190','\\Longrightarrow':'\u21D2','\\Longleftarrow':'\u21D0',
+    '\\leftrightarrow':'\u2194','\\triangle':'\u25B3','\\angle':'\u2220','\\perp':'\u22A5',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ', '\\prime':'′',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
@@ -8808,6 +9283,14 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       const fracH = fontSize * 2;
       parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, width: fracW});
       totalWidth += fracW;
+    } else if (seg.type === 'sqrt') {
+      const innerText = stripLaTeX(seg.content);
+      const innerW = _estimateTextWidth(innerText, fontSize);
+      const sqrtPad = fontSize * 0.25; // padding around content
+      const radicalW = fontSize * 0.55; // width of the radical sign
+      const totalSqrtW = radicalW + innerW + sqrtPad;
+      parts.push({type:'sqrt', innerText, innerW, radicalW, width: totalSqrtW});
+      totalWidth += totalSqrtW;
     } else if (seg.type === 'underbrace') {
       const braceW = seg.width || fontSize * 8;
       const labelText = stripLaTeX(seg.label || '');
@@ -8835,6 +9318,21 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line
       els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
+    } else if (p.type === 'sqrt') {
+      // Draw radical sign: a check-mark shape leading into a horizontal overline
+      const topY = y - fontSize * 0.5;   // top of the radical
+      const botY = y + fontSize * 0.4;   // bottom of the check mark
+      const overlineY = topY - fontSize * 0.05; // overline just above top
+      const radX0 = curX;                // start of radical
+      const radX1 = curX + p.radicalW * 0.35; // bottom of the check-mark notch
+      const radX2 = curX + p.radicalW;   // where the overline starts (top of check)
+      const overlineEnd = curX + p.width; // end of overline over content
+      const sw = Math.max(0.6, fontSize * 0.05); // stroke width
+      // Radical sign path: small top-left tick → down to bottom → up to overline start → horizontal overline
+      els.push(`<path d="M${fmt(radX0)},${fmt(y - fontSize*0.05)} L${fmt(radX1)},${fmt(botY)} L${fmt(radX2)},${fmt(overlineY)} L${fmt(overlineEnd)},${fmt(overlineY)}" fill="none" stroke="${fill}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
+      // Content text after radical sign
+      const textX = curX + p.radicalW;
+      els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
     } else if (p.type === 'underbrace') {
       const cx = curX + p.width / 2;
       const by = y + fontSize * 0.3;
@@ -8859,12 +9357,17 @@ function parseLaTeXSegments(text) {
   const segments = [];
   let remaining = s;
   while (remaining.length > 0) {
-    // Find next \frac or \underbrace
+    // Find next \frac, \underbrace, or \sqrt
     const fracIdx = remaining.indexOf('\\frac');
     const ubIdx = remaining.indexOf('\\underbrace');
+    const sqrtIdx = remaining.indexOf('\\sqrt');
+    const candidates = [];
+    if (fracIdx >= 0) candidates.push({idx: fracIdx, type: 'frac'});
+    if (ubIdx >= 0) candidates.push({idx: ubIdx, type: 'underbrace'});
+    if (sqrtIdx >= 0) candidates.push({idx: sqrtIdx, type: 'sqrt'});
+    candidates.sort((a, b) => a.idx - b.idx);
     let nextIdx = -1, nextType = '';
-    if (fracIdx >= 0 && (ubIdx < 0 || fracIdx < ubIdx)) { nextIdx = fracIdx; nextType = 'frac'; }
-    else if (ubIdx >= 0) { nextIdx = ubIdx; nextType = 'underbrace'; }
+    if (candidates.length > 0) { nextIdx = candidates[0].idx; nextType = candidates[0].type; }
     if (nextIdx < 0) {
       // No more special commands
       const cleaned = stripLaTeX(remaining);
@@ -8904,6 +9407,11 @@ function parseLaTeXSegments(text) {
         if (valMatch) width = parseFloat(valMatch[1]) * 28.35; // cm to points
       }
       segments.push({type:'underbrace', width, label});
+    } else if (nextType === 'sqrt') {
+      remaining = remaining.substring(nextIdx + 5); // skip \sqrt
+      const content = extractBraced(remaining);
+      remaining = remaining.substring(content.consumed);
+      segments.push({type:'sqrt', content: content.content});
     }
   }
   if (segments.length === 0) segments.push({type:'text', text: stripLaTeX(text)});
