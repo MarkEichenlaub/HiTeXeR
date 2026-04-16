@@ -8664,7 +8664,7 @@ function renderSVG(result, opts) {
         // contains Latin letters, use math italic font.  Pure digit/punctuation content
         // (e.g. coordinates like $(-6,4)$) stays upright — digits and punctuation are
         // upright in LaTeX math.
-        if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText)) {
+        if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
         } else {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
