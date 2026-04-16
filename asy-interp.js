@@ -1344,7 +1344,7 @@ function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
   const C = new Array(n).fill(0), D = new Array(n).fill(0);
 
   // Natural end conditions with curl=1 (Hobby's default)
-  B[0] = 2; C[0] = 1; D[0] = -psi[1];
+  B[0] = 1; C[0] = 1; D[0] = -psi[1];
   for (let i = 1; i < m; i++) {
     const di_1 = d[i-1] || 1, di = d[i] || 1;
     A[i] = 1/di_1;
@@ -1352,7 +1352,7 @@ function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
     C[i] = 1/di;
     D[i] = -(2*psi[i]*di + psi[i+1]*di_1) / (di_1 * di);
   }
-  B[m] = 2; A[m] = 1; D[m] = 0;
+  B[m] = 1; A[m] = 1; D[m] = 0;
 
   // Apply clamped theta constraints: replace row with identity equation
   if (clampedTheta) {
