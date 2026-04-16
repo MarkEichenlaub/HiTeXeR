@@ -1002,6 +1002,18 @@ function isArray(v) { return Array.isArray(v); }
 function isCallable(v) { return typeof v === 'function' || (v && v._tag === 'func'); }
 function isGraphic(v) { return v && v._tag === 'graphic'; }
 
+// Inversion type (non-affine transform from geometry module)
+function makeInversion(k, center) { return {_tag:'inversion', k, center}; }
+function isInversion(v) { return v && v._tag === 'inversion'; }
+function applyInversion(inv, p) {
+  // Circle inversion: P' = C + k / |P - C|^2 * (P - C)
+  const dx = p.x - inv.center.x, dy = p.y - inv.center.y;
+  const d2 = dx*dx + dy*dy;
+  if (d2 < 1e-30) return makePair(p.x, p.y); // degenerate: point at center
+  const s = inv.k / d2;
+  return makePair(inv.center.x + s * dx, inv.center.y + s * dy);
+}
+
 // Geometry package types
 function makeCoordSys(O, i, j) {
   // O, i, j are pairs in default coordinates
@@ -1913,6 +1925,10 @@ function createInterpreter() {
 
     // Transform * pair
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
+    // Inversion * pair (non-affine geometry transform)
+    if (isInversion(left) && isPair(right)) return applyInversion(left, right);
+    // Inversion * point (geometry module Point type)
+    if (isInversion(left) && isPoint(right)) return applyInversion(left, locatePoint(right));
     // Transform * path
     if (isTransform(left) && isPath(right)) return applyTransformPath(left, right);
     // Transform * picture
@@ -6362,7 +6378,20 @@ function createInterpreter() {
     // Stubs for less-common features
     // ────────────────────────────────────────────────────────────
 
-    // mass, abscissa, bqe, inversion — stub types
+    // inversion — circle inversion (non-affine transform)
+    env.set('inversion', (...args) => {
+      // inversion(real k, pair c) or inversion(pair c, real k)
+      // Asymptote convention: inversion(real k, pair c)
+      let k = 1, center = makePair(0,0);
+      for (const a of args) {
+        if (typeof a === 'number') k = a;
+        else if (isPair(a)) center = a;
+        else if (isPoint(a)) center = locatePoint(a);
+      }
+      return makeInversion(k, center);
+    });
+
+    // mass, abscissa, bqe — stub types
     env.set('mass', (...args) => {
       const pts = [];
       let m = 1;
