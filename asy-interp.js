@@ -8138,6 +8138,11 @@ function renderSVG(result, opts) {
       const top = cy - H / 2;
       const bottom = cy + H / 2;
 
+      // Skip labels entirely outside the viewport — when clip() is active,
+      // labels far from the clip region are invisible and must not inflate
+      // the viewBox (they would blow up the output dimensions).
+      if (right < 0 || left > viewW || bottom < 0 || top > viewH) continue;
+
       padL = Math.max(padL, -left);
       padR = Math.max(padR, right - viewW);
       padT = Math.max(padT, -top);
