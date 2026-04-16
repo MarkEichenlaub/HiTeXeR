@@ -7828,13 +7828,25 @@ function renderSVG(result, opts) {
     // geometry within the default output size (200bp, same as the no-unitsize
     // fallback).  This uses the geometry-only bbox (before label expansion) so
     // labels remain truesize via bpCSSPixel.
+    // However, when labels expand the bbox significantly beyond the geometry
+    // (i.e. the label-expanded bbox is already large enough), skip the boost
+    // to match real Asymptote behaviour where unitsize is the exact scale.
     const geoW = (geoMaxX - geoMinX) || 1;
     const geoH = (geoMaxY - geoMinY) || 1;
+    const fullW = (maxX - minX) || 1;
+    const fullH = (maxY - minY) || 1;
     const defaultSize = 200;  // match no-unitsize default
     // When boosting unitsize, preserve the natural aspect ratio
     const naturalW = geoW * unitScale;
     const naturalH = geoH * unitScale;
-    if (naturalW < defaultSize && naturalH < defaultSize) {
+    // Use label-expanded bbox to decide whether boost is needed: if the full
+    // bbox (with labels) already yields a reasonable output size at the natural
+    // unitsize, don't boost — the labels already provide adequate visual content.
+    const fullNatW = fullW * unitScale;
+    const fullNatH = fullH * unitScale;
+    const minReasonable = 50;  // 50bp: below this, geometry is truly invisible
+    if (naturalW < defaultSize && naturalH < defaultSize
+        && Math.max(fullNatW, fullNatH) < minReasonable) {
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(defaultSize / naturalW, defaultSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
@@ -8557,6 +8569,17 @@ function renderSVG(result, opts) {
         if (isReflected && displayText === '⋱') displayText = '⋰';
       }
       else if (LATEX_TO_UNICODE[rawText.trim()]) displayText = LATEX_TO_UNICODE[rawText.trim()];
+      // For mixed-dollar labels like "$\cdots$ 0 0 0 $\cdots$", replace each $...$
+      // segment that contains only a simple Unicode-mappable symbol with its Unicode
+      // equivalent.  This avoids the KaTeX foreignObject path (which doesn't rasterize
+      // in librsvg/sharp) for labels that are mostly plain text with embedded symbols.
+      if (/\$/.test(displayText)) {
+        displayText = displayText.replace(/\$([^$]+)\$/g, (match, inner) => {
+          const trimmed = inner.trim();
+          if (LATEX_TO_UNICODE[trimmed]) return LATEX_TO_UNICODE[trimmed];
+          return match;
+        });
+      }
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
       // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
@@ -9071,14 +9094,14 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
     reflectX = true;
     math = reflectMatch[1].trim();
   }
-  // Check if wrapped in $...$
-  const isDollar = math.startsWith('$') && math.endsWith('$');
+  // Check if wrapped in a single $...$  (not mixed like "$\cdots$ text $\cdots$")
+  const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
   if (isDollar) math = math.slice(1, -1);
   // Remove double $$ too
-  if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
+  if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
 
   let html;
-  // Check for mixed text/math content (e.g. "$W-1$ cells" or "2$W$")
+  // Check for mixed text/math content (e.g. "$W-1$ cells" or "$\cdots$ 0 0 $\cdots$")
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
     // Parse into math and text segments, render each separately
