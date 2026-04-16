@@ -1327,16 +1327,16 @@ function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
   const A = new Array(n).fill(0), B = new Array(n).fill(0);
   const C = new Array(n).fill(0), D = new Array(n).fill(0);
 
-  // Natural end conditions: theta[0] has a mock equation
-  B[0] = 1; C[0] = 1; D[0] = -psi[1];
+  // Natural end conditions with curl=1 (Hobby's default)
+  B[0] = 2; C[0] = 1; D[0] = -psi[1];
   for (let i = 1; i < m; i++) {
     const di_1 = d[i-1] || 1, di = d[i] || 1;
     A[i] = 1/di_1;
     B[i] = (2*di_1 + 2*di) / (di_1 * di);
     C[i] = 1/di;
-    D[i] = -(2*psi[i]*di + psi[i]*di_1) / (di_1 * di);
+    D[i] = -(2*psi[i]*di + psi[i+1]*di_1) / (di_1 * di);
   }
-  B[m] = 1; A[m] = 1; D[m] = 0;
+  B[m] = 2; A[m] = 1; D[m] = 0;
 
   // Apply clamped theta constraints: replace row with identity equation
   if (clampedTheta) {
@@ -7834,7 +7834,7 @@ function renderSVG(result, opts) {
     // When boosting unitsize, preserve the natural aspect ratio
     const naturalW = geoW * unitScale;
     const naturalH = geoH * unitScale;
-    if (naturalW < defaultSize || naturalH < defaultSize) {
+    if (naturalW < defaultSize && naturalH < defaultSize) {
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(defaultSize / naturalW, defaultSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
