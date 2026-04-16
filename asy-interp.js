@@ -8645,15 +8645,27 @@ function renderSVG(result, opts) {
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
       // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
-      // Strip \definecolor{name}{model}{values} declarations and \color{name}
-      // commands before routing — these are unsupported by KaTeX/SVG rendering
-      // but the text content they wrap should still be displayed.
-      if (/\\definecolor|\\color/.test(displayText)) {
-        displayText = displayText.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
-        displayText = displayText.replace(/\\color\s*\{[^}]*\}/g, '');
-        displayText = displayText.replace(/\\rm\b/g, '');
-        // Remove orphaned TeX grouping braces left behind (but keep ^{} and _{} groups)
-        displayText = displayText.replace(/(?<![_^])\{([^{}]*)\}/g, '$1');
+      // Convert \definecolor{name}{RGB}{r,g,b} to hex and replace \color{name}
+      // with \color{#hex} so KaTeX can render the colors natively.
+      if (/\\definecolor/.test(displayText)) {
+        const colorDefs = {};
+        displayText = displayText.replace(
+          /\\definecolor\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/g,
+          (_m, name, model, values) => {
+            if (model.toUpperCase() === 'RGB') {
+              const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+              if (parts.length === 3) {
+                colorDefs[name] = '#' + parts.map(c =>
+                  Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')
+                ).join('');
+              }
+            }
+            return '';
+          }
+        );
+        displayText = displayText.replace(/\\color\s*\{([^}]*)\}/g, (_m, name) => {
+          return colorDefs[name] ? '\\color{' + colorDefs[name] + '}' : _m;
+        });
       }
 
       // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
