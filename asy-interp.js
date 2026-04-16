@@ -1118,6 +1118,7 @@ function mergePens(a,b) {
   if (b.opacity !== 1) r.opacity = b.opacity;
   if (b.linecap) r.linecap = b.linecap;
   if (b.linejoin) r.linejoin = b.linejoin;
+  if (b.fillrule) r.fillrule = b.fillrule;
   return r;
 }
 
@@ -2877,6 +2878,8 @@ function createInterpreter() {
     env.set('miterjoin', makePen({linejoin:'miter'}));
     env.set('roundjoin', makePen({linejoin:'round'}));
     env.set('beveljoin', makePen({linejoin:'bevel'}));
+    env.set('evenodd', makePen({fillrule:'evenodd'}));
+    env.set('zerowinding', makePen({fillrule:'nonzero'}));
 
     // Units
     env.set('bp', 1);
@@ -8429,6 +8432,7 @@ function renderSVG(result, opts) {
 
     let attrs = `d="${d}"`;
     attrs += ` fill="${fill}"`;
+    if (fill !== 'none' && dc.pen && dc.pen.fillrule) attrs += ` fill-rule="${dc.pen.fillrule}"`;
     if (stroke !== 'none') {
       attrs += ` stroke="${stroke}" stroke-width="${fmt(strokeW)}"`;
       if (dashArray) attrs += ` stroke-dasharray="${dashArray}"`;
