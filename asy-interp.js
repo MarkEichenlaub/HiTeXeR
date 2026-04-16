@@ -109,9 +109,9 @@ function lex(source) {
       while (pos < len && ch() !== '"') {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; }
           else if (ch() === '\\') { s += '\\\\'; } else if (ch() === '"') { s += '"'; }
-          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
+          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc. (\t→\textbf, etc.)
         } else { s += ch(); }
         advance();
       }
@@ -125,9 +125,9 @@ function lex(source) {
       while (pos < len && ch() !== "'") {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; }
           else if (ch() === '\\') { s += '\\'; } else if (ch() === "'") { s += "'"; }
-          else { s += '\\'; s += ch(); }
+          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
         advance();
       }
