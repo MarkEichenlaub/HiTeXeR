@@ -109,7 +109,7 @@ function lex(source) {
       while (pos < len && ch() !== '"') {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; }
           else if (ch() === '\\') { s += '\\\\'; } else if (ch() === '"') { s += '"'; }
           else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
@@ -125,7 +125,7 @@ function lex(source) {
       while (pos < len && ch() !== "'") {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; }
           else if (ch() === '\\') { s += '\\'; } else if (ch() === "'") { s += "'"; }
           else { s += '\\'; s += ch(); }
         } else { s += ch(); }
@@ -1305,7 +1305,9 @@ function hobbyRho(theta, phi) {
   const st = Math.sin(theta), ct = Math.cos(theta);
   const sp = Math.sin(phi), cp = Math.cos(phi);
   const num = 2 + Math.SQRT2 * (st - sp/16) * (sp - st/16) * (ct - cp);
-  const den = (1 + 0.5*(Math.SQRT2-1)*ct) * (1 + 0.5*(Math.SQRT2-1)*cp);
+  const c3 = 0.5 * (Math.sqrt(5) - 1);
+  const d3 = 0.5 * (3 - Math.sqrt(5));
+  const den = 1 + c3 * ct + d3 * cp;
   return Math.max(0.1, num / den);
 }
 
