@@ -8990,9 +8990,23 @@ function linestyleToDasharray(style, strokeWidth) {
 function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
-  // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel
+  // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel.
+  // In Asymptote, the explicit 'size' parameter is a scale factor applied to the
+  // arrowhead bezier path.  TeXHead's path has an intrinsic length of ~2.3 units
+  // at scale=1 (from tip at x=1 to tail at x≈-1.3, scaled by wcoef=1/84).
+  // When size=0, Asymptote uses arrowfactor*linewidth ≈ 6bp (matching our default).
+  // For explicit sizes, multiply by the intrinsic path length factor.
   const baseSize = dc.arrow.size || 6;
+  // In Asymptote, TeXHead's arrowhead Bezier path has an intrinsic length of ~6
+  // units at scale=1 (the path spans from tip to the widest point of the Bezier
+  // curves).  When size is explicitly specified (e.g. Arrow(TeXHead,1)), the
+  // arrowhead should be baseSize * intrinsic_factor bp long.
+  // For the default size=6, just use 6bp directly (matching arrowfactor*linewidth).
+  const TEXHEAD_INTRINSIC = 3;
   let arrowLen = baseSize * bpCSSPixel;
+  if (dc.arrow.size && dc.arrow.size !== 6) {
+    arrowLen = baseSize * TEXHEAD_INTRINSIC * bpCSSPixel;
+  }
 
   // Get endpoint and tangent direction
   let segs = path.segs;
@@ -9030,7 +9044,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
       }
     }
     const tipX = (tip.x - minX)*scaleX, tipY = (maxY - tip.y)*scaleY;
-    const headAngle = 15 * Math.PI / 180;
+    const headAngle = 25 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
