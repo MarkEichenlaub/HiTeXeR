@@ -6617,7 +6617,7 @@ function createInterpreter() {
       }
 
       // Draw axis lines with arrows
-      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
       // Vertical axis (x=0)
       const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
@@ -6684,7 +6684,7 @@ function createInterpreter() {
       }
 
       // ── Axis lines with arrows ──
-      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
       const vPath = makePath([lineSegment({x:0, y:ybottom}, {x:0, y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
       const hPath = makePath([lineSegment({x:xleft, y:0}, {x:xright, y:0})], false);
@@ -8991,22 +8991,14 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
   // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel.
-  // In Asymptote, the explicit 'size' parameter is a scale factor applied to the
-  // arrowhead bezier path.  TeXHead's path has an intrinsic length of ~2.3 units
-  // at scale=1 (from tip at x=1 to tail at x≈-1.3, scaled by wcoef=1/84).
-  // When size=0, Asymptote uses arrowfactor*linewidth ≈ 6bp (matching our default).
-  // For explicit sizes, multiply by the intrinsic path length factor.
+  // In Asymptote, arrowsize is in bp (PostScript points).  When size=0, Asymptote
+  // uses arrowfactor*linewidth ≈ 6bp (matching our default of 6).
   const baseSize = dc.arrow.size || 6;
-  // In Asymptote, TeXHead's arrowhead Bezier path has an intrinsic length of ~6
-  // units at scale=1 (the path spans from tip to the widest point of the Bezier
-  // curves).  When size is explicitly specified (e.g. Arrow(TeXHead,1)), the
-  // arrowhead should be baseSize * intrinsic_factor bp long.
-  // For the default size=6, just use 6bp directly (matching arrowfactor*linewidth).
-  const TEXHEAD_INTRINSIC = 3;
   let arrowLen = baseSize * bpCSSPixel;
-  if (dc.arrow.size && dc.arrow.size !== 6) {
-    arrowLen = baseSize * TEXHEAD_INTRINSIC * bpCSSPixel;
-  }
+  // Ensure a minimum of 3 viewBox units so that very small explicit sizes (e.g.
+  // Arrow(TeXHead,1) in a size(200) diagram where bpCSSPixel≈1) remain visible
+  // without over-scaling larger sizes like axisarrowsize≈4bp.
+  if (arrowLen < 3) arrowLen = 3;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
