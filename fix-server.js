@@ -46,6 +46,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"ok":true}');
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/refetch') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -162,7 +168,10 @@ const server = http.createServer((req, res) => {
       const ext = path.extname(filePath).toLowerCase();
       const mime = MIME[ext] || 'application/octet-stream';
       res.writeHead(200, { 'Content-Type': mime });
-      fs.createReadStream(filePath).pipe(res);
+      const rs = fs.createReadStream(filePath);
+      rs.on('error', err => { console.error('[fix-server] Read error:', err.message); res.destroy(); });
+      res.on('error', () => { rs.destroy(); });
+      rs.pipe(res);
     });
     return;
   }
@@ -170,6 +179,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(404);
   res.end('Not found\n');
 });
+
+process.on('uncaughtException', err => { console.error('[fix-server] Uncaught exception:', err.message); });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`fix-server listening on http://localhost:${PORT}`);
