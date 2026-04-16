@@ -3297,6 +3297,14 @@ function createInterpreter() {
       }
       return makeTransform(0, c, -s, 0, s, c);
     });
+    // Rotate(pair dir) — rotation transform that aligns with direction vector
+    env.set('Rotate', (dir) => {
+      const p = toPair(dir);
+      const angle = Math.atan2(p.y, p.x) * 180 / Math.PI;
+      const a = angle * Math.PI / 180;
+      const c = Math.cos(a), s = Math.sin(a);
+      return makeTransform(0, c, -s, 0, s, c);
+    });
     env.set('scale', (...args) => {
       if (args.length === 1) {
         const s = toNumber(args[0]);
@@ -3725,8 +3733,10 @@ function createInterpreter() {
       let align = null;
       let position = null;
       let labelPen = null;
+      let labelTransform = null;
       for (const a of args) {
         if (isString(a)) text = a;
+        else if (isTransform(a)) labelTransform = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
@@ -3743,6 +3753,7 @@ function createInterpreter() {
       const lbl = {_tag:'label', text, align};
       if (position !== null) lbl.position = position;
       if (labelPen) lbl.pen = labelPen;
+      if (labelTransform) lbl.transform = labelTransform;
       return lbl;
     });
     env.set('EndPoint', 1);
@@ -9272,6 +9283,14 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       const fracH = fontSize * 2;
       parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, width: fracW});
       totalWidth += fracW;
+    } else if (seg.type === 'sqrt') {
+      const innerText = stripLaTeX(seg.content);
+      const innerW = _estimateTextWidth(innerText, fontSize);
+      const sqrtPad = fontSize * 0.25; // padding around content
+      const radicalW = fontSize * 0.55; // width of the radical sign
+      const totalSqrtW = radicalW + innerW + sqrtPad;
+      parts.push({type:'sqrt', innerText, innerW, radicalW, width: totalSqrtW});
+      totalWidth += totalSqrtW;
     } else if (seg.type === 'underbrace') {
       const braceW = seg.width || fontSize * 8;
       const labelText = stripLaTeX(seg.label || '');
@@ -9299,6 +9318,21 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line
       els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
+    } else if (p.type === 'sqrt') {
+      // Draw radical sign: a check-mark shape leading into a horizontal overline
+      const topY = y - fontSize * 0.5;   // top of the radical
+      const botY = y + fontSize * 0.4;   // bottom of the check mark
+      const overlineY = topY - fontSize * 0.05; // overline just above top
+      const radX0 = curX;                // start of radical
+      const radX1 = curX + p.radicalW * 0.35; // bottom of the check-mark notch
+      const radX2 = curX + p.radicalW;   // where the overline starts (top of check)
+      const overlineEnd = curX + p.width; // end of overline over content
+      const sw = Math.max(0.6, fontSize * 0.05); // stroke width
+      // Radical sign path: small top-left tick → down to bottom → up to overline start → horizontal overline
+      els.push(`<path d="M${fmt(radX0)},${fmt(y - fontSize*0.05)} L${fmt(radX1)},${fmt(botY)} L${fmt(radX2)},${fmt(overlineY)} L${fmt(overlineEnd)},${fmt(overlineY)}" fill="none" stroke="${fill}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
+      // Content text after radical sign
+      const textX = curX + p.radicalW;
+      els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
     } else if (p.type === 'underbrace') {
       const cx = curX + p.width / 2;
       const by = y + fontSize * 0.3;
@@ -9323,12 +9357,17 @@ function parseLaTeXSegments(text) {
   const segments = [];
   let remaining = s;
   while (remaining.length > 0) {
-    // Find next \frac or \underbrace
+    // Find next \frac, \underbrace, or \sqrt
     const fracIdx = remaining.indexOf('\\frac');
     const ubIdx = remaining.indexOf('\\underbrace');
+    const sqrtIdx = remaining.indexOf('\\sqrt');
+    const candidates = [];
+    if (fracIdx >= 0) candidates.push({idx: fracIdx, type: 'frac'});
+    if (ubIdx >= 0) candidates.push({idx: ubIdx, type: 'underbrace'});
+    if (sqrtIdx >= 0) candidates.push({idx: sqrtIdx, type: 'sqrt'});
+    candidates.sort((a, b) => a.idx - b.idx);
     let nextIdx = -1, nextType = '';
-    if (fracIdx >= 0 && (ubIdx < 0 || fracIdx < ubIdx)) { nextIdx = fracIdx; nextType = 'frac'; }
-    else if (ubIdx >= 0) { nextIdx = ubIdx; nextType = 'underbrace'; }
+    if (candidates.length > 0) { nextIdx = candidates[0].idx; nextType = candidates[0].type; }
     if (nextIdx < 0) {
       // No more special commands
       const cleaned = stripLaTeX(remaining);
@@ -9368,6 +9407,11 @@ function parseLaTeXSegments(text) {
         if (valMatch) width = parseFloat(valMatch[1]) * 28.35; // cm to points
       }
       segments.push({type:'underbrace', width, label});
+    } else if (nextType === 'sqrt') {
+      remaining = remaining.substring(nextIdx + 5); // skip \sqrt
+      const content = extractBraced(remaining);
+      remaining = remaining.substring(content.consumed);
+      segments.push({type:'sqrt', content: content.content});
     }
   }
   if (segments.length === 0) segments.push({type:'text', text: stripLaTeX(text)});
