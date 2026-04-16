@@ -8647,6 +8647,11 @@ function renderSVG(result, opts) {
       } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
         labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+      } else if (hasMath && /^(\s*\\(?:mathrm|textrm|text)\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+        // \mathrm, \textrm, \text labels → upright roman (not math italic)
+        let rmContent = '';
+        strippedDollar.replace(/\\(?:mathrm|textrm|text)\s*\{([^}]*)\}/g, (_, g) => { rmContent += g; });
+        labelEl = renderLabelWithScripts(rmContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'normal', 'normal');
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
