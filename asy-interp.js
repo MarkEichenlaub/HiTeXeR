@@ -9019,10 +9019,7 @@ function renderSVG(result, opts) {
   // With keepAspect=false, non-uniform scaling is baked into coordinates via
   // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
   const parAttr = '';
-  // Thin SVG text to better match TeX Computer Modern bitmap rendering.
-  // paint-order:stroke renders a thin white stroke beneath the fill, visually
-  // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
-  const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
+  const svgStyle = '';
   const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
