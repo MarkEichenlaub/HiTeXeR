@@ -93,7 +93,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v5</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v7</span></h1>
 
   <div class="filter-group">
     <label>Collection:</label>
@@ -113,7 +113,7 @@
   <div class="filter-group">
     <label class="filter-check"><input type="checkbox" id="filter-both" checked> Both exist</label>
     <label class="filter-check"><input type="checkbox" id="filter-htx-only"> HTX only</label>
-    <label class="filter-check"><input type="checkbox" id="filter-asy-only"> ASY only</label>
+    <label class="filter-check"><input type="checkbox" id="filter-texer-only"> TeXeR only</label>
   </div>
 
   <div class="filter-group">
@@ -149,7 +149,9 @@
     <button id="btn-texer" class="action-btn" title="Open in AoPS TeXeR">Open in TeXeR</button>
     <button id="btn-hitexer" class="action-btn" title="Open in HiTeXeR">Open in HiTeXeR</button>
     <button id="blink-code-toggle" title="Toggle code panel (C)">Hide Code</button>
-    <div class="help">L/R: toggle | Up/Down: prev/next | Space: blink | C: code | Esc: grid</div>
+    <button id="btn-fix" class="action-btn" title="Send to Claude Code for fixing (F)" style="background:#1e5f3a;border-color:#22c55e;color:#86efac">Fix</button>
+    <button id="btn-refetch" class="action-btn" title="Re-fetch TeXeR PNG (cache-bust) (R)" style="background:#5f1e5f;border-color:#c025c0;color:#efac86">Re-fetch</button>
+    <div class="help">L/R: toggle | Up/Down: prev/next | Space: blink | C: code | F: fix | R: re-fetch | Esc: grid</div>
   </div>
   <div class="blink-body">
     <div class="blink-image-area" id="blink-container">
@@ -172,11 +174,12 @@
   <div class="hints-box">
     <h2>Keyboard Shortcuts</h2>
     <table>
-      <tr><td>Left / Right</td><td>Toggle HiTeXeR / Asymptote</td></tr>
+      <tr><td>Left / Right</td><td>Toggle HiTeXeR / TeXeR</td></tr>
       <tr><td>Up / Down</td><td>Previous / Next diagram</td></tr>
       <tr><td>Space</td><td>Auto-blink on/off</td></tr>
       <tr><td>C</td><td>Toggle code panel</td></tr>
-      <tr><td>T</td><td>Show TeXeR (if available)</td></tr>
+      <tr><td>F</td><td>Send to Claude Code for fixing</td></tr>
+      <tr><td>R</td><td>Re-fetch TeXeR PNG (cache-bust)</td></tr>
       <tr><td>Escape</td><td>Return to grid</td></tr>
       <tr><td>?</td><td>Show/hide this help</td></tr>
     </table>
@@ -231,17 +234,17 @@
   function applyFilters() {
     const coll = document.getElementById('collection-filter').value;
     const sort = document.getElementById('sort-mode').value;
-    const bothOnly = document.getElementById('filter-both').checked;
-    const htxOnly  = document.getElementById('filter-htx-only').checked;
-    const asyOnly  = document.getElementById('filter-asy-only').checked;
+    const bothOnly  = document.getElementById('filter-both').checked;
+    const htxOnly   = document.getElementById('filter-htx-only').checked;
+    const texerOnly = document.getElementById('filter-texer-only').checked;
     const search   = document.getElementById('search-input').value.trim().toLowerCase();
 
     let list = manifest.diagrams;
 
     if (coll) list = list.filter(d => d.collection === coll);
-    if (bothOnly) list = list.filter(d => d.hasAsy && d.hasHtx);
-    if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasAsy);
-    if (asyOnly)  list = list.filter(d => d.hasAsy && !d.hasHtx);
+    if (bothOnly) list = list.filter(d => d.hasTexer && d.hasHtx);
+    if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasTexer);
+    if (texerOnly) list = list.filter(d => d.hasTexer && !d.hasHtx);
 
     if (search) {
       const names = manifest.courseNames || {};
@@ -291,9 +294,9 @@
     }
 
     grid.innerHTML = slice.map((d, i) => {
-      const imgSrc = d.hasHtx ? `htx_pngs/${d.id}.png` : (d.hasAsy ? `asy_pngs/${d.id}.png` : '');
+      const imgSrc = d.hasHtx ? `htx_pngs/${d.id}.png` : (d.hasTexer ? `texer_pngs/${d.id}.png` : '');
       const badge = ssimBadge(d.ssim);
-      const missing = !d.hasAsy ? '<div class="missing">no ASY</div>' : (!d.hasHtx ? '<div class="missing">no HTX</div>' : '');
+      const missing = !d.hasTexer ? '<div class="missing">no TeXeR</div>' : (!d.hasHtx ? '<div class="missing">no HTX</div>' : '');
       return `<div class="thumb" data-idx="${start + i}" title="${d.source}">
         ${imgSrc ? `<img src="${imgSrc}" loading="lazy" alt="${d.id}">` : '<div style="aspect-ratio:1;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;opacity:0.5">No image</div>'}
         ${missing}
@@ -376,6 +379,9 @@
   //   asy_display_px = asy_natural_px * (120 / 240) = asy_natural_px * 0.5
   // TeXeR PNGs from the AoPS server vary in effective DPI, so display at 1:1.
   const ASY_DISPLAY_SCALE = 0.5;
+  // TeXeR server renders at 240 DPI (2×) and sets width=naturalWidth/2 on AoPS.
+  // Display at half natural pixel size to match what users see on AoPS.
+  const TEXER_DISPLAY_SCALE = 0.5;
 
   function fitImage(img, displayW, displayH) {
     // displayW/displayH = the target CSS size for this image.
@@ -416,14 +422,14 @@
       displayScale = ASY_DISPLAY_SCALE;
     } else if (blinkSource === 'texer' && d.hasTexer) {
       src = `texer_pngs/${d.id}.png`; labelText = 'TeXeR'; labelClass = 'texer';
-      displayScale = 1; // TeXeR PNGs from AoPS server — display at native pixel size
+      displayScale = TEXER_DISPLAY_SCALE;
     } else {
       if (d.hasHtx) {
         blinkSource = 'htx'; labelText = 'HiTeXeR'; labelClass = 'htx';
         if (d.hasSvg) { src = `htx_svgs/${d.id}.svg`; displayScale = 1; }
         else { src = `htx_pngs/${d.id}.png`; displayScale = 1; }
       }
-      else if (d.hasAsy) { src = `asy_pngs/${d.id}.png`; labelText = 'Asymptote (only)'; labelClass = 'asy'; blinkSource = 'asy'; displayScale = ASY_DISPLAY_SCALE; }
+      else if (d.hasTexer) { src = `texer_pngs/${d.id}.png`; labelText = 'TeXeR (only)'; labelClass = 'texer'; blinkSource = 'texer'; displayScale = TEXER_DISPLAY_SCALE; }
     }
 
     const svgDiv = document.getElementById('blink-svg-inline');
@@ -463,7 +469,7 @@
   function toggleBlinkSource() {
     const d = filtered[blinkIdx];
     if (!d) return;
-    blinkSource = (blinkSource === 'htx') ? (d.hasAsy ? 'asy' : 'htx') : (d.hasHtx ? 'htx' : 'asy');
+    blinkSource = (blinkSource === 'htx') ? (d.hasTexer ? 'texer' : 'htx') : (d.hasHtx ? 'htx' : 'texer');
     updateBlinkImage();
   }
 
@@ -504,7 +510,7 @@
     const d = filtered[blinkIdx];
     if (d) {
       const img = document.getElementById('blink-img');
-      const scale = (blinkSource === 'asy') ? ASY_DISPLAY_SCALE : 1;
+      const scale = (blinkSource === 'asy') ? ASY_DISPLAY_SCALE : (blinkSource === 'texer') ? TEXER_DISPLAY_SCALE : 1;
       setTimeout(() => fitImage(img, img.naturalWidth * scale, img.naturalHeight * scale), 220);
     }
   }
@@ -600,12 +606,111 @@
     window.open(url, '_blank');
   }
 
+  // ── Fix via Claude Code ───────────────────────────────
+  function buildFixPrompt(d, source) {
+    return 'You are working on the HiTeXeR Asymptote interpreter (asy-interp.js) in C:\\Users\\Mark Eichenlaub\\github\\hitexer.\n\n' +
+      'Your task: fix diagram ' + d.source + ' (ID: ' + d.id + ') so HiTeXeR renders it to match the TeXeR reference.\n\n' +
+      'SSIM: ' + (d.ssim !== null ? d.ssim : 'N/A') + '\n' +
+      '(Higher is better; target > 0.9. -1 means render failed.)\n\n' +
+      'Asymptote source (comparison/asy_src/' + d.id + '.asy):\n' +
+      '```\n' + source + '\n```\n\n' +
+      'Reference render: comparison/texer_pngs/' + d.id + '.png (TeXeR server-generated)\n' +
+      'Current HiTeXeR SVG: comparison/htx_svgs/' + d.id + '.svg\n\n' +
+      'Workflow:\n' +
+      '1. Read the source and reference PNG to understand what the diagram should look like.\n' +
+      '2. Quick render test: node render-hitexer.js comparison/asy_src/' + d.id + '.asy\n' +
+      '   (outputs SVG to stdout; visually compare with the reference PNG)\n' +
+      '3. Identify all differences (missing elements, wrong color, wrong position/size, wrong stroke, etc.)\n' +
+      '4. Fix asy-interp.js with targeted, minimal changes. Avoid breaking other diagrams.\n' +
+      '5. Re-test: node render-hitexer.js comparison/asy_src/' + d.id + '.asy\n' +
+      '6. When the render looks correct, bump the version in index.html and run:\n' +
+      '   node recompute-htx.js render-htx rasterize ssim html\n' +
+      '7. Check the new SSIM for this diagram and watch for regressions in overall stats.\n' +
+      '8. Repeat from step 2 until SSIM > 0.9 or no further improvement is possible.\n\n' +
+      'Always run recompute-htx.js after any asy-interp.js fix to catch regressions across all diagrams.';
+  }
+
+  function fixDiagram() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    const source = getCurrentCode();
+    if (!source) { alert('Source code not loaded yet'); return; }
+    const prompt = buildFixPrompt(d, source);
+    const btn = document.getElementById('btn-fix');
+    const orig = btn.textContent;
+
+    fetch('/fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: d.id, prompt: prompt })
+    }).then(r => r.json()).then(res => {
+      if (res.ok) {
+        btn.textContent = 'Launched!';
+        btn.style.background = '#2d8a4e';
+        setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3000);
+      } else {
+        alert('fix-server error: ' + res.error);
+      }
+    }).catch(() => {
+      navigator.clipboard.writeText(prompt).then(() => {
+        btn.textContent = 'Copied (run: node fix-server.js)';
+        setTimeout(() => { btn.textContent = orig; }, 4000);
+      });
+    });
+  }
+
+  // ── Re-fetch TeXeR PNG (cache-bust) ──────────────────
+  function refetchTexerPng() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    const btn = document.getElementById('btn-refetch');
+    const orig = btn.textContent;
+    btn.textContent = 'Fetching...';
+    btn.style.background = '#7a3a7a';
+
+    fetch('/refetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: d.id })
+    }).then(r => r.json()).then(res => {
+      if (res.ok) {
+        btn.textContent = 'Done!';
+        btn.style.background = '#2d6a4f';
+        // Mark as having texer and force-reload if currently viewing texer
+        d.hasTexer = true;
+        if (blinkSource === 'texer') {
+          // Append cache-buster to force <img> reload
+          const img = document.getElementById('blink-img');
+          const svgDiv = document.getElementById('blink-svg-inline');
+          svgDiv.style.display = 'none';
+          svgDiv.innerHTML = '';
+          img.style.display = '';
+          img.onload = () => fitImage(img, img.naturalWidth * TEXER_DISPLAY_SCALE, img.naturalHeight * TEXER_DISPLAY_SCALE);
+          img.src = `texer_pngs/${d.id}.png?t=${Date.now()}`;
+        }
+        // Also refresh the grid thumbnail if it was a texer image
+        const thumb = document.querySelector(`.thumb[data-idx="${blinkIdx}"] img`);
+        if (thumb) thumb.src = thumb.src.split('?')[0] + '?t=' + Date.now();
+      } else {
+        btn.textContent = 'Failed';
+        btn.style.background = '#991b1b';
+        console.error('Re-fetch failed:', res.error);
+      }
+      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3000);
+    }).catch(err => {
+      btn.textContent = 'Server not running';
+      btn.style.background = '#991b1b';
+      console.error('Re-fetch error:', err);
+      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 4000);
+    });
+  }
+
   // ── Event listeners ──────────────────────────────────
   document.getElementById('collection-filter').addEventListener('change', applyFilters);
   document.getElementById('sort-mode').addEventListener('change', applyFilters);
   document.getElementById('filter-both').addEventListener('change', applyFilters);
   document.getElementById('filter-htx-only').addEventListener('change', applyFilters);
-  document.getElementById('filter-asy-only').addEventListener('change', applyFilters);
+  document.getElementById('filter-texer-only').addEventListener('change', applyFilters);
   document.getElementById('search-input').addEventListener('input', applyFilters);
 
   document.getElementById('blink-back').addEventListener('click', exitBlink);
@@ -616,6 +721,8 @@
   document.getElementById('btn-copy-code').addEventListener('click', copyCodePanel);
   document.getElementById('btn-texer').addEventListener('click', openInTexer);
   document.getElementById('btn-hitexer').addEventListener('click', openInHitexer);
+  document.getElementById('btn-fix').addEventListener('click', fixDiagram);
+  document.getElementById('btn-refetch').addEventListener('click', refetchTexerPng);
   document.getElementById('help-btn').addEventListener('click', () => {
     document.getElementById('hints-overlay').classList.toggle('active');
   });
@@ -645,11 +752,10 @@
           e.preventDefault(); exitBlink(); break;
         case 'c': case 'C':
           toggleCodePanel(); break;
-        case 't': case 'T': {
-          const d = filtered[blinkIdx];
-          if (d && d.hasTexer) { blinkSource = blinkSource === 'texer' ? 'htx' : 'texer'; updateBlinkImage(); }
-          break;
-        }
+        case 'f': case 'F':
+          fixDiagram(); break;
+        case 'r': case 'R':
+          refetchTexerPng(); break;
         case '?':
           document.getElementById('hints-overlay').classList.add('active'); break;
       }

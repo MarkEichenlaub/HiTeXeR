@@ -1307,7 +1307,9 @@ function hobbyRho(theta, phi) {
   const st = Math.sin(theta), ct = Math.cos(theta);
   const sp = Math.sin(phi), cp = Math.cos(phi);
   const num = 2 + Math.SQRT2 * (st - sp/16) * (sp - st/16) * (ct - cp);
-  const den = (1 + 0.5*(Math.SQRT2-1)*ct) * (1 + 0.5*(Math.SQRT2-1)*cp);
+  const c3 = 0.5 * (Math.sqrt(5) - 1);
+  const d3 = 0.5 * (3 - Math.sqrt(5));
+  const den = 1 + c3 * ct + d3 * cp;
   return Math.max(0.1, num / den);
 }
 
@@ -6649,7 +6651,7 @@ function createInterpreter() {
       }
 
       // Draw axis lines with arrows
-      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
       // Vertical axis (x=0)
       const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
@@ -6716,7 +6718,7 @@ function createInterpreter() {
       }
 
       // ── Axis lines with arrows ──
-      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
       const vPath = makePath([lineSegment({x:0, y:ybottom}, {x:0, y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
       const hPath = makePath([lineSegment({x:xleft, y:0}, {x:xright, y:0})], false);
@@ -7801,6 +7803,7 @@ function renderSVG(result, opts) {
   // (pxPerUnit) depends on the bbox, and labels expand the bbox.  Two passes
   // suffice: the first expands coarsely, the second refines with the updated bbox.
   const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
+  const labelInfoBp = [];  // Collect label bp-space info for iterative scale solver
   for (let labelPass = 0; labelPass < 2; labelPass++) {
     // Compute the rough pxPerUnit from current bbox (mirrors the final scale logic)
     const curBboxW = (maxX - minX) || 1;
@@ -7819,10 +7822,10 @@ function renderSVG(result, opts) {
       roughPxPerUnitX = keepAspect ? roughPxPerUnit : (sizeW > 0 ? sizeW / geoW : roughPxPerUnit);
       roughPxPerUnitY = keepAspect ? roughPxPerUnit : (sizeH > 0 ? sizeH / geoH : roughPxPerUnit);
     } else {
-      // No size/unitsize: default size(200) — scale by the binding dimension
+      // No size/unitsize: default size(150) — scale by the binding dimension
       const geoW = (geoMaxX - geoMinX) || 1;
       const geoH = (geoMaxY - geoMinY) || 1;
-      roughPxPerUnit = Math.min(200 / geoW, 200 / geoH);
+      roughPxPerUnit = Math.min(150 / geoW, 150 / geoH);
       roughPxPerUnitX = roughPxPerUnitY = roughPxPerUnit;
     }
 
@@ -7914,6 +7917,28 @@ function renderSVG(result, opts) {
 
         expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
         expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
+
+        // On first pass, collect bp-space info for the iterative scale solver
+        if (labelPass === 0) {
+          // Compute bp-space dimensions (before rotation swap)
+          let lWidthBp = effectiveLen * charWidthBp;
+          let lHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
+          // Swap width/height for rotated labels (matching the swap done above)
+          if (Math.abs(ltAngle) > 45) {
+            const tmp = lWidthBp;
+            lWidthBp = lHeightBp;
+            lHeightBp = tmp;
+          }
+          const alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
+          const alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
+          labelInfoBp.push({
+            posX: pos.x, posY: pos.y,
+            widthBp: lWidthBp,
+            heightBp: lHeightBp,
+            alignOffsetXBp,
+            alignOffsetYBp
+          });
+        }
       }
     }
   }
@@ -7998,9 +8023,11 @@ function renderSVG(result, opts) {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
     }
   } else {
-    // No unitsize/size: mimic AoPS TeXeR behavior
-    // TeXeR produces diagrams 2.47x larger than the old default of 200
-    const defaultSize = 493;
+    // No unitsize/size: mimic AoPS TeXeR behavior.
+    // TeXeR's Asymptote default (no size command) is equivalent to size(150),
+    // measured empirically: all no-size diagrams produce 504 natural px wide
+    // (= 252 CSS px = 150 bp × 240 DPI / 72 / 2).
+    const defaultSize = 150;
     const targetW = defaultSize;
     const targetH = defaultSize;
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
@@ -8012,6 +8039,64 @@ function renderSVG(result, opts) {
     sizeW = defaultSize;
     sizeH = defaultSize;
     warnings.push('auto-scaled');
+  }
+
+  // Iterative scale solver: reduce pxPerUnit so total output
+  // (geometry + truesize labels) fits within size constraint.
+  // Real Asymptote does this; labels are truesize and don't scale with geometry.
+  if (!hasUnitScale && labelInfoBp.length > 0) {
+    const tgtW = sizeW > 0 ? sizeW : Infinity;
+    const tgtH = sizeH > 0 ? sizeH : Infinity;
+
+    for (let iter = 0; iter < 5; iter++) {
+      let bpMinX = geoMinX * pxPerUnitX;
+      let bpMaxX = geoMaxX * pxPerUnitX;
+      let bpMinY = geoMinY * pxPerUnitY;
+      let bpMaxY = geoMaxY * pxPerUnitY;
+
+      for (const li of labelInfoBp) {
+        const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+        const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+        bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
+        bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
+        bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
+        bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
+      }
+
+      const totalW = bpMaxX - bpMinX;
+      const totalH = bpMaxY - bpMinY;
+      const exceedW = tgtW < Infinity ? totalW / tgtW : 0;
+      const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
+      const exceed = Math.max(exceedW, exceedH);
+
+      if (exceed <= 1.005) break; // fits within tolerance
+
+      // Scale down geometry (labels stay fixed bp)
+      if (keepAspect || pxPerUnitX === pxPerUnitY) {
+        pxPerUnit = pxPerUnitX = pxPerUnitY = pxPerUnit / exceed;
+      } else {
+        // IgnoreAspect: scale each axis independently
+        if (exceedW > 1) pxPerUnitX /= exceedW;
+        if (exceedH > 1) pxPerUnitY /= exceedH;
+        pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+      }
+    }
+  }
+
+  // Recompute label-expanded bbox at final scale so naturalW/H is correct
+  if (!hasUnitScale && labelInfoBp.length > 0) {
+    minX = geoMinX; maxX = geoMaxX;
+    minY = geoMinY; maxY = geoMaxY;
+    for (const li of labelInfoBp) {
+      const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
+      const cy = li.posY + li.alignOffsetYBp / pxPerUnitY;
+      const hw = li.widthBp / (2 * pxPerUnitX);
+      const hh = li.heightBp / (2 * pxPerUnitY);
+      minX = Math.min(minX, cx - hw);
+      maxX = Math.max(maxX, cx + hw);
+      minY = Math.min(minY, cy - hh);
+      maxY = Math.max(maxY, cy + hh);
+    }
   }
 
   // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
@@ -8052,20 +8137,15 @@ function renderSVG(result, opts) {
     svgH = naturalH;
   }
 
-  // In real Asymptote the pen-width overshoot extends the output slightly beyond
-  // the size() constraint.  For unitsize() cases the padding is already in the
-  // bbox, but for size()-constrained output we add ~1 bp (0.5 bp per side) to
-  // the constrained axis(es) so the final image matches AoPS TeXeR.
-  if (!hasUnitScale) {
-    if (sizeW > 0) svgW += 1;   // 0.5 bp padding each side
-    if (sizeH > 0) svgH += 1;
-  }
+  // Note: the +1bp pen padding that was here has been removed — the iterative
+  // scale solver now accounts for the full output including pen overshoot via
+  // the geometry bbox (which already includes the `pad` variable).
 
   // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
-  // (1 bp = 1/72 in).  The AoPS TeXeR renders at an effective 120 DPI for web
-  // display, so we use 120/72 = 5/3 to match its output size.
-  // Adjusted by factor 0.8884 to match TeXeR PNG sizes at 144 DPI
-  const bpToCSSPx = 1.4807;
+  // (1 bp = 1/72 in).  The AoPS TeXeR rasterizes at 240 DPI and displays at
+  // half resolution (width = naturalWidth/2), giving an effective 120 DPI for
+  // web display: 240/72/2 = 5/3 ≈ 1.6667 CSS px per bp.
+  const bpToCSSPx = 5/3;
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
 
@@ -8939,7 +9019,10 @@ function renderSVG(result, opts) {
   // With keepAspect=false, non-uniform scaling is baked into coordinates via
   // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
   const parAttr = '';
-  const svgStyle = '';
+  // Thin SVG text to better match TeX Computer Modern bitmap rendering.
+  // paint-order:stroke renders a thin white stroke beneath the fill, visually
+  // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
+  const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
   const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
@@ -9022,22 +9105,14 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
   // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel.
-  // In Asymptote, the explicit 'size' parameter is a scale factor applied to the
-  // arrowhead bezier path.  TeXHead's path has an intrinsic length of ~2.3 units
-  // at scale=1 (from tip at x=1 to tail at x≈-1.3, scaled by wcoef=1/84).
-  // When size=0, Asymptote uses arrowfactor*linewidth ≈ 6bp (matching our default).
-  // For explicit sizes, multiply by the intrinsic path length factor.
+  // In Asymptote, arrowsize is in bp (PostScript points).  When size=0, Asymptote
+  // uses arrowfactor*linewidth ≈ 6bp (matching our default of 6).
   const baseSize = dc.arrow.size || 6;
-  // In Asymptote, TeXHead's arrowhead Bezier path has an intrinsic length of ~6
-  // units at scale=1 (the path spans from tip to the widest point of the Bezier
-  // curves).  When size is explicitly specified (e.g. Arrow(TeXHead,1)), the
-  // arrowhead should be baseSize * intrinsic_factor bp long.
-  // For the default size=6, just use 6bp directly (matching arrowfactor*linewidth).
-  const TEXHEAD_INTRINSIC = 3;
   let arrowLen = baseSize * bpCSSPixel;
-  if (dc.arrow.size && dc.arrow.size !== 6) {
-    arrowLen = baseSize * TEXHEAD_INTRINSIC * bpCSSPixel;
-  }
+  // Ensure a minimum of 3 viewBox units so that very small explicit sizes (e.g.
+  // Arrow(TeXHead,1) in a size(200) diagram where bpCSSPixel≈1) remain visible
+  // without over-scaling larger sizes like axisarrowsize≈4bp.
+  if (arrowLen < 3) arrowLen = 3;
 
   // Get endpoint and tangent direction
   let segs = path.segs;

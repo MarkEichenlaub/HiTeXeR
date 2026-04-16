@@ -3,7 +3,7 @@
  * recompute-htx.js
  *
  * Renders HiTeXeR SVGs from comparison/asy_src/, rasterizes to htx_pngs/,
- * recomputes SSIM vs asy_pngs/, and regenerates ssim-results.json + HTML.
+ * recomputes SSIM vs texer_pngs/, and regenerates ssim-results.json + HTML.
  *
  * Usage:
  *   node recompute-htx.js [render-htx] [rasterize] [ssim] [html]
@@ -19,7 +19,7 @@ const ROOT       = __dirname;
 const ASY_SRC    = path.join(ROOT, 'comparison', 'asy_src');
 const SVG_DIR    = path.join(ROOT, 'comparison', 'htx_svgs');
 const HTX_DIR    = path.join(ROOT, 'comparison', 'htx_pngs');
-const ASY_DIR    = path.join(ROOT, 'comparison', 'asy_pngs');
+const TEXER_DIR  = path.join(ROOT, 'comparison', 'texer_pngs');
 const OUT_DIR    = path.join(ROOT, 'comparison');
 const SSIM_FILE  = path.join(OUT_DIR, 'ssim-results.json');
 const RASTER_DPI = 144;   // matches ssim-pipeline.js
@@ -80,6 +80,10 @@ function expandViewBox(svgStr) {
   let [vx, vy, vw, vh] = vbMatch[1].split(/\s+/).map(Number);
   let minX = vx, minY = vy, maxX = vx + vw, maxY = vy + vh;
 
+  // When a user clipPath is present, elements outside it are invisible in the
+  // rasterised output.  Don't let them inflate the viewBox.
+  const hasClip = /<clipPath\s/.test(svgStr);
+
   const textRe  = /<text\s[^>]*?\bx="([^"]+)"[^>]*?\by="([^"]+)"[^>]*?(?:font-size="([^"]+)")?[^>]*>/g;
   const textRe2 = /<text\s[^>]*?\by="([^"]+)"[^>]*?\bx="([^"]+)"[^>]*?(?:font-size="([^"]+)")?[^>]*>/g;
   for (const re of [textRe, textRe2]) {
@@ -89,6 +93,9 @@ function expandViewBox(svgStr) {
       const y = parseFloat(re === textRe ? m[2] : m[1]);
       const fs = parseFloat(m[3] || '12');
       const pad = fs * 0.6;
+      // Skip text entirely outside the viewport when clip is active
+      if (hasClip && (x + pad < vx || x - pad > vx + vw ||
+                      y + pad < vy || y - pad > vy + vh)) continue;
       if (x - pad < minX) minX = x - pad;
       if (x + pad > maxX) maxX = x + pad;
       if (y - pad < minY) minY = y - pad;
@@ -101,6 +108,9 @@ function expandViewBox(svgStr) {
   while ((fm = foRe.exec(svgStr)) !== null) {
     const fx = parseFloat(fm[1]), fy = parseFloat(fm[2]);
     const fw = parseFloat(fm[3]), fh = parseFloat(fm[4]);
+    // Skip foreignObject entirely outside the viewport when clip is active
+    if (hasClip && (fx + fw < vx || fx > vx + vw ||
+                    fy + fh < vy || fy > vy + vh)) continue;
     if (fx < minX) minX = fx;
     if (fy < minY) minY = fy;
     if (fx + fw > maxX) maxX = fx + fw;
@@ -257,9 +267,9 @@ async function main() {
   if (STEPS.has('ssim')) {
     console.log('Computing SSIM scores...');
 
-    const asySet = new Set(fs.readdirSync(ASY_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
+    const refSet = new Set(fs.readdirSync(TEXER_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
     const htxSet = new Set(fs.readdirSync(HTX_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
-    const pairs  = [...asySet].filter(id => htxSet.has(id)).sort();
+    const pairs  = [...refSet].filter(id => htxSet.has(id)).sort();
     console.log(`  ${pairs.length} pairs to compare`);
 
     const results = [];
@@ -270,46 +280,70 @@ async function main() {
       const corpusFile = corpusFileMap[id] || id;
 
       try {
-        const asyMeta = await sharp(path.join(ASY_DIR, id + '.png')).metadata();
+        const refMeta = await sharp(path.join(TEXER_DIR, id + '.png')).metadata();
         const htxMeta = await sharp(path.join(HTX_DIR, id + '.png')).metadata();
 
-        const aw = asyMeta.width || 1, ah = asyMeta.height || 1;
+        const aw = refMeta.width || 1, ah = refMeta.height || 1;
         const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
 
         const MIN_DIM = 8;
         if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
           results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1,
             error: 'Image too small', wRatio: hw/aw, hRatio: hh/ah,
-            asyDims: [aw,ah], htxDims: [hw,hh] });
+            refDims: [aw,ah], htxDims: [hw,hh] });
           continue;
         }
 
         const wRatio    = hw / aw;
         const hRatio    = hh / ah;
-        const sizeScore = Math.exp(-((wRatio-1)**2 + (hRatio-1)**2) / (2*SIGMA*SIGMA));
+        let sizeScore;
+        if (aw < 100 && ah < 100) {
+          sizeScore = 1.0;
+        } else {
+          const refMax = Math.max(aw, ah);
+          const htxMax = Math.max(hw, hh);
+          const maxRatio = htxMax / refMax;
+          sizeScore = Math.exp(-((maxRatio-1)**2) / (2*SIGMA*SIGMA));
+        }
 
-        const asyScale = Math.min(MAX_DIM/aw, MAX_DIM/ah, 1);
-        const targetW  = Math.max(Math.round(aw * asyScale), 11);
-        const targetH  = Math.max(Math.round(ah * asyScale), 11);
-
-        const asyBuf = await sharp(path.join(ASY_DIR, id + '.png'))
+        // Trim white borders from both images to isolate actual content,
+        // then pad to a common canvas and resize. This removes bounding box
+        // padding differences so SSIM compares only the drawn content.
+        const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
           .flatten({ background: {r:255,g:255,b:255} })
+          .trim({ threshold: 20 })
+          .toBuffer({ resolveWithObject: true });
+        const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
+          .flatten({ background: {r:255,g:255,b:255} })
+          .trim({ threshold: 20 })
+          .toBuffer({ resolveWithObject: true });
+
+        const tw1 = trimRef.info.width, th1 = trimRef.info.height;
+        const tw2 = trimHtx.info.width, th2 = trimHtx.info.height;
+        const canvasW = Math.max(tw1, tw2);
+        const canvasH = Math.max(th1, th2);
+        const canvasScale = Math.min(MAX_DIM/canvasW, MAX_DIM/canvasH, 1);
+        const targetW  = Math.max(Math.round(canvasW * canvasScale), 11);
+        const targetH  = Math.max(Math.round(canvasH * canvasScale), 11);
+
+        const refBuf = await sharp(trimRef.data)
+          .extend({ top: 0, bottom: canvasH - th1, left: 0, right: canvasW - tw1, background: {r:255,g:255,b:255} })
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
-        const htxBuf = await sharp(path.join(HTX_DIR, id + '.png'))
-          .flatten({ background: {r:255,g:255,b:255} })
+        const htxBuf = await sharp(trimHtx.data)
+          .extend({ top: 0, bottom: canvasH - th2, left: 0, right: canvasW - tw2, background: {r:255,g:255,b:255} })
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
-        const w = asyBuf.info.width, h = asyBuf.info.height;
+        const w = refBuf.info.width, h = refBuf.info.height;
         const { mssim } = computeSSIM(
-          { data: rgbToRgba(asyBuf.data, w, h), width: w, height: h },
+          { data: rgbToRgba(refBuf.data, w, h), width: w, height: h },
           { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h }
         );
         const combined = mssim * sizeScore;
         results.push({ id, idx, corpusFile, ssim: mssim, sizeScore, combined,
-          wRatio, hRatio, asyDims: [aw,ah], htxDims: [hw,hh] });
+          wRatio, hRatio, refDims: [aw,ah], htxDims: [hw,hh] });
       } catch (e) {
         results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message });
       }
@@ -344,8 +378,6 @@ async function main() {
     const statsPoor = results.filter(r => sc(r) >= 0 && sc(r) < 0.85).length;
     const statsErr  = results.filter(r => sc(r) < 0).length;
 
-    const TEXER_DIR = path.join(OUT_DIR, 'texer_pngs');
-
     for (let page = 0; page < totalPages; page++) {
       const start     = page * PER_PAGE;
       const pageItems = results.slice(start, start + PER_PAGE);
@@ -362,21 +394,10 @@ async function main() {
         const encodedCode = encodeURIComponent('[asy]\n' + code + '\n[/asy]');
         const openUrl   = `../index.html#code=${encodedCode}`;
 
-        const hasAsy    = fs.existsSync(path.join(ASY_DIR, id + '.png'));
         const hasSvg    = fs.existsSync(path.join(SVG_DIR, id + '.svg'));
         const hasTexer  = fs.existsSync(path.join(TEXER_DIR, id + '.png'));
-        const showTexer = rank <= 100;
 
-        const gridCols = showTexer ? '25% 25% 25% 25%' : '35% 35% 30%';
-
-        let texerCol = '';
-        if (showTexer) {
-          texerCol = `
-    <div class="render-col">
-      <h3>AoPS TeXeR</h3>
-      <div class="img-wrap">${hasTexer ? `<img src="texer_pngs/${id}.png">` : '<em class="na">Not rendered</em>'}</div>
-    </div>`;
-        }
+        const gridCols = '35% 35% 30%';
 
         cardsHtml += `
 <div class="card" id="pair-${rank}">
@@ -388,13 +409,13 @@ async function main() {
   </div>
   <div class="card-body" style="grid-template-columns:${gridCols}">
     <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap">${hasAsy ? `<img src="asy_pngs/${id}.png">` : '<em class="na">Not rendered</em>'}</div>
+      <h3>TeXeR (Reference)</h3>
+      <div class="img-wrap">${hasTexer ? `<img src="texer_pngs/${id}.png">` : '<em class="na">Not rendered</em>'}</div>
     </div>
     <div class="render-col">
       <h3>HiTeXeR</h3>
       <div class="img-wrap">${hasSvg ? `<div class="htx-svg" data-svg="htx_svgs/${id}.svg"></div>` : '<em class="na">Not rendered</em>'}</div>
-    </div>${texerCol}
+    </div>
     <div class="render-col col-source">
       <h3>Source</h3>
       <div class="code-box"><code>${esc(code)}</code></div>
@@ -541,7 +562,7 @@ function buildFixPrompt(id,file,rank,ssim,ssimContent,ssimSize,source){
     '(Higher is better; target > 0.9. -1 means render failed.)\\n\\n'+
     'Asymptote source (comparison/asy_src/'+id+'.asy):\\n'+
     '\`\`\`\\n'+source+'\\n\`\`\`\\n\\n'+
-    'Reference render: comparison/asy_pngs/'+id+'.png (Asymptote-generated)\\n'+
+    'Reference render: comparison/texer_pngs/'+id+'.png (TeXeR server-generated)\\n'+
     'Current HiTeXeR SVG: comparison/htx_svgs/'+id+'.svg\\n\\n'+
     'Workflow:\\n'+
     '1. Read the source and reference PNG to understand what the diagram should look like.\\n'+

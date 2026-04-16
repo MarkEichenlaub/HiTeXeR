@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT       = path.join(__dirname, '..');
-const CORPUS_DIR = path.join(ROOT, 'asy_corpus');
+const CORPUS_DIR = path.join(__dirname, 'asy_src');
 const OUT_DIR    = __dirname;                        // comparison/
 const ASY_DIR    = path.join(OUT_DIR, 'asy_pngs');
 const HTX_DIR    = path.join(OUT_DIR, 'htx_pngs');
@@ -62,12 +62,12 @@ const texerSet = new Set(fs.readdirSync(TEXER_DIR).filter(f => f.endsWith('.png'
 
 console.log(`asy_pngs: ${asySet.size}, htx_pngs: ${htxSet.size}, htx_svgs: ${svgSet.size}, texer_pngs: ${texerSet.size}`);
 
-// Build SSIM lookup  { id -> score }
+// Build SSIM lookup  { id -> { ssim, corpusFile } }
 const ssimLookup = {};
 if (fs.existsSync(SSIM_FILE)) {
   const ssimData = JSON.parse(fs.readFileSync(SSIM_FILE, 'utf-8'));
   for (const entry of ssimData) {
-    ssimLookup[entry.id] = entry.ssim;
+    ssimLookup[entry.id] = { ssim: entry.ssim, corpusFile: entry.corpusFile || null };
   }
   console.log(`SSIM scores: ${ssimData.length}`);
 }
@@ -84,7 +84,8 @@ const diagrams = [];
 
 for (let i = 0; i < allFiles.length; i++) {
   const id = numId(i);
-  const source = allFiles[i];
+  const ssimEntry = ssimLookup[id];
+  const source = (ssimEntry && ssimEntry.corpusFile) || allFiles[i];
   const collection = getCollection(source);
   collectionsSet.add(collection);
 
@@ -96,7 +97,7 @@ for (let i = 0; i < allFiles.length; i++) {
     hasHtx:  htxSet.has(id),
     hasSvg:  svgSet.has(id),
     hasTexer: texerSet.has(id),
-    ssim:    ssimLookup[id] !== undefined ? ssimLookup[id] : null,
+    ssim:    ssimEntry !== undefined ? ssimEntry.ssim : null,
   });
 }
 

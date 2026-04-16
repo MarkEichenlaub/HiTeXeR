@@ -461,9 +461,9 @@ async function main() {
     console.log('Computing SSIM scores...');
     const { ssim: computeSSIM } = require('ssim.js');
 
-    const asyPngs = new Set(fs.readdirSync(ASY_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
+    const refPngs = new Set(fs.readdirSync(TEXER_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
     const htxPngs = new Set(fs.readdirSync(HTX_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
-    const pairs = [...asyPngs].filter(id => htxPngs.has(id)).sort();
+    const pairs = [...refPngs].filter(id => htxPngs.has(id)).sort();
     console.log(`  ${pairs.length} pairs to compare`);
 
     const results = [];
@@ -486,51 +486,75 @@ async function main() {
 
       try {
         // Get native dimensions of both images
-        const asyMeta = await sharp(path.join(ASY_DIR, id + '.png')).metadata();
+        const refMeta = await sharp(path.join(TEXER_DIR, id + '.png')).metadata();
         const htxMeta = await sharp(path.join(HTX_DIR, id + '.png')).metadata();
 
-        const aw = asyMeta.width || 1, ah = asyMeta.height || 1;
+        const aw = refMeta.width || 1, ah = refMeta.height || 1;
         const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
 
         // Skip images that are too small (likely failed renders)
         const MIN_DIM = 8;
         if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
           results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: 'Image too small',
-            wRatio: hw / aw, hRatio: hh / ah, asyDims: [aw, ah], htxDims: [hw, hh] });
+            wRatio: hw / aw, hRatio: hh / ah, refDims: [aw, ah], htxDims: [hw, hh] });
           continue;
         }
 
         // ── Dimension ratios & size score ──
+        // Use the dominant (max) dimension to avoid padding artifacts on thin diagrams.
+        // For tiny images (both dims < 100px), skip size penalty entirely.
         const wRatio = hw / aw;
         const hRatio = hh / ah;
         const SIGMA = 0.15;
-        const sizeScore = Math.exp(-((wRatio - 1) ** 2 + (hRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
+        let sizeScore;
+        if (aw < 100 && ah < 100) {
+          sizeScore = 1.0;
+        } else {
+          const refMax = Math.max(aw, ah);
+          const htxMax = Math.max(hw, hh);
+          const maxRatio = htxMax / refMax;
+          sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
+        }
 
-        // ── Content SSIM: resize BOTH to Asymptote's aspect at ≤400px ──
+        // ── Content SSIM: trim white borders, resize both to same dimensions ──
+        // Trimming removes bounding box padding so SSIM compares only drawn content.
+        // Both images are resized to the same target size (no padding) so that
+        // content aligns pixel-for-pixel. Size difference is already captured by sizeScore.
         const MAX = 400;
-        const asyScale = Math.min(MAX / aw, MAX / ah, 1);
-        const targetW = Math.max(Math.round(aw * asyScale), 11);
-        const targetH = Math.max(Math.round(ah * asyScale), 11);
-
-        const asyBuf = await sharp(path.join(ASY_DIR, id + '.png'))
+        const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
           .flatten({ background: { r: 255, g: 255, b: 255 } })
+          .trim({ threshold: 20 })
+          .toBuffer({ resolveWithObject: true });
+        const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
+          .trim({ threshold: 20 })
+          .toBuffer({ resolveWithObject: true });
+
+        const tw1 = trimRef.info.width, th1 = trimRef.info.height;
+        const tw2 = trimHtx.info.width, th2 = trimHtx.info.height;
+        const maxW = Math.max(tw1, tw2);
+        const maxH = Math.max(th1, th2);
+        const scale = Math.min(MAX / maxW, MAX / maxH, 1);
+        const targetW = Math.max(Math.round(maxW * scale), 11);
+        const targetH = Math.max(Math.round(maxH * scale), 11);
+
+        const refBuf = await sharp(trimRef.data)
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
-        const htxBuf = await sharp(path.join(HTX_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } })
+        const htxBuf = await sharp(trimHtx.data)
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
-        const w = asyBuf.info.width, h = asyBuf.info.height;
-        const asyImg = { data: rgbToRgba(asyBuf.data, w, h), width: w, height: h };
+        const w = refBuf.info.width, h = refBuf.info.height;
+        const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
         const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
 
-        const { mssim } = computeSSIM(asyImg, htxImg);
+        const { mssim } = computeSSIM(refImg, htxImg);
         const combined = mssim * sizeScore;
 
         results.push({ id, idx, corpusFile, ssim: mssim, sizeScore, combined,
-          wRatio, hRatio, asyDims: [aw, ah], htxDims: [hw, hh] });
+          wRatio, hRatio, refDims: [aw, ah], htxDims: [hw, hh] });
       } catch (e) {
         results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message });
       }
