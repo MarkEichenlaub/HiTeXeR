@@ -9093,6 +9093,17 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // Handle \mathbf, \mathrm, \textbf, etc. — remove the command, keep content
   s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // In math-italic mode, mark operator names so they render upright (as in real LaTeX).
+  // Must happen before texMap converts \cos → 'cos', so we can distinguish operator text
+  // from ordinary italic variables.
+  // Use private-use sentinel chars \x01…\x02 as open/close markers.
+  const UPRIGHT_OPEN = '\x01';
+  const UPRIGHT_CLOSE = '\x02';
+  const needsUprightOps = (fontStyle === 'italic');
+  if (needsUprightOps) {
+    s = s.replace(/\\(arcsin|arccos|arctan|sin|cos|tan|sec|csc|cot|log|ln|exp|lim|inf|sup|gcd|det|ker|dim|deg|hom|arg)(?![a-zA-Z])/g,
+      (_m, op) => UPRIGHT_OPEN + op + UPRIGHT_CLOSE);
+  }
   // Common LaTeX → Unicode
   const texMap = {
     '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
@@ -9159,6 +9170,16 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     const ff = fontFamily || 'KaTeX_Main, serif';
     const fwAttr = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
     const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+    if (needsUprightOps && s.includes(UPRIGHT_OPEN)) {
+      // Build mixed italic + upright content: operator names get upright tspan elements
+      const segs = s.split(/\x01([^\x02]*)\x02/);
+      let mixed = '';
+      for (let si = 0; si < segs.length; si++) {
+        if (si % 2 === 0) { mixed += escSvg(segs[si]); }
+        else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
+      }
+      return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${mixed}</text>`;
+    }
     return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${escSvg(s)}</text>`;
   }
 
@@ -9200,11 +9221,24 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   let inner = '';
   for (const p of parts) {
     if (p.mode === 'sup') {
-      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+      const supText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
+      const supUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
+      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}"${supUpright}>${escSvg(supText)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else if (p.mode === 'sub') {
-      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+      const subText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
+      const subUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
+      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}"${subUpright}>${escSvg(subText)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else {
-      inner += escSvg(p.text);
+      if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
+        // Mixed italic + upright in base text
+        const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
+        for (let si = 0; si < segs2.length; si++) {
+          if (si % 2 === 0) { inner += escSvg(segs2[si]); }
+          else { inner += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
+        }
+      } else {
+        inner += escSvg(p.text);
+      }
     }
   }
   const ff2 = fontFamily || 'KaTeX_Main, serif';
