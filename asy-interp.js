@@ -971,7 +971,7 @@ function makePair(x,y) { return {_tag:'pair', x:x||0, y:y||0}; }
 function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
-    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false}, props);
+    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false, fontFamily:null}, props);
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -1119,6 +1119,7 @@ function mergePens(a,b) {
   if (b.linecap) r.linecap = b.linecap;
   if (b.linejoin) r.linejoin = b.linejoin;
   if (b.fillrule) r.fillrule = b.fillrule;
+  if (b.fontFamily) r.fontFamily = b.fontFamily;
   return r;
 }
 
@@ -3395,6 +3396,34 @@ function createInterpreter() {
     env.set('Pen', (n) => makePen({}));
     env.set('Symbol', (...args) => null);
     env.set('fontcommand', (...args) => makePen({}));
+    // Asymptote standard font functions — map to CSS font stacks
+    { const ASY_FONTS = {
+        Helvetica: 'Helvetica, Arial, sans-serif',
+        HelveticaOblique: 'Helvetica, Arial, sans-serif',
+        HelveticaBold: 'Helvetica, Arial, sans-serif',
+        HelveticaBoldOblique: 'Helvetica, Arial, sans-serif',
+        Times: '"Times New Roman", Times, serif',
+        TimesRoman: '"Times New Roman", Times, serif',
+        TimesItalic: '"Times New Roman", Times, serif',
+        TimesBold: '"Times New Roman", Times, serif',
+        TimesRomanBold: '"Times New Roman", Times, serif',
+        TimesBoldItalic: '"Times New Roman", Times, serif',
+        Courier: '"Courier New", Courier, monospace',
+        CourierOblique: '"Courier New", Courier, monospace',
+        CourierBold: '"Courier New", Courier, monospace',
+        CourierBoldOblique: '"Courier New", Courier, monospace',
+        Palatino: 'Palatino, Georgia, serif',
+        PalatinoBold: 'Palatino, Georgia, serif',
+        ZapfChancery: '"Zapf Chancery", cursive',
+        NewCenturySchoolBook: '"New Century Schoolbook", "Century Schoolbook L", serif',
+        Bookman: 'Bookman, serif',
+        AvantGarde: '"Avant Garde", Futura, sans-serif',
+      };
+      for (const [name, ff] of Object.entries(ASY_FONTS)) {
+        const _ff = ff;
+        env.set(name, (...args) => makePen({fontFamily: _ff}));
+      }
+    }
     env.set('cmyk', (c,m,y,k) => {
       const cc=toNumber(c),mm=toNumber(m),yy=toNumber(y),kk=toNumber(k);
       return makePen({r:(1-cc)*(1-kk),g:(1-mm)*(1-kk),b:(1-yy)*(1-kk)});
@@ -8803,10 +8832,11 @@ function renderSVG(result, opts) {
         // contains Latin letters, use math italic font.  Pure digit/punctuation content
         // (e.g. coordinates like $(-6,4)$) stays upright — digits and punctuation are
         // upright in LaTeX math.
+        const penFF = dc.pen && dc.pen.fontFamily;
         if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic');
         } else {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined);
         }
       }
       if (labelTransformAttr) {
