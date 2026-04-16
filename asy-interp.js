@@ -9267,6 +9267,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // Check for super/subscripts
   const hasSS = /[_^]/.test(s);
   if (!hasSS) {
+    // Strip LaTeX grouping braces: \{ and \} become visible braces; bare { } are grouping syntax
+    s = s.replace(/\\{/g, '\uE001').replace(/\\}/g, '\uE002');
+    s = s.replace(/[{}]/g, '');
+    s = s.replace(/\uE001/g, '{').replace(/\uE002/g, '}');
     // Simple text, no scripts
     const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
     const ff = fontFamily || 'KaTeX_Main, serif';
