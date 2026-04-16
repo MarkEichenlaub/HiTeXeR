@@ -2279,7 +2279,10 @@ function createInterpreter() {
     switch(node.targetType) {
       case 'int': return Math.floor(toNumber(val));
       case 'real': return toNumber(val);
-      case 'string': return String(val);
+      case 'string':
+        if (isPair(val)) return '(' + val.x + ',' + val.y + ')';
+        if (isTriple(val)) return '(' + val.x + ',' + val.y + ',' + val.z + ')';
+        return String(val);
       case 'bool': return toBool(val);
       case 'pair': return toPair(val);
       default: return val;
