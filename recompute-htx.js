@@ -307,8 +307,11 @@ async function main() {
         }
 
         // Trim white borders from both images to isolate actual content,
-        // then pad to a common canvas and resize. This removes bounding box
-        // padding differences so SSIM compares only the drawn content.
+        // then resize both to the same target dimensions so SSIM compares
+        // only the drawn content. Size difference is captured by sizeScore.
+        // Note: we avoid sharp's extend() before resize() because
+        // extend+resize can produce off-by-one output dimensions, causing
+        // the two buffers to differ in size and corrupting the SSIM input.
         const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
           .flatten({ background: {r:255,g:255,b:255} })
           .trim({ threshold: 20 })
@@ -320,23 +323,28 @@ async function main() {
 
         const tw1 = trimRef.info.width, th1 = trimRef.info.height;
         const tw2 = trimHtx.info.width, th2 = trimHtx.info.height;
-        const canvasW = Math.max(tw1, tw2);
-        const canvasH = Math.max(th1, th2);
-        const canvasScale = Math.min(MAX_DIM/canvasW, MAX_DIM/canvasH, 1);
-        const targetW  = Math.max(Math.round(canvasW * canvasScale), 11);
-        const targetH  = Math.max(Math.round(canvasH * canvasScale), 11);
+        const maxW = Math.max(tw1, tw2);
+        const maxH = Math.max(th1, th2);
+        const scale = Math.min(MAX_DIM/maxW, MAX_DIM/maxH, 1);
+        const targetW  = Math.max(Math.round(maxW * scale), 11);
+        const targetH  = Math.max(Math.round(maxH * scale), 11);
 
         const refBuf = await sharp(trimRef.data)
-          .extend({ top: 0, bottom: canvasH - th1, left: 0, right: canvasW - tw1, background: {r:255,g:255,b:255} })
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
-        const htxBuf = await sharp(trimHtx.data)
-          .extend({ top: 0, bottom: canvasH - th2, left: 0, right: canvasW - tw2, background: {r:255,g:255,b:255} })
+        let htxBuf = await sharp(trimHtx.data)
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
+        // Guard: sharp may produce off-by-one dimensions; re-resize to match
         const w = refBuf.info.width, h = refBuf.info.height;
+        if (htxBuf.info.width !== w || htxBuf.info.height !== h) {
+          htxBuf = await sharp(htxBuf.data, { raw: { width: htxBuf.info.width, height: htxBuf.info.height, channels: 3 } })
+            .resize(w, h, { fit: 'fill' })
+            .raw().toBuffer({ resolveWithObject: true });
+        }
+
         const { mssim } = computeSSIM(
           { data: rgbToRgba(refBuf.data, w, h), width: w, height: h },
           { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h }

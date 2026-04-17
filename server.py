@@ -400,6 +400,9 @@ def auto_import(code: str) -> str:
 class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/health":
+            self.send_json(200, {"ok": True})
+            return
         if parsed.path == "/eigennode-read":
             from urllib.parse import parse_qs
             params = parse_qs(parsed.query)
@@ -429,6 +432,10 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_render_gif()
         elif self.path == "/convert-eps":
             self.handle_convert_eps()
+        elif self.path == "/fix":
+            self.handle_blink_fix()
+        elif self.path == "/refetch":
+            self.handle_blink_refetch()
         else:
             self.send_error(404)
 
@@ -965,6 +972,73 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             completions = []
 
         self.send_json(200, {"completions": completions})
+
+    def handle_blink_fix(self):
+        """Launch Claude Code to fix a diagram (from blink comparator Fix button)."""
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            diagram_id = data.get("id")
+            prompt = data.get("prompt")
+            if not diagram_id or not prompt:
+                self.send_json(400, {"ok": False, "error": "Missing id or prompt"})
+                return
+
+            root = os.path.dirname(os.path.abspath(__file__))
+            prompt_file = os.path.join(root, "_fix_prompt.txt")
+            Path(prompt_file).write_text(prompt, encoding="utf-8")
+
+            # PowerShell: read file, pass to claude
+            prompt_file_ps = prompt_file.replace("'", "''")
+            ps_cmd = (
+                f"$p = Get-Content -Path '{prompt_file_ps}' -Raw -Encoding UTF8; "
+                f"claude --dangerously-skip-permissions $p"
+            )
+            subprocess.Popen(
+                ["wt", "-w", "0", "new-tab", "-d", root, "--",
+                 "powershell", "-NoExit", "-Command", ps_cmd],
+                creationflags=subprocess.DETACHED_PROCESS,
+            )
+            self.send_json(200, {"ok": True, "id": diagram_id})
+        except Exception as e:
+            self.send_json(500, {"ok": False, "error": str(e)})
+
+    def handle_blink_refetch(self):
+        """Re-fetch a TeXeR PNG from AoPS (from blink comparator Re-fetch button)."""
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            diagram_id = data.get("id")
+            if not diagram_id:
+                self.send_json(400, {"ok": False, "error": "Missing id"})
+                return
+
+            root = os.path.dirname(os.path.abspath(__file__))
+            result = subprocess.run(
+                ["python", os.path.join(root, "comparison", "refetch-single.py"), diagram_id],
+                cwd=root, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                self.send_json(500, {"ok": False, "error": err[:500]})
+                return
+
+            # Regenerate manifest
+            try:
+                subprocess.run(
+                    ["node", os.path.join(root, "comparison", "generate-manifest.js")],
+                    cwd=root, capture_output=True, timeout=30,
+                )
+            except Exception:
+                pass
+
+            self.send_json(200, {"ok": True, "id": diagram_id})
+        except subprocess.TimeoutExpired:
+            self.send_json(500, {"ok": False, "error": "Timed out"})
+        except Exception as e:
+            self.send_json(500, {"ok": False, "error": str(e)})
 
     def send_json(self, status, obj):
         response = json.dumps(obj).encode("utf-8")

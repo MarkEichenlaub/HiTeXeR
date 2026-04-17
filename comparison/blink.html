@@ -93,7 +93,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v7</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v8</span></h1>
 
   <div class="filter-group">
     <label>Collection:</label>
@@ -440,16 +440,32 @@
       img.style.display = 'none';
       svgDiv.style.display = '';
       svgDiv.innerHTML = '';
-      fetch(src).then(r => r.text()).then(svgText => {
+      fetch(src).then(r => {
+        if (!r.ok) throw new Error('Not found');
+        return r.text();
+      }).then(svgText => {
         svgDiv.innerHTML = svgText;
         const svgEl = svgDiv.querySelector('svg');
         if (svgEl) {
-          // Same styling as real HiTeXeR: #preview-container svg { display:block; max-width:100%; max-height:100% }
-          // Keep width/height attributes so the SVG has its intrinsic size/aspect ratio.
           svgEl.style.display = 'block';
           svgEl.style.maxWidth = '100%';
           svgEl.style.maxHeight = '100%';
         }
+      }).catch(() => {
+        // SVG fetch failed (e.g. file:// CORS, server not running) — fall back to <img>
+        // Try the SVG via <img> first (loses KaTeX fonts but still displays), then PNG
+        svgDiv.style.display = 'none';
+        svgDiv.innerHTML = '';
+        img.style.display = '';
+        img.onerror = () => {
+          // SVG via <img> also failed — try the PNG fallback
+          const pngSrc = `htx_pngs/${d.id}.png`;
+          img.onerror = null;
+          img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
+          img.src = pngSrc;
+        };
+        img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
+        img.src = src;
       });
     } else {
       svgDiv.style.display = 'none';

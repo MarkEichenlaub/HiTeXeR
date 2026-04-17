@@ -542,11 +542,18 @@ async function main() {
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
-        const htxBuf = await sharp(trimHtx.data)
+        let htxBuf = await sharp(trimHtx.data)
           .resize(targetW, targetH, { fit: 'fill' })
           .removeAlpha().raw().toBuffer({ resolveWithObject: true });
 
+        // Guard: sharp may produce off-by-one dimensions; re-resize to match
         const w = refBuf.info.width, h = refBuf.info.height;
+        if (htxBuf.info.width !== w || htxBuf.info.height !== h) {
+          htxBuf = await sharp(htxBuf.data, { raw: { width: htxBuf.info.width, height: htxBuf.info.height, channels: 3 } })
+            .resize(w, h, { fit: 'fill' })
+            .raw().toBuffer({ resolveWithObject: true });
+        }
+
         const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
         const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
 
