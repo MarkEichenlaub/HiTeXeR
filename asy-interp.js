@@ -4814,17 +4814,25 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
-          // Default format: Asymptote uses "$%.4g$" rendered via TeX.
-          // We approximate with plain number strings (no scientific notation)
-          // since we can't run TeX.  toPrecision(4) matches %.4g semantics.
+          // Default format: Asymptote uses "%.4g" rendered via TeX.
+          // toPrecision(4) matches %.4g semantics.
+          // For scientific notation (large/small values), render as LaTeX $a\times10^{n}$.
           const fmtDefault = () => {
             if (v === 0) return '0';
-            const s = v.toPrecision(4).replace(/\.?0+$/, '');
-            // toPrecision may produce exponential form for large/small values;
-            // convert back to plain number so labels don't get excessively wide.
-            const n = Number(s);
-            if (Number.isInteger(n)) return String(n);
-            return String(n);
+            const s4 = v.toPrecision(4);
+            const eIdx = s4.indexOf('e');
+            if (eIdx !== -1) {
+              // Scientific notation: render as LaTeX ×10^n to match Asymptote output
+              const mantissa = parseFloat(s4.slice(0, eIdx));
+              const exp = parseInt(s4.slice(eIdx + 1));
+              const sign = mantissa < 0 ? '-' : '';
+              const absMantissa = Math.abs(mantissa);
+              if (absMantissa === 1) return '$' + sign + '10^{' + exp + '}$';
+              return '$' + sign + absMantissa + '\\times10^{' + exp + '}$';
+            }
+            // Fixed notation: parseFloat trims trailing zeros correctly
+            // (unlike .replace(/\.?0+$/, '') which incorrectly strips "1000" → "1")
+            return String(parseFloat(s4));
           };
           if (ticks.labelFunc) {
             // Custom label function: call it with the tick value
