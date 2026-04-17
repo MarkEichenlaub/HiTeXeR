@@ -4984,7 +4984,8 @@ function createInterpreter() {
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
       _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:0, y:-1};
+        // Default: right-aligned at xmax, pushed below tick labels (W+S combined)
+        const lAlign = labelAlign || {x:-1, y:-3};
         let labelX = xmax;
         if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
         pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
@@ -4993,7 +4994,7 @@ function createInterpreter() {
 
     env.set('yaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, labelPosition = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, labelTransform = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
       let above = false;
       const rawArgs = args;
@@ -5023,14 +5024,14 @@ function createInterpreter() {
           }
           if ('L' in a) {
             const lv = a.L;
-            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.transform) labelTransform = lv.transform; }
             else if (isString(lv)) label = lv;
           }
           if ('ymin' in a && typeof a.ymin === 'number') ymin = a.ymin;
           if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
           continue;
         }
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
         else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
@@ -5085,7 +5086,10 @@ function createInterpreter() {
         const lAlign = labelAlign || {x:-1, y:0};
         let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
+        // Y-axis labels are rotated 90° CCW by default (like Asymptote's graph.asy)
+        const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
+        const lt = labelTransform || rot90ccw;
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0});
       }
     });
 
