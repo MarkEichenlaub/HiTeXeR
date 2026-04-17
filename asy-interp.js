@@ -2886,6 +2886,8 @@ function createInterpreter() {
       for (const a of args) {
         if (a && a._tag === 'picture') pics.push(a);
         else if (isTransform(a)) t = a;
+        // add(pic, (x,y)) — pair offset treated as a shift transform
+        else if (isPair(a)) t = makeTransform(a.x, 1, 0, a.y, 0, 1);
       }
       let dest, src;
       if (pics.length >= 2) {
@@ -7713,6 +7715,7 @@ function renderSVG(result, opts) {
   const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
+  const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
 
@@ -7950,18 +7953,17 @@ function renderSVG(result, opts) {
         const heightFactor = autoScaled ? 0.7 : 0.48;
         let textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
 
-        // For rotated labels, the visual width becomes the original height
-        // and vice versa.  In IgnoreAspect mode the x and y scale factors
-        // differ, so we must recompute in the correct axis units rather
-        // than simply swapping the pre-divided values.
-        if (Math.abs(ltAngle) > 45) {
+        // For rotated labels, compute the axis-aligned bounding box of the rotated text.
+        // Use the exact formula for any angle rather than just swapping at 90°.
+        if (Math.abs(ltAngle) > 0.5) {
           // Original dimensions in bp (before dividing by axis scale)
           const textWidthBp = effectiveLen * charWidthBp;
           const textHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
-          // After ~90° rotation: visual width (x-extent) ← original height,
-          //                       visual height (y-extent) ← original width
-          textWidthUser = textHeightBp / roughPxPerUnitX;
-          textHeightUser = textWidthBp / roughPxPerUnitY;
+          const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
+          const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
+          // Rotated bbox: visual x-extent and y-extent
+          textWidthUser = (textWidthBp * cosA + textHeightBp * sinA) / roughPxPerUnitX;
+          textHeightUser = (textWidthBp * sinA + textHeightBp * cosA) / roughPxPerUnitY;
         }
 
         let dx = 0, dy = 0;
@@ -7992,11 +7994,14 @@ function renderSVG(result, opts) {
             // Compute bp-space dimensions (before rotation swap)
             let lWidthBp = effectiveLen * charWidthBp;
             let lHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
-            // Swap width/height for rotated labels (matching the swap done above)
-            if (Math.abs(ltAngle) > 45) {
-              const tmp = lWidthBp;
-              lWidthBp = lHeightBp;
-              lHeightBp = tmp;
+            // For rotated labels, use the rotated bounding box dimensions
+            if (Math.abs(ltAngle) > 0.5) {
+              const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
+              const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
+              const rW = lWidthBp * cosA + lHeightBp * sinA;
+              const rH = lWidthBp * sinA + lHeightBp * cosA;
+              lWidthBp = rW;
+              lHeightBp = rH;
             }
             const alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
             const alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
@@ -8110,7 +8115,7 @@ function renderSVG(result, opts) {
   // Iterative scale solver: reduce pxPerUnit so total output
   // (geometry + truesize labels) fits within size constraint.
   // Real Asymptote does this; labels are truesize and don't scale with geometry.
-  if (!hasUnitScale && labelInfoBp.length > 0) {
+  if (!hasUnitScale && !isAutoScaled && labelInfoBp.length > 0) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
@@ -8149,8 +8154,10 @@ function renderSVG(result, opts) {
     }
   }
 
-  // Recompute label-expanded bbox at final scale so naturalW/H is correct
-  if (!hasUnitScale && labelInfoBp.length > 0) {
+  // Recompute label-expanded bbox at final scale so naturalW/H is correct.
+  // For autoScaled (no size/unitsize) diagrams, skip: the scale is set by the
+  // geometry only, and labels are allowed to overflow (matching real Asymptote).
+  if (!hasUnitScale && !isAutoScaled && labelInfoBp.length > 0) {
     minX = geoMinX; maxX = geoMaxX;
     minY = geoMinY; maxY = geoMaxY;
     for (const li of labelInfoBp) {
@@ -8177,6 +8184,14 @@ function renderSVG(result, opts) {
   // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
   if (opts.forcedPxPerUnit) {
     pxPerUnit = pxPerUnitX = pxPerUnitY = opts.forcedPxPerUnit;
+  }
+
+  // For autoScaled (no size/unitsize): the 2-pass label bbox expansion above
+  // expanded minX/maxX/minY/maxY beyond the geometry, but those expansions
+  // should not affect naturalW/H — the scale is geometry-only for autoScaled.
+  // Reset to the geometry bbox before computing natural dimensions.
+  if (isAutoScaled) {
+    minX = geoMinX; maxX = geoMaxX; minY = geoMinY; maxY = geoMaxY;
   }
 
   const naturalW = (maxX - minX) * pxPerUnitX;
@@ -8360,7 +8375,9 @@ function renderSVG(result, opts) {
       }
     }
 
-    // Label/text overshoot
+    // Label/text overshoot — skip for autoScaled diagrams: their scale is set
+    // by geometry only, labels are allowed to overflow (matching real Asymptote).
+    if (!isAutoScaled)
     for (const dc of drawCommands) {
       if (dc.cmd !== 'label' && dc.cmd !== 'dot') continue;
       // dot commands without text don't produce labels
@@ -8383,22 +8400,36 @@ function renderSVG(result, opts) {
       const W = cleanLen * fontSizeSVG * 0.52;
       const H = fontSizeSVG * numLines;
 
+      // For rotated labels, use the rotated bounding box dimensions so that
+      // the overshoot padding is computed for the visual (rotated) extent.
+      let effW = W, effH = H;
+      if (dc.labelTransform) {
+        const lt = dc.labelTransform;
+        const ltAngle2 = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        if (Math.abs(ltAngle2) > 0.5) {
+          const cosA2 = Math.abs(Math.cos(ltAngle2 * Math.PI / 180));
+          const sinA2 = Math.abs(Math.sin(ltAngle2 * Math.PI / 180));
+          effW = W * cosA2 + H * sinA2;
+          effH = W * sinA2 + H * cosA2;
+        }
+      }
+
       // Compute offset from alignment (same logic as label rendering)
       let dx = 0, dy = 0;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
         const margin = 0.25 * fontSizeSVG;
         const ax_n = ax * 0.5, ay_n = ay * 0.5;
-        dx = ax_n * W + ax * margin;
-        dy = -(ay_n * H + ay * margin);
+        dx = ax_n * effW + ax * margin;
+        dy = -(ay_n * effH + ay * margin);
       }
 
       // Text bounding box in viewBox coords (text-anchor="middle")
       const cx = sx + dx, cy = sy + dy;
-      const left = cx - W / 2;
-      const right = cx + W / 2;
-      const top = cy - H / 2;
-      const bottom = cy + H / 2;
+      const left = cx - effW / 2;
+      const right = cx + effW / 2;
+      const top = cy - effH / 2;
+      const bottom = cy + effH / 2;
 
       // Skip labels entirely outside the viewport — when clip() is active,
       // labels far from the clip region are invisible and must not inflate
@@ -8814,14 +8845,23 @@ function renderSVG(result, opts) {
         // Extract rotation angle from transform matrix
         const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
         if (Math.abs(angle) > 0.1) {
-          // SVG rotation is clockwise, Asymptote is counterclockwise; SVG y is flipped
-          // For W/E aligned rotated labels: the font height (which becomes the screen-space
-          // "width" after rotation) needs to offset the center from the anchor.
+          // For aligned rotated labels: recompute dx/dy using the rotated bounding box so
+          // the label center is correctly offset from the anchor.  Asymptote positions the
+          // label with its NW (for SE align) corner at the anchor point, using the axis-
+          // aligned bounding box of the *rotated* text.
           if (dc.align) {
-            // After rotation the text's visual width is its original height, so use halfH + margin.
-            const rotMargin = 0.25 * effectiveFontSize;
-            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5 - rotMargin; // W: center left of anchor by halfH + margin
-            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5 + rotMargin; // E: center right of anchor by halfH + margin
+            const ax2 = dc.align.x, ay2 = dc.align.y;
+            const cleanLen2 = (stripLaTeX(dc.text || '').length) || 1;
+            const W2 = cleanLen2 * effectiveFontSize * 0.52;
+            const H2 = effectiveFontSize;
+            const margin2 = 0.25 * effectiveFontSize;
+            const angleRad = Math.abs(angle * Math.PI / 180);
+            const cosA = Math.abs(Math.cos(angleRad));
+            const sinA = Math.abs(Math.sin(angleRad));
+            const rotW = W2 * cosA + H2 * sinA;
+            const rotH = W2 * sinA + H2 * cosA;
+            dx = ax2 * 0.5 * rotW + ax2 * margin2;
+            dy = -(ay2 * 0.5 * rotH + ay2 * margin2);
           }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
           // With rotation, text-anchor must be 'middle' so the label is centered at the
@@ -8854,6 +8894,38 @@ function renderSVG(result, opts) {
         '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '⋯',
       };
       let displayText = rawText;
+
+      // Detect and strip LaTeX font-size commands (\small, \tiny, \large, etc.)
+      // These are text-mode commands that should scale the font, not route through KaTeX math.
+      // Must happen before hasMath detection so the remaining text routes correctly.
+      const fontSizeScales = {
+        '\\tiny': 0.5, '\\scriptsize': 0.7, '\\footnotesize': 0.8, '\\small': 0.9,
+        '\\normalsize': 1.0, '\\large': 1.2, '\\Large': 1.44, '\\LARGE': 1.728,
+        '\\huge': 2.074, '\\Huge': 2.488,
+      };
+      // Match font-size commands: may appear inside or outside $...$, with optional braces
+      const fontSizeCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)\b/g;
+      let fontSizeScale = null;
+      let fsmatch;
+      while ((fsmatch = fontSizeCmdRe.exec(displayText)) !== null) {
+        fontSizeScale = fontSizeScales[fsmatch[0]] || 1.0;
+      }
+      if (fontSizeScale !== null) {
+        displayText = displayText.replace(fontSizeCmdRe, '');
+        // Clean up: if stripping left only $$ (e.g. "$\small Outgoing light$" → "$ Outgoing light$"),
+        // the $ delimiters were wrapping a text-mode command, not real math — remove them.
+        const trimmed2 = displayText.trim();
+        if (trimmed2.startsWith('$') && trimmed2.endsWith('$') && trimmed2.indexOf('$', 1) === trimmed2.length - 1) {
+          const inner2 = trimmed2.slice(1, -1).trim();
+          // If no remaining LaTeX math commands or ^/_ scripts, strip the $
+          if (!/\\[a-zA-Z]/.test(inner2) && !/[\^_]/.test(inner2)) {
+            displayText = inner2;
+          }
+        }
+        effectiveFontSize *= fontSizeScale;
+        effectiveFontSizeCSS *= fontSizeScale;
+      }
+
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
       // rawText may look like "\reflectbox{$\ddots$}" or "$\vdots$" etc.
       let probeText = rawText.trim();
