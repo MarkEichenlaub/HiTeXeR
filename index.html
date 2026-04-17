@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v1.25</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v1.26</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -345,6 +345,7 @@ body {
         <div class="md-item" id="md-save">Save .asy</div>
         <div class="md-item" id="md-open">Open .asy</div>
         <div class="md-item" id="md-open-image">Open Image...</div>
+        <div class="md-item" id="md-paste">Paste</div>
         <div class="md-separator"></div>
         <div class="md-item md-submenu">Export
           <div class="menu-dropdown">
@@ -3304,6 +3305,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
   document.getElementById('md-open-image').addEventListener('click', () => document.getElementById('file-open-image-input').click());
   document.getElementById('file-open-image-input').addEventListener('change', (e) => doOpenImage(e));
+  document.getElementById('md-paste').addEventListener('click', () => doPasteFromClipboard());
   document.getElementById('md-export-svg').addEventListener('click', () => doExportSvg());
   document.getElementById('md-export-png').addEventListener('click', () => doExportPng());
   document.getElementById('md-export-jpg').addEventListener('click', () => doExportJpg());
@@ -5230,6 +5232,121 @@ document.addEventListener('DOMContentLoaded', () => {
       if (gifSettings.transparent != null) document.getElementById('gif-transparent').checked = !!gifSettings.transparent;
       // Restart preview with restored settings
       gifStartPreview();
+    }
+  }
+
+  // Paste from clipboard via File menu. If the clipboard contains an image,
+  // extract embedded Asymptote source (same logic as doOpenImage/global paste).
+  // If it contains text, paste that text into the editor.
+  async function doPasteFromClipboard() {
+    try {
+      const items = await navigator.clipboard.read();
+      // Look for an image item first
+      let imageBlob = null;
+      let textBlob = null;
+      for (const item of items) {
+        for (const type of item.types) {
+          if (!imageBlob && type.startsWith('image/')) {
+            imageBlob = await item.getType(type);
+          }
+          if (!textBlob && type === 'text/plain') {
+            textBlob = await item.getType('text/plain');
+          }
+        }
+      }
+
+      if (imageBlob) {
+        const buf = await imageBlob.arrayBuffer();
+        const data = new Uint8Array(buf);
+        let code = null;
+        let gifSettings = null;
+
+        // PNG
+        if (data[0] === 0x89 && data[1] === 0x50) {
+          code = extractPngText(data, 'Source');
+        }
+        // JPEG
+        if (!code && data[0] === 0xFF && data[1] === 0xD8) {
+          code = extractJpgComment(data);
+        }
+        // GIF
+        if (!code && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
+          const comment = extractGifComment(data);
+          if (comment) {
+            try {
+              const meta = JSON.parse(comment);
+              code = meta.source || null;
+              gifSettings = meta.gif || null;
+            } catch(_) {
+              code = comment;
+            }
+          }
+        }
+        // SVG (text-based, check for XML/SVG signature)
+        if (!code) {
+          try {
+            const text = new TextDecoder().decode(data);
+            if (text.trimStart().startsWith('<') && text.includes('<svg')) {
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(text, 'image/svg+xml');
+              const meta = doc.querySelector('metadata');
+              if (meta) code = meta.textContent.trim();
+            }
+          } catch(_) {}
+        }
+
+        if (!code) {
+          showWarnBadge('No Asymptote source code found in clipboard image.');
+          return;
+        }
+
+        let asyCode = code;
+        if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
+        if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
+        editor.setValue(asyCode);
+        doRender();
+
+        // Restore GIF settings if present
+        if (gifSettings) {
+          await new Promise(r => setTimeout(r, 100));
+          activateGifMode();
+          if (gifSettings.var) {
+            const sel = document.getElementById('gif-var-select');
+            for (let i = 0; i < sel.options.length; i++) {
+              if (sel.options[i].value === gifSettings.var) {
+                sel.selectedIndex = i;
+                gifSelectVariable();
+                break;
+              }
+            }
+          }
+          if (gifSettings.start != null) document.getElementById('gif-start').value = String(gifSettings.start);
+          if (gifSettings.end != null) document.getElementById('gif-end').value = String(gifSettings.end);
+          if (gifSettings.duration != null) document.getElementById('gif-duration').value = String(gifSettings.duration);
+          if (gifSettings.delay != null) document.getElementById('gif-delay').value = String(gifSettings.delay);
+          if (gifSettings.loop != null) document.getElementById('gif-loop').value = String(gifSettings.loop);
+          if (gifSettings.pause != null) document.getElementById('gif-pause').value = String(gifSettings.pause);
+          if (gifSettings.pauseFirst != null) document.getElementById('gif-pause-first').value = String(gifSettings.pauseFirst);
+          if (gifSettings.width != null) document.getElementById('gif-width').value = String(gifSettings.width);
+          if (gifSettings.transparent != null) document.getElementById('gif-transparent').checked = !!gifSettings.transparent;
+          gifStartPreview();
+        }
+        return;
+      }
+
+      // No image — try plain text
+      if (textBlob) {
+        const text = await textBlob.text();
+        if (text) {
+          editor.replaceSelection(text);
+          return;
+        }
+      }
+
+      showWarnBadge('Clipboard is empty.');
+    } catch(err) {
+      console.error('Clipboard read failed:', err);
+      showWarnBadge('Could not read clipboard. Browser may require permission.');
     }
   }
 
