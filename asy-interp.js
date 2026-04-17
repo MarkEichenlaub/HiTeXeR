@@ -7902,42 +7902,35 @@ function renderSVG(result, opts) {
         const cx = pos.x + dx;
         const cy = pos.y + dy;
 
-        // Debug: log label expansion for diagrams with single character labels positioned at origin
-        if (cleanText.length === 1 && Math.abs(pos.x) < 0.01 && Math.abs(pos.y) < 0.01) {
-          console.error(`DEBUG: Label "${text}" at (${pos.x},${pos.y})`);
-          console.error(`  align: (${dc.align ? dc.align.x : 0}, ${dc.align ? dc.align.y : 0})`);
-          console.error(`  fontSize: ${fontSize}, autoScaled: ${autoScaled}`);
-          console.error(`  charWidthBp: ${charWidthBp}, roughPxPerUnitX: ${roughPxPerUnitX}`);
-          console.error(`  textWidthUser: ${textWidthUser}, textHeightUser: ${textHeightUser}`);
-          console.error(`  marginX: ${0.20 * fontSize / roughPxPerUnitX}, marginY: ${0.20 * fontSize / roughPxPerUnitY}`);
-          console.error(`  dx: ${dx}, dy: ${dy}`);
-          console.error(`  label bounds: x:[${cx - textWidthUser/2}, ${cx + textWidthUser/2}], y:[${cy - textHeightUser/2}, ${cy + textHeightUser/2}]`);
-          console.error(`  current bbox before: x:[${minX}, ${maxX}], y:[${minY}, ${maxY}]`);
-        }
-
         expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
         expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
 
         // On first pass, collect bp-space info for the iterative scale solver
         if (labelPass === 0) {
-          // Compute bp-space dimensions (before rotation swap)
-          let lWidthBp = effectiveLen * charWidthBp;
-          let lHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
-          // Swap width/height for rotated labels (matching the swap done above)
-          if (Math.abs(ltAngle) > 45) {
-            const tmp = lWidthBp;
-            lWidthBp = lHeightBp;
-            lHeightBp = tmp;
+          // When clip() is active, items whose anchor is outside the clip region
+          // are invisible and must not drive scale computation or bbox expansion.
+          if (hasClip && (pos.x < clipMinX || pos.x > clipMaxX || pos.y < clipMinY || pos.y > clipMaxY)) {
+            // skip — outside clip region, will not appear in output
+          } else {
+            // Compute bp-space dimensions (before rotation swap)
+            let lWidthBp = effectiveLen * charWidthBp;
+            let lHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
+            // Swap width/height for rotated labels (matching the swap done above)
+            if (Math.abs(ltAngle) > 45) {
+              const tmp = lWidthBp;
+              lWidthBp = lHeightBp;
+              lHeightBp = tmp;
+            }
+            const alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
+            const alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
+            labelInfoBp.push({
+              posX: pos.x, posY: pos.y,
+              widthBp: lWidthBp,
+              heightBp: lHeightBp,
+              alignOffsetXBp,
+              alignOffsetYBp
+            });
           }
-          const alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
-          const alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
-          labelInfoBp.push({
-            posX: pos.x, posY: pos.y,
-            widthBp: lWidthBp,
-            heightBp: lHeightBp,
-            alignOffsetXBp,
-            alignOffsetYBp
-          });
         }
       }
     }
@@ -7961,10 +7954,6 @@ function renderSVG(result, opts) {
   }
 
   const warnings = [];
-
-  // Debug: log final bounds before scale calculation
-  console.error(`DEBUG: Final bounds after label expansion: x:[${minX}, ${maxX}], y:[${minY}, ${maxY}]`);
-  console.error(`  bbox dimensions: ${maxX - minX} x ${maxY - minY}`);
 
   // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
@@ -8097,6 +8086,15 @@ function renderSVG(result, opts) {
       minY = Math.min(minY, cy - hh);
       maxY = Math.max(maxY, cy + hh);
     }
+  }
+
+  // Re-constrain bbox after label re-expansion: clip() bounds must not be exceeded
+  // (labelInfoBp already excludes out-of-clip items, but re-apply as a safety net)
+  if (hasClip) {
+    minX = Math.max(minX, clipMinX - pad);
+    minY = Math.max(minY, clipMinY - pad);
+    maxX = Math.min(maxX, clipMaxX + pad);
+    maxY = Math.min(maxY, clipMaxY + pad);
   }
 
   // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
