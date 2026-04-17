@@ -2127,6 +2127,24 @@ function createInterpreter() {
   let _callDepth = 0;
   const MAX_CALL_DEPTH = 256;
 
+  // Check if a value is compatible with a declared Asymptote parameter type.
+  // Used for type-based argument matching (e.g. disc((i,j), color) matching pair→center).
+  function argMatchesParamType(val, paramType) {
+    if (!paramType) return true;
+    switch (paramType) {
+      case 'real': case 'int': return typeof val === 'number';
+      case 'bool': case 'boolean': return typeof val === 'boolean';
+      case 'pair': return isPair(val);
+      case 'triple': return isTriple(val);
+      case 'pen': return isPen(val);
+      case 'path': return isPath(val);
+      case 'string': return isString(val);
+      case 'picture': return val && val._tag === 'picture';
+      case 'transform': return val && val._tag === 'transform';
+      default: return true;  // unknown type: allow anything (strict-positional fallback)
+    }
+  }
+
   function callUserFunc(func, argNodes, callEnv) {
     if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
@@ -2141,16 +2159,51 @@ function createInterpreter() {
         positional.push(a);
       }
     }
-    let posIdx = 0;
+    // Pre-evaluate positional args for type-based matching
+    const posVals = positional.map(a => evalNode(a, callEnv));
+    const paramAssigned = new Array(params.length).fill(false);
+    const argAssigned = new Array(posVals.length).fill(false);
+    // Handle named args first
     for (let i = 0; i < params.length; i++) {
       if (named[params[i].name] !== undefined) {
         local.set(params[i].name, evalNode(named[params[i].name], callEnv));
-      } else if (posIdx < positional.length) {
-        local.set(params[i].name, evalNode(positional[posIdx++], callEnv));
-      } else if (params[i].default) {
-        local.set(params[i].name, evalNode(params[i].default, local));
-      } else {
-        local.set(params[i].name, null);
+        paramAssigned[i] = true;
+      }
+    }
+    // Type-based matching: assign each positional arg to the first compatible param
+    for (let ai = 0; ai < posVals.length; ai++) {
+      const val = posVals[ai];
+      let matched = false;
+      for (let pi = 0; pi < params.length; pi++) {
+        if (paramAssigned[pi]) continue;
+        if (argMatchesParamType(val, params[pi].type)) {
+          local.set(params[pi].name, val);
+          paramAssigned[pi] = true;
+          argAssigned[ai] = true;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        // Fallback: assign to the next unassigned param regardless of type
+        for (let pi = 0; pi < params.length; pi++) {
+          if (!paramAssigned[pi]) {
+            local.set(params[pi].name, val);
+            paramAssigned[pi] = true;
+            argAssigned[ai] = true;
+            break;
+          }
+        }
+      }
+    }
+    // Fill remaining params with defaults or null
+    for (let i = 0; i < params.length; i++) {
+      if (!paramAssigned[i]) {
+        if (params[i].default) {
+          local.set(params[i].name, evalNode(params[i].default, local));
+        } else {
+          local.set(params[i].name, null);
+        }
       }
     }
     try {
@@ -7320,6 +7373,7 @@ function createInterpreter() {
         if (!pos) pos = a;
         else if (!align) align = a;
       }
+      else if (typeof a === 'number' && !pos) { pos = makePair(a, 0); }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
     }
     if (!pos) pos = makePair(0,0);
