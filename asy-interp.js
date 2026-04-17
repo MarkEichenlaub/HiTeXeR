@@ -7222,8 +7222,9 @@ function createInterpreter() {
     args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
     args._line = savedLine;
     let pos = null, pen = null, text = null, align = null, multiDots = null;
-    let graphicData = null;
+    let graphicData = null, filltype = null;
     for (const a of args) {
+      if (a && a._tag === 'filltype') { filltype = a; continue; }
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
         if (a.align && !align) align = a.align;
@@ -7258,12 +7259,12 @@ function createInterpreter() {
     if (!pen) pen = clonePen(defaultPen);
     if (multiDots) {
       for (const pt of multiDots) {
-        target.commands.push({cmd:'dot', pos:pt, pen, line: args._line || 0});
+        target.commands.push({cmd:'dot', pos:pt, pen, filltype, line: args._line || 0});
       }
       return;
     }
     if (!pos) return;
-    target.commands.push({cmd:'dot', pos, pen, line: args._line || 0});
+    target.commands.push({cmd:'dot', pos, pen, filltype, line: args._line || 0});
     // If dot has a graphic, add an image command
     if (graphicData) {
       if (!align) align = makePair(1, 1);
@@ -8539,7 +8540,8 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
       fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
     } else if (dc.cmd === 'filldraw') {
-      fill = css.fill;
+      // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
+      fill = (css.opacity === 0) ? 'none' : css.fill;
       if (dc.drawPen) {
         const drawCSS = penToCSS(dc.drawPen);
         drawCSS.strokeWidth *= bpCSSPixel;
@@ -8568,7 +8570,9 @@ function renderSVG(result, opts) {
       attrs += ` stroke-linecap="${(dc.pen && dc.pen.linecap) || 'round'}"`;
       attrs += ` stroke-linejoin="${(dc.pen && dc.pen.linejoin) || 'round'}"`;
     }
-    attrs += opacityAttr(css.opacity);
+    // For filldraw with invisible fill (fill='none'), don't apply opacity to whole element
+    // so the stroke outline remains visible at full opacity
+    if (dc.cmd !== 'filldraw' || fill !== 'none') attrs += opacityAttr(css.opacity);
 
     elements.push(`<path ${attrs}/>`);
     commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -8618,7 +8622,14 @@ function renderSVG(result, opts) {
       const dotLw = dc.pen.linewidth;
       const lwExplicit = dc.pen._lwExplicit;
       const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      if (dc.filltype && dc.filltype.style === 'UnFill') {
+        // UnFill: open dot — white interior, colored ring.
+        // Ring width is 40% of the dot radius so the white interior is always visible.
+        const ringW = dotR * 0.4;
+        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}/>`);
+      } else {
+        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
       // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
