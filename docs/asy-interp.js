@@ -109,9 +109,9 @@ function lex(source) {
       while (pos < len && ch() !== '"') {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; }
           else if (ch() === '\\') { s += '\\\\'; } else if (ch() === '"') { s += '"'; }
-          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
+          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc. (\t→\textbf, etc.)
         } else { s += ch(); }
         advance();
       }
@@ -125,9 +125,9 @@ function lex(source) {
       while (pos < len && ch() !== "'") {
         if (ch() === '\\') {
           advance();
-          if (ch() === 'n') { s += '\n'; } else if (ch() === 't') { s += '\t'; }
+          if (ch() === 'n') { s += '\n'; }
           else if (ch() === '\\') { s += '\\'; } else if (ch() === "'") { s += "'"; }
-          else { s += '\\'; s += ch(); }
+          else { s += '\\'; s += ch(); } // preserve backslash for LaTeX etc.
         } else { s += ch(); }
         advance();
       }
@@ -971,7 +971,7 @@ function makePair(x,y) { return {_tag:'pair', x:x||0, y:y||0}; }
 function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
-    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false}, props);
+    fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false, fontFamily:null}, props);
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -1001,6 +1001,18 @@ function isNumber(v) { return typeof v === 'number'; }
 function isArray(v) { return Array.isArray(v); }
 function isCallable(v) { return typeof v === 'function' || (v && v._tag === 'func'); }
 function isGraphic(v) { return v && v._tag === 'graphic'; }
+
+// Inversion type (non-affine transform from geometry module)
+function makeInversion(k, center) { return {_tag:'inversion', k, center}; }
+function isInversion(v) { return v && v._tag === 'inversion'; }
+function applyInversion(inv, p) {
+  // Circle inversion: P' = C + k / |P - C|^2 * (P - C)
+  const dx = p.x - inv.center.x, dy = p.y - inv.center.y;
+  const d2 = dx*dx + dy*dy;
+  if (d2 < 1e-30) return makePair(p.x, p.y); // degenerate: point at center
+  const s = inv.k / d2;
+  return makePair(inv.center.x + s * dx, inv.center.y + s * dy);
+}
 
 // Geometry package types
 function makeCoordSys(O, i, j) {
@@ -1106,6 +1118,8 @@ function mergePens(a,b) {
   if (b.opacity !== 1) r.opacity = b.opacity;
   if (b.linecap) r.linecap = b.linecap;
   if (b.linejoin) r.linejoin = b.linejoin;
+  if (b.fillrule) r.fillrule = b.fillrule;
+  if (b.fontFamily) r.fontFamily = b.fontFamily;
   return r;
 }
 
@@ -1293,7 +1307,9 @@ function hobbyRho(theta, phi) {
   const st = Math.sin(theta), ct = Math.cos(theta);
   const sp = Math.sin(phi), cp = Math.cos(phi);
   const num = 2 + Math.SQRT2 * (st - sp/16) * (sp - st/16) * (ct - cp);
-  const den = (1 + 0.5*(Math.SQRT2-1)*ct) * (1 + 0.5*(Math.SQRT2-1)*cp);
+  const c3 = 0.5 * (Math.sqrt(5) - 1);
+  const d3 = 0.5 * (3 - Math.sqrt(5));
+  const den = 1 + c3 * ct + d3 * cp;
   return Math.max(0.1, num / den);
 }
 
@@ -1328,7 +1344,7 @@ function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
   const C = new Array(n).fill(0), D = new Array(n).fill(0);
 
   // Natural end conditions with curl=1 (Hobby's default)
-  B[0] = 2; C[0] = 1; D[0] = -psi[1];
+  B[0] = 1; C[0] = 1; D[0] = -psi[1];
   for (let i = 1; i < m; i++) {
     const di_1 = d[i-1] || 1, di = d[i] || 1;
     A[i] = 1/di_1;
@@ -1336,7 +1352,7 @@ function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
     C[i] = 1/di;
     D[i] = -(2*psi[i]*di + psi[i+1]*di_1) / (di_1 * di);
   }
-  B[m] = 2; A[m] = 1; D[m] = 0;
+  B[m] = 1; A[m] = 1; D[m] = 0;
 
   // Apply clamped theta constraints: replace row with identity equation
   if (clampedTheta) {
@@ -1913,6 +1929,10 @@ function createInterpreter() {
 
     // Transform * pair
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
+    // Inversion * pair (non-affine geometry transform)
+    if (isInversion(left) && isPair(right)) return applyInversion(left, right);
+    // Inversion * point (geometry module Point type)
+    if (isInversion(left) && isPoint(right)) return applyInversion(left, locatePoint(right));
     // Transform * path
     if (isTransform(left) && isPath(right)) return applyTransformPath(left, right);
     // Transform * picture
@@ -2107,6 +2127,24 @@ function createInterpreter() {
   let _callDepth = 0;
   const MAX_CALL_DEPTH = 256;
 
+  // Check if a value is compatible with a declared Asymptote parameter type.
+  // Used for type-based argument matching (e.g. disc((i,j), color) matching pair→center).
+  function argMatchesParamType(val, paramType) {
+    if (!paramType) return true;
+    switch (paramType) {
+      case 'real': case 'int': return typeof val === 'number';
+      case 'bool': case 'boolean': return typeof val === 'boolean';
+      case 'pair': return isPair(val);
+      case 'triple': return isTriple(val);
+      case 'pen': return isPen(val);
+      case 'path': return isPath(val);
+      case 'string': return isString(val);
+      case 'picture': return val && val._tag === 'picture';
+      case 'transform': return val && val._tag === 'transform';
+      default: return true;  // unknown type: allow anything (strict-positional fallback)
+    }
+  }
+
   function callUserFunc(func, argNodes, callEnv) {
     if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
@@ -2121,16 +2159,51 @@ function createInterpreter() {
         positional.push(a);
       }
     }
-    let posIdx = 0;
+    // Pre-evaluate positional args for type-based matching
+    const posVals = positional.map(a => evalNode(a, callEnv));
+    const paramAssigned = new Array(params.length).fill(false);
+    const argAssigned = new Array(posVals.length).fill(false);
+    // Handle named args first
     for (let i = 0; i < params.length; i++) {
       if (named[params[i].name] !== undefined) {
         local.set(params[i].name, evalNode(named[params[i].name], callEnv));
-      } else if (posIdx < positional.length) {
-        local.set(params[i].name, evalNode(positional[posIdx++], callEnv));
-      } else if (params[i].default) {
-        local.set(params[i].name, evalNode(params[i].default, local));
-      } else {
-        local.set(params[i].name, null);
+        paramAssigned[i] = true;
+      }
+    }
+    // Type-based matching: assign each positional arg to the first compatible param
+    for (let ai = 0; ai < posVals.length; ai++) {
+      const val = posVals[ai];
+      let matched = false;
+      for (let pi = 0; pi < params.length; pi++) {
+        if (paramAssigned[pi]) continue;
+        if (argMatchesParamType(val, params[pi].type)) {
+          local.set(params[pi].name, val);
+          paramAssigned[pi] = true;
+          argAssigned[ai] = true;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        // Fallback: assign to the next unassigned param regardless of type
+        for (let pi = 0; pi < params.length; pi++) {
+          if (!paramAssigned[pi]) {
+            local.set(params[pi].name, val);
+            paramAssigned[pi] = true;
+            argAssigned[ai] = true;
+            break;
+          }
+        }
+      }
+    }
+    // Fill remaining params with defaults or null
+    for (let i = 0; i < params.length; i++) {
+      if (!paramAssigned[i]) {
+        if (params[i].default) {
+          local.set(params[i].name, evalNode(params[i].default, local));
+        } else {
+          local.set(params[i].name, null);
+        }
       }
     }
     try {
@@ -2279,7 +2352,10 @@ function createInterpreter() {
     switch(node.targetType) {
       case 'int': return Math.floor(toNumber(val));
       case 'real': return toNumber(val);
-      case 'string': return String(val);
+      case 'string':
+        if (isPair(val)) return '(' + val.x + ',' + val.y + ')';
+        if (isTriple(val)) return '(' + val.x + ',' + val.y + ',' + val.z + ')';
+        return String(val);
       case 'bool': return toBool(val);
       case 'pair': return toPair(val);
       default: return val;
@@ -2449,18 +2525,33 @@ function createInterpreter() {
       return hobbySpline(points, hasCycle, directions);
     }
 
-    // Mixed joins: segment by segment
+    // Mixed joins: group consecutive '..' runs and solve each as a multi-point
+    // Hobby spline (with natural curl-1 end conditions at '--' boundaries),
+    // matching Asymptote's behaviour.
     const segs = [];
     const len = hasCycle ? points.length : points.length - 1;
-    for (let i = 0; i < len; i++) {
-      const j = (i+1) % points.length;
+
+    let i = 0;
+    while (i < len) {
       if (joins[i] === '--') {
-        segs.push(lineSegment(points[i], points[j]));
+        segs.push(lineSegment(points[i], points[(i + 1) % points.length]));
+        i++;
       } else {
-        // Pass per-segment directions for the two-knot sub-spline
-        const subDirs = directions ? [directions[i], directions[j]] : null;
-        const s = hobbySpline([points[i], points[j]], false, subDirs);
-        segs.push(...s);
+        // Collect a contiguous run of '..' joins starting at i
+        const runStart = i;
+        while (i < len && joins[i] === '..') i++;
+        // The run covers joins[runStart..i-1], touching points runStart..i
+        // (indices mod points.length when cyclic)
+        const runKnots = [];
+        const runDirs = [];
+        for (let k = runStart; k <= i; k++) {
+          const idx = k % points.length;
+          runKnots.push(points[idx]);
+          runDirs.push(directions ? Object.assign({}, directions[idx]) : {dirIn: null, dirOut: null});
+        }
+
+        const runSegs = hobbySpline(runKnots, false, runDirs);
+        segs.push(...runSegs);
       }
     }
     return segs;
@@ -2795,6 +2886,8 @@ function createInterpreter() {
       for (const a of args) {
         if (a && a._tag === 'picture') pics.push(a);
         else if (isTransform(a)) t = a;
+        // add(pic, (x,y)) — pair offset treated as a shift transform
+        else if (isPair(a)) t = makeTransform(a.x, 1, 0, a.y, 0, 1);
       }
       let dest, src;
       if (pics.length >= 2) {
@@ -2843,6 +2936,8 @@ function createInterpreter() {
     env.set('miterjoin', makePen({linejoin:'miter'}));
     env.set('roundjoin', makePen({linejoin:'round'}));
     env.set('beveljoin', makePen({linejoin:'bevel'}));
+    env.set('evenodd', makePen({fillrule:'evenodd'}));
+    env.set('zerowinding', makePen({fillrule:'nonzero'}));
 
     // Units
     env.set('bp', 1);
@@ -3358,6 +3453,34 @@ function createInterpreter() {
     env.set('Pen', (n) => makePen({}));
     env.set('Symbol', (...args) => null);
     env.set('fontcommand', (...args) => makePen({}));
+    // Asymptote standard font functions — map to CSS font stacks
+    { const ASY_FONTS = {
+        Helvetica: 'Helvetica, Arial, sans-serif',
+        HelveticaOblique: 'Helvetica, Arial, sans-serif',
+        HelveticaBold: 'Helvetica, Arial, sans-serif',
+        HelveticaBoldOblique: 'Helvetica, Arial, sans-serif',
+        Times: '"Times New Roman", Times, serif',
+        TimesRoman: '"Times New Roman", Times, serif',
+        TimesItalic: '"Times New Roman", Times, serif',
+        TimesBold: '"Times New Roman", Times, serif',
+        TimesRomanBold: '"Times New Roman", Times, serif',
+        TimesBoldItalic: '"Times New Roman", Times, serif',
+        Courier: '"Courier New", Courier, monospace',
+        CourierOblique: '"Courier New", Courier, monospace',
+        CourierBold: '"Courier New", Courier, monospace',
+        CourierBoldOblique: '"Courier New", Courier, monospace',
+        Palatino: 'Palatino, Georgia, serif',
+        PalatinoBold: 'Palatino, Georgia, serif',
+        ZapfChancery: '"Zapf Chancery", cursive',
+        NewCenturySchoolBook: '"New Century Schoolbook", "Century Schoolbook L", serif',
+        Bookman: 'Bookman, serif',
+        AvantGarde: '"Avant Garde", Futura, sans-serif',
+      };
+      for (const [name, ff] of Object.entries(ASY_FONTS)) {
+        const _ff = ff;
+        env.set(name, (...args) => makePen({fontFamily: _ff}));
+      }
+    }
     env.set('cmyk', (c,m,y,k) => {
       const cc=toNumber(c),mm=toNumber(m),yy=toNumber(y),kk=toNumber(k);
       return makePen({r:(1-cc)*(1-kk),g:(1-mm)*(1-kk),b:(1-yy)*(1-kk)});
@@ -3834,6 +3957,43 @@ function createInterpreter() {
     env.set('write', (...args) => { /* no-op in browser */ });
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
     env.set('unitrand', () => Math.random());
+
+    // Seeded PRNG for rand()/srand() — matches glibc TYPE_3 (degree-31
+    // trinomial feedback shift register), which is the default RNG used by
+    // glibc's rand()/srand().  This is what real Asymptote (via C stdlib)
+    // uses on Linux, so seeded sequences will match the TeXeR server.
+    const RAND_MAX = 2147483647; // 2^31 - 1
+    const _randTbl = new Int32Array(31);
+    let _randFptr = 3;  // front pointer (index into table)
+    let _randRptr = 0;  // rear pointer
+    function _srand(seed) {
+      seed = (toNumber(seed) | 0) >>> 0;
+      _randTbl[0] = seed;
+      for (let i = 1; i < 31; i++) {
+        // glibc init: state[i] = (16807 * state[i-1]) % 2147483647
+        // Use BigInt to avoid overflow
+        let v = Number(BigInt(16807) * BigInt(_randTbl[i - 1] >>> 0) % BigInt(2147483647));
+        _randTbl[i] = v | 0;
+      }
+      _randFptr = 3;
+      _randRptr = 0;
+      // glibc runs 310 warm-up calls after seeding
+      for (let i = 0; i < 310; i++) _rand();
+    }
+    function _rand() {
+      let val = (_randTbl[_randFptr] + _randTbl[_randRptr]) | 0;
+      _randTbl[_randFptr] = val;
+      val = (val >>> 1);  // discard low bit
+      _randFptr++;
+      if (_randFptr >= 31) _randFptr = 0;
+      _randRptr++;
+      if (_randRptr >= 31) _randRptr = 0;
+      return val;
+    }
+    _srand(1); // default seed
+    env.set('srand', (seed) => _srand(seed));
+    env.set('rand', () => _rand());
+    env.set('randMax', RAND_MAX);
 
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
@@ -4709,17 +4869,25 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
-          // Default format: Asymptote uses "$%.4g$" rendered via TeX.
-          // We approximate with plain number strings (no scientific notation)
-          // since we can't run TeX.  toPrecision(4) matches %.4g semantics.
+          // Default format: Asymptote uses "%.4g" rendered via TeX.
+          // toPrecision(4) matches %.4g semantics.
+          // For scientific notation (large/small values), render as LaTeX $a\times10^{n}$.
           const fmtDefault = () => {
             if (v === 0) return '0';
-            const s = v.toPrecision(4).replace(/\.?0+$/, '');
-            // toPrecision may produce exponential form for large/small values;
-            // convert back to plain number so labels don't get excessively wide.
-            const n = Number(s);
-            if (Number.isInteger(n)) return String(n);
-            return String(n);
+            const s4 = v.toPrecision(4);
+            const eIdx = s4.indexOf('e');
+            if (eIdx !== -1) {
+              // Scientific notation: render as LaTeX ×10^n to match Asymptote output
+              const mantissa = parseFloat(s4.slice(0, eIdx));
+              const exp = parseInt(s4.slice(eIdx + 1));
+              const sign = mantissa < 0 ? '-' : '';
+              const absMantissa = Math.abs(mantissa);
+              if (absMantissa === 1) return '$' + sign + '10^{' + exp + '}$';
+              return '$' + sign + absMantissa + '\\times10^{' + exp + '}$';
+            }
+            // Fixed notation: parseFloat trims trailing zeros correctly
+            // (unlike .replace(/\.?0+$/, '') which incorrectly strips "1000" → "1")
+            return String(parseFloat(s4));
           };
           if (ticks.labelFunc) {
             // Custom label function: call it with the tick value
@@ -4879,7 +5047,8 @@ function createInterpreter() {
       const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
       _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:0, y:-1};
+        // Default: right-aligned at xmax, pushed below tick labels (W+S combined)
+        const lAlign = labelAlign || {x:-1, y:-3};
         let labelX = xmax;
         if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
         pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
@@ -4888,7 +5057,7 @@ function createInterpreter() {
 
     env.set('yaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, labelPosition = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, labelTransform = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
       let above = false;
       const rawArgs = args;
@@ -4918,14 +5087,14 @@ function createInterpreter() {
           }
           if ('L' in a) {
             const lv = a.L;
-            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.transform) labelTransform = lv.transform; }
             else if (isString(lv)) label = lv;
           }
           if ('ymin' in a && typeof a.ymin === 'number') ymin = a.ymin;
           if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
           continue;
         }
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
         else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
@@ -4980,7 +5149,10 @@ function createInterpreter() {
         const lAlign = labelAlign || {x:-1, y:0};
         let labelY = ymax;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, line:0});
+        // Y-axis labels are rotated 90° CCW by default (like Asymptote's graph.asy)
+        const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
+        const lt = labelTransform || rot90ccw;
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0});
       }
     });
 
@@ -6373,7 +6545,20 @@ function createInterpreter() {
     // Stubs for less-common features
     // ────────────────────────────────────────────────────────────
 
-    // mass, abscissa, bqe, inversion — stub types
+    // inversion — circle inversion (non-affine transform)
+    env.set('inversion', (...args) => {
+      // inversion(real k, pair c) or inversion(pair c, real k)
+      // Asymptote convention: inversion(real k, pair c)
+      let k = 1, center = makePair(0,0);
+      for (const a of args) {
+        if (typeof a === 'number') k = a;
+        else if (isPair(a)) center = a;
+        else if (isPoint(a)) center = locatePoint(a);
+      }
+      return makeInversion(k, center);
+    });
+
+    // mass, abscissa, bqe — stub types
     env.set('mass', (...args) => {
       const pts = [];
       let m = 1;
@@ -6533,7 +6718,7 @@ function createInterpreter() {
       }
 
       // Draw axis lines with arrows
-      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
       // Vertical axis (x=0)
       const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
@@ -6600,7 +6785,7 @@ function createInterpreter() {
       }
 
       // ── Axis lines with arrows ──
-      const axArrow = {_tag:'arrow', style:'Arrows', size:5};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
       const vPath = makePath([lineSegment({x:0, y:ybottom}, {x:0, y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
       const hPath = makePath([lineSegment({x:xleft, y:0}, {x:xright, y:0})], false);
@@ -6747,7 +6932,7 @@ function createInterpreter() {
       const nums = args.filter(a => typeof a === 'number');
       let cx = 1, cy = -2, cz = 0.5;
       if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
-      else if (nums.length === 1 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
+      else if (nums.length === 0 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
       const p = {_tag:'projection', type:'orthographic', cx, cy, cz, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
       // Apply named args
       for (const a of args) {
@@ -7092,8 +7277,9 @@ function createInterpreter() {
     args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
     args._line = savedLine;
     let pos = null, pen = null, text = null, align = null, multiDots = null;
-    let graphicData = null;
+    let graphicData = null, filltype = null;
     for (const a of args) {
+      if (a && a._tag === 'filltype') { filltype = a; continue; }
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
         if (a.align && !align) align = a.align;
@@ -7128,12 +7314,12 @@ function createInterpreter() {
     if (!pen) pen = clonePen(defaultPen);
     if (multiDots) {
       for (const pt of multiDots) {
-        target.commands.push({cmd:'dot', pos:pt, pen, line: args._line || 0});
+        target.commands.push({cmd:'dot', pos:pt, pen, filltype, line: args._line || 0});
       }
       return;
     }
     if (!pos) return;
-    target.commands.push({cmd:'dot', pos, pen, line: args._line || 0});
+    target.commands.push({cmd:'dot', pos, pen, filltype, line: args._line || 0});
     // If dot has a graphic, add an image command
     if (graphicData) {
       if (!align) align = makePair(1, 1);
@@ -7189,6 +7375,7 @@ function createInterpreter() {
         if (!pos) pos = a;
         else if (!align) align = a;
       }
+      else if (typeof a === 'number' && !pos) { pos = makePair(a, 0); }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
     }
     if (!pos) pos = makePair(0,0);
@@ -7528,6 +7715,7 @@ function renderSVG(result, opts) {
   const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
+  const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
 
@@ -7675,16 +7863,27 @@ function renderSVG(result, opts) {
   // Padding in bp, converted to user coordinates.  Real Asymptote expands the
   // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
   // on each side) so the value doesn't depend on user-coordinate scale.
-  const roughPxPerUnitForPad = hasUnitScale ? unitScale
-    : (sizeW > 0 ? sizeW / geoBboxW : (sizeH > 0 ? sizeH / geoBboxH : 200 / geoBboxW));
-  const pad = 0.5 / roughPxPerUnitForPad;      // 0.5 bp → user coords
-  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+  // In IgnoreAspect mode, x and y scales can differ dramatically, so use separate
+  // per-axis padding to avoid catastrophically inflating the smaller-range axis.
+  let padX, padY;
+  if (hasUnitScale) {
+    padX = padY = 0.5 / unitScale;
+  } else if (!keepAspect && sizeW > 0 && sizeH > 0) {
+    padX = 0.5 / (sizeW / geoBboxW);
+    padY = 0.5 / (sizeH / geoBboxH);
+  } else {
+    const roughPxPerUnitForPad = sizeW > 0 ? sizeW / geoBboxW
+      : (sizeH > 0 ? sizeH / geoBboxH : 200 / geoBboxW);
+    padX = padY = 0.5 / roughPxPerUnitForPad;
+  }
+  minX -= padX; minY -= padY; maxX += padX; maxY += padY;
 
   // Expand bbox for labels so text doesn't get clipped.
   // Estimate label extent in user coordinates.  We iterate because the scale
   // (pxPerUnit) depends on the bbox, and labels expand the bbox.  Two passes
   // suffice: the first expands coarsely, the second refines with the updated bbox.
   const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
+  const labelInfoBp = [];  // Collect label bp-space info for iterative scale solver
   for (let labelPass = 0; labelPass < 2; labelPass++) {
     // Compute the rough pxPerUnit from current bbox (mirrors the final scale logic)
     const curBboxW = (maxX - minX) || 1;
@@ -7703,10 +7902,10 @@ function renderSVG(result, opts) {
       roughPxPerUnitX = keepAspect ? roughPxPerUnit : (sizeW > 0 ? sizeW / geoW : roughPxPerUnit);
       roughPxPerUnitY = keepAspect ? roughPxPerUnit : (sizeH > 0 ? sizeH / geoH : roughPxPerUnit);
     } else {
-      // No size/unitsize: default size(200) — scale by the binding dimension
+      // No size/unitsize: default size(150) — scale by the binding dimension
       const geoW = (geoMaxX - geoMinX) || 1;
       const geoH = (geoMaxY - geoMinY) || 1;
-      roughPxPerUnit = Math.min(200 / geoW, 200 / geoH);
+      roughPxPerUnit = Math.min(150 / geoW, 150 / geoH);
       roughPxPerUnitX = roughPxPerUnitY = roughPxPerUnit;
     }
 
@@ -7754,18 +7953,17 @@ function renderSVG(result, opts) {
         const heightFactor = autoScaled ? 0.7 : 0.48;
         let textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
 
-        // For rotated labels, the visual width becomes the original height
-        // and vice versa.  In IgnoreAspect mode the x and y scale factors
-        // differ, so we must recompute in the correct axis units rather
-        // than simply swapping the pre-divided values.
-        if (Math.abs(ltAngle) > 45) {
+        // For rotated labels, compute the axis-aligned bounding box of the rotated text.
+        // Use the exact formula for any angle rather than just swapping at 90°.
+        if (Math.abs(ltAngle) > 0.5) {
           // Original dimensions in bp (before dividing by axis scale)
           const textWidthBp = effectiveLen * charWidthBp;
           const textHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
-          // After ~90° rotation: visual width (x-extent) ← original height,
-          //                       visual height (y-extent) ← original width
-          textWidthUser = textHeightBp / roughPxPerUnitX;
-          textHeightUser = textWidthBp / roughPxPerUnitY;
+          const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
+          const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
+          // Rotated bbox: visual x-extent and y-extent
+          textWidthUser = (textWidthBp * cosA + textHeightBp * sinA) / roughPxPerUnitX;
+          textHeightUser = (textWidthBp * sinA + textHeightBp * cosA) / roughPxPerUnitY;
         }
 
         let dx = 0, dy = 0;
@@ -7783,21 +7981,39 @@ function renderSVG(result, opts) {
         const cx = pos.x + dx;
         const cy = pos.y + dy;
 
-        // Debug: log label expansion for diagrams with single character labels positioned at origin
-        if (cleanText.length === 1 && Math.abs(pos.x) < 0.01 && Math.abs(pos.y) < 0.01) {
-          console.error(`DEBUG: Label "${text}" at (${pos.x},${pos.y})`);
-          console.error(`  align: (${dc.align ? dc.align.x : 0}, ${dc.align ? dc.align.y : 0})`);
-          console.error(`  fontSize: ${fontSize}, autoScaled: ${autoScaled}`);
-          console.error(`  charWidthBp: ${charWidthBp}, roughPxPerUnitX: ${roughPxPerUnitX}`);
-          console.error(`  textWidthUser: ${textWidthUser}, textHeightUser: ${textHeightUser}`);
-          console.error(`  marginX: ${0.20 * fontSize / roughPxPerUnitX}, marginY: ${0.20 * fontSize / roughPxPerUnitY}`);
-          console.error(`  dx: ${dx}, dy: ${dy}`);
-          console.error(`  label bounds: x:[${cx - textWidthUser/2}, ${cx + textWidthUser/2}], y:[${cy - textHeightUser/2}, ${cy + textHeightUser/2}]`);
-          console.error(`  current bbox before: x:[${minX}, ${maxX}], y:[${minY}, ${maxY}]`);
-        }
-
         expandBBox(cx - textWidthUser/2, cy - textHeightUser/2);
         expandBBox(cx + textWidthUser/2, cy + textHeightUser/2);
+
+        // On first pass, collect bp-space info for the iterative scale solver
+        if (labelPass === 0) {
+          // When clip() is active, items whose anchor is outside the clip region
+          // are invisible and must not drive scale computation or bbox expansion.
+          if (hasClip && (pos.x < clipMinX || pos.x > clipMaxX || pos.y < clipMinY || pos.y > clipMaxY)) {
+            // skip — outside clip region, will not appear in output
+          } else {
+            // Compute bp-space dimensions (before rotation swap)
+            let lWidthBp = effectiveLen * charWidthBp;
+            let lHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
+            // For rotated labels, use the rotated bounding box dimensions
+            if (Math.abs(ltAngle) > 0.5) {
+              const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
+              const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
+              const rW = lWidthBp * cosA + lHeightBp * sinA;
+              const rH = lWidthBp * sinA + lHeightBp * cosA;
+              lWidthBp = rW;
+              lHeightBp = rH;
+            }
+            const alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
+            const alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
+            labelInfoBp.push({
+              posX: pos.x, posY: pos.y,
+              widthBp: lWidthBp,
+              heightBp: lHeightBp,
+              alignOffsetXBp,
+              alignOffsetYBp
+            });
+          }
+        }
       }
     }
   }
@@ -7821,10 +8037,6 @@ function renderSVG(result, opts) {
 
   const warnings = [];
 
-  // Debug: log final bounds before scale calculation
-  console.error(`DEBUG: Final bounds after label expansion: x:[${minX}, ${maxX}], y:[${minY}, ${maxY}]`);
-  console.error(`  bbox dimensions: ${maxX - minX} x ${maxY - minY}`);
-
   // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit, pxPerUnitX, pxPerUnitY;
@@ -7839,13 +8051,25 @@ function renderSVG(result, opts) {
     // geometry within the default output size (200bp, same as the no-unitsize
     // fallback).  This uses the geometry-only bbox (before label expansion) so
     // labels remain truesize via bpCSSPixel.
+    // However, when labels expand the bbox significantly beyond the geometry
+    // (i.e. the label-expanded bbox is already large enough), skip the boost
+    // to match real Asymptote behaviour where unitsize is the exact scale.
     const geoW = (geoMaxX - geoMinX) || 1;
     const geoH = (geoMaxY - geoMinY) || 1;
+    const fullW = (maxX - minX) || 1;
+    const fullH = (maxY - minY) || 1;
     const defaultSize = 200;  // match no-unitsize default
     // When boosting unitsize, preserve the natural aspect ratio
     const naturalW = geoW * unitScale;
     const naturalH = geoH * unitScale;
-    if (naturalW < defaultSize && naturalH < defaultSize) {
+    // Use label-expanded bbox to decide whether boost is needed: if the full
+    // bbox (with labels) already yields a reasonable output size at the natural
+    // unitsize, don't boost — the labels already provide adequate visual content.
+    const fullNatW = fullW * unitScale;
+    const fullNatH = fullH * unitScale;
+    const minReasonable = 50;  // 50bp: below this, geometry is truly invisible
+    if (naturalW < defaultSize && naturalH < defaultSize
+        && Math.max(fullNatW, fullNatH) < minReasonable) {
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(defaultSize / naturalW, defaultSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
@@ -7870,9 +8094,11 @@ function renderSVG(result, opts) {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
     }
   } else {
-    // No unitsize/size: mimic AoPS TeXeR behavior
-    // TeXeR produces diagrams 2.47x larger than the old default of 200
-    const defaultSize = 493;
+    // No unitsize/size: mimic AoPS TeXeR behavior.
+    // TeXeR's Asymptote default (no size command) is equivalent to size(150),
+    // measured empirically: all no-size diagrams produce 504 natural px wide
+    // (= 252 CSS px = 150 bp × 240 DPI / 72 / 2).
+    const defaultSize = 150;
     const targetW = defaultSize;
     const targetH = defaultSize;
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
@@ -7886,9 +8112,86 @@ function renderSVG(result, opts) {
     warnings.push('auto-scaled');
   }
 
+  // Iterative scale solver: reduce pxPerUnit so total output
+  // (geometry + truesize labels) fits within size constraint.
+  // Real Asymptote does this; labels are truesize and don't scale with geometry.
+  if (!hasUnitScale && !isAutoScaled && labelInfoBp.length > 0) {
+    const tgtW = sizeW > 0 ? sizeW : Infinity;
+    const tgtH = sizeH > 0 ? sizeH : Infinity;
+
+    for (let iter = 0; iter < 5; iter++) {
+      let bpMinX = geoMinX * pxPerUnitX;
+      let bpMaxX = geoMaxX * pxPerUnitX;
+      let bpMinY = geoMinY * pxPerUnitY;
+      let bpMaxY = geoMaxY * pxPerUnitY;
+
+      for (const li of labelInfoBp) {
+        const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+        const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+        bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
+        bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
+        bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
+        bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
+      }
+
+      const totalW = bpMaxX - bpMinX;
+      const totalH = bpMaxY - bpMinY;
+      const exceedW = tgtW < Infinity ? totalW / tgtW : 0;
+      const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
+      const exceed = Math.max(exceedW, exceedH);
+
+      if (exceed <= 1.005) break; // fits within tolerance
+
+      // Scale down geometry (labels stay fixed bp)
+      if (keepAspect || pxPerUnitX === pxPerUnitY) {
+        pxPerUnit = pxPerUnitX = pxPerUnitY = pxPerUnit / exceed;
+      } else {
+        // IgnoreAspect: scale each axis independently
+        if (exceedW > 1) pxPerUnitX /= exceedW;
+        if (exceedH > 1) pxPerUnitY /= exceedH;
+        pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+      }
+    }
+  }
+
+  // Recompute label-expanded bbox at final scale so naturalW/H is correct.
+  // For autoScaled (no size/unitsize) diagrams, skip: the scale is set by the
+  // geometry only, and labels are allowed to overflow (matching real Asymptote).
+  if (!hasUnitScale && !isAutoScaled && labelInfoBp.length > 0) {
+    minX = geoMinX; maxX = geoMaxX;
+    minY = geoMinY; maxY = geoMaxY;
+    for (const li of labelInfoBp) {
+      const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
+      const cy = li.posY + li.alignOffsetYBp / pxPerUnitY;
+      const hw = li.widthBp / (2 * pxPerUnitX);
+      const hh = li.heightBp / (2 * pxPerUnitY);
+      minX = Math.min(minX, cx - hw);
+      maxX = Math.max(maxX, cx + hw);
+      minY = Math.min(minY, cy - hh);
+      maxY = Math.max(maxY, cy + hh);
+    }
+  }
+
+  // Re-constrain bbox after label re-expansion: clip() bounds must not be exceeded
+  // (labelInfoBp already excludes out-of-clip items, but re-apply as a safety net)
+  if (hasClip) {
+    minX = Math.max(minX, clipMinX - pad);
+    minY = Math.max(minY, clipMinY - pad);
+    maxX = Math.min(maxX, clipMaxX + pad);
+    maxY = Math.min(maxY, clipMaxY + pad);
+  }
+
   // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
   if (opts.forcedPxPerUnit) {
     pxPerUnit = pxPerUnitX = pxPerUnitY = opts.forcedPxPerUnit;
+  }
+
+  // For autoScaled (no size/unitsize): the 2-pass label bbox expansion above
+  // expanded minX/maxX/minY/maxY beyond the geometry, but those expansions
+  // should not affect naturalW/H — the scale is geometry-only for autoScaled.
+  // Reset to the geometry bbox before computing natural dimensions.
+  if (isAutoScaled) {
+    minX = geoMinX; maxX = geoMaxX; minY = geoMinY; maxY = geoMaxY;
   }
 
   const naturalW = (maxX - minX) * pxPerUnitX;
@@ -7924,20 +8227,15 @@ function renderSVG(result, opts) {
     svgH = naturalH;
   }
 
-  // In real Asymptote the pen-width overshoot extends the output slightly beyond
-  // the size() constraint.  For unitsize() cases the padding is already in the
-  // bbox, but for size()-constrained output we add ~1 bp (0.5 bp per side) to
-  // the constrained axis(es) so the final image matches AoPS TeXeR.
-  if (!hasUnitScale) {
-    if (sizeW > 0) svgW += 1;   // 0.5 bp padding each side
-    if (sizeH > 0) svgH += 1;
-  }
+  // Note: the +1bp pen padding that was here has been removed — the iterative
+  // scale solver now accounts for the full output including pen overshoot via
+  // the geometry bbox (which already includes the `pad` variable).
 
   // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
-  // (1 bp = 1/72 in).  The AoPS TeXeR renders at an effective 120 DPI for web
-  // display, so we use 120/72 = 5/3 to match its output size.
-  // Adjusted by factor 0.8884 to match TeXeR PNG sizes at 144 DPI
-  const bpToCSSPx = 1.4807;
+  // (1 bp = 1/72 in).  The AoPS TeXeR rasterizes at 240 DPI and displays at
+  // half resolution (width = naturalWidth/2), giving an effective 120 DPI for
+  // web display: 240/72/2 = 5/3 ≈ 1.6667 CSS px per bp.
+  const bpToCSSPx = 5/3;
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
 
@@ -8077,7 +8375,9 @@ function renderSVG(result, opts) {
       }
     }
 
-    // Label/text overshoot
+    // Label/text overshoot: pad the viewBox so labels outside the geometry bbox
+    // are visible. For autoScaled diagrams, Fix 5 has already reset minX/maxX to
+    // geometry only, so this correctly extends the viewBox for out-of-bbox labels.
     for (const dc of drawCommands) {
       if (dc.cmd !== 'label' && dc.cmd !== 'dot') continue;
       // dot commands without text don't produce labels
@@ -8100,22 +8400,53 @@ function renderSVG(result, opts) {
       const W = cleanLen * fontSizeSVG * 0.52;
       const H = fontSizeSVG * numLines;
 
+      // For scaled/rotated labels, use the transformed bounding box dimensions.
+      // Extract scale factor (sqrt(b²+e²)) and rotation from labelTransform so
+      // that scale(0.8)*rotate(-60)*"text" is accounted for correctly.
+      let effW = W, effH = H;
+      if (dc.labelTransform) {
+        const lt = dc.labelTransform;
+        // Apply scale first
+        const ltScale = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+        let scaledW = W, scaledH = H;
+        if (ltScale > 0 && Math.abs(ltScale - 1) > 0.01) {
+          scaledW = W * ltScale;
+          scaledH = H * ltScale;
+        }
+        // Then apply rotation to the scaled dimensions
+        const ltAngle2 = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+        if (Math.abs(ltAngle2) > 0.5) {
+          const cosA2 = Math.abs(Math.cos(ltAngle2 * Math.PI / 180));
+          const sinA2 = Math.abs(Math.sin(ltAngle2 * Math.PI / 180));
+          effW = scaledW * cosA2 + scaledH * sinA2;
+          effH = scaledW * sinA2 + scaledH * cosA2;
+        } else {
+          effW = scaledW;
+          effH = scaledH;
+        }
+      }
+
       // Compute offset from alignment (same logic as label rendering)
       let dx = 0, dy = 0;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
         const margin = 0.25 * fontSizeSVG;
         const ax_n = ax * 0.5, ay_n = ay * 0.5;
-        dx = ax_n * W + ax * margin;
-        dy = -(ay_n * H + ay * margin);
+        dx = ax_n * effW + ax * margin;
+        dy = -(ay_n * effH + ay * margin);
       }
 
       // Text bounding box in viewBox coords (text-anchor="middle")
       const cx = sx + dx, cy = sy + dy;
-      const left = cx - W / 2;
-      const right = cx + W / 2;
-      const top = cy - H / 2;
-      const bottom = cy + H / 2;
+      const left = cx - effW / 2;
+      const right = cx + effW / 2;
+      const top = cy - effH / 2;
+      const bottom = cy + effH / 2;
+
+      // Skip labels entirely outside the viewport — when clip() is active,
+      // labels far from the clip region are invisible and must not inflate
+      // the viewBox (they would blow up the output dimensions).
+      if (right < 0 || left > viewW || bottom < 0 || top > viewH) continue;
 
       padL = Math.max(padL, -left);
       padR = Math.max(padR, right - viewW);
@@ -8306,7 +8637,8 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
       fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
     } else if (dc.cmd === 'filldraw') {
-      fill = css.fill;
+      // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
+      fill = (css.opacity === 0) ? 'none' : css.fill;
       if (dc.drawPen) {
         const drawCSS = penToCSS(dc.drawPen);
         drawCSS.strokeWidth *= bpCSSPixel;
@@ -8328,13 +8660,16 @@ function renderSVG(result, opts) {
 
     let attrs = `d="${d}"`;
     attrs += ` fill="${fill}"`;
+    if (fill !== 'none' && dc.pen && dc.pen.fillrule) attrs += ` fill-rule="${dc.pen.fillrule}"`;
     if (stroke !== 'none') {
       attrs += ` stroke="${stroke}" stroke-width="${fmt(strokeW)}"`;
       if (dashArray) attrs += ` stroke-dasharray="${dashArray}"`;
       attrs += ` stroke-linecap="${(dc.pen && dc.pen.linecap) || 'round'}"`;
       attrs += ` stroke-linejoin="${(dc.pen && dc.pen.linejoin) || 'round'}"`;
     }
-    attrs += opacityAttr(css.opacity);
+    // For filldraw with invisible fill (fill='none'), don't apply opacity to whole element
+    // so the stroke outline remains visible at full opacity
+    if (dc.cmd !== 'filldraw' || fill !== 'none') attrs += opacityAttr(css.opacity);
 
     elements.push(`<path ${attrs}/>`);
     commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -8384,7 +8719,14 @@ function renderSVG(result, opts) {
       const dotLw = dc.pen.linewidth;
       const lwExplicit = dc.pen._lwExplicit;
       const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      if (dc.filltype && dc.filltype.style === 'UnFill') {
+        // UnFill: open dot — white interior, colored ring.
+        // Ring width is 40% of the dot radius so the white interior is always visible.
+        const ringW = dotR * 0.4;
+        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}/>`);
+      } else {
+        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
       // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
@@ -8515,14 +8857,23 @@ function renderSVG(result, opts) {
         // Extract rotation angle from transform matrix
         const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
         if (Math.abs(angle) > 0.1) {
-          // SVG rotation is clockwise, Asymptote is counterclockwise; SVG y is flipped
-          // For W/E aligned rotated labels: the font height (which becomes the screen-space
-          // "width" after rotation) needs to offset the center from the anchor.
+          // For aligned rotated labels: recompute dx/dy using the rotated bounding box so
+          // the label center is correctly offset from the anchor.  Asymptote positions the
+          // label with its NW (for SE align) corner at the anchor point, using the axis-
+          // aligned bounding box of the *rotated* text.
           if (dc.align) {
-            // After rotation the text's visual width is its original height, so use halfH + margin.
-            const rotMargin = 0.25 * effectiveFontSize;
-            if (dc.align.x < -0.3) dx = -effectiveFontSize * 0.5 - rotMargin; // W: center left of anchor by halfH + margin
-            else if (dc.align.x > 0.3) dx = effectiveFontSize * 0.5 + rotMargin; // E: center right of anchor by halfH + margin
+            const ax2 = dc.align.x, ay2 = dc.align.y;
+            const cleanLen2 = (stripLaTeX(dc.text || '').length) || 1;
+            const W2 = cleanLen2 * effectiveFontSize * 0.52;
+            const H2 = effectiveFontSize;
+            const margin2 = 0.25 * effectiveFontSize;
+            const angleRad = Math.abs(angle * Math.PI / 180);
+            const cosA = Math.abs(Math.cos(angleRad));
+            const sinA = Math.abs(Math.sin(angleRad));
+            const rotW = W2 * cosA + H2 * sinA;
+            const rotH = W2 * sinA + H2 * cosA;
+            dx = ax2 * 0.5 * rotW + ax2 * margin2;
+            dy = -(ay2 * 0.5 * rotH + ay2 * margin2);
           }
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
           // With rotation, text-anchor must be 'middle' so the label is centered at the
@@ -8555,6 +8906,38 @@ function renderSVG(result, opts) {
         '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '⋯',
       };
       let displayText = rawText;
+
+      // Detect and strip LaTeX font-size commands (\small, \tiny, \large, etc.)
+      // These are text-mode commands that should scale the font, not route through KaTeX math.
+      // Must happen before hasMath detection so the remaining text routes correctly.
+      const fontSizeScales = {
+        '\\tiny': 0.5, '\\scriptsize': 0.7, '\\footnotesize': 0.8, '\\small': 0.9,
+        '\\normalsize': 1.0, '\\large': 1.2, '\\Large': 1.44, '\\LARGE': 1.728,
+        '\\huge': 2.074, '\\Huge': 2.488,
+      };
+      // Match font-size commands: may appear inside or outside $...$, with optional braces
+      const fontSizeCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)\b/g;
+      let fontSizeScale = null;
+      let fsmatch;
+      while ((fsmatch = fontSizeCmdRe.exec(displayText)) !== null) {
+        fontSizeScale = fontSizeScales[fsmatch[0]] || 1.0;
+      }
+      if (fontSizeScale !== null) {
+        displayText = displayText.replace(fontSizeCmdRe, '');
+        // Clean up: if stripping left only $$ (e.g. "$\small Outgoing light$" → "$ Outgoing light$"),
+        // the $ delimiters were wrapping a text-mode command, not real math — remove them.
+        const trimmed2 = displayText.trim();
+        if (trimmed2.startsWith('$') && trimmed2.endsWith('$') && trimmed2.indexOf('$', 1) === trimmed2.length - 1) {
+          const inner2 = trimmed2.slice(1, -1).trim();
+          // If no remaining LaTeX math commands or ^/_ scripts, strip the $
+          if (!/\\[a-zA-Z]/.test(inner2) && !/[\^_]/.test(inner2)) {
+            displayText = inner2;
+          }
+        }
+        effectiveFontSize *= fontSizeScale;
+        effectiveFontSizeCSS *= fontSizeScale;
+      }
+
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
       // rawText may look like "\reflectbox{$\ddots$}" or "$\vdots$" etc.
       let probeText = rawText.trim();
@@ -8568,18 +8951,41 @@ function renderSVG(result, opts) {
         if (isReflected && displayText === '⋱') displayText = '⋰';
       }
       else if (LATEX_TO_UNICODE[rawText.trim()]) displayText = LATEX_TO_UNICODE[rawText.trim()];
+      // For mixed-dollar labels like "$\cdots$ 0 0 0 $\cdots$", replace each $...$
+      // segment that contains only a simple Unicode-mappable symbol with its Unicode
+      // equivalent.  This avoids the KaTeX foreignObject path (which doesn't rasterize
+      // in librsvg/sharp) for labels that are mostly plain text with embedded symbols.
+      if (/\$/.test(displayText)) {
+        displayText = displayText.replace(/\$([^$]+)\$/g, (match, inner) => {
+          const trimmed = inner.trim();
+          if (LATEX_TO_UNICODE[trimmed]) return LATEX_TO_UNICODE[trimmed];
+          return match;
+        });
+      }
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
       // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
-      // Strip \definecolor{name}{model}{values} declarations and \color{name}
-      // commands before routing — these are unsupported by KaTeX/SVG rendering
-      // but the text content they wrap should still be displayed.
-      if (/\\definecolor|\\color/.test(displayText)) {
-        displayText = displayText.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
-        displayText = displayText.replace(/\\color\s*\{[^}]*\}/g, '');
-        displayText = displayText.replace(/\\rm\b/g, '');
-        // Remove orphaned TeX grouping braces left behind (but keep ^{} and _{} groups)
-        displayText = displayText.replace(/(?<![_^])\{([^{}]*)\}/g, '$1');
+      // Convert \definecolor{name}{RGB}{r,g,b} to hex and replace \color{name}
+      // with \color{#hex} so KaTeX can render the colors natively.
+      if (/\\definecolor/.test(displayText)) {
+        const colorDefs = {};
+        displayText = displayText.replace(
+          /\\definecolor\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/g,
+          (_m, name, model, values) => {
+            if (model.toUpperCase() === 'RGB') {
+              const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+              if (parts.length === 3) {
+                colorDefs[name] = '#' + parts.map(c =>
+                  Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')
+                ).join('');
+              }
+            }
+            return '';
+          }
+        );
+        displayText = displayText.replace(/\\color\s*\{([^}]*)\}/g, (_m, name) => {
+          return colorDefs[name] ? '\\color{' + colorDefs[name] + '}' : _m;
+        });
       }
 
       // Complex math (containing LaTeX commands or ^_) still goes through KaTeX.
@@ -8658,6 +9064,11 @@ function renderSVG(result, opts) {
       } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
         labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+      } else if (hasMath && /^(\s*\\(?:mathrm|textrm|text)\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+        // \mathrm, \textrm, \text labels → upright roman (not math italic)
+        let rmContent = '';
+        strippedDollar.replace(/\\(?:mathrm|textrm|text)\s*\{([^}]*)\}/g, (_, g) => { rmContent += g; });
+        labelEl = renderLabelWithScripts(rmContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'normal', 'normal');
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
@@ -8670,10 +9081,11 @@ function renderSVG(result, opts) {
         // contains Latin letters, use math italic font.  Pure digit/punctuation content
         // (e.g. coordinates like $(-6,4)$) stays upright — digits and punctuation are
         // upright in LaTeX math.
-        if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText)) {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Math, serif', 'normal', 'italic');
+        const penFF = dc.pen && dc.pen.fontFamily;
+        if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic');
         } else {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined);
         }
       }
       if (labelTransformAttr) {
@@ -8776,10 +9188,7 @@ function renderSVG(result, opts) {
   // With keepAspect=false, non-uniform scaling is baked into coordinates via
   // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
   const parAttr = '';
-  // Thin SVG text to better match TeX Computer Modern bitmap rendering.
-  // paint-order:stroke renders a thin white stroke beneath the fill, visually
-  // eroding the glyph edges so KaTeX_Main appears closer to CM weight.
-  const svgStyle = `<style>text{paint-order:stroke;stroke:white;stroke-width:0.5px;stroke-linejoin:round}</style>\n`;
+  const svgStyle = '';
   const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
@@ -8861,9 +9270,15 @@ function linestyleToDasharray(style, strokeWidth) {
 function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const path = dc.path;
   const style = dc.arrow.style;
-  // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel
+  // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel.
+  // In Asymptote, arrowsize is in bp (PostScript points).  When size=0, Asymptote
+  // uses arrowfactor*linewidth ≈ 6bp (matching our default of 6).
   const baseSize = dc.arrow.size || 6;
   let arrowLen = baseSize * bpCSSPixel;
+  // Ensure a minimum of 3 viewBox units so that very small explicit sizes (e.g.
+  // Arrow(TeXHead,1) in a size(200) diagram where bpCSSPixel≈1) remain visible
+  // without over-scaling larger sizes like axisarrowsize≈4bp.
+  if (arrowLen < 3) arrowLen = 3;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
@@ -8901,7 +9316,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
       }
     }
     const tipX = (tip.x - minX)*scaleX, tipY = (maxY - tip.y)*scaleY;
-    const headAngle = 15 * Math.PI / 180;
+    const headAngle = 25 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
@@ -8949,6 +9364,17 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // Handle \mathbf, \mathrm, \textbf, etc. — remove the command, keep content
   s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // In math-italic mode, mark operator names so they render upright (as in real LaTeX).
+  // Must happen before texMap converts \cos → 'cos', so we can distinguish operator text
+  // from ordinary italic variables.
+  // Use private-use sentinel chars \x01…\x02 as open/close markers.
+  const UPRIGHT_OPEN = '\x01';
+  const UPRIGHT_CLOSE = '\x02';
+  const needsUprightOps = (fontStyle === 'italic');
+  if (needsUprightOps) {
+    s = s.replace(/\\(arcsin|arccos|arctan|sin|cos|tan|sec|csc|cot|log|ln|exp|lim|inf|sup|gcd|det|ker|dim|deg|hom|arg)(?![a-zA-Z])/g,
+      (_m, op) => UPRIGHT_OPEN + op + UPRIGHT_CLOSE);
+  }
   // Common LaTeX → Unicode
   const texMap = {
     '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
@@ -8970,7 +9396,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\leftrightarrow':'\u2194','\\triangle':'\u25B3','\\angle':'\u2220','\\perp':'\u22A5',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ','\\prime':'′',
-    '\\spadesuit':'♠','\\heartsuit':'♥','\\diamondsuit':'♦','\\clubsuit':'♣',
+    '\\spadesuit':'♠','\\heartsuit':'♡','\\diamondsuit':'♢','\\clubsuit':'♣',
     '\\square':'□','\\blacksquare':'■','\\lozenge':'◊',
     '\\nabla':'∇','\\partial':'∂','\\surd':'√','\\checkmark':'✓',
     '\\varnothing':'∅','\\emptyset':'∅',
@@ -9010,11 +9436,25 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // Check for super/subscripts
   const hasSS = /[_^]/.test(s);
   if (!hasSS) {
+    // Strip LaTeX grouping braces: \{ and \} become visible braces; bare { } are grouping syntax
+    s = s.replace(/\\{/g, '\uE001').replace(/\\}/g, '\uE002');
+    s = s.replace(/[{}]/g, '');
+    s = s.replace(/\uE001/g, '{').replace(/\uE002/g, '}');
     // Simple text, no scripts
     const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
     const ff = fontFamily || 'KaTeX_Main, serif';
     const fwAttr = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
     const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+    if (needsUprightOps && s.includes(UPRIGHT_OPEN)) {
+      // Build mixed italic + upright content: operator names get upright tspan elements
+      const segs = s.split(/\x01([^\x02]*)\x02/);
+      let mixed = '';
+      for (let si = 0; si < segs.length; si++) {
+        if (si % 2 === 0) { mixed += escSvg(segs[si]); }
+        else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
+      }
+      return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${mixed}</text>`;
+    }
     return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${escSvg(s)}</text>`;
   }
 
@@ -9056,11 +9496,24 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   let inner = '';
   for (const p of parts) {
     if (p.mode === 'sup') {
-      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+      const supText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
+      const supUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
+      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}"${supUpright}>${escSvg(supText)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else if (p.mode === 'sub') {
-      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+      const subText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
+      const subUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
+      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}"${subUpright}>${escSvg(subText)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else {
-      inner += escSvg(p.text);
+      if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
+        // Mixed italic + upright in base text
+        const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
+        for (let si = 0; si < segs2.length; si++) {
+          if (si % 2 === 0) { inner += escSvg(segs2[si]); }
+          else { inner += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
+        }
+      } else {
+        inner += escSvg(p.text);
+      }
     }
   }
   const ff2 = fontFamily || 'KaTeX_Main, serif';
@@ -9082,14 +9535,14 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
     reflectX = true;
     math = reflectMatch[1].trim();
   }
-  // Check if wrapped in $...$
-  const isDollar = math.startsWith('$') && math.endsWith('$');
+  // Check if wrapped in a single $...$  (not mixed like "$\cdots$ text $\cdots$")
+  const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
   if (isDollar) math = math.slice(1, -1);
   // Remove double $$ too
-  if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
+  if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
 
   let html;
-  // Check for mixed text/math content (e.g. "$W-1$ cells" or "2$W$")
+  // Check for mixed text/math content (e.g. "$W-1$ cells" or "$\cdots$ 0 0 $\cdots$")
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
     // Parse into math and text segments, render each separately

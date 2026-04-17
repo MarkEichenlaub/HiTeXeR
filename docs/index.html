@@ -337,7 +337,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v0.87</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v1.28</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -345,6 +345,7 @@ body {
         <div class="md-item" id="md-save">Save .asy</div>
         <div class="md-item" id="md-open">Open .asy</div>
         <div class="md-item" id="md-open-image">Open Image...</div>
+        <div class="md-item" id="md-paste">Paste</div>
         <div class="md-separator"></div>
         <div class="md-item md-submenu">Export
           <div class="menu-dropdown">
@@ -666,7 +667,44 @@ const AsyParser = {
         continue;
       }
       const am = t.match(assignP);
-      if (am) { assignments.push({lineIndex:i,varName:am[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
+      if (am) {
+        // Check if this is a multi-variable declaration with initializers
+        // e.g. "pair A = origin, B = (3,1), G1 = midpoint(A--B);"
+        const typeP = /^\s*(pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+/;
+        const tm = t.match(typeP);
+        if (tm) {
+          // Gather the full (possibly multi-line) statement
+          let full = t, depth = 0;
+          for (const ch of t) { if (ch === '(') depth++; if (ch === ')') depth--; }
+          let jj = i + 1;
+          while (depth > 0 && jj < lines.length) {
+            full += ' ' + lines[jj].trim();
+            for (const ch of lines[jj]) { if (ch === '(') depth++; if (ch === ')') depth--; }
+            jj++;
+          }
+          // Strip type prefix and trailing semicolon
+          const body = full.substring(tm[0].length).replace(/;\s*$/, '');
+          // Split on commas at depth-0 (respecting nested parens)
+          const segments = []; let seg = '', d = 0;
+          for (const ch of body) {
+            if (ch === '(' || ch === '[') d++;
+            if (ch === ')' || ch === ']') d--;
+            if (ch === ',' && d === 0) { segments.push(seg.trim()); seg = ''; }
+            else seg += ch;
+          }
+          if (seg.trim()) segments.push(seg.trim());
+          // Register each segment that has a varName (with or without initializer)
+          const segAssignP = /^([a-zA-Z_]\w*)(?:\[\s*\])?\s*(?:=|$)/;
+          let registered = false;
+          for (const s of segments) {
+            const sm = s.match(segAssignP);
+            if (sm) { assignments.push({lineIndex:i,varName:sm[1],lineText:lines[i],braceDepth:lineDepth}); registered = true; }
+          }
+          if (registered) continue;
+        }
+        // Fallback: single assignment
+        assignments.push({lineIndex:i,varName:am[1],lineText:lines[i],braceDepth:lineDepth}); continue;
+      }
       const pm = t.match(pushP);
       if (pm) { assignments.push({lineIndex:i,varName:pm[1],lineText:lines[i],braceDepth:lineDepth}); continue; }
       const fim = t.match(forInitP);
@@ -742,7 +780,6 @@ const BUILTINS = new Set([
   'cycle','true','false','null','new','return','if','else','for','while',
   'unitcircle','nullpath','nullpen',
   ...Object.keys(ASY_COLORS),
-  'N','S','E','W','NE','NW','SE','SW','NNE','NNW','SSE','SSW','ENE','WNW','ESE','WSW',
   'dir','sqrt','abs','sin','cos','tan','atan','atan2','log','exp','min','max','floor','ceil','round',
   'linewidth','fontsize','dashed','dotted','solid','longdashed','dashdotted','longdashdotted',
   'circle','arc','ellipse','box','shift','rotate','scale','reflect',
@@ -1816,45 +1853,81 @@ function applyGridOverlay() {
   g.setAttribute('id', 'hitexer-grid-overlay');
   g.style.pointerEvents = 'none';
 
-  const gridMinX = Math.floor(minX);
-  const gridMaxX = Math.ceil(maxX);
-  const gridMinY = Math.floor(minY);
-  const gridMaxY = Math.ceil(maxY);
+  // Choose a "nice" grid step so we get roughly 8-15 lines per axis.
+  // Uses the 1-2-5 sequence scaled by powers of 10.
+  function niceStep(range) {
+    if (range <= 0) return 1;
+    const rough = range / 10;                     // target ~10 divisions
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const norm = rough / mag;                      // 1 <= norm < 10
+    let nice;
+    if (norm < 1.5) nice = 1;
+    else if (norm < 3.5) nice = 2;
+    else if (norm < 7.5) nice = 5;
+    else nice = 10;
+    return nice * mag;
+  }
+
+  const rangeX = maxX - minX;
+  const rangeY = maxY - minY;
+  const stepX = niceStep(rangeX);
+  const stepY = niceStep(rangeY);
+
+  const gridMinX = Math.floor(minX / stepX) * stepX;
+  const gridMaxX = Math.ceil(maxX / stepX) * stepX;
+  const gridMinY = Math.floor(minY / stepY) * stepY;
+  const gridMaxY = Math.ceil(maxY / stepY) * stepY;
 
   // viewBox dimensions for label placement
-  const viewW = (maxX - minX) * pxPerUnitX;
-  const viewH = (maxY - minY) * pxPerUnitY;
+  const viewW = rangeX * pxPerUnitX;
+  const viewH = rangeY * pxPerUnitY;
 
-  // Vertical lines with X labels along bottom inside viewBox
-  for (let x = gridMinX; x <= gridMaxX; x++) {
-    const sx = (x - minX) * pxPerUnitX;
+  // Font size: scale with the grid so labels remain readable but not huge
+  const fontSize = Math.max(7, Math.min(14, viewH * 0.025));
+
+  // Format label: avoid floating-point noise by rounding to step precision
+  function fmtLabel(val, step) {
+    if (step >= 1) return String(Math.round(val));
+    const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 0);
+    return val.toFixed(decimals);
+  }
+
+  // Vertical lines with X labels along bottom
+  for (let x = gridMinX; x <= gridMaxX + stepX * 0.01; x += stepX) {
+    const xr = Math.round(x / stepX) * stepX;  // snap to avoid float drift
+    const sx = (xr - minX) * pxPerUnitX;
+    if (sx < -0.5 || sx > viewW + 0.5) continue;
+    const isAxis = Math.abs(xr) < stepX * 0.01;
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', sx); line.setAttribute('y1', 0);
     line.setAttribute('x2', sx); line.setAttribute('y2', viewH);
-    line.setAttribute('stroke', x === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
-    line.setAttribute('stroke-width', x === 0 ? '1.5' : '0.5');
+    line.setAttribute('stroke', isAxis ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
+    line.setAttribute('stroke-width', isAxis ? '1.5' : '0.5');
     g.appendChild(line);
     const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', sx + 2); lbl.setAttribute('y', viewH - 4);
-    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('x', sx + 2); lbl.setAttribute('y', viewH - fontSize * 0.3);
+    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', String(fontSize));
     lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
-    lbl.textContent = String(x);
+    lbl.textContent = fmtLabel(xr, stepX);
     g.appendChild(lbl);
   }
-  // Horizontal lines with Y labels along left inside viewBox
-  for (let y = gridMinY; y <= gridMaxY; y++) {
-    const sy = (maxY - y) * pxPerUnitY;
+  // Horizontal lines with Y labels along left
+  for (let y = gridMinY; y <= gridMaxY + stepY * 0.01; y += stepY) {
+    const yr = Math.round(y / stepY) * stepY;
+    const sy = (maxY - yr) * pxPerUnitY;
+    if (sy < -0.5 || sy > viewH + 0.5) continue;
+    const isAxis = Math.abs(yr) < stepY * 0.01;
     const line = document.createElementNS(ns, 'line');
     line.setAttribute('x1', 0); line.setAttribute('y1', sy);
     line.setAttribute('x2', viewW); line.setAttribute('y2', sy);
-    line.setAttribute('stroke', y === 0 ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
-    line.setAttribute('stroke-width', y === 0 ? '1.5' : '0.5');
+    line.setAttribute('stroke', isAxis ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
+    line.setAttribute('stroke-width', isAxis ? '1.5' : '0.5');
     g.appendChild(line);
     const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', 2); lbl.setAttribute('y', sy - 3);
-    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('x', 2); lbl.setAttribute('y', sy - fontSize * 0.3);
+    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', String(fontSize));
     lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
-    lbl.textContent = String(y);
+    lbl.textContent = fmtLabel(yr, stepY);
     g.appendChild(lbl);
   }
 
@@ -3232,6 +3305,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
   document.getElementById('md-open-image').addEventListener('click', () => document.getElementById('file-open-image-input').click());
   document.getElementById('file-open-image-input').addEventListener('change', (e) => doOpenImage(e));
+  document.getElementById('md-paste').addEventListener('click', () => doPasteFromClipboard());
   document.getElementById('md-export-svg').addEventListener('click', () => doExportSvg());
   document.getElementById('md-export-png').addEventListener('click', () => doExportPng());
   document.getElementById('md-export-jpg').addEventListener('click', () => doExportJpg());
@@ -3703,9 +3777,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const lines = code.split('\n');
     const freeReals = [];
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^\s*real\s+([A-Za-z_]\w*)\s*=\s*([-\d.]+)\s*;/);
-      if (m) {
-        freeReals.push({ lineIdx: i, varName: m[1], value: parseFloat(m[2]) });
+      // Match "real" declarations, including comma-separated: real r1 = 1.7, r2 = 2.2;
+      const declMatch = lines[i].match(/^\s*real\s+(.*);/);
+      if (!declMatch) continue;
+      const declBody = declMatch[1];
+      const varPattern = /([A-Za-z_]\w*)\s*=\s*([-\d.eE+]+)/g;
+      let vm;
+      while ((vm = varPattern.exec(declBody)) !== null) {
+        freeReals.push({ lineIdx: i, varName: vm[1], value: parseFloat(vm[2]) });
       }
     }
     return freeReals;
@@ -4173,10 +4252,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateSlideReal(lineIdx, varName, value) {
     const code = editor.getValue();
     const lines = code.split('\n');
-    lines[lineIdx] = lines[lineIdx].replace(
-      /=\s*[-\d.]+\s*;/,
-      `= ${value};`
-    );
+    const re = new RegExp('(\\b' + varName + '\\s*=\\s*)[-\\d.eE+]+', '');
+    lines[lineIdx] = lines[lineIdx].replace(re, `$1${value}`);
     const newCode = lines.join('\n');
     suppressAutoRender = true;
     editor.setValue(newCode);
@@ -4245,7 +4322,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Snapshot all free-real variable values before any animation changes them
     gifAllOriginalValues = {};
-    for (const fr of freeReals) gifAllOriginalValues[fr.lineIdx] = { varName: fr.varName, value: fr.value };
+    for (const fr of freeReals) gifAllOriginalValues[fr.lineIdx + ':' + fr.varName] = { lineIdx: fr.lineIdx, varName: fr.varName, value: fr.value };
 
     // Populate dropdown
     const sel = document.getElementById('gif-var-select');
@@ -4310,7 +4387,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const t = i / samples;
       const val = startVal + (endVal - startVal) * t;
       const framelines = code.split('\n');
-      framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${val};`);
+      const re = new RegExp('(\\b' + gifSelectedVar.varName + '\\s*=\\s*)[-\\d.eE+]+', '');
+      framelines[lineIdx] = framelines[lineIdx].replace(re, `$1${val}`);
       const frameCode = framelines.join('\n');
       if (!window.AsyInterp || !AsyInterp.canInterpret(frameCode)) continue;
       try {
@@ -4370,8 +4448,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const lines = code.split('\n');
     const lineIdx = gifSelectedVar.lineIdx;
     if (lineIdx < 0 || lineIdx >= lines.length) return;
-    // Replace the value in the real declaration
-    const newLine = lines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
+    // Replace the value in the real declaration, targeting the specific variable by name
+    const re = new RegExp('(\\b' + gifSelectedVar.varName + '\\s*=\\s*)[-\\d.eE+]+', '');
+    const newLine = lines[lineIdx].replace(re, `$1${value}`);
     if (newLine === lines[lineIdx]) return; // no change
     lines[lineIdx] = newLine;
     const newCode = lines.join('\n');
@@ -4416,10 +4495,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const code = editor.getValue();
       const lines = code.split('\n');
       let changed = false;
-      for (const [lineIdxStr, { value }] of Object.entries(gifAllOriginalValues)) {
-        const lineIdx = parseInt(lineIdxStr);
+      for (const { lineIdx, varName, value } of Object.values(gifAllOriginalValues)) {
         if (lineIdx >= 0 && lineIdx < lines.length) {
-          const newLine = lines[lineIdx].replace(/=\s*[-\d.eE+]+\s*;/, `= ${value};`);
+          const re = new RegExp('(\\b' + varName + '\\s*=\\s*)[-\\d.eE+]+', '');
+          const newLine = lines[lineIdx].replace(re, `$1${value}`);
           if (newLine !== lines[lineIdx]) { lines[lineIdx] = newLine; changed = true; }
         }
       }
@@ -4494,7 +4573,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       function renderFrame(value, extraOpts) {
         const framelines = code.split('\n');
-        framelines[lineIdx] = framelines[lineIdx].replace(/=\s*[-\d.]+\s*;/, `= ${value};`);
+        const re = new RegExp('(\\b' + gifSelectedVar.varName + '\\s*=\\s*)[-\\d.eE+]+', '');
+        framelines[lineIdx] = framelines[lineIdx].replace(re, `$1${value}`);
         const frameCode = framelines.join('\n');
         if (window.AsyInterp && AsyInterp.canInterpret(frameCode)) {
           const dims = getPreviewDimensions();
@@ -5065,71 +5145,59 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = ''; // reset for re-open
   }
 
-  // Open an image file and extract embedded Asymptote source code from metadata.
-  // Supports SVG (<metadata>), PNG (tEXt chunk), JPG (COM marker), GIF (comment
-  // extension), and PDF (jsPDF subject property). For GIFs, also restores GIF
-  // mode settings if present.
-  async function doOpenImage(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = ''; // reset for re-open
-    const ext = file.name.split('.').pop().toLowerCase();
-    let code = null;
-    let gifSettings = null;
-
-    try {
-      if (ext === 'svg') {
-        const text = await file.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(text, 'image/svg+xml');
-        const meta = doc.querySelector('metadata');
-        if (meta) code = meta.textContent.trim();
-      } else if (ext === 'png') {
-        const buf = await file.arrayBuffer();
-        code = extractPngText(new Uint8Array(buf), 'Source');
-      } else if (ext === 'jpg' || ext === 'jpeg') {
-        const buf = await file.arrayBuffer();
-        code = extractJpgComment(new Uint8Array(buf));
-      } else if (ext === 'gif') {
-        const buf = await file.arrayBuffer();
-        const comment = extractGifComment(new Uint8Array(buf));
-        if (comment) {
-          // Try parsing as JSON (HiTeXeR GIF metadata)
-          try {
-            const meta = JSON.parse(comment);
-            code = meta.source || null;
-            gifSettings = meta.gif || null;
-          } catch(_) {
-            // Plain text comment — treat as source code
-            code = comment;
-          }
+  // Extract Asymptote source code and GIF settings from raw image bytes.
+  // Detects format by magic bytes: PNG, JPEG, GIF, SVG (text). Returns
+  // { code, gifSettings } or { code: null } if no source found.
+  function extractSourceFromBytes(data) {
+    let code = null, gifSettings = null;
+    // PNG
+    if (data[0] === 0x89 && data[1] === 0x50) {
+      code = extractPngText(data, 'Source');
+    }
+    // JPEG
+    if (!code && data[0] === 0xFF && data[1] === 0xD8) {
+      code = extractJpgComment(data);
+    }
+    // GIF
+    if (!code && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
+      const comment = extractGifComment(data);
+      if (comment) {
+        try {
+          const meta = JSON.parse(comment);
+          code = meta.source || null;
+          gifSettings = meta.gif || null;
+        } catch(_) {
+          code = comment;
         }
-      } else if (ext === 'pdf') {
-        const text = await file.text();
-        code = extractPdfSubject(text);
       }
-    } catch(err) {
-      console.error('Failed to read image metadata:', err);
     }
-
+    // SVG (text-based)
     if (!code) {
-      showWarnBadge('No Asymptote source code found in this file.');
-      return;
+      try {
+        const text = new TextDecoder().decode(data);
+        if (text.trimStart().startsWith('<') && text.includes('<svg')) {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, 'image/svg+xml');
+          const meta = doc.querySelector('metadata');
+          if (meta) code = meta.textContent.trim();
+        }
+      } catch(_) {}
     }
+    return { code, gifSettings };
+  }
 
-    // Load the code into the editor
+  // Load extracted source code into the editor, render, and restore GIF
+  // settings if present.
+  async function loadExtractedSource(code, gifSettings) {
     let asyCode = code;
     if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
     if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
     editor.setValue(asyCode);
     doRender();
 
-    // For GIFs with settings, activate GIF mode and restore settings
     if (gifSettings) {
-      // Wait a tick for the editor/render to settle
       await new Promise(r => setTimeout(r, 100));
       activateGifMode();
-      // Select the variable
       if (gifSettings.var) {
         const sel = document.getElementById('gif-var-select');
         for (let i = 0; i < sel.options.length; i++) {
@@ -5140,7 +5208,6 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
       }
-      // Restore settings
       if (gifSettings.start != null) document.getElementById('gif-start').value = String(gifSettings.start);
       if (gifSettings.end != null) document.getElementById('gif-end').value = String(gifSettings.end);
       if (gifSettings.duration != null) document.getElementById('gif-duration').value = String(gifSettings.duration);
@@ -5150,8 +5217,109 @@ document.addEventListener('DOMContentLoaded', () => {
       if (gifSettings.pauseFirst != null) document.getElementById('gif-pause-first').value = String(gifSettings.pauseFirst);
       if (gifSettings.width != null) document.getElementById('gif-width').value = String(gifSettings.width);
       if (gifSettings.transparent != null) document.getElementById('gif-transparent').checked = !!gifSettings.transparent;
-      // Restart preview with restored settings
       gifStartPreview();
+    }
+  }
+
+  // Open an image file and extract embedded Asymptote source code from metadata.
+  // Supports SVG, PNG, JPG, GIF, and PDF.
+  async function doOpenImage(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = ''; // reset for re-open
+    const ext = file.name.split('.').pop().toLowerCase();
+    let code = null;
+    let gifSettings = null;
+
+    try {
+      if (ext === 'pdf') {
+        const text = await file.text();
+        code = extractPdfSubject(text);
+      } else {
+        const buf = await file.arrayBuffer();
+        const result = extractSourceFromBytes(new Uint8Array(buf));
+        code = result.code;
+        gifSettings = result.gifSettings;
+      }
+    } catch(err) {
+      console.error('Failed to read image metadata:', err);
+    }
+
+    if (!code) {
+      showWarnBadge('No Asymptote source code found in this file.');
+      return;
+    }
+    await loadExtractedSource(code, gifSettings);
+  }
+
+  // Open an image File object directly (used by drag-and-drop).
+  async function openImageFile(file) {
+    const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
+    let code = null;
+    let gifSettings = null;
+
+    try {
+      if (ext === 'pdf') {
+        const text = await file.text();
+        code = extractPdfSubject(text);
+      } else {
+        const buf = await file.arrayBuffer();
+        const result = extractSourceFromBytes(new Uint8Array(buf));
+        code = result.code;
+        gifSettings = result.gifSettings;
+      }
+    } catch(err) {
+      console.error('Failed to read image metadata:', err);
+    }
+
+    if (!code) {
+      showWarnBadge('No Asymptote source code found in this file.');
+      return;
+    }
+    await loadExtractedSource(code, gifSettings);
+  }
+
+  // Paste from clipboard via File menu. If the clipboard contains an image,
+  // extract embedded Asymptote source. If it contains text, paste into editor.
+  async function doPasteFromClipboard() {
+    try {
+      const items = await navigator.clipboard.read();
+      let imageBlob = null;
+      let textBlob = null;
+      for (const item of items) {
+        for (const type of item.types) {
+          if (!imageBlob && type.startsWith('image/')) {
+            imageBlob = await item.getType(type);
+          }
+          if (!textBlob && type === 'text/plain') {
+            textBlob = await item.getType('text/plain');
+          }
+        }
+      }
+
+      if (imageBlob) {
+        const buf = await imageBlob.arrayBuffer();
+        const { code, gifSettings } = extractSourceFromBytes(new Uint8Array(buf));
+        if (!code) {
+          showWarnBadge('No Asymptote source code found in clipboard image.');
+          return;
+        }
+        await loadExtractedSource(code, gifSettings);
+        return;
+      }
+
+      if (textBlob) {
+        const text = await textBlob.text();
+        if (text) {
+          editor.replaceSelection(text);
+          return;
+        }
+      }
+
+      showWarnBadge('Clipboard is empty.');
+    } catch(err) {
+      console.error('Clipboard read failed:', err);
+      showWarnBadge('Could not read clipboard. Browser may require permission.');
     }
   }
 
@@ -5498,7 +5666,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // --- Case 2: HiTeXeR PNG with embedded source metadata ---
+    // --- Case 2: HiTeXeR image with embedded source metadata ---
     let imageItem = null;
     for (const item of cd.items) {
       if (item.type.startsWith('image/')) { imageItem = item; break; }
@@ -5510,30 +5678,44 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
 
     file.arrayBuffer().then(buf => {
-      const data = new Uint8Array(buf);
-      let code = null;
-      // Try PNG tEXt chunk
-      if (data[0] === 0x89 && data[1] === 0x50) {
-        code = extractPngText(data, 'Source');
-      }
-      // Try JPEG COM marker
-      if (!code && data[0] === 0xFF && data[1] === 0xD8) {
-        code = extractJpgComment(data);
-      }
-      // Try GIF comment extension
-      if (!code && data[0] === 0x47 && data[1] === 0x49 && data[2] === 0x46) {
-        const comment = extractGifComment(data);
-        if (comment) {
-          try { code = JSON.parse(comment).source || null; } catch(_) { code = comment; }
-        }
-      }
+      const { code, gifSettings } = extractSourceFromBytes(new Uint8Array(buf));
       if (!code) return; // no source found — do nothing
-      let asyCode = code;
-      if (!asyCode.trim().startsWith('[asy]')) asyCode = '[asy]\n' + asyCode;
-      if (!asyCode.trim().endsWith('[/asy]')) asyCode = asyCode + '\n[/asy]';
-      editor.setValue(asyCode);
-      doRender();
+      loadExtractedSource(code, gifSettings);
     }).catch(err => console.error('Paste image read failed:', err));
+  });
+
+  // Global drag-and-drop handler: open dropped image files and extract
+  // embedded Asymptote source, just like File > Open Image.
+  document.addEventListener('dragover', (e) => {
+    // Only accept drops with files
+    if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  });
+  document.addEventListener('drop', (e) => {
+    // Don't intercept drops aimed at file inputs
+    const ae = e.target;
+    if (ae && (ae.tagName === 'INPUT' && ae.type === 'file')) return;
+
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    e.preventDefault();
+
+    const file = files[0];
+    const imageExts = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'pdf'];
+    const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
+    if (imageExts.includes(ext)) {
+      openImageFile(file);
+    } else if (file.name && file.name.toLowerCase().endsWith('.asy')) {
+      // Also support dropping .asy files
+      file.text().then(text => {
+        if (!text.trim().startsWith('[asy]')) text = '[asy]\n' + text;
+        if (!text.trim().endsWith('[/asy]')) text = text + '\n[/asy]';
+        editor.setValue(text);
+        doRender();
+      });
+    }
   });
 
   function setChatImage(file) {
