@@ -7805,10 +7805,20 @@ function renderSVG(result, opts) {
   // Padding in bp, converted to user coordinates.  Real Asymptote expands the
   // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
   // on each side) so the value doesn't depend on user-coordinate scale.
-  const roughPxPerUnitForPad = hasUnitScale ? unitScale
-    : (sizeW > 0 ? sizeW / geoBboxW : (sizeH > 0 ? sizeH / geoBboxH : 200 / geoBboxW));
-  const pad = 0.5 / roughPxPerUnitForPad;      // 0.5 bp → user coords
-  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+  // In IgnoreAspect mode, x and y scales can differ dramatically, so use separate
+  // per-axis padding to avoid catastrophically inflating the smaller-range axis.
+  let padX, padY;
+  if (hasUnitScale) {
+    padX = padY = 0.5 / unitScale;
+  } else if (!keepAspect && sizeW > 0 && sizeH > 0) {
+    padX = 0.5 / (sizeW / geoBboxW);
+    padY = 0.5 / (sizeH / geoBboxH);
+  } else {
+    const roughPxPerUnitForPad = sizeW > 0 ? sizeW / geoBboxW
+      : (sizeH > 0 ? sizeH / geoBboxH : 200 / geoBboxW);
+    padX = padY = 0.5 / roughPxPerUnitForPad;
+  }
+  minX -= padX; minY -= padY; maxX += padX; maxY += padY;
 
   // Expand bbox for labels so text doesn't get clipped.
   // Estimate label extent in user coordinates.  We iterate because the scale
