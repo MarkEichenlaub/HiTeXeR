@@ -6877,7 +6877,7 @@ function createInterpreter() {
       const nums = args.filter(a => typeof a === 'number');
       let cx = 1, cy = -2, cz = 0.5;
       if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
-      else if (nums.length === 1 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
+      else if (nums.length === 0 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
       const p = {_tag:'projection', type:'orthographic', cx, cy, cz, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
       // Apply named args
       for (const a of args) {
