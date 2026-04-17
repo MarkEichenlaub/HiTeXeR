@@ -117,15 +117,21 @@ function expandViewBox(svgStr) {
   let [vx, vy, vw, vh] = vbMatch[1].split(/\s+/).map(Number);
   let minX = vx, minY = vy, maxX = vx + vw, maxY = vy + vh;
 
-  // Scan <text> elements for their y position (+font-size padding)
-  const textRe = /<text\s[^>]*?\bx="([^"]+)"[^>]*?\by="([^"]+)"[^>]*?(?:font-size="([^"]+)")?[^>]*>/g;
-  const textRe2 = /<text\s[^>]*?\by="([^"]+)"[^>]*?\bx="([^"]+)"[^>]*?(?:font-size="([^"]+)")?[^>]*>/g;
-  for (const re of [textRe, textRe2]) {
+  // Scan <text> elements for their y position (+font-size padding).
+  // Extract the full opening tag first, then parse x/y/font-size individually
+  // to avoid non-greedy quantifier issues that cause font-size to be missed.
+  const textTagRe = /<text\s[^>]*>/g;
+  {
     let m;
-    while ((m = re.exec(svgStr)) !== null) {
-      const x = parseFloat(re === textRe ? m[1] : m[2]);
-      const y = parseFloat(re === textRe ? m[2] : m[1]);
-      const fs = parseFloat(m[3] || '12');
+    while ((m = textTagRe.exec(svgStr)) !== null) {
+      const tag = m[0];
+      const xM = tag.match(/\bx="([^"]+)"/);
+      const yM = tag.match(/\by="([^"]+)"/);
+      const fsM = tag.match(/\bfont-size="([^"]+)"/);
+      if (!xM || !yM) continue;
+      const x = parseFloat(xM[1]);
+      const y = parseFloat(yM[1]);
+      const fs = parseFloat(fsM ? fsM[1] : '12');
       const pad = fs * 0.6; // half the font height as padding
       if (x - pad < minX) minX = x - pad;
       if (x + pad > maxX) maxX = x + pad;

@@ -1477,6 +1477,8 @@ function createInterpreter() {
   // Track all projected triples for camera auto-adjust (perspective adjust=true)
   // Each entry: { triple, target } where target is {obj, key} pointing to the 2D result
   let _projectedTriples = [];
+  // Counter for unique per-subpicture crop clip IDs
+  let _subpicClipIdCounter = 0;
   // Settings
   let unitScale = 1;       // unitsize value in points
   let hasUnitScale = false; // whether unitsize() was explicitly called
@@ -1562,7 +1564,27 @@ function createInterpreter() {
 
   // Apply a transform to all commands in a picture, returning a new picture
   function transformPicture(t, pic) {
-    return {_tag:'picture', commands: pic.commands.map(c => transformDrawCmd(t, c))};
+    const newPic = {_tag:'picture', commands: pic.commands.map(c => transformDrawCmd(t, c))};
+    // Propagate per-picture crop limits, transforming them to the new coordinate space
+    if (pic._picLimits) {
+      const pl = pic._picLimits;
+      if (pl.xmin != null && pl.xmax != null && pl.ymin != null && pl.ymax != null) {
+        const corners = [
+          {x:pl.xmin, y:pl.ymin}, {x:pl.xmax, y:pl.ymin},
+          {x:pl.xmin, y:pl.ymax}, {x:pl.xmax, y:pl.ymax}
+        ].map(p => ({x: t.a + t.b*p.x + t.c*p.y, y: t.d + t.e*p.x + t.f*p.y}));
+        newPic._picLimits = {
+          xmin: Math.min(...corners.map(p => p.x)),
+          xmax: Math.max(...corners.map(p => p.x)),
+          ymin: Math.min(...corners.map(p => p.y)),
+          ymax: Math.max(...corners.map(p => p.y)),
+          crop: !!pl.crop
+        };
+      } else {
+        newPic._picLimits = Object.assign({}, pl);
+      }
+    }
+    return newPic;
   }
 
   // Environment (scoped)
@@ -2900,6 +2922,32 @@ function createInterpreter() {
         return;
       }
       const cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
+      // If the source picture has per-picture crop limits, tag each non-label
+      // command with a unique clip ID so the SVG renderer can create per-subpicture
+      // clip regions (not one global clip that covers only the first sub-picture).
+      if (src._picLimits && src._picLimits.crop && src._picLimits.xmin != null) {
+        let {xmin, xmax, ymin, ymax} = src._picLimits;
+        // Apply the same transform to the clip rect corners
+        if (t) {
+          const corners = [
+            {x: xmin, y: ymin}, {x: xmax, y: ymin},
+            {x: xmin, y: ymax}, {x: xmax, y: ymax}
+          ].map(p => ({x: t.a + t.b*p.x + t.c*p.y, y: t.d + t.e*p.x + t.f*p.y}));
+          xmin = Math.min(...corners.map(p => p.x));
+          xmax = Math.max(...corners.map(p => p.x));
+          ymin = Math.min(...corners.map(p => p.y));
+          ymax = Math.max(...corners.map(p => p.y));
+        }
+        const clipId = `subpic-crop-${_subpicClipIdCounter++}`;
+        const clipRect = {xmin, xmax, ymin, ymax};
+        for (const c of cmds) {
+          // Labels float outside the crop region — don't clip them
+          if (c.cmd !== 'label') {
+            c._subpicClipId = clipId;
+            c._subpicClipRect = clipRect;
+          }
+        }
+      }
       for (const c of cmds) dest.commands.push(c);
     });
     env.set('invisible', makePen({opacity:0}));
@@ -3098,8 +3146,9 @@ function createInterpreter() {
     });
     env.set('conj', (p) => { const pp = toPair(p); return makePair(pp.x, -pp.y); });
     env.set('expi', (a) => { const v = toNumber(a); return makePair(Math.cos(v), Math.sin(v)); });
-    env.set('xpart', (p) => toPair(p).x);
-    env.set('ypart', (p) => toPair(p).y);
+    env.set('xpart', (p) => isTriple(p) ? p.x : toPair(p).x);
+    env.set('ypart', (p) => isTriple(p) ? p.y : toPair(p).y);
+    env.set('zpart', (p) => isTriple(p) ? p.z : 0);
     env.set('interp', (a, b, t) => {
       const frac = toNumber(t);
       if (isTriple(a) || isTriple(b)) {
@@ -4546,6 +4595,11 @@ function createInterpreter() {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
 
+    // Interpolation constants for graph(): Spline/Hermite → smooth, Linear → straight
+    env.set('Spline',  {_tag:'operator', value:'..'});
+    env.set('Hermite', {_tag:'operator', value:'..'});
+    env.set('Linear',  {_tag:'operator', value:'--'});
+
     // Helper: build path from points, using smooth (..) or straight (--) joins
     function buildGraphPath(pts, useSmooth) {
       if (pts.length < 2) return makePath([], false);
@@ -5384,11 +5438,25 @@ function createInterpreter() {
     });
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
+      let targetPic = null;
       const pairs = [];
       let hasCrop = false;
       for (const a of args) {
-        if (isPair(a)) pairs.push(a);
+        if (a && a._tag === 'picture') targetPic = a;
+        else if (isPair(a)) pairs.push(a);
         else if (a === true) hasCrop = true; // Crop is env-set to true
+      }
+      // If a specific picture is given, store limits on that picture (not globally)
+      // so each sub-picture gets its own crop clip region
+      if (targetPic) {
+        if (!targetPic._picLimits) targetPic._picLimits = {};
+        const pl = targetPic._picLimits;
+        if (pairs.length >= 2) {
+          pl.xmin = pairs[0].x; pl.ymin = pairs[0].y;
+          pl.xmax = pairs[1].x; pl.ymax = pairs[1].y;
+        }
+        if (hasCrop) pl.crop = true;
+        return;
       }
       if (pairs.length >= 2) {
         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
@@ -7823,10 +7891,23 @@ function renderSVG(result, opts) {
       // Tick marks have fixed physical size — they should not inflate the geometry bbox.
       // In real Asymptote, tick sizes are in bp (physical points), not user coordinates.
       if (dc._isTickMark) continue;
-      if (dc.path._singlePoint) {
-        expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
+      if (dc._subpicClipRect) {
+        // Paths clipped to a sub-picture crop region should not expand the bbox
+        // beyond that region — save bbox state, expand, then clamp contribution.
+        const cr = dc._subpicClipRect;
+        const savedMaxX = maxX, savedMaxY = maxY, savedMinX = minX, savedMinY = minY;
+        if (dc.path._singlePoint) expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
+        for (const seg of dc.path.segs) expandBezierBBox(seg);
+        maxX = Math.max(savedMaxX, Math.min(maxX, cr.xmax));
+        maxY = Math.max(savedMaxY, Math.min(maxY, cr.ymax));
+        minX = Math.min(savedMinX, Math.max(minX, cr.xmin));
+        minY = Math.min(savedMinY, Math.max(minY, cr.ymin));
+      } else {
+        if (dc.path._singlePoint) {
+          expandBBox(dc.path._singlePoint.x, dc.path._singlePoint.y);
+        }
+        for (const seg of dc.path.segs) expandBezierBBox(seg);
       }
-      for (const seg of dc.path.segs) expandBezierBBox(seg);
     }
   }
 
@@ -7927,7 +8008,11 @@ function renderSVG(result, opts) {
         if (dc.pen && dc.pen.opacity === 0) continue;
         let fontSize = (dc.pen && dc.pen.fontsize) || 10;
         const text = dc.text || dc.label || '';
-        const cleanText = typeof text === 'string' ? stripLaTeX(text) : '';
+        // For multiline labels (minipage), stripLaTeX collapses whitespace including \n.
+        // Split on \n first, strip each line, use longest for width estimation.
+        const rawLines = typeof text === 'string' ? text.split('\n') : [''];
+        const cleanLines = rawLines.map(l => stripLaTeX(l));
+        const cleanText = cleanLines.join(' ');
 
         // Account for label transform (scale/rotate) in bbox estimation
         let ltScale = 1, ltAngle = 0;
@@ -7947,7 +8032,9 @@ function renderSVG(result, opts) {
         // For labels with fractions, estimate wider width
         const rawLabel = text;
         const hasFrac = /\\frac/.test(rawLabel);
-        const effectiveLen = hasFrac ? cleanText.length * 1.6 : cleanText.length;
+        // Use longest line's length for width estimation (multiline minipage labels)
+        const maxLineLen = cleanLines.reduce((m, l) => Math.max(m, l.length), 0);
+        const effectiveLen = hasFrac ? maxLineLen * 1.6 : maxLineLen;
         let textWidthUser = effectiveLen * charWidthUser;
         // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
         const heightFactor = autoScaled ? 0.7 : 0.48;
@@ -8283,6 +8370,21 @@ function renderSVG(result, opts) {
     elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
   }
 
+  // Per-subpicture crop clips: collect unique clip IDs from draw commands
+  // and generate a <defs><clipPath> for each.
+  const subpicClipIds = new Set();
+  for (const dc of drawCommands) {
+    if (dc._subpicClipId && !subpicClipIds.has(dc._subpicClipId)) {
+      subpicClipIds.add(dc._subpicClipId);
+      const r = dc._subpicClipRect;
+      const cx1 = (r.xmin - minX) * pxPerUnitX;
+      const cy1 = (maxY - r.ymax) * pxPerUnitY;
+      const cw  = (r.xmax - r.xmin) * pxPerUnitX;
+      const ch  = (r.ymax - r.ymin) * pxPerUnitY;
+      elements.push(`<defs><clipPath id="${dc._subpicClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
+    }
+  }
+
   // Asymptote clip(): create SVG clipPath from clip commands.
   // Unlike crop clipping (which excludes labels), clip() clips everything.
   let userClipId = null;
@@ -8375,9 +8477,9 @@ function renderSVG(result, opts) {
       }
     }
 
-    // Label/text overshoot — skip for autoScaled diagrams: their scale is set
-    // by geometry only, labels are allowed to overflow (matching real Asymptote).
-    if (!isAutoScaled)
+    // Label/text overshoot: pad the viewBox so labels outside the geometry bbox
+    // are visible. For autoScaled diagrams, Fix 5 has already reset minX/maxX to
+    // geometry only, so this correctly extends the viewBox for out-of-bbox labels.
     for (const dc of drawCommands) {
       if (dc.cmd !== 'label' && dc.cmd !== 'dot') continue;
       // dot commands without text don't produce labels
@@ -8387,30 +8489,37 @@ function renderSVG(result, opts) {
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
       const fontSize = (dc.pen && dc.pen.fontsize) || 10;
       const fontSizeSVG = fontSize * bpCSSPixel;
-      const cleanText = stripLaTeX(dc.text || '');
-      let cleanLen, numLines;
-      if (cleanText.includes('\n')) {
-        const clines = cleanText.split('\n').filter(l => l.length > 0);
-        cleanLen = Math.max(...clines.map(l => l.length)) || 1;
-        numLines = clines.length;
-      } else {
-        cleanLen = cleanText.length || 1;
-        numLines = 1;
-      }
+      // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
+      const rawLabelLines = (dc.text || '').split('\n');
+      const cleanLabelLines = rawLabelLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
+      const cleanLen = (cleanLabelLines.length > 0 ? Math.max(...cleanLabelLines.map(l => l.length)) : 1) || 1;
+      const numLines = cleanLabelLines.length || 1;
       const W = cleanLen * fontSizeSVG * 0.52;
       const H = fontSizeSVG * numLines;
 
-      // For rotated labels, use the rotated bounding box dimensions so that
-      // the overshoot padding is computed for the visual (rotated) extent.
+      // For scaled/rotated labels, use the transformed bounding box dimensions.
+      // Extract scale factor (sqrt(b²+e²)) and rotation from labelTransform so
+      // that scale(0.8)*rotate(-60)*"text" is accounted for correctly.
       let effW = W, effH = H;
       if (dc.labelTransform) {
         const lt = dc.labelTransform;
+        // Apply scale first
+        const ltScale = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+        let scaledW = W, scaledH = H;
+        if (ltScale > 0 && Math.abs(ltScale - 1) > 0.01) {
+          scaledW = W * ltScale;
+          scaledH = H * ltScale;
+        }
+        // Then apply rotation to the scaled dimensions
         const ltAngle2 = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
         if (Math.abs(ltAngle2) > 0.5) {
           const cosA2 = Math.abs(Math.cos(ltAngle2 * Math.PI / 180));
           const sinA2 = Math.abs(Math.sin(ltAngle2 * Math.PI / 180));
-          effW = W * cosA2 + H * sinA2;
-          effH = W * sinA2 + H * cosA2;
+          effW = scaledW * cosA2 + scaledH * sinA2;
+          effH = scaledW * sinA2 + scaledH * cosA2;
+        } else {
+          effW = scaledW;
+          effH = scaledH;
         }
       }
 
@@ -8580,7 +8689,8 @@ function renderSVG(result, opts) {
       // Asymptote: single-point draw = zero-length stroke, radius = linewidth/2 (no dotfactor)
       const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
       const singleDotR = (singleDotLw / 2) * bpCSSPixel;
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+      const circClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
+      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${circClip}/>`);
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
     }
@@ -8658,6 +8768,7 @@ function renderSVG(result, opts) {
     // For filldraw with invisible fill (fill='none'), don't apply opacity to whole element
     // so the stroke outline remains visible at full opacity
     if (dc.cmd !== 'filldraw' || fill !== 'none') attrs += opacityAttr(css.opacity);
+    if (dc._subpicClipId) attrs += ` clip-path="url(#${dc._subpicClipId})"`;
 
     elements.push(`<path ${attrs}/>`);
     commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
@@ -8666,7 +8777,11 @@ function renderSVG(result, opts) {
     if (dc.arrow && dc.cmd === 'draw') {
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css);
       if (arrowEl) {
-        elements.push(arrowEl);
+        // Apply same clip-path to arrowhead as the path itself
+        const clippedArrow = dc._subpicClipId
+          ? arrowEl.replace(/(<(?:path|polygon)[^>]*)(\/>)/, `$1 clip-path="url(#${dc._subpicClipId})"$2`)
+          : arrowEl;
+        elements.push(clippedArrow);
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       }
     }
@@ -8707,13 +8822,14 @@ function renderSVG(result, opts) {
       const dotLw = dc.pen.linewidth;
       const lwExplicit = dc.pen._lwExplicit;
       const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+      const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
       if (dc.filltype && dc.filltype.style === 'UnFill') {
         // UnFill: open dot — white interior, colored ring.
         // Ring width is 40% of the dot radius so the white interior is always visible.
         const ringW = dotR * 0.4;
-        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}/>`);
+        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}${dotClip}/>`);
       } else {
-        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}/>`);
+        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${dotClip}/>`);
       }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
@@ -8785,16 +8901,11 @@ function renderSVG(result, opts) {
         //   text center = S + (ax_n * W, ay_n * H)     (L∞-normalised box offset)
         // where ax_n = ax * 0.5 / max(|ax|,|ay|), same for y.
         const ax = dc.align.x, ay = dc.align.y;
-        const cleanText = stripLaTeX(dc.text || '');
-        let cleanLen, numLines;
-        if (cleanText.includes('\n')) {
-          const clines = cleanText.split('\n').filter(l => l.length > 0);
-          cleanLen = Math.max(...clines.map(l => l.length)) || 1;
-          numLines = clines.length;
-        } else {
-          cleanLen = cleanText.length || 1;
-          numLines = 1;
-        }
+        // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
+        const rawDxLines = (dc.text || '').split('\n');
+        const cleanDxLines = rawDxLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
+        const cleanLen = (cleanDxLines.length > 0 ? Math.max(...cleanDxLines.map(l => l.length)) : 1) || 1;
+        const numLines = cleanDxLines.length || 1;
         const W = cleanLen * fontSizeSVG * 0.52;
         const H = fontSizeSVG * numLines;
         const margin = 0.25 * fontSizeSVG;   // Asymptote default: labelmargin=0.25
@@ -9565,7 +9676,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
 
   // Estimate dimensions for foreignObject
   const cleanLen = stripLaTeX(rawText).length;
-  const estW = Math.max(cleanLen * fontSize * 0.7, fontSize * 2);
+  const estW = Math.max(cleanLen * fontSize * 0.7, fontSize * 1.2);
   // Fractions (\frac) need extra vertical space; use taller estimate for them
   const hasFrac = /\\frac\b/.test(rawText);
   const estH = hasFrac ? fontSize * 3.0 : fontSize * 1.8;
