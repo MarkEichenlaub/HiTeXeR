@@ -8169,18 +8169,19 @@ function renderSVG(result, opts) {
         const hasFrac = /\\frac/.test(rawLabel);
         // Use longest line's length for width estimation (multiline minipage labels)
         const maxLineLen = cleanLines.reduce((m, l) => Math.max(m, l.length), 0);
+        const numLines = cleanLines.length;
         const effectiveLen = hasFrac ? maxLineLen * 1.6 : maxLineLen;
         let textWidthUser = effectiveLen * charWidthUser;
         // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
         const heightFactor = autoScaled ? 0.7 : 0.48;
-        let textHeightUser = (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
+        let textHeightUser = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
 
         // For rotated labels, compute the axis-aligned bounding box of the rotated text.
         // Use the exact formula for any angle rather than just swapping at 90°.
         if (Math.abs(ltAngle) > 0.5) {
           // Original dimensions in bp (before dividing by axis scale)
           const textWidthBp = effectiveLen * charWidthBp;
-          const textHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
+          const textHeightBp = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor);
           const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
           const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
           // Rotated bbox: visual x-extent and y-extent
@@ -8215,7 +8216,7 @@ function renderSVG(result, opts) {
           } else {
             // Compute bp-space dimensions (before rotation swap)
             let lWidthBp = effectiveLen * charWidthBp;
-            let lHeightBp = hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor;
+            let lHeightBp = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor);
             // For rotated labels, use the rotated bounding box dimensions
             if (Math.abs(ltAngle) > 0.5) {
               const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
@@ -8674,10 +8675,11 @@ function renderSVG(result, opts) {
       const top = cy - effH / 2;
       const bottom = cy + effH / 2;
 
-      // Skip labels entirely outside the viewport — when clip() is active,
+      // Skip labels entirely outside the viewport — only when clip() is active,
       // labels far from the clip region are invisible and must not inflate
       // the viewBox (they would blow up the output dimensions).
-      if (right < 0 || left > viewW || bottom < 0 || top > viewH) continue;
+      // Without clip(), labels beyond the geometry bbox still need overshoot expansion.
+      if (hasClip && (right < 0 || left > viewW || bottom < 0 || top > viewH)) continue;
 
       padL = Math.max(padL, -left);
       padR = Math.max(padR, right - viewW);
