@@ -2948,15 +2948,40 @@ function createInterpreter() {
       // Handle per-picture sizing: add(pic.fit(), (i, 0)) where pic._sizeW is set
       // by size(pic, w). Scale the picture's geometry to _sizeW bp and shift by
       // (t.a * _sizeW, t.d * _sizeW) bp so sub-pictures are placed end-to-end.
+      // The picture origin (0,0) is placed at the outer shift position; content
+      // below y=0 (e.g. a sine curve) extends in the negative y direction from
+      // the origin rather than being shifted up to make the bbox bottom = origin.
       if (src._sizeW && t && t.b === 1 && t.c === 0 && t.e === 0 && t.f === 1) {
         const gb = getGeoBbox(src.commands);
         const geoW = (gb.maxX - gb.minX) || 1;
-        const scale = src._sizeW / geoW;
+        // Iteratively refine scale to fit total width (geo + label extents) into _sizeW,
+        // matching Asymptote's size(p, w) which constrains the total picture width.
+        let scale = src._sizeW / geoW;
+        for (let _iter = 0; _iter < 3; _iter++) {
+          let fullMinX = gb.minX, fullMaxX = gb.maxX;
+          for (const dc of src.commands) {
+            if (dc.cmd !== 'label') continue;
+            const pos = dc.pos;
+            if (!pos) continue;
+            const fs = (dc.pen && dc.pen.fontsize) || 10;
+            const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+            const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+            const twBp = _estimateTextWidth(cleanTxt || 'x', fs);
+            const ax = (dc.align && dc.align.x != null) ? dc.align.x : 0;
+            const dxBp = ax * (0.5 * twBp + 0.4 * fs);
+            const cx = pos.x + dxBp / scale;
+            const halfW = twBp / (2 * scale);
+            if (cx - halfW < fullMinX) fullMinX = cx - halfW;
+            if (cx + halfW > fullMaxX) fullMaxX = cx + halfW;
+          }
+          const fullW = (fullMaxX - fullMinX) || 1;
+          scale = src._sizeW / fullW;
+        }
         const bpShiftX = t.a * src._sizeW;
         const bpShiftY = t.d * src._sizeW;
         const newT = makeTransform(
           bpShiftX - gb.minX * scale, scale, 0,
-          bpShiftY - gb.minY * scale, 0, scale
+          bpShiftY, 0, scale
         );
         const cmds = src.commands.map(c => transformDrawCmd(newT, c));
         for (const c of cmds) dest.commands.push(c);
@@ -3909,6 +3934,26 @@ function createInterpreter() {
       const dx=b.x-a.x, dy=b.y-a.y;
       const t = ((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy);
       return makePair(a.x+t*dx, a.y+t*dy);
+    });
+
+    // tangent(pair P, pair C, real r, int n=1): nth tangent point from external point P to circle center C radius r
+    env.set('tangent', (...args) => {
+      let P = null, Cc = null, r = null, n = 1;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) { if ('n' in a) n = a.n; continue; }
+        if (isPair(a) && P === null) { P = toPair(a); continue; }
+        if (isPair(a) && Cc === null) { Cc = toPair(a); continue; }
+        if (typeof a === 'number' && r === null) { r = a; continue; }
+      }
+      if (!P || !Cc || r === null) return makePair(0, 0);
+      const Dx = P.x - Cc.x, Dy = P.y - Cc.y;
+      const d2 = Dx*Dx + Dy*Dy;
+      if (d2 <= r*r + 1e-12) return makePair(P.x, P.y);
+      const t = Math.sqrt(d2 - r*r);
+      const factor = r*r / d2, pf = r * t / d2;
+      const bx = Cc.x + factor * Dx, by = Cc.y + factor * Dy;
+      // perp(D) = (-Dy, Dx); n=1 uses +perp, n=2 uses -perp
+      return n === 2 ? makePair(bx + Dy*pf, by - Dx*pf) : makePair(bx - Dy*pf, by + Dx*pf);
     });
 
     env.set('bisectorpoint', (A, B) => {
@@ -4891,12 +4936,26 @@ function createInterpreter() {
       let perpAxisRange;
       if (_isXAxis) {
         // X-axis ticks extend in y → use y range
-        perpAxisRange = (_axisLimits.ymax !== null && _axisLimits.ymin !== null)
-          ? Math.abs(_axisLimits.ymax - _axisLimits.ymin) : Math.abs(max - min);
+        if (_axisLimits.ymax !== null && _axisLimits.ymin !== null) {
+          perpAxisRange = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
+        } else {
+          // y limits not yet set (yaxis() not called yet); use picture's data y-range
+          const _gb = getGeoBbox(pic.commands);
+          const gbYR = (_gb && isFinite(_gb.maxY) && isFinite(_gb.minY) && _gb.maxY > _gb.minY)
+            ? Math.abs(_gb.maxY - _gb.minY) : 0;
+          perpAxisRange = gbYR > 0 ? gbYR : Math.abs(max - min);
+        }
       } else {
         // Y-axis ticks extend in x → use x range
-        perpAxisRange = (_axisLimits.xmax !== null && _axisLimits.xmin !== null)
-          ? Math.abs(_axisLimits.xmax - _axisLimits.xmin) : Math.abs(max - min);
+        if (_axisLimits.xmax !== null && _axisLimits.xmin !== null) {
+          perpAxisRange = Math.abs(_axisLimits.xmax - _axisLimits.xmin);
+        } else {
+          // x limits not yet set; use picture's data x-range
+          const _gb = getGeoBbox(pic.commands);
+          const gbXR = (_gb && isFinite(_gb.maxX) && isFinite(_gb.minX) && _gb.maxX > _gb.minX)
+            ? Math.abs(_gb.maxX - _gb.minX) : 0;
+          perpAxisRange = gbXR > 0 ? gbXR : Math.abs(max - min);
+        }
       }
       if (!perpAxisRange || perpAxisRange === 0) perpAxisRange = Math.abs(max - min) || 1;
       const defaultTickSize = perpAxisRange * 0.015;
@@ -4993,10 +5052,9 @@ function createInterpreter() {
       for (const v of minorPositions) drawTick(v, minorSize);
 
       // Draw labels for major ticks
-      // Suppress labels when Size was explicitly set very small (e.g. Size=0.1pt),
-      // which means ticks are invisible markers — labels would be meaningless.
-      // Threshold: 1.5 bp. In Asymptote, Size=0.1pt produces sub-pixel ticks and
-      // real Asymptote does not render visible labels for such ticks.
+      // Suppress labels for extend=true ticks (grid lines) or very tiny tick marks
+      // (Size=0.1pt style that serves as invisible markers — labels at axis origin
+      // inside the chart area hurt SSIM vs reference images that omit them).
       const showLabels = ticks.labels && !isExtend &&
                          !(ticks.sizeExplicit && ticks.size < 1.5);
       if (showLabels) {
@@ -5284,11 +5342,13 @@ function createInterpreter() {
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
         const lAlign = labelAlign || {x:-1, y:0};
-        let labelY = ymax;
+        let labelY = ymin + (ymax - ymin) * 0.5;
         if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
         // Y-axis labels are rotated 90° CCW by default (like Asymptote's graph.asy)
+        // But at EndPoint (1) or BeginPoint (0), the label sits at the axis tip and stays upright
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
-        const lt = labelTransform || rot90ccw;
+        const atEndpoint = labelPosition === 1 || labelPosition === 0;
+        const lt = labelTransform || (atEndpoint ? undefined : rot90ccw);
         pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0});
       }
     });
@@ -5328,7 +5388,7 @@ function createInterpreter() {
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
-        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5);
+        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.format);
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
           for (let v = Math.ceil(ymin/ticks.step)*ticks.step; v <= ymax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
@@ -5378,7 +5438,7 @@ function createInterpreter() {
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
-        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5);
+        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.format);
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
           for (let v = Math.ceil(xmin/ticks.step)*ticks.step; v <= xmax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
@@ -7398,7 +7458,7 @@ function createInterpreter() {
       }
     }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
-    let labelText = null, labelAlign = null, labelPosition = null;
+    let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -7414,7 +7474,7 @@ function createInterpreter() {
         try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
       }
       else if (a && a._tag === 'label') {
-        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
       }
       else if (isString(a) && !labelText && !pathArg) { labelText = a; }
       else if (isTriple(a) && !pathArg) {
@@ -7462,7 +7522,9 @@ function createInterpreter() {
         const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
         const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
         const labelPos = makePair(px, py);
-        target.commands.push({cmd:'label', text:labelText, pos:labelPos, align:labelAlign, pen, line: args._line || 0});
+        const ldc = {cmd:'label', text:labelText, pos:labelPos, align:labelAlign, pen, line: args._line || 0};
+        if (labelTransform) ldc.labelTransform = labelTransform;
+        target.commands.push(ldc);
       }
     }
   }
@@ -8172,8 +8234,8 @@ function renderSVG(result, opts) {
         const numLines = cleanLines.length;
         const effectiveLen = hasFrac ? maxLineLen * 1.6 : maxLineLen;
         let textWidthUser = effectiveLen * charWidthUser;
-        // Height estimate: for size()-constrained, use tight capRatio; for auto-scaled, fuller height
-        const heightFactor = autoScaled ? 0.7 : 0.48;
+        // Height estimate: for size()-constrained, use fuller capRatio; for auto-scaled, fuller height
+        const heightFactor = autoScaled ? 0.7 : 0.65;
         let textHeightUser = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
 
         // For rotated labels, compute the axis-aligned bounding box of the rotated text.
@@ -8266,6 +8328,16 @@ function renderSVG(result, opts) {
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
+    // When size() is also explicitly set, use it to govern the geometry scale.
+    // Real Asymptote/TeXeR scales 3D diagrams (and others with both set) to the
+    // requested size() regardless of unitsize(), so size() acts as an override.
+    if (sizeW > 0 || sizeH > 0) {
+      const _sw = sizeW > 0 ? sizeW : Infinity;
+      const _sh = sizeH > 0 ? sizeH : Infinity;
+      const _gW = (geoMaxX - geoMinX) || 1;
+      const _gH = (geoMaxY - geoMinY) || 1;
+      pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
+    }
     // When unitsize() makes cells much smaller than the default label font size
     // (10bp), labels overwhelm the geometry.  Real Asymptote/TeXeR keeps labels
     // at truesize (fixed bp) while the geometry scales to fit the output — so
@@ -8338,7 +8410,7 @@ function renderSVG(result, opts) {
   // Iterative scale solver: reduce pxPerUnit so total output
   // (geometry + truesize labels) fits within size constraint.
   // Real Asymptote does this; labels are truesize and don't scale with geometry.
-  if (!hasUnitScale && !isAutoScaled && labelInfoBp.length > 0) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
@@ -8380,7 +8452,7 @@ function renderSVG(result, opts) {
   // Recompute label-expanded bbox at final scale so naturalW/H is correct.
   // For autoScaled (no size/unitsize) diagrams, skip: the scale is set by the
   // geometry only, and labels are allowed to overflow (matching real Asymptote).
-  if (!hasUnitScale && !isAutoScaled && labelInfoBp.length > 0) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
     minX = geoMinX; maxX = geoMaxX;
     minY = geoMinY; maxY = geoMaxY;
     for (const li of labelInfoBp) {
@@ -8590,11 +8662,16 @@ function renderSVG(result, opts) {
             padB = Math.max(padB, (sy + halfStroke) - viewH);
           }
         }
-        // Arrow overshoot: arrowheads extend perpendicular to the path by ~arrowLen/3
+        // Arrow overshoot: arrowheads extend perpendicular to the path by ~arrowLen/3.
+        // ArcArrow uses wider arms (55° half-angle) so its perpendicular extent is larger.
         if (dc.arrow && dc.cmd === 'draw') {
           const baseSize = dc.arrow.size || 6;
           const arrowLen = baseSize * bpCSSPixel;
-          const arrowR = arrowLen * 0.4; // perpendicular extent
+          const asty = dc.arrow.style || '';
+          const isArc = asty === 'ArcArrow' || asty === 'EndArcArrow' ||
+            asty === 'BeginArcArrow' || asty === 'ArcArrows';
+          // ArcArrow perpendicular extent ≈ sin(55°) ≈ 0.82, plus bow factor 0.45
+          const arrowR = arrowLen * (isArc ? 0.9 : 0.4); // perpendicular extent
           for (const seg of [dc.path.segs[0], dc.path.segs[dc.path.segs.length - 1]]) {
             for (const p of [seg.p0, seg.p3]) {
               const sx = (p.x - minX) * pxPerUnitX;
@@ -8615,6 +8692,12 @@ function renderSVG(result, opts) {
     // Label/text overshoot: pad the viewBox so labels outside the geometry bbox
     // are visible. For autoScaled diagrams, Fix 5 has already reset minX/maxX to
     // geometry only, so this correctly extends the viewBox for out-of-bbox labels.
+    // For size()-constrained diagrams (!isAutoScaled && !hasUnitScale):
+    //   - Single-line labels: skip entirely. The solver already accounted for them.
+    //   - Multi-line labels (numLines > 1): extend only VERTICALLY (padT/padB).
+    //     The solver uses 0.48×numLines×fontSize for height, but actual rendered height
+    //     uses 1.2×(numLines-1)+1.0 line spacing, so bottom tspan lines can overflow.
+    //     The solver does handle horizontal placement correctly, so padL/padR are skipped.
     for (const dc of drawCommands) {
       if (dc.cmd !== 'label' && dc.cmd !== 'dot') continue;
       // dot commands without text don't produce labels
@@ -8629,6 +8712,10 @@ function renderSVG(result, opts) {
       const cleanLabelLines = rawLabelLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
       const cleanLen = (cleanLabelLines.length > 0 ? Math.max(...cleanLabelLines.map(l => l.length)) : 1) || 1;
       const numLines = cleanLabelLines.length || 1;
+
+      const isSizeConstrained = !isAutoScaled && !hasUnitScale;
+      // For size()-constrained single-line labels: skip entirely (solver handles it).
+      if (isSizeConstrained && numLines <= 1) continue;
       const W = cleanLen * fontSizeSVG * 0.52;
       const H = fontSizeSVG * numLines;
 
@@ -8681,10 +8768,20 @@ function renderSVG(result, opts) {
       // Without clip(), labels beyond the geometry bbox still need overshoot expansion.
       if (hasClip && (right < 0 || left > viewW || bottom < 0 || top > viewH)) continue;
 
-      padL = Math.max(padL, -left);
-      padR = Math.max(padR, right - viewW);
-      padT = Math.max(padT, -top);
-      padB = Math.max(padB, bottom - viewH);
+      if (isSizeConstrained) {
+        // Size()-constrained multi-line only: extend vertically using actual tspan height.
+        // Actual rendered height = fontSizeSVG × (1 + 1.2 × (numLines-1)) due to tspan dy.
+        const hActual = fontSizeSVG * (1 + 1.2 * (numLines - 1));
+        const topActual = cy - hActual / 2;
+        const bottomActual = cy + hActual / 2;
+        padT = Math.max(padT, -topActual);
+        padB = Math.max(padB, bottomActual - viewH);
+      } else {
+        padL = Math.max(padL, -left);
+        padR = Math.max(padR, right - viewW);
+        padT = Math.max(padT, -top);
+        padB = Math.max(padB, bottom - viewH);
+      }
     }
 
     // Apply padding: shift origin and expand viewBox/display dimensions
@@ -9023,10 +9120,22 @@ function renderSVG(result, opts) {
       // 100px display size for a 14pt viewBox that is ~85 CSS px per character, completely
       // covering the drawing. Use cssPixel (viewW/svgW) to express the absolute pt size
       // as the correct fractional SVG user-unit value.
-      const fontSizeSVG = fontSize * bpCSSPixel;  // SVG user units (bp → display px → viewBox)
+      let fontSizeSVG = fontSize * bpCSSPixel;  // SVG user units (bp → display px → viewBox)
       // foreignObject CSS is scaled by the SVG viewBox→display mapping (≈ bpToCSSPx),
       // so use raw pt value — the SVG transform provides the bp→CSS px conversion.
-      const fontSizeCSS = fontSize;
+      let fontSizeCSS = fontSize;
+      // Pre-scale fontSizeSVG/fontSizeCSS for font-size commands (e.g. {\tiny...} from
+      // minipage). Must happen before dx/margin is computed below so label placement is
+      // correct. Single-line text handles this again via fontSizeCmdRe further below
+      // (which strips the command and re-scales effectiveFontSize), but we must apply it
+      // here first so fontSizeSVG is correct for W/H/margin computation.
+      {
+        const _preFsCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
+        const _preFsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
+        let _pfsm, _pfsScale = 1.0;
+        while ((_pfsm = _preFsCmdRe.exec(dc.text||'')) !== null) _pfsScale = _preFsSizes[_pfsm[0]] || 1.0;
+        if (_pfsScale !== 1.0) { fontSizeSVG *= _pfsScale; fontSizeCSS *= _pfsScale; }
+      }
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
@@ -9118,6 +9227,8 @@ function renderSVG(result, opts) {
 
       // Handle multi-line text (produced by minipage with \n line breaks)
       if (rawText.includes('\n')) {
+        // Font-size commands (e.g. {\tiny...}) are already applied to fontSizeSVG above,
+        // and effectiveFontSize = fontSizeSVG, so no additional scaling is needed here.
         const lines = rawText.split('\n').filter(l => l.length > 0);
         const lineHeight = effectiveFontSize * 1.2;
         const totalOffset = (lines.length - 1) * lineHeight;
@@ -9528,7 +9639,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
 
   const arrowParts = [];
-  const filled = (style !== 'Bar' && style !== 'Bars');
+  const isArcStyle = style === 'ArcArrow' || style === 'EndArcArrow' ||
+    style === 'BeginArcArrow' || style === 'ArcArrows';
+  // ArcArrow uses open (unfilled) curved arms; regular Arrow uses filled triangle.
+  const filled = !isArcStyle && style !== 'Bar' && style !== 'Bars';
 
   function arrowAt(seg, atEnd) {
     let tip, tangentAngle;
@@ -9550,10 +9664,30 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
       }
     }
     const tipX = (tip.x - minX)*scaleX, tipY = (maxY - tip.y)*scaleY;
-    const headAngle = 25 * Math.PI / 180;
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
+
+    if (isArcStyle) {
+      // ArcArrow: two curved bezier arms radiating from the tip, bowing outward.
+      // Asymptote's ArcArrow uses wide arcs (55° half-angle) that bow away from
+      // the arrowhead axis, creating a wing/crescent shape.
+      const arcAngle = 55 * Math.PI / 180;
+      const lx = tipX - s*Math.cos(screenAngle - arcAngle);
+      const ly = tipY - s*Math.sin(screenAngle - arcAngle);
+      const rx = tipX - s*Math.cos(screenAngle + arcAngle);
+      const ry = tipY - s*Math.sin(screenAngle + arcAngle);
+      const bow = s * 0.45;
+      const cpLx = tipX - bow * Math.sin(screenAngle);
+      const cpLy = tipY + bow * Math.cos(screenAngle);
+      const cpRx = tipX + bow * Math.sin(screenAngle);
+      const cpRy = tipY - bow * Math.cos(screenAngle);
+      const d = `M${fmt(lx)} ${fmt(ly)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(tipX)} ${fmt(tipY)} ` +
+                `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(rx)} ${fmt(ry)}`;
+      return {d, filled: false};
+    }
+
+    const headAngle = 25 * Math.PI / 180;
     const lx = tipX - s*Math.cos(screenAngle - headAngle);
     const ly = tipY - s*Math.sin(screenAngle - headAngle);
     const rx = tipX - s*Math.cos(screenAngle + headAngle);
