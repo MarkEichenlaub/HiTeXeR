@@ -1113,6 +1113,7 @@ function mergePens(a,b) {
   }
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
   if (b._lwExplicit) r._lwExplicit = true;
+  if (b._lwDirect) r._lwDirect = true;
   if (b.linestyle) r.linestyle = b.linestyle;
   if (b.fontsize !== 12) r.fontsize = b.fontsize;
   if (b.opacity !== 1) r.opacity = b.opacity;
@@ -1560,6 +1561,29 @@ function createInterpreter() {
     }
     // Preserve alignment direction (don't transform it)
     return r;
+  }
+
+  // Compute the geometric bounding box of draw commands (paths + dot positions, not labels/clips)
+  function getGeoBbox(commands) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const dc of commands) {
+      if (!dc || dc.cmd === 'clip' || dc.cmd === 'label') continue;
+      if (dc.path) {
+        for (const seg of (dc.path.segs || [])) {
+          for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+            if (!p) continue;
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+          }
+        }
+      }
+      if (dc.pos) {
+        if (dc.pos.x < minX) minX = dc.pos.x; if (dc.pos.x > maxX) maxX = dc.pos.x;
+        if (dc.pos.y < minY) minY = dc.pos.y; if (dc.pos.y > maxY) maxY = dc.pos.y;
+      }
+    }
+    if (minX === Infinity) return {minX: 0, maxX: 1, minY: 0, maxY: 1};
+    return {minX, maxX, minY, maxY};
   }
 
   // Apply a transform to all commands in a picture, returning a new picture
@@ -2921,6 +2945,24 @@ function createInterpreter() {
       } else {
         return;
       }
+      // Handle per-picture sizing: add(pic.fit(), (i, 0)) where pic._sizeW is set
+      // by size(pic, w). Scale the picture's geometry to _sizeW bp and shift by
+      // (t.a * _sizeW, t.d * _sizeW) bp so sub-pictures are placed end-to-end.
+      if (src._sizeW && t && t.b === 1 && t.c === 0 && t.e === 0 && t.f === 1) {
+        const gb = getGeoBbox(src.commands);
+        const geoW = (gb.maxX - gb.minX) || 1;
+        const scale = src._sizeW / geoW;
+        const bpShiftX = t.a * src._sizeW;
+        const bpShiftY = t.d * src._sizeW;
+        const newT = makeTransform(
+          bpShiftX - gb.minX * scale, scale, 0,
+          bpShiftY - gb.minY * scale, 0, scale
+        );
+        const cmds = src.commands.map(c => transformDrawCmd(newT, c));
+        for (const c of cmds) dest.commands.push(c);
+        if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
+        return;
+      }
       const cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
       // If the source picture has per-picture crop limits, tag each non-label
       // command with a unique clip ID so the SVG renderer can create per-subpicture
@@ -3485,7 +3527,7 @@ function createInterpreter() {
       return makePen({r:toNumber(args[0]),g:toNumber(args[1]),b:toNumber(args[2])});
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
-    env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true}));
+    env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
     env.set('linetype', (...args) => {
       // linetype("dash pattern") or linetype(real[])
@@ -3551,7 +3593,16 @@ function createInterpreter() {
     });
     env.set('size', (...args) => {
       // size(pic, w, h, keepAspect=bool) or size(w, h, keepAspect=bool) or size(w)
-      if (args.length > 0 && args[0] && args[0]._tag === 'picture') args = args.slice(1);
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        // Per-picture sizing: size(p, w[, h]) — store dimensions on the picture so
+        // that add(p.fit(), offset) can scale and place it at the correct bp size.
+        const pic = args[0];
+        const rest = args.slice(1).filter(a => !(a && typeof a === 'object' && a._named));
+        if (rest.length >= 1) pic._sizeW = toNumber(rest[0]);
+        if (rest.length >= 2) pic._sizeH = toNumber(rest[1]);
+        else if (rest.length === 1) pic._sizeH = pic._sizeW;
+        return;
+      }
       for (const a of args) {
         if (a && typeof a === 'object' && a._named && 'keepAspect' in a) {
           keepAspect = !!a.keepAspect;
@@ -3821,6 +3872,35 @@ function createInterpreter() {
     env.set('incircle', (A,B,C) => {
       const o = invokeFunc(env.get('incenter'), [A,B,C]);
       const r = invokeFunc(env.get('inradius'), [A,B,C]);
+      return makeCirclePath(o, r);
+    });
+
+    // excenter tangent to AB (opposite vertex C, third arg) — matches Asymptote geometry.asy convention
+    // formula: (a*A + b*B - c*C) / (a+b-c)  where a=|BC|, b=|CA|, c=|AB|
+    env.set('excenter', (A,B,C) => {
+      const a=toPair(A),b_=toPair(B),c_=toPair(C);
+      const bc=Math.sqrt((c_.x-b_.x)*(c_.x-b_.x)+(c_.y-b_.y)*(c_.y-b_.y));
+      const ca=Math.sqrt((a.x-c_.x)*(a.x-c_.x)+(a.y-c_.y)*(a.y-c_.y));
+      const ab=Math.sqrt((b_.x-a.x)*(b_.x-a.x)+(b_.y-a.y)*(b_.y-a.y));
+      const denom = bc+ca-ab;
+      if(Math.abs(denom)<1e-12) return makePair(0,0);
+      return makePair((bc*a.x+ca*b_.x-ab*c_.x)/denom, (bc*a.y+ca*b_.y-ab*c_.y)/denom);
+    });
+
+    // exradius tangent to AB (opposite vertex C): sqrt(s*(s-a)*(s-b)/(s-c))
+    env.set('exradius', (A,B,C) => {
+      const a=toPair(A),b_=toPair(B),c_=toPair(C);
+      const bc=Math.sqrt((c_.x-b_.x)*(c_.x-b_.x)+(c_.y-b_.y)*(c_.y-b_.y));
+      const ca=Math.sqrt((a.x-c_.x)*(a.x-c_.x)+(a.y-c_.y)*(a.y-c_.y));
+      const ab=Math.sqrt((b_.x-a.x)*(b_.x-a.x)+(b_.y-a.y)*(b_.y-a.y));
+      const s=(bc+ca+ab)/2;
+      return Math.sqrt(Math.max(0,s*(s-bc)*(s-ca)/(s-ab)));
+    });
+
+    // excircle opposite vertex A: circle at excenter with exradius
+    env.set('excircle', (A,B,C) => {
+      const o = invokeFunc(env.get('excenter'), [A,B,C]);
+      const r = invokeFunc(env.get('exradius'), [A,B,C]);
       return makeCirclePath(o, r);
     });
 
@@ -4914,8 +4994,11 @@ function createInterpreter() {
 
       // Draw labels for major ticks
       // Suppress labels when Size was explicitly set very small (e.g. Size=0.1pt),
-      // which means ticks are invisible markers — labels would be meaningless
-      const showLabels = ticks.labels && !isExtend;
+      // which means ticks are invisible markers — labels would be meaningless.
+      // Threshold: 1.5 bp. In Asymptote, Size=0.1pt produces sub-pixel ticks and
+      // real Asymptote does not render visible labels for such ticks.
+      const showLabels = ticks.labels && !isExtend &&
+                         !(ticks.sizeExplicit && ticks.size < 1.5);
       if (showLabels) {
         for (const v of majorPositions) {
           if (noZero && Math.abs(v) < 1e-10) continue;
@@ -5245,6 +5328,7 @@ function createInterpreter() {
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
+        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5);
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
           for (let v = Math.ceil(ymin/ticks.step)*ticks.step; v <= ymax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
@@ -5253,7 +5337,7 @@ function createInterpreter() {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
           currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
-          if (ticks.labels) {
+          if (showTickLabels) {
             currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
           }
         }
@@ -5294,6 +5378,7 @@ function createInterpreter() {
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
+        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5);
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
           for (let v = Math.ceil(xmin/ticks.step)*ticks.step; v <= xmax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
@@ -5302,7 +5387,7 @@ function createInterpreter() {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
           currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
-          if (ticks.labels) {
+          if (showTickLabels) {
             currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
           }
         }
@@ -6181,6 +6266,56 @@ function createInterpreter() {
       const I = makePair((a*A.x+b*B.x+c*C.x)/P, (a*A.y+b*B.y+c*C.y)/P);
       const cs = pts[0].coordsys;
       return makePoint(cs, cs.defaultToRelative(I), 1);
+    });
+
+    // geometry-module excenter tangent to AB (opposite vertex C, third arg) — returns a point object
+    // Matches Asymptote geometry.asy: excenter(A,B,C) is tangent to side AB, opposite C
+    env.set('excenter', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const bc = Math.sqrt((B.x-C.x)*(B.x-C.x)+(B.y-C.y)*(B.y-C.y));
+      const ca = Math.sqrt((C.x-A.x)*(C.x-A.x)+(C.y-A.y)*(C.y-A.y));
+      const ab = Math.sqrt((A.x-B.x)*(A.x-B.x)+(A.y-B.y)*(A.y-B.y));
+      const denom = bc + ca - ab;
+      if (Math.abs(denom) < 1e-12) return null;
+      const Ex = makePair((bc*A.x+ca*B.x-ab*C.x)/denom, (bc*A.y+ca*B.y-ab*C.y)/denom);
+      const cs = pts[0].coordsys;
+      return makePoint(cs, cs.defaultToRelative(Ex), 1);
+    });
+
+    // geometry-module excircle tangent to AB (opposite vertex C) — returns a geocircle
+    env.set('excircle', (...args) => {
+      const pts = [];
+      for (const a of args) {
+        if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
+        if (isPoint(a)) pts.push(a);
+        else if (isPair(a)) {
+          const cs = env.get('currentcoordsys') || defaultCS;
+          pts.push(makePoint(cs, a, 1));
+        }
+      }
+      if (pts.length < 3) return null;
+      const A = locatePoint(pts[0]), B = locatePoint(pts[1]), C = locatePoint(pts[2]);
+      const bc = Math.sqrt((B.x-C.x)*(B.x-C.x)+(B.y-C.y)*(B.y-C.y));
+      const ca = Math.sqrt((C.x-A.x)*(C.x-A.x)+(C.y-A.y)*(C.y-A.y));
+      const ab = Math.sqrt((A.x-B.x)*(A.x-B.x)+(A.y-B.y)*(A.y-B.y));
+      const denom = bc + ca - ab;
+      if (Math.abs(denom) < 1e-12) return null;
+      const Ex = makePair((bc*A.x+ca*B.x-ab*C.x)/denom, (bc*A.y+ca*B.y-ab*C.y)/denom);
+      const s = (bc + ca + ab) / 2;
+      const r = Math.sqrt(Math.max(0, s*(s-bc)*(s-ca)/(s-ab)));
+      const cs = pts[0].coordsys;
+      const center = makePoint(cs, cs.defaultToRelative(Ex), 1);
+      return makeGeoCircle(center, r);
     });
 
     env.set('orthocenter', (...args) => {
@@ -8427,8 +8562,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const lwExplicit = dc.pen ? dc.pen._lwExplicit : false;
-        const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        const dotR = (dc.pen && dc.pen._lwDirect ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
@@ -8817,11 +8951,10 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: when the pen has an explicit linewidth, the dot diameter
-      // equals the linewidth (no dotfactor); otherwise diameter = dotfactor * linewidth.
+      // Dot radius: when pen was created via linewidth(n) directly (_lwDirect), the n IS
+      // the dot diameter (no dotfactor multiplier). Otherwise, diameter = dotfactor * linewidth.
       const dotLw = dc.pen.linewidth;
-      const lwExplicit = dc.pen._lwExplicit;
-      const dotR = (lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+      const dotR = (dc.pen && dc.pen._lwDirect ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
       if (dc.filltype && dc.filltype.style === 'UnFill') {
         // UnFill: open dot — white interior, colored ring.
