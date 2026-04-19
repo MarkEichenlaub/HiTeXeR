@@ -83,9 +83,9 @@ const collectionsSet = new Set();
 const diagrams = [];
 
 for (let i = 0; i < allFiles.length; i++) {
-  const id = numId(i);
+  const source = allFiles[i];
+  const id = source.replace(/\.asy$/, '');
   const ssimEntry = ssimLookup[id];
-  const source = (ssimEntry && ssimEntry.corpusFile) || allFiles[i];
   const collection = getCollection(source);
   collectionsSet.add(collection);
 

@@ -9796,23 +9796,22 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     const s = arrowLen;
 
     if (isArcStyle) {
-      // ArcArrow: filled triangular arrowhead with slightly curved arms (bowed outward).
-      // In Asymptote, ArcArrow is similar to Arrow but with concave arms, producing
-      // a sharper triangle shape with slight outward curvature.
-      const arcAngle = 25 * Math.PI / 180;  // same as regular Arrow for pointy shape
+      // ArcArrow: two curved bezier arms radiating from the tip, bowing outward.
+      // Asymptote's ArcArrow uses wide arcs (55° half-angle) that bow away from
+      // the arrowhead axis, creating a wing/crescent shape.
+      const arcAngle = 55 * Math.PI / 180;
       const lx = tipX - s*Math.cos(screenAngle - arcAngle);
       const ly = tipY - s*Math.sin(screenAngle - arcAngle);
       const rx = tipX - s*Math.cos(screenAngle + arcAngle);
       const ry = tipY - s*Math.sin(screenAngle + arcAngle);
-      // Control points for curved arms (slight outward bow)
-      const bow = s * 0.08;
-      const cpLx = (tipX + lx)/2 - bow * Math.sin(screenAngle);
-      const cpLy = (tipY + ly)/2 + bow * Math.cos(screenAngle);
-      const cpRx = (tipX + rx)/2 + bow * Math.sin(screenAngle);
-      const cpRy = (tipY + ry)/2 - bow * Math.cos(screenAngle);
-      const d = `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(lx)} ${fmt(ly)} ` +
-                `L${fmt(rx)} ${fmt(ry)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(tipX)} ${fmt(tipY)} Z`;
-      return {d, filled: true};
+      const bow = s * 0.45;
+      const cpLx = tipX - bow * Math.sin(screenAngle);
+      const cpLy = tipY + bow * Math.cos(screenAngle);
+      const cpRx = tipX + bow * Math.sin(screenAngle);
+      const cpRy = tipY - bow * Math.cos(screenAngle);
+      const d = `M${fmt(lx)} ${fmt(ly)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(tipX)} ${fmt(tipY)} ` +
+                `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(rx)} ${fmt(ry)}`;
+      return {d, filled: false};
     }
 
     const headAngle = 25 * Math.PI / 180;
