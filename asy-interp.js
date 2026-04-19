@@ -2177,6 +2177,13 @@ function createInterpreter() {
   // Used for type-based argument matching (e.g. disc((i,j), color) matching pair→center).
   function argMatchesParamType(val, paramType) {
     if (!paramType) return true;
+    // Array types: require val to be an array; elements should be compatible with base type.
+    if (paramType.endsWith('[]')) {
+      if (!Array.isArray(val)) return false;
+      const baseType = paramType.slice(0, -2);
+      if (val.length === 0) return true;  // empty array matches any array type
+      return argMatchesParamType(val[0], baseType);
+    }
     switch (paramType) {
       case 'real': case 'int': return typeof val === 'number';
       case 'bool': case 'boolean': return typeof val === 'boolean';
@@ -5361,14 +5368,15 @@ function createInterpreter() {
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
         // In Asymptote's graph.asy, the default position for a y-axis label is at the
-        // endpoint (top of axis) with N (above) alignment, rendered HORIZONTALLY.
-        // Only when the user explicitly sets a non-endpoint position is the label
-        // placed along the axis and rotated.
-        const atEndpoint = labelPosition == null || labelPosition === 1 || labelPosition === 0;
-        const effPos = labelPosition == null ? 1 : labelPosition;
+        // MIDDLE of the axis (position 0.5), aligned west (left), rotated 90° CCW.
+        // Only if the user explicitly sets position=1 (or 0) is the label at the endpoint
+        // rendered horizontally.
+        const explicitEndpoint = labelPosition === 1 || labelPosition === 0;
+        const atEndpoint = explicitEndpoint;
+        const effPos = labelPosition == null ? 0.5 : labelPosition;
         const lAlign = labelAlign || (atEndpoint ? {x:0, y:1} : {x:-1, y:0});
         const labelY = ymin + (ymax - ymin) * effPos;
-        // Only apply 90° CCW rotation when the label is placed along the axis (not at endpoint)
+        // Apply 90° CCW rotation when the label is placed along the axis (not endpoint)
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
         const lt = labelTransform || (atEndpoint ? undefined : rot90ccw);
         // Asymptote's graph.asy autoshifts the axis label past the tick labels so they don't
@@ -9452,8 +9460,13 @@ function renderSVG(result, opts) {
       if (isFullyWrapped && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
         const stripped = displayText.replace(/\$/g, '').trim();
         if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
-          displayText = stripped;
-          wasStrippedMath = true;
+          // Don't strip if content has multiple space-separated operator-only tokens
+          // (e.g. "- - - - -" or "+ + +" — needs KaTeX math spacing to render correctly).
+          const spaceSepOps = /([+\-*\/=])\s+\1/.test(stripped);
+          if (!spaceSepOps) {
+            displayText = stripped;
+            wasStrippedMath = true;
+          }
         }
       }
 
@@ -9505,6 +9518,9 @@ function renderSVG(result, opts) {
           while (probe.includes(cmd)) probe = probe.replace(cmd, '');
         }
         unicodeSafe = !/\\[a-zA-Z]/.test(probe);
+        // Space-separated repeated operators (e.g. "- - - -" or "+ + +") need KaTeX
+        // math spacing to render correctly; don't mark unicodeSafe.
+        if (unicodeSafe && /([+\-*\/=])\s+\1/.test(probe)) unicodeSafe = false;
       }
 
       let labelEl;
@@ -9780,25 +9796,22 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     const s = arrowLen;
 
     if (isArcStyle) {
-      // ArcArrow: filled curved arrowhead. Tip at origin, two arms at ±arcAngle
-      // from the direction axis, with a concave "notch" at the back (between the arms).
-      const arcAngle = 40 * Math.PI / 180;
+      // ArcArrow: filled triangular arrowhead with slightly curved arms (bowed outward).
+      // In Asymptote, ArcArrow is similar to Arrow but with concave arms, producing
+      // a sharper triangle shape with slight outward curvature.
+      const arcAngle = 25 * Math.PI / 180;  // same as regular Arrow for pointy shape
       const lx = tipX - s*Math.cos(screenAngle - arcAngle);
       const ly = tipY - s*Math.sin(screenAngle - arcAngle);
       const rx = tipX - s*Math.cos(screenAngle + arcAngle);
       const ry = tipY - s*Math.sin(screenAngle + arcAngle);
-      // Back notch point: inset along the axis direction toward the tip
-      const backDist = s * 0.6;
-      const bx = tipX - backDist * Math.cos(screenAngle);
-      const by = tipY - backDist * Math.sin(screenAngle);
-      // Control points for curved arms (bow outward slightly)
-      const bow = s * 0.2;
+      // Control points for curved arms (slight outward bow)
+      const bow = s * 0.08;
       const cpLx = (tipX + lx)/2 - bow * Math.sin(screenAngle);
       const cpLy = (tipY + ly)/2 + bow * Math.cos(screenAngle);
       const cpRx = (tipX + rx)/2 + bow * Math.sin(screenAngle);
       const cpRy = (tipY + ry)/2 - bow * Math.cos(screenAngle);
       const d = `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(lx)} ${fmt(ly)} ` +
-                `L${fmt(bx)} ${fmt(by)} L${fmt(rx)} ${fmt(ry)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(tipX)} ${fmt(tipY)} Z`;
+                `L${fmt(rx)} ${fmt(ry)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(tipX)} ${fmt(tipY)} Z`;
       return {d, filled: true};
     }
 
