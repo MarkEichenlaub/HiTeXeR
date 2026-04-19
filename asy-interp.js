@@ -3090,36 +3090,48 @@ function createInterpreter() {
       }
       if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
       if (!a || !b) return makePath([], false);
-      // Build curly brace as cubic Bezier path
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const dx = b.x - a.x, dy = b.y - a.y;
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      // Normal direction (perpendicular)
-      const nx = -dy / len * amplitude, ny = dx / len * amplitude;
-      // Control points for first half (a -> midpoint tip)
-      const c1 = makePair(a.x + nx * 0.6, a.y + ny * 0.6);
-      const c4 = makePair(mx + nx * 1.5, my + ny * 1.5);
-      const mid = makePair(mx + nx, my + ny);
-      // Control points for second half (midpoint tip -> b)
-      const c5 = makePair(mx + nx * 1.5, my + ny * 1.5);
-      const c8 = makePair(b.x + nx * 0.6, b.y + ny * 0.6);
-      // Sample cubic Bezier curves for each half
-      const nPts = 40;
-      const points = [];
-      for (let i = 0; i <= nPts; i++) {
-        const t = i / nPts;
-        let px, py;
-        if (t <= 0.5) {
-          const s = t * 2;
-          px = (1-s)*(1-s)*(1-s)*a.x + 3*(1-s)*(1-s)*s*c1.x + 3*(1-s)*s*s*c4.x + s*s*s*mid.x;
-          py = (1-s)*(1-s)*(1-s)*a.y + 3*(1-s)*(1-s)*s*c1.y + 3*(1-s)*s*s*c4.y + s*s*s*mid.y;
-        } else {
-          const s = (t - 0.5) * 2;
-          px = (1-s)*(1-s)*(1-s)*mid.x + 3*(1-s)*(1-s)*s*c5.x + 3*(1-s)*s*s*c8.x + s*s*s*b.x;
-          py = (1-s)*(1-s)*(1-s)*mid.y + 3*(1-s)*(1-s)*s*c5.y + 3*(1-s)*s*s*c8.y + s*s*s*b.y;
+      const L = Math.sqrt(dx*dx + dy*dy) || 1;
+      const ux = dx/L, uy = dy/L;        // unit tangent along brace axis
+      const nx = -uy, ny = ux;            // unit normal (left of direction = outward tip)
+      const amp = amplitude;
+      // Key waypoints along the brace
+      const sh1 = makePair(a.x + ux*(L*0.25) + nx*(amp*0.5), a.y + uy*(L*0.25) + ny*(amp*0.5));
+      const tip = makePair(a.x + ux*(L*0.5)  + nx*amp,       a.y + uy*(L*0.5)  + ny*amp);
+      const sh2 = makePair(a.x + ux*(L*0.75) + nx*(amp*0.5), a.y + uy*(L*0.75) + ny*(amp*0.5));
+      const cd = L * 0.12; // control-point distance for smooth segments
+      // Segment 1: A → sh1 (tangent along +u at both ends: produces a smooth curve up to shoulder)
+      const c1a = makePair(a.x + ux*cd,        a.y + uy*cd);
+      const c1b = makePair(sh1.x - ux*cd,      sh1.y - uy*cd);
+      // Segment 2: sh1 → tip (start tangent +u, end tangent +u+n direction = cusp approach)
+      const c2a = makePair(sh1.x + ux*cd,      sh1.y + uy*cd);
+      const tipInX = (ux + nx) * (cd * 0.707), tipInY = (uy + ny) * (cd * 0.707);
+      const c2b = makePair(tip.x - tipInX,     tip.y - tipInY);
+      // Segment 3: tip → sh2 (start tangent +u-n direction = leaving cusp, end tangent +u)
+      const tipOutX = (ux - nx) * (cd * 0.707), tipOutY = (uy - ny) * (cd * 0.707);
+      const c3a = makePair(tip.x + tipOutX,    tip.y + tipOutY);
+      const c3b = makePair(sh2.x - ux*cd,      sh2.y - uy*cd);
+      // Segment 4: sh2 → B
+      const c4a = makePair(sh2.x + ux*cd,      sh2.y + uy*cd);
+      const c4b = makePair(b.x - ux*cd,        b.y - uy*cd);
+      function sampleBezier(p0, p1, p2, p3, n, includeStart) {
+        const pts = [];
+        const start = includeStart ? 0 : 1;
+        for (let i = start; i <= n; i++) {
+          const t = i/n, mt = 1-t;
+          pts.push(makePair(
+            mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x,
+            mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y
+          ));
         }
-        points.push(makePair(px, py));
+        return pts;
       }
+      const n = 12;
+      const points = [];
+      points.push(...sampleBezier(a,   c1a, c1b, sh1, n, true));
+      points.push(...sampleBezier(sh1, c2a, c2b, tip, n, false));
+      points.push(...sampleBezier(tip, c3a, c3b, sh2, n, false));
+      points.push(...sampleBezier(sh2, c4a, c4b, b,   n, false));
       const segs = [];
       for (let i = 0; i < points.length - 1; i++) {
         segs.push(lineSegment(points[i], points[i+1]));
@@ -3307,7 +3319,7 @@ function createInterpreter() {
       if (sides < 3) return makePath([], false);
       const pts = [];
       for (let i = 0; i < sides; i++) {
-        const angle = 2*Math.PI*i/sides + Math.PI/2;
+        const angle = 2*Math.PI*i/sides;
         pts.push({x: Math.cos(angle), y: Math.sin(angle)});
       }
       const segs = [];
@@ -3834,10 +3846,12 @@ function createInterpreter() {
       // Draw the dot using pointpen (or given pen)
       const dotPen = pen || env.get('pointpen') || clonePen(defaultPen);
       evalDot([pos, dotPen]);
-      // Draw the label if provided
+      // Draw the label if provided. MP wraps text in $...$ (math mode) by convention,
+      // so labels should render as math italic like Asymptote/cse5 does.
       if (text) {
         const labelPen = pen || clonePen(defaultPen);
-        const labelArgs = [text, pos];
+        const mathText = (text.startsWith('$') || text.includes('$')) ? text : '$' + text + '$';
+        const labelArgs = [mathText, pos];
         if (align) labelArgs.push(align);
         labelArgs.push(labelPen);
         evalLabel(labelArgs);
@@ -4961,6 +4975,9 @@ function createInterpreter() {
       const defaultTickSize = perpAxisRange * 0.015;
       let majorSize = ticks.sizeExplicit ? ticks.size : defaultTickSize;
       let minorSize = majorSize * 0.5;
+      // If size was explicitly set extremely small (e.g. Size = 0.1pt), the user is
+      // suppressing visible tick marks — skip drawing tick lines entirely.
+      const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
 
       // Compute major tick positions
       let majorPositions;
@@ -5046,10 +5063,12 @@ function createInterpreter() {
         pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? (above ? 1 : -1) : (above ? 1 : 0), _isTickMark: !isExtend});
       }
 
-      // Draw major ticks
-      for (const v of majorPositions) drawTick(v, majorSize);
-      // Draw minor ticks
-      for (const v of minorPositions) drawTick(v, minorSize);
+      // Draw major ticks (skip when size was explicitly set to near-zero)
+      if (!skipTickMarks || isExtend) {
+        for (const v of majorPositions) drawTick(v, majorSize);
+        // Draw minor ticks
+        for (const v of minorPositions) drawTick(v, minorSize);
+      }
 
       // Draw labels for major ticks
       // Suppress labels for extend=true ticks (grid lines) or very tiny tick marks
@@ -5341,15 +5360,31 @@ function createInterpreter() {
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
       _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
-        const lAlign = labelAlign || {x:-1, y:0};
-        let labelY = ymin + (ymax - ymin) * 0.5;
-        if (labelPosition != null) labelY = ymin + (ymax - ymin) * labelPosition;
-        // Y-axis labels are rotated 90° CCW by default (like Asymptote's graph.asy)
-        // But at EndPoint (1) or BeginPoint (0), the label sits at the axis tip and stays upright
+        // In Asymptote's graph.asy, the default position for a y-axis label is at the
+        // endpoint (top of axis) with N (above) alignment, rendered HORIZONTALLY.
+        // Only when the user explicitly sets a non-endpoint position is the label
+        // placed along the axis and rotated.
+        const atEndpoint = labelPosition == null || labelPosition === 1 || labelPosition === 0;
+        const effPos = labelPosition == null ? 1 : labelPosition;
+        const lAlign = labelAlign || (atEndpoint ? {x:0, y:1} : {x:-1, y:0});
+        const labelY = ymin + (ymax - ymin) * effPos;
+        // Only apply 90° CCW rotation when the label is placed along the axis (not at endpoint)
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
-        const atEndpoint = labelPosition === 1 || labelPosition === 0;
         const lt = labelTransform || (atEndpoint ? undefined : rot90ccw);
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0});
+        // Asymptote's graph.asy autoshifts the axis label past the tick labels so they don't
+        // overlap. Only relevant for labels rotated along the axis (not endpoint labels).
+        let tickLabelClearance = 0;
+        if (!atEndpoint && (labelAlign === null || (lAlign.x < 0 && lAlign.y === 0))) {
+          for (const c of pic.commands) {
+            if (c._isTickLabel && c.pos && Math.abs(c.pos.x - axisShiftX) < 1e-6) {
+              const txt = stripLaTeX(c.text || '');
+              const fs = (c.pen && c.pen.fontsize) || 8;
+              const w = txt.length * fs * 0.52 + 0.5 * fs;
+              if (w > tickLabelClearance) tickLabelClearance = w;
+            }
+          }
+        }
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true});
       }
     });
 
@@ -5388,6 +5423,9 @@ function createInterpreter() {
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
+        // When Size is explicitly set to a very small value (e.g. Size = 0.1pt),
+        // treat as intentionally suppressed tick marks — skip drawing the tick lines.
+        const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
         const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.format);
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
@@ -5438,6 +5476,9 @@ function createInterpreter() {
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
+        // When Size is explicitly set to a very small value (e.g. Size = 0.1pt),
+        // treat as intentionally suppressed tick marks — skip drawing the tick lines.
+        const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
         const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.format);
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
@@ -7357,6 +7398,14 @@ function createInterpreter() {
       return { _tag: 'surface' };
     });
     env.set('revolution', (...args) => ({_tag:'surface'}));
+    env.set('sphere', (...args) => {
+      if (args.length >= 1 && isTriple(args[0])) {
+        const c = args[0];
+        const r = args.length >= 2 ? toNumber(args[1]) : 1;
+        return {_tag: 'sphere', center: c, radius: r};
+      }
+      return {_tag: 'surface'};
+    });
     env.set('unitsphere', {_tag:'surface'});
     env.set('unitdisk', {_tag:'surface'});
     env.set('unitplane', {_tag:'surface'});
@@ -7440,6 +7489,32 @@ function createInterpreter() {
         target.commands.push({cmd, path, pen:clonePen(p), arrow:null, line: args._line || 0});
       }
       return;
+    }
+    // Handle draw(sphere(center, r), pen) — render as wireframe
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a && a._tag === 'sphere') {
+        const C = a.center, R = a.radius;
+        let spherePen = null;
+        for (let j = 0; j < args.length; j++) {
+          if (j === i) continue;
+          if (isPen(args[j])) spherePen = spherePen ? mergePens(spherePen, args[j]) : args[j];
+        }
+        if (!spherePen) spherePen = clonePen(defaultPen);
+        // Draw sphere as silhouette circle at projected center (matches Asymptote's
+        // solids module output for draw(revolution,pen) — outline only, no wireframe).
+        const centerProj = projectTriple(C);
+        const nPts = 64;
+        const pts = [];
+        for (let j = 0; j <= nPts; j++) {
+          const th = 2*Math.PI*j/nPts;
+          pts.push(makePair(centerProj.x + R*Math.cos(th), centerProj.y + R*Math.sin(th)));
+        }
+        const segs = [];
+        for (let m = 0; m < pts.length-1; m++) segs.push(lineSegment(pts[m], pts[m+1]));
+        target.commands.push({cmd:'draw', path: makePath(segs, true), pen: clonePen(spherePen), arrow:null, line: args._line || 0});
+        return;
+      }
     }
     // Handle draw(surface(path3), pen) — render as filled polygon
     for (let i = 0; i < args.length; i++) {
@@ -8197,7 +8272,6 @@ function renderSVG(result, opts) {
     const autoScaled = !hasUnitScale && sizeW <= 0 && sizeH <= 0;
 
     for (const dc of drawCommands) {
-      if (dc.cmd === 'label' && dc._isTickLabel) continue;
       if (dc.cmd === 'label' || dc.cmd === 'dot') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
@@ -8262,6 +8336,11 @@ function renderSVG(result, opts) {
           dx = ax_n * textWidthUser + ax * marginX;
           dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
         }
+        // Apply screen-space offsets (used by axis labels to autoshift past tick labels).
+        // screenDx/screenDy are in bp; convert to user coords using rough scale.
+        if (dc.screenDx) dx += dc.screenDx / roughPxPerUnitX;
+        // screenDy is an SVG-y offset (positive = down). In user coords y is inverted.
+        if (dc.screenDy) dy -= dc.screenDy / roughPxPerUnitY;
         // Expand bbox to include estimated text bounds
         const cx = pos.x + dx;
         const cy = pos.y + dy;
@@ -8288,8 +8367,11 @@ function renderSVG(result, opts) {
               lWidthBp = rW;
               lHeightBp = rH;
             }
-            const alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
-            const alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
+            let alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
+            let alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
+            // screenDx/screenDy (in bp) are applied on top of alignment-driven offset
+            if (dc.screenDx) alignOffsetXBp += dc.screenDx;
+            if (dc.screenDy) alignOffsetYBp -= dc.screenDy;  // SVG y-down → Asymptote y-up
             labelInfoBp.push({
               posX: pos.x, posY: pos.y,
               widthBp: lWidthBp,
@@ -8362,7 +8444,7 @@ function renderSVG(result, opts) {
     // unitsize, don't boost — the labels already provide adequate visual content.
     const fullNatW = fullW * unitScale;
     const fullNatH = fullH * unitScale;
-    const minReasonable = 50;  // 50bp: below this, geometry is truly invisible
+    const minReasonable = 150;  // 150bp: below this, geometry is too small vs labels
     if (naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
       // Scale up while maintaining aspect ratio
@@ -8715,8 +8797,14 @@ function renderSVG(result, opts) {
 
       const isSizeConstrained = !isAutoScaled && !hasUnitScale;
       // For size()-constrained single-line labels: skip entirely (solver handles it).
-      if (isSizeConstrained && numLines <= 1) continue;
-      const W = cleanLen * fontSizeSVG * 0.52;
+      // Exception: tick labels and axis labels may extend beyond the solver-computed
+      // geometry, so we still need to pad the viewBox for them.
+      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel) continue;
+      // Italic math labels (in KaTeX_Math) render wider than plain text; use a
+      // larger char-width factor so viewBox pad covers the actual glyph extent.
+      const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
+      const charWFactor = hasMath ? 0.62 : 0.52;
+      const W = cleanLen * fontSizeSVG * charWFactor;
       const H = fontSizeSVG * numLines;
 
       // For scaled/rotated labels, use the transformed bounding box dimensions.
@@ -8754,6 +8842,10 @@ function renderSVG(result, opts) {
         dx = ax_n * effW + ax * margin;
         dy = -(ay_n * effH + ay * margin);
       }
+      // Apply per-command screen-space offsets (axis label autoshift). These are in
+      // bp; convert to SVG user units via bpCSSPixel to match effW/effH scaling.
+      if (dc.screenDx) dx += dc.screenDx * bpCSSPixel;
+      if (dc.screenDy) dy += dc.screenDy * bpCSSPixel;
 
       // Text bounding box in viewBox coords (text-anchor="middle")
       const cx = sx + dx, cy = sy + dy;
@@ -8769,13 +8861,20 @@ function renderSVG(result, opts) {
       if (hasClip && (right < 0 || left > viewW || bottom < 0 || top > viewH)) continue;
 
       if (isSizeConstrained) {
-        // Size()-constrained multi-line only: extend vertically using actual tspan height.
+        // Size()-constrained: normally only extend vertically using actual tspan height.
         // Actual rendered height = fontSizeSVG × (1 + 1.2 × (numLines-1)) due to tspan dy.
         const hActual = fontSizeSVG * (1 + 1.2 * (numLines - 1));
         const topActual = cy - hActual / 2;
         const bottomActual = cy + hActual / 2;
         padT = Math.max(padT, -topActual);
         padB = Math.max(padB, bottomActual - viewH);
+        // Tick labels and axis labels may extend horizontally beyond the solver-
+        // computed bbox (solver uses geometry extent, but ticks/axis labels are
+        // placed by alignment beyond that). Pad horizontally for these.
+        if (dc._isTickLabel || dc._isAxisLabel) {
+          padL = Math.max(padL, -left);
+          padR = Math.max(padR, right - viewW);
+        }
       } else {
         padL = Math.max(padL, -left);
         padR = Math.max(padR, right - viewW);
@@ -9218,11 +9317,23 @@ function renderSVG(result, opts) {
             dx = ax2 * 0.5 * rotW + ax2 * margin2;
             dy = -(ay2 * 0.5 * rotH + ay2 * margin2);
           }
+          // Apply per-command screen-space offsets (used by axis labels to autoshift past
+          // tick labels). Must be applied before baking dx/dy into the rotate pivot point.
+          // screenDx/Dy are in bp; scale to viewBox units via bpCSSPixel.
+          if (dc.screenDx) dx += dc.screenDx * bpCSSPixel;
+          if (dc.screenDy) dy += dc.screenDy * bpCSSPixel;
           labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
           // With rotation, text-anchor must be 'middle' so the label is centered at the
           // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
           anchor = 'middle';
         }
+      }
+
+      // Apply per-command screen-space offsets for non-rotated labels (axis label autoshift).
+      // For rotated labels, this was already applied above.
+      if (!labelTransformAttr) {
+        if (dc.screenDx) dx += dc.screenDx * bpCSSPixel;
+        if (dc.screenDy) dy += dc.screenDy * bpCSSPixel;
       }
 
       // Handle multi-line text (produced by minipage with \n line breaks)
@@ -9641,8 +9752,8 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const arrowParts = [];
   const isArcStyle = style === 'ArcArrow' || style === 'EndArcArrow' ||
     style === 'BeginArcArrow' || style === 'ArcArrows';
-  // ArcArrow uses open (unfilled) curved arms; regular Arrow uses filled triangle.
-  const filled = !isArcStyle && style !== 'Bar' && style !== 'Bars';
+  // ArcArrow uses filled curved arrowhead (bowed-out shape); regular Arrow uses filled triangle.
+  const filled = style !== 'Bar' && style !== 'Bars';
 
   function arrowAt(seg, atEnd) {
     let tip, tangentAngle;
@@ -9669,22 +9780,26 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     const s = arrowLen;
 
     if (isArcStyle) {
-      // ArcArrow: two curved bezier arms radiating from the tip, bowing outward.
-      // Asymptote's ArcArrow uses wide arcs (55° half-angle) that bow away from
-      // the arrowhead axis, creating a wing/crescent shape.
-      const arcAngle = 55 * Math.PI / 180;
+      // ArcArrow: filled curved arrowhead. Tip at origin, two arms at ±arcAngle
+      // from the direction axis, with a concave "notch" at the back (between the arms).
+      const arcAngle = 40 * Math.PI / 180;
       const lx = tipX - s*Math.cos(screenAngle - arcAngle);
       const ly = tipY - s*Math.sin(screenAngle - arcAngle);
       const rx = tipX - s*Math.cos(screenAngle + arcAngle);
       const ry = tipY - s*Math.sin(screenAngle + arcAngle);
-      const bow = s * 0.45;
-      const cpLx = tipX - bow * Math.sin(screenAngle);
-      const cpLy = tipY + bow * Math.cos(screenAngle);
-      const cpRx = tipX + bow * Math.sin(screenAngle);
-      const cpRy = tipY - bow * Math.cos(screenAngle);
-      const d = `M${fmt(lx)} ${fmt(ly)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(tipX)} ${fmt(tipY)} ` +
-                `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(rx)} ${fmt(ry)}`;
-      return {d, filled: false};
+      // Back notch point: inset along the axis direction toward the tip
+      const backDist = s * 0.6;
+      const bx = tipX - backDist * Math.cos(screenAngle);
+      const by = tipY - backDist * Math.sin(screenAngle);
+      // Control points for curved arms (bow outward slightly)
+      const bow = s * 0.2;
+      const cpLx = (tipX + lx)/2 - bow * Math.sin(screenAngle);
+      const cpLy = (tipY + ly)/2 + bow * Math.cos(screenAngle);
+      const cpRx = (tipX + rx)/2 + bow * Math.sin(screenAngle);
+      const cpRy = (tipY + ry)/2 - bow * Math.cos(screenAngle);
+      const d = `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(lx)} ${fmt(ly)} ` +
+                `L${fmt(bx)} ${fmt(by)} L${fmt(rx)} ${fmt(ry)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(tipX)} ${fmt(tipY)} Z`;
+      return {d, filled: true};
     }
 
     const headAngle = 25 * Math.PI / 180;
@@ -9729,20 +9844,25 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // Detect \textbf / \mathbf → bold; \textit / \mathit → italic (whole-label heuristic)
   if ((!fontWeight || fontWeight === 'normal') && /\\(?:textbf|mathbf)\s*\{/.test(s)) fontWeight = 'bold';
   if ((!fontStyle  || fontStyle  === 'normal') && /\\(?:textit|mathit)\s*\{/.test(s)) fontStyle  = 'italic';
-  // Handle \mathbf, \mathrm, \textbf, etc. — remove the command, keep content
-  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // Use private-use sentinel chars \x01…\x02 as open/close markers for upright spans.
+  const UPRIGHT_OPEN = '\x01';
+  const UPRIGHT_CLOSE = '\x02';
+  // Handle \mathrm / \textrm / \text / \operatorname — wrap contents in upright sentinels
+  // so they render non-italic even when the surrounding label is in math-italic mode.
+  s = s.replace(/\\(?:mathrm|textrm|text|operatorname)\s*\{([^}]*)\}/g,
+    (_m, inner) => UPRIGHT_OPEN + inner + UPRIGHT_CLOSE);
+  // Strip other styling commands (bold/italic/sf/tt already handled via fontWeight/Style detection).
+  s = s.replace(/\\(?:mathbf|mathit|mathsf|mathtt|textbf|textit)\s*\{([^}]*)\}/g, '$1');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
   // In math-italic mode, mark operator names so they render upright (as in real LaTeX).
   // Must happen before texMap converts \cos → 'cos', so we can distinguish operator text
   // from ordinary italic variables.
-  // Use private-use sentinel chars \x01…\x02 as open/close markers.
-  const UPRIGHT_OPEN = '\x01';
-  const UPRIGHT_CLOSE = '\x02';
-  const needsUprightOps = (fontStyle === 'italic');
-  if (needsUprightOps) {
+  if (fontStyle === 'italic') {
     s = s.replace(/\\(arcsin|arccos|arctan|sin|cos|tan|sec|csc|cot|log|ln|exp|lim|inf|sup|gcd|det|ker|dim|deg|hom|arg)(?![a-zA-Z])/g,
       (_m, op) => UPRIGHT_OPEN + op + UPRIGHT_CLOSE);
   }
+  // Trigger mixed upright/italic rendering when any upright sentinels are present.
+  const needsUprightOps = s.includes(UPRIGHT_OPEN);
   // Common LaTeX → Unicode
   const texMap = {
     '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
