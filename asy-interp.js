@@ -1232,6 +1232,163 @@ function applyTransform3Path(t, path) {
 }
 
 // ============================================================
+// 3D Mesh (faces of triples with face normals) — Phase 1
+// ============================================================
+function isMesh(v) { return v && v._tag === 'mesh'; }
+function makeMesh(faces) { return {_tag:'mesh', faces: faces || []}; }
+function faceNormal(face) {
+  // Newell's method for robust normal of possibly non-planar polygon
+  const V = face.vertices;
+  const n = V.length;
+  if (n < 3) return {x:0, y:0, z:1};
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < n; i++) {
+    const a = V[i], b = V[(i+1) % n];
+    nx += (a.y - b.y) * (a.z + b.z);
+    ny += (a.z - b.z) * (a.x + b.x);
+    nz += (a.x - b.x) * (a.y + b.y);
+  }
+  const L = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
+  return {x: nx/L, y: ny/L, z: nz/L};
+}
+function applyTransform3Mesh(t, mesh) {
+  const newFaces = mesh.faces.map(f => {
+    const newVerts = f.vertices.map(v => applyTransform3Triple(t, v));
+    const nf = {vertices: newVerts};
+    if (f.pen) nf.pen = f.pen;
+    nf.normal = faceNormal(nf); // recompute normal after transform
+    return nf;
+  });
+  return makeMesh(newFaces);
+}
+
+// ---- Mesh builders for primitive solids ----
+
+function _mkFace(verts) {
+  const f = {vertices: verts.map(v => ({_tag:'triple', x:v.x, y:v.y, z:v.z}))};
+  f.normal = faceNormal(f);
+  return f;
+}
+
+function _buildSquareMesh() {
+  // unitsquare3: (0,0,0)-(1,0,0)-(1,1,0)-(0,1,0)
+  const V = [
+    {x:0,y:0,z:0}, {x:1,y:0,z:0}, {x:1,y:1,z:0}, {x:0,y:1,z:0}
+  ];
+  return {_tag:'mesh', faces: [_mkFace(V)]};
+}
+
+function _buildCubeMesh() {
+  // unitcube: 6 faces, [0,1]^3 in Asymptote convention
+  const a = {x:0,y:0,z:0}, b = {x:1,y:0,z:0}, c = {x:1,y:1,z:0}, d = {x:0,y:1,z:0};
+  const e = {x:0,y:0,z:1}, f = {x:1,y:0,z:1}, g = {x:1,y:1,z:1}, h = {x:0,y:1,z:1};
+  return {_tag:'mesh', faces: [
+    _mkFace([a,b,c,d]),   // bottom  (normal -Z)
+    _mkFace([e,h,g,f]),   // top     (normal +Z)
+    _mkFace([a,e,f,b]),   // front   (normal -Y)
+    _mkFace([b,f,g,c]),   // right   (normal +X)
+    _mkFace([c,g,h,d]),   // back    (normal +Y)
+    _mkFace([d,h,e,a]),   // left    (normal -X)
+  ]};
+}
+
+function _buildSphereMesh(nLon, nLat) {
+  // Unit sphere at origin, radius 1
+  const faces = [];
+  for (let j = 0; j < nLat; j++) {
+    const phi1 = -Math.PI/2 + Math.PI * j / nLat;
+    const phi2 = -Math.PI/2 + Math.PI * (j+1) / nLat;
+    const z1 = Math.sin(phi1), r1 = Math.cos(phi1);
+    const z2 = Math.sin(phi2), r2 = Math.cos(phi2);
+    for (let i = 0; i < nLon; i++) {
+      const th1 = 2*Math.PI * i / nLon;
+      const th2 = 2*Math.PI * (i+1) / nLon;
+      const a = {x: r1*Math.cos(th1), y: r1*Math.sin(th1), z: z1};
+      const b = {x: r1*Math.cos(th2), y: r1*Math.sin(th2), z: z1};
+      const c = {x: r2*Math.cos(th2), y: r2*Math.sin(th2), z: z2};
+      const d = {x: r2*Math.cos(th1), y: r2*Math.sin(th1), z: z2};
+      // Skip degenerate at poles (triangle instead of quad)
+      if (j === 0) { faces.push(_mkFace([a, c, d])); }
+      else if (j === nLat-1) { faces.push(_mkFace([a, b, c])); }
+      else { faces.push(_mkFace([a, b, c, d])); }
+    }
+  }
+  return {_tag:'mesh', faces};
+}
+
+function _buildCylinderMesh(nLon) {
+  // Unit cylinder: radius 1, base at z=0, top at z=1
+  const faces = [];
+  // Side
+  for (let i = 0; i < nLon; i++) {
+    const th1 = 2*Math.PI * i / nLon;
+    const th2 = 2*Math.PI * (i+1) / nLon;
+    const a = {x: Math.cos(th1), y: Math.sin(th1), z: 0};
+    const b = {x: Math.cos(th2), y: Math.sin(th2), z: 0};
+    const c = {x: Math.cos(th2), y: Math.sin(th2), z: 1};
+    const d = {x: Math.cos(th1), y: Math.sin(th1), z: 1};
+    faces.push(_mkFace([a, b, c, d]));
+  }
+  // Bottom cap: fan from origin
+  for (let i = 0; i < nLon; i++) {
+    const th1 = 2*Math.PI * i / nLon;
+    const th2 = 2*Math.PI * (i+1) / nLon;
+    const center = {x: 0, y: 0, z: 0};
+    const a = {x: Math.cos(th2), y: Math.sin(th2), z: 0};
+    const b = {x: Math.cos(th1), y: Math.sin(th1), z: 0};
+    faces.push(_mkFace([center, a, b]));
+  }
+  // Top cap
+  for (let i = 0; i < nLon; i++) {
+    const th1 = 2*Math.PI * i / nLon;
+    const th2 = 2*Math.PI * (i+1) / nLon;
+    const center = {x: 0, y: 0, z: 1};
+    const a = {x: Math.cos(th1), y: Math.sin(th1), z: 1};
+    const b = {x: Math.cos(th2), y: Math.sin(th2), z: 1};
+    faces.push(_mkFace([center, a, b]));
+  }
+  return {_tag:'mesh', faces};
+}
+
+function _buildConeMesh(nLon) {
+  // Unit cone: apex at (0,0,1), base circle radius 1 at z=0
+  const faces = [];
+  const apex = {x:0, y:0, z:1};
+  const center = {x:0, y:0, z:0};
+  // Side faces
+  for (let i = 0; i < nLon; i++) {
+    const th1 = 2*Math.PI * i / nLon;
+    const th2 = 2*Math.PI * (i+1) / nLon;
+    const a = {x: Math.cos(th1), y: Math.sin(th1), z: 0};
+    const b = {x: Math.cos(th2), y: Math.sin(th2), z: 0};
+    faces.push(_mkFace([apex, a, b]));
+  }
+  // Base cap
+  for (let i = 0; i < nLon; i++) {
+    const th1 = 2*Math.PI * i / nLon;
+    const th2 = 2*Math.PI * (i+1) / nLon;
+    const a = {x: Math.cos(th2), y: Math.sin(th2), z: 0};
+    const b = {x: Math.cos(th1), y: Math.sin(th1), z: 0};
+    faces.push(_mkFace([center, a, b]));
+  }
+  return {_tag:'mesh', faces};
+}
+
+function _buildDiskMesh(nLon) {
+  // Unit disk in z=0 plane, radius 1
+  const faces = [];
+  const center = {x:0, y:0, z:0};
+  for (let i = 0; i < nLon; i++) {
+    const th1 = 2*Math.PI * i / nLon;
+    const th2 = 2*Math.PI * (i+1) / nLon;
+    const a = {x: Math.cos(th1), y: Math.sin(th1), z: 0};
+    const b = {x: Math.cos(th2), y: Math.sin(th2), z: 0};
+    faces.push(_mkFace([center, a, b]));
+  }
+  return {_tag:'mesh', faces};
+}
+
+// ============================================================
 // Hobby's Algorithm for smooth '..' paths
 // ============================================================
 
@@ -2108,7 +2265,14 @@ function createInterpreter() {
     if (isTransform3(left) && Array.isArray(right)) {
       return right.map(r => (isPath(r) ? applyTransform3Path(left, r)
                            : isTriple(r) ? applyTransform3Triple(left, r)
+                           : isMesh(r) ? applyTransform3Mesh(left, r)
                            : r));
+    }
+    // transform3 * mesh → transformed mesh
+    if (isTransform3(left) && isMesh(right)) return applyTransform3Mesh(left, right);
+    // transform3 * surface{mesh} → surface with transformed mesh
+    if (isTransform3(left) && right && right._tag === 'surface' && right.mesh) {
+      return {_tag: 'surface', mesh: applyTransform3Mesh(left, right.mesh)};
     }
     // Transform * pair
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
@@ -7781,27 +7945,83 @@ function createInterpreter() {
 
     // (intersectionpoints defined earlier with proper implementation)
 
-    // surface(): capture boundary path for rendering as filled polygon
+    // surface(): wrap mesh, or capture boundary path (flat polygon)
     env.set('surface', (...args) => {
-      if (args.length >= 1 && isPath(args[0])) {
-        return { _tag: 'surface', boundary: args[0] };
-      }
-      return { _tag: 'surface' };
+      const firstPath = args.find(a => isPath(a));
+      const firstMesh = args.find(a => isMesh(a));
+      if (firstMesh) return {_tag:'surface', mesh: firstMesh};
+      if (firstPath) return {_tag:'surface', boundary: firstPath};
+      return {_tag:'surface'};
     });
     env.set('revolution', (...args) => ({_tag:'surface'}));
     env.set('sphere', (...args) => {
       if (args.length >= 1 && isTriple(args[0])) {
         const c = args[0];
         const r = args.length >= 2 ? toNumber(args[1]) : 1;
-        return {_tag: 'sphere', center: c, radius: r};
+        // Build a tessellated sphere mesh centered at c with radius r
+        const mesh = _buildSphereMesh(24, 12);
+        const scaled = applyTransform3Mesh(scaleT3(r, r, r), mesh);
+        return applyTransform3Mesh(shiftT3(c.x, c.y, c.z), scaled);
       }
       return {_tag: 'surface'};
     });
-    env.set('unitsphere', {_tag:'surface'});
-    env.set('unitdisk', {_tag:'surface'});
-    env.set('unitplane', {_tag:'surface'});
-    env.set('unitcube', {_tag:'surface'});
+    // Primitive meshes
+    env.set('unitsphere', _buildSphereMesh(24, 12));
+    env.set('unitdisk', _buildDiskMesh(32));
+    env.set('unitplane', _buildSquareMesh());
+    env.set('unitsquare3', _buildSquareMesh());
+    env.set('unitcube', _buildCubeMesh());
+    env.set('unitcylinder', _buildCylinderMesh(24));
+    env.set('unitcone', _buildConeMesh(24));
     env.set('extrude', (...args) => ({_tag:'surface'}));
+
+    // solids-module constructors: return a mesh (painter's-algorithm rendering).
+    // cone(center, r, h[, axis]) — axis defaults to Z; only axial cone supported.
+    env.set('cone', (...args) => {
+      if (args.length >= 3 && isTriple(args[0]) && typeof args[1] === 'number' && typeof args[2] === 'number') {
+        const c = args[0], r = toNumber(args[1]), h = toNumber(args[2]);
+        let m = applyTransform3Mesh(scaleT3(r, r, h), _buildConeMesh(24));
+        m = applyTransform3Mesh(shiftT3(c.x, c.y, c.z), m);
+        return m;
+      }
+      // cone(r, h) — base at origin
+      if (args.length >= 2 && typeof args[0] === 'number' && typeof args[1] === 'number') {
+        const r = toNumber(args[0]), h = toNumber(args[1]);
+        return applyTransform3Mesh(scaleT3(r, r, h), _buildConeMesh(24));
+      }
+      return makeMesh([]);
+    });
+    // cylinder(center, r, h[, axis])
+    env.set('cylinder', (...args) => {
+      if (args.length >= 3 && isTriple(args[0]) && typeof args[1] === 'number' && typeof args[2] === 'number') {
+        const c = args[0], r = toNumber(args[1]), h = toNumber(args[2]);
+        let m = applyTransform3Mesh(scaleT3(r, r, h), _buildCylinderMesh(24));
+        m = applyTransform3Mesh(shiftT3(c.x, c.y, c.z), m);
+        return m;
+      }
+      if (args.length >= 2 && typeof args[0] === 'number' && typeof args[1] === 'number') {
+        const r = toNumber(args[0]), h = toNumber(args[1]);
+        return applyTransform3Mesh(scaleT3(r, r, h), _buildCylinderMesh(24));
+      }
+      return makeMesh([]);
+    });
+    // render() — accepts any args, returns an opaque marker object ignored by draw
+    env.set('render', (...args) => ({_tag:'renderOpts'}));
+    // Generic 3D picture stubs / module markers
+    env.set('Viewport', {_tag:'light'});
+    // align(triple unit) — stub: return identity transform3 (proper align pending)
+    env.set('align', (...args) => identityT3());
+    env.set('unit', (v) => {
+      if (isTriple(v)) {
+        const L = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z) || 1;
+        return makeTriple(v.x/L, v.y/L, v.z/L);
+      }
+      if (isPair(v)) {
+        const L = Math.sqrt(v.x*v.x + v.y*v.y) || 1;
+        return makePair(v.x/L, v.y/L);
+      }
+      return v;
+    });
 
     // size3(W,H,D): 3D bounding-box size hint. Currently we record the requested
     // 3D dims on the picture for diagnostics and use max(W,H) as the 2D size if
@@ -7975,6 +8195,23 @@ function createInterpreter() {
         const segs = [];
         for (let m = 0; m < pts.length-1; m++) segs.push(lineSegment(pts[m], pts[m+1]));
         target.commands.push({cmd:'draw', path: makePath(segs, true), pen: clonePen(spherePen), arrow:null, line: args._line || 0});
+        return;
+      }
+    }
+    // Handle draw(mesh, pen) or draw(surface{mesh}, pen) — shaded, depth-sorted faces
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      let mesh = null;
+      if (isMesh(a)) mesh = a;
+      else if (a && a._tag === 'surface' && a.mesh) mesh = a.mesh;
+      if (mesh) {
+        let meshPen = null;
+        for (let j = 0; j < args.length; j++) {
+          if (j === i) continue;
+          if (isPen(args[j])) meshPen = meshPen ? mergePens(meshPen, args[j]) : args[j];
+        }
+        if (!meshPen) meshPen = clonePen(defaultPen);
+        renderMeshToPicture(mesh, meshPen, target, args._line || 0);
         return;
       }
     }
@@ -8272,6 +8509,79 @@ function createInterpreter() {
       p._singlePoint = projectTriple(p._singlePoint);
     }
     return p;
+  }
+
+  // ============================================================
+  // 3D Mesh rendering: depth-sort faces (painter's), Lambert shade, emit fills
+  // ============================================================
+  function renderMeshToPicture(mesh, basePen, target, line) {
+    if (!mesh || !mesh.faces || mesh.faces.length === 0) return;
+    const proj = projection;
+    // View axis (camera - target), normalized — used both for depth and light
+    let vx, vy, vz, camPos;
+    if (proj) {
+      const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+      vx = proj.cx - tx; vy = proj.cy - ty; vz = proj.cz - tz;
+      camPos = {x: proj.cx, y: proj.cy, z: proj.cz};
+    } else {
+      vx = 0; vy = 0; vz = 1; camPos = {x: 0, y: 0, z: 100};
+    }
+    const vl = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+    vx /= vl; vy /= vl; vz /= vl;
+    // Lambert from "viewport" light (along view axis, toward viewer)
+    // For orthographic: parallel light along +view. For perspective: roughly same.
+    const lx = vx, ly = vy, lz = vz;
+
+    // Compute per-face data: depth (view-space), shade, projected 2D polygon
+    const items = [];
+    for (const face of mesh.faces) {
+      const V = face.vertices;
+      if (!V || V.length < 3) continue;
+      // Face centroid in world space
+      let cx = 0, cy = 0, cz = 0;
+      for (const v of V) { cx += v.x; cy += v.y; cz += v.z; }
+      cx /= V.length; cy /= V.length; cz /= V.length;
+      // Depth = distance from camera along view axis (positive = far from camera)
+      // For painter: we want to draw farthest first → sort descending by distance.
+      // distance = dot(cam - centroid, viewAxis) — but simpler: -dot(centroid - target, viewAxis)
+      // Use distance from camera:
+      const depth = Math.sqrt(
+        (camPos.x-cx)*(camPos.x-cx) +
+        (camPos.y-cy)*(camPos.y-cy) +
+        (camPos.z-cz)*(camPos.z-cz));
+      // Normal (may already be cached)
+      const n = face.normal || faceNormal(face);
+      // Lambert: intensity = |n · L|; use abs so back-facing faces still lit
+      // (acceptable shortcut since we're not doing true back-face culling)
+      let dot = n.x*lx + n.y*ly + n.z*lz;
+      if (dot < 0) dot = -dot;
+      const intensity = 0.35 + 0.65 * dot; // 0.35 ambient floor
+      // Project polygon
+      const poly = V.map(v => projectTriple(v));
+      items.push({depth, intensity, poly, pen: face.pen || basePen});
+    }
+    // Sort: farthest first
+    items.sort((a, b) => b.depth - a.depth);
+    // Emit fill commands
+    for (const it of items) {
+      const base = it.pen;
+      const shaded = clonePen(base);
+      shaded.r = Math.max(0, Math.min(1, base.r * it.intensity));
+      shaded.g = Math.max(0, Math.min(1, base.g * it.intensity));
+      shaded.b = Math.max(0, Math.min(1, base.b * it.intensity));
+      const segs = [];
+      for (let i = 0; i < it.poly.length; i++) {
+        const a = it.poly[i];
+        const b = it.poly[(i+1) % it.poly.length];
+        segs.push(lineSegment(a, b));
+      }
+      const p = makePath(segs, true);
+      target.commands.push({cmd: 'fill', path: p, pen: shaded, line});
+      // Also stroke a thin outline with same shaded color to close tiny gaps
+      const stroke = clonePen(shaded);
+      stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
+      target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line});
+    }
   }
 
   function bezierArcLength(seg) {
