@@ -2894,13 +2894,19 @@ function createInterpreter() {
       }
       if (method === 'map') {
         const fn = args[0];
-        const grid = obj._grid;
-        if (!fn || !grid) return [];
+        if (!fn) return [];
         const call = (t) => {
           if (typeof fn === 'function') return fn(t);
           if (fn && fn._tag === 'func') return callUserFuncValues(fn, [t]);
           return 0;
         };
+        // Triangulated surface with flat vertex list (from contour3/marching tets)
+        if (Array.isArray(obj._vertices)) {
+          return obj._vertices.map(v => toNumber(call(v)));
+        }
+        // Quad-grid surface
+        const grid = obj._grid;
+        if (!grid) return [];
         const out = [];
         for (const row of grid) for (const v of row) out.push(toNumber(call(v)));
         return out;
@@ -8524,13 +8530,21 @@ function createInterpreter() {
             firstArr[0].length === 3 && isTriple(firstArr[0][0]) &&
             !Array.isArray(firstArr[0][0])) {
           const faces = [];
-          for (const tri of firstArr) {
+          const faceIdx = firstArr._contourFaceIdx || null;
+          for (let t = 0; t < firstArr.length; t++) {
+            const tri = firstArr[t];
             if (!Array.isArray(tri) || tri.length < 3) continue;
             const f = { vertices: [tri[0], tri[1], tri[2]] };
+            if (faceIdx && faceIdx[t]) f._vidx = faceIdx[t];
             f.normal = faceNormal(f);
             faces.push(f);
           }
-          if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+          if (faces.length > 0) {
+            const surf = { _tag: 'surface', mesh: makeMesh(faces) };
+            if (firstArr._contourVertices) surf._vertices = firstArr._contourVertices;
+            if (firstArr._contourFaceIdx) surf._faceVertexIdx = firstArr._contourFaceIdx;
+            return surf;
+          }
         }
       }
       // Bezier patch array: surface(triple[][][]) or surface(patch[][]).
@@ -8915,7 +8929,7 @@ function createInterpreter() {
         if (lastSeg && lastSeg.p3 && isTriple(lastSeg.p3)) samples.push(lastSeg.p3);
       }
       if (samples.length < 2) return {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: p};
-      const nSides = 8;
+      const nSides = 24;
       const ringAt = (p0, tangent) => {
         // Build two orthonormal vectors perpendicular to tangent
         let u = Math.abs(tangent.z) < 0.9 ? makeTriple(0,0,1) : makeTriple(1,0,0);
@@ -9080,13 +9094,146 @@ function createInterpreter() {
     env.set('obj', (...args) => ({_tag:'surface', mesh: makeMesh([])}));
     // labelpath(string, path[, ...]) — draw text along a path. Stub: ignore.
     env.set('labelpath', (...args) => null);
-    // contour3 / smoothcontour3 / implicitsurface — isosurface extraction.
-    // We implement a minimal "sign-change cell" approximation: evaluate the
-    // implicit function on a grid; for every cell where the function changes
-    // sign across any of its 12 edges, emit a small quad at the cell center
-    // oriented perpendicular to the approximate gradient. This produces
-    // recognizable (if voxelized) silhouettes without a full marching-cubes
-    // LUT.
+    // contour3 / smoothcontour3 / implicitsurface — isosurface extraction via
+    // marching tetrahedra. Each grid cell is split into 6 tetrahedra; for each
+    // tet we emit 0–2 triangles on the iso=0 surface with linear edge
+    // interpolation. Vertices along shared cube edges are deduplicated so that
+    // sf.map(fn) / sf.colors(palette(...)) can assign per-vertex colors.
+    //
+    // Returns {tris, vertices, faceIdx} where tris is triple[][] (each [v0,v1,v2]),
+    // vertices is the deduplicated vertex list, and faceIdx[i] = [i0,i1,i2] is
+    // the index triple into vertices for triangle i.
+    function _marchTet(f, lo, hi, nx, ny, nz) {
+      const tris = [];
+      const vertices = [];
+      const faceIdx = [];
+      if (!isTriple(lo) || !isTriple(hi)) return { tris, vertices, faceIdx };
+      nx = Math.max(2, Math.floor(nx || 16));
+      ny = Math.max(2, Math.floor(ny || nx));
+      nz = Math.max(2, Math.floor(nz || nx));
+      const dx = (hi.x - lo.x) / nx;
+      const dy = (hi.y - lo.y) / ny;
+      const dz = (hi.z - lo.z) / nz;
+      const nX = nx + 1, nY = ny + 1, nZ = nz + 1;
+      const buf = new Float64Array(nX * nY * nZ);
+      const gidx = (i, j, k) => (i * nY + j) * nZ + k;
+      const callF = (a, b, c) => {
+        let v;
+        if (typeof f === 'function') v = f(a, b, c);
+        else if (f && (f._tag === 'func' || f._tag === 'overload')) v = callUserFuncValues(f, [a, b, c]);
+        else v = 0;
+        v = Number(v);
+        return isFinite(v) ? v : 0;
+      };
+      // Evaluate function on grid
+      for (let i = 0; i < nX; i++) {
+        const x = lo.x + i * dx;
+        for (let j = 0; j < nY; j++) {
+          const y = lo.y + j * dy;
+          for (let k = 0; k < nZ; k++) {
+            const z = lo.z + k * dz;
+            buf[gidx(i, j, k)] = callF(x, y, z);
+          }
+        }
+      }
+      // Cube corner offsets (i, j, k)
+      const CORNER = [
+        [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+        [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1],
+      ];
+      // 6-tetrahedra decomposition (each inner array: 4 cube-corner indices)
+      const TETS = [
+        [0, 5, 1, 7],
+        [0, 1, 3, 7],
+        [0, 3, 2, 7],
+        [0, 2, 6, 7],
+        [0, 6, 4, 7],
+        [0, 4, 5, 7],
+      ];
+      // Edge vertex cache so that the same cube edge produces the same vertex
+      // index (dedup across tets and across neighbouring cubes).
+      const edgeCache = new Map();
+      // Each cube-corner is identified by its (i,j,k) in the grid [0..nX-1]x...
+      // An edge of a cube connects two of these corners. We key edges by
+      // ((i0*nY+j0)*nZ+k0) * scale + ((i1*nY+j1)*nZ+k1), sorted so i0<=i1 etc.
+      const scale = nX * nY * nZ;
+      const edgeVertex = (ca, cb, vala, valb) => {
+        // ca, cb are arrays [i,j,k]
+        let [i0, j0, k0] = ca, [i1, j1, k1] = cb, va = vala, vb = valb;
+        let ka = gidx(i0, j0, k0), kb = gidx(i1, j1, k1);
+        if (kb < ka) {
+          [ka, kb] = [kb, ka];
+          [va, vb] = [vb, va];
+          [i0, j0, k0, i1, j1, k1] = [i1, j1, k1, i0, j0, k0];
+        }
+        const key = ka * scale + kb;
+        const hit = edgeCache.get(key);
+        if (hit !== undefined) return hit;
+        const denom = vb - va;
+        let t = denom !== 0 ? (0 - va) / denom : 0.5;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        const x = lo.x + (i0 + t * (i1 - i0)) * dx;
+        const y = lo.y + (j0 + t * (j1 - j0)) * dy;
+        const z = lo.z + (k0 + t * (k1 - k0)) * dz;
+        const idx = vertices.length;
+        vertices.push(makeTriple(x, y, z));
+        edgeCache.set(key, idx);
+        return idx;
+      };
+      // March tetrahedra
+      for (let i = 0; i < nx; i++) {
+        for (let j = 0; j < ny; j++) {
+          for (let k = 0; k < nz; k++) {
+            // Gather cube corners: absolute grid coords + values
+            const corners = [];
+            const vals = [];
+            for (const [oi, oj, ok] of CORNER) {
+              corners.push([i + oi, j + oj, k + ok]);
+              vals.push(buf[gidx(i + oi, j + oj, k + ok)]);
+            }
+            for (const tet of TETS) {
+              // Tet vertex values
+              const tv = [vals[tet[0]], vals[tet[1]], vals[tet[2]], vals[tet[3]]];
+              // Sort vertices: put "below iso" first. Keep permutation to preserve orientation.
+              // Use an easier approach: just determine mask and lookup triangles.
+              let mask = 0;
+              for (let m = 0; m < 4; m++) if (tv[m] < 0) mask |= (1 << m);
+              if (mask === 0 || mask === 0xF) continue;
+              const tc = [corners[tet[0]], corners[tet[1]], corners[tet[2]], corners[tet[3]]];
+              // Edge helper: interpolate between tet vertex a and b
+              const ev = (a, b) => edgeVertex(tc[a], tc[b], tv[a], tv[b]);
+              // Lookup triangles by mask. Winding chosen so triangles are
+              // consistently oriented (normal points from inside to outside,
+              // i.e. from below-iso toward above-iso).
+              let triList = null;
+              switch (mask) {
+                case 0x1: triList = [[ev(0,1), ev(0,2), ev(0,3)]]; break;
+                case 0xE: triList = [[ev(0,1), ev(0,3), ev(0,2)]]; break;
+                case 0x2: triList = [[ev(0,1), ev(1,3), ev(1,2)]]; break;
+                case 0xD: triList = [[ev(0,1), ev(1,2), ev(1,3)]]; break;
+                case 0x4: triList = [[ev(0,2), ev(1,2), ev(2,3)]]; break;
+                case 0xB: triList = [[ev(0,2), ev(2,3), ev(1,2)]]; break;
+                case 0x8: triList = [[ev(0,3), ev(2,3), ev(1,3)]]; break;
+                case 0x7: triList = [[ev(0,3), ev(1,3), ev(2,3)]]; break;
+                // Two vertices below: quad → two triangles
+                case 0x3: { const a = ev(0,2), b = ev(0,3), c = ev(1,3), d = ev(1,2); triList = [[a,b,c],[a,c,d]]; break; }
+                case 0xC: { const a = ev(0,2), b = ev(1,2), c = ev(1,3), d = ev(0,3); triList = [[a,b,c],[a,c,d]]; break; }
+                case 0x5: { const a = ev(0,1), b = ev(0,3), c = ev(2,3), d = ev(1,2); triList = [[a,b,c],[a,c,d]]; break; }
+                case 0xA: { const a = ev(0,1), b = ev(1,2), c = ev(2,3), d = ev(0,3); triList = [[a,b,c],[a,c,d]]; break; }
+                case 0x6: { const a = ev(0,1), b = ev(0,2), c = ev(2,3), d = ev(1,3); triList = [[a,b,c],[a,c,d]]; break; }
+                case 0x9: { const a = ev(0,1), b = ev(1,3), c = ev(2,3), d = ev(0,2); triList = [[a,b,c],[a,c,d]]; break; }
+              }
+              if (!triList) continue;
+              for (const [ia, ib, ic] of triList) {
+                tris.push([vertices[ia], vertices[ib], vertices[ic]]);
+                faceIdx.push([ia, ib, ic]);
+              }
+            }
+          }
+        }
+      }
+      return { tris, vertices, faceIdx };
+    }
     function _isoFaces(f, lo, hi, nx, ny, nz) {
       const faces = [];
       if (!isTriple(lo) || !isTriple(hi)) return faces;
@@ -9190,28 +9337,51 @@ function createInterpreter() {
       let nz = named.nz !== undefined ? toNumber(named.nz) : (typeof pos[5] === 'number' ? pos[5] : nx);
       return _isoFaces(f, lo, hi, nx, ny, nz);
     }
-    env.set('contour3', (...args) => {
-      // Return triangle list usable by surface()
-      const faces = _isoFromArgs(args);
-      // Convert quads to triangle pairs for legacy callers
-      const tris = [];
-      for (const face of faces) {
-        const v = face.vertices;
-        if (v.length >= 4) {
-          tris.push([v[0], v[1], v[2]]);
-          tris.push([v[0], v[2], v[3]]);
-        } else if (v.length === 3) {
-          tris.push([v[0], v[1], v[2]]);
-        }
+    function _marchFromArgs(args) {
+      const pos = [];
+      const named = {};
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          for (const k of Object.keys(a)) if (k !== '_named') named[k] = a[k];
+        } else pos.push(a);
       }
+      const f = pos[0];
+      let lo = pos[1], hi = pos[2];
+      if (named.a !== undefined) lo = named.a;
+      if (named.b !== undefined) hi = named.b;
+      if (named.min !== undefined) lo = named.min;
+      if (named.max !== undefined) hi = named.max;
+      let nx = named.nx !== undefined ? toNumber(named.nx) : (typeof pos[3] === 'number' ? pos[3] : 16);
+      let ny = named.ny !== undefined ? toNumber(named.ny) : (typeof pos[4] === 'number' ? pos[4] : nx);
+      let nz = named.nz !== undefined ? toNumber(named.nz) : (typeof pos[5] === 'number' ? pos[5] : nx);
+      return _marchTet(f, lo, hi, nx, ny, nz);
+    }
+    env.set('contour3', (...args) => {
+      const { tris, vertices, faceIdx } = _marchFromArgs(args);
+      // Attach metadata to the triangle array so surface() can pick it up for
+      // per-vertex coloring. JavaScript arrays can carry non-integer props.
+      tris._contourVertices = vertices;
+      tris._contourFaceIdx = faceIdx;
       return tris;
     });
     env.set('smoothcontour3', (...args) => {
       return env.get('contour3')(...args);
     });
     env.set('implicitsurface', (...args) => {
-      const faces = _isoFromArgs(args);
-      return {_tag:'surface', mesh: makeMesh(faces)};
+      const { tris, vertices, faceIdx } = _marchFromArgs(args);
+      const faces = [];
+      for (let i = 0; i < tris.length; i++) {
+        const t = tris[i];
+        const face = { vertices: [t[0], t[1], t[2]], _vidx: faceIdx[i] };
+        face.normal = faceNormal(face);
+        faces.push(face);
+      }
+      return {
+        _tag: 'surface',
+        mesh: makeMesh(faces),
+        _vertices: vertices,
+        _faceVertexIdx: faceIdx,
+      };
     });
 
     // solids-module constructors: return a mesh (painter's-algorithm rendering).
@@ -9298,11 +9468,29 @@ function createInterpreter() {
       return v;
     });
 
-    // palette module stubs (import palette): produce colour arrays for s.colors().
-    // Currently returns arrays that let the code flow; surface rendering uses its
-    // flat pen instead of per-vertex colour.
+    // palette module: map real values to interpolated pens from a range palette.
+    // palette(real[] vals, pen[] range) -> pen[] (one interpolated pen per value)
+    const _interpolatePens = (pens, t) => {
+      const n = pens.length;
+      if (n === 0) return makePen({r:0,g:0,b:0});
+      if (n === 1) return clonePen(pens[0]);
+      // Clamp t to [0,1]
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const u = t * (n - 1);
+      const i0 = Math.floor(u);
+      const i1 = Math.min(i0 + 1, n - 1);
+      const f = u - i0;
+      const p0 = pens[i0], p1 = pens[i1];
+      const out = clonePen(p0);
+      out.r = (p0.r || 0) * (1 - f) + (p1.r || 0) * f;
+      out.g = (p0.g || 0) * (1 - f) + (p1.g || 0) * f;
+      out.b = (p0.b || 0) * (1 - f) + (p1.b || 0) * f;
+      if (typeof p0.opacity === 'number' && typeof p1.opacity === 'number') {
+        out.opacity = p0.opacity * (1 - f) + p1.opacity * f;
+      }
+      return out;
+    };
     const _paletteStub = (...args) => {
-      // palette(real[] vals, pen[] range) -> pen[] (one per val)
       const pos = args.filter(a => !(a && a._named));
       let vals = null, range = null;
       for (const a of pos) {
@@ -9313,23 +9501,54 @@ function createInterpreter() {
       }
       if (!range || range.length === 0) return [];
       if (!vals) return range;
-      return vals.map((_, i) => range[i % range.length]);
+      let vmin = Infinity, vmax = -Infinity;
+      for (const v of vals) {
+        const n = toNumber(v);
+        if (n < vmin) vmin = n;
+        if (n > vmax) vmax = n;
+      }
+      const span = vmax - vmin;
+      if (span === 0 || !isFinite(span)) {
+        return vals.map(() => clonePen(range[0]));
+      }
+      return vals.map(v => _interpolatePens(range, (toNumber(v) - vmin) / span));
     };
     env.set('palette', _paletteStub);
-    // Gradient(pen, pen, ...) or Gradient(n, pen, pen, ...) — return pen array
+    // Gradient(pen, pen, ...) — return pen array (used by palette for interpolation)
     env.set('Gradient', (...args) => {
       const pos = args.filter(a => !(a && a._named));
       return pos.filter(a => isPen(a));
     });
-    // Rainbow/BWRainbow: can be used as value (pen[]) or function. Return a simple
-    // preset palette of a few pens.
+    // Rainbow: dense rainbow gradient.
     const rainbowPens = () => {
       const c = (r,g,b) => makePen({r, g, b});
-      return [c(1,0,0), c(1,1,0), c(0,1,0), c(0,1,1), c(0,0,1), c(1,0,1)];
+      // Violet → Blue → Cyan → Green → Yellow → Orange → Red (color-wheel order)
+      return [
+        c(0.5, 0, 1),   // violet
+        c(0, 0, 1),     // blue
+        c(0, 1, 1),     // cyan
+        c(0, 1, 0),     // green
+        c(1, 1, 0),     // yellow
+        c(1, 0.5, 0),   // orange
+        c(1, 0, 0),     // red
+      ];
     };
+    // BWRainbow: Asymptote's BWRainbow is Rainbow bracketed by darker purple at
+    // the low end and darker red at the high end (for visibility of extremes
+    // against white backgrounds).
     const bwRainbowPens = () => {
       const c = (r,g,b) => makePen({r, g, b});
-      return [c(0,0,0), c(0.5,0.5,0.5), c(1,1,1)];
+      return [
+        c(0.25, 0, 0.35),  // dark purple (low)
+        c(0.5, 0, 1),      // violet
+        c(0, 0, 1),        // blue
+        c(0, 1, 1),        // cyan
+        c(0, 1, 0),        // green
+        c(1, 1, 0),        // yellow
+        c(1, 0.5, 0),      // orange
+        c(1, 0, 0),        // red
+        c(0.35, 0, 0),     // dark red (high)
+      ];
     };
     env.set('Rainbow', (...args) => rainbowPens());
     env.set('BWRainbow', (...args) => bwRainbowPens());
@@ -9849,9 +10068,40 @@ function createInterpreter() {
           if (isPen(args[j])) meshPen = meshPen ? mergePens(meshPen, args[j]) : args[j];
         }
         if (!meshPen) meshPen = clonePen(defaultPen);
+        // If surface is a triangulated isosurface with per-vertex colors, annotate
+        // each face with a pen averaged across the vertex pens referenced by its
+        // _vidx (indices into the flat _vertices list).
+        if (surfForColors && Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0 &&
+            Array.isArray(surfForColors._faceVertexIdx)) {
+          const cols = surfForColors._colors;
+          const fvi = surfForColors._faceVertexIdx;
+          const avgPens = (pens) => {
+            let r=0, g=0, b=0, a=0, n=0, hasOp=false;
+            for (const p of pens) {
+              if (!p || !isPen(p)) continue;
+              r += p.r||0; g += p.g||0; b += p.b||0;
+              if (typeof p.opacity === 'number') { a += p.opacity; hasOp = true; }
+              n++;
+            }
+            if (n === 0) return null;
+            const out = clonePen(pens[0]);
+            out.r = r/n; out.g = g/n; out.b = b/n;
+            if (hasOp) out.opacity = a/n;
+            return out;
+          };
+          const newFaces = mesh.faces.map((f, fi) => {
+            const idx = fvi[fi];
+            if (!idx) return f;
+            const pens = idx.map(k => cols[k]);
+            const pen = avgPens(pens);
+            if (pen) return {...f, pen};
+            return f;
+          });
+          mesh = {_tag:'mesh', faces: newFaces};
+        }
         // If surface has per-vertex _colors from s.colors(palette(...)), annotate
         // each face with a pen averaged across its 4 grid-vertex colors.
-        if (surfForColors && Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0 && surfForColors._gridCols) {
+        else if (surfForColors && Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0 && surfForColors._gridCols) {
           const cols = surfForColors._colors;
           const gCols = surfForColors._gridCols;
           const gRows = surfForColors._gridRows;
