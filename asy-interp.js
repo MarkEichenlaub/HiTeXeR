@@ -8663,7 +8663,10 @@ function renderSVG(result, opts) {
               widthBp: lWidthBp,
               heightBp: lHeightBp,
               alignOffsetXBp,
-              alignOffsetYBp
+              alignOffsetYBp,
+              _text: text,
+              _fontSize: fontSize,
+              _ltAngle: ltAngle
             });
           }
         }
@@ -8778,9 +8781,16 @@ function renderSVG(result, opts) {
   // Iterative scale solver: reduce pxPerUnit so total output
   // (geometry + truesize labels) fits within size constraint.
   // Real Asymptote does this; labels are truesize and don't scale with geometry.
+  let labelShrinkFactor = 1;
   if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
+
+    // Save pre-solver scale for the label-dominated fallback below.
+    const preSolverPxPerUnit = pxPerUnit;
+    const preSolverPxPerUnitX = pxPerUnitX;
+    const preSolverPxPerUnitY = pxPerUnitY;
+    let finalExceed = 1;
 
     for (let iter = 0; iter < 5; iter++) {
       let bpMinX = geoMinX * pxPerUnitX;
@@ -8802,6 +8812,7 @@ function renderSVG(result, opts) {
       const exceedW = tgtW < Infinity ? totalW / tgtW : 0;
       const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
       const exceed = Math.max(exceedW, exceedH);
+      finalExceed = exceed;
 
       if (exceed <= 1.005) break; // fits within tolerance
 
@@ -8813,6 +8824,114 @@ function renderSVG(result, opts) {
         if (exceedW > 1) pxPerUnitX /= exceedW;
         if (exceedH > 1) pxPerUnitY /= exceedH;
         pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+      }
+    }
+
+    // Post-solver MathJax recheck: the heuristic (charWidthBp = fontSize * 0.288)
+    // under-estimates wide sans-serif / bold text by up to 2.5×.  For svg-native
+    // mode, actually measure each label through MathJax and recompute finalExceed
+    // so the label-dominated fallback below triggers when needed (e.g. 80pt
+    // \textsf{NOON} labels that are 216 bp wide but estimated at 92 bp).
+    if (finalExceed <= 1.005 && opts && opts.labelOutput === 'svg-native'
+        && typeof _mjxMeasureBp === 'function' && (tgtW < Infinity || tgtH < Infinity)) {
+      let bpMinX = geoMinX * pxPerUnitX;
+      let bpMaxX = geoMaxX * pxPerUnitX;
+      let bpMinY = geoMinY * pxPerUnitY;
+      let bpMaxY = geoMaxY * pxPerUnitY;
+      let anyMeasured = false;
+      for (const li of labelInfoBp) {
+        let wBp = li.widthBp, hBp = li.heightBp;
+        try {
+          const m = _mjxMeasureBp(li._text, li._fontSize);
+          if (m && m.wBp > 0) {
+            let mw = m.wBp, mh = m.hBp;
+            if (Math.abs(li._ltAngle) > 0.5) {
+              const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
+              const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
+              const rW = mw * cosA + mh * sinA;
+              const rH = mw * sinA + mh * cosA;
+              mw = rW; mh = rH;
+            }
+            wBp = mw; hBp = mh;
+            anyMeasured = true;
+          }
+        } catch (e) { /* ignore measurement errors */ }
+        const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+        const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+        bpMinX = Math.min(bpMinX, cx - wBp / 2);
+        bpMaxX = Math.max(bpMaxX, cx + wBp / 2);
+        bpMinY = Math.min(bpMinY, cy - hBp / 2);
+        bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
+      }
+      if (anyMeasured) {
+        const totalW = bpMaxX - bpMinX;
+        const totalH = bpMaxY - bpMinY;
+        const exceedW = tgtW < Infinity ? totalW / tgtW : 0;
+        const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
+        const mjxExceed = Math.max(exceedW, exceedH);
+        if (mjxExceed > 1.005) {
+          // Overwrite heuristic widths with MathJax-measured widths so the
+          // fallback below uses accurate dimensions for uniform scaling.
+          for (const li of labelInfoBp) {
+            try {
+              const m = _mjxMeasureBp(li._text, li._fontSize);
+              if (m && m.wBp > 0) {
+                let mw = m.wBp, mh = m.hBp;
+                if (Math.abs(li._ltAngle) > 0.5) {
+                  const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
+                  const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
+                  const rW = mw * cosA + mh * sinA;
+                  const rH = mw * sinA + mh * cosA;
+                  mw = rW; mh = rH;
+                }
+                li.widthBp = mw;
+                li.heightBp = mh;
+              }
+            } catch (e) { /* ignore */ }
+          }
+          finalExceed = mjxExceed;
+        }
+      }
+    }
+
+    // Label-dominated fallback: if labels alone exceed size() target, the
+    // iterative solver cannot converge (shrinking geometry doesn't reduce
+    // total width when label width dominates). Match Asymptote's behavior
+    // by uniformly scaling BOTH geometry and labels to fit.
+    if (finalExceed > 1.005) {
+      pxPerUnit = preSolverPxPerUnit;
+      pxPerUnitX = preSolverPxPerUnitX;
+      pxPerUnitY = preSolverPxPerUnitY;
+
+      let bpMinX = geoMinX * pxPerUnitX;
+      let bpMaxX = geoMaxX * pxPerUnitX;
+      let bpMinY = geoMinY * pxPerUnitY;
+      let bpMaxY = geoMaxY * pxPerUnitY;
+      for (const li of labelInfoBp) {
+        const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+        const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+        bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
+        bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
+        bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
+        bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
+      }
+      const totalW = bpMaxX - bpMinX;
+      const totalH = bpMaxY - bpMinY;
+      const sW = tgtW < Infinity && totalW > 0 ? tgtW / totalW : Infinity;
+      const sH = tgtH < Infinity && totalH > 0 ? tgtH / totalH : Infinity;
+      const uniformScale = Math.min(sW, sH);
+
+      if (isFinite(uniformScale) && uniformScale < 1) {
+        pxPerUnit *= uniformScale;
+        pxPerUnitX *= uniformScale;
+        pxPerUnitY *= uniformScale;
+        for (const li of labelInfoBp) {
+          li.widthBp *= uniformScale;
+          li.heightBp *= uniformScale;
+          li.alignOffsetXBp *= uniformScale;
+          li.alignOffsetYBp *= uniformScale;
+        }
+        labelShrinkFactor = uniformScale;
       }
     }
   }
@@ -9035,7 +9154,7 @@ function renderSVG(result, opts) {
   // Like cssPixel but includes the bp→display conversion.  Use for anything whose
   // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
   // Uses bpToCSSPx so strokes/fonts scale at the same effective DPI as the geometry.
-  const bpCSSPixel = bpToCSSPx * cssPixel;
+  const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor;
 
   // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
   // Now that bpCSSPixel is known, compute how far each element extends
@@ -9554,7 +9673,10 @@ function renderSVG(result, opts) {
       let fontSizeSVG = fontSize * bpCSSPixel;  // SVG user units (bp → display px → viewBox)
       // foreignObject CSS is scaled by the SVG viewBox→display mapping (≈ bpToCSSPx),
       // so use raw pt value — the SVG transform provides the bp→CSS px conversion.
-      let fontSizeCSS = fontSize;
+      // labelShrinkFactor < 1 when the scale solver fell back to uniform scaling
+      // (labels too wide to fit via geometry shrink alone); fontSizeCSS must
+      // also shrink because MathJax label width is computed from it directly.
+      let fontSizeCSS = fontSize * labelShrinkFactor;
       // Pre-scale fontSizeSVG/fontSizeCSS for font-size commands (e.g. {\tiny...} from
       // minipage). Must happen before dx/margin is computed below so label placement is
       // correct. Single-line text handles this again via fontSizeCmdRe further below
@@ -10490,6 +10612,68 @@ function _ensureMathJax() {
 }
 
 const _mjxCache = new Map();
+
+// Pre-render a label through MathJax (if available) to get its actual pixel
+// dimensions in bp.  Returns { wBp, hBp } on success, null on failure.
+// Used by the scale solver to get accurate label widths — the glyph-count
+// heuristic under-estimates wide sans-serif/bold text (e.g. \textsf{NOON})
+// by 2×+, which prevents the solver from detecting label-dominated layouts
+// that exceed size() and require uniform downscaling.
+function _mjxMeasureBp(rawText, fontSize) {
+  const state = _ensureMathJax();
+  if (!state) return null;
+  // Normalize text following renderLabelMathJaxSVG's pre-processing.
+  let math = (rawText || '').trim();
+  const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+  if (reflectMatch) math = reflectMatch[1].trim();
+  const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
+  if (isDollar) math = math.slice(1, -1);
+  if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+  const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
+  if (hasMixedContent) {
+    const segments = [];
+    let pos = 0;
+    const reSegment = /\$([^$]+)\$/g;
+    let m;
+    while ((m = reSegment.exec(math)) !== null) {
+      if (m.index > pos) segments.push({type:'text', content: math.slice(pos, m.index)});
+      segments.push({type:'math', content: m[1]});
+      pos = m.index + m[0].length;
+    }
+    if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
+    math = segments.map(seg => {
+      if (seg.type === 'math') return seg.content;
+      const esc = seg.content.replace(/([\\{}$&#^_%~])/g, '\\$1');
+      return '\\text{' + esc + '}';
+    }).join('');
+  }
+
+  let parsed = _mjxCache.get(math);
+  if (!parsed) {
+    try {
+      const node = state.doc.convert(math, { display: false, em: 16, ex: 8, containerWidth: 1280 });
+      const html = state.adaptor.outerHTML(node);
+      const mOuter = html.match(/<svg([^>]*)>([\s\S]*)<\/svg>/);
+      if (!mOuter) { _mjxCache.set(math, { error: true }); return null; }
+      const attrs = mOuter[1];
+      const wM = attrs.match(/\swidth="([-0-9.]+)ex"/);
+      const hM = attrs.match(/\sheight="([-0-9.]+)ex"/);
+      const vbM = attrs.match(/\sviewBox="([^"]+)"/);
+      if (!wM || !hM || !vbM) { _mjxCache.set(math, { error: true }); return null; }
+      parsed = { wEx: parseFloat(wM[1]), hEx: parseFloat(hM[1]), viewBox: vbM[1], inner: mOuter[2] };
+      _mjxCache.set(math, parsed);
+    } catch (e) {
+      _mjxCache.set(math, { error: true });
+      return null;
+    }
+  }
+  if (parsed.error || !parsed.wEx) return null;
+
+  // Match renderLabelMathJaxSVG: em = fontSize/1.21, exRatio = 0.5.
+  const em = fontSize / 1.21;
+  const exRatio = 0.5;
+  return { wBp: parsed.wEx * exRatio * em, hBp: parsed.hEx * exRatio * em };
+}
 
 function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
   const state = _ensureMathJax();
