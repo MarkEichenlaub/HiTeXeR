@@ -169,7 +169,10 @@ def render_on_texer(driver, asy_code, output_path, timeout=30):
         return img ? img.src : '';
     """)
 
-    wrapped = f"[asy]\n{asy_code}\n[/asy]"
+    # Cache-bust: AoPS TeXeR caches renders by content hash and often serves
+    # stale/wrong images. Append a unique comment so every submission is fresh.
+    cache_bust = f"// cache-bust {time.time_ns()}"
+    wrapped = f"[asy]\n{asy_code}\n{cache_bust}\n[/asy]"
     driver.execute_script("""
         var cm = document.querySelector('.CodeMirror');
         if (cm && cm.CodeMirror) {
@@ -359,12 +362,18 @@ def main():
                         help="Number of parallel Chrome instances (default: 1)")
     args = parser.parse_args()
 
-    if not SSIM_RESULTS.exists():
-        print(f"Error: {SSIM_RESULTS} not found.")
-        return
-
-    results = json.loads(SSIM_RESULTS.read_text(encoding="utf-8"))
-    print(f"Corpus: {len(results)} diagrams in ssim-results.json", flush=True)
+    # Build id list: prefer ssim-results.json (has corpusFile metadata), else
+    # fall back to listing asy_src/ directly. The fallback lets us fetch TeXeR
+    # PNGs before the SSIM step has ever been run.
+    if SSIM_RESULTS.exists():
+        results = json.loads(SSIM_RESULTS.read_text(encoding="utf-8"))
+        id_items = [(item["id"], item.get("corpusFile", item["id"])) for item in results]
+        print(f"Corpus: {len(id_items)} diagrams in ssim-results.json", flush=True)
+    else:
+        asy_files = sorted(p.name for p in ASY_SRC_DIR.glob("*.asy"))
+        id_items = [(f[:-4], f[:-4]) for f in asy_files]
+        print(f"Corpus: {len(id_items)} diagrams in asy_src/ (no ssim-results.json)",
+              flush=True)
 
     failures = load_failures(FAILURES_PATH)
     previously_failed = set(failures.keys()) if not args.retry_failures else set()
@@ -372,9 +381,7 @@ def main():
     TEXER_DIR.mkdir(parents=True, exist_ok=True)
 
     to_render = []
-    for item in results:
-        nid = item["id"]
-        filename = item["corpusFile"]
+    for nid, filename in id_items:
         src_path = ASY_SRC_DIR / f"{nid}.asy"
         if not src_path.exists():
             continue
@@ -385,7 +392,7 @@ def main():
             continue
         to_render.append((nid, filename, src_path, out_path))
 
-    already_done = sum(1 for item in results if (TEXER_DIR / f"{item['id']}.png").exists())
+    already_done = sum(1 for nid, _ in id_items if (TEXER_DIR / f"{nid}.png").exists())
     skipped_msg = f", {len(previously_failed)} prev failed skipped" if previously_failed else ""
     print(f"  {already_done} already rendered, {len(to_render)} remaining{skipped_msg}", flush=True)
 

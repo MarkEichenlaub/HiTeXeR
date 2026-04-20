@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT       = path.join(__dirname, '..');
-const CORPUS_DIR = path.join(__dirname, 'asy_src');
+// Read from asy_corpus to preserve original filenames (cXX_L...); asy_src uses
+// numeric IDs that lose collection info.
+const CORPUS_DIR = path.join(ROOT, 'asy_corpus');
 const OUT_DIR    = __dirname;                        // comparison/
 const ASY_DIR    = path.join(OUT_DIR, 'asy_pngs');
 const HTX_DIR    = path.join(OUT_DIR, 'htx_pngs');
@@ -48,6 +50,13 @@ const COURSE_NAMES = {
   c405: 'Physics 1: Mechanics',
   c539: 'Middle School Physics 1',
   c540: 'Middle School Physics 2',
+  // Asymptote gallery
+  gallery:           'Asymptote Gallery',
+  gallery_2Dgraphs:  'Asymptote Gallery: 2Dgraphs',
+  gallery_3Dgraphs:  'Asymptote Gallery: 3Dgraphs',
+  gallery_3Dwebgl:   'Asymptote Gallery: 3Dwebgl',
+  gallery_IBL:       'Asymptote Gallery: IBL',
+  gallery_animations: 'Asymptote Gallery: animations',
 };
 
 // Read corpus
@@ -72,19 +81,26 @@ if (fs.existsSync(SSIM_FILE)) {
   console.log(`SSIM scores: ${ssimData.length}`);
 }
 
-// Extract collection from filename: "c{N}_L{N}_{type}_{idx}.asy" -> "c{N}"
+// Extract collection from filename:
+//   "c{N}_L{N}_{type}_{idx}.asy" -> "c{N}"
+//   "gallery_{subdir}_{name}.asy" -> "gallery_{subdir}" (or "gallery" for root)
 function getCollection(filename) {
-  const m = filename.match(/^(c\d+)_/);
-  return m ? m[1] : 'unknown';
+  const cm = filename.match(/^(c\d+)_/);
+  if (cm) return cm[1];
+  const gm = filename.match(/^gallery_([A-Za-z0-9]+)_/);
+  if (gm) return `gallery_${gm[1]}`;
+  if (filename.startsWith('gallery_')) return 'gallery';
+  return 'unknown';
 }
 
-// Build diagrams array
+// Build diagrams array. Files in asy_corpus are sorted and mapped to
+// numeric IDs 00001..NNNNN matching the rendered PNGs in htx_pngs/texer_pngs.
 const collectionsSet = new Set();
 const diagrams = [];
 
 for (let i = 0; i < allFiles.length; i++) {
   const source = allFiles[i];
-  const id = source.replace(/\.asy$/, '');
+  const id = numId(i);
   const ssimEntry = ssimLookup[id];
   const collection = getCollection(source);
   collectionsSet.add(collection);
@@ -101,11 +117,13 @@ for (let i = 0; i < allFiles.length; i++) {
   });
 }
 
-// Sort collections naturally by numeric part
+// Sort collections: cN numerically, then gallery_*, then anything else.
 const collections = [...collectionsSet].sort((a, b) => {
-  const na = parseInt(a.replace('c', ''), 10);
-  const nb = parseInt(b.replace('c', ''), 10);
-  return na - nb;
+  const aC = /^c\d+$/.test(a), bC = /^c\d+$/.test(b);
+  if (aC && bC) return parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10);
+  if (aC) return -1;
+  if (bC) return 1;
+  return a.localeCompare(b);
 });
 
 // Build courseNames for collections that have names
