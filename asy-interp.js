@@ -2718,6 +2718,41 @@ function createInterpreter() {
       if (method === 'substr') return obj.substr(args[0], args[1]);
     }
 
+    // Surface methods (parametric surfaces, palette colouring, etc.)
+    if (obj && obj._tag === 'surface') {
+      if (method === 'colors') {
+        obj._colors = args[0];
+        return null;
+      }
+      if (method === 'map') {
+        const fn = args[0];
+        const grid = obj._grid;
+        if (!fn || !grid) return [];
+        const call = (t) => {
+          if (typeof fn === 'function') return fn(t);
+          if (fn && fn._tag === 'func') return callUserFuncValues(fn, [t]);
+          return 0;
+        };
+        const out = [];
+        for (const row of grid) for (const v of row) out.push(toNumber(call(v)));
+        return out;
+      }
+      if (method === 'append') {
+        for (const a of args) {
+          if (a && a._tag === 'surface' && a.mesh && obj.mesh) {
+            obj.mesh.faces.push(...a.mesh.faces);
+          } else if (isMesh(a) && obj.mesh) {
+            obj.mesh.faces.push(...a.faces);
+          }
+        }
+        return null;
+      }
+      if (method === 'uequals' || method === 'vequals') {
+        // Extract an iso-line curve along u= or v=; stub returns empty path.
+        return makePath([], false);
+      }
+    }
+
     // Picture methods
     if (obj && obj._tag === 'picture') {
       if (method === 'fit') return obj; // fit() returns the picture (scaling handled at render)
@@ -3639,7 +3674,16 @@ function createInterpreter() {
       return Math.atan2(pp.y, pp.x);
     });
     env.set('conj', (p) => { const pp = toPair(p); return makePair(pp.x, -pp.y); });
-    env.set('expi', (a) => { const v = toNumber(a); return makePair(Math.cos(v), Math.sin(v)); });
+    env.set('expi', (a, b) => {
+      // 2D: expi(t) = (cos t, sin t)
+      // 3D: expi(theta, phi) = (sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta))
+      if (b !== undefined) {
+        const t = toNumber(a), p = toNumber(b);
+        return makeTriple(Math.sin(t)*Math.cos(p), Math.sin(t)*Math.sin(p), Math.cos(t));
+      }
+      const v = toNumber(a);
+      return makePair(Math.cos(v), Math.sin(v));
+    });
     env.set('xpart', (p) => isTriple(p) ? p.x : toPair(p).x);
     env.set('ypart', (p) => isTriple(p) ? p.y : toPair(p).y);
     env.set('zpart', (p) => isTriple(p) ? p.z : 0);
@@ -8019,8 +8063,50 @@ function createInterpreter() {
 
     // (intersectionpoints defined earlier with proper implementation)
 
-    // surface(): wrap mesh, or capture boundary path (flat polygon)
+    // surface(): wrap mesh, capture boundary path, or tessellate parametric f
     env.set('surface', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      // Parametric: surface(f, lo, hi, nu[, nv], ...)
+      // where f is callable pair→triple
+      if (pos.length >= 4 &&
+          (typeof pos[0] === 'function' || (pos[0] && pos[0]._tag === 'func')) &&
+          isPair(pos[1]) && isPair(pos[2])) {
+        const f = pos[0];
+        const lo = pos[1], hi = pos[2];
+        const nu = Math.max(2, Math.floor(toNumber(pos[3])));
+        // nv may be absent (defaults to nu) or present as 5th numeric arg
+        const nv = (pos.length >= 5 && typeof pos[4] === 'number')
+                   ? Math.max(2, Math.floor(toNumber(pos[4]))) : nu;
+        const call = (u, v) => {
+          const p = makePair(u, v);
+          if (typeof f === 'function') return f(p);
+          if (f && f._tag === 'func') return callUserFuncValues(f, [p]);
+          return makeTriple(0, 0, 0);
+        };
+        const grid = [];
+        for (let i = 0; i <= nu; i++) {
+          const row = [];
+          const u = lo.x + (hi.x - lo.x) * i / nu;
+          for (let j = 0; j <= nv; j++) {
+            const v = lo.y + (hi.y - lo.y) * j / nv;
+            const q = call(u, v);
+            row.push(isTriple(q) ? q : makeTriple(0, 0, 0));
+          }
+          grid.push(row);
+        }
+        const faces = [];
+        for (let i = 0; i < nu; i++) {
+          for (let j = 0; j < nv; j++) {
+            const v00 = grid[i][j], v10 = grid[i+1][j];
+            const v11 = grid[i+1][j+1], v01 = grid[i][j+1];
+            const face = {vertices: [v00, v10, v11, v01]};
+            face.normal = faceNormal(face);
+            faces.push(face);
+          }
+        }
+        const mesh = makeMesh(faces);
+        return {_tag:'surface', mesh, _grid: grid};
+      }
       const firstPath = args.find(a => isPath(a));
       const firstMesh = args.find(a => isMesh(a));
       if (firstMesh) return {_tag:'surface', mesh: firstMesh};
@@ -8096,6 +8182,72 @@ function createInterpreter() {
       }
       return v;
     });
+
+    // palette module stubs (import palette): produce colour arrays for s.colors().
+    // Currently returns arrays that let the code flow; surface rendering uses its
+    // flat pen instead of per-vertex colour.
+    const _paletteStub = (...args) => {
+      // palette(real[] vals, pen[] range) -> pen[] (one per val)
+      const pos = args.filter(a => !(a && a._named));
+      let vals = null, range = null;
+      for (const a of pos) {
+        if (Array.isArray(a) && a.length > 0) {
+          if (typeof a[0] === 'number' && vals === null) vals = a;
+          else if (isPen(a[0]) && range === null) range = a;
+        }
+      }
+      if (!range || range.length === 0) return [];
+      if (!vals) return range;
+      return vals.map((_, i) => range[i % range.length]);
+    };
+    env.set('palette', _paletteStub);
+    // Gradient(pen, pen, ...) or Gradient(n, pen, pen, ...) — return pen array
+    env.set('Gradient', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      return pos.filter(a => isPen(a));
+    });
+    // Rainbow/BWRainbow: can be used as value (pen[]) or function. Return a simple
+    // preset palette of a few pens.
+    const rainbowPens = () => {
+      const c = (r,g,b) => makePen({r, g, b});
+      return [c(1,0,0), c(1,1,0), c(0,1,0), c(0,1,1), c(0,0,1), c(1,0,1)];
+    };
+    const bwRainbowPens = () => {
+      const c = (r,g,b) => makePen({r, g, b});
+      return [c(0,0,0), c(0.5,0.5,0.5), c(1,1,1)];
+    };
+    env.set('Rainbow', (...args) => rainbowPens());
+    env.set('BWRainbow', (...args) => bwRainbowPens());
+    // mean(pen[]) -> average pen
+    env.set('mean', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const arr = Array.isArray(pos[0]) ? pos[0] : pos;
+      if (arr.length === 0) return makePen({});
+      if (isPen(arr[0])) {
+        let r=0, g=0, b=0;
+        for (const p of arr) { r += p.r; g += p.g; b += p.b; }
+        const n = arr.length;
+        return makePen({r:r/n, g:g/n, b:b/n});
+      }
+      // real[] mean
+      let s = 0;
+      for (const v of arr) s += toNumber(v);
+      return s / arr.length;
+    });
+    // Named pen constants commonly used by palette examples.
+    const mkPen = (r,g,b) => makePen({r, g, b});
+    env.set('heavyblue',   mkPen(0.1, 0.1, 0.65));
+    env.set('heavyred',    mkPen(0.65, 0.1, 0.1));
+    env.set('heavygreen',  mkPen(0.1, 0.5, 0.1));
+    env.set('palegreen',   mkPen(0.75, 0.95, 0.75));
+    env.set('palered',     mkPen(0.95, 0.75, 0.75));
+    env.set('paleblue',    mkPen(0.75, 0.75, 0.95));
+    env.set('lightolive',  mkPen(0.75, 0.75, 0.55));
+    env.set('paleyellow',  mkPen(1.0, 1.0, 0.75));
+
+    // texpath(label|string) — produces path outline of rasterized TeX output.
+    // Stub: returns an empty path[] so calls like texpath("$\pi$")[0] don't crash.
+    env.set('texpath', (...args) => [makePath([], false)]);
 
     // size3(W,H,D): 3D bounding-box size hint. Currently we record the requested
     // 3D dims on the picture for diagnostics and use max(W,H) as the 2D size if
@@ -11771,10 +11923,10 @@ function canInterpret(code) {
   // 3D wireframe and basic surface() are supported
   if (/\bimport\s+flowchart\b/.test(stripped)) return false;
   if (/\bimport\s+animation\b/.test(stripped)) return false;
-  if (/\bimport\s+palette\b/.test(stripped)) return false;
+  // import palette is now accepted (palette/Rainbow/Gradient stubs installed)
   if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
   // settings.render etc. are now accepted (silently ignored)
-  if (/\btexpath\b/.test(stripped)) return false;
+  // texpath is now accepted (stub returns empty path array)
   if (/\bshipout\b/.test(stripped)) return false;
   // graphic() is now supported via pre-fetched image cache
   // picture support is now implemented
