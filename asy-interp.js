@@ -1152,6 +1152,86 @@ function composeTransforms(t1, t2) {
 }
 
 // ============================================================
+// transform3 — true 4x4 affine transforms for 3D operations.
+// Stored as {_tag:'transform3', m: [16 floats] (row-major)}.
+// Row-major means m[row*4+col]; applying T to column-vector v gives
+//   v'[r] = sum_c m[r*4+c] * v[c]  (with v[3]=1).
+// Composition: (t1*t2).m = matMul(t1.m, t2.m).
+// ============================================================
+function isTransform3(v) { return v && v._tag === 'transform3'; }
+function makeTransform3(m) { return {_tag:'transform3', m: m.slice()}; }
+function identityT3() {
+  return makeTransform3([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+}
+function shiftT3(tx, ty, tz) {
+  return makeTransform3([1,0,0,tx, 0,1,0,ty, 0,0,1,tz, 0,0,0,1]);
+}
+function scaleT3(sx, sy, sz) {
+  if (sy === undefined) sy = sx;
+  if (sz === undefined) sz = sx;
+  return makeTransform3([sx,0,0,0, 0,sy,0,0, 0,0,sz,0, 0,0,0,1]);
+}
+function rotateT3(angleDeg, axis) {
+  // Rotation around axis through origin. axis is a triple.
+  const nx = axis.x, ny = axis.y, nz = axis.z;
+  const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+  if (len < 1e-12) return identityT3();
+  const ux = nx/len, uy = ny/len, uz = nz/len;
+  const th = angleDeg * Math.PI / 180;
+  const c = Math.cos(th), s = Math.sin(th), C = 1-c;
+  // Rodrigues' formula
+  return makeTransform3([
+    c + ux*ux*C,     ux*uy*C - uz*s, ux*uz*C + uy*s, 0,
+    uy*ux*C + uz*s,  c + uy*uy*C,    uy*uz*C - ux*s, 0,
+    uz*ux*C - uy*s,  uz*uy*C + ux*s, c + uz*uz*C,    0,
+    0,               0,              0,              1
+  ]);
+}
+function rotateT3Line(angleDeg, p, q) {
+  // Rotation around line from p to q: shift(-p) then rotate around q-p then shift(+p).
+  const axis = {x: q.x-p.x, y: q.y-p.y, z: q.z-p.z};
+  return composeTransform3(
+    shiftT3(p.x, p.y, p.z),
+    composeTransform3(rotateT3(angleDeg, axis),
+      shiftT3(-p.x, -p.y, -p.z)));
+}
+function composeTransform3(t1, t2) {
+  const a = t1.m, b = t2.m, r = new Array(16);
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      r[i*4+j] = a[i*4]*b[j] + a[i*4+1]*b[4+j] + a[i*4+2]*b[8+j] + a[i*4+3]*b[12+j];
+    }
+  }
+  return makeTransform3(r);
+}
+function applyTransform3Triple(t, v) {
+  const m = t.m;
+  return {_tag:'triple',
+    x: m[0]*v.x + m[1]*v.y + m[2]*v.z + m[3],
+    y: m[4]*v.x + m[5]*v.y + m[6]*v.z + m[7],
+    z: m[8]*v.x + m[9]*v.y + m[10]*v.z + m[11]};
+}
+function applyTransform3Path(t, path) {
+  // Apply to any triple control points in a path (2D points are passed through
+  // as triples with z=0 if needed; but here we only touch segs whose endpoints
+  // are triples — flat 2D paths are left alone).
+  const newSegs = path.segs.map(s => {
+    const nP0 = (s.p0 && s.p0._tag === 'triple') ? applyTransform3Triple(t, s.p0) : s.p0;
+    const nP1 = (s.cp1 && s.cp1._tag === 'triple') ? applyTransform3Triple(t, s.cp1) : s.cp1;
+    const nP2 = (s.cp2 && s.cp2._tag === 'triple') ? applyTransform3Triple(t, s.cp2) : s.cp2;
+    const nP3 = (s.p3 && s.p3._tag === 'triple') ? applyTransform3Triple(t, s.p3) : s.p3;
+    return makeSeg(nP0, nP1, nP2, nP3);
+  });
+  const np = makePath(newSegs, path.closed);
+  if (path._singlePoint && path._singlePoint._tag === 'triple') {
+    np._singlePoint = applyTransform3Triple(t, path._singlePoint);
+  } else if (path._singlePoint) {
+    np._singlePoint = path._singlePoint;
+  }
+  return np;
+}
+
+// ============================================================
 // Hobby's Algorithm for smooth '..' paths
 // ============================================================
 
@@ -1541,7 +1621,7 @@ function createInterpreter() {
 
     const result = _projectTripleRaw(v, proj);
     // Track for later potential re-projection
-    if (proj.type === 'perspective') {
+    if (proj.type === 'perspective' || proj.center) {
       _projectedTriples.push({ triple: {x:v.x, y:v.y, z:v.z}, result });
     }
     return result;
@@ -2018,6 +2098,18 @@ function createInterpreter() {
       }
     }
 
+    // transform3 * triple → triple
+    if (isTransform3(left) && isTriple(right)) return applyTransform3Triple(left, right);
+    // transform3 * transform3 → transform3
+    if (isTransform3(left) && isTransform3(right)) return composeTransform3(left, right);
+    // transform3 * path (with triples in it) → transformed path
+    if (isTransform3(left) && isPath(right)) return applyTransform3Path(left, right);
+    // transform3 * path3[] (array of path3)
+    if (isTransform3(left) && Array.isArray(right)) {
+      return right.map(r => (isPath(r) ? applyTransform3Path(left, r)
+                           : isTriple(r) ? applyTransform3Triple(left, r)
+                           : r));
+    }
     // Transform * pair
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
     // Inversion * pair (non-affine geometry transform)
@@ -7507,31 +7599,36 @@ function createInterpreter() {
     });
     env.set('NoArrow3', null);
 
-    // Projection constructors
-    env.set('orthographic', (...args) => {
-      const nums = args.filter(a => typeof a === 'number');
-      let cx = 1, cy = -2, cz = 0.5;
+    // Projection constructors — support graph3-style named args:
+    //   perspective/orthographic(camera=triple, up=triple, target=triple,
+    //                            zoom=real, autoadjust=bool, center=bool)
+    // plus the traditional positional (cx, cy, cz) or (triple camera, triple up).
+    function buildProjection(type, args) {
+      const pos = args.filter(a => !(a && a._named));
+      const named = {};
+      for (const a of args) if (a && a._named) Object.assign(named, a);
+      // Defaults
+      let cx, cy, cz;
+      if (type === 'perspective') { cx = 5; cy = 4; cz = 2; }
+      else                        { cx = 1; cy = -2; cz = 0.5; }
+      let ux = 0, uy = 0, uz = 1;
+      const nums = pos.filter(a => typeof a === 'number');
       if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
-      else if (nums.length === 0 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
-      const p = {_tag:'projection', type:'orthographic', cx, cy, cz, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
-      // Apply named args
-      for (const a of args) {
-        if (isTriple(a) && a !== args[0]) { p.ux = a.x; p.uy = a.y; p.uz = a.z; }
-      }
-      return p;
-    });
-
-    env.set('perspective', (...args) => {
-      const nums = args.filter(a => typeof a === 'number');
-      let cx = 5, cy = 4, cz = 2;
-      if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
-      else if (args.length >= 1 && isTriple(args[0])) { cx = args[0].x; cy = args[0].y; cz = args[0].z; }
-      const p = {_tag:'projection', type:'perspective', cx, cy, cz, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
-      for (const a of args) {
-        if (isTriple(a) && a !== args[0]) { p.ux = a.x; p.uy = a.y; p.uz = a.z; }
-      }
-      return p;
-    });
+      else if (pos.length >= 1 && isTriple(pos[0])) { cx = pos[0].x; cy = pos[0].y; cz = pos[0].z; }
+      if (pos.length >= 2 && isTriple(pos[1])) { ux = pos[1].x; uy = pos[1].y; uz = pos[1].z; }
+      // Named args override / supply
+      if (named.camera && isTriple(named.camera)) { cx = named.camera.x; cy = named.camera.y; cz = named.camera.z; }
+      if (named.up && isTriple(named.up))         { ux = named.up.x; uy = named.up.y; uz = named.up.z; }
+      let tx = 0, ty = 0, tz = 0;
+      if (named.target && isTriple(named.target)) { tx = named.target.x; ty = named.target.y; tz = named.target.z; }
+      const zoom = (typeof named.zoom === 'number') ? named.zoom : 1;
+      const autoadjust = ('autoadjust' in named) ? !!named.autoadjust : true;
+      const center = !!named.center;
+      return {_tag:'projection', type, cx, cy, cz, tx, ty, tz, ux, uy, uz,
+              zoom, autoadjust, center};
+    }
+    env.set('orthographic', (...args) => buildProjection('orthographic', args));
+    env.set('perspective',  (...args) => buildProjection('perspective',  args));
 
     env.set('oblique', (...args) => {
       return {_tag:'projection', type:'orthographic', cx:0, cy:-1, cz:0.5, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
@@ -7630,33 +7727,51 @@ function createInterpreter() {
       return null;
     });
 
-    // shift for triples
+    // shift for triples → transform3
     const origShift = env.get('shift');
     env.set('shift', (...args) => {
-      if (args.length === 1 && isTriple(args[0])) {
-        const d = args[0];
-        return {_tag:'transform', a:d.x, b:1, c:d.y, d:0, e:d.z, f:1, _shift3d:d};
+      const pos = args.filter(a => !(a && a._named));
+      if (pos.length === 1 && isTriple(pos[0])) {
+        return shiftT3(pos[0].x, pos[0].y, pos[0].z);
       }
-      if (args.length === 3 && typeof args[0] === 'number') {
-        const d = makeTriple(args[0], args[1], args[2]);
-        return {_tag:'transform', a:d.x, b:1, c:d.y, d:0, e:d.z, f:1, _shift3d:d};
+      if (pos.length === 3 && typeof pos[0] === 'number') {
+        return shiftT3(pos[0], pos[1], pos[2]);
       }
       if (origShift) return origShift(...args);
-      if (args.length === 2) return makeTransform(args[0], 1, args[1], 0, 0, 1);
-      if (args.length === 1 && isPair(args[0])) return makeTransform(args[0].x, 1, args[0].y, 0, 0, 1);
+      if (pos.length === 2) return makeTransform(pos[0], 1, pos[1], 0, 0, 1);
+      if (pos.length === 1 && isPair(pos[0])) return makeTransform(pos[0].x, 1, pos[0].y, 0, 0, 1);
       return makeTransform(0,1,0,0,0,1);
     });
 
-    // 3D scale
+    // scale / scale3 / xscale3 / yscale3 / zscale3
     const origScale = env.get('scale');
     env.set('scale', (...args) => {
-      if (args.length === 3) {
-        // scale(sx, sy, sz) - 3D scale, return as transform with metadata
-        return {_tag:'transform', a:0, b:args[0], c:0, d:0, e:0, f:args[1], _scale3d:{x:args[0],y:args[1],z:args[2]}};
-      }
+      const pos = args.filter(a => !(a && a._named));
+      if (pos.length === 3) return scaleT3(toNumber(pos[0]), toNumber(pos[1]), toNumber(pos[2]));
       if (origScale) return origScale(...args);
-      const s = toNumber(args[0]);
+      const s = toNumber(pos[0]);
       return makeTransform(0, s, 0, 0, 0, s);
+    });
+    env.set('scale3', (s) => { const n = toNumber(s); return scaleT3(n, n, n); });
+    env.set('xscale3', (s) => scaleT3(toNumber(s), 1, 1));
+    env.set('yscale3', (s) => scaleT3(1, toNumber(s), 1));
+    env.set('zscale3', (s) => scaleT3(1, 1, toNumber(s)));
+
+    // rotate(angle, triple axis) or rotate(angle, triple p, triple q)
+    const origRotate = env.get('rotate');
+    env.set('rotate', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      if (pos.length >= 2 && typeof pos[0] === 'number' && isTriple(pos[1])) {
+        const angle = pos[0];
+        if (pos.length >= 3 && isTriple(pos[2])) {
+          return rotateT3Line(angle, pos[1], pos[2]);
+        }
+        return rotateT3(angle, pos[1]);
+      }
+      if (origRotate) return origRotate(...args);
+      // Fallback to 2D rotate
+      const a = toNumber(pos[0]) * Math.PI / 180;
+      return makeTransform(0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a));
     });
 
     // Sin/Cos (degree-based trig)
@@ -7688,6 +7803,63 @@ function createInterpreter() {
     env.set('unitcube', {_tag:'surface'});
     env.set('extrude', (...args) => ({_tag:'surface'}));
 
+    // size3(W,H,D): 3D bounding-box size hint. Currently we record the requested
+    // 3D dims on the picture for diagnostics and use max(W,H) as the 2D size if
+    // no size() was given. Full 3D aspect-preserving scaling is Phase 1.
+    env.set('size3', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const w = pos.length > 0 ? toNumber(pos[0]) : 0;
+      const h = pos.length > 1 ? toNumber(pos[1]) : w;
+      const d = pos.length > 2 ? toNumber(pos[2]) : h;
+      currentPic._size3W = w;
+      currentPic._size3H = h;
+      currentPic._size3D = d;
+      // Fallback: if no 2D size set yet, use max of W,H,D so diagram isn't tiny.
+      if (sizeW === 0 && sizeH === 0) {
+        const s = Math.max(w, h, d);
+        sizeW = s; sizeH = s;
+      }
+    });
+
+    // path3 wire-frame type: {_tag:'path3', edges, vertices}
+    function makePath3Wire(edges, vertices) {
+      return {_tag:'path3', edges, vertices};
+    }
+    function _boxEdges(a, b) {
+      const ax = a.x, ay = a.y, az = a.z;
+      const bx = b.x, by = b.y, bz = b.z;
+      const v = [
+        makeTriple(ax, ay, az), makeTriple(bx, ay, az),
+        makeTriple(ax, by, az), makeTriple(bx, by, az),
+        makeTriple(ax, ay, bz), makeTriple(bx, ay, bz),
+        makeTriple(ax, by, bz), makeTriple(bx, by, bz),
+      ];
+      const edge = (i, j) => makePath([lineSegment(v[i], v[j])], false);
+      const edges = [
+        edge(0,1), edge(1,3), edge(3,2), edge(2,0), // bottom face
+        edge(4,5), edge(5,7), edge(7,6), edge(6,4), // top face
+        edge(0,4), edge(1,5), edge(3,7), edge(2,6), // verticals
+      ];
+      return makePath3Wire(edges, v);
+    }
+    env.set('box', (...args) => {
+      if (args.length >= 2 && isTriple(args[0]) && isTriple(args[1])) {
+        return _boxEdges(args[0], args[1]);
+      }
+      // 2D fallback: box(a, b) as rectangle path
+      if (args.length >= 2 && isPair(args[0]) && isPair(args[1])) {
+        const a = args[0], b = args[1];
+        return makePath([
+          lineSegment(makePair(a.x,a.y), makePair(b.x,a.y)),
+          lineSegment(makePair(b.x,a.y), makePair(b.x,b.y)),
+          lineSegment(makePair(b.x,b.y), makePair(a.x,b.y)),
+          lineSegment(makePair(a.x,b.y), makePair(a.x,a.y)),
+        ], true);
+      }
+      return null;
+    });
+    env.set('unitbox', _boxEdges(makeTriple(0,0,0), makeTriple(1,1,1)));
+
     // settings object — properties like settings.render are silently accepted
     env.set('settings', { render: 0, outformat: '', prc: false, tex: 'pdflatex' });
 
@@ -7711,6 +7883,20 @@ function createInterpreter() {
     if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
       target = args[0];
       args = args.slice(1);
+    }
+    // path3 wire-frame: iterate over edges
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a && a._tag === 'path3' && Array.isArray(a.edges)) {
+        const rest = args.slice(0, i).concat(args.slice(i+1));
+        const savedLine = args._line;
+        for (const edge of a.edges) {
+          const sub = [edge, ...rest];
+          sub._line = savedLine;
+          evalDraw(cmd, sub);
+        }
+        return;
+      }
     }
     // Convert geometry types to drawable paths
     const savedLine = args._line;
@@ -7887,6 +8073,20 @@ function createInterpreter() {
     if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
       target = args[0];
       args = args.slice(1);
+    }
+    // path3 wire-frame: dot each unique vertex (projected)
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a && a._tag === 'path3' && Array.isArray(a.vertices)) {
+        const rest = args.slice(0, i).concat(args.slice(i+1));
+        const savedLine0 = args._line;
+        for (const v of a.vertices) {
+          const sub = [v, ...rest];
+          sub._line = savedLine0;
+          evalDot(sub);
+        }
+        return;
+      }
     }
     // Convert geometry points to pairs
     const savedLine = args._line;
@@ -8224,6 +8424,7 @@ function createInterpreter() {
     currentPic = {_tag:'picture', commands:[]};
     globalEnv.update('currentpicture', currentPic);
     projection = null;
+    _projectedTriples.length = 0;
     unitScale = 1; hasUnitScale = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
@@ -8247,6 +8448,45 @@ function createInterpreter() {
     patchDrawLines(ast, globalEnv);
 
     evalNode(ast, globalEnv);
+
+    // If projection has center=true, compute 3D bbox centroid of all tracked
+    // triples, set projection target to centroid, and re-project every tracked
+    // triple in-place so downstream draw commands see the centred scene.
+    if (projection && projection.center && _projectedTriples.length > 0) {
+      let xmin = Infinity, ymin = Infinity, zmin = Infinity;
+      let xmax = -Infinity, ymax = -Infinity, zmax = -Infinity;
+      for (const e of _projectedTriples) {
+        const t = e.triple;
+        if (t.x < xmin) xmin = t.x;
+        if (t.y < ymin) ymin = t.y;
+        if (t.z < zmin) zmin = t.z;
+        if (t.x > xmax) xmax = t.x;
+        if (t.y > ymax) ymax = t.y;
+        if (t.z > zmax) zmax = t.z;
+      }
+      if (isFinite(xmin) && isFinite(xmax)) {
+        const cx = (xmin + xmax) / 2;
+        const cy = (ymin + ymax) / 2;
+        const cz = (zmin + zmax) / 2;
+        // Shift camera by same delta so it keeps its relative position
+        const dtx = cx - (projection.tx || 0);
+        const dty = cy - (projection.ty || 0);
+        const dtz = cz - (projection.tz || 0);
+        projection.tx = cx;
+        projection.ty = cy;
+        projection.tz = cz;
+        projection.cx += dtx;
+        projection.cy += dty;
+        projection.cz += dtz;
+        // Prevent infinite recursion in projectTriple's adjust code during re-projection
+        projection.center = false;
+        for (const entry of _projectedTriples) {
+          const rp = _projectTripleRaw(entry.triple, projection);
+          entry.result.x = rp.x;
+          entry.result.y = rp.y;
+        }
+      }
+    }
 
     // Copy currentpicture's commands to drawCommands for rendering
     for (const c of currentPic.commands) drawCommands.push(c);
