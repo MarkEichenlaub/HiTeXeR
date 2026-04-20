@@ -234,7 +234,7 @@ if not os.path.exists(CLAUDE_CLI):
     CLAUDE_CLI = "claude"  # fallback to PATH
 
 
-def call_claude(prompt, model="claude-opus-4-6", max_tokens=16000):
+def call_claude(prompt, model="claude-opus-4-7", max_tokens=16000):
     """Call Claude CLI and return the response text. Pipes prompt via stdin."""
     try:
         result = subprocess.run(

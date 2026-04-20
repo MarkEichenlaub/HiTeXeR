@@ -422,7 +422,7 @@ If the images look essentially the same to a human viewer (minor pixel-level dif
     try:
         cmd = (
             f'claude --print --output-format text '
-            f'--model claude-sonnet-4-20250514 '
+            f'--model claude-sonnet-4-6 '
             f'--dangerously-skip-permissions '
             f'< "{prompt_file}"'
         )
@@ -489,7 +489,7 @@ the `v` string in the `<h1>` header) so we can confirm the change.
         # agentic mode and can use tools (Read, Edit, Bash) to fix the code.
         cmd = (
             f'claude --dangerously-skip-permissions '
-            f'--model claude-opus-4-20250514 '
+            f'--model claude-opus-4-7 '
             f'--output-format text '
             f'--max-turns 30 '
             f'< "{prompt_file}"'
@@ -568,7 +568,7 @@ IMPORTANT: After editing asy-interp.js, bump the version number in index.html.
     try:
         cmd = (
             f'claude --dangerously-skip-permissions '
-            f'--model claude-opus-4-20250514 '
+            f'--model claude-opus-4-7 '
             f'--output-format text '
             f'--max-turns 30 '
             f'< "{prompt_file}"'
