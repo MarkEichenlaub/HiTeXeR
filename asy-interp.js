@@ -35,8 +35,8 @@ const KEYWORDS = new Set([
 
 const TYPE_NAMES = new Set([
   'int','real','pair','triple','string','bool','bool3','pen','path','path3','guide',
-  'picture','transform','void','var','Label','file',
-  'projection','revolution','surface','material',
+  'picture','transform','transform3','void','var','Label','file','frame',
+  'projection','revolution','surface','material','patch',
   'coordsys','point','vector',
   'line','segment','circle','triangle',
   'side','vertex',
@@ -423,15 +423,21 @@ function parse(tokens) {
     eat(T.IDENT); // 'for'
     eat(T.LPAREN);
 
-    // Check for foreach syntax: for (type var : expr)
-    if (isTypeName() && peekType(1) === T.IDENT && peekType(2) === T.COLON) {
-      const elemType = eat(T.IDENT).value;
-      const elemName = eat(T.IDENT).value;
-      eat(T.COLON); // ':'
-      const iterExpr = parseExpr();
-      eat(T.RPAREN);
-      const body = parseStatement();
-      return {type:'ForEachStmt', elemType, elemName, iter: iterExpr, body, line: ln};
+    // Check for foreach syntax: for (type var : expr) — also type[] and type[][]
+    if (isTypeName()) {
+      // Skip past any []/[][] after the type to check for IDENT COLON
+      let k = 1;
+      while (peekType(k) === T.LBRACKET && peekType(k+1) === T.RBRACKET) k += 2;
+      if (peekType(k) === T.IDENT && peekType(k+1) === T.COLON) {
+        let elemType = eat(T.IDENT).value;
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; elemType += '[]'; }
+        const elemName = eat(T.IDENT).value;
+        eat(T.COLON);
+        const iterExpr = parseExpr();
+        eat(T.RPAREN);
+        const body = parseStatement();
+        return {type:'ForEachStmt', elemType, elemName, iter: iterExpr, body, line: ln};
+      }
     }
     // Also handle: for (var : expr) without explicit type
     if (at(T.IDENT) && peekType(1) === T.COLON) {
@@ -650,6 +656,10 @@ function parse(tokens) {
     if (t.type === T.LPAREN && left.type === 'MemberAccess') {
       return parseFuncCallNode(left, ln);
     }
+    // operator-- / operator.. / operator+ etc. used as callable: operator--(pts)
+    if (t.type === T.LPAREN && left.type === 'OperatorLit') {
+      return parseFuncCallNode(left, ln);
+    }
 
     // Array access
     if (t.type === T.LBRACKET) {
@@ -685,8 +695,14 @@ function parse(tokens) {
     eat(T.LPAREN);
     const args = [];
     while (!at(T.RPAREN) && !at(T.EOF)) {
+      // Spread: ...expr — expand array into individual args at call time
+      if (at(T.DOTDOTDOT)) {
+        const spLn = cur().line;
+        pos++;
+        args.push({type:'SpreadArg', value: parseExpr(), line: spLn});
+      }
       // Support named parameters: name=value
-      if (at(T.IDENT) && pos+1 < tokens.length && tokens[pos+1].type === T.ASSIGN) {
+      else if (at(T.IDENT) && pos+1 < tokens.length && tokens[pos+1].type === T.ASSIGN) {
         const argName = cur().value;
         const argLn = cur().line;
         pos += 2; // skip identifier and '='
@@ -773,13 +789,38 @@ function parse(tokens) {
         eat(T.DOTDOT);
       }
 
+      // Check for explicit controls: ..controls c1 and c2..
+      // Parser-level support: consume the controls clause; currently the controls
+      // themselves are ignored (Hobby's algorithm produces the curve).
+      let controlsOut = null, controlsIn = null;
+      if (atVal(T.IDENT, 'controls')) {
+        pos++;
+        controlsOut = parseExpr(5.5);
+        if (atVal(T.IDENT, 'and')) {
+          pos++;
+          controlsIn = parseExpr(5.5);
+        } else {
+          controlsIn = controlsOut;
+        }
+        if (at(T.DOTDOT)) pos++;
+        // After controls block, next token may be 'cycle' to close path
+        if (atVal(T.IDENT, 'cycle')) {
+          pos++;
+          nodes[nodes.length-1].join = join;
+          nodes[nodes.length-1].controlsOut = controlsOut;
+          nodes.push({point: Identifier('cycle', cur().line), join: null, isCycle: true, controlsIn: controlsIn});
+          break;
+        }
+      }
+
       // Check for incoming direction {dir}
       const dirIn = tryParseDir();
 
       const point = parseExpr(5.5); // parse at path-join level so +/- bind tighter than --/..
       nodes[nodes.length-1].join = join;
       nodes[nodes.length-1].tension = tension;
-      const newNode = {point, join: null, dirIn: dirIn};
+      nodes[nodes.length-1].controlsOut = controlsOut;
+      const newNode = {point, join: null, dirIn: dirIn, controlsIn: controlsIn};
 
       // Check for outgoing direction on this new node
       const dOutN = tryParseDir();
@@ -2389,7 +2430,46 @@ function createInterpreter() {
     return v;
   }
 
+  // Evaluate an arg list, expanding SpreadArg nodes (...arr) into element args.
+  // Named args are evaluated into {_named:true, [name]:value} wrappers.
+  function evalArgList(nodeArgs, env) {
+    const out = [];
+    for (const a of nodeArgs) {
+      if (a && a.type === 'SpreadArg') {
+        const v = evalNode(a.value, env);
+        if (Array.isArray(v)) out.push(...v);
+        else if (v != null) out.push(v);
+      } else if (a && a.type === 'NamedArg') {
+        const obj = {_named: true};
+        obj[a.name] = evalNode(a.value, env);
+        out.push(obj);
+      } else {
+        out.push(evalNode(a, env));
+      }
+    }
+    return out;
+  }
+
   function evalFuncCall(node, env) {
+    // operator--(p1, p2, ...) / operator..(p1, p2, ...) — build a path connecting
+    // the supplied points/paths with the given join. Mirrors Asymptote's
+    // reference to path-join operators as first-class functions.
+    if (node.callee.type === 'OperatorLit' &&
+        (node.callee.value === '--' || node.callee.value === '..')) {
+      const pts = evalArgList(node.args, env);
+      const join = node.callee.value;
+      const segs = [];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const a = pts[i], b = pts[i+1];
+        if (join === '--') {
+          segs.push(lineSegment(a, b));
+        } else {
+          // ..: approximate with straight segment (Hobby would need knot sequence)
+          segs.push(lineSegment(a, b));
+        }
+      }
+      return makePath(segs, false);
+    }
     // Get the callee
     let callee;
     let calleeName = '';
@@ -2417,7 +2497,8 @@ function createInterpreter() {
     // Draw commands: evaluate args with line info
     const drawFuncs = new Set(['draw','fill','filldraw','clip','unfill','label','dot']);
     if (drawFuncs.has(calleeName)) {
-      const args = node.args.map(a => evalNode(a, env));
+      const hasSpread = node.args.some(a => a && a.type === 'SpreadArg');
+      const args = hasSpread ? evalArgList(node.args, env) : node.args.map(a => evalNode(a, env));
       args._line = node._sourceLine || node.line || 0;
       if (calleeName === 'label') return evalLabel(args);
       if (calleeName === 'dot') {
@@ -2439,14 +2520,7 @@ function createInterpreter() {
     }
 
     if (typeof callee === 'function') {
-      const args = node.args.map(a => {
-        if (a.type === 'NamedArg') {
-          const obj = {_named: true};
-          obj[a.name] = evalNode(a.value, env);
-          return obj;
-        }
-        return evalNode(a, env);
-      });
+      const args = evalArgList(node.args, env);
       return callee(...args);
     }
     if (callee && callee._tag === 'func') {
