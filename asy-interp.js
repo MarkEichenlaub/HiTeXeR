@@ -9743,7 +9743,11 @@ function renderSVG(result, opts) {
       // segment that contains only a simple Unicode-mappable symbol with its Unicode
       // equivalent.  This avoids the KaTeX foreignObject path (which doesn't rasterize
       // in librsvg/sharp) for labels that are mostly plain text with embedded symbols.
-      if (/\$/.test(displayText)) {
+      // Skip this replacement in svg-native (rasterization) mode: there, the MathJax
+      // SVG path renders mixed content with proper TeX typography/kerning, and the
+      // Unicode-stripped version renders too wide (plain serif metrics > TeX text-mode).
+      const svgNativeMode = opts && opts.labelOutput === 'svg-native';
+      if (/\$/.test(displayText) && !svgNativeMode) {
         displayText = displayText.replace(/\$([^$]+)\$/g, (match, inner) => {
           const trimmed = inner.trim();
           if (LATEX_TO_UNICODE[trimmed]) return LATEX_TO_UNICODE[trimmed];
