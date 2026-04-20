@@ -94,10 +94,17 @@ function lex(source) {
         num += ch(); advance();
         while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
       }
+      // Scientific notation: only consume 'e' if followed by an optional sign
+      // and at least one digit. Otherwise leave 'e' to be part of an identifier
+      // (e.g. "3exp(...)" means "3 * exp(...)" via implicit multiplication).
       if (ch() === 'e' || ch() === 'E') {
-        num += ch(); advance();
-        if (ch() === '+' || ch() === '-') { num += ch(); advance(); }
-        while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
+        const off = (peek(1) === '+' || peek(1) === '-') ? 2 : 1;
+        const after = peek(off);
+        if (after >= '0' && after <= '9') {
+          num += ch(); advance();
+          if (ch() === '+' || ch() === '-') { num += ch(); advance(); }
+          while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
+        }
       }
       tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e')&&!num.includes('E'), line:startLine, col:startCol});
       continue;
@@ -8974,6 +8981,7 @@ function createInterpreter() {
         }
       }
       const mesh = makeMesh(faces);
+      mesh._closed = true; // closed tube: back-face culling eliminates hidden faces
       const grid = rings;
       return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid, _gridRows: rings.length, _gridCols: nSides, _gridCyclic: true}, center: p};
     });
@@ -10481,8 +10489,11 @@ function createInterpreter() {
       // Normal (may already be cached)
       const n = face.normal || faceNormal(face);
       // Lambert: intensity = |n · L|; use abs so back-facing faces still lit
-      // (acceptable shortcut since we're not doing true back-face culling)
+      // (acceptable shortcut since we're not doing true back-face culling).
+      // For closed surfaces (mesh._closed), back-face culling hides interior faces
+      // so adjacent rings don't bleed through and mask the 3D shape.
       let dot = n.x*lx + n.y*ly + n.z*lz;
+      if (mesh && mesh._closed && dot < 0) continue; // back-face cull
       if (dot < 0) dot = -dot;
       const intensity = 0.35 + 0.65 * dot; // 0.35 ambient floor
       // Project polygon
