@@ -2249,6 +2249,26 @@ function createInterpreter() {
       }
     }
 
+    // Array of triples broadcasting with triple/scalar (element-wise)
+    {
+      const _isTripleArr = a => Array.isArray(a) && a.length > 0 && a.every(v => isTriple(v));
+      if (_isTripleArr(left) && isTriple(right)) {
+        if (op === T.PLUS) return left.map(t => makeTriple(t.x+right.x, t.y+right.y, t.z+right.z));
+        if (op === T.MINUS) return left.map(t => makeTriple(t.x-right.x, t.y-right.y, t.z-right.z));
+      }
+      if (isTriple(left) && _isTripleArr(right)) {
+        if (op === T.PLUS) return right.map(t => makeTriple(left.x+t.x, left.y+t.y, left.z+t.z));
+        if (op === T.MINUS) return right.map(t => makeTriple(left.x-t.x, left.y-t.y, left.z-t.z));
+      }
+      if (_isTripleArr(left) && isNumber(right)) {
+        if (op === T.STAR) return left.map(t => makeTriple(t.x*right, t.y*right, t.z*right));
+        if (op === T.SLASH) return right ? left.map(t => makeTriple(t.x/right, t.y/right, t.z/right)) : left.map(() => makeTriple(0,0,0));
+      }
+      if (isNumber(left) && _isTripleArr(right)) {
+        if (op === T.STAR) return right.map(t => makeTriple(left*t.x, left*t.y, left*t.z));
+      }
+    }
+
     // Triple ops
     if (isTriple(left) || isTriple(right)) {
       const l = isTriple(left) ? left : toTriple(left);
@@ -2948,10 +2968,18 @@ function createInterpreter() {
 
   function bezierPoint(seg, t) {
     const u = 1-t;
-    return makePair(
-      u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x,
-      u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y
-    );
+    const x = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+    const y = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+    // If any endpoint carries z (triple), preserve z so path3 point() returns a triple
+    if (seg.p0 && seg.p0._tag === 'triple') {
+      const p0z = seg.p0.z || 0;
+      const c1z = (seg.cp1 && seg.cp1.z) || 0;
+      const c2z = (seg.cp2 && seg.cp2.z) || 0;
+      const p3z = (seg.p3 && seg.p3.z) || 0;
+      const z = u*u*u*p0z + 3*u*u*t*c1z + 3*u*t*t*c2z + t*t*t*p3z;
+      return makeTriple(x, y, z);
+    }
+    return makePair(x, y);
   }
 
   function evalCast(node, env) {
@@ -3831,6 +3859,27 @@ function createInterpreter() {
       if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
       return toNumber(v);
     });
+    env.set('sum', (v) => {
+      if (!Array.isArray(v) || v.length === 0) return 0;
+      const first = v[0];
+      if (isTriple(first)) {
+        let x = 0, y = 0, z = 0;
+        for (const t of v) {
+          if (isTriple(t)) { x += t.x; y += t.y; z += t.z; }
+        }
+        return makeTriple(x, y, z);
+      }
+      if (isPair(first)) {
+        let x = 0, y = 0;
+        for (const t of v) {
+          if (isPair(t)) { x += t.x; y += t.y; }
+        }
+        return makePair(x, y);
+      }
+      let s = 0;
+      for (const t of v) s += toNumber(t);
+      return s;
+    });
     env.set('angle', (p) => {
       const pp = toPair(p);
       return Math.atan2(pp.y, pp.x);
@@ -3876,6 +3925,43 @@ function createInterpreter() {
     });
 
     env.set('arc', (...args) => {
+      // 3D form: arc(triple center, triple v1, triple v2[, int n]) —
+      // spherical-great-circle arc of radius |v1-center| from v1 to v2.
+      // Returns a path with triple-valued Bezier segments (path3).
+      if (args.length >= 3 && isTriple(args[0]) && isTriple(args[1]) && isTriple(args[2])) {
+        const c = args[0], v1 = args[1], v2 = args[2];
+        const n = args.length >= 4 && typeof args[3] === 'number' ? Math.max(2, Math.floor(args[3])) : 8;
+        const ux = v1.x - c.x, uy = v1.y - c.y, uz = v1.z - c.z;
+        const vx = v2.x - c.x, vy = v2.y - c.y, vz = v2.z - c.z;
+        const ru = Math.sqrt(ux*ux + uy*uy + uz*uz) || 1;
+        const rv = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+        const dot = (ux*vx + uy*vy + uz*vz) / (ru * rv);
+        const theta = Math.acos(Math.max(-1, Math.min(1, dot)));
+        // slerp on unit vectors, scale by ru
+        const samples = [];
+        const nSamp = Math.max(n * 2, 16);
+        for (let i = 0; i <= nSamp; i++) {
+          const t = i / nSamp;
+          let px, py, pz;
+          if (theta < 1e-6) {
+            px = c.x + (1-t)*ux + t*vx;
+            py = c.y + (1-t)*uy + t*vy;
+            pz = c.z + (1-t)*uz + t*vz;
+          } else {
+            const s1 = Math.sin((1-t)*theta) / Math.sin(theta);
+            const s2 = Math.sin(t*theta) / Math.sin(theta);
+            px = c.x + ru * (s1 * ux/ru + s2 * vx/rv);
+            py = c.y + ru * (s1 * uy/ru + s2 * vy/rv);
+            pz = c.z + ru * (s1 * uz/ru + s2 * vz/rv);
+          }
+          samples.push(makeTriple(px, py, pz));
+        }
+        const segs = [];
+        for (let i = 0; i < samples.length - 1; i++) {
+          segs.push(lineSegment(samples[i], samples[i+1]));
+        }
+        return makePath(segs, false);
+      }
       // Asymptote: arc(center, radius, angle1, angle2, direction)
       // With explicit direction: CCW normalizes angle2 > angle1, CW normalizes angle2 < angle1.
       // WITHOUT explicit direction (4-arg form): direction is CCW if angle2 >= angle1, CW otherwise.
@@ -4012,6 +4098,20 @@ function createInterpreter() {
       if (!isPath(p)) return makePair(0,0);
       const time = toNumber(t) * p.segs.length;
       return _pointOnPath(p, time);
+    });
+
+    // reltime(path, frac): convert arclength fraction [0,1] to path time [0,N]
+    env.set('reltime', (p, t) => {
+      if (!isPath(p) || p.segs.length === 0) return 0;
+      return toNumber(t) * p.segs.length;
+    });
+
+    // length(path): number of segments (for path time parameterization)
+    env.set('length', (v) => {
+      if (isPath(v)) return v.segs.length;
+      if (Array.isArray(v)) return v.length;
+      if (typeof v === 'string') return v.length;
+      return 0;
     });
 
     env.set('midpoint', (...args) => {
@@ -8149,6 +8249,10 @@ function createInterpreter() {
     env.set('Y', makeTriple(0,1,0));
     env.set('Z', makeTriple(0,0,1));
     env.set('O', makeTriple(0,0,0));
+    // Floating-point epsilon constants used by 3D/graph modules
+    env.set('realEpsilon', 2.22044604925031e-16);
+    env.set('sqrtEpsilon', 1.4901161193847656e-8);
+    env.set('mantissaBits', 53);
 
     // 3D arrow types (treated same as 2D arrows for wireframe rendering)
     env.set('Arrow3', (...args) => {
@@ -8213,9 +8317,14 @@ function createInterpreter() {
       return {_tag:'projection', type:'orthographic', cx:0, cy:-1, cz:0.5, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
     });
 
-    // currentprojection — set default if not already set
+    // currentprojection — set default if not already set.
+    // Matches Asymptote's three.asy default camera position (5,4,2) so
+    // scenes without an explicit currentprojection render from the same
+    // yaw as the standalone Asymptote renderer / TeXeR. We keep
+    // orthographic (rather than perspective) for consistency with HTX's
+    // simpler projection pipeline.
     if (!projection) {
-      projection = {_tag:'projection', type:'orthographic', cx:1, cy:-2, cz:0.5, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
+      projection = {_tag:'projection', type:'orthographic', cx:5, cy:4, cz:2, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
       env.set('currentprojection', projection);
     }
 
@@ -9196,6 +9305,181 @@ function createInterpreter() {
         const segs = [];
         for (let m = 0; m < pts.length-1; m++) segs.push(lineSegment(pts[m], pts[m+1]));
         target.commands.push({cmd:'draw', path: makePath(segs, true), pen: clonePen(spherePen), arrow:null, line: args._line || 0});
+        return;
+      }
+    }
+    // Handle draw(triple[] v, int[][] vi, [triple[] n, int[][] ni,] pen|pen[], [int[][] pi])
+    // — indexed triangle mesh from three.asy. Matches Asymptote's standalone
+    // (non-PRC) renderer:
+    //   * With per-vertex pens (pi): interpolate pen colors barycentrically,
+    //     no normal-based shading (vertex colors ARE the shading).
+    //   * Without per-vertex pens: apply Lambert with world +Z light direction
+    //     (Asymptote's default Headlamp in viewport space maps to world +Z when
+    //     viewportlight=true) using interpolated per-vertex normals.
+    // Sub-triangles are emitted as raw fills (no stroke outlines) to avoid the
+    // subdivision grid showing up.
+    {
+      const _isTripleArr = a => Array.isArray(a) && a.length > 0 && a.every(v => isTriple(v));
+      const _isIntIntArr = a => Array.isArray(a) && a.length > 0 && a.every(v => Array.isArray(v) && v.every(x => typeof x === 'number'));
+      const _isPenArr = a => Array.isArray(a) && a.length > 0 && a.every(v => isPen(v));
+      if (args.length >= 2 && _isTripleArr(args[0]) && _isIntIntArr(args[1])) {
+        const v = args[0];
+        const vi = args[1];
+        let k = 2;
+        let normals = null, normalIdx = null;
+        if (k < args.length && Array.isArray(args[k]) && (args[k].length === 0 || args[k].every(x => isTriple(x)))) {
+          normals = args[k]; k++;
+          if (k < args.length && Array.isArray(args[k]) && (args[k].length === 0 || (Array.isArray(args[k][0]) && args[k][0].every(x => typeof x === 'number')))) {
+            normalIdx = args[k]; k++;
+          }
+        }
+        let singlePen = null, penArr = null, pi = null;
+        for (; k < args.length; k++) {
+          const a = args[k];
+          if (isPen(a)) singlePen = singlePen ? mergePens(singlePen, a) : a;
+          else if (_isPenArr(a)) penArr = a;
+          else if (_isIntIntArr(a)) pi = a;
+        }
+        const basePen = singlePen || clonePen(defaultPen);
+        const _blendPens = (pens, weights) => {
+          let r=0, g=0, b=0, op=0, hasOp=false, wSum=0;
+          for (let i=0;i<pens.length;i++){
+            const p=pens[i], w=weights[i];
+            r+=w*(p.r||0); g+=w*(p.g||0); b+=w*(p.b||0);
+            if (typeof p.opacity==='number'){ op+=w*p.opacity; hasOp=true; }
+            wSum+=w;
+          }
+          if (wSum>0){ r/=wSum; g/=wSum; b/=wSum; op/=wSum; }
+          const base = clonePen(pens[0]);
+          base.r=r; base.g=g; base.b=b;
+          if (hasOp) base.opacity=op;
+          return base;
+        };
+        const _normalize = (n) => {
+          const L = Math.sqrt(n.x*n.x + n.y*n.y + n.z*n.z) || 1;
+          return {x:n.x/L, y:n.y/L, z:n.z/L};
+        };
+        const useVertexColors = !!(penArr && pi);
+        const items = []; // { depth, poly: pair[], pen }
+
+        for (let fi = 0; fi < vi.length; fi++) {
+          const ix = vi[fi];
+          if (!ix || ix.length < 3) continue;
+          const verts3 = ix.map(i => v[i]).filter(t => isTriple(t));
+          if (verts3.length < 3) continue;
+
+          // Fan-triangulate polygons with >3 verts
+          const triangles = [];
+          if (verts3.length === 3) triangles.push([0, 1, 2]);
+          else for (let t = 1; t < verts3.length - 1; t++) triangles.push([0, t, t+1]);
+
+          for (const tri of triangles) {
+            const V0 = verts3[tri[0]], V1 = verts3[tri[1]], V2 = verts3[tri[2]];
+            const defaultN = faceNormal({vertices:[V0,V1,V2]});
+            // Per-vertex normals (in world coords)
+            let N0 = defaultN, N1 = defaultN, N2 = defaultN;
+            if (normals && normalIdx && normalIdx[fi] && normalIdx[fi].length >= 3) {
+              const nIdx = normalIdx[fi];
+              const nx0 = normals[nIdx[tri[0]]], nx1 = normals[nIdx[tri[1]]], nx2 = normals[nIdx[tri[2]]];
+              if (isTriple(nx0)) N0 = _normalize(nx0);
+              if (isTriple(nx1)) N1 = _normalize(nx1);
+              if (isTriple(nx2)) N2 = _normalize(nx2);
+            }
+            // Per-vertex pens
+            let P0 = basePen, P1 = basePen, P2 = basePen;
+            if (penArr && pi && pi[fi] && pi[fi].length >= 3) {
+              const pIdx = pi[fi];
+              if (isPen(penArr[pIdx[tri[0]]])) P0 = penArr[pIdx[tri[0]]];
+              if (isPen(penArr[pIdx[tri[1]]])) P1 = penArr[pIdx[tri[1]]];
+              if (isPen(penArr[pIdx[tri[2]]])) P2 = penArr[pIdx[tri[2]]];
+            }
+
+            // Emit a single filled sub-triangle with given corners, normals, pens
+            const emitTri = (P1pt, P2pt, P3pt, ba, bb, bc) => {
+              const pen = _blendPens([P0, P1, P2], [ba, bb, bc]);
+              let finalPen;
+              if (useVertexColors) {
+                // Asymptote's offline PNG renderer treats indexed-mesh
+                // per-vertex pens as opaque (opacity is a PRC-only effect
+                // here; see 12837.asy comment). Strip opacity for fidelity.
+                finalPen = clonePen(pen);
+                if (typeof finalPen.opacity === 'number') delete finalPen.opacity;
+              } else {
+                const nI = _normalize({
+                  x: ba*N0.x + bb*N1.x + bc*N2.x,
+                  y: ba*N0.y + bb*N1.y + bc*N2.y,
+                  z: ba*N0.z + bb*N1.z + bc*N2.z,
+                });
+                const intensity = Math.max(0, Math.abs(nI.z));
+                finalPen = clonePen(pen);
+                finalPen.r = (pen.r||0) * intensity;
+                finalPen.g = (pen.g||0) * intensity;
+                finalPen.b = (pen.b||0) * intensity;
+              }
+              // Project centroid for depth
+              const cx = (P1pt.x+P2pt.x+P3pt.x)/3;
+              const cy = (P1pt.y+P2pt.y+P3pt.y)/3;
+              const cz = (P1pt.z+P2pt.z+P3pt.z)/3;
+              // Depth = -z in view space (use camera if available)
+              let depth;
+              if (projection) {
+                const dx = projection.cx - cx, dy = projection.cy - cy, dz = projection.cz - cz;
+                depth = Math.sqrt(dx*dx + dy*dy + dz*dz);
+              } else {
+                depth = -cz;
+              }
+              const T1 = makeTriple(P1pt.x, P1pt.y, P1pt.z);
+              const T2 = makeTriple(P2pt.x, P2pt.y, P2pt.z);
+              const T3 = makeTriple(P3pt.x, P3pt.y, P3pt.z);
+              const poly = [projectTriple(T1), projectTriple(T2), projectTriple(T3)];
+              items.push({depth, poly, pen: finalPen});
+            };
+
+            // Subdivide the triangle (N×N) for smooth gradient
+            const N = 16;
+            // Grid g[i][j] with i+j<=N, bary = ((N-i-j)/N, i/N, j/N)
+            const gp = [];
+            for (let i = 0; i <= N; i++) {
+              gp[i] = [];
+              for (let j = 0; j <= N - i; j++) {
+                const a = (N-i-j)/N, b = i/N, c = j/N;
+                gp[i][j] = {
+                  x: a*V0.x + b*V1.x + c*V2.x,
+                  y: a*V0.y + b*V1.y + c*V2.y,
+                  z: a*V0.z + b*V1.z + c*V2.z,
+                  a, b, c,
+                };
+              }
+            }
+            for (let i = 0; i < N; i++) {
+              for (let j = 0; j < N - i; j++) {
+                const p1 = gp[i][j], p2 = gp[i+1][j], p3 = gp[i][j+1];
+                emitTri(p1, p2, p3,
+                        (p1.a+p2.a+p3.a)/3,
+                        (p1.b+p2.b+p3.b)/3,
+                        (p1.c+p2.c+p3.c)/3);
+                if (j + 1 <= N - i - 1) {
+                  const q1 = gp[i+1][j], q2 = gp[i+1][j+1], q3 = gp[i][j+1];
+                  emitTri(q1, q2, q3,
+                          (q1.a+q2.a+q3.a)/3,
+                          (q1.b+q2.b+q3.b)/3,
+                          (q1.c+q2.c+q3.c)/3);
+                }
+              }
+            }
+          }
+        }
+        // Painter's sort: farthest first
+        items.sort((a, b) => b.depth - a.depth);
+        const lineNo = args._line || 0;
+        for (const it of items) {
+          const segs = [];
+          for (let i = 0; i < it.poly.length; i++) {
+            segs.push(lineSegment(it.poly[i], it.poly[(i+1) % it.poly.length]));
+          }
+          const p = makePath(segs, true);
+          target.commands.push({cmd:'fill', path: p, pen: it.pen, line: lineNo});
+        }
         return;
       }
     }
