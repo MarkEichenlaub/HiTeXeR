@@ -2387,9 +2387,42 @@ function createInterpreter() {
     }
     // transform3 * mesh → transformed mesh
     if (isTransform3(left) && isMesh(right)) return applyTransform3Mesh(left, right);
-    // transform3 * surface{mesh} → surface with transformed mesh
+    // transform3 * surface{mesh} → surface with transformed mesh, preserving grid metadata
     if (isTransform3(left) && right && right._tag === 'surface' && right.mesh) {
-      return {_tag: 'surface', mesh: applyTransform3Mesh(left, right.mesh)};
+      const out = {_tag: 'surface', mesh: applyTransform3Mesh(left, right.mesh)};
+      if (right._grid) {
+        out._grid = right._grid.map(row => row.map(v => applyTransform3Triple(left, v)));
+      }
+      if (right._gridRows !== undefined) out._gridRows = right._gridRows;
+      if (right._gridCols !== undefined) out._gridCols = right._gridCols;
+      if (right._gridCyclic !== undefined) out._gridCyclic = right._gridCyclic;
+      if (right._colors) out._colors = right._colors;
+      return out;
+    }
+    // transform3 * revolution → transformed revolution (preserve grid)
+    if (isTransform3(left) && right && right._tag === 'revolution') {
+      const out = {_tag: 'revolution', mesh: applyTransform3Mesh(left, right.mesh)};
+      if (right._grid) {
+        out._grid = right._grid.map(row => row.map(v => applyTransform3Triple(left, v)));
+      }
+      if (right._gridRows !== undefined) out._gridRows = right._gridRows;
+      if (right._gridCols !== undefined) out._gridCols = right._gridCols;
+      if (right._gridCyclic !== undefined) out._gridCyclic = right._gridCyclic;
+      if (right.path) out.path = right.path;
+      if (right.axis) out.axis = right.axis;
+      return out;
+    }
+    // transform3 * tube → transformed tube
+    if (isTransform3(left) && right && right._tag === 'tube' && right.s) {
+      const s = right.s;
+      const sOut = {_tag: 'surface', mesh: applyTransform3Mesh(left, s.mesh)};
+      if (s._grid) sOut._grid = s._grid.map(row => row.map(v => applyTransform3Triple(left, v)));
+      if (s._gridRows !== undefined) sOut._gridRows = s._gridRows;
+      if (s._gridCols !== undefined) sOut._gridCols = s._gridCols;
+      if (s._gridCyclic !== undefined) sOut._gridCyclic = s._gridCyclic;
+      if (s._colors) sOut._colors = s._colors;
+      const centerOut = right.center ? applyTransform3Path(left, right.center) : right.center;
+      return {_tag: 'tube', s: sOut, center: centerOut};
     }
     // Transform * pair
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
@@ -8545,6 +8578,160 @@ function createInterpreter() {
         }
         if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
       }
+      // path3[] (+ planar=true) — annulus / filled region between boundary loops.
+      // When given 1 loop: fan-triangulate its interior. When given 2 loops
+      // (outer + inner hole, possibly one reversed): connect matched samples.
+      //
+      // Accepts either a genuine path array, OR a single path with disjoint
+      // subpaths (produced by `a ^^ b` in Asymptote, which our interpreter
+      // currently stores as one path whose segment list contains p3→p0 jumps).
+      {
+        let pathArr = pos.find(a => Array.isArray(a) && a.length > 0 && a.every(x => isPath(x)));
+        if (!pathArr) {
+          const singlePath = pos.find(a => isPath(a) && a.segs && a.segs.length > 0);
+          if (singlePath) {
+            // Detect subpaths by scanning for discontinuities between consecutive segs.
+            const segs = singlePath.segs;
+            const chunks = [];
+            let cur = [segs[0]];
+            for (let k = 1; k < segs.length; k++) {
+              const prev = segs[k-1], now = segs[k];
+              const gap = Math.abs((prev.p3.x||0) - (now.p0.x||0)) +
+                          Math.abs((prev.p3.y||0) - (now.p0.y||0)) +
+                          Math.abs((prev.p3.z||0) - (now.p0.z||0));
+              if (gap > 1e-6) { chunks.push(cur); cur = [now]; }
+              else cur.push(now);
+            }
+            chunks.push(cur);
+            if (chunks.length >= 2) {
+              pathArr = chunks.map(segArr => makePath(segArr, true));
+            }
+          }
+        }
+        if (pathArr) {
+          const sampleLoop = (pth) => {
+            const segs = pth.segs || [];
+            const SUB = 12;
+            const out = [];
+            const toT = (p) => isTriple(p) ? p : (isPair(p) ? makeTriple(p.x, p.y, 0) : makeTriple(p.x||0, p.y||0, p.z||0));
+            if (segs.length === 0) return out;
+            const isLin = (s) => {
+              const ax = s.p3.x - s.p0.x, ay = s.p3.y - s.p0.y, az = (s.p3.z||0) - (s.p0.z||0);
+              const d1x = s.cp1.x - s.p0.x, d1y = s.cp1.y - s.p0.y, d1z = (s.cp1.z||0) - (s.p0.z||0);
+              return (Math.abs(d1x - ax/3) < 1e-9 && Math.abs(d1y - ay/3) < 1e-9 && Math.abs(d1z - az/3) < 1e-9);
+            };
+            out.push(toT(segs[0].p0));
+            for (const s of segs) {
+              if (isLin(s)) out.push(toT(s.p3));
+              else {
+                const p0=toT(s.p0), c1=toT(s.cp1), c2=toT(s.cp2), p3=toT(s.p3);
+                for (let k=1; k<=SUB; k++) {
+                  const t=k/SUB, b=1-t;
+                  out.push(makeTriple(
+                    b*b*b*p0.x + 3*b*b*t*c1.x + 3*b*t*t*c2.x + t*t*t*p3.x,
+                    b*b*b*p0.y + 3*b*b*t*c1.y + 3*b*t*t*c2.y + t*t*t*p3.y,
+                    b*b*b*p0.z + 3*b*b*t*c1.z + 3*b*t*t*c2.z + t*t*t*p3.z
+                  ));
+                }
+              }
+            }
+            if (pth.closed && out.length > 1) {
+              const a = out[0], b = out[out.length-1];
+              if (a.x === b.x && a.y === b.y && a.z === b.z) out.pop();
+            }
+            return out;
+          };
+          const loops = pathArr.map(sampleLoop).filter(L => L.length >= 3);
+          if (loops.length === 1) {
+            const L = loops[0];
+            const faces = [];
+            for (let i = 1; i < L.length - 1; i++) {
+              const f = {vertices: [L[0], L[i], L[i+1]]};
+              f.normal = faceNormal(f);
+              faces.push(f);
+            }
+            if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+          } else if (loops.length === 2) {
+            // Two loops: outer + inner hole. Resample to same count, align
+            // phase (nearest starting index), and unify orientation so ring
+            // samples match up to produce thin annular quads.
+            const resample = (L, n) => {
+              // Estimate arc-length-parameterized resample
+              const cum = [0];
+              for (let i = 1; i < L.length; i++) {
+                const a = L[i-1], b = L[i];
+                cum.push(cum[i-1] + Math.sqrt((b.x-a.x)**2 + (b.y-a.y)**2 + (b.z-a.z)**2));
+              }
+              // Close the loop
+              const last = L[L.length-1], first = L[0];
+              const total = cum[cum.length-1] + Math.sqrt((first.x-last.x)**2 + (first.y-last.y)**2 + (first.z-last.z)**2);
+              const out = [];
+              for (let k = 0; k < n; k++) {
+                const s = (k / n) * total;
+                // Find segment that contains arc-length s
+                let j = 0;
+                while (j < cum.length - 1 && cum[j+1] < s) j++;
+                let segLen;
+                if (j < cum.length - 1) segLen = cum[j+1] - cum[j];
+                else segLen = total - cum[j];
+                const t = segLen > 0 ? (s - cum[j]) / segLen : 0;
+                const a = L[j];
+                const b = (j < L.length - 1) ? L[j+1] : L[0];
+                out.push(makeTriple(a.x + (b.x-a.x)*t, a.y + (b.y-a.y)*t, a.z + (b.z-a.z)*t));
+              }
+              return out;
+            };
+            const centroid = (L) => {
+              let cx=0, cy=0, cz=0;
+              for (const p of L) { cx += p.x; cy += p.y; cz += p.z; }
+              return makeTriple(cx/L.length, cy/L.length, cz/L.length);
+            };
+            // Loop signed area on best-fit plane via Newell's normal
+            const newellNormal = (L) => {
+              let nx=0, ny=0, nz=0;
+              for (let i=0; i<L.length; i++) {
+                const c = L[i], n = L[(i+1) % L.length];
+                nx += (c.y - n.y) * (c.z + n.z);
+                ny += (c.z - n.z) * (c.x + n.x);
+                nz += (c.x - n.x) * (c.y + n.y);
+              }
+              return [nx, ny, nz];
+            };
+            const N = Math.max(loops[0].length, loops[1].length, 32);
+            let L0 = resample(loops[0], N);
+            let L1 = resample(loops[1], N);
+            // Unify orientation: if L0 and L1 normals point opposite ways,
+            // reverse L1 so both traverse the same angular direction.
+            const n0 = newellNormal(L0), n1 = newellNormal(L1);
+            if (n0[0]*n1[0] + n0[1]*n1[1] + n0[2]*n1[2] < 0) {
+              L1 = L1.slice().reverse();
+            }
+            // Phase-align: rotate L1 so L1[k] minimizes distance to L0[k]
+            {
+              let bestShift = 0, bestSum = Infinity;
+              for (let s = 0; s < N; s++) {
+                let sum = 0;
+                for (let k = 0; k < N; k++) {
+                  const a = L0[k], b = L1[(k + s) % N];
+                  sum += (a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2;
+                }
+                if (sum < bestSum) { bestSum = sum; bestShift = s; }
+              }
+              if (bestShift !== 0) {
+                L1 = L1.slice(bestShift).concat(L1.slice(0, bestShift));
+              }
+            }
+            const faces = [];
+            for (let k = 0; k < N; k++) {
+              const k1 = (k + 1) % N;
+              const f = {vertices: [L0[k], L0[k1], L1[k1], L1[k]]};
+              f.normal = faceNormal(f);
+              faces.push(f);
+            }
+            if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+          }
+        }
+      }
       // Parametric: surface(f, lo, hi, nu[, nv], ...)
       // where f is callable pair→triple
       if (pos.length >= 4 &&
@@ -8569,7 +8756,13 @@ function createInterpreter() {
           for (let j = 0; j <= nv; j++) {
             const v = lo.y + (hi.y - lo.y) * j / nv;
             const q = call(u, v);
-            row.push(isTriple(q) ? q : makeTriple(0, 0, 0));
+            if (isTriple(q)) row.push(q);
+            else if (typeof q === 'number') {
+              // surface(real f(pair), lo, hi, n) — height-field overload
+              row.push(makeTriple(u, v, q));
+            } else {
+              row.push(makeTriple(0, 0, 0));
+            }
           }
           grid.push(row);
         }
@@ -8578,13 +8771,13 @@ function createInterpreter() {
           for (let j = 0; j < nv; j++) {
             const v00 = grid[i][j], v10 = grid[i+1][j];
             const v11 = grid[i+1][j+1], v01 = grid[i][j+1];
-            const face = {vertices: [v00, v10, v11, v01]};
+            const face = {vertices: [v00, v10, v11, v01], _gi: i, _gj: j};
             face.normal = faceNormal(face);
             faces.push(face);
           }
         }
         const mesh = makeMesh(faces);
-        return {_tag:'surface', mesh, _grid: grid};
+        return {_tag:'surface', mesh, _grid: grid, _gridRows: nu+1, _gridCols: nv+1, _gridCyclic: false};
       }
       // surface(revolution)
       const firstRev = args.find(a => a && a._tag === 'revolution');
@@ -8761,14 +8954,14 @@ function createInterpreter() {
       for (let i = 0; i < rings.length-1; i++) {
         for (let k = 0; k < nSides; k++) {
           const k1 = (k+1) % nSides;
-          const face = {vertices: [rings[i][k], rings[i+1][k], rings[i+1][k1], rings[i][k1]]};
+          const face = {vertices: [rings[i][k], rings[i+1][k], rings[i+1][k1], rings[i][k1]], _gi: i, _gj: k};
           face.normal = faceNormal(face);
           faces.push(face);
         }
       }
       const mesh = makeMesh(faces);
       const grid = rings;
-      return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid}, center: p};
+      return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid, _gridRows: rings.length, _gridCols: nSides, _gridCyclic: true}, center: p};
     });
     env.set('sphere', (...args) => {
       if (args.length >= 1 && isTriple(args[0])) {
@@ -8831,19 +9024,42 @@ function createInterpreter() {
       if (paths.length === 0) return {_tag:'surface', mesh: makeMesh([])};
       const faces = [];
       for (const pth of paths) {
-        // Sample path
+        // Sample path, including curve subdivisions
         const segs = pth.segs || [];
         if (segs.length === 0) continue;
         const pts = [];
-        // Always use p0 of first seg, then every seg.p3
-        pts.push(segs[0].p0);
-        for (const s of segs) pts.push(s.p3);
-        // Convert to triples at z=0
-        const tLow = pts.map(p => {
+        const SUB = 12; // samples per Bezier segment
+        const isLinear = (s) => {
+          // control points colinear with endpoints ⇒ straight segment
+          const ax = s.p3.x - s.p0.x, ay = s.p3.y - s.p0.y;
+          const az = (s.p3.z||0) - (s.p0.z||0);
+          const d1x = s.cp1.x - s.p0.x, d1y = s.cp1.y - s.p0.y;
+          const d1z = (s.cp1.z||0) - (s.p0.z||0);
+          // Fast check: if both control points are equal to the endpoints we have a pure line
+          return (Math.abs(d1x - ax/3) < 1e-9 && Math.abs(d1y - ay/3) < 1e-9 && Math.abs(d1z - az/3) < 1e-9);
+        };
+        const toT = (p) => {
           if (isTriple(p)) return p;
           if (isPair(p)) return makeTriple(p.x, p.y, 0);
-          return makeTriple(p.x||0, p.y||0, 0);
-        });
+          return makeTriple(p.x||0, p.y||0, p.z||0);
+        };
+        pts.push(toT(segs[0].p0));
+        for (const s of segs) {
+          if (isLinear(s)) {
+            pts.push(toT(s.p3));
+          } else {
+            const p0 = toT(s.p0), c1 = toT(s.cp1), c2 = toT(s.cp2), p3 = toT(s.p3);
+            for (let k = 1; k <= SUB; k++) {
+              const t = k / SUB;
+              const b = 1 - t;
+              const x = b*b*b*p0.x + 3*b*b*t*c1.x + 3*b*t*t*c2.x + t*t*t*p3.x;
+              const y = b*b*b*p0.y + 3*b*b*t*c1.y + 3*b*t*t*c2.y + t*t*t*p3.y;
+              const z = b*b*b*p0.z + 3*b*b*t*c1.z + 3*b*t*t*c2.z + t*t*t*p3.z;
+              pts.push(makeTriple(x, y, z));
+            }
+          }
+        }
+        const tLow = pts;
         const tHigh = tLow.map(p => makeTriple(p.x + axis.x, p.y + axis.y, p.z + axis.z));
         // Side quads
         const mk = (a,b,c) => { const f = {vertices:[a,b,c]}; f.normal = faceNormal(f); return f; };
@@ -9001,18 +9217,54 @@ function createInterpreter() {
     // solids-module constructors: return a mesh (painter's-algorithm rendering).
     // cone(center, r, h[, axis]) — axis defaults to Z; only axial cone supported.
     env.set('cone', (...args) => {
+      // Build cone as a revolution: generator path from base (r,0,0) to apex (0,0,h),
+      // revolved around Z. Returns {_tag:'revolution', mesh, _grid, _gridRows, _gridCols, _gridCyclic}.
+      const buildCone = (cx, cy, cz, r, h) => {
+        const nLon = 24;
+        const grid = []; // grid[j][i] with j ∈ [0..nLon], i ∈ [0..1]
+        for (let j = 0; j <= nLon; j++) {
+          const ang = (j / nLon) * 2 * Math.PI;
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          const base = makeTriple(cx + r*ca, cy + r*sa, cz);
+          const apex = makeTriple(cx, cy, cz + h);
+          grid.push([base, apex]);
+        }
+        // Lateral mesh: triangles with apex shared
+        const faces = [];
+        for (let j = 0; j < nLon; j++) {
+          const b0 = grid[j][0], b1 = grid[j+1][0], ap = grid[j][1];
+          const f = {vertices: [b0, b1, ap], _gi: 0, _gj: j};
+          f.normal = faceNormal(f);
+          faces.push(f);
+        }
+        // Base cap: fan from center to base ring (outward face normal -Z if h>0)
+        const base0 = makeTriple(cx, cy, cz);
+        for (let j = 0; j < nLon; j++) {
+          const b0 = grid[j][0], b1 = grid[j+1][0];
+          const verts = h > 0 ? [base0, b1, b0] : [base0, b0, b1];
+          const f = {vertices: verts};
+          f.normal = faceNormal(f);
+          faces.push(f);
+        }
+        return {
+          _tag: 'revolution',
+          mesh: makeMesh(faces),
+          _grid: grid,
+          _gridRows: 2,
+          _gridCols: nLon + 1,
+          _gridCyclic: true,
+        };
+      };
       if (args.length >= 3 && isTriple(args[0]) && typeof args[1] === 'number' && typeof args[2] === 'number') {
         const c = args[0], r = toNumber(args[1]), h = toNumber(args[2]);
-        let m = applyTransform3Mesh(scaleT3(r, r, h), _buildConeMesh(24));
-        m = applyTransform3Mesh(shiftT3(c.x, c.y, c.z), m);
-        return m;
+        return buildCone(c.x, c.y, c.z, r, h);
       }
       // cone(r, h) — base at origin
       if (args.length >= 2 && typeof args[0] === 'number' && typeof args[1] === 'number') {
         const r = toNumber(args[0]), h = toNumber(args[1]);
-        return applyTransform3Mesh(scaleT3(r, r, h), _buildConeMesh(24));
+        return buildCone(0, 0, 0, r, h);
       }
-      return makeMesh([]);
+      return {_tag: 'revolution', mesh: makeMesh([]), _grid: [], _gridRows: 0, _gridCols: 0, _gridCyclic: true};
     });
     // cylinder(center, r, h[, axis])
     env.set('cylinder', (...args) => {
@@ -9483,14 +9735,113 @@ function createInterpreter() {
         return;
       }
     }
+    // Handle draw(revolution, int n, pen [, longitudinalpen=pen]) — skeleton only.
+    // Draws n latitudinal circles + (by default) a few longitudinal arcs.
+    {
+      const revArg = args.find(a => a && a._tag === 'revolution' && a._grid);
+      const intArg = args.find(a => typeof a === 'number' && Number.isInteger(a) && a > 0);
+      const hasInt = args.some(a => typeof a === 'number' && Number.isInteger(a) && a > 0);
+      if (revArg && hasInt) {
+        const grid = revArg._grid; // rotated[j][i]: (nLon+1) × (verts.length)
+        const nLon = grid.length - 1;
+        const nPath = grid[0] ? grid[0].length : 0;
+        if (nLon >= 2 && nPath >= 2) {
+          // Collect pens and named args
+          let pen = null;
+          let longPen = null; // longitudinalpen
+          let gotLongNamed = false;
+          for (const a of args) {
+            if (a && a._named) {
+              if ('longitudinalpen' in a) {
+                longPen = a.longitudinalpen;
+                gotLongNamed = true;
+              }
+            }
+          }
+          // Named-arg parsing currently evaluates `longitudinalpen=nullpen` as
+          // a bare positional pen. Fallback: if a positional zero-opacity pen
+          // appears alongside another opaque pen, treat it as longitudinalpen.
+          const opaquePens = args.filter(a => isPen(a) && a.opacity !== 0);
+          const nullPens = args.filter(a => isPen(a) && a.opacity === 0);
+          if (!gotLongNamed && opaquePens.length > 0 && nullPens.length > 0) {
+            longPen = nullPens[0];
+            gotLongNamed = true;
+          }
+          for (const a of args) {
+            if (isPen(a) && a.opacity !== 0) { pen = pen ? mergePens(pen, a) : a; }
+          }
+          if (!pen) pen = clonePen(defaultPen);
+          const isNullPen = (p) => !p || !isPen(p) || (p.opacity === 0);
+          const nLat = Math.max(1, intArg);
+          const lineNo = args._line || 0;
+          const emitCurve3 = (pts, usedPen, dashed) => {
+            if (!pts || pts.length < 2) return;
+            // Depth-sort chunks by midpoint for rough occlusion
+            const segs2 = [];
+            for (let k = 0; k < pts.length - 1; k++) {
+              const a = pts[k], b = pts[k+1];
+              const pa = projectTriple(a), pb = projectTriple(b);
+              segs2.push(lineSegment(pa, pb));
+            }
+            const path = makePath(segs2, false);
+            const myPen = clonePen(usedPen);
+            if (dashed) myPen.dashpattern = '2 2';
+            target.commands.push({cmd:'draw', path, pen: myPen, arrow: null, line: lineNo});
+          };
+          // Latitudinal circles at nLat path-positions. For each path-index i,
+          // the latitudinal ring goes across all j (the revolution).
+          // Map nLat to indices evenly spanning [0, nPath-1].
+          for (let t = 0; t < nLat; t++) {
+            // Parameter along the path from 0 to 1 — sample in interior
+            const pParam = (nLat === 1) ? 0.5 : (t + 0.5) / nLat;
+            const fidx = pParam * (nPath - 1);
+            const i0 = Math.max(0, Math.min(nPath - 1, Math.floor(fidx)));
+            const i1 = Math.max(0, Math.min(nPath - 1, i0 + 1));
+            const tt = fidx - i0;
+            const pts = [];
+            for (let j = 0; j <= nLon; j++) {
+              const a = grid[j][i0], b = grid[j][i1];
+              pts.push(makeTriple(
+                a.x + (b.x - a.x) * tt,
+                a.y + (b.y - a.y) * tt,
+                a.z + (b.z - a.z) * tt
+              ));
+            }
+            // Close the ring if revolution is full circle (detect via duplicate endpoints)
+            const a0 = grid[0][i0], aL = grid[nLon][i0];
+            const closed = Math.abs(a0.x - aL.x) < 1e-6 && Math.abs(a0.y - aL.y) < 1e-6 && Math.abs(a0.z - aL.z) < 1e-6;
+            if (closed) pts.push(pts[0]);
+            // Front half solid, back half dashed — simple heuristic:
+            //   Project ring; split where line crosses the ring's interior.
+            // For simplicity, just draw the whole ring with the pen (no dashing).
+            emitCurve3(pts, pen, false);
+          }
+          // Longitudinal arcs (unless longitudinalpen=nullpen)
+          if (!gotLongNamed || !isNullPen(longPen)) {
+            const longP = longPen || pen;
+            const nLongs = 4;
+            for (let k = 0; k < nLongs; k++) {
+              // Pick the j-index closest to evenly spaced full-turn fractions
+              const jFrac = k / nLongs; // 0, 0.25, 0.5, 0.75
+              const jIdx = Math.max(0, Math.min(nLon, Math.round(jFrac * nLon)));
+              const pts = [];
+              for (let i = 0; i < nPath; i++) pts.push(grid[jIdx][i]);
+              emitCurve3(pts, longP, false);
+            }
+          }
+          return;
+        }
+      }
+    }
     // Handle draw(mesh, pen) or draw(surface{mesh}, pen) — shaded, depth-sorted faces
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       let mesh = null;
+      let surfForColors = null;
       if (isMesh(a)) mesh = a;
-      else if (a && a._tag === 'surface' && a.mesh) mesh = a.mesh;
+      else if (a && a._tag === 'surface' && a.mesh) { mesh = a.mesh; surfForColors = a; }
       else if (a && a._tag === 'revolution' && a.mesh) mesh = a.mesh;
-      else if (a && a._tag === 'tube' && a.s && a.s.mesh) mesh = a.s.mesh;
+      else if (a && a._tag === 'tube' && a.s && a.s.mesh) { mesh = a.s.mesh; surfForColors = a.s; }
       if (mesh) {
         let meshPen = null;
         for (let j = 0; j < args.length; j++) {
@@ -9498,6 +9849,47 @@ function createInterpreter() {
           if (isPen(args[j])) meshPen = meshPen ? mergePens(meshPen, args[j]) : args[j];
         }
         if (!meshPen) meshPen = clonePen(defaultPen);
+        // If surface has per-vertex _colors from s.colors(palette(...)), annotate
+        // each face with a pen averaged across its 4 grid-vertex colors.
+        if (surfForColors && Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0 && surfForColors._gridCols) {
+          const cols = surfForColors._colors;
+          const gCols = surfForColors._gridCols;
+          const gRows = surfForColors._gridRows;
+          const cyclic = !!surfForColors._gridCyclic;
+          const idx = (i, j) => {
+            if (cyclic) j = ((j % gCols) + gCols) % gCols;
+            if (i < 0) i = 0; if (i >= gRows) i = gRows - 1;
+            if (!cyclic) { if (j < 0) j = 0; if (j >= gCols) j = gCols - 1; }
+            return i * gCols + j;
+          };
+          const avg4 = (pens) => {
+            let r=0, g=0, b=0, a=0, n=0, hasOp=false;
+            for (const p of pens) {
+              if (!p || !isPen(p)) continue;
+              r += p.r||0; g += p.g||0; b += p.b||0;
+              if (typeof p.opacity === 'number') { a += p.opacity; hasOp = true; }
+              n++;
+            }
+            if (n === 0) return null;
+            const out = clonePen(pens[0]);
+            out.r = r/n; out.g = g/n; out.b = b/n;
+            if (hasOp) out.opacity = a/n;
+            return out;
+          };
+          const newFaces = mesh.faces.map(f => {
+            if (typeof f._gi === 'number' && typeof f._gj === 'number') {
+              const i0 = f._gi, j0 = f._gj;
+              const c00 = cols[idx(i0, j0)];
+              const c10 = cols[idx(i0+1, j0)];
+              const c11 = cols[idx(i0+1, j0+1)];
+              const c01 = cols[idx(i0, j0+1)];
+              const pen = avg4([c00, c10, c11, c01]);
+              if (pen) return {...f, pen};
+            }
+            return f;
+          });
+          mesh = {_tag:'mesh', faces: newFaces};
+        }
         renderMeshToPicture(mesh, meshPen, target, args._line || 0);
         return;
       }
