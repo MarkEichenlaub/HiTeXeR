@@ -215,7 +215,7 @@ async function main() {
       if (!A.canInterpret(code)) { skip++; continue; }
 
       try {
-        const r = A.render(code, { containerW: 800, containerH: 600 });
+        const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native' });
         fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), r.svg);
         ok++;
       } catch (e) { fail++; }
@@ -563,10 +563,38 @@ async function main() {
         const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
         const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
 
-        const { mssim } = computeSSIM(refImg, htxImg);
+        const { mssim: rawSsim } = computeSSIM(refImg, htxImg);
+
+        // Soft SSIM: blur both images before comparing. Pixel-wise SSIM is not
+        // shift-invariant, and for thin strokes a small misalignment can produce
+        // anti-correlated windows (negative SSIM) even when the diagrams are
+        // nearly identical. A Gaussian blur widens strokes enough that minor
+        // shifts still overlap. We compute SSIM at two blur levels and take the
+        // max with the raw score, so a truly different diagram (which fails at
+        // every level) still scores low, but thin-strip misalignment is forgiven.
+        // Scale both sigmas with image size so the same fractional blur is applied
+        // regardless of resolution; clamp so small images still get ≥1.5 px blur.
+        const minDim = Math.min(w, h);
+        const softSigmaA = Math.min(Math.max(minDim * 0.025, 1.5), 4);
+        const softSigmaB = Math.min(Math.max(minDim * 0.08, 3), 10);
+        async function ssimBlurred(sigma) {
+          const refS = await sharp(refBuf.data, { raw: { width: w, height: h, channels: 3 } })
+            .blur(sigma).raw().toBuffer();
+          const htxS = await sharp(htxBuf.data, { raw: { width: w, height: h, channels: 3 } })
+            .blur(sigma).raw().toBuffer();
+          return computeSSIM(
+            { data: rgbToRgba(refS, w, h), width: w, height: h },
+            { data: rgbToRgba(htxS, w, h), width: w, height: h }
+          ).mssim;
+        }
+        const softSsimA = await ssimBlurred(softSigmaA);
+        const softSsimB = await ssimBlurred(softSigmaB);
+        const softSsim = Math.max(softSsimA, softSsimB);
+
+        const mssim = Math.max(rawSsim, softSsim);
         const combined = mssim * sizeScore;
 
-        results.push({ id, idx, corpusFile, ssim: mssim, sizeScore, combined,
+        results.push({ id, idx, corpusFile, ssim: mssim, rawSsim, softSsim, sizeScore, combined,
           wRatio, hRatio, refDims: [aw, ah], htxDims: [hw, hh] });
       } catch (e) {
         results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message });
@@ -664,6 +692,8 @@ async function main() {
     <h2>#${rank} &mdash; ${esc(r.corpusFile)}</h2>
     <span class="badge" style="background:${ssimColor(r.combined != null ? r.combined : r.ssim)}">Combined ${(r.combined != null && r.combined >= 0) ? r.combined.toFixed(4) : (r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')} &middot; ${ssimLabel(r.combined != null ? r.combined : r.ssim)}</span>
     <span class="badge" style="background:${ssimColor(r.ssim)};margin-left:4px">Content ${(r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')}</span>
+    ${r.rawSsim != null ? `<span class="badge" style="background:${ssimColor(r.rawSsim)};margin-left:4px" title="Pixel-wise SSIM (no blur)">Raw ${r.rawSsim.toFixed(4)}</span>` : ''}
+    ${r.softSsim != null ? `<span class="badge" style="background:${ssimColor(r.softSsim)};margin-left:4px" title="SSIM after Gaussian blur (shift-tolerant)">Soft ${r.softSsim.toFixed(4)}</span>` : ''}
     <span class="badge" style="background:${ssimColor(r.sizeScore != null ? r.sizeScore : -1)};margin-left:4px">Size ${(r.sizeScore != null && r.sizeScore >= 0) ? r.sizeScore.toFixed(4) : 'N/A'}</span>
   </div>
   <div class="card-body" style="grid-template-columns:${gridCols}">

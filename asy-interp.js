@@ -1973,6 +1973,51 @@ function createInterpreter() {
       if (op===T.MINUS) return makePair(left.x-right, left.y-right);
     }
 
+    // Numeric array broadcasting (element-wise ops for real[] arrays)
+    // Only apply when the array's elements are plain numbers; arrays of pairs/triples are
+    // left to the per-element op semantics.
+    {
+      const _isNumArr = a => Array.isArray(a) && (a.length === 0 || a.every(v => typeof v === 'number'));
+      if (_isNumArr(left) && _isNumArr(right)) {
+        const n = Math.min(left.length, right.length);
+        const out = new Array(n);
+        for (let i = 0; i < n; ++i) {
+          const L = left[i], R = right[i];
+          switch(op) {
+            case T.PLUS: out[i] = L+R; break;
+            case T.MINUS: out[i] = L-R; break;
+            case T.STAR: out[i] = L*R; break;
+            case T.SLASH: out[i] = R!==0 ? L/R : 0; break;
+            case T.CARET: out[i] = Math.pow(L,R); break;
+            case T.PERCENT: out[i] = R!==0 ? ((L%R)+R)%R : 0; break;
+            default: out[i] = 0;
+          }
+        }
+        return out;
+      }
+      if (_isNumArr(left) && isNumber(right)) {
+        const R = right;
+        switch(op) {
+          case T.PLUS: return left.map(L => L+R);
+          case T.MINUS: return left.map(L => L-R);
+          case T.STAR: return left.map(L => L*R);
+          case T.SLASH: return left.map(L => R!==0 ? L/R : 0);
+          case T.CARET: return left.map(L => Math.pow(L,R));
+          case T.PERCENT: return left.map(L => R!==0 ? ((L%R)+R)%R : 0);
+        }
+      }
+      if (isNumber(left) && _isNumArr(right)) {
+        const L = left;
+        switch(op) {
+          case T.PLUS: return right.map(R => L+R);
+          case T.MINUS: return right.map(R => L-R);
+          case T.STAR: return right.map(R => L*R);
+          case T.SLASH: return right.map(R => R!==0 ? L/R : 0);
+          case T.CARET: return right.map(R => Math.pow(L,R));
+        }
+      }
+    }
+
     // Transform * pair
     if (isTransform(left) && isPair(right)) return applyTransformPair(left, right);
     // Inversion * pair (non-affine geometry transform)
@@ -1981,6 +2026,24 @@ function createInterpreter() {
     if (isInversion(left) && isPoint(right)) return applyInversion(left, locatePoint(right));
     // Transform * path
     if (isTransform(left) && isPath(right)) return applyTransformPath(left, right);
+    // Transform * triangle (from geometry package)
+    if (isTransform(left) && isTriangleGeo(right)) {
+      const tA = applyTransformPair(left, locatePoint(right.A));
+      const tB = applyTransformPair(left, locatePoint(right.B));
+      const tC = applyTransformPair(left, locatePoint(right.C));
+      const cs = right.A.coordsys;
+      return makeTriangleGeo(
+        makePoint(cs, cs.defaultToRelative(tA), 1),
+        makePoint(cs, cs.defaultToRelative(tB), 1),
+        makePoint(cs, cs.defaultToRelative(tC), 1)
+      );
+    }
+    // Transform * point (from geometry package)
+    if (isTransform(left) && isPoint(right)) {
+      const p = applyTransformPair(left, locatePoint(right));
+      const cs = right.coordsys;
+      return makePoint(cs, cs.defaultToRelative(p), right.m);
+    }
     // Transform * picture
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
     // Transform * transform
@@ -3071,16 +3134,30 @@ function createInterpreter() {
     // Dot sizing
     env.set('dotfactor', 6);
 
-    // Math functions
-    env.set('sin', (x) => Math.sin(toNumber(x)));
-    env.set('cos', (x) => Math.cos(toNumber(x)));
-    env.set('tan', (x) => Math.tan(toNumber(x)));
-    env.set('asin', (x) => Math.asin(toNumber(x)));
-    env.set('acos', (x) => Math.acos(toNumber(x)));
-    env.set('atan', (x) => Math.atan(toNumber(x)));
-    env.set('atan2', (y,x) => Math.atan2(toNumber(y),toNumber(x)));
-    env.set('sqrt', (x) => Math.sqrt(toNumber(x)));
-    env.set('cbrt', (x) => Math.cbrt(toNumber(x)));
+    // Math functions — broadcast over numeric arrays (Asymptote real[] semantics)
+    const _broadcast1 = (fn) => (x) => Array.isArray(x) ? x.map(v => fn(v)) : fn(toNumber(x));
+    const _broadcast2 = (fn) => (a, b) => {
+      const aA = Array.isArray(a), bA = Array.isArray(b);
+      if (aA && bA) { const n = Math.min(a.length, b.length); const out = new Array(n); for (let i=0;i<n;++i) out[i] = fn(toNumber(a[i]), toNumber(b[i])); return out; }
+      if (aA) { return a.map(v => fn(toNumber(v), toNumber(b))); }
+      if (bA) { return b.map(v => fn(toNumber(a), toNumber(v))); }
+      return fn(toNumber(a), toNumber(b));
+    };
+    env.set('sin', _broadcast1(Math.sin));
+    env.set('cos', _broadcast1(Math.cos));
+    env.set('tan', _broadcast1(Math.tan));
+    env.set('asin', _broadcast1(Math.asin));
+    env.set('acos', _broadcast1(Math.acos));
+    env.set('atan', _broadcast1(Math.atan));
+    env.set('atan2', _broadcast2(Math.atan2));
+    env.set('sqrt', _broadcast1(Math.sqrt));
+    env.set('cbrt', _broadcast1(Math.cbrt));
+    env.set('sinh', _broadcast1(Math.sinh));
+    env.set('cosh', _broadcast1(Math.cosh));
+    env.set('tanh', _broadcast1(Math.tanh));
+    env.set('asinh', _broadcast1(Math.asinh));
+    env.set('acosh', _broadcast1(Math.acosh));
+    env.set('atanh', _broadcast1(Math.atanh));
     env.set('abs', (x) => {
       if (isTriple(x)) return Math.sqrt(x.x*x.x + x.y*x.y + x.z*x.z);
       if (isPair(x)) return Math.sqrt(x.x*x.x + x.y*x.y);
@@ -3145,10 +3222,11 @@ function createInterpreter() {
       }
       return makePath(segs, false);
     });
-    env.set('log', (x) => Math.log(toNumber(x)));
-    env.set('exp', (x) => Math.exp(toNumber(x)));
-    env.set('log10', (x) => Math.log10(toNumber(x)));
-    env.set('pow', (b,e) => Math.pow(toNumber(b),toNumber(e)));
+    env.set('log', _broadcast1(Math.log));
+    env.set('exp', _broadcast1(Math.exp));
+    env.set('log10', _broadcast1(Math.log10));
+    env.set('log2', _broadcast1(Math.log2));
+    env.set('pow', _broadcast2(Math.pow));
     env.set('min', (...args) => {
       if (args.length===1 && isArray(args[0])) return Math.min(...args[0].map(toNumber));
       return Math.min(...args.map(toNumber));
@@ -3157,10 +3235,10 @@ function createInterpreter() {
       if (args.length===1 && isArray(args[0])) return Math.max(...args[0].map(toNumber));
       return Math.max(...args.map(toNumber));
     });
-    env.set('floor', (x) => Math.floor(toNumber(x)));
-    env.set('ceil', (x) => Math.ceil(toNumber(x)));
-    env.set('round', (x) => Math.round(toNumber(x)));
-    env.set('sgn', (x) => Math.sign(toNumber(x)));
+    env.set('floor', _broadcast1(Math.floor));
+    env.set('ceil', _broadcast1(Math.ceil));
+    env.set('round', _broadcast1(Math.round));
+    env.set('sgn', _broadcast1(Math.sign));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
     env.set('degrees', (x) => {
       // Asymptote's degrees(pair) returns atan2(y,x) in (-180,180], not [0,360)
@@ -3169,12 +3247,12 @@ function createInterpreter() {
     });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
     env.set('Degrees', (x) => toNumber(x));  // already in degrees in Asymptote context
-    env.set('Sin', (x) => Math.sin(toNumber(x)*Math.PI/180));
-    env.set('Cos', (x) => Math.cos(toNumber(x)*Math.PI/180));
-    env.set('Tan', (x) => Math.tan(toNumber(x)*Math.PI/180));
-    env.set('aSin', (x) => Math.asin(toNumber(x))*180/Math.PI);
-    env.set('aCos', (x) => Math.acos(toNumber(x))*180/Math.PI);
-    env.set('aTan', (x) => Math.atan(toNumber(x))*180/Math.PI);
+    env.set('Sin', _broadcast1(v => Math.sin(v*Math.PI/180)));
+    env.set('Cos', _broadcast1(v => Math.cos(v*Math.PI/180)));
+    env.set('Tan', _broadcast1(v => Math.tan(v*Math.PI/180)));
+    env.set('aSin', _broadcast1(v => Math.asin(v)*180/Math.PI));
+    env.set('aCos', _broadcast1(v => Math.acos(v)*180/Math.PI));
+    env.set('aTan', _broadcast1(v => Math.atan(v)*180/Math.PI));
 
     // Pair functions
     env.set('dir', (...args) => {
@@ -4143,6 +4221,125 @@ function createInterpreter() {
     env.set('sort', (arr) => {
       if (!isArray(arr)) return arr;
       return arr.slice().sort((a,b) => toNumber(a) - toNumber(b));
+    });
+
+    // unityroot(n, k) — k-th nth root of unity (from math module)
+    env.set('unityroot', (n, k) => {
+      const N = toNumber(n);
+      const K = k !== undefined ? toNumber(k) : 1;
+      if (!N) return makePair(1, 0);
+      const theta = 2 * Math.PI * K / N;
+      return makePair(Math.cos(theta), Math.sin(theta));
+    });
+
+    // triangulate(points) — Delaunay triangulation. Returns int[][] where each
+    // inner array is {i0,i1,i2} indexing into the input pair[] points.
+    env.set('triangulate', (pts) => {
+      if (!Array.isArray(pts) || pts.length < 3) return [];
+      // Bowyer–Watson algorithm
+      const P = pts.map(p => {
+        const q = isPair(p) ? p : toPair(p);
+        return { x: q.x, y: q.y };
+      });
+      // Compute a super-triangle that encloses all points
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of P) {
+        if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y;
+      }
+      const dx = maxX - minX || 1, dy = maxY - minY || 1;
+      const dmax = Math.max(dx, dy) * 20;
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const s0 = { x: cx - dmax, y: cy - dmax };
+      const s1 = { x: cx + dmax, y: cy - dmax };
+      const s2 = { x: cx,        y: cy + dmax };
+      const n = P.length;
+      const pts2 = P.concat([s0, s1, s2]);
+      // Circumcircle test
+      const inCircumcircle = (a, b, c, p) => {
+        const ax = a.x - p.x, ay = a.y - p.y;
+        const bx = b.x - p.x, by = b.y - p.y;
+        const cx2 = c.x - p.x, cy2 = c.y - p.y;
+        const d = ax*(by*(cx2*cx2+cy2*cy2) - cy2*(bx*bx+by*by))
+                - ay*(bx*(cx2*cx2+cy2*cy2) - cx2*(bx*bx+by*by))
+                + (ax*ax+ay*ay)*(bx*cy2 - by*cx2);
+        // CCW orientation adjustment
+        const orient = (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+        return orient > 0 ? d > 0 : d < 0;
+      };
+      let tris = [[n, n+1, n+2]];
+      for (let i = 0; i < n; ++i) {
+        const p = pts2[i];
+        const bad = [];
+        for (let t = 0; t < tris.length; ++t) {
+          const [a,b,c] = tris[t];
+          if (inCircumcircle(pts2[a], pts2[b], pts2[c], p)) bad.push(t);
+        }
+        // Find polygon hole boundary (edges not shared between two bad triangles)
+        const edgeKey = (u,v) => (u<v ? u+','+v : v+','+u);
+        const edgeCount = new Map();
+        const edgeDir = new Map();
+        for (const t of bad) {
+          const [a,b,c] = tris[t];
+          const edges = [[a,b],[b,c],[c,a]];
+          for (const [u,v] of edges) {
+            const k = edgeKey(u,v);
+            edgeCount.set(k, (edgeCount.get(k)||0) + 1);
+            edgeDir.set(k, [u,v]);
+          }
+        }
+        const boundary = [];
+        for (const [k, cnt] of edgeCount) {
+          if (cnt === 1) boundary.push(edgeDir.get(k));
+        }
+        // Remove bad triangles
+        const badSet = new Set(bad);
+        tris = tris.filter((_, idx) => !badSet.has(idx));
+        // Add new triangles connecting point to boundary
+        for (const [u,v] of boundary) tris.push([u, v, i]);
+      }
+      // Remove triangles that touch the super-triangle
+      const out = [];
+      for (const t of tris) {
+        if (t[0] < n && t[1] < n && t[2] < n) out.push([t[0], t[1], t[2]]);
+      }
+      return out;
+    });
+
+    // drawline(picture pic=currentpicture, pair A, pair B, pen p=currentpen)
+    // From Asymptote math module — draws an infinite line through two points.
+    // Does not expand the picture bbox; the line is clipped to the final bbox
+    // after auto-scaling.
+    env.set('drawline', (...args) => {
+      let target = currentPic;
+      let A = null, B = null, pen = null;
+      for (const a of args) {
+        if (a && a._tag === 'picture') target = a;
+        else if (isPair(a)) {
+          const p = toPair(a);
+          if (!A) A = p; else if (!B) B = p;
+        } else if (isPoint && isPoint(a)) {
+          const p = toPair(a);
+          if (!A) A = p; else if (!B) B = p;
+        } else if (isPen(a)) pen = a;
+      }
+      if (!A || !B) return;
+      if (!pen) pen = clonePen(defaultPen);
+      const dx = B.x - A.x, dy = B.y - A.y;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      // Emit a placeholder path (used only if bbox finalization doesn't run);
+      // the actual extended endpoints will be computed from the final bbox.
+      const far = 1;
+      const p0 = makePair(A.x - far * dx/len, A.y - far * dy/len);
+      const p1 = makePair(B.x + far * dx/len, B.y + far * dy/len);
+      target.commands.push({
+        cmd:'draw',
+        path: makePath([lineSegment(p0, p1)], false),
+        pen,
+        arrow:null,
+        line:0,
+        _extendedLine: { ax: A.x, ay: A.y, bx: B.x, by: B.y }
+      });
     });
 
     // Misc
@@ -6117,15 +6314,86 @@ function createInterpreter() {
     // triangle(point A, point B, point C)
     env.set('triangle', (...args) => {
       const pts = [];
-      for (const a of args) {
-        if (isPoint(a)) pts.push(a);
-        else if (isPair(a)) {
+      // Named args: a, b, c (sides), alpha, beta, gamma (angles in degrees)
+      let a = null, b = null, c = null, alpha = null, beta = null, gamma = null;
+      for (const x of args) {
+        if (isPoint(x)) pts.push(x);
+        else if (isPair(x)) {
           const cs = env.get('currentcoordsys') || defaultCS;
-          pts.push(makePoint(cs, a, 1));
+          pts.push(makePoint(cs, x, 1));
+        }
+        else if (x && x._named) {
+          if ('a' in x) a = toNumber(x.a);
+          if ('b' in x) b = toNumber(x.b);
+          if ('c' in x) c = toNumber(x.c);
+          if ('alpha' in x) alpha = toNumber(x.alpha);
+          if ('beta' in x) beta = toNumber(x.beta);
+          if ('gamma' in x) gamma = toNumber(x.gamma);
         }
       }
-      if (pts.length < 3) return null;
-      return makeTriangleGeo(pts[0], pts[1], pts[2]);
+      if (pts.length >= 3) {
+        return makeTriangleGeo(pts[0], pts[1], pts[2]);
+      }
+      // Build triangle from sides/angles.  Place A at origin, B on +x axis.
+      if (a != null && b != null && c != null) {
+        // SSS — sides a,b,c.  a opposite A, etc.  Place B-C = a along x axis?
+        // Convention: put A at origin, B at (c,0).  Then C found from |AC|=b,|BC|=a.
+        const A = makePair(0,0);
+        const B = makePair(c, 0);
+        const cosA = (b*b + c*c - a*a) / (2*b*c);
+        const sinA = Math.sqrt(Math.max(0, 1 - cosA*cosA));
+        const C = makePair(b*cosA, b*sinA);
+        const cs = env.get('currentcoordsys') || defaultCS;
+        return makeTriangleGeo(makePoint(cs,A,1), makePoint(cs,B,1), makePoint(cs,C,1));
+      }
+      if (b != null && c != null && alpha != null) {
+        // SAS — sides b,c with angle alpha at A
+        const A = makePair(0,0);
+        const B = makePair(c, 0);
+        const rad = alpha * Math.PI / 180;
+        const C = makePair(b * Math.cos(rad), b * Math.sin(rad));
+        const cs = env.get('currentcoordsys') || defaultCS;
+        return makeTriangleGeo(makePoint(cs,A,1), makePoint(cs,B,1), makePoint(cs,C,1));
+      }
+      if (a != null && c != null && beta != null) {
+        // SAS — sides a,c with angle beta at B
+        const A = makePair(0,0);
+        const B = makePair(c, 0);
+        const rad = (180 - beta) * Math.PI / 180;
+        const C = makePair(B.x + a * Math.cos(rad), B.y + a * Math.sin(rad));
+        const cs = env.get('currentcoordsys') || defaultCS;
+        return makeTriangleGeo(makePoint(cs,A,1), makePoint(cs,B,1), makePoint(cs,C,1));
+      }
+      if (a != null && b != null && gamma != null) {
+        // SAS — sides a,b with angle gamma at C.  Use law of cosines for c.
+        const c2 = a*a + b*b - 2*a*b*Math.cos(gamma * Math.PI / 180);
+        const cLen = Math.sqrt(Math.max(0, c2));
+        const A = makePair(0,0);
+        const B = makePair(cLen, 0);
+        const cosA = (b*b + cLen*cLen - a*a) / (2*b*cLen);
+        const sinA = Math.sqrt(Math.max(0, 1 - cosA*cosA));
+        const C = makePair(b*cosA, b*sinA);
+        const cs = env.get('currentcoordsys') || defaultCS;
+        return makeTriangleGeo(makePoint(cs,A,1), makePoint(cs,B,1), makePoint(cs,C,1));
+      }
+      // ASA variants
+      if (alpha != null && c != null && beta != null) {
+        const A = makePair(0,0);
+        const B = makePair(c, 0);
+        // Solve intersection of rays from A (angle alpha) and from B (angle 180-beta)
+        const ra = alpha * Math.PI / 180;
+        const rb = (180 - beta) * Math.PI / 180;
+        // line from A: (t*cos(ra), t*sin(ra))
+        // line from B: (c + s*cos(rb), s*sin(rb))
+        // Solve: t*sin(ra) = s*sin(rb) and t*cos(ra) = c + s*cos(rb)
+        const det = Math.cos(ra)*(-Math.sin(rb)) - (-Math.cos(rb))*Math.sin(ra);
+        if (Math.abs(det) < 1e-12) return null;
+        const t = (-Math.sin(rb) * (-c) - (-Math.cos(rb)) * 0) / det;
+        const C = makePair(t * Math.cos(ra), t * Math.sin(ra));
+        const cs = env.get('currentcoordsys') || defaultCS;
+        return makeTriangleGeo(makePoint(cs,A,1), makePoint(cs,B,1), makePoint(cs,C,1));
+      }
+      return null;
     });
 
     // ────────────────────────────────────────────────────────────
@@ -7729,6 +7997,13 @@ function createInterpreter() {
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
 
+    // Heuristic fix for AoPS-corrupted \t escapes: if a tab character appears
+    // immediately before a letter sequence (e.g. "\textnormal" became
+    // "<tab>extnormal" during copy-paste), restore it to a backslash.
+    if (typeof text === 'string' && text.indexOf('\t') !== -1) {
+      text = text.replace(/\t(?=[A-Za-z])/g, '\\');
+    }
+
     if (graphicData) {
       // Compose any labelTransform into the graphic's transform
       if (labelTransform) {
@@ -8171,6 +8446,9 @@ function renderSVG(result, opts) {
       // Tick marks have fixed physical size — they should not inflate the geometry bbox.
       // In real Asymptote, tick sizes are in bp (physical points), not user coordinates.
       if (dc._isTickMark) continue;
+      // Extended lines (drawline) don't contribute to bbox — they get clipped
+      // to the final bbox after scaling is determined.
+      if (dc._extendedLine) continue;
       if (dc._subpicClipRect) {
         // Paths clipped to a sub-picture crop region should not expand the bbox
         // beyond that region — save bbox state, expand, then clamp contribution.
@@ -8452,7 +8730,7 @@ function renderSVG(result, opts) {
     // unitsize, don't boost — the labels already provide adequate visual content.
     const fullNatW = fullW * unitScale;
     const fullNatH = fullH * unitScale;
-    const minReasonable = 150;  // 150bp: below this, geometry is too small vs labels
+    const minReasonable = 50;   // 50bp: below this, geometry is truly invisible
     if (naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
       // Scale up while maintaining aspect ratio
@@ -8577,6 +8855,51 @@ function renderSVG(result, opts) {
   // Reset to the geometry bbox before computing natural dimensions.
   if (isAutoScaled) {
     minX = geoMinX; maxX = geoMaxX; minY = geoMinY; maxY = geoMaxY;
+  }
+
+  // Rewrite extended-line (drawline) paths to clip to the final bbox.
+  // This is done in-place on the drawCommands so the renderer sees
+  // properly clipped segments that fit within the picture frame.
+  {
+    const bxmin = minX, bxmax = maxX, bymin = minY, bymax = maxY;
+    const bw = bxmax - bxmin, bh = bymax - bymin;
+    // Extend a small margin past bbox so lines visibly reach edges.
+    const marginX = bw * 0.02, marginY = bh * 0.02;
+    for (const dc of drawCommands) {
+      if (!dc._extendedLine) continue;
+      const L = dc._extendedLine;
+      const dx = L.bx - L.ax, dy = L.by - L.ay;
+      // Parametric line: P(t) = A + t*(B-A).  Find intersections with the
+      // expanded bbox rectangle.  Use Liang-Barsky style clipping.
+      const xmin = bxmin - marginX, xmax = bxmax + marginX;
+      const ymin = bymin - marginY, ymax = bymax + marginY;
+      const ts = [];
+      if (Math.abs(dx) > 1e-12) {
+        ts.push((xmin - L.ax) / dx);
+        ts.push((xmax - L.ax) / dx);
+      }
+      if (Math.abs(dy) > 1e-12) {
+        ts.push((ymin - L.ay) / dy);
+        ts.push((ymax - L.ay) / dy);
+      }
+      if (ts.length < 2) continue;
+      // Keep only t values where the point is inside the rectangle
+      const inside = [];
+      for (const t of ts) {
+        const px = L.ax + t * dx, py = L.ay + t * dy;
+        if (px >= xmin - 1e-9 && px <= xmax + 1e-9 &&
+            py >= ymin - 1e-9 && py <= ymax + 1e-9) {
+          inside.push(t);
+        }
+      }
+      if (inside.length < 2) continue;
+      inside.sort((a, b) => a - b);
+      const t0 = inside[0], t1 = inside[inside.length - 1];
+      if (t1 - t0 < 1e-9) continue;
+      const p0 = makePair(L.ax + t0 * dx, L.ay + t0 * dy);
+      const p1 = makePair(L.ax + t1 * dx, L.ay + t1 * dy);
+      dc.path = makePath([lineSegment(p0, p1)], false);
+    }
   }
 
   const naturalW = (maxX - minX) * pxPerUnitX;
@@ -8725,7 +9048,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const dotR = (dc.pen && dc.pen._lwDirect ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        const dotR = (dc.pen && dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
@@ -9157,10 +9480,11 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: when pen was created via linewidth(n) directly (_lwDirect), the n IS
-      // the dot diameter (no dotfactor multiplier). Otherwise, diameter = dotfactor * linewidth.
+      // Dot radius: when the pen has an explicit linewidth (from linewidth(n) or
+      // the "n+pen" idiom), the linewidth IS the dot diameter (no dotfactor multiplier).
+      // Otherwise (default pen), diameter = dotfactor * linewidth.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dc.pen && dc.pen._lwDirect ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+      const dotR = (dc.pen && dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
       if (dc.filltype && dc.filltype.style === 'UnFill') {
         // UnFill: open dot — white interior, colored ring.
@@ -9545,8 +9869,14 @@ function renderSVG(result, opts) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
       } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
-        // Use KaTeX for math rendering via foreignObject
-        labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+        // Use KaTeX for math rendering via foreignObject.  When rendering for
+        // rasterization (labelOutput === 'svg-native'), go through MathJax
+        // instead, which emits real <path> glyphs that librsvg can rasterize.
+        if (opts && opts.labelOutput === 'svg-native') {
+          labelEl = renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+        } else {
+          labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+        }
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -10022,6 +10352,30 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff2}"${fwAttr2}${fsAttr2}${op}>${inner}</text>`;
 }
 
+// Replace LaTeX commands that KaTeX doesn't recognize with supported
+// equivalents.  amssymb's \bigstar, \blacksquare, etc. are not in KaTeX's
+// default command set; use Unicode characters wrapped in \text{} so they
+// render reliably.
+function preprocessLatexForKatex(src) {
+  if (typeof src !== 'string') return src;
+  const replacements = [
+    [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
+    [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
+    [/\\blacklozenge\b/g, '\\text{\u29EB}'],       // ⧫
+    [/\\blacktriangle\b/g,'\\text{\u25B2}'],       // ▲
+    [/\\blacktriangledown\b/g,'\\text{\u25BC}'],   // ▼
+    [/\\lozenge\b/g,      '\\text{\u25CA}'],       // ◊
+    [/\\square\b/g,       '\\text{\u25A1}'],       // □
+    [/\\vartriangle\b/g,  '\\text{\u25B3}'],       // △
+    [/\\triangledown\b/g, '\\text{\u25BD}'],       // ▽
+    [/\\circledast\b/g,   '\\text{\u229B}'],       // ⊛
+    [/\\circledcirc\b/g,  '\\text{\u229A}'],       // ⊚
+    [/\\complement\b/g,   '\\text{\u2201}'],       // ∁
+  ];
+  for (const [re, to] of replacements) src = src.replace(re, to);
+  return src;
+}
+
 function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
   // fontSize: SVG user units (for foreignObject width/height dimensions)
   // fontSizeCSS: CSS pixels for the HTML font-size inside the foreignObject (default = fontSize)
@@ -10040,6 +10394,10 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   if (isDollar) math = math.slice(1, -1);
   // Remove double $$ too
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+
+  // Preprocess: replace LaTeX commands that KaTeX doesn't support with
+  // equivalents or Unicode characters.
+  math = preprocessLatexForKatex(math);
 
   let html;
   // Check for mixed text/math content (e.g. "$W-1$ cells" or "$\cdots$ 0 0 $\cdots$")
@@ -10095,6 +10453,137 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   // to get the correct effective size matching Asymptote/LaTeX output.
   const katexCSS = fontSizeCSS / 1.21;
   return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(katexCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+}
+
+// --- MathJax SVG rendering (Node-only, for rasterization pipeline) ---
+// librsvg/sharp silently drop <foreignObject>, so the KaTeX path above
+// produces blank labels when the SVG is rasterized to PNG for SSIM
+// comparison. When `opts.labelOutput === 'svg-native'`, we instead use
+// MathJax's SVG output (which emits real <path>/<use>/<g> glyphs that
+// rasterize correctly).
+let _mjxState = null; // { doc, adaptor } | { unavailable:true } | null
+function _ensureMathJax() {
+  if (_mjxState) return _mjxState.unavailable ? null : _mjxState;
+  if (typeof require === 'undefined') { _mjxState = { unavailable: true }; return null; }
+  try {
+    const { mathjax } = require('mathjax-full/js/mathjax.js');
+    const { TeX } = require('mathjax-full/js/input/tex.js');
+    const { SVG } = require('mathjax-full/js/output/svg.js');
+    const { liteAdaptor } = require('mathjax-full/js/adaptors/liteAdaptor.js');
+    const { RegisterHTMLHandler } = require('mathjax-full/js/handlers/html.js');
+    const { AllPackages } = require('mathjax-full/js/input/tex/AllPackages.js');
+    const adaptor = liteAdaptor();
+    RegisterHTMLHandler(adaptor);
+    const tex = new TeX({ packages: AllPackages });
+    const svg = new SVG({ fontCache: 'local' });
+    const doc = mathjax.document('', { InputJax: tex, OutputJax: svg });
+    _mjxState = { doc, adaptor };
+    return _mjxState;
+  } catch (e) {
+    _mjxState = { unavailable: true };
+    return null;
+  }
+}
+
+const _mjxCache = new Map();
+
+function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
+  const state = _ensureMathJax();
+  if (!state) return renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS);
+  if (fontSizeCSS === undefined) fontSizeCSS = fontSize;
+
+  // Mirror renderLabelKaTeX's text extraction.
+  let math = (rawText || '').trim();
+  let reflectX = false;
+  const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+  if (reflectMatch) { reflectX = true; math = reflectMatch[1].trim(); }
+  const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
+  if (isDollar) math = math.slice(1, -1);
+  if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+  const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
+  if (hasMixedContent) {
+    // Reconstruct using \text{...} for non-math segments so MathJax lays it out as one box.
+    const segments = [];
+    let pos = 0;
+    const reSegment = /\$([^$]+)\$/g;
+    let m;
+    while ((m = reSegment.exec(math)) !== null) {
+      if (m.index > pos) segments.push({type:'text', content: math.slice(pos, m.index)});
+      segments.push({type:'math', content: m[1]});
+      pos = m.index + m[0].length;
+    }
+    if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
+    math = segments.map(seg => {
+      if (seg.type === 'math') return seg.content;
+      // Escape TeX-special characters inside \text{...}
+      const esc = seg.content.replace(/([\\{}$&#^_%~])/g, '\\$1');
+      return '\\text{' + esc + '}';
+    }).join('');
+  }
+
+  let parsed = _mjxCache.get(math);
+  if (!parsed) {
+    let html;
+    try {
+      const node = state.doc.convert(math, { display: false, em: 16, ex: 8, containerWidth: 1280 });
+      html = state.adaptor.outerHTML(node);
+    } catch (e) {
+      parsed = { error: true };
+      _mjxCache.set(math, parsed);
+    }
+    if (!parsed) {
+      const mOuter = html.match(/<svg([^>]*)>([\s\S]*)<\/svg>/);
+      if (!mOuter) {
+        parsed = { error: true };
+      } else {
+        const attrs = mOuter[1];
+        const inner = mOuter[2];
+        const wM = attrs.match(/\swidth="([-0-9.]+)ex"/);
+        const hM = attrs.match(/\sheight="([-0-9.]+)ex"/);
+        const vbM = attrs.match(/\sviewBox="([^"]+)"/);
+        const vaM = attrs.match(/vertical-align:\s*([-0-9.]+)ex/);
+        if (!wM || !hM || !vbM) {
+          parsed = { error: true };
+        } else {
+          parsed = {
+            wEx: parseFloat(wM[1]),
+            hEx: parseFloat(hM[1]),
+            viewBox: vbM[1],
+            vaEx: vaM ? parseFloat(vaM[1]) : 0,
+            inner,
+          };
+        }
+      }
+      _mjxCache.set(math, parsed);
+    }
+  }
+  if (parsed.error) {
+    return renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS);
+  }
+
+  // 1ex ≈ 0.5em in TeX; fontSize is treated as em. KaTeX's .katex CSS shrinks
+  // by 1.21× vs. the nominal font-size, so match that factor for parity.
+  const em = fontSizeCSS / 1.21;
+  const exRatio = 0.5;
+  const svgW = parsed.wEx * exRatio * em;
+  const svgH = parsed.hEx * exRatio * em;
+
+  let fx = parseFloat(x), fy = parseFloat(y);
+  if (anchor === 'middle') fx -= svgW / 2;
+  else if (anchor === 'end') fx -= svgW;
+  fy -= svgH / 2; // vertically center — matches KaTeX foreignObject behavior
+
+  const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  const colorAttr = ` color="${fill || '#000000'}"`;
+  // Nested <svg> must redeclare xmlns:xlink since MathJax's inner content
+  // uses xlink:href (librsvg rejects undeclared namespace prefixes).
+  const core = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="${parsed.viewBox}" overflow="visible"${colorAttr}${op}>${parsed.inner}</svg>`;
+  if (reflectX) {
+    // Flip horizontally around the label's own center.
+    const cx = fx + svgW / 2;
+    return `<g transform="translate(${fmt(2*cx)},0) scale(-1,1)">${core}</g>`;
+  }
+  return core;
 }
 
 function stripLaTeX(text) {

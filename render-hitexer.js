@@ -34,7 +34,7 @@ if (!A.canInterpret(code)) {
 }
 
 try {
-  const result = A.render(code, { containerW: 500, containerH: 400 });
+  const result = A.render(code, { containerW: 500, containerH: 400, labelOutput: 'svg-native' });
   // Ensure UTF-8 encoding on Windows
   if (process.stdout.setEncoding) {
     process.stdout.setEncoding('utf8');
