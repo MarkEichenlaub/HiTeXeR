@@ -36,7 +36,7 @@ const KEYWORDS = new Set([
 const TYPE_NAMES = new Set([
   'int','real','pair','triple','string','bool','bool3','pen','path','path3','guide',
   'picture','transform','transform3','void','var','Label','file','frame',
-  'projection','revolution','surface','material','patch',
+  'projection','revolution','surface','material','patch','tube','coloredpath',
   'coordsys','point','vector',
   'line','segment','circle','triangle',
   'side','vertex',
@@ -346,6 +346,34 @@ function parse(tokens) {
 
     // Skip 'static' modifier
     if (atVal(T.IDENT,'static')) pos++;
+
+    // struct Name { ... }   -- minimal support: register Name as a type and skip body.
+    // Also allow 'struct Name;' forward declaration. This prevents parse loops but
+    // does not fully implement struct semantics; calls to struct methods will return null.
+    if (atVal(T.IDENT,'struct')) {
+      pos++;
+      if (at(T.IDENT)) {
+        const sname = cur().value;
+        pos++;
+        TYPE_NAMES.add(sname);
+        if (at(T.LBRACE)) {
+          // Skip balanced braces
+          let depth = 0;
+          eat(T.LBRACE); depth = 1;
+          while (depth > 0 && !at(T.EOF)) {
+            if (at(T.LBRACE)) { depth++; pos++; continue; }
+            if (at(T.RBRACE)) { depth--; pos++; continue; }
+            pos++;
+          }
+        }
+        tryEat(T.SEMI);
+        return null; // treat as no-op
+      }
+      // malformed struct — eat to next semicolon to avoid loops
+      while (!at(T.SEMI) && !at(T.EOF)) pos++;
+      tryEat(T.SEMI);
+      return null;
+    }
 
     // Function declaration: type name(...) {...}
     if (isFuncDecl()) {
@@ -661,10 +689,25 @@ function parse(tokens) {
       return parseFuncCallNode(left, ln);
     }
 
-    // Array access
+    // Array access / array slice
     if (t.type === T.LBRACKET) {
       pos++;
+      // a[:]  a[:end]  a[start:]  a[start:end]
+      if (at(T.COLON)) {
+        pos++;
+        let endE = null;
+        if (!at(T.RBRACKET)) endE = parseExpr();
+        eat(T.RBRACKET);
+        return {type:'ArraySlice', object:left, start:null, end:endE, line:ln};
+      }
       const idx = parseExpr();
+      if (at(T.COLON)) {
+        pos++;
+        let endE = null;
+        if (!at(T.RBRACKET)) endE = parseExpr();
+        eat(T.RBRACKET);
+        return {type:'ArraySlice', object:left, start:idx, end:endE, line:ln};
+      }
       eat(T.RBRACKET);
       return ArrayAccess(left, idx, ln);
     }
@@ -1970,6 +2013,19 @@ function createInterpreter() {
       case 'FuncCall': return evalFuncCall(node, env);
       case 'MemberAccess': return evalMemberAccess(node, env);
       case 'ArrayAccess': return evalArrayAccess(node, env);
+      case 'ArraySlice': {
+        const obj = evalNode(node.object, env);
+        if (!isArray(obj)) return [];
+        const n = obj.length;
+        let s = node.start !== null ? Math.floor(toNumber(evalNode(node.start, env))) : 0;
+        let e = node.end !== null ? Math.floor(toNumber(evalNode(node.end, env))) : n;
+        if (s < 0) s = Math.max(0, n + s);
+        if (e < 0) e = Math.max(0, n + e);
+        if (s > n) s = n;
+        if (e > n) e = n;
+        if (e < s) e = s;
+        return obj.slice(s, e);
+      }
       case 'TernaryOp': return toBool(evalNode(node.cond,env)) ? evalNode(node.then,env) : evalNode(node.else,env);
       case 'CastExpr': return evalCast(node, env);
       case 'NamedArg': return evalNode(node.value, env);
@@ -2323,6 +2379,14 @@ function createInterpreter() {
     if (isInversion(left) && isPoint(right)) return applyInversion(left, locatePoint(right));
     // Transform * path
     if (isTransform(left) && isPath(right)) return applyTransformPath(left, right);
+    // Transform * path[] → array of transformed paths (also maps other transformable items)
+    if (isTransform(left) && Array.isArray(right)) {
+      return right.map(v => {
+        if (isPath(v)) return applyTransformPath(left, v);
+        if (isPair(v)) return applyTransformPair(left, v);
+        return v;
+      });
+    }
     // Transform * triangle (from geometry package)
     if (isTransform(left) && isTriangleGeo(right)) {
       const tA = applyTransformPair(left, locatePoint(right.A));
@@ -2387,7 +2451,38 @@ function createInterpreter() {
       case T.GT: return l>r;
       case T.LE: return l<=r;
       case T.GE: return l>=r;
-      case T.AND: return toBool(left) && toBool(right);
+      case T.AND:
+        // Path concatenation: p & q → joined path. p & cycle → closed path.
+        if (isPath(left)) {
+          const isRightCycle = (right && right._tag === 'cycle') ||
+                               (typeof right === 'string' && right === 'cycle') ||
+                               right === undefined || right === null;
+          if (isRightCycle) {
+            if (!left.segs.length) return left;
+            const first = left.segs[0].p0;
+            const last = left.segs[left.segs.length - 1].p3;
+            const needClose = !first || !last ||
+              Math.abs((first.x||0) - (last.x||0)) > 1e-9 ||
+              Math.abs((first.y||0) - (last.y||0)) > 1e-9 ||
+              Math.abs((first.z||0) - (last.z||0)) > 1e-9;
+            const segs = left.segs.slice();
+            if (needClose) segs.push(lineSegment(last, first));
+            return makePath(segs, true);
+          }
+          if (isPath(right)) {
+            const segs = left.segs.slice();
+            // Bridge segment if endpoints don't meet
+            if (segs.length > 0 && right.segs.length > 0) {
+              const lend = segs[segs.length-1].p3;
+              const rstart = right.segs[0].p0;
+              const diff = Math.abs((lend.x||0)-(rstart.x||0)) + Math.abs((lend.y||0)-(rstart.y||0)) + Math.abs((lend.z||0)-(rstart.z||0));
+              if (diff > 1e-9) segs.push(lineSegment(lend, rstart));
+            }
+            segs.push(...right.segs);
+            return makePath(segs, !!right.closed);
+          }
+        }
+        return toBool(left) && toBool(right);
       case T.OR: return toBool(left) || toBool(right);
     }
     return 0;
@@ -2538,6 +2633,18 @@ function createInterpreter() {
       }
       return callUserFunc(callee, node.args, env);
     }
+    if (callee && callee._tag === 'overload') {
+      // Evaluate positional args, pick best-matching alt, then dispatch.
+      const positional = node.args.filter(a => a.type !== 'NamedArg');
+      const posVals = positional.map(a => evalNode(a, env));
+      const picked = overloadSelect(callee, posVals);
+      if (picked) {
+        // Reuse callUserFuncValues for positional-only; rebuild argNodes route if named args present.
+        const hasNamed = node.args.some(a => a.type === 'NamedArg');
+        if (!hasNamed) return callUserFuncValues(picked, posVals);
+        return callUserFunc(picked, node.args, env);
+      }
+    }
 
     // gray(number) → grayscale pen  (gray is also a pen constant)
     if (calleeName === 'gray' && isPen(callee)) {
@@ -2664,6 +2771,10 @@ function createInterpreter() {
 
   // Call a user-defined function with already-evaluated argument values
   function callUserFuncValues(func, argValues) {
+    if (func && func._tag === 'overload') {
+      const picked = overloadSelect(func, argValues);
+      if (picked) func = picked;
+    }
     if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
     const params = func.params;
@@ -2690,6 +2801,10 @@ function createInterpreter() {
   function invokeFunc(fn, argValues) {
     if (typeof fn === 'function') return fn(...argValues);
     if (fn && fn._tag === 'func') return callUserFuncValues(fn, argValues);
+    if (fn && fn._tag === 'overload') {
+      const picked = overloadSelect(fn, argValues);
+      if (picked) return callUserFuncValues(picked, argValues);
+    }
     return null;
   }
 
@@ -2738,10 +2853,11 @@ function createInterpreter() {
         return out;
       }
       if (method === 'append') {
+        if (!obj.mesh) obj.mesh = makeMesh([]);
         for (const a of args) {
-          if (a && a._tag === 'surface' && a.mesh && obj.mesh) {
+          if (a && a._tag === 'surface' && a.mesh) {
             obj.mesh.faces.push(...a.mesh.faces);
-          } else if (isMesh(a) && obj.mesh) {
+          } else if (isMesh(a)) {
             obj.mesh.faces.push(...a.faces);
           }
         }
@@ -2796,6 +2912,16 @@ function createInterpreter() {
     if (isString(obj)) {
       if (m === 'length') return obj.length;
     }
+    if (obj && obj._tag === 'tube') {
+      if (m === 's') return obj.s;
+      if (m === 'center') return obj.center;
+    }
+    if (obj && obj._tag === 'surface') {
+      // s.s → array of surface "patches" (for s.s[0].uequals(...) etc.)
+      if (m === 's') return [obj];
+      if (m === 'mesh') return obj.mesh;
+    }
+    if (obj && obj._tag === 'revolution' && m === 'mesh') return obj.mesh;
     return null;
   }
 
@@ -2879,7 +3005,9 @@ function createInterpreter() {
         // Converting to (0,0) via toPair would create a stray segment from the origin.
         continue;
       } else {
-        elements.push({type:'pair', pt:toPair(val), join:n.join, dirIn:eDirIn, dirOut:eDirOut});
+        // Preserve triples so path3 flows through as triple-valued segments.
+        const pt = isTriple(val) ? val : toPair(val);
+        elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
       }
     }
 
@@ -3071,6 +3199,9 @@ function createInterpreter() {
           case 'string': val = ''; break;
           case 'bool': val = false; break;
           case 'picture': val = {_tag:'picture', commands:[]}; break;
+          case 'surface': val = {_tag:'surface', mesh: makeMesh([])}; break;
+          case 'revolution': val = {_tag:'revolution', mesh: makeMesh([])}; break;
+          case 'tube': val = {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: makePath([], false)}; break;
           case 'coordsys': val = makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1)); break;
           case 'point': {
             const cs = env.get('currentcoordsys') || makeCoordSys(makePair(0,0), makePair(1,0), makePair(0,1));
@@ -3210,8 +3341,39 @@ function createInterpreter() {
 
   function evalFuncDecl(node, env) {
     const func = {_tag:'func', name:node.name, params:node.params, body:node.body, closure:env};
-    if (node.name) env.set(node.name, func);
+    if (node.name) {
+      const existing = env.has(node.name) ? env.get(node.name) : null;
+      if (existing && existing._tag === 'func') {
+        env.set(node.name, {_tag:'overload', alts:[existing, func], name:node.name});
+      } else if (existing && existing._tag === 'overload') {
+        env.set(node.name, {_tag:'overload', alts:[...existing.alts, func], name:node.name});
+      } else {
+        env.set(node.name, func);
+      }
+    }
     return func;
+  }
+
+  // Select best-matching user function from an overload set.
+  function overloadSelect(overload, posVals) {
+    const alts = overload.alts;
+    // Score each alt: +2 for exact type match, +1 for compatible, -1 for too-few/many params.
+    let best = null, bestScore = -Infinity;
+    for (const alt of alts) {
+      const params = alt.params || [];
+      // Count how many declared params have defaults (we don't track defaults here,
+      // but params with initializer are marked via .default in parseFuncDeclBody).
+      let required = 0;
+      for (const p of params) if (!p.default) required++;
+      if (posVals.length < required || posVals.length > params.length) continue;
+      let score = 0;
+      for (let i = 0; i < posVals.length; i++) {
+        if (argMatchesParamType(posVals[i], params[i].type)) score += 2;
+        else score -= 1;
+      }
+      if (score > bestScore) { bestScore = score; best = alt; }
+    }
+    return best || alts[alts.length - 1];
   }
 
   function evalImport(node, env) {
@@ -3235,7 +3397,7 @@ function createInterpreter() {
     if (mod.includes('graph')) {
       installGraphPackage(env);
     }
-    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3')) {
+    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3')) {
       installThreePackage(env);
     }
     return null;
@@ -4570,10 +4732,72 @@ function createInterpreter() {
       return arr;
     });
     env.set('array', (...args) => {
+      // array(int n, T value) — returns n-element array filled with value
+      const named = {};
+      const pos = [];
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          for (const k of Object.keys(a)) if (k !== '_named') named[k] = a[k];
+        } else pos.push(a);
+      }
+      // Try named form first
+      if (named.n !== undefined && named.value !== undefined) {
+        const n = Math.floor(toNumber(named.n));
+        const v = named.value;
+        const out = new Array(Math.max(0, n));
+        for (let i = 0; i < out.length; i++) out[i] = v;
+        return out;
+      }
+      // array(n, value) positional
+      if (pos.length === 2 && typeof pos[0] === 'number') {
+        const n = Math.floor(toNumber(pos[0]));
+        const v = pos[1];
+        const out = new Array(Math.max(0, n));
+        for (let i = 0; i < out.length; i++) out[i] = v;
+        return out;
+      }
+      // array(n, value, depth) — depth-nested
+      if (pos.length === 3 && typeof pos[0] === 'number' && typeof pos[2] === 'number') {
+        const n = Math.floor(toNumber(pos[0]));
+        const v = pos[1];
+        const d = Math.floor(toNumber(pos[2]));
+        function build(level) {
+          if (level >= d) return v;
+          const out = new Array(n);
+          for (let i = 0; i < n; i++) out[i] = build(level + 1);
+          return out;
+        }
+        return build(0);
+      }
       // If single string argument, split into array of characters
       if (args.length === 1 && isString(args[0])) return args[0].split('');
       return args;
     });
+    // copy(arr) — deep copy arrays (recursive). Scalars passed through.
+    env.set('copy', (a) => {
+      function deepCopy(v) {
+        if (Array.isArray(v)) return v.map(deepCopy);
+        return v;
+      }
+      return deepCopy(a);
+    });
+    // input(filename) — browser can't read files; return EOF-like file handle so
+    // `while(!eof(data))` loops terminate immediately and scripts don't hang.
+    env.set('input', (...args) => ({_tag:'file', eof:true, lines:[], pos:0}));
+    env.set('output', (...args) => ({_tag:'file', eof:true, lines:[], pos:0}));
+    env.set('eof', (f) => (f && f._tag === 'file') ? !!f.eof : true);
+    env.set('eol', (f) => true);
+    env.set('error', (f) => true);
+    env.set('close', (f) => null);
+    env.set('stripextension', (s) => { s = String(s||''); const i = s.lastIndexOf('.'); return i >= 0 ? s.slice(0,i) : s; });
+    // stripdirectory / stripfile
+    env.set('stripdirectory', (s) => { s = String(s||''); const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\')); return i >= 0 ? s.slice(i+1) : s; });
+    // file reading ops — return empty / default values so PDB-style parsers bail
+    env.set('line', (f) => '');
+    env.set('word', (f) => '');
+    env.set('dimension', (f,...rest) => null);
+    env.set('csv', (f) => f);
+    env.set('eolmode', (f) => null);
     env.set('sequence', (f, n) => {
       // sequence(n) or sequence(func, n)
       if (n === undefined) { n = f; f = null; }
@@ -4720,7 +4944,20 @@ function createInterpreter() {
     env.set('assert', (cond, msg) => {
       if (!toBool(cond)) throw new Error('Assertion failed: ' + (msg || ''));
     });
-    env.set('write', (...args) => { /* no-op in browser */ });
+    env.set('write', (...args) => {
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_WRITE) {
+        const parts = args.map(a => {
+          if (a === null || a === undefined) return '';
+          if (typeof a === 'string') return a;
+          if (typeof a === 'number') return String(a);
+          if (a && a._tag === 'triple') return `(${a.x},${a.y},${a.z})`;
+          if (a && a._tag === 'pair') return `(${a.x},${a.y})`;
+          if (Array.isArray(a)) return '[' + a.length + ' items]';
+          return JSON.stringify(a).slice(0, 100);
+        });
+        try { process.stderr.write('[write] ' + parts.join(' ') + '\n'); } catch(e) {}
+      }
+    });
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
     env.set('unitrand', () => Math.random());
 
@@ -5381,13 +5618,73 @@ function createInterpreter() {
       }
 
       // Find the function argument(s) and numeric range
-      // Supports: graph(f, a, b, n), graph(f_pair, a, b, n), graph(fx, fy, a, b, n)
-      let funcArg = null, funcArg2 = null, funcIdx = -1;
+      // Supports: graph(f, a, b, n), graph(f_pair, a, b, n), graph(fx, fy, a, b, n), graph(fx, fy, fz, a, b, n)
+      let funcArg = null, funcArg2 = null, funcArg3 = null, funcIdx = -1;
       const isFunc = v => typeof v === 'function' || (v && v._tag === 'func');
       for (let i = 0; i < coreArgs.length; i++) {
         if (isFunc(coreArgs[i])) {
           if (funcArg === null) { funcArg = coreArgs[i]; funcIdx = i; }
           else if (funcArg2 === null && i === funcIdx + 1) { funcArg2 = coreArgs[i]; }
+          else if (funcArg3 === null && i === funcIdx + 2) { funcArg3 = coreArgs[i]; }
+        }
+      }
+
+      // Three-function parametric: returns a path with triple points
+      if (funcArg3 !== null) {
+        const callFunc = (f, t) => typeof f === 'function' ? f(t) : callUserFuncValues(f, [t]);
+        const nums = [];
+        for (let i = funcIdx + 3; i < coreArgs.length; i++) {
+          if (typeof coreArgs[i] === 'number') nums.push(coreArgs[i]);
+          else if (isFunc(coreArgs[i])) break;
+        }
+        const a = nums[0] !== undefined ? nums[0] : 0;
+        const b = nums[1] !== undefined ? nums[1] : 1;
+        const n = namedN !== null ? namedN : (nums[2] !== undefined ? Math.floor(nums[2]) : 100);
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const t = a + (b - a) * i / n;
+          try {
+            const x = toNumber(callFunc(funcArg, t));
+            const y = toNumber(callFunc(funcArg2, t));
+            const z = toNumber(callFunc(funcArg3, t));
+            if (isFinite(x) && isFinite(y) && isFinite(z)) pts.push(makeTriple(x, y, z));
+          } catch(e) {}
+        }
+        if (pts.length < 2) return makePath([], false);
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
+        return makePath(segs, false);
+      }
+
+      // Single function returning a triple: path3 parametric
+      if (funcArg !== null && funcArg2 === null) {
+        const callFunc = (f, t) => typeof f === 'function' ? f(t) : callUserFuncValues(f, [t]);
+        const nums = [];
+        for (let i = funcIdx + 1; i < coreArgs.length; i++) {
+          if (typeof coreArgs[i] === 'number') nums.push(coreArgs[i]);
+          else if (isFunc(coreArgs[i])) break;
+        }
+        const aT = nums[0] !== undefined ? nums[0] : 0;
+        const bT = nums[1] !== undefined ? nums[1] : 1;
+        let isTripleFunc = false;
+        try {
+          const testVal = callFunc(funcArg, aT);
+          if (isTriple(testVal)) isTripleFunc = true;
+        } catch(e) {}
+        if (isTripleFunc) {
+          const nT = namedN !== null ? namedN : (nums[2] !== undefined ? Math.floor(nums[2]) : 100);
+          const pts = [];
+          for (let i = 0; i <= nT; i++) {
+            const t = aT + (bT - aT) * i / nT;
+            try {
+              const v = callFunc(funcArg, t);
+              if (isTriple(v) && isFinite(v.x) && isFinite(v.y) && isFinite(v.z)) pts.push(v);
+            } catch(e) {}
+          }
+          if (pts.length < 2) return makePath([], false);
+          const segs = [];
+          for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
+          return makePath(segs, false);
         }
       }
 
@@ -7956,6 +8253,17 @@ function createInterpreter() {
     // 3D path type stubs
     env.set('path3', null);
 
+    // unitcircle3: 3D unit circle in XY plane (4 cubic Bezier segments with triple endpoints)
+    {
+      const K3 = 0.5522847498;
+      env.set('unitcircle3', makePath([
+        makeSeg(makeTriple(1,0,0), makeTriple(1,K3,0), makeTriple(K3,1,0), makeTriple(0,1,0)),
+        makeSeg(makeTriple(0,1,0), makeTriple(-K3,1,0), makeTriple(-1,K3,0), makeTriple(-1,0,0)),
+        makeSeg(makeTriple(-1,0,0), makeTriple(-1,-K3,0), makeTriple(-K3,-1,0), makeTriple(0,-1,0)),
+        makeSeg(makeTriple(0,-1,0), makeTriple(K3,-1,0), makeTriple(1,-K3,0), makeTriple(1,0,0)),
+      ], true));
+    }
+
     // XYplane: maps 2D pair to 3D triple on XY plane (z=0)
     env.set('XYplane', (p) => {
       const pp = toPair(p);
@@ -8066,10 +8374,72 @@ function createInterpreter() {
     // surface(): wrap mesh, capture boundary path, or tessellate parametric f
     env.set('surface', (...args) => {
       const pos = args.filter(a => !(a && a._named));
+      // Triangle-list: surface(triple[][]) where inner array is a triangle of 3 triples
+      // (produced by contour3/smoothcontour3 isosurface extraction).
+      {
+        const firstArr = pos.find(a => Array.isArray(a));
+        if (firstArr && firstArr.length > 0 && Array.isArray(firstArr[0]) &&
+            firstArr[0].length === 3 && isTriple(firstArr[0][0]) &&
+            !Array.isArray(firstArr[0][0])) {
+          const faces = [];
+          for (const tri of firstArr) {
+            if (!Array.isArray(tri) || tri.length < 3) continue;
+            const f = { vertices: [tri[0], tri[1], tri[2]] };
+            f.normal = faceNormal(f);
+            faces.push(f);
+          }
+          if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+        }
+      }
+      // Bezier patch array: surface(triple[][][]) or surface(patch[][]).
+      // Each inner 4x4 triple grid is a bicubic Bezier patch.
+      const firstArr = pos.find(a => Array.isArray(a));
+      if (firstArr && Array.isArray(firstArr[0]) && Array.isArray(firstArr[0][0]) && isTriple(firstArr[0][0][0])) {
+        const faces = [];
+        const N = 6;  // tessellation per patch edge
+        const B = (t) => {
+          const u = 1 - t;
+          return [u*u*u, 3*u*u*t, 3*u*t*t, t*t*t];
+        };
+        for (const patch of firstArr) {
+          if (!patch || patch.length < 4) continue;
+          const grid = [];
+          for (let i = 0; i <= N; i++) {
+            const row = [];
+            const bu = B(i / N);
+            for (let j = 0; j <= N; j++) {
+              const bv = B(j / N);
+              let x = 0, y = 0, z = 0;
+              for (let a = 0; a < 4; a++) {
+                for (let b = 0; b < 4; b++) {
+                  const p = patch[a] && patch[a][b];
+                  if (!p) continue;
+                  const w = bu[a] * bv[b];
+                  x += w * (p.x || 0);
+                  y += w * (p.y || 0);
+                  z += w * (p.z || 0);
+                }
+              }
+              row.push(makeTriple(x, y, z));
+            }
+            grid.push(row);
+          }
+          for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+              const v00 = grid[i][j], v10 = grid[i+1][j];
+              const v11 = grid[i+1][j+1], v01 = grid[i][j+1];
+              const f = {vertices: [v00, v10, v11, v01]};
+              f.normal = faceNormal(f);
+              faces.push(f);
+            }
+          }
+        }
+        if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+      }
       // Parametric: surface(f, lo, hi, nu[, nv], ...)
       // where f is callable pair→triple
       if (pos.length >= 4 &&
-          (typeof pos[0] === 'function' || (pos[0] && pos[0]._tag === 'func')) &&
+          (typeof pos[0] === 'function' || (pos[0] && (pos[0]._tag === 'func' || pos[0]._tag === 'overload'))) &&
           isPair(pos[1]) && isPair(pos[2])) {
         const f = pos[0];
         const lo = pos[1], hi = pos[2];
@@ -8080,7 +8450,7 @@ function createInterpreter() {
         const call = (u, v) => {
           const p = makePair(u, v);
           if (typeof f === 'function') return f(p);
-          if (f && f._tag === 'func') return callUserFuncValues(f, [p]);
+          if (f && (f._tag === 'func' || f._tag === 'overload')) return callUserFuncValues(f, [p]);
           return makeTriple(0, 0, 0);
         };
         const grid = [];
@@ -8107,13 +8477,190 @@ function createInterpreter() {
         const mesh = makeMesh(faces);
         return {_tag:'surface', mesh, _grid: grid};
       }
+      // surface(revolution)
+      const firstRev = args.find(a => a && a._tag === 'revolution');
+      if (firstRev && firstRev.mesh) return {_tag:'surface', mesh: firstRev.mesh};
+      // surface(surface s, transform3 t, ...) — combine surfaces under transforms
+      const firstSurf = args.find(a => a && a._tag === 'surface');
+      if (firstSurf) {
+        const faces = [];
+        for (const a of args) {
+          if (a && a._tag === 'surface' && a.mesh) faces.push(...a.mesh.faces);
+        }
+        if (faces.length > 0) {
+          const mesh = makeMesh(faces.map(f => {
+            const nf = {vertices: f.vertices.slice()};
+            nf.normal = f.normal || faceNormal(nf);
+            if (f.pen) nf.pen = f.pen;
+            return nf;
+          }));
+          return {_tag:'surface', mesh};
+        }
+      }
       const firstPath = args.find(a => isPath(a));
       const firstMesh = args.find(a => isMesh(a));
       if (firstMesh) return {_tag:'surface', mesh: firstMesh};
-      if (firstPath) return {_tag:'surface', boundary: firstPath};
+      if (firstPath) {
+        // If the path has triple vertices, fan-triangulate into a mesh
+        const segs = firstPath.segs || [];
+        const verts = [];
+        for (const s of segs) {
+          if (s.p0 && isTriple(s.p0)) verts.push(s.p0);
+        }
+        if (segs.length > 0) {
+          const last = segs[segs.length-1].p3;
+          if (last && isTriple(last) && (verts.length === 0 || last !== verts[0])) verts.push(last);
+        }
+        // Dedupe consecutive duplicates (cycle close)
+        const dedup = [];
+        for (const v of verts) {
+          const last = dedup[dedup.length-1];
+          if (!last || last.x !== v.x || last.y !== v.y || last.z !== v.z) dedup.push(v);
+        }
+        if (dedup.length >= 3) {
+          const faces = [];
+          for (let i = 1; i < dedup.length - 1; i++) {
+            const face = {vertices: [dedup[0], dedup[i], dedup[i+1]]};
+            face.normal = faceNormal(face);
+            faces.push(face);
+          }
+          return {_tag:'surface', mesh: makeMesh(faces)};
+        }
+        return {_tag:'surface', boundary: firstPath};
+      }
       return {_tag:'surface'};
     });
-    env.set('revolution', (...args) => ({_tag:'surface'}));
+    env.set('revolution', (...args) => {
+      // revolution(path3 p, triple axis=Z[, int n=32, real angle1=0, real angle2=360])
+      const pos = args.filter(a => !(a && a._named));
+      const named = {};
+      for (const a of args) if (a && a._named) Object.assign(named, a);
+      const path = pos.find(a => isPath(a));
+      let axis = named.axis && isTriple(named.axis) ? named.axis : makeTriple(0,0,1);
+      const nLon = named.n !== undefined ? Math.max(3, Math.floor(toNumber(named.n))) : 32;
+      const ang1 = named.angle1 !== undefined ? toNumber(named.angle1) : 0;
+      const ang2 = named.angle2 !== undefined ? toNumber(named.angle2) : 360;
+      // Collect path vertices as triples
+      const verts = [];
+      if (path && path.segs) {
+        for (const s of path.segs) if (s.p0 && isTriple(s.p0)) verts.push(s.p0);
+        const last = path.segs[path.segs.length-1];
+        if (last && last.p3 && isTriple(last.p3)) verts.push(last.p3);
+      }
+      if (verts.length < 2) return {_tag:'revolution', mesh: makeMesh([])};
+      // Normalize axis
+      const aLen = Math.sqrt(axis.x*axis.x + axis.y*axis.y + axis.z*axis.z) || 1;
+      const A = makeTriple(axis.x/aLen, axis.y/aLen, axis.z/aLen);
+      // For each vertex: closest point on axis through origin = (A·v) A
+      // Rodrigues rotation around axis A by angle θ:
+      //   v' = v*cosθ + (A×v)*sinθ + A*(A·v)*(1-cosθ)
+      const rotated = [];
+      for (let j = 0; j <= nLon; j++) {
+        const th = (ang1 + (ang2 - ang1) * j / nLon) * Math.PI / 180;
+        const c = Math.cos(th), s = Math.sin(th);
+        const row = [];
+        for (const v of verts) {
+          const dot = A.x*v.x + A.y*v.y + A.z*v.z;
+          const cx = A.y*v.z - A.z*v.y;
+          const cy = A.z*v.x - A.x*v.z;
+          const cz = A.x*v.y - A.y*v.x;
+          row.push(makeTriple(
+            v.x*c + cx*s + A.x*dot*(1-c),
+            v.y*c + cy*s + A.y*dot*(1-c),
+            v.z*c + cz*s + A.z*dot*(1-c)
+          ));
+        }
+        rotated.push(row);
+      }
+      const faces = [];
+      for (let j = 0; j < nLon; j++) {
+        for (let i = 0; i < verts.length - 1; i++) {
+          const v00 = rotated[j][i], v10 = rotated[j+1][i];
+          const v11 = rotated[j+1][i+1], v01 = rotated[j][i+1];
+          const face = {vertices: [v00, v10, v11, v01]};
+          face.normal = faceNormal(face);
+          faces.push(face);
+        }
+      }
+      return {_tag:'revolution', mesh: makeMesh(faces), path: path, axis: A, _grid: rotated};
+    });
+    // randompath3(n): small random walk in 3D, returns path3
+    env.set('randompath3', (...args) => {
+      const n = args.length > 0 && typeof args[0] === 'number' ? Math.max(2, Math.floor(args[0])) : 100;
+      // Use a deterministic seed-free simple PRNG so output is reproducible
+      let seed = 1234567;
+      const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x7fffffff) - 0.5; };
+      let x = 0, y = 0, z = 0;
+      const pts = [makeTriple(0,0,0)];
+      for (let i = 0; i < n; i++) {
+        x += rand(); y += rand(); z += rand();
+        pts.push(makeTriple(x, y, z));
+      }
+      const segs = [];
+      for (let i = 0; i < pts.length-1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
+      return makePath(segs, false);
+    });
+    // tube(path3 p, real r): stub returning {s: surface around path, center: path}
+    env.set('tube', (...args) => {
+      const p = args.find(a => isPath(a));
+      if (!p) return {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: makePath([], false)};
+      // Build a thin tubular mesh: sample path, at each sample make a small circular ring
+      const r = args.find(a => typeof a === 'number') || 0.1;
+      const samples = [];
+      if (p.segs) {
+        for (const s of p.segs) if (s.p0 && isTriple(s.p0)) samples.push(s.p0);
+        const lastSeg = p.segs[p.segs.length-1];
+        if (lastSeg && lastSeg.p3 && isTriple(lastSeg.p3)) samples.push(lastSeg.p3);
+      }
+      if (samples.length < 2) return {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: p};
+      const nSides = 8;
+      const ringAt = (p0, tangent) => {
+        // Build two orthonormal vectors perpendicular to tangent
+        let u = Math.abs(tangent.z) < 0.9 ? makeTriple(0,0,1) : makeTriple(1,0,0);
+        // Gram-Schmidt
+        const t = tangent;
+        const dot = u.x*t.x + u.y*t.y + u.z*t.z;
+        u = makeTriple(u.x - dot*t.x, u.y - dot*t.y, u.z - dot*t.z);
+        const ul = Math.sqrt(u.x*u.x+u.y*u.y+u.z*u.z) || 1;
+        u = makeTriple(u.x/ul, u.y/ul, u.z/ul);
+        const v = makeTriple(
+          t.y*u.z - t.z*u.y,
+          t.z*u.x - t.x*u.z,
+          t.x*u.y - t.y*u.x
+        );
+        const ring = [];
+        for (let k = 0; k < nSides; k++) {
+          const a = 2*Math.PI*k/nSides;
+          const ca = Math.cos(a), sa = Math.sin(a);
+          ring.push(makeTriple(
+            p0.x + r*(ca*u.x + sa*v.x),
+            p0.y + r*(ca*u.y + sa*v.y),
+            p0.z + r*(ca*u.z + sa*v.z)
+          ));
+        }
+        return ring;
+      };
+      const rings = [];
+      for (let i = 0; i < samples.length; i++) {
+        const prev = i > 0 ? samples[i-1] : samples[i];
+        const next = i < samples.length-1 ? samples[i+1] : samples[i];
+        const tx = next.x - prev.x, ty = next.y - prev.y, tz = next.z - prev.z;
+        const tl = Math.sqrt(tx*tx+ty*ty+tz*tz) || 1;
+        rings.push(ringAt(samples[i], makeTriple(tx/tl, ty/tl, tz/tl)));
+      }
+      const faces = [];
+      for (let i = 0; i < rings.length-1; i++) {
+        for (let k = 0; k < nSides; k++) {
+          const k1 = (k+1) % nSides;
+          const face = {vertices: [rings[i][k], rings[i+1][k], rings[i+1][k1], rings[i][k1]]};
+          face.normal = faceNormal(face);
+          faces.push(face);
+        }
+      }
+      const mesh = makeMesh(faces);
+      const grid = rings;
+      return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid}, center: p};
+    });
     env.set('sphere', (...args) => {
       if (args.length >= 1 && isTriple(args[0])) {
         const c = args[0];
@@ -8122,6 +8669,12 @@ function createInterpreter() {
         const mesh = _buildSphereMesh(24, 12);
         const scaled = applyTransform3Mesh(scaleT3(r, r, r), mesh);
         return applyTransform3Mesh(shiftT3(c.x, c.y, c.z), scaled);
+      }
+      // sphere(real r): solids-module revolution-typed sphere at origin
+      if (args.length >= 1 && typeof args[0] === 'number') {
+        const r = toNumber(args[0]);
+        const mesh = applyTransform3Mesh(scaleT3(r, r, r), _buildSphereMesh(24, 12));
+        return {_tag:'revolution', mesh};
       }
       return {_tag: 'surface'};
     });
@@ -8133,7 +8686,208 @@ function createInterpreter() {
     env.set('unitcube', _buildCubeMesh());
     env.set('unitcylinder', _buildCylinderMesh(24));
     env.set('unitcone', _buildConeMesh(24));
-    env.set('extrude', (...args) => ({_tag:'surface'}));
+    // extrude(path[]|path|string, triple axis = 2Z) — prism-extrude a 2D profile
+    // along axis. For string input we use texpath (no-op here), so we fall back
+    // to a tiny billboard rectangle so the render isn't empty. For path/path[]
+    // we build two copies offset by axis and stitch side quads.
+    env.set('extrude', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      let profile = pos[0];
+      let axis = makeTriple(0, 0, 1);
+      if (pos.length >= 2 && isTriple(pos[1])) axis = pos[1];
+      // string profile → render a flat billboard rectangle as placeholder
+      if (typeof profile === 'string') {
+        const w = Math.max(1, profile.length * 0.15);
+        const h = 0.6;
+        const faces = [];
+        const p00 = makeTriple(-w/2, -h/2, 0);
+        const p10 = makeTriple(w/2, -h/2, 0);
+        const p11 = makeTriple(w/2, h/2, 0);
+        const p01 = makeTriple(-w/2, h/2, 0);
+        const p002 = makeTriple(-w/2 + axis.x, -h/2 + axis.y, axis.z);
+        const p102 = makeTriple(w/2 + axis.x, -h/2 + axis.y, axis.z);
+        const p112 = makeTriple(w/2 + axis.x, h/2 + axis.y, axis.z);
+        const p012 = makeTriple(-w/2 + axis.x, h/2 + axis.y, axis.z);
+        const mk = (a,b,c) => { const f = {vertices:[a,b,c]}; f.normal = faceNormal(f); return f; };
+        faces.push(mk(p00,p10,p11), mk(p00,p11,p01));
+        faces.push(mk(p002,p112,p102), mk(p002,p012,p112));
+        faces.push(mk(p00,p002,p102), mk(p00,p102,p10));
+        faces.push(mk(p10,p102,p112), mk(p10,p112,p11));
+        faces.push(mk(p11,p112,p012), mk(p11,p012,p01));
+        faces.push(mk(p01,p012,p002), mk(p01,p002,p00));
+        return {_tag:'surface', mesh: makeMesh(faces)};
+      }
+      // path or path[] profile
+      const paths = Array.isArray(profile) ? profile.filter(p => p && p._tag === 'path') : (profile && profile._tag === 'path' ? [profile] : []);
+      if (paths.length === 0) return {_tag:'surface', mesh: makeMesh([])};
+      const faces = [];
+      for (const pth of paths) {
+        // Sample path
+        const segs = pth.segs || [];
+        if (segs.length === 0) continue;
+        const pts = [];
+        // Always use p0 of first seg, then every seg.p3
+        pts.push(segs[0].p0);
+        for (const s of segs) pts.push(s.p3);
+        // Convert to triples at z=0
+        const tLow = pts.map(p => {
+          if (isTriple(p)) return p;
+          if (isPair(p)) return makeTriple(p.x, p.y, 0);
+          return makeTriple(p.x||0, p.y||0, 0);
+        });
+        const tHigh = tLow.map(p => makeTriple(p.x + axis.x, p.y + axis.y, p.z + axis.z));
+        // Side quads
+        const mk = (a,b,c) => { const f = {vertices:[a,b,c]}; f.normal = faceNormal(f); return f; };
+        for (let i = 0; i < tLow.length - 1; i++) {
+          faces.push(mk(tLow[i], tLow[i+1], tHigh[i+1]));
+          faces.push(mk(tLow[i], tHigh[i+1], tHigh[i]));
+        }
+        // Fan triangulate caps (approximate if not planar)
+        for (let i = 1; i < tLow.length - 1; i++) {
+          faces.push(mk(tLow[0], tLow[i], tLow[i+1]));
+          faces.push(mk(tHigh[0], tHigh[i+1], tHigh[i]));
+        }
+      }
+      return {_tag:'surface', mesh: makeMesh(faces)};
+    });
+    // obj(filename[, pen]) — load Wavefront .obj mesh; browser can't read files
+    // so return an empty surface. Callers like draw(obj(...)) will produce empty.
+    env.set('obj', (...args) => ({_tag:'surface', mesh: makeMesh([])}));
+    // labelpath(string, path[, ...]) — draw text along a path. Stub: ignore.
+    env.set('labelpath', (...args) => null);
+    // contour3 / smoothcontour3 / implicitsurface — isosurface extraction.
+    // We implement a minimal "sign-change cell" approximation: evaluate the
+    // implicit function on a grid; for every cell where the function changes
+    // sign across any of its 12 edges, emit a small quad at the cell center
+    // oriented perpendicular to the approximate gradient. This produces
+    // recognizable (if voxelized) silhouettes without a full marching-cubes
+    // LUT.
+    function _isoFaces(f, lo, hi, nx, ny, nz) {
+      const faces = [];
+      if (!isTriple(lo) || !isTriple(hi)) return faces;
+      nx = Math.max(2, Math.floor(nx || 20));
+      ny = Math.max(2, Math.floor(ny || nx));
+      nz = Math.max(2, Math.floor(nz || nx));
+      const dx = (hi.x - lo.x) / nx;
+      const dy = (hi.y - lo.y) / ny;
+      const dz = (hi.z - lo.z) / nz;
+      const nX = nx + 1, nY = ny + 1, nZ = nz + 1;
+      const buf = new Float64Array(nX * nY * nZ);
+      const gidx = (i,j,k) => (i * nY + j) * nZ + k;
+      const callF = (a,b,c) => {
+        let v;
+        if (typeof f === 'function') v = f(a, b, c);
+        else if (f && (f._tag === 'func' || f._tag === 'overload')) v = callUserFuncValues(f, [a, b, c]);
+        else v = 0;
+        v = Number(v);
+        return isFinite(v) ? v : 0;
+      };
+      for (let i = 0; i < nX; i++) {
+        const x = lo.x + i * dx;
+        for (let j = 0; j < nY; j++) {
+          const y = lo.y + j * dy;
+          for (let k = 0; k < nZ; k++) {
+            const z = lo.z + k * dz;
+            buf[gidx(i,j,k)] = callF(x, y, z);
+          }
+        }
+      }
+      const qx = 0.5 * dx, qy = 0.5 * dy, qz = 0.5 * dz;
+      for (let i = 0; i < nx; i++) {
+        for (let j = 0; j < ny; j++) {
+          for (let k = 0; k < nz; k++) {
+            const c000 = buf[gidx(i,j,k)];
+            const c100 = buf[gidx(i+1,j,k)];
+            const c010 = buf[gidx(i,j+1,k)];
+            const c110 = buf[gidx(i+1,j+1,k)];
+            const c001 = buf[gidx(i,j,k+1)];
+            const c101 = buf[gidx(i+1,j,k+1)];
+            const c011 = buf[gidx(i,j+1,k+1)];
+            const c111 = buf[gidx(i+1,j+1,k+1)];
+            let pos = 0, neg = 0;
+            const vs = [c000,c100,c010,c110,c001,c101,c011,c111];
+            for (const v of vs) { if (v > 0) pos++; else if (v < 0) neg++; }
+            if (pos === 0 || neg === 0) continue;
+            // Approximate gradient (finite differences)
+            const gx = ((c100+c110+c101+c111) - (c000+c010+c001+c011)) * 0.25;
+            const gy = ((c010+c110+c011+c111) - (c000+c100+c001+c101)) * 0.25;
+            const gz = ((c001+c101+c011+c111) - (c000+c100+c010+c110)) * 0.25;
+            let gl = Math.sqrt(gx*gx + gy*gy + gz*gz) || 1;
+            const nxv = gx/gl, nyv = gy/gl, nzv = gz/gl;
+            // Two tangent vectors in plane perpendicular to normal
+            let ax, ay, az;
+            if (Math.abs(nxv) > 0.9) { ax = 0; ay = 1; az = 0; }
+            else { ax = 1; ay = 0; az = 0; }
+            // t1 = a - (a·n)n
+            const adotn = ax*nxv + ay*nyv + az*nzv;
+            let t1x = ax - adotn*nxv, t1y = ay - adotn*nyv, t1z = az - adotn*nzv;
+            let tl = Math.sqrt(t1x*t1x + t1y*t1y + t1z*t1z) || 1;
+            t1x/=tl; t1y/=tl; t1z/=tl;
+            // t2 = n × t1
+            const t2x = nyv*t1z - nzv*t1y;
+            const t2y = nzv*t1x - nxv*t1z;
+            const t2z = nxv*t1y - nyv*t1x;
+            const cx = lo.x + (i+0.5)*dx;
+            const cy = lo.y + (j+0.5)*dy;
+            const cz = lo.z + (k+0.5)*dz;
+            const s = 0.6 * Math.max(qx, qy, qz); // half-size of face quad
+            const mk = (u, v) => makeTriple(
+              cx + u*s*t1x + v*s*t2x,
+              cy + u*s*t1y + v*s*t2y,
+              cz + u*s*t1z + v*s*t2z
+            );
+            const p0 = mk(-1,-1), p1 = mk(1,-1), p2 = mk(1,1), p3 = mk(-1,1);
+            const face = { vertices: [p0, p1, p2, p3], normal: makeTriple(nxv, nyv, nzv) };
+            faces.push(face);
+          }
+        }
+      }
+      return faces;
+    }
+    function _isoFromArgs(args) {
+      // Accept (f, lo, hi[, n]) or (f, lo, hi, nx[, ny, nz]) and named args
+      // (a=, b= for bounds; nx/ny/nz for resolution).
+      const pos = [];
+      const named = {};
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          for (const k of Object.keys(a)) if (k !== '_named') named[k] = a[k];
+        } else pos.push(a);
+      }
+      const f = pos[0];
+      let lo = pos[1], hi = pos[2];
+      if (named.a !== undefined) lo = named.a;
+      if (named.b !== undefined) hi = named.b;
+      if (named.min !== undefined) lo = named.min;
+      if (named.max !== undefined) hi = named.max;
+      let nx = named.nx !== undefined ? toNumber(named.nx) : (typeof pos[3] === 'number' ? pos[3] : 16);
+      let ny = named.ny !== undefined ? toNumber(named.ny) : (typeof pos[4] === 'number' ? pos[4] : nx);
+      let nz = named.nz !== undefined ? toNumber(named.nz) : (typeof pos[5] === 'number' ? pos[5] : nx);
+      return _isoFaces(f, lo, hi, nx, ny, nz);
+    }
+    env.set('contour3', (...args) => {
+      // Return triangle list usable by surface()
+      const faces = _isoFromArgs(args);
+      // Convert quads to triangle pairs for legacy callers
+      const tris = [];
+      for (const face of faces) {
+        const v = face.vertices;
+        if (v.length >= 4) {
+          tris.push([v[0], v[1], v[2]]);
+          tris.push([v[0], v[2], v[3]]);
+        } else if (v.length === 3) {
+          tris.push([v[0], v[1], v[2]]);
+        }
+      }
+      return tris;
+    });
+    env.set('smoothcontour3', (...args) => {
+      return env.get('contour3')(...args);
+    });
+    env.set('implicitsurface', (...args) => {
+      const faces = _isoFromArgs(args);
+      return {_tag:'surface', mesh: makeMesh(faces)};
+    });
 
     // solids-module constructors: return a mesh (painter's-algorithm rendering).
     // cone(center, r, h[, axis]) — axis defaults to Z; only axial cone supported.
@@ -8246,8 +9000,29 @@ function createInterpreter() {
     env.set('paleyellow',  mkPen(1.0, 1.0, 0.75));
 
     // texpath(label|string) — produces path outline of rasterized TeX output.
-    // Stub: returns an empty path[] so calls like texpath("$\pi$")[0] don't crash.
-    env.set('texpath', (...args) => [makePath([], false)]);
+    // Approximation: return a single rectangle path whose width/height are crude
+    // estimates from the string length, so extrude(texpath(...)) still produces
+    // some visible geometry instead of nothing.
+    env.set('texpath', (...args) => {
+      let s = '';
+      for (const a of args) {
+        if (typeof a === 'string') { s = a; break; }
+        if (a && a._tag === 'Label' && typeof a.text === 'string') { s = a.text; break; }
+      }
+      if (!s) return [makePath([], false)];
+      // Strip common LaTeX math / formatting markers for a rough length
+      const core = s.replace(/\$|\\displaystyle|\\text[a-z]*|\\mathrm|\\mathbf|\\hbox|\\emph|\\tt|\\frac|\\sqrt|\\pi|\\alpha|\\infty|\\,|\\\\|[{}_^\\]/g, '');
+      const len = Math.max(1, core.length);
+      const w = 0.35 * len; // approximate em-width per character
+      const h = 1.0;
+      const rect = makePath([
+        lineSegment(makePair(0, 0), makePair(w, 0)),
+        lineSegment(makePair(w, 0), makePair(w, h)),
+        lineSegment(makePair(w, h), makePair(0, h)),
+        lineSegment(makePair(0, h), makePair(0, 0)),
+      ], true);
+      return [rect];
+    });
 
     // size3(W,H,D): 3D bounding-box size hint. Currently we record the requested
     // 3D dims on the picture for diagnostics and use max(W,H) as the 2D size if
@@ -8430,6 +9205,8 @@ function createInterpreter() {
       let mesh = null;
       if (isMesh(a)) mesh = a;
       else if (a && a._tag === 'surface' && a.mesh) mesh = a.mesh;
+      else if (a && a._tag === 'revolution' && a.mesh) mesh = a.mesh;
+      else if (a && a._tag === 'tube' && a.s && a.s.mesh) mesh = a.s.mesh;
       if (mesh) {
         let meshPen = null;
         for (let j = 0; j < args.length; j++) {
