@@ -11929,7 +11929,10 @@ function renderSVG(result, opts) {
     // unitsize, don't boost — the labels already provide adequate visual content.
     const fullNatW = fullW * unitScale;
     const fullNatH = fullH * unitScale;
-    const minReasonable = 50;   // 50bp: below this, geometry is truly invisible
+    // For very small unitsize (< 10 bp/unit), use a higher threshold to ensure
+    // diagrams with dense labels/arrows remain readable. For normal unitsize,
+    // only boost when truly invisible (< 50bp).
+    const minReasonable = unitScale < 10 ? 100 : 50;
     if (naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
       // Scale up while maintaining aspect ratio
