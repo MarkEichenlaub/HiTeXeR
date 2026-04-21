@@ -2484,6 +2484,15 @@ function createInterpreter() {
       const t = existing ? composeTransforms(existing, left) : left;
       return Object.assign({}, right, {transform: t});
     }
+    // Transform * real / real * Transform: Asymptote implicitly casts real→pair as
+    // (r, 0), so e.g. rotate(th)*3.2 means rotate(th)*(3.2, 0) — a pair result.
+    // (There is no standalone transform*real operator in plain.asy.)
+    if (op === T.STAR && isTransform(left) && isNumber(right)) {
+      return applyTransformPair(left, makePair(right, 0));
+    }
+    if (op === T.STAR && isNumber(left) && isTransform(right)) {
+      return applyTransformPair(right, makePair(left, 0));
+    }
 
     // String ops (concatenation, comparison)
     if (isString(left) || isString(right)) {
@@ -11145,6 +11154,23 @@ function createInterpreter() {
     // that by stripping the TAB character entirely.
     if (typeof text === 'string' && text.indexOf('\t') !== -1) {
       text = text.replace(/\t/g, '');
+    }
+
+    // LaTeX \begin{tabular}...\end{tabular} environment in label text:
+    // flatten to newline-separated rows (the multi-line label renderer further
+    // downstream uses \n as the row separator).  Column separators (&) are
+    // replaced with spaces — our label system doesn't lay out tabular columns,
+    // but the visual approximation (stacked rows) matches what Asymptote
+    // produces here (e.g. a 1-column {c} tabular used only for line breaks).
+    if (typeof text === 'string' && /\\begin\s*\{tabular\}/.test(text)) {
+      text = text.replace(
+        /\\begin\s*\{tabular\}\s*(?:\{[^}]*\})?([\s\S]*?)\\end\s*\{tabular\}/g,
+        (_m, body) => {
+          // Split rows on \\, drop empty trailing row, replace & with space
+          const rows = body.split(/\\\\/).map(r => r.replace(/&/g, ' ').trim()).filter(r => r.length > 0);
+          return rows.join('\n');
+        }
+      );
     }
 
     if (graphicData) {
