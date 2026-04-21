@@ -12875,8 +12875,15 @@ function renderSVG(result, opts) {
       attrs += ` stroke-linejoin="${(dc.pen && dc.pen.linejoin) || 'round'}"`;
     }
     // For filldraw with invisible fill (fill='none'), don't apply opacity to whole element
-    // so the stroke outline remains visible at full opacity
-    if (dc.cmd !== 'filldraw' || fill !== 'none') attrs += opacityAttr(css.opacity);
+    // so the stroke outline remains visible at full opacity.
+    // For fill/unfill/filldraw commands, TeXeR's PS-based pipeline flattens transparency
+    // to opaque (e.g., cluster c583_L11 diagrams 12090/12091/12092/12095 use opacity(0.3)
+    // on fills but the reference renders them as solid colors with last-fill-wins semantics).
+    // Match that behavior by omitting opacity on fill-family commands.
+    const isFillFamily = (dc.cmd === 'fill' || dc.cmd === 'unfill' || dc.cmd === 'filldraw');
+    if (dc.cmd !== 'filldraw' || fill !== 'none') {
+      if (!isFillFamily) attrs += opacityAttr(css.opacity);
+    }
     if (dc._subpicClipId) attrs += ` clip-path="url(#${dc._subpicClipId})"`;
 
     elements.push(`<path ${attrs}/>`);
