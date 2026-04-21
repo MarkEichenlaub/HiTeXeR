@@ -3617,12 +3617,12 @@ function createInterpreter() {
     // optionally with a transform.
     // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
     env.set('add', (...args) => {
-      let pics = [], t = null;
+      let pics = [], t = null, pairs = [];
       for (const a of args) {
         if (a && a._tag === 'picture') pics.push(a);
         else if (isTransform(a)) t = a;
         // add(pic, (x,y)) — pair offset treated as a shift transform
-        else if (isPair(a)) t = makeTransform(a.x, 1, 0, a.y, 0, 1);
+        else if (isPair(a)) { pairs.push(a); t = makeTransform(a.x, 1, 0, a.y, 0, 1); }
       }
       let dest, src;
       if (pics.length >= 2) {
@@ -3632,6 +3632,65 @@ function createInterpreter() {
         dest = currentPic;
         src = pics[0];
       } else {
+        return;
+      }
+      // 4-arg / 3-arg form: add(dest, src, position, align) or add(src, position, align)
+      // Two pair args mean (position, align). Asymptote's picture.asy defines this as
+      // placing src's bbox so its align-aligned point sits at position:
+      //   shift = align + position - (m+M)/2 + rectify(align) * (M-m)/2
+      // where rectify((x,y)) = (x,y)/max(|x|,|y|) (so (0,-10) → (0,-1)).
+      // For |align|>1 (e.g. 10S) the magnitude adds a bp-space offset along align's
+      // direction, creating a gap between composited sub-pictures.
+      if (pairs.length === 2) {
+        const position = pairs[0];
+        const align = pairs[1];
+        // If the source has per-picture size (size(pic, w)), scale its geometry into
+        // _sizeW bp first, then compute bbox and shift.
+        let scale = 1;
+        let baseShiftX = 0, baseShiftY = 0; // pre-shift applied before bbox computation
+        let scaledCmds = src.commands;
+        if (src._sizeW) {
+          const gb0 = getGeoBbox(src.commands);
+          const geoW0 = (gb0.maxX - gb0.minX) || 1;
+          scale = src._sizeW / geoW0;
+          for (let _iter = 0; _iter < 3; _iter++) {
+            let fullMinX = gb0.minX, fullMaxX = gb0.maxX;
+            for (const dc of src.commands) {
+              if (dc.cmd !== 'label') continue;
+              const pos = dc.pos;
+              if (!pos) continue;
+              const fs = (dc.pen && dc.pen.fontsize) || 10;
+              const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+              const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+              const twBp = _estimateTextWidth(cleanTxt || 'x', fs);
+              const ax = (dc.align && dc.align.x != null) ? dc.align.x : 0;
+              const dxBp = ax * (0.5 * twBp + 0.4 * fs);
+              const cx = pos.x + dxBp / scale;
+              const halfW = twBp / (2 * scale);
+              if (cx - halfW < fullMinX) fullMinX = cx - halfW;
+              if (cx + halfW > fullMaxX) fullMaxX = cx + halfW;
+            }
+            const fullW = (fullMaxX - fullMinX) || 1;
+            scale = src._sizeW / fullW;
+          }
+          // Pre-scale commands so bbox below reflects bp-space geometry
+          const preT = makeTransform(0, scale, 0, 0, 0, scale);
+          scaledCmds = src.commands.map(c => transformDrawCmd(preT, c));
+        }
+        // Compute bbox of (already scaled) commands in bp space
+        const gb = getGeoBbox(scaledCmds);
+        const mX = gb.minX, MX = gb.maxX, mY = gb.minY, MY = gb.maxY;
+        const sizeX = MX - mX, sizeY = MY - mY;
+        // rectify(align): divide by max(|align.x|, |align.y|); if both zero, zero
+        const aMag = Math.max(Math.abs(align.x), Math.abs(align.y));
+        const rx = aMag > 0 ? align.x / aMag : 0;
+        const ry = aMag > 0 ? align.y / aMag : 0;
+        const shiftX = align.x + position.x - (mX + MX) / 2 + rx * sizeX / 2;
+        const shiftY = align.y + position.y - (mY + MY) / 2 + ry * sizeY / 2;
+        const shiftT = makeTransform(shiftX, 1, 0, shiftY, 0, 1);
+        const cmds = scaledCmds.map(c => transformDrawCmd(shiftT, c));
+        for (const c of cmds) dest.commands.push(c);
+        if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         return;
       }
       // Handle per-picture sizing: add(pic.fit(), (i, 0)) where pic._sizeW is set
