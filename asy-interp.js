@@ -3345,6 +3345,10 @@ function createInterpreter() {
       if (isArray(obj) && node.target.member === 'cyclic') {
         obj._cyclic = toBool(val);
       }
+      // General object property assignment (e.g. currentlight.background)
+      if (obj && typeof obj === 'object' && obj._tag && node.target.member) {
+        obj[node.target.member] = val;
+      }
       return val;
     }
     return val;
@@ -5875,7 +5879,10 @@ function createInterpreter() {
           if (isTriple(testVal)) isTripleFunc = true;
         } catch(e) {}
         if (isTripleFunc) {
-          const nT = namedN !== null ? namedN : (nums[2] !== undefined ? Math.floor(nums[2]) : 100);
+          // For smooth curves, use more samples when the parameter range is larger
+          const rangeT = Math.abs(bT - aT);
+          const defaultN = Math.max(100, Math.ceil(rangeT * 20)); // ~20 samples per unit
+          const nT = namedN !== null ? namedN : (nums[2] !== undefined ? Math.floor(nums[2]) : defaultN);
           const pts = [];
           for (let i = 0; i <= nT; i++) {
             const t = aT + (bT - aT) * i / nT;
@@ -9059,14 +9066,14 @@ function createInterpreter() {
       }
       return {_tag: 'surface'};
     });
-    // Primitive meshes
-    env.set('unitsphere', _buildSphereMesh(24, 12));
-    env.set('unitdisk', _buildDiskMesh(32));
+    // Primitive meshes (higher resolution for smoother shading)
+    env.set('unitsphere', _buildSphereMesh(48, 24));
+    env.set('unitdisk', _buildDiskMesh(48));
     env.set('unitplane', _buildSquareMesh());
     env.set('unitsquare3', _buildSquareMesh());
     env.set('unitcube', _buildCubeMesh());
-    env.set('unitcylinder', _buildCylinderMesh(24));
-    env.set('unitcone', _buildConeMesh(24));
+    env.set('unitcylinder', _buildCylinderMesh(48));
+    env.set('unitcone', _buildConeMesh(48));
     // extrude(path[]|path|string, triple axis = 2Z) — prism-extrude a 2D profile
     // along axis. For string input we use texpath (no-op here), so we fall back
     // to a tiny billboard rectangle so the render isn't empty. For path/path[]
@@ -9818,7 +9825,9 @@ function createInterpreter() {
 
     // light stubs
     env.set('light', (...args) => ({_tag:'light'}));
-    env.set('currentlight', {_tag:'light'});
+    // currentlight is a mutable object so .background can be assigned
+    const _currentlight = {_tag:'light', background: null};
+    env.set('currentlight', _currentlight);
     env.set('nolight', {_tag:'light'});
     env.set('Headlamp', {_tag:'light'});
     env.set('White', {_tag:'light'});
@@ -11204,7 +11213,7 @@ function createInterpreter() {
       }
       const p = makePath(segs, true);
       target.commands.push({cmd: 'fill', path: p, pen: shaded, line});
-      // Also stroke a thin outline with same shaded color to close tiny gaps
+      // Add thin stroke to close antialiasing gaps between adjacent faces
       const stroke = clonePen(shaded);
       stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
       target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line});
@@ -11438,6 +11447,9 @@ function createInterpreter() {
     const dotfactorVal = globalEnv.get('dotfactor');
     const dotfactor = (typeof dotfactorVal === 'number' && dotfactorVal > 0) ? dotfactorVal : 6;
 
+    // Read currentlight for background color
+    const currentlight = globalEnv.get('currentlight');
+
     return {
       drawCommands: drawCommands.slice(),
       unitScale, hasUnitScale,
@@ -11445,6 +11457,7 @@ function createInterpreter() {
       defaultPen,
       axisLimits: Object.assign({}, _axisLimits),
       dotfactor,
+      currentlight,
     };
   }
 
@@ -11518,7 +11531,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
@@ -12077,45 +12090,18 @@ function renderSVG(result, opts) {
       }
     }
 
-    // Label-dominated fallback: if labels alone exceed size() target, the
+    // Label-dominated layout: if labels alone exceed size() target, the
     // iterative solver cannot converge (shrinking geometry doesn't reduce
-    // total width when label width dominates). Match Asymptote's behavior
-    // by uniformly scaling BOTH geometry and labels to fit.
+    // total width when label width dominates). Real Asymptote behavior is
+    // to keep labels at their natural truesize and let them overflow beyond
+    // the size() constraint — the output is simply larger than size().
+    // Reset pxPerUnit to pre-solver value so geometry fits size(), and let
+    // labels overflow (via SVG overflow:visible). Do NOT scale labels.
     if (finalExceed > 1.005) {
       pxPerUnit = preSolverPxPerUnit;
       pxPerUnitX = preSolverPxPerUnitX;
       pxPerUnitY = preSolverPxPerUnitY;
-
-      let bpMinX = geoMinX * pxPerUnitX;
-      let bpMaxX = geoMaxX * pxPerUnitX;
-      let bpMinY = geoMinY * pxPerUnitY;
-      let bpMaxY = geoMaxY * pxPerUnitY;
-      for (const li of labelInfoBp) {
-        const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
-        const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
-        bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
-        bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
-        bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
-        bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
-      }
-      const totalW = bpMaxX - bpMinX;
-      const totalH = bpMaxY - bpMinY;
-      const sW = tgtW < Infinity && totalW > 0 ? tgtW / totalW : Infinity;
-      const sH = tgtH < Infinity && totalH > 0 ? tgtH / totalH : Infinity;
-      const uniformScale = Math.min(sW, sH);
-
-      if (isFinite(uniformScale) && uniformScale < 1) {
-        pxPerUnit *= uniformScale;
-        pxPerUnitX *= uniformScale;
-        pxPerUnitY *= uniformScale;
-        for (const li of labelInfoBp) {
-          li.widthBp *= uniformScale;
-          li.heightBp *= uniformScale;
-          li.alignOffsetXBp *= uniformScale;
-          li.alignOffsetYBp *= uniformScale;
-        }
-        labelShrinkFactor = uniformScale;
-      }
+      // labelShrinkFactor stays at 1 — labels are not scaled
     }
   }
 
@@ -13296,11 +13282,23 @@ function renderSVG(result, opts) {
   } else {
     innerContent = elements.join('\n');
   }
+
+  // Add background rect if currentlight.background is set
+  let bgRect = '';
+  if (currentlight && currentlight.background && isPen(currentlight.background)) {
+    const bgPen = currentlight.background;
+    const bgHex = '#' + [bgPen.r, bgPen.g, bgPen.b].map(c => {
+      const h = Math.round(Math.max(0, Math.min(255, (c || 0) * 255))).toString(16);
+      return h.length < 2 ? '0' + h : h;
+    }).join('');
+    bgRect = `<rect x="0" y="0" width="${fmt(viewW)}" height="${fmt(viewH)}" fill="${bgHex}"/>\n`;
+  }
+
   // With keepAspect=false, non-uniform scaling is baked into coordinates via
   // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
   const parAttr = '';
   const svgStyle = '';
-  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${innerContent}\n</svg>`;
+  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${bgRect}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
 }
@@ -13932,10 +13930,10 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
     return renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS);
   }
 
-  // 1ex ≈ 0.5em in TeX; fontSize is treated as em. KaTeX's .katex CSS shrinks
-  // by 1.21× vs. the nominal font-size, so match that factor for parity.
+  // 1ex ≈ 0.34em in TeX (x-height); fontSize is treated as em. KaTeX's .katex
+  // CSS shrinks by 1.21× vs. the nominal font-size, so match that factor.
   const em = fontSizeCSS / 1.21;
-  const exRatio = 0.5;
+  const exRatio = 0.34;
   const svgW = parsed.wEx * exRatio * em;
   const svgH = parsed.hEx * exRatio * em;
 
