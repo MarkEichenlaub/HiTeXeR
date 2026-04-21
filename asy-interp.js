@@ -3889,6 +3889,17 @@ function createInterpreter() {
       return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
     }
     env.set('gamma', _broadcast1(_gammaReal));
+    function _factorialReal(n) {
+      // Integer fast-path
+      if (Number.isFinite(n) && n === Math.floor(n) && n >= 0 && n <= 170) {
+        let r = 1;
+        for (let i = 2; i <= n; i++) r *= i;
+        return r;
+      }
+      // Non-integer / negative: fall back to gamma(n+1)
+      return _gammaReal(n + 1);
+    }
+    env.set('factorial', _broadcast1(_factorialReal));
     env.set('min', (...args) => {
       if (args.length===1 && isArray(args[0])) return Math.min(...args[0].map(toNumber));
       return Math.min(...args.map(toNumber));
