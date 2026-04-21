@@ -5376,30 +5376,42 @@ function createInterpreter() {
         radius = 8; // default 8bp
       }
       {
-        // Estimate bp→user conversion from size() and current picture bounds
-        let bpPerUnit = 1;
-        if (sizeW > 0 || sizeH > 0) {
-          // Compute rough coordinate range from existing commands
-          let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
-          for (const c of currentPic.commands) {
-            if (c.path) for (const s of c.path.segs) {
-              for (const p of [s.p0, s.p3]) {
-                if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
-                if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
-              }
-            }
-            if (c.pos) {
-              if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
-              if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
+        // Estimate bp→user conversion from size() and current picture bounds.
+        // Include the current call's pairs (A, B, C) so the estimate is valid
+        // even when markangle is called before any draw() command.
+        let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
+        for (const c of currentPic.commands) {
+          if (c.path) for (const s of c.path.segs) {
+            for (const p of [s.p0, s.p3]) {
+              if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+              if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
             }
           }
-          const rangeX = (cMaxX - cMinX) || 1;
-          const rangeY = (cMaxY - cMinY) || 1;
+          if (c.pos) {
+            if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
+            if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
+          }
+        }
+        for (const p of [A, B, C]) {
+          if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+          if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
+        }
+        const rangeX = (cMaxX - cMinX) || 1;
+        const rangeY = (cMaxY - cMinY) || 1;
+        let bpPerUnit = 1;
+        if (sizeW > 0 || sizeH > 0) {
           const sw = sizeW > 0 ? sizeW : sizeH;
           const sh = sizeH > 0 ? sizeH : sizeW;
           bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
         } else if (hasUnitScale) {
           bpPerUnit = unitScale;
+        } else {
+          // Auto-scaled case (no size(), no unitsize()): mirror the
+          // renderer's default-size=150 bp logic so radius=Xmm gives a
+          // visually-correct arc.
+          const defaultSize = 150;
+          const maxDim = Math.max(rangeX, rangeY) || 1;
+          bpPerUnit = defaultSize / maxDim;
         }
         radius = radius / bpPerUnit;
       }
