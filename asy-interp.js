@@ -1771,6 +1771,7 @@ function ReturnSig(v) { return {_sig:'return', value:v}; }
 function _projectTripleRaw(v, proj) {
   const cx = proj.cx, cy = proj.cy, cz = proj.cz;
   const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+  // Direction from target to camera (view direction in Asymptote convention)
   const dx = cx-tx, dy = cy-ty, dz = cz-tz;
   const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
   const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
@@ -3744,8 +3745,24 @@ function createInterpreter() {
       if (bA) { return b.map(v => fn(toNumber(a), toNumber(v))); }
       return fn(toNumber(a), toNumber(b));
     };
-    env.set('sin', _broadcast1(Math.sin));
-    env.set('cos', _broadcast1(Math.cos));
+    // Complex sin/cos: sin(x+iy) = sin(x)cosh(y) + i*cos(x)sinh(y)
+    //                  cos(x+iy) = cos(x)cosh(y) - i*sin(x)sinh(y)
+    env.set('sin', (v) => {
+      if (Array.isArray(v)) return v.map(x => env.get('sin')(x));
+      if (isPair(v)) {
+        const x = v.x, y = v.y;
+        return makePair(Math.sin(x) * Math.cosh(y), Math.cos(x) * Math.sinh(y));
+      }
+      return Math.sin(toNumber(v));
+    });
+    env.set('cos', (v) => {
+      if (Array.isArray(v)) return v.map(x => env.get('cos')(x));
+      if (isPair(v)) {
+        const x = v.x, y = v.y;
+        return makePair(Math.cos(x) * Math.cosh(y), -Math.sin(x) * Math.sinh(y));
+      }
+      return Math.cos(toNumber(v));
+    });
     env.set('tan', _broadcast1(Math.tan));
     env.set('asin', _broadcast1(Math.asin));
     env.set('acos', _broadcast1(Math.acos));
@@ -6593,7 +6610,7 @@ function createInterpreter() {
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
     function _makeTicks(args, defaults) {
-      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:true, noZero:false, positions:null, pen:null, extend:false, subStep:0}, defaults);
+      const t = Object.assign({_tag:'ticks', step:0, size:0, sizeExplicit:false, labels:true, noZero:false, positions:null, pen:null, extend:false, subStep:0, beginlabel:true, endlabel:true}, defaults);
       let positionalNumCount = 0;
       for (const a of args) {
         if (a === null || a === undefined) continue;
@@ -9652,6 +9669,28 @@ function createInterpreter() {
     };
     env.set('Rainbow', (...args) => rainbowPens());
     env.set('BWRainbow', (...args) => bwRainbowPens());
+    // Wheel(): HSV color wheel palette. Maps degrees (0-360) through the hue spectrum.
+    // In Asymptote, Wheel() generates a 1024-entry palette for smooth hue interpolation.
+    const wheelPens = () => {
+      const pens = [];
+      const N = 1024; // Match Asymptote's resolution
+      for (let i = 0; i < N; i++) {
+        const h = i / N; // hue in [0,1)
+        // Convert HSV (h, 1, 1) to RGB
+        const hp = h * 6;
+        const c = 1, x = 1 - Math.abs(hp % 2 - 1);
+        let r, g, b;
+        if (hp < 1)      { r = c; g = x; b = 0; }
+        else if (hp < 2) { r = x; g = c; b = 0; }
+        else if (hp < 3) { r = 0; g = c; b = x; }
+        else if (hp < 4) { r = 0; g = x; b = c; }
+        else if (hp < 5) { r = x; g = 0; b = c; }
+        else             { r = c; g = 0; b = x; }
+        pens.push(makePen({r, g, b}));
+      }
+      return pens;
+    };
+    env.set('Wheel', (...args) => wheelPens());
     // mean(pen[]) -> average pen
     env.set('mean', (...args) => {
       const pos = args.filter(a => !(a && a._named));
@@ -9774,6 +9813,365 @@ function createInterpreter() {
     // material stubs
     env.set('material', (...args) => isPen(args[0]) ? args[0] : makePen({}));
     env.set('emissive', (p) => isPen(p) ? p : makePen({}));
+
+    // 3D axis specifiers
+    env.set('Bounds', (...args) => ({_tag:'axis3type', type:'Bounds'}));
+    env.set('InTicks', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const named = {};
+      for (const a of args) if (a && a._named) Object.assign(named, a);
+      return {
+        _tag:'ticks3',
+        beginlabel: named.beginlabel !== false,
+        endlabel: named.endlabel !== false,
+        Label: pos.find(a => a && a._tag === 'Label') || null,
+      };
+    });
+    env.set('OutTicks', (...args) => ({_tag:'ticks3', type:'OutTicks'}));
+    env.set('InOutTicks', (...args) => ({_tag:'ticks3', type:'InOutTicks'}));
+    env.set('NoTicks3', null);
+
+    // 3D axis functions: draw axis along bounding box edges with ticks and labels
+    // Collects axis3 calls and defers drawing to _finalize3DAxes at picture finalization
+    const _pendingAxis3Calls = [];
+    function _draw3DAxis(axisName, label, axisType, ticks, pen, arrow, pic) {
+      // Queue axis for deferred rendering once bounds are known
+      _pendingAxis3Calls.push({axisName, label, axisType, ticks, pen, arrow, pic});
+    }
+
+    // Helper to compute nice tick values for an axis range
+    function _niceTickValues(min, max, targetCount) {
+      const range = max - min;
+      if (range <= 0) return [min];
+      // Find a nice step size
+      const rawStep = range / targetCount;
+      const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const residual = rawStep / magnitude;
+      let niceStep;
+      if (residual <= 1.5) niceStep = magnitude;
+      else if (residual <= 3) niceStep = 2 * magnitude;
+      else if (residual <= 7) niceStep = 5 * magnitude;
+      else niceStep = 10 * magnitude;
+      // Generate ticks starting from floor of min
+      const ticks = [];
+      let t = Math.floor(min / niceStep) * niceStep;
+      // If first tick is below min, move to next
+      if (t < min - niceStep * 0.001) t += niceStep;
+      while (t <= max + niceStep * 0.001) {
+        ticks.push(Math.round(t / niceStep) * niceStep);
+        t += niceStep;
+      }
+      // Ensure 0 is included if range spans 0 (or starts near 0)
+      if (min <= 0.001 && max >= -0.001 && !ticks.includes(0)) {
+        ticks.push(0);
+        ticks.sort((a, b) => a - b);
+      }
+      return ticks;
+    }
+
+    // Format a tick number for display (remove trailing zeros, avoid -0)
+    function _formatTick(v) {
+      if (Math.abs(v) < 1e-10) return '0';
+      // Check if it's essentially an integer
+      if (Math.abs(v - Math.round(v)) < 1e-10) {
+        return String(Math.round(v));
+      }
+      // Otherwise format with reasonable precision
+      return v.toFixed(2).replace(/\.?0+$/, '');
+    }
+
+    // Finalize all 3D axes once bounds are known (called before picture is returned)
+    function _finalize3DAxes(pic) {
+      if (_pendingAxis3Calls.length === 0) return;
+      // Get bounds from picture or use defaults
+      let b = pic._3dBounds;
+      if (!b || b.minX === Infinity) {
+        // Try to compute bounds from mesh commands
+        b = {minX: -Math.PI, maxX: Math.PI, minY: -2, maxY: 2, minZ: 0, maxZ: 4};
+        for (const c of pic.commands) {
+          if (c.mesh && c.mesh.faces) {
+            if (b.minX === -Math.PI) b = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+            for (const face of c.mesh.faces) {
+              for (const v of face.vertices || []) {
+                if (v.x < b.minX) b.minX = v.x; if (v.x > b.maxX) b.maxX = v.x;
+                if (v.y < b.minY) b.minY = v.y; if (v.y > b.maxY) b.maxY = v.y;
+                if (v.z < b.minZ) b.minZ = v.z; if (v.z > b.maxZ) b.maxZ = v.z;
+              }
+            }
+          }
+        }
+      }
+      if (b.minX === Infinity) {
+        b = {minX: -Math.PI, maxX: Math.PI, minY: -2, maxY: 2, minZ: 0, maxZ: 4};
+      }
+
+      // Snap bounds to nice round values for axis display (like Asymptote's Bounds)
+      // This ensures axes show nice numbers like 0, 1, 2, 3 instead of 0.1, 1.1, etc.
+      function snapToNice(val, isMin) {
+        const abs = Math.abs(val);
+        if (abs < 0.1) return isMin ? 0 : (val > 0 ? 1 : 0);
+        const mag = Math.pow(10, Math.floor(Math.log10(abs)));
+        if (isMin) {
+          return Math.floor(val / mag) * mag;
+        } else {
+          return Math.ceil(val / mag) * mag;
+        }
+      }
+      // For z-axis, snap minZ down to 0 if it's close
+      // Don't artificially extend maxZ - keep it at actual surface max
+      if (b.minZ > 0 && b.minZ < 0.5) b.minZ = 0;
+
+      const axisPen = makePen({r:0, g:0, b:0, linewidth: 0.5});
+      const tickPen = makePen({r:0, g:0, b:0, linewidth: 0.3});
+      const tickLen = 0.05 * Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
+
+      // Track which axes are requested and check for Bounds type
+      const axes = {};
+      let hasBoundsAxis = false;
+      for (const call of _pendingAxis3Calls) {
+        axes[call.axisName] = call;
+        if (call.axisType && call.axisType.type === 'Bounds') hasBoundsAxis = true;
+      }
+
+      // Draw bounding box edges (only for Bounds-style axes)
+      function drawEdge(p0, p1, pen) {
+        const proj0 = projectTriple(makeTriple(p0[0], p0[1], p0[2]));
+        const proj1 = projectTriple(makeTriple(p1[0], p1[1], p1[2]));
+        const seg = makeSeg(proj0, proj0, proj1, proj1);
+        const path = makePath([seg], false);
+        pic.commands.push({cmd:'draw', path, pen, line: 0});
+      }
+
+      // Only draw the full bounding box if at least one axis uses Bounds
+      if (hasBoundsAxis) {
+        // Draw box edges based on typical Asymptote Bounds style
+        // Bottom face (z = minZ)
+        drawEdge([b.minX, b.minY, b.minZ], [b.maxX, b.minY, b.minZ], axisPen);
+        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.maxY, b.minZ], axisPen);
+        drawEdge([b.maxX, b.maxY, b.minZ], [b.minX, b.maxY, b.minZ], axisPen);
+        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.minY, b.minZ], axisPen);
+        // Top face (z = maxZ)
+        drawEdge([b.minX, b.minY, b.maxZ], [b.maxX, b.minY, b.maxZ], axisPen);
+        drawEdge([b.maxX, b.minY, b.maxZ], [b.maxX, b.maxY, b.maxZ], axisPen);
+        drawEdge([b.maxX, b.maxY, b.maxZ], [b.minX, b.maxY, b.maxZ], axisPen);
+        drawEdge([b.minX, b.maxY, b.maxZ], [b.minX, b.minY, b.maxZ], axisPen);
+        // Vertical edges
+        drawEdge([b.minX, b.minY, b.minZ], [b.minX, b.minY, b.maxZ], axisPen);
+        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.minY, b.maxZ], axisPen);
+        drawEdge([b.maxX, b.maxY, b.minZ], [b.maxX, b.maxY, b.maxZ], axisPen);
+        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.maxY, b.maxZ], axisPen);
+      }
+
+      // Draw tick marks and labels for each axis (only for Bounds-style axes)
+      function drawTicks(axisName, call) {
+        // Skip ticks for simple axis lines (non-Bounds)
+        if (!call.axisType || call.axisType.type !== 'Bounds') return;
+        const beginlabel = call.ticks ? call.ticks.beginlabel !== false : true;
+        const endlabel = call.ticks ? call.ticks.endlabel !== false : true;
+
+        if (axisName === 'x') {
+          // X axis: runs along bottom front edge at y=maxY, z=minZ
+          // Ticks point into box (up), labels outside and below the edge
+          const ticks = _niceTickValues(b.minX, b.maxX, 6);
+          const zRange = b.maxZ - b.minZ;
+          const yRange = b.maxY - b.minY;
+          // Compute 2D offset for "below" the x-axis edge
+          // Project the edge and a point below it to find the direction
+          const edgePt = projectTriple(makeTriple(0, b.maxY, b.minZ));
+          const belowPt = projectTriple(makeTriple(0, b.maxY, b.minZ - zRange * 0.3));
+          const dx = belowPt.x - edgePt.x;
+          const dy = belowPt.y - edgePt.y;
+          const len = Math.sqrt(dx*dx + dy*dy) || 1;
+          const tickLabelOffset = 1.5; // Asymptote units below edge
+          const axisLabelOffset = 3.0;
+
+          for (let i = 0; i < ticks.length; i++) {
+            const x = ticks[i];
+            if (x < b.minX || x > b.maxX) continue;
+            // Draw tick mark pointing into box (up in z)
+            const tickStart = makeTriple(x, b.maxY, b.minZ);
+            const tickEnd = makeTriple(x, b.maxY, b.minZ + zRange * 0.015);
+            const projStart = projectTriple(tickStart);
+            const projEnd = projectTriple(tickEnd);
+            const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
+            pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
+            // Draw tick label - project 3D position then offset in 2D "below" direction
+            if (!beginlabel && i === 0) continue;
+            if (!endlabel && i === ticks.length - 1) continue;
+            const basePos = projectTriple(makeTriple(x, b.maxY, b.minZ));
+            const labelPos = makePair(basePos.x + dx/len * tickLabelOffset, basePos.y + dy/len * tickLabelOffset);
+            pic.commands.push({cmd:'label', text: _formatTick(x), pos: labelPos, align: makePair(0, 1), pen: tickPen, line: 0});
+          }
+          // Draw axis label centered, below tick labels
+          if (call.label) {
+            const midX = (b.minX + b.maxX) / 2;
+            const basePos = projectTriple(makeTriple(midX, b.maxY, b.minZ));
+            const labelPos = makePair(basePos.x + dx/len * axisLabelOffset, basePos.y + dy/len * axisLabelOffset);
+            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(0, 1), pen: axisPen, line: 0});
+          }
+        } else if (axisName === 'y') {
+          // Y axis: runs along right edge at x=maxX, z=minZ
+          // Ticks point LEFT into box, labels to the right (outside)
+          const ticks = _niceTickValues(b.minY, b.maxY, 5);
+          const labelOffset = tickLen * 3;
+          for (let i = 0; i < ticks.length; i++) {
+            const y = ticks[i];
+            if (y < b.minY || y > b.maxY) continue;
+            // Draw tick mark pointing LEFT into box
+            const tickStart = makeTriple(b.maxX, y, b.minZ);
+            const tickEnd = makeTriple(b.maxX - tickLen * 0.8, y, b.minZ);
+            const projStart = projectTriple(tickStart);
+            const projEnd = projectTriple(tickEnd);
+            const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
+            pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
+            // Draw tick label to the right (outside box)
+            if (!beginlabel && i === 0) continue;
+            if (!endlabel && i === ticks.length - 1) continue;
+            const labelPos = projectTriple(makeTriple(b.maxX + labelOffset * 0.5, y, b.minZ - labelOffset * 0.3));
+            pic.commands.push({cmd:'label', text: _formatTick(y), pos: labelPos, align: makePair(-1, 0), pen: tickPen, line: 0});
+          }
+          // Draw axis label to the right
+          if (call.label) {
+            const midY = (b.minY + b.maxY) / 2;
+            const labelPos = projectTriple(makeTriple(b.maxX + labelOffset * 1.5, midY, b.minZ - labelOffset * 0.8));
+            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(-1, 0), pen: axisPen, line: 0});
+          }
+        } else if (axisName === 'z') {
+          // Z axis: runs along left-back vertical edge at x=minX, y=minY
+          // Ticks point RIGHT into box, labels to the left (outside)
+          const ticks = _niceTickValues(b.minZ, b.maxZ, 5);
+          const labelOffset = tickLen * 3;
+          for (let i = 0; i < ticks.length; i++) {
+            const z = ticks[i];
+            if (z < b.minZ || z > b.maxZ) continue;
+            // Draw tick mark pointing RIGHT into box
+            const tickStart = makeTriple(b.minX, b.minY, z);
+            const tickEnd = makeTriple(b.minX + tickLen * 0.8, b.minY, z);
+            const projStart = projectTriple(tickStart);
+            const projEnd = projectTriple(tickEnd);
+            const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
+            pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
+            // Draw tick label to the left (outside box)
+            const labelPos = projectTriple(makeTriple(b.minX - labelOffset * 0.5, b.minY - labelOffset * 0.3, z));
+            pic.commands.push({cmd:'label', text: _formatTick(z), pos: labelPos, align: makePair(1, 0), pen: tickPen, line: 0});
+          }
+          // Draw axis label to the left
+          if (call.label) {
+            const midZ = (b.minZ + b.maxZ) / 2;
+            const labelPos = projectTriple(makeTriple(b.minX - labelOffset * 1.5, b.minY - labelOffset * 0.8, midZ));
+            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(1, 0), pen: axisPen, line: 0});
+          }
+        }
+      }
+
+      // Simple axis lines for non-Bounds axes are not fully supported
+      // (would need to handle xmin, xmax, dashed, etc. parameters)
+      // For now, skip drawing them to avoid regressions on diagrams like 12825
+      function drawSimpleAxis(axisName, call) {
+        // Skip - complex parameter handling not implemented
+        return;
+      }
+
+      // Draw each requested axis
+      for (const call of _pendingAxis3Calls) {
+        drawTicks(call.axisName, call);
+        drawSimpleAxis(call.axisName, call);
+      }
+
+      // Clear pending calls
+      _pendingAxis3Calls.length = 0;
+    }
+    // Helper to resolve lazy axis3 specifiers (passed as functions without args)
+    // Only resolve specific known axis specifiers, not arbitrary functions
+    const _boundsFunc = env.get('Bounds');
+    const _inTicksFunc = env.get('InTicks');
+    const _outTicksFunc = env.get('OutTicks');
+    const _inOutTicksFunc = env.get('InOutTicks');
+    function resolveAxis3Arg(a) {
+      // Only call known axis specifier functions
+      if (a === _boundsFunc || a === _inTicksFunc || a === _outTicksFunc || a === _inOutTicksFunc) {
+        return a();
+      }
+      return a;
+    }
+    env.set('xaxis3', (...args) => {
+      const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
+      let label = '', axisType = null, ticks = null, pen = null, arrow = null;
+      for (const a of pos) {
+        if (typeof a === 'string') label = a;
+        else if (a && a._tag === 'Label') label = a.text;
+        else if (a && a._tag === 'axis3type') axisType = a;
+        else if (a && a._tag === 'ticks3') ticks = a;
+        else if (isPen(a)) pen = a;
+        else if (a && a._tag === 'arrow') arrow = a;
+      }
+      _draw3DAxis('x', label, axisType, ticks, pen, arrow, currentPic);
+    });
+    env.set('yaxis3', (...args) => {
+      const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
+      let label = '', axisType = null, ticks = null, pen = null, arrow = null;
+      for (const a of pos) {
+        if (typeof a === 'string') label = a;
+        else if (a && a._tag === 'Label') label = a.text;
+        else if (a && a._tag === 'axis3type') axisType = a;
+        else if (a && a._tag === 'ticks3') ticks = a;
+        else if (isPen(a)) pen = a;
+        else if (a && a._tag === 'arrow') arrow = a;
+      }
+      _draw3DAxis('y', label, axisType, ticks, pen, arrow, currentPic);
+    });
+    env.set('zaxis3', (...args) => {
+      const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
+      let label = '', axisType = null, ticks = null, pen = null, arrow = null;
+      for (const a of pos) {
+        if (typeof a === 'string') label = a;
+        else if (a && a._tag === 'Label') label = a.text;
+        else if (a && a._tag === 'axis3type') axisType = a;
+        else if (a && a._tag === 'ticks3') ticks = a;
+        else if (isPen(a)) pen = a;
+        else if (a && a._tag === 'arrow') arrow = a;
+      }
+      _draw3DAxis('z', label, axisType, ticks, pen, arrow, currentPic);
+    });
+
+    // Override point() to handle 3D box-relative coordinates in graph3
+    // point(triple) returns the corner of the current bounding box
+    // where triple components map: -1 = min, +1 = max
+    const origPoint = env.get('point');
+    env.set('point', (...args) => {
+      // Check for 3D triple argument
+      if (args.length === 1 && isTriple(args[0])) {
+        const t = args[0];
+        // Get the surface bounds from picture metadata, or use defaults
+        const pic = currentPic;
+        let minX = -Math.PI, maxX = Math.PI;
+        let minY = -2, maxY = 2;
+        let minZ = 0, maxZ = 4;
+        // Try to find bounds from any drawn surfaces
+        for (const c of pic.commands) {
+          if (c.mesh && c.mesh.faces) {
+            for (const face of c.mesh.faces) {
+              for (const v of face.vertices || []) {
+                if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
+                if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
+                if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
+              }
+            }
+          }
+        }
+        // Map triple components to box coordinates
+        const x = t.x < 0 ? minX : (t.x > 0 ? maxX : (minX + maxX) / 2);
+        const y = t.y < 0 ? minY : (t.y > 0 ? maxY : (minY + maxY) / 2);
+        const z = t.z < 0 ? minZ : (t.z > 0 ? maxZ : (minZ + maxZ) / 2);
+        return makeTriple(x, y, z);
+      }
+      // Fall back to original point() for 2D geometry
+      if (origPoint) return origPoint(...args);
+      return args[0];
+    });
+
+    // Expose axis finalization for main interpreter to call
+    env.set('_finalize3DAxes', _finalize3DAxes);
   }
 
   // Draw command evaluators
@@ -10320,6 +10718,32 @@ function createInterpreter() {
       else if (a && a._tag === 'revolution' && a.mesh) mesh = a.mesh;
       else if (a && a._tag === 'tube' && a.s && a.s.mesh) { mesh = a.s.mesh; surfForColors = a.s; }
       if (mesh) {
+        // Track 3D bounds from mesh faces for axis3 drawing
+        if (!target._3dBounds) target._3dBounds = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+        const b = target._3dBounds;
+        for (const face of mesh.faces || []) {
+          for (const v of face.vertices || []) {
+            const vx = typeof v.x === 'number' ? v.x : 0;
+            const vy = typeof v.y === 'number' ? v.y : 0;
+            const vz = typeof v.z === 'number' ? v.z : 0;
+            if (vx < b.minX) b.minX = vx; if (vx > b.maxX) b.maxX = vx;
+            if (vy < b.minY) b.minY = vy; if (vy > b.maxY) b.maxY = vy;
+            if (vz < b.minZ) b.minZ = vz; if (vz > b.maxZ) b.maxZ = vz;
+          }
+        }
+        // Also track from _grid if available
+        if (surfForColors && surfForColors._grid) {
+          for (const row of surfForColors._grid) {
+            for (const v of row) {
+              const vx = typeof v.x === 'number' ? v.x : 0;
+              const vy = typeof v.y === 'number' ? v.y : 0;
+              const vz = typeof v.z === 'number' ? v.z : 0;
+              if (vx < b.minX) b.minX = vx; if (vx > b.maxX) b.maxX = vx;
+              if (vy < b.minY) b.minY = vy; if (vy > b.maxY) b.maxY = vy;
+              if (vz < b.minZ) b.minZ = vz; if (vz > b.maxZ) b.maxZ = vz;
+            }
+          }
+        }
         let meshPen = null;
         for (let j = 0; j < args.length; j++) {
           if (j === i) continue;
@@ -10392,7 +10816,7 @@ function createInterpreter() {
               const c11 = cols[idx(i0+1, j0+1)];
               const c01 = cols[idx(i0, j0+1)];
               const pen = avg4([c00, c10, c11, c01]);
-              if (pen) return {...f, pen};
+              if (pen) return {...f, pen, _fromPalette: true};
             }
             return f;
           });
@@ -10745,7 +11169,7 @@ function createInterpreter() {
       let dot = n.x*lx + n.y*ly + n.z*lz;
       if (mesh && mesh._closed && dot < 0) continue; // back-face cull
       if (dot < 0) dot = -dot;
-      const intensity = 0.35 + 0.65 * dot; // 0.35 ambient floor
+      const intensity = 0.35 + 0.65 * dot;
       // Project polygon
       const poly = V.map(v => projectTriple(v));
       items.push({depth, intensity, poly, pen: face.pen || basePen});
@@ -10986,6 +11410,12 @@ function createInterpreter() {
           entry.result.y = rp.y;
         }
       }
+    }
+
+    // Finalize 3D axes now that bounds are known
+    const _finalize3DAxes = globalEnv.get('_finalize3DAxes');
+    if (typeof _finalize3DAxes === 'function') {
+      _finalize3DAxes(currentPic);
     }
 
     // Copy currentpicture's commands to drawCommands for rendering
