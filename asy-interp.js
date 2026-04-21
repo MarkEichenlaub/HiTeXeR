@@ -12105,6 +12105,50 @@ function renderSVG(result, opts) {
       pxPerUnitX = preSolverPxPerUnitX;
       pxPerUnitY = preSolverPxPerUnitY;
       // labelShrinkFactor stays at 1 — labels are not scaled
+
+      // When labels would visibly overlap at current pxPerUnit (both
+      // horizontally and vertically in user space), Asymptote/TeXeR
+      // scales pxPerUnit up so the labels clear. Detect vertical overlap
+      // between labels that share x-range and boost pxPerUnit uniformly
+      // (keepAspect) or Y-axis (ignoreAspect) to separate them.
+      if (labelInfoBp.length >= 2) {
+        let needsBoost = 1;
+        for (let i = 0; i < labelInfoBp.length; i++) {
+          for (let j = i+1; j < labelInfoBp.length; j++) {
+            const a = labelInfoBp[i], b = labelInfoBp[j];
+            const dy = Math.abs(a.posY - b.posY);
+            if (dy < 0.001) continue;
+            // Require x-ranges to overlap substantially (>50% of smaller label width)
+            const aw = a.widthBp, bw = b.widthBp;
+            const halfAW = aw / 2 / pxPerUnitX, halfBW = bw / 2 / pxPerUnitX;
+            const ax = a.posX, bx = b.posX;
+            const overlapX = Math.min(ax+halfAW, bx+halfBW) - Math.max(ax-halfAW, bx-halfBW);
+            const minW = Math.min(aw, bw) / pxPerUnitX;
+            if (overlapX <= 0.5 * minW) continue;
+            // Current Y-overlap (positive means overlapping in user coords)
+            const halfAH = a.heightBp / 2 / pxPerUnitY;
+            const halfBH = b.heightBp / 2 / pxPerUnitY;
+            const yOverlap = (halfAH + halfBH) - dy;
+            if (yOverlap <= 0) continue; // already clear
+            // Required pxPerUnit so labels clear with a visible gap.
+            // Empirically matches TeXeR's spacing for label-dominated
+            // layouts: center-to-center distance ≈ 1.5× label height.
+            const avgH = (a.heightBp + b.heightBp) / 2;
+            const requiredP = 1.5 * avgH / dy;
+            const boost = requiredP / pxPerUnitY;
+            if (boost > needsBoost) needsBoost = boost;
+          }
+        }
+        if (needsBoost > 1.005) {
+          if (keepAspect) {
+            pxPerUnit *= needsBoost;
+            pxPerUnitX *= needsBoost;
+            pxPerUnitY *= needsBoost;
+          } else {
+            pxPerUnitY *= needsBoost;
+          }
+        }
+      }
     }
   }
 
