@@ -9444,19 +9444,84 @@ function createInterpreter() {
       }
       return {_tag: 'revolution', mesh: makeMesh([]), _grid: [], _gridRows: 0, _gridCols: 0, _gridCyclic: true};
     });
-    // cylinder(center, r, h[, axis])
+    // cylinder(center, r, h[, axis]) — returns a revolution object for proper silhouette rendering
     env.set('cylinder', (...args) => {
-      if (args.length >= 3 && isTriple(args[0]) && typeof args[1] === 'number' && typeof args[2] === 'number') {
-        const c = args[0], r = toNumber(args[1]), h = toNumber(args[2]);
-        let m = applyTransform3Mesh(scaleT3(r, r, h), _buildCylinderMesh(24));
-        m = applyTransform3Mesh(shiftT3(c.x, c.y, c.z), m);
-        return m;
+      // Parse: cylinder(triple center, real r, real h, triple axis=Z)
+      // or: cylinder(real r, real h) with center=O, axis=Z
+      let center = makeTriple(0, 0, 0);
+      let radius = 1, height = 1;
+      let axis = makeTriple(0, 0, 1);
+      const pos = args.filter(a => !(a && a._named));
+      const named = {};
+      for (const a of args) if (a && a._named) Object.assign(named, a);
+      if (pos.length >= 3 && isTriple(pos[0]) && typeof pos[1] === 'number' && typeof pos[2] === 'number') {
+        center = pos[0];
+        radius = toNumber(pos[1]);
+        height = toNumber(pos[2]);
+        if (pos.length >= 4 && isTriple(pos[3])) axis = pos[3];
+      } else if (pos.length >= 2 && typeof pos[0] === 'number' && typeof pos[1] === 'number') {
+        radius = toNumber(pos[0]);
+        height = toNumber(pos[1]);
+        if (pos.length >= 3 && isTriple(pos[2])) axis = pos[2];
       }
-      if (args.length >= 2 && typeof args[0] === 'number' && typeof args[1] === 'number') {
-        const r = toNumber(args[0]), h = toNumber(args[1]);
-        return applyTransform3Mesh(scaleT3(r, r, h), _buildCylinderMesh(24));
+      // Build the revolution: generator path is a vertical line from base to top
+      // at distance `radius` from the axis, revolved 360° around the axis
+      const nLon = 32;
+      // Normalize axis
+      const aLen = Math.sqrt(axis.x*axis.x + axis.y*axis.y + axis.z*axis.z) || 1;
+      const A = makeTriple(axis.x/aLen, axis.y/aLen, axis.z/aLen);
+      // Find a perpendicular to the axis for the generator direction
+      let perpX, perpY, perpZ;
+      if (Math.abs(A.x) < 0.9) {
+        // cross(A, (1,0,0))
+        perpX = 0; perpY = A.z; perpZ = -A.y;
+      } else {
+        // cross(A, (0,1,0))
+        perpX = -A.z; perpY = 0; perpZ = A.x;
       }
-      return makeMesh([]);
+      const perpLen = Math.sqrt(perpX*perpX + perpY*perpY + perpZ*perpZ) || 1;
+      perpX /= perpLen; perpY /= perpLen; perpZ /= perpLen;
+      // Generator path: two points at bottom and top of cylinder side
+      const baseX = center.x + perpX * radius;
+      const baseY = center.y + perpY * radius;
+      const baseZ = center.z + perpZ * radius;
+      const topX = baseX + A.x * height;
+      const topY = baseY + A.y * height;
+      const topZ = baseZ + A.z * height;
+      // Revolve around axis through center
+      const rotated = [];
+      for (let j = 0; j <= nLon; j++) {
+        const th = 2 * Math.PI * j / nLon;
+        const c = Math.cos(th), s = Math.sin(th);
+        const row = [];
+        // Rodrigues rotation around axis A by angle th, about center
+        const rotateAboutAxis = (px, py, pz) => {
+          // Translate to origin (center-relative)
+          const vx = px - center.x, vy = py - center.y, vz = pz - center.z;
+          const dot = A.x*vx + A.y*vy + A.z*vz;
+          const cx = A.y*vz - A.z*vy;
+          const cy = A.z*vx - A.x*vz;
+          const cz = A.x*vy - A.y*vx;
+          return makeTriple(
+            center.x + vx*c + cx*s + A.x*dot*(1-c),
+            center.y + vy*c + cy*s + A.y*dot*(1-c),
+            center.z + vz*c + cz*s + A.z*dot*(1-c)
+          );
+        };
+        row.push(rotateAboutAxis(baseX, baseY, baseZ));
+        row.push(rotateAboutAxis(topX, topY, topZ));
+        rotated.push(row);
+      }
+      // Build faces for the mesh
+      const faces = [];
+      for (let j = 0; j < nLon; j++) {
+        const v00 = rotated[j][0], v10 = rotated[j+1][0];
+        const v11 = rotated[j+1][1], v01 = rotated[j][1];
+        const face = {vertices: [v00, v10, v11, v01]};
+        face.normal = faceNormal(face);
+        faces.push(face);
+      }
+      return {_tag:'revolution', mesh: makeMesh(faces), axis: A, _grid: rotated, _center: center, _radius: radius, _height: height};
     });
     // render() — accepts any args, returns an opaque marker object ignored by draw
     env.set('render', (...args) => ({_tag:'renderOpts'}));
@@ -10056,6 +10121,164 @@ function createInterpreter() {
               emitCurve3(pts, longP, false);
             }
           }
+          return;
+        }
+      }
+    }
+    // Handle draw(revolution, pen) WITHOUT an integer — solids.asy silhouette mode
+    // Draws the outline of the revolution surface with hidden-line dashing
+    {
+      const revArg = args.find(a => a && a._tag === 'revolution' && a._grid);
+      const hasInt = args.some(a => typeof a === 'number' && Number.isInteger(a) && a > 0);
+      if (revArg && !hasInt) {
+        let pen = null;
+        for (const a of args) {
+          if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        }
+        if (!pen) pen = clonePen(defaultPen);
+        const lineNo = args._line || 0;
+        const grid = revArg._grid; // rotated[j][i]: (nLon+1) × nPath
+        const nLon = grid.length - 1;
+        const nPath = grid[0] ? grid[0].length : 0;
+        if (nLon >= 2 && nPath >= 2) {
+          // For a cylinder: nPath=2 (bottom ring at i=0, top ring at i=1)
+          // Top ellipse: grid[j][nPath-1] for all j
+          // Bottom ellipse: grid[j][0] for all j
+          // Side edges: we need to find the silhouette - the two j indices where the surface
+          // normal is perpendicular to the view direction
+
+          // Get camera direction (view axis)
+          let vx = 0, vy = 0, vz = 1;
+          if (projection) {
+            vx = projection.cx - (projection.tx || 0);
+            vy = projection.cy - (projection.ty || 0);
+            vz = projection.cz - (projection.tz || 0);
+            const vl = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+            vx /= vl; vy /= vl; vz /= vl;
+          }
+
+          // Emit a curve from 3D points
+          const emitCurve = (pts, usedPen, dashed) => {
+            if (!pts || pts.length < 2) return;
+            const segs2 = [];
+            for (let k = 0; k < pts.length - 1; k++) {
+              const a = pts[k], b = pts[k+1];
+              const pa = projectTriple(a), pb = projectTriple(b);
+              segs2.push(lineSegment(pa, pb));
+            }
+            const path = makePath(segs2, false);
+            const myPen = clonePen(usedPen);
+            if (dashed) myPen.linestyle = '4 4';  // Custom dash pattern matching Asymptote's hidden-line style
+            target.commands.push({cmd:'draw', path, pen: myPen, arrow: null, line: lineNo});
+          };
+
+          // Draw top ellipse (always fully visible for typical top-down views)
+          const topPts = [];
+          for (let j = 0; j <= nLon; j++) topPts.push(grid[j][nPath - 1]);
+          emitCurve(topPts, pen, false);
+
+          // Draw bottom ellipse - determine front vs back by comparing normal to view
+          // Bottom ellipse normal points down (in axis direction, negated)
+          // If the view is looking at the top, the bottom front is visible, back is hidden
+          // Split the ellipse: find where the surface tangent aligns with the view
+          // For simplicity, use the projected ellipse: front half solid, back half dashed
+          // The "front" is the half closer to the viewer
+
+          // Project bottom ellipse and find the leftmost/rightmost extremes
+          const botPts = [];
+          for (let j = 0; j <= nLon; j++) botPts.push(grid[j][0]);
+
+          // Find centroid of bottom ellipse (in 3D)
+          let cx = 0, cy = 0, cz = 0;
+          for (let j = 0; j < nLon; j++) {
+            cx += botPts[j].x; cy += botPts[j].y; cz += botPts[j].z;
+          }
+          cx /= nLon; cy /= nLon; cz /= nLon;
+
+          // For each point, determine if it's on the front or back
+          // Front = the half of the ellipse closer to the camera along the view direction
+          // dot(pt - center, viewDir) > 0 means front
+          const frontPts = [], backPts = [];
+          const frontIdx = [], backIdx = [];
+          for (let j = 0; j <= nLon; j++) {
+            const p = botPts[j];
+            const dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
+            const dot = dx*vx + dy*vy + dz*vz;
+            if (dot >= 0) {
+              frontPts.push(p);
+              frontIdx.push(j);
+            } else {
+              backPts.push(p);
+              backIdx.push(j);
+            }
+          }
+
+          // Draw front (solid) and back (dashed) portions
+          // We need to draw them as continuous curves, so find transition points
+          // and draw arcs between them
+          let transitions = [];
+          for (let j = 0; j < nLon; j++) {
+            const p1 = botPts[j], p2 = botPts[j+1];
+            const d1 = (p1.x-cx)*vx + (p1.y-cy)*vy + (p1.z-cz)*vz;
+            const d2 = (p2.x-cx)*vx + (p2.y-cy)*vy + (p2.z-cz)*vz;
+            if ((d1 >= 0 && d2 < 0) || (d1 < 0 && d2 >= 0)) {
+              transitions.push(j);
+            }
+          }
+
+          // If we found exactly 2 transitions, draw two arcs
+          if (transitions.length === 2) {
+            const t1 = transitions[0], t2 = transitions[1];
+            // Arc1: from t1 to t2 (one half of the ellipse)
+            const arc1 = [];
+            for (let j = t1; j <= t2; j++) arc1.push(botPts[j]);
+            // Arc2: from t2 to t1 wrapping around (other half)
+            const arc2 = [];
+            for (let j = t2; j <= nLon; j++) arc2.push(botPts[j]);
+            for (let j = 0; j <= t1; j++) arc2.push(botPts[j]);
+
+            // Determine which arc is front (closer to viewer = higher dot with view)
+            // Check midpoint of arc1
+            const mid1Idx = Math.floor(arc1.length / 2);
+            const mid1 = arc1[mid1Idx];
+            const d1 = (mid1.x - cx) * vx + (mid1.y - cy) * vy + (mid1.z - cz) * vz;
+
+            // Front arc (positive dot = toward viewer) is solid
+            // Back arc (negative dot = away from viewer) is dashed
+            if (d1 >= 0) {
+              emitCurve(arc1, pen, false);  // arc1 is front, solid
+              emitCurve(arc2, pen, true);   // arc2 is back, dashed
+            } else {
+              emitCurve(arc1, pen, true);   // arc1 is back, dashed
+              emitCurve(arc2, pen, false);  // arc2 is front, solid
+            }
+          } else {
+            // Fallback: just draw the whole ellipse solid
+            emitCurve(botPts, pen, false);
+          }
+
+          // Draw the two side edges (silhouette lines)
+          // These are at the transition points where the surface normal is perpendicular to view
+          if (transitions.length === 2) {
+            const t1 = transitions[0], t2 = transitions[1];
+            // Side edge 1: from bottom[t1] to top[t1]
+            const side1 = [];
+            for (let i = 0; i < nPath; i++) side1.push(grid[t1][i]);
+            emitCurve(side1, pen, false);
+            // Side edge 2: from bottom[t2] to top[t2]
+            const side2 = [];
+            for (let i = 0; i < nPath; i++) side2.push(grid[t2][i]);
+            emitCurve(side2, pen, false);
+          } else {
+            // Fallback: draw edges at 0 and nLon/2
+            const side1 = [];
+            for (let i = 0; i < nPath; i++) side1.push(grid[0][i]);
+            emitCurve(side1, pen, false);
+            const side2 = [];
+            for (let i = 0; i < nPath; i++) side2.push(grid[Math.floor(nLon/2)][i]);
+            emitCurve(side2, pen, false);
+          }
+
           return;
         }
       }
