@@ -3076,8 +3076,13 @@ function createInterpreter() {
       if (isPath(val) && val.segs.length > 0) {
         elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
       } else if (isPath(val) && val.segs.length === 0) {
-        // Empty path/guide (e.g. uninitialized "guide g") — skip entirely.
-        // Converting to (0,0) via toPair would create a stray segment from the origin.
+        // Empty path/guide — check if it has a _singlePoint marker (single-point path)
+        if (val._singlePoint) {
+          // Treat single-point path as a pair for concatenation
+          const pt = isTriple(val._singlePoint) ? val._singlePoint : toPair(val._singlePoint);
+          elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
+        }
+        // Otherwise skip entirely (truly empty path like uninitialized "guide g")
         continue;
       } else {
         // Preserve triples so path3 flows through as triple-valued segments.
@@ -3158,7 +3163,15 @@ function createInterpreter() {
     // Build per-knot direction constraints: {dirIn, dirOut} for each point
     const directions = elements.map(e => ({dirIn: e.dirIn || null, dirOut: e.dirOut || null}));
 
-    if (points.length < 2) return makePath([], false);
+    // Single point: create a path with no segments but marked with _singlePoint
+    // This allows the point to be used in path concatenation without adding stray segments
+    if (points.length === 1) {
+      const pt = points[0];
+      const p = makePath([], false);
+      p._singlePoint = pt; // Mark with the point for concatenation and dot rendering
+      return p;
+    }
+    if (points.length < 1) return makePath([], false);
 
     // Handle ^^ (path concatenation) - split into separate sub-paths
     // Find ^^ boundaries
