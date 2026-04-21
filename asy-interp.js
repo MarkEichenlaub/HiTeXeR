@@ -11067,11 +11067,14 @@ function createInterpreter() {
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
 
-    // Heuristic fix for AoPS-corrupted \t escapes: if a tab character appears
-    // immediately before a letter sequence (e.g. "\textnormal" became
-    // "<tab>extnormal" during copy-paste), restore it to a backslash.
+    // AoPS-corrupted \t escapes: labels with TAB before letters are the result
+    // of "\t<letter>" being collapsed to a single TAB byte.  TeX treats the
+    // TAB as whitespace in both text mode and math mode, so the reference
+    // rendering simply drops the TAB and prints the remaining letters
+    // (e.g. "(tab)heta" → "heta", "(tab)extdollar" → "extdollar").  Mirror
+    // that by stripping the TAB character entirely.
     if (typeof text === 'string' && text.indexOf('\t') !== -1) {
-      text = text.replace(/\t(?=[A-Za-z])/g, '\\');
+      text = text.replace(/\t/g, '');
     }
 
     if (graphicData) {
