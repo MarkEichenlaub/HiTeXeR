@@ -12137,13 +12137,20 @@ function renderSVG(result, opts) {
       }
     }
 
-    // Post-solver MathJax recheck: the heuristic (charWidthBp = fontSize * 0.288)
-    // under-estimates wide sans-serif / bold text by up to 2.5×.  For svg-native
-    // mode, actually measure each label through MathJax and recompute finalExceed
-    // so the label-dominated fallback below triggers when needed (e.g. 80pt
-    // \textsf{NOON} labels that are 216 bp wide but estimated at 92 bp).
-    if (finalExceed <= 1.005 && opts && opts.labelOutput === 'svg-native'
-        && typeof _mjxMeasureBp === 'function' && (tgtW < Infinity || tgtH < Infinity)) {
+    // Post-solver measurement recheck: the heuristic (charWidthBp = fontSize * 0.288)
+    // under-estimates wide sans-serif / bold text by up to 2.5×.  In svg-native
+    // mode we measure through MathJax; in browser mode through KaTeX's DOM.
+    // Either way we recompute finalExceed so the label-dominated fallback below
+    // triggers when needed (e.g. 80pt \textsf{NOON} labels that are ~216 bp wide
+    // but estimated at ~92 bp).
+    let measureFn = null;
+    if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function') {
+      measureFn = _mjxMeasureBp;
+    } else if (typeof document !== 'undefined' && typeof katex !== 'undefined'
+               && typeof _katexMeasureBp === 'function') {
+      measureFn = _katexMeasureBp;
+    }
+    if (finalExceed <= 1.005 && measureFn && (tgtW < Infinity || tgtH < Infinity)) {
       let bpMinX = geoMinX * pxPerUnitX;
       let bpMaxX = geoMaxX * pxPerUnitX;
       let bpMinY = geoMinY * pxPerUnitY;
@@ -12152,7 +12159,7 @@ function renderSVG(result, opts) {
       for (const li of labelInfoBp) {
         let wBp = li.widthBp, hBp = li.heightBp;
         try {
-          const m = _mjxMeasureBp(li._text, li._fontSize);
+          const m = measureFn(li._text, li._fontSize);
           if (m && m.wBp > 0) {
             let mw = m.wBp, mh = m.hBp;
             if (Math.abs(li._ltAngle) > 0.5) {
@@ -12180,11 +12187,11 @@ function renderSVG(result, opts) {
         const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
         const mjxExceed = Math.max(exceedW, exceedH);
         if (mjxExceed > 1.005) {
-          // Overwrite heuristic widths with MathJax-measured widths so the
+          // Overwrite heuristic widths with measured widths so the
           // fallback below uses accurate dimensions for uniform scaling.
           for (const li of labelInfoBp) {
             try {
-              const m = _mjxMeasureBp(li._text, li._fontSize);
+              const m = measureFn(li._text, li._fontSize);
               if (m && m.wBp > 0) {
                 let mw = m.wBp, mh = m.hBp;
                 if (Math.abs(li._ltAngle) > 0.5) {
@@ -14019,6 +14026,86 @@ function _mjxMeasureBp(rawText, fontSize) {
   const em = fontSize / 1.21;
   const exRatio = 0.5;
   return { wBp: parsed.wEx * exRatio * em, hBp: parsed.hEx * exRatio * em };
+}
+
+// Browser-only counterpart to _mjxMeasureBp.  Renders the label through KaTeX
+// into an off-screen DOM host at a probe font-size, reads the resulting
+// getBoundingClientRect, and returns { wBp, hBp } scaled to the requested
+// fontSize in bp.  Used by the scale solver's post-loop recheck so browser
+// mode can detect wide sans-serif/bold labels (e.g. \textsf{NOON}) and
+// trigger the label-dominated fallback + v1.95 overlap-boost.
+const _katexMeasureCache = new Map();
+let _katexMeasureHost = null;
+function _katexMeasureBp(rawText, fontSize) {
+  if (typeof document === 'undefined' || typeof katex === 'undefined') return null;
+  const cacheKey = String(rawText);
+  const cached = _katexMeasureCache.get(cacheKey);
+  if (cached && cached.error) return null;
+  if (!_katexMeasureHost) {
+    try {
+      const host = document.createElement('div');
+      host.setAttribute('aria-hidden', 'true');
+      host.style.cssText = 'position:absolute;left:-99999px;top:-99999px;visibility:hidden;pointer-events:none;white-space:nowrap;';
+      document.body.appendChild(host);
+      _katexMeasureHost = host;
+    } catch (e) { return null; }
+  }
+  let unitDims = cached && !cached.error ? cached : null;
+  if (!unitDims) {
+    // Mirror renderLabelKaTeX's preprocessing.
+    let math = (rawText || '').trim();
+    const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+    if (reflectMatch) math = reflectMatch[1].trim();
+    const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
+    if (isDollar) math = math.slice(1, -1);
+    if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+    math = preprocessLatexForKatex(math);
+    const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
+    let html;
+    try {
+      if (hasMixedContent) {
+        const segments = [];
+        let pos = 0;
+        const reSegment = /\$([^$]+)\$/g;
+        let m;
+        while ((m = reSegment.exec(math)) !== null) {
+          if (m.index > pos) segments.push({type:'text', content: math.slice(pos, m.index)});
+          segments.push({type:'math', content: m[1]});
+          pos = m.index + m[0].length;
+        }
+        if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
+        html = '';
+        for (const seg of segments) {
+          if (seg.type === 'math') {
+            html += katex.renderToString(seg.content, {throwOnError:false, displayMode:false, output:'html'});
+          } else {
+            html += seg.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/ /g,'&nbsp;');
+          }
+        }
+      } else {
+        html = katex.renderToString(math, {throwOnError:false, displayMode:false, output:'html'});
+      }
+    } catch (e) { _katexMeasureCache.set(cacheKey, {error:true}); return null; }
+    const probeSize = 100;
+    const wrap = document.createElement('span');
+    // renderLabelKaTeX sets the foreignObject div to font-size:fontSizeCSS/1.21 with
+    // the serif font stack; mirror that so measurements match render layout.
+    wrap.style.cssText = 'display:inline-block;font-size:' + (probeSize / 1.21) + 'px;' +
+      "font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;" +
+      'line-height:normal;';
+    wrap.innerHTML = html;
+    try {
+      _katexMeasureHost.appendChild(wrap);
+      const rect = wrap.getBoundingClientRect();
+      _katexMeasureHost.removeChild(wrap);
+      if (!(rect.width > 0)) { _katexMeasureCache.set(cacheKey, {error:true}); return null; }
+      // Browser CSS px -> bp:  1 bp = 1/72 in = 96/72 CSS px = 4/3 px; so bp = px * 0.75.
+      unitDims = { wPerPx: (rect.width * 0.75) / probeSize, hPerPx: (rect.height * 0.75) / probeSize };
+      _katexMeasureCache.set(cacheKey, unitDims);
+    } catch (e) { _katexMeasureCache.set(cacheKey, {error:true}); return null; }
+  }
+  if (!unitDims || !(unitDims.wPerPx > 0)) return null;
+  return { wBp: unitDims.wPerPx * fontSize, hBp: unitDims.hPerPx * fontSize };
 }
 
 function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
