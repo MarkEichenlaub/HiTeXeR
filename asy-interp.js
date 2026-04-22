@@ -2707,7 +2707,8 @@ function createInterpreter() {
       // (e.g. `real scale = 0.02;` doesn't shadow `transform scale(real)`).
       // If the resolved value is not callable, fall back to the saved built-in.
       if (callee !== undefined && typeof callee !== 'function' &&
-          !(callee && callee._tag === 'func')) {
+          !(callee && callee._tag === 'func') &&
+          !(callee && callee._tag === 'overload')) {
         const builtin = _builtinFuncs.get(calleeName);
         if (builtin) callee = builtin;
       }
@@ -2778,6 +2779,8 @@ function createInterpreter() {
       const posVals = positional.map(a => evalNode(a, env));
       const picked = overloadSelect(callee, posVals);
       if (picked) {
+        // Builtin fallback selected by overloadSelect (user function shadows a builtin).
+        if (typeof picked === 'function') return picked(...posVals);
         // Reuse callUserFuncValues for positional-only; rebuild argNodes route if named args present.
         const hasNamed = node.args.some(a => a.type === 'NamedArg');
         if (!hasNamed) return callUserFuncValues(picked, posVals);
@@ -3124,7 +3127,45 @@ function createInterpreter() {
           if (obj._sizeW || obj._sizeH) {
             const w = obj._sizeW || obj._sizeH || 100;
             const h = obj._sizeH || obj._sizeW || 100;
-            obj._fitBbox = { min: makePair(0, 0), max: makePair(w, h) };
+            // Start with the size()-constrained geometry box in bp-space
+            let bbMinX = 0, bbMinY = 0, bbMaxX = w, bbMaxY = h;
+            // Compute user-coord geometry bbox so we can map label positions to bp
+            const gb = getGeoBbox(obj.commands);
+            const userW = (gb.maxX - gb.minX) || 1;
+            const userH = (gb.maxY - gb.minY) || 1;
+            const sx = w / userW;
+            const sy = h / userH;
+            // Scan labels and extend bbox for each label's approximate extent
+            for (const dc of obj.commands) {
+              if (!dc || dc.cmd !== 'label') continue;
+              if (dc.pen && dc.pen.opacity === 0) continue;
+              const pos = dc.pos || dc;
+              if (!pos || !isFinite(pos.x) || !isFinite(pos.y)) continue;
+              const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+              const text = dc.text || dc.label || '';
+              const clean = typeof text === 'string' ? stripLaTeX(text) : '';
+              const textW = clean.length * fontSize * 0.45;
+              const textH = fontSize * 0.85;
+              // Map pos to bp-space (origin at 0,0 after shift)
+              const pxBp = (pos.x - gb.minX) * sx;
+              const pyBp = (pos.y - gb.minY) * sy;
+              // align: -1 = label to left/below, 0 = centered, +1 = to right/above
+              const ax = (dc.align && dc.align.x) || 0;
+              const ay = (dc.align && dc.align.y) || 0;
+              const marginPerUnit = 0.25 * fontSize;
+              const cx = pxBp + (ax * 0.5) * textW + Math.sign(ax) * marginPerUnit;
+              const cy = pyBp + (ay * 0.5) * textH + Math.sign(ay) * marginPerUnit;
+              // Label bbox in bp
+              const lbMinX = cx - textW / 2;
+              const lbMaxX = cx + textW / 2;
+              const lbMinY = cy - textH / 2;
+              const lbMaxY = cy + textH / 2;
+              if (lbMinX < bbMinX) bbMinX = lbMinX;
+              if (lbMaxX > bbMaxX) bbMaxX = lbMaxX;
+              if (lbMinY < bbMinY) bbMinY = lbMinY;
+              if (lbMaxY > bbMaxY) bbMaxY = lbMaxY;
+            }
+            obj._fitBbox = { min: makePair(bbMinX, bbMinY), max: makePair(bbMaxX, bbMaxY) };
           } else {
             const gb = getGeoBbox(obj.commands);
             obj._fitBbox = {
@@ -3663,6 +3704,9 @@ function createInterpreter() {
         env.set(node.name, {_tag:'overload', alts:[existing, func], name:node.name});
       } else if (existing && existing._tag === 'overload') {
         env.set(node.name, {_tag:'overload', alts:[...existing.alts, func], name:node.name});
+      } else if (typeof existing === 'function') {
+        // User function overloading a builtin — preserve builtin as a fallback alt.
+        env.set(node.name, {_tag:'overload', alts:[func], name:node.name, builtin:existing});
       } else {
         env.set(node.name, func);
       }
@@ -3689,6 +3733,10 @@ function createInterpreter() {
       }
       if (score > bestScore) { bestScore = score; best = alt; }
     }
+    // If no alt matched positively (all scores ≤ 0) and a builtin fallback exists,
+    // prefer the builtin — this handles cases like user `pair exp(pair)` overloading
+    // real `exp(real)`: when called with a real, the builtin should win.
+    if (overload.builtin && bestScore <= 0) return overload.builtin;
     return best || alts[alts.length - 1];
   }
 
@@ -4206,6 +4254,10 @@ function createInterpreter() {
     env.set('longdashed', makePen({linestyle:'longdashed'}));
     env.set('dashdotted', makePen({linestyle:'dashdotted'}));
     env.set('longdashdotted', makePen({linestyle:'longdashdotted'}));
+    // Capital aliases used by graph package
+    env.set('Dotted', makePen({linestyle:'dotted'}));
+    env.set('Dashed', makePen({linestyle:'dashed'}));
+    env.set('Solid', makePen({linestyle:'solid'}));
 
     // Line cap/join pens
     env.set('squarecap', makePen({linecap:'butt'}));
@@ -4745,7 +4797,31 @@ function createInterpreter() {
       return bezierPoint(p.segs[idx], Math.max(0, Math.min(1, frac)));
     }
 
-    env.set('point', (p, t) => _pointOnPath(p, t));
+    env.set('point', (...args) => {
+      // point(picture, dir): return the user-coord bbox point in direction.
+      // SW=(-1,-1)→(minX,minY), NE=(1,1)→(maxX,maxY), N=(0,1)→(cx,maxY), etc.
+      if (args.length >= 2 && args[0] && args[0]._tag === 'picture' && isPair(args[1])) {
+        const pic = args[0], d = args[1];
+        let minX, maxX, minY, maxY;
+        if (pic._picLimits && pic._picLimits.xmin != null) {
+          minX = pic._picLimits.xmin; maxX = pic._picLimits.xmax;
+        }
+        if (pic._picLimits && pic._picLimits.ymin != null) {
+          minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
+        }
+        if (minX === undefined || minY === undefined) {
+          const gb = getGeoBbox(pic.commands);
+          if (minX === undefined) { minX = gb.minX; maxX = gb.maxX; }
+          if (minY === undefined) { minY = gb.minY; maxY = gb.maxY; }
+        }
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const hx = (maxX - minX) / 2;
+        const hy = (maxY - minY) / 2;
+        return makePair(cx + d.x * hx, cy + d.y * hy);
+      }
+      return _pointOnPath(args[0], args[1]);
+    });
 
     env.set('relpoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
@@ -4913,6 +4989,17 @@ function createInterpreter() {
       return makeTransform(0, c, -s, 0, s, c);
     });
     env.set('scale', (...args) => {
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+        try { process.stderr.write('[scale-4919] n='+args.length+' args='+args.map(a=> a===null?'null':(a===undefined?'undef':(a && a._tag ? ('<'+a._tag+'>') : typeof a))).join(',')+'\n'); } catch(e){}
+      }
+      // scale(picture, scaleT, scaleT[, scaleT]) — set axis scale types on a picture
+      if (args.length >= 1 && args[0] && args[0]._tag === 'picture') {
+        const p = args[0];
+        if (args[1] && args[1]._tag === 'scaleT') p._xScale = args[1];
+        if (args[2] && args[2]._tag === 'scaleT') p._yScale = args[2];
+        if (args[3] && args[3]._tag === 'scaleT') p._zScale = args[3];
+        return null;
+      }
       if (args.length === 1) {
         const s = toNumber(args[0]);
         return makeTransform(0,s,0,0,0,s);
@@ -6542,8 +6629,20 @@ function createInterpreter() {
       for (const a of args) {
         if (a && a._named && a.n !== undefined) namedN = Math.floor(a.n);
       }
+      // Extract picture arg (first), used for per-picture log-scale transform
+      let graphPic = null;
+      for (const a of args) {
+        if (a && a._tag === 'picture') { graphPic = a; break; }
+      }
+      const xScaleLog = !!(graphPic && graphPic._xScale && graphPic._xScale.type === 'log');
+      const yScaleLog = !!(graphPic && graphPic._yScale && graphPic._yScale.type === 'log');
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+        try { process.stderr.write('[graph] graphPic='+!!graphPic+' xScaleLog='+xScaleLog+' yScaleLog='+yScaleLog+' args='+args.map(a=> a===null?'null':(a===undefined?'undef':(a && a._tag ? ('<'+a._tag+'>') : typeof a))).join(',')+'\n'); } catch(e){}
+      }
+      const _xT = (x) => (xScaleLog && x > 0) ? Math.log10(x) : x;
+      const _yT = (y) => (yScaleLog && y > 0) ? Math.log10(y) : y;
       // Strip operator/bool3/picture args and named args for cleaner matching
-      const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named));
+      const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named) && !(a && a._tag === 'picture'));
 
       // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
       if (coreArgs.length >= 2 && isArray(coreArgs[0]) && isArray(coreArgs[1])) {
@@ -6659,16 +6758,25 @@ function createInterpreter() {
 
         const callFunc = (f, t) => typeof f === 'function' ? f(t) : callUserFuncValues(f, [t]);
 
+        // When x is log-scaled and the function's domain is [a,b] in raw x,
+        // sample t geometrically (log-spaced) so the log-transformed curve is
+        // evenly spaced in log10(x) space.
+        const logSampleX = xScaleLog && !isTwoFuncParametric && !isPairFunc && a > 0 && b > 0;
+        const logA = logSampleX ? Math.log10(a) : 0;
+        const logB = logSampleX ? Math.log10(b) : 0;
+
         // Collect all points, then split at discontinuities (out-of-range or large jumps)
         const allPts = [];
         for (let i = 0; i <= n; i++) {
-          const t = a + (b - a) * i / n;
+          const t = logSampleX
+            ? Math.pow(10, logA + (logB - logA) * i / n)
+            : a + (b - a) * i / n;
           try {
             if (isTwoFuncParametric) {
               const xVal = toNumber(callFunc(funcArg, t));
               const yVal = toNumber(callFunc(funcArg2, t));
               if (isFinite(xVal) && isFinite(yVal)) {
-                allPts.push({x: xVal, y: yVal});
+                allPts.push({x: _xT(xVal), y: _yT(yVal)});
               } else {
                 allPts.push(null);
               }
@@ -6676,14 +6784,14 @@ function createInterpreter() {
               const result = callFunc(funcArg, t);
               if (isPairFunc) {
                 if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
-                  allPts.push({x: result.x, y: result.y});
+                  allPts.push({x: _xT(result.x), y: _yT(result.y)});
                 } else {
                   allPts.push(null); // discontinuity marker
                 }
               } else {
                 const y = toNumber(result);
                 if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
-                  allPts.push({x: t, y});
+                  allPts.push({x: _xT(t), y: _yT(y)});
                 } else {
                   allPts.push(null); // discontinuity marker
                 }
@@ -6758,6 +6866,17 @@ function createInterpreter() {
       const noZero = ticks.noZero || false;
       const isExtend = extent && (extent === 'BottomTop' || extent === 'LeftRight' ||
                                    extent === 'TopBottom' || extent === 'RightLeft');
+      // Frame-style extent: draw short ticks on both primary (at axisOffset) and
+      // mirror (at opposite crossMin/crossMax) axes.
+      const isFrameExtend = isExtend;
+      let mirrorOffset = null;
+      if (isFrameExtend) {
+        const primaryOffset = axisOffset;
+        const cLo = crossMin !== undefined ? crossMin : -5;
+        const cHi = crossMax !== undefined ? crossMax : 5;
+        // Mirror is on the opposite edge
+        mirrorOffset = (Math.abs(primaryOffset - cLo) < Math.abs(primaryOffset - cHi)) ? cHi : cLo;
+      }
       // Tick sizes: use the cross-axis range to determine a reasonable tick size.
       // Ticks extend perpendicular to the axis, so the size should be proportional
       // to the perpendicular axis extent, not the along-axis extent.
@@ -6851,22 +6970,33 @@ function createInterpreter() {
       // 'left' for y-axis means ticks extend to the left (negative x), 'right' to positive x
       const tickSide = ticks.side || null;
 
-      // Draw function for a single tick mark
+      // Draw function for a single tick mark. For frame-style extent (BottomTop/
+      // LeftRight), draw a short tick at the primary axis pointing INWARD and a
+      // mirror tick at the opposite axis also pointing INWARD.
       function drawTick(v, sz) {
         if (noZero && Math.abs(v) < 1e-10) return;
         if (v < min - 1e-10 || v > max + 1e-10) return;
+        if (isFrameExtend) {
+          const primaryOffset = axisOffset;
+          // Direction pointing inward (from primary axis toward mirror axis)
+          const inward = (mirrorOffset > primaryOffset) ? 1 : -1;
+          // Primary axis tick (pointing inward)
+          const pp0 = isX ? {x:v, y:primaryOffset} : {x:primaryOffset, y:v};
+          const pp1 = isX ? {x:v, y:primaryOffset + inward*sz} : {x:primaryOffset + inward*sz, y:v};
+          pic.commands.push({cmd:'draw', path: makePath([lineSegment(pp0, pp1)], false),
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
+          // Mirror axis tick (pointing inward, opposite direction)
+          const mp0 = isX ? {x:v, y:mirrorOffset} : {x:mirrorOffset, y:v};
+          const mp1 = isX ? {x:v, y:mirrorOffset - inward*sz} : {x:mirrorOffset - inward*sz, y:v};
+          pic.commands.push({cmd:'draw', path: makePath([lineSegment(mp0, mp1)], false),
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
+          return;
+        }
         let p0, p1;
-        if (isExtend) {
-          const cMin = crossMin !== undefined ? crossMin : -5;
-          const cMax = crossMax !== undefined ? crossMax : 5;
-          p0 = isX ? {x:v, y:cMin} : {x:cMin, y:v};
-          p1 = isX ? {x:v, y:cMax} : {x:cMax, y:v};
-        } else if (tickSide === 'left') {
-          // Ticks on the left/bottom side only
+        if (tickSide === 'left') {
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
         } else if (tickSide === 'right') {
-          // Ticks on the right/top side only
           p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         } else {
@@ -6874,9 +7004,7 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        // Extended gridlines default to background layer (above:-1) so they render below
-        // user-drawn paths, but respect above=true to render in foreground when requested.
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: isExtend ? (above ? 1 : -1) : (above ? 1 : 0), _isTickMark: !isExtend});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
       }
 
       // Draw major ticks (skip when size was explicitly set to near-zero)
@@ -6886,11 +7014,10 @@ function createInterpreter() {
         for (const v of minorPositions) drawTick(v, minorSize);
       }
 
-      // Draw labels for major ticks
-      // Suppress labels for extend=true ticks (grid lines) or very tiny tick marks
-      // (Size=0.1pt style that serves as invisible markers — labels at axis origin
-      // inside the chart area hurt SSIM vs reference images that omit them).
-      const showLabels = ticks.labels && !isExtend &&
+      // Draw labels for major ticks.
+      // Suppress labels for very tiny tick marks (Size=0.1pt style that serves as
+      // invisible markers).
+      const showLabels = ticks.labels &&
                          !(ticks.sizeExplicit && ticks.size < 1.5);
       if (showLabels) {
         for (const v of majorPositions) {
@@ -6994,6 +7121,7 @@ function createInterpreter() {
         pic = rawArgs[0]; startIdx = 1;
       }
       let axisShiftY = 0;
+      let axisShiftYExplicit = false;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
         if (a === null || a === undefined || a === false) continue;
@@ -7005,7 +7133,7 @@ function createInterpreter() {
           if ('above' in a) above = !!a.above;
           if ('axis' in a) {
             const ax = a.axis;
-            if (ax && ax._tag === 'axisshift' && ax.axis === 'x') axisShiftY = ax.value;
+            if (ax && ax._tag === 'axisshift' && ax.axis === 'x') { axisShiftY = ax.value; axisShiftYExplicit = true; }
             else if (ax && ax._tag === 'axisextent') extent = ax.type;
           }
           if ('arrow' in a) {
@@ -7023,7 +7151,7 @@ function createInterpreter() {
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
-        else if (a && a._tag === 'axisshift' && a.axis === 'x') { axisShiftY = a.value; }
+        else if (a && a._tag === 'axisshift' && a.axis === 'x') { axisShiftY = a.value; axisShiftYExplicit = true; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (xmin === null) xmin = a;
@@ -7044,13 +7172,35 @@ function createInterpreter() {
       // Track whether range was explicitly provided (vs auto-computed)
       const xminExplicit = xmin !== null;
       const xmaxExplicit = xmax !== null;
-      // Auto-range from content bounds if no explicit limits
+      // If picture has log x-scale, the user's numeric range may be given in raw-x
+      // (e.g. 1e-4 .. 1) but content in the picture is stored as log10(x). Transform
+      // explicit limits into log space.
+      const xIsLog = !!(pic._xScale && pic._xScale.type === 'log');
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+        try { process.stderr.write('[xaxis] xIsLog='+xIsLog+' pic._xScale='+(pic._xScale?JSON.stringify(pic._xScale):'null')+' xmin='+xmin+' xmax='+xmax+'\n'); } catch(e){}
+      }
+      if (xIsLog) {
+        if (xmin !== null && xmin > 0) xmin = Math.log10(xmin);
+        if (xmax !== null && xmax > 0) xmax = Math.log10(xmax);
+      }
+      // Auto-range from picture's own per-picture limits, then global, then content
+      if (xmin === null && pic._picLimits && pic._picLimits.xmin != null) {
+        xmin = xIsLog && pic._picLimits.xmin > 0 ? Math.log10(pic._picLimits.xmin) : pic._picLimits.xmin;
+      }
+      if (xmax === null && pic._picLimits && pic._picLimits.xmax != null) {
+        xmax = xIsLog && pic._picLimits.xmax > 0 ? Math.log10(pic._picLimits.xmax) : pic._picLimits.xmax;
+      }
       if (xmin === null) xmin = _axisLimits.xmin;
       if (xmax === null) xmax = _axisLimits.xmax;
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+        try { process.stderr.write('[xaxis after _axisLim] xmin='+xmin+' xmax='+xmax+' pic.cmds='+pic.commands.length+' picLim='+JSON.stringify(pic._picLimits||{})+'\n'); } catch(e){}
+      }
       if (xmin === null || xmax === null) {
-        // Compute from picture's existing content
+        // Compute from picture's existing content, skipping axis-related draws
         let cMinX = Infinity, cMaxX = -Infinity;
         for (const dc of pic.commands) {
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
+          if (dc.above === -1) continue; // extended gridlines drawn below content
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
               for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -7059,6 +7209,9 @@ function createInterpreter() {
             }
           }
           if (dc.pos && isFinite(dc.pos.x)) { if (dc.pos.x < cMinX) cMinX = dc.pos.x; if (dc.pos.x > cMaxX) cMaxX = dc.pos.x; }
+        }
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+          try { process.stderr.write('[xaxis content] cMinX='+cMinX+' cMaxX='+cMaxX+'\n'); } catch(e){}
         }
         if (xmin === null) xmin = isFinite(cMinX) ? cMinX : -5;
         if (xmax === null) xmax = isFinite(cMaxX) ? cMaxX : 5;
@@ -7089,6 +7242,38 @@ function createInterpreter() {
           if (!xmaxExplicit && c._axisShiftX > xmax) xmax = c._axisShiftX;
         }
       }
+      // Cross range for grid lines — prefer per-picture ylimits if set
+      let crossMin, crossMax;
+      if (pic._picLimits && pic._picLimits.ymin != null) {
+        crossMin = pic._picLimits.ymin;
+        crossMax = pic._picLimits.ymax;
+      } else if (_axisLimits.ymin !== null) {
+        crossMin = _axisLimits.ymin;
+        crossMax = _axisLimits.ymax;
+      } else {
+        // yaxis hasn't run yet; derive from picture's content.
+        let cMinY = Infinity, cMaxY = -Infinity;
+        for (const dc of pic.commands) {
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
+          if (dc.above === -1) continue;
+          if (dc.path && dc.path.segs) {
+            for (const seg of dc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+                if (isFinite(p.y)) { if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y; }
+              }
+            }
+          }
+          if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
+        }
+        crossMin = isFinite(cMinY) ? cMinY : -5;
+        crossMax = isFinite(cMaxY) ? cMaxY : 5;
+      }
+      // Frame-style extent: primary axis at edge, mirror on opposite edge.
+      const xIsBottomTop = extent === 'BottomTop' || extent === 'TopBottom';
+      const xIsTopPrimary = extent === 'TopBottom';
+      if (xIsBottomTop && !axisShiftYExplicit) {
+        axisShiftY = xIsTopPrimary ? crossMax : crossMin;
+      }
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
@@ -7097,16 +7282,45 @@ function createInterpreter() {
                         _isAxisLine: 'x', _axisShiftY: axisShiftY,
                         _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit};
         pic.commands.push(_xaxisDrawCmd);
+        // Mirror axis for BottomTop/TopBottom extent
+        if (xIsBottomTop) {
+          const mirrorY = xIsTopPrimary ? crossMin : crossMax;
+          const mPath = makePath([lineSegment({x:xmin,y:mirrorY},{x:xmax,y:mirrorY})], false);
+          pic.commands.push({cmd:'draw', path: mPath, pen, arrow: null, line: 0, above: above ? 1 : 0,
+                             _isAxisLine: 'x', _axisShiftY: mirrorY, _isMirror: true});
+        }
       }
-      // Cross range for grid lines
-      const crossMin = _axisLimits.ymin !== null ? _axisLimits.ymin : -5;
-      const crossMax = _axisLimits.ymax !== null ? _axisLimits.ymax : 5;
-      _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
+      // For log x-axis, synthesize tick positions at integer powers of 10 and
+      // label them as $10^{n}$.
+      let xTicks = ticks;
+      if (xIsLog && ticks) {
+        const positions = [];
+        const lo = Math.ceil(xmin - 1e-9);
+        const hi = Math.floor(xmax + 1e-9);
+        for (let k = lo; k <= hi; k++) positions.push(k);
+        xTicks = Object.assign({}, ticks, {
+          positions: positions,
+          labelFunc: (v) => '$10^{' + Math.round(v) + '}$',
+          step: 1,
+        });
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+          try { process.stderr.write('[xaxis-log] xmin='+xmin+' xmax='+xmax+' positions='+JSON.stringify(positions)+'\n'); } catch(e){}
+        }
+      }
+      _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
-        // Default: right-aligned at xmax, pushed below tick labels (W+S combined)
-        let lAlign = labelAlign || {x:-1, y:-3};
-        let labelX = xmax;
-        if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+        // Default: right-aligned at xmax, pushed below tick labels (W+S combined).
+        // For frame-style BottomTop/TopBottom extent: center the label below/above
+        // (typical scientific plot convention).
+        let lAlign, labelX;
+        if (xIsBottomTop && labelAlign == null && labelPosition == null) {
+          lAlign = xIsTopPrimary ? {x:0, y:3} : {x:0, y:-3};
+          labelX = (xmin + xmax) / 2;
+        } else {
+          lAlign = labelAlign || {x:-1, y:-3};
+          labelX = xmax;
+          if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+        }
         // At endpoint (position 0 or 1), Asymptote's labelaxis projects the user-supplied
         // align direction onto the axis tangent. For an xaxis the tangent is horizontal,
         // so an align like SE (1,-1) becomes pure East (1,0) — the label sits inline with
@@ -7130,6 +7344,7 @@ function createInterpreter() {
         pic = rawArgs[0]; startIdx = 1;
       }
       let axisShiftX = 0;
+      let axisShiftXExplicit = false;
       for (let i = startIdx; i < rawArgs.length; i++) {
         const a = rawArgs[i];
         if (a === null || a === undefined || a === false) continue;
@@ -7141,7 +7356,7 @@ function createInterpreter() {
           if ('above' in a) above = !!a.above;
           if ('axis' in a) {
             const ax = a.axis;
-            if (ax && ax._tag === 'axisshift' && ax.axis === 'y') axisShiftX = ax.value;
+            if (ax && ax._tag === 'axisshift' && ax.axis === 'y') { axisShiftX = ax.value; axisShiftXExplicit = true; }
             else if (ax && ax._tag === 'axisextent') extent = ax.type;
           }
           if ('arrow' in a) {
@@ -7159,7 +7374,7 @@ function createInterpreter() {
           continue;
         }
         if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
-        else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; }
+        else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; axisShiftXExplicit = true; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
           if (ymin === null) ymin = a;
@@ -7180,12 +7395,26 @@ function createInterpreter() {
       // Track whether range was explicitly provided (vs auto-computed)
       const yminExplicit = ymin !== null;
       const ymaxExplicit = ymax !== null;
-      // Auto-range from content bounds if no explicit limits
+      // If picture has log y-scale, transform explicit limits to log space.
+      const yIsLog = !!(pic._yScale && pic._yScale.type === 'log');
+      if (yIsLog) {
+        if (ymin !== null && ymin > 0) ymin = Math.log10(ymin);
+        if (ymax !== null && ymax > 0) ymax = Math.log10(ymax);
+      }
+      // Auto-range from picture's own per-picture limits first, then global, then content
+      if (ymin === null && pic._picLimits && pic._picLimits.ymin != null) {
+        ymin = yIsLog && pic._picLimits.ymin > 0 ? Math.log10(pic._picLimits.ymin) : pic._picLimits.ymin;
+      }
+      if (ymax === null && pic._picLimits && pic._picLimits.ymax != null) {
+        ymax = yIsLog && pic._picLimits.ymax > 0 ? Math.log10(pic._picLimits.ymax) : pic._picLimits.ymax;
+      }
       if (ymin === null) ymin = _axisLimits.ymin;
       if (ymax === null) ymax = _axisLimits.ymax;
       if (ymin === null || ymax === null) {
         let cMinY = Infinity, cMaxY = -Infinity;
         for (const dc of pic.commands) {
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
+          if (dc.above === -1) continue;
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
               for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -7227,15 +7456,69 @@ function createInterpreter() {
           if (!ymaxExplicit && c._axisShiftY > ymax) ymax = c._axisShiftY;
         }
       }
+      // Cross range for gridlines — prefer per-picture xlimits if set; transform to log space if needed
+      let crossMin, crossMax;
+      const xIsLogForY = !!(pic._xScale && pic._xScale.type === 'log');
+      if (pic._picLimits && pic._picLimits.xmin != null) {
+        crossMin = pic._picLimits.xmin;
+        crossMax = pic._picLimits.xmax;
+        if (xIsLogForY) {
+          if (crossMin > 0) crossMin = Math.log10(crossMin);
+          if (crossMax > 0) crossMax = Math.log10(crossMax);
+        }
+      } else if (_axisLimits.xmin !== null) {
+        crossMin = _axisLimits.xmin;
+        crossMax = _axisLimits.xmax;
+      } else {
+        // xaxis hasn't run yet; derive from picture's content.
+        let cMinX = Infinity, cMaxX = -Infinity;
+        for (const dc of pic.commands) {
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
+          if (dc.above === -1) continue;
+          if (dc.path && dc.path.segs) {
+            for (const seg of dc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+                if (isFinite(p.x)) { if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x; }
+              }
+            }
+          }
+          if (dc.pos && isFinite(dc.pos.x)) { if (dc.pos.x < cMinX) cMinX = dc.pos.x; if (dc.pos.x > cMaxX) cMaxX = dc.pos.x; }
+        }
+        crossMin = isFinite(cMinX) ? cMinX : -5;
+        crossMax = isFinite(cMaxX) ? cMaxX : 5;
+      }
+      // Frame-style extent: primary axis at edge, mirror on opposite edge.
+      const yIsLeftRight = extent === 'LeftRight' || extent === 'RightLeft';
+      const yIsRightPrimary = extent === 'RightLeft';
+      if (yIsLeftRight && !axisShiftXExplicit) {
+        axisShiftX = yIsRightPrimary ? crossMax : crossMin;
+      }
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
         pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
                            _isAxisLine: 'y', _axisShiftX: axisShiftX,
                            _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit});
+        if (yIsLeftRight) {
+          const mirrorX = yIsRightPrimary ? crossMin : crossMax;
+          const mPath = makePath([lineSegment({x:mirrorX,y:ymin},{x:mirrorX,y:ymax})], false);
+          pic.commands.push({cmd:'draw', path: mPath, pen, arrow: null, line: 0, above: above ? 1 : 0,
+                             _isAxisLine: 'y', _axisShiftX: mirrorX, _isMirror: true});
+        }
       }
-      const crossMin = _axisLimits.xmin !== null ? _axisLimits.xmin : -5;
-      const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
-      _drawTicks(ticks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
+      // For log y-axis, synthesize tick positions at integer powers of 10.
+      let yTicks = ticks;
+      if (yIsLog && ticks) {
+        const positions = [];
+        const lo = Math.ceil(ymin - 1e-9);
+        const hi = Math.floor(ymax + 1e-9);
+        for (let k = lo; k <= hi; k++) positions.push(k);
+        yTicks = Object.assign({}, ticks, {
+          positions: positions,
+          labelFunc: (v) => '$10^{' + Math.round(v) + '}$',
+          step: 1,
+        });
+      }
+      _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
       if (label && !isInvisible) {
         // In Asymptote's graph.asy, the default position for a y-axis label is at the
         // MIDDLE of the axis (position 0.5), aligned west (left), rotated 90° CCW.
@@ -7268,11 +7551,13 @@ function createInterpreter() {
 
     // xequals / yequals — draw vertical/horizontal line at a given coordinate
     env.set('xequals', (...args) => {
+      let pic = currentPic;
       let x = 0, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let above = false;
       let gotX = false;
       for (const a of args) {
         if (a === null || a === undefined) continue;
+        if (a && a._tag === 'picture') { pic = a; continue; }
         if (a === true || a === false) { above = a; continue; }
         if (a && typeof a === 'object' && a._named) {
           if ('ymin' in a) ymin = a.ymin;
@@ -7293,11 +7578,23 @@ function createInterpreter() {
         else if (a && a._tag === 'arrow') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
       }
+      // Apply picture's log x-scale to coordinate
+      if (pic && pic._xScale && pic._xScale.type === 'log' && x > 0) x = Math.log10(x);
+      // Use picture's per-picture ylimits if not supplied
+      if (ymin === null || ymax === null) {
+        const pl = pic && pic._picLimits;
+        if (pl) {
+          if (ymin === null && pl.ymin != null) ymin = pl.ymin;
+          if (ymax === null && pl.ymax != null) ymax = pl.ymax;
+        }
+        if (ymin === null && _axisLimits.ymin !== null) ymin = _axisLimits.ymin;
+        if (ymax === null && _axisLimits.ymax !== null) ymax = _axisLimits.ymax;
+      }
       if (ymin === null) ymin = -5;
       if (ymax === null) ymax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x,y:ymin},{x,y:ymax})], false);
-      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
+      pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -7312,20 +7609,22 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
-          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+          pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
           if (showTickLabels) {
-            currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
+            pic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
           }
         }
       }
     });
 
     env.set('yequals', (...args) => {
+      let pic = currentPic;
       let y = 0, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       let above = false;
       let gotY = false;
       for (const a of args) {
         if (a === null || a === undefined) continue;
+        if (a && a._tag === 'picture') { pic = a; continue; }
         if (a === true || a === false) { above = a; continue; }
         if (a && typeof a === 'object' && a._named) {
           if ('xmin' in a) xmin = a.xmin;
@@ -7346,11 +7645,27 @@ function createInterpreter() {
         else if (a && a._tag === 'arrow') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
       }
+      // Apply picture's log y-scale to coordinate
+      if (pic && pic._yScale && pic._yScale.type === 'log' && y > 0) y = Math.log10(y);
+      // Use picture's per-picture xlimits if not supplied; also apply log x-scale
+      if (xmin === null || xmax === null) {
+        const pl = pic && pic._picLimits;
+        if (pl) {
+          if (xmin === null && pl.xmin != null) xmin = pl.xmin;
+          if (xmax === null && pl.xmax != null) xmax = pl.xmax;
+        }
+        if (xmin === null && _axisLimits.xmin !== null) xmin = _axisLimits.xmin;
+        if (xmax === null && _axisLimits.xmax !== null) xmax = _axisLimits.xmax;
+      }
       if (xmin === null) xmin = -5;
       if (xmax === null) xmax = 5;
+      if (pic && pic._xScale && pic._xScale.type === 'log') {
+        if (xmin > 0) xmin = Math.log10(xmin);
+        if (xmax > 0) xmax = Math.log10(xmax);
+      }
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x:xmin,y},{x:xmax,y})], false);
-      currentPic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
+      pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         const tickSize = ticks.size || 0.1;
@@ -7365,9 +7680,9 @@ function createInterpreter() {
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
-          currentPic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+          pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
           if (showTickLabels) {
-            currentPic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
+            pic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
           }
         }
       }
@@ -7483,31 +7798,59 @@ function createInterpreter() {
       return buildGraphPath(pts, smooth || true);
     });
 
-    // Scale types
-    env.set('Linear', null);
-    env.set('Log', null);
-    env.set('Logarithmic', null);
-    env.set('Broken', (...args) => null);
+    // Scale types: returned from scale(pic, X, Y) to set log/linear on pic
+    // Note: `Linear` as an interpolation-operator (`{_tag:'operator', value:'--'}`)
+    // was set earlier in this function; we re-bind to the scale-type object here so
+    // `scale(pic, Log, Linear)` works. Call sites that accepted Linear as an
+    // interpolation op now check for _tag='scaleT' or just pass Spline/Hermite.
+    env.set('Linear', {_tag:'scaleT', type:'linear'});
+    env.set('Log',    {_tag:'scaleT', type:'log'});
+    env.set('Logarithmic', {_tag:'scaleT', type:'log'});
+    env.set('Broken', (...args) => ({_tag:'scaleT', type:'linear'}));
 
-    // xlimits/ylimits — store axis ranges for xaxis/yaxis to use
+    // xlimits/ylimits — store axis ranges for xaxis/yaxis to use.
+    // If a picture is passed as first arg, store per-picture; else global.
     env.set('xlimits', (...args) => {
+      let targetPic = null;
+      for (const a of args) { if (a && a._tag === 'picture') { targetPic = a; break; } }
       const nums = args.filter(a => typeof a === 'number');
+      let crop = false;
+      for (const a of args) {
+        if (a === true) crop = true;
+        else if (a && a._named && a.crop === true) crop = true;
+      }
+      if (targetPic) {
+        if (!targetPic._picLimits) targetPic._picLimits = {};
+        const pl = targetPic._picLimits;
+        if (nums.length >= 1) pl.xmin = nums[0];
+        if (nums.length >= 2) pl.xmax = nums[1];
+        if (crop) pl.crop = true;
+        return;
+      }
       if (nums.length >= 1) _axisLimits.xmin = nums[0];
       if (nums.length >= 2) _axisLimits.xmax = nums[1];
-      // Check for Crop — either positional (env-set to `true`) or named (crop=Crop)
-      for (const a of args) {
-        if (a === true) _axisLimits.crop = true;
-        else if (a && a._named && a.crop === true) _axisLimits.crop = true;
-      }
+      if (crop) _axisLimits.crop = true;
     });
     env.set('ylimits', (...args) => {
+      let targetPic = null;
+      for (const a of args) { if (a && a._tag === 'picture') { targetPic = a; break; } }
       const nums = args.filter(a => typeof a === 'number');
+      let crop = false;
+      for (const a of args) {
+        if (a === true) crop = true;
+        else if (a && a._named && a.crop === true) crop = true;
+      }
+      if (targetPic) {
+        if (!targetPic._picLimits) targetPic._picLimits = {};
+        const pl = targetPic._picLimits;
+        if (nums.length >= 1) pl.ymin = nums[0];
+        if (nums.length >= 2) pl.ymax = nums[1];
+        if (crop) pl.crop = true;
+        return;
+      }
       if (nums.length >= 1) _axisLimits.ymin = nums[0];
       if (nums.length >= 2) _axisLimits.ymax = nums[1];
-      for (const a of args) {
-        if (a === true) _axisLimits.crop = true;
-        else if (a && a._named && a.crop === true) _axisLimits.crop = true;
-      }
+      if (crop) _axisLimits.crop = true;
     });
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
@@ -9590,7 +9933,15 @@ function createInterpreter() {
     // scale / scale3 / xscale3 / yscale3 / zscale3
     const origScale = env.get('scale');
     env.set('scale', (...args) => {
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
+        try { process.stderr.write('[scale-9756] n='+args.length+' args='+args.map(a=> a===null?'null':(a===undefined?'undef':(a && a._tag ? ('<'+a._tag+'>') : typeof a))).join(',')+'\n'); } catch(e){}
+      }
       const pos = args.filter(a => !(a && a._named));
+      // Picture-form: scale(pic, scaleT, scaleT[, scaleT]) — delegate to orig
+      if (pos.length >= 1 && pos[0] && pos[0]._tag === 'picture') {
+        if (origScale) return origScale(...args);
+        return null;
+      }
       if (pos.length === 3) return scaleT3(toNumber(pos[0]), toNumber(pos[1]), toNumber(pos[2]));
       if (origScale) return origScale(...args);
       const s = toNumber(pos[0]);
