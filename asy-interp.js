@@ -5949,7 +5949,9 @@ function createInterpreter() {
         // SimpleHead tokens), use the smaller TeX-style arrowhead (texheadsize≈2.67bp,
         // rendered as a thin stroked head rather than a filled triangle).
         const hasNullHead = args.length > 0 && args[0] === null;
-        let sz = hasNullHead ? 2.67 : 6;
+        // TeXHead default in Asymptote: texsize ≈ 5.76bp (texheadmult=1.5 * 8.2-unit shape * 0.469 scale).
+        // Matches the ~6bp arrowhead glyph used by the LaTeX \to arrow at default linewidth.
+        let sz = hasNullHead ? 5.76 : 6;
         let sizeExplicit = false;
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
@@ -15484,16 +15486,38 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
       return {d, filled: true};
     }
 
-    // TeXHead has a narrower angle (about 15°) — produces a slimmer LaTeX-style chevron.
-    const headAngle = (isTexHead ? 15 : 25) * Math.PI / 180;
+    if (isTexHead) {
+      // Render TeXHead as two open wings meeting at the tip, matching the
+      // LaTeX \to glyph in TeXeR's rasterized output: narrow V with a slight
+      // outward bow. Local coords: tip at (L, 0), wing bases at (0, ±W).
+      const L = s * 1.15;
+      const W = s * 0.48;
+      const cx = Math.cos(screenAngle), sn = Math.sin(screenAngle);
+      const mapPt = (along, perp) => {
+        const dxA = (along - L) * cx;
+        const dyA = (along - L) * sn;
+        const dxP = -perp * sn;
+        const dyP =  perp * cx;
+        return [tipX + dxA + dxP, tipY + dyA + dyP];
+      };
+      const [tipXs, tipYs] = mapPt(L, 0);
+      const [blx, bly]     = mapPt(0,  W);
+      const [brx, bry]     = mapPt(0, -W);
+      // Slight outward bow: control at (L*0.55, W*0.6) — only just outside the
+      // straight line midpoint (L*0.5, W*0.5), giving a barely-perceptible curve.
+      const [clx, cly]     = mapPt(L * 0.55,  W * 0.62);
+      const [crx, cry]     = mapPt(L * 0.55, -W * 0.62);
+      const d =
+        `M${fmt(blx)} ${fmt(bly)} Q${fmt(clx)} ${fmt(cly)} ${fmt(tipXs)} ${fmt(tipYs)} ` +
+        `M${fmt(brx)} ${fmt(bry)} Q${fmt(crx)} ${fmt(cry)} ${fmt(tipXs)} ${fmt(tipYs)}`;
+      return {d, filled: false, texHead: true};
+    }
+
+    const headAngle = 25 * Math.PI / 180;
     const lx = tipX - s*Math.cos(screenAngle - headAngle);
     const ly = tipY - s*Math.sin(screenAngle - headAngle);
     const rx = tipX - s*Math.cos(screenAngle + headAngle);
     const ry = tipY - s*Math.sin(screenAngle + headAngle);
-    if (isTexHead) {
-      // Open chevron: two strokes meeting at the tip (no closing segment).
-      return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled:false};
-    }
     return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled};
   }
 
@@ -15520,7 +15544,11 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   if (isFilled) {
     return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
   }
-  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  // TeXHead open-wing strokes use a slightly boosted stroke width so the V
+  // reads as a substantial arrowhead at small sizes (matching LaTeX \to glyph).
+  const isTex = arrowParts[0].texHead;
+  const sw = isTex ? Math.max(css.strokeWidth * 1.5, 0.8) : css.strokeWidth;
+  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 // Render label text with superscript/subscript support as SVG
