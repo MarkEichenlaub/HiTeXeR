@@ -1937,6 +1937,32 @@ function createInterpreter() {
   // Apply a transform to all commands in a picture, returning a new picture
   function transformPicture(t, pic) {
     const newPic = {_tag:'picture', commands: pic.commands.map(c => transformDrawCmd(t, c))};
+    // Propagate per-picture sizing and fit metadata so that shift(..)*pic.fit()
+    // still reports the expected bbox and is placed correctly when add()'d.
+    if (pic._sizeW) newPic._sizeW = pic._sizeW;
+    if (pic._sizeH) newPic._sizeH = pic._sizeH;
+    if (pic._sizeAniso) newPic._sizeAniso = pic._sizeAniso;
+    if (pic._fitBbox) {
+      // Transform bbox corners; take axis-aligned box from the transformed points
+      const corners = [
+        {x: pic._fitBbox.min.x, y: pic._fitBbox.min.y},
+        {x: pic._fitBbox.max.x, y: pic._fitBbox.min.y},
+        {x: pic._fitBbox.min.x, y: pic._fitBbox.max.y},
+        {x: pic._fitBbox.max.x, y: pic._fitBbox.max.y},
+      ].map(p => ({x: t.a + t.b*p.x + t.c*p.y, y: t.d + t.e*p.x + t.f*p.y}));
+      newPic._fitBbox = {
+        min: makePair(Math.min(...corners.map(p => p.x)), Math.min(...corners.map(p => p.y))),
+        max: makePair(Math.max(...corners.map(p => p.x)), Math.max(...corners.map(p => p.y))),
+      };
+    }
+    // Accumulate fit shift for pure-translation transforms (used by shift(..)*frame)
+    if (t && t.b === 1 && t.c === 0 && t.e === 0 && t.f === 1) {
+      const prevSx = (pic._fitShift && pic._fitShift.x) || 0;
+      const prevSy = (pic._fitShift && pic._fitShift.y) || 0;
+      newPic._fitShift = { x: prevSx + t.a, y: prevSy + t.d };
+    } else if (pic._fitShift) {
+      newPic._fitShift = Object.assign({}, pic._fitShift);
+    }
     // Propagate per-picture crop limits, transforming them to the new coordinate space
     if (pic._picLimits) {
       const pl = pic._picLimits;
@@ -3090,7 +3116,25 @@ function createInterpreter() {
 
     // Picture methods
     if (obj && obj._tag === 'picture') {
-      if (method === 'fit') return obj; // fit() returns the picture (scaling handled at render)
+      if (method === 'fit') {
+        // fit() returns the picture (scaling handled at render). Compute a
+        // fit bbox in bp-space so min(frame)/max(frame) and shift(frame)
+        // composition work for multi-subpicture layouts.
+        if (!obj._fitBbox) {
+          if (obj._sizeW || obj._sizeH) {
+            const w = obj._sizeW || obj._sizeH || 100;
+            const h = obj._sizeH || obj._sizeW || 100;
+            obj._fitBbox = { min: makePair(0, 0), max: makePair(w, h) };
+          } else {
+            const gb = getGeoBbox(obj.commands);
+            obj._fitBbox = {
+              min: makePair(gb.minX, gb.minY),
+              max: makePair(gb.maxX, gb.maxY),
+            };
+          }
+        }
+        return obj;
+      }
       if (method === 'add') {
         // pic.add(otherPic) — add commands from other picture
         for (const a of args) {
@@ -4040,6 +4084,30 @@ function createInterpreter() {
         if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         return;
       }
+      // Handle add(fittedPicture) for size(pic, w, h, SW, NE) 4-arg form.
+      // The picture has _sizeAniso=true indicating an explicit user→bp viewport.
+      // Scale geometry anisotropically to fill (w, h) bp, translate by _fitShift.
+      // Restricted to _sizeAniso so plain add(pic.fit()) with unitsize context
+      // still falls through to the uniform-scale branch below.
+      if (!t && src._sizeW && src._sizeAniso) {
+        const gb = getGeoBbox(src.commands);
+        const geoW = (gb.maxX - gb.minX) || 1;
+        const geoH = (gb.maxY - gb.minY) || 1;
+        // Anisotropic scaling only for size(pic, w, h, SW, NE) 4-arg form.
+        // For size(pic, w) / size(pic, w, h) (no corner pairs) use uniform scaling.
+        const sX = src._sizeW / geoW;
+        const sY = (src._sizeAniso && src._sizeH) ? (src._sizeH / geoH) : sX;
+        const fs = src._fitShift || { x: 0, y: 0 };
+        // Place picture so its bbox min corner sits at (_fitShift.x, _fitShift.y)
+        const newT = makeTransform(
+          fs.x - gb.minX * sX, sX, 0,
+          fs.y - gb.minY * sY, 0, sY
+        );
+        const cmds = src.commands.map(c => transformDrawCmd(newT, c));
+        for (const c of cmds) dest.commands.push(c);
+        if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
+        return;
+      }
       // Handle per-picture sizing: add(pic.fit(), (i, 0)) where pic._sizeW is set
       // by size(pic, w). Scale the picture's geometry to _sizeW bp and shift by
       // (t.a * _sizeW, t.d * _sizeW) bp so sub-pictures are placed end-to-end.
@@ -4309,10 +4377,22 @@ function createInterpreter() {
     }
     env.set('factorial', _broadcast1(_factorialReal));
     env.set('min', (...args) => {
+      if (args.length===1 && args[0] && args[0]._tag === 'picture') {
+        const p = args[0];
+        if (p._fitBbox) return makePair(p._fitBbox.min.x, p._fitBbox.min.y);
+        const gb = getGeoBbox(p.commands);
+        return makePair(gb.minX, gb.minY);
+      }
       if (args.length===1 && isArray(args[0])) return Math.min(...args[0].map(toNumber));
       return Math.min(...args.map(toNumber));
     });
     env.set('max', (...args) => {
+      if (args.length===1 && args[0] && args[0]._tag === 'picture') {
+        const p = args[0];
+        if (p._fitBbox) return makePair(p._fitBbox.max.x, p._fitBbox.max.y);
+        const gb = getGeoBbox(p.commands);
+        return makePair(gb.maxX, gb.maxY);
+      }
       if (args.length===1 && isArray(args[0])) return Math.max(...args[0].map(toNumber));
       return Math.max(...args.map(toNumber));
     });
@@ -4937,11 +5017,17 @@ function createInterpreter() {
       if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
         // Per-picture sizing: size(p, w[, h]) — store dimensions on the picture so
         // that add(p.fit(), offset) can scale and place it at the correct bp size.
+        // size(p, w, h, SW, NE) 4-arg form specifies an anisotropic user-coord→bp
+        // viewport: the (SW, NE) rect in user coords maps to (0,0)..(w,h) in bp.
         const pic = args[0];
         const rest = args.slice(1).filter(a => !(a && typeof a === 'object' && a._named));
-        if (rest.length >= 1) pic._sizeW = toNumber(rest[0]);
-        if (rest.length >= 2) pic._sizeH = toNumber(rest[1]);
-        else if (rest.length === 1) pic._sizeH = pic._sizeW;
+        const pairArgs = rest.filter(a => isPair(a));
+        const numArgs = rest.filter(a => isNumber(a));
+        if (numArgs.length >= 1) pic._sizeW = toNumber(numArgs[0]);
+        if (numArgs.length >= 2) pic._sizeH = toNumber(numArgs[1]);
+        else if (numArgs.length === 1) pic._sizeH = pic._sizeW;
+        // Anisotropic mapping only when SW/NE corner pairs provided
+        pic._sizeAniso = pairArgs.length >= 2;
         return;
       }
       for (const a of args) {
@@ -7755,7 +7841,19 @@ function createInterpreter() {
     });
 
     // point(coordsys R, pair p, real m=1) → point
+    // point(picture pic, pair dir) → pair (user-coord bbox point in direction)
     env.set('point', (...args) => {
+      // point(picture, dir): return the user-coord bbox point in that direction.
+      // SW=(-1,-1)→(minX,minY), NE=(1,1)→(maxX,maxY), etc.
+      if (args.length >= 2 && args[0] && args[0]._tag === 'picture' && isPair(args[1])) {
+        const pic = args[0], d = args[1];
+        const gb = getGeoBbox(pic.commands);
+        const cx = (gb.minX + gb.maxX) / 2;
+        const cy = (gb.minY + gb.maxY) / 2;
+        const hx = (gb.maxX - gb.minX) / 2;
+        const hy = (gb.maxY - gb.minY) / 2;
+        return makePair(cx + d.x * hx, cy + d.y * hy);
+      }
       let R = null, p = null, m = 1;
       for (const a of args) {
         if (isCoordSys(a) && !R) R = a;
