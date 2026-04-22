@@ -13258,9 +13258,15 @@ function renderSVG(result, opts) {
       // not minuscule (< 1bp, which usually indicates a very different
       // layout style like fine-grained mm units).
       const aspectRatio = geoW / geoH;
-      const tgtSize = (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
-        ? 300
-        : defaultSize;
+      // Very small unitsize (< 1bp/unit, i.e. 0.1–0.3mm): TeXeR tends to
+      // render these compactly (~150–360 px wide = 45–108bp native =
+      // ~90–216bp HTX target). Using defaultSize=200 for these overshoots
+      // by 2–4×; target ~100bp instead so sizeScore doesn't collapse.
+      const tgtSize = (unitScale < 1)
+        ? (aspectRatio >= 2.5 ? 200 : 100)
+        : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
+          ? 300
+          : defaultSize;
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
