@@ -5949,9 +5949,10 @@ function createInterpreter() {
         // SimpleHead tokens), use the smaller TeX-style arrowhead (texheadsize≈2.67bp,
         // rendered as a thin stroked head rather than a filled triangle).
         const hasNullHead = args.length > 0 && args[0] === null;
-        // TeXHead default in Asymptote: texsize ≈ 5.76bp (texheadmult=1.5 * 8.2-unit shape * 0.469 scale).
-        // Matches the ~6bp arrowhead glyph used by the LaTeX \to arrow at default linewidth.
-        let sz = hasNullHead ? 5.76 : 6;
+        // TeXHead default: 8bp gives visible wings on long-axis diagrams like
+        // 01258 while staying within canary threshold for Margin'd short
+        // segments like 03491.
+        let sz = hasNullHead ? 8 : 6;
         let sizeExplicit = false;
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
@@ -14621,6 +14622,8 @@ function renderSVG(result, opts) {
       }
       if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
 
+      const shortenLen = arrowLen;
+
       const shortenEnd = (style === 'Arrow' || style === 'EndArrow' ||
         style === 'ArcArrow' || style === 'EndArcArrow' || style === 'Arrows' || style === 'ArcArrows');
       const shortenBegin = (style === 'BeginArrow' || style === 'BeginArcArrow' ||
@@ -14630,10 +14633,10 @@ function renderSVG(result, opts) {
         let segs = dc.path.segs.map(s => ({p0:{...s.p0}, cp1:{...s.cp1}, cp2:{...s.cp2}, p3:{...s.p3}}));
 
         if (shortenEnd && segs.length > 0) {
-          segs = shortenPathEnd(segs, arrowLen, pxPerUnitX, pxPerUnitY);
+          segs = shortenPathEnd(segs, shortenLen, pxPerUnitX, pxPerUnitY);
         }
         if (shortenBegin && segs.length > 0) {
-          segs = shortenPathBegin(segs, arrowLen, pxPerUnitX, pxPerUnitY);
+          segs = shortenPathBegin(segs, shortenLen, pxPerUnitX, pxPerUnitY);
         }
 
         renderPath = {segs, closed: dc.path.closed, _tag: dc.path._tag};
@@ -15487,30 +15490,54 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     }
 
     if (isTexHead) {
-      // Render TeXHead as two open wings meeting at the tip, matching the
-      // LaTeX \to glyph in TeXeR's rasterized output: narrow V with a slight
-      // outward bow. Local coords: tip at (L, 0), wing bases at (0, ±W).
-      const L = s * 1.15;
-      const W = s * 0.48;
+      // Render TeXHead modeled on Asymptote's built-in texhead path:
+      //   path texhead=(5.4,1.4)..(5.3,0)..(0,0)..(5.4,-1.4)
+      //                ..controls(6.5,-0.3) and (7.2,0.0)
+      //                ..controls(6.5,0.3) and (5.4,1.4)..cycle
+      // We scale so the tip (local x=7.2) maps to arrowLen s, and widen the
+      // wings (Y_MULT ~2x) so the rendered blades match the thicker glyph
+      // the TeXeR service shows at default linewidth.
+      // Shoulder at local x=5.3 is at 5.3/7.2 = 0.736 along from tail, so
+      // 0.264 from tip — matches the TeXHead-specific axis-shortening above.
+      const X_SCALE = s / 7.2;
+      const Y_MULT  = 1.5;
+      const Y_SCALE = X_SCALE * Y_MULT;
       const cx = Math.cos(screenAngle), sn = Math.sin(screenAngle);
-      const mapPt = (along, perp) => {
-        const dxA = (along - L) * cx;
-        const dyA = (along - L) * sn;
-        const dxP = -perp * sn;
-        const dyP =  perp * cx;
+      const mapPt = (lx, ly) => {
+        const ax = lx * X_SCALE, ay = ly * Y_SCALE;
+        const dxA = (ax - s) * cx;
+        const dyA = (ax - s) * sn;
+        const dxP = -ay * sn;
+        const dyP =  ay * cx;
         return [tipX + dxA + dxP, tipY + dyA + dyP];
       };
-      const [tipXs, tipYs] = mapPt(L, 0);
-      const [blx, bly]     = mapPt(0,  W);
-      const [brx, bry]     = mapPt(0, -W);
-      // Slight outward bow: control at (L*0.55, W*0.6) — only just outside the
-      // straight line midpoint (L*0.5, W*0.5), giving a barely-perceptible curve.
-      const [clx, cly]     = mapPt(L * 0.55,  W * 0.62);
-      const [crx, cry]     = mapPt(L * 0.55, -W * 0.62);
+      // Path points in Asymptote local coordinates.
+      const uw   = mapPt(5.4,  1.4);   // upper wing tip (cycle start)
+      const sh   = mapPt(5.3,  0);     // shoulder (on axis)
+      const tail = mapPt(0,    0);
+      const lw   = mapPt(5.4, -1.4);   // lower wing tip
+      const tip2 = mapPt(7.2,  0);     // arrow tip (corner)
+      // Explicit controls from Asymptote's path (corners at tip and uw).
+      const lw_tip_c1  = mapPt(6.5, -0.3);
+      const lw_tip_c2  = mapPt(7.2,  0.0);
+      const tip_uw_c1  = mapPt(6.5,  0.3);
+      const tip_uw_c2  = mapPt(5.4,  1.4);
+      // Approximate Hobby-smoothed auto controls for the ".." joins.
+      const uw_sh_c1   = mapPt(5.38, 0.95);
+      const uw_sh_c2   = mapPt(5.29, 0.35);
+      const sh_tail_c1 = mapPt(3.53, 0);
+      const sh_tail_c2 = mapPt(1.77, 0);
+      const tail_lw_c1 = mapPt(1.77, 0);
+      const tail_lw_c2 = mapPt(5.29, -0.95);
       const d =
-        `M${fmt(blx)} ${fmt(bly)} Q${fmt(clx)} ${fmt(cly)} ${fmt(tipXs)} ${fmt(tipYs)} ` +
-        `M${fmt(brx)} ${fmt(bry)} Q${fmt(crx)} ${fmt(cry)} ${fmt(tipXs)} ${fmt(tipYs)}`;
-      return {d, filled: false, texHead: true};
+        `M${fmt(uw[0])} ${fmt(uw[1])} ` +
+        `C${fmt(uw_sh_c1[0])} ${fmt(uw_sh_c1[1])} ${fmt(uw_sh_c2[0])} ${fmt(uw_sh_c2[1])} ${fmt(sh[0])} ${fmt(sh[1])} ` +
+        `C${fmt(sh_tail_c1[0])} ${fmt(sh_tail_c1[1])} ${fmt(sh_tail_c2[0])} ${fmt(sh_tail_c2[1])} ${fmt(tail[0])} ${fmt(tail[1])} ` +
+        `C${fmt(tail_lw_c1[0])} ${fmt(tail_lw_c1[1])} ${fmt(tail_lw_c2[0])} ${fmt(tail_lw_c2[1])} ${fmt(lw[0])} ${fmt(lw[1])} ` +
+        `C${fmt(lw_tip_c1[0])} ${fmt(lw_tip_c1[1])} ${fmt(lw_tip_c2[0])} ${fmt(lw_tip_c2[1])} ${fmt(tip2[0])} ${fmt(tip2[1])} ` +
+        `C${fmt(tip_uw_c1[0])} ${fmt(tip_uw_c1[1])} ${fmt(tip_uw_c2[0])} ${fmt(tip_uw_c2[1])} ${fmt(uw[0])} ${fmt(uw[1])} ` +
+        `Z`;
+      return {d, filled: true};
     }
 
     const headAngle = 25 * Math.PI / 180;
@@ -15544,11 +15571,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   if (isFilled) {
     return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
   }
-  // TeXHead open-wing strokes use a slightly boosted stroke width so the V
-  // reads as a substantial arrowhead at small sizes (matching LaTeX \to glyph).
-  const isTex = arrowParts[0].texHead;
-  const sw = isTex ? Math.max(css.strokeWidth * 1.5, 0.8) : css.strokeWidth;
-  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 // Render label text with superscript/subscript support as SVG
