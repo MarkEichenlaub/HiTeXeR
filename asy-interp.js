@@ -13051,7 +13051,7 @@ function renderSVG(result, opts) {
     const autoScaled = !hasUnitScale && sizeW <= 0 && sizeH <= 0;
 
     for (const dc of drawCommands) {
-      if (dc.cmd === 'label' || dc.cmd === 'dot') {
+      if (dc.cmd === 'label') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
         // Skip invisible labels (opacity 0) from bbox expansion
@@ -13739,16 +13739,11 @@ function renderSVG(result, opts) {
   // Like cssPixel but includes the bp→display conversion.  Use for anything whose
   // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
   // Uses bpToCSSPx so strokes/fonts scale at the same effective DPI as the geometry.
-  // When unitsize-boost magnified the geometry but no truesize text labels
-  // anchor the natural bp scale, magnify absolute-bp elements by the same
-  // factor so strokes/dots stay proportionally correct (matches Asymptote's
-  // appearance when its small native output is itself zoomed for display).
-  // Note: labelInfoBp also contains dot entries (used for bbox expansion);
-  // filter those out — only real text labels should suppress the boost.
-  const hasTextLabel = labelInfoBp.some(li => li._text && String(li._text).length > 0);
-  const absBoost = (!hasTextLabel && unitsizeBoostScale > 1)
-    ? unitsizeBoostScale : 1;
-  const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor * absBoost;
+  // Absolute-bp elements (strokes, dots, arrow heads, fonts) stay at their
+  // natural bp size and do NOT scale with the unitsize boost — this matches
+  // real Asymptote, where the unitsize boost rescales only the geometry while
+  // linewidth/dot/fontsize remain in absolute bp.
+  const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor;
 
   // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
   // Now that bpCSSPixel is known, compute how far each element extends
