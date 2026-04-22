@@ -13889,7 +13889,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
     html = '';
     for (const seg of segments) {
       if (seg.type === 'math') {
-        html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'mathml'});
+        html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'html'});
       } else {
         // Preserve spaces: HTML collapses leading/trailing whitespace in text nodes
         // adjacent to inline elements (KaTeX output).  Use &nbsp; for spaces.
@@ -13898,7 +13898,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
     }
   } else {
     try {
-      html = katex.renderToString(math, {throwOnError: false, displayMode: false, output: 'mathml'});
+      html = katex.renderToString(math, {throwOnError: false, displayMode: false, output: 'html'});
     } catch(e) {
       // Fallback to Unicode rendering
       return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
