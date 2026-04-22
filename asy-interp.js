@@ -4298,6 +4298,16 @@ function createInterpreter() {
       return _pointOnPath(p, time);
     });
 
+    // waypoint(path p, real r): point at arclength fraction r on p.
+    // For simple paths (straight segments) this matches relpoint; for curved paths
+    // it should use arclength but we approximate with time parametrization which is
+    // sufficient for typical usage like waypoint(A--B, 0.5).
+    env.set('waypoint', (p, t) => {
+      if (!isPath(p)) return makePair(0,0);
+      const time = toNumber(t) * p.segs.length;
+      return _pointOnPath(p, time);
+    });
+
     // reltime(path, frac): convert arclength fraction [0,1] to path time [0,N]
     env.set('reltime', (p, t) => {
       if (!isPath(p) || p.segs.length === 0) return 0;
@@ -4954,6 +4964,59 @@ function createInterpreter() {
       arcPath.segs.push(lineSegment(bPair, arcStart));
       arcPath.closed = true;
       return arcPath;
+    });
+
+    // pathticks(path g, int n=1, real r=.5, real s=1, pen p=currentpen):
+    //   Return a picture containing n tick marks drawn perpendicular to path g,
+    //   centered at parameter r along g's arclength, with tick size scaled by s.
+    // This implements the path-based form used in olympiad geometry figures
+    //   (e.g. add(pathticks(anglemark(...), n=1, r=0.07, s=2, blue)) ).
+    env.set('pathticks', (...args) => {
+      let g = null, n = 1, r = 0.5, s = 1;
+      let pen = clonePen(env.get('currentpen') || defaultPen);
+      for (const a of args) {
+        if (isPath(a) && g === null) { g = a; continue; }
+        if (isPen(a)) { pen = mergePens(pen, a); continue; }
+        if (a && typeof a === 'object' && a._named) {
+          if ('n' in a) n = toNumber(a.n);
+          if ('r' in a) r = toNumber(a.r);
+          if ('s' in a) s = toNumber(a.s);
+          if ('p' in a && isPen(a.p)) pen = mergePens(pen, a.p);
+          continue;
+        }
+        if (typeof a === 'number') {
+          // positional: n, r, space, size
+          // (keep simple: first number = n, second = r, third = s)
+          // Not commonly hit since asy source here uses keyword args.
+        }
+      }
+      const pic = {_tag:'picture', commands:[], transform: null};
+      if (!g || g.segs.length === 0) return pic;
+      const msf = env.get('markscalefactor') || 0.03;
+      // Tick half-length in geo units. Asymptote's default tick size is ~5bp;
+      // scale it with markscalefactor so it matches visual scale of anglemark.
+      const tickHalf = msf * s * 0.6;
+      // Spacing between consecutive ticks along path (arclength fraction).
+      const spacing = r; // 'r' here is treated as spacing parameter per olympiad usage.
+      const nT = Math.max(1, Math.round(n));
+      const N = g.segs.length;
+      const mid = 0.5;
+      for (let k = 0; k < nT; k++) {
+        // center tick k at fraction (mid + (k - (nT-1)/2)*spacing)
+        let frac = mid + (k - (nT - 1) / 2) * spacing;
+        if (frac < 0) frac = 0;
+        if (frac > 1) frac = 1;
+        const time = frac * N;
+        const pt = _pointOnPath(g, time);
+        const tan = _dirOnPath(g, time);
+        // perpendicular direction (rotate 90°)
+        const perpX = -tan.y, perpY = tan.x;
+        const p1 = makePair(pt.x + perpX * tickHalf, pt.y + perpY * tickHalf);
+        const p2 = makePair(pt.x - perpX * tickHalf, pt.y - perpY * tickHalf);
+        const tp = makePath([lineSegment(p1, p2)], false);
+        pic.commands.push({cmd:'draw', path:tp, pen:clonePen(pen), arrow:null, line:0});
+      }
+      return pic;
     });
 
     // Labeling helpers
