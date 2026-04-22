@@ -4504,6 +4504,24 @@ function createInterpreter() {
           const len = Math.sqrt(dx*dx + dy*dy);
           return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
         }
+        // dir(triple, triple) => unit(b - a) in 3D
+        if (isTriple(args[0]) && isTriple(args[1])) {
+          const a = args[0], b = args[1];
+          const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+          const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+          return len > 0 ? makeTriple(dx/len, dy/len, dz/len) : makeTriple(0,0,0);
+        }
+        // dir(real theta, real phi) => 3D spherical direction (from three.asy):
+        //   (sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta)), angles in degrees.
+        if (typeof args[0] === 'number' && typeof args[1] === 'number') {
+          const theta = args[0] * Math.PI / 180;
+          const phi = args[1] * Math.PI / 180;
+          return makeTriple(
+            Math.sin(theta) * Math.cos(phi),
+            Math.sin(theta) * Math.sin(phi),
+            Math.cos(theta)
+          );
+        }
       }
       return makePair(1,0);
     });
