@@ -881,6 +881,8 @@ def main():
                         help="Number of diagrams to process (0 = unlimited)")
     parser.add_argument("--id", type=str, default=None,
                         help="Start with a specific diagram ID (e.g. 01333)")
+    parser.add_argument("--ids", type=str, default=None,
+                        help="Comma-separated list of diagram IDs to process in order (e.g. 01333,02456,12931)")
     parser.add_argument("--max-visual-cycles", type=int, default=5,
                         help="Max visual fix cycles per diagram")
     parser.add_argument("--max-size-cycles", type=int, default=3,
@@ -908,8 +910,15 @@ def main():
     processed = set()
     diagrams_done = 0
 
-    # If a specific ID is requested, start with it
-    start_id = args.id
+    # Build queue of IDs to process in order
+    if args.ids:
+        id_queue = [x.strip().zfill(5) for x in args.ids.split(',') if x.strip()]
+        print(f"Targeting {len(id_queue)} specific diagrams: {', '.join(id_queue)}")
+    elif args.id:
+        id_queue = [args.id.zfill(5)]
+    else:
+        id_queue = []
+    use_queue_only = bool(args.ids)  # stop when queue exhausted (don't go random)
 
     # Ensure reference PNG cache dir exists
     TEXER_DIR.mkdir(exist_ok=True)
@@ -936,9 +945,15 @@ def main():
                 break
 
             # Pick a diagram
-            if start_id and start_id in by_id:
-                diag = by_id[start_id]
-                start_id = None  # only use it once
+            if id_queue:
+                next_id = id_queue.pop(0)
+                if next_id not in by_id:
+                    print(f"  Skipping {next_id}: not found in eligible diagrams")
+                    continue
+                diag = by_id[next_id]
+            elif use_queue_only:
+                print("\nAll requested diagrams processed. Stopping.")
+                break
             else:
                 # Pick random from eligible, avoiding already-processed
                 remaining = [r for r in eligible if r["id"] not in processed]

@@ -76,7 +76,7 @@ const ssimLookup = {};
 if (fs.existsSync(SSIM_FILE)) {
   const ssimData = JSON.parse(fs.readFileSync(SSIM_FILE, 'utf-8'));
   for (const entry of ssimData) {
-    ssimLookup[entry.id] = { ssim: entry.ssim, corpusFile: entry.corpusFile || null };
+    ssimLookup[entry.id] = { ssim: entry.ssim, combined: entry.combined ?? null, corpusFile: entry.corpusFile || null };
   }
   console.log(`SSIM scores: ${ssimData.length}`);
 }
@@ -113,7 +113,8 @@ for (let i = 0; i < allFiles.length; i++) {
     hasHtx:  htxSet.has(id),
     hasSvg:  svgSet.has(id),
     hasTexer: texerSet.has(id),
-    ssim:    ssimEntry !== undefined ? ssimEntry.ssim : null,
+    ssim:     ssimEntry !== undefined ? ssimEntry.ssim     : null,
+    combined: ssimEntry !== undefined ? ssimEntry.combined : null,
   });
 }
 

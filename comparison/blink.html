@@ -110,6 +110,8 @@
     <select id="sort-mode">
       <option value="ssim-asc">SSIM (worst first)</option>
       <option value="ssim-desc">SSIM (best first)</option>
+      <option value="combined-asc">Combined (worst first)</option>
+      <option value="combined-desc">Combined (best first)</option>
       <option value="id-asc">ID (ascending)</option>
       <option value="id-desc">ID (descending)</option>
     </select>
@@ -151,6 +153,7 @@
       <span id="blink-id"></span>
       <span id="blink-file"></span>
       <span>SSIM:<span class="ssim-val" id="blink-ssim"></span></span>
+      <span id="blink-combined-wrap" style="display:none">Comb:<span class="ssim-val" id="blink-combined"></span></span>
       <span id="blink-position"></span>
     </div>
     <button id="blink-auto" title="Toggle auto-blink (Space)">Auto-blink: OFF</button>
@@ -277,6 +280,12 @@
       case 'ssim-desc':
         list.sort((a, b) => (b.ssim ?? -2) - (a.ssim ?? -2));
         break;
+      case 'combined-asc':
+        list.sort((a, b) => (a.combined ?? 2) - (b.combined ?? 2));
+        break;
+      case 'combined-desc':
+        list.sort((a, b) => (b.combined ?? -2) - (a.combined ?? -2));
+        break;
       case 'id-asc':
         list.sort((a, b) => a.id.localeCompare(b.id));
         break;
@@ -313,7 +322,8 @@
       const htxHalf = d.hasHtx
         ? `<img src="htx_pngs/${d.id}.png" loading="lazy" alt="${d.id} HiTeXeR">`
         : '<div class="no-img">no HTX</div>';
-      const badge = ssimBadge(d.ssim);
+      const sortMode = document.getElementById('sort-mode').value;
+      const badge = ssimBadge(sortMode.startsWith('combined') ? (d.combined ?? d.ssim) : d.ssim);
       const isSel = selected.has(d.id);
       return `<div class="thumb${isSel ? ' selected' : ''}" data-idx="${start + i}" data-id="${d.id}" title="${d.source}">
         <input type="checkbox" class="thumb-check" ${isSel ? 'checked' : ''} title="Select">
@@ -401,6 +411,12 @@
       else html += `<button data-page="${p}" ${p === page ? 'class="current"' : ''}>${p + 1}</button>`;
     }
     html += `<button ${page === total - 1 ? 'disabled' : ''} data-page="${page + 1}">Next &raquo;</button>`;
+    html += `<span style="margin-left:12px;display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7">
+      Go to:
+      <input id="page-jump-input" type="number" min="1" max="${total}" value="${page + 1}"
+        style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #0f3460;background:#1a1a2e;color:#e0e0e0;font-size:12px;text-align:center">
+      <span style="opacity:0.5">/ ${total}</span>
+    </span>`;
     pag.innerHTML = html;
 
     pag.querySelectorAll('button[data-page]').forEach(btn => {
@@ -409,6 +425,17 @@
         if (p >= 0 && p < total) { page = p; renderGrid(); window.scrollTo(0, 0); }
       });
     });
+
+    const jumpInput = document.getElementById('page-jump-input');
+    if (jumpInput) {
+      jumpInput.addEventListener('change', () => {
+        const p = parseInt(jumpInput.value, 10) - 1;
+        if (p >= 0 && p < total) { page = p; renderGrid(); window.scrollTo(0, 0); }
+      });
+      jumpInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') jumpInput.dispatchEvent(new Event('change'));
+      });
+    }
   }
 
   // ── Blink View ───────────────────────────────────────
@@ -538,6 +565,14 @@
     idEl.textContent = d.id;
     fileEl.textContent = ` | ${d.source} | `;
     ssimEl.textContent = d.ssim !== null ? d.ssim.toFixed(4) : 'N/A';
+    const combWrap = document.getElementById('blink-combined-wrap');
+    const combEl   = document.getElementById('blink-combined');
+    if (d.combined !== null && d.combined !== undefined) {
+      combEl.textContent = d.combined.toFixed(4);
+      combWrap.style.display = '';
+    } else {
+      combWrap.style.display = 'none';
+    }
     posEl.textContent = ` | ${blinkIdx + 1}/${filtered.length}`;
   }
 
