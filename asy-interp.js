@@ -5403,6 +5403,19 @@ function createInterpreter() {
     env.set('BeginMargin', null);
     env.set('EndMargin', null);
     env.set('Margin', (...args) => null);
+    env.set('PenMargin', null);
+    env.set('PenMargins', null);
+    env.set('BeginPenMargin', null);
+    env.set('EndPenMargin', null);
+
+    // baseline(string s, pair align=S): wraps a label with baseline positioning.
+    // Simplified to pass-through of the label text.
+    env.set('baseline', (...args) => {
+      for (const a of args) {
+        if (typeof a === 'string') return a;
+      }
+      return args[0];
+    });
 
     // Arrow head types
     env.set('TeXHead', null);
@@ -7469,7 +7482,69 @@ function createInterpreter() {
     });
 
     // perpendicular(point M, line l) → line perpendicular to l through M
+    // Also handles drawing-mark form from geometry module:
+    //   perpendicular(pair z, pair align, path g=<horizontal>, pen p=currentpen)
+    //   perpendicular(pair z, pair align, pen p=currentpen)
+    // Distinguished by presence of a pen argument.
     env.set('perpendicular', (...args) => {
+      // Drawing-mark form detection: a pen is present AND we have a pair for z
+      // (with optional pair for align direction and optional path for ref line).
+      const hasPen = args.some(a => isPen(a));
+      if (hasPen) {
+        // Extract params for the mark
+        let z = null, align = null, refPath = null, pen = null, sz = null;
+        const pairs = [];
+        for (const a of args) {
+          if (isPoint(a) && !z) z = locatePoint(a);
+          else if (isPair(a)) pairs.push(a);
+          else if (isPath(a) && !refPath) refPath = a;
+          else if (isPen(a) && !pen) pen = a;
+          else if (typeof a === 'number' && sz === null) sz = a;
+          else if (isGeoLine(a) && !refPath) {
+            // convert geoline to a path-like direction
+            const A = locatePoint(a.A), B = locatePoint(a.B);
+            refPath = makePath([lineSegment(A,B)], false);
+          }
+        }
+        // Assign pairs to z/align in order (only if z not already assigned)
+        if (!z && pairs.length > 0) z = pairs.shift();
+        if (!align && pairs.length > 0) align = pairs.shift();
+        if (!z) return null;
+        if (!align) align = makePair(1,1);
+        // Determine the reference direction from refPath (first segment p0→p3)
+        // Default: horizontal (1,0).
+        let refDir = makePair(1, 0);
+        if (refPath && refPath.segs && refPath.segs.length > 0) {
+          const s0 = refPath.segs[0];
+          const p0 = s0.p0, p3 = s0.p3;
+          refDir = makePair(p3.x - p0.x, p3.y - p0.y);
+        }
+        // The mark is a small square at z. One leg along refDir, the other
+        // along the perpendicular (rotated 90° CCW), choosing the sign so
+        // both legs point toward the "align" quadrant.
+        const dlen = Math.sqrt(refDir.x*refDir.x + refDir.y*refDir.y) || 1;
+        const rx = refDir.x/dlen, ry = refDir.y/dlen;
+        // Perpendicular direction
+        const px = -ry, py = rx;
+        // Align signs
+        const ax = rx*align.x + ry*align.y; // component of align along refDir
+        const bx = px*align.x + py*align.y; // component of align along perp
+        const sA = ax >= 0 ? 1 : -1;
+        const sB = bx >= 0 ? 1 : -1;
+        // Size: default ~10 (in bp-ish), matches perpendicularmark default
+        const rawS = sz !== null ? sz : 10;
+        const s = rawS / 28.35;
+        const uA = { x: sA*rx*s, y: sA*ry*s };
+        const uD = { x: sB*px*s, y: sB*py*s };
+        const p1 = makePair(z.x + uA.x, z.y + uA.y);
+        const p2 = makePair(z.x + uA.x + uD.x, z.y + uA.y + uD.y);
+        const p3p = makePair(z.x + uD.x, z.y + uD.y);
+        const path = makePath([lineSegment(p1,p2), lineSegment(p2,p3p)], false);
+        currentPic.commands.push({cmd:'draw', path, pen, arrow:null, line:0});
+        return null;
+      }
+
+      // Line-returning form (original behavior)
       let M = null, l = null, normal = null;
       for (const a of args) {
         if (isPoint(a) && !M) M = a;
@@ -7498,6 +7573,29 @@ function createInterpreter() {
         return makeGeoLine(M, makePoint(cs, cs.defaultToRelative(B2), 1), true, true);
       }
       return null;
+    });
+
+    // square(pair z1, pair z2) — returns a closed path representing a square
+    // with z1 and z2 as adjacent corners. The other two corners are found by
+    // rotating the side z1→z2 by 90° (multiply by i).
+    env.set('square', (...args) => {
+      const pairs = [];
+      for (const a of args) {
+        if (isPair(a)) pairs.push(a);
+        else if (isPoint(a)) pairs.push(locatePoint(a));
+      }
+      if (pairs.length < 2) return makePath([], true);
+      const z1 = pairs[0], z2 = pairs[1];
+      const dx = z2.x - z1.x, dy = z2.y - z1.y;
+      // Rotate (dx,dy) 90° CCW: (-dy, dx)
+      const z3 = makePair(z2.x - dy, z2.y + dx);
+      const z4 = makePair(z1.x - dy, z1.y + dx);
+      return makePath([
+        lineSegment(z1, z2),
+        lineSegment(z2, z3),
+        lineSegment(z3, z4),
+        lineSegment(z4, z1),
+      ], true);
     });
 
     // parallel(point M, line l) → line parallel to l through M
@@ -11031,6 +11129,8 @@ function createInterpreter() {
       }
     }
     let pathArg = null, pen = null, drawPen = null, arrow = null;
+    let barsStyle = null; // 'Bar' | 'Bars' | null — tracked separately so it
+                          // can coexist with Arrows (geometry-module convention).
     let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
@@ -11042,9 +11142,18 @@ function createInterpreter() {
         if (cmd === 'filldraw' && penCount === 2) { drawPen = a; }
         else { pen = pen ? mergePens(pen, a) : a; }
       }
-      else if (a && a._tag === 'arrow') arrow = a;
+      else if (a && a._tag === 'arrow') {
+        if (a.style === 'Bar' || a.style === 'Bars') barsStyle = a.style;
+        else arrow = a;
+      }
       else if (typeof a === 'function' && !arrow) {
-        try { const r = a(); if (r && r._tag === 'arrow') arrow = r; } catch(e) {}
+        try {
+          const r = a();
+          if (r && r._tag === 'arrow') {
+            if (r.style === 'Bar' || r.style === 'Bars') barsStyle = r.style;
+            else arrow = r;
+          }
+        } catch(e) {}
       }
       else if (a && a._tag === 'label') {
         if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
@@ -11081,6 +11190,31 @@ function createInterpreter() {
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
       if (drawPen) dc.drawPen = drawPen;
       target.commands.push(dc);
+      // Emit Bar/Bars marks as short perpendicular segments at endpoint(s).
+      if (barsStyle && pathArg.segs && pathArg.segs.length > 0) {
+        const halfLen = 0.05; // user units; roughly 3bp at size(150)
+        const makeBarAt = (p, tdx, tdy) => {
+          const l = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
+          const nx = -tdy / l, ny = tdx / l;
+          const a = makePair(p.x + nx*halfLen, p.y + ny*halfLen);
+          const b = makePair(p.x - nx*halfLen, p.y - ny*halfLen);
+          return makePath([lineSegment(a, b)], false);
+        };
+        // End bar (style 'Bar' and 'Bars' both put a bar at the end)
+        {
+          const sL = pathArg.segs[pathArg.segs.length - 1];
+          const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
+          const barPath = makeBarAt(sL.p3, tdx, tdy);
+          target.commands.push({cmd:'draw', path: barPath, pen: clonePen(pen), arrow: null, line: args._line || 0});
+        }
+        // Begin bar only for 'Bars'
+        if (barsStyle === 'Bars') {
+          const s0 = pathArg.segs[0];
+          const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
+          const barPath = makeBarAt(s0.p0, tdx, tdy);
+          target.commands.push({cmd:'draw', path: barPath, pen: clonePen(pen), arrow: null, line: args._line || 0});
+        }
+      }
       // If draw call has a label, place it along the path at the specified position
       if (labelText && pathArg.segs && pathArg.segs.length > 0) {
         const t = (labelPosition != null) ? labelPosition : 0.5; // default midpoint
