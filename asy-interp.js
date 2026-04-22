@@ -40,6 +40,7 @@ const TYPE_NAMES = new Set([
   'coordsys','point','vector',
   'line','segment','circle','triangle',
   'side','vertex',
+  'TreeNode',
 ]);
 
 // ============================================================
@@ -830,12 +831,20 @@ function parse(tokens) {
       const joinTok = eat(cur().type);
       const join = joinTok.value === '--' ? '--' : '..';
 
-      // Check for 'cycle'
-      if (atVal(T.IDENT, 'cycle')) {
-        pos++;
-        nodes[nodes.length-1].join = join;
-        nodes.push({point: Identifier('cycle', cur().line), join: null, isCycle: true});
-        break;
+      // Check for 'cycle' (possibly preceded by {dir} — e.g. ..{W}cycle)
+      {
+        const savedCyc = pos;
+        const dirBeforeCycle = tryParseDir();
+        if (atVal(T.IDENT, 'cycle')) {
+          pos++;
+          nodes[nodes.length-1].join = join;
+          // Attach dirIn on the cycle node so that cycle-closure can honor it
+          // (the direction constrains the incoming tangent at the first knot).
+          nodes.push({point: Identifier('cycle', cur().line), join: null, isCycle: true, dirIn: dirBeforeCycle || null});
+          break;
+        }
+        // Not cycle — rewind so subsequent parsing treats the {dir} as a normal dirIn.
+        pos = savedCyc;
       }
 
       // Check for tension
@@ -868,7 +877,7 @@ function parse(tokens) {
           pos++;
           nodes[nodes.length-1].join = join;
           nodes[nodes.length-1].controlsOut = controlsOut;
-          nodes.push({point: Identifier('cycle', cur().line), join: null, isCycle: true, controlsIn: controlsIn});
+          nodes.push({point: Identifier('cycle', cur().line), join: null, isCycle: true, controlsIn: controlsIn, dirIn: null});
           break;
         }
       }
@@ -2335,14 +2344,19 @@ function createInterpreter() {
       }
     }
     // real * pair, pair * real
+    // Asymptote treats a real as a pair (r,0) for complex arithmetic, so
+    // real+pair = (r+x, y) and real-pair = (r-x, -y), NOT componentwise broadcast.
     if (isNumber(left) && isPair(right)) {
       if (op===T.STAR) return makePair(left*right.x, left*right.y);
+      if (op===T.PLUS) return makePair(left+right.x, right.y);
+      if (op===T.MINUS) return makePair(left-right.x, -right.y);
+      if (op===T.SLASH) { const d=right.x*right.x+right.y*right.y; return d?makePair(left*right.x/d, -left*right.y/d):makePair(0,0); }
     }
     if (isPair(left) && isNumber(right)) {
       if (op===T.STAR) return makePair(left.x*right, left.y*right);
       if (op===T.SLASH) return right?makePair(left.x/right, left.y/right):makePair(0,0);
-      if (op===T.PLUS) return makePair(left.x+right, left.y+right);
-      if (op===T.MINUS) return makePair(left.x-right, left.y-right);
+      if (op===T.PLUS) return makePair(left.x+right, left.y);
+      if (op===T.MINUS) return makePair(left.x-right, left.y);
     }
 
     // Numeric array broadcasting (element-wise ops for real[] arrays)
@@ -2415,6 +2429,18 @@ function createInterpreter() {
       if (right._gridCols !== undefined) out._gridCols = right._gridCols;
       if (right._gridCyclic !== undefined) out._gridCyclic = right._gridCyclic;
       if (right._colors) out._colors = right._colors;
+      // Preserve flat vertex list + face index metadata so palette coloring
+      // survives under transformation (shift/scale of fractal sub-cubes).
+      if (Array.isArray(right._vertices)) {
+        out._vertices = right._vertices.map(v => applyTransform3Triple(left, v));
+      }
+      if (Array.isArray(right._faceVertexIdx)) {
+        out._faceVertexIdx = right._faceVertexIdx.map(a => a ? a.slice() : null);
+        // Re-link face._vidx to match (applyTransform3Mesh drops non-vertex fields)
+        for (let fi = 0; fi < out.mesh.faces.length && fi < out._faceVertexIdx.length; fi++) {
+          if (out._faceVertexIdx[fi]) out.mesh.faces[fi]._vidx = out._faceVertexIdx[fi];
+        }
+      }
       return out;
     }
     // transform3 * revolution → transformed revolution (preserve grid)
@@ -2677,6 +2703,12 @@ function createInterpreter() {
       const args = (hasSpread || hasNamed) ? evalArgList(node.args, env) : node.args.map(a => evalNode(a, env));
       args._line = node._sourceLine || node.line || 0;
       if (calleeName === 'label') return evalLabel(args);
+      // drawtree module installs draw(TreeNode, pair) override in the environment;
+      // the hard-coded draw-command path below would otherwise bypass it.
+      if (calleeName === 'draw' && args.length >= 1 && args[0] && args[0]._tag === 'TreeNode') {
+        const envDraw = env.get('draw');
+        if (typeof envDraw === 'function') return envDraw(...args);
+      }
       if (calleeName === 'dot') {
         // dot(triple, triple) is dot product, not drawing
         if (args.length === 2 && isTriple(args[0]) && isTriple(args[1])) {
@@ -2943,8 +2975,45 @@ function createInterpreter() {
         if (!obj.mesh) obj.mesh = makeMesh([]);
         for (const a of args) {
           if (a && a._tag === 'surface' && a.mesh) {
-            obj.mesh.faces.push(...a.mesh.faces);
+            // If both surfaces carry _vertices/_faceVertexIdx, merge with offset
+            // so that per-vertex palette coloring works across appended meshes.
+            if (Array.isArray(a._vertices) && Array.isArray(a._faceVertexIdx)) {
+              if (!Array.isArray(obj._vertices)) obj._vertices = [];
+              if (!Array.isArray(obj._faceVertexIdx)) obj._faceVertexIdx = [];
+              const offset = obj._vertices.length;
+              for (const v of a._vertices) obj._vertices.push(v);
+              for (let fi = 0; fi < a.mesh.faces.length; fi++) {
+                const src = a.mesh.faces[fi];
+                const srcIdx = a._faceVertexIdx[fi];
+                const nf = {vertices: src.vertices.slice()};
+                if (src.normal) nf.normal = src.normal;
+                if (src.pen) nf.pen = src.pen;
+                if (srcIdx) {
+                  const shifted = srcIdx.map(k => k + offset);
+                  nf._vidx = shifted;
+                  obj._faceVertexIdx.push(shifted);
+                } else {
+                  // Pad with a placeholder so face indices stay aligned
+                  obj._faceVertexIdx.push(null);
+                }
+                obj.mesh.faces.push(nf);
+              }
+            } else {
+              // Appended surface has no vertex index metadata; if obj already
+              // has one, pad faceVertexIdx with nulls so indices stay aligned.
+              if (Array.isArray(obj._faceVertexIdx)) {
+                for (let fi = 0; fi < a.mesh.faces.length; fi++) {
+                  obj._faceVertexIdx.push(null);
+                }
+              }
+              obj.mesh.faces.push(...a.mesh.faces);
+            }
           } else if (isMesh(a)) {
+            if (Array.isArray(obj._faceVertexIdx)) {
+              for (let fi = 0; fi < a.faces.length; fi++) {
+                obj._faceVertexIdx.push(null);
+              }
+            }
             obj.mesh.faces.push(...a.faces);
           }
         }
@@ -2956,17 +3025,19 @@ function createInterpreter() {
       }
     }
 
-    // Revolution methods (solids module). For sphere-like revolutions the
-    // silhouette is known analytically: a circle perpendicular to the view
-    // direction, centered at the sphere center, with radius = sphere radius.
+    // Revolution methods (solids module). For sphere-like revolutions we
+    // know the silhouette analytically: a circle in the plane perpendicular
+    // to the view direction through the center, radius = sphere radius.
     if (obj && obj._tag === 'revolution') {
       if (method === 'silhouette') {
         if (typeof obj._radius === 'number' && obj._center && isTriple(obj._center)) {
           const r = obj._radius;
           const c = obj._center;
-          // Build two orthonormal basis vectors (u,v) spanning the plane
-          // perpendicular to the view direction so the circle projects as
-          // the sphere's visible outline (rather than the equator).
+          // The silhouette of a sphere is a circle in the plane perpendicular
+          // to the view direction, centered at the sphere center, with radius
+          // equal to the sphere radius. Build two orthonormal basis vectors
+          // (u,v) spanning that plane so the circle projects as the sphere's
+          // visible outline (rather than as the equator).
           let fx = 0, fy = 0, fz = 1; // default view: +Z
           if (projection) {
             fx = projection.cx - (projection.tx || 0);
@@ -2975,16 +3046,18 @@ function createInterpreter() {
             const fl = Math.sqrt(fx*fx + fy*fy + fz*fz) || 1;
             fx /= fl; fy /= fl; fz /= fl;
           }
-          // Start u from projection's up vector (if any); orthogonalize it
-          // against the view direction. Fall back to world-X if degenerate.
+          // Build u perpendicular to view direction: pick projection's up if
+          // available, then orthogonalize; fallback to world-Z or world-X.
           let ux = 0, uy = 0, uz = 1;
           if (projection && (projection.ux !== undefined || projection.uy !== undefined || projection.uz !== undefined)) {
             ux = projection.ux || 0; uy = projection.uy || 0; uz = projection.uz || 0;
           }
+          // u = up - (up·f)f, then normalize; if degenerate, fall back
           let dot = ux*fx + uy*fy + uz*fz;
           ux -= dot*fx; uy -= dot*fy; uz -= dot*fz;
           let ul = Math.sqrt(ux*ux + uy*uy + uz*uz);
           if (ul < 1e-9) {
+            // fall back to world X
             ux = 1; uy = 0; uz = 0;
             dot = ux*fx + uy*fy + uz*fz;
             ux -= dot*fx; uy -= dot*fy; uz -= dot*fz;
@@ -2997,6 +3070,8 @@ function createInterpreter() {
           const vz = fx*uy - fy*ux;
           const K3 = 0.5522847498 * r;
           const R = r;
+          // Parameterize circle: P(t) = c + R*(cos(t)*u + sin(t)*v)
+          // Build 4 cubic Bezier arcs (standard unit-circle bezier constants).
           const pt = (a, b) => makeTriple(
             c.x + a*ux + b*vx,
             c.y + a*uy + b*vy,
@@ -3140,11 +3215,13 @@ function createInterpreter() {
     // First pass: evaluate all nodes, collecting pairs and inline paths
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
     let hasCycle = false;
+    let cycleDirIn = null; // direction spec before 'cycle' (e.g. ..{W}cycle)
 
     for (let i = 0; i < node.nodes.length; i++) {
       const n = node.nodes[i];
       if (n.isCycle) {
         hasCycle = true;
+        if (n.dirIn) cycleDirIn = evalDirSpec(n.dirIn, env);
         continue;
       }
       const val = evalNode(n.point, env);
@@ -3171,8 +3248,17 @@ function createInterpreter() {
     // If any inline paths, build segments directly
     const hasInlinePaths = elements.some(e => e.type === 'path');
     if (hasInlinePaths) {
+      // Helper: build a connection (join) between two points honoring directions.
+      // joinKind is '..' or '--'. If '..' and dirs given, build a Hobby 2-point segment.
+      const makeJoinSeg = (a, b, joinKind, dirOutA, dirInB) => {
+        if (joinKind === '..' && (dirOutA != null || dirInB != null)) {
+          return hobbyTwoPointSegment(a, b, dirOutA, dirInB);
+        }
+        return lineSegment(a, b);
+      };
       const allSegs = [];
       let pendingPt = null; // pair waiting to be connected to next element
+      let pendingDirOut = null; // dirOut of the pending pair
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
         // Check if previous element used ^^ (pen-up) — if so, don't connect
@@ -3183,16 +3269,18 @@ function createInterpreter() {
           // Connect from pending point or previous endpoint to start of path (unless ^^ gap)
           if (!isHatHat) {
             if (pendingPt) {
-              allSegs.push(lineSegment(pendingPt, start));
+              allSegs.push(makeJoinSeg(pendingPt, start, prevJoin, pendingDirOut, el.dirIn));
               pendingPt = null;
+              pendingDirOut = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
               if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
-                allSegs.push(lineSegment(prev, start));
+                allSegs.push(makeJoinSeg(prev, start, prevJoin, null, el.dirIn));
               }
             }
           } else {
             pendingPt = null; // discard pending point across ^^ gap
+            pendingDirOut = null;
           }
           allSegs.push(...el.segs);
         } else {
@@ -3200,20 +3288,25 @@ function createInterpreter() {
           if (!isHatHat) {
             if (pendingPt) {
               // Two consecutive pairs, connect them
-              allSegs.push(lineSegment(pendingPt, el.pt));
+              allSegs.push(makeJoinSeg(pendingPt, el.pt, prevJoin, pendingDirOut, el.dirIn));
               pendingPt = null;
+              pendingDirOut = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
               if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
-                allSegs.push(lineSegment(prev, el.pt));
+                // Use dirOut of previous path element if present
+                const prevDirOut = i > 0 ? elements[i-1].dirOut : null;
+                allSegs.push(makeJoinSeg(prev, el.pt, prevJoin, prevDirOut, el.dirIn));
               }
             } else {
               // First element with no segments yet — store as pending
               pendingPt = el.pt;
+              pendingDirOut = el.dirOut || null;
             }
           } else {
             // ^^ gap: start fresh from this point
             pendingPt = null;
+            pendingDirOut = null;
             // Add zero-length seg to preserve point position for dot() usage
             allSegs.push(makeSeg(el.pt, el.pt, el.pt, el.pt));
           }
@@ -3224,7 +3317,17 @@ function createInterpreter() {
         const first = allSegs[0].p0;
         const last = allSegs[allSegs.length - 1].p3;
         if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
-          allSegs.push(lineSegment(last, first));
+          // Determine the join kind before cycle: from last element's join
+          const lastEl = elements[elements.length - 1];
+          const closeJoin = (lastEl && lastEl.join) ? lastEl.join : '..';
+          // dirOut at the last knot: from the last element's dirOut (if any)
+          const lastDirOut = lastEl ? (lastEl.dirOut || null) : null;
+          // dirIn at the first knot: from explicit {dir}cycle, else first element's dirIn
+          const firstEl = elements[0];
+          const firstDirIn = (cycleDirIn != null)
+            ? cycleDirIn
+            : (firstEl && firstEl.dirIn != null ? firstEl.dirIn : null);
+          allSegs.push(makeJoinSeg(last, first, closeJoin, lastDirOut, firstDirIn));
         }
       }
       return makePath(allSegs, hasCycle);
@@ -3563,13 +3666,180 @@ function createInterpreter() {
     if (mod.includes('slopefield')) {
       installSlopefieldPackage(env);
     }
+    if (mod.includes('lowupint')) {
+      installLowUpIntPackage(env);
+    }
     if (mod.includes('graph')) {
+      installGraphPackage(env);
+    }
+    if (mod.includes('stats')) {
+      // stats.asy imports graph and adds histogram/Gaussian/bins/Gaussrand.
+      // Our graph-package install also registers these stats primitives.
       installGraphPackage(env);
     }
     if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3')) {
       installThreePackage(env);
     }
+    if (mod === 'styles' || mod.endsWith('/styles')) {
+      installStylesPackage(env);
+    }
+    if (mod === 'drawtree' || mod.endsWith('/drawtree')) {
+      installDrawtreePackage(env);
+    }
     return null;
+  }
+
+  // Asymptote "drawtree" module — minimal layout-and-draw tree renderer.
+  // Implements TreeNode, makeNode(parent?, label), and draw(root, pos)
+  // following the algorithm in Asymptote's drawtree.asy by adarovsky.
+  function installDrawtreePackage(env) {
+    const cmBp = 72/2.54;
+    // Defaults match drawtree.asy
+    env.set('treeNodeStep', 0.5*cmBp);
+    env.set('treeLevelStep', 1*cmBp);
+    env.set('treeMinNodeWidth', 2*cmBp);
+
+    function makeTreeNode() {
+      return {_tag:'TreeNode', parent:null, children:[], label:'', _w:0, _h:0, pos:{x:0,y:0}, adjust:0};
+    }
+
+    function extractLabel(arg) {
+      if (arg == null) return '';
+      if (typeof arg === 'string') return arg;
+      if (arg && arg._tag === 'label') return arg.text || '';
+      return String(arg);
+    }
+
+    // Approximate label box dims (in bp). drawtree wraps labels in box(),
+    // which is ~text width + a few bp padding, ~text height + padding.
+    function nodeBoxDims(text) {
+      // ~5bp per char at 10pt, with ~6bp horizontal padding total
+      const w = Math.max(8, text.length) * 5.0 + 6;
+      const h = 12; // ~10pt text + small padding
+      return {w, h};
+    }
+
+    env.set('makeNode', (...args) => {
+      // Variants:
+      //   makeNode(label)
+      //   makeNode(parent, label)
+      let parent = null, labelArg = null;
+      for (const a of args) {
+        if (a && a._tag === 'TreeNode') parent = a;
+        else if (labelArg == null) labelArg = a;
+      }
+      const node = makeTreeNode();
+      node.label = extractLabel(labelArg);
+      const dims = nodeBoxDims(node.label);
+      node._w = dims.w;
+      node._h = dims.h;
+      if (parent) {
+        node.parent = parent;
+        parent.children.push(node);
+      }
+      return node;
+    });
+
+    env.set('add', (child, parent) => {
+      if (child && child._tag === 'TreeNode' && parent && parent._tag === 'TreeNode') {
+        child.parent = parent;
+        parent.children.push(child);
+        return;
+      }
+      // Fall through: not a tree add — let other 'add' overloads handle it
+      // (the env.set above shadows generic add, but tree code calls add only with TreeNodes)
+    });
+
+    // Wrap env.get('draw') to add a TreeNode overload without losing the regular draw.
+    const baseDraw = env.get('draw');
+
+    function layout(level, node) {
+      const treeLevelStep = env.get('treeLevelStep');
+      const treeNodeStep = env.get('treeNodeStep');
+      const treeMinNodeWidth = env.get('treeMinNodeWidth');
+      if (node.children.length > 0) {
+        const widths = new Array(node.children.length);
+        let curWidth = 0;
+        for (let i = 0; i < node.children.length; i++) {
+          widths[i] = layout(level+1, node.children[i]);
+          node.children[i].pos = {x: curWidth + widths[i]/2, y: -level*treeLevelStep};
+          curWidth += widths[i] + treeNodeStep;
+        }
+        let sumW = 0;
+        for (const w of widths) sumW += w;
+        const midPoint = (sumW + treeNodeStep*(widths.length-1)) / 2;
+        for (let i = 0; i < node.children.length; i++) {
+          node.children[i].adjust = -midPoint;
+        }
+        return Math.max(node._w, sumW + treeNodeStep*(widths.length-1));
+      } else {
+        return Math.max(treeMinNodeWidth, node._w);
+      }
+    }
+
+    function drawAll(node, ox, oy) {
+      const px = node.pos.x + ox;
+      const py = node.pos.y + oy;
+      node.pos = {x: px, y: py};
+      // Draw box around the label
+      const w2 = node._w/2, h2 = node._h/2;
+      const boxPath = makePath([
+        lineSegment({x:px-w2, y:py-h2}, {x:px+w2, y:py-h2}),
+        lineSegment({x:px+w2, y:py-h2}, {x:px+w2, y:py+h2}),
+        lineSegment({x:px+w2, y:py+h2}, {x:px-w2, y:py+h2}),
+        lineSegment({x:px-w2, y:py+h2}, {x:px-w2, y:py-h2}),
+      ], true);
+      evalDraw('draw', [boxPath]);
+      // Place label text centered
+      if (node.label) {
+        evalLabel([node.label, makePair(px, py)]);
+      }
+      // Connect to parent: top-of-this-box to bottom-of-parent-box
+      if (node.parent) {
+        const par = node.parent;
+        const top = {x: px, y: py + h2};
+        const bot = {x: par.pos.x, y: par.pos.y - par._h/2};
+        evalDraw('draw', [makePath([lineSegment(top, bot)], false)]);
+      }
+      for (const ch of node.children) drawAll(ch, px, oy);
+    }
+
+    function drawTree(root, pos) {
+      if (!root || root._tag !== 'TreeNode') return;
+      root.pos = {x: 0, y: 0};
+      layout(1, root);
+      // Asymptote's drawtree builds into a frame then add(f, pos);
+      // we render directly into currentPic shifted by pos.
+      drawAll(root, pos.x, pos.y);
+    }
+
+    env.set('draw', (...args) => {
+      if (args.length >= 1 && args[0] && args[0]._tag === 'TreeNode') {
+        const root = args[0];
+        const pos = args.length >= 2 && isPair(args[1]) ? toPair(args[1]) : makePair(0,0);
+        return drawTree(root, pos);
+      }
+      // Fall through to original draw
+      if (typeof baseDraw === 'function') return baseDraw(...args);
+    });
+  }
+
+  // AoPS "styles" module — provides spFills (pastel fill pens) and spGray stroke pen.
+  // Colors reverse-engineered from rendered reference PNGs.
+  function installStylesPackage(env) {
+    function pen(r,g,b) { return makePen({r,g,b}); }
+    // AoPS styles module fill palette. Index 0 is used by some diagrams (e.g. arbelos figures)
+    // and is a pale cyan/teal in the reference renders.
+    const spFills = [
+      pen(0xC9/255, 0xE3/255, 0xE3/255), // 0: pale cyan/teal
+      pen(0xFB/255, 0xC6/255, 0xB5/255), // 1: pink/salmon
+      pen(0xD7/255, 0xE6/255, 0x97/255), // 2: light green
+      pen(0xBF/255, 0xD7/255, 0xEE/255), // 3: light blue
+      pen(0xFF/255, 0xE5/255, 0x9A/255), // 4: light yellow
+      pen(0xE6/255, 0xCC/255, 0xEA/255), // 5: light purple
+    ];
+    env.set('spFills', spFills);
+    env.set('spGray', pen(0.4,0.4,0.4));
   }
 
   // ============================================================
@@ -4181,6 +4451,51 @@ function createInterpreter() {
     });
 
     env.set('arc', (...args) => {
+      // Extract named 'direction' arg (e.g. arc(..., direction=CW)) and strip
+      // any other named-arg wrappers so positional indexing below works.
+      let _namedDir = undefined;
+      {
+        const filtered = [];
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('direction' in a) _namedDir = a.direction;
+          } else {
+            filtered.push(a);
+          }
+        }
+        args = filtered;
+      }
+      // 3D spherical form: arc(triple center, real radius, real theta1, real phi1,
+      //                       real theta2, real phi2[, triple polar=Z, triple azimuth=X])
+      // theta is the polar angle from the polar axis (Z), phi is azimuthal (from X in XY plane),
+      // both in degrees. Arc lies on the sphere of the given radius centred at center.
+      if (args.length >= 6 && isTriple(args[0]) && typeof args[1] === 'number'
+          && typeof args[2] === 'number' && typeof args[3] === 'number'
+          && typeof args[4] === 'number' && typeof args[5] === 'number') {
+        const c = args[0];
+        const r = toNumber(args[1]);
+        const th1 = toNumber(args[2]) * Math.PI / 180;
+        const ph1 = toNumber(args[3]) * Math.PI / 180;
+        const th2 = toNumber(args[4]) * Math.PI / 180;
+        const ph2 = toNumber(args[5]) * Math.PI / 180;
+        const nSamp = 32;
+        const samples = [];
+        for (let i = 0; i <= nSamp; i++) {
+          const t = i / nSamp;
+          const th = th1 + (th2 - th1) * t;
+          const ph = ph1 + (ph2 - ph1) * t;
+          const sinTh = Math.sin(th), cosTh = Math.cos(th);
+          const px = c.x + r * sinTh * Math.cos(ph);
+          const py = c.y + r * sinTh * Math.sin(ph);
+          const pz = c.z + r * cosTh;
+          samples.push(makeTriple(px, py, pz));
+        }
+        const segs = [];
+        for (let i = 0; i < samples.length - 1; i++) {
+          segs.push(lineSegment(samples[i], samples[i+1]));
+        }
+        return makePath(segs, false);
+      }
       // 3D form: arc(triple center, triple v1, triple v2[, int n]) —
       // spherical-great-circle arc of radius |v1-center| from v1 to v2.
       // Returns a path with triple-valued Bezier segments (path3).
@@ -4231,8 +4546,9 @@ function createInterpreter() {
           r = -r;
           const tmp = a1; a1 = a2; a2 = tmp;
         }
-        // Determine direction: explicit 5th arg, or infer from angle relationship
-        const ccw = args.length >= 5 ? !!args[4] : (a2 >= a1);
+        // Determine direction: explicit 5th arg, named direction=, or infer from angle relationship
+        const ccw = args.length >= 5 ? !!args[4]
+                  : (_namedDir !== undefined ? !!_namedDir : (a2 >= a1));
         if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
         else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
         return makeArcPath(c, r, a1, a2);
@@ -4244,7 +4560,8 @@ function createInterpreter() {
         const r = Math.sqrt((p1.x-c.x)*(p1.x-c.x) + (p1.y-c.y)*(p1.y-c.y));
         let a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
         let a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
-        const ccw = args.length >= 4 ? !!args[3] : true;
+        const ccw = args.length >= 4 ? !!args[3]
+                  : (_namedDir !== undefined ? !!_namedDir : true);
         if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
         else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
         return makeArcPath(c, r, a1, a2);
@@ -5431,12 +5748,18 @@ function createInterpreter() {
     for (const name of arrowNames) {
       env.set(name, (...args) => {
         // Arrow(arrowhead, real size) — first arg may be a null arrowhead type (TeXHead etc.)
-        // Find the first numeric argument to use as size
-        let sz = 6;
+        // If an explicit null is passed as the first positional arg (from TeXHead/HookHead/
+        // SimpleHead tokens), use the smaller TeX-style arrowhead (texheadsize≈2.67bp,
+        // rendered as a thin stroked head rather than a filled triangle).
+        const hasNullHead = args.length > 0 && args[0] === null;
+        let sz = hasNullHead ? 2.67 : 6;
+        let sizeExplicit = false;
         for (const a of args) {
-          if (typeof a === 'number') { sz = a; break; }
+          if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
         }
-        return {_tag:'arrow', style:name, size: sz};
+        const out = {_tag:'arrow', style:name, size: sz};
+        if (hasNullHead) out.texHead = true;
+        return out;
       });
     }
 
@@ -5989,6 +6312,83 @@ function createInterpreter() {
         segs.push(lineSegment(allPts[i], allPts[i+1]));
       }
       return makePath(segs, false);
+    });
+  }
+
+  let lowUpIntPackageInstalled = false;
+  function installLowUpIntPackage(env) {
+    if (lowUpIntPackageInstalled) return;
+    lowUpIntPackageInstalled = true;
+    // Ensure graph functions (graph(), labelx()) are available.
+    installGraphPackage(env);
+
+    // f(real x) = x^3 - x + 2
+    const fFn = (x) => { const v = toNumber(x); return v*v*v - v + 2; };
+    env.set('f', fFn);
+    // F(real x) = (x, f(x))
+    env.set('F', (x) => { const v = toNumber(x); return makePair(v, fFn(v)); });
+
+    // rectangle(real a, real b, real c, real h(real,real))
+    // Draws a filled+stroked box on [a,b] from y=0 up to either f(c) (if a<c<b)
+    // or h(f(a), f(b)) otherwise.
+    env.set('rectangle', (...args) => {
+      const nums = [];
+      let hFn = null;
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+        else if (typeof a === 'function' || (a && a._tag === 'func')) { if (!hFn) hFn = a; }
+      }
+      if (nums.length < 3 || !hFn) return null;
+      const a = nums[0], b = nums[1], c = nums[2];
+      const height = (a < c && c < b) ? fFn(c) : toNumber(invokeFunc(hFn, [fFn(a), fFn(b)]));
+      const p = makePair(a, 0), q = makePair(b, height);
+      const g = env.get('box')(p, q);
+      const fillFn = env.get('fill');
+      const drawFn = env.get('draw');
+      const lightgray = env.get('lightgray');
+      if (fillFn) fillFn(g, lightgray);
+      if (drawFn) drawFn(g);
+      return null;
+    });
+
+    // partition(real a, real b, real c, real h(real,real))
+    env.set('partition', (...args) => {
+      const nums = [];
+      let hFn = null;
+      for (const a of args) {
+        if (typeof a === 'number') nums.push(a);
+        else if (typeof a === 'function' || (a && a._tag === 'func')) { if (!hFn) hFn = a; }
+      }
+      if (nums.length < 3 || !hFn) return null;
+      const a = nums[0], b = nums[1], c = nums[2];
+      const rect = env.get('rectangle');
+      rect(a, a + 0.4, c, hFn);
+      rect(a + 0.4, a + 0.6, c, hFn);
+      rect(a + 0.6, a + 1.2, c, hFn);
+      rect(a + 1.2, a + 1.6, c, hFn);
+      rect(a + 1.6, a + 1.8, c, hFn);
+      rect(a + 1.8, b, c, hFn);
+
+      const drawFn = env.get('draw');
+      const graphFn = env.get('graph');
+      const red = env.get('red');
+      const Fa = makePair(a, fFn(a));
+      const Fb = makePair(b, fFn(b));
+      if (drawFn) {
+        // Vertical connectors from axis to F(a), F(b)
+        drawFn(makePath([lineSegment(makePair(a, 0), Fa)], false));
+        drawFn(makePath([lineSegment(makePair(b, 0), Fb)], false));
+        // Red curve graph(f, a, b)
+        if (graphFn) drawFn(graphFn(fFn, a, b), red);
+        // x-axis between a and b
+        drawFn(makePath([lineSegment(makePair(a, 0), makePair(b, 0))], false));
+      }
+      const labelxFn = env.get('labelx');
+      if (labelxFn) {
+        labelxFn('$a$', a);
+        labelxFn('$b$', b);
+      }
+      return null;
     });
   }
 
@@ -6555,6 +6955,9 @@ function createInterpreter() {
         }
         else if (a && a._tag === 'axisextent') { extent = a.type; }
       }
+      // Track whether range was explicitly provided (vs auto-computed)
+      const xminExplicit = xmin !== null;
+      const xmaxExplicit = xmax !== null;
       // Auto-range from content bounds if no explicit limits
       if (xmin === null) xmin = _axisLimits.xmin;
       if (xmax === null) xmax = _axisLimits.xmax;
@@ -6581,10 +6984,33 @@ function createInterpreter() {
         if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
       }
       const isInvisible = pen.opacity === 0;
+      // Mirror yaxis logic: if a previously-drawn yaxis was auto-ranged and our
+      // x-axis position falls outside its range, extend it. Also include the
+      // yaxis's x-crossing in our own auto-range.
+      for (const c of pic.commands) {
+        if (c && c._isAxisLine === 'y') {
+          let cymin = c.path.segs[0].p0.y;
+          let cymax = c.path.segs[0].p3.y;
+          let changed = false;
+          if (c._autoYmin && axisShiftY < cymin) { cymin = axisShiftY; changed = true; }
+          if (c._autoYmax && axisShiftY > cymax) { cymax = axisShiftY; changed = true; }
+          if (changed) {
+            c.path = makePath([lineSegment({x:c._axisShiftX,y:cymin},{x:c._axisShiftX,y:cymax})], false);
+            if (c._autoYmin && (_axisLimits.ymin === null || cymin < _axisLimits.ymin)) _axisLimits.ymin = cymin;
+            if (c._autoYmax && (_axisLimits.ymax === null || cymax > _axisLimits.ymax)) _axisLimits.ymax = cymax;
+          }
+          if (!xminExplicit && c._axisShiftX < xmin) xmin = c._axisShiftX;
+          if (!xmaxExplicit && c._axisShiftX > xmax) xmax = c._axisShiftX;
+        }
+      }
       // Draw axis line (skip if invisible)
+      let _xaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:xmin,y:axisShiftY},{x:xmax,y:axisShiftY})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0});
+        _xaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
+                        _isAxisLine: 'x', _axisShiftY: axisShiftY,
+                        _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit};
+        pic.commands.push(_xaxisDrawCmd);
       }
       // Cross range for grid lines
       const crossMin = _axisLimits.ymin !== null ? _axisLimits.ymin : -5;
@@ -6592,9 +7018,17 @@ function createInterpreter() {
       _drawTicks(ticks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
       if (label && !isInvisible) {
         // Default: right-aligned at xmax, pushed below tick labels (W+S combined)
-        const lAlign = labelAlign || {x:-1, y:-3};
+        let lAlign = labelAlign || {x:-1, y:-3};
         let labelX = xmax;
         if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+        // At endpoint (position 0 or 1), Asymptote's labelaxis projects the user-supplied
+        // align direction onto the axis tangent. For an xaxis the tangent is horizontal,
+        // so an align like SE (1,-1) becomes pure East (1,0) — the label sits inline with
+        // the axis beyond the endpoint instead of below it.
+        const atEndpointX = labelAlign && (labelPosition === 0 || labelPosition === 1);
+        if (atEndpointX && typeof lAlign.x === 'number' && lAlign.x !== 0) {
+          lAlign = {x: lAlign.x, y: 0};
+        }
         pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
       }
     });
@@ -6657,6 +7091,9 @@ function createInterpreter() {
         else if (a && a._tag === 'ticks') ticks = a;
         else if (a && a._tag === 'axisextent') { extent = a.type; }
       }
+      // Track whether range was explicitly provided (vs auto-computed)
+      const yminExplicit = ymin !== null;
+      const ymaxExplicit = ymax !== null;
       // Auto-range from content bounds if no explicit limits
       if (ymin === null) ymin = _axisLimits.ymin;
       if (ymax === null) ymax = _axisLimits.ymax;
@@ -6682,9 +7119,33 @@ function createInterpreter() {
         if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
       }
       const isInvisible = pen.opacity === 0;
+      // In Asymptote, when axes auto-range, they extend to include the crossing
+      // point of the other axis (via deferred userMin/userMax bookkeeping).
+      // Mimic this: if a previously-drawn xaxis was auto-ranged and our y-axis
+      // position falls outside its range, extend it. Likewise, include the
+      // xaxis's y-crossing in our own auto-range.
+      for (const c of pic.commands) {
+        if (c && c._isAxisLine === 'x') {
+          let cxmin = c.path.segs[0].p0.x;
+          let cxmax = c.path.segs[0].p3.x;
+          let changed = false;
+          if (c._autoXmin && axisShiftX < cxmin) { cxmin = axisShiftX; changed = true; }
+          if (c._autoXmax && axisShiftX > cxmax) { cxmax = axisShiftX; changed = true; }
+          if (changed) {
+            c.path = makePath([lineSegment({x:cxmin,y:c._axisShiftY},{x:cxmax,y:c._axisShiftY})], false);
+            if (c._autoXmin && (_axisLimits.xmin === null || cxmin < _axisLimits.xmin)) _axisLimits.xmin = cxmin;
+            if (c._autoXmax && (_axisLimits.xmax === null || cxmax > _axisLimits.xmax)) _axisLimits.xmax = cxmax;
+          }
+          // Also: extend our y-axis range to include the x-axis y-crossing
+          if (!yminExplicit && c._axisShiftY < ymin) ymin = c._axisShiftY;
+          if (!ymaxExplicit && c._axisShiftY > ymax) ymax = c._axisShiftY;
+        }
+      }
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0});
+        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
+                           _isAxisLine: 'y', _axisShiftX: axisShiftX,
+                           _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit});
       }
       const crossMin = _axisLimits.xmin !== null ? _axisLimits.xmin : -5;
       const crossMax = _axisLimits.xmax !== null ? _axisLimits.xmax : 5;
@@ -6993,6 +7454,133 @@ function createInterpreter() {
     env.set('Crop', true);
     env.set('NoCrop', false);
     env.set('crop', (...args) => null);
+
+    // ------------------------------------------------------------
+    // stats package primitives (Gaussian, Gaussrand, bins, histogram)
+    // Stats builds on graph, so register here alongside graph.
+    // ------------------------------------------------------------
+
+    // Gaussian(x) = (1/sqrt(2*pi)) * exp(-x^2/2)  — unit normal pdf
+    env.set('Gaussian', (x) => {
+      const xv = toNumber(x);
+      return Math.exp(-xv*xv/2) / Math.sqrt(2*Math.PI);
+    });
+
+    // Simple LCG for deterministic Gaussrand() output — matches Asymptote's
+    // use of random numbers well enough for visualization. Seeded so the
+    // histogram shape is reproducible.
+    let _statsRngState = 0x12345678;
+    function _statsRand() {
+      // Numerical Recipes LCG
+      _statsRngState = (Math.imul(_statsRngState, 1664525) + 1013904223) | 0;
+      // Convert to [0,1)
+      return ((_statsRngState >>> 0) / 0x100000000);
+    }
+    let _gaussSpare = null;
+    function _gaussrand() {
+      // Box-Muller transform, with one spare sample cached
+      if (_gaussSpare !== null) {
+        const v = _gaussSpare; _gaussSpare = null; return v;
+      }
+      let u1, u2;
+      do { u1 = _statsRand(); } while (u1 <= 1e-12);
+      u2 = _statsRand();
+      const mag = Math.sqrt(-2 * Math.log(u1));
+      const z0 = mag * Math.cos(2*Math.PI*u2);
+      const z1 = mag * Math.sin(2*Math.PI*u2);
+      _gaussSpare = z1;
+      return z0;
+    }
+    env.set('Gaussrand', () => _gaussrand());
+    env.set('Gaussrandpair', () => makePair(_gaussrand(), _gaussrand()));
+
+    // bins(real[] data): Shimazaki/Shinomoto "optimal" bin count.
+    // We just return a reasonable default based on data range and n,
+    // clamped to a sensible window. For n=10000 this yields ~25–35 bins.
+    env.set('bins', (...args) => {
+      const data = isArray(args[0]) ? args[0] : [];
+      const n = data.length;
+      if (n < 2) return 1;
+      // Sturges-like but scaled more aggressively for large n
+      const k = Math.max(5, Math.min(60, Math.round(Math.pow(n, 1/3) * 1.5)));
+      return k;
+    });
+
+    // histogram(real[] data, real a, real b, int N, bool normalize=false,
+    //           real low=0, pen fillpen, pen drawpen, bool bars=false)
+    // Emits filled bars (fillpen) outlined with drawpen, scaled so that:
+    //  - if normalize=true, bar area sums to 1 over [a,b]
+    //  - otherwise, bar height = count
+    env.set('histogram', (...args) => {
+      // Separate named args
+      let normalize = false;
+      let low = 0;
+      let bars = false;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('normalize' in a) normalize = !!a.normalize;
+          if ('low' in a) low = toNumber(a.low);
+          if ('bars' in a) bars = !!a.bars;
+        }
+      }
+      const core = args.filter(a => !(a && typeof a === 'object' && a._named));
+
+      // Collect data array + numeric (a, b, N) + pens
+      let data = null;
+      const nums = [];
+      const pens = [];
+      for (const a of core) {
+        if (isArray(a) && data === null) data = a;
+        else if (typeof a === 'number') nums.push(a);
+        else if (isPen(a)) pens.push(a);
+      }
+      if (!data || data.length === 0) return;
+      const lo = nums.length >= 1 ? nums[0] : Math.min.apply(null, data.map(toNumber));
+      const hi = nums.length >= 2 ? nums[1] : Math.max.apply(null, data.map(toNumber));
+      const N  = nums.length >= 3 ? Math.max(1, Math.floor(nums[2])) : 10;
+      const fillPen = pens[0] || null;
+      const drawPen = pens[1] || clonePen(defaultPen);
+
+      // Bin the data
+      const counts = new Array(N).fill(0);
+      const width = (hi - lo) / N;
+      if (!(width > 0)) return;
+      const total = data.length;
+      for (let i = 0; i < total; i++) {
+        const v = toNumber(data[i]);
+        if (!isFinite(v)) continue;
+        if (v < lo || v > hi) continue;
+        let idx = Math.floor((v - lo) / width);
+        if (idx >= N) idx = N - 1;
+        if (idx < 0) idx = 0;
+        counts[idx]++;
+      }
+
+      // Compute heights
+      const heights = new Array(N);
+      for (let i = 0; i < N; i++) {
+        heights[i] = normalize ? (counts[i] / (total * width)) : counts[i];
+      }
+
+      // Emit a filldraw per bar: rectangle from (xL, low) to (xR, height)
+      for (let i = 0; i < N; i++) {
+        const xL = lo + i * width;
+        const xR = xL + width;
+        const y0 = low;
+        const y1 = heights[i];
+        const rectPath = makePath([
+          lineSegment(makePair(xL, y0), makePair(xR, y0)),
+          lineSegment(makePair(xR, y0), makePair(xR, y1)),
+          lineSegment(makePair(xR, y1), makePair(xL, y1)),
+          lineSegment(makePair(xL, y1), makePair(xL, y0)),
+        ], true);
+        if (fillPen) {
+          evalDraw('fill', [rectPath, fillPen]);
+        }
+        // Outline: with bars=true, draw all four sides; otherwise just the top+sides
+        evalDraw('draw', [rectPath, drawPen]);
+      }
+    });
   }
 
   // ============================================================
@@ -7535,8 +8123,18 @@ function createInterpreter() {
     // Geometric constructions
     // ────────────────────────────────────────────────────────────
 
-    // midpoint(point A, point B) or midpoint(segment)
+    // midpoint(point A, point B) or midpoint(segment) or midpoint(path)
     env.set('midpoint', (...args) => {
+      // Path form: midpoint(path p) → point at time length(p)/2
+      if (args.length === 1 && isPath(args[0])) {
+        const p = args[0];
+        if (!p.segs || p.segs.length === 0) return makePair(0,0);
+        const n = p.segs.length;
+        const time = n / 2;
+        const i = Math.min(Math.floor(time), n - 1);
+        const frac = Math.max(0, Math.min(1, time - i));
+        return bezierPoint(p.segs[i], frac);
+      }
       const pts = [];
       for (const a of args) {
         if (isPoint(a)) pts.push(a);
@@ -8455,7 +9053,7 @@ function createInterpreter() {
       // Parse args: xleft, xright, ybottom, ytop, then named args
       let xleft = -5, xright = 5, ybottom = -5, ytop = 5;
       let xstep = 1, ystep = 1;
-      let useticks = true, complexplane = false, usegrid = true;
+      let useticks = false, complexplane = false, usegrid = true;
       const nums = [];
       for (const a of args) {
         if (typeof a === 'number') nums.push(a);
@@ -9069,12 +9667,17 @@ function createInterpreter() {
           if (loops.length === 1) {
             const L = loops[0];
             const faces = [];
+            const faceVertexIdx = [];
             for (let i = 1; i < L.length - 1; i++) {
-              const f = {vertices: [L[0], L[i], L[i+1]]};
+              const f = {vertices: [L[0], L[i], L[i+1]], _vidx: [0, i, i+1]};
               f.normal = faceNormal(f);
               faces.push(f);
+              faceVertexIdx.push([0, i, i+1]);
             }
-            if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+            if (faces.length > 0) {
+              return {_tag:'surface', mesh: makeMesh(faces),
+                      _vertices: L.slice(), _faceVertexIdx: faceVertexIdx};
+            }
           } else if (loops.length === 2) {
             // Two loops: outer + inner hole. Resample to same count, align
             // phase (nearest starting index), and unify orientation so ring
@@ -9245,12 +9848,15 @@ function createInterpreter() {
         }
         if (dedup.length >= 3) {
           const faces = [];
+          const faceVertexIdx = [];
           for (let i = 1; i < dedup.length - 1; i++) {
-            const face = {vertices: [dedup[0], dedup[i], dedup[i+1]]};
+            const face = {vertices: [dedup[0], dedup[i], dedup[i+1]], _vidx: [0, i, i+1]};
             face.normal = faceNormal(face);
             faces.push(face);
+            faceVertexIdx.push([0, i, i+1]);
           }
-          return {_tag:'surface', mesh: makeMesh(faces)};
+          return {_tag:'surface', mesh: makeMesh(faces),
+                  _vertices: dedup.slice(), _faceVertexIdx: faceVertexIdx};
         }
         return {_tag:'surface', boundary: firstPath};
       }
@@ -9955,7 +10561,11 @@ function createInterpreter() {
         face.normal = faceNormal(face);
         faces.push(face);
       }
-      return {_tag:'revolution', mesh: makeMesh(faces), axis: A, _grid: rotated, _center: center, _radius: radius, _height: height};
+      const cylMesh = makeMesh(faces);
+      cylMesh._closed = true; // cylinder side is opaque: cull back-facing faces so the
+                              // front-half gradient isn't overwritten by the (equally
+                              // bright, because of |n·L|) back-half.
+      return {_tag:'revolution', mesh: cylMesh, axis: A, _grid: rotated, _center: center, _radius: radius, _height: height};
     });
     // render() — accepts any args, returns an opaque marker object ignored by draw
     env.set('render', (...args) => ({_tag:'renderOpts'}));
@@ -10059,6 +10669,83 @@ function createInterpreter() {
     };
     env.set('Rainbow', (...args) => rainbowPens());
     env.set('BWRainbow', (...args) => bwRainbowPens());
+    // image(picture, real[][] f, pair initial, pair final, pen[] palette)
+    // Renders a pseudocolor heatmap by emitting one filled rectangle per data cell.
+    // Asymptote convention: f[i][j] is the value at grid cell (i, j) where i indexes
+    // the horizontal (x) axis and j indexes the vertical (y) axis, with the rectangle
+    // spanning from `initial` to `final` in user coordinates.
+    env.set('image', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      let target = currentPic;
+      let data = null;
+      let initial = null, final = null;
+      let pens = null;
+      for (const a of pos) {
+        if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
+        if (Array.isArray(a) && data === null && a.length > 0 && Array.isArray(a[0])) { data = a; continue; }
+        if (Array.isArray(a) && pens === null && a.length > 0 && isPen(a[0])) { pens = a; continue; }
+        if (isPair(a)) {
+          if (initial === null) initial = a;
+          else if (final === null) final = a;
+          continue;
+        }
+      }
+      // Named arguments
+      for (const a of args) {
+        if (a && a._named) {
+          if ('initial' in a && isPair(a.initial)) initial = a.initial;
+          if ('final' in a && isPair(a.final)) final = a.final;
+          if ('palette' in a && Array.isArray(a.palette)) pens = a.palette;
+          if ('f' in a && Array.isArray(a.f)) data = a.f;
+          if ('pic' in a && a.pic && a.pic._tag === 'picture') target = a.pic;
+        }
+      }
+      if (!data || !initial || !final || !pens || pens.length === 0) return;
+      const nx = data.length;
+      if (nx === 0) return;
+      const ny = (data[0] && data[0].length) || 0;
+      if (ny === 0) return;
+      // Compute min/max across data
+      let vmin = Infinity, vmax = -Infinity;
+      for (let i = 0; i < nx; i++) {
+        const row = data[i];
+        if (!Array.isArray(row)) continue;
+        for (let j = 0; j < ny; j++) {
+          const v = toNumber(row[j]);
+          if (!isFinite(v)) continue;
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+      if (!isFinite(vmin) || !isFinite(vmax)) return;
+      const span = vmax - vmin;
+      const x0 = initial.x, y0 = initial.y;
+      const x1 = final.x, y1 = final.y;
+      const dx = (x1 - x0) / nx;
+      const dy = (y1 - y0) / ny;
+      const line = args._line || 0;
+      for (let i = 0; i < nx; i++) {
+        const row = data[i];
+        if (!Array.isArray(row)) continue;
+        const cx0 = x0 + i * dx;
+        const cx1 = x0 + (i + 1) * dx;
+        for (let j = 0; j < ny; j++) {
+          const v = toNumber(row[j]);
+          if (!isFinite(v)) continue;
+          const t = span > 0 ? (v - vmin) / span : 0;
+          const pen = _interpolatePens(pens, t);
+          const cy0 = y0 + j * dy;
+          const cy1 = y0 + (j + 1) * dy;
+          const rect = makePath([
+            lineSegment(makePair(cx0, cy0), makePair(cx1, cy0)),
+            lineSegment(makePair(cx1, cy0), makePair(cx1, cy1)),
+            lineSegment(makePair(cx1, cy1), makePair(cx0, cy1)),
+            lineSegment(makePair(cx0, cy1), makePair(cx0, cy0)),
+          ], true);
+          target.commands.push({cmd: 'fill', path: rect, pen, line, _imageCell: true});
+        }
+      }
+    });
     // Wheel(): HSV color wheel palette. Maps degrees (0-360) through the hue spectrum.
     // In Asymptote, Wheel() generates a 1024-entry palette for smooth hue interpolation.
     const wheelPens = () => {
@@ -10921,11 +11608,13 @@ function createInterpreter() {
             const closed = Math.abs(a0.x - aL.x) < 1e-6 && Math.abs(a0.y - aL.y) < 1e-6 && Math.abs(a0.z - aL.z) < 1e-6;
             if (closed) pts.push(pts[0]);
             // Split ring into front (solid) and back (dashed) halves based on
-            // the view direction so hidden portions render with hidden-line
+            // the view direction, so hidden portions render with hidden-line
             // dashing as Asymptote's solids module does.
+            // Ring center: interpolated along the revolution axis.
             let rcx = 0, rcy = 0, rcz = 0;
             for (const p of pts) { rcx += p.x; rcy += p.y; rcz += p.z; }
             rcx /= pts.length; rcy /= pts.length; rcz /= pts.length;
+            // View "forward" direction: camera → target.
             let fwx = 0, fwy = 0, fwz = -1;
             if (projection) {
               fwx = (projection.tx || 0) - projection.cx;
@@ -10934,16 +11623,18 @@ function createInterpreter() {
               const fl = Math.sqrt(fwx*fwx + fwy*fwy + fwz*fwz) || 1;
               fwx /= fl; fwy /= fl; fwz /= fl;
             }
+            // Sign: negative = in front (closer to camera), positive = behind.
             const signOf = (p) => {
               const d = (p.x - rcx)*fwx + (p.y - rcy)*fwy + (p.z - rcz)*fwz;
               return d < 0 ? -1 : (d > 0 ? 1 : 0);
             };
+            // Walk points, splitting at sign changes; interpolate crossing.
             const runs = [];
             let cur = { sign: signOf(pts[0]), pts: [pts[0]] };
             for (let k = 1; k < pts.length; k++) {
               const s = signOf(pts[k]);
               if (s !== cur.sign && cur.sign !== 0 && s !== 0) {
-                // Interpolate the sign-change crossing for a clean split
+                // Find crossing by linear interpolation of the depth value
                 const pa = pts[k-1], pb = pts[k];
                 const da = (pa.x - rcx)*fwx + (pa.y - rcy)*fwy + (pa.z - rcz)*fwz;
                 const db = (pb.x - rcx)*fwx + (pb.y - rcy)*fwy + (pb.z - rcz)*fwz;
@@ -10964,7 +11655,8 @@ function createInterpreter() {
             runs.push(cur);
             for (const run of runs) {
               // Back side (positive depth from center) is dashed/hidden.
-              emitCurve3(run.pts, pen, run.sign > 0);
+              const dashed = run.sign > 0;
+              emitCurve3(run.pts, pen, dashed);
             }
           }
           // Longitudinal arcs (unless longitudinalpen=nullpen)
@@ -10999,6 +11691,91 @@ function createInterpreter() {
         const grid = revArg._grid; // rotated[j][i]: (nLon+1) × nPath
         const nLon = grid.length - 1;
         const nPath = grid[0] ? grid[0].length : 0;
+        // For spheres (identified by _radius/_center), draw a wireframe of
+        // latitude rings (front-half solid, back-half dashed) before the
+        // silhouette outline, matching Asymptote's solids module appearance.
+        const isSphereRev = revArg._radius != null && revArg._center != null;
+        if (isSphereRev && nLon >= 2 && nPath >= 3) {
+          // View direction (camera → target), normalized
+          let _vx = 0, _vy = 0, _vz = 1;
+          if (projection) {
+            _vx = projection.cx - (projection.tx || 0);
+            _vy = projection.cy - (projection.ty || 0);
+            _vz = projection.cz - (projection.tz || 0);
+            const _vl = Math.sqrt(_vx*_vx + _vy*_vy + _vz*_vz) || 1;
+            _vx /= _vl; _vy /= _vl; _vz /= _vl;
+          }
+          const sc = revArg._center;
+          // Number of latitude rings (skip exact poles where ring degenerates).
+          const nLatRings = 10;
+          const emitRing = (pts, usedPen, dashed) => {
+            if (!pts || pts.length < 2) return;
+            const segs2 = [];
+            for (let k = 0; k < pts.length - 1; k++) {
+              const pa = projectTriple(pts[k]), pb = projectTriple(pts[k+1]);
+              segs2.push(lineSegment(pa, pb));
+            }
+            const path = makePath(segs2, false);
+            const mp = clonePen(usedPen);
+            if (dashed) mp.linestyle = '4 4';
+            target.commands.push({cmd:'draw', path, pen: mp, arrow: null, line: lineNo});
+          };
+          for (let r = 1; r < nLatRings; r++) {
+            const tt = r / nLatRings; // 0..1 between poles
+            const fidx = tt * (nPath - 1);
+            const i0 = Math.max(0, Math.min(nPath - 1, Math.floor(fidx)));
+            const i1 = Math.max(0, Math.min(nPath - 1, i0 + 1));
+            const ft = fidx - i0;
+            // Build the latitude ring by interpolating along the meridian
+            const ringPts = [];
+            for (let j = 0; j <= nLon; j++) {
+              const a = grid[j][i0], b = grid[j][i1];
+              ringPts.push(makeTriple(
+                a.x + (b.x - a.x) * ft,
+                a.y + (b.y - a.y) * ft,
+                a.z + (b.z - a.z) * ft
+              ));
+            }
+            // Split into front (solid) and back (dashed) arcs by view direction
+            // relative to the sphere center.
+            // Walk segments and emit runs of same visibility.
+            const sign = (j) => {
+              const p = ringPts[j];
+              return (p.x - sc.x) * _vx + (p.y - sc.y) * _vy + (p.z - sc.z) * _vz;
+            };
+            let runStart = 0;
+            let runFront = sign(0) >= 0;
+            const runs = [];
+            for (let j = 1; j <= nLon; j++) {
+              const f = sign(j) >= 0;
+              if (f !== runFront) {
+                runs.push({start: runStart, end: j, front: runFront});
+                runStart = j;
+                runFront = f;
+              }
+            }
+            runs.push({start: runStart, end: nLon, front: runFront});
+            // If first and last runs share visibility, merge them (closed ring).
+            if (runs.length >= 2 && runs[0].front === runs[runs.length - 1].front) {
+              const last = runs.pop();
+              const merged = [];
+              for (let j = last.start; j <= last.end; j++) merged.push(ringPts[j]);
+              for (let j = runs[0].start + 1; j <= runs[0].end; j++) merged.push(ringPts[j]);
+              emitRing(merged, pen, !runs[0].front);
+              for (let ri = 1; ri < runs.length; ri++) {
+                const seg = [];
+                for (let j = runs[ri].start; j <= runs[ri].end; j++) seg.push(ringPts[j]);
+                emitRing(seg, pen, !runs[ri].front);
+              }
+            } else {
+              for (const run of runs) {
+                const seg = [];
+                for (let j = run.start; j <= run.end; j++) seg.push(ringPts[j]);
+                emitRing(seg, pen, !run.front);
+              }
+            }
+          }
+        }
         if (nLon >= 2 && nPath >= 2) {
           // For a cylinder: nPath=2 (bottom ring at i=0, top ring at i=1)
           // Top ellipse: grid[j][nPath-1] for all j
@@ -11377,7 +12154,28 @@ function createInterpreter() {
         const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
         const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
         const labelPos = makePair(px, py);
-        const ldc = {cmd:'label', text:labelText, pos:labelPos, align:labelAlign, pen, line: args._line || 0};
+        // Default alignment when the user did not specify one:
+        // Asymptote's draw("label", path) places the label perpendicular to the
+        // path on the right-hand side of the direction of travel (dir rotated 90°
+        // clockwise). For a left-to-right horizontal path this puts the label
+        // below the path; for a right-to-left path it puts the label above.
+        let effectiveAlign = labelAlign;
+        if (!effectiveAlign) {
+          // Tangent from derivative of cubic Bezier at localT
+          const tdx = 3*b*b*(seg.cp1.x - seg.p0.x) + 6*b*localT*(seg.cp2.x - seg.cp1.x) + 3*localT*localT*(seg.p3.x - seg.cp2.x);
+          const tdy = 3*b*b*(seg.cp1.y - seg.p0.y) + 6*b*localT*(seg.cp2.y - seg.cp1.y) + 3*localT*localT*(seg.p3.y - seg.cp2.y);
+          let tl = Math.sqrt(tdx*tdx + tdy*tdy);
+          if (tl < 1e-9) {
+            // Degenerate (zero-length segment): fall back to endpoint direction
+            const ddx = seg.p3.x - seg.p0.x, ddy = seg.p3.y - seg.p0.y;
+            tl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+            effectiveAlign = makePair(ddy/tl, -ddx/tl);
+          } else {
+            // Right-perpendicular: rotate tangent 90° CW → (dy, -dx)
+            effectiveAlign = makePair(tdy/tl, -tdx/tl);
+          }
+        }
+        const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen, line: args._line || 0};
         if (labelTransform) ldc.labelTransform = labelTransform;
         target.commands.push(ldc);
       }
@@ -11446,6 +12244,13 @@ function createInterpreter() {
       else if (isString(a) && text === null) text = a;
     }
     if (!pen) pen = clonePen(defaultPen);
+    else {
+      // In Asymptote, a color-only pen argument (e.g. dot(z, p=black)) inherits
+      // linewidth from defaultpen. mergePens(defaultPen, pen) keeps defaultPen's
+      // linewidth unless the user-supplied pen overrides it explicitly.
+      pen = mergePens(defaultPen, pen);
+    }
+    // Dot radius = dotfactor * linewidth(p).
     if (multiDots) {
       for (const pt of multiDots) {
         target.commands.push({cmd:'dot', pos:pt, pen, filltype, line: args._line || 0});
@@ -11462,7 +12267,7 @@ function createInterpreter() {
     // If dot has a label, add it too
     else if (text && text.trim()) {
       if (!align) align = makePair(1, 1);
-      target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0});
+      target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0, _fromDot: true});
     }
   }
 
@@ -11629,9 +12434,27 @@ function createInterpreter() {
     }
     const vl = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
     vx /= vl; vy /= vl; vz /= vl;
-    // Lambert from "viewport" light (along view axis, toward viewer)
-    // For orthographic: parallel light along +view. For perspective: roughly same.
-    const lx = vx, ly = vy, lz = vz;
+    // Lambert from "viewport"-style light: predominantly along view axis, but
+    // tilted slightly toward the projection's up vector so that axis-aligned
+    // faces with different orientations receive distinguishable intensities
+    // (e.g. the top/side faces of a cube under orthographic(1,1,1) view).
+    // A pure view-axis light makes all three visible faces of an isometric
+    // cube equally bright and destroys the 3D impression; a small up-tilt
+    // mimics Asymptote's default Viewport light's off-axis components.
+    let upx = 0, upy = 0, upz = 1;
+    if (proj) {
+      upx = proj.ux || 0; upy = proj.uy || 0; upz = proj.uz || 1;
+      // Re-orthogonalize up against view to get a stable "screen up"
+      const vu = upx*vx + upy*vy + upz*vz;
+      upx -= vu*vx; upy -= vu*vy; upz -= vu*vz;
+      const ul = Math.sqrt(upx*upx + upy*upy + upz*upz);
+      if (ul > 1e-9) { upx /= ul; upy /= ul; upz /= ul; }
+      else { upx = 0; upy = 0; upz = 1; }
+    }
+    const tilt = 0.45; // how far to tilt light off view axis (toward "up")
+    let lx = vx + tilt*upx, ly = vy + tilt*upy, lz = vz + tilt*upz;
+    const ll = Math.sqrt(lx*lx + ly*ly + lz*lz) || 1;
+    lx /= ll; ly /= ll; lz /= ll;
 
     // Compute per-face data: depth (view-space), shade, projected 2D polygon
     const items = [];
@@ -11854,6 +12677,7 @@ function createInterpreter() {
     // Auto-install graph package — many AoPS codes use graph functions without import
     graphPackageInstalled = false; // Reset so it re-installs with fresh state
     installGraphPackage(globalEnv);
+    lowUpIntPackageInstalled = false; // Reset so re-import gets fresh defs
 
     const tokens = lex(code);
     const ast = parse(tokens);
@@ -12162,6 +12986,11 @@ function renderSVG(result, opts) {
   // labels are placed at absolute point sizes and don't shrink the geometry.
   const geoBboxW = (maxX - minX) || 1;
   const geoBboxH = (maxY - minY) || 1;
+  // Track whether the raw geometry (pre-pad) is degenerate (single point / zero
+  // extent).  In that case the padded "geometry" is just the stroke margin and
+  // shouldn't drive the unitsize boost — labels + dot at truesize already give
+  // a reasonable visible output.
+  const geoIsDegenerate = (maxX - minX) === 0 && (maxY - minY) === 0;
 
   // Padding in bp, converted to user coordinates.  Real Asymptote expands the
   // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
@@ -12257,7 +13086,19 @@ function renderSVG(result, opts) {
         const maxLineLen = cleanLines.reduce((m, l) => Math.max(m, l.length), 0);
         const numLines = cleanLines.length;
         const effectiveLen = hasFrac ? maxLineLen * 1.6 : maxLineLen;
-        let textWidthUser = effectiveLen * charWidthUser;
+        let textWidthBpBase = effectiveLen * charWidthBp;
+        // Guard against severe width under-estimation for size()-constrained labels:
+        // the flat 0.288-em ratio is tight for alpha glyphs but too narrow for digits
+        // and mixed text+units labels (e.g. "0.650 kg"). Use the per-glyph estimator
+        // from _estimateTextWidth as a lower bound on the widest line so such labels
+        // aren't clipped by the computed viewBox. Only used as a ceiling — never
+        // shrinks the existing estimate for other labels.
+        if (!autoScaled && !hasFrac) {
+          const widestLine = cleanLines.reduce((m, l) => (l.length > m.length ? l : m), '');
+          const glyphWidthBp = _estimateTextWidth(widestLine, fontSize);
+          if (glyphWidthBp > textWidthBpBase) textWidthBpBase = glyphWidthBp;
+        }
+        let textWidthUser = textWidthBpBase / roughPxPerUnitX;
         // Height estimate: for size()-constrained, use fuller capRatio; for auto-scaled, fuller height
         const heightFactor = autoScaled ? 0.7 : 0.65;
         let textHeightUser = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor) / roughPxPerUnitY;
@@ -12266,7 +13107,7 @@ function renderSVG(result, opts) {
         // Use the exact formula for any angle rather than just swapping at 90°.
         if (Math.abs(ltAngle) > 0.5) {
           // Original dimensions in bp (before dividing by axis scale)
-          const textWidthBp = effectiveLen * charWidthBp;
+          const textWidthBp = textWidthBpBase;
           const textHeightBp = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor);
           const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
           const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
@@ -12306,7 +13147,7 @@ function renderSVG(result, opts) {
             // skip — outside clip region, will not appear in output
           } else {
             // Compute bp-space dimensions (before rotation swap)
-            let lWidthBp = effectiveLen * charWidthBp;
+            let lWidthBp = textWidthBpBase;
             let lHeightBp = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor);
             // For rotated labels, use the rotated bounding box dimensions
             if (Math.abs(ltAngle) > 0.5) {
@@ -12360,6 +13201,7 @@ function renderSVG(result, opts) {
   // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit, pxPerUnitX, pxPerUnitY;
+  let unitsizeBoostScale = 1;
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
@@ -12399,13 +13241,15 @@ function renderSVG(result, opts) {
     const fullNatH = fullH * unitScale;
     // Three tiers, based on the per-unit bp density:
     //   - unitScale < 10  (tiny cm-based sizes like .1cm): boost until fullNat ≥ 100bp
-    //   - unitScale < 20  (e.g. .5cm = 14.17): boost until fullNat ≥ 80bp — these
+    //   - unitScale < 20  (e.g. .5cm = 14.17): boost until fullNat ≥ 55bp — these
     //     often correspond to AoPS-TeXeR diagrams that render large despite their
-    //     tiny per-unit scale.
+    //     tiny per-unit scale. Threshold kept below a 4-unit span at 0.5cm
+    //     (≈56.7bp) so that literal cm-based unitsize is honored exactly.
     //   - unitScale ≥ 20  (raw-bp unitsize like unitsize(40)): only boost when
     //     truly invisible (< 50bp); such diagrams are usually self-scaling.
-    const minReasonable = unitScale < 10 ? 100 : (unitScale < 20 ? 80 : 50);
-    if (naturalW < defaultSize && naturalH < defaultSize
+    const minReasonable = unitScale < 10 ? 100 : (unitScale < 20 ? 55 : 50);
+    if (!geoIsDegenerate
+        && naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
@@ -12420,6 +13264,13 @@ function renderSVG(result, opts) {
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
+      // Remember the boost so absolute-size elements (dots, strokes, arrows)
+      // can be scaled with the geometry when there are no truesize labels
+      // anchoring the natural bp scale.  Without this, e.g. a smiley face
+      // with `unitsize(1cm)` renders correctly-sized geometry but with
+      // pinpoint dots that should be ~3bp diameter relative to the boosted
+      // (~200bp) circle.  Applied later (after labelInfoBp is finalized).
+      unitsizeBoostScale = boostScale;
     }
   } else if (sizeW > 0 || sizeH > 0) {
     // size() without unitsize(): scale geometry to fit the requested size.
@@ -12439,6 +13290,30 @@ function renderSVG(result, opts) {
       pxPerUnitY = sizeH / scaleRefH;
     } else {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
+    }
+    // Minimum-size floor: when size() is very small (e.g. size(1.6cm)), real
+    // Asymptote/TeXeR still renders geometry at a readable scale alongside
+    // truesize labels — the tiny size() effectively acts as a "preferred" but
+    // not rigid constraint. Without this floor, geometry becomes unreadably
+    // small while labels dominate. Mirror the unitsize boost logic: if the
+    // natural geometry output is below a minimum threshold, scale up to a
+    // reasonable default (matching the no-size fallback of 150bp).
+    const minTarget = Math.min(targetW < Infinity ? targetW : Infinity,
+                               targetH < Infinity ? targetH : Infinity);
+    const naturalW = scaleRefW * pxPerUnit;
+    const naturalH = scaleRefH * pxPerUnit;
+    const maxNatural = Math.max(naturalW, naturalH);
+    // Only boost when size() is so small (< 60bp ≈ 2.1cm) that the geometry
+    // becomes essentially invisible. Boost to 150bp to match no-size default.
+    if (minTarget < 60 && maxNatural < 60) {
+      const boostTarget = 150;
+      const boostScale = boostTarget / Math.max(scaleRefW, scaleRefH) / pxPerUnit;
+      pxPerUnit *= boostScale;
+      pxPerUnitX *= boostScale;
+      pxPerUnitY *= boostScale;
+      // Update sizeW/sizeH so the iterative solver uses the boosted target.
+      if (sizeW > 0) sizeW = Math.max(sizeW, scaleRefW * pxPerUnit);
+      if (sizeH > 0) sizeH = Math.max(sizeH, scaleRefH * pxPerUnit);
     }
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior.
@@ -12461,7 +13336,6 @@ function renderSVG(result, opts) {
 
   // Iterative scale solver: reduce pxPerUnit so total output
   // (geometry + truesize labels) fits within size constraint.
-  // Real Asymptote does this; labels are truesize and don't scale with geometry.
   let labelShrinkFactor = 1;
   if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
@@ -12605,6 +13479,12 @@ function renderSVG(result, opts) {
         for (let i = 0; i < labelInfoBp.length; i++) {
           for (let j = i+1; j < labelInfoBp.length; j++) {
             const a = labelInfoBp[i], b = labelInfoBp[j];
+            // Skip empty-text labels (e.g. tick-mark placeholders) — they have
+            // no visible glyphs and should not drive overlap-clearing boosts.
+            // Without this, a tiny empty label near a real axis label can
+            // produce dy → 0 and an enormous (geometry-collapsing) boost.
+            if (!a._text || !String(a._text).trim()) continue;
+            if (!b._text || !String(b._text).trim()) continue;
             const dy = Math.abs(a.posY - b.posY);
             if (dy < 0.001) continue;
             // Require x-ranges to overlap substantially (>50% of smaller label width)
@@ -12766,7 +13646,7 @@ function renderSVG(result, opts) {
   // Convert bp → CSS display pixels.  Asymptote sizes are in PostScript points
   // (1 bp = 1/72 in).  The AoPS TeXeR rasterizes at 240 DPI and displays at
   // half resolution (width = naturalWidth/2), giving an effective 120 DPI for
-  // web display: 240/72/2 = 5/3 ≈ 1.6667 CSS px per bp.
+  // web display.  120/72 = 5/3 CSS px per bp.
   const bpToCSSPx = 5/3;
   svgW *= bpToCSSPx;
   svgH *= bpToCSSPx;
@@ -12859,7 +13739,16 @@ function renderSVG(result, opts) {
   // Like cssPixel but includes the bp→display conversion.  Use for anything whose
   // natural unit is bp (stroke widths, dot radii, arrow sizes, font sizes).
   // Uses bpToCSSPx so strokes/fonts scale at the same effective DPI as the geometry.
-  const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor;
+  // When unitsize-boost magnified the geometry but no truesize text labels
+  // anchor the natural bp scale, magnify absolute-bp elements by the same
+  // factor so strokes/dots stay proportionally correct (matches Asymptote's
+  // appearance when its small native output is itself zoomed for display).
+  // Note: labelInfoBp also contains dot entries (used for bbox expansion);
+  // filter those out — only real text labels should suppress the boost.
+  const hasTextLabel = labelInfoBp.some(li => li._text && String(li._text).length > 0);
+  const absBoost = (!hasTextLabel && unitsizeBoostScale > 1)
+    ? unitsizeBoostScale : 1;
+  const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor * absBoost;
 
   // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
   // Now that bpCSSPixel is known, compute how far each element extends
@@ -13295,6 +14184,20 @@ function renderSVG(result, opts) {
     if (drawCommands[ci].above === 1) renderOrder.push(ci);
   }
 
+  // Build a map of dot positions → dot radius (in SVG user units) so that labels
+  // placed at the same anchor point can be pushed outward by the dot radius
+  // (matching Asymptote's dotmargin = labelmargin + dotfactor*linewidth/2 behavior).
+  const dotRadiusAtPos = new Map();
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    const dc = drawCommands[ci];
+    if (dc.cmd !== 'dot' || !dc.pos) continue;
+    const dotLw = dc.pen.linewidth;
+    const dR = (dc.pen && dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+    const key = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
+    const prev = dotRadiusAtPos.get(key) || 0;
+    if (dR > prev) dotRadiusAtPos.set(key, dR);
+  }
+
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
     const dc = drawCommands[ci];
@@ -13417,13 +14320,32 @@ function renderSVG(result, opts) {
         const numLines = cleanDxLines.length || 1;
         const W = cleanLen * fontSizeSVG * 0.52;
         const H = fontSizeSVG * numLines;
-        const margin = 0.25 * fontSizeSVG;   // Asymptote default: labelmargin=0.25
+        // Asymptote's labelmargin(p) = 0.28*fontsize(p) + 0.5*linewidth(p)
+        // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
+        // and including the linewidth term gives labels proper clearance from
+        // nearby graphics (notably dots at the same anchor position).
+        const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+        const margin = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
+        // If there's a dot at the same anchor position, push the label outward by
+        // the dot radius along the (normalized) align direction. Matches Asymptote's
+        // dotmargin = labelmargin + dotfactor*linewidth/2 behavior used by dot(..., Label).
+        let dotPush = 0;
+        // Only apply dot-radius push for labels generated by dot(Label, ...) — Asymptote
+        // uses dotmargin = labelmargin + dotfactor*linewidth/2 only for that form.
+        // User labels called separately from dot use just labelmargin, even at same position.
+        if (dc.pos && dc._fromDot) {
+          const dkey = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
+          dotPush = dotRadiusAtPos.get(dkey) || 0;
+        }
+        const aMag = Math.hypot(ax, ay);
+        const axUnit = aMag > 0 ? ax / aMag : 0;
+        const ayUnit = aMag > 0 ? ay / aMag : 0;
         // Asymptote drawlabel.cc: z = align * 0.5; offset = (z.x*W, z.y*H)
         // The magnitude of align is NOT normalised — 2E pushes twice as far as E.
         const ax_n = ax * 0.5;
         const ay_n = ay * 0.5;
-        dx = ax_n * W + ax * margin;
-        dy = -(ay_n * H + ay * margin);   // negate: SVG y-axis is inverted
+        dx = ax_n * W + ax * margin + axUnit * dotPush;
+        dy = -(ay_n * H + ay * margin + ayUnit * dotPush);   // negate: SVG y-axis is inverted
         anchor = 'middle';
       }
       const rawText = dc.text || '';
@@ -13474,7 +14396,9 @@ function renderSVG(result, opts) {
             const cleanLen2 = (stripLaTeX(dc.text || '').length) || 1;
             const W2 = cleanLen2 * effectiveFontSize * 0.52;
             const H2 = effectiveFontSize;
-            const margin2 = 0.25 * effectiveFontSize;
+            // Match Asymptote's labelmargin(p) = 0.28*fontsize + 0.5*linewidth
+            const _labelLw2 = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+            const margin2 = (0.28 * effectiveFontSize) + 0.5 * _labelLw2 * bpCSSPixel;
             const angleRad = Math.abs(angle * Math.PI / 180);
             const cosA = Math.abs(Math.cos(angleRad));
             const sinA = Math.abs(Math.sin(angleRad));
@@ -13653,7 +14577,7 @@ function renderSVG(result, opts) {
           '\\leftrightarrow','\\rightarrow','\\leftarrow','\\Rightarrow','\\Leftarrow',
           '\\longrightarrow','\\longleftarrow','\\Longrightarrow','\\Longleftarrow',
           '\\operatorname','\\parallel','\\triangle','\\upsilon','\\epsilon',
-          '\\lambda','\\approx','\\bullet','\\otimes','\\subset','\\supset',
+          '\\lambda','\\approx','\\otimes','\\subset','\\supset',
           '\\dagger','\\forall','\\exists','\\oplus',
           '\\alpha','\\beta','\\gamma','\\delta','\\theta','\\kappa',
           '\\sigma','\\omega','\\Gamma','\\Delta','\\Theta','\\Omega',
@@ -13715,6 +14639,14 @@ function renderSVG(result, opts) {
         } else {
           labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
         }
+      } else if (opts && opts.labelOutput === 'svg-native' && (wasStrippedMath || (hasMath && unicodeSafe)) && !(dc.pen && dc.pen.fontFamily)) {
+        // Simple math labels ($m$, $M$, $\theta$, etc.) — in rasterization mode,
+        // route through MathJax so real glyph <path>s are emitted.  Otherwise
+        // librsvg falls back to a generic "serif" font (often bold/sans-looking)
+        // because KaTeX_Math is not installed, making labels appear wrongly bold.
+        // Re-wrap single-letter stripped math in $...$ so MathJax treats it as math.
+        const mjxInput = wasStrippedMath ? '$' + displayText + '$' : displayText;
+        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -13930,7 +14862,9 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   // Ensure a minimum of 3 viewBox units so that very small explicit sizes (e.g.
   // Arrow(TeXHead,1) in a size(200) diagram where bpCSSPixel≈1) remain visible
   // without over-scaling larger sizes like axisarrowsize≈4bp.
-  if (arrowLen < 3) arrowLen = 3;
+  // TeXHead is intentionally smaller; don't inflate it past its natural size.
+  const minArrowLen = dc.arrow.texHead ? 1.5 : 3;
+  if (arrowLen < minArrowLen) arrowLen = minArrowLen;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
@@ -13948,8 +14882,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   const arrowParts = [];
   const isArcStyle = style === 'ArcArrow' || style === 'EndArcArrow' ||
     style === 'BeginArcArrow' || style === 'ArcArrows';
+  const isTexHead = !!dc.arrow.texHead;
   // ArcArrow uses filled curved arrowhead (bowed-out shape); regular Arrow uses filled triangle.
-  const filled = style !== 'Bar' && style !== 'Bars';
+  // TeXHead uses a thin stroked chevron (not filled), matching LaTeX arrow glyph shape.
+  const filled = style !== 'Bar' && style !== 'Bars' && !isTexHead;
 
   function arrowAt(seg, atEnd) {
     let tip, tangentAngle;
@@ -13976,29 +14912,40 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     const s = arrowLen;
 
     if (isArcStyle) {
-      // ArcArrow: two curved bezier arms radiating from the tip, bowing outward.
-      // Asymptote's ArcArrow uses wide arcs (55° half-angle) that bow away from
-      // the arrowhead axis, creating a wing/crescent shape.
-      const arcAngle = 55 * Math.PI / 180;
+      // ArcArrow: filled closed arrowhead with two curved bezier arms meeting
+      // at the tip. Asymptote's ArcArrow produces a filled head similar to a
+      // regular Arrow but with the sides slightly bowed inward (concave arcs),
+      // so the silhouette is a solid triangle-like shape, not open strokes.
+      const arcAngle = 25 * Math.PI / 180;
       const lx = tipX - s*Math.cos(screenAngle - arcAngle);
       const ly = tipY - s*Math.sin(screenAngle - arcAngle);
       const rx = tipX - s*Math.cos(screenAngle + arcAngle);
       const ry = tipY - s*Math.sin(screenAngle + arcAngle);
-      const bow = s * 0.45;
-      const cpLx = tipX - bow * Math.sin(screenAngle);
-      const cpLy = tipY + bow * Math.cos(screenAngle);
-      const cpRx = tipX + bow * Math.sin(screenAngle);
-      const cpRy = tipY - bow * Math.cos(screenAngle);
-      const d = `M${fmt(lx)} ${fmt(ly)} Q${fmt(cpLx)} ${fmt(cpLy)} ${fmt(tipX)} ${fmt(tipY)} ` +
-                `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(cpRx)} ${fmt(cpRy)} ${fmt(rx)} ${fmt(ry)}`;
-      return {d, filled: false};
+      // Control points bowed slightly inward along the arrow axis to give the
+      // arms a gentle concave curve (classic Asymptote ArcArrow silhouette).
+      const bow = s * 0.15;
+      const axCos = Math.cos(screenAngle), axSin = Math.sin(screenAngle);
+      const midLx = (tipX + lx) / 2 + bow * axCos;
+      const midLy = (tipY + ly) / 2 + bow * axSin;
+      const midRx = (tipX + rx) / 2 + bow * axCos;
+      const midRy = (tipY + ry) / 2 + bow * axSin;
+      const d = `M${fmt(tipX)} ${fmt(tipY)} ` +
+                `Q${fmt(midLx)} ${fmt(midLy)} ${fmt(lx)} ${fmt(ly)} ` +
+                `L${fmt(rx)} ${fmt(ry)} ` +
+                `Q${fmt(midRx)} ${fmt(midRy)} ${fmt(tipX)} ${fmt(tipY)} Z`;
+      return {d, filled: true};
     }
 
-    const headAngle = 25 * Math.PI / 180;
+    // TeXHead has a narrower angle (about 15°) — produces a slimmer LaTeX-style chevron.
+    const headAngle = (isTexHead ? 15 : 25) * Math.PI / 180;
     const lx = tipX - s*Math.cos(screenAngle - headAngle);
     const ly = tipY - s*Math.sin(screenAngle - headAngle);
     const rx = tipX - s*Math.cos(screenAngle + headAngle);
     const ry = tipY - s*Math.sin(screenAngle + headAngle);
+    if (isTexHead) {
+      // Open chevron: two strokes meeting at the tip (no closing segment).
+      return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled:false};
+    }
     return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled};
   }
 
