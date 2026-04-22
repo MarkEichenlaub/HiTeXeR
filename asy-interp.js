@@ -3878,8 +3878,9 @@ function createInterpreter() {
     });
 
     // brace(a, b, amplitude) — curly brace path between two points
+    // Asymptote default: amplitude = bracedefaultratio (0.14) * length(b-a)
     env.set('brace', (...args) => {
-      let a = null, b = null, amplitude = 0.5;
+      let a = null, b = null, amplitude = null;
       const pairs = [];
       for (const arg of args) {
         if (isPair(arg)) pairs.push(toPair(arg));
@@ -3889,6 +3890,7 @@ function createInterpreter() {
       if (!a || !b) return makePath([], false);
       const dx = b.x - a.x, dy = b.y - a.y;
       const L = Math.sqrt(dx*dx + dy*dy) || 1;
+      if (amplitude === null) amplitude = 0.14 * L;
       const ux = dx/L, uy = dy/L;        // unit tangent along brace axis
       const nx = -uy, ny = ux;            // unit normal (left of direction = outward tip)
       const amp = amplitude;
@@ -12050,10 +12052,14 @@ function renderSVG(result, opts) {
     // unitsize, don't boost — the labels already provide adequate visual content.
     const fullNatW = fullW * unitScale;
     const fullNatH = fullH * unitScale;
-    // For very small unitsize (< 10 bp/unit), use a higher threshold to ensure
-    // diagrams with dense labels/arrows remain readable. For normal unitsize,
-    // only boost when truly invisible (< 50bp).
-    const minReasonable = unitScale < 10 ? 100 : 50;
+    // Three tiers, based on the per-unit bp density:
+    //   - unitScale < 10  (tiny cm-based sizes like .1cm): boost until fullNat ≥ 100bp
+    //   - unitScale < 20  (e.g. .5cm = 14.17): boost until fullNat ≥ 80bp — these
+    //     often correspond to AoPS-TeXeR diagrams that render large despite their
+    //     tiny per-unit scale.
+    //   - unitScale ≥ 20  (raw-bp unitsize like unitsize(40)): only boost when
+    //     truly invisible (< 50bp); such diagrams are usually self-scaling.
+    const minReasonable = unitScale < 10 ? 100 : (unitScale < 20 ? 80 : 50);
     if (naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
       // Scale up while maintaining aspect ratio
