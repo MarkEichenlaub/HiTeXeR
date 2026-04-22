@@ -4582,7 +4582,15 @@ function createInterpreter() {
       if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
     });
     env.set('defaultpen', (p) => {
-      if (isPen(p)) defaultPen = mergePens(defaultPen, p);
+      if (isPen(p)) {
+        defaultPen = mergePens(defaultPen, p);
+        // defaultpen(linewidth(n)) sets the default stroke width globally;
+        // this is NOT the same as the "n+pen" per-call idiom used by dot()
+        // to specify dot diameter directly. Strip _lwExplicit/_lwDirect so
+        // the default pen doesn't mis-trigger the dot-size-as-diameter path.
+        defaultPen._lwExplicit = false;
+        defaultPen._lwDirect = false;
+      }
     });
 
     // Draw commands - these append to drawCommands
