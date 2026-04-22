@@ -590,18 +590,28 @@ function parse(tokens) {
     return false;
   }
 
-  function parseExprOrAssign(noSemi) {
+  // Parse an assignment expression (right-associative). Returns an AST node
+  // (Assignment or plain expression). Does not consume a trailing semicolon.
+  function parseAssignExpr() {
     const ln = cur().line;
     const expr = parseExpr();
-    // Check for assignment operators
     if (at(T.ASSIGN)||at(T.PLUSASSIGN)||at(T.MINUSASSIGN)||at(T.STARASSIGN)||at(T.SLASHASSIGN)) {
       const op = eat(cur().type).value;
-      const val = parseExpr();
-      if (!noSemi) tryEat(T.SEMI);
+      const val = parseAssignExpr(); // right-associative: supports a = b = c
       return Assignment(expr, op, val, ln);
     }
+    return expr;
+  }
+
+  function parseExprOrAssign(noSemi) {
+    const ln = cur().line;
+    const node = parseAssignExpr();
+    if (node && node.type === 'Assignment') {
+      if (!noSemi) tryEat(T.SEMI);
+      return node;
+    }
     if (!noSemi) { if (!atEndMarker()) tryEat(T.SEMI); }
-    return ExprStmt(expr, ln);
+    return ExprStmt(node, ln);
   }
 
   // Pratt parser for expressions
