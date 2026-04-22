@@ -12062,8 +12062,18 @@ function renderSVG(result, opts) {
     const minReasonable = unitScale < 10 ? 100 : (unitScale < 20 ? 80 : 50);
     if (naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
+      // For very small unitsize with wide-aspect geometry (e.g. multiple
+      // horizontally-shifted subgraphs), use a larger target size so dense
+      // labels at edge midpoints don't crowd each other.  Only applies when
+      // the diagram is clearly wider than tall AND unitsize is small but
+      // not minuscule (< 1bp, which usually indicates a very different
+      // layout style like fine-grained mm units).
+      const aspectRatio = geoW / geoH;
+      const tgtSize = (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
+        ? 300
+        : defaultSize;
       // Scale up while maintaining aspect ratio
-      const boostScale = Math.min(defaultSize / naturalW, defaultSize / naturalH);
+      const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
     }
   } else if (sizeW > 0 || sizeH > 0) {
