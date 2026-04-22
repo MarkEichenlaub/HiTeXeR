@@ -13581,7 +13581,22 @@ function renderSVG(result, opts) {
         // Use longest line's length for width estimation (multiline minipage labels)
         const maxLineLen = cleanLines.reduce((m, l) => Math.max(m, l.length), 0);
         const numLines = cleanLines.length;
-        const effectiveLen = hasFrac ? maxLineLen * 1.6 : maxLineLen;
+        // Subscript/superscript-aware effective length: chars inside _{...}/^{...}
+        // render at 0.7× font size, so weight them accordingly. Used only as a
+        // reduction — never grows past the naive char count.
+        const _rawBB = text;
+        const _hasSSBB = typeof _rawBB === 'string' && /[_^]/.test(_rawBB);
+        let _effLenBB = maxLineLen;
+        if (_hasSSBB && !hasFrac) {
+          const perLine = rawLines
+            .filter(l => l && l.trim().length > 0)
+            .map(l => _effectiveLabelCharCount(l));
+          if (perLine.length > 0) {
+            const candidate = Math.max(...perLine);
+            if (candidate > 0 && candidate < maxLineLen) _effLenBB = candidate;
+          }
+        }
+        const effectiveLen = hasFrac ? maxLineLen * 1.6 : _effLenBB;
         let textWidthBpBase = effectiveLen * charWidthBp;
         // Guard against severe width under-estimation for size()-constrained labels:
         // the flat 0.288-em ratio is tight for alpha glyphs but too narrow for digits
@@ -13591,7 +13606,13 @@ function renderSVG(result, opts) {
         // shrinks the existing estimate for other labels.
         if (!autoScaled && !hasFrac) {
           const widestLine = cleanLines.reduce((m, l) => (l.length > m.length ? l : m), '');
-          const glyphWidthBp = _estimateTextWidth(widestLine, fontSize);
+          let glyphWidthBp = _estimateTextWidth(widestLine, fontSize);
+          // When sub/sup are present, the Unicode-subscripted widestLine over-counts
+          // script chars (measured at full fontSize). Scale down proportionally so
+          // the floor matches the actual rendered width.
+          if (_hasSSBB && maxLineLen > 0 && _effLenBB < maxLineLen) {
+            glyphWidthBp *= _effLenBB / maxLineLen;
+          }
           if (glyphWidthBp > textWidthBpBase) textWidthBpBase = glyphWidthBp;
         }
         let textWidthUser = textWidthBpBase / roughPxPerUnitX;
@@ -14345,7 +14366,22 @@ function renderSVG(result, opts) {
       // larger char-width factor so viewBox pad covers the actual glyph extent.
       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
       const charWFactor = hasMath ? 0.62 : 0.52;
-      const W = cleanLen * fontSizeSVG * charWFactor;
+      // Sub/super-aware effective char count: scripts render at ~0.7× fontSize,
+      // so cleanLen (which counts Unicode-subscripted chars at full width) over-
+      // estimates the actual rendered width. Only apply as a reduction.
+      const _rawVB = dc.text || '';
+      const _hasSSVB = typeof _rawVB === 'string' && /[_^]/.test(_rawVB);
+      let _effLenVB = cleanLen;
+      if (_hasSSVB) {
+        const perLineVB = rawLabelLines
+          .filter(l => l && l.trim().length > 0)
+          .map(l => _effectiveLabelCharCount(l));
+        if (perLineVB.length > 0) {
+          const candVB = Math.max(...perLineVB);
+          if (candVB > 0 && candVB < cleanLen) _effLenVB = candVB;
+        }
+      }
+      const W = _effLenVB * fontSizeSVG * charWFactor;
       const H = fontSizeSVG * numLines;
 
       // For scaled/rotated labels, use the transformed bounding box dimensions.
@@ -14815,7 +14851,22 @@ function renderSVG(result, opts) {
         const cleanDxLines = rawDxLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
         const cleanLen = (cleanDxLines.length > 0 ? Math.max(...cleanDxLines.map(l => l.length)) : 1) || 1;
         const numLines = cleanDxLines.length || 1;
-        const W = cleanLen * fontSizeSVG * 0.52;
+        // When the raw text contains sub/superscripts, the rendered width is smaller
+        // than cleanLen * 0.52 * fontSize because scripts use 0.7× font. Use an
+        // effective char count for placement so E/W-anchored labels with subscripts
+        // aren't pushed past the anchor.
+        const _rawForWidth = (dc.text || '');
+        const _hasSS = /[_^]/.test(_rawForWidth);
+        let _effLen = cleanLen;
+        if (_hasSS) {
+          const nonEmptyRaw = rawDxLines.filter(l => l.trim().length > 0);
+          const perLine = (nonEmptyRaw.length > 0 ? nonEmptyRaw : [_rawForWidth])
+            .map(l => _effectiveLabelCharCount(l));
+          _effLen = Math.max(1, ...perLine);
+          // Never grow beyond the naive count — only shrink when scripts are present.
+          if (_effLen > cleanLen) _effLen = cleanLen;
+        }
+        const W = _effLen * fontSizeSVG * 0.52;
         const H = fontSizeSVG * numLines;
         // Asymptote's labelmargin(p) = 0.28*fontsize(p) + 0.5*linewidth(p)
         // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
@@ -16117,6 +16168,60 @@ function stripLaTeX(text) {
   s = s.replace(/\[\s+/g, '[');
   s = s.replace(/\s+\]/g, ']');
   return s.trim();
+}
+
+// Effective character count of a raw label text, weighting characters inside
+// _{...} / ^{...} groups (and single _x / ^x scripts) by 0.7 to reflect the
+// smaller sub/super font used at render time (matches renderLabelWithScripts).
+// Used for label placement so that W ≈ actual rendered width, instead of the
+// naive stripLaTeX().length which over-counts subscripts at full width.
+function _effectiveLabelCharCount(rawText) {
+  if (!rawText) return 0;
+  let s = String(rawText);
+  // Drop $ delimiters
+  s = s.replace(/\$/g, '');
+  // Unwrap font-style commands preserving their contents
+  s = s.replace(/\\(?:mathrm|mathbf|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // Unwrap accent commands (content takes one char for the base glyph)
+  s = s.replace(/\\(?:vec|hat|bar|tilde|dot|ddot|overline|underline|overrightarrow)\s*\{([^}]*)\}/g, '$1');
+  // Spacing commands become a single space
+  s = s.replace(/\\[ ~;,:!]/g, ' ');
+  s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  // Strip \color{...} / \definecolor{...} wrappers (non-visible)
+  s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\color\s*\{[^}]*\}/g, '');
+  // Greek/symbol/operator commands collapse to ~one glyph each
+  s = s.replace(/\\[a-zA-Z]+/g, 'X');
+  // Now scan for _{...}, ^{...}, _x, ^x and count weighted chars.
+  let len = 0;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '_' || c === '^') {
+      i++;
+      if (i < s.length && s[i] === '{') {
+        i++;
+        let depth = 1;
+        let inner = 0;
+        while (i < s.length && depth > 0) {
+          const cc = s[i];
+          if (cc === '{') { depth++; i++; }
+          else if (cc === '}') { depth--; i++; if (depth === 0) break; }
+          else { inner++; i++; }
+        }
+        len += inner * 0.7;
+      } else if (i < s.length) {
+        len += 0.7;
+        i++;
+      }
+    } else if (c === '{' || c === '}') {
+      i++;
+    } else {
+      len += 1;
+      i++;
+    }
+  }
+  return len;
 }
 
 // Estimate text width in SVG units using per-character width ratios for serif font
