@@ -6889,11 +6889,20 @@ function createInterpreter() {
       const nums = args.filter(a => typeof a === 'number');
       if (nums.length >= 1) _axisLimits.xmin = nums[0];
       if (nums.length >= 2) _axisLimits.xmax = nums[1];
+      // Check for Crop — either positional (env-set to `true`) or named (crop=Crop)
+      for (const a of args) {
+        if (a === true) _axisLimits.crop = true;
+        else if (a && a._named && a.crop === true) _axisLimits.crop = true;
+      }
     });
     env.set('ylimits', (...args) => {
       const nums = args.filter(a => typeof a === 'number');
       if (nums.length >= 1) _axisLimits.ymin = nums[0];
       if (nums.length >= 2) _axisLimits.ymax = nums[1];
+      for (const a of args) {
+        if (a === true) _axisLimits.crop = true;
+        else if (a && a._named && a.crop === true) _axisLimits.crop = true;
+      }
     });
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
