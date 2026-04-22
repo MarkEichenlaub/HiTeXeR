@@ -2673,7 +2673,8 @@ function createInterpreter() {
     const drawFuncs = new Set(['draw','fill','filldraw','clip','unfill','label','dot']);
     if (drawFuncs.has(calleeName)) {
       const hasSpread = node.args.some(a => a && a.type === 'SpreadArg');
-      const args = hasSpread ? evalArgList(node.args, env) : node.args.map(a => evalNode(a, env));
+      const hasNamed = node.args.some(a => a && a.type === 'NamedArg');
+      const args = (hasSpread || hasNamed) ? evalArgList(node.args, env) : node.args.map(a => evalNode(a, env));
       args._line = node._sourceLine || node.line || 0;
       if (calleeName === 'label') return evalLabel(args);
       if (calleeName === 'dot') {
@@ -2951,6 +2952,63 @@ function createInterpreter() {
       }
       if (method === 'uequals' || method === 'vequals') {
         // Extract an iso-line curve along u= or v=; stub returns empty path.
+        return makePath([], false);
+      }
+    }
+
+    // Revolution methods (solids module). For sphere-like revolutions the
+    // silhouette is known analytically: a circle perpendicular to the view
+    // direction, centered at the sphere center, with radius = sphere radius.
+    if (obj && obj._tag === 'revolution') {
+      if (method === 'silhouette') {
+        if (typeof obj._radius === 'number' && obj._center && isTriple(obj._center)) {
+          const r = obj._radius;
+          const c = obj._center;
+          // Build two orthonormal basis vectors (u,v) spanning the plane
+          // perpendicular to the view direction so the circle projects as
+          // the sphere's visible outline (rather than the equator).
+          let fx = 0, fy = 0, fz = 1; // default view: +Z
+          if (projection) {
+            fx = projection.cx - (projection.tx || 0);
+            fy = projection.cy - (projection.ty || 0);
+            fz = projection.cz - (projection.tz || 0);
+            const fl = Math.sqrt(fx*fx + fy*fy + fz*fz) || 1;
+            fx /= fl; fy /= fl; fz /= fl;
+          }
+          // Start u from projection's up vector (if any); orthogonalize it
+          // against the view direction. Fall back to world-X if degenerate.
+          let ux = 0, uy = 0, uz = 1;
+          if (projection && (projection.ux !== undefined || projection.uy !== undefined || projection.uz !== undefined)) {
+            ux = projection.ux || 0; uy = projection.uy || 0; uz = projection.uz || 0;
+          }
+          let dot = ux*fx + uy*fy + uz*fz;
+          ux -= dot*fx; uy -= dot*fy; uz -= dot*fz;
+          let ul = Math.sqrt(ux*ux + uy*uy + uz*uz);
+          if (ul < 1e-9) {
+            ux = 1; uy = 0; uz = 0;
+            dot = ux*fx + uy*fy + uz*fz;
+            ux -= dot*fx; uy -= dot*fy; uz -= dot*fz;
+            ul = Math.sqrt(ux*ux + uy*uy + uz*uz) || 1;
+          }
+          ux /= ul; uy /= ul; uz /= ul;
+          // v = f × u
+          const vx = fy*uz - fz*uy;
+          const vy = fz*ux - fx*uz;
+          const vz = fx*uy - fy*ux;
+          const K3 = 0.5522847498 * r;
+          const R = r;
+          const pt = (a, b) => makeTriple(
+            c.x + a*ux + b*vx,
+            c.y + a*uy + b*vy,
+            c.z + a*uz + b*vz
+          );
+          return makePath([
+            makeSeg(pt(R,0),  pt(R,K3),   pt(K3,R),   pt(0,R)),
+            makeSeg(pt(0,R),  pt(-K3,R),  pt(-R,K3),  pt(-R,0)),
+            makeSeg(pt(-R,0), pt(-R,-K3), pt(-K3,-R), pt(0,-R)),
+            makeSeg(pt(0,-R), pt(K3,-R),  pt(R,-K3),  pt(R,0)),
+          ], true);
+        }
         return makePath([], false);
       }
     }
@@ -9330,20 +9388,51 @@ function createInterpreter() {
       const grid = rings;
       return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid, _gridRows: rings.length, _gridCols: nSides, _gridCyclic: true}, center: p};
     });
+    // Build a _grid for a sphere revolution: meridian (half-circle from north
+    // pole to south pole in the xz half-plane) rotated around Z, translated
+    // to center. Matches the (nLon+1) × nPath layout used by revolution().
+    const _buildSphereGrid = (center, r, nLon, nPath) => {
+      const meridian = [];
+      for (let i = 0; i < nPath; i++) {
+        const t = i / (nPath - 1); // 0 at north pole, 1 at south pole
+        const phi = Math.PI * t;   // polar angle from +Z
+        meridian.push({x: r * Math.sin(phi), y: 0, z: r * Math.cos(phi)});
+      }
+      const grid = [];
+      for (let j = 0; j <= nLon; j++) {
+        const th = 2 * Math.PI * j / nLon;
+        const c = Math.cos(th), s = Math.sin(th);
+        const row = [];
+        for (const v of meridian) {
+          row.push(makeTriple(
+            center.x + v.x * c - v.y * s,
+            center.y + v.x * s + v.y * c,
+            center.z + v.z
+          ));
+        }
+        grid.push(row);
+      }
+      return grid;
+    };
     env.set('sphere', (...args) => {
       if (args.length >= 1 && isTriple(args[0])) {
         const c = args[0];
         const r = args.length >= 2 ? toNumber(args[1]) : 1;
         // Build a tessellated sphere mesh centered at c with radius r
-        const mesh = _buildSphereMesh(24, 12);
-        const scaled = applyTransform3Mesh(scaleT3(r, r, r), mesh);
-        return applyTransform3Mesh(shiftT3(c.x, c.y, c.z), scaled);
+        const baseMesh = _buildSphereMesh(24, 12);
+        const scaled = applyTransform3Mesh(scaleT3(r, r, r), baseMesh);
+        const mesh = applyTransform3Mesh(shiftT3(c.x, c.y, c.z), scaled);
+        // Also return a revolution-typed object so solids-module calls like
+        // draw(r, n, longitudinalpen=...) and r.silhouette() work correctly.
+        const grid = _buildSphereGrid(c, r, 24, 13);
+        return {_tag:'revolution', mesh, _grid: grid, _center: c, _radius: r, axis: makeTriple(0,0,1)};
       }
       // sphere(real r): solids-module revolution-typed sphere at origin
       if (args.length >= 1 && typeof args[0] === 'number') {
         const r = toNumber(args[0]);
         const mesh = applyTransform3Mesh(scaleT3(r, r, r), _buildSphereMesh(24, 12));
-        return {_tag:'revolution', mesh};
+        const grid = _buildSphereGrid(makeTriple(0,0,0), r, 24, 13);
+        return {_tag:'revolution', mesh, _grid: grid, _center: makeTriple(0,0,0), _radius: r, axis: makeTriple(0,0,1)};
       }
       return {_tag: 'surface'};
     });
@@ -10805,7 +10894,7 @@ function createInterpreter() {
             }
             const path = makePath(segs2, false);
             const myPen = clonePen(usedPen);
-            if (dashed) myPen.dashpattern = '2 2';
+            if (dashed) myPen.linestyle = '4 4';
             target.commands.push({cmd:'draw', path, pen: myPen, arrow: null, line: lineNo});
           };
           // Latitudinal circles at nLat path-positions. For each path-index i,
@@ -10831,10 +10920,52 @@ function createInterpreter() {
             const a0 = grid[0][i0], aL = grid[nLon][i0];
             const closed = Math.abs(a0.x - aL.x) < 1e-6 && Math.abs(a0.y - aL.y) < 1e-6 && Math.abs(a0.z - aL.z) < 1e-6;
             if (closed) pts.push(pts[0]);
-            // Front half solid, back half dashed — simple heuristic:
-            //   Project ring; split where line crosses the ring's interior.
-            // For simplicity, just draw the whole ring with the pen (no dashing).
-            emitCurve3(pts, pen, false);
+            // Split ring into front (solid) and back (dashed) halves based on
+            // the view direction so hidden portions render with hidden-line
+            // dashing as Asymptote's solids module does.
+            let rcx = 0, rcy = 0, rcz = 0;
+            for (const p of pts) { rcx += p.x; rcy += p.y; rcz += p.z; }
+            rcx /= pts.length; rcy /= pts.length; rcz /= pts.length;
+            let fwx = 0, fwy = 0, fwz = -1;
+            if (projection) {
+              fwx = (projection.tx || 0) - projection.cx;
+              fwy = (projection.ty || 0) - projection.cy;
+              fwz = (projection.tz || 0) - projection.cz;
+              const fl = Math.sqrt(fwx*fwx + fwy*fwy + fwz*fwz) || 1;
+              fwx /= fl; fwy /= fl; fwz /= fl;
+            }
+            const signOf = (p) => {
+              const d = (p.x - rcx)*fwx + (p.y - rcy)*fwy + (p.z - rcz)*fwz;
+              return d < 0 ? -1 : (d > 0 ? 1 : 0);
+            };
+            const runs = [];
+            let cur = { sign: signOf(pts[0]), pts: [pts[0]] };
+            for (let k = 1; k < pts.length; k++) {
+              const s = signOf(pts[k]);
+              if (s !== cur.sign && cur.sign !== 0 && s !== 0) {
+                // Interpolate the sign-change crossing for a clean split
+                const pa = pts[k-1], pb = pts[k];
+                const da = (pa.x - rcx)*fwx + (pa.y - rcy)*fwy + (pa.z - rcz)*fwz;
+                const db = (pb.x - rcx)*fwx + (pb.y - rcy)*fwy + (pb.z - rcz)*fwz;
+                const tc = (db - da) !== 0 ? -da / (db - da) : 0.5;
+                const cross = makeTriple(
+                  pa.x + (pb.x - pa.x) * tc,
+                  pa.y + (pb.y - pa.y) * tc,
+                  pa.z + (pb.z - pa.z) * tc
+                );
+                cur.pts.push(cross);
+                runs.push(cur);
+                cur = { sign: s, pts: [cross, pts[k]] };
+              } else {
+                cur.pts.push(pts[k]);
+                if (cur.sign === 0) cur.sign = s;
+              }
+            }
+            runs.push(cur);
+            for (const run of runs) {
+              // Back side (positive depth from center) is dashed/hidden.
+              emitCurve3(run.pts, pen, run.sign > 0);
+            }
           }
           // Longitudinal arcs (unless longitudinalpen=nullpen)
           if (!gotLongNamed || !isNullPen(longPen)) {
