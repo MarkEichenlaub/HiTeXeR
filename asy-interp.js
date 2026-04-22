@@ -12516,6 +12516,29 @@ function createInterpreter() {
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (a === null || a === undefined) continue;
+      // Named arguments: draw(..., arrow=Arrow(6), p=red, g=path)
+      if (a && typeof a === 'object' && a._named) {
+        if ('arrow' in a) {
+          let av = a.arrow;
+          if (typeof av === 'function') {
+            try { av = av(); } catch(e) { av = null; }
+          }
+          if (av && av._tag === 'arrow') {
+            if (av.style === 'Bar' || av.style === 'Bars') barsStyle = av.style;
+            else arrow = av;
+          }
+        }
+        if ('p' in a && isPen(a.p)) {
+          pen = pen ? mergePens(pen, a.p) : a.p;
+          penCount++;
+        }
+        if ('pen' in a && isPen(a.pen)) {
+          pen = pen ? mergePens(pen, a.pen) : a.pen;
+          penCount++;
+        }
+        if ('g' in a && isPath(a.g) && !pathArg) pathArg = a.g;
+        continue;
+      }
       if (isPath(a)) { if (!pathArg) pathArg = a; }
       else if (isPen(a)) {
         penCount++;
