@@ -3384,9 +3384,10 @@ function createInterpreter() {
                 allSegs.push(makeJoinSeg(prev, el.pt, prevJoin, prevDirOut, el.dirIn));
               }
             } else {
-              // First element with no segments yet — store as pending
+              // First element with no segments yet — store as pending.
+              // Use != null because 0 is a valid direction angle.
               pendingPt = el.pt;
-              pendingDirOut = el.dirOut || null;
+              pendingDirOut = el.dirOut != null ? el.dirOut : null;
             }
           } else {
             // ^^ gap: start fresh from this point
@@ -3405,8 +3406,9 @@ function createInterpreter() {
           // Determine the join kind before cycle: from last element's join
           const lastEl = elements[elements.length - 1];
           const closeJoin = (lastEl && lastEl.join) ? lastEl.join : '..';
-          // dirOut at the last knot: from the last element's dirOut (if any)
-          const lastDirOut = lastEl ? (lastEl.dirOut || null) : null;
+          // dirOut at the last knot: from the last element's dirOut (if any).
+          // Use != null because 0 is a valid direction angle.
+          const lastDirOut = (lastEl && lastEl.dirOut != null) ? lastEl.dirOut : null;
           // dirIn at the first knot: from explicit {dir}cycle, else first element's dirIn
           const firstEl = elements[0];
           const firstDirIn = (cycleDirIn != null)
@@ -3425,8 +3427,12 @@ function createInterpreter() {
       if (elements[i].join) joins.push(elements[i].join);
     }
 
-    // Build per-knot direction constraints: {dirIn, dirOut} for each point
-    const directions = elements.map(e => ({dirIn: e.dirIn || null, dirOut: e.dirOut || null}));
+    // Build per-knot direction constraints: {dirIn, dirOut} for each point.
+    // Use != null (not || null) because 0 is a valid direction angle (points right).
+    const directions = elements.map(e => ({
+      dirIn: e.dirIn != null ? e.dirIn : null,
+      dirOut: e.dirOut != null ? e.dirOut : null
+    }));
 
     // Single point: create a path with no segments but marked with _singlePoint
     // This allows the point to be used in path concatenation without adding stray segments
