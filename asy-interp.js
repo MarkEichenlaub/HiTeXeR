@@ -1936,7 +1936,12 @@ function createInterpreter() {
 
   // Apply a transform to all commands in a picture, returning a new picture
   function transformPicture(t, pic) {
-    const newPic = {_tag:'picture', commands: pic.commands.map(c => transformDrawCmd(t, c))};
+    // 2D picture transforms (e.g. shift(a,b)*currentpicture) only affect the
+    // picture's 2D layer in Asymptote.  Commands originating from the 3D layer
+    // (tagged _from3d) are left in their projected 2D positions.  This is what
+    // lets `currentpicture = shift(2.3,0)*currentpicture` separate 2D overlays
+    // (axes/parabola/labels) from a 3D surface rendered in the same picture.
+    const newPic = {_tag:'picture', commands: pic.commands.map(c => c && c._from3d ? c : transformDrawCmd(t, c))};
     // Propagate per-picture sizing and fit metadata so that shift(..)*pic.fit()
     // still reports the expected bbox and is placed correctly when add()'d.
     if (pic._sizeW) newPic._sizeW = pic._sizeW;
@@ -5632,6 +5637,9 @@ function createInterpreter() {
     env.set('EndPoint', 1);
     env.set('BeginPoint', 0);
     env.set('MidPoint', 0.5);
+    // Relative(real r) — relative position along a path (0=begin, 1=end).
+    // We model this as a plain number so existing Label-position handling works.
+    env.set('Relative', (r) => (typeof r === 'number' ? r : 0.5));
 
     // String functions
     env.set('string', (x) => {
@@ -5983,15 +5991,32 @@ function createInterpreter() {
     env.set('NoFill', {_tag:'filltype', style:'NoFill', pen:null});
     env.set('UnFill', {_tag:'filltype', style:'UnFill', pen:makePen({r:1,g:1,b:1})});
 
-    // Margin types
+    // Margin types — return a tagged object so evalDraw can apply the
+    // additional path shortening. Asymptote's Margin(b, e) shortens the
+    // drawn line by b bp at the beginning and e bp at the end, in addition
+    // to any arrow-induced shortening.
     env.set('Margins', null);
-    env.set('TrueMargin', (...args) => null);
+    env.set('TrueMargin', (...args) => {
+      const b = typeof args[0] === 'number' ? args[0] : 0;
+      const e = typeof args[1] === 'number' ? args[1] : b;
+      return {_tag:'margin', begin:b, end:e};
+    });
     env.set('DotMargin', null);
     env.set('DotMargins', null);
     env.set('NoMargin', null);
-    env.set('BeginMargin', null);
-    env.set('EndMargin', null);
-    env.set('Margin', (...args) => null);
+    env.set('BeginMargin', (...args) => {
+      const b = typeof args[0] === 'number' ? args[0] : 0;
+      return {_tag:'margin', begin:b, end:0};
+    });
+    env.set('EndMargin', (...args) => {
+      const e = typeof args[0] === 'number' ? args[0] : 0;
+      return {_tag:'margin', begin:0, end:e};
+    });
+    env.set('Margin', (...args) => {
+      const b = typeof args[0] === 'number' ? args[0] : 0;
+      const e = typeof args[1] === 'number' ? args[1] : b;
+      return {_tag:'margin', begin:b, end:e};
+    });
     env.set('PenMargin', null);
     env.set('PenMargins', null);
     env.set('BeginPenMargin', null);
@@ -9929,7 +9954,12 @@ function createInterpreter() {
         }
         const segs = [];
         for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
-        return makePath(segs, true);
+        const path = makePath(segs, true);
+        // Mark this path as originating from a 3D projection so that any
+        // subsequent 2D transform applied to the picture (shift, scale, etc.)
+        // leaves the projected geometry in place.
+        path._fromProjection = true;
+        return path;
       }
       // Fallback to 2D circle - use proper geometry circle
       if (args.length >= 2) {
@@ -10345,7 +10375,11 @@ function createInterpreter() {
       for (const a of args) if (a && a._named) Object.assign(named, a);
       const path = pos.find(a => isPath(a));
       let axis = named.axis && isTriple(named.axis) ? named.axis : makeTriple(0,0,1);
-      const nLon = named.n !== undefined ? Math.max(3, Math.floor(toNumber(named.n))) : 32;
+      // Default longitude count: 96 gives visibly smoother bands than the
+      // traditional 32 without ballooning SVG size too much.  Asymptote's
+      // PS-based renderer uses true gradient mesh fills and produces perfectly
+      // smooth surfaces; we approximate that with finer flat-shaded quads.
+      const nLon = named.n !== undefined ? Math.max(3, Math.floor(toNumber(named.n))) : 96;
       const ang1 = named.angle1 !== undefined ? toNumber(named.angle1) : 0;
       const ang2 = named.angle2 !== undefined ? toNumber(named.angle2) : 360;
       // Collect path vertices as triples
@@ -12529,7 +12563,7 @@ function createInterpreter() {
         return;
       }
     }
-    let pathArg = null, pen = null, drawPen = null, arrow = null;
+    let pathArg = null, pen = null, drawPen = null, arrow = null, margin = null;
     let barsStyle = null; // 'Bar' | 'Bars' | null — tracked separately so it
                           // can coexist with Arrows (geometry-module convention).
     let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
@@ -12537,6 +12571,7 @@ function createInterpreter() {
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (a === null || a === undefined) continue;
+      if (a && typeof a === 'object' && a._tag === 'margin') { margin = a; continue; }
       // Named arguments: draw(..., arrow=Arrow(6), p=red, g=path)
       if (a && typeof a === 'object' && a._named) {
         if ('arrow' in a) {
@@ -12613,6 +12648,10 @@ function createInterpreter() {
       projectPathTriples(pathArg);
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
       if (drawPen) dc.drawPen = drawPen;
+      if (margin) dc.margin = margin;
+      // Propagate 3D-projection origin so that 2D picture transforms leave
+      // this command in place (matches Asymptote's 2D-layer-only transforms).
+      if (pathArg._fromProjection) dc._from3d = true;
       target.commands.push(dc);
       // Emit Bar/Bars marks as short perpendicular segments at endpoint(s).
       if (barsStyle && pathArg.segs && pathArg.segs.length > 0) {
@@ -13002,11 +13041,15 @@ function createInterpreter() {
         segs.push(lineSegment(a, b));
       }
       const p = makePath(segs, true);
-      target.commands.push({cmd: 'fill', path: p, pen: shaded, line});
+      // Tag commands as _from3d so 2D picture transforms (e.g.
+      // shift(a,b)*currentpicture) leave them in place — matching Asymptote's
+      // semantics where a 2D transform applies only to the 2D layer of a
+      // picture and the 3D layer retains its own projection.
+      target.commands.push({cmd: 'fill', path: p, pen: shaded, line, _from3d: true});
       // Add thin stroke to close antialiasing gaps between adjacent faces
       const stroke = clonePen(shaded);
       stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
-      target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line});
+      target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true});
     }
   }
 
@@ -14608,6 +14651,24 @@ function renderSVG(result, opts) {
     }
     if (dc.path.segs.length === 0) return;
 
+    // Apply Margin(begin, end) to dc.path BEFORE arrow processing so that the
+    // arrow tip (computed by generateArrowHead from dc.path endpoints) sits at
+    // the margin-shortened endpoint, and the stroke shortening for the arrow
+    // also operates on the margin-shortened path.  We swap dc.path with the
+    // shortened version for the duration of this call and restore at exit.
+    let __origDcPath = null;
+    if (dc.margin && dc.cmd === 'draw' && dc.path.segs && dc.path.segs.length > 0) {
+      const mBegin = (dc.margin.begin || 0) * bpCSSPixel;
+      const mEnd   = (dc.margin.end   || 0) * bpCSSPixel;
+      if (mBegin > 0 || mEnd > 0) {
+        let segs = dc.path.segs.map(s => ({p0:{...s.p0}, cp1:{...s.cp1}, cp2:{...s.cp2}, p3:{...s.p3}}));
+        if (mEnd > 0   && segs.length > 0) segs = shortenPathEnd(segs, mEnd, pxPerUnitX, pxPerUnitY);
+        if (mBegin > 0 && segs.length > 0) segs = shortenPathBegin(segs, mBegin, pxPerUnitX, pxPerUnitY);
+        __origDcPath = dc.path;
+        dc.path = {segs, closed: dc.path.closed, _tag: dc.path._tag};
+      }
+    }
+
     // Shorten path at arrow end(s) so the stroke doesn't extend under the arrowhead
     let renderPath = dc.path;
     if (dc.arrow && dc.cmd === 'draw') {
@@ -14706,6 +14767,9 @@ function renderSVG(result, opts) {
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       }
     }
+
+    // Restore original dc.path if we swapped it in for Margin(...) shortening.
+    if (__origDcPath) dc.path = __origDcPath;
   }
 
   // Build render order: background (above=-1, e.g. extend=true tick gridlines) first,
