@@ -2540,7 +2540,9 @@ function createInterpreter() {
     // Transform * graphic → graphic with composed transform
     if (isTransform(left) && isGraphic(right)) {
       const existing = right.transform;
-      const t = existing ? composeTransforms(existing, left) : left;
+      // left*right means: apply existing (right's transform) first, then left
+      // composeTransforms(t1,t2) = apply t2 first then t1, so composeTransforms(left, existing)
+      const t = existing ? composeTransforms(left, existing) : left;
       return Object.assign({}, right, {transform: t});
     }
     // Transform * string → Label with transform (e.g. scale(0.7)*"text", rotate(90)*"text")
@@ -2548,7 +2550,8 @@ function createInterpreter() {
     // Transform * label → label with composed transform
     if (isTransform(left) && right && right._tag === 'label') {
       const existing = right.transform;
-      const t = existing ? composeTransforms(existing, left) : left;
+      // left*right means: apply existing (right's transform) first, then left
+      const t = existing ? composeTransforms(left, existing) : left;
       return Object.assign({}, right, {transform: t});
     }
     // Transform * real / real * Transform: Asymptote implicitly casts real→pair as
@@ -7287,8 +7290,20 @@ function createInterpreter() {
         if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
           try { process.stderr.write('[xaxis content] cMinX='+cMinX+' cMaxX='+cMaxX+'\n'); } catch(e){}
         }
-        if (xmin === null) xmin = isFinite(cMinX) ? cMinX : -5;
-        if (xmax === null) xmax = isFinite(cMaxX) ? cMaxX : 5;
+        let _xminFromContent = false, _xmaxFromContent = false;
+        if (xmin === null) { xmin = isFinite(cMinX) ? cMinX : -5; _xminFromContent = isFinite(cMinX); }
+        if (xmax === null) { xmax = isFinite(cMaxX) ? cMaxX : 5; _xmaxFromContent = isFinite(cMaxX); }
+        // Apply Asymptote-style autoscaling: nicenum(range/10) rounding matches
+        // Asymptote's autoscale() which rounds axis limits to nice tick boundaries.
+        if (!xminExplicit && !xmaxExplicit && _xminFromContent && _xmaxFromContent && cMaxX > cMinX) {
+          const _rawRange = cMaxX - cMinX;
+          const _roughStep = _rawRange / 10;
+          const _mag = Math.pow(10, Math.floor(Math.log10(_roughStep)));
+          const _f = _roughStep / _mag;
+          const _d = _f <= 1 ? _mag : _f <= 2 ? 2*_mag : _f <= 5 ? 5*_mag : 10*_mag;
+          xmin = Math.floor(cMinX / _d) * _d;
+          xmax = Math.ceil(cMaxX / _d) * _d;
+        }
       }
       if (!pen) pen = clonePen(defaultPen);
       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
@@ -7395,15 +7410,13 @@ function createInterpreter() {
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
         }
-        // At endpoint (position 0 or 1), Asymptote's labelaxis projects the user-supplied
-        // align direction onto the axis tangent. For an xaxis the tangent is horizontal,
-        // so an align like SE (1,-1) becomes pure East (1,0) — the label sits inline with
-        // the axis beyond the endpoint instead of below it.
-        const atEndpointX = labelAlign && (labelPosition === 0 || labelPosition === 1);
-        if (atEndpointX && typeof lAlign.x === 'number' && lAlign.x !== 0) {
-          lAlign = {x: lAlign.x, y: 0};
-        }
         pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0, _isAxisLabel: true});
+        // If the label is below the axis (lAlign.y < 0), record that on the axis draw
+        // command so yaxis() can extend its lower bound to include the label extent.
+        if (_xaxisDrawCmd && lAlign.y < 0) {
+          _xaxisDrawCmd._axisLabelBelowAy = lAlign.y;
+          _xaxisDrawCmd._axisLabelFontSize = (pen && pen.fontsize) || 10;
+        }
       }
     });
 
@@ -7528,6 +7541,17 @@ function createInterpreter() {
           // Also: extend our y-axis range to include the x-axis y-crossing
           if (!yminExplicit && c._axisShiftY < ymin) ymin = c._axisShiftY;
           if (!ymaxExplicit && c._axisShiftY > ymax) ymax = c._axisShiftY;
+          // If the x-axis has a label below it, extend ymin to include the
+          // approximate label bottom extent.  The extension is estimated as
+          // 0.5 * fontSize bp converted to user units via the x-axis width.
+          if (!yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
+            const ay = c._axisLabelBelowAy;
+            const fs = c._axisLabelFontSize || 10;
+            const xExtBp = Math.abs(c.path.segs[0].p3.x - c.path.segs[0].p0.x);
+            const roughScale = (pic._sizeW > 0 && xExtBp > 0) ? pic._sizeW / xExtBp : 13;
+            const extUser = Math.abs(ay) * 0.5 * fs / roughScale;
+            if (c._axisShiftY - extUser < ymin) ymin = c._axisShiftY - extUser;
+          }
         }
       }
       // Cross range for gridlines — prefer per-picture xlimits if set; transform to log space if needed
@@ -14943,6 +14967,7 @@ function renderSVG(result, opts) {
       let dx = 0, dy = 0;
       let anchor = 'middle';
       let baseline = 'central';
+      let _labelHEst = 0, _labelAyN = 0;
       if (dc.align) {
         // Asymptote algorithm (plain_Label.asy + drawlabel.cc):
         //   S = position + align * labelmargin          (small margin push)
@@ -14997,6 +15022,8 @@ function renderSVG(result, opts) {
         const ay_n = ay * 0.5;
         dx = ax_n * W + ax * margin + axUnit * dotPush;
         dy = -(ay_n * H + ay * margin + ayUnit * dotPush);   // negate: SVG y-axis is inverted
+        _labelHEst = H;   // pass estimated height to MathJax renderer for correction
+        _labelAyN = ay_n;
         anchor = 'middle';
       }
       const rawText = dc.text || '';
@@ -15286,7 +15313,7 @@ function renderSVG(result, opts) {
         // rasterization (labelOutput === 'svg-native'), go through MathJax
         // instead, which emits real <path> glyphs that librsvg can rasterize.
         if (opts && opts.labelOutput === 'svg-native') {
-          labelEl = renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+          labelEl = renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
         } else {
           labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
         }
@@ -15297,7 +15324,7 @@ function renderSVG(result, opts) {
         // because KaTeX_Math is not installed, making labels appear wrongly bold.
         // Re-wrap single-letter stripped math in $...$ so MathJax treats it as math.
         const mjxInput = wasStrippedMath ? '$' + displayText + '$' : displayText;
-        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -15340,17 +15367,21 @@ function renderSVG(result, opts) {
         dy = -(ay_n * imgH) - imgH / 2; // SVG y flipped
       }
 
-      // Extract scale and rotation from graphic.transform if present
-      let scaleX = 1, scaleY = 1, angle = 0;
+      // Apply graphic transform using full SVG matrix, correctly handling rotation,
+      // reflection, and scale.  Derivation: Asy has y-up, SVG has y-down, so the
+      // 2×2 Asy matrix [[b,c],[e,f]] becomes SVG [[b,-c],[-e,f]], applied about
+      // the label anchor (sx,sy): matrix(b,-e,-c,f, sx*(1-b)+c*sy, sy*(1-f)+e*sx).
       let transformAttr = '';
       if (g.transform) {
         const lt = g.transform;
-        scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
-        scaleY = Math.sqrt(lt.c * lt.c + lt.f * lt.f);
-        angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
-        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) { imgW *= scaleX; imgH *= scaleX; dx *= scaleX; dy *= scaleX; }
-        if (Math.abs(angle) > 0.1) {
-          transformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx)}, ${fmt(sy)})"`;
+        const ma = lt.b, mb = -lt.e, mc = -lt.c, md = lt.f;
+        const me = sx * (1 - lt.b) + lt.c * sy + lt.a * pxPerUnitX;
+        const mf = sy * (1 - lt.f) + lt.e * sx - lt.d * pxPerUnitY;
+        const isIdentity = Math.abs(ma - 1) < 1e-9 && Math.abs(mb) < 1e-9 &&
+                           Math.abs(mc) < 1e-9 && Math.abs(md - 1) < 1e-9 &&
+                           Math.abs(me) < 1e-6 && Math.abs(mf) < 1e-6;
+        if (!isIdentity) {
+          transformAttr = ` transform="matrix(${fmt(ma)},${fmt(mb)},${fmt(mc)},${fmt(md)},${fmt(me)},${fmt(mf)})"`;
         }
       }
 
@@ -16124,7 +16155,7 @@ function _katexMeasureBp(rawText, fontSize) {
   return { wBp: unitDims.wPerPx * fontSize, hBp: unitDims.hPerPx * fontSize };
 }
 
-function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
+function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS, hEst, ayN) {
   const state = _ensureMathJax();
   if (!state) return renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS);
   if (fontSizeCSS === undefined) fontSizeCSS = fontSize;
@@ -16209,6 +16240,11 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   if (anchor === 'middle') fx -= svgW / 2;
   else if (anchor === 'end') fx -= svgW;
   fy -= svgH / 2; // vertically center — matches KaTeX foreignObject behavior
+  // When align is set, dy was computed using H_estimated (fontSizeSVG) which greatly
+  // overestimates the actual MathJax-rendered svgH. Correct by shifting fy so the
+  // label edge sits at the expected margin distance from the anchor point.
+  // Derivation: fy_correct = fy_current + ay_n * (hEst - svgH)
+  if (hEst) fy += ayN * (hEst - svgH);
 
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const colorAttr = ` color="${fill || '#000000'}"`;
