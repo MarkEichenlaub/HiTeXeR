@@ -3881,7 +3881,12 @@ function createInterpreter() {
     }
 
     function drawAll(node, ox, oy) {
-      const px = node.pos.x + ox;
+      // layout() records node.pos.x as the LEFT-EDGE-aligned position within
+      // the parent's subtree, and node.adjust = -midPoint of sibling span so
+      // siblings collectively center under the parent.  Apply adjust here so
+      // each subtree is centered rather than left-anchored (which was making
+      // the tree look sharply tilted to the left).
+      const px = node.pos.x + ox + (node.adjust || 0);
       const py = node.pos.y + oy;
       node.pos = {x: px, y: py};
       // Draw box around the label
@@ -7028,6 +7033,18 @@ function createInterpreter() {
       function drawTick(v, sz) {
         if (noZero && Math.abs(v) < 1e-10) return;
         if (v < min - 1e-10 || v > max + 1e-10) return;
+        // extend=true on Ticks() draws full gridlines across the plot area
+        // (from crossMin to crossMax), rendered below plot content. Used by the
+        // xaxis(..., invisible, Ticks(..., extend=true, gray)) gridline idiom.
+        if (ticks.extend === true) {
+          const cLo = crossMin !== undefined ? crossMin : -5;
+          const cHi = crossMax !== undefined ? crossMax : 5;
+          const gp0 = isX ? {x:v, y:cLo} : {x:cLo, y:v};
+          const gp1 = isX ? {x:v, y:cHi} : {x:cHi, y:v};
+          pic.commands.push({cmd:'draw', path: makePath([lineSegment(gp0, gp1)], false),
+                             pen:tickPen, arrow:null, line:0, above: -1, _isTickMark: true});
+          return;
+        }
         if (isFrameExtend) {
           const primaryOffset = axisOffset;
           // Direction pointing inward (from primary axis toward mirror axis)
@@ -7068,9 +7085,14 @@ function createInterpreter() {
 
       // Draw labels for major ticks.
       // Suppress labels for very tiny tick marks (Size=0.1pt style that serves as
-      // invisible markers).
+      // invisible markers).  Also suppress when the axis pen is invisible: the
+      // xaxis/yaxis(..., invisible, Ticks(..., extend=true, gray)) idiom draws
+      // gridlines only, and duplicate labels from those calls overlap the real
+      // tick labels drawn by the visible axis call.
+      const axisInvisible = pen && pen.opacity === 0;
       const showLabels = ticks.labels &&
-                         !(ticks.sizeExplicit && ticks.size < 1.5);
+                         !(ticks.sizeExplicit && ticks.size < 1.5) &&
+                         !axisInvisible;
       if (showLabels) {
         for (const v of majorPositions) {
           if (noZero && Math.abs(v) < 1e-10) continue;
@@ -7381,7 +7403,7 @@ function createInterpreter() {
         if (atEndpointX && typeof lAlign.x === 'number' && lAlign.x !== 0) {
           lAlign = {x: lAlign.x, y: 0};
         }
-        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0});
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0, _isAxisLabel: true});
       }
     });
 
@@ -12749,6 +12771,13 @@ function createInterpreter() {
     let pos = null, pen = null, text = null, align = null, multiDots = null;
     let graphicData = null, filltype = null;
     for (const a of args) {
+      // Named args: dot(pos, filltype = Fill, p = blue) etc.
+      if (a && typeof a === 'object' && a._named) {
+        if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+        if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
+        if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
+        continue;
+      }
       if (a && a._tag === 'filltype') { filltype = a; continue; }
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
