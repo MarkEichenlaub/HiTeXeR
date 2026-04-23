@@ -58,7 +58,7 @@ body {
 #editor-panel .CodeMirror { flex: 1; height: auto; font-size: 14px; line-height: 1.5; }
 
 #preview-panel { width: 50%; display: flex; flex-direction: column; background: #fff; position: relative; }
-#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 20px; position: relative; cursor: grab; }
+#preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 20px; position: relative; cursor: default; }
 #preview-container svg { display: block; max-width: 100%; max-height: 100%; }
 #preview-container .error {
   color: #e94560; font-family: monospace; font-size: 13px; white-space: pre-wrap;
@@ -118,6 +118,28 @@ body {
 }
 #preview-container.element-placement-active,
 #preview-container.element-placement-active * { cursor: crosshair !important; }
+
+/* Cursor coordinates tooltip */
+#cursor-coords-tooltip {
+  display: none; position: fixed; z-index: 9999;
+  background: #fff; color: #222;
+  font-family: 'Courier New', monospace; font-size: 11px; font-weight: 500;
+  padding: 3px 7px; border-radius: 3px;
+  border: 1px solid #bbb; box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+  pointer-events: none; white-space: nowrap;
+}
+
+/* Preview info bar */
+#preview-info-bar {
+  flex-shrink: 0; background: #f5f5f8; border-top: 1px solid #ddd;
+  padding: 4px 12px; font-size: 11px; color: #555;
+  font-family: system-ui, sans-serif; display: flex; align-items: center;
+  gap: 16px; min-height: 24px; user-select: text;
+}
+#preview-info-bar .pib-section { display: flex; align-items: center; gap: 6px; }
+#preview-info-bar .pib-label { color: #999; font-weight: 500; }
+#preview-info-bar .pib-cursor { margin-left: auto; }
+#preview-info-bar.pib-hidden { display: none; }
 
 /* Highlight styles for code lines */
 .cm-highlight-primary { background-color: rgba(233, 69, 96, 0.4) !important; outline: 1px solid rgba(233, 69, 96, 0.6); }
@@ -337,7 +359,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v2.27</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v2.31</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -380,6 +402,7 @@ body {
       <div class="menu-dropdown">
         <div class="md-item checked" id="md-autocomplete">Autocomplete</div>
         <div class="md-item" id="md-real-asy">Use Real Asymptote</div>
+        <div class="md-item" id="md-coords">Cursor Coords</div>
         <div class="md-separator"></div>
         <div class="md-item" id="md-texer-import">Import from TeXeR...</div>
       </div>
@@ -471,6 +494,12 @@ label("$C$", C, N);
           <span id="gif-progress" style="color:#e9c46a;font-size:11px;"></span>
         </div>
       </div>
+    </div>
+    <div id="preview-info-bar" class="pib-hidden">
+      <span class="pib-section"><span class="pib-label">Size:</span> <span id="pib-size-px"></span></span>
+      <span class="pib-section"><span class="pib-label">cm:</span> <span id="pib-size-cm"></span></span>
+      <span class="pib-section"><span class="pib-label">units:</span> <span id="pib-size-asy"></span></span>
+      <span class="pib-cursor pib-section" id="pib-cursor-section" style="display:none"><span class="pib-label">cursor:</span> <span id="pib-cursor-pos"></span></span>
     </div>
   </div>
   <div id="chat-resizer"></div>
@@ -1776,6 +1805,7 @@ const SERVER_URL = 'http://127.0.0.1:8080';
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let useRealAsy = false; // when true, skip JS interpreter and always use server
 let lastRenderInfo = null; // stores { pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, displayPercent } from last JS render
+let coordsActive = false; // cursor coords display toggle
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
 let gridActive = false; // grid overlay toggle state
@@ -2948,6 +2978,79 @@ function initCanvasPan() {
     canvasPanDrag = null;
     container.style.cursor = '';
   });
+  container.addEventListener('mousemove', (e) => {
+    if (coordsActive) updateCursorCoords(e);
+  });
+  container.addEventListener('mouseleave', () => {
+    document.getElementById('cursor-coords-tooltip').style.display = 'none';
+    document.getElementById('pib-cursor-section').style.display = 'none';
+  });
+}
+
+// ============================================================
+// Cursor Coordinates + Preview Info Bar
+// ============================================================
+function toggleCursorCoords() {
+  coordsActive = !coordsActive;
+  document.getElementById('md-coords').classList.toggle('checked', coordsActive);
+  if (!coordsActive) {
+    document.getElementById('cursor-coords-tooltip').style.display = 'none';
+    document.getElementById('pib-cursor-section').style.display = 'none';
+  }
+}
+
+function getAsyCoords(e) {
+  const svg = document.querySelector('#preview-container svg');
+  if (!svg || !lastRenderInfo) return null;
+  const screenCTM = svg.getScreenCTM();
+  if (!screenCTM) return null;
+  const inv = screenCTM.inverse();
+  const svgX = inv.a * e.clientX + inv.c * e.clientY + inv.e;
+  const svgY = inv.b * e.clientX + inv.d * e.clientY + inv.f;
+  const mx = lastRenderInfo.minX + svgX / lastRenderInfo.pxPerUnitX;
+  const my = lastRenderInfo.maxY - svgY / lastRenderInfo.pxPerUnitY;
+  return { mx, my };
+}
+
+function updateCursorCoords(e) {
+  const coords = getAsyCoords(e);
+  const tooltip = document.getElementById('cursor-coords-tooltip');
+  if (!coords) { tooltip.style.display = 'none'; return; }
+  const { mx, my } = coords;
+  const fmt = (v) => v.toFixed(3).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  tooltip.textContent = `(${fmt(mx)}, ${fmt(my)})`;
+  tooltip.style.display = 'block';
+  // Position: above and to the right of cursor
+  const offset = 16;
+  let tx = e.clientX + offset;
+  let ty = e.clientY - tooltip.offsetHeight - offset / 2;
+  if (tx + tooltip.offsetWidth > window.innerWidth - 4) tx = e.clientX - tooltip.offsetWidth - offset / 2;
+  if (ty < 4) ty = e.clientY + offset / 2;
+  tooltip.style.left = tx + 'px';
+  tooltip.style.top = ty + 'px';
+  // Update info bar cursor position
+  const cursorEl = document.getElementById('pib-cursor-pos');
+  if (cursorEl) cursorEl.textContent = `(${fmt(mx)}, ${fmt(my)})`;
+  const section = document.getElementById('pib-cursor-section');
+  if (section && coordsActive) section.style.display = '';
+}
+
+function updateInfoBar() {
+  const bar = document.getElementById('preview-info-bar');
+  if (!bar || !lastRenderInfo) { if (bar) bar.classList.add('pib-hidden'); return; }
+  const { pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY } = lastRenderInfo;
+  const wPx = Math.round((maxX - minX) * pxPerUnitX);
+  const hPx = Math.round((maxY - minY) * pxPerUnitY);
+  // cm: 96 CSS px = 1 inch = 2.54 cm
+  const wCm = (wPx * 2.54 / 96).toFixed(2);
+  const hCm = (hPx * 2.54 / 96).toFixed(2);
+  const fmtU = (v) => parseFloat(v.toFixed(3)).toString();
+  const wAsy = fmtU(maxX - minX);
+  const hAsy = fmtU(maxY - minY);
+  document.getElementById('pib-size-px').textContent = `${wPx} × ${hPx}`;
+  document.getElementById('pib-size-cm').textContent = `${wCm} × ${hCm}`;
+  document.getElementById('pib-size-asy').textContent = `${wAsy} × ${hAsy}`;
+  bar.classList.remove('pib-hidden');
 }
 
 // Replace <foreignObject> (KaTeX/MathML labels) with SVG <text> fallbacks.
@@ -3275,6 +3378,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-autocomplete').addEventListener('click', () => toggleAutocomplete());
   document.getElementById('md-texer-import').addEventListener('click', () => doTexerImport());
   document.getElementById('md-real-asy').addEventListener('click', () => toggleRealAsy());
+  document.getElementById('md-coords').addEventListener('click', () => toggleCursorCoords());
   // Toolbar Slide button
   document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
   // Toolbar GIF button
@@ -3300,6 +3404,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-copy-code').addEventListener('click', () => copyEditorCode());
   // Init canvas pan
   initCanvasPan();
+  // Update info bar after every render
+  document.addEventListener('hitexer-rendered', () => updateInfoBar());
   document.getElementById('md-save').addEventListener('click', () => doSaveAsy());
   document.getElementById('md-open').addEventListener('click', () => document.getElementById('file-open-input').click());
   document.getElementById('file-open-input').addEventListener('change', (e) => doOpenAsy(e));
@@ -6192,5 +6298,6 @@ document.addEventListener('DOMContentLoaded', () => {
   editor.setOption('lint', { getAnnotations: asyLintAsync, async: true, delay: 500 });
 });
 </script>
+<div id="cursor-coords-tooltip"></div>
 </body>
 </html>
