@@ -13934,8 +13934,13 @@ function renderSVG(result, opts) {
 
   // Iterative scale solver: reduce pxPerUnit so total output
   // (geometry + truesize labels) fits within size constraint.
+  // Skip for IgnoreAspect (keepAspect=false with explicit sizeW and sizeH):
+  // real Asymptote does NOT shrink the plot in that case — the plot area is
+  // fixed at sizeW × sizeH and labels are allowed to overflow. Running the
+  // non-uniform per-axis shrink here would distort the requested aspect.
+  const isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
   let labelShrinkFactor = 1;
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !isIgnoreAspect) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
@@ -15909,8 +15914,9 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
         html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'html'});
       } else {
         // Preserve spaces: HTML collapses leading/trailing whitespace in text nodes
-        // adjacent to inline elements (KaTeX output).  Use &nbsp; for spaces.
-        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;');
+        // adjacent to inline elements (KaTeX output).  Use numeric char ref &#160;
+        // (valid in XML/SVG; plain &nbsp; is only an HTML entity and breaks svg->png).
+        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&#160;');
       }
     }
   } else {
