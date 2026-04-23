@@ -72,7 +72,7 @@ body {
   font-family: system-ui, sans-serif;
 }
 #preview-warn-badge {
-  display: none; position: absolute; top: 46px; right: 8px; z-index: 100;
+  display: none; position: absolute; top: 78px; right: 8px; z-index: 100;
   background: rgba(233,196,106,0.9); color: #1a1a2e; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 3px; pointer-events: none;
   font-family: system-ui, sans-serif;
@@ -359,7 +359,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v2.31</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v2.36</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -382,8 +382,13 @@ body {
     <div class="menu-item" id="menu-edit">
       <span>Edit</span>
       <div class="menu-dropdown">
+        <div class="md-item" id="md-undo">Undo <span style="opacity:0.5;font-size:11px;float:right;margin-left:12px">Ctrl+Z</span></div>
+        <div class="md-item" id="md-redo">Redo <span style="opacity:0.5;font-size:11px;float:right;margin-left:12px">Ctrl+Y</span></div>
+        <div class="md-separator"></div>
         <div class="md-item" id="md-clear">Clear</div>
         <div class="md-item" id="md-add-element">+ Element</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-share-url">Share via URL</div>
       </div>
     </div>
     <div class="menu-item" id="menu-view">
@@ -458,6 +463,13 @@ label("$C$", C, N);
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-in" title="Zoom in">+</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-out" title="Zoom out">&#x2212;</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-rotate" title="Rotate view">&#x21BB; Rotate</button>
+      </div>
+      <div id="rotate-panel" style="display:none;position:absolute;top:38px;left:8px;z-index:201;background:rgba(22,33,62,0.95);border:1px solid rgba(255,255,255,0.2);border-radius:5px;padding:6px 10px;font-family:system-ui,sans-serif;font-size:11px;color:#eee;align-items:center;gap:8px;">
+        <label style="white-space:nowrap;">Angle:</label>
+        <input type="range" id="rotate-slider" min="-180" max="180" step="1" value="0" style="width:140px;vertical-align:middle;">
+        <span id="rotate-value" style="min-width:36px;text-align:right;font-family:monospace;">0&deg;</span>
+        <button class="canvas-ctrl-btn" id="rotate-reset" title="Reset rotation" style="padding:2px 6px;font-size:10px;">Reset</button>
       </div>
       <div class="canvas-controls canvas-controls-tr">
         <div class="copy-btn-group">
@@ -1809,6 +1821,18 @@ let coordsActive = false; // cursor coords display toggle
 let autoRenderTimer = null;
 let suppressAutoRender = false; // set true during slide/slider to skip redundant auto-renders
 let gridActive = false; // grid overlay toggle state
+
+// Full-document replace that uses CodeMirror's replaceRange so we can assign a
+// custom origin string. CM coalesces rapid edits that share an origin string
+// into a single undo step, so all moves within one drag collapse to one undo.
+// Passing a different origin on a new drag forces a fresh undo entry.
+function editorReplaceFull(newCode, origin) {
+  const doc = editor.getDoc();
+  if (doc.getValue() === newCode) return;
+  const lastLine = doc.lastLine();
+  const endCh = doc.getLine(lastLine).length;
+  editor.replaceRange(newCode, {line: 0, ch: 0}, {line: lastLine, ch: endCh}, origin);
+}
 let _serverDown = false;
 
 // Pre-fetch graphic() images for the JS interpreter
@@ -2916,29 +2940,37 @@ function initResizer() {
 // ============================================================
 let canvasZoom = 1.0;
 let canvasPanX = 0, canvasPanY = 0;
+let canvasRotate = 0; // view-only rotation in degrees
 let canvasPanDrag = null; // { startX, startY, startPanX, startPanY }
 
 function applyCanvasTransform() {
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
-  if (canvasZoom === 1.0 && canvasPanX === 0 && canvasPanY === 0) {
+  if (canvasZoom === 1.0 && canvasPanX === 0 && canvasPanY === 0 && canvasRotate === 0) {
     // Default view: remove inline overrides and let CSS handle max-width/max-height
     svg.style.transform = '';
     svg.style.transformOrigin = '';
     svg.style.maxWidth = '';
     svg.style.maxHeight = '';
   } else {
-    // Zoomed/panned: remove CSS size constraints, apply transform
+    // Zoomed/panned/rotated: remove CSS size constraints, apply transform
     svg.style.maxWidth = 'none';
     svg.style.maxHeight = 'none';
     svg.style.transformOrigin = 'center center';
-    svg.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasZoom})`;
+    svg.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasZoom}) rotate(${canvasRotate}deg)`;
   }
 }
 
 function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); }
 function canvasZoomOut() { canvasZoom = Math.max(0.1, canvasZoom / 1.25); applyCanvasTransform(); }
-function canvasShrinkToFit() { canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; applyCanvasTransform(); }
+function canvasShrinkToFit() {
+  canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; canvasRotate = 0;
+  const slider = document.getElementById('rotate-slider');
+  const valEl = document.getElementById('rotate-value');
+  if (slider) slider.value = '0';
+  if (valEl) valEl.textContent = '0\u00B0';
+  applyCanvasTransform();
+}
 
 function initCanvasPan() {
   const container = document.getElementById('preview-container');
@@ -3369,6 +3401,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // === Menu item wiring ===
   document.getElementById('md-clear').addEventListener('click', () => doClear());
   document.getElementById('md-add-element').addEventListener('click', (e) => showAddElementMenu(e));
+  document.getElementById('md-undo').addEventListener('click', () => { editor.undo(); editor.focus(); });
+  document.getElementById('md-redo').addEventListener('click', () => { editor.redo(); editor.focus(); });
+  document.getElementById('md-share-url').addEventListener('click', () => doShareViaUrl());
   document.getElementById('md-ai-chat').addEventListener('click', () => toggleChatPanel());
   document.getElementById('md-highlight').addEventListener('click', () => toggleHighlight());
   document.getElementById('md-grid').addEventListener('click', () => toggleGrid());
@@ -3389,6 +3424,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
   document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
+  // Rotation view controls
+  (function(){
+    const rotBtn = document.getElementById('btn-canvas-rotate');
+    const rotPanel = document.getElementById('rotate-panel');
+    const rotSlider = document.getElementById('rotate-slider');
+    const rotValue = document.getElementById('rotate-value');
+    const rotReset = document.getElementById('rotate-reset');
+    if (!rotBtn || !rotPanel) return;
+    function updateRotate(val) {
+      canvasRotate = val;
+      rotValue.textContent = val + '\u00B0';
+      applyCanvasTransform();
+      rotBtn.classList.toggle('active', val !== 0);
+    }
+    rotBtn.addEventListener('click', () => {
+      const open = rotPanel.style.display === 'flex';
+      rotPanel.style.display = open ? 'none' : 'flex';
+    });
+    rotSlider.addEventListener('input', () => updateRotate(parseFloat(rotSlider.value) || 0));
+    rotReset.addEventListener('click', () => { rotSlider.value = '0'; updateRotate(0); });
+  })();
   document.getElementById('btn-canvas-copy').addEventListener('click', () => copyCanvasImage('png'));
   document.getElementById('btn-canvas-copy-arrow').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -3516,6 +3572,38 @@ document.addEventListener('DOMContentLoaded', () => {
         wrapper.removeAttribute('filter');
       }
     }
+  }
+
+  function doShareViaUrl() {
+    const code = editor.getValue();
+    const url = location.origin + location.pathname + '#code=' + encodeURIComponent(code);
+    const showStatus = (msg, ok) => {
+      const statusEl = document.getElementById('status');
+      const prev = { text: statusEl.textContent, color: statusEl.style.color };
+      statusEl.textContent = msg;
+      statusEl.style.color = ok ? '#2ecc71' : '#e94560';
+      setTimeout(() => { statusEl.textContent = prev.text; statusEl.style.color = prev.color; }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => showStatus('Share URL copied to clipboard', true),
+        () => { /* fallback */
+          const ta = document.createElement('textarea');
+          ta.value = url; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); showStatus('Share URL copied to clipboard', true); }
+          catch (e) { showStatus('Copy failed: ' + e.message, false); }
+          document.body.removeChild(ta);
+        }
+      );
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = url; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); showStatus('Share URL copied to clipboard', true); }
+      catch (e) { showStatus('Copy failed: ' + e.message, false); }
+      document.body.removeChild(ta);
+    }
+    // Also update the browser location so the URL is visible/live.
+    try { history.replaceState(null, '', '#code=' + encodeURIComponent(code)); } catch(e) {}
   }
 
   function doClear() {
@@ -4145,10 +4233,25 @@ document.addEventListener('DOMContentLoaded', () => {
             <span style="color:#ccc;font-size:12px;min-width:40px;" class="slide-val">${fr.value}</span>`;
           slidersDiv.appendChild(row);
           const slider = row.querySelector('input[type=range]');
-          slider.addEventListener('input', () => {
+          // Track a single drag session for undo batching.
+          // pointerdown mints a fresh origin; pointerup / blur clears it.
+          // Keyboard arrow adjustments (no pointer drag) also get their own
+          // short-lived origin per key press.
+          let sliderDragOrigin = null;
+          const mintOrigin = () => '+slider-' + slider.dataset.var + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+          slider.addEventListener('pointerdown', () => { sliderDragOrigin = mintOrigin(); });
+          const endSliderDrag = () => { sliderDragOrigin = null; };
+          slider.addEventListener('pointerup', endSliderDrag);
+          slider.addEventListener('pointercancel', endSliderDrag);
+          slider.addEventListener('blur', endSliderDrag);
+          slider.addEventListener('input', (ev) => {
             const val = parseFloat(slider.value);
             row.querySelector('.slide-val').textContent = val.toFixed(1);
-            updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val);
+            // If input fires without an active pointer drag (e.g. keyboard
+            // arrow keys), mint a one-shot origin so consecutive key presses
+            // within the coalesce window still merge into one undo step.
+            const origin = sliderDragOrigin || ('+slider-kbd-' + slider.dataset.var);
+            updateSlideReal(parseInt(slider.dataset.line), slider.dataset.var, val, origin);
           });
         }
       }
@@ -4249,6 +4352,12 @@ document.addEventListener('DOMContentLoaded', () => {
       startSvgX: clickSvgX,
       startSvgY: clickSvgY,
       svg: svg,
+      // Unique origin string for mousemove edits in this drag. CM's coalescing
+      // is unreliable for full-document replaceRange, so we also snapshot the
+      // pre-drag content + history and collapse to one undo step on mouseup.
+      origin: '+pt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      preDragCode: editor.getValue(),
+      preDragHistory: editor.getDoc().getHistory(),
     };
   }
 
@@ -4282,7 +4391,7 @@ document.addEventListener('DOMContentLoaded', () => {
       );
     }
     const newCode = lines.join('\n');
-    editor.setValue(newCode);
+    editorReplaceFull(newCode, slideDragState.origin);
 
     // Try JS interpreter for real-time full re-render during drag
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
@@ -4326,8 +4435,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function slideMouseUp() {
     if (!slideDragState) return;
-    const { svg } = slideDragState;
+    const { svg, preDragCode, preDragHistory } = slideDragState;
     if (svg) svg.style.cursor = '';
+
+    // Collapse all mousemove edits into a single undo step.
+    // Revert content + restore pre-drag history, then re-apply the final code
+    // as one setValue — net result: one history entry for the whole drag.
+    const doc = editor.getDoc();
+    const finalCode = editor.getValue();
+    if (preDragCode !== undefined && finalCode !== preDragCode) {
+      editor.operation(() => {
+        editor.setValue(preDragCode);
+        doc.setHistory(preDragHistory);
+        editor.setValue(finalCode);
+      });
+    }
+
     slideDragState = null;
 
     // If JS interpreter already rendered during drag, just re-apply overlay
@@ -4355,14 +4478,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function updateSlideReal(lineIdx, varName, value) {
+  function updateSlideReal(lineIdx, varName, value, origin) {
     const code = editor.getValue();
     const lines = code.split('\n');
     const re = new RegExp('(\\b' + varName + '\\s*=\\s*)[-\\d.eE+]+', '');
     lines[lineIdx] = lines[lineIdx].replace(re, `$1${value}`);
     const newCode = lines.join('\n');
     suppressAutoRender = true;
-    editor.setValue(newCode);
+    editorReplaceFull(newCode, origin || ('+slider-' + varName));
     suppressAutoRender = false;
 
     // Try JS interpreter for instant response
