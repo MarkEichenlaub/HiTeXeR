@@ -42,6 +42,7 @@ const ALLOWED_FILES = new Set([
 const WRITE_OK_UNCOMMITTED = new Set([
   'auto-fix/attempts.jsonl',
   'auto-fix/skiplist.json',
+  'auto-fix/telemetry.jsonl',
 ]);
 
 function parseArgs(argv) {
