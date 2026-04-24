@@ -13591,10 +13591,24 @@ function createInterpreter() {
         // Named argument: label("text", pos, align, p=brown, filltype=Fill)
         if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
         if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
+        if ('align' in a && !align) {
+          const av = a.align;
+          if (isTriple(av)) align = projectTriple(av);
+          else if (isPair(av)) align = av;
+          else if (av && av._tag === 'align' && av.dir) {
+            align = isTriple(av.dir) ? projectTriple(av.dir) : av.dir;
+          }
+        }
+        if ('position' in a && !pos) {
+          const pv = a.position;
+          if (isTriple(pv)) pos = projectTriple(pv);
+          else if (isPair(pv)) pos = pv;
+        }
       }
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
+    else pen = mergePens(clonePen(defaultPen), pen);
 
     // AoPS-corrupted \t escapes: labels with TAB before letters are the result
     // of "\t<letter>" being collapsed to a single TAB byte.  TeX treats the
