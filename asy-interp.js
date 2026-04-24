@@ -5048,6 +5048,33 @@ function createInterpreter() {
 
     env.set('ellipse', (center, a, b) => {
       const c = toPair(center);
+      // Geometry-package overload: ellipse(point F1, point F2, real a)
+      // — two-foci ellipse with semi-major axis `a`. Detected when the second
+      // arg is a pair (in the standard form it would be a real semi-axis).
+      if (isPair(a) && isNumber(b)) {
+        const F1 = c;
+        const F2 = toPair(a);
+        const semiMajor = toNumber(b);
+        const cx = (F1.x + F2.x) / 2;
+        const cy = (F1.y + F2.y) / 2;
+        const dx = F2.x - F1.x;
+        const dy = F2.y - F1.y;
+        const cFoc = Math.hypot(dx, dy) / 2; // half focal distance
+        // If degenerate (a < c), Asymptote would error; clamp to a circle of
+        // radius |a| as a graceful fallback.
+        const semiMinor = (semiMajor > cFoc)
+          ? Math.sqrt(semiMajor*semiMajor - cFoc*cFoc)
+          : 0;
+        const ang = Math.atan2(dy, dx);
+        const cosA = Math.cos(ang), sinA = Math.sin(ang);
+        // Transform: rotate(ang) then scale(semiMajor, semiMinor) then translate(center).
+        const circ = makeCirclePath({x:0,y:0}, 1);
+        const t = makeTransform(
+          cx, semiMajor*cosA, -semiMinor*sinA,
+          cy, semiMajor*sinA,  semiMinor*cosA
+        );
+        return applyTransformPath(t, circ);
+      }
       const rx = toNumber(a), ry = toNumber(b);
       const circ = makeCirclePath({x:0,y:0}, 1);
       const t = makeTransform(c.x, rx, 0, c.y, 0, ry);
