@@ -1889,103 +1889,169 @@ function scheduleAutoRender() {
 }
 
 function removeGridOverlay() {
-  const svg = document.querySelector('#preview-container svg');
-  if (!svg) return;
-  const g = svg.querySelector('#hitexer-grid-overlay');
+  const container = document.getElementById('preview-container');
+  if (!container) return;
+  const g = container.querySelector('#hitexer-grid-overlay');
   if (g) g.remove();
+  // Remove any legacy in-SVG overlay from older versions.
+  const svg = container.querySelector('svg');
+  if (svg) { const old = svg.querySelector('#hitexer-grid-overlay'); if (old) old.remove(); }
+}
+
+// Choose a "nice" grid step (1, 2, or 5 × 10^n) targeting ~targetCount divisions across range.
+function niceGridStep(range, targetCount) {
+  if (!isFinite(range) || range <= 0) return 1;
+  const rough = range / targetCount;
+  const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+  const frac = rough / pow;
+  let nice;
+  if (frac < 1.5) nice = 1;
+  else if (frac < 3.5) nice = 2;
+  else if (frac < 7.5) nice = 5;
+  else nice = 10;
+  return nice * pow;
+}
+
+function formatGridLabel(v, step) {
+  const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  let s = v.toFixed(decimals);
+  if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  return s;
 }
 
 function applyGridOverlay() {
   removeGridOverlay();
   if (!lastRenderInfo) return;
-  const svg = document.querySelector('#preview-container svg');
+  const container = document.getElementById('preview-container');
+  if (!container) return;
+  const svg = container.querySelector('svg');
   if (!svg) return;
 
-  const { pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY } = lastRenderInfo;
+  const { minX, minY, maxX, maxY } = lastRenderInfo;
+  const svgRect = svg.getBoundingClientRect();
+  const contRect = container.getBoundingClientRect();
+  if (svgRect.width <= 0 || svgRect.height <= 0) return;
+  if (contRect.width <= 0 || contRect.height <= 0) return;
+
+  const mathW = maxX - minX;
+  const mathH = maxY - minY;
+  if (mathW <= 0 || mathH <= 0) return;
+
+  // Screen-space mapping: math -> container-local pixels.
+  // Derived from getBoundingClientRect so it accounts for the CSS transform
+  // used for canvas zoom/pan — the overlay stays crisp and pinned to the viewport.
+  const pxPerUnitX = svgRect.width / mathW;
+  const pxPerUnitY = svgRect.height / mathH;
+  const svgOffsetX = svgRect.left - contRect.left;
+  const svgOffsetY = svgRect.top - contRect.top;
+  const toPxX = (mx) => svgOffsetX + (mx - minX) * pxPerUnitX;
+  const toPxY = (my) => svgOffsetY + (maxY - my) * pxPerUnitY;
+  const fromPxX = (px) => minX + (px - svgOffsetX) / pxPerUnitX;
+  const fromPxY = (py) => maxY - (py - svgOffsetY) / pxPerUnitY;
+
+  // Math coordinates visible in the container viewport.
+  const contW = contRect.width, contH = contRect.height;
+  const visMinX = fromPxX(0);
+  const visMaxX = fromPxX(contW);
+  const visMaxYmath = fromPxY(0);
+  const visMinYmath = fromPxY(contH);
+
+  // Adaptive step — finer spacing when zoomed in, coarser when zoomed out.
+  const targetLines = 8;
+  const stepX = niceGridStep(visMaxX - visMinX, targetLines);
+  const stepY = niceGridStep(visMaxYmath - visMinYmath, targetLines);
+
   const ns = 'http://www.w3.org/2000/svg';
-  const g = document.createElementNS(ns, 'g');
-  g.setAttribute('id', 'hitexer-grid-overlay');
-  g.style.pointerEvents = 'none';
+  const overlay = document.createElementNS(ns, 'svg');
+  overlay.setAttribute('id', 'hitexer-grid-overlay');
+  overlay.setAttribute('width', contW);
+  overlay.setAttribute('height', contH);
+  overlay.style.position = 'absolute';
+  overlay.style.left = '0';
+  overlay.style.top = '0';
+  overlay.style.width = contW + 'px';
+  overlay.style.height = contH + 'px';
+  overlay.style.pointerEvents = 'none';
+  overlay.style.zIndex = '5';
 
-  // Choose a "nice" grid step so we get roughly 8-15 lines per axis.
-  // Uses the 1-2-5 sequence scaled by powers of 10.
-  function niceStep(range) {
-    if (range <= 0) return 1;
-    const rough = range / 10;                     // target ~10 divisions
-    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
-    const norm = rough / mag;                      // 1 <= norm < 10
-    let nice;
-    if (norm < 1.5) nice = 1;
-    else if (norm < 3.5) nice = 2;
-    else if (norm < 7.5) nice = 5;
-    else nice = 10;
-    return nice * mag;
-  }
+  const lineColor = 'rgba(150,150,150,0.3)';
+  const axisColor = 'rgba(100,100,255,0.55)';
+  const labelColor = 'rgba(60,60,60,0.9)';
+  const labelHalo = 'rgba(255,255,255,0.85)';
 
-  const rangeX = maxX - minX;
-  const rangeY = maxY - minY;
-  const stepX = niceStep(rangeX);
-  const stepY = niceStep(rangeY);
-
-  const gridMinX = Math.floor(minX / stepX) * stepX;
-  const gridMaxX = Math.ceil(maxX / stepX) * stepX;
-  const gridMinY = Math.floor(minY / stepY) * stepY;
-  const gridMaxY = Math.ceil(maxY / stepY) * stepY;
-
-  // viewBox dimensions for label placement
-  const viewW = rangeX * pxPerUnitX;
-  const viewH = rangeY * pxPerUnitY;
-
-  // Font size: scale with the grid so labels remain readable but not huge
-  const fontSize = Math.max(7, Math.min(14, viewH * 0.025));
-
-  // Format label: avoid floating-point noise by rounding to step precision
-  function fmtLabel(val, step) {
-    if (step >= 1) return String(Math.round(val));
-    const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 0);
-    return val.toFixed(decimals);
-  }
-
-  // Vertical lines with X labels along bottom
-  for (let x = gridMinX; x <= gridMaxX + stepX * 0.01; x += stepX) {
-    const xr = Math.round(x / stepX) * stepX;  // snap to avoid float drift
-    const sx = (xr - minX) * pxPerUnitX;
-    if (sx < -0.5 || sx > viewW + 0.5) continue;
-    const isAxis = Math.abs(xr) < stepX * 0.01;
+  // Vertical grid lines
+  const x0 = Math.ceil(visMinX / stepX) * stepX;
+  const xVals = [];
+  for (let i = 0; ; i++) {
+    const x = x0 + i * stepX;
+    if (x > visMaxX + stepX * 1e-6) break;
+    xVals.push(x);
+    const px = toPxX(x);
+    if (px < -1 || px > contW + 1) continue;
+    const isZero = Math.abs(x) < stepX * 1e-6;
     const line = document.createElementNS(ns, 'line');
-    line.setAttribute('x1', sx); line.setAttribute('y1', 0);
-    line.setAttribute('x2', sx); line.setAttribute('y2', viewH);
-    line.setAttribute('stroke', isAxis ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
-    line.setAttribute('stroke-width', isAxis ? '1.5' : '0.5');
-    g.appendChild(line);
-    const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', sx + 2); lbl.setAttribute('y', viewH - fontSize * 0.3);
-    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', String(fontSize));
-    lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
-    lbl.textContent = fmtLabel(xr, stepX);
-    g.appendChild(lbl);
-  }
-  // Horizontal lines with Y labels along left
-  for (let y = gridMinY; y <= gridMaxY + stepY * 0.01; y += stepY) {
-    const yr = Math.round(y / stepY) * stepY;
-    const sy = (maxY - yr) * pxPerUnitY;
-    if (sy < -0.5 || sy > viewH + 0.5) continue;
-    const isAxis = Math.abs(yr) < stepY * 0.01;
-    const line = document.createElementNS(ns, 'line');
-    line.setAttribute('x1', 0); line.setAttribute('y1', sy);
-    line.setAttribute('x2', viewW); line.setAttribute('y2', sy);
-    line.setAttribute('stroke', isAxis ? 'rgba(100,100,255,0.5)' : 'rgba(150,150,150,0.25)');
-    line.setAttribute('stroke-width', isAxis ? '1.5' : '0.5');
-    g.appendChild(line);
-    const lbl = document.createElementNS(ns, 'text');
-    lbl.setAttribute('x', 2); lbl.setAttribute('y', sy - fontSize * 0.3);
-    lbl.setAttribute('fill', 'rgba(120,120,120,0.7)'); lbl.setAttribute('font-size', String(fontSize));
-    lbl.setAttribute('text-anchor', 'start'); lbl.setAttribute('font-family', 'sans-serif');
-    lbl.textContent = fmtLabel(yr, stepY);
-    g.appendChild(lbl);
+    line.setAttribute('x1', px); line.setAttribute('y1', 0);
+    line.setAttribute('x2', px); line.setAttribute('y2', contH);
+    line.setAttribute('stroke', isZero ? axisColor : lineColor);
+    line.setAttribute('stroke-width', isZero ? 1.5 : 0.5);
+    overlay.appendChild(line);
   }
 
-  svg.appendChild(g);
+  // Horizontal grid lines
+  const y0 = Math.ceil(visMinYmath / stepY) * stepY;
+  const yVals = [];
+  for (let i = 0; ; i++) {
+    const y = y0 + i * stepY;
+    if (y > visMaxYmath + stepY * 1e-6) break;
+    yVals.push(y);
+    const py = toPxY(y);
+    if (py < -1 || py > contH + 1) continue;
+    const isZero = Math.abs(y) < stepY * 1e-6;
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', 0); line.setAttribute('y1', py);
+    line.setAttribute('x2', contW); line.setAttribute('y2', py);
+    line.setAttribute('stroke', isZero ? axisColor : lineColor);
+    line.setAttribute('stroke-width', isZero ? 1.5 : 0.5);
+    overlay.appendChild(line);
+  }
+
+  const makeLabel = (text, x, y, anchor) => {
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', x);
+    lbl.setAttribute('y', y);
+    lbl.setAttribute('fill', labelColor);
+    lbl.setAttribute('font-size', '10');
+    lbl.setAttribute('font-family', 'sans-serif');
+    lbl.setAttribute('text-anchor', anchor);
+    lbl.setAttribute('stroke', labelHalo);
+    lbl.setAttribute('stroke-width', '3');
+    lbl.setAttribute('paint-order', 'stroke');
+    lbl.textContent = text;
+    return lbl;
+  };
+
+  // X labels pinned to bottom of container — thin by count for readability.
+  const maxXLabels = Math.max(3, Math.floor(contW / 60));
+  const xStride = Math.max(1, Math.ceil(xVals.length / maxXLabels));
+  xVals.forEach((x, i) => {
+    if (i % xStride !== 0) return;
+    const px = toPxX(x);
+    if (px < 2 || px > contW - 2) return;
+    overlay.appendChild(makeLabel(formatGridLabel(x, stepX), px + 2, contH - 4, 'start'));
+  });
+
+  // Y labels pinned to left of container
+  const maxYLabels = Math.max(3, Math.floor(contH / 30));
+  const yStride = Math.max(1, Math.ceil(yVals.length / maxYLabels));
+  yVals.forEach((y, i) => {
+    if (i % yStride !== 0) return;
+    const py = toPxY(y);
+    if (py < 10 || py > contH - 2) return;
+    overlay.appendChild(makeLabel(formatGridLabel(y, stepY), 2, py - 3, 'start'));
+  });
+
+  container.appendChild(overlay);
 }
 
 async function doRender() {
@@ -2931,8 +2997,9 @@ function initResizer() {
   const resizer=document.getElementById('resizer'), ep=document.getElementById('editor-panel'), pp=document.getElementById('preview-panel');
   let resizing=false;
   resizer.addEventListener('mousedown', e=>{resizing=true;document.body.style.cursor='col-resize';document.body.style.userSelect='none';e.preventDefault();});
-  document.addEventListener('mousemove', e=>{if(!resizing)return;const w=(e.clientX/document.getElementById('main').offsetWidth)*100;if(w>20&&w<80){ep.style.width=w+'%';pp.style.width=(100-w)+'%';editor.refresh();}});
+  document.addEventListener('mousemove', e=>{if(!resizing)return;const w=(e.clientX/document.getElementById('main').offsetWidth)*100;if(w>20&&w<80){ep.style.width=w+'%';pp.style.width=(100-w)+'%';editor.refresh();if(gridActive)applyGridOverlay();}});
   document.addEventListener('mouseup', ()=>{if(resizing){resizing=false;document.body.style.cursor='';document.body.style.userSelect='';}});
+  window.addEventListener('resize', () => { if (gridActive) applyGridOverlay(); });
 }
 
 // ============================================================
@@ -2959,6 +3026,7 @@ function applyCanvasTransform() {
     svg.style.transformOrigin = 'center center';
     svg.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasZoom}) rotate(${canvasRotate}deg)`;
   }
+  if (gridActive) applyGridOverlay();
 }
 
 function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); }
