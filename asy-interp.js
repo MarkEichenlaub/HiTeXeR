@@ -3830,23 +3830,42 @@ function createInterpreter() {
     if (node.target.type === 'ArrayAccess') {
       const obj = evalNode(node.target.object, env);
       const idx = Math.floor(toNumber(evalNode(node.target.index, env)));
-      if (isArray(obj)) obj[idx] = val;
+      if (isArray(obj)) {
+        let newVal = val;
+        if (node.op !== '=') {
+          const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
+          newVal = evalBinaryValues(ops[node.op], obj[idx], val);
+        }
+        obj[idx] = newVal;
+        return newVal;
+      }
       return val;
     }
     if (node.target.type === 'MemberAccess') {
       const obj = evalNode(node.target.object, env);
-      if (isPair(obj)) {
-        if (node.target.member === 'x') obj.x = toNumber(val);
-        if (node.target.member === 'y') obj.y = toNumber(val);
+      const mem = node.target.member;
+      // Compute newVal for compound assignment (+=, -=, *=, /=)
+      let newVal = val;
+      if (node.op !== '=') {
+        const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
+        let old;
+        if (isPair(obj) && (mem === 'x' || mem === 'y')) old = obj[mem];
+        else if (isArray(obj) && mem === 'cyclic') old = obj._cyclic;
+        else if (obj && typeof obj === 'object') old = obj[mem];
+        newVal = evalBinaryValues(ops[node.op], old, val);
       }
-      if (isArray(obj) && node.target.member === 'cyclic') {
-        obj._cyclic = toBool(val);
+      if (isPair(obj)) {
+        if (mem === 'x') obj.x = toNumber(newVal);
+        if (mem === 'y') obj.y = toNumber(newVal);
+      }
+      if (isArray(obj) && mem === 'cyclic') {
+        obj._cyclic = toBool(newVal);
       }
       // General object property assignment (e.g. currentlight.background)
-      if (obj && typeof obj === 'object' && obj._tag && node.target.member) {
-        obj[node.target.member] = val;
+      if (obj && typeof obj === 'object' && obj._tag && mem) {
+        obj[mem] = newVal;
       }
-      return val;
+      return newVal;
     }
     return val;
   }
