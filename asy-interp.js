@@ -9507,7 +9507,7 @@ function createInterpreter() {
       if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
         target = args[0]; args = args.slice(1);
       }
-      let z = null, alignDir = null, dir = null, sz = 10, pen = null;
+      let z = null, alignDir = null, dir = null, sz = null, pen = null;
       for (const a of args) {
         if (isPoint(a) && !z) z = locatePoint(a);
         else if (isPair(a)) {
@@ -9525,8 +9525,20 @@ function createInterpreter() {
       if (!z || !alignDir) return;
       if (!dir) dir = makePair(-alignDir.y, alignDir.x);
       if (!pen) pen = clonePen(defaultPen);
-      // Draw the right angle mark (small square corner)
-      const s = sz / 28.35; // convert from bp to user units approximately
+      // Draw the right angle mark (small square corner).
+      // Asymptote's default mark is ~3mm on the output; for a size(4cm) picture
+      // with ~1-unit-wide geometry, that's ~3.5% of picture extent. Size the
+      // mark as a fraction of the picture's current bbox so it looks correct
+      // regardless of user-coordinate scale (the earlier sz/28.35 formula
+      // treated `s` as user units, producing a huge mark for size(Ncm)
+      // pictures whose user coords don't equal cm).
+      const bbox = getGeoBbox(target.commands);
+      const ext = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) || 1;
+      // sz defaults correspond to Asymptote's ~3mm default (size parameter 3).
+      // Use 0.035 of extent for sz=3 (or null/default), scaling linearly for
+      // larger sz requests.
+      const defaultFrac = 0.035;
+      const s = sz == null ? defaultFrac * ext : (sz / 3) * defaultFrac * ext;
       const uA = {x: alignDir.x, y: alignDir.y};
       const uD = {x: dir.x, y: dir.y};
       const lA = Math.sqrt(uA.x*uA.x+uA.y*uA.y) || 1;
