@@ -10260,13 +10260,11 @@ function createInterpreter() {
     });
 
     // currentprojection — set default if not already set.
-    // Matches Asymptote's three.asy default camera position (5,4,2) so
-    // scenes without an explicit currentprojection render from the same
-    // yaw as the standalone Asymptote renderer / TeXeR. We keep
-    // orthographic (rather than perspective) for consistency with HTX's
-    // simpler projection pipeline.
+    // Matches Asymptote's three.asy default: perspective(5,4,2) with up=Z.
+    // Using perspective (vs orthographic) produces the foreshortened top/back
+    // faces seen in TeXeR for diagrams that rely on three.asy defaults.
     if (!projection) {
-      projection = {_tag:'projection', type:'orthographic', cx:5, cy:4, cz:2, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1};
+      projection = {_tag:'projection', type:'perspective', cx:5, cy:4, cz:2, tx:0, ty:0, tz:0, ux:0, uy:0, uz:1, zoom:1, autoadjust:true, center:false};
       env.set('currentprojection', projection);
     }
 
