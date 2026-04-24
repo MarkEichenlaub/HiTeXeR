@@ -7183,9 +7183,13 @@ function createInterpreter() {
       // gridlines only, and duplicate labels from those calls overlap the real
       // tick labels drawn by the visible axis call.
       const axisInvisible = pen && pen.opacity === 0;
+      // Asymptote convention: format "%" suppresses labels entirely (used as a
+      // placeholder when the caller wants tick marks without numeric labels).
+      const suppressByFormat = ticks.format === '%' && !ticks.labelFunc;
       const showLabels = ticks.labels &&
                          !(ticks.sizeExplicit && ticks.size < 1.5) &&
-                         !axisInvisible;
+                         !axisInvisible &&
+                         !suppressByFormat;
       if (showLabels) {
         for (const v of majorPositions) {
           if (noZero && Math.abs(v) < 1e-10) continue;
