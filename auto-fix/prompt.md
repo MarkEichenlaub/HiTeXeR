@@ -37,7 +37,14 @@ wrong answer here.
    lines. If a needed function (e.g. `surface`, `draw3`, a shading routine)
    doesn't exist, look at how sibling primitives are wired and implement it.
    Multi-hundred-line additions are acceptable when the diagram requires them.
-4. **There is no `unfixable-feature` verdict.** You either (a) commit a fix
+4. **"Corpus-wide" defects are the highest-priority fixes, not a reason to
+   stop.** If you notice that tick marks are too short across all diagrams, or
+   arrow heads are wrong everywhere, or some primitive uses the wrong scale —
+   that is a bug in `asy-interp.js`. Fixing it once fixes every affected
+   diagram in the entire corpus simultaneously. Do NOT log `ssim-artifact` or
+   `attempted-no-improve` because a defect is systematic. Fix the root cause
+   in `asy-interp.js`. That is the entire point of this task.
+5. **There is no `unfixable-feature` verdict.** You either (a) commit a fix
    that passes the commit bar, or (b) document 15+ real edit-render cycles and
    log `attempted-no-improve` with enough detail that the next attempt picks
    up where you left off.
@@ -158,8 +165,21 @@ node auto-fix/log.js --id {{TARGET_ID}} --verdict ssim-artifact \
      --notes "<why SSIM is an artifact: what's different that SSIM catches but is invisible>"
 ```
 
-This verdict is reserved for true SSIM noise. If there is any visible defect,
-you are not done — go back to Phase 2.
+This verdict is **strictly reserved** for cases where:
+- A math student looking at both images would say they are the same diagram, AND
+- The SSIM gap is caused entirely by sub-pixel font hinting, antialiasing, or
+  imperceptible color quantization differences.
+
+**Do NOT use `ssim-artifact` for:**
+- Tick marks that are visibly shorter or longer than the reference
+- Lines with wrong weight or style
+- Labels that are in a slightly wrong position
+- Any defect a student would notice
+
+If a visible defect exists and fixing it would require changing how
+`asy-interp.js` handles that primitive for all diagrams — fix it. That is
+the right answer. If there is any visible defect, you are not done — go back
+to Phase 2.
 
 ### If genuinely stuck after 15 cycles
 
