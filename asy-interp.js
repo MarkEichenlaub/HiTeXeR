@@ -13294,6 +13294,7 @@ function createInterpreter() {
       }
       else if (isString(a) && text === null) text = a;
     }
+    if (typeof text === 'string') text = expandMinipageText(text);
     if (!pen) pen = clonePen(defaultPen);
     else {
       // In Asymptote, a color-only pen argument (e.g. dot(z, p=black)) inherits
@@ -13385,6 +13386,11 @@ function createInterpreter() {
     if (typeof text === 'string' && text.indexOf('\t') !== -1) {
       text = text.replace(/\t/g, '');
     }
+
+    // LaTeX \begin{minipage}{width}...\end{minipage} environment in label
+    // text: expand to the inner content with \\ → newline so downstream
+    // multi-line label logic renders it as wrapped text.
+    if (typeof text === 'string') text = expandMinipageText(text);
 
     // LaTeX \begin{tabular}...\end{tabular} environment in label text:
     // flatten to newline-separated rows (the multi-line label renderer further
@@ -16869,6 +16875,63 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
     return `<g transform="translate(${fmt(2*cx)},0) scale(-1,1)">${core}</g>`;
   }
   return core;
+}
+
+// Expand \begin{minipage}{width}content\end{minipage} wrappers into plain
+// content. `\\` inside the content becomes a line break so downstream
+// multi-line label logic (which splits on \n) renders it as wrapped text.
+// When no explicit \\ breaks are present, word-wrap the content to
+// approximately fit the requested physical width (converted to a
+// character-count budget based on the default 10pt font).  Asymptote users
+// sometimes pass raw LaTeX minipage markup as a dot/label string; without
+// this expansion MathJax emits an "Unknown environment" error block that
+// renders as a giant black rectangle.
+function expandMinipageText(text) {
+  if (!text || typeof text !== 'string') return text;
+  if (text.indexOf('\\begin{minipage}') === -1) return text;
+  // Match \begin{minipage}[pos]{width}CONTENT\end{minipage} (non-greedy).
+  // Optional [pos] alignment arg, required {width} arg, any content.
+  return text.replace(
+    /\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}([\s\S]*?)\\end\{minipage\}/g,
+    (_, widthSpec, inner) => {
+      let s = inner;
+      const hasExplicitBreak = /\\\\|\\par\b|\\newline\b/.test(s);
+      // LaTeX line breaks → newlines so multi-line label code wraps them.
+      s = s.replace(/\\\\\s*(?:\[[^\]]*\])?/g, '\n');
+      s = s.replace(/\\par\b/g, '\n');
+      s = s.replace(/\\newline\b/g, '\n');
+      // Trim leading/trailing whitespace on each line, then overall.
+      s = s.split('\n').map(l => l.trim()).join('\n').trim();
+      // If no explicit break was given, word-wrap to the minipage width.
+      if (!hasExplicitBreak && s.indexOf('\n') === -1) {
+        // Parse width spec: {2cm}, {1.5cm}, {40mm}, {50pt}, {2in}, {3em}.
+        // Convert to an approximate character budget at ~10pt text.
+        // 1 char ≈ 5pt wide on average for serif body text.
+        const m = widthSpec && widthSpec.match(/^([0-9.]+)\s*(cm|mm|pt|in|em|ex)?/);
+        if (m) {
+          const val = parseFloat(m[1]);
+          const unit = (m[2] || 'pt').toLowerCase();
+          const toPt = { cm: 28.346, mm: 2.8346, pt: 1, in: 72, em: 10, ex: 4.5 };
+          const widthPt = val * (toPt[unit] || 1);
+          // ~5.5 pt per char at 10pt proportional font — empirical value that
+          // matches TeX minipage wrapping for short English phrases (e.g.
+          // "Highest point" in a {2cm} minipage wraps to "Highest / point").
+          const maxChars = Math.max(4, Math.round(widthPt / 5.5));
+          const words = s.split(/\s+/);
+          const lines = [];
+          let cur = '';
+          for (const w of words) {
+            if (!cur) { cur = w; continue; }
+            if (cur.length + 1 + w.length <= maxChars) cur += ' ' + w;
+            else { lines.push(cur); cur = w; }
+          }
+          if (cur) lines.push(cur);
+          s = lines.join('\n');
+        }
+      }
+      return s;
+    }
+  );
 }
 
 function stripLaTeX(text) {
