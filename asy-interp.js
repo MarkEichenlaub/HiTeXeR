@@ -14838,7 +14838,7 @@ function renderSVG(result, opts) {
                && typeof _katexMeasureBp === 'function') {
       measureFn = _katexMeasureBp;
     }
-    if (finalExceed <= 1.005 && measureFn && (tgtW < Infinity || tgtH < Infinity)) {
+    if (measureFn && (tgtW < Infinity || tgtH < Infinity)) {
       let bpMinX = geoMinX * pxPerUnitX;
       let bpMaxX = geoMaxX * pxPerUnitX;
       let bpMinY = geoMinY * pxPerUnitY;
@@ -14876,7 +14876,7 @@ function renderSVG(result, opts) {
         const mjxExceed = Math.max(exceedW, exceedH);
         if (mjxExceed > 1.005) {
           // Overwrite heuristic widths with measured widths so the
-          // fallback below uses accurate dimensions for uniform scaling.
+          // label-dominated fallback below uses accurate dimensions.
           for (const li of labelInfoBp) {
             try {
               const m = measureFn(li._text, li._fontSize);
@@ -14894,6 +14894,12 @@ function renderSVG(result, opts) {
               }
             } catch (e) { /* ignore */ }
           }
+          finalExceed = mjxExceed;
+        } else if (finalExceed > 1.005) {
+          // Heuristic thought geometry+labels exceeded size() but measurement
+          // shows they actually fit. Update finalExceed so the label-dominated
+          // fallback doesn't fire — the heuristic solver's converged pxPerUnit
+          // is correct, and TeXer wouldn't reset to natural size in this case.
           finalExceed = mjxExceed;
         }
       }
@@ -17110,10 +17116,12 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
     return renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS);
   }
 
-  // 1ex ≈ 0.34em in TeX (x-height); fontSize is treated as em. KaTeX's .katex
-  // CSS shrinks by 1.21× vs. the nominal font-size, so match that factor.
+  // MathJax SVG uses 1ex = 0.5em (not TeX's 0.34 x-height). fontSize is treated
+  // as em; KaTeX's .katex CSS shrinks by 1.21×, so we divide to match. Must
+  // match _mjxMeasureBp so the iterative scale solver's label-width estimate
+  // equals what the renderer actually emits.
   const em = fontSizeCSS / 1.21;
-  const exRatio = 0.34;
+  const exRatio = 0.5;
   const svgW = parsed.wEx * exRatio * em;
   const svgH = parsed.hEx * exRatio * em;
 
