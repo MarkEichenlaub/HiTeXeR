@@ -10894,7 +10894,27 @@ function createInterpreter() {
           faces.push(face);
         }
       }
-      return {_tag:'revolution', mesh: makeMesh(faces), path: path, axis: A, _grid: rotated};
+      // Sphere detection: if all generator vertices are equidistant from the
+      // origin (which lies on the rotation axis), then the revolution produces
+      // a portion of a sphere of that radius centred at the origin. Attach
+      // _center/_radius so surface() enables back-face culling + sphere-shading
+      // and sph.silhouette() returns the proper analytic outline circle.
+      let sphereR = null;
+      if (verts.length >= 2) {
+        const r0 = Math.sqrt(verts[0].x*verts[0].x + verts[0].y*verts[0].y + verts[0].z*verts[0].z);
+        let allEq = r0 > 1e-6;
+        for (let i = 1; i < verts.length; i++) {
+          const ri = Math.sqrt(verts[i].x*verts[i].x + verts[i].y*verts[i].y + verts[i].z*verts[i].z);
+          if (Math.abs(ri - r0) > 1e-3 * Math.max(1, r0)) { allEq = false; break; }
+        }
+        if (allEq) sphereR = r0;
+      }
+      const out = {_tag:'revolution', mesh: makeMesh(faces), path: path, axis: A, _grid: rotated};
+      if (sphereR !== null) {
+        out._center = makeTriple(0, 0, 0);
+        out._radius = sphereR;
+      }
+      return out;
     });
     // randompath3(n): small random walk in 3D, returns path3
     env.set('randompath3', (...args) => {
@@ -11879,7 +11899,25 @@ function createInterpreter() {
     env.set('White', {_tag:'light'});
 
     // material stubs
-    env.set('material', (...args) => isPen(args[0]) ? args[0] : makePen({}));
+    // material(pen diffusepen=..., pen ambientpen=..., pen emissivepen=..., pen specularpen=..., ...)
+    // We collapse the material to a single pen for flat/Lambert shading. Prefer
+    // the diffusepen (named arg or first positional pen) so surfaces picked up
+    // from `draw(surface, M)` shade from the intended diffuse color rather than
+    // defaulting to black.
+    env.set('material', (...args) => {
+      let diffuse = null;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if (a.diffusepen && isPen(a.diffusepen)) { diffuse = a.diffusepen; break; }
+        }
+      }
+      if (!diffuse) {
+        for (const a of args) {
+          if (isPen(a)) { diffuse = a; break; }
+        }
+      }
+      return diffuse || makePen({});
+    });
     env.set('emissive', (p) => isPen(p) ? p : makePen({}));
 
     // 3D axis specifiers
