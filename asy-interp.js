@@ -7057,7 +7057,34 @@ function createInterpreter() {
         }
       }
       if (!perpAxisRange || perpAxisRange === 0) perpAxisRange = Math.abs(max - min) || 1;
-      const defaultTickSize = perpAxisRange * 0.015;
+      // Asymptote default Ticksize = 1mm physical. Convert to user units via
+      // bpPerUnit when we can estimate it from size()/unitsize(); otherwise
+      // fall back to perpAxisRange fraction. The perpAxisRange fallback is
+      // capped so tick marks never dominate the bbox.
+      let defaultTickSize;
+      {
+        const alongRange = Math.abs(max - min) || 1;
+        let bpPerUnit = 0;
+        if (sizeW > 0 || sizeH > 0) {
+          const _gb = getGeoBbox(pic.commands);
+          const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.abs(_gb.maxX - _gb.minX) : alongRange;
+          const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : perpAxisRange;
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          if (rX > 0 && rY > 0) bpPerUnit = Math.min(sw / rX, sh / rY);
+        } else if (hasUnitScale) {
+          bpPerUnit = unitScale;
+        }
+        if (bpPerUnit > 0) {
+          // 1mm = 2.834645669 bp (Asymptote's default Ticksize)
+          defaultTickSize = 2.834645669 / bpPerUnit;
+          // Safety cap: never exceed 10% of the perpendicular range
+          const cap = perpAxisRange * 0.10;
+          if (defaultTickSize > cap) defaultTickSize = cap;
+        } else {
+          defaultTickSize = perpAxisRange * 0.015;
+        }
+      }
       let majorSize = ticks.sizeExplicit ? ticks.size : defaultTickSize;
       let minorSize = majorSize * 0.5;
       // If size was explicitly set extremely small (e.g. Size = 0.1pt), the user is
