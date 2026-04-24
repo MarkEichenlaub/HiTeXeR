@@ -5872,10 +5872,12 @@ function createInterpreter() {
       let position = null;
       let labelPen = null;
       let labelTransform = null;
+      let labelFilltype = null;
       for (const a of args) {
         if (isString(a)) text = a;
         else if (isTransform(a)) labelTransform = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
+        else if (a && typeof a === 'object' && a._tag === 'filltype') labelFilltype = a;
         else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
           if ('s' in a && isString(a.s)) text = a.s;
@@ -5885,6 +5887,7 @@ function createInterpreter() {
             else if (typeof a.align === 'number') align = makePair(a.align, 0);
           }
           if ('p' in a && isPen(a.p)) labelPen = labelPen ? mergePens(labelPen, a.p) : a.p;
+          if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') labelFilltype = a.filltype;
         }
         else if (typeof a === 'number' && position === null) position = a;
       }
@@ -5892,6 +5895,7 @@ function createInterpreter() {
       if (position !== null) lbl.position = position;
       if (labelPen) lbl.pen = labelPen;
       if (labelTransform) lbl.transform = labelTransform;
+      if (labelFilltype) lbl.filltype = labelFilltype;
       return lbl;
     });
     env.set('EndPoint', 1);
@@ -10655,7 +10659,18 @@ function createInterpreter() {
       }
       // surface(revolution)
       const firstRev = args.find(a => a && a._tag === 'revolution');
-      if (firstRev && firstRev.mesh) return {_tag:'surface', mesh: firstRev.mesh};
+      if (firstRev && firstRev.mesh) {
+        // For closed-surface meshes (e.g. spheres), back-face cull so
+        // interior facets don't bleed through; also propagate sphere metadata
+        // so the renderer can apply specular shading at the silhouette.
+        const m = firstRev.mesh;
+        if (firstRev._radius && firstRev._center) {
+          m._closed = true;
+          m._sphereCenter = firstRev._center;
+          m._sphereRadius = firstRev._radius;
+        }
+        return {_tag:'surface', mesh: m};
+      }
       // surface(surface s, transform3 t, ...) — combine surfaces under transforms
       const firstSurf = args.find(a => a && a._tag === 'surface');
       if (firstSurf) {
@@ -10875,13 +10890,22 @@ function createInterpreter() {
       if (args.length >= 1 && isTriple(args[0])) {
         const c = args[0];
         const r = args.length >= 2 ? toNumber(args[1]) : 1;
+        // Optional third arg in Asymptote sphere(triple, real, int n) is the
+        // longitude/latitude resolution. Higher n → smoother shading.
+        const nArg = args.length >= 3 && typeof args[2] === 'number' ? Math.floor(toNumber(args[2])) : 0;
+        // Choose tessellation: clamp to reasonable bounds. Default bumped to
+        // 48x24 for visibly smoother shading; honour caller's higher request.
+        const nLon = Math.max(24, Math.min(128, nArg > 0 ? nArg : 48));
+        const nLat = Math.max(12, Math.min(64, Math.floor(nLon / 2)));
         // Build a tessellated sphere mesh centered at c with radius r
-        const baseMesh = _buildSphereMesh(24, 12);
+        const baseMesh = _buildSphereMesh(nLon, nLat);
         const scaled = applyTransform3Mesh(scaleT3(r, r, r), baseMesh);
         const mesh = applyTransform3Mesh(shiftT3(c.x, c.y, c.z), scaled);
+        mesh._sphereCenter = c;
+        mesh._sphereRadius = r;
         // Also return a revolution-typed object so solids-module calls like
         // draw(r, n, longitudinalpen=...) and r.silhouette() work correctly.
-        const grid = _buildSphereGrid(c, r, 24, 13);
+        const grid = _buildSphereGrid(c, r, nLon, nLat + 1);
         return {_tag:'revolution', mesh, _grid: grid, _center: c, _radius: r, axis: makeTriple(0,0,1)};
       }
       // sphere(real r): solids-module revolution-typed sphere at origin
@@ -12917,6 +12941,7 @@ function createInterpreter() {
     let barsStyle = null; // 'Bar' | 'Bars' | null — tracked separately so it
                           // can coexist with Arrows (geometry-module convention).
     let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
+    let labelFilltype = null, labelPen = null;
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -12965,7 +12990,7 @@ function createInterpreter() {
         } catch(e) {}
       }
       else if (a && a._tag === 'label') {
-        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
+        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; if (a.filltype && !labelFilltype) labelFilltype = a.filltype; if (a.pen && !labelPen) labelPen = a.pen; }
       }
       else if (isString(a) && !labelText && !pathArg) { labelText = a; }
       else if (isTriple(a) && !pathArg) {
@@ -13063,8 +13088,10 @@ function createInterpreter() {
             effectiveAlign = makePair(tdy/tl, -tdx/tl);
           }
         }
-        const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen, line: args._line || 0};
+        const labelEffectivePen = labelPen || pen;
+        const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0};
         if (labelTransform) ldc.labelTransform = labelTransform;
+        if (labelFilltype) ldc.filltype = labelFilltype;
         target.commands.push(ldc);
       }
     }
@@ -13355,6 +13382,27 @@ function createInterpreter() {
     let lx = vx + tilt*upx, ly = vy + tilt*upy, lz = vz + tilt*upz;
     const ll = Math.sqrt(lx*lx + ly*ly + lz*lz) || 1;
     lx /= ll; ly /= ll; lz /= ll;
+    // For sphere-specific shading, use a separately-tilted light that puts
+    // the highlight in the upper-LEFT of each sphere (matching Asymptote's
+    // default Viewport light direction). This is applied ONLY when computing
+    // the per-face Phong term for sphere meshes, so non-sphere diagrams
+    // retain their existing lighting.
+    let rxScreen = upy*vz - upz*vy;
+    let ryScreen = upz*vx - upx*vz;
+    let rzScreen = upx*vy - upy*vx;
+    const rl = Math.sqrt(rxScreen*rxScreen + ryScreen*ryScreen + rzScreen*rzScreen) || 1;
+    rxScreen /= rl; ryScreen /= rl; rzScreen /= rl;
+    // Asymptote's default Viewport light puts the highlight near the
+    // upper-right of the sphere — light comes mostly from +Z (screen up)
+    // and slightly toward the viewer (+view), with a small "screen-right"
+    // bias. Tune empirically against reference renders.
+    const sphereUpTilt = 1.2;
+    const sphereRightTilt = 0.25;
+    let slx = vx + sphereUpTilt*upx + sphereRightTilt*rxScreen;
+    let sly = vy + sphereUpTilt*upy + sphereRightTilt*ryScreen;
+    let slz = vz + sphereUpTilt*upz + sphereRightTilt*rzScreen;
+    const sll = Math.sqrt(slx*slx + sly*sly + slz*slz) || 1;
+    slx /= sll; sly /= sll; slz /= sll;
 
     // Compute per-face data: depth (view-space), shade, projected 2D polygon
     const items = [];
@@ -13394,10 +13442,37 @@ function createInterpreter() {
         const viewDot = Math.abs(n.x*vx + n.y*vy + n.z*vz);
         if (viewDot > 0.20) continue; // only keep rim-grazing patches
       }
-      const intensity = nolight ? 1.0 : (0.35 + 0.65 * dot);
+      let intensity = nolight ? 1.0 : (0.35 + 0.65 * dot);
+      let specular = 0;
+      // Phong-style specular highlight for sphere meshes (mesh has
+      // _sphereCenter/_sphereRadius). Use the face centroid → sphere-center
+      // direction as a true outward surface normal (smoother than per-facet
+      // normals) for both the diffuse and specular terms. Use the dedicated
+      // upper-left sphere light (slx,sly,slz). Spheres get a wider tonal
+      // range (deep shadow → glossy highlight) to look 3D, matching
+      // Asymptote's smooth-shaded output.
+      if (!nolight && mesh && mesh._sphereCenter && mesh._sphereRadius) {
+        const sc = mesh._sphereCenter;
+        let nnx = cx - sc.x, nny = cy - sc.y, nnz = cz - sc.z;
+        const nl = Math.sqrt(nnx*nnx + nny*nny + nnz*nnz) || 1;
+        nnx /= nl; nny /= nl; nnz /= nl;
+        let diff = nnx*slx + nny*sly + nnz*slz;
+        if (diff < 0) diff = 0;
+        intensity = 0.20 + 0.78 * diff;
+        const NdotL = nnx*slx + nny*sly + nnz*slz;
+        if (NdotL > 0) {
+          const rx = 2*NdotL*nnx - slx;
+          const ry = 2*NdotL*nny - sly;
+          const rz = 2*NdotL*nnz - slz;
+          let RdotV = rx*vx + ry*vy + rz*vz;
+          if (RdotV > 0) {
+            specular = Math.pow(RdotV, 28) * 0.65;
+          }
+        }
+      }
       // Project polygon
       const poly = V.map(v => projectTriple(v));
-      items.push({depth, intensity, poly, pen: face.pen || basePen});
+      items.push({depth, intensity, specular, poly, pen: face.pen || basePen});
     }
     // Sort: farthest first
     items.sort((a, b) => b.depth - a.depth);
@@ -13405,9 +13480,10 @@ function createInterpreter() {
     for (const it of items) {
       const base = it.pen;
       const shaded = clonePen(base);
-      shaded.r = Math.max(0, Math.min(1, base.r * it.intensity));
-      shaded.g = Math.max(0, Math.min(1, base.g * it.intensity));
-      shaded.b = Math.max(0, Math.min(1, base.b * it.intensity));
+      const sp = it.specular || 0;
+      shaded.r = Math.max(0, Math.min(1, base.r * it.intensity + sp));
+      shaded.g = Math.max(0, Math.min(1, base.g * it.intensity + sp));
+      shaded.b = Math.max(0, Math.min(1, base.b * it.intensity + sp));
       const segs = [];
       for (let i = 0; i < it.poly.length; i++) {
         const a = it.poly[i];
