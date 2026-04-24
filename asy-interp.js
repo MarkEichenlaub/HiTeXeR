@@ -14357,10 +14357,38 @@ function renderSVG(result, opts) {
     const _natMin = Math.min(naturalW, naturalH);
     const _natMax = Math.max(naturalW, naturalH);
     const is1DDegenerate = (_natMax > 0) && (_natMin * 5 < _natMax);
+    // Pre-compute horizontal label crowding: if ≥4 labels share a y-row with
+    // small x-spacing, the diagram needs a larger boost even when the
+    // label-expanded bbox already exceeds minReasonable.  Without this, the
+    // boost is skipped and labels overlap horizontally (e.g. Riemann-sum
+    // x_1 … x_5 tick labels).
+    let _crowdMinSpan = Infinity;
+    {
+      const _labelCmds = drawCommands.filter(dc => dc.cmd === 'label' &&
+        dc.pos && typeof dc.pos.x === 'number' && typeof dc.pos.y === 'number' &&
+        dc.text && String(dc.text).trim());
+      const _byY = new Map();
+      for (const l of _labelCmds) {
+        const yKey = Math.round(l.pos.y * 20) / 20;
+        if (!_byY.has(yKey)) _byY.set(yKey, []);
+        _byY.get(yKey).push(l.pos.x);
+      }
+      for (const [, xs] of _byY) {
+        if (xs.length < 4) continue;
+        xs.sort((a, b) => a - b);
+        for (let i = 1; i < xs.length; i++) {
+          const s = xs[i] - xs[i-1];
+          if (s > 0 && s < _crowdMinSpan) _crowdMinSpan = s;
+        }
+      }
+    }
+    // bpPerGap we want at the final scale (≥20bp keeps KaTeX subscripts clear).
+    const _crowdRequiresBoost = isFinite(_crowdMinSpan) &&
+      (_crowdMinSpan * unitScale) < 20;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && naturalW < defaultSize && naturalH < defaultSize
-        && Math.max(fullNatW, fullNatH) < minReasonable) {
+        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
       // labels at edge midpoints don't crowd each other.  Only applies when
@@ -14377,17 +14405,24 @@ function renderSVG(result, opts) {
       // i.e. ≥ ~0.7cm/unit) with no labels, use a much smaller target so
       // the stroke/dot-to-geometry ratio stays close to the TeXeR reference.
       const hasAnyLabels = drawCommands.some(dc => dc.cmd === 'label');
+      // Desired per-gap bp for crowded horizontal labels. TeXeR's reference
+      // renders ~18–22bp between adjacent "$x_i$" subscripts at 10pt.
+      const crowdMinBp = 20;
+      const crowdedTgt = isFinite(_crowdMinSpan)
+        ? crowdMinBp * (geoW || 1) / _crowdMinSpan
+        : 0;
       // Very small unitsize (< 1bp/unit, i.e. 0.1–0.3mm): TeXeR tends to
       // render these compactly (~150–360 px wide = 45–108bp native =
       // ~90–216bp HTX target). Using defaultSize=200 for these overshoots
       // by 2–4×; target ~100bp instead so sizeScore doesn't collapse.
-      const tgtSize = (unitScale < 1)
+      const baseTgt = (unitScale < 1)
         ? (aspectRatio >= 2.5 ? 200 : 100)
         : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
           ? 300
           : (unitScale >= 20 && !hasAnyLabels)
             ? 22
             : defaultSize;
+      const tgtSize = Math.max(baseTgt, crowdedTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
