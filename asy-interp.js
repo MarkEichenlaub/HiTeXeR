@@ -3162,8 +3162,12 @@ function createInterpreter() {
               const ax = (dc.align && dc.align.x) || 0;
               const ay = (dc.align && dc.align.y) || 0;
               const marginPerUnit = 0.25 * fontSize;
-              const cx = pxBp + (ax * 0.5) * textW + Math.sign(ax) * marginPerUnit;
-              const cy = pyBp + (ay * 0.5) * textH + Math.sign(ay) * marginPerUnit;
+              // L-inf normalise the box offset; magnitude only scales margin push.
+              const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+              const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
+              const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
+              const cx = pxBp + ax_n * textW + ax * marginPerUnit;
+              const cy = pyBp + ay_n * textH + ay * marginPerUnit;
               // Label bbox in bp
               const lbMinX = cx - textW / 2;
               const lbMaxX = cx + textW / 2;
@@ -14206,9 +14210,11 @@ function renderSVG(result, opts) {
           const ax = dc.align.x, ay = dc.align.y;
           const marginX = 0.40 * fontSize / roughPxPerUnitX;
           const marginY = 0.40 * fontSize / roughPxPerUnitY;
-          // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
-          const ax_n = ax * 0.5;
-          const ay_n = ay * 0.5;
+          // Match Asymptote drawlabel.cc: Align *= 0.5 / max(|ax|,|ay|).
+          // The text-box offset is L-infinity normalised; magnitude only scales labelmargin.
+          const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+          const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
+          const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
           dx = ax_n * textWidthUser + ax * marginX;
           dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
         }
@@ -14243,8 +14249,14 @@ function renderSVG(result, opts) {
               lWidthBp = rW;
               lHeightBp = rH;
             }
-            let alignOffsetXBp = dc.align ? (dc.align.x * 0.5 * lWidthBp + dc.align.x * 0.40 * fontSize) : 0;
-            let alignOffsetYBp = dc.align ? (dc.align.y * 0.5 * lHeightBp + dc.align.y * 0.40 * fontSize) : 0;
+            // L-inf normalise the box offset; magnitude only scales margin push.
+            const _axAl = dc.align ? dc.align.x : 0;
+            const _ayAl = dc.align ? dc.align.y : 0;
+            const _aInfMaxAl = Math.max(Math.abs(_axAl), Math.abs(_ayAl));
+            const _axNAl = _aInfMaxAl > 0 ? (_axAl * 0.5 / _aInfMaxAl) : 0;
+            const _ayNAl = _aInfMaxAl > 0 ? (_ayAl * 0.5 / _aInfMaxAl) : 0;
+            let alignOffsetXBp = dc.align ? (_axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
+            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.40 * fontSize) : 0;
             // screenDx/screenDy (in bp) are applied on top of alignment-driven offset
             if (dc.screenDx) alignOffsetXBp += dc.screenDx;
             if (dc.screenDy) alignOffsetYBp -= dc.screenDy;  // SVG y-down → Asymptote y-up
@@ -15014,7 +15026,10 @@ function renderSVG(result, opts) {
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
         const margin = 0.25 * fontSizeSVG;
-        const ax_n = ax * 0.5, ay_n = ay * 0.5;
+        // L-inf normalise the box offset; magnitude of align only scales margin push.
+        const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+        const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
+        const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
         dx = ax_n * effW + ax * margin;
         dy = -(ay_n * effH + ay * margin);
       }
@@ -15511,10 +15526,16 @@ function renderSVG(result, opts) {
         const aMag = Math.hypot(ax, ay);
         const axUnit = aMag > 0 ? ax / aMag : 0;
         const ayUnit = aMag > 0 ? ay / aMag : 0;
-        // Asymptote drawlabel.cc: z = align * 0.5; offset = (z.x*W, z.y*H)
-        // The magnitude of align is NOT normalised — 2E pushes twice as far as E.
-        const ax_n = ax * 0.5;
-        const ay_n = ay * 0.5;
+        // Asymptote drawlabel.cc: Align *= 0.5 / max(|ax|,|ay|); offset = (Align.x*W, Align.y*H).
+        // The alignment direction is L-infinity normalised before scaling to the text box,
+        // so the magnitude of align (e.g. 3E) only affects the labelmargin push — it does
+        // NOT scale the W/H offset. Multiplying by magnitude there would push the label
+        // past its text-box edge proportional to alignment magnitude, which is wrong.
+        const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+        const axLinf = aInfMax > 0 ? ax / aInfMax : 0;  // L-inf unit
+        const ayLinf = aInfMax > 0 ? ay / aInfMax : 0;
+        const ax_n = axLinf * 0.5;
+        const ay_n = ayLinf * 0.5;
         dx = ax_n * W + ax * margin + axUnit * dotPush;
         dy = -(ay_n * H + ay * margin + ayUnit * dotPush);   // negate: SVG y-axis is inverted
         _labelHEst = H;   // pass estimated height to MathJax renderer for correction
@@ -15855,9 +15876,10 @@ function renderSVG(result, opts) {
       let dx = -imgW / 2, dy = -imgH / 2;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        // Match Asymptote drawlabel.cc: z = align * 0.5 (no L∞ normalisation)
-        const ax_n = ax * 0.5;
-        const ay_n = ay * 0.5;
+        // Match Asymptote drawlabel.cc: L-inf normalised box offset.
+        const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+        const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
+        const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
         dx = ax_n * imgW - imgW / 2;
         dy = -(ay_n * imgH) - imgH / 2; // SVG y flipped
       }
