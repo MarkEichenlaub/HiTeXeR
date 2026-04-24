@@ -10724,17 +10724,30 @@ function createInterpreter() {
           }
         }
       }
-      // Parametric: surface(f, lo, hi, nu[, nv], ...)
+      // Parametric: surface(f, lo, hi, nu[, nv], ...) or
+      // surface(f, lo, hi, nx=N, ny=N) where nx/ny/nu/nv come in as named args.
       // where f is callable pair→triple
-      if (pos.length >= 4 &&
+      if (pos.length >= 3 &&
           (typeof pos[0] === 'function' || (pos[0] && (pos[0]._tag === 'func' || pos[0]._tag === 'overload'))) &&
           isPair(pos[1]) && isPair(pos[2])) {
         const f = pos[0];
         const lo = pos[1], hi = pos[2];
-        const nu = Math.max(2, Math.floor(toNumber(pos[3])));
-        // nv may be absent (defaults to nu) or present as 5th numeric arg
-        const nv = (pos.length >= 5 && typeof pos[4] === 'number')
-                   ? Math.max(2, Math.floor(toNumber(pos[4]))) : nu;
+        // Extract nu from pos[3] if numeric, else from named args (nx/nu), else default 10.
+        let namedNu = undefined, namedNv = undefined;
+        for (const a of args) {
+          if (a && a._named) {
+            if ('nx' in a && typeof a.nx === 'number') namedNu = a.nx;
+            else if ('nu' in a && typeof a.nu === 'number') namedNu = a.nu;
+            if ('ny' in a && typeof a.ny === 'number') namedNv = a.ny;
+            else if ('nv' in a && typeof a.nv === 'number') namedNv = a.nv;
+          }
+        }
+        let nuSrc = (pos.length >= 4 && typeof pos[3] === 'number') ? pos[3]
+                  : (namedNu !== undefined ? namedNu : 10);
+        let nvSrc = (pos.length >= 5 && typeof pos[4] === 'number') ? pos[4]
+                  : (namedNv !== undefined ? namedNv : nuSrc);
+        const nu = Math.max(2, Math.floor(toNumber(nuSrc)));
+        const nv = Math.max(2, Math.floor(toNumber(nvSrc)));
         const call = (u, v) => {
           const p = makePair(u, v);
           if (typeof f === 'function') return f(p);
@@ -12170,12 +12183,68 @@ function createInterpreter() {
         }
       }
 
-      // Simple axis lines for non-Bounds axes are not fully supported
-      // (would need to handle xmin, xmax, dashed, etc. parameters)
-      // For now, skip drawing them to avoid regressions on diagrams like 12825
+      // Simple axis lines for non-Bounds axes. Draws a single line from
+      // the negative end (or 0 with XYZero-style anchoring) to the positive
+      // end of the given axis, in the call's pen (default black), with an
+      // optional arrow at the positive end and a label at the tip.
+      // Activated only when the axis call has a label, pen, or arrow — so
+      // bare xaxis3()/yaxis3() calls on diagrams that don't expect a line
+      // remain unchanged.
       function drawSimpleAxis(axisName, call) {
-        // Skip - complex parameter handling not implemented
-        return;
+        if (call.axisType && call.axisType.type === 'Bounds') return;
+        if (!call.label && !call.pen && !call.arrow) return;
+        const pen = call.pen || axisPen;
+        const arrow = call.arrow || null;
+        // Read optional named bounds (xmin/xmax on xaxis3, etc.) if present
+        // on the original axis call args. Not currently stored; conservative
+        // defaults based on axisName below.
+        let p0, p1, labelPos3;
+        const extraOut = 0.08; // push label a hair past the arrow tip
+        if (axisName === 'x') {
+          // From origin along +x in the z=minZ plane, at y=0 (through-origin
+          // plane), unless out of bounds then clamp.
+          const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
+          const z0 = b.minZ;
+          const xStart = Math.min(0, b.minX);
+          const xEnd = b.maxX;
+          p0 = makeTriple(xStart, y0, z0);
+          p1 = makeTriple(xEnd, y0, z0);
+          labelPos3 = makeTriple(xEnd + extraOut * (b.maxX - b.minX), y0, z0);
+        } else if (axisName === 'y') {
+          const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
+          const z0 = b.minZ;
+          const yStart = Math.min(0, b.minY);
+          const yEnd = b.maxY;
+          p0 = makeTriple(x0, yStart, z0);
+          p1 = makeTriple(x0, yEnd, z0);
+          labelPos3 = makeTriple(x0, yEnd + extraOut * (b.maxY - b.minY), z0);
+        } else {
+          // z-axis: XYZero-style line through (0,0) from minZ to maxZ
+          const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
+          const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
+          p0 = makeTriple(x0, y0, b.minZ);
+          p1 = makeTriple(x0, y0, b.maxZ);
+          labelPos3 = makeTriple(x0, y0, b.maxZ + extraOut * (b.maxZ - b.minZ));
+        }
+        const proj0 = projectTriple(p0);
+        const proj1 = projectTriple(p1);
+        const seg = makeSeg(proj0, proj0, proj1, proj1);
+        pic.commands.push({cmd:'draw', path: makePath([seg], false), pen, arrow, line: 0});
+        if (call.label) {
+          // Place the label just past the arrow tip in the screen-space
+          // direction of the axis. The nudge is a small fraction of the
+          // 2D axis length so it sits immediately adjacent to the tip,
+          // regardless of the chosen projection or scene scale.
+          let ax = proj1.x - proj0.x, ay = proj1.y - proj0.y;
+          const al = Math.sqrt(ax*ax + ay*ay) || 1;
+          ax /= al; ay /= al;
+          const nudge = al * 0.06;
+          const lpos = makePair(proj1.x + ax * nudge, proj1.y + ay * nudge);
+          // Align so the label is anchored on the side facing away from the
+          // axis origin — align.x positive means "text extends to the right
+          // of pos", matching Asymptote's align-unit-vector convention.
+          pic.commands.push({cmd:'label', text: call.label, pos: lpos, align: makePair(ax, ay), pen, line: 0});
+        }
       }
 
       // Draw each requested axis
@@ -12193,9 +12262,21 @@ function createInterpreter() {
     const _inTicksFunc = env.get('InTicks');
     const _outTicksFunc = env.get('OutTicks');
     const _inOutTicksFunc = env.get('InOutTicks');
+    // Arrow constructors are themselves callable — when passed by name (e.g.
+    // xaxis3(..., Arrow3)) they arrive here as function references that must
+    // be invoked to produce the {_tag:'arrow',...} descriptor.
+    const _arrow3Func = env.get('Arrow3');
+    const _arrows3Func = env.get('Arrows3');
+    const _beginArrow3Func = env.get('BeginArrow3');
+    const _endArrow3Func = env.get('EndArrow3');
+    const _midArrow3Func = env.get('MidArrow3');
     function resolveAxis3Arg(a) {
       // Only call known axis specifier functions
       if (a === _boundsFunc || a === _inTicksFunc || a === _outTicksFunc || a === _inOutTicksFunc) {
+        return a();
+      }
+      if (a === _arrow3Func || a === _arrows3Func || a === _beginArrow3Func ||
+          a === _endArrow3Func || a === _midArrow3Func) {
         return a();
       }
       return a;
@@ -12205,7 +12286,7 @@ function createInterpreter() {
       let label = '', axisType = null, ticks = null, pen = null, arrow = null;
       for (const a of pos) {
         if (typeof a === 'string') label = a;
-        else if (a && a._tag === 'Label') label = a.text;
+        else if (a && a._tag === 'label') label = a.text;
         else if (a && a._tag === 'axis3type') axisType = a;
         else if (a && a._tag === 'ticks3') ticks = a;
         else if (isPen(a)) pen = a;
@@ -12218,7 +12299,7 @@ function createInterpreter() {
       let label = '', axisType = null, ticks = null, pen = null, arrow = null;
       for (const a of pos) {
         if (typeof a === 'string') label = a;
-        else if (a && a._tag === 'Label') label = a.text;
+        else if (a && a._tag === 'label') label = a.text;
         else if (a && a._tag === 'axis3type') axisType = a;
         else if (a && a._tag === 'ticks3') ticks = a;
         else if (isPen(a)) pen = a;
@@ -12231,7 +12312,7 @@ function createInterpreter() {
       let label = '', axisType = null, ticks = null, pen = null, arrow = null;
       for (const a of pos) {
         if (typeof a === 'string') label = a;
-        else if (a && a._tag === 'Label') label = a.text;
+        else if (a && a._tag === 'label') label = a.text;
         else if (a && a._tag === 'axis3type') axisType = a;
         else if (a && a._tag === 'ticks3') ticks = a;
         else if (isPen(a)) pen = a;
@@ -12289,10 +12370,24 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
-    // path3 wire-frame: iterate over edges
+    // path3 wire-frame: iterate over edges. Track 3D bounds so axis3 lines
+    // (which use _3dBounds to size the visible axis extents) include wireframe
+    // paths like the ground-plane square in diagram 03290.
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (a && a._tag === 'path3' && Array.isArray(a.edges)) {
+        if (Array.isArray(a.vertices) && a.vertices.length > 0) {
+          if (!target._3dBounds) target._3dBounds = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+          const bb = target._3dBounds;
+          for (const v of a.vertices) {
+            const vx = typeof v.x === 'number' ? v.x : 0;
+            const vy = typeof v.y === 'number' ? v.y : 0;
+            const vz = typeof v.z === 'number' ? v.z : 0;
+            if (vx < bb.minX) bb.minX = vx; if (vx > bb.maxX) bb.maxX = vx;
+            if (vy < bb.minY) bb.minY = vy; if (vy > bb.maxY) bb.maxY = vy;
+            if (vz < bb.minZ) bb.minZ = vz; if (vz > bb.maxZ) bb.maxZ = vz;
+          }
+        }
         const rest = args.slice(0, i).concat(args.slice(i+1));
         const savedLine = args._line;
         for (const edge of a.edges) {
@@ -13070,6 +13165,41 @@ function createInterpreter() {
           mesh = {_tag:'mesh', faces: newFaces};
         }
         renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
+        // If a named meshpen=... arg was supplied (e.g. meshpen=black+thick()),
+        // draw the surface's grid lines on top. This matches Asymptote's
+        // draw(surface, surfacepen, meshpen=...) rendering where the mesh
+        // wireframe is overlaid on the shaded/filled faces.
+        let meshLinePen = null;
+        for (const a of args) {
+          if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) {
+            meshLinePen = a.meshpen;
+            break;
+          }
+        }
+        if (meshLinePen && surfForColors && surfForColors._grid) {
+          const grid = surfForColors._grid;
+          const rows = grid.length;
+          const cols = (grid[0] && grid[0].length) || 0;
+          const emitGridLine = (verts) => {
+            if (!verts || verts.length < 2) return;
+            const proj = verts.map(v => projectTriple(v));
+            const segs = [];
+            for (let k = 0; k < proj.length - 1; k++) {
+              segs.push(makeSeg(proj[k], proj[k], proj[k+1], proj[k+1]));
+            }
+            target.commands.push({cmd:'draw', path: makePath(segs, false), pen: meshLinePen, line: args._line || 0});
+          };
+          // Rows (constant i, varying j)
+          for (let i = 0; i < rows; i++) {
+            emitGridLine(grid[i]);
+          }
+          // Columns (constant j, varying i)
+          for (let j = 0; j < cols; j++) {
+            const col = [];
+            for (let i = 0; i < rows; i++) col.push(grid[i][j]);
+            emitGridLine(col);
+          }
+        }
         return;
       }
     }
@@ -13532,13 +13662,27 @@ function createInterpreter() {
   // Project any remaining triples in path segments to pairs
   function projectPathTriples(p) {
     if (!isPath(p)) return p;
+    // Track 3D bounds on currentPic so axis3 lines can size themselves to
+    // include wireframe paths (e.g. a z=0 ground-plane square drawn via
+    // (-1,-1,0)--...). Collect any triple coords before projecting.
+    const bounds = currentPic && currentPic._3dBounds;
+    const updateBounds = (v) => {
+      if (!v || typeof v.x !== 'number' || typeof v.y !== 'number' || typeof v.z !== 'number') return;
+      if (!currentPic) return;
+      if (!currentPic._3dBounds) currentPic._3dBounds = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+      const b = currentPic._3dBounds;
+      if (v.x < b.minX) b.minX = v.x; if (v.x > b.maxX) b.maxX = v.x;
+      if (v.y < b.minY) b.minY = v.y; if (v.y > b.maxY) b.maxY = v.y;
+      if (v.z < b.minZ) b.minZ = v.z; if (v.z > b.maxZ) b.maxZ = v.z;
+    };
     for (const seg of p.segs) {
-      if (isTriple(seg.p0)) { const pr = projectTriple(seg.p0); seg.p0 = pr; }
-      if (isTriple(seg.cp1)) { const pr = projectTriple(seg.cp1); seg.cp1 = pr; }
-      if (isTriple(seg.cp2)) { const pr = projectTriple(seg.cp2); seg.cp2 = pr; }
-      if (isTriple(seg.p3)) { const pr = projectTriple(seg.p3); seg.p3 = pr; }
+      if (isTriple(seg.p0)) { updateBounds(seg.p0); const pr = projectTriple(seg.p0); seg.p0 = pr; }
+      if (isTriple(seg.cp1)) { updateBounds(seg.cp1); const pr = projectTriple(seg.cp1); seg.cp1 = pr; }
+      if (isTriple(seg.cp2)) { updateBounds(seg.cp2); const pr = projectTriple(seg.cp2); seg.cp2 = pr; }
+      if (isTriple(seg.p3)) { updateBounds(seg.p3); const pr = projectTriple(seg.p3); seg.p3 = pr; }
     }
     if (p._singlePoint && isTriple(p._singlePoint)) {
+      updateBounds(p._singlePoint);
       p._singlePoint = projectTriple(p._singlePoint);
     }
     return p;
