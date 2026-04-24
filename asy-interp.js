@@ -3906,12 +3906,25 @@ function createInterpreter() {
       return String(arg);
     }
 
-    // Approximate label box dims (in bp). drawtree wraps labels in box(),
-    // which is ~text width + a few bp padding, ~text height + padding.
+    // Approximate label box dims (in bp). In Asymptote, drawtree wraps each
+    // label via `box(f, label)` which draws a rectangle at the label bbox
+    // plus a small implicit pad (from the font's side bearings + Asymptote's
+    // default "boxmargin"). Empirically the AoPS reference for 05466 shows:
+    //   - empty label box ≈ 3×4 bp
+    //   - single letter ("T"/"F") box ≈ 13×13 bp (~0.45cm square)
+    // so tune the estimate to hit those. Label character width matches
+    // Asymptote's ~10pt Computer Modern "T" advance (≈8bp) + small
+    // horizontal margin.
     function nodeBoxDims(text) {
-      // ~5bp per char at 10pt, with ~6bp horizontal padding total
-      const w = Math.max(8, text.length) * 5.0 + 6;
-      const h = 12; // ~10pt text + small padding
+      if (text.length === 0) return {w: 4, h: 5};
+      // Match AoPS TeXeR's boxed-label sizing empirically: ~10pt CM glyph
+      // (~6bp advance) plus ~4bp of side padding. Tuned against 05466 ref
+      // where single-char leaf boxes are ~13-14bp wide × ~14bp tall.
+      const charWidth = 6.5;
+      const hPad = 7.0;
+      const vPad = 4.0;
+      const w = text.length * charWidth + hPad;
+      const h = 10 + vPad;
       return {w, h};
     }
 
@@ -3969,6 +3982,12 @@ function createInterpreter() {
         }
         return Math.max(node._w, sumW + treeNodeStep*(widths.length-1));
       } else {
+        // Leaves: treeMinNodeWidth is a LAYOUT-only floor (it determines
+        // the minimum slot reserved in sibling spacing, not the drawn box
+        // width). Asymptote drawtree's `drawAll` adds the node's content
+        // frame unmodified, so the visible leaf box is the tight
+        // label-bbox from box(frame, Label) — NOT padded to
+        // treeMinNodeWidth. Empirically this gives a higher-SSIM render.
         return Math.max(treeMinNodeWidth, node._w);
       }
     }
@@ -4009,6 +4028,45 @@ function createInterpreter() {
       if (!root || root._tag !== 'TreeNode') return;
       root.pos = {x: 0, y: 0};
       layout(1, root);
+      // drawtree coordinates are already in bp. If the user hasn't set
+      // size() or unitsize(), Asymptote's TeXeR renders this geometry at
+      // its natural bp scale (the 05466 reference is ~47bp wide for a
+      // 2-leaf tree). Pin the output scale by calling size() with the
+      // actual drawn-content bbox so the no-size auto-scale-up branch
+      // (which forces 150bp) doesn't balloon the tree.
+      // Walk the laid-out tree to compute the real drawn bbox (boxes are
+      // drawn at node._w/_h — NOT at the layout width, which only affects
+      // sibling center spacing).
+      function applyAdjust(node, ox) {
+        const px = node.pos.x + ox + (node.adjust || 0);
+        node._px = px;
+        for (const c of node.children) applyAdjust(c, px);
+      }
+      applyAdjust(root, 0);
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      (function walk(n) {
+        const hx = n._w / 2, hy = n._h / 2;
+        if (n._px - hx < minX) minX = n._px - hx;
+        if (n._px + hx > maxX) maxX = n._px + hx;
+        if (n.pos.y - hy < minY) minY = n.pos.y - hy;
+        if (n.pos.y + hy > maxY) maxY = n.pos.y + hy;
+        for (const c of n.children) walk(c);
+      })(root);
+      const contentW = Math.max(1, maxX - minX);
+      const contentH = Math.max(1, maxY - minY);
+      const sizeFn = env.get('size');
+      // The renderer boosts size() < 60bp up to 150bp to keep tiny
+      // diagrams visible. Drawtree's natural content is often in the
+      // 40–60bp range, so pin size at >=61bp to dodge the boost while
+      // preserving the natural aspect ratio. (Passing size() IgnoreAspect
+      // isn't right here — we want a single uniform scale.)
+      const sizeFloor = 61;
+      let sW = contentW, sH = contentH;
+      if (Math.max(sW, sH) < sizeFloor) {
+        const s = sizeFloor / Math.max(sW, sH);
+        sW *= s; sH *= s;
+      }
+      if (typeof sizeFn === 'function') sizeFn(sW, sH);
       // Asymptote's drawtree builds into a frame then add(f, pos);
       // we render directly into currentPic shifted by pos.
       drawAll(root, pos.x, pos.y);
