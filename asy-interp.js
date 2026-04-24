@@ -6329,18 +6329,17 @@ function createInterpreter() {
       env.set(name, (...args) => {
         // Arrow(arrowhead, real size) — first arg may be a null arrowhead type (TeXHead etc.)
         // If an explicit null is passed as the first positional arg (from TeXHead/HookHead/
-        // SimpleHead tokens), use the smaller TeX-style arrowhead (texheadsize≈2.67bp,
-        // rendered as a thin stroked head rather than a filled triangle).
+        // SimpleHead tokens), use TeX-style arrowhead rendering.
         const hasNullHead = args.length > 0 && args[0] === null;
-        // TeXHead default: 8bp gives visible wings on long-axis diagrams like
-        // 01258 while staying within canary threshold for Margin'd short
-        // segments like 03491.
-        let sz = hasNullHead ? 8 : 6;
+        // Regular Arrow default: 6bp. TeXHead default is computed at draw time
+        // from the pen linewidth: size = 2.1 * arrowtexfactor * linewidth(p),
+        // matching Asymptote's plain_arrows.asy TeXHead.size definition.
+        let sz = 6;
         let sizeExplicit = false;
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
         }
-        const out = {_tag:'arrow', style:name, size: sz};
+        const out = {_tag:'arrow', style:name, size: sz, sizeExplicit};
         if (hasNullHead) out.texHead = true;
         return out;
       });
@@ -15551,7 +15550,16 @@ function renderSVG(result, opts) {
     let renderPath = dc.path;
     if (dc.arrow && dc.cmd === 'draw') {
       const style = dc.arrow.style;
-      const baseSize = dc.arrow.size || 6;
+      // For TeXHead without an explicit size, use Asymptote's formula:
+      // size = hcoef * arrowtexfactor * linewidth(p) = 2.1 * 1 * linewidth.
+      // For regular arrows, default is 6bp (Asymptote's arrowfactor*linewidth≈7.5bp is close).
+      let baseSize;
+      if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
+        const lw = (dc.pen && dc.pen.linewidth) || 0.5;
+        baseSize = 2.1 * lw;
+      } else {
+        baseSize = dc.arrow.size || 6;
+      }
       let arrowLen = baseSize * bpCSSPixel;
       // Clamp arrow length to 70% of total path length (same as generateArrowHead)
       let totalLen = 0;
@@ -16366,14 +16374,20 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
   // Arrow size: base size (default 6bp) converted to viewBox units via bpCSSPixel.
   // In Asymptote, arrowsize is in bp (PostScript points).  When size=0, Asymptote
   // uses arrowfactor*linewidth ≈ 6bp (matching our default of 6).
-  const baseSize = dc.arrow.size || 6;
+  // For TeXHead without an explicit size, use Asymptote's pen-based formula:
+  //   TeXHead.size = 2.1 * arrowtexfactor * linewidth(p)
+  let baseSize;
+  if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
+    const lw = (dc.pen && dc.pen.linewidth) || 0.5;
+    baseSize = 2.1 * lw;
+  } else {
+    baseSize = dc.arrow.size || 6;
+  }
   let arrowLen = baseSize * bpCSSPixel;
-  // Ensure a minimum of 3 viewBox units so that very small explicit sizes (e.g.
-  // Arrow(TeXHead,1) in a size(200) diagram where bpCSSPixel≈1) remain visible
-  // without over-scaling larger sizes like axisarrowsize≈4bp.
-  // TeXHead is intentionally smaller; don't inflate it past its natural size.
-  const minArrowLen = dc.arrow.texHead ? 1.5 : 3;
-  if (arrowLen < minArrowLen) arrowLen = minArrowLen;
+  // Ensure a minimum of 3 viewBox units for regular Arrows so that very small
+  // explicit sizes remain visible.  TeXHead intentionally stays at its natural
+  // pen-derived size — no floor — so the thin TeX glyph doesn't get inflated.
+  if (!dc.arrow.texHead && arrowLen < 3) arrowLen = 3;
 
   // Get endpoint and tangent direction
   let segs = path.segs;
@@ -16446,52 +16460,77 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css) {
     }
 
     if (isTexHead) {
-      // Render TeXHead modeled on Asymptote's built-in texhead path:
-      //   path texhead=(5.4,1.4)..(5.3,0)..(0,0)..(5.4,-1.4)
-      //                ..controls(6.5,-0.3) and (7.2,0.0)
-      //                ..controls(6.5,0.3) and (5.4,1.4)..cycle
-      // We scale so the tip (local x=7.2) maps to arrowLen s, and widen the
-      // wings (Y_MULT ~2x) so the rendered blades match the thicker glyph
-      // the TeXeR service shows at default linewidth.
-      // Shoulder at local x=5.3 is at 5.3/7.2 = 0.736 along from tail, so
-      // 0.264 from tip — matches the TeXHead-specific axis-shortening above.
-      const X_SCALE = s / 7.2;
-      const Y_MULT  = 1.5;
-      const Y_SCALE = X_SCALE * Y_MULT;
+      // Render TeXHead using Asymptote's authentic texhead path from plain_arrows.asy:
+      //   path texhead=scale(1/84)*((0,20) .. controls (-75,75) and (-108,158) ..
+      //     (-108,166) .. controls (-108,175) and (-100,178) .. (-93,178) ..
+      //     controls (-82,178) and (-80,173) .. (-77,168) .. controls (-62,134)
+      //     and (-30,61) .. (70,14) .. controls (82,8) and (84,7) .. (84,0) ..
+      //     controls (84,-7) and (82,-8) .. (70,-14) .. controls (-30,-61) and
+      //     (-62,-134) .. (-77,-168) .. controls (-80,-173) and (-82,-178) ..
+      //     (-93,-178) .. controls (-100,-178) and (-108,-175).. (-108,-166)..
+      //     controls (-108,-158) and (-75,-75) .. (0,-20)--cycle);
+      // After scale(1/84) the tip is at (1,0); after scale(size) the tip is at
+      // (size,0).  The Asymptote draws the head with shift(y)*rotate(dir)*gp,
+      // where y = point at arclength `size` back from the line endpoint.  That
+      // places the arrow tip AT the line endpoint (not past it).
+      // Since HiTeXeR passes `tip` = the original line endpoint (dc.path.p3),
+      // we simply scale the texhead path by `s = arrowLen` and rotate it to the
+      // line's tangent, with the local +x axis pointing toward the tip.
+      const LOCAL_SCALE = s / 84;
       const cx = Math.cos(screenAngle), sn = Math.sin(screenAngle);
+      // Map a point in Asymptote's raw texhead coordinates (pre-scale-1/84)
+      // into screen coords.  Local +x points along the line direction (toward
+      // the tip, i.e. screenAngle); local +y is perpendicular-left of +x.
+      // Asymptote's path has tip at (84, 0), so local x is offset by -84 so
+      // that x=84 maps to tipX,tipY and x=0 maps to `s` back from the tip.
       const mapPt = (lx, ly) => {
-        const ax = lx * X_SCALE, ay = ly * Y_SCALE;
-        const dxA = (ax - s) * cx;
-        const dyA = (ax - s) * sn;
+        const ax = (lx - 84) * LOCAL_SCALE; // signed distance from tip along axis
+        const ay = ly * LOCAL_SCALE;         // perpendicular offset
+        const dxA = ax * cx;
+        const dyA = ax * sn;
         const dxP = -ay * sn;
         const dyP =  ay * cx;
         return [tipX + dxA + dxP, tipY + dyA + dyP];
       };
-      // Path points in Asymptote local coordinates.
-      const uw   = mapPt(5.4,  1.4);   // upper wing tip (cycle start)
-      const sh   = mapPt(5.3,  0);     // shoulder (on axis)
-      const tail = mapPt(0,    0);
-      const lw   = mapPt(5.4, -1.4);   // lower wing tip
-      const tip2 = mapPt(7.2,  0);     // arrow tip (corner)
-      // Explicit controls from Asymptote's path (corners at tip and uw).
-      const lw_tip_c1  = mapPt(6.5, -0.3);
-      const lw_tip_c2  = mapPt(7.2,  0.0);
-      const tip_uw_c1  = mapPt(6.5,  0.3);
-      const tip_uw_c2  = mapPt(5.4,  1.4);
-      // Approximate Hobby-smoothed auto controls for the ".." joins.
-      const uw_sh_c1   = mapPt(5.38, 0.95);
-      const uw_sh_c2   = mapPt(5.29, 0.35);
-      const sh_tail_c1 = mapPt(3.53, 0);
-      const sh_tail_c2 = mapPt(1.77, 0);
-      const tail_lw_c1 = mapPt(1.77, 0);
-      const tail_lw_c2 = mapPt(5.29, -0.95);
+      // Path knots (on-curve points) in Asymptote local coords.
+      const p1 = mapPt(0,     20);
+      const p2 = mapPt(-108,  166);
+      const p3 = mapPt(-93,   178);
+      const p4 = mapPt(-77,   168);
+      const p5 = mapPt(70,    14);
+      const p6 = mapPt(84,    0);     // tip
+      const p7 = mapPt(70,   -14);
+      const p8 = mapPt(-77,  -168);
+      const p9 = mapPt(-93,  -178);
+      const p10 = mapPt(-108, -166);
+      const p11 = mapPt(0,    -20);
+      // Explicit bezier controls from the Asymptote path.
+      const c1a = mapPt(-75,  75),  c1b = mapPt(-108, 158);
+      const c2a = mapPt(-108, 175), c2b = mapPt(-100, 178);
+      const c3a = mapPt(-82,  178), c3b = mapPt(-80,  173);
+      const c4a = mapPt(-62,  134), c4b = mapPt(-30,  61);
+      const c5a = mapPt(82,   8),   c5b = mapPt(84,   7);
+      const c6a = mapPt(84,  -7),   c6b = mapPt(82,  -8);
+      const c7a = mapPt(-30, -61),  c7b = mapPt(-62, -134);
+      const c8a = mapPt(-80, -173), c8b = mapPt(-82, -178);
+      const c9a = mapPt(-100,-178), c9b = mapPt(-108,-175);
+      const c10a = mapPt(-108,-158),c10b = mapPt(-75, -75);
+      const bez = (ca, cb, pn) =>
+        `C${fmt(ca[0])} ${fmt(ca[1])} ${fmt(cb[0])} ${fmt(cb[1])} ${fmt(pn[0])} ${fmt(pn[1])} `;
+      const lin = (pn) => `L${fmt(pn[0])} ${fmt(pn[1])} `;
       const d =
-        `M${fmt(uw[0])} ${fmt(uw[1])} ` +
-        `C${fmt(uw_sh_c1[0])} ${fmt(uw_sh_c1[1])} ${fmt(uw_sh_c2[0])} ${fmt(uw_sh_c2[1])} ${fmt(sh[0])} ${fmt(sh[1])} ` +
-        `C${fmt(sh_tail_c1[0])} ${fmt(sh_tail_c1[1])} ${fmt(sh_tail_c2[0])} ${fmt(sh_tail_c2[1])} ${fmt(tail[0])} ${fmt(tail[1])} ` +
-        `C${fmt(tail_lw_c1[0])} ${fmt(tail_lw_c1[1])} ${fmt(tail_lw_c2[0])} ${fmt(tail_lw_c2[1])} ${fmt(lw[0])} ${fmt(lw[1])} ` +
-        `C${fmt(lw_tip_c1[0])} ${fmt(lw_tip_c1[1])} ${fmt(lw_tip_c2[0])} ${fmt(lw_tip_c2[1])} ${fmt(tip2[0])} ${fmt(tip2[1])} ` +
-        `C${fmt(tip_uw_c1[0])} ${fmt(tip_uw_c1[1])} ${fmt(tip_uw_c2[0])} ${fmt(tip_uw_c2[1])} ${fmt(uw[0])} ${fmt(uw[1])} ` +
+        `M${fmt(p1[0])} ${fmt(p1[1])} ` +
+        bez(c1a, c1b, p2) +
+        bez(c2a, c2b, p3) +
+        bez(c3a, c3b, p4) +
+        bez(c4a, c4b, p5) +
+        bez(c5a, c5b, p6) +
+        bez(c6a, c6b, p7) +
+        bez(c7a, c7b, p8) +
+        bez(c8a, c8b, p9) +
+        bez(c9a, c9b, p10) +
+        bez(c10a, c10b, p11) +
+        lin(p1) +
         `Z`;
       return {d, filled: true};
     }
