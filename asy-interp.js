@@ -13188,6 +13188,118 @@ function createInterpreter() {
           });
           mesh = {_tag:'mesh', faces: newFaces};
         }
+        // Smooth shading for parametric surfaces: compute per-grid-vertex
+        // normals (average of adjacent face normals) and subdivide each grid
+        // quad into a finer sub-mesh with bilinearly-interpolated positions
+        // and slerp-interpolated smooth normals. This turns flat-shaded
+        // facets into a smoothly graduated shading that approximates
+        // Asymptote's PRC Gouraud output.
+        if (surfForColors && surfForColors._grid && surfForColors._gridRows && surfForColors._gridCols &&
+            !surfForColors._colors) {
+          const grid = surfForColors._grid;
+          const gR = surfForColors._gridRows;
+          const gC = surfForColors._gridCols;
+          const cyc = !!surfForColors._gridCyclic;
+          // Per-vertex smooth normal = average of adjacent face normals.
+          const vn = [];
+          for (let i = 0; i < gR; i++) {
+            const row = [];
+            for (let j = 0; j < gC; j++) {
+              let sx = 0, sy = 0, sz = 0, cnt = 0;
+              // Four surrounding faces share this grid vertex.
+              const tryFace = (fi, fj) => {
+                if (fi < 0 || fi >= gR - 1) return;
+                let jj = fj;
+                if (cyc) jj = ((jj % (gC - 1)) + (gC - 1)) % (gC - 1);
+                else if (jj < 0 || jj >= gC - 1) return;
+                const v00 = grid[fi][jj], v10 = grid[fi+1][jj];
+                const v11 = grid[fi+1][cyc ? (jj+1) % (gC-1) : jj+1];
+                const v01 = grid[fi][cyc ? (jj+1) % (gC-1) : jj+1];
+                const fn = faceNormal({vertices: [v00, v10, v11, v01]});
+                sx += fn.x; sy += fn.y; sz += fn.z; cnt++;
+              };
+              tryFace(i - 1, j - 1);
+              tryFace(i - 1, j);
+              tryFace(i,     j - 1);
+              tryFace(i,     j);
+              if (cnt === 0) { row.push({x:0,y:0,z:1}); continue; }
+              const nl = Math.sqrt(sx*sx + sy*sy + sz*sz) || 1;
+              row.push({x: sx/nl, y: sy/nl, z: sz/nl});
+            }
+            vn.push(row);
+          }
+          // Subdivide each face into K×K sub-faces with bicubic Catmull-Rom
+          // interpolation of position (for smooth silhouette) + bilinear-slerp
+          // of corner normals (for smooth shading).
+          const K = 4;
+          const lerp = (a, b, t) => a + (b - a) * t;
+          const lerpN = (A, B, t) => ({x: lerp(A.x, B.x, t), y: lerp(A.y, B.y, t), z: lerp(A.z, B.z, t)});
+          const norm = (v) => { const l = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z) || 1; return {x: v.x/l, y: v.y/l, z: v.z/l}; };
+          // Catmull-Rom at t ∈ [0,1]: interpolates between P1 (t=0) and P2 (t=1)
+          // using neighbours P0, P3. Gives C1 continuity at grid points.
+          const cr = (P0, P1, P2, P3, t) => {
+            const t2 = t * t, t3 = t2 * t;
+            const c0 = -0.5*t3 +     t2 - 0.5*t;
+            const c1 =  1.5*t3 - 2.5*t2 + 1;
+            const c2 = -1.5*t3 + 2.0*t2 + 0.5*t;
+            const c3 =  0.5*t3 - 0.5*t2;
+            return c0 * P0 + c1 * P1 + c2 * P2 + c3 * P3;
+          };
+          const gridAt = (i, j) => {
+            if (i < 0) i = 0; if (i >= gR) i = gR - 1;
+            if (cyc) j = ((j % (gC - 1)) + (gC - 1)) % (gC - 1);
+            else { if (j < 0) j = 0; if (j >= gC) j = gC - 1; }
+            return grid[i][j];
+          };
+          const crPos = (i0, j0, t, s) => {
+            // Row-first: interpolate along j for each of 4 rows at i0-1..i0+2,
+            // then interpolate along i.
+            const rowAt = (ii) => {
+              const P0 = gridAt(ii, j0 - 1), P1 = gridAt(ii, j0);
+              const P2 = gridAt(ii, j0 + 1), P3 = gridAt(ii, j0 + 2);
+              return {
+                x: cr(P0.x, P1.x, P2.x, P3.x, s),
+                y: cr(P0.y, P1.y, P2.y, P3.y, s),
+                z: cr(P0.z, P1.z, P2.z, P3.z, s),
+              };
+            };
+            const r0 = rowAt(i0 - 1), r1 = rowAt(i0);
+            const r2 = rowAt(i0 + 1), r3 = rowAt(i0 + 2);
+            return makeTriple(
+              cr(r0.x, r1.x, r2.x, r3.x, t),
+              cr(r0.y, r1.y, r2.y, r3.y, t),
+              cr(r0.z, r1.z, r2.z, r3.z, t),
+            );
+          };
+          const newFaces = [];
+          for (const f of mesh.faces) {
+            if (typeof f._gi !== 'number' || typeof f._gj !== 'number') {
+              newFaces.push(f);
+              continue;
+            }
+            const i0 = f._gi, j0 = f._gj;
+            const j1 = cyc ? ((j0 + 1) % (gC - 1)) : (j0 + 1);
+            const N00 = vn[i0][j0], N10 = vn[i0+1][j0];
+            const N11 = vn[i0+1][j1], N01 = vn[i0][j1];
+            for (let si = 0; si < K; si++) {
+              const t0 = si / K, t1 = (si + 1) / K;
+              for (let sj = 0; sj < K; sj++) {
+                const s0 = sj / K, s1 = (sj + 1) / K;
+                const bilinN = (t, s) => {
+                  const a = lerpN(N00, N10, t);
+                  const b = lerpN(N01, N11, t);
+                  return norm(lerpN(a, b, s));
+                };
+                const v00 = crPos(i0, j0, t0, s0), v10 = crPos(i0, j0, t1, s0);
+                const v11 = crPos(i0, j0, t1, s1), v01 = crPos(i0, j0, t0, s1);
+                const sn = bilinN((t0+t1)/2, (s0+s1)/2);
+                const sub = {vertices: [v00, v10, v11, v01], normal: sn, pen: f.pen, _subSmooth: true};
+                newFaces.push(sub);
+              }
+            }
+          }
+          mesh = {_tag:'mesh', faces: newFaces};
+        }
         renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
         // If a named meshpen=... arg was supplied (e.g. meshpen=black+thick()),
         // draw the surface's grid lines on top. This matches Asymptote's
@@ -13854,7 +13966,7 @@ function createInterpreter() {
       }
       // Project polygon
       const poly = V.map(v => projectTriple(v));
-      items.push({depth, intensity, specular, poly, pen: face.pen || basePen});
+      items.push({depth, intensity, specular, poly, pen: face.pen || basePen, _subSmooth: !!face._subSmooth});
     }
     // Sort: farthest first
     items.sort((a, b) => b.depth - a.depth);
@@ -13878,9 +13990,13 @@ function createInterpreter() {
       // semantics where a 2D transform applies only to the 2D layer of a
       // picture and the 3D layer retains its own projection.
       target.commands.push({cmd: 'fill', path: p, pen: shaded, line, _from3d: true});
-      // Add thin stroke to close antialiasing gaps between adjacent faces
+      // Add thin same-color stroke to close antialiasing gaps between
+      // adjacent faces. Subdivided smooth faces use a narrower stroke so
+      // the fine sub-grid doesn't show visible ribs, but still enough to
+      // cover pixel-scale gaps between sub-patches.
       const stroke = clonePen(shaded);
-      stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
+      if (it._subSmooth) stroke.linewidth = 0.3;
+      else stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
       target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true});
     }
   }
