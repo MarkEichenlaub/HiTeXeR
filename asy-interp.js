@@ -8049,7 +8049,11 @@ function createInterpreter() {
         // arrow tip). This matches real Asymptote's behavior for the common
         // `yaxis("$v$", 0, ymax, Arrow(...))` idiom.
         const explicitEndpoint = labelPosition === 1 || labelPosition === 0;
-        const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null;
+        // Left()/Right() extent markers force the traditional middle-axis label
+        // placement (rotated 90°, aligned outside the axis) even when an arrow
+        // is present — they override the arrow-endpoint heuristic.
+        const extentForcesMiddle = extent === 'Left' || extent === 'Right';
+        const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null && !extentForcesMiddle;
         const atEndpoint = explicitEndpoint || arrowEndpointDefault;
         const effPos = labelPosition == null ? (arrowEndpointDefault ? 1 : 0.5) : labelPosition;
         const lAlign = labelAlign || (arrowEndpointDefault ? {x:-1, y:0} : (atEndpoint ? {x:0, y:1} : {x:-1, y:0}));
@@ -8212,6 +8216,91 @@ function createInterpreter() {
         }
       }
     });
+
+    // xtick / ytick — individual tick marks with optional labels.
+    // Signature: xtick(Label L="", explicit pair z, pair dir=N, real size=Ticksize, pen p=nullpen)
+    // The tick extends from z in direction dir with bp-sized length; the label is
+    // placed at z with the Label's own align (which typically matches dir).
+    function _makeTickFn(axisName) {
+      return (...args) => {
+        let pic = currentPic;
+        let labelObj = null;
+        let labelText = null;
+        let z = null;               // pair position
+        let zScalar = null;         // real position (for xtick(real)/ytick(real))
+        let dirVec = null;          // tick direction pair
+        let sizeBp = null;          // tick size in bp (default = 1mm = 2.834645669 bp)
+        let pen = null;
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (a === null || a === undefined) continue;
+          if (a && a._tag === 'picture') { pic = a; continue; }
+          if (a && typeof a === 'object' && a._named) {
+            if ('dir' in a && isPair(a.dir)) dirVec = a.dir;
+            if ('L' in a) {
+              const lv = a.L;
+              if (lv && lv._tag === 'label') { labelObj = lv; labelText = lv.text; }
+              else if (isString(lv)) labelText = lv;
+            }
+            if ('size' in a && typeof a.size === 'number') sizeBp = a.size;
+            if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+            if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
+            continue;
+          }
+          if (a && a._tag === 'label') { labelObj = a; labelText = a.text; continue; }
+          if (isString(a) && labelText === null) { labelText = a; continue; }
+          if (isPair(a)) {
+            if (z === null) z = a;
+            else if (dirVec === null) dirVec = a;
+            continue;
+          }
+          if (typeof a === 'number') {
+            if (zScalar === null && z === null) { zScalar = a; continue; }
+            if (sizeBp === null) { sizeBp = a; continue; }
+          }
+          if (isPen(a)) { pen = pen ? mergePens(pen, a) : a; continue; }
+        }
+        if (z === null && zScalar !== null) {
+          z = axisName === 'x' ? makePair(zScalar, 0) : makePair(0, zScalar);
+        }
+        if (z === null) return;
+        // Default tick direction = N (pair(0,1)) — same as Asymptote
+        if (!dirVec) dirVec = makePair(0, 1);
+        // Default size = 1mm in bp
+        if (sizeBp === null) sizeBp = 2.834645669;
+        if (!pen) pen = clonePen(defaultPen);
+        // Convert bp size to user units
+        let bpPerUnit = 0;
+        if (sizeW > 0 || sizeH > 0) {
+          const _gb = getGeoBbox(pic.commands);
+          const rX = (_gb && isFinite(_gb.maxX - _gb.minX) && _gb.maxX > _gb.minX) ? (_gb.maxX - _gb.minX) : 1;
+          const rY = (_gb && isFinite(_gb.maxY - _gb.minY) && _gb.maxY > _gb.minY) ? (_gb.maxY - _gb.minY) : 1;
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          bpPerUnit = Math.min(sw / rX, sh / rY);
+        } else if (hasUnitScale) {
+          bpPerUnit = unitScale;
+        }
+        const tickLenUser = bpPerUnit > 0 ? (sizeBp / bpPerUnit) : (sizeBp * 0.01);
+        // Normalize direction
+        const dLen = Math.hypot(dirVec.x, dirVec.y) || 1;
+        const dx = dirVec.x / dLen;
+        const dy = dirVec.y / dLen;
+        // Asymptote's tick() draws (z-size*dir)--(z+size*dir) — centered on z,
+        // total length 2*size.
+        const p0 = makePair(z.x - dx * tickLenUser, z.y - dy * tickLenUser);
+        const p1 = makePair(z.x + dx * tickLenUser, z.y + dy * tickLenUser);
+        const path = makePath([lineSegment(p0, p1)], false);
+        pic.commands.push({cmd:'draw', path, pen, arrow:null, line:0, above: 0, _isTickMark: true});
+        // Emit label if provided.
+        if (labelText) {
+          let align = labelObj && labelObj.align ? labelObj.align : dirVec;
+          pic.commands.push({cmd:'label', text: labelText, pos: {x:z.x, y:z.y}, align, pen: clonePen(pen), line:0, _isTickLabel: true});
+        }
+      };
+    }
+    env.set('xtick', _makeTickFn('x'));
+    env.set('ytick', _makeTickFn('y'));
 
     // axes() - draw both axes
     env.set('axes', (...args) => {
