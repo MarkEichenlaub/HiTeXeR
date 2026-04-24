@@ -4857,8 +4857,16 @@ function createInterpreter() {
       const sides = Math.floor(toNumber(n));
       if (sides < 3) return makePath([], false);
       const pts = [];
+      // Asymptote's polygon(n) produces a regular n-gon inscribed in the
+      // unit circle, oriented so the bottom edge is horizontal (bottom-edge
+      // midpoint at angle -pi/2). Vertices at -pi/2 + pi/n + 2*pi*i/n.
+      // Examples:
+      //   n=3 -> vertices at -30°, 90°, 210° (apex on top).
+      //   n=4 -> vertices at -45°, 45°, 135°, 225° (flat top, square).
+      //   n=6 -> vertices at -60°, 0°, 60°, 120°, 180°, 240° (flat top,
+      //           side vertices at dir(0) and dir(180)).
       for (let i = 0; i < sides; i++) {
-        const angle = 2*Math.PI*i/sides;
+        const angle = -Math.PI/2 + Math.PI/sides + 2*Math.PI*i/sides;
         pts.push({x: Math.cos(angle), y: Math.sin(angle)});
       }
       const segs = [];
