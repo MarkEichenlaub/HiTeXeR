@@ -14333,7 +14333,22 @@ function renderSVG(result, opts) {
     //   - unitScale ≥ 20  (raw-bp unitsize like unitsize(40)): only boost when
     //     truly invisible (< 50bp); such diagrams are usually self-scaling.
     const minReasonable = unitScale < 10 ? 100 : (unitScale < 20 ? 55 : 50);
+    // Suppress the boost when the geometry is effectively 1D (one axis
+    // collapses to a near-zero span relative to the other, e.g. a path graph
+    // on the x-axis with naturalH ≈ 0).  In that case fullNatH is driven
+    // entirely by label truesize height (typically ~10bp << minReasonable),
+    // which pushes max(fullNat) below the threshold and triggers a boost that
+    // — via boostScale = min(tgt/naturalW, tgt/naturalH) — scales off the
+    // non-zero axis alone and over-expands the image (2–3× larger than the
+    // TeXeR reference, which honors literal unitsize in that case).  Use an
+    // aspect-ratio test: one axis must be ≥ 5× smaller than the other.  This
+    // keeps the boost active for uniformly-small diagrams (e.g. a 3x3 grid
+    // at unitsize(0.2mm)) where both dims are small and the boost is needed.
+    const _natMin = Math.min(naturalW, naturalH);
+    const _natMax = Math.max(naturalW, naturalH);
+    const is1DDegenerate = (_natMax > 0) && (_natMin * 5 < _natMax);
     if (!geoIsDegenerate
+        && !is1DDegenerate
         && naturalW < defaultSize && naturalH < defaultSize
         && Math.max(fullNatW, fullNatH) < minReasonable) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
