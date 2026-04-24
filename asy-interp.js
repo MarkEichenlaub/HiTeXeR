@@ -3199,9 +3199,12 @@ function createInterpreter() {
     }
 
     // trembling package: tr.deform(path) returns a wavy perturbed path.
-    // Models Asymptote's trembling.asy: subdivides each segment into small
-    // sub-segments, then rotates each joint's control handles by a random
-    // angle up to tr.angle degrees, producing a shaky handwritten look.
+    // Models Asymptote's trembling.asy: preserves the original bezier curves
+    // of the path, optionally subdivides each segment into f additional nodes
+    // (matching addnodes(tg, f) via de Casteljau subdivision), and then
+    // rotates each joint's postcontrol/precontrol handles by small random
+    // angles around the joint point. This preserves the underlying shape
+    // (e.g. a circle stays round) while adding a shaky handwritten look.
     if (obj && obj._tag === 'tremble') {
       if (method === 'deform') {
         const pIn = args[0];
@@ -3209,62 +3212,112 @@ function createInterpreter() {
         const angle = Math.abs(toNumber(obj.angle));
         const frequency = Math.abs(toNumber(obj.frequency)) || 0.5;
         const random = Math.abs(toNumber(obj.random)) || 2;
-        // Number of intermediate nodes per original segment — mirrors
-        // Asymptote's f = |floor(1/frequency) - 1|.
+        // Number of intermediate nodes to insert between each existing node.
+        // Matches Asymptote's f = |floor(1/frequency) - 1|. For frequency>=1
+        // this is 0 (no subdivision); for frequency=0.5 it's 1; etc.
         let f = Math.abs(Math.floor(1 / frequency) - 1);
-        if (!Number.isFinite(f) || f < 1) f = 1;
+        if (!Number.isFinite(f) || f < 0) f = 0;
+        // tf mirrors Asymptote's int tf = (floor(frequency) == 0) ? 1 : floor(frequency)
+        const freqFloor = Math.floor(frequency);
+        const tf = freqFloor === 0 ? 1 : freqFloor;
+
         // Deterministic pseudo-random so renders are stable across runs.
         let seed = 0x12345;
         function rand() {
           seed = (seed * 1664525 + 1013904223) >>> 0;
           return seed / 0x100000000;
         }
-        function randAngle() {
+        // Asymptote's randf(): if random!=0 and 1 % tf == 0, returns
+        // rsgn(ur)*angle*(1+ur^(1/random)); we use rand<0.5 as the sign
+        // coin-flip (rsgn is a deterministic-ish sign from the fractional
+        // digits of ur; for our purposes a random sign is a faithful enough
+        // simulation since the Asymptote result is also effectively random).
+        function randf() {
+          if (1 % tf !== 0) return 0;
           const ur = rand();
           const sign = rand() < 0.5 ? -1 : 1;
-          // Peak perturbation ≈ angle * (1 + ur^(1/random)) deg, matching
-          // the Asymptote randf() formula when random != 0.
-          return sign * angle * (1 + Math.pow(ur, 1/random)) * Math.PI/180;
-        }
-        // Build a dense polyline along the path, then rotate each joint's
-        // implicit tangent direction (for cubic control handles).
-        // First flatten: sample each original cubic segment at (f+1) points.
-        const pts = [];
-        for (let i = 0; i < pIn.segs.length; i++) {
-          const s = pIn.segs[i];
-          const N = f + 1;
-          const base = (i === 0) ? 0 : 1;
-          for (let k = base; k <= N; k++) {
-            const t = k / N;
-            const mt = 1 - t;
-            const x = mt*mt*mt*s.p0.x + 3*mt*mt*t*s.cp1.x + 3*mt*t*t*s.cp2.x + t*t*t*s.p3.x;
-            const y = mt*mt*mt*s.p0.y + 3*mt*mt*t*s.cp1.y + 3*mt*t*t*s.cp2.y + t*t*t*s.p3.y;
-            pts.push({x, y});
+          if (random !== 0) {
+            return sign * angle * (1 + Math.pow(ur, 1/random)) * Math.PI/180;
           }
+          return sign * 1.5 * angle * Math.PI/180;
         }
-        if (pts.length < 2) return pIn;
-        // Construct a smooth cubic path through pts where each joint's
-        // outgoing/incoming handle is rotated by a random angle around the
-        // joint point, producing a perturbed curve.
+
+        // Subdivide a cubic bezier segment into f+1 sub-segments by de
+        // Casteljau at evenly spaced parameters, preserving the underlying
+        // curve. Returns an array of {p0, cp1, cp2, p3} objects.
+        function subdivideSeg(s, n) {
+          if (n <= 0) return [s];
+          // Split at t = 1/(n+1), 2/(n+1), ..., n/(n+1) progressively.
+          const out = [];
+          let cur = {p0:{x:s.p0.x,y:s.p0.y}, cp1:{x:s.cp1.x,y:s.cp1.y},
+                     cp2:{x:s.cp2.x,y:s.cp2.y}, p3:{x:s.p3.x,y:s.p3.y}};
+          for (let k = 0; k < n; k++) {
+            // Split cur at local t = 1/(n+1-k), taking left part into out,
+            // right part becomes new cur.
+            const t = 1 / (n + 1 - k);
+            const mt = 1 - t;
+            const q0x = mt*cur.p0.x + t*cur.cp1.x, q0y = mt*cur.p0.y + t*cur.cp1.y;
+            const q1x = mt*cur.cp1.x + t*cur.cp2.x, q1y = mt*cur.cp1.y + t*cur.cp2.y;
+            const q2x = mt*cur.cp2.x + t*cur.p3.x, q2y = mt*cur.cp2.y + t*cur.p3.y;
+            const r0x = mt*q0x + t*q1x, r0y = mt*q0y + t*q1y;
+            const r1x = mt*q1x + t*q2x, r1y = mt*q1y + t*q2y;
+            const sx = mt*r0x + t*r1x, sy = mt*r0y + t*r1y;
+            out.push({
+              p0: {x:cur.p0.x, y:cur.p0.y},
+              cp1: {x:q0x, y:q0y},
+              cp2: {x:r0x, y:r0y},
+              p3: {x:sx, y:sy},
+            });
+            cur = {
+              p0: {x:sx, y:sy},
+              cp1: {x:r1x, y:r1y},
+              cp2: {x:q2x, y:q2y},
+              p3: {x:cur.p3.x, y:cur.p3.y},
+            };
+          }
+          out.push(cur);
+          return out;
+        }
+
+        // Build the subdivided segment list (preserving curvature).
         const segs = [];
-        for (let i = 0; i < pts.length - 1; i++) {
-          const a = pts[i], b = pts[i+1];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          // Default handles: straight line thirds.
-          const h1x = a.x + dx/3, h1y = a.y + dy/3;
-          const h2x = a.x + 2*dx/3, h2y = a.y + 2*dy/3;
-          // Rotate outgoing handle around a, incoming handle around b.
-          const aOut = randAngle();
-          const aIn  = (randAngle() + randAngle()) / 2;
-          const co = Math.cos(aOut), so = Math.sin(aOut);
-          const ci = Math.cos(aIn),  si = Math.sin(aIn);
-          const cp1x = a.x + co*(h1x - a.x) - so*(h1y - a.y);
-          const cp1y = a.y + so*(h1x - a.x) + co*(h1y - a.y);
-          const cp2x = b.x + ci*(h2x - b.x) - si*(h2y - b.y);
-          const cp2y = b.y + si*(h2x - b.x) + ci*(h2y - b.y);
-          segs.push(makeSeg({x:a.x,y:a.y}, {x:cp1x,y:cp1y}, {x:cp2x,y:cp2y}, {x:b.x,y:b.y}));
+        for (const s of pIn.segs) {
+          for (const sub of subdivideSeg(s, f)) segs.push(sub);
         }
-        return makePath(segs, pIn.closed);
+        if (segs.length === 0) return pIn;
+
+        // Rotate a point p around center c by angle a (radians).
+        function rot(p, c, a) {
+          const co = Math.cos(a), si = Math.sin(a);
+          const dx = p.x - c.x, dy = p.y - c.y;
+          return {x: c.x + co*dx - si*dy, y: c.y + si*dx + co*dy};
+        }
+
+        // Rotate postcontrol of segment i around its p0, and precontrol
+        // around its p3, by random angles. This mirrors Asymptote's loop:
+        //   post = rotate(a, point(tg, i-1)) * postcontrol(tg, i-1);
+        //   pre  = rotate((a+b)/2, point(tg, i)) * precontrol(tg, i);
+        // Where each segment i in our representation corresponds to
+        // (point(tg,i-1) ... point(tg,i)), with cp1=postcontrol(i-1) and
+        // cp2=precontrol(i).
+        const outSegs = [];
+        for (let i = 0; i < segs.length; i++) {
+          const s = segs[i];
+          const a = randf();
+          const b = randf();
+          const newCp1 = rot(s.cp1, s.p0, a);
+          const newCp2 = rot(s.cp2, s.p3, (a + b) / 2);
+          outSegs.push(makeSeg(
+            {x:s.p0.x, y:s.p0.y},
+            newCp1, newCp2,
+            {x:s.p3.x, y:s.p3.y},
+          ));
+        }
+        // Ensure continuity at joints: if the path is not perfectly cyclic
+        // the consecutive endpoint sharing is already correct (each segment
+        // keeps its original p0/p3). Return the new path with same closed
+        // flag.
+        return makePath(outSegs, pIn.closed);
       }
     }
 
@@ -12940,6 +12993,7 @@ function createInterpreter() {
     let pathArg = null, pen = null, drawPen = null, arrow = null, margin = null;
     let barsStyle = null; // 'Bar' | 'Bars' | null — tracked separately so it
                           // can coexist with Arrows (geometry-module convention).
+    let barsSize = null;  // size in bp from Bar(size) / Bars(size); null = default
     let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
     let labelFilltype = null, labelPen = null;
     let penCount = 0;
@@ -12955,7 +13009,7 @@ function createInterpreter() {
             try { av = av(); } catch(e) { av = null; }
           }
           if (av && av._tag === 'arrow') {
-            if (av.style === 'Bar' || av.style === 'Bars') barsStyle = av.style;
+            if (av.style === 'Bar' || av.style === 'Bars') { barsStyle = av.style; if (typeof av.size === 'number') barsSize = av.size; }
             else arrow = av;
           }
         }
@@ -12977,14 +13031,14 @@ function createInterpreter() {
         else { pen = pen ? mergePens(pen, a) : a; }
       }
       else if (a && a._tag === 'arrow') {
-        if (a.style === 'Bar' || a.style === 'Bars') barsStyle = a.style;
+        if (a.style === 'Bar' || a.style === 'Bars') { barsStyle = a.style; if (typeof a.size === 'number') barsSize = a.size; }
         else arrow = a;
       }
       else if (typeof a === 'function' && !arrow) {
         try {
           const r = a();
           if (r && r._tag === 'arrow') {
-            if (r.style === 'Bar' || r.style === 'Bars') barsStyle = r.style;
+            if (r.style === 'Bar' || r.style === 'Bars') { barsStyle = r.style; if (typeof r.size === 'number') barsSize = r.size; }
             else arrow = r;
           }
         } catch(e) {}
@@ -13030,7 +13084,25 @@ function createInterpreter() {
       target.commands.push(dc);
       // Emit Bar/Bars marks as short perpendicular segments at endpoint(s).
       if (barsStyle && pathArg.segs && pathArg.segs.length > 0) {
-        const halfLen = 0.05; // user units; roughly 3bp at size(150)
+        // Default Bar size in Asymptote is barsize(pen) ≈ 0 but with fallback
+        // to ~3bp; when the user supplies Bars(size), size is in bp. Convert
+        // to user units via current size()/unitsize() context. Falls back to
+        // the previous 0.05-user-unit default when no scale is available.
+        const barSizeBp = (barsSize != null) ? barsSize : 3;
+        let bpPerUnit = 0;
+        if (sizeW > 0 || sizeH > 0) {
+          const _gb = getGeoBbox(target.commands);
+          if (_gb && isFinite(_gb.maxX - _gb.minX) && isFinite(_gb.maxY - _gb.minY)) {
+            const rX = Math.abs(_gb.maxX - _gb.minX) || 1;
+            const rY = Math.abs(_gb.maxY - _gb.minY) || 1;
+            const sw = sizeW > 0 ? sizeW : sizeH;
+            const sh = sizeH > 0 ? sizeH : sizeW;
+            if (rX > 0 && rY > 0) bpPerUnit = Math.min(sw / rX, sh / rY);
+          }
+        } else if (hasUnitScale) {
+          bpPerUnit = unitScale;
+        }
+        const halfLen = (bpPerUnit > 0) ? (barSizeBp / bpPerUnit) : 0.05;
         const makeBarAt = (p, tdx, tdy) => {
           const l = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
           const nx = -tdy / l, ny = tdx / l;
