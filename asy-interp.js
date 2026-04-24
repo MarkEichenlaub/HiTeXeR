@@ -4393,6 +4393,22 @@ function createInterpreter() {
       } else {
         return;
       }
+      // Per-picture unitsize: if unitsize(pic, x) was called, compose a
+      // pre-scale transform into the outer transform so the picture's
+      // user coords are scaled to x bp per unit before being placed.
+      if (src._unitScaleX != null || src._unitScaleY != null) {
+        const usx = src._unitScaleX != null ? src._unitScaleX : 1;
+        const usy = src._unitScaleY != null ? src._unitScaleY : usx;
+        // Pre-scale: (x,y) -> (x*usx, y*usy). In our transform convention
+        // (a + b*x + c*y, d + e*x + f*y), a scale is (b=usx, c=0, e=0, f=usy).
+        const preScale = makeTransform(0, usx, 0, 0, 0, usy);
+        // Apply preScale to the source commands and treat as the effective src.
+        const scaledCmds = src.commands.map(c => transformDrawCmd(preScale, c));
+        src = { _tag: 'picture', commands: scaledCmds,
+                _sizeW: src._sizeW, _sizeH: src._sizeH,
+                _sizeAniso: src._sizeAniso, _fitShift: src._fitShift,
+                _picLimits: src._picLimits };
+      }
       // 4-arg / 3-arg form: add(dest, src, position, align) or add(src, position, align)
       // Two pair args mean (position, align). Asymptote's picture.asy defines this as
       // placing src's bbox so its align-aligned point sits at position:
@@ -5470,6 +5486,17 @@ function createInterpreter() {
 
     // Settings
     env.set('unitsize', (...args) => {
+      // Per-picture form: unitsize(pic, x[, y]) — scale pic's user coords so
+      // 1 user unit = x bp (horizontally) and 1 user unit = y bp (vertically,
+      // defaults to x). Stored on the picture and applied at add() time.
+      if (args.length >= 2 && args[0] && args[0]._tag === 'picture' && isNumber(args[1])) {
+        const pic = args[0];
+        const sx = toNumber(args[1]);
+        const sy = (args.length >= 3 && isNumber(args[2])) ? toNumber(args[2]) : sx;
+        pic._unitScaleX = sx;
+        pic._unitScaleY = sy;
+        return;
+      }
       if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; }
     });
     env.set('size', (...args) => {
