@@ -73,7 +73,7 @@ function parseArgs(argv) {
       try { raw += fs.readFileSync(path.resolve(ROOT, out.idsFile), 'utf8'); }
       catch (e) { console.error('--ids-file read failed: ' + e.message); process.exit(2); }
     }
-    out.idList = raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    out.idList = raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean).map(s => s.padStart(5, '0'));
     if (out.idList.length === 0) { console.error('--ids/--ids-file produced empty list'); process.exit(2); }
   }
 
