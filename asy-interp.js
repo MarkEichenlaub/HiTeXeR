@@ -12770,6 +12770,15 @@ function createInterpreter() {
         }
       }
     }
+    // Detect nolight: if any arg is the nolight light object (the env binding
+     // 'nolight' is a {_tag:'light'} sentinel without other fields), the surface
+     // should render with flat shading (uniform pen, no Lambert). Asymptote's
+     // `nolight` disables lighting calculations, producing constant-colored faces.
+    let _nolight = false;
+    for (const a of args) {
+      if (a && typeof a === 'object' && a._tag === 'light' && !a.background &&
+          Object.keys(a).length === 1) { _nolight = true; break; }
+    }
     // Handle draw(mesh, pen) or draw(surface{mesh}, pen) — shaded, depth-sorted faces
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -12884,7 +12893,7 @@ function createInterpreter() {
           });
           mesh = {_tag:'mesh', faces: newFaces};
         }
-        renderMeshToPicture(mesh, meshPen, target, args._line || 0);
+        renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
         return;
       }
     }
@@ -13311,7 +13320,7 @@ function createInterpreter() {
   // ============================================================
   // 3D Mesh rendering: depth-sort faces (painter's), Lambert shade, emit fills
   // ============================================================
-  function renderMeshToPicture(mesh, basePen, target, line) {
+  function renderMeshToPicture(mesh, basePen, target, line, nolight) {
     if (!mesh || !mesh.faces || mesh.faces.length === 0) return;
     const proj = projection;
     // View axis (camera - target), normalized — used both for depth and light
@@ -13373,7 +13382,19 @@ function createInterpreter() {
       let dot = n.x*lx + n.y*ly + n.z*lz;
       if (mesh && mesh._closed && dot < 0) continue; // back-face cull
       if (dot < 0) dot = -dot;
-      const intensity = 0.35 + 0.65 * dot;
+      // nolight: skip front-facing interior patches and emit only rim
+      // (near-edge-on) patches. Asymptote's PRC raster fallback for unlit
+      // surfaces leaves the interior empty and shows only thin grey slivers
+      // along the silhouette where back-facing patches barely poke through.
+      // Approximate by drawing only patches whose face normal is nearly
+      // perpendicular to the view direction (small |n·v|).
+      if (nolight) {
+        // dot here is |n·viewish| (light vector ≈ view + tilt*up); use a
+        // threshold so only near-rim patches survive.
+        const viewDot = Math.abs(n.x*vx + n.y*vy + n.z*vz);
+        if (viewDot > 0.20) continue; // only keep rim-grazing patches
+      }
+      const intensity = nolight ? 1.0 : (0.35 + 0.65 * dot);
       // Project polygon
       const poly = V.map(v => projectTriple(v));
       items.push({depth, intensity, poly, pen: face.pen || basePen});
