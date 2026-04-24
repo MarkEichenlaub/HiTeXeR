@@ -7993,10 +7993,15 @@ function createInterpreter() {
         // MIDDLE of the axis (position 0.5), aligned west (left), rotated 90° CCW.
         // Only if the user explicitly sets position=1 (or 0) is the label at the endpoint
         // rendered horizontally.
+        // EXCEPTION: when the axis has an arrow and no explicit position/align are given,
+        // the label defaults to the top endpoint, unrotated, aligned W (to the left of the
+        // arrow tip). This matches real Asymptote's behavior for the common
+        // `yaxis("$v$", 0, ymax, Arrow(...))` idiom.
         const explicitEndpoint = labelPosition === 1 || labelPosition === 0;
-        const atEndpoint = explicitEndpoint;
-        const effPos = labelPosition == null ? 0.5 : labelPosition;
-        const lAlign = labelAlign || (atEndpoint ? {x:0, y:1} : {x:-1, y:0});
+        const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null;
+        const atEndpoint = explicitEndpoint || arrowEndpointDefault;
+        const effPos = labelPosition == null ? (arrowEndpointDefault ? 1 : 0.5) : labelPosition;
+        const lAlign = labelAlign || (arrowEndpointDefault ? {x:-1, y:0} : (atEndpoint ? {x:0, y:1} : {x:-1, y:0}));
         const labelY = ymin + (ymax - ymin) * effPos;
         // Apply 90° CCW rotation when the label is placed along the axis (not endpoint)
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
