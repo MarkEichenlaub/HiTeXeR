@@ -16801,8 +16801,23 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
     if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
     math = segments.map(seg => {
       if (seg.type === 'math') return seg.content;
-      // Escape TeX-special characters inside \text{...}
-      const esc = seg.content.replace(/([\\{}$&#^_%~])/g, '\\$1');
+      // Escape TeX-special characters inside \text{...}, but preserve TeX
+      // spacing commands (\, \; \: \! \<space> \~) which are valid in text
+      // mode too.  Tokenize so a literal backslash followed by a spacing
+      // char passes through unchanged, while bare \ is escaped to \\.
+      let esc = '';
+      const src = seg.content;
+      for (let i = 0; i < src.length; i++) {
+        const c = src[i];
+        if (c === '\\' && i + 1 < src.length && ' ,;:!~'.indexOf(src[i+1]) !== -1) {
+          esc += c + src[i+1];
+          i++;
+        } else if ('\\{}$&#^_%~'.indexOf(c) !== -1) {
+          esc += '\\' + c;
+        } else {
+          esc += c;
+        }
+      }
       return '\\text{' + esc + '}';
     }).join('');
   }
