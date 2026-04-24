@@ -12272,10 +12272,11 @@ function createInterpreter() {
         let p0, p1, labelPos3;
         const extraOut = 0.08; // push label a hair past the arrow tip
         if (axisName === 'x') {
-          // From origin along +x in the z=minZ plane, at y=0 (through-origin
-          // plane), unless out of bounds then clamp.
+          // Asymptote's default xaxis3 uses YZZero (axis passes through y=0,z=0
+          // in the transverse plane). Fall back to minY/minZ only when 0 is
+          // outside the scene extent along that dimension.
           const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
-          const z0 = b.minZ;
+          const z0 = (b.minZ <= 0 && b.maxZ >= 0) ? 0 : b.minZ;
           const xStart = Math.min(0, b.minX);
           const xEnd = b.maxX;
           p0 = makeTriple(xStart, y0, z0);
@@ -12283,7 +12284,7 @@ function createInterpreter() {
           labelPos3 = makeTriple(xEnd + extraOut * (b.maxX - b.minX), y0, z0);
         } else if (axisName === 'y') {
           const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
-          const z0 = b.minZ;
+          const z0 = (b.minZ <= 0 && b.maxZ >= 0) ? 0 : b.minZ;
           const yStart = Math.min(0, b.minY);
           const yEnd = b.maxY;
           p0 = makeTriple(x0, yStart, z0);
@@ -15891,9 +15892,15 @@ function renderSVG(result, opts) {
     // to opaque (e.g., cluster c583_L11 diagrams 12090/12091/12092/12095 use opacity(0.3)
     // on fills but the reference renders them as solid colors with last-fill-wins semantics).
     // Match that behavior by omitting opacity on fill-family commands.
+    //
+    // Exception: 3D surface fills (`_from3d`) should honor pen opacity, because
+    // translucent planes/surfaces (e.g. `draw(plane(...), lightgrey+opacity(0.5))`)
+    // render as see-through in Asymptote's 3D output and the 2D flattening
+    // rule doesn't apply to them.
     const isFillFamily = (dc.cmd === 'fill' || dc.cmd === 'unfill' || dc.cmd === 'filldraw');
     if (dc.cmd !== 'filldraw' || fill !== 'none') {
       if (!isFillFamily) attrs += opacityAttr(css.opacity);
+      else if (dc._from3d) attrs += opacityAttr(css.opacity);
     }
     if (dc._subpicClipId) attrs += ` clip-path="url(#${dc._subpicClipId})"`;
 
