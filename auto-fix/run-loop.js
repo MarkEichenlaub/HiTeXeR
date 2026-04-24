@@ -44,6 +44,9 @@ const WRITE_OK_UNCOMMITTED = new Set([
   'auto-fix/skiplist.json',
   'auto-fix/telemetry.jsonl',
 ]);
+// render-and-score.js regenerates comparison page files as a side effect;
+// treat them as write-ok (they are NOT committed by the sub-agent).
+const WRITE_OK_RE = /^comparison\/(page-\d+\.html|blink-manifest\.json|index\.html)$/;
 
 function parseArgs(argv) {
   const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 0, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false };
@@ -272,7 +275,7 @@ function verifyDiffOrRevert(preChanges) {
   // Only consider files whose dirty-state CHANGED during the iteration.
   const preKey = new Set(preChanges.map(c => c.status + ' ' + c.file));
   const changes = gitTrackedChanges().filter(c =>
-    !WRITE_OK_UNCOMMITTED.has(c.file) && !preKey.has(c.status + ' ' + c.file)
+    !WRITE_OK_UNCOMMITTED.has(c.file) && !WRITE_OK_RE.test(c.file) && !preKey.has(c.status + ' ' + c.file)
   );
   const bad = changes.filter(c => !ALLOWED_FILES.has(c.file));
   if (bad.length === 0) return true;
