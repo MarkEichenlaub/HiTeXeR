@@ -10772,6 +10772,25 @@ function createInterpreter() {
                   : (namedNv !== undefined ? namedNv : nuSrc);
         const nu = Math.max(2, Math.floor(toNumber(nuSrc)));
         const nv = Math.max(2, Math.floor(toNumber(nvSrc)));
+        // Optional `active` predicate: bool active(pair) decides whether a
+        // (u,v) sample is part of the surface. A face is kept only if all
+        // four corners are active. Matches Asymptote's cell-inclusion rule.
+        let activeFn = null;
+        for (let k = 3; k < pos.length; k++) {
+          const a = pos[k];
+          if (typeof a === 'function' || (a && (a._tag === 'func' || a._tag === 'overload'))) {
+            activeFn = a;
+            break;
+          }
+        }
+        const callActive = (u, v) => {
+          if (!activeFn) return true;
+          const p = makePair(u, v);
+          let r;
+          if (typeof activeFn === 'function') r = activeFn(p);
+          else r = callUserFuncValues(activeFn, [p]);
+          return !!r;
+        };
         const call = (u, v) => {
           const p = makePair(u, v);
           if (typeof f === 'function') return f(p);
@@ -10779,11 +10798,14 @@ function createInterpreter() {
           return makeTriple(0, 0, 0);
         };
         const grid = [];
+        const activeGrid = [];
         for (let i = 0; i <= nu; i++) {
           const row = [];
+          const arow = [];
           const u = lo.x + (hi.x - lo.x) * i / nu;
           for (let j = 0; j <= nv; j++) {
             const v = lo.y + (hi.y - lo.y) * j / nv;
+            arow.push(callActive(u, v));
             const q = call(u, v);
             if (isTriple(q)) row.push(q);
             else if (typeof q === 'number') {
@@ -10794,10 +10816,12 @@ function createInterpreter() {
             }
           }
           grid.push(row);
+          activeGrid.push(arow);
         }
         const faces = [];
         for (let i = 0; i < nu; i++) {
           for (let j = 0; j < nv; j++) {
+            if (activeFn && !(activeGrid[i][j] && activeGrid[i+1][j] && activeGrid[i+1][j+1] && activeGrid[i][j+1])) continue;
             const v00 = grid[i][j], v10 = grid[i+1][j];
             const v11 = grid[i+1][j+1], v01 = grid[i][j+1];
             const face = {vertices: [v00, v10, v11, v01], _gi: i, _gj: j};
@@ -10806,7 +10830,7 @@ function createInterpreter() {
           }
         }
         const mesh = makeMesh(faces);
-        return {_tag:'surface', mesh, _grid: grid, _gridRows: nu+1, _gridCols: nv+1, _gridCyclic: false};
+        return {_tag:'surface', mesh, _grid: grid, _gridRows: nu+1, _gridCols: nv+1, _gridCyclic: false, _activeGrid: activeFn ? activeGrid : null};
       }
       // surface(revolution)
       const firstRev = args.find(a => a && a._tag === 'revolution');
@@ -13097,10 +13121,16 @@ function createInterpreter() {
             if (vz < b.minZ) b.minZ = vz; if (vz > b.maxZ) b.maxZ = vz;
           }
         }
-        // Also track from _grid if available
+        // Also track from _grid if available. Respect _activeGrid mask so
+        // inactive (culled) samples don't inflate the bounds — otherwise
+        // auto-scaled axes stretch far beyond the visible surface.
         if (surfForColors && surfForColors._grid) {
-          for (const row of surfForColors._grid) {
-            for (const v of row) {
+          const ag = surfForColors._activeGrid;
+          for (let gi = 0; gi < surfForColors._grid.length; gi++) {
+            const row = surfForColors._grid[gi];
+            for (let gj = 0; gj < row.length; gj++) {
+              if (ag && ag[gi] && ag[gi][gj] === false) continue;
+              const v = row[gj];
               const vx = typeof v.x === 'number' ? v.x : 0;
               const vy = typeof v.y === 'number' ? v.y : 0;
               const vz = typeof v.z === 'number' ? v.z : 0;
