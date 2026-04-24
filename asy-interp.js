@@ -14415,13 +14415,20 @@ function renderSVG(result, opts) {
       // render these compactly (~150–360 px wide = 45–108bp native =
       // ~90–216bp HTX target). Using defaultSize=200 for these overshoots
       // by 2–4×; target ~100bp instead so sizeScore doesn't collapse.
-      const baseTgt = (unitScale < 1)
-        ? (aspectRatio >= 2.5 ? 200 : 100)
-        : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
-          ? 300
-          : (unitScale >= 20 && !hasAnyLabels)
-            ? 22
-            : defaultSize;
+      // For cm-scale unitsize (≥ ~0.35cm/unit ⇒ unitScale ≥ 10) with no
+       // labels, honor the literal unitsize closely — TeXeR renders these
+       // compactly at natural scale (e.g. unitsize(0.5cm) dot grid at ~45bp).
+       // Boosting to 200bp here makes the image 4× too large.
+       const cmNoLabelNat = Math.max(naturalW, naturalH);
+       const baseTgt = (unitScale < 1)
+         ? (aspectRatio >= 2.5 ? 200 : 100)
+         : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
+           ? 300
+           : (unitScale >= 20 && !hasAnyLabels)
+             ? 22
+             : (unitScale >= 10 && !hasAnyLabels)
+               ? cmNoLabelNat
+               : defaultSize;
       const tgtSize = Math.max(baseTgt, crowdedTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
