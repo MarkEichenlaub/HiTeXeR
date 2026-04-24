@@ -3349,9 +3349,78 @@ function createInterpreter() {
         }
         return lineSegment(a, b);
       };
+      // Helper: build a multi-knot Hobby spline across a run of knots with per-knot
+      // direction constraints. Used when 3+ pair-knots are connected by `..` joins
+      // (possibly with the run anchored by a fixed start/end knot from an adjacent
+      // path or the cycle-start). A single-spline solve is needed so that e.g.
+      // `{E}..{N}(1,0)..{W}cycle` produces a proper 3-point circular arc rather
+      // than two mis-smoothed 2-point segments.
+      const buildRunSegs = (knots, dirs) => {
+        return hobbySpline(knots, false, dirs);
+      };
       const allSegs = [];
       let pendingPt = null; // pair waiting to be connected to next element
       let pendingDirOut = null; // dirOut of the pending pair
+      let pendingDirIn = null; // dirIn of the pending pair (only meaningful if it is the start knot)
+
+      // Helper: attempt to batch a run of consecutive pair-with-..-join elements
+      // starting at index i (inclusive) and build a Hobby multi-knot spline anchored
+      // at the previous endpoint (prevPt with prevDirOut). Returns the number of
+      // elements consumed, or 0 to fall back to per-segment processing.
+      const tryBatchRun = (startIdx, prevPt, prevDirOut, includeCycleClose) => {
+        // Find end of run: consecutive pair elements each joined by '..' to the prior
+        let endIdx = startIdx;
+        while (endIdx < elements.length
+               && elements[endIdx].type === 'pair'
+               && (endIdx === 0 || elements[endIdx-1].join === '..')) {
+          endIdx++;
+        }
+        // Run is elements[startIdx..endIdx-1]. Need enough knots to make a Hobby spline
+        // (3+ total including prev anchor and optional cycle-close point).
+        const runLen = endIdx - startIdx;
+        // If includeCycleClose is true, the run extends to close back to allSegs[0].p0
+        // (requires the join before cycle to be '..' and no further elements after run).
+        const closingToCycle = includeCycleClose && endIdx === elements.length && hasCycle
+                            && (elements[endIdx-1].join === '..' || elements[endIdx-1].join === null);
+        // Minimum: need runLen >= 2, OR runLen >= 1 with closingToCycle (yielding 3 knots
+        // total: anchor + 1 pair + cycle-close point).
+        if (runLen < 2 && !(runLen >= 1 && closingToCycle)) return 0;
+        // Build knots: [prevPt, run pairs..., maybe cycle-close target]
+        const knots = [];
+        const dirs = [];
+        if (prevPt) {
+          knots.push(prevPt);
+          dirs.push({dirIn: null, dirOut: prevDirOut != null ? prevDirOut : null});
+        }
+        for (let k = startIdx; k < endIdx; k++) {
+          const e = elements[k];
+          knots.push(e.pt);
+          dirs.push({
+            dirIn: e.dirIn != null ? e.dirIn : null,
+            dirOut: e.dirOut != null ? e.dirOut : null
+          });
+        }
+        if (closingToCycle && allSegs.length > 0) {
+          const closePt = allSegs[0].p0;
+          knots.push(closePt);
+          const firstEl = elements[0];
+          const closeDirIn = (cycleDirIn != null)
+            ? cycleDirIn
+            : (firstEl && firstEl.dirIn != null ? firstEl.dirIn : null);
+          dirs.push({dirIn: closeDirIn, dirOut: null});
+        }
+        if (knots.length < 3) return 0;
+        // Only batch if all intermediate joins are '..'
+        for (let k = startIdx; k < endIdx; k++) {
+          const prevJoinK = k === 0 ? '--' : elements[k-1].join;
+          if (prevJoinK !== '..') return 0;
+        }
+        const runSegs = buildRunSegs(knots, dirs);
+        if (!runSegs || runSegs.length === 0) return 0;
+        allSegs.push(...runSegs);
+        return runLen + (closingToCycle ? -1 : 0); // consumed runLen pairs (cycle handled separately)
+      };
+
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
         // Check if previous element used ^^ (pen-up) — if so, don't connect
@@ -3365,6 +3434,7 @@ function createInterpreter() {
               allSegs.push(makeJoinSeg(pendingPt, start, prevJoin, pendingDirOut, el.dirIn));
               pendingPt = null;
               pendingDirOut = null;
+              pendingDirIn = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
               if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
@@ -3374,16 +3444,34 @@ function createInterpreter() {
           } else {
             pendingPt = null; // discard pending point across ^^ gap
             pendingDirOut = null;
+            pendingDirIn = null;
           }
           allSegs.push(...el.segs);
         } else {
           // pair element
           if (!isHatHat) {
+            // Try to batch a run of pair-..-pair starting here (or the pending pair)
+            // if it would span 3+ knots including a prior anchor point.
+            const anchorPt = pendingPt || (allSegs.length > 0 ? allSegs[allSegs.length-1].p3 : null);
+            const anchorDirOut = pendingPt ? pendingDirOut
+                              : (allSegs.length > 0 && elements[i-1] && elements[i-1].type === 'path'
+                                 && elements[i-1].dirOut != null ? elements[i-1].dirOut : null);
+            if (anchorPt && prevJoin === '..') {
+              const consumed = tryBatchRun(i, anchorPt, anchorDirOut, true);
+              if (consumed > 0) {
+                pendingPt = null;
+                pendingDirOut = null;
+                pendingDirIn = null;
+                i += consumed - 1; // skip consumed elements (loop increments)
+                continue;
+              }
+            }
             if (pendingPt) {
               // Two consecutive pairs, connect them
               allSegs.push(makeJoinSeg(pendingPt, el.pt, prevJoin, pendingDirOut, el.dirIn));
               pendingPt = null;
               pendingDirOut = null;
+              pendingDirIn = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
               if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
@@ -3396,11 +3484,13 @@ function createInterpreter() {
               // Use != null because 0 is a valid direction angle.
               pendingPt = el.pt;
               pendingDirOut = el.dirOut != null ? el.dirOut : null;
+              pendingDirIn = el.dirIn != null ? el.dirIn : null;
             }
           } else {
             // ^^ gap: start fresh from this point
             pendingPt = null;
             pendingDirOut = null;
+            pendingDirIn = null;
             // Add zero-length seg to preserve point position for dot() usage
             allSegs.push(makeSeg(el.pt, el.pt, el.pt, el.pt));
           }
@@ -16504,12 +16594,28 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
     } else if (p.type === 'underbrace') {
       const cx = curX + p.width / 2;
-      const by = y + fontSize * 0.3;
-      const bh = fontSize * 0.4;
-      // Underbrace as a path: left arm → center dip → right arm
-      els.push(`<path d="M${fmt(curX)},${fmt(by)} Q${fmt(curX)},${fmt(by+bh)} ${fmt(cx)},${fmt(by+bh)} Q${fmt(curX+p.width)},${fmt(by+bh)} ${fmt(curX+p.width)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
+      // Anchor the brace's TOP at the caller's y. TeXer places \underbrace
+      // close under the referenced graphics; the prior offset (+0.3) left a full
+      // line-height gap before the brace.
+      const by = y;
+      const bh = fontSize * 0.35;
+      // LaTeX-style underbrace: two outer hook corners + straight arms +
+      // a central downward spike. The midBump is where the center peak dips.
+      const xL = curX, xR = curX + p.width;
+      const hookR = Math.min(fontSize * 0.25, p.width * 0.1); // rounded-corner radius
+      const midBump = bh * 0.4; // extra dip at center
+      // Path:
+      //   M left-top
+      //   Q (curve at left corner down to arm level)
+      //   L straight arm to just before center
+      //   Q (central downward peak)
+      //   L straight arm to just after right corner
+      //   Q (curve up to right-top)
+      const armY = by + bh - midBump;            // level of the long straight arms
+      const peakY = by + bh;                      // center peak (deepest point)
+      els.push(`<path d="M${fmt(xL)},${fmt(by)} Q${fmt(xL)},${fmt(armY)} ${fmt(xL+hookR)},${fmt(armY)} L${fmt(cx-hookR)},${fmt(armY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx)},${fmt(peakY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx+hookR)},${fmt(armY)} L${fmt(xR-hookR)},${fmt(armY)} Q${fmt(xR)},${fmt(armY)} ${fmt(xR)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
       if (p.labelText) {
-        els.push(`<text x="${fmt(cx)}" y="${fmt(by + bh + fontSize*0.7)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
+        els.push(`<text x="${fmt(cx)}" y="${fmt(peakY + fontSize*0.75)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
       els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.text)}</text>`);
