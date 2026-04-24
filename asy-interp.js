@@ -3546,7 +3546,13 @@ function createInterpreter() {
         const runSegs = buildRunSegs(knots, dirs);
         if (!runSegs || runSegs.length === 0) return 0;
         allSegs.push(...runSegs);
-        return runLen + (closingToCycle ? -1 : 0); // consumed runLen pairs (cycle handled separately)
+        // Always return runLen: that's the number of pair elements we consumed.
+        // When closingToCycle is true, the spline already ends at the cycle-start,
+        // so the outer cycle-close block (which compares first.p0 ≈ last.p3) will
+        // correctly skip adding another segment. Returning runLen-1 here caused
+        // the caller to re-process the final pair and emit duplicate round-trip
+        // segments (e.g. 12952: extra segments after ..{W}cycle on a 3-knot arc).
+        return runLen;
       };
 
       for (let i = 0; i < elements.length; i++) {
