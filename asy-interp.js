@@ -14174,6 +14174,15 @@ function renderSVG(result, opts) {
       // not minuscule (< 1bp, which usually indicates a very different
       // layout style like fine-grained mm units).
       const aspectRatio = geoW / geoH;
+      // When there are no labels anchoring the natural bp scale, the literal
+      // cm-based unitsize should be honoured closely — TeXeR renders e.g. a
+      // smiley face at `unitsize(1cm)` as a compact ~80–90 px image, not a
+      // large 200bp-boosted one. Boosting to 200bp here makes strokes/dots
+      // disappear relative to the geometry (1.5bp stroke in 200bp geometry
+      // ≈ 0.75% width, vs TeXeR's ~2.5%). For cm-scale (unitScale ≥ 20,
+      // i.e. ≥ ~0.7cm/unit) with no labels, use a much smaller target so
+      // the stroke/dot-to-geometry ratio stays close to the TeXeR reference.
+      const hasAnyLabels = drawCommands.some(dc => dc.cmd === 'label');
       // Very small unitsize (< 1bp/unit, i.e. 0.1–0.3mm): TeXeR tends to
       // render these compactly (~150–360 px wide = 45–108bp native =
       // ~90–216bp HTX target). Using defaultSize=200 for these overshoots
@@ -14182,7 +14191,9 @@ function renderSVG(result, opts) {
         ? (aspectRatio >= 2.5 ? 200 : 100)
         : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
           ? 300
-          : defaultSize;
+          : (unitScale >= 20 && !hasAnyLabels)
+            ? 22
+            : defaultSize;
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
