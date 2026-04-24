@@ -104,6 +104,90 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && req.url === '/rerender') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body);
+        if (!id) throw new Error('Missing id');
+
+        console.log(`[fix-server] Re-rendering HiTeXeR for diagram ${id}...`);
+
+        // Spawn render-and-score.js, feeding the id via stdin
+        const node = spawn(process.execPath, [
+          path.join(ROOT, 'auto-fix', 'render-and-score.js'),
+        ], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
+
+        node.stdin.write(id + '\n');
+        node.stdin.end();
+
+        let stdout = '', stderr = '';
+        node.stdout.on('data', d => { stdout += d; });
+        node.stderr.on('data', d => { stderr += d; });
+
+        node.on('close', (code) => {
+          if (code !== 0) {
+            const errMsg = (stderr.trim() || stdout.trim() || `exit code ${code}`).substring(0, 500);
+            console.error(`[fix-server] Re-render failed for ${id}:`, errMsg);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: errMsg }));
+            return;
+          }
+
+          // Parse per-ID result line
+          let row = null;
+          for (const line of stdout.split('\n')) {
+            const s = line.trim();
+            if (!s) continue;
+            try {
+              const obj = JSON.parse(s);
+              if (obj.id === id && obj.ssim != null) { row = obj; break; }
+              if (obj.id === id && obj.err) { row = obj; break; }
+            } catch {}
+          }
+
+          // Patch ssim-results.json in place
+          const ssimPath = path.join(ROOT, 'comparison', 'ssim-results.json');
+          if (row && row.ssim != null && fs.existsSync(ssimPath)) {
+            try {
+              const results = JSON.parse(fs.readFileSync(ssimPath, 'utf8'));
+              const existing = results.find(r => r.id === id);
+              if (existing) {
+                existing.ssim      = row.ssim;
+                existing.sizeScore = row.sizeScore;
+                existing.combined  = row.combined;
+                if (row.combined != null && row.combined >= 0) delete existing.error;
+                results.sort((a, b) => a.combined - b.combined);
+                fs.writeFileSync(ssimPath, JSON.stringify(results, null, 2));
+              }
+            } catch (e) {
+              console.error('[fix-server] ssim-results.json update warning:', e.message);
+            }
+          }
+
+          // Regenerate manifest so hasHtx / hasSvg flags are fresh
+          try {
+            require('child_process').execSync('node comparison/generate-manifest.js', {
+              cwd: ROOT, stdio: 'pipe',
+            });
+          } catch (e) {
+            console.error('[fix-server] Manifest regen warning:', e.message);
+          }
+
+          console.log(`[fix-server] Re-render done for ${id}:`, row || '(no row)');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, id, row }));
+        });
+      } catch (e) {
+        console.error('[fix-server] Error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/fix') {
     let body = '';
     req.on('data', chunk => { body += chunk; });

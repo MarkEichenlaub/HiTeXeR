@@ -5,6 +5,9 @@
 //   --canary             read auto-fix/canary.json
 //   --family <prefix>    all IDs whose corpusFile starts with "<prefix>_" (e.g. c10_L21)
 //   (stdin, newline)     if no ID flag given
+//   --fast               skip the two blur-variant SSIM passes (raw SSIM only).
+//                        Saves ~0.6-1.5s per diagram. Use for interactive
+//                        single-diagram re-renders where speed > score softness.
 // Multiple flags may be combined; IDs are deduplicated.
 //
 // Emits one JSON object per ID to stdout (newline-separated), then a final
@@ -31,12 +34,13 @@ const KATEX_FONTS_DIR = path.join(ROOT, 'node_modules', 'katex', 'dist', 'fonts'
 
 // ── CLI parsing ────────────────────────────────────────────────
 function parseArgs(argv) {
-  const out = { ids: [], canary: false, family: null, help: false };
+  const out = { ids: [], canary: false, family: null, fast: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--ids')     { out.ids = out.ids.concat((argv[++i] || '').split(',').filter(Boolean)); }
     else if (a === '--canary') out.canary = true;
     else if (a === '--family') out.family = argv[++i] || '';
+    else if (a === '--fast')   out.fast = true;
     else if (a === '-h' || a === '--help') out.help = true;
     else { console.error('unknown arg: ' + a); out.help = true; }
   }
@@ -44,7 +48,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.error('usage: node auto-fix/render-and-score.js [--ids A,B,C] [--canary] [--family c10_L21]');
+  console.error('usage: node auto-fix/render-and-score.js [--ids A,B,C] [--canary] [--family c10_L21] [--fast]');
   console.error('       echo "04484\\n05896" | node auto-fix/render-and-score.js');
 }
 
@@ -117,7 +121,8 @@ function rgbToRgba(buf, w, h) {
 }
 
 // ── Score one diagram ID ────────────────────────────────────────
-async function scoreOne(id, A, fontCSS) {
+async function scoreOne(id, A, fontCSS, opts) {
+  opts = opts || {};
   const asyPath = path.join(ASY_SRC_DIR, id + '.asy');
   if (!fs.existsSync(asyPath)) return { id, err: 'no asy_src' };
   const raw = fs.readFileSync(asyPath, 'utf8');
@@ -181,16 +186,22 @@ async function scoreOne(id, A, fontCSS) {
     const htxImg={data:rgbToRgba(htxBuf.data,w,h),width:w,height:h};
     const { mssim: rawSsim } = computeSSIM(refImg, htxImg);
 
-    const minDim = Math.min(w,h);
-    const softA = Math.min(Math.max(minDim*0.025,1.5),4);
-    const softB = Math.min(Math.max(minDim*0.08,3),10);
-    async function blurSSIM(sigma){
-      const rS = await sharp(refBuf.data,{raw:{width:w,height:h,channels:3}}).blur(sigma).raw().toBuffer();
-      const hS = await sharp(htxBuf.data,{raw:{width:w,height:h,channels:3}}).blur(sigma).raw().toBuffer();
-      return computeSSIM({data:rgbToRgba(rS,w,h),width:w,height:h},{data:rgbToRgba(hS,w,h),width:w,height:h}).mssim;
+    let mssim;
+    if (opts.fast) {
+      // Skip blur-variant passes — saves ~0.6-1.5s
+      mssim = rawSsim;
+    } else {
+      const minDim = Math.min(w,h);
+      const softA = Math.min(Math.max(minDim*0.025,1.5),4);
+      const softB = Math.min(Math.max(minDim*0.08,3),10);
+      async function blurSSIM(sigma){
+        const rS = await sharp(refBuf.data,{raw:{width:w,height:h,channels:3}}).blur(sigma).raw().toBuffer();
+        const hS = await sharp(htxBuf.data,{raw:{width:w,height:h,channels:3}}).blur(sigma).raw().toBuffer();
+        return computeSSIM({data:rgbToRgba(rS,w,h),width:w,height:h},{data:rgbToRgba(hS,w,h),width:w,height:h}).mssim;
+      }
+      const sA=await blurSSIM(softA), sB=await blurSSIM(softB);
+      mssim = Math.max(rawSsim, sA, sB);
     }
-    const sA=await blurSSIM(softA), sB=await blurSSIM(softB);
-    const mssim = Math.max(rawSsim, sA, sB);
     const combined = mssim * sizeScore;
 
     return { id, ssim: mssim, sizeScore, combined };
@@ -264,7 +275,7 @@ async function main() {
   const familyPrefix = args.family ? args.family + '_' : null;
 
   for (const id of ids) {
-    const row = await scoreOne(id, A, fontCSS);
+    const row = await scoreOne(id, A, fontCSS, { fast: args.fast });
     if (row.err) { errors++; console.log(JSON.stringify(row)); continue; }
     // Baseline selection: canary.json overrides ssim-results.json when applicable.
     let pre = null, baselineSource = null;

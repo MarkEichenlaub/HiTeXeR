@@ -1,0 +1,15 @@
+global.window = {};
+global.katex = require('katex');
+require('./asy-interp.js');
+const A = window.AsyInterp;
+const fs = require('fs');
+const raw = fs.readFileSync('comparison/asy_src/07709.asy', 'utf8');
+const code = '[asy]\n' + raw + '\n[/asy]';
+const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native' });
+const iw = r.svg.match(/data-intrinsic-w="([^"]+)"/);
+const ih = r.svg.match(/data-intrinsic-h="([^"]+)"/);
+const vb = r.svg.match(/viewBox="([^"]+)"/);
+console.log('intrinsic-w:', iw && iw[1]);
+console.log('intrinsic-h:', ih && ih[1]);
+console.log('viewBox:', vb && vb[1]);
+console.log('warnings:', r.warnings);

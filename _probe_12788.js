@@ -1,0 +1,14 @@
+global.window = global.window || {};
+global.katex = require('katex');
+require('./asy-interp.js');
+const A = window.AsyInterp;
+const fs = require('fs');
+const src = fs.readFileSync('comparison/asy_src/12788.asy', 'utf8');
+const code = '[asy]\n' + src + '\n[/asy]';
+const r = A.render(code, { containerW: 500, containerH: 400, labelOutput: 'svg-native' });
+const m = r.svg.match(/fill="(#[0-9a-f]{6})"/gi) || [];
+const unique = Array.from(new Set(m));
+console.log('Unique fill colors:', unique.length);
+console.log('First 10:', unique.slice(0,10).join(' '));
+console.log('Last 10:', unique.slice(-10).join(' '));
+console.log('Total paths:', (r.svg.match(/<path /g) || []).length);

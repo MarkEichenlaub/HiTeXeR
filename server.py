@@ -436,6 +436,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_blink_fix()
         elif self.path == "/refetch":
             self.handle_blink_refetch()
+        elif self.path == "/rerender":
+            self.handle_blink_rerender()
         else:
             self.send_error(404)
 
@@ -1001,6 +1003,77 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 creationflags=subprocess.DETACHED_PROCESS,
             )
             self.send_json(200, {"ok": True, "id": diagram_id})
+        except Exception as e:
+            self.send_json(500, {"ok": False, "error": str(e)})
+
+    def handle_blink_rerender(self):
+        """Re-render HiTeXeR for a single diagram and recompute SSIM.
+
+        Spawns auto-fix/render-and-score.js with the id via stdin, parses the
+        JSON result line, patches comparison/ssim-results.json in place, and
+        regenerates the blink manifest.
+        """
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            diagram_id = data.get("id")
+            if not diagram_id:
+                self.send_json(400, {"ok": False, "error": "Missing id"})
+                return
+
+            root = os.path.dirname(os.path.abspath(__file__))
+            result = subprocess.run(
+                ["node", os.path.join(root, "auto-fix", "render-and-score.js"), "--fast"],
+                cwd=root, input=(diagram_id + "\n"), capture_output=True,
+                text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                self.send_json(500, {"ok": False, "error": err[:500]})
+                return
+
+            # Parse the per-ID result line from stdout
+            row = None
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("id") == diagram_id and (obj.get("ssim") is not None or obj.get("err")):
+                    row = obj
+                    break
+
+            # Patch ssim-results.json in place
+            ssim_path = os.path.join(root, "comparison", "ssim-results.json")
+            if row and row.get("ssim") is not None and os.path.exists(ssim_path):
+                try:
+                    with open(ssim_path, "r", encoding="utf-8") as f:
+                        results = json.load(f)
+                    for r in results:
+                        if r.get("id") == diagram_id:
+                            r["ssim"]      = row.get("ssim")
+                            r["sizeScore"] = row.get("sizeScore")
+                            r["combined"] = row.get("combined")
+                            if row.get("combined") is not None and row["combined"] >= 0:
+                                r.pop("error", None)
+                            break
+                    results.sort(key=lambda x: (x.get("combined") if x.get("combined") is not None else 2))
+                    with open(ssim_path, "w", encoding="utf-8") as f:
+                        json.dump(results, f, indent=2)
+                except Exception as e:
+                    print(f"[server] ssim-results.json patch warning: {e}")
+
+            # NOTE: skipping manifest regen here — hasHtx / hasSvg flags
+            # rarely flip for a single re-render and the 12k-file scan is
+            # expensive. Full pipeline runs still refresh the manifest.
+
+            self.send_json(200, {"ok": True, "id": diagram_id, "row": row})
+        except subprocess.TimeoutExpired:
+            self.send_json(500, {"ok": False, "error": "Timed out"})
         except Exception as e:
             self.send_json(500, {"ok": False, "error": str(e)})
 

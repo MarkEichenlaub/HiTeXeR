@@ -64,8 +64,21 @@
   .blink-header button.action-btn:hover { background: #2563eb; color: #fff; }
 
   .blink-body { flex: 1; display: flex; overflow: hidden; }
-  .blink-image-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; background: #fff; position: relative; }
+  .blink-image-area { flex: 1; display: flex; align-items: stretch; justify-content: stretch; overflow: hidden; background: #fff; position: relative; }
   .blink-image-area img { object-fit: contain; image-rendering: auto; }
+
+  /* Side-by-side compare mode */
+  .blink-image-area.side-mode { flex-direction: row; }
+  .blink-side { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #fff; overflow: auto; position: relative; }
+  .blink-side + .blink-side { border-left: 2px solid #0f3460; }
+  .blink-side img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+  .blink-side .side-svg { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+  .blink-side .side-svg svg { max-width: 100%; max-height: 100%; display: block; }
+  .blink-side-label { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.65); color: #fff; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; z-index: 2; }
+  .blink-side-label.htx   { background: rgba(34,211,238,0.85); color: #06333d; }
+  .blink-side-label.texer { background: rgba(167,139,250,0.85); color: #261452; }
+  .blink-side-label.asy   { background: rgba(249,115,22,0.85); color: #3b1a02; }
+  .blink-side .no-img    { display: flex; align-items: center; justify-content: center; color: #f87171; font-size: 14px; font-weight: 600; width: 100%; height: 100%; }
 
   /* ── Code Panel ─────────────────────────────────────── */
   .code-panel { width: 420px; overflow: hidden; transition: width 0.2s; background: #0d1117; border-left: 1px solid #0f3460; display: flex; flex-direction: column; }
@@ -156,20 +169,32 @@
       <span id="blink-combined-wrap" style="display:none">Comb:<span class="ssim-val" id="blink-combined"></span></span>
       <span id="blink-position"></span>
     </div>
+    <button id="blink-side-toggle" title="Toggle side-by-side / single view (S)">Side-by-side: ON</button>
     <button id="blink-auto" title="Toggle auto-blink (Space)">Auto-blink: OFF</button>
     <button id="btn-copy-name" class="action-btn" title="Copy diagram filename to clipboard">Copy Name</button>
     <button id="btn-copy" class="action-btn" title="Copy code to clipboard">Copy</button>
     <button id="btn-texer" class="action-btn" title="Open in AoPS TeXeR">Open in TeXeR</button>
     <button id="btn-hitexer" class="action-btn" title="Open in HiTeXeR">Open in HiTeXeR</button>
     <button id="blink-code-toggle" title="Toggle code panel (C)">Hide Code</button>
+    <button id="btn-rerender" class="action-btn" title="Re-render HiTeXeR and recompute SSIM for this diagram (H)" style="background:#1e3a5f;border-color:#60a5fa;color:#bfdbfe">Re-render</button>
     <button id="btn-fix" class="action-btn" title="Send to Claude Code for fixing (F)" style="background:#1e5f3a;border-color:#22c55e;color:#86efac">Fix</button>
     <button id="btn-refetch" class="action-btn" title="Re-fetch TeXeR PNG (cache-bust) (R)" style="background:#5f1e5f;border-color:#c025c0;color:#efac86">Re-fetch</button>
-    <div class="help">L/R: toggle | Up/Down: prev/next | Space: blink | C: code | F: fix | R: re-fetch | Esc: grid</div>
+    <div class="help">L/R: swap sides | Up/Down: prev/next | Space: blink | S: side view | H: re-render | C: code | F: fix | R: re-fetch | Esc: grid</div>
   </div>
   <div class="blink-body">
-    <div class="blink-image-area" id="blink-container">
-      <img id="blink-img" src="" alt="">
+    <div class="blink-image-area side-mode" id="blink-container">
+      <!-- Single-image mode -->
+      <img id="blink-img" src="" alt="" style="display:none">
       <div id="blink-svg-inline" style="display:none"></div>
+      <!-- Side-by-side mode -->
+      <div class="blink-side" id="blink-side-left">
+        <div class="blink-side-label" id="blink-left-label">TeXeR</div>
+        <div class="side-content" id="blink-left-content"></div>
+      </div>
+      <div class="blink-side" id="blink-side-right">
+        <div class="blink-side-label" id="blink-right-label">HiTeXeR</div>
+        <div class="side-content" id="blink-right-content"></div>
+      </div>
     </div>
     <div class="code-panel" id="code-panel">
       <div class="code-panel-header">
@@ -187,9 +212,11 @@
   <div class="hints-box">
     <h2>Keyboard Shortcuts</h2>
     <table>
-      <tr><td>Left / Right</td><td>Toggle HiTeXeR / TeXeR</td></tr>
+      <tr><td>Left / Right</td><td>Swap sides (side view) or toggle (single)</td></tr>
       <tr><td>Up / Down</td><td>Previous / Next diagram</td></tr>
       <tr><td>Space</td><td>Auto-blink on/off</td></tr>
+      <tr><td>S</td><td>Toggle side-by-side view</td></tr>
+      <tr><td>H</td><td>Re-render HiTeXeR + recompute SSIM</td></tr>
       <tr><td>C</td><td>Toggle code panel</td></tr>
       <tr><td>F</td><td>Send to Claude Code for fixing</td></tr>
       <tr><td>R</td><td>Re-fetch TeXeR PNG (cache-bust)</td></tr>
@@ -213,10 +240,16 @@
   // Blink state
   let blinkActive = false;
   let blinkIdx = 0;
-  let blinkSource = 'htx';
+  let blinkSource = 'htx';    // legacy single-image mode source
   let autoBlinkTimer = null;
   let codePanelOpen = true;
   let codeCache = {};  // id -> source code
+
+  // Side-by-side comparison mode (Feature 4)
+  //   sideMode=true  → show both panels; sideSwapped flips which side is which
+  //   sideMode=false → legacy single-image blinking (uses blinkSource)
+  let sideMode = true;
+  let sideSwapped = false;  // false = TeXeR left, HTX right; true = opposite
 
   // Selection state (persists across pagination/filters). Keyed by diagram id.
   let selected = new Set();
@@ -442,10 +475,15 @@
   function enterBlink(idx) {
     blinkIdx = idx;
     blinkSource = 'htx';
+    sideSwapped = false;
     blinkActive = true;
     codePanelOpen = true;
     document.getElementById('code-panel').classList.remove('collapsed');
     document.getElementById('blink-code-toggle').textContent = 'Hide Code';
+    // Sync side-toggle button state with current sideMode
+    const sideBtn = document.getElementById('blink-side-toggle');
+    sideBtn.textContent = sideMode ? 'Side-by-side: ON' : 'Side-by-side: OFF';
+    sideBtn.classList.toggle('active-btn', sideMode);
     document.getElementById('blink-view').classList.add('active');
     document.body.style.overflow = 'hidden';
     updateBlinkImage();
@@ -480,91 +518,94 @@
     img.style.height = (displayH * ratio) + 'px';
   }
 
-  function updateBlinkImage() {
-    const d = filtered[blinkIdx];
-    if (!d) return;
-
-    const img = document.getElementById('blink-img');
-    const label = document.getElementById('blink-source');
-    const idEl = document.getElementById('blink-id');
-    const fileEl = document.getElementById('blink-file');
-    const ssimEl = document.getElementById('blink-ssim');
-    const posEl = document.getElementById('blink-position');
-
-    let src = '', labelText = '', labelClass = '';
-    // displayScale: multiplier from naturalWidth/Height to target CSS display size
-    let displayScale = 1;
-
-    if (blinkSource === 'htx' && d.hasHtx) {
-      // Load SVG directly — browser renders with correct KaTeX fonts & CSS size
-      if (d.hasSvg) {
-        src = `htx_svgs/${d.id}.svg`; displayScale = 1;
-      } else {
-        src = `htx_pngs/${d.id}.png`; displayScale = 1;
-      }
-      labelText = 'HiTeXeR'; labelClass = 'htx';
-    } else if (blinkSource === 'asy' && d.hasAsy) {
-      src = `asy_pngs/${d.id}.png`; labelText = 'Asymptote'; labelClass = 'asy';
-      displayScale = ASY_DISPLAY_SCALE;
-    } else if (blinkSource === 'texer' && d.hasTexer) {
-      src = `texer_pngs/${d.id}.png`; labelText = 'TeXeR'; labelClass = 'texer';
-      displayScale = TEXER_DISPLAY_SCALE;
-    } else {
-      if (d.hasHtx) {
-        blinkSource = 'htx'; labelText = 'HiTeXeR'; labelClass = 'htx';
-        if (d.hasSvg) { src = `htx_svgs/${d.id}.svg`; displayScale = 1; }
-        else { src = `htx_pngs/${d.id}.png`; displayScale = 1; }
-      }
-      else if (d.hasTexer) { src = `texer_pngs/${d.id}.png`; labelText = 'TeXeR (only)'; labelClass = 'texer'; blinkSource = 'texer'; displayScale = TEXER_DISPLAY_SCALE; }
+  // Build the renderable source descriptor for a given kind ('htx' | 'texer' | 'asy')
+  function sourceDescriptor(d, kind, cacheBust) {
+    const ts = cacheBust ? ('?t=' + Date.now()) : '';
+    if (kind === 'htx' && d.hasHtx) {
+      if (d.hasSvg) return { src: `htx_svgs/${d.id}.svg${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
+      return { src: `htx_pngs/${d.id}.png${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
     }
+    if (kind === 'texer' && d.hasTexer) {
+      return { src: `texer_pngs/${d.id}.png${ts}`, label: 'TeXeR', cls: 'texer', scale: TEXER_DISPLAY_SCALE, kind: 'texer' };
+    }
+    if (kind === 'asy' && d.hasAsy) {
+      return { src: `asy_pngs/${d.id}.png${ts}`, label: 'Asymptote', cls: 'asy', scale: ASY_DISPLAY_SCALE, kind: 'asy' };
+    }
+    return null;
+  }
 
-    const svgDiv = document.getElementById('blink-svg-inline');
-    const isSvg = src.endsWith('.svg');
+  // Render a descriptor into a container (<div>). Handles SVG fetch + KaTeX font
+  // inheritance, and <img> fallback. Uses max-width/max-height sizing via CSS.
+  function renderInto(container, desc, labelEl) {
+    container.innerHTML = '';
+    if (labelEl) {
+      labelEl.textContent = desc ? desc.label : '(none)';
+      labelEl.className = 'blink-side-label ' + (desc ? desc.cls : '');
+    }
+    if (!desc) {
+      const div = document.createElement('div');
+      div.className = 'no-img';
+      div.textContent = '(not available)';
+      container.appendChild(div);
+      return;
+    }
+    const isSvg = desc.src.split('?')[0].endsWith('.svg');
     if (isSvg) {
-      // Fetch SVG and inject inline so it inherits page @font-face rules (KaTeX fonts).
-      // SVGs loaded via <img> are sandboxed and can't access page fonts.
-      img.style.display = 'none';
-      svgDiv.style.display = '';
-      svgDiv.innerHTML = '';
-      fetch(src).then(r => {
+      fetch(desc.src).then(r => {
         if (!r.ok) throw new Error('Not found');
         return r.text();
       }).then(svgText => {
-        svgDiv.innerHTML = svgText;
-        const svgEl = svgDiv.querySelector('svg');
+        container.innerHTML = svgText;
+        const svgEl = container.querySelector('svg');
         if (svgEl) {
           svgEl.style.display = 'block';
           svgEl.style.maxWidth = '100%';
           svgEl.style.maxHeight = '100%';
         }
       }).catch(() => {
-        // SVG fetch failed (e.g. file:// CORS, server not running) — fall back to <img>
-        // Try the SVG via <img> first (loses KaTeX fonts but still displays), then PNG
-        svgDiv.style.display = 'none';
-        svgDiv.innerHTML = '';
-        img.style.display = '';
+        // Fallback to PNG
+        const img = document.createElement('img');
         img.onerror = () => {
-          // SVG via <img> also failed — try the PNG fallback
-          const pngSrc = `htx_pngs/${d.id}.png`;
-          img.onerror = null;
-          img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
-          img.src = pngSrc;
+          container.innerHTML = '<div class="no-img">render failed</div>';
         };
-        img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
-        img.src = src;
+        img.src = desc.src.replace('/htx_svgs/', '/htx_pngs/').replace('.svg', '.png');
+        container.appendChild(img);
       });
     } else {
-      svgDiv.style.display = 'none';
-      svgDiv.innerHTML = '';
-      img.style.display = '';
-      img.onload = () => fitImage(img, img.naturalWidth * displayScale, img.naturalHeight * displayScale);
-      img.src = src;
+      const img = document.createElement('img');
+      img.onload = () => {
+        // Apply display scale by constraining max dimensions
+        if (desc.scale && desc.scale !== 1) {
+          const w = img.naturalWidth * desc.scale;
+          const h = img.naturalHeight * desc.scale;
+          img.style.maxWidth = w + 'px';
+          img.style.maxHeight = h + 'px';
+        }
+      };
+      img.onerror = () => { container.innerHTML = '<div class="no-img">render failed</div>'; };
+      img.src = desc.src;
+      container.appendChild(img);
     }
-    label.textContent = labelText;
-    label.className = 'source-label ' + labelClass;
+  }
+
+  function updateBlinkImage(opts) {
+    opts = opts || {};
+    const d = filtered[blinkIdx];
+    if (!d) return;
+
+    const container = document.getElementById('blink-container');
+    const img = document.getElementById('blink-img');
+    const svgDiv = document.getElementById('blink-svg-inline');
+    const singleLabel = document.getElementById('blink-source');
+    const idEl = document.getElementById('blink-id');
+    const fileEl = document.getElementById('blink-file');
+    const ssimEl = document.getElementById('blink-ssim');
+    const posEl = document.getElementById('blink-position');
+
+    // Update metadata row
     idEl.textContent = d.id;
     fileEl.textContent = ` | ${d.source} | `;
-    ssimEl.textContent = d.ssim !== null ? d.ssim.toFixed(4) : 'N/A';
+    ssimEl.textContent = d.ssim !== null && d.ssim !== undefined ? d.ssim.toFixed(4) : 'N/A';
     const combWrap = document.getElementById('blink-combined-wrap');
     const combEl   = document.getElementById('blink-combined');
     if (d.combined !== null && d.combined !== undefined) {
@@ -574,12 +615,119 @@
       combWrap.style.display = 'none';
     }
     posEl.textContent = ` | ${blinkIdx + 1}/${filtered.length}`;
+
+    // Determine which sides to render
+    const leftEl  = document.getElementById('blink-side-left');
+    const rightEl = document.getElementById('blink-side-right');
+    const leftContent  = document.getElementById('blink-left-content');
+    const rightContent = document.getElementById('blink-right-content');
+    const leftLabel  = document.getElementById('blink-left-label');
+    const rightLabel = document.getElementById('blink-right-label');
+
+    if (sideMode) {
+      // Side-by-side mode — show both panels
+      container.classList.add('side-mode');
+      img.style.display = 'none';
+      svgDiv.style.display = 'none';
+      leftEl.style.display = '';
+      rightEl.style.display = '';
+
+      // Determine what goes on each side based on sideSwapped
+      // Default: TeXeR left, HiTeXeR right. Swapped: HiTeXeR left, TeXeR right.
+      const leftKind  = sideSwapped ? 'htx'   : 'texer';
+      const rightKind = sideSwapped ? 'texer' : 'htx';
+      const leftDesc  = sourceDescriptor(d, leftKind,  opts.cacheBust);
+      const rightDesc = sourceDescriptor(d, rightKind, opts.cacheBust);
+      renderInto(leftContent,  leftDesc,  leftLabel);
+      renderInto(rightContent, rightDesc, rightLabel);
+
+      singleLabel.textContent = sideSwapped ? 'HTX ↔ TeXeR' : 'TeXeR ↔ HTX';
+      singleLabel.className = 'source-label';
+    } else {
+      // Legacy single-image blinking mode
+      container.classList.remove('side-mode');
+      leftEl.style.display = 'none';
+      rightEl.style.display = 'none';
+
+      let desc = sourceDescriptor(d, blinkSource, opts.cacheBust);
+      if (!desc) {
+        // Fallback chain
+        desc = sourceDescriptor(d, 'htx', opts.cacheBust)
+            || sourceDescriptor(d, 'texer', opts.cacheBust)
+            || sourceDescriptor(d, 'asy', opts.cacheBust);
+        if (desc) blinkSource = desc.kind;
+      }
+      if (!desc) {
+        img.style.display = 'none';
+        svgDiv.style.display = '';
+        svgDiv.innerHTML = '<div class="no-img" style="color:#f87171;text-align:center;padding:40px">No image available</div>';
+        singleLabel.textContent = '(no image)';
+        singleLabel.className = 'source-label';
+        return;
+      }
+      singleLabel.textContent = desc.label;
+      singleLabel.className = 'source-label ' + desc.cls;
+
+      const isSvg = desc.src.split('?')[0].endsWith('.svg');
+      if (isSvg) {
+        img.style.display = 'none';
+        svgDiv.style.display = '';
+        svgDiv.innerHTML = '';
+        fetch(desc.src).then(r => {
+          if (!r.ok) throw new Error('Not found');
+          return r.text();
+        }).then(svgText => {
+          svgDiv.innerHTML = svgText;
+          const svgEl = svgDiv.querySelector('svg');
+          if (svgEl) {
+            svgEl.style.display = 'block';
+            svgEl.style.maxWidth = '100%';
+            svgEl.style.maxHeight = '100%';
+          }
+        }).catch(() => {
+          svgDiv.style.display = 'none';
+          svgDiv.innerHTML = '';
+          img.style.display = '';
+          img.onerror = () => {
+            const pngSrc = `htx_pngs/${d.id}.png`;
+            img.onerror = null;
+            img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
+            img.src = pngSrc;
+          };
+          img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
+          img.src = desc.src;
+        });
+      } else {
+        svgDiv.style.display = 'none';
+        svgDiv.innerHTML = '';
+        img.style.display = '';
+        img.onload = () => fitImage(img, img.naturalWidth * desc.scale, img.naturalHeight * desc.scale);
+        img.src = desc.src;
+      }
+    }
   }
 
+  // Toggle/swap the "sources" visible to the user.
+  // In side-mode, this swaps left/right. In single-mode, it flips the source.
   function toggleBlinkSource() {
     const d = filtered[blinkIdx];
     if (!d) return;
-    blinkSource = (blinkSource === 'htx') ? (d.hasTexer ? 'texer' : 'htx') : (d.hasHtx ? 'htx' : 'texer');
+    if (sideMode) {
+      sideSwapped = !sideSwapped;
+      updateBlinkImage();
+    } else {
+      blinkSource = (blinkSource === 'htx') ? (d.hasTexer ? 'texer' : 'htx') : (d.hasHtx ? 'htx' : 'texer');
+      updateBlinkImage();
+    }
+  }
+
+  function toggleSideMode() {
+    sideMode = !sideMode;
+    const btn = document.getElementById('blink-side-toggle');
+    btn.textContent = sideMode ? 'Side-by-side: ON' : 'Side-by-side: OFF';
+    btn.classList.toggle('active-btn', sideMode);
+    // Stop auto-blink when switching modes (its behavior changes)
+    stopAutoBlink();
     updateBlinkImage();
   }
 
@@ -588,6 +736,7 @@
     if (newIdx >= 0 && newIdx < filtered.length) {
       blinkIdx = newIdx;
       blinkSource = 'htx';
+      sideSwapped = false;
       updateBlinkImage();
       if (codePanelOpen) loadCode();
     }
@@ -599,6 +748,8 @@
     const btn = document.getElementById('blink-auto');
     if (autoBlinkOn) {
       btn.textContent = 'Auto-blink: ON'; btn.classList.add('active-btn');
+      // In both side-mode and single-mode, toggleBlinkSource does the right thing
+      // (swap sides in side-mode, or flip source in single-mode)
       autoBlinkTimer = setInterval(toggleBlinkSource, 500);
     } else { stopAutoBlink(); }
   }
@@ -769,6 +920,65 @@
     });
   }
 
+  // ── Re-render HiTeXeR + recompute SSIM ───────────────
+  function rerenderDiagram() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    const btn = document.getElementById('btn-rerender');
+    const orig = btn.textContent;
+    btn.textContent = 'Rendering...';
+    btn.style.background = '#1e3a5f';
+
+    fetch('/rerender', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: d.id })
+    }).then(async r => {
+      if (r.status === 404) {
+        throw new Error('Endpoint /rerender not found on server (status 404). Restart fix-server.js to pick up the new endpoint.');
+      }
+      const text = await r.text();
+      try { return JSON.parse(text); }
+      catch { throw new Error('Bad response from server: ' + text.substring(0, 200)); }
+    }).then(res => {
+      if (res.ok) {
+        // Update the diagram entry in-place with new SSIM
+        if (res.row && res.row.ssim != null) {
+          d.ssim      = res.row.ssim;
+          d.sizeScore = res.row.sizeScore;
+          d.combined  = res.row.combined;
+          d.hasHtx    = true;
+        }
+        btn.textContent = res.row && res.row.ssim != null
+          ? `SSIM ${res.row.ssim.toFixed(3)}`
+          : 'Done';
+        btn.style.background = '#2d6a4f';
+        // Re-render with cache-bust so the new SVG/PNG loads
+        updateBlinkImage({ cacheBust: true });
+        // Refresh grid thumbnail too (in case user returns to grid)
+        document.querySelectorAll(`.thumb[data-idx="${blinkIdx}"] img`).forEach(img => {
+          img.src = img.src.split('?')[0] + '?t=' + Date.now();
+        });
+      } else {
+        btn.textContent = 'Failed';
+        btn.style.background = '#991b1b';
+        console.error('Re-render failed:', res.error);
+      }
+      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3500);
+    }).catch(err => {
+      const msg = String(err && err.message || err);
+      if (msg.includes('/rerender not found')) {
+        btn.textContent = 'Restart fix-server!';
+      } else {
+        btn.textContent = 'Server not running';
+      }
+      btn.style.background = '#991b1b';
+      console.error('Re-render error:', msg);
+      alert('Re-render failed: ' + msg);
+      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 5000);
+    });
+  }
+
   // ── Re-fetch TeXeR PNG (cache-bust) ──────────────────
   function refetchTexerPng() {
     const d = filtered[blinkIdx];
@@ -833,6 +1043,8 @@
   document.getElementById('btn-hitexer').addEventListener('click', openInHitexer);
   document.getElementById('btn-fix').addEventListener('click', fixDiagram);
   document.getElementById('btn-refetch').addEventListener('click', refetchTexerPng);
+  document.getElementById('btn-rerender').addEventListener('click', rerenderDiagram);
+  document.getElementById('blink-side-toggle').addEventListener('click', toggleSideMode);
   document.getElementById('help-btn').addEventListener('click', () => {
     document.getElementById('hints-overlay').classList.toggle('active');
   });
@@ -868,6 +1080,10 @@
           fixDiagram(); break;
         case 'r': case 'R':
           refetchTexerPng(); break;
+        case 'h': case 'H':
+          e.preventDefault(); rerenderDiagram(); break;
+        case 's': case 'S':
+          e.preventDefault(); toggleSideMode(); break;
         case '?':
           document.getElementById('hints-overlay').classList.add('active'); break;
       }
@@ -876,7 +1092,11 @@
     }
   });
 
-  document.getElementById('blink-container').addEventListener('click', toggleBlinkSource);
+  document.getElementById('blink-container').addEventListener('click', (e) => {
+    // Don't toggle on clicks that land on the side-labels or other controls
+    if (e.target.closest('.blink-side-label')) return;
+    toggleBlinkSource();
+  });
 
 })();
 </script>
