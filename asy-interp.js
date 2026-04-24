@@ -13040,6 +13040,11 @@ function createInterpreter() {
       }
       else if (typeof a === 'number' && !pos) { pos = makePair(a, 0); }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+      else if (a && typeof a === 'object' && a._named) {
+        // Named argument: label("text", pos, align, p=brown, filltype=Fill)
+        if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+        if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
+      }
     }
     if (!pos) pos = makePair(0,0);
     if (!pen) pen = clonePen(defaultPen);
