@@ -13051,6 +13051,12 @@ function createInterpreter() {
           penCount++;
         }
         if ('g' in a && isPath(a.g) && !pathArg) pathArg = a.g;
+        // Named `align=dir(...)` for label-on-path overrides the default
+        // perpendicular/tangent align computed later.
+        if ('align' in a && a.align != null && labelAlign == null) {
+          if (isPair(a.align)) labelAlign = a.align;
+          else if (typeof a.align === 'number') labelAlign = makePair(a.align, 0);
+        }
         continue;
       }
       if (isPath(a)) { if (!pathArg) pathArg = a; }
@@ -13168,25 +13174,42 @@ function createInterpreter() {
         const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
         const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
         const labelPos = makePair(px, py);
-        // Default alignment when the user did not specify one:
-        // Asymptote's draw("label", path) places the label perpendicular to the
-        // path on the right-hand side of the direction of travel (dir rotated 90°
-        // clockwise). For a left-to-right horizontal path this puts the label
-        // below the path; for a right-to-left path it puts the label above.
+        // Default alignment when the user did not specify one, modeled after
+        // Asymptote's plain_Label.asy `relative(real position)`:
+        //   position == 0 → backward tangent at start (label past the start)
+        //   position == 1 → forward tangent at end    (label past the tip)
+        //   otherwise     → perpendicular to path
+        // For interior positions we keep the historical right-perpendicular
+        // default (rotate tangent 90° CW → (dy, -dx)); this matches how the
+        // rest of the corpus renders (e.g. `draw("$F$", A--B, Arrow)` with a
+        // rightward path places the label below the arrow, as on a free-body
+        // diagram). Endpoint positions newly use the forward/backward tangent
+        // so `Label(..., Relative(1))` on an arrow places the label past the
+        // tip in the direction the arrow points.
         let effectiveAlign = labelAlign;
         if (!effectiveAlign) {
           // Tangent from derivative of cubic Bezier at localT
           const tdx = 3*b*b*(seg.cp1.x - seg.p0.x) + 6*b*localT*(seg.cp2.x - seg.cp1.x) + 3*localT*localT*(seg.p3.x - seg.cp2.x);
           const tdy = 3*b*b*(seg.cp1.y - seg.p0.y) + 6*b*localT*(seg.cp2.y - seg.cp1.y) + 3*localT*localT*(seg.p3.y - seg.cp2.y);
           let tl = Math.sqrt(tdx*tdx + tdy*tdy);
+          let ux, uy;
           if (tl < 1e-9) {
-            // Degenerate (zero-length segment): fall back to endpoint direction
             const ddx = seg.p3.x - seg.p0.x, ddy = seg.p3.y - seg.p0.y;
             tl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
-            effectiveAlign = makePair(ddy/tl, -ddx/tl);
+            ux = ddx/tl; uy = ddy/tl;
           } else {
-            // Right-perpendicular: rotate tangent 90° CW → (dy, -dx)
-            effectiveAlign = makePair(tdy/tl, -tdx/tl);
+            ux = tdx/tl; uy = tdy/tl;
+          }
+          const EPS_POS = 1e-6;
+          if (t >= 1 - EPS_POS) {
+            // Endpoint (end): label past the tip along forward tangent.
+            effectiveAlign = makePair(ux, uy);
+          } else if (t <= EPS_POS) {
+            // Endpoint (start): label past the start along backward tangent.
+            effectiveAlign = makePair(-ux, -uy);
+          } else {
+            // Interior: right-perpendicular (rotate tangent 90° CW → (dy, -dx)).
+            effectiveAlign = makePair(uy, -ux);
           }
         }
         const labelEffectivePen = labelPen || pen;
