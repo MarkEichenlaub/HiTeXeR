@@ -15703,7 +15703,47 @@ function renderSVG(result, opts) {
     if (dc.cmd === 'label') {
       deferredLabels.push({ci, dc, css: {...css}});
     } else if (dc.cmd === 'image') {
-      deferredLabels.push({ci, dc, css: {...css}});
+      // Render images in program order during Pass 1 so that geometry drawn
+      // after the image (rays, paths, etc.) appears on top of it — matching
+      // Asymptote/TeXer z-ordering.  (Text labels still defer to Pass 2 so
+      // they remain above all graphics.)
+      if (dc.graphic) {
+        const g = dc.graphic;
+        const imgSize = computeGraphicDisplaySize(g, unitScale, hasUnitScale);
+        let imgW = imgSize.w_user * pxPerUnitX;
+        let imgH = imgSize.h_user * pxPerUnitY;
+        const sx = (dc.pos.x - minX) * pxPerUnitX;
+        const sy = (maxY - dc.pos.y) * pxPerUnitY;
+        let dx = -imgW / 2, dy = -imgH / 2;
+        if (dc.align) {
+          const ax = dc.align.x, ay = dc.align.y;
+          const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+          const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
+          const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
+          dx = ax_n * imgW - imgW / 2;
+          dy = -(ay_n * imgH) - imgH / 2;
+        }
+        let transformAttr = '';
+        if (g.transform) {
+          const lt = g.transform;
+          const ma = lt.b, mb = -lt.e, mc = -lt.c, md = lt.f;
+          const me = sx * (1 - lt.b) + lt.c * sy + lt.a * pxPerUnitX;
+          const mf = sy * (1 - lt.f) + lt.e * sx - lt.d * pxPerUnitY;
+          const isIdentity = Math.abs(ma - 1) < 1e-9 && Math.abs(mb) < 1e-9 &&
+                             Math.abs(mc) < 1e-9 && Math.abs(md - 1) < 1e-9 &&
+                             Math.abs(me) < 1e-6 && Math.abs(mf) < 1e-6;
+          if (!isIdentity) {
+            transformAttr = ` transform="matrix(${fmt(ma)},${fmt(mb)},${fmt(mc)},${fmt(md)},${fmt(me)},${fmt(mf)})"`;
+          }
+        }
+        const imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
+        if (transformAttr) {
+          elements.push(`<g${transformAttr}>${imgEl}</g>`);
+        } else {
+          elements.push(imgEl);
+        }
+        commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+      }
     } else if (dc.cmd === 'dot') {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
@@ -16182,56 +16222,6 @@ function renderSVG(result, opts) {
         labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
       }
       elements.push(labelEl);
-      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
-    } else if (dc.cmd === 'image' && dc.graphic) {
-      // Render graphic() as <image> element
-      const g = dc.graphic;
-      const imgSize = computeGraphicDisplaySize(g, unitScale, hasUnitScale);
-
-      // Display size in SVG viewBox units (user coords × pxPerUnit)
-      let imgW = imgSize.w_user * pxPerUnitX;
-      let imgH = imgSize.h_user * pxPerUnitY;
-
-      // Position at label coordinates in SVG space
-      const sx = (dc.pos.x - minX) * pxPerUnitX;
-      const sy = (maxY - dc.pos.y) * pxPerUnitY;
-
-      // Alignment offset: center by default, shift by align direction
-      let dx = -imgW / 2, dy = -imgH / 2;
-      if (dc.align) {
-        const ax = dc.align.x, ay = dc.align.y;
-        // Match Asymptote drawlabel.cc: L-inf normalised box offset.
-        const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
-        const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
-        const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
-        dx = ax_n * imgW - imgW / 2;
-        dy = -(ay_n * imgH) - imgH / 2; // SVG y flipped
-      }
-
-      // Apply graphic transform using full SVG matrix, correctly handling rotation,
-      // reflection, and scale.  Derivation: Asy has y-up, SVG has y-down, so the
-      // 2×2 Asy matrix [[b,c],[e,f]] becomes SVG [[b,-c],[-e,f]], applied about
-      // the label anchor (sx,sy): matrix(b,-e,-c,f, sx*(1-b)+c*sy, sy*(1-f)+e*sx).
-      let transformAttr = '';
-      if (g.transform) {
-        const lt = g.transform;
-        const ma = lt.b, mb = -lt.e, mc = -lt.c, md = lt.f;
-        const me = sx * (1 - lt.b) + lt.c * sy + lt.a * pxPerUnitX;
-        const mf = sy * (1 - lt.f) + lt.e * sx - lt.d * pxPerUnitY;
-        const isIdentity = Math.abs(ma - 1) < 1e-9 && Math.abs(mb) < 1e-9 &&
-                           Math.abs(mc) < 1e-9 && Math.abs(md - 1) < 1e-9 &&
-                           Math.abs(me) < 1e-6 && Math.abs(mf) < 1e-6;
-        if (!isIdentity) {
-          transformAttr = ` transform="matrix(${fmt(ma)},${fmt(mb)},${fmt(mc)},${fmt(md)},${fmt(me)},${fmt(mf)})"`;
-        }
-      }
-
-      const imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
-      if (transformAttr) {
-        elements.push(`<g${transformAttr}>${imgEl}</g>`);
-      } else {
-        elements.push(imgEl);
-      }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     }
   }

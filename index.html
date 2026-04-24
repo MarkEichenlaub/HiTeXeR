@@ -359,7 +359,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v2.63</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v2.64</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -685,17 +685,20 @@ const AsyParser = {
       // Detect function definition (must not be a draw command)
       if (!drawP.test(t)) {
         const fm = t.match(funcDefP);
-        if (fm) { pendingFunc = { name: fm[1], lineIndex: i }; funcDefs.push({ name: fm[1], lineIndex: i }); }
+        if (fm) { const def = { name: fm[1], lineIndex: i }; pendingFunc = def; funcDefs.push(def); }
       }
 
       // Track brace depth; push/pop funcStack when entering/leaving function bodies
       for (const ch of t) {
         if (ch === '{') {
           braceDepth++;
-          if (pendingFunc) { funcStack.push({ ...pendingFunc, entryDepth: braceDepth }); pendingFunc = null; }
+          if (pendingFunc) { pendingFunc.entryDepth = braceDepth; funcStack.push(pendingFunc); pendingFunc = null; }
         } else if (ch === '}') {
           braceDepth--;
-          if (funcStack.length > 0 && funcStack[funcStack.length - 1].entryDepth > braceDepth) funcStack.pop();
+          if (funcStack.length > 0 && funcStack[funcStack.length - 1].entryDepth > braceDepth) {
+            const popped = funcStack.pop();
+            popped.endLineIndex = i;
+          }
         }
       }
       if (braceDepth < 0) braceDepth = 0;
@@ -797,19 +800,54 @@ const AsyParser = {
 
   buildMapping(code) {
     const parsed = this.parse(code), mapping = [];
+    const funcByName = new Map();
+    for (const f of parsed.funcDefs) funcByName.set(f.name, f);
     for (const cmd of parsed.drawCommands) {
-      const depLines = this.findDependencies(cmd, parsed.assignments);
-      // If draw is inside a user-defined function, include the function definition
-      // line and all call sites so the dependency panel shows the full context.
+      const depLines = new Set(this.findDependencies(cmd, parsed.assignments));
+      // If the draw is inside a user-defined function, include the function body,
+      // transitively any user-defined functions it calls, their call sites, and
+      // the variables those lines reference — so the dependency panel contains
+      // all code needed to reproduce the clicked element standalone.
       if (cmd.enclosingFunc) {
-        depLines.push(cmd.enclosingFunc.lineIndex);
-        const callRe = new RegExp(`^\\s*${cmd.enclosingFunc.name}\\s*\\(`);
-        for (let i = 0; i < parsed.lines.length; i++) {
-          const t = parsed.lines[i].trim();
-          if (callRe.test(t) && i !== cmd.enclosingFunc.lineIndex) depLines.push(i);
+        const tracedFuncs = new Set();
+        const funcQueue = [cmd.enclosingFunc.name];
+        while (funcQueue.length) {
+          const fname = funcQueue.shift();
+          if (tracedFuncs.has(fname)) continue;
+          tracedFuncs.add(fname);
+          const fdef = funcByName.get(fname);
+          if (!fdef) continue;
+          const start = fdef.lineIndex;
+          const end = fdef.endLineIndex != null ? fdef.endLineIndex : start;
+          const extraVars = new Set();
+          for (let i = start; i <= end; i++) {
+            depLines.add(i);
+            const ids = (parsed.lines[i] || '').match(/[a-zA-Z_]\w*/g) || [];
+            for (const id of ids) {
+              if (BUILTINS.has(id)) continue;
+              if (funcByName.has(id)) { if (!tracedFuncs.has(id)) funcQueue.push(id); }
+              else extraVars.add(id);
+            }
+          }
+          if (extraVars.size > 0) {
+            const synth = { vars: [...extraVars], lineIndex: start, braceDepth: 0 };
+            for (const l of this.findDependencies(synth, parsed.assignments)) depLines.add(l);
+          }
+          // Call sites of this function (outside the def itself); trace vars in them too
+          const callRe = new RegExp(`\\b${fname}\\s*\\(`);
+          for (let i = 0; i < parsed.lines.length; i++) {
+            if (i >= start && i <= end) continue;
+            if (!callRe.test(parsed.lines[i])) continue;
+            depLines.add(i);
+            const callVars = this.extractVariables(parsed.lines[i], parsed.lines, i);
+            if (callVars.length > 0) {
+              const synth = { vars: callVars, lineIndex: i, braceDepth: 0 };
+              for (const l of this.findDependencies(synth, parsed.assignments)) depLines.add(l);
+            }
+          }
         }
       }
-      mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:[...new Set(depLines)], commandText:cmd.lineText.trim() });
+      mapping.push({ primaryLine:cmd.lineIndex, dependencyLines:[...depLines], commandText:cmd.lineText.trim() });
     }
     return { mapping, parsed };
   }
