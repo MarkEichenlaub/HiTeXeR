@@ -41,6 +41,7 @@ const TYPE_NAMES = new Set([
   'line','segment','circle','triangle',
   'side','vertex',
   'TreeNode',
+  'tremble',
 ]);
 
 // ============================================================
@@ -3197,6 +3198,76 @@ function createInterpreter() {
       if (method === 'size') return null; // ignore per-picture size for now
     }
 
+    // trembling package: tr.deform(path) returns a wavy perturbed path.
+    // Models Asymptote's trembling.asy: subdivides each segment into small
+    // sub-segments, then rotates each joint's control handles by a random
+    // angle up to tr.angle degrees, producing a shaky handwritten look.
+    if (obj && obj._tag === 'tremble') {
+      if (method === 'deform') {
+        const pIn = args[0];
+        if (!isPath(pIn) || pIn.segs.length === 0) return pIn;
+        const angle = Math.abs(toNumber(obj.angle));
+        const frequency = Math.abs(toNumber(obj.frequency)) || 0.5;
+        const random = Math.abs(toNumber(obj.random)) || 2;
+        // Number of intermediate nodes per original segment — mirrors
+        // Asymptote's f = |floor(1/frequency) - 1|.
+        let f = Math.abs(Math.floor(1 / frequency) - 1);
+        if (!Number.isFinite(f) || f < 1) f = 1;
+        // Deterministic pseudo-random so renders are stable across runs.
+        let seed = 0x12345;
+        function rand() {
+          seed = (seed * 1664525 + 1013904223) >>> 0;
+          return seed / 0x100000000;
+        }
+        function randAngle() {
+          const ur = rand();
+          const sign = rand() < 0.5 ? -1 : 1;
+          // Peak perturbation ≈ angle * (1 + ur^(1/random)) deg, matching
+          // the Asymptote randf() formula when random != 0.
+          return sign * angle * (1 + Math.pow(ur, 1/random)) * Math.PI/180;
+        }
+        // Build a dense polyline along the path, then rotate each joint's
+        // implicit tangent direction (for cubic control handles).
+        // First flatten: sample each original cubic segment at (f+1) points.
+        const pts = [];
+        for (let i = 0; i < pIn.segs.length; i++) {
+          const s = pIn.segs[i];
+          const N = f + 1;
+          const base = (i === 0) ? 0 : 1;
+          for (let k = base; k <= N; k++) {
+            const t = k / N;
+            const mt = 1 - t;
+            const x = mt*mt*mt*s.p0.x + 3*mt*mt*t*s.cp1.x + 3*mt*t*t*s.cp2.x + t*t*t*s.p3.x;
+            const y = mt*mt*mt*s.p0.y + 3*mt*mt*t*s.cp1.y + 3*mt*t*t*s.cp2.y + t*t*t*s.p3.y;
+            pts.push({x, y});
+          }
+        }
+        if (pts.length < 2) return pIn;
+        // Construct a smooth cubic path through pts where each joint's
+        // outgoing/incoming handle is rotated by a random angle around the
+        // joint point, producing a perturbed curve.
+        const segs = [];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const a = pts[i], b = pts[i+1];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          // Default handles: straight line thirds.
+          const h1x = a.x + dx/3, h1y = a.y + dy/3;
+          const h2x = a.x + 2*dx/3, h2y = a.y + 2*dy/3;
+          // Rotate outgoing handle around a, incoming handle around b.
+          const aOut = randAngle();
+          const aIn  = (randAngle() + randAngle()) / 2;
+          const co = Math.cos(aOut), so = Math.sin(aOut);
+          const ci = Math.cos(aIn),  si = Math.sin(aIn);
+          const cp1x = a.x + co*(h1x - a.x) - so*(h1y - a.y);
+          const cp1y = a.y + so*(h1x - a.x) + co*(h1y - a.y);
+          const cp2x = b.x + ci*(h2x - b.x) - si*(h2y - b.y);
+          const cp2y = b.y + si*(h2x - b.x) + ci*(h2y - b.y);
+          segs.push(makeSeg({x:a.x,y:a.y}, {x:cp1x,y:cp1y}, {x:cp2x,y:cp2y}, {x:b.x,y:b.y}));
+        }
+        return makePath(segs, pIn.closed);
+      }
+    }
+
     return null;
   }
 
@@ -3849,8 +3920,33 @@ function createInterpreter() {
     if (mod.includes('geometry')) {
       installGeometryPackage(env);
     }
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('palette') || mod.includes('trembling')) {
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('palette')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    }
+    if (mod.includes('trembling')) {
+      // trembling.asy: handwriting package. Expose tremble() constructor that
+      // returns a {_tag:'tremble', ...} object; tr.deform(path) is handled in
+      // evalMethodCall to perturb path vertices into a wavy line.
+      env.set('tremble', (...args) => {
+        // Defaults from trembling.asy: angle=4, frequency=0.5, random=2, fuzz~1e-4
+        const out = {_tag:'tremble', angle:4, frequency:0.5, random:2, fuzz:1e-4};
+        // Positional args: angle, frequency, random, fuzz
+        const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
+        if (pos.length >= 1 && typeof pos[0] === 'number') out.angle = pos[0];
+        if (pos.length >= 2 && typeof pos[1] === 'number') out.frequency = pos[1];
+        if (pos.length >= 3 && typeof pos[2] === 'number') out.random = pos[2];
+        if (pos.length >= 4 && typeof pos[3] === 'number') out.fuzz = pos[3];
+        // Named args override.
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('angle' in a) out.angle = toNumber(a.angle);
+            if ('frequency' in a) out.frequency = toNumber(a.frequency);
+            if ('random' in a) out.random = toNumber(a.random);
+            if ('fuzz' in a) out.fuzz = toNumber(a.fuzz);
+          }
+        }
+        return out;
+      });
     }
     if (mod.includes('contour')) {
       installContourPackage(env);
