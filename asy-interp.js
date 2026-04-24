@@ -11120,6 +11120,22 @@ function createInterpreter() {
     env.set('unitcube', _buildCubeMesh());
     env.set('unitcylinder', _buildCylinderMesh(48));
     env.set('unitcone', _buildConeMesh(48));
+    // plane(triple u, triple v, triple O=(0,0,0)) — returns a parallelogram
+    // surface with corners O, O+u, O+u+v, O+v. Used for ground/reference
+    // planes and visual frames. One-face quad mesh.
+    env.set('plane', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const u = isTriple(pos[0]) ? pos[0] : makeTriple(1, 0, 0);
+      const v = isTriple(pos[1]) ? pos[1] : makeTriple(0, 1, 0);
+      const O = isTriple(pos[2]) ? pos[2] : makeTriple(0, 0, 0);
+      const p00 = makeTriple(O.x,             O.y,             O.z);
+      const p10 = makeTriple(O.x + u.x,       O.y + u.y,       O.z + u.z);
+      const p11 = makeTriple(O.x + u.x + v.x, O.y + u.y + v.y, O.z + u.z + v.z);
+      const p01 = makeTriple(O.x + v.x,       O.y + v.y,       O.z + v.z);
+      const face = {vertices: [p00, p10, p11, p01]};
+      face.normal = faceNormal(face);
+      return {_tag: 'surface', mesh: makeMesh([face])};
+    });
     // extrude(path[]|path|string, triple axis = 2Z) — prism-extrude a 2D profile
     // along axis. For string input we use texpath (no-op here), so we fall back
     // to a tiny billboard rectangle so the render isn't empty. For path/path[]
@@ -11687,7 +11703,8 @@ function createInterpreter() {
         }
       }
       if (!range || range.length === 0) return [];
-      if (!vals) return range;
+      const tag = (arr) => { try { arr._isPaletteResult = true; } catch (e) {} return arr; };
+      if (!vals) return tag(range.slice());
       let vmin = Infinity, vmax = -Infinity;
       for (const v of vals) {
         const n = toNumber(v);
@@ -11696,9 +11713,9 @@ function createInterpreter() {
       }
       const span = vmax - vmin;
       if (span === 0 || !isFinite(span)) {
-        return vals.map(() => clonePen(range[0]));
+        return tag(vals.map(() => clonePen(range[0])));
       }
-      return vals.map(v => _interpolatePens(range, (toNumber(v) - vmin) / span));
+      return tag(vals.map(v => _interpolatePens(range, (toNumber(v) - vmin) / span)));
     };
     env.set('palette', _paletteStub);
     // Gradient(pen, pen, ...) — return pen array (used by palette for interpolation)
@@ -11843,6 +11860,12 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && a._named));
       const arr = Array.isArray(pos[0]) ? pos[0] : pos;
       if (arr.length === 0) return makePen({});
+      // If this is a palette result (per-vertex or per-patch pen array), pass
+      // it through unchanged so the downstream draw() can use it as per-face
+      // colors. Asymptote's mean(pen[][]) reduces a 2D pen array to a 1D
+      // per-row array; since our palette() produces a 1D flat array indexed
+      // by grid vertex, the reduction is a no-op here.
+      if (arr._isPaletteResult) return arr;
       if (isPen(arr[0])) {
         let r=0, g=0, b=0;
         for (const p of arr) { r += p.r; g += p.g; b += p.b; }
@@ -13140,12 +13163,39 @@ function createInterpreter() {
             }
           }
         }
-        let meshPen = null;
+        // Positional pen parsing for draw(surface, surfacepen, meshpen):
+        //   1st pen arg after the surface = surfacepen (fill)
+        //   2nd pen arg after the surface = meshpen (grid lines overlaid on fill)
+        // Also accept a pen[] as surfacepen (per-vertex palette coloring from
+        // `mean(palette(...))`) — attach it as _colors so the existing
+        // palette-aware face-coloring path below can consume it.
+        let surfacePenArg = null;
+        let meshPenPositional = null;
+        let colorsArrayArg = null;
+        // Positional slot tracking: surfacepen takes the first pen-or-pen[],
+        // meshpen takes the next pen. A pen[] occupies the surfacepen slot
+        // so that `draw(s, palette_array, black)` resolves black as meshpen,
+        // not surfacepen.
+        let surfaceSlotFilled = false;
         for (let j = 0; j < args.length; j++) {
           if (j === i) continue;
-          if (isPen(args[j])) meshPen = meshPen ? mergePens(meshPen, args[j]) : args[j];
+          const a = args[j];
+          if (isPen(a)) {
+            if (!surfaceSlotFilled) { surfacePenArg = a; surfaceSlotFilled = true; }
+            else if (meshPenPositional === null) meshPenPositional = a;
+          } else if (Array.isArray(a) && a.length > 0 && isPen(a[0])) {
+            if (colorsArrayArg === null) {
+              colorsArrayArg = a;
+              surfaceSlotFilled = true;
+            }
+          }
         }
-        if (!meshPen) meshPen = clonePen(defaultPen);
+        let meshPen = surfacePenArg ? clonePen(surfacePenArg) : clonePen(defaultPen);
+        if (colorsArrayArg && surfForColors) {
+          // Non-destructive: shallow-clone the surface wrapper so we don't
+          // permanently mutate the user's `surface s` binding.
+          surfForColors = Object.assign({}, surfForColors, {_colors: colorsArrayArg});
+        }
         // If surface is a triangulated isosurface with per-vertex colors, annotate
         // each face with a pen averaged across the vertex pens referenced by its
         // _vidx (indices into the flat _vertices list).
@@ -13335,7 +13385,7 @@ function createInterpreter() {
         // draw the surface's grid lines on top. This matches Asymptote's
         // draw(surface, surfacepen, meshpen=...) rendering where the mesh
         // wireframe is overlaid on the shaded/filled faces.
-        let meshLinePen = null;
+        let meshLinePen = meshPenPositional;
         for (const a of args) {
           if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) {
             meshLinePen = a.meshpen;
@@ -13344,26 +13394,44 @@ function createInterpreter() {
         }
         if (meshLinePen && surfForColors && surfForColors._grid) {
           const grid = surfForColors._grid;
+          const ag = surfForColors._activeGrid;
           const rows = grid.length;
           const cols = (grid[0] && grid[0].length) || 0;
-          const emitGridLine = (verts) => {
+          const isActive = (i, j) => !ag || (ag[i] && ag[i][j] !== false);
+          // Emit polyline segments but break at inactive vertices so grid
+          // lines don't cross culled (out-of-domain) regions.
+          const emitGridLine = (verts, mask) => {
             if (!verts || verts.length < 2) return;
-            const proj = verts.map(v => projectTriple(v));
-            const segs = [];
-            for (let k = 0; k < proj.length - 1; k++) {
-              segs.push(makeSeg(proj[k], proj[k], proj[k+1], proj[k+1]));
+            let run = [];
+            const flush = () => {
+              if (run.length >= 2) {
+                const proj = run.map(v => projectTriple(v));
+                const segs = [];
+                for (let k = 0; k < proj.length - 1; k++) {
+                  segs.push(makeSeg(proj[k], proj[k], proj[k+1], proj[k+1]));
+                }
+                target.commands.push({cmd:'draw', path: makePath(segs, false), pen: meshLinePen, line: args._line || 0, _from3d: true});
+              }
+              run = [];
+            };
+            for (let k = 0; k < verts.length; k++) {
+              if (mask[k]) run.push(verts[k]);
+              else flush();
             }
-            target.commands.push({cmd:'draw', path: makePath(segs, false), pen: meshLinePen, line: args._line || 0});
+            flush();
           };
           // Rows (constant i, varying j)
           for (let i = 0; i < rows; i++) {
-            emitGridLine(grid[i]);
+            const mask = [];
+            for (let j = 0; j < cols; j++) mask.push(isActive(i, j));
+            emitGridLine(grid[i], mask);
           }
           // Columns (constant j, varying i)
           for (let j = 0; j < cols; j++) {
             const col = [];
-            for (let i = 0; i < rows; i++) col.push(grid[i][j]);
-            emitGridLine(col);
+            const mask = [];
+            for (let i = 0; i < rows; i++) { col.push(grid[i][j]); mask.push(isActive(i, j)); }
+            emitGridLine(col, mask);
           }
         }
         return;
