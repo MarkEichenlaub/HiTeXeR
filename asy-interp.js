@@ -14195,15 +14195,16 @@ function createInterpreter() {
       let dot = n.x*lx + n.y*ly + n.z*lz;
       if (mesh && mesh._closed && dot < 0) continue; // back-face cull
       if (dot < 0) dot = -dot;
-      // nolight: skip front-facing interior patches and emit only rim
-      // (near-edge-on) patches. Asymptote's PRC raster fallback for unlit
-      // surfaces leaves the interior empty and shows only thin grey slivers
-      // along the silhouette where back-facing patches barely poke through.
-      // Approximate by drawing only patches whose face normal is nearly
-      // perpendicular to the view direction (small |n·v|).
-      if (nolight) {
-        // dot here is |n·viewish| (light vector ≈ view + tilt*up); use a
-        // threshold so only near-rim patches survive.
+      // nolight on a CLOSED mesh (e.g. surface(sphere(...))): skip
+      // front-facing interior patches and emit only rim (near-edge-on)
+      // patches. Asymptote's PRC raster fallback for unlit closed
+      // surfaces leaves the interior empty and shows only thin grey
+      // slivers along the silhouette where back-facing patches barely
+      // poke through. Approximate by drawing only patches whose face
+      // normal is nearly perpendicular to the view direction.
+      // For OPEN meshes (e.g. surface(path3) flat quads) `nolight` just
+      // means "fill with a flat unlit color" — do not cull anything.
+      if (nolight && mesh && mesh._closed) {
         const viewDot = Math.abs(n.x*vx + n.y*vy + n.z*vz);
         if (viewDot > 0.20) continue; // only keep rim-grazing patches
       }
