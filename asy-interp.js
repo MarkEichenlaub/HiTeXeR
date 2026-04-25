@@ -3988,7 +3988,10 @@ function createInterpreter() {
         if (argMatchesParamType(posVals[i], params[i].type)) score += 2;
         else score -= 1;
       }
-      if (score > bestScore) { bestScore = score; best = alt; }
+      // Use >= so that on a tie the LAST defined alt wins. This matches
+      // the user's intent when redefining a function with an identical
+      // signature: the later definition shadows the earlier one.
+      if (score >= bestScore) { bestScore = score; best = alt; }
     }
     // If no alt matched positively (all scores ≤ 0) and a builtin fallback exists,
     // prefer the builtin — this handles cases like user `pair exp(pair)` overloading
