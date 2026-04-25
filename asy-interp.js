@@ -7378,7 +7378,16 @@ function createInterpreter() {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       if (!pic) pic = currentPic;
-      const tickPen = ticks.pen || pen;
+      // Tick pen: prefer ticks.pen (e.g. pTick=gray), then fall back to the axis
+      // pen. But if the axis pen is invisible (the labeled-offset-axis idiom
+      // xaxis(YEquals(c), a, b, ticks=..., p=invisible)) and no explicit
+      // ticks.pen was given, fall back to the default pen so tick marks remain
+      // visible. Asymptote's Ticks() use currentpen by default for tick marks
+      // independent of the axis line pen.
+      let tickPen = ticks.pen || pen;
+      if (!ticks.pen && pen && pen.opacity === 0) {
+        tickPen = clonePen(defaultPen);
+      }
       const noZero = ticks.noZero || false;
       const isExtend = extent && (extent === 'BottomTop' || extent === 'LeftRight' ||
                                    extent === 'TopBottom' || extent === 'RightLeft');
@@ -7579,9 +7588,16 @@ function createInterpreter() {
       // Asymptote convention: format "%" suppresses labels entirely (used as a
       // placeholder when the caller wants tick marks without numeric labels).
       const suppressByFormat = ticks.format === '%' && !ticks.labelFunc;
+      // Only suppress labels for invisible-pen axes when the ticks are gridline-
+      // extending (Ticks(extend=true,...)), which is the standard
+      // xaxis(..., invisible, Ticks(..., extend=true, gray)) gridline idiom.
+      // The other invisible-pen idiom — xaxis(YEquals(c), a, b, ticks=labelTicks,
+      // p=invisible) — is used to draw labeled tick marks at an offset position
+      // without redrawing the axis line, and DOES want labels.
+      const suppressByInvisible = axisInvisible && ticks.extend === true;
       const showLabels = ticks.labels &&
                          !(ticks.sizeExplicit && ticks.size < 1.5) &&
-                         !axisInvisible &&
+                         !suppressByInvisible &&
                          !suppressByFormat;
       if (showLabels) {
         for (const v of majorPositions) {
