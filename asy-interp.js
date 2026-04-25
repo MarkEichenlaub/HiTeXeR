@@ -3150,7 +3150,7 @@ function createInterpreter() {
               if (dc.pen && dc.pen.opacity === 0) continue;
               const pos = dc.pos || dc;
               if (!pos || !isFinite(pos.x) || !isFinite(pos.y)) continue;
-              const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+              const fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
               const text = dc.text || dc.label || '';
               const clean = typeof text === 'string' ? stripLaTeX(text) : '';
               const textW = clean.length * fontSize * 0.45;
@@ -4459,7 +4459,7 @@ function createInterpreter() {
               if (dc.cmd !== 'label') continue;
               const pos = dc.pos;
               if (!pos) continue;
-              const fs = (dc.pen && dc.pen.fontsize) || 10;
+              const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
               const rawTxt = typeof dc.text === 'string' ? dc.text : '';
               const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
               const twBp = _estimateTextWidth(cleanTxt || 'x', fs);
@@ -4535,7 +4535,7 @@ function createInterpreter() {
             if (dc.cmd !== 'label') continue;
             const pos = dc.pos;
             if (!pos) continue;
-            const fs = (dc.pen && dc.pen.fontsize) || 10;
+            const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
             const rawTxt = typeof dc.text === 'string' ? dc.text : '';
             const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
             const twBp = _estimateTextWidth(cleanTxt || 'x', fs);
@@ -14801,7 +14801,9 @@ function renderSVG(result, opts) {
         if (!pos || pos.x === undefined) continue;
         // Skip invisible labels (opacity 0) from bbox expansion
         if (dc.pen && dc.pen.opacity === 0) continue;
-        let fontSize = (dc.pen && dc.pen.fontsize) || 10;
+        // Apply TeX font-size cap so bbox math matches what TeXeR/Asy ships
+        // for very-large fontsize() labels (capped near 25pt by font subst).
+        let fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
         const text = dc.text || dc.label || '';
         // For multiline labels (minipage), stripLaTeX collapses whitespace including \n.
         // Split on \n first, strip each line, use longest for width estimation.
@@ -15064,8 +15066,22 @@ function renderSVG(result, opts) {
     // bpPerGap we want at the final scale (≥20bp keeps KaTeX subscripts clear).
     const _crowdRequiresBoost = isFinite(_crowdMinSpan) &&
       (_crowdMinSpan * unitScale) < 20;
+    // Skip the boost when the geometry is tiny but labels already expand the
+    // bbox far beyond it (e.g. unitsize(15) drawing a 1×1 unit vector with a
+    // single label).  Real Asymptote/TeXeR honours the literal unitsize in
+    // that case — boosting produces an absurdly large vector compared to its
+    // label.  Guard:
+    //   - unitScale ≥ 10 (deliberate cm-style or raw-bp scale, not 1bp/unit)
+    //   - naturalMax ≤ 20bp (geometry alone would be ~tiny reference glyph)
+    //   - labelExpansion ≥ 1.25× (labels meaningfully dominate the bbox)
+    const _natMaxSkip = Math.max(naturalW, naturalH);
+    const _fullNatMaxSkip = Math.max(fullNatW, fullNatH);
+    const _labelDominatesTiny = unitScale >= 10
+      && _natMaxSkip > 0 && _natMaxSkip <= 20
+      && _fullNatMaxSkip >= 1.25 * _natMaxSkip;
     if (!geoIsDegenerate
         && !is1DDegenerate
+        && !_labelDominatesTiny
         && naturalW < defaultSize && naturalH < defaultSize
         && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
@@ -15688,7 +15704,8 @@ function renderSVG(result, opts) {
 
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      const fontSize = (dc.pen && dc.pen.fontsize) || 10;
+      // Cap to match TeX font-substitution behaviour for fontsize > 25pt.
+      const fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
       const fontSizeSVG = fontSize * bpCSSPixel;
       // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
       const rawLabelLines = (dc.text || '').split('\n');
@@ -16267,7 +16284,10 @@ function renderSVG(result, opts) {
       // Skip empty labels
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      const fontSize = (dc.pen.fontsize || 10);
+      // TeX caps very large requested fontsizes (font substitution at ~25pt)
+      // — apply the same cap so MathJax/SVG output matches the TeXeR reference
+      // for label-only diagrams that use fontsize(60)/fontsize(80)/etc.
+      const fontSize = _texCapFontSize(dc.pen.fontsize || 10);
       // Convert font size from PostScript points to SVG user units at the actual display scale.
       // font-size="12" in SVG user units renders as 12*(svgW/viewW) CSS px — at the default
       // 100px display size for a 14pt viewBox that is ~85 CSS px per character, completely
@@ -17329,6 +17349,24 @@ function _ensureMathJax() {
 
 const _mjxCache = new Map();
 
+// Real Asymptote/MikTeX caps the effective fontsize through TeX's font
+// substitution: the largest Computer Modern math font tops out around 25pt,
+// so requested fontsize(N) for N > 25 is silently substituted to ~25pt with
+// a small linear bbox growth (roughly +0.2 bp per extra pt above the cap).
+// Empirical pdfinfo Page-size measurements:
+//   fontsize(25) → 121.96 × 24.88 bp
+//   fontsize(30) → 122.96 × 25.88 bp
+//   fontsize(60) → 128.96 × 31.88 bp
+//   fontsize(100) → 136.96 × 39.88 bp
+// MathJax has no such cap and renders at the literal requested size, which
+// makes label-only diagrams (e.g. unitsize(1cm) + fontsize(60) physics
+// equations) come out 2–3× wider than the TeXeR reference.  Apply the same
+// cap before using fontsize for measurement / SVG rendering / bbox math.
+function _texCapFontSize(n) {
+  if (typeof n !== 'number' || !isFinite(n) || n <= 25) return n;
+  return 25 + 0.2 * (n - 25);
+}
+
 // Pre-render a label through MathJax (if available) to get its actual pixel
 // dimensions in bp.  Returns { wBp, hBp } on success, null on failure.
 // Used by the scale solver to get accurate label widths — the glyph-count
@@ -17338,6 +17376,7 @@ const _mjxCache = new Map();
 function _mjxMeasureBp(rawText, fontSize) {
   const state = _ensureMathJax();
   if (!state) return null;
+  fontSize = _texCapFontSize(fontSize);
   // Normalize text following renderLabelMathJaxSVG's pre-processing.
   let math = (rawText || '').trim();
   const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
