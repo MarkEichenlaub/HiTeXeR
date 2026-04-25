@@ -6117,6 +6117,8 @@ function createInterpreter() {
     // Aliases for intersectionpoint(s) — cse5/olympiad shorthand
     env.set('IP', (p1, p2) => invokeFunc(env.get('intersectionpoint'), [p1, p2]));
     env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+    // intersect2paths(p1, p2) — cse5: returns array of intersection points between two paths
+    env.set('intersect2paths', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
 
     // MP (Marked Point) — cse5/olympiad: draws a dot + label, returns the pair
     env.set('MP', (...args) => {
