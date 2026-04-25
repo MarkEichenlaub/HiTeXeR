@@ -4989,16 +4989,51 @@ function createInterpreter() {
         const ph1 = toNumber(args[3]) * Math.PI / 180;
         const th2 = toNumber(args[4]) * Math.PI / 180;
         const ph2 = toNumber(args[5]) * Math.PI / 180;
+        // Optional polar/azimuth axes (default Z, X). Build orthonormal frame
+        // (uHat, vHat, wHat) where wHat = polar, uHat = azimuth-projected onto plane perp to wHat.
+        let polar = (args.length >= 7 && isTriple(args[6])) ? args[6] : makeTriple(0,0,1);
+        let azim  = (args.length >= 8 && isTriple(args[7])) ? args[7] : makeTriple(1,0,0);
+        const wlen = Math.hypot(polar.x, polar.y, polar.z) || 1;
+        const wHat = {x: polar.x/wlen, y: polar.y/wlen, z: polar.z/wlen};
+        // uHat = normalize(azim - (azim·wHat)*wHat)
+        let dotAW = azim.x*wHat.x + azim.y*wHat.y + azim.z*wHat.z;
+        let ux = azim.x - dotAW*wHat.x, uy = azim.y - dotAW*wHat.y, uz = azim.z - dotAW*wHat.z;
+        let ulen = Math.hypot(ux, uy, uz);
+        if (ulen < 1e-9) {
+          // degenerate: pick fallback perpendicular to wHat
+          const fb = Math.abs(wHat.x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:1,z:0};
+          dotAW = fb.x*wHat.x + fb.y*wHat.y + fb.z*wHat.z;
+          ux = fb.x - dotAW*wHat.x; uy = fb.y - dotAW*wHat.y; uz = fb.z - dotAW*wHat.z;
+          ulen = Math.hypot(ux, uy, uz);
+        }
+        const uHat = {x: ux/ulen, y: uy/ulen, z: uz/ulen};
+        // vHat = wHat × uHat
+        const vHat = {
+          x: wHat.y*uHat.z - wHat.z*uHat.y,
+          y: wHat.z*uHat.x - wHat.x*uHat.z,
+          z: wHat.x*uHat.y - wHat.y*uHat.x
+        };
+        // Asymptote's arc(...,polar,...) goes "CCW around polar". When polar is
+        // reversed (e.g. -Z), the arc traverses the complementary azimuth direction —
+        // for an equatorial 180° span this crosses phi=180° instead of phi=0°,
+        // i.e. the BACK hemisphere rather than the FRONT.
+        let dphi = ph2 - ph1;
+        if (polar.z < 0 && Math.abs(dphi) > 1e-9) {
+          dphi = dphi > 0 ? dphi - 2*Math.PI : dphi + 2*Math.PI;
+        }
         const nSamp = 32;
         const samples = [];
         for (let i = 0; i <= nSamp; i++) {
           const t = i / nSamp;
           const th = th1 + (th2 - th1) * t;
-          const ph = ph1 + (ph2 - ph1) * t;
+          const ph = ph1 + dphi * t;
           const sinTh = Math.sin(th), cosTh = Math.cos(th);
-          const px = c.x + r * sinTh * Math.cos(ph);
-          const py = c.y + r * sinTh * Math.sin(ph);
-          const pz = c.z + r * cosTh;
+          const lu = sinTh * Math.cos(ph);
+          const lv = sinTh * Math.sin(ph);
+          const lw = cosTh;
+          const px = c.x + r * (lu*uHat.x + lv*vHat.x + lw*wHat.x);
+          const py = c.y + r * (lu*uHat.y + lv*vHat.y + lw*wHat.y);
+          const pz = c.z + r * (lu*uHat.z + lv*vHat.z + lw*wHat.z);
           samples.push(makeTriple(px, py, pz));
         }
         const segs = [];
@@ -8009,8 +8044,10 @@ function createInterpreter() {
       }
       // Frame-style extent: primary axis at edge, mirror on opposite edge.
       const yIsLeftRight = extent === 'LeftRight' || extent === 'RightLeft';
-      const yIsRightPrimary = extent === 'RightLeft';
-      if (yIsLeftRight && !axisShiftXExplicit) {
+      const yIsLeftSide = extent === 'Left';
+      const yIsRightSide = extent === 'Right';
+      const yIsRightPrimary = extent === 'RightLeft' || yIsRightSide;
+      if ((yIsLeftRight || yIsLeftSide || yIsRightSide) && !axisShiftXExplicit) {
         axisShiftX = yIsRightPrimary ? crossMax : crossMin;
       }
       if (!isInvisible) {
@@ -8060,7 +8097,7 @@ function createInterpreter() {
         const labelY = ymin + (ymax - ymin) * effPos;
         // Apply 90° CCW rotation when the label is placed along the axis (not endpoint)
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
-        const lt = labelTransform || (atEndpoint ? undefined : rot90ccw);
+        const lt = labelTransform || ((atEndpoint || extentForcesMiddle) ? undefined : rot90ccw);
         // Asymptote's graph.asy autoshifts the axis label past the tick labels so they don't
         // overlap. Only relevant for labels rotated along the axis (not endpoint labels).
         let tickLabelClearance = 0;
@@ -15650,8 +15687,25 @@ function renderSVG(result, opts) {
           if (candVB > 0 && candVB < cleanLen) _effLenVB = candVB;
         }
       }
-      const W = _effLenVB * fontSizeSVG * charWFactor;
+      let W = _effLenVB * fontSizeSVG * charWFactor;
       const H = fontSizeSVG * numLines;
+      // In svg-native mode the actual label is rendered through MathJax which
+      // gives precise widths.  The character-count heuristic above (charWFactor
+      // 0.62 for math) over-estimates by ~50% for digit/symbol-heavy labels
+      // (e.g. "··· 0 0 0 1 2 ··· $" where most glyphs are upright digits, not
+      // italic letters).  When the heuristic disagrees with the measured width,
+      // trust the measurement — the viewBox should match the rendered extent.
+      if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function') {
+        try {
+          const m = _mjxMeasureBp(dc.text, fontSize);
+          if (m && m.wBp > 0) {
+            const measuredW = m.wBp * bpCSSPixel;
+            // Apply a small (5%) safety margin so subpixel rounding doesn't clip
+            // glyph edges, but never grow past the heuristic estimate.
+            W = Math.min(W, measuredW * 1.05);
+          }
+        } catch (e) { /* ignore — fall back to heuristic */ }
+      }
 
       // For scaled/rotated labels, use the transformed bounding box dimensions.
       // Extract scale factor (sqrt(b²+e²)) and rotation from labelTransform so
