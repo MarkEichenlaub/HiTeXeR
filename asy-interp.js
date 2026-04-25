@@ -14168,8 +14168,19 @@ function createInterpreter() {
           const rows = grid.length;
           const cols = (grid[0] && grid[0].length) || 0;
           const isActive = (i, j) => !ag || (ag[i] && ag[i][j] !== false);
-          // Emit polyline segments but break at inactive vertices so grid
-          // lines don't cross culled (out-of-domain) regions.
+          // When the surface fill is invisible (e.g. inner cylinder drawn
+          // with surfacepen=invisible, meshpen=darkgreen+dashed), the mesh
+          // wireframe should be visually OCCLUDED by other opaque 3D fills
+          // — both prior draws (already in target.commands) and subsequent
+          // ones. To approximate this without a global z-buffer:
+          //  (a) cull front-facing column lines so the cage doesn't paint
+          //      dashed verticals across its own front face;
+          //  (b) PREPEND the mesh-line commands before any existing _from3d
+          //      commands so prior opaque fills end up painting on top.
+          const fillIsInvisible = surfacePenArg && typeof surfacePenArg.opacity === 'number' && surfacePenArg.opacity === 0;
+          // Build a list of emission "tasks", then either push (normal) or
+          // splice-prepend (invisible-fill) them into target.commands.
+          const collected = [];
           const emitGridLine = (verts, mask) => {
             if (!verts || verts.length < 2) return;
             let run = [];
@@ -14180,7 +14191,7 @@ function createInterpreter() {
                 for (let k = 0; k < proj.length - 1; k++) {
                   segs.push(makeSeg(proj[k], proj[k], proj[k+1], proj[k+1]));
                 }
-                target.commands.push({cmd:'draw', path: makePath(segs, false), pen: meshLinePen, line: args._line || 0, _from3d: true});
+                collected.push({cmd:'draw', path: makePath(segs, false), pen: meshLinePen, line: args._line || 0, _from3d: true});
               }
               run = [];
             };
@@ -14202,6 +14213,21 @@ function createInterpreter() {
             const mask = [];
             for (let i = 0; i < rows; i++) { col.push(grid[i][j]); mask.push(isActive(i, j)); }
             emitGridLine(col, mask);
+          }
+          // Insert collected commands at the right position.
+          if (fillIsInvisible) {
+            // Prepend before the FIRST existing _from3d command so that
+            // already-emitted opaque 3D fills (e.g. outerCyl, theGuy)
+            // and any later 3D fills both render ON TOP of these mesh
+            // lines — emulating depth occlusion by opaque surfaces.
+            let insertAt = 0;
+            for (let k = 0; k < target.commands.length; k++) {
+              if (target.commands[k] && target.commands[k]._from3d) { insertAt = k; break; }
+              insertAt = k + 1;
+            }
+            target.commands.splice(insertAt, 0, ...collected);
+          } else {
+            for (const c of collected) target.commands.push(c);
           }
         }
         return;
