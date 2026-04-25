@@ -6098,6 +6098,95 @@ function createInterpreter() {
     });
 
     env.set('intersectionpoints', (p1, p2) => {
+      // 3D overload: path3 × (surface | mesh) → triple[]
+      // Use it when one operand is a surface/mesh and the other is a path
+      // whose segments carry triple endpoints (path3).  Each path3 segment
+      // is sampled as a polyline (1 step for straight, 16 for curved) and
+      // tested against each face polygon for line-plane intersection.
+      const isPath3 = (p) => p && p._tag === 'path' && p.segs && p.segs.length > 0
+        && (isTriple(p.segs[0].p0) || isTriple(p.segs[0].p3));
+      const meshOf = (s) => isMesh(s) ? s : (s && s._tag === 'surface' && s.mesh) ? s.mesh : null;
+      const m1 = meshOf(p1), m2 = meshOf(p2);
+      if ((isPath3(p1) && m2) || (isPath3(p2) && m1)) {
+        const path = isPath3(p1) ? p1 : p2;
+        const mesh = isPath3(p1) ? m2 : m1;
+        const pts3 = [];
+        const dedup = (q) => {
+          for (const p of pts3) {
+            if (Math.abs(p.x-q.x) < 1e-6 && Math.abs(p.y-q.y) < 1e-6 && Math.abs(p.z-q.z) < 1e-6) return true;
+          }
+          return false;
+        };
+        // Sample each path segment into N straight sub-segments
+        const sampleSeg = (s) => {
+          const out = [];
+          const a = s.p0, d = s.p3, c1 = s.cp1, c2 = s.cp2;
+          if (!a || !d) return out;
+          const ax = a.x, ay = a.y, az = a.z||0;
+          const dx = d.x, dy = d.y, dz = d.z||0;
+          const c1x = (c1?c1.x:ax+(dx-ax)/3), c1y = (c1?c1.y:ay+(dy-ay)/3), c1z = (c1?(c1.z||0):az+(dz-az)/3);
+          const c2x = (c2?c2.x:ax+2*(dx-ax)/3), c2y = (c2?c2.y:ay+2*(dy-ay)/3), c2z = (c2?(c2.z||0):az+2*(dz-az)/3);
+          // Test if effectively straight (control points lie on the chord)
+          const onChord = (px, py, pz, t) => {
+            const ex = ax + t*(dx-ax), ey = ay + t*(dy-ay), ez = az + t*(dz-az);
+            return Math.abs(px-ex) < 1e-9 && Math.abs(py-ey) < 1e-9 && Math.abs(pz-ez) < 1e-9;
+          };
+          const straight = onChord(c1x,c1y,c1z, 1/3) && onChord(c2x,c2y,c2z, 2/3);
+          const N = straight ? 1 : 16;
+          let prev = {x:ax, y:ay, z:az};
+          for (let i = 1; i <= N; i++) {
+            const t = i/N, u = 1-t;
+            const bx = u*u*u*ax + 3*u*u*t*c1x + 3*u*t*t*c2x + t*t*t*dx;
+            const by = u*u*u*ay + 3*u*u*t*c1y + 3*u*t*t*c2y + t*t*t*dy;
+            const bz = u*u*u*az + 3*u*u*t*c1z + 3*u*t*t*c2z + t*t*t*dz;
+            out.push({a: prev, b: {x:bx, y:by, z:bz}});
+            prev = {x:bx, y:by, z:bz};
+          }
+          return out;
+        };
+        // Line-plane intersection for face: returns triple or null
+        const lineFace = (A, B, face) => {
+          const V = face.vertices;
+          if (!V || V.length < 3) return null;
+          // Plane normal & d via Newell's method (face.normal already computed)
+          const n = face.normal || faceNormal(face);
+          const dir = {x: B.x-A.x, y: B.y-A.y, z: B.z-A.z};
+          const denom = n.x*dir.x + n.y*dir.y + n.z*dir.z;
+          if (Math.abs(denom) < 1e-12) return null;
+          const v0 = V[0];
+          const t = (n.x*(v0.x-A.x) + n.y*(v0.y-A.y) + n.z*(v0.z-A.z)) / denom;
+          if (t < -1e-9 || t > 1+1e-9) return null;
+          const P = {x: A.x+t*dir.x, y: A.y+t*dir.y, z: A.z+t*dir.z};
+          // Point-in-polygon via projection onto dominant plane axis
+          const ax_ = Math.abs(n.x), ay_ = Math.abs(n.y), az_ = Math.abs(n.z);
+          let u, w;
+          if (ax_ >= ay_ && ax_ >= az_) { u = 'y'; w = 'z'; }
+          else if (ay_ >= az_) { u = 'x'; w = 'z'; }
+          else { u = 'x'; w = 'y'; }
+          let inside = false;
+          for (let i = 0, j = V.length-1; i < V.length; j = i++) {
+            const vi = V[i], vj = V[j];
+            const yi = vi[w], yj = vj[w];
+            const xi = vi[u], xj = vj[u];
+            const px = P[u], py = P[w];
+            if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-30) + xi)) {
+              inside = !inside;
+            }
+          }
+          if (!inside) return null;
+          return {_tag:'triple', x: P.x, y: P.y, z: P.z};
+        };
+        for (const s of path.segs) {
+          for (const {a, b} of sampleSeg(s)) {
+            for (const face of mesh.faces) {
+              const ip = lineFace(a, b, face);
+              if (ip && !dedup(ip)) pts3.push(ip);
+            }
+          }
+        }
+        return pts3;
+      }
+      // 2D path × path
       p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
       const pts = [];
