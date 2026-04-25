@@ -18687,9 +18687,25 @@ function parseLaTeXSegments(text) {
       segments.push({type:'underbrace', width, label});
     } else if (nextType === 'sqrt') {
       remaining = remaining.substring(nextIdx + 5); // skip \sqrt
-      const content = extractBraced(remaining);
-      remaining = remaining.substring(content.consumed);
-      segments.push({type:'sqrt', content: content.content});
+      // Skip whitespace between \sqrt and its argument
+      const ws = remaining.match(/^\s+/);
+      if (ws) remaining = remaining.substring(ws[0].length);
+      let sqrtContent = '';
+      if (remaining.length > 0 && remaining[0] === '{') {
+        const content = extractBraced(remaining);
+        remaining = remaining.substring(content.consumed);
+        sqrtContent = content.content;
+      } else if (remaining.length > 0 && remaining[0] === '\\') {
+        // Single-command argument: \sqrt\pi -> radicand is \pi
+        const cmdMatch = remaining.match(/^\\[a-zA-Z]+/);
+        if (cmdMatch) { sqrtContent = cmdMatch[0]; remaining = remaining.substring(cmdMatch[0].length); }
+        else { sqrtContent = remaining[0]; remaining = remaining.substring(1); }
+      } else if (remaining.length > 0) {
+        // Single-character argument: \sqrt 2 -> radicand is "2"
+        sqrtContent = remaining[0];
+        remaining = remaining.substring(1);
+      }
+      segments.push({type:'sqrt', content: sqrtContent});
     }
   }
   if (segments.length === 0) segments.push({type:'text', text: stripLaTeX(text)});
