@@ -8285,9 +8285,11 @@ function createInterpreter() {
       if (xmin === null || xmax === null) {
         // Compute from picture's existing content, skipping axis-related draws
         let cMinX = Infinity, cMaxX = -Infinity;
+        let _hasNonAxisLabel = false;
         for (const dc of pic.commands) {
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
           if (dc.above === -1) continue; // extended gridlines drawn below content
+          if (dc.cmd === 'label' && !dc._isAxisLabel) _hasNonAxisLabel = true;
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
               for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -8305,7 +8307,11 @@ function createInterpreter() {
         if (xmax === null) { xmax = isFinite(cMaxX) ? cMaxX : 5; _xmaxFromContent = isFinite(cMaxX); }
         // Apply Asymptote-style autoscaling: nicenum(range/10) rounding matches
         // Asymptote's autoscale() which rounds axis limits to nice tick boundaries.
-        if (!xminExplicit && !xmaxExplicit && _xminFromContent && _xmaxFromContent && cMaxX > cMinX) {
+        // Skip the rounding when no Ticks were requested AND no body labels exist:
+        // a bare xaxis(Arrow) on a pure-graph picture should follow the content
+        // extent (matching yaxis behavior) so symmetric data renders square.
+        const _skipRounding = !ticks && !_hasNonAxisLabel;
+        if (!_skipRounding && !xminExplicit && !xmaxExplicit && _xminFromContent && _xmaxFromContent && cMaxX > cMinX) {
           const _rawRange = cMaxX - cMinX;
           const _roughStep = _rawRange / 10;
           const _mag = Math.pow(10, Math.floor(Math.log10(_roughStep)));
