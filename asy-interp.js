@@ -10909,8 +10909,54 @@ function createInterpreter() {
     env.set('ypart', v => isTriple(v) ? v.y : (isPair(v) ? v.y : 0));
     env.set('zpart', v => isTriple(v) ? v.z : 0);
 
-    // 3D path type stubs
-    env.set('path3', null);
+    // path3(path g [, triple plane(pair)])
+    // Promote a 2D path to a 3D path by mapping each pair endpoint/control
+    // point to a triple. Default mapping: (x,y) -> (x,y,0). With an optional
+    // mapping function f: pair -> triple, every endpoint and control point of
+    // each Bezier segment is passed through f.
+    env.set('path3', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const g = pos.find(a => isPath(a));
+      let mapFn = null;
+      for (const a of pos) {
+        if (a === g) continue;
+        if (typeof a === 'function' || (a && (a._tag === 'func' || a._tag === 'overload'))) {
+          mapFn = a; break;
+        }
+      }
+      const toT = (p) => {
+        if (!p) return makeTriple(0,0,0);
+        if (isTriple(p)) {
+          if (!mapFn) return p;
+          // map a triple by treating its (x,y) as the input pair
+          const pp = makePair(p.x, p.y);
+          let r;
+          if (typeof mapFn === 'function') r = mapFn(pp);
+          else r = callUserFuncValues(mapFn, [pp]);
+          return isTriple(r) ? r : makeTriple(p.x, p.y, p.z);
+        }
+        if (isPair(p)) {
+          if (mapFn) {
+            let r;
+            if (typeof mapFn === 'function') r = mapFn(p);
+            else r = callUserFuncValues(mapFn, [p]);
+            if (isTriple(r)) return r;
+            if (isPair(r)) return makeTriple(r.x, r.y, 0);
+            return makeTriple(p.x, p.y, 0);
+          }
+          return makeTriple(p.x, p.y, 0);
+        }
+        return makeTriple(p.x || 0, p.y || 0, p.z || 0);
+      };
+      if (!g || !g.segs) return makePath([], false);
+      const segs = [];
+      for (const s of g.segs) {
+        const p0 = toT(s.p0), p3 = toT(s.p3);
+        const cp1 = toT(s.cp1), cp2 = toT(s.cp2);
+        segs.push(makeSeg(p0, cp1, cp2, p3));
+      }
+      return makePath(segs, !!g.closed);
+    });
 
     // unitcircle3: 3D unit circle in XY plane (4 cubic Bezier segments with triple endpoints)
     {
@@ -11046,6 +11092,83 @@ function createInterpreter() {
     // surface(): wrap mesh, capture boundary path, or tessellate parametric f
     env.set('surface', (...args) => {
       const pos = args.filter(a => !(a && a._named));
+      // surface(triple c, path3 g, triple axis) — surface of revolution of g
+      // around the line through c with direction `axis`. Translate g by -c,
+      // build a revolution about `axis`, then translate back by +c. The
+      // generator path is sampled (Beziers subdivided) so curved profiles
+      // produce smooth bodies, not low-poly rings.
+      if (pos.length >= 3 && isTriple(pos[0]) && isPath(pos[1]) && isTriple(pos[2])) {
+        const O = pos[0];
+        const g = pos[1];
+        const axis = pos[2];
+        // Sample the generator path into a list of triples (subdividing Beziers).
+        const verts = [];
+        const SUB = 16;
+        const toT = (p) => {
+          if (!p) return makeTriple(0,0,0);
+          if (isTriple(p)) return p;
+          if (isPair(p)) return makeTriple(p.x, p.y, 0);
+          return makeTriple(p.x||0, p.y||0, p.z||0);
+        };
+        const isLin = (s) => {
+          const ax = s.p3.x - s.p0.x, ay = s.p3.y - s.p0.y, az = (s.p3.z||0) - (s.p0.z||0);
+          const d1x = s.cp1.x - s.p0.x, d1y = s.cp1.y - s.p0.y, d1z = (s.cp1.z||0) - (s.p0.z||0);
+          return (Math.abs(d1x - ax/3) < 1e-9 && Math.abs(d1y - ay/3) < 1e-9 && Math.abs(d1z - az/3) < 1e-9);
+        };
+        const segs = g.segs || [];
+        if (segs.length === 0) return {_tag:'surface', mesh: makeMesh([])};
+        verts.push(toT(segs[0].p0));
+        for (const s of segs) {
+          if (isLin(s)) verts.push(toT(s.p3));
+          else {
+            const p0 = toT(s.p0), c1 = toT(s.cp1), c2 = toT(s.cp2), p3 = toT(s.p3);
+            for (let k = 1; k <= SUB; k++) {
+              const t = k / SUB, b = 1 - t;
+              verts.push(makeTriple(
+                b*b*b*p0.x + 3*b*b*t*c1.x + 3*b*t*t*c2.x + t*t*t*p3.x,
+                b*b*b*p0.y + 3*b*b*t*c1.y + 3*b*t*t*c2.y + t*t*t*p3.y,
+                b*b*b*p0.z + 3*b*b*t*c1.z + 3*b*t*t*c2.z + t*t*t*p3.z
+              ));
+            }
+          }
+        }
+        if (verts.length < 2) return {_tag:'surface', mesh: makeMesh([])};
+        const aLen = Math.sqrt(axis.x*axis.x + axis.y*axis.y + axis.z*axis.z) || 1;
+        const A = makeTriple(axis.x/aLen, axis.y/aLen, axis.z/aLen);
+        const nLon = 96;
+        const rotated = [];
+        for (let j = 0; j <= nLon; j++) {
+          const th = (2 * Math.PI) * j / nLon;
+          const c = Math.cos(th), s = Math.sin(th);
+          const row = [];
+          for (const vAbs of verts) {
+            // Translate so axis passes through origin
+            const v = makeTriple(vAbs.x - O.x, vAbs.y - O.y, vAbs.z - O.z);
+            const dot = A.x*v.x + A.y*v.y + A.z*v.z;
+            const cx = A.y*v.z - A.z*v.y;
+            const cy = A.z*v.x - A.x*v.z;
+            const cz = A.x*v.y - A.y*v.x;
+            row.push(makeTriple(
+              O.x + v.x*c + cx*s + A.x*dot*(1-c),
+              O.y + v.y*c + cy*s + A.y*dot*(1-c),
+              O.z + v.z*c + cz*s + A.z*dot*(1-c)
+            ));
+          }
+          rotated.push(row);
+        }
+        const faces = [];
+        for (let j = 0; j < nLon; j++) {
+          for (let i = 0; i < verts.length - 1; i++) {
+            const v00 = rotated[j][i], v10 = rotated[j+1][i];
+            const v11 = rotated[j+1][i+1], v01 = rotated[j][i+1];
+            const f = {vertices: [v00, v10, v11, v01]};
+            f.normal = faceNormal(f);
+            faces.push(f);
+          }
+        }
+        return {_tag:'surface', mesh: makeMesh(faces),
+                _grid: rotated, _gridRows: nLon+1, _gridCols: verts.length, _gridCyclic: true};
+      }
       // Triangle-list: surface(triple[][]) where inner array is a triangle of 3 triples
       // (produced by contour3/smoothcontour3 isosurface extraction).
       {
@@ -11669,6 +11792,80 @@ function createInterpreter() {
     // we build two copies offset by axis and stitch side quads.
     env.set('extrude', (...args) => {
       const pos = args.filter(a => !(a && a._named));
+      // extrude(path3 base, path3 top) — surface stitching matched samples of
+      // two parallel profiles. Used for cylinders / frustums where caller has
+      // already shifted/scaled the second profile (e.g. shift(h*Y)*innerBase).
+      if (pos.length >= 2 && isPath(pos[0]) && isPath(pos[1])) {
+        const sample = (pth) => {
+          const segs = pth.segs || [];
+          const out = [];
+          const SUB = 12;
+          const toT = (p) => {
+            if (!p) return makeTriple(0,0,0);
+            if (isTriple(p)) return p;
+            if (isPair(p)) return makeTriple(p.x, p.y, 0);
+            return makeTriple(p.x||0, p.y||0, p.z||0);
+          };
+          const isLin = (s) => {
+            const ax = s.p3.x - s.p0.x, ay = s.p3.y - s.p0.y, az = (s.p3.z||0) - (s.p0.z||0);
+            const d1x = s.cp1.x - s.p0.x, d1y = s.cp1.y - s.p0.y, d1z = (s.cp1.z||0) - (s.p0.z||0);
+            return (Math.abs(d1x - ax/3) < 1e-9 && Math.abs(d1y - ay/3) < 1e-9 && Math.abs(d1z - az/3) < 1e-9);
+          };
+          if (segs.length === 0) return out;
+          out.push(toT(segs[0].p0));
+          for (const s of segs) {
+            if (isLin(s)) out.push(toT(s.p3));
+            else {
+              const p0=toT(s.p0), c1=toT(s.cp1), c2=toT(s.cp2), p3=toT(s.p3);
+              for (let k=1; k<=SUB; k++) {
+                const t=k/SUB, b=1-t;
+                out.push(makeTriple(
+                  b*b*b*p0.x + 3*b*b*t*c1.x + 3*b*t*t*c2.x + t*t*t*p3.x,
+                  b*b*b*p0.y + 3*b*b*t*c1.y + 3*b*t*t*c2.y + t*t*t*p3.y,
+                  b*b*b*p0.z + 3*b*b*t*c1.z + 3*b*t*t*c2.z + t*t*t*p3.z
+                ));
+              }
+            }
+          }
+          return out;
+        };
+        const A = sample(pos[0]);
+        let B = sample(pos[1]);
+        if (A.length < 2 || B.length < 2) return {_tag:'surface', mesh: makeMesh([])};
+        // Resample B to match A's length (linearly, by parameter index).
+        if (B.length !== A.length) {
+          const out = [];
+          const n = A.length;
+          for (let k = 0; k < n; k++) {
+            const t = (B.length - 1) * k / (n - 1);
+            const i = Math.min(B.length - 2, Math.floor(t));
+            const f = t - i;
+            const a = B[i], b = B[i+1];
+            out.push(makeTriple(a.x + (b.x-a.x)*f, a.y + (b.y-a.y)*f, a.z + (b.z-a.z)*f));
+          }
+          B = out;
+        }
+        const faces = [];
+        // Build as quads with grid metadata so smooth shading + meshpen can
+        // operate on it: rows = path index along profile (2 of them), cols =
+        // sample index around profile.
+        for (let i = 0; i < A.length - 1; i++) {
+          const f = {vertices: [A[i], A[i+1], B[i+1], B[i]], _gi: 0, _gj: i};
+          f.normal = faceNormal(f);
+          faces.push(f);
+        }
+        // Detect if the profile is closed (a ring) — A.first == A.last to
+        // within tol. If so, mark the grid as cyclic so smooth shading wraps.
+        const aFirst = A[0], aLast = A[A.length-1];
+        const cyc = Math.abs(aFirst.x - aLast.x) < 1e-6 &&
+                    Math.abs(aFirst.y - aLast.y) < 1e-6 &&
+                    Math.abs(aFirst.z - aLast.z) < 1e-6;
+        // Reorder grid as [rowsAlongProfile][colsAroundProfile] to match the
+        // smooth-shading expectation. Here rows=2 (top/bottom), cols=A.length.
+        const grid = [A.slice(), B.slice()];
+        return {_tag:'surface', mesh: makeMesh(faces),
+                _grid: grid, _gridRows: 2, _gridCols: A.length, _gridCyclic: cyc};
+      }
       let profile = pos[0];
       let axis = makeTriple(0, 0, 1);
       if (pos.length >= 2 && isTriple(pos[1])) axis = pos[1];
@@ -12880,6 +13077,27 @@ function createInterpreter() {
       }
       return a;
     }
+    // Named-arg helper for xaxis3/yaxis3/zaxis3: extract arrow=, p=, ticks=,
+    // axis= from the named args. Arrow constructors passed by name are
+    // function references that need to be invoked.
+    function _axis3NamedExtract(args) {
+      let arrow = null, pen = null, axisType = null, ticks = null;
+      for (const a of args) {
+        if (!(a && a._named)) continue;
+        if ('arrow' in a) {
+          let av = a.arrow;
+          if (av === _arrow3Func || av === _arrows3Func || av === _beginArrow3Func ||
+              av === _endArrow3Func || av === _midArrow3Func) {
+            av = av();
+          }
+          if (av && av._tag === 'arrow') arrow = av;
+        }
+        if ('p' in a && isPen(a.p)) pen = a.p;
+        if ('axis' in a && a.axis && a.axis._tag === 'axis3type') axisType = a.axis;
+        if ('ticks' in a && a.ticks && a.ticks._tag === 'ticks3') ticks = a.ticks;
+      }
+      return {arrow, pen, axisType, ticks};
+    }
     env.set('xaxis3', (...args) => {
       const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
       let label = '', axisType = null, ticks = null, pen = null, arrow = null;
@@ -12891,6 +13109,11 @@ function createInterpreter() {
         else if (isPen(a)) pen = a;
         else if (a && a._tag === 'arrow') arrow = a;
       }
+      const named = _axis3NamedExtract(args);
+      if (!arrow && named.arrow) arrow = named.arrow;
+      if (!pen && named.pen) pen = named.pen;
+      if (!axisType && named.axisType) axisType = named.axisType;
+      if (!ticks && named.ticks) ticks = named.ticks;
       _draw3DAxis('x', label, axisType, ticks, pen, arrow, currentPic);
     });
     env.set('yaxis3', (...args) => {
@@ -12904,6 +13127,11 @@ function createInterpreter() {
         else if (isPen(a)) pen = a;
         else if (a && a._tag === 'arrow') arrow = a;
       }
+      const named = _axis3NamedExtract(args);
+      if (!arrow && named.arrow) arrow = named.arrow;
+      if (!pen && named.pen) pen = named.pen;
+      if (!axisType && named.axisType) axisType = named.axisType;
+      if (!ticks && named.ticks) ticks = named.ticks;
       _draw3DAxis('y', label, axisType, ticks, pen, arrow, currentPic);
     });
     env.set('zaxis3', (...args) => {
@@ -13716,6 +13944,20 @@ function createInterpreter() {
               colorsArrayArg = a;
               surfaceSlotFilled = true;
             }
+          }
+        }
+        // Named surfacepen=... overrides positional surface pen.
+        for (const a of args) {
+          if (a && a._named && 'surfacepen' in a) {
+            const sp = a.surfacepen;
+            if (isPen(sp)) {
+              surfacePenArg = sp;
+              surfaceSlotFilled = true;
+            } else if (Array.isArray(sp) && sp.length > 0 && isPen(sp[0])) {
+              colorsArrayArg = sp;
+              surfaceSlotFilled = true;
+            }
+            break;
           }
         }
         let meshPen = surfacePenArg ? clonePen(surfacePenArg) : clonePen(defaultPen);
