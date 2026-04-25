@@ -7513,13 +7513,17 @@ function createInterpreter() {
 
       // Find the function argument(s) and numeric range
       // Supports: graph(f, a, b, n), graph(f_pair, a, b, n), graph(fx, fy, a, b, n), graph(fx, fy, fz, a, b, n)
+      // Also: graph(f, a, b, n, T) — T is a sampling-transform function applied to t
+      // before evaluating f, so x = T(t), y = f(T(t)).
       let funcArg = null, funcArg2 = null, funcArg3 = null, funcIdx = -1;
+      let samplingFunc = null;
       const isFunc = v => typeof v === 'function' || (v && v._tag === 'func');
       for (let i = 0; i < coreArgs.length; i++) {
         if (isFunc(coreArgs[i])) {
           if (funcArg === null) { funcArg = coreArgs[i]; funcIdx = i; }
           else if (funcArg2 === null && i === funcIdx + 1) { funcArg2 = coreArgs[i]; }
           else if (funcArg3 === null && i === funcIdx + 2) { funcArg3 = coreArgs[i]; }
+          else if (samplingFunc === null && i > funcIdx + 1) { samplingFunc = coreArgs[i]; }
         }
       }
 
@@ -7607,11 +7611,17 @@ function createInterpreter() {
           } catch(e) {}
         }
 
-        // Compute y-range limit: if axis limits are set, clip to a reasonable multiple
-        const yClipMin = _axisLimits.ymin !== null ? _axisLimits.ymin - (_axisLimits.ymax - _axisLimits.ymin) * 2 : -1e6;
-        const yClipMax = _axisLimits.ymax !== null ? _axisLimits.ymax + (_axisLimits.ymax - _axisLimits.ymin) * 2 : 1e6;
-        const xClipMin = _axisLimits.xmin !== null ? _axisLimits.xmin - (_axisLimits.xmax - _axisLimits.xmin) * 2 : -1e6;
-        const xClipMax = _axisLimits.xmax !== null ? _axisLimits.xmax + (_axisLimits.xmax - _axisLimits.xmin) * 2 : 1e6;
+        // Compute y-range limit: if axis limits are set, clip to a reasonable multiple.
+        // Skip clipping when the range is degenerate (ymin == ymax) — that occurs when
+        // an axis was drawn before any graph data was added, so its auto-derived range
+        // collapsed to a single value (e.g. y=0 from the perpendicular axis line).
+        // Treating that as a clip would discard every off-axis sample of the function.
+        const _yRangeUseful = _axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin;
+        const _xRangeUseful = _axisLimits.xmin !== null && _axisLimits.xmax !== null && _axisLimits.xmax > _axisLimits.xmin;
+        const yClipMin = _yRangeUseful ? _axisLimits.ymin - (_axisLimits.ymax - _axisLimits.ymin) * 2 : -1e6;
+        const yClipMax = _yRangeUseful ? _axisLimits.ymax + (_axisLimits.ymax - _axisLimits.ymin) * 2 : 1e6;
+        const xClipMin = _xRangeUseful ? _axisLimits.xmin - (_axisLimits.xmax - _axisLimits.xmin) * 2 : -1e6;
+        const xClipMax = _xRangeUseful ? _axisLimits.xmax + (_axisLimits.xmax - _axisLimits.xmin) * 2 : 1e6;
 
         const callFunc = (f, t) => typeof f === 'function' ? f(t) : callUserFuncValues(f, [t]);
 
@@ -7638,7 +7648,17 @@ function createInterpreter() {
                 allPts.push(null);
               }
             } else {
-              const result = callFunc(funcArg, t);
+              // When a sampling function T was supplied (5-arg form
+              // graph(f,a,b,n,T)), Asymptote evaluates (T(t), f(T(t))). T is
+              // typically used to compress an unbounded t-domain into a finite
+              // x-range (e.g. T(x)=2/(x*pi) for plotting sin(1/x) near 0).
+              let xCoord = t;
+              let evalArg = t;
+              if (samplingFunc) {
+                try { xCoord = toNumber(callFunc(samplingFunc, t)); evalArg = xCoord; }
+                catch(e) { xCoord = NaN; evalArg = NaN; }
+              }
+              const result = (samplingFunc && isFinite(evalArg)) ? callFunc(funcArg, evalArg) : callFunc(funcArg, t);
               if (isPairFunc) {
                 if (result && result._tag === 'pair' && isFinite(result.x) && isFinite(result.y)) {
                   allPts.push({x: _xT(result.x), y: _yT(result.y)});
@@ -7647,8 +7667,8 @@ function createInterpreter() {
                 }
               } else {
                 const y = toNumber(result);
-                if (isFinite(y) && y >= yClipMin && y <= yClipMax) {
-                  allPts.push({x: _xT(t), y: _yT(y)});
+                if (isFinite(y) && isFinite(xCoord) && y >= yClipMin && y <= yClipMax) {
+                  allPts.push({x: _xT(xCoord), y: _yT(y)});
                 } else {
                   allPts.push(null); // discontinuity marker
                 }
@@ -7670,7 +7690,7 @@ function createInterpreter() {
           // Detect large y-jumps (asymptotes) — break path if jump exceeds visible range
           if (curSeg.length > 0) {
             const prev = curSeg[curSeg.length - 1];
-            const yRange = (_axisLimits.ymax !== null && _axisLimits.ymin !== null) ? (_axisLimits.ymax - _axisLimits.ymin) : 100;
+            const yRange = _yRangeUseful ? (_axisLimits.ymax - _axisLimits.ymin) : 100;
             if (Math.abs(pt.y - prev.y) > yRange * 2) {
               if (curSeg.length >= 2) segments.push(curSeg);
               curSeg = [];
