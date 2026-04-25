@@ -15055,32 +15055,48 @@ function renderSVG(result, opts) {
     const _natMax = Math.max(naturalW, naturalH);
     const is1DDegenerate = (_natMax > 0) && (_natMin * 5 < _natMax);
     // Pre-compute horizontal label crowding: if ≥4 labels share a y-row with
-    // small x-spacing, the diagram needs a larger boost even when the
-    // label-expanded bbox already exceeds minReasonable.  Without this, the
-    // boost is skipped and labels overlap horizontally (e.g. Riemann-sum
-    // x_1 … x_5 tick labels).
+    // small x-spacing AND the labels would visibly crowd at literal unitsize,
+    // the diagram needs a larger boost even when the label-expanded bbox
+    // already exceeds minReasonable.  Without this, the boost is skipped and
+    // labels overlap horizontally (e.g. Riemann-sum x_1 … x_5 tick labels).
+    //
+    // Crowd test must factor in actual label widths: a row of narrow glyphs
+    // (e.g. bigstar markers ~10bp wide) at 1-unit spacing on unitsize(0.5cm)
+    // is NOT crowded — there's still ~4bp clearance.  Boosting in that case
+    // inflates the diagram ~1.7× larger than the TeXeR reference.  Only flag
+    // crowding when the clearance between adjacent labels (at literal
+    // unitsize) is < ~4bp.
     let _crowdMinSpan = Infinity;
+    let _crowdNeeded = false;
     {
-      const _labelCmds = drawCommands.filter(dc => dc.cmd === 'label' &&
-        dc.pos && typeof dc.pos.x === 'number' && typeof dc.pos.y === 'number' &&
-        dc.text && String(dc.text).trim());
+      // Index labelInfoBp entries by (yKey) so we can pair adjacent labels
+      // and use their measured widths for the clearance check.
       const _byY = new Map();
-      for (const l of _labelCmds) {
-        const yKey = Math.round(l.pos.y * 20) / 20;
+      for (const li of labelInfoBp) {
+        if (!li._text || !String(li._text).trim()) continue;
+        if (typeof li.posX !== 'number' || typeof li.posY !== 'number') continue;
+        const yKey = Math.round(li.posY * 20) / 20;
         if (!_byY.has(yKey)) _byY.set(yKey, []);
-        _byY.get(yKey).push(l.pos.x);
+        _byY.get(yKey).push(li);
       }
-      for (const [, xs] of _byY) {
-        if (xs.length < 4) continue;
-        xs.sort((a, b) => a - b);
-        for (let i = 1; i < xs.length; i++) {
-          const s = xs[i] - xs[i-1];
-          if (s > 0 && s < _crowdMinSpan) _crowdMinSpan = s;
+      for (const [, lis] of _byY) {
+        if (lis.length < 4) continue;
+        lis.sort((a, b) => a.posX - b.posX);
+        for (let i = 1; i < lis.length; i++) {
+          const a = lis[i-1], b = lis[i];
+          const dx = b.posX - a.posX;
+          if (!(dx > 0)) continue;
+          if (dx < _crowdMinSpan) _crowdMinSpan = dx;
+          // Clearance in bp at literal unitsize between adjacent labels in
+          // the same row.  Negative = overlap; small positive = visually
+          // cramped.  3bp matches roughly one space-width at 10–12pt.
+          const gapBp = dx * unitScale - (a.widthBp + b.widthBp) / 2;
+          if (gapBp < 3) _crowdNeeded = true;
         }
       }
     }
     // bpPerGap we want at the final scale (≥20bp keeps KaTeX subscripts clear).
-    const _crowdRequiresBoost = isFinite(_crowdMinSpan) &&
+    const _crowdRequiresBoost = _crowdNeeded && isFinite(_crowdMinSpan) &&
       (_crowdMinSpan * unitScale) < 20;
     // Skip the boost when the geometry is tiny but labels already expand the
     // bbox far beyond it (e.g. unitsize(15) drawing a 1×1 unit vector with a
