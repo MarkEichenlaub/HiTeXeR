@@ -15121,9 +15121,12 @@ function renderSVG(result, opts) {
     const naturalW = scaleRefW * pxPerUnit;
     const naturalH = scaleRefH * pxPerUnit;
     const maxNatural = Math.max(naturalW, naturalH);
-    // Only boost when size() is so small (< 60bp ≈ 2.1cm) that the geometry
-    // becomes essentially invisible. Boost to 150bp to match no-size default.
-    if (minTarget < 60 && maxNatural < 60) {
+    // Only boost when size() is so small that the geometry becomes essentially
+    // invisible. Empirically, TeXeR honours size(N) literally for N≥~5bp
+    // (e.g. size(20) → 70px ≈ 21bp; size(50) → 170px ≈ 51bp; size(40) → 137px
+    // ≈ 41bp), but boosts very small dimensional sizes like size(0.5mm)=1.42bp
+    // up to ~200bp (677px). Match that: only boost when size() is below ~5bp.
+    if (minTarget < 5 && maxNatural < 5) {
       const boostTarget = 150;
       const boostScale = boostTarget / Math.max(scaleRefW, scaleRefH) / pxPerUnit;
       pxPerUnit *= boostScale;
