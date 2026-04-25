@@ -8053,7 +8053,11 @@ function createInterpreter() {
           if ('pen' in a) pen = a.pen;
           if ('above' in a) above = !!a.above;
           if ('axis' in a) {
-            const ax = a.axis;
+            let ax = a.axis;
+            // axis specifiers like Bottom/Top/Left/Right/BottomTop/XZero are
+            // bound as zero-arg constructor functions; call them to materialize
+            // the underlying _tag='axisextent' or _tag='axisshift' object.
+            if (typeof ax === 'function') { try { ax = ax(); } catch(e) {} }
             if (ax && ax._tag === 'axisshift' && ax.axis === 'x') { axisShiftY = ax.value; axisShiftYExplicit = true; }
             else if (ax && ax._tag === 'axisextent') extent = ax.type;
           }
@@ -8204,8 +8208,14 @@ function createInterpreter() {
       // Frame-style extent: primary axis at edge, mirror on opposite edge.
       const xIsBottomTop = extent === 'BottomTop' || extent === 'TopBottom';
       const xIsTopPrimary = extent === 'TopBottom';
+      const xIsBottomSide = extent === 'Bottom';
+      const xIsTopSide = extent === 'Top';
       if (xIsBottomTop && !axisShiftYExplicit) {
         axisShiftY = xIsTopPrimary ? crossMax : crossMin;
+      } else if ((xIsBottomSide || xIsTopSide) && !axisShiftYExplicit) {
+        // Single-side extent: position axis at the bottom/top edge of the
+        // y-range (no mirror axis).
+        axisShiftY = xIsTopSide ? crossMax : crossMin;
       }
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
@@ -8286,7 +8296,11 @@ function createInterpreter() {
           if ('pen' in a) pen = a.pen;
           if ('above' in a) above = !!a.above;
           if ('axis' in a) {
-            const ax = a.axis;
+            let ax = a.axis;
+            // axis specifiers like Bottom/Top/Left/Right/BottomTop/XZero are
+            // bound as zero-arg constructor functions; call them to materialize
+            // the underlying _tag='axisextent' or _tag='axisshift' object.
+            if (typeof ax === 'function') { try { ax = ax(); } catch(e) {} }
             if (ax && ax._tag === 'axisshift' && ax.axis === 'y') { axisShiftX = ax.value; axisShiftXExplicit = true; }
             else if (ax && ax._tag === 'axisextent') extent = ax.type;
           }
