@@ -7939,10 +7939,37 @@ function createInterpreter() {
             // Pick largest divisor count that doesn't overcrowd
             // Asymptote targets roughly 4-8 major ticks
             step = (b - a);
+            let stepFound = false;
             for (let i = divs.length - 1; i >= 0; i--) {
               const N = divs[i];
               const s = (b - a) / N;
-              if (N >= 2 && N <= 10) { step = s; break; }
+              if (N >= 2 && N <= 10) { step = s; stepFound = true; break; }
+            }
+            // Fallback: when (b-a) has no divisor giving 2..10 major ticks
+            // (e.g. b-a is a large prime like 11 or 13), don't degenerate to
+            // step=range (one tick at each end). Use the same nice-step
+            // (1/2/5 × 10^k) algorithm Asymptote falls back to so we get a
+            // sensible 4-8 ticks across the visible range.
+            if (!stepFound && range > 0) {
+              const rough = range / 5;
+              const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+              const f = rough / mag;
+              step = (f <= 1.5 ? 1 : f <= 3.5 ? 2 : f <= 7.5 ? 5 : 10) * mag;
+            }
+            // When the user explicitly provided a minor sub-step (e.g.
+            // Ticks(NoZeroFormat, step=1)) and the auto-picked major step
+            // equals that minor sub-step, every minor position becomes a
+            // labeled major. Asymptote's behavior in this idiom is to make
+            // the major step a multiple of the minor step that yields ~5
+            // major ticks across the visible range. Pick the smallest
+            // multiplier (from 1/2/5/10 × subStep) that gives <= ~5 majors.
+            if (ticks.subStep > 0 && Math.abs(step - ticks.subStep) < 1e-9) {
+              const subS = ticks.subStep;
+              for (const mult of [2, 5, 10]) {
+                const cand = mult * subS;
+                const nMaj = Math.floor((max - min) / cand) + 1;
+                if (nMaj <= 5) { step = cand; break; }
+              }
             }
           } else if (range > 0) {
             // Sub-integer range (e.g. 0..0.4): pick a "nice" step using
@@ -7965,8 +7992,21 @@ function createInterpreter() {
       // Compute sub-tick positions (minor ticks between major ticks)
       let minorPositions = [];
       if (!isExtend) {
-        // Only draw minor ticks when an explicit sub-step was requested (Asymptote default N=0 means no minor ticks)
-        const subN = ticks.subStep > 0 ? Math.round(step / ticks.subStep) : 1;
+        // Asymptote's autominor: when both major Step and minor step are
+        // 0 (auto), it auto-picks sub-divisions per major interval. Mirror
+        // this only for "nice" auto-picked major steps so we don't introduce
+        // minor ticks where users gave an explicit non-multiple major step.
+        let effSubStep = ticks.subStep;
+        if (effSubStep <= 0 && ticks.step <= 0 && !ticks.positions) {
+          // Mantissa of step (ignoring power-of-10 magnitude)
+          const _mag = Math.pow(10, Math.floor(Math.log10(step)));
+          const _f = step / _mag;
+          if (Math.abs(_f - 2) < 1e-6) effSubStep = step / 2;       // step=2 → sub at every 1
+          else if (Math.abs(_f - 5) < 1e-6) effSubStep = step / 5;  // step=5 → sub at every 1
+          else if (Math.abs(_f - 1) < 1e-6) effSubStep = step / 2;  // step=1 → sub at every 0.5
+          else if (Math.abs(_f - 10) < 1e-6) effSubStep = step / 2; // step=10 → sub at every 5
+        }
+        const subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
         if (subN > 1) {
           const subStep = step / subN;
           for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
