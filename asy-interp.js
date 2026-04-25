@@ -6008,10 +6008,11 @@ function createInterpreter() {
       }
       const pic = {_tag:'picture', commands:[], transform: null};
       if (!g || g.segs.length === 0) return pic;
-      const msf = env.get('markscalefactor') || 0.03;
-      // Tick half-length in geo units. Asymptote's default tick size is ~5bp;
-      // scale it with markscalefactor so it matches visual scale of anglemark.
-      const tickHalf = msf * s * 0.6;
+      // Asymptote markers.asy default tick size is 3bp (ticksize=3). Emit ticks
+      // as marker commands so they render at a fixed bp size regardless of the
+      // surrounding picture's geo scale. Each tick is a short line in bp space
+      // centered at the tick position on the path.
+      const tickHalfBp = 3 * s; // 3bp per side → 6bp total tick length
       // Spacing between consecutive ticks along path (arclength fraction).
       const spacing = r; // 'r' here is treated as spacing parameter per olympiad usage.
       const nT = Math.max(1, Math.round(n));
@@ -6025,12 +6026,22 @@ function createInterpreter() {
         const time = frac * N;
         const pt = _pointOnPath(g, time);
         const tan = _dirOnPath(g, time);
-        // perpendicular direction (rotate 90°)
-        const perpX = -tan.y, perpY = tan.x;
-        const p1 = makePair(pt.x + perpX * tickHalf, pt.y + perpY * tickHalf);
-        const p2 = makePair(pt.x - perpX * tickHalf, pt.y - perpY * tickHalf);
+        // perpendicular direction in bp space (rotate tangent 90°). Tangent
+        // is in user units; we only need the angle, so normalize.
+        const tlen = Math.sqrt(tan.x*tan.x + tan.y*tan.y) || 1;
+        const perpX = -tan.y / tlen, perpY = tan.x / tlen;
+        // Marker path coords are in bp. Y is flipped by the marker renderer
+        // (it does `svgCY - s.p0.y * cssPixel`), so use perpY as-is.
+        const p1 = makePair(perpX * tickHalfBp, perpY * tickHalfBp);
+        const p2 = makePair(-perpX * tickHalfBp, -perpY * tickHalfBp);
         const tp = makePath([lineSegment(p1, p2)], false);
-        pic.commands.push({cmd:'draw', path:tp, pen:clonePen(pen), arrow:null, line:0});
+        pic.commands.push({
+          cmd:'marker',
+          pos: makePair(pt.x, pt.y),
+          markerPath: tp,
+          pen: clonePen(pen),
+          line: 0,
+        });
       }
       return pic;
     });
@@ -6387,10 +6398,18 @@ function createInterpreter() {
       'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars','None'];
     for (const name of arrowNames) {
       env.set(name, (...args) => {
-        // Arrow(arrowhead, real size) — first arg may be a null arrowhead type (TeXHead etc.)
-        // If an explicit null is passed as the first positional arg (from TeXHead/HookHead/
-        // SimpleHead tokens), use TeX-style arrowhead rendering.
-        const hasNullHead = args.length > 0 && args[0] === null;
+        // Arrow(arrowhead, real size) — first arg may be a null arrowhead
+        // type (legacy) or an arrowhead sentinel object (TeXHead, HookHead,
+        // SimpleHead, DefaultHead). TeXHead/HookHead both use the thin
+        // chevron glyph; HookHead just uses a fixed default size (5bp) instead
+        // of the pen-derived TeXHead size.
+        let headKind = null;
+        for (const a of args) {
+          if (a === null) { headKind = 'TeXHead'; break; }
+          if (a && typeof a === 'object' && a._tag === 'arrowhead') {
+            headKind = a.kind; break;
+          }
+        }
         // Regular Arrow default: 6bp. TeXHead default is computed at draw time
         // from the pen linewidth: size = 2.1 * arrowtexfactor * linewidth(p),
         // matching Asymptote's plain_arrows.asy TeXHead.size definition.
@@ -6400,7 +6419,14 @@ function createInterpreter() {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
         }
         const out = {_tag:'arrow', style:name, size: sz, sizeExplicit};
-        if (hasNullHead) out.texHead = true;
+        if (headKind === 'TeXHead') out.texHead = true;
+        else if (headKind === 'HookHead') {
+          // HookHead: render the TeX-style chevron glyph, but at a normal
+          // fixed size (~5bp) rather than the pen-derived 2.1*lw used for TeXHead.
+          out.texHead = true;
+          if (!sizeExplicit) { out.size = 5; out.sizeExplicit = true; }
+        }
+        else if (headKind) out.headKind = headKind;
         return out;
       });
     }
@@ -6465,10 +6491,14 @@ function createInterpreter() {
       return args[0];
     });
 
-    // Arrow head types
-    env.set('TeXHead', null);
-    env.set('HookHead', null);
-    env.set('SimpleHead', null);
+    // Arrow head types — sentinel objects so callers like ArcArrows(HookHead)
+    // can distinguish which glyph style was requested. TeXHead is the thin
+    // pen-derived TeX arrow; HookHead/SimpleHead/DefaultHead are normal-sized
+    // filled glyphs.
+    env.set('TeXHead', {_tag:'arrowhead', kind:'TeXHead'});
+    env.set('HookHead', {_tag:'arrowhead', kind:'HookHead'});
+    env.set('SimpleHead', {_tag:'arrowhead', kind:'SimpleHead'});
+    env.set('DefaultHead', {_tag:'arrowhead', kind:'DefaultHead'});
 
     // markangle: draws an angle arc at vertex B from ray BA to ray BC
     // Signature: markangle(Label L="", int n=1, real r=0, real d=0, pen p=currentpen,
