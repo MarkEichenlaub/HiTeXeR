@@ -16128,11 +16128,29 @@ function renderSVG(result, opts) {
     if (dR > prev) dotRadiusAtPos.set(key, dR);
   }
 
+  // For auto-scaled diagrams (no unitsize, no size) with high aspect ratios,
+  // default-pen strokes (0.5bp) render visibly thinner than AoPS TeXeR's
+  // reference because the diagram is squashed in one dimension after the
+  // SSIM-pipeline's trim+resize-to-common-bbox step compresses the long axis.
+  // Boost stroke width for non-explicit pens on high-aspect auto-scaled
+  // diagrams so the rendered weight matches REF.  Explicit pens (e.g. black+2)
+  // keep their literal width.  Square diagrams (aspect ~1) are unaffected.
+  let _autoScaledStrokeBoost = 1.0;
+  if (isAutoScaled) {
+    const _w = (maxX - minX) || 1;
+    const _h = (maxY - minY) || 1;
+    const _aspect = Math.max(_w, _h) / Math.min(_w, _h);
+    // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
+    _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
+  }
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= bpCSSPixel;
+    if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit) {
+      css.strokeWidth *= _autoScaledStrokeBoost;
+    }
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
     const elsBefore = elements.length;
