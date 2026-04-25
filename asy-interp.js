@@ -17545,15 +17545,21 @@ function pathToD(path, minX, maxY, scaleX, scaleY) {
 }
 
 function isLinear(seg) {
-  // Check if control points are on the line between endpoints
+  // Check if control points are on the line between endpoints.
+  // Threshold is relative to chord length (with small absolute floor) so that
+  // diagrams with very small unitsizes (e.g. arcs of radius ~0.025 in user
+  // coords) still get rendered as curves rather than getting flattened to
+  // straight L commands. A genuine arc segment has dist/chord ≈ 0.27 for a
+  // 90° span, so 1% of chord is well within the curved regime.
   const dx = seg.p3.x-seg.p0.x, dy = seg.p3.y-seg.p0.y;
   const d = Math.sqrt(dx*dx+dy*dy);
   if (d < 1e-12) return true;
+  const tol = Math.max(1e-9, 0.01 * d);
   for (const cp of [seg.cp1, seg.cp2]) {
     const t = ((cp.x-seg.p0.x)*dx+(cp.y-seg.p0.y)*dy)/(d*d);
     const px = seg.p0.x+t*dx, py = seg.p0.y+t*dy;
     const dist = Math.sqrt((cp.x-px)*(cp.x-px)+(cp.y-py)*(cp.y-py));
-    if (dist > 0.01) return false;
+    if (dist > tol) return false;
   }
   return true;
 }
