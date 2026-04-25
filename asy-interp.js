@@ -15888,7 +15888,12 @@ function renderSVG(result, opts) {
     // at unitsize(0.2mm)) where both dims are small and the boost is needed.
     const _natMin = Math.min(naturalW, naturalH);
     const _natMax = Math.max(naturalW, naturalH);
-    const is1DDegenerate = (_natMax > 0) && (_natMin * 5 < _natMax);
+    // Only skip the boost when the small axis is truly tiny (< ~2bp, basically a
+    // bare 1D path) — a 5× aspect alone isn't enough, since legitimate wide
+    // diagrams (e.g. a vector diagram with one short and one long arrow at
+    // unitsize=0.2cm) have ratios in that range and DO need the boost to
+    // reach TeXeR's expected scale.
+    const is1DDegenerate = (_natMax > 0) && (_natMin * 5 < _natMax) && (_natMin < 2);
     // Pre-compute horizontal label crowding: if ≥4 labels share a y-row with
     // small x-spacing AND the labels would visibly crowd at literal unitsize,
     // the diagram needs a larger boost even when the label-expanded bbox
