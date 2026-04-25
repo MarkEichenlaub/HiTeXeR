@@ -5328,29 +5328,370 @@ function createInterpreter() {
       return makePath(rev, p.closed);
     });
 
-    // buildcycle: construct closed region from multiple paths
-    env.set('buildcycle', (...paths) => {
-      // Concatenate all paths into one closed path
-      // For the common case of 2 paths that share endpoints,
-      // join them end-to-end and close
-      const allSegs = [];
-      for (const p of paths) {
-        if (!isPath(p)) continue;
-        const segs = p.segs;
-        if (segs.length === 0) continue;
-        // If there's a gap between previous end and this start, add a line segment
-        if (allSegs.length > 0) {
-          const prev = allSegs[allSegs.length - 1];
-          const next = segs[0];
-          const dx = prev.p3.x - next.p0.x, dy = prev.p3.y - next.p0.y;
-          if (dx*dx + dy*dy > 1e-6) {
-            allSegs.push(lineSegment(prev.p3, next.p0));
+    // buildcycle: construct the innermost cyclic path bounded by the given
+    // input paths. Walks each path between its intersections with its
+    // neighbors, choosing arcs/intersections that minimize the enclosed area.
+    env.set('buildcycle', (...rawPaths) => {
+      const paths = rawPaths.map(geoToPath).filter(p => isPath(p) && p.segs.length > 0);
+      const n = paths.length;
+      if (n === 0) return makePath([], true);
+      if (n === 1) {
+        // Just close the single path
+        return makePath(paths[0].segs.slice(), true);
+      }
+      if (n === 2) {
+        // 2-path buildcycle: lens between two paths.
+        // Find two intersections; build cycle as subpath(g1, t1a, t1b) ++ subpath(g2, t2b, t2a).
+        const ips = _bcIntersections(paths[0], paths[1]);
+        if (ips.length < 2) {
+          // Fallback: concatenate
+          const segs = [];
+          for (const p of paths) for (const s of p.segs) segs.push(s);
+          return makePath(segs, true);
+        }
+        // Try the first two intersections
+        const candidates = [];
+        for (let i = 0; i < ips.length; i++) {
+          for (let j = i+1; j < ips.length; j++) {
+            const ipA = ips[i], ipB = ips[j];
+            // 4 ways to pick arc directions on each path
+            for (let f1 = 0; f1 < 2; f1++) {
+              for (let f2 = 0; f2 < 2; f2++) {
+                const sub1 = _bcSubarc(paths[0], ipA.t1, ipB.t1, f1 === 1);
+                const sub2 = _bcSubarc(paths[1], ipB.t2, ipA.t2, f2 === 1);
+                const segs = sub1.concat(sub2);
+                if (segs.length === 0) continue;
+                const area = Math.abs(_bcSignedArea(segs));
+                if (area > 1e-9) candidates.push({ segs, area });
+              }
+            }
           }
         }
-        for (const s of segs) allSegs.push(s);
+        if (candidates.length === 0) {
+          const segs = [];
+          for (const p of paths) for (const s of p.segs) segs.push(s);
+          return makePath(segs, true);
+        }
+        candidates.sort((a, b) => a.area - b.area);
+        return makePath(candidates[0].segs, true);
       }
-      return makePath(allSegs, true);
+      // General n-path case (n >= 3):
+      // For each consecutive pair (i, i+1) mod n, find intersections.
+      // Each path g_i is walked from its intersection with g_{i-1} to its
+      // intersection with g_{i+1}. Enumerate combinations and pick the
+      // candidate with smallest positive enclosed area.
+      const pairIPs = [];
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const ips = _bcIntersections(paths[i], paths[j]);
+        if (ips.length === 0) {
+          // No intersection between consecutive — fallback to concat.
+          const segs = [];
+          for (const p of paths) for (const s of p.segs) segs.push(s);
+          return makePath(segs, true);
+        }
+        pairIPs.push(ips);
+      }
+      // Enumerate: at each pair junction j (between path j and j+1), pick
+      // one of pairIPs[j].length intersections; for each path, pick one of
+      // 2 arc directions.
+      const choiceCounts = pairIPs.map(ips => ips.length);
+      // Cap explosion: if too many, take only first 3 ips per junction
+      const cappedCounts = choiceCounts.map(c => Math.min(c, 3));
+      // Collect ALL valid candidates, then pick using MetaPost's rule:
+      // among cycles whose interior does NOT contain any of the OTHER
+      // intersection points (between non-adjacent paths or extra crossings),
+      // prefer the largest-area such cycle; fall back to smallest.
+      const allCandidates = [];
+      const ipChoice2 = new Array(n).fill(0);
+      function recurseIP2(idx) {
+        if (idx === n) {
+          const dirs = new Array(n).fill(0);
+          for (let m = 0; m < (1 << n); m++) {
+            for (let k = 0; k < n; k++) dirs[k] = (m >> k) & 1;
+            const segs = [];
+            const corners = [];
+            let ok = true;
+            for (let k = 0; k < n; k++) {
+              const inJ = (k + n - 1) % n;
+              const outJ = k;
+              const ipIn = pairIPs[inJ][ipChoice2[inJ]];
+              const ipOut = pairIPs[outJ][ipChoice2[outJ]];
+              const tIn = ipIn.t2;
+              const tOut = ipOut.t1;
+              const sub = _bcSubarc(paths[k], tIn, tOut, dirs[k] === 1);
+              if (sub.length === 0) { ok = false; break; }
+              for (const s of sub) segs.push(s);
+              corners.push(ipIn.pt);
+            }
+            if (!ok || segs.length === 0) continue;
+            const sa = _bcSignedArea(segs);
+            const area = Math.abs(sa);
+            if (area < 1e-9) continue;
+            allCandidates.push({ segs, area, corners, ipChoice: ipChoice2.slice() });
+          }
+          return;
+        }
+        for (let i = 0; i < cappedCounts[idx]; i++) {
+          ipChoice2[idx] = i;
+          recurseIP2(idx + 1);
+        }
+      }
+      recurseIP2(0);
+      if (allCandidates.length === 0) {
+        const segs = [];
+        for (const p of paths) for (const s of p.segs) segs.push(s);
+        return makePath(segs, true);
+      }
+      // Helper: point-in-polygon test on a sampled boundary
+      function _bcContains(segs, q) {
+        const N = 12;
+        const pts = [];
+        for (const s of segs) {
+          for (let kk = 0; kk < N; kk++) {
+            const t = kk / N;
+            const u = 1 - t;
+            const x = u*u*u*s.p0.x + 3*u*u*t*s.cp1.x + 3*u*t*t*s.cp2.x + t*t*t*s.p3.x;
+            const y = u*u*u*s.p0.y + 3*u*u*t*s.cp1.y + 3*u*t*t*s.cp2.y + t*t*t*s.p3.y;
+            pts.push({x, y});
+          }
+        }
+        let inside = false;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+          const intersect = ((yi > q.y) !== (yj > q.y)) &&
+            (q.x < (xj - xi) * (q.y - yi) / ((yj - yi) || 1e-12) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+      // Collect all intersection points among input paths (any pair)
+      const allIPpts = [];
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const ips = (j === (i + 1) % n) ? pairIPs[i] : _bcIntersections(paths[i], paths[j]);
+          for (const ip of ips) allIPpts.push(ip.pt);
+        }
+      }
+      // Score: prefer cycles whose interior excludes all "non-corner" intersections.
+      // Among those, take the cycle that contains the centroid of the input
+      // paths' centers (i.e., the cycle around the common region).
+      function pathCenter(p) {
+        let cx = 0, cy = 0, ct = 0;
+        for (const s of p.segs) { cx += s.p0.x; cy += s.p0.y; ct++; }
+        return ct ? {x: cx/ct, y: cy/ct} : {x:0,y:0};
+      }
+      let cx = 0, cy = 0;
+      for (const p of paths) { const c = pathCenter(p); cx += c.x; cy += c.y; }
+      cx /= n; cy /= n;
+      const centroid = {x: cx, y: cy};
+      // Filter: candidates that contain the centroid
+      const containsCent = allCandidates.filter(c => _bcContains(c.segs, centroid));
+      const pool = containsCent.length > 0 ? containsCent : allCandidates;
+      // Among pool, prefer cycles whose interior excludes all non-corner ips
+      function isCornerOf(pt, corners) {
+        for (const c of corners) {
+          if (Math.abs(c.x - pt.x) < 1e-3 && Math.abs(c.y - pt.y) < 1e-3) return true;
+        }
+        return false;
+      }
+      const clean = pool.filter(c => {
+        for (const ip of allIPpts) {
+          if (isCornerOf(ip, c.corners)) continue;
+          if (_bcContains(c.segs, ip)) return false;
+        }
+        return true;
+      });
+      const finalPool = clean.length > 0 ? clean : pool;
+      // Pick the SMALLEST area in the final pool. The "innermost" cycle (the
+      // central region surrounded by all input paths) is the standard
+      // Asymptote/MetaPost interpretation for buildcycle when the inputs
+      // mutually intersect — e.g., the triple-intersection Reuleaux for 3
+      // overlapping circles.
+      finalPool.sort((a, b) => a.area - b.area);
+      return makePath(finalPool[0].segs, true);
     });
+
+    // Helpers for buildcycle.
+    // Find all intersections between two paths, returning {pt, t1, t2}.
+    function _bcIntersections(p1, p2) {
+      const out = [];
+      for (let i = 0; i < p1.segs.length; i++) {
+        for (let j = 0; j < p2.segs.length; j++) {
+          const ips = _bcSegSegAll(p1.segs[i], p2.segs[j]);
+          for (const ip of ips) {
+            const t1 = i + ip.u;
+            const t2 = j + ip.v;
+            // Dedup
+            let dup = false;
+            for (const e of out) {
+              if (Math.abs(e.t1 - t1) < 1e-3 && Math.abs(e.t2 - t2) < 1e-3) { dup = true; break; }
+              if (Math.abs(e.pt.x - ip.pt.x) < 1e-4 && Math.abs(e.pt.y - ip.pt.y) < 1e-4) { dup = true; break; }
+            }
+            if (!dup) out.push({ pt: ip.pt, t1, t2 });
+          }
+        }
+      }
+      return out;
+    }
+    // Bezier-bezier intersection that returns parameters u in [0,1] on s1 and
+    // v in [0,1] on s2 along with the point.
+    function _bcSegSegAll(s1, s2) {
+      function bbox(seg) {
+        const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
+        const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
+        return {
+          minX: Math.min.apply(null, xs), maxX: Math.max.apply(null, xs),
+          minY: Math.min.apply(null, ys), maxY: Math.max.apply(null, ys),
+        };
+      }
+      function overlap(a, b, tol) {
+        return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
+               a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
+      }
+      function subdivide(seg, t) {
+        const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
+        const u = 1 - t;
+        const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
+        const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
+        const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
+        const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
+        const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
+        const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
+        return [makeSeg(p0, q0, r0, s0), makeSeg(s0, r1, q2, p3)];
+      }
+      function size(seg) {
+        return Math.abs(seg.p3.x - seg.p0.x) + Math.abs(seg.p3.y - seg.p0.y);
+      }
+      const tol = 1e-4;
+      const out = [];
+      function rec(a, b, u0, u1, v0, v1, depth) {
+        if (!overlap(bbox(a), bbox(b), tol)) return;
+        if (depth > 40 || (size(a) < tol && size(b) < tol)) {
+          const um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
+          const px = (a.p0.x + a.p3.x + b.p0.x + b.p3.x) / 4;
+          const py = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
+          for (const e of out) {
+            if (Math.abs(e.u - um) < 5e-3 && Math.abs(e.v - vm) < 5e-3) return;
+            if (Math.abs(e.pt.x - px) < 1e-3 && Math.abs(e.pt.y - py) < 1e-3) return;
+          }
+          out.push({ u: um, v: vm, pt: makePair(px, py) });
+          return;
+        }
+        if (size(a) >= size(b)) {
+          const sp = subdivide(a, 0.5);
+          const um = (u0 + u1) / 2;
+          rec(sp[0], b, u0, um, v0, v1, depth + 1);
+          rec(sp[1], b, um, u1, v0, v1, depth + 1);
+        } else {
+          const sp = subdivide(b, 0.5);
+          const vm = (v0 + v1) / 2;
+          rec(a, sp[0], u0, u1, v0, vm, depth + 1);
+          rec(a, sp[1], u0, u1, vm, v1, depth + 1);
+        }
+      }
+      rec(s1, s2, 0, 1, 0, 1, 0);
+      return out;
+    }
+    // Walk subpath of p from parameter ta to tb. If "wrap" is true, go the
+    // long way around (only meaningful for closed paths). Returns array of segs.
+    function _bcSubarc(p, ta, tb, wrap) {
+      const n = p.segs.length;
+      if (n === 0) return [];
+      function splitSeg(seg, t) {
+        const u = 1 - t;
+        const a1 = {x: u*seg.p0.x + t*seg.cp1.x, y: u*seg.p0.y + t*seg.cp1.y};
+        const a2 = {x: u*seg.cp1.x + t*seg.cp2.x, y: u*seg.cp1.y + t*seg.cp2.y};
+        const a3 = {x: u*seg.cp2.x + t*seg.p3.x, y: u*seg.cp2.y + t*seg.p3.y};
+        const b1 = {x: u*a1.x + t*a2.x, y: u*a1.y + t*a2.y};
+        const b2 = {x: u*a2.x + t*a3.x, y: u*a2.y + t*a3.y};
+        const c1 = {x: u*b1.x + t*b2.x, y: u*b1.y + t*b2.y};
+        return [makeSeg(seg.p0, a1, b1, c1), makeSeg(c1, b2, a3, seg.p3)];
+      }
+      function forward(p, ta, tb) {
+        // ta, tb in [0, n]; walk forward from ta to tb. If tb < ta and path
+        // is closed, wrap through 0.
+        const segs = [];
+        const closed = !!p.closed;
+        if (tb >= ta) {
+          // walk ta → tb directly
+          let t = ta;
+          while (t < tb - 1e-9) {
+            const i = Math.floor(t);
+            if (i >= n) break;
+            const fStart = t - i;
+            const tEnd = Math.min(tb, i + 1);
+            const fEnd = tEnd - i;
+            let seg = p.segs[i];
+            if (fStart > 1e-9) seg = splitSeg(seg, fStart)[1];
+            const remap = fStart > 1e-9 ? (fEnd - fStart) / (1 - fStart) : fEnd;
+            if (remap < 1 - 1e-9) seg = splitSeg(seg, remap)[0];
+            segs.push(seg);
+            t = tEnd;
+          }
+        } else {
+          // tb < ta — for closed path, wrap through end
+          if (!closed) return [];
+          // first ta → n
+          const a = forward(p, ta, n);
+          const b = forward(p, 0, tb);
+          for (const s of a) segs.push(s);
+          for (const s of b) segs.push(s);
+        }
+        return segs;
+      }
+      // Default (wrap=false): forward from ta to tb if tb>=ta, else wrap.
+      // wrap=true: take the OTHER arc (forward from tb to ta, then we need
+      // to reverse to keep direction-from-ta-to-tb consistent? Actually we
+      // want a path that GOES from point(ta) to point(tb), but along the
+      // "long way". So: forward from ta wrapping all the way around back to tb.
+      if (!wrap) {
+        if (tb >= ta) return forward(p, ta, tb);
+        if (p.closed) return forward(p, ta, tb); // forward handles wrap when tb<ta
+        return [];
+      } else {
+        // long way: walk from ta forward past tb's complement.
+        if (!p.closed) return [];
+        if (tb >= ta) {
+          // long way = ta → 0 (reversed) ... no, simpler: ta → end → 0 → tb is forward when tb<ta.
+          // For tb>=ta, "long way" = ta backward to tb = forward from ta wrapping all the way around.
+          // i.e., forward(p, ta, tb + n) — but our forward doesn't accept that. Equivalent:
+          // forward(p, ta, n) ++ forward(p, 0, tb)
+          const a = forward(p, ta, n);
+          const b = forward(p, 0, tb);
+          return a.concat(b);
+        } else {
+          // tb < ta: forward goes wrap (ta→n→0→tb). Long way is direct ta→tb backward, which
+          // we'd need reverse for. Instead: build forward(tb→ta) and reverse it.
+          const fwd = forward(p, tb, ta);
+          // reverse and flip each segment
+          const rev = fwd.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0));
+          return rev;
+        }
+      }
+    }
+    // Signed area enclosed by a closed polyline approximation of segs.
+    function _bcSignedArea(segs) {
+      // Sample each bezier at a few points
+      const N = 8;
+      const pts = [];
+      for (const s of segs) {
+        for (let k = 0; k < N; k++) {
+          const t = k / N;
+          const u = 1 - t;
+          const x = u*u*u*s.p0.x + 3*u*u*t*s.cp1.x + 3*u*t*t*s.cp2.x + t*t*t*s.p3.x;
+          const y = u*u*u*s.p0.y + 3*u*u*t*s.cp1.y + 3*u*t*t*s.cp2.y + t*t*t*s.p3.y;
+          pts.push({x, y});
+        }
+      }
+      if (pts.length < 3) return 0;
+      let a = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+      }
+      return a / 2;
+    }
 
     env.set('subpath', (p, a, b) => {
       p = geoToPath(p);
