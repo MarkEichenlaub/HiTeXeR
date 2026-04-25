@@ -7830,6 +7830,13 @@ function createInterpreter() {
               const s = (b - a) / N;
               if (N >= 2 && N <= 10) { step = s; break; }
             }
+          } else if (range > 0) {
+            // Sub-integer range (e.g. 0..0.4): pick a "nice" step using
+            // 1/2/5 × 10^k that yields ~4-8 ticks across the range.
+            const rough = range / 5;
+            const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+            const f = rough / mag;
+            step = (f <= 1.5 ? 1 : f <= 3.5 ? 2 : f <= 7.5 ? 5 : 10) * mag;
           } else {
             step = 1;
           }
@@ -8090,6 +8097,7 @@ function createInterpreter() {
             const r = a();
             if (r && r._tag === 'arrow') arrow = arrow || r;
             else if (r && r._tag === 'axisextent') extent = r.type;
+            else if (r && r._tag === 'ticks') ticks = ticks || r;
           } catch(e) {}
         }
         else if (a && a._tag === 'axisextent') { extent = a.type; }
@@ -8264,7 +8272,22 @@ function createInterpreter() {
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
         }
-        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0, _isAxisLabel: true});
+        // Asymptote's graph.asy autoshifts the axis label past tick labels so they
+        // don't overlap. For an x-axis with a label below, push the label down by
+        // the maximum tick-label height (screenDy positive = down in SVG).
+        let tickLabelClearance = 0;
+        if (labelAlign === null && lAlign.y !== 0) {
+          for (const c of pic.commands) {
+            if (c._isTickLabel && c.pos && Math.abs(c.pos.y - axisShiftY) < 1e-6) {
+              const fs = (c.pen && c.pen.fontsize) || 8;
+              const h = fs * 1.0 + 0.5 * fs;
+              if (h > tickLabelClearance) tickLabelClearance = h;
+            }
+          }
+        }
+        // Below axis: positive screenDy (down). Above axis: negative.
+        const sDy = lAlign.y < 0 ? tickLabelClearance : (lAlign.y > 0 ? -tickLabelClearance : 0);
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0, screenDy: sDy, _isAxisLabel: true});
         // If the label is below the axis (lAlign.y < 0), record that on the axis draw
         // command so yaxis() can extend its lower bound to include the label extent.
         if (_xaxisDrawCmd && lAlign.y < 0) {
@@ -8332,6 +8355,7 @@ function createInterpreter() {
             const r = a();
             if (r && r._tag === 'arrow') arrow = arrow || r;
             else if (r && r._tag === 'axisextent') extent = r.type;
+            else if (r && r._tag === 'ticks') ticks = ticks || r;
           } catch(e) {}
         }
         else if (a && a._tag === 'ticks') ticks = a;
@@ -8369,8 +8393,22 @@ function createInterpreter() {
           }
           if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
         }
-        if (ymin === null) ymin = isFinite(cMinY) ? cMinY : -5;
-        if (ymax === null) ymax = isFinite(cMaxY) ? cMaxY : 5;
+        let _yminFromContent = false, _ymaxFromContent = false;
+        if (ymin === null) { ymin = isFinite(cMinY) ? cMinY : -5; _yminFromContent = isFinite(cMinY); }
+        if (ymax === null) { ymax = isFinite(cMaxY) ? cMaxY : 5; _ymaxFromContent = isFinite(cMaxY); }
+        // Asymptote autoscale: round content-derived y limits outward to nice
+        // tick boundaries so the highest/lowest tick is included in the range.
+        // Only apply when the content cleanly starts/ends near zero (typical
+        // histogram case) so we don't drift y ranges for general function
+        // graphs whose pre-existing baseline assumes raw min/max.
+        if (!yminExplicit && !ymaxExplicit && _yminFromContent && _ymaxFromContent && cMaxY > cMinY && Math.abs(cMinY) < 1e-9) {
+          const _rawRange = cMaxY - cMinY;
+          const _roughStep = _rawRange / 10;
+          const _mag = Math.pow(10, Math.floor(Math.log10(_roughStep)));
+          const _f = _roughStep / _mag;
+          const _d = _f <= 1 ? _mag : _f <= 2 ? 2*_mag : _f <= 5 ? 5*_mag : 10*_mag;
+          ymax = Math.ceil(cMaxY / _d) * _d;
+        }
       }
       if (!pen) pen = clonePen(defaultPen);
       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
@@ -8401,13 +8439,26 @@ function createInterpreter() {
           if (!ymaxExplicit && c._axisShiftY > ymax) ymax = c._axisShiftY;
           // If the x-axis has a label below it, extend ymin to include the
           // approximate label bottom extent.  The extension is estimated as
-          // 0.5 * fontSize bp converted to user units via the x-axis width.
+          // 0.5 * fontSize bp converted to user units.  For IgnoreAspect
+          // plots — where the y-axis bp scale is independent of the x-axis
+          // bp scale and pic._sizeW may be 0 — use sizeH / yRange to compute
+          // bp-per-user-y so we don't get a runaway lower-bound extension.
+          // Otherwise keep the original x-derived heuristic to avoid layout
+          // drift on existing baseline renders.
           if (!yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
             const ay = c._axisLabelBelowAy;
             const fs = c._axisLabelFontSize || 10;
-            const xExtBp = Math.abs(c.path.segs[0].p3.x - c.path.segs[0].p0.x);
-            const roughScale = (pic._sizeW > 0 && xExtBp > 0) ? pic._sizeW / xExtBp : 13;
-            const extUser = Math.abs(ay) * 0.5 * fs / roughScale;
+            const ignoreAspect = (typeof keepAspect !== 'undefined') && !keepAspect;
+            let bpPerUserY;
+            const yRange = ymax - ymin;
+            const picSH = pic._sizeH || sizeH;
+            if (ignoreAspect && picSH > 0 && yRange > 0) {
+              bpPerUserY = picSH / yRange;
+            } else {
+              const xExtBp = Math.abs(c.path.segs[0].p3.x - c.path.segs[0].p0.x);
+              bpPerUserY = (pic._sizeW > 0 && xExtBp > 0) ? pic._sizeW / xExtBp : 13;
+            }
+            const extUser = Math.abs(ay) * 0.5 * fs / bpPerUserY;
             if (c._axisShiftY - extUser < ymin) ymin = c._axisShiftY - extUser;
           }
         }
