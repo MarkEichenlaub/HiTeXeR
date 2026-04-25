@@ -15453,9 +15453,17 @@ function renderSVG(result, opts) {
     const _labelDominatesTiny = unitScale >= 10
       && _natMaxSkip > 0 && _natMaxSkip <= 20
       && _fullNatMaxSkip >= 1.25 * _natMaxSkip;
+    // When size() is also explicitly set, the size() override above already
+    // computed the authoritative pxPerUnit (geometry scaled to fit size()).
+    // Skip the unitsize-only boost in that case — otherwise we overwrite the
+    // size()-driven scale with a unitScale-based one and the diagram renders
+    // at ~unitScale bp/unit instead of ~size()/geoBbox bp/unit (e.g. a 3D cube
+    // with size(7cm)+unitsize(1cm) ends up ~37px wide instead of ~660px).
+    const _sizeExplicit = sizeW > 0 || sizeH > 0;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && !_labelDominatesTiny
+        && !_sizeExplicit
         && naturalW < defaultSize && naturalH < defaultSize
         && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
