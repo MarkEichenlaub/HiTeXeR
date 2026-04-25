@@ -15815,12 +15815,23 @@ function renderSVG(result, opts) {
     // at ~unitScale bp/unit instead of ~size()/geoBbox bp/unit (e.g. a 3D cube
     // with size(7cm)+unitsize(1cm) ends up ~37px wide instead of ~660px).
     const _sizeExplicit = sizeW > 0 || sizeH > 0;
+    // Graph-package axis idiom: when xaxis()/yaxis() are used with a small
+    // cm-based unitsize and no explicit size(), real Asymptote/AoPS-TeXeR
+    // applies the graph package's default size (~150bp) so the resulting
+    // image isn't dominated by truesize labels (e.g. a 5×4 unit Riemann sum
+    // at unitsize(0.5cm) renders as ~280bp wide on TeXeR, not the literal
+    // ~71bp).  Detect this and boost.  Gated to unitScale [10,20) so we
+    // don't disturb mm-scale or larger cm-scale diagrams.
+    const _hasGraphAxis = drawCommands.some(dc => dc._isAxisLine);
+    const _graphAxisBoostNeeded = _hasGraphAxis
+      && unitScale >= 10 && unitScale < 20
+      && Math.max(fullNatW, fullNatH) < 100;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && !_labelDominatesTiny
         && !_sizeExplicit
         && naturalW < defaultSize && naturalH < defaultSize
-        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost)) {
+        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
       // labels at edge midpoints don't crowd each other.  Only applies when
