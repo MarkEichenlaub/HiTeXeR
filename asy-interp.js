@@ -16911,9 +16911,20 @@ function renderSVG(result, opts) {
     // Scale to fit the larger dimension to defaultSize, maintaining aspect ratio
     const maxDim = Math.max(scaleRefW2, scaleRefH2);
     pxPerUnit = defaultSize / maxDim;
+    // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
+    // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
+    // (rendered in absolute bp at fontSize) physically large compared to
+    // geometry features and overlap nearby strokes. TeXeR's empirical default
+    // for such diagrams matches roughly unitsize(0.25cm) = ~7 bp/unit, so
+    // labels remain proportional. Apply this floor only when the natural
+    // 150bp default would compress the geometry below ~3 bp/unit, leaving
+    // small-geometry diagrams (≤ 50 user units) untouched.
+    if (maxDim > 50 && pxPerUnit < 7) {
+      pxPerUnit = 7;
+    }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
-    sizeW = defaultSize;
-    sizeH = defaultSize;
+    sizeW = Math.max(defaultSize, scaleRefW2 * pxPerUnit);
+    sizeH = Math.max(defaultSize, scaleRefH2 * pxPerUnit);
     warnings.push('auto-scaled');
   }
 
