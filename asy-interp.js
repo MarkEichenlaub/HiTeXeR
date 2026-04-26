@@ -16352,8 +16352,19 @@ function renderSVG(result, opts) {
           if (hasClip && (pos.x < clipMinX || pos.x > clipMaxX || pos.y < clipMinY || pos.y > clipMaxY)) {
             // skip — outside clip region, will not appear in output
           } else {
-            // Compute bp-space dimensions (before rotation swap)
+            // Compute bp-space dimensions (before rotation swap).
+            // The actual rendering (Pass 2) sizes labels as effLen * fontSize * 0.52.
+            // For non-fraction labels, bbox must use this same width-floor so the
+            // SVG viewBox is wide enough to render the full label without raster
+            // cutoff (e.g. labels at the right edge of plots with NE alignment).
+            // _effLenBB already accounts for sub/superscript reduction, matching
+            // the actual rendering's _effLen so we don't over-expand for labels
+            // like "e^{2πi/5}" whose visual width is smaller than char count.
             let lWidthBp = textWidthBpBase;
+            if (!hasFrac) {
+              const _renderWidthBp = _effLenBB * fontSize * 0.52;
+              if (_renderWidthBp > lWidthBp) lWidthBp = _renderWidthBp;
+            }
             let lHeightBp = numLines * (hasFrac ? fontSize * heightFactor * 1.5 : fontSize * heightFactor);
             // For rotated labels, use the rotated bounding box dimensions
             if (Math.abs(ltAngle) > 0.5) {
