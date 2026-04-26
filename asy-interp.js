@@ -14584,6 +14584,17 @@ function createInterpreter() {
       if (a && typeof a === 'object' && a._tag === 'light' && !a.background &&
           Object.keys(a).length === 1) { _nolight = true; break; }
     }
+    // Also honor a global `currentlight = nolight` assignment: when the
+    // script-level currentlight has been rebound to the nolight sentinel
+    // (no .background, no other props), every draw(surface,...) call without
+    // its own explicit light arg should render unlit.
+    if (!_nolight) {
+      const _gl = globalEnv.get('currentlight');
+      if (_gl && typeof _gl === 'object' && _gl._tag === 'light' &&
+          !_gl.background && Object.keys(_gl).length === 1) {
+        _nolight = true;
+      }
+    }
     // Handle draw(mesh, pen) or draw(surface{mesh}, pen) — shaded, depth-sorted faces
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
