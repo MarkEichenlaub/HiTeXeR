@@ -16394,7 +16394,11 @@ function renderSVG(result, opts) {
               alignOffsetYBp,
               _text: text,
               _fontSize: fontSize,
-              _ltAngle: ltAngle
+              _ltAngle: ltAngle,
+              _axAl: _axAl,
+              _ayAl: _ayAl,
+              _screenDx: dc.screenDx || 0,
+              _screenDy: dc.screenDy || 0
             });
           }
         }
@@ -16813,9 +16817,75 @@ function renderSVG(result, opts) {
           finalExceed = mjxExceed;
         } else if (finalExceed > 1.005) {
           // Heuristic thought geometry+labels exceeded size() but measurement
-          // shows they actually fit. Update finalExceed so the label-dominated
-          // fallback doesn't fire — the heuristic solver's converged pxPerUnit
-          // is correct, and TeXer wouldn't reset to natural size in this case.
+          // shows they actually fit. The heuristic-converged pxPerUnit may
+          // be over-shrunk because heuristic over-estimated label widths.
+          // Re-iterate solver from preSolver scale using MEASURED widths
+          // so geometry fills size() correctly.
+          //
+          // Only do this when the measurement difference is significant —
+          // i.e. the heuristic was over-estimating widths. Update widthBp
+          // and alignOffset on labelInfoBp using measured values.
+          const _origWidths = labelInfoBp.map(li => ({w: li.widthBp, h: li.heightBp,
+                                                       aox: li.alignOffsetXBp, aoy: li.alignOffsetYBp}));
+          for (const li of labelInfoBp) {
+            try {
+              const m = measureFn(li._text, li._fontSize);
+              if (m && m.wBp > 0) {
+                let mw = m.wBp, mh = m.hBp;
+                if (Math.abs(li._ltAngle) > 0.5) {
+                  const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
+                  const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
+                  const rW = mw * cosA + mh * sinA;
+                  const rH = mw * sinA + mh * cosA;
+                  mw = rW; mh = rH;
+                }
+                li.widthBp = mw;
+                li.heightBp = mh;
+                if (li._axAl !== undefined && li._ayAl !== undefined) {
+                  const _ax = li._axAl, _ay = li._ayAl;
+                  const _aInf = Math.max(Math.abs(_ax), Math.abs(_ay));
+                  const _axN = _aInf > 0 ? (_ax * 0.5 / _aInf) : 0;
+                  const _ayN = _aInf > 0 ? (_ay * 0.5 / _aInf) : 0;
+                  let aoX = _axN * mw + _ax * 0.40 * li._fontSize;
+                  let aoY = _ayN * mh + _ay * 0.40 * li._fontSize;
+                  if (li._screenDx) aoX += li._screenDx;
+                  if (li._screenDy) aoY -= li._screenDy;
+                  li.alignOffsetXBp = aoX;
+                  li.alignOffsetYBp = aoY;
+                }
+              }
+            } catch (e) { /* ignore */ }
+          }
+          // Re-iterate from preSolver scale with measured widths.
+          pxPerUnit = preSolverPxPerUnit;
+          pxPerUnitX = preSolverPxPerUnitX;
+          pxPerUnitY = preSolverPxPerUnitY;
+          for (let iter = 0; iter < 5; iter++) {
+            let bMinX = geoMinX * pxPerUnitX;
+            let bMaxX = geoMaxX * pxPerUnitX;
+            let bMinY = geoMinY * pxPerUnitY;
+            let bMaxY = geoMaxY * pxPerUnitY;
+            for (const li of labelInfoBp) {
+              const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+              const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+              bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+              bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+              bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+              bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+            }
+            const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+            const eW = tgtW < Infinity ? tW / tgtW : 0;
+            const eH = tgtH < Infinity ? tH / tgtH : 0;
+            const e = Math.max(eW, eH);
+            if (e <= 1.005) break;
+            if (keepAspect || pxPerUnitX === pxPerUnitY) {
+              pxPerUnit = pxPerUnitX = pxPerUnitY = pxPerUnit / e;
+            } else {
+              if (eW > 1) pxPerUnitX /= eW;
+              if (eH > 1) pxPerUnitY /= eH;
+              pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+            }
+          }
           finalExceed = mjxExceed;
         }
       }
