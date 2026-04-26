@@ -462,6 +462,28 @@ async function runIteration(args, iter) {
   if (!target) { console.log('[run-loop] select-target returned DONE'); return 'done'; }
   console.log('[run-loop] target: ' + JSON.stringify({ id: target.id, family: target.familyKey, ssim: target.ssim }));
 
+  // ── Ensure TeXeR reference PNG is present ────────────────────────────────
+  // If the reference PNG is missing (e.g. after a machine reset that wiped
+  // comparison/texer_pngs/), fetch it now via AoPS TeXeR before the sub-agent
+  // runs. The sub-agent cannot do anything useful without the reference image.
+  const texerPngPath = path.join(ROOT, 'comparison', 'texer_pngs', target.id + '.png');
+  if (!fs.existsSync(texerPngPath)) {
+    console.log('[run-loop] texer PNG missing for ' + target.id + ' — fetching from AoPS TeXeR...');
+    const fetchScript = path.join(__dirname, 'fetch-texer-png.py');
+    const fetchR = cp.spawnSync('python', [fetchScript, target.id], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+      timeout: 120000,  // 2 min max per fetch
+    });
+    if (fetchR.status === 0 && fs.existsSync(texerPngPath)) {
+      console.log('[run-loop] texer PNG fetched OK for ' + target.id);
+    } else {
+      console.log('[run-loop] texer PNG fetch failed (status=' + fetchR.status +
+                  ') for ' + target.id + ' — sub-agent will likely log error; continuing');
+    }
+  }
+
   const preVersion = readVersion();
   const preCommit  = headCommitHash();
   const preChanges = gitTrackedChanges();
