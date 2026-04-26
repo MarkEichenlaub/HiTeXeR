@@ -5399,33 +5399,68 @@ function createInterpreter() {
       // 3D form: arc(triple center, triple v1, triple v2[, int n]) —
       // spherical-great-circle arc of radius |v1-center| from v1 to v2.
       // Returns a path with triple-valued Bezier segments (path3).
+      // Honors named direction= argument: direction=true (CCW, default) takes the
+      // short great-circle arc (angle θ); direction=false (CW) takes the
+      // complementary long arc (angle 2π−θ) on the same great circle.
       if (args.length >= 3 && isTriple(args[0]) && isTriple(args[1]) && isTriple(args[2])) {
         const c = args[0], v1 = args[1], v2 = args[2];
         const n = args.length >= 4 && typeof args[3] === 'number' ? Math.max(2, Math.floor(args[3])) : 8;
+        const longArc = (_namedDir !== undefined) ? !_namedDir : false;
         const ux = v1.x - c.x, uy = v1.y - c.y, uz = v1.z - c.z;
         const vx = v2.x - c.x, vy = v2.y - c.y, vz = v2.z - c.z;
         const ru = Math.sqrt(ux*ux + uy*uy + uz*uz) || 1;
         const rv = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
         const dot = (ux*vx + uy*vy + uz*vz) / (ru * rv);
         const theta = Math.acos(Math.max(-1, Math.min(1, dot)));
-        // slerp on unit vectors, scale by ru
         const samples = [];
         const nSamp = Math.max(n * 2, 16);
-        for (let i = 0; i <= nSamp; i++) {
-          const t = i / nSamp;
-          let px, py, pz;
-          if (theta < 1e-6) {
-            px = c.x + (1-t)*ux + t*vx;
-            py = c.y + (1-t)*uy + t*vy;
-            pz = c.z + (1-t)*uz + t*vz;
-          } else {
-            const s1 = Math.sin((1-t)*theta) / Math.sin(theta);
-            const s2 = Math.sin(t*theta) / Math.sin(theta);
-            px = c.x + ru * (s1 * ux/ru + s2 * vx/rv);
-            py = c.y + ru * (s1 * uy/ru + s2 * vy/rv);
-            pz = c.z + ru * (s1 * uz/ru + s2 * vz/rv);
+        if (!longArc) {
+          // slerp on unit vectors, scale by ru — short arc
+          for (let i = 0; i <= nSamp; i++) {
+            const t = i / nSamp;
+            let px, py, pz;
+            if (theta < 1e-6) {
+              px = c.x + (1-t)*ux + t*vx;
+              py = c.y + (1-t)*uy + t*vy;
+              pz = c.z + (1-t)*uz + t*vz;
+            } else {
+              const s1 = Math.sin((1-t)*theta) / Math.sin(theta);
+              const s2 = Math.sin(t*theta) / Math.sin(theta);
+              px = c.x + ru * (s1 * ux/ru + s2 * vx/rv);
+              py = c.y + ru * (s1 * uy/ru + s2 * vy/rv);
+              pz = c.z + ru * (s1 * uz/ru + s2 * vz/rv);
+            }
+            samples.push(makeTriple(px, py, pz));
           }
-          samples.push(makeTriple(px, py, pz));
+        } else {
+          // long (complementary) arc: traverse angle 2π−θ along same great circle,
+          // departing v1 in the direction OPPOSITE to v2 (within the v1,v2 plane).
+          // Build orthonormal in-plane basis: e1 along v1, w perpendicular in plane,
+          // pointing toward v2. Short arc rotates from e1 toward +w over angle θ.
+          // Long arc rotates from e1 toward −w over angle (2π−θ).
+          const e1x = ux/ru, e1y = uy/ru, e1z = uz/ru;
+          // v2_unit minus its component along e1, then normalize → +w direction
+          let wx = vx/rv - dot*e1x, wy = vy/rv - dot*e1y, wz = vz/rv - dot*e1z;
+          let wlen = Math.hypot(wx, wy, wz);
+          if (wlen < 1e-9) {
+            // antipodal v1, v2 (theta ≈ π): pick any perpendicular to e1.
+            const fb = Math.abs(e1x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:1,z:0};
+            const dotE = fb.x*e1x + fb.y*e1y + fb.z*e1z;
+            wx = fb.x - dotE*e1x; wy = fb.y - dotE*e1y; wz = fb.z - dotE*e1z;
+            wlen = Math.hypot(wx, wy, wz) || 1;
+          }
+          wx /= wlen; wy /= wlen; wz /= wlen;
+          const totalAngle = 2*Math.PI - theta;
+          for (let i = 0; i <= nSamp; i++) {
+            const t = i / nSamp;
+            // CW: rotate by -t*totalAngle so we leave e1 in the −w direction
+            const a = -t * totalAngle;
+            const ca = Math.cos(a), sa = Math.sin(a);
+            const px = c.x + ru * (ca*e1x + sa*wx);
+            const py = c.y + ru * (ca*e1y + sa*wy);
+            const pz = c.z + ru * (ca*e1z + sa*wz);
+            samples.push(makeTriple(px, py, pz));
+          }
         }
         const segs = [];
         for (let i = 0; i < samples.length - 1; i++) {
