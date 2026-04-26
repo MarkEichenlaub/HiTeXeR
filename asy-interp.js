@@ -5713,8 +5713,13 @@ function createInterpreter() {
               for (let f2 = 0; f2 < 2; f2++) {
                 const sub1 = _bcSubarc(paths[0], ipA.t1, ipB.t1, f1 === 1);
                 const sub2 = _bcSubarc(paths[1], ipB.t2, ipA.t2, f2 === 1);
+                // Both sub-arcs must be non-empty: a valid buildcycle is built
+                // from one arc of each path. If one is empty (e.g. wrap=true on
+                // a non-closed path returns []), concatenating with the non-empty
+                // sub-arc would yield a degenerate shape — just one path closed
+                // by a chord — which is not what buildcycle should produce.
+                if (sub1.length === 0 || sub2.length === 0) continue;
                 const segs = sub1.concat(sub2);
-                if (segs.length === 0) continue;
                 const area = Math.abs(_bcSignedArea(segs));
                 if (area > 1e-9) candidates.push({ segs, area });
               }
