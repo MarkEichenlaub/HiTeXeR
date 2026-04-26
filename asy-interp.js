@@ -18377,6 +18377,45 @@ function renderSVG(result, opts) {
       // Strip $...$ from simple math content (digits, letters, basic operators) so it
       // renders as SVG text instead of KaTeX foreignObject.  This avoids size/overlap
       // issues: foreignObject font-size is absolute CSS px and doesn't scale with the SVG.
+      // Convert xcolor-style \color[rgb]{r,g,b} (float 0-1 triplet) to \color{#hex} so
+      // KaTeX can render the colors natively.  Also handles [RGB]{0-255} and [HTML]{hex}.
+      if (/\\color\s*\[/.test(displayText)) {
+        displayText = displayText.replace(
+          /\\color\s*\[([A-Za-z]+)\]\s*\{([^}]*)\}/g,
+          (_m, model, values) => {
+            const m = model.toLowerCase();
+            if (m === 'rgb') {
+              const parts = values.split(',').map(v => parseFloat(v.trim()));
+              if (parts.length === 3 && parts.every(v => Number.isFinite(v))) {
+                const hex = '#' + parts.map(c => {
+                  const n = Math.max(0, Math.min(255, Math.round(c * 255)));
+                  return n.toString(16).padStart(2, '0');
+                }).join('');
+                return '\\color{' + hex + '}';
+              }
+            } else if (m === 'rgb255') {
+              const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+              if (parts.length === 3 && parts.every(v => Number.isFinite(v))) {
+                const hex = '#' + parts.map(c =>
+                  Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')
+                ).join('');
+                return '\\color{' + hex + '}';
+              }
+            } else if (m === 'html') {
+              const hex = values.trim().replace(/^#/, '');
+              if (/^[0-9a-fA-F]{6}$/.test(hex)) return '\\color{#' + hex + '}';
+            } else if (m === 'gray') {
+              const v = parseFloat(values.trim());
+              if (Number.isFinite(v)) {
+                const n = Math.max(0, Math.min(255, Math.round(v * 255)));
+                const hh = n.toString(16).padStart(2, '0');
+                return '\\color{#' + hh + hh + hh + '}';
+              }
+            }
+            return _m;
+          }
+        );
+      }
       // Convert \definecolor{name}{RGB}{r,g,b} to hex and replace \color{name}
       // with \color{#hex} so KaTeX can render the colors natively.
       if (/\\definecolor/.test(displayText)) {
@@ -18418,7 +18457,12 @@ function renderSVG(result, opts) {
         }
       }
 
-      const hasLaTeX = /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
+      // \color{#hex} (and converted xcolor forms) is not preserved by renderLaTeXSVG —
+      // it strips colors and paints with a single fill.  When a label uses \color
+      // alongside \sqrt/\frac/etc., route through KaTeX instead so per-segment
+      // colors render correctly.
+      const usesInlineColor = /\\color\s*\{/.test(displayText);
+      const hasLaTeX = !usesInlineColor && /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
       const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
 
       // Check if math content uses only LaTeX commands with known Unicode equivalents
@@ -18939,7 +18983,8 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   s = s.replace(/\\[ ~;,:!]/g, ' ');
   // Strip \definecolor{name}{model}{values} declarations (no visible output)
   s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
-  // Strip \color{name} commands, keeping surrounding text
+  // Strip \color[model]{values} (xcolor optional-arg form) and \color{name}, keeping surrounding text
+  s = s.replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '');
   s = s.replace(/\\color\s*\{[^}]*\}/g, '');
   // Strip \rm (font switch, not braced form)
   s = s.replace(/\\rm\b/g, '');
@@ -19606,7 +19651,8 @@ function stripLaTeX(text) {
   s = s.replace(/\\[ ~;,:!]/g, ' ');
   // Strip \definecolor{name}{model}{values} declarations (no visible output)
   s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
-  // Strip \color{name} commands, keeping surrounding text
+  // Strip \color[model]{values} (xcolor optional-arg form) and \color{name}, keeping surrounding text
+  s = s.replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '');
   s = s.replace(/\\color\s*\{[^}]*\}/g, '');
   // Strip \rm (font switch, not braced form)
   s = s.replace(/\\rm\b/g, '');
@@ -19671,8 +19717,9 @@ function _effectiveLabelCharCount(rawText) {
   // Spacing commands become a single space
   s = s.replace(/\\[ ~;,:!]/g, ' ');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
-  // Strip \color{...} / \definecolor{...} wrappers (non-visible)
+  // Strip \color{...} / \color[model]{...} / \definecolor{...} wrappers (non-visible)
   s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '');
   s = s.replace(/\\color\s*\{[^}]*\}/g, '');
   // Greek/symbol/operator commands collapse to ~one glyph each
   s = s.replace(/\\[a-zA-Z]+/g, 'X');
