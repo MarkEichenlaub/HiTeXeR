@@ -8645,6 +8645,10 @@ function createInterpreter() {
       // Track whether range was explicitly provided (vs auto-computed)
       const xminExplicit = xmin !== null;
       const xmaxExplicit = xmax !== null;
+      let _xminFromContent = false, _xmaxFromContent = false;
+      // Track whether xmin/xmax was supplied by xlimits()/ylimits() (per-pic or global).
+      // If so, it is user-trusted and our post-render finalization must NOT override it.
+      let _xminFromUserLimits = false, _xmaxFromUserLimits = false;
       // If picture has log x-scale, the user's numeric range may be given in raw-x
       // (e.g. 1e-4 .. 1) but content in the picture is stored as log10(x). Transform
       // explicit limits into log space.
@@ -8659,12 +8663,14 @@ function createInterpreter() {
       // Auto-range from picture's own per-picture limits, then global, then content
       if (xmin === null && pic._picLimits && pic._picLimits.xmin != null) {
         xmin = xIsLog && pic._picLimits.xmin > 0 ? Math.log10(pic._picLimits.xmin) : pic._picLimits.xmin;
+        _xminFromUserLimits = true;
       }
       if (xmax === null && pic._picLimits && pic._picLimits.xmax != null) {
         xmax = xIsLog && pic._picLimits.xmax > 0 ? Math.log10(pic._picLimits.xmax) : pic._picLimits.xmax;
+        _xmaxFromUserLimits = true;
       }
-      if (xmin === null) xmin = _axisLimits.xmin;
-      if (xmax === null) xmax = _axisLimits.xmax;
+      if (xmin === null && _axisLimits.xmin !== null) { xmin = _axisLimits.xmin; _xminFromUserLimits = true; }
+      if (xmax === null && _axisLimits.xmax !== null) { xmax = _axisLimits.xmax; _xmaxFromUserLimits = true; }
       if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
         try { process.stderr.write('[xaxis after _axisLim] xmin='+xmin+' xmax='+xmax+' pic.cmds='+pic.commands.length+' picLim='+JSON.stringify(pic._picLimits||{})+'\n'); } catch(e){}
       }
@@ -8673,7 +8679,7 @@ function createInterpreter() {
         let cMinX = Infinity, cMaxX = -Infinity;
         let _hasNonAxisLabel = false;
         for (const dc of pic.commands) {
-          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
           if (dc.above === -1) continue; // extended gridlines drawn below content
           if (dc.cmd === 'label' && !dc._isAxisLabel) _hasNonAxisLabel = true;
           if (dc.path && dc.path.segs) {
@@ -8688,7 +8694,6 @@ function createInterpreter() {
         if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
           try { process.stderr.write('[xaxis content] cMinX='+cMinX+' cMaxX='+cMaxX+'\n'); } catch(e){}
         }
-        let _xminFromContent = false, _xmaxFromContent = false;
         if (xmin === null) { xmin = isFinite(cMinX) ? cMinX : -5; _xminFromContent = isFinite(cMinX); }
         if (xmax === null) { xmax = isFinite(cMaxX) ? cMaxX : 5; _xmaxFromContent = isFinite(cMaxX); }
         // Apply Asymptote-style autoscaling: nicenum(range/10) rounding matches
@@ -8777,7 +8782,9 @@ function createInterpreter() {
         const path = makePath([lineSegment({x:xmin,y:axisShiftY},{x:xmax,y:axisShiftY})], false);
         _xaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
                         _isAxisLine: 'x', _axisShiftY: axisShiftY,
-                        _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit};
+                        _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit,
+                        _xMinFromUserLimits: _xminFromUserLimits,
+                        _xMaxFromUserLimits: _xmaxFromUserLimits};
         pic.commands.push(_xaxisDrawCmd);
         // Mirror axis for BottomTop/TopBottom extent
         if (xIsBottomTop) {
@@ -8910,6 +8917,8 @@ function createInterpreter() {
       // Track whether range was explicitly provided (vs auto-computed)
       const yminExplicit = ymin !== null;
       const ymaxExplicit = ymax !== null;
+      let _yminFromContent = false, _ymaxFromContent = false;
+      let _yminFromUserLimits = false, _ymaxFromUserLimits = false;
       // If picture has log y-scale, transform explicit limits to log space.
       const yIsLog = !!(pic._yScale && pic._yScale.type === 'log');
       if (yIsLog) {
@@ -8919,16 +8928,21 @@ function createInterpreter() {
       // Auto-range from picture's own per-picture limits first, then global, then content
       if (ymin === null && pic._picLimits && pic._picLimits.ymin != null) {
         ymin = yIsLog && pic._picLimits.ymin > 0 ? Math.log10(pic._picLimits.ymin) : pic._picLimits.ymin;
+        _yminFromUserLimits = true;
       }
       if (ymax === null && pic._picLimits && pic._picLimits.ymax != null) {
         ymax = yIsLog && pic._picLimits.ymax > 0 ? Math.log10(pic._picLimits.ymax) : pic._picLimits.ymax;
+        _ymaxFromUserLimits = true;
       }
-      if (ymin === null) ymin = _axisLimits.ymin;
-      if (ymax === null) ymax = _axisLimits.ymax;
+      if (ymin === null && _axisLimits.ymin !== null) { ymin = _axisLimits.ymin; _yminFromUserLimits = true; }
+      if (ymax === null && _axisLimits.ymax !== null) { ymax = _axisLimits.ymax; _ymaxFromUserLimits = true; }
       if (ymin === null || ymax === null) {
         let cMinY = Infinity, cMaxY = -Infinity;
         for (const dc of pic.commands) {
-          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel) continue;
+          // Skip axis-internal commands AND axis labels (axis labels are
+          // typically placed at axisShiftY=0 and would collapse the auto-range
+          // for an x-axis crossing y=0).
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
           if (dc.above === -1) continue;
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
@@ -8939,7 +8953,6 @@ function createInterpreter() {
           }
           if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
         }
-        let _yminFromContent = false, _ymaxFromContent = false;
         if (ymin === null) { ymin = isFinite(cMinY) ? cMinY : -5; _yminFromContent = isFinite(cMinY); }
         if (ymax === null) { ymax = isFinite(cMaxY) ? cMaxY : 5; _ymaxFromContent = isFinite(cMaxY); }
         // Asymptote autoscale: round content-derived y limits outward to nice
@@ -9052,7 +9065,9 @@ function createInterpreter() {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
         pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
                            _isAxisLine: 'y', _axisShiftX: axisShiftX,
-                           _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit});
+                           _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit,
+                           _yMinFromUserLimits: _yminFromUserLimits,
+                           _yMaxFromUserLimits: _ymaxFromUserLimits});
         if (yIsLeftRight) {
           const mirrorX = yIsRightPrimary ? crossMin : crossMax;
           const mPath = makePath([lineSegment({x:mirrorX,y:ymin},{x:mirrorX,y:ymax})], false);
@@ -16019,6 +16034,123 @@ function renderSVG(result, opts) {
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
+
+  // Finalize auto-ranged graph-package axis lines.
+  //
+  // When `xaxis()`/`yaxis()` is called BEFORE any other content (a common
+  // Asymptote idiom — define curves but draw axes first), the axis range
+  // can't see the content yet and falls back to weak heuristics (e.g. ±5
+  // defaults).  Real Asymptote auto-axes pick up the final user range from
+  // ALL content drawn in the picture, not just what existed at xaxis()/
+  // yaxis() time.  Mirror that here by post-sweeping: for each auto-ranged
+  // axis line, REPLACE its endpoints with the actual content extent (for
+  // the auto'd dimension), preserving any explicitly-supplied bound.
+  (function finalizeAutoAxes() {
+    // First pass: collect content x/y extents (excluding axis-related cmds).
+    let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
+    for (const dc of drawCommands) {
+      if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+      if (dc.above === -1) continue;
+      if (dc.cmd === 'clip') continue;
+      if (dc.path && dc.path.segs) {
+        for (const seg of dc.path.segs) {
+          for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+            if (isFinite(p.x)) { if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x; }
+            if (isFinite(p.y)) { if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y; }
+          }
+        }
+      }
+      if (dc.pos) {
+        if (isFinite(dc.pos.x)) { if (dc.pos.x < cMinX) cMinX = dc.pos.x; if (dc.pos.x > cMaxX) cMaxX = dc.pos.x; }
+        if (isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
+      }
+    }
+    if (!isFinite(cMinX) || !isFinite(cMinY)) return;
+    // Second pass: REPLACE each auto-ranged axis line's auto'd endpoints
+    // with the content extent (clamped so we don't shrink past the axis
+    // crossing point of the orthogonal axis).  Also reposition any
+    // EndPoint axis labels that were placed at the now-stale endpoint.
+    for (const c of drawCommands) {
+      if (!c._isAxisLine || !c.path || !c.path.segs || c.path.segs.length === 0) continue;
+      const seg = c.path.segs[0];
+      if (c._isAxisLine === 'x') {
+        let x0 = seg.p0.x, x1 = seg.p3.x;
+        const oldLo = Math.min(x0, x1), oldHi = Math.max(x0, x1);
+        let lo = oldLo, hi = oldHi;
+        // Only override sides that were neither explicitly given nor sourced
+        // from xlimits()/ylimits() (which the user trusts).
+        if (c._autoXmin && !c._xMinFromUserLimits) {
+          let target = cMinX;
+          for (const cy of drawCommands) {
+            if (cy._isAxisLine === 'y' && typeof cy._axisShiftX === 'number') {
+              if (cy._axisShiftX < target) target = cy._axisShiftX;
+            }
+          }
+          lo = target;
+        }
+        if (c._autoXmax && !c._xMaxFromUserLimits) {
+          let target = cMaxX;
+          for (const cy of drawCommands) {
+            if (cy._isAxisLine === 'y' && typeof cy._axisShiftX === 'number') {
+              if (cy._axisShiftX > target) target = cy._axisShiftX;
+            }
+          }
+          hi = target;
+        }
+        if (lo !== oldLo || hi !== oldHi) {
+          const y = c._axisShiftY != null ? c._axisShiftY : seg.p0.y;
+          c.path = { segs: [{
+            p0:{x:lo,y}, cp1:{x:lo+(hi-lo)/3,y}, cp2:{x:lo+2*(hi-lo)/3,y}, p3:{x:hi,y}
+          }], closed: false };
+          // Move axis labels that were anchored at the old hi/lo.
+          for (const lc of drawCommands) {
+            if (lc.cmd !== 'label' || !lc._isAxisLabel || !lc.pos) continue;
+            if (Math.abs(lc.pos.y - y) > 1e-6) continue;
+            if (c._autoXmax && Math.abs(lc.pos.x - oldHi) < 1e-6) lc.pos = { x: hi, y };
+            else if (c._autoXmin && Math.abs(lc.pos.x - oldLo) < 1e-6) lc.pos = { x: lo, y };
+          }
+          // Move any arrow attached to this axis (arrows currently render via
+          // separate paths, so this only matters if the arrow was stored on
+          // the same draw cmd — Asymptote arrows in our pipeline draw at
+          // path endpoints, which are now updated via c.path replacement).
+        }
+      } else if (c._isAxisLine === 'y') {
+        let y0 = seg.p0.y, y1 = seg.p3.y;
+        const oldLo = Math.min(y0, y1), oldHi = Math.max(y0, y1);
+        let lo = oldLo, hi = oldHi;
+        if (c._autoYmin && !c._yMinFromUserLimits) {
+          let target = cMinY;
+          for (const cx of drawCommands) {
+            if (cx._isAxisLine === 'x' && typeof cx._axisShiftY === 'number') {
+              if (cx._axisShiftY < target) target = cx._axisShiftY;
+            }
+          }
+          lo = target;
+        }
+        if (c._autoYmax && !c._yMaxFromUserLimits) {
+          let target = cMaxY;
+          for (const cx of drawCommands) {
+            if (cx._isAxisLine === 'x' && typeof cx._axisShiftY === 'number') {
+              if (cx._axisShiftY > target) target = cx._axisShiftY;
+            }
+          }
+          hi = target;
+        }
+        if (lo !== oldLo || hi !== oldHi) {
+          const x = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
+          c.path = { segs: [{
+            p0:{x,y:lo}, cp1:{x,y:lo+(hi-lo)/3}, cp2:{x,y:lo+2*(hi-lo)/3}, p3:{x,y:hi}
+          }], closed: false };
+          for (const lc of drawCommands) {
+            if (lc.cmd !== 'label' || !lc._isAxisLabel || !lc.pos) continue;
+            if (Math.abs(lc.pos.x - x) > 1e-6) continue;
+            if (c._autoYmax && Math.abs(lc.pos.y - oldHi) < 1e-6) lc.pos = { x, y: hi };
+            else if (c._autoYmin && Math.abs(lc.pos.y - oldLo) < 1e-6) lc.pos = { x, y: lo };
+          }
+        }
+      }
+    }
+  })();
 
   // Compute bounding box
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
