@@ -16959,7 +16959,15 @@ function renderSVG(result, opts) {
   // Recompute label-expanded bbox at final scale so naturalW/H is correct.
   // For autoScaled (no size/unitsize) diagrams, skip: the scale is set by the
   // geometry only, and labels are allowed to overflow (matching real Asymptote).
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
+  // For unitsize-only diagrams with the geometry boost active, also recompute:
+  // labels are truesize (fixed bp) so when pxPerUnit gets boosted (e.g.
+  // unitsize(0.2cm) tiny geometry boosted to 200bp), the label-expanded
+  // bbox in user units shrinks proportionally. Without this, the bbox keeps
+  // the pre-boost label expansion (large in user units) and the canvas
+  // becomes much wider/taller than the label needs, producing a 2:1 aspect
+  // for what should be a near-square diagram (e.g. 00129 r/R=1/2 plot).
+  const _unitsizeBoosted = hasUnitScale && unitsizeBoostScale > 1.001;
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0) || _unitsizeBoosted) && labelInfoBp.length > 0) {
     minX = geoMinX; maxX = geoMaxX;
     minY = geoMinY; maxY = geoMaxY;
     for (const li of labelInfoBp) {
@@ -19258,6 +19266,18 @@ function stripLaTeX(text) {
   s = s.replace(/\$/g, '');
   // Handle \frac{a}{b} → a/b (before removing braces)
   s = s.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '$1/$2');
+  // Handle TeX \frac shorthand where a single token (no braces) is the
+  // numerator and/or denominator: \frac12 → 1/2, \frac\pi2 → \pi/2, etc.
+  // Loop until no more matches in case of nested forms.
+  for (let _i = 0; _i < 4; _i++) {
+    const before = s;
+    s = s.replace(/\\frac\s*(\{[^}]*\}|\\[a-zA-Z]+|.)\s*(\{[^}]*\}|\\[a-zA-Z]+|.)/g, (_m, a, b) => {
+      const ua = a.startsWith('{') ? a.slice(1, -1) : a;
+      const ub = b.startsWith('{') ? b.slice(1, -1) : b;
+      return ua + '/' + ub;
+    });
+    if (s === before) break;
+  }
   // Handle \underbrace{...} and \overbrace{...} → remove
   s = s.replace(/\\(?:underbrace|overbrace)\s*\{[^}]*\}/g, '');
   // Handle \hspace{...} → space
@@ -19559,10 +19579,10 @@ function parseLaTeXSegments(text) {
     if (nextType === 'frac') {
       remaining = remaining.substring(nextIdx + 5); // skip \frac
       remaining = remaining.replace(/^\s*\\left\s*/, ''); // skip optional \left
-      const num = extractBraced(remaining);
+      const num = extractTexArg(remaining);
       remaining = remaining.substring(num.consumed);
       remaining = remaining.replace(/^\s*\\right\s*/, ''); // skip optional \right
-      const den = extractBraced(remaining);
+      const den = extractTexArg(remaining);
       remaining = remaining.substring(den.consumed);
       segments.push({type:'frac', num: num.content, den: den.content});
     } else if (nextType === 'underbrace') {
@@ -19622,6 +19642,25 @@ function extractBraced(s) {
     else if (s[i] === '}') { depth--; if (depth === 0) return {content: s.substring(start+1, i), consumed: i+1}; }
   }
   return {content: s.substring(start+1), consumed: s.length};
+}
+
+// Extract a single TeX argument: either {group} or a single token
+// (\command or single char). Used for \frac / \sqrt shorthand like
+// \frac12 (== \frac{1}{2}) and \sqrt2 (== \sqrt{2}). Returns
+// {content, consumed} where consumed counts leading whitespace.
+function extractTexArg(s) {
+  let i = 0;
+  while (i < s.length && /\s/.test(s[i])) i++;
+  if (i >= s.length) return {content: '', consumed: i};
+  if (s[i] === '{') {
+    const inner = extractBraced(s.substring(i));
+    return {content: inner.content, consumed: i + inner.consumed};
+  }
+  if (s[i] === '\\') {
+    const cmdMatch = s.substring(i).match(/^\\[a-zA-Z]+|^\\./);
+    if (cmdMatch) return {content: cmdMatch[0], consumed: i + cmdMatch[0].length};
+  }
+  return {content: s[i], consumed: i + 1};
 }
 
 function fmt(n) { return Number(n.toFixed(4)); }
