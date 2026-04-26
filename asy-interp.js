@@ -15414,12 +15414,16 @@ function createInterpreter() {
 
     // AoPS-corrupted \t escapes: labels with TAB before letters are the result
     // of "\t<letter>" being collapsed to a single TAB byte.  TeX treats the
-    // TAB as whitespace in both text mode and math mode, so the reference
-    // rendering simply drops the TAB and prints the remaining letters
-    // (e.g. "(tab)heta" → "heta", "(tab)extdollar" → "extdollar").  Mirror
-    // that by stripping the TAB character entirely.
+    // TAB as whitespace in both text mode and math mode.  Critically, when a
+    // TAB follows a control word like "\cos" (so the token stream is
+    // "\cos<TAB>heta"), TeX terminates the control word at the TAB and the
+    // following letters render as ordinary text — yielding "\cos heta".
+    // Stripping the TAB outright produces "\cosheta", an unknown command
+    // that KaTeX/MathJax flag as an error (rendered red).  Replace with a
+    // single space so the macro is terminated and the trailing letters
+    // print, matching the TeX reference.
     if (typeof text === 'string' && text.indexOf('\t') !== -1) {
-      text = text.replace(/\t/g, '');
+      text = text.replace(/\t/g, ' ');
     }
 
     // LaTeX \begin{minipage}{width}...\end{minipage} environment in label
@@ -18790,6 +18794,15 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
 // render reliably.
 function preprocessLatexForKatex(src) {
   if (typeof src !== 'string') return src;
+  // Normalize embedded TAB/CR/LF inside the math source to a single space.
+  // Some corpus .asy files contain literal TAB bytes where `\theta` was meant
+  // (the source author wrote `\theta` and the editor converted `\t` to a TAB).
+  // TeX treats TAB/newline as whitespace (terminating a control word and
+  // adding a space), so `\sin<TAB>heta` becomes `\sin heta`.  KaTeX/MathJax
+  // see the bare TAB and either drop it (yielding the unknown command
+  // `\sinheta`) or reject it.  Map them to a real space so the macro is
+  // terminated identically to TeX.
+  src = src.replace(/[\t\r\n]+/g, ' ');
   const replacements = [
     [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
     [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
@@ -19094,6 +19107,7 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
   if (isDollar) math = math.slice(1, -1);
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+  math = preprocessLatexForKatex(math);
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
     // Reconstruct using \text{...} for non-math segments so MathJax lays it out as one box.
