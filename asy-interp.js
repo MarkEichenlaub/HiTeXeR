@@ -6706,9 +6706,27 @@ function createInterpreter() {
       return n === 2 ? makePair(bx + Dy*pf, by - Dx*pf) : makePair(bx - Dy*pf, by + Dx*pf);
     });
 
-    env.set('bisectorpoint', (A, B) => {
+    // bisectorpoint(A, B): midpoint of A and B (Asymptote 2-arg overload).
+    // bisectorpoint(A, B, C): point at unit distance from vertex B along the
+    //   internal bisector of angle ABC (Asymptote 3-arg overload from geometry.asy).
+    env.set('bisectorpoint', (A, B, C) => {
       const a=toPair(A),b=toPair(B);
-      return makePair((a.x+b.x)/2, (a.y+b.y)/2);
+      if (C === undefined || C === null) {
+        return makePair((a.x+b.x)/2, (a.y+b.y)/2);
+      }
+      const c=toPair(C);
+      const bax = a.x-b.x, bay = a.y-b.y;
+      const bcx = c.x-b.x, bcy = c.y-b.y;
+      const lenBA = Math.sqrt(bax*bax+bay*bay) || 1;
+      const lenBC = Math.sqrt(bcx*bcx+bcy*bcy) || 1;
+      const ux = bax/lenBA + bcx/lenBC;
+      const uy = bay/lenBA + bcy/lenBC;
+      const ulen = Math.sqrt(ux*ux+uy*uy);
+      if (ulen < 1e-12) {
+        // Rays opposite each other; pick perpendicular to BA
+        return makePair(b.x - bay/lenBA, b.y + bax/lenBA);
+      }
+      return makePair(b.x + ux/ulen, b.y + uy/ulen);
     });
 
     env.set('centroid', (A,B,C) => {
