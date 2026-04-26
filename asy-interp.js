@@ -3056,12 +3056,34 @@ function createInterpreter() {
               obj.mesh.faces.push(...a.mesh.faces);
             }
           } else if (isMesh(a)) {
-            if (Array.isArray(obj._faceVertexIdx)) {
-              for (let fi = 0; fi < a.faces.length; fi++) {
+            // Materialize each face's vertex list into the surface's flat
+            // _vertices array so per-vertex palette coloring (`s.colors(...)`)
+            // and meshpen wireframe overlays work for surfaces built up via
+            // s.append(unitcube) and similar primitive accumulation.
+            if (!Array.isArray(obj._vertices)) obj._vertices = [];
+            if (!Array.isArray(obj._faceVertexIdx)) {
+              // First time we discover face index metadata — backfill nulls
+              // for any faces already pushed without it so indices align.
+              obj._faceVertexIdx = [];
+              for (let fi = 0; fi < obj.mesh.faces.length; fi++) {
                 obj._faceVertexIdx.push(null);
               }
             }
-            obj.mesh.faces.push(...a.faces);
+            for (const src of a.faces) {
+              const startIdx = obj._vertices.length;
+              const idx = [];
+              for (const v of src.vertices) {
+                // Tag as triple so user-callable functions like zpart(v) recognize it.
+                obj._vertices.push({_tag:'triple', x: v.x, y: v.y, z: v.z});
+                idx.push(startIdx + idx.length);
+              }
+              const nf = {vertices: src.vertices.slice()};
+              if (src.normal) nf.normal = src.normal;
+              if (src.pen) nf.pen = src.pen;
+              nf._vidx = idx;
+              obj._faceVertexIdx.push(idx);
+              obj.mesh.faces.push(nf);
+            }
           }
         }
         return null;
@@ -11515,6 +11537,18 @@ function createInterpreter() {
       return makeTriple(pp.x, pp.y, 0);
     });
 
+    // XY(), YZ(), XZ(): 3D label-orientation transforms used in axis label
+    // calls like `yaxis3(YZ()*"$y$", ...)`. In Asymptote they orient the
+    // label glyphs onto the named coordinate plane; in our pure-2D renderer
+    // they're identity 2D transforms, so `transform * "$y$"` still yields a
+    // {_tag:'label', text:"$y$"} object that the axis call picks up.
+    env.set('XY', () => makeTransform(0, 1, 0, 0, 0, 1));
+    env.set('YZ', () => makeTransform(0, 1, 0, 0, 0, 1));
+    env.set('XZ', () => makeTransform(0, 1, 0, 0, 0, 1));
+    env.set('YX', () => makeTransform(0, 1, 0, 0, 0, 1));
+    env.set('ZY', () => makeTransform(0, 1, 0, 0, 0, 1));
+    env.set('ZX', () => makeTransform(0, 1, 0, 0, 0, 1));
+
     // markscalefactor
     env.set('markscalefactor', 0.03);
 
@@ -13416,6 +13450,42 @@ function createInterpreter() {
         drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.maxY, b.maxZ], axisPen);
       }
 
+      // View-aware corner selection: pick the bounding-box edge that's
+      // closest to the camera for x and y axes (the visible "front" edges)
+      // and the back-most vertical edge for z. This way axis tick labels
+      // and titles end up OUTSIDE the box from the viewer's perspective,
+      // not buried in the middle of the scene.
+      let camX = -1, camY = -1, camZ = 1;
+      if (projection) {
+        camX = (projection.cx || 0) - (projection.tx || 0);
+        camY = (projection.cy || 0) - (projection.ty || 0);
+        camZ = (projection.cz || 0) - (projection.tz || 0);
+      }
+      // Front edge for an axis perpendicular to a coordinate has the
+      // OPPOSITE sign of the camera component along that coord. E.g. with
+      // camera at -y, the front of the box is at minY.
+      const xAxisYEdge = camY >= 0 ? b.maxY : b.minY;
+      const xAxisYAlt  = camY >= 0 ? b.minY : b.maxY;
+      const yAxisXEdge = camX >= 0 ? b.maxX : b.minX;
+      const yAxisXAlt  = camX >= 0 ? b.minX : b.maxX;
+      // The z-axis runs vertically. Asymptote's Bounds rendering picks the
+      // vertical edge that is visible against the empty background — i.e.
+      // the silhouette edge on the side of the box. With perspective from
+      // (-x,-y,+z), the front-most edges in xy are (minX,minY); the silhouette
+      // verticals are (maxX,minY) on the right and (minX,maxY) on the left.
+      // bars3-style diagrams put z-axis labels on the (maxX,minY) edge
+      // (the right silhouette of the box).
+      const zAxisXEdge = camX >= 0 ? b.minX : b.maxX;
+      const zAxisYEdge = camY >= 0 ? b.maxY : b.minY;
+      // Sign of "outward" displacement in x and y for tick label offsetting.
+      const xOutSignY = camY >= 0 ? +1 : -1;   // toward farther |y|
+      const yOutSignX = camX >= 0 ? +1 : -1;
+      // For z-axis labels we want them OUTSIDE the box silhouette: away
+      // from the box centroid in screen space. With z-axis edge at
+      // (maxX, minY) (camera at -x,-y), labels go further +x and -y.
+      const zOutSignX = camX >= 0 ? -1 : +1;
+      const zOutSignY = camY >= 0 ? +1 : -1;
+
       // Draw tick marks and labels for each axis (only for Bounds-style axes)
       function drawTicks(axisName, call) {
         // Skip ticks for simple axis lines (non-Bounds)
@@ -13424,96 +13494,96 @@ function createInterpreter() {
         const endlabel = call.ticks ? call.ticks.endlabel !== false : true;
 
         if (axisName === 'x') {
-          // X axis: runs along bottom front edge at y=maxY, z=minZ
-          // Ticks point into box (up), labels outside and below the edge
+          // X axis: runs along the front-bottom edge (y at the side facing
+          // the camera, z=minZ). Ticks point into box (up), labels outside
+          // (below the edge in screen space).
           const ticks = _niceTickValues(b.minX, b.maxX, 6);
           const zRange = b.maxZ - b.minZ;
-          const yRange = b.maxY - b.minY;
           // Compute 2D offset for "below" the x-axis edge
-          // Project the edge and a point below it to find the direction
-          const edgePt = projectTriple(makeTriple(0, b.maxY, b.minZ));
-          const belowPt = projectTriple(makeTriple(0, b.maxY, b.minZ - zRange * 0.3));
+          const yEdge = xAxisYEdge;
+          const edgePt = projectTriple(makeTriple(0, yEdge, b.minZ));
+          const belowPt = projectTriple(makeTriple(0, yEdge, b.minZ - zRange * 0.3));
           const dx = belowPt.x - edgePt.x;
           const dy = belowPt.y - edgePt.y;
           const len = Math.sqrt(dx*dx + dy*dy) || 1;
-          const tickLabelOffset = 1.5; // Asymptote units below edge
+          const tickLabelOffset = 1.5;
           const axisLabelOffset = 3.0;
 
           for (let i = 0; i < ticks.length; i++) {
             const x = ticks[i];
             if (x < b.minX || x > b.maxX) continue;
-            // Draw tick mark pointing into box (up in z)
-            const tickStart = makeTriple(x, b.maxY, b.minZ);
-            const tickEnd = makeTriple(x, b.maxY, b.minZ + zRange * 0.015);
+            // Tick mark points INTO box: along +z and toward the opposite y edge
+            const tickStart = makeTriple(x, yEdge, b.minZ);
+            const tickEnd = makeTriple(x, yEdge, b.minZ + zRange * 0.015);
             const projStart = projectTriple(tickStart);
             const projEnd = projectTriple(tickEnd);
             const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
             pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
-            // Draw tick label - project 3D position then offset in 2D "below" direction
             if (!beginlabel && i === 0) continue;
             if (!endlabel && i === ticks.length - 1) continue;
-            const basePos = projectTriple(makeTriple(x, b.maxY, b.minZ));
+            const basePos = projectTriple(makeTriple(x, yEdge, b.minZ));
             const labelPos = makePair(basePos.x + dx/len * tickLabelOffset, basePos.y + dy/len * tickLabelOffset);
             pic.commands.push({cmd:'label', text: _formatTick(x), pos: labelPos, align: makePair(0, 1), pen: tickPen, line: 0});
           }
-          // Draw axis label centered, below tick labels
           if (call.label) {
             const midX = (b.minX + b.maxX) / 2;
-            const basePos = projectTriple(makeTriple(midX, b.maxY, b.minZ));
+            const basePos = projectTriple(makeTriple(midX, yEdge, b.minZ));
             const labelPos = makePair(basePos.x + dx/len * axisLabelOffset, basePos.y + dy/len * axisLabelOffset);
             pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(0, 1), pen: axisPen, line: 0});
           }
         } else if (axisName === 'y') {
-          // Y axis: runs along right edge at x=maxX, z=minZ
-          // Ticks point LEFT into box, labels to the right (outside)
+          // Y axis: runs along the bottom edge at the side facing the
+          // camera in x (x=minX or maxX), z=minZ.
+          const xEdge = yAxisXEdge;
           const ticks = _niceTickValues(b.minY, b.maxY, 5);
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const y = ticks[i];
             if (y < b.minY || y > b.maxY) continue;
-            // Draw tick mark pointing LEFT into box
-            const tickStart = makeTriple(b.maxX, y, b.minZ);
-            const tickEnd = makeTriple(b.maxX - tickLen * 0.8, y, b.minZ);
+            // Tick mark points into box (toward opposite x edge, plus a
+            // small +z lift so it's distinguishable from the floor edge).
+            const tickStart = makeTriple(xEdge, y, b.minZ);
+            const tickEnd = makeTriple(xEdge - yOutSignX * tickLen * 0.8, y, b.minZ);
             const projStart = projectTriple(tickStart);
             const projEnd = projectTriple(tickEnd);
             const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
             pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
-            // Draw tick label to the right (outside box)
             if (!beginlabel && i === 0) continue;
             if (!endlabel && i === ticks.length - 1) continue;
-            const labelPos = projectTriple(makeTriple(b.maxX + labelOffset * 0.5, y, b.minZ - labelOffset * 0.3));
-            pic.commands.push({cmd:'label', text: _formatTick(y), pos: labelPos, align: makePair(-1, 0), pen: tickPen, line: 0});
+            const labelPos = projectTriple(makeTriple(xEdge + yOutSignX * labelOffset * 0.5, y, b.minZ - labelOffset * 0.3));
+            pic.commands.push({cmd:'label', text: _formatTick(y), pos: labelPos, align: makePair(-yOutSignX, 0), pen: tickPen, line: 0});
           }
-          // Draw axis label to the right
           if (call.label) {
             const midY = (b.minY + b.maxY) / 2;
-            const labelPos = projectTriple(makeTriple(b.maxX + labelOffset * 1.5, midY, b.minZ - labelOffset * 0.8));
-            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(-1, 0), pen: axisPen, line: 0});
+            const labelPos = projectTriple(makeTriple(xEdge + yOutSignX * labelOffset * 1.5, midY, b.minZ - labelOffset * 0.8));
+            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(-yOutSignX, 0), pen: axisPen, line: 0});
           }
         } else if (axisName === 'z') {
-          // Z axis: runs along left-back vertical edge at x=minX, y=minY
-          // Ticks point RIGHT into box, labels to the left (outside)
+          // Z axis: runs vertically along the back vertical edge furthest
+          // from the camera in the xy plane.
+          const xEdge = zAxisXEdge;
+          const yEdge = zAxisYEdge;
           const ticks = _niceTickValues(b.minZ, b.maxZ, 5);
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const z = ticks[i];
             if (z < b.minZ || z > b.maxZ) continue;
-            // Draw tick mark pointing RIGHT into box
-            const tickStart = makeTriple(b.minX, b.minY, z);
-            const tickEnd = makeTriple(b.minX + tickLen * 0.8, b.minY, z);
+            // Tick mark points outward from the box (away from the
+            // diagonal opposite corner) so it's visible against the empty
+            // background, matching Asymptote's InTicks rendering.
+            const tickStart = makeTriple(xEdge, yEdge, z);
+            const tickEnd = makeTriple(xEdge - zOutSignX * tickLen * 0.8, yEdge - zOutSignY * tickLen * 0.8, z);
             const projStart = projectTriple(tickStart);
             const projEnd = projectTriple(tickEnd);
             const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
             pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
-            // Draw tick label to the left (outside box)
-            const labelPos = projectTriple(makeTriple(b.minX - labelOffset * 0.5, b.minY - labelOffset * 0.3, z));
-            pic.commands.push({cmd:'label', text: _formatTick(z), pos: labelPos, align: makePair(1, 0), pen: tickPen, line: 0});
+            const labelPos = projectTriple(makeTriple(xEdge + zOutSignX * labelOffset * 0.5, yEdge + zOutSignY * labelOffset * 0.3, z));
+            pic.commands.push({cmd:'label', text: _formatTick(z), pos: labelPos, align: makePair(-zOutSignX, 0), pen: tickPen, line: 0});
           }
-          // Draw axis label to the left
           if (call.label) {
             const midZ = (b.minZ + b.maxZ) / 2;
-            const labelPos = projectTriple(makeTriple(b.minX - labelOffset * 1.5, b.minY - labelOffset * 0.8, midZ));
-            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(1, 0), pen: axisPen, line: 0});
+            const labelPos = projectTriple(makeTriple(xEdge + zOutSignX * labelOffset * 1.5, yEdge + zOutSignY * labelOffset * 0.8, midZ));
+            pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(-zOutSignX, 0), pen: axisPen, line: 0});
           }
         }
       }
@@ -14769,6 +14839,162 @@ function createInterpreter() {
           } else {
             for (const c of collected) target.commands.push(c);
           }
+        } else if (meshLinePen && mesh && mesh.faces && mesh.faces.length > 0) {
+          // Fallback wireframe: surfaces accumulated from raw mesh faces
+          // (e.g. s.append(unitcube) loops) have no _grid. Emit ONE
+          // line-draw command per UNIQUE 3D edge so adjacent cubes that
+          // share an edge don't double- or triple-stroke (which produces
+          // artificially thick black lines in dense bar-chart stacks).
+          // Back-face cull faces whose normal points away from the camera
+          // so edges of hidden cubes don't poke through. Then INTERLEAVE
+          // the edge draws with the depth-sorted face fills already pushed
+          // by renderMeshToPicture so a back cube's front-face edges get
+          // properly occluded by closer cubes' fills (instead of always
+          // painting on top because edges were emitted last).
+          const proj = projection;
+          let mvx, mvy, mvz, camX, camY, camZ;
+          if (proj) {
+            const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
+            mvx = proj.cx - tx; mvy = proj.cy - ty; mvz = proj.cz - tz;
+            camX = proj.cx; camY = proj.cy; camZ = proj.cz;
+          } else {
+            mvx = 0; mvy = 0; mvz = 1;
+            camX = 0; camY = 0; camZ = 100;
+          }
+          const vlen = Math.sqrt(mvx*mvx + mvy*mvy + mvz*mvz) || 1;
+          const nvx = mvx / vlen, nvy = mvy / vlen, nvz = mvz / vlen;
+          const seen = new Set();
+          const edgeKey = (a, b) => {
+            const q = (v) => Math.round(v * 1e4) / 1e4;
+            const ka = q(a.x) + ',' + q(a.y) + ',' + q(a.z);
+            const kb = q(b.x) + ',' + q(b.y) + ',' + q(b.z);
+            return ka < kb ? (ka + '|' + kb) : (kb + '|' + ka);
+          };
+          // Collect edges with the MIN face depth among faces that share
+          // the edge (the closer face occludes the farther one, and the
+          // edge belongs visually to the closer face). This depth is then
+          // used to position the edge AFTER its owning face's fill so it
+          // appears on top of that face but is hidden by closer cubes'
+          // fills emitted later in the back-to-front merge.
+          const edgeMap = new Map(); // key -> {a3, b3, depth, face}
+          for (const face of mesh.faces) {
+            const V = face.vertices;
+            if (!V || V.length < 2) continue;
+            const fn = face.normal || faceNormal(face);
+            const dotN = fn.x*nvx + fn.y*nvy + fn.z*nvz;
+            if (dotN <= 0.001) continue;
+            // Face centroid depth.
+            let fcx = 0, fcy = 0, fcz = 0;
+            for (const v of V) { fcx += v.x; fcy += v.y; fcz += v.z; }
+            fcx /= V.length; fcy /= V.length; fcz /= V.length;
+            const faceDepth = Math.sqrt((camX-fcx)*(camX-fcx) + (camY-fcy)*(camY-fcy) + (camZ-fcz)*(camZ-fcz));
+            for (let k = 0; k < V.length; k++) {
+              const a3 = V[k];
+              const b3 = V[(k + 1) % V.length];
+              const key = edgeKey(a3, b3);
+              const existing = edgeMap.get(key);
+              if (!existing || faceDepth < existing.depth) {
+                edgeMap.set(key, {a3, b3, depth: faceDepth});
+              }
+            }
+          }
+          const edgeItems = [];
+          for (const e of edgeMap.values()) {
+            const a2 = projectTriple(e.a3);
+            const b2 = projectTriple(e.b3);
+            const path = makePath([lineSegment(a2, b2)], false);
+            edgeItems.push({depth: e.depth, cmd: {cmd:'draw', path, pen: meshLinePen, line: args._line || 0, _from3d: true}});
+          }
+          // Compute depth for each existing _from3d fill at the tail of
+          // target.commands (those just emitted by renderMeshToPicture).
+          // Find the start of the contiguous trailing _from3d block.
+          let blockStart = target.commands.length;
+          while (blockStart > 0 && target.commands[blockStart - 1]._from3d) {
+            blockStart--;
+          }
+          // Pull out the fills + their accompanying same-color stroke
+          // (renderMeshToPicture pushes them in pairs: fill then draw).
+          const tail = target.commands.splice(blockStart);
+          // Group consecutive (fill, draw) pairs sharing the same path.
+          const fillItems = [];
+          let i = 0;
+          while (i < tail.length) {
+            const cmd = tail[i];
+            if (cmd.cmd === 'fill' && cmd.path) {
+              // Compute depth from path centroid (use first segment's points).
+              let cx = 0, cy = 0, n = 0;
+              const segs = (cmd.path && cmd.path.segments) || [];
+              for (const s of segs) {
+                if (s.p0) { cx += s.p0.x; cy += s.p0.y; n++; }
+              }
+              if (n > 0) { cx /= n; cy /= n; }
+              // Approximate depth in 2D screen space — use negative y as a
+              // proxy for depth ordering (works for top-down isometric).
+              // Better: try to recover depth via _3d hint, but we don't have
+              // it. Fall back to original index so fills retain their order.
+              fillItems.push({_origIdx: i, group: [cmd]});
+              i++;
+              if (i < tail.length && tail[i].cmd === 'draw' && tail[i]._from3d && tail[i].path === cmd.path) {
+                fillItems[fillItems.length-1].group.push(tail[i]);
+                i++;
+              }
+            } else {
+              // Stray edge or other _from3d cmd from earlier — keep as-is.
+              fillItems.push({_origIdx: i, group: [cmd], _stray: true});
+              i++;
+            }
+          }
+          // The fills were already depth-sorted back-to-front by
+          // renderMeshToPicture, so iterate in that order. For each edge,
+          // find the LAST fill whose face the edge belongs to (or whose
+          // face shares this edge) and insert the edge AFTER that fill's
+          // pair. We approximate by depth: insert each edge after the
+          // last fill whose original-emission depth >= edge depth.
+          // Build face-depth list by recomputing centroid distances from
+          // the original mesh faces, in the same order renderMeshToPicture
+          // sorted them — easiest is to recompute from mesh.faces and sort.
+          const faceDepths = [];
+          for (const face of mesh.faces) {
+            const V = face.vertices;
+            if (!V || V.length < 3) continue;
+            let fcx = 0, fcy = 0, fcz = 0;
+            for (const v of V) { fcx += v.x; fcy += v.y; fcz += v.z; }
+            fcx /= V.length; fcy /= V.length; fcz /= V.length;
+            const d = Math.sqrt((camX-fcx)*(camX-fcx) + (camY-fcy)*(camY-fcy) + (camZ-fcz)*(camZ-fcz));
+            faceDepths.push(d);
+          }
+          faceDepths.sort((a,b) => b - a); // back-to-front, matches renderMeshToPicture sort
+          // Sort edges back-to-front (same convention).
+          edgeItems.sort((a, b) => b.depth - a.depth);
+          // Two-pointer merge: walk faceDepths in order, emit fill-pairs;
+          // before each fill-pair, emit any edges whose depth > faceDepth.
+          const merged = [];
+          let ei = 0;
+          let fi = 0;
+          // Account for stray non-fill commands by passing them through
+          // before the depth-sorted ones (they were earlier, so they
+          // belong before the just-emitted fills).
+          for (const it of fillItems) {
+            if (it._stray) {
+              merged.push(...it.group);
+            }
+          }
+          for (const it of fillItems) {
+            if (it._stray) continue;
+            const fd = faceDepths[fi++] !== undefined ? faceDepths[fi-1] : 0;
+            // Push edges that are FARTHER than this fill (back-to-front).
+            while (ei < edgeItems.length && edgeItems[ei].depth > fd) {
+              merged.push(edgeItems[ei].cmd);
+              ei++;
+            }
+            merged.push(...it.group);
+          }
+          // Any remaining edges (in front of all fills) come last.
+          while (ei < edgeItems.length) {
+            merged.push(edgeItems[ei].cmd);
+            ei++;
+          }
+          for (const c of merged) target.commands.push(c);
         }
         return;
       }
