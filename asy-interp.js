@@ -19388,6 +19388,9 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
       // spacing commands (\, \; \: \! \<space> \~) which are valid in text
       // mode too.  Tokenize so a literal backslash followed by a spacing
       // char passes through unchanged, while bare \ is escaped to \\.
+      // Bare `~` is Asymptote/LaTeX's non-breaking space — emit a literal
+      // Unicode NBSP rather than escaping to `\~`, which is a TeX accent
+      // requiring an argument and would error out in MathJax.
       let esc = '';
       const src = seg.content;
       for (let i = 0; i < src.length; i++) {
@@ -19395,7 +19398,9 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
         if (c === '\\' && i + 1 < src.length && ' ,;:!~'.indexOf(src[i+1]) !== -1) {
           esc += c + src[i+1];
           i++;
-        } else if ('\\{}$&#^_%~'.indexOf(c) !== -1) {
+        } else if (c === '~') {
+          esc += '\u00A0';
+        } else if ('\\{}$&#^_%'.indexOf(c) !== -1) {
           esc += '\\' + c;
         } else {
           esc += c;
