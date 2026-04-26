@@ -17624,6 +17624,23 @@ function renderSVG(result, opts) {
         const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
         dx = ax_n * effW + ax * margin;
         dy = -(ay_n * effH + ay * margin);
+        // For horizontally-aligned labels (E/W with non-zero ax), the renderer
+        // (line ~18185) uses a wider W formula (cleanLen × fontSizeSVG × 0.52,
+        // even for math labels — pad uses 0.62) and a larger margin
+        // (0.28 × fontSizeSVG + 0.5 × linewidth × bpCSSPixel). The actual rendered
+        // dx is therefore larger than pad's dx for math E/W labels, causing the
+        // label to extend past viewBox even with measured-width-based effW. Add
+        // the gap to dx so right/left correctly cover the rendered position.
+        if (Math.abs(ax) > 0.01) {
+          const _wRender = _effLenVB * fontSizeSVG * 0.52;
+          const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+          const _marginRender = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
+          const _dxRender = ax_n * _wRender + ax * _marginRender;
+          // Only widen the bbox in the direction of the alignment — never narrow.
+          if ((ax > 0 && _dxRender > dx) || (ax < 0 && _dxRender < dx)) {
+            dx = _dxRender;
+          }
+        }
       }
       // Apply per-command screen-space offsets (axis label autoshift). These are in
       // bp; convert to SVG user units via bpCSSPixel to match effW/effH scaling.
