@@ -7175,36 +7175,41 @@ function createInterpreter() {
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
     env.set('unitrand', () => Math.random());
 
-    // Seeded PRNG for rand()/srand() — matches glibc TYPE_3 (degree-31
-    // trinomial feedback shift register), which is the default RNG used by
-    // glibc's rand()/srand().  This is what real Asymptote (via C stdlib)
-    // uses on Linux, so seeded sequences will match the TeXeR server.
+    // Seeded PRNG for rand()/srand() — matches glibc's random()/initstate()
+    // with a 256-byte state buffer, which is what Asymptote uses internally
+    // (see Asymptote's runmath.in: Srand calls initstate(seed, state, 256)).
+    // n=256 selects glibc TYPE_4: degree 63, separation 1, so we use a
+    // degree-63 trinomial feedback shift register and 630 warm-up calls.
     const RAND_MAX = 2147483647; // 2^31 - 1
-    const _randTbl = new Int32Array(31);
-    let _randFptr = 3;  // front pointer (index into table)
-    let _randRptr = 0;  // rear pointer
+    const _RAND_DEG = 63;
+    const _RAND_SEP = 1;
+    const _randTbl = new Int32Array(_RAND_DEG);
+    let _randFptr = _RAND_SEP;  // front pointer (index into table)
+    let _randRptr = 0;          // rear pointer
     function _srand(seed) {
       seed = (toNumber(seed) | 0) >>> 0;
+      if (seed === 0) seed = 1; // glibc: seed = 1 if seed == 0
       _randTbl[0] = seed;
-      for (let i = 1; i < 31; i++) {
+      for (let i = 1; i < _RAND_DEG; i++) {
         // glibc init: state[i] = (16807 * state[i-1]) % 2147483647
         // Use BigInt to avoid overflow
         let v = Number(BigInt(16807) * BigInt(_randTbl[i - 1] >>> 0) % BigInt(2147483647));
         _randTbl[i] = v | 0;
       }
-      _randFptr = 3;
+      _randFptr = _RAND_SEP;
       _randRptr = 0;
-      // glibc runs 310 warm-up calls after seeding
-      for (let i = 0; i < 310; i++) _rand();
+      // glibc runs 10*deg warm-up calls after seeding
+      const warmup = 10 * _RAND_DEG;
+      for (let i = 0; i < warmup; i++) _rand();
     }
     function _rand() {
       let val = (_randTbl[_randFptr] + _randTbl[_randRptr]) | 0;
       _randTbl[_randFptr] = val;
       val = (val >>> 1);  // discard low bit
       _randFptr++;
-      if (_randFptr >= 31) _randFptr = 0;
+      if (_randFptr >= _RAND_DEG) _randFptr = 0;
       _randRptr++;
-      if (_randRptr >= 31) _randRptr = 0;
+      if (_randRptr >= _RAND_DEG) _randRptr = 0;
       return val;
     }
     _srand(1); // default seed
