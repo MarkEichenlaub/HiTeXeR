@@ -2960,7 +2960,16 @@ function createInterpreter() {
   }
 
   function evalMethodCall(obj, method, argNodes, env) {
-    const args = argNodes.map(a => evalNode(a, env));
+    // CAD methods are the only ones that need NamedArg wrappers preserved.
+    // Other method branches read positional args, and a NamedArg evaluated
+    // through evalNode strips its name (returning just the value), which
+    // matches what existing handlers expect. Restrict the named-arg
+    // preservation to obj._tag === 'sCAD' or 'sCADStatic' to avoid
+    // perturbing other handlers.
+    const _isCAD = obj && (obj._tag === 'sCAD' || obj._tag === 'sCADStatic');
+    const args = (_isCAD && argNodes.some(a => a && (a.type === 'NamedArg' || a.type === 'SpreadArg')))
+      ? evalArgList(argNodes, env)
+      : argNodes.map(a => evalNode(a, env));
 
     if (isPath(obj)) {
       if (method === 'length') return obj.segs.length;
@@ -3202,6 +3211,242 @@ function createInterpreter() {
       if (method === 'size') return null; // ignore per-picture size for now
     }
 
+    // CAD package: sCAD.Create() factory.
+    if (obj && obj._tag === 'sCADStatic') {
+      if (method === 'Create') {
+        // Build via the same struct shape installCADPackage uses.
+        const bpPerCm = 72 / 2.54;
+        const pVisibleEdge = makePen({linewidth: 1.4, _lwExplicit: true});
+        const pFreehand    = makePen({linewidth: 0.8, _lwExplicit: true});
+        const pMeasure     = makePen({linewidth: 0.5, _lwExplicit: true});
+        return {
+          _tag: 'sCAD',
+          pVisibleEdge,
+          pFreehand,
+          pMeasure,
+          smallBoundSize: 1.5,
+          bigBoundSize: 3,
+        };
+      }
+    }
+
+    // CAD package: sCAD instance methods.
+    if (obj && obj._tag === 'sCAD') {
+      if (method === 'GetMeasurementBoundSize') {
+        // Asy: real GetMeasurementBoundSize(bool bSmallBound=false). Returns
+        // a bp-space size used as a default for dblLeft/dblRight bounds.
+        let small = false;
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named && 'bSmallBound' in a) small = !!a.bSmallBound;
+          else if (typeof a === 'boolean') small = a;
+        }
+        return small ? obj.smallBoundSize : obj.bigBoundSize;
+      }
+      if (method === 'MakeFreehand') {
+        // Asy: path MakeFreehand(pair pFrom, pair pTo, ...). Either may be
+        // passed by name or positionally; remaining positionals fill in
+        // whichever named slots weren't supplied.
+        let pFrom = null, pTo = null;
+        const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('pFrom' in a) pFrom = a.pFrom;
+            if ('pTo' in a) pTo = a.pTo;
+          }
+        }
+        let pi = 0;
+        if (pFrom == null && pi < pos.length) { pFrom = pos[pi]; pi++; }
+        if (pTo   == null && pi < pos.length) { pTo   = pos[pi]; pi++; }
+        if (!isPair(pFrom) || !isPair(pTo)) return makePath([], false);
+        return makeFreehandPath(pFrom, pTo);
+      }
+      if (method === 'MeasureParallel') {
+        // Asy signature (from gallery_CAD1.asy usage):
+        //   MeasureParallel(string L="", pair pFrom, pair pTo,
+        //                   real dblDistance=0,
+        //                   real dblLeft=<auto>, real dblRight=<auto>,
+        //                   real dblRelPosition=0.5, bool bSmallBound=false)
+        // dblDistance: signed perpendicular offset of the dimension line
+        //   from the segment pFrom->pTo (positive = left of pFrom->pTo dir,
+        //   following the convention visible in the reference render).
+        // dblLeft, dblRight: how far the dimension line extends past the
+        //   pFrom and pTo extension lines, respectively (in bp).
+        // dblRelPosition: 0..1 places the label between pFrom and pTo;
+        //   values <0 or >1 place the label past the corresponding end.
+        // bSmallBound: smaller arrow heads / extension stubs.
+        let L = '';
+        let pFrom = null, pTo = null;
+        let dblDistance = 0;
+        let dblLeft = null, dblRight = null;
+        let dblRelPosition = 0.5;
+        let bSmallBound = false;
+
+        const pos = [];
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('L' in a)              L = a.L;
+            if ('pFrom' in a)          pFrom = a.pFrom;
+            if ('pTo' in a)            pTo = a.pTo;
+            if ('dblDistance' in a)    dblDistance = toNumber(a.dblDistance);
+            if ('dblLeft' in a)        dblLeft = toNumber(a.dblLeft);
+            if ('dblRight' in a)       dblRight = toNumber(a.dblRight);
+            if ('dblRelPosition' in a) dblRelPosition = toNumber(a.dblRelPosition);
+            if ('bSmallBound' in a)    bSmallBound = !!a.bSmallBound;
+          } else {
+            pos.push(a);
+          }
+        }
+        // Allow positional fallback: (L, pFrom, pTo, dblDistance, ...).
+        let pi = 0;
+        if (pi < pos.length && typeof pos[pi] === 'string') { L = pos[pi]; pi++; }
+        if (pi < pos.length && isPair(pos[pi])) { if (!pFrom) pFrom = pos[pi]; pi++; }
+        if (pi < pos.length && isPair(pos[pi])) { if (!pTo)   pTo   = pos[pi]; pi++; }
+        if (pi < pos.length && typeof pos[pi] === 'number') { dblDistance = pos[pi]; pi++; }
+
+        if (!isPair(pFrom) || !isPair(pTo)) return null;
+
+        // Default bound: 0 (dim line ends exactly at extension feet).
+        if (dblLeft  == null) dblLeft  = 0;
+        if (dblRight == null) dblRight = 0;
+
+        // Geometry. tx,ty: unit tangent pFrom->pTo. nx,ny: unit normal
+        // (rotate tangent +90°: (-ty, tx)). dblDistance positive offsets
+        // the dim line in the +n direction.
+        const dx = pTo.x - pFrom.x, dy = pTo.y - pFrom.y;
+        const segLen = Math.sqrt(dx*dx + dy*dy);
+        if (segLen < 1e-9) return null;
+        const tx = dx/segLen, ty = dy/segLen;
+        const nx = -ty,       ny = tx;
+
+        // Foot of dimension line at pFrom and pTo (perpendicular projections).
+        const f0x = pFrom.x + nx*dblDistance, f0y = pFrom.y + ny*dblDistance;
+        const f1x = pTo.x   + nx*dblDistance, f1y = pTo.y   + ny*dblDistance;
+
+        // Dimension line endpoints, extended by dblLeft / dblRight in bp.
+        // Note: dblLeft/dblRight are bp; user coords here are user units, so
+        // we need a conversion. The CAD module is used with size() in cm,
+        // and the diagram's measurements (15mm, 5mm, 10mm) are passed in
+        // user coords (since (3,-1)*cm uses cm as the unit token, asy
+        // collapses to user coords). Treat dblLeft/dblRight as same units.
+        const e0x = f0x - tx*dblLeft,  e0y = f0y - ty*dblLeft;
+        const e1x = f1x + tx*dblRight, e1y = f1y + ty*dblRight;
+
+        // Pen for the dimension annotation.
+        const measPen = obj.pMeasure || makePen({linewidth: 0.5});
+
+        // Push the extension lines: from pFrom to f0, and from pTo to f1.
+        // No overshoot — REF shows extension lines ending at the dim line.
+        const extPath0 = makePath([lineSegment(
+          makePair(pFrom.x, pFrom.y),
+          makePair(f0x, f0y)
+        )], false);
+        const extPath1 = makePath([lineSegment(
+          makePair(pTo.x, pTo.y),
+          makePair(f1x, f1y)
+        )], false);
+
+        // Dimension line itself, between e0 and e1.
+        const dimPath = makePath([lineSegment(
+          makePair(e0x, e0y),
+          makePair(e1x, e1y)
+        )], false);
+
+        // Determine whether label is "between" the arrows (0 <= rel <= 1)
+        // or outside (rel < 0 or rel > 1). When outside, arrows point
+        // inward at f0/f1 from beyond; when inside (default), arrows point
+        // outward at f0 and f1 (toward pFrom-extension / pTo-extension).
+        // For our purposes, we put arrowheads at both f0 and f1, pointing
+        // toward each other (inward) when label is between, outward when
+        // label is outside. This matches the visual style in the reference.
+        const insideLabel = (dblRelPosition >= 0 && dblRelPosition <= 1);
+
+        // Arrow size: small bp.
+        const arrowSize = bSmallBound ? 3 : 5;
+
+        // Helper: draw an arrowhead at point P along direction (vx,vy).
+        function pushArrow(px, py, vx, vy) {
+          const vl = Math.sqrt(vx*vx + vy*vy) || 1;
+          const ux = vx/vl, uy = vy/vl;
+          // Arrow tip at (px, py); base behind it by arrowSize.
+          const baseX = px - ux*arrowSize, baseY = py - uy*arrowSize;
+          // Wing offset: perpendicular by arrowSize*0.4.
+          const wx = -uy*arrowSize*0.35, wy = ux*arrowSize*0.35;
+          const w0 = makePair(baseX + wx, baseY + wy);
+          const w1 = makePair(baseX - wx, baseY - wy);
+          const tip = makePair(px, py);
+          const headPath = makePath([
+            lineSegment(w0, tip),
+            lineSegment(tip, w1),
+            lineSegment(w1, w0),
+          ], true);
+          currentPic.commands.push({cmd:'fill', path: headPath, pen: clonePen(measPen), arrow:null, line:0});
+          currentPic.commands.push({cmd:'draw', path: headPath, pen: clonePen(measPen), arrow:null, line:0});
+        }
+
+        currentPic.commands.push({cmd:'draw', path: extPath0, pen: clonePen(measPen), arrow:null, line:0});
+        currentPic.commands.push({cmd:'draw', path: extPath1, pen: clonePen(measPen), arrow:null, line:0});
+        currentPic.commands.push({cmd:'draw', path: dimPath,  pen: clonePen(measPen), arrow:null, line:0});
+
+        if (insideLabel) {
+          // Arrows at f0 pointing toward f1 (along +tangent reversed -> -tx) — wait
+          // Actually for inside-label dimensions in CAD style, the arrows
+          // point from the dim-line ends toward the extension lines (i.e.,
+          // outward), so at f0 the arrow points -tangent (toward e0/pFrom)
+          // and at f1 the arrow points +tangent (toward e1/pTo). In the
+          // reference render of box 2 (label "1"), arrows point outward
+          // from the label on both sides. Use that convention.
+          pushArrow(f0x, f0y, -tx, -ty);
+          pushArrow(f1x, f1y,  tx,  ty);
+        } else {
+          // Arrows pointing inward toward f0/f1 from outside (the dim line
+          // extends past the box; arrows point back toward the box edges).
+          pushArrow(f0x, f0y,  tx,  ty);
+          pushArrow(f1x, f1y, -tx, -ty);
+        }
+
+        // Label position. dblRelPosition along the dim line (relative to f0/f1).
+        const lx = f0x + (f1x - f0x) * dblRelPosition;
+        const ly = f0y + (f1y - f0y) * dblRelPosition;
+        // For inside labels, sit just above the dim line on the far side from
+        // the segment (i.e., away from pFrom/pTo). Sign for the perpendicular
+        // direction matches dblDistance (so the label is on the OUTSIDE of
+        // the dim line vs the segment).
+        const sgn = (dblDistance >= 0 ? 1 : -1);
+        // Screen-space offset (bp) so the label clears the dim line. Smaller
+        // for the diagonal case so √2 sits closer to the dim line.
+        // Offset large enough that the label sits visibly clear of the dim
+        // line (font height ≈ 10bp, so half + small clearance ≈ 7bp).
+        const labelOffsetBp = 7;
+        const labelText = (typeof L === 'string') ? L : String(L);
+        let labelPen = clonePen(measPen);
+        labelPen.linewidth = 0.5;
+        const angle = Math.atan2(ty, tx);
+        // Bake the perpendicular offset into the label position (user coords)
+        // rather than using screenDx/screenDy. screenDy is treated as SVG
+        // y-down by the renderer, but our normal vector is in y-up user
+        // coords; baking it in avoids a sign flip and works with rotation.
+        const labelPosX = lx + nx * sgn * labelOffsetBp;
+        const labelPosY = ly + ny * sgn * labelOffsetBp;
+        const labelCmd = {
+          cmd: 'label',
+          text: labelText,
+          pos: makePair(labelPosX, labelPosY),
+          align: makePair(0, 0),
+          pen: labelPen,
+          line: 0,
+        };
+        // Rotate the label to align with the dim line for non-axis-aligned
+        // segments (the diagonal sqrt(2) case).
+        if (Math.abs(Math.sin(angle)) > 0.05 && Math.abs(Math.cos(angle)) > 0.05) {
+          const c = Math.cos(angle), s = Math.sin(angle);
+          labelCmd.labelTransform = makeTransform(c, -s, s, c, 0, 0);
+        }
+        currentPic.commands.push(labelCmd);
+
+        return null;
+      }
+    }
+
     // trembling package: tr.deform(path) returns a wavy perturbed path.
     // Models Asymptote's trembling.asy: preserves the original bezier curves
     // of the path, optionally subdivides each segment into f additional nodes
@@ -3362,6 +3607,12 @@ function createInterpreter() {
       if (m === 'mesh') return obj.mesh;
     }
     if (obj && obj._tag === 'revolution' && m === 'mesh') return obj.mesh;
+    // CAD module struct: cad.pVisibleEdge / cad.pFreehand / cad.pMeasure
+    if (obj && obj._tag === 'sCAD') {
+      if (m === 'pVisibleEdge') return obj.pVisibleEdge;
+      if (m === 'pFreehand')    return obj.pFreehand;
+      if (m === 'pMeasure')     return obj.pMeasure;
+    }
     return null;
   }
 
@@ -4063,7 +4314,85 @@ function createInterpreter() {
     if (mod === 'drawtree' || mod.endsWith('/drawtree')) {
       installDrawtreePackage(env);
     }
+    if (mod === 'cad' || mod.endsWith('/cad')) {
+      installCADPackage(env);
+    }
     return null;
+  }
+
+  // Asymptote "CAD" module — minimal CAD-style drawing primitives. Implements
+  // sCAD struct (Create() factory), pen presets pVisibleEdge / pFreehand,
+  // MakeFreehand (wavy bezier between two points), and MeasureParallel
+  // (parallel dimension annotation with extension lines, arrows, and label).
+  // Only one diagram in the corpus (gallery_CAD1.asy / id 12847) uses this
+  // module, so the implementation aims for visual parity with that figure
+  // rather than full CAD-module fidelity.
+  function installCADPackage(env) {
+    const bpPerCm = 72 / 2.54;
+    const bpPerMm = 72 / 25.4;
+
+    function makeCAD() {
+      // Pens used by gallery_CAD1.asy.
+      const pVisibleEdge = makePen({linewidth: 1.4, _lwExplicit: true});
+      const pFreehand    = makePen({linewidth: 0.8, _lwExplicit: true});
+      const pMeasure     = makePen({linewidth: 0.5, _lwExplicit: true});
+      return {
+        _tag: 'sCAD',
+        pVisibleEdge,
+        pFreehand,
+        pMeasure,
+        // Bound size used by MeasureParallel: small in bp.
+        smallBoundSize: 1.5,
+        bigBoundSize: 3,
+      };
+    }
+
+    // sCAD static "namespace" — sCAD.Create() returns a fresh cad instance.
+    env.set('sCAD', {_tag: 'sCADStatic'});
+
+    // Expose a few CAD constants by name in case asy code references them
+    // directly (gallery_CAD1.asy doesn't, but harmless to publish).
+    env.set('CAD_bpPerCm', bpPerCm);
+  }
+
+  // Build a wavy freehand bezier path between pFrom and pTo. Mirrors the
+  // visual style of sCAD.MakeFreehand: a path that looks hand-drawn, with a
+  // gently undulating mid-line. Uses a deterministic sine perturbation so
+  // renders are stable.
+  function makeFreehandPath(pFrom, pTo) {
+    const a = pFrom, b = pTo;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    if (len < 1e-9) return makePath([], false);
+    // Tangent and normal unit vectors.
+    const tx = dx/len, ty = dy/len;
+    const nx = -ty, ny = tx;
+    // Wavelength ≈ 8bp visible mark, amplitude ≈ 1.2bp. The Asymptote CAD
+    // module uses ~3 wavelengths per cm; we tune to roughly match the
+    // reference render in 12847.
+    const bpPerCm = 72/2.54;
+    const cycles = Math.max(2, Math.round((len / bpPerCm) * 4));
+    const segs = [];
+    for (let i = 0; i < cycles; i++) {
+      const t0 = i / cycles, t1 = (i+1) / cycles;
+      const x0 = a.x + dx*t0, y0 = a.y + dy*t0;
+      const x1 = a.x + dx*t1, y1 = a.y + dy*t1;
+      // Alternate the bulge direction to make a wave.
+      const sign = (i % 2 === 0) ? 1 : -1;
+      // Control points pull perpendicular by a small fraction of segment length.
+      const amp = (len / cycles) * 0.25 * sign;
+      const c1x = x0 + (dx/cycles)*0.25 + nx*amp;
+      const c1y = y0 + (dy/cycles)*0.25 + ny*amp;
+      const c2x = x1 - (dx/cycles)*0.25 + nx*amp;
+      const c2y = y1 - (dy/cycles)*0.25 + ny*amp;
+      segs.push({
+        p0: {x:x0, y:y0},
+        cp1:{x:c1x, y:c1y},
+        cp2:{x:c2x, y:c2y},
+        p3: {x:x1, y:y1},
+      });
+    }
+    return makePath(segs, false);
   }
 
   // Asymptote "drawtree" module — minimal layout-and-draw tree renderer.
