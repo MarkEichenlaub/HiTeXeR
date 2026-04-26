@@ -6181,7 +6181,17 @@ function createInterpreter() {
         const bi = parseInt(hex.substr(4,2),16)/255;
         return makePen({r:isNaN(ri)?0:ri, g:isNaN(gi)?0:gi, b:isNaN(bi)?0:bi});
       }
-      return makePen({r:toNumber(args[0]),g:toNumber(args[1]),b:toNumber(args[2])});
+      let r = toNumber(args[0]), g = toNumber(args[1]), b = toNumber(args[2]);
+      // Asymptote's rgb() officially expects 0-1 reals, but corpus diagrams
+      // routinely call it with 0-255 integer-valued reals (e.g.
+      // `rgb(211, 240, 242)` for a pale cyan).  When all three components are
+      // > 1 and ≤ 255, treat them as 0-255 byte values — this matches what
+      // the AoPS TeXeR reference renderer does and fixes a class of "pure
+      // white instead of color" defects across the corpus.
+      if (r > 1 && g > 1 && b > 1 && r <= 255 && g <= 255 && b <= 255) {
+        r /= 255; g /= 255; b /= 255;
+      }
+      return makePen({r, g, b});
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
@@ -15424,7 +15434,11 @@ function createInterpreter() {
       else if (a && a._tag === 'filltype') { filltype = a; }
       else if (isString(a) && !text) text = a;
       else if (isPath(a) && !pos) {
-        // label on a path: place at midpoint
+        // label on a path: place at midpoint.  If the path is a path3
+        // (segment endpoints are triples), project them to 2D first —
+        // otherwise the label lands at the (x,y) of the world-space
+        // midpoint, which is meaningless on screen.
+        projectPathTriples(a);
         const segs = a.segs;
         if (segs.length > 0) {
           const midSeg = segs[Math.floor(segs.length/2)];
