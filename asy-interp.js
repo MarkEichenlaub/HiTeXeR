@@ -8266,8 +8266,38 @@ function createInterpreter() {
           defaultTickSize = perpAxisRange * 0.015;
         }
       }
-      let majorSize = ticks.sizeExplicit ? ticks.size : defaultTickSize;
-      let minorSize = majorSize * 0.5;
+      // Asymptote's Size= and size= are in PostScript points (bp). Convert to
+      // user data units using the bp-per-unit ratio in the PERPENDICULAR direction
+      // (the direction the tick extends), so explicit sizes (e.g. Size=6pt) draw
+      // at the intended physical length regardless of the plot's aspect ratio.
+      // Using min() of x/y scales (as defaultTickSize does) would interpret a
+      // 6pt tick as 6pt-of-the-shortest-axis on highly non-square plots, which
+      // is wrong: a tick is a screen-space length, not a data-space length.
+      let _ticksBpPerUnit = 0;
+      if (sizeW > 0 || sizeH > 0) {
+        const _gb2 = getGeoBbox(pic.commands);
+        const rX2 = (_gb2 && isFinite(_gb2.maxX - _gb2.minX)) ? Math.abs(_gb2.maxX - _gb2.minX) : (Math.abs(max - min) || 1);
+        const rY2 = (_gb2 && isFinite(_gb2.maxY - _gb2.minY)) ? Math.abs(_gb2.maxY - _gb2.minY) : perpAxisRange;
+        const sw2 = sizeW > 0 ? sizeW : sizeH;
+        const sh2 = sizeH > 0 ? sizeH : sizeW;
+        // Tick extends perpendicular to the axis: y-axis ticks extend in x,
+        // x-axis ticks extend in y.
+        if (_isXAxis) {
+          if (rY2 > 0) _ticksBpPerUnit = sh2 / rY2;
+        } else {
+          if (rX2 > 0) _ticksBpPerUnit = sw2 / rX2;
+        }
+      } else if (hasUnitScale) {
+        _ticksBpPerUnit = unitScale;
+      }
+      function _bpToUnit(bp) {
+        if (_ticksBpPerUnit > 0) return bp / _ticksBpPerUnit;
+        // Fallback: scale relative to perpAxisRange so a typical 6pt tick is
+        // ~1.5% of the perpendicular range (matches defaultTickSize fallback).
+        return (bp / 6) * perpAxisRange * 0.015;
+      }
+      let majorSize = ticks.sizeExplicit ? _bpToUnit(ticks.size) : defaultTickSize;
+      let minorSize = ticks.subSizeExplicit ? _bpToUnit(ticks.subSize) : majorSize * 0.5;
       // If size was explicitly set extremely small (e.g. Size = 0.1pt), the user is
       // suppressing visible tick marks — skip drawing tick lines entirely.
       const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
@@ -9372,7 +9402,7 @@ function createInterpreter() {
           if ('Step' in a) t.step = a.Step;
           if ('step' in a) t.subStep = a.step;
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
-          if ('size' in a) { t.size = a.size; t.sizeExplicit = true; }
+          if ('size' in a) { t.subSize = a.size; t.subSizeExplicit = true; }
           if ('extend' in a) t.extend = a.extend;
           if ('pTick' in a && isPen(a.pTick)) t.pen = a.pTick;
           if ('ptick' in a && isPen(a.ptick)) t.pen = a.ptick;
