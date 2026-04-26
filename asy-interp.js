@@ -6612,6 +6612,8 @@ function createInterpreter() {
     env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
     // intersect2paths(p1, p2) — cse5: returns array of intersection points between two paths
     env.set('intersect2paths', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+    // CR(center, r) — cse5 shorthand for "Circle with Radius": returns a circle path
+    env.set('CR', (center, r) => makeCirclePath(toPair(center), toNumber(r)));
 
     // MP (Marked Point) — cse5/olympiad: draws a dot + label, returns the pair
     env.set('MP', (...args) => {
