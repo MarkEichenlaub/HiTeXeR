@@ -16860,6 +16860,15 @@ function renderSVG(result, opts) {
        // compactly at natural scale (e.g. unitsize(0.5cm) dot grid at ~45bp).
        // Boosting to 200bp here makes the image 4× too large.
        const cmNoLabelNat = Math.max(naturalW, naturalH);
+       // Cm-scale unitsize (≥ 20bp/unit, e.g. 0.75cm) with labels but no
+       // graph axis: TeXeR honors the literal cm scale closely, only
+       // modestly expanding to ensure visibility (~80–90bp wide for a
+       // small triangle Dyck-path style diagram). Boosting to defaultSize
+       // 200 here makes the image ~4× too large vs the TeXeR reference.
+       // Use a moderate target (~75bp) similar to the cm-scale graph-axis
+       // case so geometry + labels land near the TeXeR reference width.
+       const _cmLabelModestTgt = (unitScale >= 20 && hasAnyLabels
+         && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded);
        const baseTgt = (unitScale < 1)
          ? (aspectRatio >= 2.5 ? 200 : 100)
          : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
@@ -16868,13 +16877,15 @@ function renderSVG(result, opts) {
              ? 22
              : (unitScale >= 10 && !hasAnyLabels)
                ? cmNoLabelNat
-               : (_graphAxisCmBoostNeeded && !_graphAxisBoostNeeded
-                   && Math.max(fullNatW, fullNatH) >= minReasonable)
-                 // Cm-scale graph-axis with label-dominated bbox: target a
-                 // modest geometry size (~75bp) so total bbox (geometry +
-                 // labels) lands near TeXeR's reference width without inflating.
-                 ? 75
-                 : defaultSize;
+               : _cmLabelModestTgt
+                 ? 50
+                 : (_graphAxisCmBoostNeeded && !_graphAxisBoostNeeded
+                     && Math.max(fullNatW, fullNatH) >= minReasonable)
+                   // Cm-scale graph-axis with label-dominated bbox: target a
+                   // modest geometry size (~75bp) so total bbox (geometry +
+                   // labels) lands near TeXeR's reference width without inflating.
+                   ? 75
+                   : defaultSize;
       const tgtSize = Math.max(baseTgt, crowdedTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
