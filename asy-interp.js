@@ -16970,6 +16970,28 @@ function renderSVG(result, opts) {
     if (maxDim > 50 && pxPerUnit < 7) {
       pxPerUnit = 7;
     }
+    // Extended floor: when maxDim is in the 15–50 user-unit range AND the
+    // diagram is label-dense (many labels packed near small geometric
+    // features, e.g. a grid of binary-tree subfigures with circle nodes),
+    // the natural defaultSize=150 still compresses geometry below the point
+    // where fontSize-sized labels fit comfortably inside small primitives
+    // (e.g. circles with radius=0.3 user units). Detect this case by counting
+    // labels and comparing to bbox area: when label density is high, boost
+    // pxPerUnit so labels remain proportional to features.
+    if (maxDim > 15 && maxDim <= 50 && pxPerUnit < 13) {
+      let labelCount = 0;
+      for (const dc of drawCommands) {
+        if (dc.cmd === 'label') labelCount++;
+      }
+      const bboxArea = scaleRefW2 * scaleRefH2;
+      const labelDensity = labelCount / Math.max(bboxArea, 1);
+      // Threshold tuned for label-dense subfigure layouts: e.g. 50 labels
+      // over a 16×22 bbox = density ~0.14. Sparse diagrams (a few labels
+      // over a similar bbox) stay below this threshold and aren't boosted.
+      if (labelDensity > 0.05) {
+        pxPerUnit = 13;
+      }
+    }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
     sizeW = Math.max(defaultSize, scaleRefW2 * pxPerUnit);
     sizeH = Math.max(defaultSize, scaleRefH2 * pxPerUnit);
