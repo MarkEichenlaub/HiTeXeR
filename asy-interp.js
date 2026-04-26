@@ -7332,6 +7332,10 @@ function createInterpreter() {
       if (radius === null) {
         radius = 8; // default 8bp
       }
+      // Capture original bp radius so the renderer can rebuild the arc path
+      // after the unitsize boost (otherwise a 15bp radius converted via the
+      // pre-boost unitScale renders ~boost× too large in user units).
+      const _bpRadius = radius;
       {
         // Estimate bp→user conversion from size() and current picture bounds.
         // Include the current call's pairs (A, B, C) so the estimate is valid
@@ -7456,7 +7460,12 @@ function createInterpreter() {
         } else {
           // Normal arc without markers
           const arcPath = makeArcPath(B, r, a1, a2);
-          currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0});
+          // Tag with bp-truesize info so the renderer can rebuild the arc
+          // post-boost (radius is in bp; user-unit conversion uses the final
+          // pxPerUnit, not the pre-boost unitScale).
+          const _bpR = _bpRadius + i * (_bpRadius * 0.15);
+          currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
+            _markangleBpR: _bpR, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2});
         }
       }
 
@@ -7465,7 +7474,12 @@ function createInterpreter() {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
         const labelR = radius + (n - 1) * gap + radius * 0.4;
         const pos = makePair(B.x + labelR * Math.cos(midAngle), B.y + labelR * Math.sin(midAngle));
-        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0});
+        // Tag the label with bp-truesize positioning info so it can be
+        // re-positioned post-boost (label position is computed from the
+        // pre-boost radius; needs to scale with the corrected arc radius).
+        const _bpLabelR = _bpRadius + (n - 1) * (_bpRadius * 0.15) + _bpRadius * 0.4;
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0,
+          _markangleBpR: _bpLabelR, _markangleVertex: B, _markangleMidAngle: midAngle});
       }
       return null;
     });
@@ -16710,12 +16724,28 @@ function renderSVG(result, opts) {
     const _graphAxisBoostNeeded = _hasGraphAxis
       && unitScale >= 10 && unitScale < 20
       && Math.max(fullNatW, fullNatH) < 100;
+    // Cm-scale graph-axis idiom: xaxis()/yaxis() with cm-based unitsize and a
+    // small geometry (e.g. r=1 polar diagram at unitsize(1cm) → naturalMax ≈ 28bp).
+    // Real Asymptote/AoPS-TeXeR boosts geometry to ~150–200bp so the label-vs-
+    // geometry visual ratio matches truesize text.  Without this, a wide
+    // truesize dot label (e.g. "$(\sqrt{x^2+y^2}, ...)$") expands fullNat above
+    // minReasonable and the boost is skipped, leaving geometry ~28bp wide
+    // inside a ~100bp+ canvas.  Gate by graph-axis presence (signals deliberate
+    // axis-anchored layout, not a freeform diagram where literal cm sizing is
+    // intended) and by geometry-vs-fullNat ratio (≥ 1.5× expansion = labels
+    // dominate, not just slightly overflow).
+    const _natMaxCmAxis = Math.max(naturalW, naturalH);
+    const _fullNatMaxCmAxis = Math.max(fullNatW, fullNatH);
+    const _graphAxisCmBoostNeeded = _hasGraphAxis
+      && unitScale >= 20 && unitScale < 60
+      && _natMaxCmAxis > 0 && _natMaxCmAxis < 50
+      && _fullNatMaxCmAxis >= 1.5 * _natMaxCmAxis;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && !_labelDominatesTiny
         && !_sizeExplicit
         && naturalW < defaultSize && naturalH < defaultSize
-        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded)) {
+        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
       // labels at edge midpoints don't crowd each other.  Only applies when
@@ -16755,7 +16785,13 @@ function renderSVG(result, opts) {
              ? 22
              : (unitScale >= 10 && !hasAnyLabels)
                ? cmNoLabelNat
-               : defaultSize;
+               : (_graphAxisCmBoostNeeded && !_graphAxisBoostNeeded
+                   && Math.max(fullNatW, fullNatH) >= minReasonable)
+                 // Cm-scale graph-axis with label-dominated bbox: target a
+                 // modest geometry size (~75bp) so total bbox (geometry +
+                 // labels) lands near TeXeR's reference width without inflating.
+                 ? 75
+                 : defaultSize;
       const tgtSize = Math.max(baseTgt, crowdedTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
@@ -17108,6 +17144,46 @@ function renderSVG(result, opts) {
   // becomes much wider/taller than the label needs, producing a 2:1 aspect
   // for what should be a near-square diagram (e.g. 00129 r/R=1/2 plot).
   const _unitsizeBoosted = hasUnitScale && unitsizeBoostScale > 1.001;
+  // Rebuild markangle arcs (and their labels) using the final pxPerUnit so the
+  // bp-truesize radius (e.g. radius=15bp) doesn't survive the boost as a
+  // user-unit value computed against the pre-boost unitScale (which would
+  // render boost× too large).
+  if (_unitsizeBoosted) {
+    const _rebuildArcPath = (center, r, startDeg, endDeg) => {
+      const startRad = startDeg * Math.PI / 180;
+      const endRad = endDeg * Math.PI / 180;
+      const sweep = endRad - startRad;
+      const segs = [];
+      const nSegs = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI/2)));
+      const dAngle = sweep / nSegs;
+      for (let i = 0; i < nSegs; i++) {
+        const a1r = startRad + i * dAngle;
+        const a2r = a1r + dAngle;
+        const da = a2r - a1r;
+        const alpha = Math.sin(da) * (Math.sqrt(4 + 3*Math.pow(Math.tan(da/2),2)) - 1) / 3;
+        const p0 = {x: center.x + r*Math.cos(a1r), y: center.y + r*Math.sin(a1r)};
+        const p3 = {x: center.x + r*Math.cos(a2r), y: center.y + r*Math.sin(a2r)};
+        const cp1 = {x: p0.x - alpha*r*Math.sin(a1r), y: p0.y + alpha*r*Math.cos(a1r)};
+        const cp2 = {x: p3.x + alpha*r*Math.sin(a2r), y: p3.y - alpha*r*Math.cos(a2r)};
+        segs.push(makeSeg(p0, cp1, cp2, p3));
+      }
+      return makePath(segs, false);
+    };
+    for (const dc of drawCommands) {
+      if (dc && typeof dc._markangleBpR === 'number' && dc._markangleVertex) {
+        const B = dc._markangleVertex;
+        const rUser = dc._markangleBpR / pxPerUnit;
+        if (dc.cmd === 'draw' && typeof dc._markangleA1 === 'number') {
+          dc.path = _rebuildArcPath(B, rUser, dc._markangleA1, dc._markangleA2);
+        } else if (dc.cmd === 'label' && typeof dc._markangleMidAngle === 'number') {
+          dc.pos = makePair(
+            B.x + rUser * Math.cos(dc._markangleMidAngle),
+            B.y + rUser * Math.sin(dc._markangleMidAngle)
+          );
+        }
+      }
+    }
+  }
   if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0) || _unitsizeBoosted) && labelInfoBp.length > 0) {
     minX = geoMinX; maxX = geoMaxX;
     minY = geoMinY; maxY = geoMaxY;
@@ -19459,6 +19535,12 @@ function stripLaTeX(text) {
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ', '\\prime':'′',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\sec':'sec','\\csc':'csc','\\cot':'cot',
+    '\\arcsin':'arcsin','\\arccos':'arccos','\\arctan':'arctan',
+    '\\sinh':'sinh','\\cosh':'cosh','\\tanh':'tanh',
+    '\\exp':'exp','\\lim':'lim','\\inf':'inf','\\sup':'sup',
+    '\\min':'min','\\max':'max','\\gcd':'gcd','\\lcm':'lcm',
+    '\\det':'det','\\dim':'dim','\\deg':'deg','\\arg':'arg',
     '\\left':'','\\right':'',
     '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
