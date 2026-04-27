@@ -18529,15 +18529,16 @@ function renderSVG(result, opts) {
     const _isFlatBanner = _minDim < 5 && Math.max(_w, _h) > 50;
     // Tall-thin diagrams whose user-coord minDim is small (e.g. 01153's
     // 0.3-unit width) but auto-scale to a rendered minDim that's already
-    // adequately thick (>= 10 bp) don't need stroke-boost: the linear ramp's
-    // 5× boost on aspect-10+ shapes over-thickens rods to ~17% of the narrow
-    // dimension, and dot radius (which doesn't get boosted) ends up barely
-    // thicker than the rod.  Skip boost in this case.
+    // adequately thick (>= 10 bp) don't benefit from the linear ramp's full
+    // 5× boost: that over-thickens rods to ~17% of the narrow dimension and
+    // inverts the dot/rod weight ratio.  Apply a modest 1.67× boost (TeXeR
+    // 240 DPI / HTX 144 DPI) so default strokes match TeXeR's rendered
+    // weight without dominating the diagram.
     const _renderedMinDim = _minDim * pxPerUnit;
     if (_isFlatBanner) {
       _autoScaledStrokeBoost = 2.0;
     } else if (_aspect > 6 && _renderedMinDim >= 10) {
-      _autoScaledStrokeBoost = 1.0;
+      _autoScaledStrokeBoost = 1.67;
     } else {
       // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
       _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
@@ -18612,7 +18613,12 @@ function renderSVG(result, opts) {
       // matching the size where author intent diverges.
       const dotLw = dc.pen.linewidth;
       const useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw > 3;
-      const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+      // Apply the auto-scaled stroke boost to dot radius too, but only for
+      // non-explicit pens (matching the stroke-boost criterion at L18542):
+      // explicit dot diameters/linewidths should keep their literal size.
+      const _dotBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit)
+        ? _autoScaledStrokeBoost : 1.0;
+      const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
       if (dc.filltype && dc.filltype.style === 'UnFill') {
         // UnFill: open dot — white interior, colored ring.
