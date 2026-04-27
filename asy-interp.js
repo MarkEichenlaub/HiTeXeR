@@ -8933,6 +8933,28 @@ function createInterpreter() {
       if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
         try { process.stderr.write('[xaxis after _axisLim] xmin='+xmin+' xmax='+xmax+' pic.cmds='+pic.commands.length+' picLim='+JSON.stringify(pic._picLimits||{})+'\n'); } catch(e){}
       }
+      // Asymptote's xlimits is a hint/lower-bound: the picture's user bbox
+      // extends to include all content even if it goes beyond xlimits, and
+      // xaxis() ranges over the full user bbox (via pic.userMin/userMax).
+      // So if content extends past the xlimits-supplied xmin/xmax, expand
+      // the axis range to include it. This matches userBoxXY semantics.
+      if ((_xminFromUserLimits || _xmaxFromUserLimits) && !xminExplicit && !xmaxExplicit) {
+        let cMinX = Infinity, cMaxX = -Infinity;
+        for (const dc of pic.commands) {
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+          if (dc.above === -1) continue;
+          if (dc.path && dc.path.segs) {
+            for (const seg of dc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+                if (isFinite(p.x)) { if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x; }
+              }
+            }
+          }
+          if (dc.pos && isFinite(dc.pos.x)) { if (dc.pos.x < cMinX) cMinX = dc.pos.x; if (dc.pos.x > cMaxX) cMaxX = dc.pos.x; }
+        }
+        if (_xminFromUserLimits && isFinite(cMinX) && cMinX < xmin) xmin = cMinX;
+        if (_xmaxFromUserLimits && isFinite(cMaxX) && cMaxX > xmax) xmax = cMaxX;
+      }
       if (xmin === null || xmax === null) {
         // Compute from picture's existing content, skipping axis-related draws
         let cMinX = Infinity, cMaxX = -Infinity;
@@ -9195,6 +9217,25 @@ function createInterpreter() {
       }
       if (ymin === null && _axisLimits.ymin !== null) { ymin = _axisLimits.ymin; _yminFromUserLimits = true; }
       if (ymax === null && _axisLimits.ymax !== null) { ymax = _axisLimits.ymax; _ymaxFromUserLimits = true; }
+      // See xaxis: ylimits is a lower-bound; expand to include any content
+      // that extends past it (matching Asymptote's pic.userMin/userMax).
+      if ((_yminFromUserLimits || _ymaxFromUserLimits) && !yminExplicit && !ymaxExplicit) {
+        let cMinY = Infinity, cMaxY = -Infinity;
+        for (const dc of pic.commands) {
+          if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+          if (dc.above === -1) continue;
+          if (dc.path && dc.path.segs) {
+            for (const seg of dc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+                if (isFinite(p.y)) { if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y; }
+              }
+            }
+          }
+          if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
+        }
+        if (_yminFromUserLimits && isFinite(cMinY) && cMinY < ymin) ymin = cMinY;
+        if (_ymaxFromUserLimits && isFinite(cMaxY) && cMaxY > ymax) ymax = cMaxY;
+      }
       if (ymin === null || ymax === null) {
         let cMinY = Infinity, cMaxY = -Infinity;
         for (const dc of pic.commands) {
