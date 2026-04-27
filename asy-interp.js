@@ -15752,6 +15752,7 @@ function createInterpreter() {
       }
       else if (isString(a) && text === null) text = a;
     }
+    if (typeof text === 'string') text = expandShortstackText(text);
     if (typeof text === 'string') text = expandMinipageText(text);
     if (!pen) {
       // Asymptote signature: dot(pair z, pen p=currentpen) — no-pen call inherits currentpen,
@@ -15872,6 +15873,11 @@ function createInterpreter() {
     if (typeof text === 'string' && text.indexOf('\t') !== -1) {
       text = text.replace(/\t/g, ' ');
     }
+
+    // LaTeX \shortstack[pos]{a \\ b} stacked-text macro in label text:
+    // expand to '\n'-separated lines so the multi-line label renderer
+    // stacks them (KaTeX has no \shortstack support).
+    if (typeof text === 'string') text = expandShortstackText(text);
 
     // LaTeX \begin{minipage}{width}...\end{minipage} environment in label
     // text: expand to the inner content with \\ → newline so downstream
@@ -20079,6 +20085,26 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
     return `<g transform="translate(${fmt(2*cx)},0) scale(-1,1)">${core}</g>`;
   }
   return core;
+}
+
+// Expand LaTeX `\shortstack[pos]{a \\ b \\ c}` (a stacked-text macro from
+// the picture/graphicx world) by replacing it with the inner lines joined
+// by '\n'.  KaTeX has no \shortstack support, so the unprocessed form
+// renders as a red error followed by the literal letters running together.
+// Downstream the multi-line label renderer (which splits on \n) draws the
+// resulting lines stacked and centered, matching real LaTeX shortstack.
+// Strips the surrounding $...$ when they wrap only the shortstack call:
+// the inner content is text-mode in TeX, so math delimiters are spurious.
+function expandShortstackText(text) {
+  if (!text || typeof text !== 'string') return text;
+  if (text.indexOf('\\shortstack') === -1) return text;
+  return text.replace(
+    /\$?\\shortstack\s*(?:\[[^\]]*\])?\s*\{([^{}]*)\}\$?/g,
+    (_, inner) => {
+      const lines = inner.split(/\\\\/).map(l => l.trim()).filter(l => l.length > 0);
+      return lines.join('\n');
+    }
+  );
 }
 
 // Expand \begin{minipage}{width}content\end{minipage} wrappers into plain
