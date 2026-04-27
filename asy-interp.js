@@ -1093,12 +1093,25 @@ function lineSegment(a,b) {
   // projectPathTriples() can project them correctly later.
   if ((a && a._tag === 'triple') || (b && b._tag === 'triple')) {
     const az = a.z || 0, bz = b.z || 0;
-    return makeSeg(a,
+    const seg = makeSeg(a,
       {_tag:'triple', x:a.x+(b.x-a.x)/3, y:a.y+(b.y-a.y)/3, z:az+(bz-az)/3},
       {_tag:'triple', x:a.x+2*(b.x-a.x)/3, y:a.y+2*(b.y-a.y)/3, z:az+2*(bz-az)/3},
       b);
+    seg._linear = true;
+    return seg;
   }
-  return makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b);
+  // Pair (already-projected) endpoints: cp1/cp2 are linear interpolations of
+  // a/b at construction time. Note that the caller's a/b objects may be
+  // _projectedTriples-tracked pairs whose x/y get mutated in-place when the
+  // perspective auto-adjust re-projects everything (projectTriple). Because
+  // p0/p3 alias those tracked pairs but cp1/cp2 are fresh frozen copies, a
+  // post-construction camera adjust would leave cp1/cp2 stale relative to
+  // p0/p3, producing wildly distorted cubic curves (spikes on sphere meshes
+  // far from the origin). Mark _linear so pathToD emits a straight L command
+  // and ignores the (possibly stale) control points.
+  const seg = makeSeg(a, {x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3}, {x:a.x+2*(b.x-a.x)/3,y:a.y+2*(b.y-a.y)/3}, b);
+  seg._linear = true;
+  return seg;
 }
 
 function isPair(v) { return v && v._tag === 'pair'; }
@@ -5498,22 +5511,62 @@ function createInterpreter() {
         const samples = [];
         const nSamp = Math.max(n * 2, 16);
         if (!longArc) {
-          // slerp on unit vectors, scale by ru — short arc
-          for (let i = 0; i <= nSamp; i++) {
-            const t = i / nSamp;
-            let px, py, pz;
-            if (theta < 1e-6) {
-              px = c.x + (1-t)*ux + t*vx;
-              py = c.y + (1-t)*uy + t*vy;
-              pz = c.z + (1-t)*uz + t*vz;
-            } else {
-              const s1 = Math.sin((1-t)*theta) / Math.sin(theta);
-              const s2 = Math.sin(t*theta) / Math.sin(theta);
-              px = c.x + ru * (s1 * ux/ru + s2 * vx/rv);
-              py = c.y + ru * (s1 * uy/ru + s2 * vy/rv);
-              pz = c.z + ru * (s1 * uz/ru + s2 * vz/rv);
+          // Short arc: rotate from e1 toward +w over angle θ. This is more
+          // robust than the slerp form sin((1-t)θ)/sin(θ) when θ ≈ π
+          // (near-antipodal v1/v2 — e.g. Arc(O, (l,l,-l-0.01), (-l,-l,l))
+          // where the small offset is intended to bias plane choice but the
+          // slerp denominator sin(π) ≈ 0 produces NaN/garbage samples,
+          // corrupting the resulting sphere mesh and leaving white gaps).
+          if (theta < 1e-6) {
+            for (let i = 0; i <= nSamp; i++) {
+              const t = i / nSamp;
+              const px = c.x + (1-t)*ux + t*vx;
+              const py = c.y + (1-t)*uy + t*vy;
+              const pz = c.z + (1-t)*uz + t*vz;
+              samples.push(makeTriple(px, py, pz));
             }
-            samples.push(makeTriple(px, py, pz));
+          } else {
+            // Match Asymptote's three.asy Arc(c,v1,v2): build orthonormal
+            // in-plane basis (u, v) from V = unit(v1×v2), u = unit(v1),
+            // v = unit(V × u). Sweep f(t) = c + r*(cos(t)*u + sin(t)*v)
+            // over t ∈ [0, angle], with r = |v1| held CONSTANT (so all
+            // samples lie on a sphere of radius r centered at c — this
+            // is what allows revolution() to detect the sphere case and
+            // enable proper back-face culling on the closed mesh).
+            const e1x = ux/ru, e1y = uy/ru, e1z = uz/ru;
+            // Plane normal V = unit(v1 × v2); falls back to a perpendicular
+            // axis if v1 and v2 are exactly antipodal.
+            let Vx = uy*vz - uz*vy;
+            let Vy = uz*vx - ux*vz;
+            let Vz = ux*vy - uy*vx;
+            let Vlen = Math.hypot(Vx, Vy, Vz);
+            let wx, wy, wz;
+            if (Vlen < 1e-9 * ru * rv) {
+              // Truly antipodal: pick any perpendicular to e1.
+              const fb = Math.abs(e1x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:1,z:0};
+              const dotE = fb.x*e1x + fb.y*e1y + fb.z*e1z;
+              wx = fb.x - dotE*e1x; wy = fb.y - dotE*e1y; wz = fb.z - dotE*e1z;
+              const wlen = Math.hypot(wx, wy, wz) || 1;
+              wx /= wlen; wy /= wlen; wz /= wlen;
+            } else {
+              Vx /= Vlen; Vy /= Vlen; Vz /= Vlen;
+              // w = V × e1 (perpendicular to e1 in the v1,v2 plane,
+              // pointing toward v2 along the short arc).
+              wx = Vy*e1z - Vz*e1y;
+              wy = Vz*e1x - Vx*e1z;
+              wz = Vx*e1y - Vy*e1x;
+              const wlen = Math.hypot(wx, wy, wz) || 1;
+              wx /= wlen; wy /= wlen; wz /= wlen;
+            }
+            for (let i = 0; i <= nSamp; i++) {
+              const t = i / nSamp;
+              const a = t * theta;
+              const ca = Math.cos(a), sa = Math.sin(a);
+              const px = c.x + ru * (ca*e1x + sa*wx);
+              const py = c.y + ru * (ca*e1y + sa*wy);
+              const pz = c.z + ru * (ca*e1z + sa*wz);
+              samples.push(makeTriple(px, py, pz));
+            }
           }
         } else {
           // long (complementary) arc: traverse angle 2π−θ along same great circle,
@@ -12380,12 +12433,30 @@ function createInterpreter() {
       return {_tag:'surface'};
     });
     env.set('revolution', (...args) => {
-      // revolution(path3 p, triple axis=Z[, int n=32, real angle1=0, real angle2=360])
+      // revolution(triple c=O, path3 p, triple axis=Z[, int n=32,
+      //            real angle1=0, real angle2=360]).
+      // Three positional triples are allowed: (c, path, axis). When two
+      // triples are present, the FIRST is the center and the SECOND is
+      // the axis (matching Asymptote's three.asy signature).
       const pos = args.filter(a => !(a && a._named));
       const named = {};
       for (const a of args) if (a && a._named) Object.assign(named, a);
       const path = pos.find(a => isPath(a));
-      let axis = named.axis && isTriple(named.axis) ? named.axis : makeTriple(0,0,1);
+      const pathIdx = pos.indexOf(path);
+      // Disambiguate triple positional args by their order relative to the path:
+      //   revolution(triple c, path3 g, triple axis, ...)  ← c BEFORE path, axis AFTER
+      //   revolution(path3 g, triple axis, ...)            ← single triple AFTER path
+      //   revolution(triple c, path3 g, ...)               ← single triple BEFORE path (axis defaults to Z)
+      const triples = pos.filter(a => isTriple(a));
+      const triplesAfter = pos.filter((a, i) => isTriple(a) && i > pathIdx);
+      let axis;
+      if (named.axis && isTriple(named.axis)) {
+        axis = named.axis;
+      } else if (triplesAfter.length >= 1) {
+        axis = triplesAfter[0];
+      } else {
+        axis = makeTriple(0, 0, 1);
+      }
       // Default longitude count: 96 gives visibly smoother bands than the
       // traditional 32 without ballooning SVG size too much.  Asymptote's
       // PS-based renderer uses true gradient mesh fills and produces perfectly
@@ -15551,10 +15622,28 @@ function createInterpreter() {
         }
         if (points.length > 1) { multiDots = points; } else { pos = points[0]; }
       }
+      else if (Array.isArray(a) && !pos && !multiDots) {
+        // dot(pair[] z, ...) — Asymptote signature: dot all points in array.
+        // E.g. dot(intersectionpoints(l1,l2), cyan).
+        const pts = [];
+        for (const item of a) {
+          if (isPair(item)) pts.push(item);
+          else if (isTriple(item)) pts.push(projectTriple(item));
+          else if (isPoint(item)) pts.push(locatePoint(item));
+        }
+        if (pts.length > 1) multiDots = pts;
+        else if (pts.length === 1) pos = pts[0];
+      }
       else if (isString(a) && text === null) text = a;
     }
     if (typeof text === 'string') text = expandMinipageText(text);
-    if (!pen) pen = clonePen(defaultPen);
+    if (!pen) {
+      // Asymptote signature: dot(pair z, pen p=currentpen) — no-pen call inherits currentpen,
+      // which itself layers over defaultpen. mergePens(defaultPen, currentpen) keeps defaultpen
+      // properties (linewidth etc.) and lets currentpen override e.g. color when set.
+      const cp = globalEnv.get('currentpen');
+      pen = isPen(cp) ? mergePens(defaultPen, cp) : clonePen(defaultPen);
+    }
     else {
       // In Asymptote, a color-only pen argument (e.g. dot(z, p=black)) inherits
       // linewidth from defaultpen. mergePens(defaultPen, pen) keeps defaultPen's
@@ -15826,8 +15915,8 @@ function createInterpreter() {
     // upper-right of the sphere — light comes mostly from +Z (screen up)
     // and slightly toward the viewer (+view), with a small "screen-right"
     // bias. Tune empirically against reference renders.
-    const sphereUpTilt = 1.2;
-    const sphereRightTilt = 0.25;
+    const sphereUpTilt = 0.9;
+    const sphereRightTilt = 0.55;
     let slx = vx + sphereUpTilt*upx + sphereRightTilt*rxScreen;
     let sly = vy + sphereUpTilt*upy + sphereRightTilt*ryScreen;
     let slz = vz + sphereUpTilt*upz + sphereRightTilt*rzScreen;
@@ -15889,7 +15978,12 @@ function createInterpreter() {
         nnx /= nl; nny /= nl; nnz /= nl;
         let diff = nnx*slx + nny*sly + nnz*slz;
         if (diff < 0) diff = 0;
-        intensity = 0.20 + 0.78 * diff;
+        // Match Asymptote's smoother tonal range: lift the shadow floor
+        // and compress the diffuse swing so the unlit hemisphere reads
+        // as mid-gray rather than near-black. The 0.20 floor crushed
+        // 70% of visible faces to #292929 when base = gray(0.8); raising
+        // to 0.42 maps them to ≈#555555 (closer to TeXeR's reference).
+        intensity = 0.42 + 0.55 * diff;
         const NdotL = nnx*slx + nny*sly + nnz*slz;
         if (NdotL > 0) {
           const rx = 2*NdotL*nnx - slx;
@@ -15897,7 +15991,11 @@ function createInterpreter() {
           const rz = 2*NdotL*nnz - slz;
           let RdotV = rx*vx + ry*vy + rz*vz;
           if (RdotV > 0) {
-            specular = Math.pow(RdotV, 28) * 0.65;
+            // Tame specular so it doesn't saturate to pure white over a
+            // ragged patch of faces — TeXeR shows a soft, blended
+            // highlight; full-strength Phong here clips to #ffffff with
+            // jagged edges from the per-face mesh tessellation.
+            specular = Math.pow(RdotV, 22) * 0.28;
           }
         }
       }
@@ -17011,7 +17109,47 @@ function renderSVG(result, opts) {
                    // labels) lands near TeXeR's reference width without inflating.
                    ? 75
                    : defaultSize;
-      const tgtSize = Math.max(baseTgt, crowdedTgt);
+      // Clustered-label detection: when many label anchors are packed within
+      // ~1 label-width of each other (e.g. physics free-body diagrams where
+      // mg, mg_x, mg_y, F_f, N are all anchored near a single box), the modest
+      // baseTgt (≈50bp for cm-label diagrams) leaves the geometry visually
+      // dwarfed by the labels even when the strict bbox-overlap test passes
+      // (because N/S/E/W align modifiers separate the bp-space bboxes).
+      // Discriminate from regularly-spaced grids by counting pairs of label
+      // anchors that fall within ~1 avg-label-width of each other in source
+      // units. Grid diagrams (label per unit cell) have 0 such pairs; clustered
+      // diagrams have many (≥5 for physics scenes with 5+ co-located labels).
+      // Threshold of 5 excludes generic geometry diagrams (e.g. 08032 has 4
+      // pairs from incenter/excenter constructions, but is fine at its
+      // natural ~201bp size and shouldn't be bumped).
+      let _overlapTgt = 0;
+      if (_cmLabelModestTgt && labelInfoBp.length >= 4 && labelInfoBp.length <= 50) {
+        const _avgLabelW = labelInfoBp.reduce((s, l) => s + (l.widthBp || 0), 0) / labelInfoBp.length;
+        const _clusterThreshSrc = (_avgLabelW || 12) / Math.max(unitScale, 1);
+        let _clusteredPairs = 0;
+        for (let i = 0; i < labelInfoBp.length; i++) {
+          const a = labelInfoBp[i];
+          if (!a._text || !String(a._text).trim()) continue;
+          if (typeof a.posX !== 'number' || typeof a.posY !== 'number') continue;
+          for (let j = i + 1; j < labelInfoBp.length; j++) {
+            const b = labelInfoBp[j];
+            if (!b._text || !String(b._text).trim()) continue;
+            if (typeof b.posX !== 'number' || typeof b.posY !== 'number') continue;
+            const d = Math.hypot(a.posX - b.posX, a.posY - b.posY);
+            if (d < _clusterThreshSrc) _clusteredPairs++;
+          }
+        }
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_DEBUG_OVERLAP) {
+          process.stderr.write(`cluster-debug: labels=${labelInfoBp.length} avgLabelW=${_avgLabelW.toFixed(2)} threshSrc=${_clusterThreshSrc.toFixed(3)} clusteredPairs=${_clusteredPairs}\n`);
+        }
+        // ≥5 clustered pairs → free-body / dense-anchor diagram. Boost to
+        // defaultSize (200bp) so the geometry has visual room around the
+        // cluster, matching the TeXeR reference scale for these diagrams.
+        if (_clusteredPairs >= 5) {
+          _overlapTgt = defaultSize;
+        }
+      }
+      const tgtSize = Math.max(baseTgt, crowdedTgt, _overlapTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
@@ -17069,6 +17207,26 @@ function renderSVG(result, opts) {
       if (sizeW > 0) sizeW = Math.max(sizeW, scaleRefW * pxPerUnit);
       if (sizeH > 0) sizeH = Math.max(sizeH, scaleRefH * pxPerUnit);
     }
+    // Secondary floor: when size() is moderate (e.g. size(1.6cm)=45.4bp) but
+    // the geometry spans many user units (e.g. 3 figures laid out from x=-7
+    // to x=0, span 9 units), pxPerUnit collapses below ~7, crushing the
+    // geometry into an unreadably small box even though minTarget itself
+    // is not tiny. TeXeR empirically boosts these to a readable scale.
+    // Discriminator: pxPerUnit < 7 with non-trivial geometry (max scaleRef
+    // > 5 to avoid catching small-geometry literal-bp sizes like size(50)
+    // on a 2×2 unit-circle figure where pxPerUnit=25). Boost to
+    // defaultSize=150 bp matching the no-size fallback (this restores the
+    // pre-e015531 behaviour for cm-based sizes on large layouts).
+    else if (pxPerUnit > 0 && pxPerUnit < 7 &&
+             Math.max(scaleRefW, scaleRefH) > 5) {
+      const boostTarget = 150;
+      const boostScale = boostTarget / Math.max(scaleRefW, scaleRefH) / pxPerUnit;
+      pxPerUnit *= boostScale;
+      pxPerUnitX *= boostScale;
+      pxPerUnitY *= boostScale;
+      if (sizeW > 0) sizeW = scaleRefW * pxPerUnit;
+      if (sizeH > 0) sizeH = scaleRefH * pxPerUnit;
+    }
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior.
     // TeXeR's Asymptote default (no size command) is equivalent to size(150),
@@ -17081,7 +17239,16 @@ function renderSVG(result, opts) {
     const scaleRefH2 = (geoMaxY - geoMinY) || 1;
     // Scale to fit the larger dimension to defaultSize, maintaining aspect ratio
     const maxDim = Math.max(scaleRefW2, scaleRefH2);
+    const minDim = Math.min(scaleRefW2, scaleRefH2);
     pxPerUnit = defaultSize / maxDim;
+    // Flat banner-like diagrams (e.g. number lines: 80 wide × 2 tall) need
+    // their own treatment. The square-diagram floor below would over-stretch
+    // them, while the natural defaultSize=150 bp would under-size them
+    // (TeXeR empirically renders these at ~300 bp = 500 px wide). Detect by
+    // very small minDim AND large maxDim, and target maxDim*pxPerUnit ≈ 300.
+    if (maxDim > 50 && minDim < 5) {
+      pxPerUnit = 300 / maxDim;
+    }
     // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
     // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
     // (rendered in absolute bp at fontSize) physically large compared to
@@ -17090,7 +17257,7 @@ function renderSVG(result, opts) {
     // labels remain proportional. Apply this floor only when the natural
     // 150bp default would compress the geometry below ~3 bp/unit, leaving
     // small-geometry diagrams (≤ 50 user units) untouched.
-    if (maxDim > 50 && pxPerUnit < 7) {
+    else if (maxDim > 50 && pxPerUnit < 7) {
       pxPerUnit = 7;
     }
     // Extended floor: when maxDim is in the 15–50 user-unit range AND the
@@ -18394,7 +18561,12 @@ function renderSVG(result, opts) {
           if (_effLen > cleanLen) _effLen = cleanLen;
         }
         const W = _effLen * fontSizeSVG * 0.52;
-        const H = fontSizeSVG * numLines;
+        // Fractions (\frac) render with stacked numerator/denominator plus
+        // ascender/descender padding. Empirically the alignment-relevant
+        // height is ~1.8× the base fontSize, matching TeXeR's clearance for
+        // label-edge alignment (e.g. 2*N pushing the label clear of a tick).
+        const _hasFrac = /\\frac\b/.test(dc.text || '');
+        const H = fontSizeSVG * numLines * (_hasFrac ? 1.8 : 1);
         // Asymptote's labelmargin(p) = 0.28*fontsize(p) + 0.5*linewidth(p)
         // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
         // and including the linewidth term gives labels proper clearance from
@@ -18880,8 +19052,13 @@ function pathToD(path, minX, maxY, scaleX, scaleY) {
       const gap = Math.abs(s.p0.x - prev.p3.x) + Math.abs(s.p0.y - prev.p3.y);
       if (gap > 1e-9) d += ` M${fmt(p0x)} ${fmt(p0y)}`;
     }
-    // Check if it's basically a line
-    if (isLinear(s)) {
+    // Check if it's basically a line. The _linear flag (set by lineSegment)
+    // forces L emission regardless of cp1/cp2 — needed because cp1/cp2 are
+    // frozen at construction time while p0/p3 may alias _projectedTriples-
+    // tracked pairs that get mutated by perspective auto-adjust, leaving the
+    // control points stale (which would otherwise render as spurious cubic
+    // bulges).
+    if (s._linear || isLinear(s)) {
       d += ` L${fmt(p3x)} ${fmt(p3y)}`;
     } else {
       d += ` C${fmt(cp1x)} ${fmt(cp1y)} ${fmt(cp2x)} ${fmt(cp2y)} ${fmt(p3x)} ${fmt(p3y)}`;
