@@ -359,7 +359,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.38</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.39</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -663,15 +663,15 @@ const AsyParser = {
     const lines = code.split('\n');
     const drawCommands = [], assignments = [], imports = [], funcDefs = [];
     const drawP = /^\s*(draw|fill|filldraw|label|dot|clip)\s*\(/;
-    const assignP = /^\s*(?:(?:pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
-    const multiP = /^\s*(?:pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
+    const assignP = /^\s*(?:(?:pair|real|int|pen|path|path3|triple|guide|picture|transform|string|bool|surface)(?:\[\s*\])?\s+)?([a-zA-Z_]\w*)\s*(?:\[\s*\])?\s*=/;
+    const multiP = /^\s*(?:pair|real|int|pen|path|path3|triple|guide|picture|transform|string|bool|surface)(?:\[\s*\])?\s+([a-zA-Z_]\w*(?:\s*,\s*[a-zA-Z_]\w*)*)\s*;/;
     const pushP = /^\s*([a-zA-Z_]\w*)\.(?:push|append|insert)\s*\(/;
-    const forInitP = /^\s*for\s*\(\s*(?:int|real|pair|path|guide|pen|bool|string)\s+([a-zA-Z_]\w*)\s*=/;
+    const forInitP = /^\s*for\s*\(\s*(?:int|real|pair|path|path3|triple|guide|pen|bool|string|surface)\s+([a-zA-Z_]\w*)\s*=/;
     const importP = /^\s*(import|access|from)\s+/;
     const sizeP = /^\s*(unitsize|size)\s*\(/;
     const commentP = /^\s*\/\//;
     // Match user-defined function definitions by return type
-    const funcDefP = /^\s*(?:void|pair|path|real|int|bool|string|picture|transform|guide|pen)\s+([a-zA-Z_]\w*)\s*\(/;
+    const funcDefP = /^\s*(?:void|pair|path|path3|triple|real|int|bool|string|picture|transform|guide|pen|surface)\s+([a-zA-Z_]\w*)\s*\(/;
 
     let braceDepth = 0;
     const funcStack = []; // stack of {name, lineIndex, entryDepth}
@@ -714,7 +714,7 @@ const AsyParser = {
       if (am) {
         // Check if this is a multi-variable declaration with initializers
         // e.g. "pair A = origin, B = (3,1), G1 = midpoint(A--B);"
-        const typeP = /^\s*(pair|real|int|pen|path|guide|picture|transform|string|bool)(?:\[\s*\])?\s+/;
+        const typeP = /^\s*(pair|real|int|pen|path|path3|triple|guide|picture|transform|string|bool|surface)(?:\[\s*\])?\s+/;
         const tm = t.match(typeP);
         if (tm) {
           // Gather the full (possibly multi-line) statement
@@ -778,7 +778,7 @@ const AsyParser = {
       const matches = assignments.filter(a => a.varName === v);
       if (matches.length <= 1) {
         // Unique or absent — use it directly (no ambiguity)
-        for (const a of matches) { deps.add(a.lineIndex); const rhs=a.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); }
+        for (const a of matches) { deps.add(a.lineIndex); const rhs=a.lineText.includes('=')?a.lineText.split('=').slice(1).join('='):a.lineText; for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv); }
       } else {
         // Multiple assignments with same name — scope-aware selection.
         // Pick the nearest preceding assignment whose braceDepth <= draw's depth.
@@ -792,7 +792,7 @@ const AsyParser = {
         }
         // Fallback: if nothing preceded the draw (e.g. forward reference), take closest overall
         if (!best) best = matches.reduce((a, b) => Math.abs(a.lineIndex - drawLine) < Math.abs(b.lineIndex - drawLine) ? a : b);
-        deps.add(best.lineIndex); const rhs=best.lineText.split('=').slice(1).join('='); for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv);
+        deps.add(best.lineIndex); const rhs=best.lineText.includes('=')?best.lineText.split('=').slice(1).join('='):best.lineText; for(const rv of this.extractVariables(rhs,[rhs],0)) if(!visited.has(rv)) q.push(rv);
       }
     }
     return [...deps];
@@ -6404,7 +6404,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Also scan code for user-defined variables
     const code = cm.getValue();
-    const varRe = /\b(?:pair|real|int|pen|path|guide|picture|transform|string|bool)\s+([A-Za-z_]\w*)/g;
+    const varRe = /\b(?:pair|real|int|pen|path|path3|triple|guide|picture|transform|string|bool|surface)\s+([A-Za-z_]\w*)/g;
     let m;
     const userVars = new Set();
     while ((m = varRe.exec(code)) !== null) userVars.add(m[1]);
