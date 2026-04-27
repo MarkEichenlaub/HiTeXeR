@@ -7018,13 +7018,15 @@ function createInterpreter() {
       return arcPath;
     });
 
-    // pathticks(path g, int n=1, real r=.5, real s=1, pen p=currentpen):
-    //   Return a picture containing n tick marks drawn perpendicular to path g,
-    //   centered at parameter r along g's arclength, with tick size scaled by s.
-    // This implements the path-based form used in olympiad geometry figures
-    //   (e.g. add(pathticks(anglemark(...), n=1, r=0.07, s=2, blue)) ).
+    // pathticks(path g, int n=1, real r=.5, real spacing=4, real size=0,
+    //   pen p=currentpen, real ticksize=ticksize):
+    //   Return a picture containing n tick marks perpendicular to path g,
+    //   centered at parameter r along the arclength, adjacent ticks separated
+    //   by `spacing` bp in path-arclength distance. `s` (legacy positional)
+    //   scales the tick length.
     env.set('pathticks', (...args) => {
-      let g = null, n = 1, r = 0.5, s = 1;
+      let g = null, n = 1, r = 0.5, s = 1, spacingBp = 4;
+      let posNum = 0; // count of positional numeric args parsed (n, r, spacing)
       let pen = clonePen(env.get('currentpen') || defaultPen);
       for (const a of args) {
         if (isPath(a) && g === null) { g = a; continue; }
@@ -7033,13 +7035,16 @@ function createInterpreter() {
           if ('n' in a) n = toNumber(a.n);
           if ('r' in a) r = toNumber(a.r);
           if ('s' in a) s = toNumber(a.s);
+          if ('spacing' in a) spacingBp = toNumber(a.spacing);
           if ('p' in a && isPen(a.p)) pen = mergePens(pen, a.p);
           continue;
         }
         if (typeof a === 'number') {
-          // positional: n, r, space, size
-          // (keep simple: first number = n, second = r, third = s)
-          // Not commonly hit since asy source here uses keyword args.
+          // Positional: pathticks(g, n, r, spacing, size, p, ticksize)
+          if (posNum === 0) n = a;
+          else if (posNum === 1) r = a;
+          else if (posNum === 2) spacingBp = a;
+          posNum++;
         }
       }
       const pic = {_tag:'picture', commands:[], transform: null};
@@ -7049,14 +7054,19 @@ function createInterpreter() {
       // surrounding picture's geo scale. Each tick is a short line in bp space
       // centered at the tick position on the path.
       const tickHalfBp = 3 * s; // 3bp per side → 6bp total tick length
-      // Spacing between consecutive ticks along path (arclength fraction).
-      const spacing = r; // 'r' here is treated as spacing parameter per olympiad usage.
       const nT = Math.max(1, Math.round(n));
       const N = g.segs.length;
-      const mid = 0.5;
+      // Convert bp spacing to fraction of arclength using the active
+      // unitsize (or fall back to 1 when unknown). Path arclength is in user
+      // units; multiply by bp/user to get bp arclength.
+      let arcUser = 0;
+      for (const seg of g.segs) arcUser += bezierArcLength(seg);
+      const bpPerUnit = hasUnitScale ? unitScale : 0;
+      const arcBp = bpPerUnit > 0 ? arcUser * bpPerUnit : arcUser;
+      const spacingFrac = arcBp > 0 ? Math.min(0.5, spacingBp / arcBp) : 0.05;
       for (let k = 0; k < nT; k++) {
-        // center tick k at fraction (mid + (k - (nT-1)/2)*spacing)
-        let frac = mid + (k - (nT - 1) / 2) * spacing;
+        // center tick k at fraction r + (k - (nT-1)/2)*spacingFrac
+        let frac = r + (k - (nT - 1) / 2) * spacingFrac;
         if (frac < 0) frac = 0;
         if (frac > 1) frac = 1;
         const time = frac * N;
