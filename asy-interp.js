@@ -4919,17 +4919,30 @@ function createInterpreter() {
         return;
       }
       // Handle per-picture sizing: add(pic.fit(), (i, 0)) where pic._sizeW is set
-      // by size(pic, w). Scale the picture's geometry to _sizeW bp and shift by
-      // (t.a * _sizeW, t.d * _sizeW) bp so sub-pictures are placed end-to-end.
-      // The picture origin (0,0) is placed at the outer shift position; content
-      // below y=0 (e.g. a sine curve) extends in the negative y direction from
-      // the origin rather than being shifted up to make the bbox bottom = origin.
+      // by size(pic, w). Scale the picture's geometry to _sizeW bp and shift to
+      // place sub-pictures side-by-side.
+      //
+      // The user offset (t.a, t.d) is in dest's user coords. Two common idioms:
+      //   (A) Index offsets: add(pic.fit(), (i, 0)) with i = 0,1,2,... — the user
+      //       wants pictures placed end-to-end, so each unit of offset == one
+      //       picture width. Shift by t.a * _sizeW.
+      //   (B) Cm-spaced offsets: add(pic.fit(), (k, 0)) with k = 0,5,10,15 — the
+      //       user wants pictures spaced k user-units apart where the spacing
+      //       step equals one picture-slot. Shift by (t.a / step) * _sizeW so
+      //       k=step lands one width away.
+      // We disambiguate by tracking the smallest positive offset previously
+      // seen on this dest with the same _sizeW; that becomes the step. The
+      // first nonzero placement defines the step (its own value).
       if (src._sizeW && t && t.b === 1 && t.c === 0 && t.e === 0 && t.f === 1) {
         const gb = getGeoBbox(src.commands);
         const geoW = (gb.maxX - gb.minX) || 1;
+        const geoH = (gb.maxY - gb.minY) || 1;
         // Iteratively refine scale to fit total width (geo + label extents) into _sizeW,
         // matching Asymptote's size(p, w) which constrains the total picture width.
+        // When _sizeH is also set (size(p, w, h) with default keepAspect=true), the
+        // scale must additionally fit the height into _sizeH; pick the smaller.
         let scale = src._sizeW / geoW;
+        if (src._sizeH) scale = Math.min(scale, src._sizeH / geoH);
         for (let _iter = 0; _iter < 3; _iter++) {
           let fullMinX = gb.minX, fullMaxX = gb.maxX;
           for (const dc of src.commands) {
@@ -4948,10 +4961,22 @@ function createInterpreter() {
             if (cx + halfW > fullMaxX) fullMaxX = cx + halfW;
           }
           const fullW = (fullMaxX - fullMinX) || 1;
-          scale = src._sizeW / fullW;
+          let nextScale = src._sizeW / fullW;
+          if (src._sizeH) nextScale = Math.min(nextScale, src._sizeH / geoH);
+          scale = nextScale;
         }
-        const bpShiftX = t.a * src._sizeW;
-        const bpShiftY = t.d * src._sizeW;
+        // Determine the step: smallest positive |offset| previously seen on
+        // dest for sized-pic placements. The first nonzero placement on each
+        // axis records its offset as the step.
+        if (!dest._sizedAddSteps) dest._sizedAddSteps = { x: 0, y: 0 };
+        const steps = dest._sizedAddSteps;
+        const absX = Math.abs(t.a), absY = Math.abs(t.d);
+        if (absX > 0 && (steps.x === 0 || absX < steps.x)) steps.x = absX;
+        if (absY > 0 && (steps.y === 0 || absY < steps.y)) steps.y = absY;
+        const stepX = steps.x > 0 ? steps.x : 1;
+        const stepY = steps.y > 0 ? steps.y : 1;
+        const bpShiftX = (t.a / stepX) * src._sizeW;
+        const bpShiftY = (t.d / stepY) * (src._sizeH || src._sizeW);
         const newT = makeTransform(
           bpShiftX - gb.minX * scale, scale, 0,
           bpShiftY, 0, scale
