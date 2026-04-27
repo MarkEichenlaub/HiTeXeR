@@ -127,15 +127,12 @@ const server = http.createServer((req, res) => {
         node.stderr.on('data', d => { stderr += d; });
 
         node.on('close', (code) => {
-          if (code !== 0) {
-            const errMsg = (stderr.trim() || stdout.trim() || `exit code ${code}`).substring(0, 500);
-            console.error(`[fix-server] Re-render failed for ${id}:`, errMsg);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: errMsg }));
-            return;
-          }
-
-          // Parse per-ID result line
+          // Parse per-ID result line. Note: render-and-score.js exits with code 1
+          // when it detects a "regression" (SSIM drop beyond threshold). For the
+          // interactive Re-render button we WANT to see the new SSIM even if it
+          // regressed — surfacing a regression as "Failed" hides the data we
+          // need to diagnose. Only treat the subprocess as truly failed when we
+          // can't recover a per-id row at all.
           let row = null;
           for (const line of stdout.split('\n')) {
             const s = line.trim();
@@ -145,6 +142,14 @@ const server = http.createServer((req, res) => {
               if (obj.id === id && obj.ssim != null) { row = obj; break; }
               if (obj.id === id && obj.err) { row = obj; break; }
             } catch {}
+          }
+
+          if (!row) {
+            const errMsg = (stderr.trim() || stdout.trim() || `exit code ${code}`).substring(0, 500);
+            console.error(`[fix-server] Re-render failed for ${id}:`, errMsg);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: errMsg }));
+            return;
           }
 
           // Patch ssim-results.json in place

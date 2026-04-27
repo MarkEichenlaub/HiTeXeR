@@ -1028,12 +1028,13 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 cwd=root, input=(diagram_id + "\n"), capture_output=True,
                 text=True, timeout=120,
             )
-            if result.returncode != 0:
-                err = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
-                self.send_json(500, {"ok": False, "error": err[:500]})
-                return
 
-            # Parse the per-ID result line from stdout
+            # Parse the per-ID result line from stdout. Note: render-and-score.js
+            # exits with code 1 when it detects a "regression" (SSIM drop beyond
+            # threshold). For the interactive Re-render button we WANT to see the
+            # new SSIM even if it regressed — surfacing a regression as "Failed"
+            # hides the data we need to diagnose. Only treat the subprocess as
+            # truly failed when we can't recover a per-id row at all.
             row = None
             for line in result.stdout.splitlines():
                 line = line.strip()
@@ -1046,6 +1047,11 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 if obj.get("id") == diagram_id and (obj.get("ssim") is not None or obj.get("err")):
                     row = obj
                     break
+
+            if row is None:
+                err = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+                self.send_json(500, {"ok": False, "error": err[:500]})
+                return
 
             # Patch ssim-results.json in place
             ssim_path = os.path.join(root, "comparison", "ssim-results.json")
