@@ -9633,26 +9633,35 @@ function createInterpreter() {
     });
 
     // labelx / labely — place a label on an axis
+    // When no Label string is given, Asymptote defaults the label text to
+    // format(x), the number formatted with the default %g-style format.
+    function _formatAxisNum(n) {
+      if (Number.isInteger(n)) return String(n);
+      // 4 significant digits, mimicking Asymptote's defaultformat() = "$%.4g$"
+      return parseFloat(n.toPrecision(4)).toString();
+    }
     env.set('labelx', (...args) => {
-      let text = '', x = 0, pen = null, align = null;
+      let text = '', x = 0, pen = null, align = null, hasX = false;
       for (const a of args) {
         if (isString(a) && !text) text = a;
         else if (isPair(a)) align = toPair(a);
-        else if (typeof a === 'number') x = a;
+        else if (typeof a === 'number') { x = a; hasX = true; }
         else if (isPen(a)) pen = a;
       }
+      if (!text && hasX) text = '$' + _formatAxisNum(x) + '$';
       if (!pen) pen = clonePen(defaultPen);
       if (!align) align = {x:0, y:-1};
       currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align, pen, line:0});
     });
     env.set('labely', (...args) => {
-      let text = '', y = 0, pen = null, align = null;
+      let text = '', y = 0, pen = null, align = null, hasY = false;
       for (const a of args) {
         if (isString(a) && !text) text = a;
         else if (isPair(a)) align = toPair(a);
-        else if (typeof a === 'number') y = a;
+        else if (typeof a === 'number') { y = a; hasY = true; }
         else if (isPen(a)) pen = a;
       }
+      if (!text && hasY) text = '$' + _formatAxisNum(y) + '$';
       if (!pen) pen = clonePen(defaultPen);
       if (!align) align = {x:-1, y:0};
       currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align, pen, line:0});
