@@ -8262,7 +8262,7 @@ function createInterpreter() {
       // before evaluating f, so x = T(t), y = f(T(t)).
       let funcArg = null, funcArg2 = null, funcArg3 = null, funcIdx = -1;
       let samplingFunc = null;
-      const isFunc = v => typeof v === 'function' || (v && v._tag === 'func');
+      const isFunc = v => typeof v === 'function' || (v && (v._tag === 'func' || v._tag === 'overload'));
       for (let i = 0; i < coreArgs.length; i++) {
         if (isFunc(coreArgs[i])) {
           if (funcArg === null) { funcArg = coreArgs[i]; funcIdx = i; }
@@ -9440,9 +9440,19 @@ function createInterpreter() {
         // is present — they override the arrow-endpoint heuristic.
         const extentForcesMiddle = extent === 'Left' || extent === 'Right';
         const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null && !extentForcesMiddle;
-        const atEndpoint = explicitEndpoint || arrowEndpointDefault;
-        const effPos = labelPosition == null ? (arrowEndpointDefault ? 1 : 0.5) : labelPosition;
-        const lAlign = labelAlign || (arrowEndpointDefault ? {x:-1, y:0} : (atEndpoint ? {x:0, y:1} : {x:-1, y:0}));
+        // Plain `yaxis("string")` with no arrow, no extent, no ticks, and no
+        // explicit position/align: place label at top, upright (matches texer
+        // and Asymptote's default for the bare-string idiom).
+        const plainEndpointDefault = !arrow && !ticks && !extent
+          && labelPosition == null && labelAlign == null;
+        const endpointDefault = arrowEndpointDefault || plainEndpointDefault;
+        const atEndpoint = explicitEndpoint || endpointDefault;
+        const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
+        const lAlign = labelAlign || (
+          arrowEndpointDefault ? {x:-1, y:0} :
+          plainEndpointDefault ? {x:0, y:1} :
+          (atEndpoint ? {x:0, y:1} : {x:-1, y:0})
+        );
         const labelY = ymin + (ymax - ymin) * effPos;
         // Apply 90° CCW rotation when the label is placed along the axis (not endpoint)
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
