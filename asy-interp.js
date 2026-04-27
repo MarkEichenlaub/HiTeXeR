@@ -7049,11 +7049,16 @@ function createInterpreter() {
       }
       const pic = {_tag:'picture', commands:[], transform: null};
       if (!g || g.segs.length === 0) return pic;
-      // Asymptote markers.asy default tick size is 3bp (ticksize=3). Emit ticks
-      // as marker commands so they render at a fixed bp size regardless of the
-      // surrounding picture's geo scale. Each tick is a short line in bp space
-      // centered at the tick position on the path.
-      const tickHalfBp = 3 * s; // 3bp per side → 6bp total tick length
+      // Asymptote markers.asy default tick size is ticksize=3 (6bp total),
+      // but TeXeR's actual rendered marks are visually larger — match that
+      // appearance with a 5bp half-length (10bp total). Emit ticks as marker
+      // commands so they render at a fixed bp size regardless of the
+      // surrounding picture's geo scale.
+      const tickHalfBp = 5 * s;
+      // Ensure the tick mark stroke is at least ~0.8bp so it's visible at the
+      // displayed size; the default 0.5bp pen renders very thin.
+      const tickPen = clonePen(pen);
+      if (!(tickPen.linewidth > 0) || tickPen.linewidth < 0.8) tickPen.linewidth = 0.8;
       const nT = Math.max(1, Math.round(n));
       const N = g.segs.length;
       // Convert bp spacing to fraction of arclength using the active
@@ -7085,7 +7090,7 @@ function createInterpreter() {
           cmd:'marker',
           pos: makePair(pt.x, pt.y),
           markerPath: tp,
-          pen: clonePen(pen),
+          pen: clonePen(tickPen),
           line: 0,
         });
       }
