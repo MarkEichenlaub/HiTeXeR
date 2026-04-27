@@ -1942,7 +1942,15 @@ function createInterpreter() {
     // (tagged _from3d) are left in their projected 2D positions.  This is what
     // lets `currentpicture = shift(2.3,0)*currentpicture` separate 2D overlays
     // (axes/parabola/labels) from a 3D surface rendered in the same picture.
-    const newPic = {_tag:'picture', commands: pic.commands.map(c => c && c._from3d ? c : transformDrawCmd(t, c))};
+    // For sized sub-pictures (size(pic, w[, h])) under a pure-translation
+    // transform, defer the shift: keep the user-coord commands intact and let
+    // add() compose scale+shift in one step. Baking the shift into user-coord
+    // commands would corrupt the geo bbox that drives the size→bp scale.
+    const isPureShift = t && t.b === 1 && t.c === 0 && t.e === 0 && t.f === 1;
+    const deferShift = isPureShift && (pic._sizeW || pic._sizeH);
+    const newPic = deferShift
+      ? {_tag:'picture', commands: pic.commands.slice()}
+      : {_tag:'picture', commands: pic.commands.map(c => c && c._from3d ? c : transformDrawCmd(t, c))};
     // Propagate per-picture sizing and fit metadata so that shift(..)*pic.fit()
     // still reports the expected bbox and is placed correctly when add()'d.
     if (pic._sizeW) newPic._sizeW = pic._sizeW;
@@ -3635,6 +3643,13 @@ function createInterpreter() {
       if (m === 'pFreehand')    return obj.pFreehand;
       if (m === 'pMeasure')     return obj.pMeasure;
     }
+    // Generic struct field access for plain-object globals (e.g. settings).
+    // Asymptote `settings` is a struct with fields like paperwidth, paperheight,
+    // tex, render, etc. Without this, `settings.paperwidth` returns null and
+    // arithmetic produces NaN/0.
+    if (obj && typeof obj === 'object' && !obj._tag && Object.prototype.hasOwnProperty.call(obj, m)) {
+      return obj[m];
+    }
     return null;
   }
 
@@ -4751,6 +4766,11 @@ function createInterpreter() {
     env.set('pointpen', makePen({}));
     env.set('currentpicture', currentPic);
     env.set('currentprojection', null);
+    // settings struct — Asymptote's global `settings`. Gallery layouts use
+    // settings.paperwidth / settings.paperheight to compute per-cell size.
+    // Defaults to A4 in bp (Asymptote's default paper format).
+    env.set('settings', { render: 0, outformat: '', prc: false, tex: 'pdflatex',
+                          paperwidth: 595.35, paperheight: 841.68 });
     // add() composites a picture into currentpicture (or a destination picture),
     // optionally with a transform.
     // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
@@ -4865,6 +4885,33 @@ function createInterpreter() {
         const newT = makeTransform(
           fs.x - gb.minX * sX, sX, 0,
           fs.y - gb.minY * sY, 0, sY
+        );
+        const cmds = src.commands.map(c => transformDrawCmd(newT, c));
+        for (const c of cmds) dest.commands.push(c);
+        if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
+        return;
+      }
+      // Handle add(shift(...) * pic.fit()) for the gallery layout idiom:
+      //   shift = realmult(size,(i,j))  // bp-space cell offset
+      //   add(shift(s) * f);            // place sub-picture at cell (i,j)
+      // The shift was deferred by transformPicture; src._fitShift carries the
+      // bp-space offset. Scale geometry to _sizeW × _sizeH (uniform if only
+      // _sizeW set) and translate so the picture's geo bbox min sits at the
+      // shift position. Width-only size(pic,w) uses uniform scaling.
+      if (!t && src._sizeW && src._fitShift) {
+        const gb = getGeoBbox(src.commands);
+        const geoW = (gb.maxX - gb.minX) || 1;
+        const geoH = (gb.maxY - gb.minY) || 1;
+        // Uniform scale: pick the smaller of width/height fits so geometry
+        // fits inside the requested cell box (matches Asymptote size(p,w,h)
+        // with default keepAspect=true).
+        const sW = src._sizeW / geoW;
+        const sH = (src._sizeH || src._sizeW) / geoH;
+        const s = Math.min(sW, sH);
+        const fs = src._fitShift;
+        const newT = makeTransform(
+          fs.x - gb.minX * s, s, 0,
+          fs.y - gb.minY * s, 0, s
         );
         const cmds = src.commands.map(c => transformDrawCmd(newT, c));
         for (const c of cmds) dest.commands.push(c);
@@ -5302,6 +5349,17 @@ function createInterpreter() {
       return toNumber(a)*(1-frac) + toNumber(b)*frac;
     });
     env.set('dot', (...args) => evalDot(args));
+
+    // realmult(pair a, pair b) — componentwise pair multiplication
+    // Used by gallery layout idioms: shift(realmult(size,(i,j)))*frame
+    env.set('realmult', (a, b) => {
+      if (isTriple(a) || isTriple(b)) {
+        const u = toTriple(a), v = toTriple(b);
+        return makeTriple(u.x*v.x, u.y*v.y, u.z*v.z);
+      }
+      const u = toPair(a), v = toPair(b);
+      return makePair(u.x*v.x, u.y*v.y);
+    });
 
     // Path constructors
     env.set('circle', (center, r) => {
@@ -6315,6 +6373,17 @@ function createInterpreter() {
         const rest = args.slice(1).filter(a => !(a && typeof a === 'object' && a._named));
         const pairArgs = rest.filter(a => isPair(a));
         const numArgs = rest.filter(a => isNumber(a));
+        // size(frame f) overload: with no numeric/pair extras, treat as a query
+        // returning the frame's bbox dimensions as a pair (max - min). Used by
+        // gallery-layout idioms: pair size = size(f) + (xmargin, ymargin).
+        if (args.length === 1 && numArgs.length === 0 && pairArgs.length === 0) {
+          let bb = pic._fitBbox;
+          if (!bb) {
+            const gb = getGeoBbox(pic.commands);
+            bb = { min: makePair(gb.minX, gb.minY), max: makePair(gb.maxX, gb.maxY) };
+          }
+          return makePair(bb.max.x - bb.min.x, bb.max.y - bb.min.y);
+        }
         if (numArgs.length >= 1) pic._sizeW = toNumber(numArgs[0]);
         if (numArgs.length >= 2) pic._sizeH = toNumber(numArgs[1]);
         else if (numArgs.length === 1) pic._sizeH = pic._sizeW;
@@ -13402,8 +13471,9 @@ function createInterpreter() {
     });
     env.set('unitbox', _boxEdges(makeTriple(0,0,0), makeTriple(1,1,1)));
 
-    // settings object — properties like settings.render are silently accepted
-    env.set('settings', { render: 0, outformat: '', prc: false, tex: 'pdflatex' });
+    // settings object — installStdlib already registers a default settings
+    // struct (with paperwidth/paperheight defaults). Three package can leave
+    // the existing one in place.
 
     // light stubs
     env.set('light', (...args) => ({_tag:'light'}));
