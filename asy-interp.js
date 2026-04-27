@@ -5789,7 +5789,23 @@ function createInterpreter() {
     function _pointOnPath(p, t) {
       if (!isPath(p)) return makePair(0,0);
       if (p.segs.length === 0) return makePair(0,0);
-      const time = toNumber(t);
+      let time = toNumber(t);
+      // Asymptote-style circle parameterization: paths produced by
+      // Circle()/CR()/etc. have a virtual node count `n` (default 400),
+      // and point(circle, t) → c + r*(cos, sin) at angle (t/n)*360°.
+      if (p._circle) {
+        const c = p._circle;
+        const n = c.n || 400;
+        const ang = (time / n) * 2 * Math.PI;
+        return makePair(c.cx + c.r * Math.cos(ang), c.cy + c.r * Math.sin(ang));
+      }
+      // Closed (cyclic) path: wrap t mod length, matching Asymptote.
+      if (p.closed) {
+        const N = p.segs.length;
+        if (N > 0) {
+          time = ((time % N) + N) % N;
+        }
+      }
       // time >= segs.length means the endpoint of the path
       if (time >= p.segs.length) return bezierPoint(p.segs[p.segs.length-1], 1);
       if (time <= 0) return bezierPoint(p.segs[0], 0);
@@ -15868,12 +15884,18 @@ function createInterpreter() {
   function makeCirclePath(center, r) {
     const K = 0.5522847498;
     const cx = center.x, cy = center.y;
-    return makePath([
+    const p = makePath([
       makeSeg({x:cx+r,y:cy},{x:cx+r,y:cy+K*r},{x:cx+K*r,y:cy+r},{x:cx,y:cy+r}),
       makeSeg({x:cx,y:cy+r},{x:cx-K*r,y:cy+r},{x:cx-r,y:cy+K*r},{x:cx-r,y:cy}),
       makeSeg({x:cx-r,y:cy},{x:cx-r,y:cy-K*r},{x:cx-K*r,y:cy-r},{x:cx,y:cy-r}),
       makeSeg({x:cx,y:cy-r},{x:cx+K*r,y:cy-r},{x:cx+r,y:cy-K*r},{x:cx+r,y:cy}),
     ], true);
+    // Tag with circle metadata so point()/dir()/etc can use the
+    // Asymptote-style 400-node parameterization (nCircle default in
+    // graph.asy / geometry.asy) rather than the 4-segment Bezier
+    // approximation.
+    p._circle = { cx, cy, r, n: 400 };
+    return p;
   }
 
   function makeArcPath(center, r, startDeg, endDeg) {
