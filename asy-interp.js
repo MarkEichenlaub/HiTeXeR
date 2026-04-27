@@ -17241,14 +17241,6 @@ function renderSVG(result, opts) {
     const maxDim = Math.max(scaleRefW2, scaleRefH2);
     const minDim = Math.min(scaleRefW2, scaleRefH2);
     pxPerUnit = defaultSize / maxDim;
-    // Flat banner-like diagrams (e.g. number lines: 80 wide × 2 tall) need
-    // their own treatment. The square-diagram floor below would over-stretch
-    // them, while the natural defaultSize=150 bp would under-size them
-    // (TeXeR empirically renders these at ~300 bp = 500 px wide). Detect by
-    // very small minDim AND large maxDim, and target maxDim*pxPerUnit ≈ 300.
-    if (maxDim > 50 && minDim < 5) {
-      pxPerUnit = 300 / maxDim;
-    }
     // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
     // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
     // (rendered in absolute bp at fontSize) physically large compared to
@@ -17257,7 +17249,12 @@ function renderSVG(result, opts) {
     // labels remain proportional. Apply this floor only when the natural
     // 150bp default would compress the geometry below ~3 bp/unit, leaving
     // small-geometry diagrams (≤ 50 user units) untouched.
-    else if (maxDim > 50 && pxPerUnit < 7) {
+    //
+    // Skip the floor for flat-banner diagrams (very thin: minDim < 5), e.g.
+    // number lines (100 wide × 2 tall). For those, TeXeR renders at the
+    // natural defaultSize=150bp/maxDim, NOT the 7bp/unit floor, so applying
+    // the floor would oversize the banner ~2-5×. Detect by minDim < 5.
+    if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7) {
       pxPerUnit = 7;
     }
     // Extended floor: when maxDim is in the 15–50 user-unit range AND the
@@ -17835,7 +17832,8 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const dotR = (dc.pen && dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw > 3;
+        const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
@@ -18370,13 +18368,27 @@ function renderSVG(result, opts) {
   // Boost stroke width for non-explicit pens on high-aspect auto-scaled
   // diagrams so the rendered weight matches REF.  Explicit pens (e.g. black+2)
   // keep their literal width.  Square diagrams (aspect ~1) are unaffected.
+  //
+  // Flat banners (minDim < 5) get a smaller cap: their sizing now matches REF
+  // exactly (defaultSize=150bp/maxDim), so the original 5× boost would over-
+  // thicken default strokes 2-3× relative to TeXeR (which only needs ~2×
+  // boost to compensate for HTX's 144 DPI vs TeXeR's 240 DPI rasterization).
+  // Non-flat-banner auto-scaled diagrams keep the original 1×→5× ramp because
+  // their sizing didn't change (still ~7 bp/unit floor or larger), and the
+  // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
   if (isAutoScaled) {
     const _w = (maxX - minX) || 1;
     const _h = (maxY - minY) || 1;
     const _aspect = Math.max(_w, _h) / Math.min(_w, _h);
-    // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
-    _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
+    const _minDim = Math.min(_w, _h);
+    const _isFlatBanner = _minDim < 5 && Math.max(_w, _h) > 50;
+    if (_isFlatBanner) {
+      _autoScaledStrokeBoost = 2.0;
+    } else {
+      // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
+      _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
+    }
   }
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
@@ -18437,11 +18449,17 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: when the pen has an explicit linewidth (from linewidth(n) or
-      // the "n+pen" idiom), the linewidth IS the dot diameter (no dotfactor multiplier).
-      // Otherwise (default pen), diameter = dotfactor * linewidth.
+      // Dot radius: real Asymptote always uses radius = dotfactor*linewidth/2.
+      // However many AoPS-authored diagrams use the "n+pen" idiom expecting
+      // direct dot diameters (e.g. dot(z, 10+black) for a 10bp dot, not 60bp).
+      // Compromise: for explicitly-set linewidths above a small threshold,
+      // treat the linewidth as the dot diameter directly; for small explicit
+      // linewidths (e.g. dp=black+0.75), still apply dotfactor so the dot is
+      // visible. Threshold chosen so the two formulas converge at ~3bp diameter,
+      // matching the size where author intent diverges.
       const dotLw = dc.pen.linewidth;
-      const dotR = (dc.pen && dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+      const useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw > 3;
+      const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
       if (dc.filltype && dc.filltype.style === 'UnFill') {
         // UnFill: open dot — white interior, colored ring.
