@@ -9093,6 +9093,14 @@ function createInterpreter() {
         // y-range (no mirror axis).
         axisShiftY = xIsTopSide ? crossMax : crossMin;
       }
+      // Plain `xaxis("string")` idiom (no arrow/extent/ticks, no explicit
+      // limits, default axisShift): mark the axis so finalizeAutoAxes can
+      // extend its endpoints by ~6% past content on each side. This matches
+      // texer's rendering where bare-axes show a small extension past the
+      // origin / data extremes (Asymptote's ship-time behavior expands
+      // pic.userMin/userMax by axis-label glyph extents).
+      const _xaxisBareIdiom = !arrow && !ticks && !extent
+        && !xminExplicit && !xmaxExplicit && !axisShiftYExplicit;
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
@@ -9101,7 +9109,8 @@ function createInterpreter() {
                         _isAxisLine: 'x', _axisShiftY: axisShiftY,
                         _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit,
                         _xMinFromUserLimits: _xminFromUserLimits,
-                        _xMaxFromUserLimits: _xmaxFromUserLimits};
+                        _xMaxFromUserLimits: _xmaxFromUserLimits,
+                        _bareIdiom: _xaxisBareIdiom};
         pic.commands.push(_xaxisDrawCmd);
         // Mirror axis for BottomTop/TopBottom extent
         if (xIsBottomTop) {
@@ -9402,13 +9411,19 @@ function createInterpreter() {
       if ((yIsLeftRight || yIsLeftSide || yIsRightSide) && !axisShiftXExplicit) {
         axisShiftX = yIsRightPrimary ? crossMax : crossMin;
       }
+      // Plain `yaxis("string")` idiom (no arrow/extent/ticks, no explicit
+      // limits, default axisShift): mark the axis so finalizeAutoAxes can
+      // extend its endpoints by ~6% past content on each side.
+      const _yaxisBareIdiom = !arrow && !ticks && !extent
+        && !yminExplicit && !ymaxExplicit && !axisShiftXExplicit;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
         pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
                            _isAxisLine: 'y', _axisShiftX: axisShiftX,
                            _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit,
                            _yMinFromUserLimits: _yminFromUserLimits,
-                           _yMaxFromUserLimits: _ymaxFromUserLimits});
+                           _yMaxFromUserLimits: _ymaxFromUserLimits,
+                           _bareIdiom: _yaxisBareIdiom});
         if (yIsLeftRight) {
           const mirrorX = yIsRightPrimary ? crossMin : crossMax;
           const mPath = makePath([lineSegment({x:mirrorX,y:ymin},{x:mirrorX,y:ymax})], false);
@@ -16524,6 +16539,15 @@ function renderSVG(result, opts) {
           }
           hi = target;
         }
+        // Bare `xaxis("string")` idiom: extend by ~6% past content on each
+        // auto'd side so the axis crosses past the data extremes (matching
+        // texer's rendering where bare axes show a small negative extension
+        // past the origin).
+        if (c._bareIdiom && hi > lo) {
+          const _ext = (hi - lo) * 0.06;
+          if (c._autoXmin && !c._xMinFromUserLimits) lo = lo - _ext;
+          if (c._autoXmax && !c._xMaxFromUserLimits) hi = hi + _ext;
+        }
         if (lo !== oldLo || hi !== oldHi) {
           const y = c._axisShiftY != null ? c._axisShiftY : seg.p0.y;
           c.path = { segs: [{
@@ -16562,6 +16586,13 @@ function renderSVG(result, opts) {
             }
           }
           hi = target;
+        }
+        // Bare `yaxis("string")` idiom: extend by ~6% past content on each
+        // auto'd side (see x-axis comment above).
+        if (c._bareIdiom && hi > lo) {
+          const _ext = (hi - lo) * 0.06;
+          if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _ext;
+          if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _ext;
         }
         if (lo !== oldLo || hi !== oldHi) {
           const x = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
