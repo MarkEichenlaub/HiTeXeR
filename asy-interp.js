@@ -2557,6 +2557,34 @@ function createInterpreter() {
     }
     // Transform * picture
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
+    // transform3 * picture: by the time we see a picture here its 3D draw
+    // commands have already been projected to 2D.  For a pure-shift
+    // transform3 (e.g. shift(triple)), project the shift triple through the
+    // current projection to a 2D delta and apply that as a 2D shift to the
+    // picture's commands.  This is the form used by `add(shift(triple)*pic)`
+    // to place a 3D sub-picture next to another in the projected output.
+    if (isTransform3(left) && right && right._tag === 'picture') {
+      const m = left.m;
+      const isPureShift =
+        m[0] === 1 && m[1] === 0 && m[2] === 0 &&
+        m[4] === 0 && m[5] === 1 && m[6] === 0 &&
+        m[8] === 0 && m[9] === 0 && m[10] === 1 &&
+        m[12] === 0 && m[13] === 0 && m[14] === 0 && m[15] === 1;
+      if (isPureShift) {
+        const shiftTriple = {_tag:'triple', x: m[3], y: m[7], z: m[11]};
+        const proj = projection;
+        let dx, dy;
+        if (proj) {
+          const p1 = _projectTripleRaw(shiftTriple, proj);
+          const p0 = _projectTripleRaw({_tag:'triple', x:0, y:0, z:0}, proj);
+          dx = p1.x - p0.x; dy = p1.y - p0.y;
+        } else {
+          dx = m[3]; dy = m[7];
+        }
+        const t2d = makeTransform(dx, 1, 0, dy, 0, 1);
+        return transformPicture(t2d, right);
+      }
+    }
     // Transform * transform
     if (isTransform(left) && isTransform(right)) return composeTransforms(left, right);
     // Transform * graphic → graphic with composed transform
