@@ -5546,6 +5546,34 @@ function createInterpreter() {
         else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
         return makeArcPath(c, r, a1, a2);
       }
+      // geometry.asy: path arc(explicit pair B, explicit pair A, explicit pair C, real r)
+      // — interior arc BAC of triangle BAC, centered at A with radius |r|, sweeping
+      // from ray A→B to ray A→C along the *interior* (smaller) side. r<0 selects
+      // the exterior arc. Detected by 4 args where args[0..2] are pair/point and
+      // args[3] is a plain number.
+      if (args.length === 4
+          && (isPair(args[0]) || isPoint(args[0]))
+          && (isPair(args[1]) || isPoint(args[1]))
+          && (isPair(args[2]) || isPoint(args[2]))
+          && typeof args[3] === 'number') {
+        const Bp = toPair(args[0]);
+        const Ap = toPair(args[1]);
+        const Cp = toPair(args[2]);
+        let r = toNumber(args[3]);
+        const negR = r < 0;
+        r = Math.abs(r);
+        const BA = Math.atan2(Bp.y - Ap.y, Bp.x - Ap.x) * 180 / Math.PI;
+        const CA = Math.atan2(Cp.y - Ap.y, Cp.x - Ap.x) * 180 / Math.PI;
+        // Asymptote's `%` on reals returns a non-negative result; replicate.
+        let mod = (BA - CA) % 360;
+        if (mod < 0) mod += 360;
+        // r<0 XOR (mod < 180): CW, else CCW. (Matches geometry.asy line 7242.)
+        const useCW = (negR ? 1 : 0) ^ (mod < 180 ? 1 : 0);
+        let a1 = BA, a2 = CA;
+        if (useCW) { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
+        else       { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
+        return makeArcPath(Ap, r, a1, a2);
+      }
       if (args.length >= 3 && isPair(args[1])) {
         // arc(center, point1, point2) — arc from p1 to p2 around center
         const c = toPair(args[0]);
