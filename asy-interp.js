@@ -9138,7 +9138,12 @@ function createInterpreter() {
           lAlign = xIsTopPrimary ? {x:0, y:3} : {x:0, y:-3};
           labelX = (xmin + xmax) / 2;
         } else {
-          lAlign = labelAlign || {x:-1, y:-3};
+          // Plain `xaxis("string")` with no arrow, no extent, no ticks, and
+          // no explicit position/align: tighter vertical offset (y:-1) so the
+          // label sits just below the axis end, matching texer's spacing.
+          const plainEndpointDefault = !arrow && !ticks && !extent
+            && labelPosition == null && labelAlign == null;
+          lAlign = labelAlign || (plainEndpointDefault ? {x:-1, y:-1} : {x:-1, y:-3});
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
         }
@@ -9450,7 +9455,7 @@ function createInterpreter() {
         const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
         const lAlign = labelAlign || (
           arrowEndpointDefault ? {x:-1, y:0} :
-          plainEndpointDefault ? {x:0, y:1} :
+          plainEndpointDefault ? {x:-1, y:0} :
           (atEndpoint ? {x:0, y:1} : {x:-1, y:0})
         );
         const labelY = ymin + (ymax - ymin) * effPos;
