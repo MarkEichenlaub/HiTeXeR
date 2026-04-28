@@ -19290,6 +19290,7 @@ function renderSVG(result, opts) {
       // text instead of KaTeX foreignObject (avoids MathML mspace artifact in \vdots).
       const LATEX_TO_UNICODE = {
         '\\vdots': '⋮', '\\ddots': '⋱', '\\iddots': '⋰', '\\cdots': '⋯', '\\ldots': '…', '\\dots': '⋯',
+        '\\dotsb': '⋯', '\\dotsc': '…', '\\dotsm': '⋯', '\\dotso': '…', '\\dotsi': '⋯',
       };
       let displayText = rawText;
 
@@ -19940,6 +19941,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
     '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
+    '\\dotsb':'⋯','\\dotsc':'…','\\dotsm':'⋯','\\dotso':'…','\\dotsi':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
@@ -20625,6 +20627,7 @@ function stripLaTeX(text) {
     '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
     '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
     '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
+    '\\dotsb':'⋯','\\dotsc':'…','\\dotsm':'⋯','\\dotso':'…','\\dotsi':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
