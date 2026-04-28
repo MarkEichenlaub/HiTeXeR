@@ -12235,8 +12235,17 @@ function createInterpreter() {
             faces.push(f);
           }
         }
+        // Asymptote's default revolution `Sectors=16` — emit meridian
+        // meshlines only every nLon/16 step so the wireframe shows 16
+        // meridians (matching PRC) rather than all 96 tessellation lines.
+        const meriStep = Math.max(1, Math.round(nLon / 16));
+        const rowPrimary = [];
+        for (let j = 0; j <= nLon; j += meriStep) rowPrimary.push(j);
+        // Drop the duplicate last row for cyclic surfaces (row 0 == row nLon).
+        if (rowPrimary[rowPrimary.length-1] === nLon) rowPrimary.pop();
         return {_tag:'surface', mesh: makeMesh(faces),
-                _grid: rotated, _gridRows: nLon+1, _gridCols: verts.length, _gridCyclic: true};
+                _grid: rotated, _gridRows: nLon+1, _gridCols: verts.length, _gridCyclic: true,
+                _gridRowPrimary: rowPrimary};
       }
       // Triangle-list: surface(triple[][]) where inner array is a triangle of 3 triples
       // (produced by contour3/smoothcontour3 isosurface extraction).
@@ -12886,6 +12895,7 @@ function createInterpreter() {
         const sample = (pth) => {
           const segs = pth.segs || [];
           const out = [];
+          const nodeIdx = []; // sample indices that correspond to original path NODES
           const SUB = 12;
           const toT = (p) => {
             if (!p) return makeTriple(0,0,0);
@@ -12898,8 +12908,9 @@ function createInterpreter() {
             const d1x = s.cp1.x - s.p0.x, d1y = s.cp1.y - s.p0.y, d1z = (s.cp1.z||0) - (s.p0.z||0);
             return (Math.abs(d1x - ax/3) < 1e-9 && Math.abs(d1y - ay/3) < 1e-9 && Math.abs(d1z - az/3) < 1e-9);
           };
-          if (segs.length === 0) return out;
+          if (segs.length === 0) { out._nodeIdx = nodeIdx; return out; }
           out.push(toT(segs[0].p0));
+          nodeIdx.push(0);
           for (const s of segs) {
             if (isLin(s)) out.push(toT(s.p3));
             else {
@@ -12913,10 +12924,13 @@ function createInterpreter() {
                 ));
               }
             }
+            nodeIdx.push(out.length - 1);
           }
+          out._nodeIdx = nodeIdx;
           return out;
         };
         const A = sample(pos[0]);
+        const aNodeIdx = A._nodeIdx || null;
         let B = sample(pos[1]);
         if (A.length < 2 || B.length < 2) return {_tag:'surface', mesh: makeMesh([])};
         // Resample B to match A's length (linearly, by parameter index).
@@ -12951,7 +12965,11 @@ function createInterpreter() {
         // smooth-shading expectation. Here rows=2 (top/bottom), cols=A.length.
         const grid = [A.slice(), B.slice()];
         return {_tag:'surface', mesh: makeMesh(faces),
-                _grid: grid, _gridRows: 2, _gridCols: A.length, _gridCyclic: cyc};
+                _grid: grid, _gridRows: 2, _gridCols: A.length, _gridCyclic: cyc,
+                // Only emit vertical (column) meshlines at original path NODES,
+                // not at every Bezier sub-sample. For unitcircle this gives 4
+                // visible meridians instead of 49.
+                _gridColPrimary: aNodeIdx};
       }
       let profile = pos[0];
       let axis = makeTriple(0, 0, 1);
@@ -15422,6 +15440,16 @@ function createInterpreter() {
           const cols = (grid[0] && grid[0].length) || 0;
           const cyc = !!surfForColors._gridCyclic;
           const isActive = (i, j) => !ag || (ag[i] && ag[i][j] !== false);
+          // Sparse meshline indices: Asymptote's PRC wireframe only draws
+          // meshlines at the original surface's "node" lines (segment
+          // endpoints of the generator path, or every Nth rotation step
+          // matching `Sectors`). When a surface declares _gridRowPrimary or
+          // _gridColPrimary, restrict mesh-line emission to those indices
+          // so the wireframe matches PRC density.
+          const rowPrim = Array.isArray(surfForColors._gridRowPrimary) ? new Set(surfForColors._gridRowPrimary) : null;
+          const colPrim = Array.isArray(surfForColors._gridColPrimary) ? new Set(surfForColors._gridColPrimary) : null;
+          const isPrimaryRow = (i) => !rowPrim || rowPrim.has(i);
+          const isPrimaryCol = (j) => !colPrim || colPrim.has(j);
           // When the surface fill is invisible (e.g. inner cylinder drawn
           // with surfacepen=invisible, meshpen=darkgreen+dashed), the mesh
           // wireframe should be visually OCCLUDED by other opaque 3D fills
@@ -15508,14 +15536,18 @@ function createInterpreter() {
             }
             flush();
           };
-          // Rows (constant i, varying j)
+          // Rows (constant i, varying j) — meridians for revolution surfaces,
+          // top/bottom rings for extrusions. Skip rows not in rowPrim if set.
           for (let i = 0; i < rows; i++) {
+            if (!isPrimaryRow(i)) continue;
             const mask = [];
             for (let j = 0; j < cols; j++) mask.push(isActive(i, j) && !isFront(i, j));
             emitGridLine(grid[i], mask);
           }
-          // Columns (constant j, varying i)
+          // Columns (constant j, varying i) — parallels for revolution
+          // surfaces, verticals for extrusions. Skip cols not in colPrim.
           for (let j = 0; j < cols; j++) {
+            if (!isPrimaryCol(j)) continue;
             const col = [];
             const mask = [];
             for (let i = 0; i < rows; i++) { col.push(grid[i][j]); mask.push(isActive(i, j) && !isFront(i, j)); }
