@@ -7102,8 +7102,8 @@ function createInterpreter() {
     //   by `spacing` bp in path-arclength distance. `s` (legacy positional)
     //   scales the tick length.
     env.set('pathticks', (...args) => {
-      let g = null, n = 1, r = 0.5, s = 1, spacingBp = 4;
-      let posNum = 0; // count of positional numeric args parsed (n, r, spacing)
+      let g = null, n = 1, r = 0.5, spacingBp = 4, sizeBp = 0;
+      let posNum = 0; // count of positional numeric args parsed (n, r, spacing, size)
       let pen = clonePen(env.get('currentpen') || defaultPen);
       for (const a of args) {
         if (isPath(a) && g === null) { g = a; continue; }
@@ -7111,8 +7111,12 @@ function createInterpreter() {
         if (a && typeof a === 'object' && a._named) {
           if ('n' in a) n = toNumber(a.n);
           if ('r' in a) r = toNumber(a.r);
-          if ('s' in a) s = toNumber(a.s);
+          // Asymptote prefix-matches `s` → `spacing` (first 's'-prefix param
+          // in the signature). Treat `s=<num>` as spacing in bp.
+          if ('s' in a) spacingBp = toNumber(a.s);
           if ('spacing' in a) spacingBp = toNumber(a.spacing);
+          if ('size' in a) sizeBp = toNumber(a.size);
+          if ('ticksize' in a) sizeBp = toNumber(a.ticksize);
           if ('p' in a && isPen(a.p)) pen = mergePens(pen, a.p);
           continue;
         }
@@ -7121,6 +7125,7 @@ function createInterpreter() {
           if (posNum === 0) n = a;
           else if (posNum === 1) r = a;
           else if (posNum === 2) spacingBp = a;
+          else if (posNum === 3) sizeBp = a;
           posNum++;
         }
       }
@@ -7128,23 +7133,40 @@ function createInterpreter() {
       if (!g || g.segs.length === 0) return pic;
       // Asymptote markers.asy default tick size is ticksize=3 (6bp total),
       // but TeXeR's actual rendered marks are visually larger — match that
-      // appearance with a 5bp half-length (10bp total). Emit ticks as marker
-      // commands so they render at a fixed bp size regardless of the
-      // surrounding picture's geo scale.
-      const tickHalfBp = 5 * s;
+      // appearance with a 5bp half-length (10bp total) by default. If the
+      // caller passes an explicit size/ticksize, honor it as full tick length
+      // in bp. Emit ticks as marker commands so they render at a fixed bp
+      // size regardless of the surrounding picture's geo scale.
+      const tickHalfBp = sizeBp > 0 ? sizeBp / 2 : 5;
       // Ensure the tick mark stroke is at least ~0.8bp so it's visible at the
       // displayed size; the default 0.5bp pen renders very thin.
       const tickPen = clonePen(pen);
       if (!(tickPen.linewidth > 0) || tickPen.linewidth < 0.8) tickPen.linewidth = 0.8;
       const nT = Math.max(1, Math.round(n));
       const N = g.segs.length;
-      // Convert bp spacing to fraction of arclength using the active
-      // unitsize (or fall back to 1 when unknown). Path arclength is in user
-      // units; multiply by bp/user to get bp arclength.
+      // Convert bp spacing to fraction of arclength using bp/user. When no
+      // unitsize is active, estimate bp/user from the currentpicture's geo
+      // bbox under the default size(150) constraint so user-unit arclengths
+      // get scaled to plausible bp values for spacing-fraction computation.
       let arcUser = 0;
       for (const seg of g.segs) arcUser += bezierArcLength(seg);
-      const bpPerUnit = hasUnitScale ? unitScale : 0;
-      const arcBp = bpPerUnit > 0 ? arcUser * bpPerUnit : arcUser;
+      let bpPerUnit = hasUnitScale ? unitScale : 0;
+      if (bpPerUnit <= 0) {
+        try {
+          const cp = env.get('currentpicture');
+          if (cp && cp.commands && cp.commands.length > 0) {
+            const gb = getGeoBbox(cp.commands);
+            const gw = (gb.maxX - gb.minX);
+            const gh = (gb.maxY - gb.minY);
+            const cands = [];
+            if (gw > 0) cands.push(150 / gw);
+            if (gh > 0) cands.push(150 / gh);
+            if (cands.length > 0) bpPerUnit = Math.min.apply(null, cands);
+          }
+        } catch (_) {}
+        if (!(bpPerUnit > 0)) bpPerUnit = 30;
+      }
+      const arcBp = arcUser * bpPerUnit;
       const spacingFrac = arcBp > 0 ? Math.min(0.5, spacingBp / arcBp) : 0.05;
       for (let k = 0; k < nT; k++) {
         // center tick k at fraction r + (k - (nT-1)/2)*spacingFrac
