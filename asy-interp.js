@@ -14180,8 +14180,12 @@ function createInterpreter() {
         // at the visible tip.
         const proj0 = projectTriple(p0);
         const proj1 = projectTriple(p1);
+        // `above=true` (xaxis3/yaxis3/zaxis3 keyword) draws the axis on top of
+        // all 3D content — skip depth-sort entirely so it isn't occluded by
+        // surface fills.
+        const aboveFlag = !!(call.userBounds && call.userBounds.above);
         let cam = null;
-        if (projection) {
+        if (projection && !aboveFlag) {
           cam = {x: projection.cx || 0, y: projection.cy || 0, z: projection.cz || 0};
         }
         const N = cam ? 24 : 1;
@@ -14292,6 +14296,7 @@ function createInterpreter() {
     function _axis3NamedExtract(args) {
       let arrow = null, pen = null, axisType = null, ticks = null;
       let xmin = null, xmax = null, ymin = null, ymax = null, zmin = null, zmax = null;
+      let above = false;
       for (const a of args) {
         if (!(a && a._named)) continue;
         if ('arrow' in a) {
@@ -14311,8 +14316,9 @@ function createInterpreter() {
         if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
         if ('zmin' in a && typeof a.zmin === 'number') zmin = a.zmin;
         if ('zmax' in a && typeof a.zmax === 'number') zmax = a.zmax;
+        if ('above' in a) above = !!a.above;
       }
-      return {arrow, pen, axisType, ticks, xmin, xmax, ymin, ymax, zmin, zmax};
+      return {arrow, pen, axisType, ticks, xmin, xmax, ymin, ymax, zmin, zmax, above};
     }
     env.set('xaxis3', (...args) => {
       const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
@@ -14334,6 +14340,7 @@ function createInterpreter() {
         xmin: named.xmin, xmax: named.xmax,
         ymin: named.ymin, ymax: named.ymax,
         zmin: named.zmin, zmax: named.zmax,
+        above: named.above,
       });
     });
     env.set('yaxis3', (...args) => {
@@ -14356,6 +14363,7 @@ function createInterpreter() {
         xmin: named.xmin, xmax: named.xmax,
         ymin: named.ymin, ymax: named.ymax,
         zmin: named.zmin, zmax: named.zmax,
+        above: named.above,
       });
     });
     env.set('zaxis3', (...args) => {
@@ -14378,6 +14386,7 @@ function createInterpreter() {
         xmin: named.xmin, xmax: named.xmax,
         ymin: named.ymin, ymax: named.ymax,
         zmin: named.zmin, zmax: named.zmax,
+        above: named.above,
       });
     });
 
@@ -15411,6 +15420,7 @@ function createInterpreter() {
           const ag = surfForColors._activeGrid;
           const rows = grid.length;
           const cols = (grid[0] && grid[0].length) || 0;
+          const cyc = !!surfForColors._gridCyclic;
           const isActive = (i, j) => !ag || (ag[i] && ag[i][j] !== false);
           // When the surface fill is invisible (e.g. inner cylinder drawn
           // with surfacepen=invisible, meshpen=darkgreen+dashed), the mesh
@@ -15422,6 +15432,59 @@ function createInterpreter() {
           //  (b) PREPEND the mesh-line commands before any existing _from3d
           //      commands so prior opaque fills end up painting on top.
           const fillIsInvisible = surfacePenArg && typeof surfacePenArg.opacity === 'number' && surfacePenArg.opacity === 0;
+          // Front-face cull mask for invisible-fill surfaces: mark grid
+          // vertices that lie on a camera-facing side of the (notionally
+          // opaque) hull, so their mesh edges are suppressed. The dashed
+          // wireframe of a cylinder drawn with invisible fill should only
+          // show its silhouette + back-side ribs (the front-side ribs
+          // would be hidden by the front-face's z-occlusion in PRC).
+          let frontMask = null;
+          if (fillIsInvisible && projection) {
+            const cx0 = projection.cx || 0, cy0 = projection.cy || 0, cz0 = projection.cz || 0;
+            // Per-vertex normal = average of adjacent face normals.
+            const vNorm = [];
+            for (let i = 0; i < rows; i++) {
+              const row = [];
+              for (let j = 0; j < cols; j++) {
+                let nx = 0, ny = 0, nz = 0, n = 0;
+                const tryFace = (fi, fj) => {
+                  if (fi < 0 || fi >= rows - 1) return;
+                  let jj = fj;
+                  if (cyc) jj = ((jj % (cols - 1)) + (cols - 1)) % (cols - 1);
+                  else if (jj < 0 || jj >= cols - 1) return;
+                  const v00 = grid[fi][jj], v10 = grid[fi+1][jj];
+                  const v11 = grid[fi+1][cyc ? (jj+1) % (cols-1) : jj+1];
+                  const v01 = grid[fi][cyc ? (jj+1) % (cols-1) : jj+1];
+                  const fn = faceNormal({vertices: [v00, v10, v11, v01]});
+                  nx += fn.x; ny += fn.y; nz += fn.z; n++;
+                };
+                tryFace(i - 1, j - 1);
+                tryFace(i - 1, j);
+                tryFace(i, j - 1);
+                tryFace(i, j);
+                if (n === 0) { row.push(null); continue; }
+                row.push({x: nx / n, y: ny / n, z: nz / n});
+              }
+              vNorm.push(row);
+            }
+            frontMask = [];
+            for (let i = 0; i < rows; i++) {
+              const row = [];
+              for (let j = 0; j < cols; j++) {
+                const v = grid[i][j];
+                const N = vNorm[i][j];
+                if (!N) { row.push(false); continue; }
+                // View direction: from vertex toward camera.
+                const vx = cx0 - v.x, vy = cy0 - v.y, vz = cz0 - v.z;
+                const vl = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+                const dot = (N.x*vx + N.y*vy + N.z*vz) / vl;
+                // dot > threshold ⇒ vertex is on camera-facing side
+                row.push(dot > 0.05);
+              }
+              frontMask.push(row);
+            }
+          }
+          const isFront = (i, j) => !!(frontMask && frontMask[i] && frontMask[i][j]);
           // Build a list of emission "tasks", then either push (normal) or
           // splice-prepend (invisible-fill) them into target.commands.
           const collected = [];
@@ -15448,14 +15511,14 @@ function createInterpreter() {
           // Rows (constant i, varying j)
           for (let i = 0; i < rows; i++) {
             const mask = [];
-            for (let j = 0; j < cols; j++) mask.push(isActive(i, j));
+            for (let j = 0; j < cols; j++) mask.push(isActive(i, j) && !isFront(i, j));
             emitGridLine(grid[i], mask);
           }
           // Columns (constant j, varying i)
           for (let j = 0; j < cols; j++) {
             const col = [];
             const mask = [];
-            for (let i = 0; i < rows; i++) { col.push(grid[i][j]); mask.push(isActive(i, j)); }
+            for (let i = 0; i < rows; i++) { col.push(grid[i][j]); mask.push(isActive(i, j) && !isFront(i, j)); }
             emitGridLine(col, mask);
           }
           // Insert collected commands at the right position.
