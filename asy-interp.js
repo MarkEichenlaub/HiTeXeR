@@ -17623,10 +17623,21 @@ function renderSVG(result, opts) {
       && unitScale >= 20 && unitScale < 60
       && _natMaxCmAxis > 0 && _natMaxCmAxis < 50
       && _fullNatMaxCmAxis >= 1.5 * _natMaxCmAxis;
+    // For mid-range unitscales (10..20, e.g. 0.5cm or unitsize(15)), if the
+    // geometry-only natural size is already ≥ 45bp on at least one axis, the
+    // diagram is large enough to be visible at literal unitsize and TeXeR
+    // honors that scale (e.g. 01700: simple vector at unitsize(15) with one
+    // small label, fullNat ~54bp barely below the 55bp boost threshold).
+    // Skip the boost in that case so the rendered output matches TeXeR's
+    // literal-unitsize sizing instead of being inflated to ~200bp.
+    const _midRangeSkipBoost = unitScale >= 10 && unitScale < 20
+      && Math.max(naturalW, naturalH) >= 45
+      && !_crowdRequiresBoost && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && !_labelDominatesTiny
         && !_sizeExplicit
+        && !_midRangeSkipBoost
         && naturalW < defaultSize && naturalH < defaultSize
         && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
