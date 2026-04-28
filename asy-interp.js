@@ -16591,13 +16591,18 @@ function renderSVG(result, opts) {
       const oldShift = isX ? c._axisShiftY : c._axisShiftX;
       let newShift;
       const ext = c._extentDeferred;
+      // Match Asymptote's `axis=Bottom` etc. behavior: the axis position is
+      // the picture's userMin/userMax, which in practice extends to include
+      // the origin when content is all on one side (texer's 04077 places
+      // the axis at user_y=0 even though data is at y=0.05..0.1).  Use
+      // min(cMin, 0) for Bottom/Left and max(cMax, 0) for Top/Right.
       if (isX) {
-        if (ext === 'Bottom' || ext === 'BottomTop') newShift = cMinY;
-        else if (ext === 'Top' || ext === 'TopBottom') newShift = cMaxY;
+        if (ext === 'Bottom' || ext === 'BottomTop') newShift = Math.min(cMinY, 0);
+        else if (ext === 'Top' || ext === 'TopBottom') newShift = Math.max(cMaxY, 0);
         else continue;
       } else {
-        if (ext === 'Left' || ext === 'LeftRight') newShift = cMinX;
-        else if (ext === 'Right' || ext === 'RightLeft') newShift = cMaxX;
+        if (ext === 'Left' || ext === 'LeftRight') newShift = Math.min(cMinX, 0);
+        else if (ext === 'Right' || ext === 'RightLeft') newShift = Math.max(cMaxX, 0);
         else continue;
       }
       if (!isFinite(newShift)) continue;
