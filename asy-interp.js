@@ -3686,6 +3686,24 @@ function createInterpreter() {
       if (m === 'mesh') return obj.mesh;
     }
     if (obj && obj._tag === 'revolution' && m === 'mesh') return obj.mesh;
+    // Projection struct fields used by user code (e.g. drawSphere helpers
+    // in AoPS Lesson 9, script 30, where `triple camv = currentprojection.normal`
+    // selects the camera-to-target direction so circle(C, r, camv) yields a
+    // sphere silhouette in the screen plane). Without this handler the access
+    // returns null and the wire-frame circles default to the xy-plane,
+    // producing flat ellipses instead of round silhouettes.
+    if (obj && obj._tag === 'projection') {
+      if (m === 'normal' || m === 'vector') {
+        // camera - target direction
+        const dx = (obj.cx || 0) - (obj.tx || 0);
+        const dy = (obj.cy || 0) - (obj.ty || 0);
+        const dz = (obj.cz || 0) - (obj.tz || 0);
+        return makeTriple(dx, dy, dz);
+      }
+      if (m === 'camera') return makeTriple(obj.cx || 0, obj.cy || 0, obj.cz || 0);
+      if (m === 'target') return makeTriple(obj.tx || 0, obj.ty || 0, obj.tz || 0);
+      if (m === 'up')     return makeTriple(obj.ux || 0, obj.uy || 0, obj.uz || 1);
+    }
     // CAD module struct: cad.pVisibleEdge / cad.pFreehand / cad.pMeasure
     if (obj && obj._tag === 'sCAD') {
       if (m === 'pVisibleEdge') return obj.pVisibleEdge;
