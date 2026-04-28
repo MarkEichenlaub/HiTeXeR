@@ -17792,7 +17792,22 @@ function renderSVG(result, opts) {
     // natural defaultSize=150bp/maxDim, NOT the 7bp/unit floor, so applying
     // the floor would oversize the banner ~2-5×. Detect by minDim < 5.
     if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7) {
-      pxPerUnit = 7;
+      // Gate by label density: the floor exists to keep labels proportional to
+      // small geometric features (e.g. 06387: 6 labels in ~110×110 area). When
+      // labels are sparse relative to bbox area (e.g. 12649: 4 R_i tags in a
+      // 525×510 ellipse-and-axes diagram, density ~1.5e-5), the natural
+      // defaultSize=150bp/maxDim already produces a well-proportioned figure
+      // and the floor over-scales the canvas ~24×. Skip the floor when the
+      // diagram is sparse-label or has no labels.
+      let labelCount = 0;
+      for (const dc of drawCommands) {
+        if (dc.cmd === 'label') labelCount++;
+      }
+      const bboxArea = scaleRefW2 * scaleRefH2;
+      const labelDensity = labelCount / Math.max(bboxArea, 1);
+      if (labelDensity > 1e-4) {
+        pxPerUnit = 7;
+      }
     }
     // Extended floor: when maxDim is in the 15–50 user-unit range AND the
     // diagram is label-dense (many labels packed near small geometric
