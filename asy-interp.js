@@ -19147,11 +19147,13 @@ function renderSVG(result, opts) {
         }
         const W = _effLen * fontSizeSVG * 0.52;
         // Fractions (\frac) render with stacked numerator/denominator plus
-        // ascender/descender padding. Empirically the alignment-relevant
-        // height is ~1.8× the base fontSize, matching TeXeR's clearance for
-        // label-edge alignment (e.g. 2*N pushing the label clear of a tick).
+        // ascender/descender padding. The actual rendered fraction in
+        // renderLaTeXSVG spans from numerator-top (y_center - 0.35*fs - 0.5*fracFs)
+        // to denominator-bottom (y_center + 0.35*fs + 0.5*fracFs); with
+        // fracFs=0.75*fs that's a total height of ~1.45*fs. Using 1.45 makes
+        // the south edge land where the caller's anchor logic expects.
         const _hasFrac = /\\frac\b/.test(dc.text || '');
-        const H = fontSizeSVG * numLines * (_hasFrac ? 1.8 : 1);
+        const H = fontSizeSVG * numLines * (_hasFrac ? 1.45 : 1);
         // Asymptote's labelmargin(p) = 0.28*fontsize(p) + 0.5*linewidth(p)
         // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
         // and including the linewidth term gives labels proper clearance from
@@ -20859,7 +20861,9 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // close under the referenced graphics; the prior offset (+0.3) left a full
       // line-height gap before the brace.
       const by = y;
-      const bh = fontSize * 0.35;
+      // KaTeX/LaTeX underbrace height is ~0.28em (≈ 36 px at fs=12 in TeXer
+      // for diagram 04947). Earlier 0.35 produced an overly tall brace.
+      const bh = fontSize * 0.28;
       // LaTeX-style underbrace: two outer hook corners + straight arms +
       // a central downward spike. The midBump is where the center peak dips.
       const xL = curX, xR = curX + p.width;
@@ -20876,7 +20880,12 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       const peakY = by + bh;                      // center peak (deepest point)
       els.push(`<path d="M${fmt(xL)},${fmt(by)} Q${fmt(xL)},${fmt(armY)} ${fmt(xL+hookR)},${fmt(armY)} L${fmt(cx-hookR)},${fmt(armY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx)},${fmt(peakY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx+hookR)},${fmt(armY)} L${fmt(xR-hookR)},${fmt(armY)} Q${fmt(xR)},${fmt(armY)} ${fmt(xR)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
       if (p.labelText) {
-        els.push(`<text x="${fmt(cx)}" y="${fmt(peakY + fontSize*0.75)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
+        // LaTeX renders an underbrace's _{label} at scriptstyle (≈0.7× the
+        // surrounding text). Placing the (smaller) label center about
+        // 0.45*fs below the peak matches TeXer's underbrace-to-label gap
+        // (~8 px) and label height (~17 px at fs=12).
+        const lblFs = fontSize * 0.7;
+        els.push(`<text x="${fmt(cx)}" y="${fmt(peakY + fontSize*0.45)}" fill="${fill}" font-size="${fmt(lblFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
       els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.text)}</text>`);
