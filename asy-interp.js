@@ -16423,7 +16423,7 @@ function createInterpreter() {
       // meshes (closed meshes like spheres look wrong when the back
       // hemisphere bleeds through).
       if (base._pale && (typeof base.opacity !== 'number' || base.opacity === 1) && !(mesh && mesh._closed)) {
-        shaded.opacity = 0.85;
+        shaded.opacity = 0.92;
       }
       const segs = [];
       for (let i = 0; i < it.poly.length; i++) {
