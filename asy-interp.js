@@ -9093,6 +9093,15 @@ function createInterpreter() {
       }
       // Cross range for grid lines — prefer per-picture ylimits if set
       let crossMin, crossMax;
+      // Track whether crossMin/crossMax fell back to ±5 defaults (no content
+      // and no axisLimits/picLimits available).  When this happens for a
+      // Bottom/Top extent axis, the resulting axisShiftY is bogus and must
+      // be reflowed in finalizeAutoAxes once the actual content extent is
+      // known.  Without this, an xaxis(axis=Bottom,...) call placed BEFORE
+      // any draw() statements (a common idiom in number-line diagrams)
+      // anchors the axis at user_y=-5, blowing up the y-extent of the bbox
+      // and crushing the diagram into a tall narrow strip.
+      let crossMinDefaulted = false, crossMaxDefaulted = false;
       if (pic._picLimits && pic._picLimits.ymin != null) {
         crossMin = pic._picLimits.ymin;
         crossMax = pic._picLimits.ymax;
@@ -9114,8 +9123,8 @@ function createInterpreter() {
           }
           if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
         }
-        crossMin = isFinite(cMinY) ? cMinY : -5;
-        crossMax = isFinite(cMaxY) ? cMaxY : 5;
+        if (isFinite(cMinY)) crossMin = cMinY; else { crossMin = -5; crossMinDefaulted = true; }
+        if (isFinite(cMaxY)) crossMax = cMaxY; else { crossMax = 5; crossMaxDefaulted = true; }
       }
       // Frame-style extent: primary axis at edge, mirror on opposite edge.
       const xIsBottomTop = extent === 'BottomTop' || extent === 'TopBottom';
@@ -9137,6 +9146,14 @@ function createInterpreter() {
       // pic.userMin/userMax by axis-label glyph extents).
       const _xaxisBareIdiom = !arrow && !ticks && !extent
         && !xminExplicit && !xmaxExplicit && !axisShiftYExplicit;
+      // Detect deferred-extent placement: when extent=Bottom/Top is used and
+      // crossMin/crossMax fell back to ±5 defaults, the axisShiftY position
+      // here is bogus and needs to be reflowed in finalizeAutoAxes once the
+      // actual content extent is known.
+      const _xExtentDeferred = !axisShiftYExplicit && (
+        ((xIsBottomSide || extent === 'BottomTop') && crossMinDefaulted) ||
+        ((xIsTopSide || extent === 'TopBottom') && crossMaxDefaulted)
+      ) ? extent : null;
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
@@ -9146,7 +9163,8 @@ function createInterpreter() {
                         _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit,
                         _xMinFromUserLimits: _xminFromUserLimits,
                         _xMaxFromUserLimits: _xmaxFromUserLimits,
-                        _bareIdiom: _xaxisBareIdiom};
+                        _bareIdiom: _xaxisBareIdiom,
+                        _extentDeferred: _xExtentDeferred};
         pic.commands.push(_xaxisDrawCmd);
         // Mirror axis for BottomTop/TopBottom extent
         if (xIsBottomTop) {
@@ -9410,6 +9428,9 @@ function createInterpreter() {
       }
       // Cross range for gridlines — prefer per-picture xlimits if set; transform to log space if needed
       let crossMin, crossMax;
+      // Track whether crossMin/crossMax fell back to ±5 defaults (no content
+      // and no axisLimits/picLimits available).  See xaxis above for rationale.
+      let crossMinDefaulted = false, crossMaxDefaulted = false;
       const xIsLogForY = !!(pic._xScale && pic._xScale.type === 'log');
       if (pic._picLimits && pic._picLimits.xmin != null) {
         crossMin = pic._picLimits.xmin;
@@ -9436,8 +9457,8 @@ function createInterpreter() {
           }
           if (dc.pos && isFinite(dc.pos.x)) { if (dc.pos.x < cMinX) cMinX = dc.pos.x; if (dc.pos.x > cMaxX) cMaxX = dc.pos.x; }
         }
-        crossMin = isFinite(cMinX) ? cMinX : -5;
-        crossMax = isFinite(cMaxX) ? cMaxX : 5;
+        if (isFinite(cMinX)) crossMin = cMinX; else { crossMin = -5; crossMinDefaulted = true; }
+        if (isFinite(cMaxX)) crossMax = cMaxX; else { crossMax = 5; crossMaxDefaulted = true; }
       }
       // Frame-style extent: primary axis at edge, mirror on opposite edge.
       const yIsLeftRight = extent === 'LeftRight' || extent === 'RightLeft';
@@ -9452,6 +9473,11 @@ function createInterpreter() {
       // extend its endpoints by ~6% past content on each side.
       const _yaxisBareIdiom = !arrow && !ticks && !extent
         && !yminExplicit && !ymaxExplicit && !axisShiftXExplicit;
+      // Detect deferred-extent placement (see xaxis above).
+      const _yExtentDeferred = !axisShiftXExplicit && (
+        ((yIsLeftSide || extent === 'LeftRight') && crossMinDefaulted) ||
+        ((yIsRightSide || extent === 'RightLeft') && crossMaxDefaulted)
+      ) ? extent : null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
         pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
@@ -9459,7 +9485,8 @@ function createInterpreter() {
                            _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit,
                            _yMinFromUserLimits: _yminFromUserLimits,
                            _yMaxFromUserLimits: _ymaxFromUserLimits,
-                           _bareIdiom: _yaxisBareIdiom});
+                           _bareIdiom: _yaxisBareIdiom,
+                           _extentDeferred: _yExtentDeferred});
         if (yIsLeftRight) {
           const mirrorX = yIsRightPrimary ? crossMin : crossMax;
           const mPath = makePath([lineSegment({x:mirrorX,y:ymin},{x:mirrorX,y:ymax})], false);
@@ -16550,6 +16577,61 @@ function renderSVG(result, opts) {
       }
     }
     if (!isFinite(cMinX) || !isFinite(cMinY)) return;
+    // Deferred-extent pass: when xaxis(axis=Bottom)/yaxis(axis=Left) etc.
+    // ran BEFORE any draw() statements, the cross-range fell back to ±5
+    // defaults and the axis was anchored at user_y=-5 (or similar), well
+    // outside the eventual content range.  Reflow the axis perpendicular
+    // position to the actual content bbox, and shift along all related
+    // tick marks, tick labels, and axis labels so they follow.
+    for (const c of drawCommands) {
+      if (!c._isAxisLine || !c._extentDeferred) continue;
+      if (!c.path || !c.path.segs || c.path.segs.length === 0) continue;
+      const isX = (c._isAxisLine === 'x');
+      const fld = isX ? 'y' : 'x';
+      const oldShift = isX ? c._axisShiftY : c._axisShiftX;
+      let newShift;
+      const ext = c._extentDeferred;
+      if (isX) {
+        if (ext === 'Bottom' || ext === 'BottomTop') newShift = cMinY;
+        else if (ext === 'Top' || ext === 'TopBottom') newShift = cMaxY;
+        else continue;
+      } else {
+        if (ext === 'Left' || ext === 'LeftRight') newShift = cMinX;
+        else if (ext === 'Right' || ext === 'RightLeft') newShift = cMaxX;
+        else continue;
+      }
+      if (!isFinite(newShift)) continue;
+      const dShift = newShift - oldShift;
+      if (Math.abs(dShift) < 1e-10) continue;
+      if (isX) c._axisShiftY = newShift; else c._axisShiftX = newShift;
+      // Update axis line path's perpendicular coordinate
+      for (const seg of c.path.segs) {
+        for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) p[fld] += dShift;
+      }
+      // Shift related tick marks (centered on the old shift) and labels
+      // (positioned exactly at the old shift) by the same delta.
+      for (const oc of drawCommands) {
+        if (oc === c) continue;
+        if (oc._isTickMark && oc.path && oc.path.segs && oc.path.segs.length > 0) {
+          const seg0 = oc.path.segs[0];
+          const mid = (seg0.p0[fld] + seg0.p3[fld]) / 2;
+          // Tick marks straddle the axis by ±tickSize, so allow a small
+          // tolerance when matching the old axis position.  The tolerance
+          // is loose because tick sizes scale with perpAxisRange and may
+          // be substantial in user units when the perpendicular range is
+          // small.
+          if (Math.abs(mid - oldShift) < Math.max(0.5, Math.abs(oldShift) * 0.05 + 1e-3)) {
+            for (const seg of oc.path.segs) {
+              for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) p[fld] += dShift;
+            }
+          }
+        }
+        if ((oc._isTickLabel || oc._isAxisLabel) && oc.pos &&
+            Math.abs(oc.pos[fld] - oldShift) < 1e-6) {
+          oc.pos[fld] = newShift;
+        }
+      }
+    }
     // Second pass: REPLACE each auto-ranged axis line's auto'd endpoints
     // with the content extent (clamped so we don't shrink past the axis
     // crossing point of the orthogonal axis).  Also reposition any
