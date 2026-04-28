@@ -2582,7 +2582,15 @@ function createInterpreter() {
           dx = m[3]; dy = m[7];
         }
         const t2d = makeTransform(dx, 1, 0, dy, 0, 1);
-        return transformPicture(t2d, right);
+        // Unlike transformPicture (which preserves _from3d commands so 2D-layer
+        // shifts don't disturb projected 3D geometry), here we WANT the shift
+        // to apply to projected 3D geometry — that's the whole point of
+        // shift(triple)*pic.  Transform every command, including _from3d ones.
+        const newPic = {_tag:'picture', commands: right.commands.map(c => transformDrawCmd(t2d, c))};
+        if (right._sizeW) newPic._sizeW = right._sizeW;
+        if (right._sizeH) newPic._sizeH = right._sizeH;
+        if (right._sizeAniso) newPic._sizeAniso = right._sizeAniso;
+        return newPic;
       }
     }
     // Transform * transform
