@@ -15338,7 +15338,13 @@ function createInterpreter() {
             break;
           }
         }
-        let meshPen = surfacePenArg ? clonePen(surfacePenArg) : clonePen(defaultPen);
+        // Asymptote's `defaultsurfacepen` (in three.asy) is `lightgray` —
+        // a `draw(surface, render)` with no explicit surfacepen (or named
+        // material override) lights the lightgray diffuse, not pure black.
+        // Use lightgray as the 3D default so e.g. 12845's planar annuli
+        // shade like a real material rather than rendering as solid black.
+        const _surfaceDefaultPen = makePen({r: 0.9, g: 0.9, b: 0.9});
+        let meshPen = surfacePenArg ? clonePen(surfacePenArg) : _surfaceDefaultPen;
         if (colorsArrayArg && surfForColors) {
           // Non-destructive: shallow-clone the surface wrapper so we don't
           // permanently mutate the user's `surface s` binding.
