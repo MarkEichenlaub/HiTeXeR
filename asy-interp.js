@@ -14457,6 +14457,55 @@ function createInterpreter() {
       target = args[0];
       args = args.slice(1);
     }
+    // Handle L=Label(...) named arg: place a label along the drawn path
+    // at the Label's position (0=begin, 1=end, fractional=along) with the
+    // specified align direction. Used by e.g.
+    //   draw((0,0)--(0,h), L=Label("Elevation", position=EndPoint, align=W));
+    {
+      let lblObj = null;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named && 'L' in a) {
+          const lv = a.L;
+          if (typeof lv === 'string') lblObj = {_tag:'label', text: lv};
+          else if (lv && lv._tag === 'label') lblObj = lv;
+        }
+      }
+      if (lblObj && lblObj.text) {
+        // Find first path arg to anchor the label.
+        let anchorPath = null;
+        for (const a of args) {
+          if (isPath(a) && a.segs && a.segs.length > 0) { anchorPath = a; break; }
+        }
+        if (anchorPath) {
+          const segs = anchorPath.segs;
+          const tFrac = (typeof lblObj.position === 'number') ? lblObj.position : 0.5;
+          // Pick an endpoint: 0 = p0 of first seg, 1 = p3 of last seg, else
+          // approximate by parameter index along segment list.
+          let lpos;
+          if (tFrac <= 0) {
+            lpos = makePair(segs[0].p0.x, segs[0].p0.y);
+          } else if (tFrac >= 1) {
+            const last = segs[segs.length - 1];
+            lpos = makePair(last.p3.x, last.p3.y);
+          } else {
+            const idx = Math.min(segs.length - 1, Math.floor(tFrac * segs.length));
+            const s = segs[idx];
+            lpos = makePair((s.p0.x + s.p3.x) / 2, (s.p0.y + s.p3.y) / 2);
+          }
+          const lblAlign = lblObj.align || null;
+          const lblPen = lblObj.pen || clonePen(defaultPen);
+          target.commands.push({
+            cmd: 'label',
+            text: lblObj.text,
+            pos: lpos,
+            align: lblAlign,
+            pen: lblPen,
+            filltype: lblObj.filltype || null,
+            line: args._line || 0,
+          });
+        }
+      }
+    }
     // path3 wire-frame: iterate over edges. Track 3D bounds so axis3 lines
     // (which use _3dBounds to size the visible axis extents) include wireframe
     // paths like the ground-plane square in diagram 03290.
