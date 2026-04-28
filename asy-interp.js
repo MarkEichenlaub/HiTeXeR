@@ -4776,7 +4776,14 @@ function createInterpreter() {
       const r = parseInt(hex.substr(1,2),16)/255;
       const g = parseInt(hex.substr(3,2),16)/255;
       const b = parseInt(hex.substr(5,2),16)/255;
-      env.set(name, makePen({r,g,b}));
+      // Pale-family colors are flagged so 3D surface fills painted in
+      // them render at partial opacity, matching Asymptote's PRC default
+      // translucency for `palegreen` etc.
+      const props = {r, g, b};
+      if (/^pale(red|green|blue|cyan|magenta|yellow)$/.test(name) || name === 'pink') {
+        props._pale = true;
+      }
+      env.set(name, makePen(props));
     }
 
     // Constants
@@ -13683,14 +13690,22 @@ function createInterpreter() {
     });
     // Named pen constants commonly used by palette examples.
     const mkPen = (r,g,b) => makePen({r, g, b});
+    // Pale-color factory: marks the pen as semi-transparent in 3D surface
+    // fills (renderMeshToPicture). Asymptote's PRC backend renders surfaces
+    // painted with `palegreen`/`palered`/etc. at partial opacity so that
+    // wireframe surfaces drawn alongside (e.g. surfacepen=invisible,
+    // meshpen=darkgreen+dashed) remain visible through them. The 2D fills
+    // continue to render fully opaque — the `_pale` flag is consulted only
+    // in the 3D pipeline.
+    const mkPalePen = (r,g,b) => makePen({r, g, b, _pale: true});
     env.set('heavyblue',   mkPen(0.1, 0.1, 0.65));
     env.set('heavyred',    mkPen(0.65, 0.1, 0.1));
     env.set('heavygreen',  mkPen(0.1, 0.5, 0.1));
-    env.set('palegreen',   mkPen(0.75, 0.95, 0.75));
-    env.set('palered',     mkPen(0.95, 0.75, 0.75));
-    env.set('paleblue',    mkPen(0.75, 0.75, 0.95));
+    env.set('palegreen',   mkPalePen(0.75, 0.95, 0.75));
+    env.set('palered',     mkPalePen(0.95, 0.75, 0.75));
+    env.set('paleblue',    mkPalePen(0.75, 0.75, 0.95));
     env.set('lightolive',  mkPen(0.75, 0.75, 0.55));
-    env.set('paleyellow',  mkPen(1.0, 1.0, 0.75));
+    env.set('paleyellow',  mkPalePen(1.0, 1.0, 0.75));
 
     // texpath(label|string) — produces path outline of rasterized TeX output.
     // Approximation: return a single rectangle path whose width/height are crude
@@ -14156,10 +14171,67 @@ function createInterpreter() {
           p1 = makeTriple(x0, y0, zEnd);
           labelPos3 = makeTriple(x0, y0, zEnd + extraOut * (zEnd - zStart));
         }
+        // Split the axis into N sub-segments and depth-sort them against
+        // the existing 3D fills (`_from3d` commands). Sub-segments that sit
+        // behind opaque surface front faces get inserted into the command
+        // list before those fills so painter's algorithm paints them over,
+        // hiding the axis where it passes behind a surface body. The arrow
+        // (if any) is attached to ONLY the last sub-segment so it appears
+        // at the visible tip.
         const proj0 = projectTriple(p0);
         const proj1 = projectTriple(p1);
-        const seg = makeSeg(proj0, proj0, proj1, proj1);
-        pic.commands.push({cmd:'draw', path: makePath([seg], false), pen, arrow, line: 0});
+        let cam = null;
+        if (projection) {
+          cam = {x: projection.cx || 0, y: projection.cy || 0, z: projection.cz || 0};
+        }
+        const N = cam ? 24 : 1;
+        const subSegs = [];
+        for (let k = 0; k < N; k++) {
+          const t0 = k / N, t1 = (k + 1) / N;
+          const a3 = makeTriple(
+            p0.x + (p1.x - p0.x) * t0,
+            p0.y + (p1.y - p0.y) * t0,
+            p0.z + (p1.z - p0.z) * t0);
+          const b3 = makeTriple(
+            p0.x + (p1.x - p0.x) * t1,
+            p0.y + (p1.y - p0.y) * t1,
+            p0.z + (p1.z - p0.z) * t1);
+          const ca = projectTriple(a3);
+          const cb = projectTriple(b3);
+          const cx = (a3.x + b3.x) / 2, cy = (a3.y + b3.y) / 2, cz = (a3.z + b3.z) / 2;
+          const depth = cam ? Math.sqrt(
+            (cam.x - cx) * (cam.x - cx) +
+            (cam.y - cy) * (cam.y - cy) +
+            (cam.z - cz) * (cam.z - cz)) : 0;
+          subSegs.push({a: ca, b: cb, depth, isLast: (k === N - 1)});
+        }
+        if (cam) {
+          // Insert each sub-segment into the contiguous _from3d block by
+          // depth, so closer surface fills painted later occlude axis
+          // segments that sit farther from camera. Sub-segments without
+          // any _from3d commands are simply pushed at the end (preserves
+          // legacy behaviour for diagrams without 3D fills).
+          for (const sg of subSegs) {
+            const seg = makeSeg(sg.a, sg.a, sg.b, sg.b);
+            const cmd = {cmd:'draw', path: makePath([seg], false), pen, arrow: sg.isLast ? arrow : null, line: 0, _from3d: true, _isSimpleAxis: true};
+            // Find first _from3d command whose depth is less than this segment.
+            let inserted = false;
+            for (let k = 0; k < pic.commands.length; k++) {
+              const c = pic.commands[k];
+              if (!c || !c._from3d) continue;
+              const cDepth = c._faceDepth;
+              if (typeof cDepth === 'number' && cDepth < sg.depth) {
+                pic.commands.splice(k, 0, cmd);
+                inserted = true;
+                break;
+              }
+            }
+            if (!inserted) pic.commands.push(cmd);
+          }
+        } else {
+          const seg = makeSeg(proj0, proj0, proj1, proj1);
+          pic.commands.push({cmd:'draw', path: makePath([seg], false), pen, arrow, line: 0});
+        }
         if (call.label) {
           // Place the label just past the arrow tip in the screen-space
           // direction of the axis. The nudge is a small fraction of the
@@ -16248,6 +16320,16 @@ function createInterpreter() {
       shaded.r = Math.max(0, Math.min(1, base.r * it.intensity + sp));
       shaded.g = Math.max(0, Math.min(1, base.g * it.intensity + sp));
       shaded.b = Math.max(0, Math.min(1, base.b * it.intensity + sp));
+      // Pale-family surface fills render at partial opacity so wireframe
+      // surfaces drawn alongside (e.g. surfacepen=invisible,
+      // meshpen=darkgreen+dashed) remain visible through them, matching
+      // Asymptote's PRC default translucency. Only applies when the user
+      // hasn't already set an explicit opacity — and only for OPEN
+      // meshes (closed meshes like spheres look wrong when the back
+      // hemisphere bleeds through).
+      if (base._pale && (typeof base.opacity !== 'number' || base.opacity === 1) && !(mesh && mesh._closed)) {
+        shaded.opacity = 0.85;
+      }
       const segs = [];
       for (let i = 0; i < it.poly.length; i++) {
         const a = it.poly[i];
@@ -16259,7 +16341,7 @@ function createInterpreter() {
       // shift(a,b)*currentpicture) leave them in place — matching Asymptote's
       // semantics where a 2D transform applies only to the 2D layer of a
       // picture and the 3D layer retains its own projection.
-      target.commands.push({cmd: 'fill', path: p, pen: shaded, line, _from3d: true});
+      target.commands.push({cmd: 'fill', path: p, pen: shaded, line, _from3d: true, _faceDepth: it.depth});
       // Add thin same-color stroke to close antialiasing gaps between
       // adjacent faces. Subdivided smooth faces use a narrower stroke so
       // the fine sub-grid doesn't show visible ribs, but still enough to
@@ -16267,7 +16349,7 @@ function createInterpreter() {
       const stroke = clonePen(shaded);
       if (it._subSmooth) stroke.linewidth = 0.3;
       else stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
-      target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true});
+      target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true, _faceDepth: it.depth});
     }
   }
 
