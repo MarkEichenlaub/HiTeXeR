@@ -13829,9 +13829,12 @@ function createInterpreter() {
     // 3D axis functions: draw axis along bounding box edges with ticks and labels
     // Collects axis3 calls and defers drawing to _finalize3DAxes at picture finalization
     const _pendingAxis3Calls = [];
-    function _draw3DAxis(axisName, label, axisType, ticks, pen, arrow, pic) {
-      // Queue axis for deferred rendering once bounds are known
-      _pendingAxis3Calls.push({axisName, label, axisType, ticks, pen, arrow, pic});
+    function _draw3DAxis(axisName, label, axisType, ticks, pen, arrow, pic, userBounds) {
+      // Queue axis for deferred rendering once bounds are known. userBounds
+      // optionally carries explicit xmin/xmax/ymin/ymax/zmin/zmax from the
+      // axis call (e.g. xaxis3("$x$", xmax=3.35)) which override the
+      // computed scene bounds for the axis line endpoints.
+      _pendingAxis3Calls.push({axisName, label, axisType, ticks, pen, arrow, pic, userBounds: userBounds || null});
     }
 
     // Helper to compute nice tick values for an axis range
@@ -14107,9 +14110,12 @@ function createInterpreter() {
         if (!call.label && !call.pen && !call.arrow) return;
         const pen = call.pen || axisPen;
         const arrow = call.arrow || null;
-        // Read optional named bounds (xmin/xmax on xaxis3, etc.) if present
-        // on the original axis call args. Not currently stored; conservative
-        // defaults based on axisName below.
+        // Read optional named bounds (xmin/xmax on xaxis3, etc.) collected at
+        // call time and passed via call.userBounds. When provided they
+        // override the scene-bbox endpoints and let e.g.
+        // `xaxis3("$x$", xmax=3.35)` draw the axis line out past the
+        // visible scene content.
+        const ub = call.userBounds || {};
         let p0, p1, labelPos3;
         const extraOut = 0.08; // push label a hair past the arrow tip
         if (axisName === 'x') {
@@ -14118,26 +14124,37 @@ function createInterpreter() {
           // outside the scene extent along that dimension.
           const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
           const z0 = (b.minZ <= 0 && b.maxZ >= 0) ? 0 : b.minZ;
-          const xStart = Math.min(0, b.minX);
-          const xEnd = b.maxX;
+          // When xmax is explicitly given, treat it as the requested positive
+          // endpoint and mirror the negative endpoint to -xmax (Asymptote's
+          // graph3 behaviour for an unspecified xmin with explicit xmax on a
+          // YZZero-anchored axis is to autoscale symmetrically).
+          let xEnd = (typeof ub.xmax === 'number') ? ub.xmax : b.maxX;
+          let xStart;
+          if (typeof ub.xmin === 'number') xStart = ub.xmin;
+          else if (typeof ub.xmax === 'number') xStart = -ub.xmax;
+          else xStart = Math.min(0, b.minX);
           p0 = makeTriple(xStart, y0, z0);
           p1 = makeTriple(xEnd, y0, z0);
-          labelPos3 = makeTriple(xEnd + extraOut * (b.maxX - b.minX), y0, z0);
+          labelPos3 = makeTriple(xEnd + extraOut * (xEnd - xStart), y0, z0);
         } else if (axisName === 'y') {
           const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
           const z0 = (b.minZ <= 0 && b.maxZ >= 0) ? 0 : b.minZ;
-          const yStart = Math.min(0, b.minY);
-          const yEnd = b.maxY;
+          let yEnd = (typeof ub.ymax === 'number') ? ub.ymax : b.maxY;
+          let yStart;
+          if (typeof ub.ymin === 'number') yStart = ub.ymin;
+          else yStart = Math.min(0, b.minY);
           p0 = makeTriple(x0, yStart, z0);
           p1 = makeTriple(x0, yEnd, z0);
-          labelPos3 = makeTriple(x0, yEnd + extraOut * (b.maxY - b.minY), z0);
+          labelPos3 = makeTriple(x0, yEnd + extraOut * (yEnd - yStart), z0);
         } else {
           // z-axis: XYZero-style line through (0,0) from minZ to maxZ
           const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
           const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
-          p0 = makeTriple(x0, y0, b.minZ);
-          p1 = makeTriple(x0, y0, b.maxZ);
-          labelPos3 = makeTriple(x0, y0, b.maxZ + extraOut * (b.maxZ - b.minZ));
+          let zEnd = (typeof ub.zmax === 'number') ? ub.zmax : b.maxZ;
+          let zStart = (typeof ub.zmin === 'number') ? ub.zmin : b.minZ;
+          p0 = makeTriple(x0, y0, zStart);
+          p1 = makeTriple(x0, y0, zEnd);
+          labelPos3 = makeTriple(x0, y0, zEnd + extraOut * (zEnd - zStart));
         }
         const proj0 = projectTriple(p0);
         const proj1 = projectTriple(p1);
@@ -14195,10 +14212,14 @@ function createInterpreter() {
       return a;
     }
     // Named-arg helper for xaxis3/yaxis3/zaxis3: extract arrow=, p=, ticks=,
-    // axis= from the named args. Arrow constructors passed by name are
-    // function references that need to be invoked.
+    // axis=, xmin/xmax (and analogous y/z) from the named args. Arrow
+    // constructors passed by name are function references that need to be
+    // invoked. The explicit bounds let xaxis3("$x$", xmax=3.35, ...) draw
+    // the axis line out to user_x=3.35 even when the scene's content
+    // bounding box ends earlier.
     function _axis3NamedExtract(args) {
       let arrow = null, pen = null, axisType = null, ticks = null;
+      let xmin = null, xmax = null, ymin = null, ymax = null, zmin = null, zmax = null;
       for (const a of args) {
         if (!(a && a._named)) continue;
         if ('arrow' in a) {
@@ -14212,8 +14233,14 @@ function createInterpreter() {
         if ('p' in a && isPen(a.p)) pen = a.p;
         if ('axis' in a && a.axis && a.axis._tag === 'axis3type') axisType = a.axis;
         if ('ticks' in a && a.ticks && a.ticks._tag === 'ticks3') ticks = a.ticks;
+        if ('xmin' in a && typeof a.xmin === 'number') xmin = a.xmin;
+        if ('xmax' in a && typeof a.xmax === 'number') xmax = a.xmax;
+        if ('ymin' in a && typeof a.ymin === 'number') ymin = a.ymin;
+        if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
+        if ('zmin' in a && typeof a.zmin === 'number') zmin = a.zmin;
+        if ('zmax' in a && typeof a.zmax === 'number') zmax = a.zmax;
       }
-      return {arrow, pen, axisType, ticks};
+      return {arrow, pen, axisType, ticks, xmin, xmax, ymin, ymax, zmin, zmax};
     }
     env.set('xaxis3', (...args) => {
       const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
@@ -14231,7 +14258,11 @@ function createInterpreter() {
       if (!pen && named.pen) pen = named.pen;
       if (!axisType && named.axisType) axisType = named.axisType;
       if (!ticks && named.ticks) ticks = named.ticks;
-      _draw3DAxis('x', label, axisType, ticks, pen, arrow, currentPic);
+      _draw3DAxis('x', label, axisType, ticks, pen, arrow, currentPic, {
+        xmin: named.xmin, xmax: named.xmax,
+        ymin: named.ymin, ymax: named.ymax,
+        zmin: named.zmin, zmax: named.zmax,
+      });
     });
     env.set('yaxis3', (...args) => {
       const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
@@ -14249,7 +14280,11 @@ function createInterpreter() {
       if (!pen && named.pen) pen = named.pen;
       if (!axisType && named.axisType) axisType = named.axisType;
       if (!ticks && named.ticks) ticks = named.ticks;
-      _draw3DAxis('y', label, axisType, ticks, pen, arrow, currentPic);
+      _draw3DAxis('y', label, axisType, ticks, pen, arrow, currentPic, {
+        xmin: named.xmin, xmax: named.xmax,
+        ymin: named.ymin, ymax: named.ymax,
+        zmin: named.zmin, zmax: named.zmax,
+      });
     });
     env.set('zaxis3', (...args) => {
       const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
@@ -14262,7 +14297,16 @@ function createInterpreter() {
         else if (isPen(a)) pen = a;
         else if (a && a._tag === 'arrow') arrow = a;
       }
-      _draw3DAxis('z', label, axisType, ticks, pen, arrow, currentPic);
+      const named = _axis3NamedExtract(args);
+      if (!arrow && named.arrow) arrow = named.arrow;
+      if (!pen && named.pen) pen = named.pen;
+      if (!axisType && named.axisType) axisType = named.axisType;
+      if (!ticks && named.ticks) ticks = named.ticks;
+      _draw3DAxis('z', label, axisType, ticks, pen, arrow, currentPic, {
+        xmin: named.xmin, xmax: named.xmax,
+        ymin: named.ymin, ymax: named.ymax,
+        zmin: named.zmin, zmax: named.zmax,
+      });
     });
 
     // Override point() to handle 3D box-relative coordinates in graph3
