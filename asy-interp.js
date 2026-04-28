@@ -3804,7 +3804,7 @@ function createInterpreter() {
       const eDirIn = evalDirSpec(n.dirIn, env);
       const eDirOut = evalDirSpec(n.dirOut, env);
       if (isPath(val) && val.segs.length > 0) {
-        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
+        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, _origPath: val});
       } else if (isPath(val) && val.segs.length === 0) {
         // Empty path/guide — check if it has a _singlePoint marker (single-point path)
         if (val._singlePoint) {
@@ -4004,7 +4004,19 @@ function createInterpreter() {
           allSegs.push(makeJoinSeg(last, first, closeJoin, lastDirOut, firstDirIn));
         }
       }
-      return makePath(allSegs, hasCycle);
+      const result = makePath(allSegs, hasCycle);
+      // When the expression is purely `pathA ^^ pathB ^^ pathC` (every element
+      // is a full path and every inter-element join is `^^`), preserve the
+      // component paths so `path[] g = pathA ^^ pathB` (and for-each over g)
+      // can recover the array form. Asymptote's `^^` operator returns path[]
+      // when assigned to a path[]-typed LHS; we approximate that by attaching
+      // the components and unwrapping at iteration / array-coercion sites.
+      if (!hasCycle && elements.length >= 2
+          && elements.every(e => e.type === 'path' && e._origPath)
+          && elements.slice(0, -1).every(e => e.join === '^^')) {
+        result._subPaths = elements.map(e => e._origPath);
+      }
+      return result;
     }
 
     // Standard path: all elements are pairs
@@ -4291,7 +4303,13 @@ function createInterpreter() {
 
   function evalForEach(node, env) {
     const local = createEnv(env);
-    const iterVal = evalNode(node.iter, env);
+    let iterVal = evalNode(node.iter, env);
+    // Unwrap a `^^`-built composite path into its components so
+    // `for(path pp : g)` over `path[] g = pA ^^ pB` iterates as expected.
+    if (!isArray(iterVal) && iterVal && iterVal._tag === 'path'
+        && Array.isArray(iterVal._subPaths)) {
+      iterVal = iterVal._subPaths;
+    }
     if (!isArray(iterVal)) return null;
     let iters = 0;
     for (const item of iterVal) {
