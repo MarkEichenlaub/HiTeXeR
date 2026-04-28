@@ -17633,9 +17633,13 @@ function renderSVG(result, opts) {
     const _midRangeSkipBoost = unitScale >= 10 && unitScale < 20
       && Math.max(naturalW, naturalH) >= 45
       && !_crowdRequiresBoost && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded;
+    // Graph-axis idioms (xaxis/yaxis with small unitsize) signal a deliberate
+    // graph-package layout where TeXeR boosts the geometry to ~150bp regardless
+    // of label dominance — so let those flags override _labelDominatesTiny.
+    const _graphAxisOverridesLabelTiny = _graphAxisBoostNeeded || _graphAxisCmBoostNeeded;
     if (!geoIsDegenerate
         && !is1DDegenerate
-        && !_labelDominatesTiny
+        && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny)
         && !_sizeExplicit
         && !_midRangeSkipBoost
         && naturalW < defaultSize && naturalH < defaultSize
@@ -17690,13 +17694,19 @@ function renderSVG(result, opts) {
                ? cmNoLabelNat
                : _cmLabelModestTgt
                  ? 50
-                 : (_graphAxisCmBoostNeeded && !_graphAxisBoostNeeded
-                     && Math.max(fullNatW, fullNatH) >= minReasonable)
-                   // Cm-scale graph-axis with label-dominated bbox: target a
-                   // modest geometry size (~75bp) so total bbox (geometry +
-                   // labels) lands near TeXeR's reference width without inflating.
-                   ? 75
-                   : defaultSize;
+                 : (_labelDominatesTiny && _graphAxisCmBoostNeeded && !_graphAxisBoostNeeded)
+                   // Graph-axis idiom with very tiny geometry (natMax ≤ 20bp,
+                   // labels dominate bbox): TeXeR boosts the picture so the
+                   // curve/axes are visible alongside the labels
+                   // (e.g. 04021: unitsize(30) on a .2-unit-wide graph).
+                   ? 125
+                   : (_graphAxisCmBoostNeeded && !_graphAxisBoostNeeded
+                       && Math.max(fullNatW, fullNatH) >= minReasonable)
+                     // Cm-scale graph-axis with label-dominated bbox: target a
+                     // modest geometry size (~75bp) so total bbox (geometry +
+                     // labels) lands near TeXeR's reference width without inflating.
+                     ? 75
+                     : defaultSize;
       // Clustered-label detection: when many label anchors are packed within
       // ~1 label-width of each other (e.g. physics free-body diagrams where
       // mg, mg_x, mg_y, F_f, N are all anchored near a single box), the modest
