@@ -359,7 +359,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.71</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.79</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3301,30 +3301,41 @@ async function copyCanvasImage(format) {
   const btn = document.getElementById('btn-canvas-copy');
   const flash = (msg) => { if (btn) { const o = btn.textContent; btn.textContent = msg; setTimeout(() => btn.textContent = o, 1200); } };
   try {
-    const svgData = new XMLSerializer().serializeToString(svg);
+    // Clone SVG and strip overlays and canvas pan/zoom/rotate transform
+    const svgClone = svg.cloneNode(true);
+    svgClone.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+    svgClone.style.transform = '';
+    svgClone.style.transformOrigin = '';
     if (format === 'svg') {
       // Copy raw SVG markup as plain text
-      await navigator.clipboard.writeText(svgData);
+      await navigator.clipboard.writeText(new XMLSerializer().serializeToString(svgClone));
       flash('Copied!');
       return;
     }
-    // Clone SVG and replace foreignObject elements so it renders in <img> context
-    const svgClone = svg.cloneNode(true);
+    // Restore intrinsic (unshrunk) dimensions on the clone before rasterising,
+    // matching what doExportPng does so the full diagram is captured.
+    const iw = svgClone.getAttribute('data-intrinsic-w');
+    const ih = svgClone.getAttribute('data-intrinsic-h');
+    if (iw && ih) {
+      svgClone.setAttribute('width', iw);
+      svgClone.setAttribute('height', ih);
+    } else if (!svgClone.getAttribute('width') || !svgClone.getAttribute('height')) {
+      const vb = svgClone.getAttribute('viewBox');
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map(Number);
+        svgClone.setAttribute('width', parts[2]);
+        svgClone.setAttribute('height', parts[3]);
+      }
+    }
+    // Replace foreignObject elements so the SVG renders correctly in <img> context
     replaceForeignObjects(svgClone);
+    const w = parseFloat(svgClone.getAttribute('width'));
+    const h = parseFloat(svgClone.getAttribute('height'));
     const rasterData = new XMLSerializer().serializeToString(svgClone);
     const svgBlob = new Blob([rasterData], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(svgBlob);
     const img = new Image();
     await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
-    // Use intrinsic (unshrunk) dimensions for export so PNG matches AoPS 240-DPI output
-    let w = svg.getAttribute('data-intrinsic-w') || svg.getAttribute('width');
-    let h = svg.getAttribute('data-intrinsic-h') || svg.getAttribute('height');
-    if (!w || !h) {
-      const vb = svg.getAttribute('viewBox');
-      w = vb ? vb.split(/[\s,]+/)[2] : 400;
-      h = vb ? vb.split(/[\s,]+/)[3] : 300;
-    }
-    w = parseFloat(w); h = parseFloat(h);
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(w * 2); canvas.height = Math.round(h * 2);
     const ctx = canvas.getContext('2d');

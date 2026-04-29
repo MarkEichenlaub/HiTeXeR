@@ -1875,9 +1875,14 @@ function createInterpreter() {
       const lateralSq = (px*px + py*py + pz*pz) - depth*depth;
       const lateral = Math.sqrt(Math.max(0, lateralSq));
 
-      // Required camera distance: lateral extent / tan(fov/2) + depth offset
-      // Using fov ≈ 45 degrees, tan(22.5°) ≈ 0.4142
-      const tanHalfFov = 0.4142;
+      // Required camera distance: lateral extent / tan(fov/2) + depth offset.
+      // Asymptote's `perspective()` defaults to angle=30° (half-angle 15°),
+      // giving a fairly narrow / near-orthographic perspective. Using a
+      // wider FOV exaggerates foreshortening (closer objects much larger
+      // than far ones) and shrinks the apparent Z extent of solid shapes
+      // — e.g. in 12845 a wider FOV makes the cylinder side wall too short
+      // relative to the top/bottom ellipse extents.
+      const tanHalfFov = 0.2679; // tan(15°)
       const requiredDist = lateral / tanHalfFov + depth;
 
       // Also ensure point is not within 50% of camera distance
@@ -3686,6 +3691,10 @@ function createInterpreter() {
       if (m === 'mesh') return obj.mesh;
     }
     if (obj && obj._tag === 'revolution' && m === 'mesh') return obj.mesh;
+    if (obj && obj._tag === 'bounds') {
+      if (m === 'min') return obj.min;
+      if (m === 'max') return obj.max;
+    }
     // Projection struct fields used by user code (e.g. drawSphere helpers
     // in AoPS Lesson 9, script 30, where `triple camv = currentprojection.normal`
     // selects the camera-to-target direction so circle(C, r, camv) yields a
@@ -4427,7 +4436,12 @@ function createInterpreter() {
       // Our graph-package install also registers these stats primitives.
       installGraphPackage(env);
     }
-    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3')) {
+    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3') || mod.includes('palette')) {
+      // `import palette;` is technically a 2D module, but our palette-related
+      // built-ins (Automatic, Range, uniform, palette(), image(), Rainbow,
+      // BWRainbow, Wheel, Gradient, …) live alongside the 3D installer because
+      // they're shared with surface() coloring. Triggering installThreePackage
+      // here registers them for 2D contour-plot diagrams (e.g. 12726).
       installThreePackage(env);
     }
     if (mod === 'styles' || mod.endsWith('/styles')) {
@@ -5895,6 +5909,11 @@ function createInterpreter() {
     }
 
     env.set('point', (...args) => {
+      // point(pair dir): shorthand for point(currentpicture, dir). Used by
+      // colorbar legend code: `palette(..., point(SE)+(0.5,0), point(NE)+(1,0), ...)`.
+      if (args.length === 1 && isPair(args[0])) {
+        args = [currentPic, args[0]];
+      }
       // point(picture, dir): return the user-coord bbox point in direction.
       // SW=(-1,-1)→(minX,minY), NE=(1,1)→(maxX,maxY), N=(0,1)→(cx,maxY), etc.
       if (args.length >= 2 && args[0] && args[0]._tag === 'picture' && isPair(args[1])) {
@@ -6611,6 +6630,12 @@ function createInterpreter() {
         // this is NOT the same as the "n+pen" per-call idiom used by dot()
         // to specify dot diameter directly. Strip _lwExplicit/_lwDirect so
         // the default pen doesn't mis-trigger the dot-size-as-diameter path.
+        defaultPen._lwExplicit = false;
+        defaultPen._lwDirect = false;
+      } else if (typeof p === 'number' && isFinite(p)) {
+        // Asymptote real overload: defaultpen(real linewidth) sets the default
+        // stroke width globally. Common idiom: defaultpen(1bp).
+        defaultPen = mergePens(defaultPen, makePen({linewidth: p}));
         defaultPen._lwExplicit = false;
         defaultPen._lwDirect = false;
       }
@@ -9079,6 +9104,7 @@ function createInterpreter() {
         let cMinX = Infinity, cMaxX = -Infinity;
         for (const dc of pic.commands) {
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+          if (dc._paletteLegend) continue;
           if (dc.above === -1) continue;
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
@@ -9098,6 +9124,7 @@ function createInterpreter() {
         let _hasNonAxisLabel = false;
         for (const dc of pic.commands) {
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+          if (dc._paletteLegend) continue;
           if (dc.above === -1) continue; // extended gridlines drawn below content
           if (dc.cmd === 'label' && !dc._isAxisLabel) _hasNonAxisLabel = true;
           if (dc.path && dc.path.segs) {
@@ -9119,7 +9146,11 @@ function createInterpreter() {
         // Skip the rounding when no Ticks were requested AND no body labels exist:
         // a bare xaxis(Arrow) on a pure-graph picture should follow the content
         // extent (matching yaxis behavior) so symmetric data renders square.
-        const _skipRounding = !ticks && !_hasNonAxisLabel;
+        // Also skip when the picture has image() heatmap cells: image() supplies
+        // exact bounds (e.g. [0, 2π] for diagram 12726) and rounding outward to
+        // the next tick (e.g. 7) extends the axes past the data.
+        const _hasImageCells = pic.commands.some(c => c && c._imageCell && !c._paletteLegend);
+        const _skipRounding = (!ticks && !_hasNonAxisLabel) || _hasImageCells;
         if (!_skipRounding && !xminExplicit && !xmaxExplicit && _xminFromContent && _xmaxFromContent && cMaxX > cMinX) {
           const _rawRange = cMaxX - cMinX;
           const _roughStep = _rawRange / 10;
@@ -9392,6 +9423,7 @@ function createInterpreter() {
         let cMinY = Infinity, cMaxY = -Infinity;
         for (const dc of pic.commands) {
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+          if (dc._paletteLegend) continue;
           if (dc.above === -1) continue;
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
@@ -9412,6 +9444,7 @@ function createInterpreter() {
           // typically placed at axisShiftY=0 and would collapse the auto-range
           // for an x-axis crossing y=0).
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+          if (dc._paletteLegend) continue;
           if (dc.above === -1) continue;
           if (dc.path && dc.path.segs) {
             for (const seg of dc.path.segs) {
@@ -9429,7 +9462,11 @@ function createInterpreter() {
         // Only apply when the content cleanly starts/ends near zero (typical
         // histogram case) so we don't drift y ranges for general function
         // graphs whose pre-existing baseline assumes raw min/max.
-        if (!yminExplicit && !ymaxExplicit && _yminFromContent && _ymaxFromContent && cMaxY > cMinY && Math.abs(cMinY) < 1e-9) {
+        // Skip the histogram-style outward rounding when the picture has
+        // image() heatmap cells: image() supplies exact bounds and we want
+        // the y-axis to stop at the data extent (e.g. 2π for diagram 12726).
+        const _hasImageCellsY = pic.commands.some(c => c && c._imageCell && !c._paletteLegend);
+        if (!_hasImageCellsY && !yminExplicit && !ymaxExplicit && _yminFromContent && _ymaxFromContent && cMaxY > cMinY && Math.abs(cMinY) < 1e-9) {
           const _rawRange = cMaxY - cMinY;
           const _roughStep = _rawRange / 10;
           const _mag = Math.pow(10, Math.floor(Math.log10(_roughStep)));
@@ -9473,7 +9510,11 @@ function createInterpreter() {
           // bp-per-user-y so we don't get a runaway lower-bound extension.
           // Otherwise keep the original x-derived heuristic to avoid layout
           // drift on existing baseline renders.
-          if (!yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
+          // Skip label-below-extension when image() heatmap cells are present:
+          // image()'s tight bounds should not be widened to make room for the
+          // bottom xaxis label (which sits below the plot anyway).
+          const _hasImageCellsLB = pic.commands.some(c2 => c2 && c2._imageCell && !c2._paletteLegend);
+          if (!_hasImageCellsLB && !yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
             const ay = c._axisLabelBelowAy;
             const fs = c._axisLabelFontSize || 10;
             const ignoreAspect = (typeof keepAspect !== 'undefined') && !keepAspect;
@@ -9583,10 +9624,13 @@ function createInterpreter() {
         // arrow tip). This matches real Asymptote's behavior for the common
         // `yaxis("$v$", 0, ymax, Arrow(...))` idiom.
         const explicitEndpoint = labelPosition === 1 || labelPosition === 0;
-        // Left()/Right() extent markers force the traditional middle-axis label
-        // placement (rotated 90°, aligned outside the axis) even when an arrow
-        // is present — they override the arrow-endpoint heuristic.
-        const extentForcesMiddle = extent === 'Left' || extent === 'Right';
+        // Left()/Right()/LeftRight extent markers force the traditional middle-
+        // axis label placement (aligned outside the axis) even when an arrow is
+        // present — they override the arrow-endpoint heuristic.
+        // For LeftRight (axes drawn on both sides, e.g. a contour-plot frame),
+        // the texer reference shows the y label upright at middle-left, NOT
+        // rotated — different from Asymptote's "lone left axis" rotation case.
+        const extentForcesMiddle = extent === 'Left' || extent === 'Right' || extent === 'LeftRight';
         const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null && !extentForcesMiddle;
         // Plain `yaxis("string")` with no arrow, no extent, no ticks, and no
         // explicit position/align: place label at top, upright (matches texer
@@ -13058,6 +13102,14 @@ function createInterpreter() {
       const paths = Array.isArray(profile) ? profile.filter(p => p && p._tag === 'path') : (profile && profile._tag === 'path' ? [profile] : []);
       if (paths.length === 0) return {_tag:'surface', mesh: makeMesh([])};
       const faces = [];
+      // For the common single-path case (e.g. extrude(unitcircle, H)) we
+      // attach _grid metadata so the rendering pipeline applies smooth
+      // (Catmull-Rom + Gouraud) shading on the cylinder side wall instead
+      // of flat-shading each segment as a discrete band. This matches
+      // Asymptote's render(merge=true) appearance for cylinders.
+      let extrudeGrid = null;
+      let extrudeCyclic = false;
+      let extrudeCols = 0;
       for (const pth of paths) {
         // Sample path, including curve subdivisions
         const segs = pth.segs || [];
@@ -13096,19 +13148,58 @@ function createInterpreter() {
         }
         const tLow = pts;
         const tHigh = tLow.map(p => makeTriple(p.x + axis.x, p.y + axis.y, p.z + axis.z));
-        // Side quads
-        const mk = (a,b,c) => { const f = {vertices:[a,b,c]}; f.normal = faceNormal(f); return f; };
-        for (let i = 0; i < tLow.length - 1; i++) {
-          faces.push(mk(tLow[i], tLow[i+1], tHigh[i+1]));
-          faces.push(mk(tLow[i], tHigh[i+1], tHigh[i]));
+        // Detect cyclicity (path.closed flag, or first ≈ last)
+        const aFirst = tLow[0], aLast = tLow[tLow.length - 1];
+        const isCyc = !!pth.closed || (
+          Math.abs(aFirst.x - aLast.x) < 1e-6 &&
+          Math.abs(aFirst.y - aLast.y) < 1e-6 &&
+          Math.abs(aFirst.z - aLast.z) < 1e-6);
+        // Side faces: emit a single QUAD per segment (with _gi/_gj grid
+        // tags when we'll attach grid metadata), so the smooth-shading
+        // pass subdivides it once with bilinear-slerp normals.
+        const mkTri = (a,b,c) => { const f = {vertices:[a,b,c]}; f.normal = faceNormal(f); return f; };
+        const mkQuad = (a,b,c,d, gi, gj) => {
+          const f = {vertices:[a,b,c,d]};
+          f.normal = faceNormal(f);
+          if (gi !== undefined) { f._gi = gi; f._gj = gj; }
+          return f;
+        };
+        if (paths.length === 1) {
+          // Tag side quads for smooth shading.
+          for (let i = 0; i < tLow.length - 1; i++) {
+            faces.push(mkQuad(tLow[i], tLow[i+1], tHigh[i+1], tHigh[i], 0, i));
+          }
+          extrudeGrid = [tLow.slice(), tHigh.slice()];
+          extrudeCyclic = isCyc;
+          extrudeCols = tLow.length;
+        } else {
+          // Multiple paths share one mesh — can't attach a single grid;
+          // fall back to the original two-triangle flat-shaded build.
+          for (let i = 0; i < tLow.length - 1; i++) {
+            faces.push(mkTri(tLow[i], tLow[i+1], tHigh[i+1]));
+            faces.push(mkTri(tLow[i], tHigh[i+1], tHigh[i]));
+          }
         }
-        // Fan triangulate caps (approximate if not planar)
-        for (let i = 1; i < tLow.length - 1; i++) {
-          faces.push(mk(tLow[0], tLow[i], tLow[i+1]));
-          faces.push(mk(tHigh[0], tHigh[i+1], tHigh[i]));
-        }
+        // No caps — Asymptote's `extrude(path, axis)` returns only the
+        // swept side-wall surface; if the caller wants closed ends they
+        // explicitly draw them with `surface(path, planar=true)`. Adding
+        // caps here would overlap and hide separately-drawn planar caps
+        // (e.g. 12845's annular top/bottom drawn before the extrusions).
       }
-      return {_tag:'surface', mesh: makeMesh(faces)};
+      const surf = {_tag:'surface', mesh: makeMesh(faces)};
+      if (extrudeGrid) {
+        surf._grid = extrudeGrid;
+        surf._gridRows = 2;
+        surf._gridCols = extrudeCols;
+        surf._gridCyclic = extrudeCyclic;
+        // For a closed-loop profile (e.g. unitcircle), the extrusion is a
+        // closed cylinder with caps — mark it closed so back-face culling
+        // eliminates the hidden interior wall and lighting uses signed
+        // (not |·|) Lambert. This produces a strong directional gradient
+        // (bright front, dark back) instead of a washed-out uniform gray.
+        if (extrudeCyclic) surf.mesh._closed = true;
+      }
+      return surf;
     });
     // obj(filename[, pen]) — load Wavefront .obj mesh; browser can't read files
     // so return an empty surface. Callers like draw(obj(...)) will produce empty.
@@ -13558,6 +13649,25 @@ function createInterpreter() {
       return v;
     });
 
+    // palette module range specifiers: image() and palette() take a "bounds"
+    // argument that's either Automatic (sentinel — derive min/max from data),
+    // Full (use full data extent including any clipped values), or Range(a,b)
+    // (explicit override). Asymptote represents these as a `bounds` struct
+    // with .min and .max plus a 'kind' flag; we encode them as plain objects.
+    const _Automatic = {_tag:'imageRange', kind:'automatic'};
+    const _Full      = {_tag:'imageRange', kind:'full'};
+    env.set('Automatic', _Automatic);
+    env.set('Full', _Full);
+    env.set('Range', (mn, mx) => ({_tag:'imageRange', kind:'range', min:toNumber(mn), max:toNumber(mx)}));
+    const _emptyBounds = () => ({_tag:'bounds', min:0, max:0});
+    // uniform(real a, real b, int n): n+1 evenly spaced reals from a to b inclusive.
+    env.set('uniform', (a, b, n) => {
+      const A = toNumber(a), B = toNumber(b), N = Math.max(0, Math.round(toNumber(n)));
+      const out = [];
+      if (N === 0) { out.push(A); return out; }
+      for (let i = 0; i <= N; i++) out.push(A + (B - A) * (i / N));
+      return out;
+    });
     // palette module: map real values to interpolated pens from a range palette.
     // palette(real[] vals, pen[] range) -> pen[] (one interpolated pen per value)
     const _interpolatePens = (pens, t) => {
@@ -13582,6 +13692,14 @@ function createInterpreter() {
     };
     const _paletteStub = (...args) => {
       const pos = args.filter(a => !(a && a._named));
+      // Detect colorbar-legend form: palette(string label, bounds br, pair initial,
+      // pair final, axisextent side, pen[] palette, ticks). Distinguishing
+      // signature: a `bounds` arg is present and there are two pairs.
+      const hasBounds = pos.some(a => a && a._tag === 'bounds');
+      const pairCount = pos.filter(a => isPair(a)).length;
+      if (hasBounds && pairCount >= 2) {
+        return _paletteLegend(args);
+      }
       let vals = null, range = null;
       for (const a of pos) {
         if (Array.isArray(a) && a.length > 0) {
@@ -13604,7 +13722,216 @@ function createInterpreter() {
       }
       return tag(vals.map(v => _interpolatePens(range, (toNumber(v) - vmin) / span)));
     };
+    // Colorbar-legend form of palette(): renders a vertical/horizontal pen-array
+    // ramp inside the rectangle defined by `initial`–`final`, then draws ticks
+    // and an axis label on the side specified by `axis` (Right/Left/Top/Bottom).
+    const _paletteLegend = (args) => {
+      const pos = args.filter(a => !(a && a._named));
+      let target = currentPic;
+      let label = null;
+      let br = null;
+      let initial = null, final = null;
+      let axisSide = 'Right';
+      let pens = null;
+      let ticks = null;
+      for (const a of pos) {
+        if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
+        if (typeof a === 'string' && label === null) { label = a; continue; }
+        if (a && a._tag === 'bounds' && !br) { br = a; continue; }
+        if (isPair(a)) {
+          if (!initial) { initial = a; continue; }
+          if (!final)   { final = a; continue; }
+        }
+        if (a && a._tag === 'axisextent') { axisSide = a.type || 'Right'; continue; }
+        if (Array.isArray(a) && a.length > 0 && isPen(a[0]) && !pens) { pens = a; continue; }
+        if (a && a._tag === 'ticks' && !ticks) { ticks = a; continue; }
+      }
+      if (!br || !initial || !final || !pens || pens.length === 0) return null;
+      const vmin = toNumber(br.min), vmax = toNumber(br.max);
+      const span = (vmax - vmin) || 1;
+      const x0 = Math.min(initial.x, final.x), x1 = Math.max(initial.x, final.x);
+      const y0 = Math.min(initial.y, final.y), y1 = Math.max(initial.y, final.y);
+      // Determine ramp orientation from box aspect: tall→vertical, wide→horizontal.
+      const vertical = (y1 - y0) >= (x1 - x0);
+      const line = args._line || 0;
+      // Render the ramp as a stack of thin filled rectangles. Use a sample
+      // count proportional to the pen array (capped) so smooth gradients stay
+      // smooth without blowing up SVG size.
+      const Nstep = Math.max(64, Math.min(256, pens.length * 8));
+      for (let k = 0; k < Nstep; k++) {
+        const t0 = k / Nstep, t1 = (k + 1) / Nstep;
+        const pen = _interpolatePens(pens, (t0 + t1) / 2);
+        let rx0, rx1, ry0, ry1;
+        if (vertical) {
+          rx0 = x0; rx1 = x1;
+          ry0 = y0 + (y1 - y0) * t0;
+          ry1 = y0 + (y1 - y0) * t1;
+        } else {
+          ry0 = y0; ry1 = y1;
+          rx0 = x0 + (x1 - x0) * t0;
+          rx1 = x0 + (x1 - x0) * t1;
+        }
+        const rect = makePath([
+          lineSegment(makePair(rx0, ry0), makePair(rx1, ry0)),
+          lineSegment(makePair(rx1, ry0), makePair(rx1, ry1)),
+          lineSegment(makePair(rx1, ry1), makePair(rx0, ry1)),
+          lineSegment(makePair(rx0, ry1), makePair(rx0, ry0)),
+        ], true);
+        target.commands.push({cmd:'fill', path: rect, pen, line, _imageCell:true, _paletteLegend:true});
+      }
+      // Draw the bounding rectangle outline.
+      const outline = makePath([
+        lineSegment(makePair(x0, y0), makePair(x1, y0)),
+        lineSegment(makePair(x1, y0), makePair(x1, y1)),
+        lineSegment(makePair(x1, y1), makePair(x0, y1)),
+        lineSegment(makePair(x0, y1), makePair(x0, y0)),
+      ], true);
+      const outlinePen = clonePen(defaultPen);
+      target.commands.push({cmd:'draw', path: outline, pen: outlinePen, line, _paletteLegend:true});
+      // Tick configuration. ticks may carry: format (printf), step (major step
+      // count N from PaletteTicks), subStep (n subdivisions), pen (major), subPen.
+      const T = ticks || {};
+      const Nmaj = Math.max(1, Math.round(toNumber(T.step || T.N || 5)));
+      const nSub = Math.max(0, Math.round(toNumber(T.subStep || T.n || 0)));
+      const fmt  = T.format || '%g';
+      const tickPen = T.pen ? clonePen(T.pen) : clonePen(defaultPen);
+      const subPen = T.subPen ? clonePen(T.subPen) : clonePen(tickPen);
+      // Tick mark length: use ~3% of the legend short edge.
+      const shortEdge = vertical ? (x1 - x0) : (y1 - y0);
+      const longEdge  = vertical ? (y1 - y0) : (x1 - x0);
+      const tickLen   = Math.max(shortEdge * 0.25, longEdge * 0.02);
+      // Axis side determines tick direction and label anchor.
+      const sideRight  = axisSide === 'Right'  || axisSide === 'LeftRight';
+      const sideLeft   = axisSide === 'Left';
+      const sideTop    = axisSide === 'Top'    || axisSide === 'BottomTop';
+      const sideBottom = axisSide === 'Bottom';
+      // Major ticks
+      for (let k = 0; k <= Nmaj; k++) {
+        const t = k / Nmaj;
+        const v = vmin + t * (vmax - vmin);
+        let p0, p1, lp, align;
+        if (vertical) {
+          const y = y0 + t * (y1 - y0);
+          if (sideLeft)  { p0 = makePair(x0, y); p1 = makePair(x0 - tickLen, y); lp = makePair(x0 - tickLen, y); align = makePair(-1, 0); }
+          else            { p0 = makePair(x1, y); p1 = makePair(x1 + tickLen, y); lp = makePair(x1 + tickLen, y); align = makePair( 1, 0); }
+        } else {
+          const x = x0 + t * (x1 - x0);
+          if (sideTop)   { p0 = makePair(x, y1); p1 = makePair(x, y1 + tickLen); lp = makePair(x, y1 + tickLen); align = makePair(0,  1); }
+          else            { p0 = makePair(x, y0); p1 = makePair(x, y0 - tickLen); lp = makePair(x, y0 - tickLen); align = makePair(0, -1); }
+        }
+        target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: tickPen, line, _paletteLegend:true});
+        // Label
+        const labelText = _formatPaletteTick(fmt, v);
+        target.commands.push({cmd:'label', text: labelText, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
+      }
+      // Minor ticks: nSub subdivisions per major interval.
+      if (nSub > 1) {
+        for (let k = 0; k < Nmaj; k++) {
+          for (let s = 1; s < nSub; s++) {
+            const t = (k + s / nSub) / Nmaj;
+            let p0, p1;
+            const sublen = tickLen * 0.5;
+            if (vertical) {
+              const y = y0 + t * (y1 - y0);
+              if (sideLeft) { p0 = makePair(x0, y); p1 = makePair(x0 - sublen, y); }
+              else           { p0 = makePair(x1, y); p1 = makePair(x1 + sublen, y); }
+            } else {
+              const x = x0 + t * (x1 - x0);
+              if (sideTop)  { p0 = makePair(x, y1); p1 = makePair(x, y1 + sublen); }
+              else           { p0 = makePair(x, y0); p1 = makePair(x, y0 - sublen); }
+            }
+            target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: subPen, line, _paletteLegend:true});
+          }
+        }
+      }
+      // Axis label (if provided). Place it past the tick labels, not just past
+      // the tick marks. Tick labels (e.g. "+1.0") have non-trivial pixel width
+      // that translates to a few user-space units depending on the scale.
+      // Estimate label-text extent as ~max(shortEdge*1.5, longEdge*0.12) so
+      // the legend caption clears all numeric labels comfortably.
+      if (label) {
+        const labelOffset = Math.max(shortEdge * 1.8, longEdge * 0.14, tickLen * 8);
+        let lp, align, lt;
+        // 90° CCW rotation matrix (a,b,c,d,e,f) using the renderer's convention
+        // where angle = atan2(e, b). e=1, b=0 → +90°; rendered SVG transform is
+        // rotate(-90) so the text reads bottom-to-top, matching texer.
+        const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
+        if (vertical) {
+          // Vertical legend: rotate the caption 90° (reads bottom-to-top), placed
+          // outside the colorbar past the tick labels. The reference (12726.png)
+          // shows "f(x,y)" rotated this way on the right side.
+          const yc = (y0 + y1) / 2;
+          if (sideLeft) { lp = makePair(x0 - labelOffset, yc); align = makePair(-1, 0); }
+          else           { lp = makePair(x1 + labelOffset, yc); align = makePair( 1, 0); }
+          lt = rot90ccw;
+        } else {
+          const xc = (x0 + x1) / 2;
+          if (sideTop)  { lp = makePair(xc, y1 + labelOffset); align = makePair(0,  1); }
+          else           { lp = makePair(xc, y0 - labelOffset); align = makePair(0, -1); }
+        }
+        target.commands.push({cmd:'label', text: label, pos: lp, align, pen: clonePen(defaultPen), labelTransform: lt, line, _paletteLegend:true});
+      }
+      return null;
+    };
+    // Format a numeric tick value using a printf-like format string. Supports
+    // `%+#0.1f`, `%g`, etc. — the subset used by AoPS palette legends.
+    const _formatPaletteTick = (fmt, v) => {
+      if (!fmt || typeof fmt !== 'string') return String(v);
+      // Strip outer LaTeX math if present (we'll re-wrap before stripLaTeX).
+      const m = fmt.match(/^\$(.*)\$$/);
+      const inner = m ? m[1] : fmt;
+      // Match a printf token: %[flags][width][.precision][specifier]
+      const re = /%([+\-#0 ]*)(\d*)(?:\.(\d+))?([fFgGeEdi])/;
+      const out = inner.replace(re, (_, flags, width, prec, spec) => {
+        const showSign = flags.indexOf('+') >= 0;
+        let s;
+        if (spec === 'f' || spec === 'F') {
+          s = v.toFixed(prec ? parseInt(prec, 10) : 6);
+        } else if (spec === 'e' || spec === 'E') {
+          s = v.toExponential(prec ? parseInt(prec, 10) : 6);
+        } else if (spec === 'g' || spec === 'G') {
+          s = v.toPrecision(prec ? parseInt(prec, 10) : 6);
+          // Trim trailing zeros for %g
+          if (s.indexOf('.') >= 0 && s.indexOf('e') < 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+        } else {
+          s = String(Math.round(v));
+        }
+        if (showSign && v >= 0 && s[0] !== '+' && s[0] !== '-') s = '+' + s;
+        return s;
+      });
+      return m ? '$' + out + '$' : out;
+    };
     env.set('palette', _paletteStub);
+    // PaletteTicks(string format, int N, int n, pen Tickpen, pen tickpen):
+    // builds a `ticks` config consumed by the colorbar-legend palette() form.
+    env.set('PaletteTicks', (...args) => {
+      const t = {_tag:'ticks', step:5, subStep:0, format:'%g', pen:null, subPen:null, labels:true};
+      const pos = args.filter(a => !(a && a._named));
+      let nNum = 0, nPen = 0;
+      for (const a of pos) {
+        if (typeof a === 'string') t.format = a;
+        else if (typeof a === 'number') {
+          nNum++;
+          if (nNum === 1) t.step = Math.max(1, Math.round(a));        // N — major divisions
+          else if (nNum === 2) t.subStep = Math.max(0, Math.round(a)); // n — minor subdivisions
+        }
+        else if (isPen(a)) {
+          nPen++;
+          if (nPen === 1) t.pen = a;       // major tickpen
+          else if (nPen === 2) t.subPen = a; // minor tickpen
+        }
+      }
+      for (const a of args) {
+        if (a && a._named) {
+          if ('N' in a && typeof a.N === 'number') t.step = Math.max(1, Math.round(a.N));
+          if ('n' in a && typeof a.n === 'number') t.subStep = Math.max(0, Math.round(a.n));
+          if ('format' in a && typeof a.format === 'string') t.format = a.format;
+          if ('Tickpen' in a && isPen(a.Tickpen)) t.pen = a.Tickpen;
+          if ('tickpen' in a && isPen(a.tickpen)) t.subPen = a.tickpen;
+        }
+      }
+      return t;
+    });
     // Gradient(pen, pen, ...) — return pen array (used by palette for interpolation)
     env.set('Gradient', (...args) => {
       const pos = args.filter(a => !(a && a._named));
@@ -13624,13 +13951,14 @@ function createInterpreter() {
         c(1, 0, 0),     // red
       ];
     };
-    // BWRainbow: Asymptote's BWRainbow is Rainbow bracketed by darker purple at
-    // the low end and darker red at the high end (for visibility of extremes
-    // against white backgrounds).
+    // BWRainbow: Asymptote's BWRainbow is Rainbow bracketed by black at the low
+    // end and white at the high end (Black/White Rainbow). The reference texer
+    // 12726.png shows the colorbar going black → violet → blue → cyan → green →
+    // yellow → orange → red → white.
     const bwRainbowPens = () => {
       const c = (r,g,b) => makePen({r, g, b});
       return [
-        c(0.25, 0, 0.35),  // dark purple (low)
+        c(0, 0, 0),        // black (low)
         c(0.5, 0, 1),      // violet
         c(0, 0, 1),        // blue
         c(0, 1, 1),        // cyan
@@ -13638,7 +13966,7 @@ function createInterpreter() {
         c(1, 1, 0),        // yellow
         c(1, 0.5, 0),      // orange
         c(1, 0, 0),        // red
-        c(0.35, 0, 0),     // dark red (high)
+        c(1, 1, 1),        // white (high)
       ];
     };
     env.set('Rainbow', (...args) => rainbowPens());
@@ -13654,8 +13982,13 @@ function createInterpreter() {
       let data = null;
       let initial = null, final = null;
       let pens = null;
+      let fnSampler = null;       // real f(real, real) — sample on N×N grid
+      let gridN = null;           // grid resolution for function form
+      let rangeArg = null;        // Automatic/Full/Range(...) for fn form
       for (const a of pos) {
         if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
+        if ((typeof a === 'function' || (a && a._tag === 'func')) && !fnSampler) { fnSampler = a; continue; }
+        if (a && a._tag === 'imageRange' && !rangeArg) { rangeArg = a; continue; }
         if (Array.isArray(a) && data === null && a.length > 0 && Array.isArray(a[0])) { data = a; continue; }
         if (Array.isArray(a) && pens === null && a.length > 0 && isPen(a[0])) { pens = a; continue; }
         if (isPair(a)) {
@@ -13663,6 +13996,7 @@ function createInterpreter() {
           else if (final === null) final = a;
           continue;
         }
+        if (typeof a === 'number' && fnSampler && gridN === null) { gridN = Math.round(a); continue; }
       }
       // Named arguments
       for (const a of args) {
@@ -13672,13 +14006,50 @@ function createInterpreter() {
           if ('palette' in a && Array.isArray(a.palette)) pens = a.palette;
           if ('f' in a && Array.isArray(a.f)) data = a.f;
           if ('pic' in a && a.pic && a.pic._tag === 'picture') target = a.pic;
+          if ('N' in a && typeof a.N === 'number') gridN = Math.round(a.N);
+          if ('n' in a && typeof a.n === 'number' && gridN === null) gridN = Math.round(a.n);
         }
       }
-      if (!data || !initial || !final || !pens || pens.length === 0) return;
+      // Function form: image(real f(real,real), range, pair a, pair b, int N, pen[] palette).
+      // Sample f on an (N+1)×(N+1) grid (so each cell-corner value can shade
+      // the cell to its NE).  We build a data[i][j] matrix and fall through
+      // to the existing rendering loop below.
+      if (fnSampler && data === null && initial && final) {
+        const N = gridN || 200;
+        data = [];
+        const dx = (final.x - initial.x) / N;
+        const dy = (final.y - initial.y) / N;
+        for (let i = 0; i < N; i++) {
+          const row = [];
+          // Sample at cell centers so the cell-fill color matches the function
+          // value at the centroid (same convention contour() uses).
+          const xc = initial.x + (i + 0.5) * dx;
+          for (let j = 0; j < N; j++) {
+            const yc = initial.y + (j + 0.5) * dy;
+            let v = 0;
+            try {
+              v = typeof fnSampler === 'function'
+                ? fnSampler(xc, yc)
+                : toNumber(callUserFuncValues(fnSampler, [xc, yc]));
+              if (!isFinite(v)) v = 0;
+            } catch (e) { v = 0; }
+            row.push(v);
+          }
+          data.push(row);
+        }
+        // If user provided an explicit Range(min, max), clamp the data range
+        // before rendering so the colormap matches the legend.
+        if (rangeArg && rangeArg.kind === 'range') {
+          // No-op for sampled data here; the existing min/max scan below will
+          // pick up the function range.  We honor explicit ranges by
+          // returning them in the bounds object.
+        }
+      }
+      if (!data || !initial || !final || !pens || pens.length === 0) return _emptyBounds();
       const nx = data.length;
-      if (nx === 0) return;
+      if (nx === 0) return _emptyBounds();
       const ny = (data[0] && data[0].length) || 0;
-      if (ny === 0) return;
+      if (ny === 0) return _emptyBounds();
       // Compute min/max across data
       let vmin = Infinity, vmax = -Infinity;
       for (let i = 0; i < nx; i++) {
@@ -13691,7 +14062,13 @@ function createInterpreter() {
           if (v > vmax) vmax = v;
         }
       }
-      if (!isFinite(vmin) || !isFinite(vmax)) return;
+      if (!isFinite(vmin) || !isFinite(vmax)) return _emptyBounds();
+      // If caller passed Range(a,b), the colormap is normalized to that
+      // explicit window; otherwise (Automatic/Full) we use the data extents.
+      if (rangeArg && rangeArg.kind === 'range') {
+        vmin = toNumber(rangeArg.min);
+        vmax = toNumber(rangeArg.max);
+      }
       const span = vmax - vmin;
       const x0 = initial.x, y0 = initial.y;
       const x1 = final.x, y1 = final.y;
@@ -13719,6 +14096,9 @@ function createInterpreter() {
           target.commands.push({cmd: 'fill', path: rect, pen, line, _imageCell: true});
         }
       }
+      // Return the computed bounds so the caller (e.g. `bounds range = image(...)`)
+      // can pass them to contour() / palette() for matching colormap windows.
+      return {_tag:'bounds', min:vmin, max:vmax};
     });
     // Wheel(): HSV color wheel palette. Maps degrees (0-360) through the hue spectrum.
     // In Asymptote, Wheel() generates a 1024-entry palette for smooth hue interpolation.
@@ -14636,11 +15016,14 @@ function createInterpreter() {
     // Handle draw(path[], pen) — array of paths (e.g. from contour())
     if (args.length >= 1 && isArray(args[0]) && args[0].length > 0 && isPath(args[0][0])) {
       const paths = args[0];
-      let p = null;
+      // Start with defaultPen as base so a user-supplied pen that doesn't
+      // explicitly set a linewidth (e.g. "Tickpen=black" after defaultpen(1bp))
+      // inherits the global default linewidth via mergePens (which only
+      // overrides linewidth when b.linewidth !== 0.5).
+      let p = clonePen(defaultPen);
       for (let i = 1; i < args.length; i++) {
-        if (isPen(args[i])) p = p ? mergePens(p, args[i]) : args[i];
+        if (isPen(args[i])) p = mergePens(p, args[i]);
       }
-      if (!p) p = clonePen(defaultPen);
       for (const path of paths) {
         target.commands.push({cmd, path, pen:clonePen(p), arrow:null, line: args._line || 0});
       }
@@ -15379,7 +15762,7 @@ function createInterpreter() {
             if (pen) return {...f, pen};
             return f;
           });
-          mesh = {_tag:'mesh', faces: newFaces};
+          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
         }
         // If surface has per-vertex _colors from s.colors(palette(...)), annotate
         // each face with a pen averaged across its 4 grid-vertex colors.
@@ -15420,7 +15803,7 @@ function createInterpreter() {
             }
             return f;
           });
-          mesh = {_tag:'mesh', faces: newFaces};
+          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
         }
         // Smooth shading for parametric surfaces: compute per-grid-vertex
         // normals (average of adjacent face normals) and subdivide each grid
@@ -15532,7 +15915,7 @@ function createInterpreter() {
               }
             }
           }
-          mesh = {_tag:'mesh', faces: newFaces};
+          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
         }
         renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
         // If a named meshpen=... arg was supplied (e.g. meshpen=black+thick()),
@@ -16895,6 +17278,7 @@ function renderSVG(result, opts) {
     let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
     for (const dc of drawCommands) {
       if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
+      if (dc._paletteLegend) continue;
       if (dc.above === -1) continue;
       if (dc.cmd === 'clip') continue;
       if (dc.path && dc.path.segs) {
@@ -17234,6 +17618,14 @@ function renderSVG(result, opts) {
   // shouldn't drive the unitsize boost — labels + dot at truesize already give
   // a reasonable visible output.
   const geoIsDegenerate = (maxX - minX) === 0 && (maxY - minY) === 0;
+  // 1D-degenerate: one dimension has zero pre-pad extent but the other doesn't
+  // (e.g. all points on a single horizontal/vertical line — 09210 `for j: dot((j,0))`
+  // or 09212 dot+arrow chain at y=0).  After padding the bbox has a tiny
+  // non-degenerate dimension, but the auto-scaled aspect-ramp boost would
+  // misread that as a "long-thin" diagram needing 5x stroke/dot thickening.
+  // The geometry has nothing to thicken — boost should be skipped on these.
+  const geoIs1D = !geoIsDegenerate &&
+    ((maxX - minX) === 0 || (maxY - minY) === 0);
 
   // Padding in bp, converted to user coordinates.  Real Asymptote expands the
   // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
@@ -18469,7 +18861,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw > 3;
+        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
         const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
@@ -18992,7 +19384,8 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     if (dc.cmd !== 'dot' || !dc.pos) continue;
     const dotLw = dc.pen.linewidth;
-    const dR = (dc.pen && dc.pen._lwExplicit ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+    const _useDirectDiameter_lpush = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+    const dR = (_useDirectDiameter_lpush ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
     const key = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
     const prev = dotRadiusAtPos.get(key) || 0;
     if (dR > prev) dotRadiusAtPos.set(key, dR);
@@ -19028,7 +19421,15 @@ function renderSVG(result, opts) {
     // 240 DPI / HTX 144 DPI) so default strokes match TeXeR's rendered
     // weight without dominating the diagram.
     const _renderedMinDim = _minDim * pxPerUnit;
-    if (_isFlatBanner) {
+    if (geoIs1D) {
+      // 1D-degenerate geometry (all points collinear, e.g. 09210/09212):
+      // there's no real second dimension to "compress" via SSIM trim+resize,
+      // so the linear-ramp boost (which would max out at 5× because
+      // padded-aspect ≈ 100s) has nothing legitimate to compensate for and
+      // would just bloat the dots/strokes that ARE the geometry.  Use a
+      // gentle 1.67× DPI-ratio boost matching the tall-thin path.
+      _autoScaledStrokeBoost = 1.67;
+    } else if (_isFlatBanner) {
       _autoScaledStrokeBoost = 2.0;
     } else if (_aspect > 6 && _renderedMinDim >= 10) {
       _autoScaledStrokeBoost = 1.67;
@@ -19099,13 +19500,16 @@ function renderSVG(result, opts) {
       // Dot radius: real Asymptote always uses radius = dotfactor*linewidth/2.
       // However many AoPS-authored diagrams use the "n+pen" idiom expecting
       // direct dot diameters (e.g. dot(z, 10+black) for a 10bp dot, not 60bp).
-      // Compromise: for explicitly-set linewidths above a small threshold,
-      // treat the linewidth as the dot diameter directly; for small explicit
-      // linewidths (e.g. dp=black+0.75), still apply dotfactor so the dot is
-      // visible. Threshold chosen so the two formulas converge at ~3bp diameter,
-      // matching the size where author intent diverges.
+      // Compromise: for explicitly-set linewidths >= 1bp, treat the linewidth
+      // as the dot diameter directly (matches AoPS TeXeR rendering of the
+      // common `dot(z, color+N)` idiom where N is a small integer 1..10
+      // intended as the dot diameter in bp -- e.g. 08663 `dot(z,3+black)`,
+      // 08733 `dot(z,black+2bp)`, 08750 `linewidth(1.2)`, 09162 `dot(z,black+3)`).
+      // For small explicit linewidths (lw < 1, e.g. dp=black+0.75 in 05895),
+      // keep the dotfactor multiplier so a stroke pen reused for dots renders
+      // a normal-sized visible mark instead of a sub-bp invisible dot.
       const dotLw = dc.pen.linewidth;
-      const useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw > 3;
+      const useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
       // Apply the auto-scaled stroke boost to dot radius too, but only for
       // non-explicit pens (matching the stroke-boost criterion at L18542):
       // explicit dot diameters/linewidths should keep their literal size.
@@ -19275,7 +19679,7 @@ function renderSVG(result, opts) {
         _labelAyN = ay_n;
         anchor = 'middle';
       }
-      const rawText = dc.text || '';
+      let rawText = dc.text || '';
 
       // If filltype is Fill, UnFill, or FillDraw — add a white background rectangle
       const ft = dc.filltype;
@@ -19354,6 +19758,17 @@ function renderSVG(result, opts) {
       }
 
       // Handle multi-line text (produced by minipage with \n line breaks)
+      // If the entire label is wrapped in $...$ (math mode), TeX treats the
+      // embedded newline as whitespace, not a line break — strip it so the
+      // math goes through the LaTeX/KaTeX path below instead of being split.
+      if (rawText.includes('\n')) {
+        const _trimNL = rawText.trim();
+        const _isMathOnly = _trimNL.startsWith('$') && _trimNL.endsWith('$') &&
+                            _trimNL.indexOf('$', 1) === _trimNL.length - 1;
+        if (_isMathOnly) {
+          rawText = rawText.replace(/\n+/g, ' ');
+        }
+      }
       if (rawText.includes('\n')) {
         // Font-size commands (e.g. {\tiny...}) are already applied to fontSizeSVG above,
         // and effectiveFontSize = fontSizeSVG, so no additional scaling is needed here.
@@ -20031,6 +20446,8 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     '\\dotsb':'⋯','\\dotsc':'…','\\dotsm':'⋯','\\dotso':'…','\\dotsi':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
+    '\\int':'∫','\\iint':'∬','\\iiint':'∭','\\oint':'∮',
+    '\\sum':'∑','\\prod':'∏','\\coprod':'∐',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
     '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
     '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
@@ -20717,6 +21134,8 @@ function stripLaTeX(text) {
     '\\dotsb':'⋯','\\dotsc':'…','\\dotsm':'⋯','\\dotso':'…','\\dotsi':'⋯',
     '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
     '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
+    '\\int':'∫','\\iint':'∬','\\iiint':'∭','\\oint':'∮',
+    '\\sum':'∑','\\prod':'∏','\\coprod':'∐',
     '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
     '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
     '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
@@ -20853,6 +21272,7 @@ function _estimateTextWidth(text, fontSize) {
   let w = 0;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    const code = ch.charCodeAt(0);
     // Space
     if (ch === ' ') w += 0.27;
     // Narrow characters: ( ) [ ] , . : ; ! | l i 1 t f j
@@ -20860,10 +21280,14 @@ function _estimateTextWidth(text, fontSize) {
     else if ('liftj1'.includes(ch)) w += 0.3;
     // Medium-narrow: r s e a c o n u
     else if ('rseaconu'.includes(ch)) w += 0.45;
-    // Wide: m w M W
-    else if ('mwMW'.includes(ch)) w += 0.7;
-    // Greek/special Unicode: π etc — roughly normal width
-    else if (ch.charCodeAt(0) > 127) w += 0.5;
+    // Wide: m w M W = + - / *
+    else if ('mwMW'.includes(ch)) w += 0.85;
+    else if ('=+'.includes(ch)) w += 0.78;
+    else if ('-/*'.includes(ch)) w += 0.55;
+    // Unicode sub/superscript digits and signs (U+2070-U+209F): visually narrower
+    else if (code >= 0x2070 && code <= 0x209F) w += 0.45;
+    // Other Greek/special Unicode (π, ∞, α, etc.): roughly normal width
+    else if (code > 127) w += 0.55;
     // Default (most letters, digits)
     else w += 0.5;
   }
@@ -20891,17 +21315,43 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, width: fracW});
       totalWidth += fracW;
     } else if (seg.type === 'sqrt') {
-      const innerText = stripLaTeX(seg.content);
-      const innerW = _estimateTextWidth(innerText, fontSize);
-      const sqrtPad = fontSize * 0.25; // padding around content
-      const radicalW = fontSize * 0.55; // width of the radical sign
-      const totalSqrtW = radicalW + innerW + sqrtPad;
-      parts.push({type:'sqrt', innerText, innerW, radicalW, width: totalSqrtW});
-      totalWidth += totalSqrtW;
-    } else if (seg.type === 'underbrace') {
+      // Detect a top-level \frac as the sole child → stacked fraction under radical
+      const innerSegs = seg.innerSegs || [];
+      const onlyFrac = innerSegs.length === 1 && innerSegs[0].type === 'frac' ? innerSegs[0] : null;
+      const radicalW = fontSize * 0.55;
+      const sqrtPad = fontSize * 0.25;
+      const leadPad = fontSize * 0.15; // breathing room before the radical
+      let innerW;
+      if (onlyFrac) {
+        const fs2 = fontSize * 0.75;
+        const numText = stripLaTeX(onlyFrac.num);
+        const denText = stripLaTeX(onlyFrac.den);
+        const numW = _estimateTextWidth(numText, fs2);
+        const denW = _estimateTextWidth(denText, fs2);
+        innerW = Math.max(numW, denW) + fs2 * 0.3;
+        const totalSqrtW = leadPad + radicalW + innerW + sqrtPad;
+        parts.push({type:'sqrt', isFrac: true, fracNumText: numText, fracDenText: denText, fracFs: fs2, innerW, radicalW, leadPad, width: totalSqrtW});
+        totalWidth += totalSqrtW;
+      } else {
+        const innerText = stripLaTeX(seg.content);
+        innerW = _estimateTextWidth(innerText, fontSize);
+        const totalSqrtW = leadPad + radicalW + innerW + sqrtPad;
+        parts.push({type:'sqrt', innerText, innerW, radicalW, leadPad, width: totalSqrtW});
+        totalWidth += totalSqrtW;
+      }
+    } else if (seg.type === 'bigop') {
+      const opFs = fontSize * 1.6;          // big operator size
+      const limFs = fontSize * 0.7;         // limit script size
+      const symW = _estimateTextWidth(seg.sym, opFs);
+      const subW = _estimateTextWidth(seg.sub || '', limFs);
+      const supW = _estimateTextWidth(seg.sup || '', limFs);
+      const w = Math.max(symW, subW, supW) + fontSize * 0.15;
+      parts.push({type:'bigop', sym: seg.sym, sub: seg.sub || '', sup: seg.sup || '', opFs, limFs, width: w});
+      totalWidth += w;
+    } else if (seg.type === 'underbrace' || seg.type === 'overbrace') {
       const braceW = seg.width || fontSize * 8;
       const labelText = stripLaTeX(seg.label || '');
-      parts.push({type:'underbrace', braceW, labelText, width: braceW});
+      parts.push({type: seg.type, braceW, labelText, width: braceW});
       totalWidth += braceW;
     } else {
       // Plain text
@@ -20926,51 +21376,59 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // Denominator below line
       els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
     } else if (p.type === 'sqrt') {
-      // Draw radical sign: a check-mark shape leading into a horizontal overline
-      const topY = y - fontSize * 0.5;   // top of the radical
-      const botY = y + fontSize * 0.4;   // bottom of the check mark
-      const overlineY = topY - fontSize * 0.05; // overline just above top
-      const radX0 = curX;                // start of radical
-      const radX1 = curX + p.radicalW * 0.35; // bottom of the check-mark notch
-      const radX2 = curX + p.radicalW;   // where the overline starts (top of check)
-      const overlineEnd = curX + p.width; // end of overline over content
-      const sw = Math.max(0.6, fontSize * 0.05); // stroke width
-      // Radical sign path: small top-left tick → down to bottom → up to overline start → horizontal overline
+      // Stacked fraction under the radical: extend the radical taller to cover both num and den
+      const isFrac = p.isFrac;
+      const topY = isFrac ? (y - fontSize * 0.85) : (y - fontSize * 0.5);
+      const botY = y + fontSize * 0.4;
+      const overlineY = topY - fontSize * 0.05;
+      const lead = p.leadPad || 0;
+      const radX0 = curX + lead;
+      const radX1 = radX0 + p.radicalW * 0.35;
+      const radX2 = radX0 + p.radicalW;
+      const overlineEnd = curX + p.width;
+      const sw = Math.max(0.6, fontSize * 0.05);
       els.push(`<path d="M${fmt(radX0)},${fmt(y - fontSize*0.05)} L${fmt(radX1)},${fmt(botY)} L${fmt(radX2)},${fmt(overlineY)} L${fmt(overlineEnd)},${fmt(overlineY)}" fill="none" stroke="${fill}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
-      // Content text after radical sign
-      const textX = curX + p.radicalW;
-      els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
-    } else if (p.type === 'underbrace') {
+      if (isFrac) {
+        const innerStartX = radX2;
+        const cx = innerStartX + p.innerW / 2;
+        const fs2 = p.fracFs;
+        // Numerator above fraction line
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracNumText)}</text>`);
+        els.push(`<line x1="${fmt(innerStartX + fontSize*0.05)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(innerStartX + p.innerW - fontSize*0.05)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracDenText)}</text>`);
+      } else {
+        const textX = radX2;
+        els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
+      }
+    } else if (p.type === 'bigop') {
       const cx = curX + p.width / 2;
-      // Anchor the brace's TOP at the caller's y. TeXer places \underbrace
-      // close under the referenced graphics; the prior offset (+0.3) left a full
-      // line-height gap before the brace.
+      // Big operator symbol centered horizontally and vertically on baseline y
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(p.opFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.sym)}</text>`);
+      // Upper limit above the symbol
+      if (p.sup) {
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y - p.opFs * 0.55)}" fill="${fill}" font-size="${fmt(p.limFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.sup)}</text>`);
+      }
+      // Lower limit below the symbol
+      if (p.sub) {
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y + p.opFs * 0.55)}" fill="${fill}" font-size="${fmt(p.limFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.sub)}</text>`);
+      }
+    } else if (p.type === 'underbrace' || p.type === 'overbrace') {
+      const cx = curX + p.width / 2;
+      const isOver = (p.type === 'overbrace');
+      // For underbrace: brace below baseline (peakY > by). For overbrace: brace above baseline (peakY < by).
       const by = y;
-      // KaTeX/LaTeX underbrace height is ~0.28em (≈ 36 px at fs=12 in TeXer
-      // for diagram 04947). Earlier 0.35 produced an overly tall brace.
       const bh = fontSize * 0.28;
-      // LaTeX-style underbrace: two outer hook corners + straight arms +
-      // a central downward spike. The midBump is where the center peak dips.
       const xL = curX, xR = curX + p.width;
-      const hookR = Math.min(fontSize * 0.25, p.width * 0.1); // rounded-corner radius
-      const midBump = bh * 0.4; // extra dip at center
-      // Path:
-      //   M left-top
-      //   Q (curve at left corner down to arm level)
-      //   L straight arm to just before center
-      //   Q (central downward peak)
-      //   L straight arm to just after right corner
-      //   Q (curve up to right-top)
-      const armY = by + bh - midBump;            // level of the long straight arms
-      const peakY = by + bh;                      // center peak (deepest point)
+      const hookR = Math.min(fontSize * 0.25, p.width * 0.1);
+      const midBump = bh * 0.4;
+      const sgn = isOver ? -1 : 1;
+      const armY = by + sgn * (bh - midBump);
+      const peakY = by + sgn * bh;
       els.push(`<path d="M${fmt(xL)},${fmt(by)} Q${fmt(xL)},${fmt(armY)} ${fmt(xL+hookR)},${fmt(armY)} L${fmt(cx-hookR)},${fmt(armY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx)},${fmt(peakY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx+hookR)},${fmt(armY)} L${fmt(xR-hookR)},${fmt(armY)} Q${fmt(xR)},${fmt(armY)} ${fmt(xR)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
       if (p.labelText) {
-        // LaTeX renders an underbrace's _{label} at scriptstyle (≈0.7× the
-        // surrounding text). Placing the (smaller) label center about
-        // 0.45*fs below the peak matches TeXer's underbrace-to-label gap
-        // (~8 px) and label height (~17 px at fs=12).
         const lblFs = fontSize * 0.7;
-        els.push(`<text x="${fmt(cx)}" y="${fmt(peakY + fontSize*0.45)}" fill="${fill}" font-size="${fmt(lblFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
+        const lblY = peakY + sgn * fontSize * 0.45;
+        els.push(`<text x="${fmt(cx)}" y="${fmt(lblY)}" fill="${fill}" font-size="${fmt(lblFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
       els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.text)}</text>`);
@@ -20984,20 +21442,45 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
 function parseLaTeXSegments(text) {
   if (!text) return [{type:'text', text:''}];
   let s = text.replace(/\$/g, '');
+  // Detect \displaystyle prefix on \int / \sum / \prod → render with stacked limits
+  // Matches: \displaystyle\int_{...}^{...} or \displaystyle\int^{...}_{...}
+  // Also bare \int_{...}^{...} when \displaystyle appears anywhere earlier in the same label.
+  const hasDisplaystyle = /\\displaystyle/.test(s);
   const segments = [];
   let remaining = s;
   while (remaining.length > 0) {
-    // Find next \frac, \underbrace, or \sqrt
+    // Find next \frac, \underbrace, \sqrt, or big-operator with limits
     const fracIdx = remaining.indexOf('\\frac');
     const ubIdx = remaining.indexOf('\\underbrace');
+    const obIdx = remaining.indexOf('\\overbrace');
     const sqrtIdx = remaining.indexOf('\\sqrt');
+    // Big operators (in displaystyle): \int, \iint, \iiint, \oint, \sum, \prod, \coprod
+    let bigopIdx = -1, bigopCmd = '', bigopSym = '';
+    if (hasDisplaystyle) {
+      const bigops = [
+        ['\\iiint','∭'], ['\\iint','∬'], ['\\oint','∮'], ['\\int','∫'],
+        ['\\coprod','∐'], ['\\prod','∏'], ['\\sum','∑'],
+      ];
+      for (const [cmd, sym] of bigops) {
+        const idx = remaining.indexOf(cmd);
+        if (idx >= 0 && (bigopIdx < 0 || idx < bigopIdx)) {
+          // Verify followed by _ or ^ (with optional whitespace)
+          const after = remaining.substring(idx + cmd.length).replace(/^\s+/, '');
+          if (after[0] === '_' || after[0] === '^') {
+            bigopIdx = idx; bigopCmd = cmd; bigopSym = sym;
+          }
+        }
+      }
+    }
     const candidates = [];
     if (fracIdx >= 0) candidates.push({idx: fracIdx, type: 'frac'});
     if (ubIdx >= 0) candidates.push({idx: ubIdx, type: 'underbrace'});
+    if (obIdx >= 0) candidates.push({idx: obIdx, type: 'overbrace'});
     if (sqrtIdx >= 0) candidates.push({idx: sqrtIdx, type: 'sqrt'});
+    if (bigopIdx >= 0) candidates.push({idx: bigopIdx, type: 'bigop', cmd: bigopCmd, sym: bigopSym});
     candidates.sort((a, b) => a.idx - b.idx);
-    let nextIdx = -1, nextType = '';
-    if (candidates.length > 0) { nextIdx = candidates[0].idx; nextType = candidates[0].type; }
+    let nextIdx = -1, nextType = '', nextCand = null;
+    if (candidates.length > 0) { nextIdx = candidates[0].idx; nextType = candidates[0].type; nextCand = candidates[0]; }
     if (nextIdx < 0) {
       // No more special commands
       const cleaned = stripLaTeX(remaining);
@@ -21018,25 +21501,40 @@ function parseLaTeXSegments(text) {
       const den = extractTexArg(remaining);
       remaining = remaining.substring(den.consumed);
       segments.push({type:'frac', num: num.content, den: den.content});
-    } else if (nextType === 'underbrace') {
-      remaining = remaining.substring(nextIdx + 11); // skip \underbrace
+    } else if (nextType === 'underbrace' || nextType === 'overbrace') {
+      const skipLen = (nextType === 'underbrace') ? 11 : 10; // \underbrace=11, \overbrace=10
+      const expectedScript = (nextType === 'underbrace') ? '_' : '^';
+      remaining = remaining.substring(nextIdx + skipLen);
       const content = extractBraced(remaining);
       remaining = remaining.substring(content.consumed);
-      // Check for _label after underbrace
+      // Check for _label (underbrace) or ^label (overbrace)
       let label = '';
-      const labelMatch = remaining.match(/^\s*_\s*\{([^}]*)\}/);
+      const re = new RegExp('^\\s*' + (expectedScript === '_' ? '_' : '\\^') + '\\s*\\{([^}]*)\\}');
+      const labelMatch = remaining.match(re);
       if (labelMatch) {
         label = labelMatch[1];
         remaining = remaining.substring(labelMatch[0].length);
       }
-      // Estimate width from \hspace if present
+      // Estimate width from \hspace{<num>cm} or \hskip <num>pt
       let width = 0;
       const hspaceMatch = content.content.match(/\\hspace\s*\{([^}]*)\}/);
       if (hspaceMatch) {
         const valMatch = hspaceMatch[1].match(/([\d.]+)/);
-        if (valMatch) width = parseFloat(valMatch[1]) * 28.35; // cm to points
+        if (valMatch) width = parseFloat(valMatch[1]) * 28.35; // cm to pt
+      } else {
+        // \hskip <num>pt or \hskip <num>em (em ≈ fontSize)
+        const hskipMatch = content.content.match(/\\hskip\s*([\d.]+)\s*(pt|em|cm|mm|in)?/);
+        if (hskipMatch) {
+          const v = parseFloat(hskipMatch[1]);
+          const u = hskipMatch[2] || 'pt';
+          if (u === 'pt') width = v;
+          else if (u === 'cm') width = v * 28.35;
+          else if (u === 'mm') width = v * 2.835;
+          else if (u === 'in') width = v * 72;
+          else if (u === 'em') width = v * 12; // approximate
+        }
       }
-      segments.push({type:'underbrace', width, label});
+      segments.push({type: nextType, width, label});
     } else if (nextType === 'sqrt') {
       remaining = remaining.substring(nextIdx + 5); // skip \sqrt
       // Skip whitespace between \sqrt and its argument
@@ -21057,7 +21555,35 @@ function parseLaTeXSegments(text) {
         sqrtContent = remaining[0];
         remaining = remaining.substring(1);
       }
-      segments.push({type:'sqrt', content: sqrtContent});
+      // Recursively parse sqrt content so nested \frac/\sqrt render properly
+      const innerSegs = parseLaTeXSegments(sqrtContent);
+      segments.push({type:'sqrt', content: sqrtContent, innerSegs: innerSegs});
+    } else if (nextType === 'bigop') {
+      remaining = remaining.substring(nextIdx + nextCand.cmd.length);
+      // Parse _{sub}^{sup} or ^{sup}_{sub}, in either order
+      let sub = '', sup = '';
+      for (let pass = 0; pass < 2; pass++) {
+        remaining = remaining.replace(/^\s+/, '');
+        if (remaining[0] === '_' || remaining[0] === '^') {
+          const which = remaining[0];
+          remaining = remaining.substring(1).replace(/^\s+/, '');
+          let arg;
+          if (remaining[0] === '{') {
+            const c = extractBraced(remaining);
+            arg = c.content; remaining = remaining.substring(c.consumed);
+          } else if (remaining[0] === '\\') {
+            const m = remaining.match(/^\\[a-zA-Z]+/);
+            if (m) { arg = m[0]; remaining = remaining.substring(m[0].length); }
+            else { arg = remaining[0]; remaining = remaining.substring(1); }
+          } else {
+            arg = remaining[0]; remaining = remaining.substring(1);
+          }
+          if (which === '_') sub = arg; else sup = arg;
+        } else {
+          break;
+        }
+      }
+      segments.push({type:'bigop', sym: nextCand.sym, sub: stripLaTeX(sub), sup: stripLaTeX(sup)});
     }
   }
   if (segments.length === 0) segments.push({type:'text', text: stripLaTeX(text)});
