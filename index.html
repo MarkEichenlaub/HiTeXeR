@@ -354,12 +354,99 @@ body {
 .CodeMirror-hints { background: #1e1e2e !important; border: 1px solid #555 !important; border-radius: 4px !important; }
 .CodeMirror-hint { color: #ccc !important; padding: 4px 8px !important; }
 .CodeMirror-hint-active { background: #0f3460 !important; color: #eee !important; }
+/* ---- Crop / Clip Tool ---- */
+#crop-overlay {
+  position: absolute; inset: 0; z-index: 150; display: none; user-select: none;
+}
+.crop-shade {
+  position: absolute; background: rgba(0,0,0,0.48); pointer-events: none;
+}
+#crop-rect-border {
+  position: absolute; border: 2px dashed rgba(255,255,255,0.85);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.48);
+  box-sizing: border-box; cursor: move;
+}
+.crop-handle {
+  position: absolute; width: 10px; height: 10px;
+  background: #fff; border: 1.5px solid #0f3460; border-radius: 2px;
+  transform: translate(-50%, -50%); z-index: 2;
+}
+.crop-handle[data-h="nw"]{ top:0;   left:0;   cursor:nw-resize; }
+.crop-handle[data-h="n"] { top:0;   left:50%; cursor:n-resize;  }
+.crop-handle[data-h="ne"]{ top:0;   left:100%;cursor:ne-resize; }
+.crop-handle[data-h="e"] { top:50%; left:100%;cursor:e-resize;  }
+.crop-handle[data-h="se"]{ top:100%;left:100%;cursor:se-resize; }
+.crop-handle[data-h="s"] { top:100%;left:50%; cursor:s-resize;  }
+.crop-handle[data-h="sw"]{ top:100%;left:0;   cursor:sw-resize; }
+.crop-handle[data-h="w"] { top:50%; left:0;   cursor:w-resize;  }
+#crop-controls-bar {
+  background: #16213e; border-top: 2px solid #0f3460;
+  padding: 6px 12px; display: flex; gap: 8px; align-items: center; justify-content: center;
+  font-family: system-ui, sans-serif; flex-shrink: 0;
+}
+.crop-ctl-btn {
+  background: #0f3460; color: #eee; border: 1px solid rgba(255,255,255,0.2);
+  padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
+}
+.crop-ctl-btn:hover { background: #1a4a80; }
+.crop-ctl-btn.primary { background: #e94560; border-color: #e94560; }
+.crop-ctl-btn.primary:hover { background: #c73e54; }
+.crop-ctl-btn.danger { background: #5a1a2a; border-color: #8b3040; color: #f88; }
+.crop-ctl-btn.danger:hover { background: #7a2535; }
+#crop-size-label {
+  font-size: 11px; color: #aaa; font-family: monospace; margin-right: 4px;
+}
+/* ---- Search / Find & Replace panel ---- */
+#search-panel {
+  background: #16213e;
+  border-bottom: 1px solid #0f3460;
+  padding: 4px 6px;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  z-index: 20;
+}
+#search-row, #replace-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+#search-panel input[type=text] {
+  background: #1a1a2e;
+  color: #eee;
+  border: 1px solid #0f3460;
+  border-radius: 3px;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-family: monospace;
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+#search-panel input[type=text]:focus { border-color: #e94560; }
+#search-panel input[type=text].srch-no-match { border-color: #c0392b; background: #2a1a1a; }
+.srch-btn {
+  background: rgba(15,52,96,0.7);
+  color: #aaa;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px;
+  padding: 2px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: monospace;
+}
+.srch-btn:hover { background: rgba(15,52,96,0.95); color: #eee; }
+.srch-btn.active { background: #0f3460; color: #eee; border-color: #e94560; }
+#search-count { font-size: 11px; color: #888; white-space: nowrap; min-width: 54px; text-align: center; }
+.cm-search-match { background: rgba(255,200,0,0.22); border-radius: 2px; }
+.cm-search-match-current { background: rgba(255,120,0,0.55); border-radius: 2px; }
 </style>
 </head>
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.79</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.88</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -430,6 +517,25 @@ body {
     <div id="editor-controls">
       <button class="editor-ctrl-btn" id="btn-copy-code" title="Copy code to clipboard">Copy</button>
     </div>
+    <!-- Search / Find & Replace panel -->
+    <div id="search-panel" style="display:none;">
+      <div id="search-row">
+        <input id="search-input" type="text" placeholder="Find…" spellcheck="false" autocomplete="off">
+        <button class="srch-btn" id="search-regex-btn" title="Use regular expression (Alt+R)">.*</button>
+        <button class="srch-btn" id="search-case-btn" title="Match case (Alt+C)">Aa</button>
+        <button class="srch-btn" id="search-word-btn" title="Match whole word (Alt+W)">W</button>
+        <span id="search-count"></span>
+        <button class="srch-btn" id="search-prev-btn" title="Previous match (Shift+Enter)">&#x25B2;</button>
+        <button class="srch-btn" id="search-next-btn" title="Next match (Enter)">&#x25BC;</button>
+        <button class="srch-btn" id="search-toggle-replace-btn" title="Toggle replace">&#x21C5;</button>
+        <button class="srch-btn" id="search-close-btn" title="Close (Esc)">&#x2715;</button>
+      </div>
+      <div id="replace-row" style="display:none;">
+        <input id="replace-input" type="text" placeholder="Replace…" spellcheck="false" autocomplete="off">
+        <button class="srch-btn" id="replace-btn" title="Replace current (Enter)">Replace</button>
+        <button class="srch-btn" id="replace-all-btn" title="Replace all">All</button>
+      </div>
+    </div>
     <textarea id="code-editor">[asy]
 import geometry;
 unitsize(2.0 cm);
@@ -464,6 +570,7 @@ label("$C$", C, N);
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-out" title="Zoom out">&#x2212;</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-rotate" title="Rotate view">&#x21BB; Rotate</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-crop" title="Crop / clip diagram">&#x2702; Crop</button>
       </div>
       <div id="rotate-panel" style="display:none;position:absolute;top:38px;left:8px;z-index:201;background:rgba(22,33,62,0.95);border:1px solid rgba(255,255,255,0.2);border-radius:5px;padding:6px 10px;font-family:system-ui,sans-serif;font-size:11px;color:#eee;align-items:center;gap:8px;">
         <label style="white-space:nowrap;">Angle:</label>
@@ -487,6 +594,19 @@ label("$C$", C, N);
       <div id="preview-warn-badge"></div>
       <button id="clear-selection-btn">&#x2715; Clear selection</button>
       <div id="canvas-pan-overlay" class="pan-inactive"></div>
+      <!-- Crop / Clip Overlay -->
+      <div id="crop-overlay">
+        <div id="crop-rect-border">
+          <div class="crop-handle" data-h="nw"></div>
+          <div class="crop-handle" data-h="n"></div>
+          <div class="crop-handle" data-h="ne"></div>
+          <div class="crop-handle" data-h="e"></div>
+          <div class="crop-handle" data-h="se"></div>
+          <div class="crop-handle" data-h="s"></div>
+          <div class="crop-handle" data-h="sw"></div>
+          <div class="crop-handle" data-h="w"></div>
+        </div>
+      </div>
       <!-- GIF Mode Control Panel -->
       <div id="gif-panel" style="display:none;position:absolute;top:0;left:0;right:0;background:rgba(30,30,46,0.95);border-bottom:2px solid #e9c46a;padding:8px 16px;z-index:5000;font-size:12px;color:#ccc;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -503,9 +623,17 @@ label("$C$", C, N);
           <label style="cursor:pointer;"><input type="checkbox" id="gif-transparent" style="accent-color:#e9c46a;"> Transparent</label>
           <button id="gif-save-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Save GIF</button>
           <button id="gif-copy-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Copy GIF</button>
+          <button id="gif-editor-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Send to Editor</button>
           <span id="gif-progress" style="color:#e9c46a;font-size:11px;"></span>
         </div>
       </div>
+    </div>
+    <div id="crop-controls-bar" style="display:none;">
+      <span id="crop-size-label"></span>
+      <button class="crop-ctl-btn" id="crop-btn-clip-view" title="Insert clip matching the current zoomed/panned view">Clip to View</button>
+      <button class="crop-ctl-btn danger" id="crop-btn-remove" title="Remove the @htx-clip line from the code">Remove Clip</button>
+      <button class="crop-ctl-btn primary" id="crop-btn-apply" title="Insert clip(box(…)) for the selected region">Apply Clip</button>
+      <button class="crop-ctl-btn" id="crop-btn-cancel">Cancel</button>
     </div>
     <div id="preview-info-bar" class="pib-hidden">
       <span class="pib-section"><span class="pib-label">Size:</span> <span id="pib-size-px"></span></span>
@@ -595,6 +723,7 @@ label("$C$", C, N);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/lint/lint.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/search/searchcursor.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
 <script>
@@ -1821,6 +1950,438 @@ function initEditor() {
   });
 }
 
+// ============================================================
+// Search / Find & Replace
+// ============================================================
+const SearchPanel = (() => {
+  let searchMarks = [];
+  let currentMatchIdx = -1;
+  let allMatches = []; // array of {from, to} (positions at search time; updated via mark.find())
+  let panelOpen = false;
+
+  const panel       = document.getElementById('search-panel');
+  const searchInput = document.getElementById('search-input');
+  const replaceRow  = document.getElementById('replace-row');
+  const replaceInput= document.getElementById('replace-input');
+  const countEl     = document.getElementById('search-count');
+  const regexBtn    = document.getElementById('search-regex-btn');
+  const caseBtn     = document.getElementById('search-case-btn');
+  const wordBtn     = document.getElementById('search-word-btn');
+
+  // Build a RegExp from current inputs; returns null on invalid/empty pattern.
+  function makeQuery() {
+    const raw = searchInput.value;
+    if (!raw) return null;
+    const useRegex = regexBtn.classList.contains('active');
+    const caseSensitive = caseBtn.classList.contains('active');
+    const wholeWord = wordBtn.classList.contains('active');
+    const flags = caseSensitive ? '' : 'i';
+    try {
+      let pattern = useRegex ? raw : raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (wholeWord) pattern = `\\b(?:${pattern})\\b`;
+      return new RegExp(pattern, flags);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearMarks() {
+    for (const m of searchMarks) m.clear();
+    searchMarks = [];
+    allMatches = [];
+    currentMatchIdx = -1;
+    countEl.textContent = '';
+    searchInput.classList.remove('srch-no-match');
+  }
+
+  function doSearch(keepCursor) {
+    const prevIdx = keepCursor ? currentMatchIdx : -1;
+    clearMarks();
+    const query = makeQuery();
+    if (!query) return;
+
+    const doc = editor.getDoc();
+    const cursor = doc.getSearchCursor(query);
+    while (cursor.findNext()) {
+      const from = cursor.from(), to = cursor.to();
+      allMatches.push({ from, to });
+      searchMarks.push(doc.markText(from, to, { className: 'cm-search-match' }));
+    }
+
+    if (allMatches.length === 0) {
+      countEl.textContent = 'No results';
+      searchInput.classList.add('srch-no-match');
+      return;
+    }
+
+    // Decide which match to highlight: try to stay near the cursor/previous match
+    let target = 0;
+    const cursorPos = doc.indexFromPos(editor.getCursor());
+    for (let i = 0; i < allMatches.length; i++) {
+      if (doc.indexFromPos(allMatches[i].from) >= cursorPos) { target = i; break; }
+      if (i === allMatches.length - 1) target = 0;
+    }
+    if (keepCursor && prevIdx >= 0 && prevIdx < allMatches.length) target = prevIdx;
+    goTo(target);
+  }
+
+  function goTo(idx) {
+    if (allMatches.length === 0) return;
+
+    // Restore previous current-match mark to normal style
+    if (currentMatchIdx >= 0 && currentMatchIdx < searchMarks.length) {
+      const pos = searchMarks[currentMatchIdx].find();
+      searchMarks[currentMatchIdx].clear();
+      if (pos) {
+        searchMarks[currentMatchIdx] = editor.getDoc().markText(pos.from, pos.to, { className: 'cm-search-match' });
+        allMatches[currentMatchIdx] = { from: pos.from, to: pos.to };
+      }
+    }
+
+    currentMatchIdx = ((idx % allMatches.length) + allMatches.length) % allMatches.length;
+
+    // Highlight new current match
+    const curMark = searchMarks[currentMatchIdx];
+    if (curMark) {
+      const pos = curMark.find();
+      curMark.clear();
+      if (pos) {
+        searchMarks[currentMatchIdx] = editor.getDoc().markText(pos.from, pos.to, { className: 'cm-search-match-current' });
+        allMatches[currentMatchIdx] = { from: pos.from, to: pos.to };
+        editor.setSelection(pos.from, pos.to);
+        editor.scrollIntoView({ from: pos.from, to: pos.to }, 60);
+      }
+    }
+    countEl.textContent = `${currentMatchIdx + 1} / ${allMatches.length}`;
+  }
+
+  function next() { goTo(currentMatchIdx + 1); }
+  function prev() { goTo(currentMatchIdx - 1); }
+
+  // Compute replacement text, expanding $0..$9 backrefs when in regex mode.
+  function computeReplacement(from, to) {
+    const replText = replaceInput.value;
+    if (!regexBtn.classList.contains('active') || !/\$[0-9]/.test(replText)) return replText;
+    const q = makeQuery();
+    if (!q) return replText;
+    const matchedText = editor.getDoc().getRange(from, to);
+    q.lastIndex = 0;
+    const m = q.exec(matchedText);
+    if (!m) return replText;
+    return replText.replace(/\$(\d)/g, (_, n) => (m[+n] != null ? m[+n] : ''));
+  }
+
+  function doReplace() {
+    if (currentMatchIdx < 0 || !searchMarks[currentMatchIdx]) return;
+    const pos = searchMarks[currentMatchIdx].find();
+    if (!pos) return;
+    editor.replaceRange(computeReplacement(pos.from, pos.to), pos.from, pos.to);
+    doSearch(false);
+  }
+
+  function doReplaceAll() {
+    const query = makeQuery();
+    if (!query) return;
+    const doc = editor.getDoc();
+    const cursor = doc.getSearchCursor(query);
+    const replacements = [];
+    while (cursor.findNext()) {
+      const from = cursor.from(), to = cursor.to();
+      replacements.push({ from, to, text: computeReplacement(from, to) });
+    }
+    // Replace in reverse order so earlier positions stay valid
+    editor.operation(() => {
+      for (let i = replacements.length - 1; i >= 0; i--) {
+        editor.replaceRange(replacements[i].text, replacements[i].from, replacements[i].to);
+      }
+    });
+    doSearch(false);
+  }
+
+  function open(mode) {
+    panel.style.display = 'flex';
+    panelOpen = true;
+    if (mode === 'replace') {
+      replaceRow.style.display = 'flex';
+    }
+    // Pre-fill with current selection if it's a single-line, short selection
+    const sel = editor.getSelection();
+    if (sel && sel.length < 200 && !sel.includes('\n')) {
+      searchInput.value = sel;
+    }
+    searchInput.focus();
+    searchInput.select();
+    doSearch(false);
+  }
+
+  function close() {
+    panel.style.display = 'none';
+    panelOpen = false;
+    clearMarks();
+    editor.focus();
+  }
+
+  // Wire up UI events
+  document.getElementById('search-close-btn').addEventListener('click', close);
+  document.getElementById('search-prev-btn').addEventListener('click', prev);
+  document.getElementById('search-next-btn').addEventListener('click', next);
+  document.getElementById('replace-btn').addEventListener('click', doReplace);
+  document.getElementById('replace-all-btn').addEventListener('click', doReplaceAll);
+
+  regexBtn.addEventListener('click', () => { regexBtn.classList.toggle('active'); doSearch(false); });
+  caseBtn.addEventListener('click',  () => { caseBtn.classList.toggle('active');  doSearch(false); });
+  wordBtn.addEventListener('click',  () => { wordBtn.classList.toggle('active');  doSearch(false); });
+
+  document.getElementById('search-toggle-replace-btn').addEventListener('click', () => {
+    const showing = replaceRow.style.display !== 'none';
+    replaceRow.style.display = showing ? 'none' : 'flex';
+    if (!showing) replaceInput.focus(); else searchInput.focus();
+  });
+
+  let searchDebounce = null;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => doSearch(false), 80);
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); e.shiftKey ? prev() : next(); }
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.altKey && e.key === 'r') { e.preventDefault(); regexBtn.click(); }
+    if (e.altKey && e.key === 'c') { e.preventDefault(); caseBtn.click(); }
+    if (e.altKey && e.key === 'w') { e.preventDefault(); wordBtn.click(); }
+  });
+
+  replaceInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); e.shiftKey ? doReplaceAll() : doReplace(); }
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+  });
+
+  return {
+    open,
+    close,
+    isOpen: () => panelOpen,
+  };
+})();
+
+// ============================================================
+// Crop / Clip Tool
+// ============================================================
+const CropTool = (() => {
+  let active = false;
+  let cropX1 = 0, cropY1 = 0, cropX2 = 200, cropY2 = 200;
+  let dragState = null; // { handle, startClientX, startClientY, origX1, origY1, origX2, origY2 }
+
+  const overlay    = document.getElementById('crop-overlay');
+  const rectEl     = document.getElementById('crop-rect-border');
+  const ctrlBar    = document.getElementById('crop-controls-bar');
+  const sizeLabel  = document.getElementById('crop-size-label');
+
+  // ── Helpers ────────────────────────────────────────────────
+  function containerSize() {
+    const c = document.getElementById('preview-container');
+    return { w: c.clientWidth, h: c.clientHeight };
+  }
+
+  // Convert container-relative CSS pixel position to Asymptote coordinates.
+  function containerPxToAsy(cx, cy) {
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg || !lastRenderInfo) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const inv = ctm.inverse();
+    const contRect = document.getElementById('preview-container').getBoundingClientRect();
+    const sx = contRect.left + cx, sy = contRect.top + cy;
+    const vx = inv.a * sx + inv.c * sy + inv.e;
+    const vy = inv.b * sx + inv.d * sy + inv.f;
+    return {
+      mx: lastRenderInfo.minX + vx / lastRenderInfo.pxPerUnitX,
+      my: lastRenderInfo.maxY - vy / lastRenderInfo.pxPerUnitY,
+    };
+  }
+
+  // Format a number for use in Asymptote source: up to 5 sig figs, no trailing zeros.
+  function fmt(n) {
+    if (n === 0) return '0';
+    const s = parseFloat(n.toPrecision(5)).toString();
+    return s === '-0' ? '0' : s;
+  }
+
+  // ── UI update ───────────────────────────────────────────────
+  function updateUI() {
+    const { w, h } = containerSize();
+    const x1 = cropX1, y1 = cropY1, x2 = cropX2, y2 = cropY2;
+
+    rectEl.style.left   = x1 + 'px';
+    rectEl.style.top    = y1 + 'px';
+    rectEl.style.width  = (x2 - x1) + 'px';
+    rectEl.style.height = (y2 - y1) + 'px';
+
+    // Show Asymptote coordinate bounds in the label (if render info available)
+    if (lastRenderInfo) {
+      const tl = containerPxToAsy(x1, y1);
+      const br = containerPxToAsy(x2, y2);
+      if (tl && br) {
+        const ax1 = Math.min(tl.mx, br.mx), ax2 = Math.max(tl.mx, br.mx);
+        const ay1 = Math.min(tl.my, br.my), ay2 = Math.max(tl.my, br.my);
+        sizeLabel.textContent = `(${fmt(ax1)},${fmt(ay1)}) → (${fmt(ax2)},${fmt(ay2)})`;
+      }
+    } else {
+      sizeLabel.textContent = '';
+    }
+  }
+
+  // ── Activate / deactivate ───────────────────────────────────
+  function activate() {
+    if (!lastRenderInfo) {
+      // Show a brief warning in the status bar instead of an alert
+      const st = document.getElementById('status');
+      if (st) { const prev = st.textContent; st.textContent = 'Render the diagram first.'; setTimeout(() => st.textContent = prev, 2000); }
+      return;
+    }
+    active = true;
+
+    // Show UI chrome first so the flex layout reflows and #preview-container
+    // reaches its final (smaller) height before we measure it for crop bounds.
+    overlay.style.display = 'block';
+    ctrlBar.style.display = 'flex';
+    document.getElementById('btn-canvas-crop').classList.add('active');
+
+    // Initialise crop rect to the SVG's bounding box within the container.
+    // EP: edge padding so handles (5px half-size) are always fully visible inside
+    // the overflow:hidden boundary of #preview-container.
+    const EP = 7;
+    const svg = document.querySelector('#preview-container svg');
+    const container = document.getElementById('preview-container');
+    const { w, h } = containerSize(); // measured AFTER ctrlBar shown → correct height
+    if (svg) {
+      const sr = svg.getBoundingClientRect();
+      const cr = container.getBoundingClientRect();
+      const TOP_EP = 50; // extra clearance to stay below the canvas control buttons row
+      cropX1 = Math.max(EP,     Math.round(sr.left   - cr.left));
+      cropY1 = Math.max(TOP_EP, Math.round(sr.top    - cr.top));
+      cropX2 = Math.min(w - EP, Math.round(sr.right  - cr.left));
+      cropY2 = Math.min(h - EP, Math.round(sr.bottom - cr.top));
+      if (cropX2 - cropX1 < 20) { cropX1 = EP; cropX2 = w - EP; }
+      if (cropY2 - cropY1 < 20) { cropY1 = TOP_EP; cropY2 = h - EP; }
+    } else {
+      cropX1 = Math.round(w * 0.1); cropY1 = Math.round(h * 0.1);
+      cropX2 = Math.round(w * 0.9); cropY2 = Math.round(h * 0.9);
+    }
+
+    updateUI();
+  }
+
+  function deactivate() {
+    active = false;
+    dragState = null;
+    overlay.style.display = 'none';
+    ctrlBar.style.display = 'none';
+    document.getElementById('btn-canvas-crop').classList.remove('active');
+  }
+
+  // ── Code insertion / removal ────────────────────────────────
+  function insertClipCode(x1, y1, x2, y2) {
+    const code = editor.getValue();
+    const clipLine = `clip(box((${fmt(x1)},${fmt(y1)}),(${fmt(x2)},${fmt(y2)}))); // @htx-clip`;
+    let newCode;
+    if (code.includes('[/asy]')) {
+      newCode = code.replace(/(\[\/asy\])/, clipLine + '\n$1');
+    } else {
+      newCode = code + '\n' + clipLine;
+    }
+    editorReplaceFull(newCode, 'htx-crop');
+  }
+
+  function removeClipCode() {
+    const code = editor.getValue();
+    const newCode = code.replace(/^[^\n]*\/\/ @htx-clip\r?\n?/gm, '');
+    if (newCode !== code) editorReplaceFull(newCode, 'htx-crop');
+    deactivate();
+  }
+
+  // ── Actions ─────────────────────────────────────────────────
+  function applyCrop() {
+    const tl = containerPxToAsy(cropX1, cropY1);
+    const br = containerPxToAsy(cropX2, cropY2);
+    if (!tl || !br) return;
+    const x1 = Math.min(tl.mx, br.mx), x2 = Math.max(tl.mx, br.mx);
+    const y1 = Math.min(tl.my, br.my), y2 = Math.max(tl.my, br.my);
+    insertClipCode(x1, y1, x2, y2);
+    deactivate();
+  }
+
+  function clipToView() {
+    if (!lastRenderInfo) return;
+    const container = document.getElementById('preview-container');
+    const w = container.clientWidth, h = container.clientHeight;
+    // Map all four corners in case the view is rotated
+    const corners = [
+      containerPxToAsy(0, 0), containerPxToAsy(w, 0),
+      containerPxToAsy(0, h), containerPxToAsy(w, h),
+    ].filter(Boolean);
+    if (corners.length < 2) return;
+    const x1 = Math.min(...corners.map(c => c.mx));
+    const y1 = Math.min(...corners.map(c => c.my));
+    const x2 = Math.max(...corners.map(c => c.mx));
+    const y2 = Math.max(...corners.map(c => c.my));
+    insertClipCode(x1, y1, x2, y2);
+    deactivate();
+  }
+
+  // ── Drag logic ──────────────────────────────────────────────
+  overlay.addEventListener('mousedown', (e) => {
+    if (!active) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const h = e.target.dataset && e.target.dataset.h;
+    const onRect = e.target === rectEl || (rectEl.contains(e.target) && !h);
+    dragState = {
+      handle: h || (onRect ? 'move' : null),
+      startX: e.clientX, startY: e.clientY,
+      ox1: cropX1, oy1: cropY1, ox2: cropX2, oy2: cropY2,
+    };
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragState || !active) return;
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    const { w, h } = containerSize();
+    const MIN = 20, EP = 7;
+    let { ox1: x1, oy1: y1, ox2: x2, oy2: y2 } = dragState;
+
+    if (dragState.handle === 'move') {
+      const bw = x2 - x1, bh = y2 - y1;
+      x1 = Math.max(EP, Math.min(w - bw - EP, x1 + dx));
+      y1 = Math.max(EP, Math.min(h - bh - EP, y1 + dy));
+      x2 = x1 + bw; y2 = y1 + bh;
+    } else if (dragState.handle) {
+      const hnd = dragState.handle;
+      if (hnd.includes('w')) x1 = Math.max(EP,     Math.min(x2 - MIN, x1 + dx));
+      if (hnd.includes('e')) x2 = Math.min(w - EP, Math.max(x1 + MIN, x2 + dx));
+      if (hnd.includes('n')) y1 = Math.max(EP,     Math.min(y2 - MIN, y1 + dy));
+      if (hnd.includes('s')) y2 = Math.min(h - EP, Math.max(y1 + MIN, y2 + dy));
+    }
+
+    cropX1 = x1; cropY1 = y1; cropX2 = x2; cropY2 = y2;
+    updateUI();
+  });
+
+  document.addEventListener('mouseup', () => { dragState = null; });
+
+  // ── Button wiring ────────────────────────────────────────────
+  document.getElementById('btn-canvas-crop').addEventListener('click', () => {
+    active ? deactivate() : activate();
+  });
+  document.getElementById('crop-btn-apply').addEventListener('click', applyCrop);
+  document.getElementById('crop-btn-cancel').addEventListener('click', deactivate);
+  document.getElementById('crop-btn-clip-view').addEventListener('click', clipToView);
+  document.getElementById('crop-btn-remove').addEventListener('click', removeClipCode);
+
+  return { activate, deactivate, clipToView, removeCrop: removeClipCode };
+})();
+
 function clearHighlights() {
   for (const mark of highlightMarks) mark.clear();
   highlightMarks = [];
@@ -2133,7 +2694,11 @@ async function doRender() {
       // If the error is about missing graphic images, always fall through to
       // server compilation — the server can download and embed them directly.
       const isGraphicError = e.message && e.message.startsWith('graphic:');
-      if (!isGraphicError) {
+      // If the code contains a clip() from the crop tool, the JS interpreter may
+      // not handle it perfectly — fall through to server which uses real Asymptote.
+      const hasClipCode = code.includes('// @htx-clip');
+      console.error('JS interpreter error:', e);
+      if (!isGraphicError && !hasClipCode) {
         // JS interpreter failed on non-graphic issue — show stale badge over previous SVG
         if (previewEl.querySelector('svg')) {
           showStaleBadge(true);
@@ -3537,6 +4102,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-gif').addEventListener('click', () => toggleGifMode());
   document.getElementById('gif-save-btn').addEventListener('click', () => generateGif('save'));
   document.getElementById('gif-copy-btn').addEventListener('click', () => generateGif('copy'));
+  document.getElementById('gif-editor-btn').addEventListener('click', () => generateGif('editor'));
   // Canvas controls
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
@@ -5104,6 +5670,24 @@ document.addEventListener('DOMContentLoaded', () => {
           downloadBlob(blob, 'animation.gif');
           progressEl.textContent = 'Clipboard not supported — downloaded instead.';
         }
+      } else if (action === 'editor') {
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const resp = await fetch('/send-to-gif-editor', {
+            method: 'POST',
+            body: arrayBuffer,
+            headers: { 'Content-Type': 'image/gif' },
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            window.open('http://127.0.0.1:8847/?path=' + encodeURIComponent(data.path), '_blank');
+            progressEl.textContent = 'Sent to editor!';
+          } else {
+            progressEl.textContent = 'Editor error: ' + (data.error || 'unknown');
+          }
+        } catch(editorErr) {
+          progressEl.textContent = 'Editor not reachable: ' + editorErr.message;
+        }
       } else {
         downloadBlob(blob, 'animation.gif');
         progressEl.textContent = 'Saved!';
@@ -6525,10 +7109,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Ctrl-Space manual trigger
+  // Ctrl-Space manual trigger + search shortcuts
   editor.setOption('extraKeys', {
     'Ctrl-Enter': doRender,
     'Ctrl-Space': (cm) => cm.showHint({ hint: asyHint, completeSingle: false }),
+    'Ctrl-F': () => { SearchPanel.open('find'); },
+    'Ctrl-H': () => { SearchPanel.open('replace'); },
+    'Esc': () => { if (SearchPanel.isOpen()) { SearchPanel.close(); } else { return CodeMirror.Pass; } },
   });
 
   // ============================================================
