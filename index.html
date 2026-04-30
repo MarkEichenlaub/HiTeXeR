@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.88</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v3.89</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -577,6 +577,9 @@ label("$C$", C, N);
         <input type="range" id="rotate-slider" min="-180" max="180" step="1" value="0" style="width:140px;vertical-align:middle;">
         <span id="rotate-value" style="min-width:36px;text-align:right;font-family:monospace;">0&deg;</span>
         <button class="canvas-ctrl-btn" id="rotate-reset" title="Reset rotation" style="padding:2px 6px;font-size:10px;">Reset</button>
+        <label style="white-space:nowrap;display:flex;align-items:center;gap:3px;cursor:pointer;" title="When checked, rotation is written into the Asymptote code so a copy/paste to AoPS renders rotated.">
+          <input type="checkbox" id="rotate-in-code" style="margin:0;">In code
+        </label>
       </div>
       <div class="canvas-controls canvas-controls-tr">
         <div class="copy-btn-group">
@@ -3640,7 +3643,65 @@ function canvasShrinkToFit() {
   const valEl = document.getElementById('rotate-value');
   if (slider) slider.value = '0';
   if (valEl) valEl.textContent = '0\u00B0';
+  // If a "rotate in code" block is present in the editor, strip it out too,
+  // since the user is asking for a clean reset.
+  if (typeof removeRotationFromEditor === 'function') removeRotationFromEditor();
   applyCanvasTransform();
+}
+
+// ============================================================
+// Rotate-in-code helpers
+// ------------------------------------------------------------
+// When the "In code" checkbox in the rotate panel is checked, the
+// view rotation is implemented by appending an Asymptote line to
+// the editor source instead of via a CSS transform on the SVG. This
+// way, copying the code to AoPS produces a rotated rendering there.
+// ============================================================
+const HTX_ROT_BEGIN = '// __HTX_ROT_BEGIN__';
+const HTX_ROT_END = '// __HTX_ROT_END__';
+
+function buildRotationBlock(deg) {
+  return HTX_ROT_BEGIN + '\ncurrentpicture = rotate(' + deg + ')*currentpicture;\n' + HTX_ROT_END;
+}
+
+function stripRotationBlock(code) {
+  // Match any block including surrounding blank lines/newlines.
+  const re = /\n*\/\/ __HTX_ROT_BEGIN__[\s\S]*?\/\/ __HTX_ROT_END__\s*/g;
+  return code.replace(re, '\n');
+}
+
+function setEditorValuePreservingCursor(newValue) {
+  if (!editor) return;
+  if (editor.getValue() === newValue) return;
+  const cursor = editor.getCursor();
+  const scroll = editor.getScrollInfo();
+  editor.setValue(newValue);
+  editor.setCursor(cursor);
+  editor.scrollTo(scroll.left, scroll.top);
+}
+
+function injectRotationIntoEditor(deg) {
+  if (!editor) return;
+  let code = editor.getValue();
+  code = stripRotationBlock(code);
+  if (deg !== 0) {
+    const block = buildRotationBlock(deg);
+    // Insert before a trailing [/asy] tag if present, otherwise append.
+    const closeTagRe = /\n?\s*\[\/asy\]\s*$/;
+    if (closeTagRe.test(code)) {
+      code = code.replace(closeTagRe, '\n' + block + '\n[/asy]');
+    } else {
+      code = code.replace(/\s*$/, '\n' + block + '\n');
+    }
+  }
+  setEditorValuePreservingCursor(code);
+}
+
+function removeRotationFromEditor() {
+  if (!editor) return;
+  const code = editor.getValue();
+  const stripped = stripRotationBlock(code);
+  if (stripped !== code) setEditorValuePreservingCursor(stripped);
 }
 
 function initCanvasPan() {
@@ -4114,19 +4175,52 @@ document.addEventListener('DOMContentLoaded', () => {
     const rotSlider = document.getElementById('rotate-slider');
     const rotValue = document.getElementById('rotate-value');
     const rotReset = document.getElementById('rotate-reset');
+    const rotInCode = document.getElementById('rotate-in-code');
     if (!rotBtn || !rotPanel) return;
     function updateRotate(val) {
-      canvasRotate = val;
       rotValue.textContent = val + '\u00B0';
-      applyCanvasTransform();
-      rotBtn.classList.toggle('active', val !== 0);
+      const inCode = rotInCode && rotInCode.checked;
+      rotBtn.classList.toggle('active', val !== 0 || inCode);
+      if (inCode) {
+        // Rotation is baked into the Asymptote source — clear any CSS rotation
+        // so we don't double-rotate the preview.
+        canvasRotate = 0;
+        applyCanvasTransform();
+        injectRotationIntoEditor(val);
+      } else {
+        canvasRotate = val;
+        applyCanvasTransform();
+      }
     }
     rotBtn.addEventListener('click', () => {
       const open = rotPanel.style.display === 'flex';
       rotPanel.style.display = open ? 'none' : 'flex';
     });
     rotSlider.addEventListener('input', () => updateRotate(parseFloat(rotSlider.value) || 0));
-    rotReset.addEventListener('click', () => { rotSlider.value = '0'; updateRotate(0); });
+    rotReset.addEventListener('click', () => {
+      rotSlider.value = '0';
+      // Always strip any existing in-code block on reset so the editor is clean.
+      removeRotationFromEditor();
+      updateRotate(0);
+    });
+    if (rotInCode) {
+      rotInCode.addEventListener('change', () => {
+        const val = parseFloat(rotSlider.value) || 0;
+        if (rotInCode.checked) {
+          // Switching from view-rotation to code-rotation: drop the CSS rotation
+          // and inject the Asymptote line.
+          canvasRotate = 0;
+          applyCanvasTransform();
+          injectRotationIntoEditor(val);
+        } else {
+          // Switching back: remove the line, restore CSS rotation.
+          removeRotationFromEditor();
+          canvasRotate = val;
+          applyCanvasTransform();
+        }
+        rotBtn.classList.toggle('active', val !== 0 || rotInCode.checked);
+      });
+    }
   })();
   document.getElementById('btn-canvas-copy').addEventListener('click', () => copyCanvasImage('png'));
   document.getElementById('btn-canvas-copy-arrow').addEventListener('click', (e) => {
