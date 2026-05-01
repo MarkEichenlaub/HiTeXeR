@@ -430,6 +430,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_eigennode_write()
         elif self.path == "/render-gif":
             self.handle_render_gif()
+        elif self.path == "/send-to-gif-editor":
+            self.handle_send_to_gif_editor()
         elif self.path == "/convert-eps":
             self.handle_convert_eps()
         elif self.path == "/fix":
@@ -1118,6 +1120,18 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(500, {"ok": False, "error": "Timed out"})
         except Exception as e:
             self.send_json(500, {"ok": False, "error": str(e)})
+
+    def handle_send_to_gif_editor(self):
+        """Save GIF bytes to a temp file and return the path for the browser to use."""
+        content_length = int(self.headers["Content-Length"])
+        gif_bytes = self.rfile.read(content_length)
+        try:
+            tmp = tempfile.NamedTemporaryFile(suffix='.gif', delete=False)
+            tmp.write(gif_bytes)
+            tmp.close()
+            self.send_json(200, {"ok": True, "path": tmp.name})
+        except Exception as e:
+            self.send_json(500, {"error": str(e)})
 
     def send_json(self, status, obj):
         response = json.dumps(obj).encode("utf-8")

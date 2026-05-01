@@ -8681,6 +8681,21 @@ function createInterpreter() {
           if (rX > 0 && rY > 0) bpPerUnit = Math.min(sw / rX, sh / rY);
         } else if (hasUnitScale) {
           bpPerUnit = unitScale;
+        } else {
+          // No size() or unitsize(): the renderer auto-fits geometry to
+          // defaultSize=150bp in the larger dimension (see auto-scale block
+          // around the "auto-scaled" warning in the layout code). Estimate
+          // bpPerUnit accordingly so that x/y ticks render at the same
+          // screen-space length on plots with non-square aspect ratios
+          // (Asymptote's Ticksize is a physical length, not a data length).
+          // Without this estimate, the perpAxisRange*0.015 fallback below
+          // makes y-axis ticks (perp=xRange) and x-axis ticks (perp=yRange)
+          // visibly mismatched on tall/wide plots like 00066.
+          const _gb = getGeoBbox(pic.commands);
+          const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.abs(_gb.maxX - _gb.minX) : alongRange;
+          const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : perpAxisRange;
+          const maxDim = Math.max(rX, rY);
+          if (maxDim > 0) bpPerUnit = 150 / maxDim;
         }
         if (bpPerUnit > 0) {
           // 1mm = 2.834645669 bp (Asymptote's default Ticksize)
@@ -8715,6 +8730,16 @@ function createInterpreter() {
         }
       } else if (hasUnitScale) {
         _ticksBpPerUnit = unitScale;
+      } else {
+        // No size() or unitsize(): estimate from auto-fit (see comment above
+        // in defaultTickSize block). Uniform 150/maxDim makes explicit Size=
+        // and explicit subSize ticks render at consistent screen lengths
+        // across both axes regardless of the plot's aspect ratio.
+        const _gb2 = getGeoBbox(pic.commands);
+        const rX2 = (_gb2 && isFinite(_gb2.maxX - _gb2.minX)) ? Math.abs(_gb2.maxX - _gb2.minX) : (Math.abs(max - min) || 1);
+        const rY2 = (_gb2 && isFinite(_gb2.maxY - _gb2.minY)) ? Math.abs(_gb2.maxY - _gb2.minY) : perpAxisRange;
+        const maxDim2 = Math.max(rX2, rY2);
+        if (maxDim2 > 0) _ticksBpPerUnit = 150 / maxDim2;
       }
       function _bpToUnit(bp) {
         if (_ticksBpPerUnit > 0) return bp / _ticksBpPerUnit;
@@ -9240,6 +9265,19 @@ function createInterpreter() {
       // texer's rendering where bare-axes show a small extension past the
       // origin / data extremes (Asymptote's ship-time behavior expands
       // pic.userMin/userMax by axis-label glyph extents).
+      // NOTE: Do NOT extend arrow-bearing axes by this 6% factor.  For
+      // diagrams whose data already terminates at a "nice" tick boundary
+      // (e.g. 00200/00202 cardioid with y-extent 0..4, 00247 polar
+      // coordinates, 00059 graph with explicit xlimits), Asymptote's
+      // autoscale doesn't expand the bounds; the arrow head sits naturally
+      // at the data edge.  Adding 6% pushes the axis arrow visibly past
+      // closed-curve geometry, breaking SSIM badly.  Diagrams like 00273
+      // (slopefield with arrow-bearing axes where TeXeR DOES extend past
+      // the slope-field box) need a more targeted detection — e.g. arrow-
+      // bearing axis combined with `add()`-imported sub-picture geometry
+      // like slopefield/grid markers — which isn't implemented yet.
+      // Net of polargraph regressions, leaving the 6% off for arrow axes
+      // gives a clear SSIM gain across the corpus.
       const _xaxisBareIdiom = !arrow && !ticks && !extent
         && !xminExplicit && !xmaxExplicit && !axisShiftYExplicit;
       // Detect deferred-extent placement: when extent=Bottom/Top is used and
@@ -9576,7 +9614,9 @@ function createInterpreter() {
       }
       // Plain `yaxis("string")` idiom (no arrow/extent/ticks, no explicit
       // limits, default axisShift): mark the axis so finalizeAutoAxes can
-      // extend its endpoints by ~6% past content on each side.
+      // extend its endpoints by ~6% past content on each side. See xaxis
+      // comment above for the rationale; arrow-bearing axes are excluded
+      // because the 6% factor regresses cardioid/polar plots.
       const _yaxisBareIdiom = !arrow && !ticks && !extent
         && !yminExplicit && !ymaxExplicit && !axisShiftXExplicit;
       // Detect deferred-extent placement (see xaxis above).
@@ -17626,6 +17666,10 @@ function renderSVG(result, opts) {
   // The geometry has nothing to thicken — boost should be skipped on these.
   const geoIs1D = !geoIsDegenerate &&
     ((maxX - minX) === 0 || (maxY - minY) === 0);
+  // Capture orientation at the same site (before padding/label expansion
+  // alter min/max).  Horizontal 1D = y-range is the zero one (geometry is a
+  // horizontal line of points/strokes).  Vertical 1D = x-range is zero.
+  const geoIs1DHorizontal = geoIs1D && (maxY - minY) === 0;
 
   // Padding in bp, converted to user coordinates.  Real Asymptote expands the
   // bbox by each path's pen width; we approximate with a small fixed pad (1 bp
@@ -18046,20 +18090,45 @@ function renderSVG(result, opts) {
     // small label, fullNat ~54bp barely below the 55bp boost threshold).
     // Skip the boost in that case so the rendered output matches TeXeR's
     // literal-unitsize sizing instead of being inflated to ~200bp.
+    // Also extend to smaller naturalMax (≥ 25bp) for "simple-vector" idioms
+    // where labels don't significantly expand the bbox (fullNatMax/natMax < 1.5):
+    // e.g. 01716 / 01805 have U=(1,2) at unitsize(15) ⇒ natMax=30bp, single
+    // small "u" label, fullNat ~38bp. natMax > 20 disqualifies them from
+    // _labelDominatesTiny, but TeXeR still renders at literal scale (~21bp
+    // tall), so without this skip the boost inflates to ~200bp (5–7× too big).
+    const _midRangeNatMax = Math.max(naturalW, naturalH);
+    const _midRangeFullNatMax = Math.max(fullNatW, fullNatH);
+    const _midRangeSimpleVector = _midRangeNatMax >= 25 && _midRangeNatMax < 45
+      && _midRangeFullNatMax > 0
+      && _midRangeFullNatMax < 1.5 * _midRangeNatMax;
     const _midRangeSkipBoost = unitScale >= 10 && unitScale < 20
-      && Math.max(naturalW, naturalH) >= 45
+      && (_midRangeNatMax >= 45 || _midRangeSimpleVector)
       && !_crowdRequiresBoost && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded;
     // Graph-axis idioms (xaxis/yaxis with small unitsize) signal a deliberate
     // graph-package layout where TeXeR boosts the geometry to ~150bp regardless
     // of label dominance — so let those flags override _labelDominatesTiny.
     const _graphAxisOverridesLabelTiny = _graphAxisBoostNeeded || _graphAxisCmBoostNeeded;
+    // Small-cm unitsize (3 ≤ unitScale < 10, e.g. unitsize(0.2cm)=5.67) where
+    // a wide label inflates fullNat past minReasonable but the geometry alone
+    // is still well below it.  Without this trigger, the boost is skipped
+    // because the label-expanded bbox looks "big enough", leaving the
+    // geometry tiny — but TeXeR still boosts these so the geometry remains
+    // visible alongside the wide label.  E.g. 02158: unit-circle diagram via
+    // rr_cartesian_axes at unitsize(0.2cm) (10×10 user units = 56.7×56.7bp
+    // geometry), with a wide "Terminal point of $\theta$" label inflating
+    // fullNat past 100bp.  TeXeR renders the geometry at ~150bp.
+    const _smallCmNatMax = Math.max(naturalW, naturalH);
+    const _smallCmFullNatMax = Math.max(fullNatW, fullNatH);
+    const _smallCmLabelDominated = unitScale >= 3 && unitScale < 10
+      && _smallCmNatMax > 0 && _smallCmNatMax < 80
+      && _smallCmFullNatMax >= minReasonable;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny)
         && !_sizeExplicit
         && !_midRangeSkipBoost
         && naturalW < defaultSize && naturalH < defaultSize
-        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded)) {
+        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
       // labels at edge midpoints don't crowd each other.  Only applies when
@@ -18122,7 +18191,13 @@ function renderSVG(result, opts) {
                      // modest geometry size (~75bp) so total bbox (geometry +
                      // labels) lands near TeXeR's reference width without inflating.
                      ? 75
-                     : defaultSize;
+                     : _smallCmLabelDominated
+                       // Small-cm unitsize (e.g. 0.2cm) with wide label inflating
+                       // fullNat past minReasonable: TeXeR renders the geometry
+                       // at ~150bp so it remains visible alongside the label
+                       // (e.g. 02158 unit-circle ≈ 151bp tall).
+                       ? 150
+                       : defaultSize;
       // Clustered-label detection: when many label anchors are packed within
       // ~1 label-width of each other (e.g. physics free-body diagrams where
       // mg, mg_x, mg_y, F_f, N are all anchored near a single box), the modest
@@ -19422,13 +19497,19 @@ function renderSVG(result, opts) {
     // weight without dominating the diagram.
     const _renderedMinDim = _minDim * pxPerUnit;
     if (geoIs1D) {
-      // 1D-degenerate geometry (all points collinear, e.g. 09210/09212):
-      // there's no real second dimension to "compress" via SSIM trim+resize,
-      // so the linear-ramp boost (which would max out at 5× because
-      // padded-aspect ≈ 100s) has nothing legitimate to compensate for and
-      // would just bloat the dots/strokes that ARE the geometry.  Use a
-      // gentle 1.67× DPI-ratio boost matching the tall-thin path.
-      _autoScaledStrokeBoost = 1.67;
+      // 1D-degenerate geometry (all points collinear).
+      // Horizontal cases (y-range = 0, e.g. 09210/09212): the SSIM
+      // trim+resize step squashes the diagram horizontally to fit a 1:1
+      // square, which compresses the dot/stroke weights.  Apply 1.67× DPI-
+      // ratio boost so dots/strokes survive the trim+resize compression.
+      // Vertical cases (x-range = 0, e.g. 00992 vertical line with dots and
+      // a label at left): the diagram renders very tall and thin.  After
+      // SSIM trim+resize, the major axis (y) gets compressed dramatically,
+      // and the dots — already several bp wide — appear oversized relative
+      // to the squashed line height.  Boosting them further inflates the
+      // mismatch.  Skip the boost on vertical 1D so the dots match TeXeR's
+      // natural-sized rendering.
+      _autoScaledStrokeBoost = geoIs1DHorizontal ? 1.67 : 1.0;
     } else if (_isFlatBanner) {
       _autoScaledStrokeBoost = 2.0;
     } else if (_aspect > 6 && _renderedMinDim >= 10) {
