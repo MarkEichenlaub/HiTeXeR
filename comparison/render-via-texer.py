@@ -360,12 +360,18 @@ def main():
                         help="Re-attempt previously failed diagrams")
     parser.add_argument("--workers", type=int, default=1,
                         help="Number of parallel Chrome instances (default: 1)")
+    parser.add_argument("--ids", type=str, default="",
+                        help="Comma-separated list of specific IDs to render (bypasses ssim-results.json)")
     args = parser.parse_args()
 
-    # Build id list: prefer ssim-results.json (has corpusFile metadata), else
-    # fall back to listing asy_src/ directly. The fallback lets us fetch TeXeR
-    # PNGs before the SSIM step has ever been run.
-    if SSIM_RESULTS.exists():
+    # Build id list: if --ids given, use those directly from asy_src. Otherwise
+    # prefer ssim-results.json (has corpusFile metadata), else fall back to
+    # listing asy_src/ directly.
+    if args.ids:
+        specific_ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+        id_items = [(nid, nid) for nid in specific_ids]
+        print(f"Corpus: {len(id_items)} diagrams from --ids list", flush=True)
+    elif SSIM_RESULTS.exists():
         results = json.loads(SSIM_RESULTS.read_text(encoding="utf-8"))
         id_items = [(item["id"], item.get("corpusFile", item["id"])) for item in results]
         print(f"Corpus: {len(id_items)} diagrams in ssim-results.json", flush=True)
