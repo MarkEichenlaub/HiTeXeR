@@ -54,6 +54,39 @@ _AOPS_CDN_LOCAL = '/var/www/cdn'
 _AOPS_CDN_URL   = 'http://cdn.artofproblemsolving.com'
 _AOPS_PATH_RE   = re.compile(r'/var/www/cdn/[^\s"\'\\)]+')
 
+# Persistent on-disk EPS cache shared with eps-cache.js (Node).
+# Layout: comparison/eps_cache/index.json + <hash>__<base>.png
+_EPS_CACHE_DIR   = os.path.join(os.path.dirname(__file__), 'comparison', 'eps_cache')
+_EPS_INDEX_FILE  = os.path.join(_EPS_CACHE_DIR, 'index.json')
+
+
+def _eps_cache_safe_filename(aops_path: str) -> str:
+    """Mirror of safeFilename() in eps-cache.js so both writers agree on names."""
+    import hashlib
+    h = hashlib.sha1(aops_path.encode('utf-8')).hexdigest()[:12]
+    base_raw = os.path.splitext(os.path.basename(aops_path))[0]
+    safe = re.sub(r'[^A-Za-z0-9_-]', '_', base_raw)[:40] or 'eps'
+    return f'{h}__{safe}.png'
+
+
+def _eps_cache_load_index() -> dict:
+    if not os.path.exists(_EPS_INDEX_FILE):
+        return {}
+    try:
+        with open(_EPS_INDEX_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _eps_cache_save_index(index: dict) -> None:
+    os.makedirs(_EPS_CACHE_DIR, exist_ok=True)
+    ordered = {k: index[k] for k in sorted(index.keys())}
+    tmp = _EPS_INDEX_FILE + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(ordered, f, indent=2)
+    os.replace(tmp, _EPS_INDEX_FILE)
+
 
 def _eps_boundingbox(eps_path: str) -> tuple[float, float]:
     """Parse %%BoundingBox / %%HiResBoundingBox from an EPS file.
@@ -84,18 +117,48 @@ def _eps_boundingbox(eps_path: str) -> tuple[float, float]:
     return (urx - llx, ury - lly)
 
 
-_eps_cache: dict[str, dict] = {}  # keyed by AoPS path string
+_eps_cache: dict[str, dict] = {}  # in-process memo of fully-loaded entries
 
 
 def _convert_eps_for_client(aops_path: str) -> dict:
     """Download, parse, and convert an AoPS EPS file to base64 PNG.
 
+    Persistent on-disk cache lives at comparison/eps_cache/ and is shared with
+    the Node-side eps-cache.js helper (used by render-hitexer.js and
+    recompute-htx.js).  Index entries look like
+        { fname, width_bp, height_bp }    on success
+        { error }                         on previous failure
+
     Returns {png_b64, width_bp, height_bp} on success,
-    or {error: str} on failure.  Results are cached in _eps_cache.
+    or {error: str} on failure.
     """
+    # In-memory hit (already fully decoded for this server lifetime)
     if aops_path in _eps_cache:
         return _eps_cache[aops_path]
 
+    os.makedirs(_EPS_CACHE_DIR, exist_ok=True)
+    index = _eps_cache_load_index()
+    entry = index.get(aops_path)
+
+    # On-disk hit
+    if entry and 'fname' in entry and not entry.get('error'):
+        png_path = os.path.join(_EPS_CACHE_DIR, entry['fname'])
+        if os.path.exists(png_path):
+            with open(png_path, 'rb') as f:
+                png_b64 = base64.b64encode(f.read()).decode('ascii')
+            result = {
+                'png_b64': png_b64,
+                'width_bp': entry.get('width_bp', 100.0),
+                'height_bp': entry.get('height_bp', 100.0),
+            }
+            _eps_cache[aops_path] = result
+            return result
+        # Stale index — fall through to refetch
+    elif entry and entry.get('error'):
+        # Previously failed — surface the error without re-attempting
+        return {'error': entry['error']}
+
+    # Cache miss → fetch + convert and persist
     public_url = _AOPS_CDN_URL + aops_path[len(_AOPS_CDN_LOCAL):]
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -105,22 +168,36 @@ def _convert_eps_for_client(aops_path: str) -> dict:
 
             width_bp, height_bp = _eps_boundingbox(eps_path)
 
-            png_path = os.path.join(tmpdir, stem + '.png')
+            fname = _eps_cache_safe_filename(aops_path)
+            png_path = os.path.join(_EPS_CACHE_DIR, fname)
             if not _eps_to_png(eps_path, png_path):
-                result = {'error': f'Ghostscript conversion failed for {aops_path}'}
-                _eps_cache[aops_path] = result
+                msg = f'Ghostscript conversion failed for {aops_path}'
+                index[aops_path] = {'error': msg}
+                _eps_cache_save_index(index)
+                result = {'error': msg}
                 return result
 
             with open(png_path, 'rb') as f:
                 png_b64 = base64.b64encode(f.read()).decode('ascii')
 
+            index[aops_path] = {
+                'fname': fname,
+                'width_bp': width_bp,
+                'height_bp': height_bp,
+            }
+            _eps_cache_save_index(index)
+
             result = {'png_b64': png_b64, 'width_bp': width_bp, 'height_bp': height_bp}
             _eps_cache[aops_path] = result
             return result
     except Exception as e:
-        result = {'error': str(e)}
-        _eps_cache[aops_path] = result
-        return result
+        msg = str(e)
+        try:
+            index[aops_path] = {'error': msg}
+            _eps_cache_save_index(index)
+        except Exception:
+            pass
+        return {'error': msg}
 
 
 def _eps_to_png(eps_path: str, png_path: str) -> bool:

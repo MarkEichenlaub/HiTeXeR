@@ -33,8 +33,18 @@ if (!A.canInterpret(code)) {
   process.exit(1);
 }
 
+// Resolve any AoPS /var/www/cdn/...eps paths via the persistent EPS cache.
+// Missing assets are downloaded + converted (Ghostscript) on first use.
+let imageCache = {};
 try {
-  const result = A.render(code, { containerW: 500, containerH: 400, labelOutput: 'svg-native' });
+  const epsCache = require('./eps-cache');
+  imageCache = epsCache.getImageCache(raw);
+} catch (e) {
+  process.stderr.write(`[render-hitexer] eps-cache unavailable: ${e.message}\n`);
+}
+
+try {
+  const result = A.render(code, { containerW: 500, containerH: 400, labelOutput: 'svg-native', imageCache });
   // Ensure UTF-8 encoding on Windows
   if (process.stdout.setEncoding) {
     process.stdout.setEncoding('utf8');

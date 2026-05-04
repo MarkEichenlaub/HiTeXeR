@@ -190,6 +190,7 @@ async function main() {
     global.katex = require('katex');
     require('./asy-interp.js');
     const A = window.AsyInterp;
+    const epsCache = require('./eps-cache');
 
     const srcFiles = fs.readdirSync(ASY_SRC).filter(f => f.endsWith('.asy')).sort();
     console.log(`  ${srcFiles.length} .asy files found in asy_src/`);
@@ -209,8 +210,12 @@ async function main() {
 
       if (!A.canInterpret(code)) { skip++; continue; }
 
+      // Resolve any /var/www/cdn/...eps assets via the persistent cache.
+      let imageCache = {};
+      try { imageCache = epsCache.getImageCache(raw); } catch (e) {}
+
       try {
-        const r = A.render(code, { containerW: 800, containerH: 600 });
+        const r = A.render(code, { containerW: 800, containerH: 600, imageCache });
         fs.writeFileSync(svgPath, r.svg);
         ok++;
       } catch (e) { fail++; }
