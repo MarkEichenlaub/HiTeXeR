@@ -1682,9 +1682,15 @@ function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
   const chordAngle = Math.atan2(dy, dx);
   const angleA = (dirOut != null) ? dirOut : chordAngle;
   const angleB = (dirIn != null) ? dirIn : chordAngle;
-  // Compute theta/phi offsets from chord for Hobby's rho function
+  // Compute theta/phi offsets from chord for Hobby's rho function.
+  // Hobby's convention: forward tangent at A makes angle (chord+theta) with x-axis,
+  // forward tangent at B makes angle (chord-phi). Hence:
+  //   theta = angleA - chord
+  //   phi   = chord - angleB
+  // (No additional PI: cp2 = b - beta*(cos angleB, sin angleB) already encodes the
+  // direction reversal; phi only feeds rho, which is sensitive to the sign.)
   const thetaA = angleA - chordAngle;
-  const phiB = chordAngle - angleB + Math.PI;
+  const phiB = chordAngle - angleB;
   // Normalize to [-pi, pi]
   const normAngle = v => { while (v > Math.PI) v -= 2*Math.PI; while (v < -Math.PI) v += 2*Math.PI; return v; };
   const theta = normAngle(thetaA);
@@ -4123,7 +4129,27 @@ function createInterpreter() {
         for (let k = runStart; k <= i; k++) {
           const idx = k % points.length;
           runKnots.push(points[idx]);
-          runDirs.push(directions ? Object.assign({}, directions[idx]) : {dirIn: null, dirOut: null});
+          const d = directions
+            ? Object.assign({}, directions[idx])
+            : {dirIn: null, dirOut: null};
+          // Asymptote semantics: at a '..'-'--' boundary, a {dir} on the boundary
+          // knot applies to the adjoining straight segment, not to the spline.
+          //   `(z){dir}--` puts {dir} into d.dirOut; the `--` is straight, so
+          //     the spline ending at z must NOT see this as an incoming
+          //     constraint.
+          //   `--{dir}(z)..` puts {dir} into d.dirIn; the `--` is straight, so
+          //     the spline starting at z must NOT see this as an outgoing
+          //     constraint.
+          // Without this clearing, the spline picks up a spurious tangent
+          // clamp and produces visibly wrong curves (e.g. asymmetric loops or
+          // knots reversed near the boundary).
+          if (k === i && k < joins.length && joins[k] === '--') {
+            d.dirOut = null;
+          }
+          if (k === runStart && k > 0 && joins[k - 1] === '--') {
+            d.dirIn = null;
+          }
+          runDirs.push(d);
         }
 
         const runSegs = hobbySpline(runKnots, false, runDirs);
@@ -4387,8 +4413,11 @@ function createInterpreter() {
     if (mod.includes('geometry')) {
       installGeometryPackage(env);
     }
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('markers') || mod.includes('palette')) {
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('palette')) {
       // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    }
+    if (mod.includes('markers')) {
+      installMarkersPackage(env);
     }
     if (mod.includes('trembling')) {
       // trembling.asy: handwriting package. Expose tremble() constructor that
@@ -4727,6 +4756,691 @@ function createInterpreter() {
       // Fall through to original draw
       if (typeof baseDraw === 'function') return baseDraw(...args);
     });
+  }
+
+  // Asymptote "markers" module (markers.asy by Philippe Ivaldi, plus the
+  // marker/markroutine/marknodes/markuniform/marker plumbing from
+  // plain_markers.asy). Provides angle/interval marker primitives:
+  //   frame builders: stickframe, tildeframe, crossframe, circlebarframe, dotframe
+  //   markroutines: marknodes, markuniform, markinterval
+  //   marker constructor: marker(frame, markroutine, above)
+  //   convenience markers: StickIntervalMarker, TildeIntervalMarker,
+  //                        CrossIntervalMarker, CircleBarIntervalMarker
+  // Frames store strokes/fills in bp (PostScript-point) units relative to (0,0);
+  // _emitMarkerFrame() converts to user units at render time using the current
+  // bp-per-user-unit scale, mirroring how markangle's existing arc tags use
+  // _bpRadius.
+  let markersPackageInstalled = false;
+  // Module-scope marker dispatcher; populated by installMarkersPackage so
+  // evalDraw / markangle can apply markers without threading env through.
+  let _markersApplyImpl = null;
+  function installMarkersPackage(env) {
+    if (markersPackageInstalled) return;
+    markersPackageInstalled = true;
+
+    const BP_PER_MM = 72/25.4; // ~2.834645669
+    // Compute approximate bp-per-user-unit using the same heuristic as
+    // markangle's radius conversion. Falls back to 150-bp default size for
+    // auto-scaled diagrams (no size(), no unitsize()).
+    function _markerBpPerUnit(target) {
+      const cmds = (target && target.commands) ? target.commands : currentPic.commands;
+      const _gb = getGeoBbox(cmds);
+      const rangeX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.max(1e-9, _gb.maxX - _gb.minX) : 1;
+      const rangeY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.max(1e-9, _gb.maxY - _gb.minY) : 1;
+      if (sizeW > 0 || sizeH > 0) {
+        const sw = sizeW > 0 ? sizeW : sizeH;
+        const sh = sizeH > 0 ? sizeH : sizeW;
+        return Math.min(sw / rangeX, sh / rangeY);
+      }
+      if (hasUnitScale) return unitScale;
+      const maxDim = Math.max(rangeX, rangeY) || 1;
+      return 150 / maxDim;
+    }
+
+    // Frame primitive: { _tag:'mframe', strokes:[{pts,closed,pen}], fills:[{pts,pen}] }
+    // Coordinates in pts[].x/y are in bp.
+    function _newFrame() { return { _tag:'mframe', strokes: [], fills: [] }; }
+
+    // If passed a function, call it to get the underlying frame value.
+    function _resolveFrame(f) {
+      if (!f) return null;
+      if (f._tag === 'mframe') return f;
+      if (typeof f === 'function') {
+        try { const r = f(); if (r && r._tag === 'mframe') return r; } catch(e) {}
+      }
+      return null;
+    }
+    function _resolveMarkroutine(r, fallback) {
+      if (typeof r === 'function' && r._isMarkroutine) return r;
+      // Bare frame symbol used where a markroutine is expected → no-op
+      // routine that just places the frame at every node (marknodes default).
+      return fallback;
+    }
+
+    // Emit a frame at user-coord position with rotation angleRad. Emits
+    // draw/fill commands directly into the target picture.
+    function _emitMarkerFrame(target, frame, posU, angleRad) {
+      const f = _resolveFrame(frame);
+      if (!f) return;
+      const bpu = _markerBpPerUnit(target);
+      const ca = Math.cos(angleRad), sa = Math.sin(angleRad);
+      const xform = (px, py) => {
+        const rx = px * ca - py * sa;
+        const ry = px * sa + py * ca;
+        return makePair(posU.x + rx / bpu, posU.y + ry / bpu);
+      };
+      for (const s of f.strokes) {
+        const segs = [];
+        for (let k = 0; k < s.pts.length - 1; k++) {
+          segs.push(lineSegment(xform(s.pts[k].x, s.pts[k].y), xform(s.pts[k+1].x, s.pts[k+1].y)));
+        }
+        if (s.closed && s.pts.length >= 2) {
+          segs.push(lineSegment(xform(s.pts[s.pts.length-1].x, s.pts[s.pts.length-1].y), xform(s.pts[0].x, s.pts[0].y)));
+        }
+        if (segs.length > 0) {
+          target.commands.push({cmd:'draw', path: makePath(segs, !!s.closed), pen: clonePen(s.pen || defaultPen), arrow:null, line:0});
+        }
+      }
+      for (const fl of f.fills) {
+        const segs = [];
+        for (let k = 0; k < fl.pts.length - 1; k++) {
+          segs.push(lineSegment(xform(fl.pts[k].x, fl.pts[k].y), xform(fl.pts[k+1].x, fl.pts[k+1].y)));
+        }
+        if (fl.pts.length >= 2) {
+          segs.push(lineSegment(xform(fl.pts[fl.pts.length-1].x, fl.pts[fl.pts.length-1].y), xform(fl.pts[0].x, fl.pts[0].y)));
+        }
+        if (segs.length > 0) {
+          target.commands.push({cmd:'fill', path: makePath(segs, true), pen: clonePen(fl.pen || defaultPen), line:0});
+        }
+      }
+    }
+
+    // De Casteljau evaluation of a path at parameter t in [0,1] with both
+    // position and tangent. Mirrors evalDraw's label-on-path math.
+    function _pathPointAndTangent(path, t) {
+      const segs = path && path.segs ? path.segs : null;
+      if (!segs || segs.length === 0) return null;
+      const totalSegs = segs.length;
+      const sp = Math.min(Math.max(0, t), 1) * totalSegs;
+      const idx = Math.min(Math.floor(sp), totalSegs - 1);
+      const lt = sp - idx;
+      const seg = segs[idx];
+      const b = (1 - lt);
+      const px = b*b*b*seg.p0.x + 3*b*b*lt*seg.cp1.x + 3*b*lt*lt*seg.cp2.x + lt*lt*lt*seg.p3.x;
+      const py = b*b*b*seg.p0.y + 3*b*b*lt*seg.cp1.y + 3*b*lt*lt*seg.cp2.y + lt*lt*lt*seg.p3.y;
+      const tx = 3*b*b*(seg.cp1.x - seg.p0.x) + 6*b*lt*(seg.cp2.x - seg.cp1.x) + 3*lt*lt*(seg.p3.x - seg.cp2.x);
+      const ty = 3*b*b*(seg.cp1.y - seg.p0.y) + 6*b*lt*(seg.cp2.y - seg.cp1.y) + 3*lt*lt*(seg.p3.y - seg.cp2.y);
+      return { pos: makePair(px, py), tx, ty };
+    }
+
+    function _markNodes(target, frame, path) {
+      const segs = path && path.segs ? path.segs : null;
+      if (!segs || segs.length === 0) return;
+      // Place at each node: first p0 of seg0, then p3 of each seg.
+      const pts = [segs[0].p0];
+      for (const s of segs) pts.push(s.p3);
+      // For closed paths, last node coincides with first; skip duplicate.
+      const limit = path.closed ? pts.length - 1 : pts.length;
+      for (let i = 0; i < limit; i++) {
+        _emitMarkerFrame(target, frame, makePair(pts[i].x, pts[i].y), 0);
+      }
+    }
+    _markNodes._isMarkroutine = true;
+    _markNodes._kind = 'marknodes';
+
+    function _markUniformBuilder(centered, n, rotated) {
+      const fn = function(target, frame, path) {
+        if (!frame || n <= 0) return;
+        const positions = [];
+        if (centered) {
+          for (let i = 0; i < n; i++) positions.push((i + 0.5) / n);
+        } else {
+          if (n === 1) positions.push(0.5);
+          else for (let i = 0; i < n; i++) positions.push(i / (n - 1));
+        }
+        for (const t of positions) {
+          const pt = _pathPointAndTangent(path, t);
+          if (!pt) continue;
+          const angle = rotated ? Math.atan2(pt.ty, pt.tx) : 0;
+          _emitMarkerFrame(target, frame, pt.pos, angle);
+        }
+      };
+      fn._isMarkroutine = true;
+      fn._kind = 'markuniform';
+      return fn;
+    }
+
+    function _markIntervalBuilder(n, innerFrame, rotated) {
+      const fn = function(target, outerFrame, path) {
+        // Outer marks at n+1 evenly spaced points (uses the outer frame
+        // supplied via marker.frame; defaults to empty newframe).
+        _markUniformBuilder(false, n + 1, rotated)(target, outerFrame, path);
+        // Inner marks (the interval marks) centered between each pair.
+        if (innerFrame) _markUniformBuilder(true, n, rotated)(target, innerFrame, path);
+      };
+      fn._isMarkroutine = true;
+      fn._kind = 'markinterval';
+      // Also record inner frame on the function so legacy code paths
+      // (e.g. existing markangle stickframe special-case) can introspect.
+      fn._innerFrame = innerFrame;
+      fn._rotated = rotated;
+      fn._n = n;
+      return fn;
+    }
+
+    // ---- Frame builders --------------------------------------------------
+
+    // Sizing factors translated from markers.asy.
+    const stickmarksizefactor = 10;
+    const stickmarkspacefactor = 4;
+    const tildemarksizefactor = 5;
+    const crossmarksizefactor = 5;
+    const golden = (1 + Math.sqrt(5)) / 2;
+
+    function _penLW(p) {
+      if (!p) return 0.5;
+      return (typeof p.linewidth === 'number' && p.linewidth > 0) ? p.linewidth : 0.5;
+    }
+    function _stickmarksize(p) { return 1*BP_PER_MM + stickmarksizefactor*Math.sqrt(_penLW(p)); }
+    function _stickmarkspace(p) { return stickmarkspacefactor*Math.sqrt(_penLW(p)); }
+    function _tildemarksize(p) { return (1*BP_PER_MM + tildemarksizefactor*Math.sqrt(_penLW(p))) / golden; }
+    function _crossmarksize(p) { return 1*BP_PER_MM + crossmarksizefactor*Math.sqrt(_penLW(p)); }
+    function _circlemarkradius(p) { return (1*BP_PER_MM + (stickmarksizefactor/2)*Math.sqrt(_penLW(p))) / golden; }
+    function _barmarksize(p) { return 1*BP_PER_MM + stickmarksizefactor*Math.sqrt(_penLW(p)); }
+
+    // Generic positional/named arg unpacker for the frame functions. All of
+    // them have the same parameter signature shape:
+    //   (int n=1, real size=0, pair space=0, real angle=0, pair offset=0, pen p=currentpen)
+    // (circlebarframe replaces `space` with `barsize` and adds extra params,
+    // handled inline in its own function.)
+    function _parseFrameArgs(args) {
+      const named = {};
+      const pos = [];
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) Object.assign(named, a);
+        else if (a !== undefined && a !== null) pos.push(a);
+      }
+      // Defaults + named
+      let n = ('n' in named) ? Math.round(toNumber(named.n)) : 1;
+      let haveN = ('n' in named);
+      let size = ('size' in named) ? toNumber(named.size) : 0;
+      let haveSize = ('size' in named);
+      let space = ('space' in named) ? named.space : null;
+      let haveSpace = ('space' in named);
+      let angle = ('angle' in named) ? toNumber(named.angle) : 0;
+      let haveAngle = ('angle' in named);
+      let offset = ('offset' in named) ? named.offset : null;
+      let haveOffset = ('offset' in named);
+      let pen = ('p' in named && isPen(named.p)) ? named.p : (('pen' in named && isPen(named.pen)) ? named.pen : null);
+      let barsize = ('barsize' in named) ? toNumber(named.barsize) : 0;
+      let radius = ('radius' in named) ? toNumber(named.radius) : 0;
+      let haveBarsize = ('barsize' in named);
+      let haveRadius = ('radius' in named);
+      // Positional: dispatch by type. Order int→real→pair→real→pair→pen.
+      // For circlebarframe, second/third reals map to barsize/radius which
+      // is handled by the caller via barsize/radius after returning.
+      for (const a of pos) {
+        if (typeof a === 'number') {
+          // Heuristic: integers without decimals → n (if not yet set)
+          if (!haveN && Math.abs(a - Math.round(a)) < 1e-9 && a >= 0 && a < 100) {
+            n = Math.round(a); haveN = true; continue;
+          }
+          if (!haveSize) { size = a; haveSize = true; continue; }
+          if (!haveBarsize) { barsize = a; haveBarsize = true; continue; }
+          if (!haveRadius) { radius = a; haveRadius = true; continue; }
+          if (!haveAngle) { angle = a; haveAngle = true; continue; }
+          // Otherwise ignore
+        } else if (isPair(a)) {
+          if (!haveSpace) { space = a; haveSpace = true; continue; }
+          if (!haveOffset) { offset = a; haveOffset = true; continue; }
+        } else if (isPen(a)) {
+          pen = a;
+        }
+      }
+      if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+      const offV = (offset && isPair(offset)) ? toPair(offset) : makePair(0, 0);
+      const spaceV = (space && isPair(space)) ? toPair(space) : null; // null → default
+      return { n, size, space: spaceV, angle, offset: offV, pen, barsize, radius };
+    }
+
+    // Add n copies of a path-stroke shifted along `space` direction.
+    // Mirrors markers.asy's duplicate(): centered around position 0 with
+    // alternating ±sign progression.
+    function _duplicateStroke(frame, basePts, n, space, pen) {
+      // n copies, with offsets (pos - 0.5*m)*space where m=(n+1)%2.
+      let pos = 0;
+      let sign = 1;
+      const m = (n + 1) % 2;
+      for (let i = 1; i <= n; i++) {
+        const sx = space.x * (pos - 0.5*m);
+        const sy = space.y * (pos - 0.5*m);
+        const shifted = basePts.map(p => ({ x: p.x + sx, y: p.y + sy }));
+        frame.strokes.push({ pts: shifted, closed: false, pen: clonePen(pen) });
+        pos += i * sign;
+        sign *= -1;
+      }
+    }
+
+    function _rotPair(p, angDeg) {
+      const a = angDeg * Math.PI / 180;
+      const c = Math.cos(a), s = Math.sin(a);
+      return { x: p.x * c - p.y * s, y: p.x * s + p.y * c };
+    }
+    function _shiftPts(pts, ox, oy) {
+      return pts.map(p => ({ x: p.x + ox, y: p.y + oy }));
+    }
+
+    // stickframe — n copies of a vertical stick of length `size`, separated by `space`.
+    function _stickframeImpl(args) {
+      const a = _parseFrameArgs(args);
+      const size = a.size > 0 ? a.size : _stickmarksize(a.pen);
+      const space = a.space || makePair(_stickmarkspace(a.pen), 0);
+      const halfLen = 0.5 * size;
+      // Base path: N--S → vertical line from (0, halfLen) to (0, -halfLen)
+      let basePts = [{ x: 0, y: halfLen }, { x: 0, y: -halfLen }];
+      basePts = basePts.map(p => _rotPair(p, a.angle));
+      basePts = _shiftPts(basePts, a.offset.x, a.offset.y);
+      const f = _newFrame();
+      _duplicateStroke(f, basePts, a.n, space, a.pen);
+      return f;
+    }
+
+    // tildeframe — yscale(1.25) applied to a small s-curve, scaled by `size`.
+    // Approximated as 8 line segments along the s-curve for fidelity.
+    function _tildeframeImpl(args) {
+      const a = _parseFrameArgs(args);
+      const size = a.size > 0 ? a.size : _tildemarksize(a.pen);
+      const space = a.space || makePair(1.5 * size, 0);
+      // s-curve through (-1.5,-0.5) (-0.75,0.5) (0,0) (0.75,-0.5) (1.5,0.5)
+      // Sample 33 points on the cubic-like spline and yscale by 1.25.
+      const ctrl = [
+        { x: -1.5, y: -0.5 }, { x: -0.75, y: 0.5 }, { x: 0, y: 0 },
+        { x: 0.75, y: -0.5 }, { x: 1.5, y: 0.5 }
+      ];
+      // Catmull-Rom-like sampling between consecutive controls.
+      const samp = [];
+      const N = 8;
+      for (let i = 0; i < ctrl.length - 1; i++) {
+        const p0 = ctrl[Math.max(0, i - 1)], p1 = ctrl[i], p2 = ctrl[i + 1], p3 = ctrl[Math.min(ctrl.length - 1, i + 2)];
+        for (let k = 0; k <= N; k++) {
+          const t = k / N;
+          const t2 = t*t, t3 = t2*t;
+          // Catmull-Rom with tension 0.5
+          const x = 0.5 * ((2*p1.x) + (-p0.x + p2.x)*t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x)*t2 + (-p0.x + 3*p1.x - 3*p2.x + p3.x)*t3);
+          const y = 0.5 * ((2*p1.y) + (-p0.y + p2.y)*t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y)*t2 + (-p0.y + 3*p1.y - 3*p2.y + p3.y)*t3);
+          if (samp.length > 0 && i > 0 && k === 0) continue; // dedupe joins
+          samp.push({ x, y: 1.25 * y });
+        }
+      }
+      let basePts = samp.map(p => ({ x: p.x * size, y: p.y * size }));
+      basePts = basePts.map(p => _rotPair(p, a.angle));
+      basePts = _shiftPts(basePts, a.offset.x, a.offset.y);
+      const f = _newFrame();
+      _duplicateStroke(f, basePts, a.n, space, a.pen);
+      return f;
+    }
+
+    // crossframe — `n`-pointed cyclic cross at `size`, default n=3.
+    function _crossframeImpl(args) {
+      const a = _parseFrameArgs(args);
+      // crossframe defaults: n = 3 (number of cross arms), size from pen.
+      // _parseFrameArgs already set n from positional/named; treat n as the
+      // number of cross arms. If user didn't explicitly set n, default 3.
+      let nArms = a.n;
+      let userSetN = false;
+      for (const x of args) {
+        if (x && typeof x === 'object' && x._named && 'n' in x) userSetN = true;
+        else if (typeof x === 'number' && Math.abs(x - Math.round(x)) < 1e-9 && x >= 0 && x < 100 && !userSetN) { userSetN = true; break; }
+      }
+      if (!userSetN) nArms = 3;
+      const size = a.size > 0 ? a.size : _crossmarksize(a.pen);
+      const f = _newFrame();
+      // n-armed cross: 2*n line segments through the origin, evenly rotated.
+      // Mirrors plain_markers.asy's cross(n) with full r=0 (no inner radius).
+      const halfLen = 0.5 * size;
+      for (let i = 0; i < nArms; i++) {
+        const ang = (i / nArms) * Math.PI; // arms separated by π/n (full cross has 2*n endpoints)
+        const dx = halfLen * Math.cos(ang), dy = halfLen * Math.sin(ang);
+        let pts = [{ x: -dx, y: -dy }, { x: dx, y: dy }];
+        pts = pts.map(p => _rotPair(p, a.angle));
+        pts = _shiftPts(pts, a.offset.x, a.offset.y);
+        f.strokes.push({ pts, closed: false, pen: clonePen(a.pen) });
+      }
+      return f;
+    }
+
+    // circlebarframe — circle of given radius with `n` parallel bars across.
+    function _circlebarframeImpl(args) {
+      const a = _parseFrameArgs(args);
+      const radius = a.radius > 0 ? a.radius : _circlemarkradius(a.pen);
+      const barsize = a.barsize > 0 ? a.barsize : _barmarksize(a.pen);
+      const f = _newFrame();
+      // Circle (32-segment polygon approximation in bp).
+      const N = 32;
+      const cpts = [];
+      for (let i = 0; i < N; i++) {
+        const ang = (i / N) * 2 * Math.PI;
+        cpts.push({ x: a.offset.x + radius * Math.cos(ang), y: a.offset.y + radius * Math.sin(ang) });
+      }
+      f.strokes.push({ pts: cpts, closed: true, pen: clonePen(a.pen) });
+      // n parallel bars at angle a.angle
+      const ca = Math.cos(a.angle * Math.PI / 180), sa = Math.sin(a.angle * Math.PI / 180);
+      const halfBar = 0.5 * barsize;
+      const spaceVal = 2 * radius / (a.n + 1);
+      const m = (a.n + 1) % 2;
+      let pos = 0, sign = 1;
+      for (let i = 1; i <= a.n; i++) {
+        const sx = spaceVal * (pos - 0.5 * m);
+        // Bar perpendicular to angle, shifted along angle by sx
+        const cx = a.offset.x + ca * sx;
+        const cy = a.offset.y + sa * sx;
+        const px = -sa * halfBar, py = ca * halfBar; // perpendicular direction
+        const pts = [{ x: cx - px, y: cy - py }, { x: cx + px, y: cy + py }];
+        f.strokes.push({ pts, closed: false, pen: clonePen(a.pen) });
+        pos += i * sign;
+        sign *= -1;
+      }
+      return f;
+    }
+
+    // dotframe — single small filled dot. Not in markers.asy but used by some
+    // diagrams; modeled on the convention that plain markers use a small
+    // disk of radius dotsize(p)/2 at the origin.
+    function _dotframeImpl(args) {
+      const a = _parseFrameArgs(args);
+      const lw = _penLW(a.pen);
+      const r = (1 + lw * 6) / 2; // matches dotsize for typical pen sizes
+      const f = _newFrame();
+      const N = 24;
+      const pts = [];
+      for (let i = 0; i < N; i++) {
+        const ang = (i / N) * 2 * Math.PI;
+        pts.push({ x: a.offset.x + r * Math.cos(ang), y: a.offset.y + r * Math.sin(ang) });
+      }
+      f.fills.push({ pts, pen: clonePen(a.pen) });
+      return f;
+    }
+
+    // ---- Function registration ------------------------------------------
+
+    // Make stickframe etc. callable AND yield a default frame when used as a
+    // bare value. We register functions; downstream consumers (markinterval,
+    // marker) call _resolveFrame() to coerce a function to its zero-arg
+    // result if needed.
+    env.set('stickframe', (...args) => _stickframeImpl(args));
+    env.set('tildeframe', (...args) => _tildeframeImpl(args));
+    env.set('crossframe', (...args) => _crossframeImpl(args));
+    env.set('circlebarframe', (...args) => _circlebarframeImpl(args));
+    env.set('dotframe', (...args) => _dotframeImpl(args));
+
+    env.set('newframe', _newFrame());
+
+    // Sizing factor accessors (real-returning), in case a corpus diagram
+    // references them directly.
+    env.set('stickmarksize', (...args) => {
+      const p = args.find(a => isPen(a));
+      return _stickmarksize(p || env.get('currentpen') || defaultPen);
+    });
+    env.set('stickmarkspace', (...args) => {
+      const p = args.find(a => isPen(a));
+      return _stickmarkspace(p || env.get('currentpen') || defaultPen);
+    });
+    env.set('tildemarksize', (...args) => {
+      const p = args.find(a => isPen(a));
+      return _tildemarksize(p || env.get('currentpen') || defaultPen);
+    });
+    env.set('crossmarksize', (...args) => {
+      const p = args.find(a => isPen(a));
+      return _crossmarksize(p || env.get('currentpen') || defaultPen);
+    });
+    env.set('circlemarkradius', (...args) => {
+      const p = args.find(a => isPen(a));
+      return _circlemarkradius(p || env.get('currentpen') || defaultPen);
+    });
+    env.set('barmarksize', (...args) => {
+      const p = args.find(a => isPen(a));
+      return _barmarksize(p || env.get('currentpen') || defaultPen);
+    });
+    env.set('stickmarkspacefactor', stickmarkspacefactor);
+    env.set('stickmarksizefactor', stickmarksizefactor);
+    env.set('tildemarksizefactor', tildemarksizefactor);
+    env.set('crossmarksizefactor', crossmarksizefactor);
+
+    // markroutines
+    env.set('marknodes', _markNodes);
+    env.set('markuniform', (...args) => {
+      // markuniform(int n, bool rotated=false)
+      // markuniform(bool centered=false, int n, bool rotated=false)
+      // markuniform(pair z(real), real a, real b, int n) — function-arg
+      // overload; we support only the first two forms (the last is unused
+      // in the corpus).
+      const named = {};
+      const pos = [];
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) Object.assign(named, a);
+        else pos.push(a);
+      }
+      let centered = ('centered' in named) ? !!named.centered : false;
+      let n = ('n' in named) ? Math.round(toNumber(named.n)) : 1;
+      let rotated = ('rotated' in named) ? !!named.rotated : false;
+      let nFromPos = false;
+      for (const a of pos) {
+        if (typeof a === 'boolean') {
+          if (!nFromPos) centered = a; else rotated = a;
+        } else if (typeof a === 'number') {
+          n = Math.round(a); nFromPos = true;
+        }
+      }
+      return _markUniformBuilder(centered, n, rotated);
+    });
+    env.set('markinterval', (...args) => {
+      // markinterval(int n=1, frame f, bool rotated=false)
+      const named = {};
+      const pos = [];
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) Object.assign(named, a);
+        else pos.push(a);
+      }
+      let n = ('n' in named) ? Math.round(toNumber(named.n)) : 1;
+      let frame = null;
+      let rotated = ('rotated' in named) ? !!named.rotated : false;
+      let nSet = ('n' in named);
+      for (const a of pos) {
+        if (typeof a === 'number' && !nSet) { n = Math.round(a); nSet = true; }
+        else if (a && (a._tag === 'mframe' || typeof a === 'function')) { if (!frame) frame = a; }
+        else if (typeof a === 'boolean') { rotated = a; }
+      }
+      return _markIntervalBuilder(n, _resolveFrame(frame), rotated);
+    });
+
+    // marker constructor — overloaded:
+    //   marker(frame f=newframe, markroutine markroutine=marknodes, bool above=true)
+    //   marker(path[] g, markroutine, pen, filltype, above)
+    // We handle the common cases used by the corpus (frame+markroutine).
+    env.set('marker', (...args) => {
+      const named = {};
+      const pos = [];
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) Object.assign(named, a);
+        else pos.push(a);
+      }
+      let frame = ('uniform' in named) ? named.uniform : (('f' in named) ? named.f : null);
+      let routine = ('markroutine' in named) ? named.markroutine : null;
+      let above = ('above' in named) ? !!named.above : true;
+      // Positional dispatch
+      for (const a of pos) {
+        if (a && (a._tag === 'mframe')) { if (!frame) frame = a; }
+        else if (typeof a === 'function' && a._isMarkroutine) { if (!routine) routine = a; }
+        else if (typeof a === 'function') {
+          // Could be a frame-builder function used as bare reference (e.g.
+          // stickframe). Resolve to default frame.
+          const rf = _resolveFrame(a);
+          if (rf && !frame) frame = rf;
+          else if (!routine) routine = a;
+        }
+        else if (typeof a === 'boolean') above = a;
+        else if (Array.isArray(a) && a.length > 0 && isPath(a[0])) {
+          // marker(path[] g, ...) form: build a stroked frame from the paths.
+          const f = _newFrame();
+          // Simple approximation: stroke each path with currentpen — convert
+          // to bp-coord stroke list. (Each path is in bp units already since
+          // these come from markers.asy's path constructions.)
+          for (const pth of a) {
+            if (pth && pth.segs) {
+              for (const s of pth.segs) {
+                f.strokes.push({ pts: [s.p0, s.p3], closed: false, pen: clonePen(env.get('currentpen') || defaultPen) });
+              }
+            }
+          }
+          if (!frame) frame = f;
+        }
+      }
+      if (!frame) frame = _newFrame();
+      if (!routine) routine = _markNodes;
+      return { _tag: 'marker', frame: _resolveFrame(frame) || frame, markroutine: routine, above };
+    });
+
+    env.set('nomarker', { _tag: 'marker', frame: _newFrame(), markroutine: _markNodes, above: true, _empty: true });
+
+    // ---- Convenience IntervalMarker constructors ------------------------
+
+    function _intervalMarkerArgs(args) {
+      // Common signature: (int i=2, int n=1, real size=0, real space=0,
+      //                    real angle=0, pair offset=0, bool rotated=true,
+      //                    pen p=currentpen, frame uniform=newframe,
+      //                    bool above=true)
+      const named = {};
+      const pos = [];
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) Object.assign(named, a);
+        else if (a !== undefined && a !== null) pos.push(a);
+      }
+      let i = ('i' in named) ? Math.round(toNumber(named.i)) : 2;
+      let n = ('n' in named) ? Math.round(toNumber(named.n)) : 1;
+      let size = ('size' in named) ? toNumber(named.size) : 0;
+      let space = ('space' in named) ? toNumber(named.space) : 0;
+      let angle = ('angle' in named) ? toNumber(named.angle) : 0;
+      let offset = ('offset' in named && isPair(named.offset)) ? toPair(named.offset) : makePair(0, 0);
+      let rotated = ('rotated' in named) ? !!named.rotated : true;
+      let pen = ('p' in named && isPen(named.p)) ? named.p : null;
+      let uniform = ('uniform' in named) ? named.uniform : null;
+      let above = ('above' in named) ? !!named.above : true;
+      let barsize = ('barsize' in named) ? toNumber(named.barsize) : 0;
+      let radius = ('radius' in named) ? toNumber(named.radius) : 0;
+      let filltype = ('filltype' in named) ? named.filltype : null;
+      let circleabove = ('circleabove' in named) ? !!named.circleabove : false;
+      // Positional: i, n, size, space, angle, offset, rotated, p, uniform,
+      // above. We dispatch by type & order:
+      const haveFlags = { i: ('i' in named), n: ('n' in named), size: ('size' in named), space: ('space' in named), angle: ('angle' in named), offset: ('offset' in named), rotated: ('rotated' in named), pen: ('p' in named), uniform: ('uniform' in named), above: ('above' in named) };
+      // Frame parameter for the inner-mark portion: in the corpus the
+      // dominant pattern is StickIntervalMarker(i, n, [size?,] pen, frame).
+      // We assign positional numbers in order: i, n, size, space, angle.
+      let intCount = 0, realCount = 0;
+      for (const a of pos) {
+        if (typeof a === 'number') {
+          if (Math.abs(a - Math.round(a)) < 1e-9 && intCount === 0 && !haveFlags.i) {
+            i = Math.round(a); intCount++; haveFlags.i = true; continue;
+          }
+          if (Math.abs(a - Math.round(a)) < 1e-9 && intCount === 1 && !haveFlags.n) {
+            n = Math.round(a); intCount++; haveFlags.n = true; continue;
+          }
+          // Subsequent reals: size, space, angle
+          if (!haveFlags.size) { size = a; haveFlags.size = true; continue; }
+          if (!haveFlags.space) { space = a; haveFlags.space = true; continue; }
+          if (!haveFlags.angle) { angle = a; haveFlags.angle = true; continue; }
+        } else if (isPair(a) && !haveFlags.offset) { offset = toPair(a); haveFlags.offset = true; }
+        else if (typeof a === 'boolean') {
+          if (!haveFlags.rotated) { rotated = a; haveFlags.rotated = true; }
+          else if (!haveFlags.above) { above = a; haveFlags.above = true; }
+        } else if (isPen(a)) { pen = a; haveFlags.pen = true; }
+        else if (a && a._tag === 'mframe') { uniform = a; haveFlags.uniform = true; }
+        else if (typeof a === 'function') {
+          const rf = _resolveFrame(a);
+          if (rf) { uniform = rf; haveFlags.uniform = true; }
+        }
+      }
+      if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+      return { i, n, size, space, angle, offset, rotated, p: pen, uniform: _resolveFrame(uniform), above, barsize, radius, filltype, circleabove };
+    }
+
+    function _markerFromInner(p, innerFrame, rotated, uniform, above) {
+      const routine = _markIntervalBuilder(p.i, innerFrame, rotated);
+      const outerFrame = uniform || _newFrame();
+      return { _tag: 'marker', frame: outerFrame, markroutine: routine, above };
+    }
+
+    env.set('StickIntervalMarker', (...args) => {
+      const p = _intervalMarkerArgs(args);
+      const inner = _stickframeImpl([
+        { _named: true, n: p.n },
+        { _named: true, size: p.size },
+        { _named: true, angle: p.angle },
+        { _named: true, offset: p.offset },
+        ...(p.space > 0 ? [{ _named: true, space: makePair(p.space, 0) }] : []),
+        p.p,
+      ]);
+      return _markerFromInner(p, inner, p.rotated, p.uniform, p.above);
+    });
+    env.set('CrossIntervalMarker', (...args) => {
+      const p = _intervalMarkerArgs(args);
+      // crossframe defaults n=3
+      const nArms = ('n' in (args.find(a => a && a._named && 'n' in a) || {})) ? p.n : (p.n === 1 ? 3 : p.n);
+      const inner = _crossframeImpl([
+        { _named: true, n: nArms },
+        { _named: true, size: p.size },
+        { _named: true, angle: p.angle },
+        { _named: true, offset: p.offset },
+        p.p,
+      ]);
+      return _markerFromInner(p, inner, p.rotated, p.uniform, p.above);
+    });
+    env.set('CircleBarIntervalMarker', (...args) => {
+      const p = _intervalMarkerArgs(args);
+      const inner = _circlebarframeImpl([
+        { _named: true, n: p.n },
+        { _named: true, barsize: p.barsize },
+        { _named: true, radius: p.radius },
+        { _named: true, angle: p.angle },
+        { _named: true, offset: p.offset },
+        p.p,
+      ]);
+      return _markerFromInner(p, inner, p.rotated, p.uniform, p.above);
+    });
+    env.set('TildeIntervalMarker', (...args) => {
+      const p = _intervalMarkerArgs(args);
+      const inner = _tildeframeImpl([
+        { _named: true, n: p.n },
+        { _named: true, size: p.size },
+        { _named: true, angle: p.angle },
+        { _named: true, offset: p.offset },
+        p.p,
+      ]);
+      return _markerFromInner(p, inner, p.rotated, p.uniform, p.above);
+    });
+
+    // Expose the marker-application helper at module scope so evalDraw
+    // and markangle can invoke a marker's markroutine on a path uniformly.
+    _markersApplyImpl = function(target, marker, path) {
+      if (!marker || marker._empty || marker._tag !== 'marker') return;
+      const routine = marker.markroutine || _markNodes;
+      try { routine(target || currentPic, marker.frame, path); } catch (e) {}
+    };
+
+    env.set('markers', null);
+  }
+
+  // Cross-package marker dispatch: applies a marker (from installMarkersPackage)
+  // to a path. Falls back to invoking marker.markroutine directly when the
+  // markers package isn't installed.
+  function applyMarker(target, marker, path) {
+    if (!marker || marker._tag !== 'marker') return;
+    if (typeof _markersApplyImpl === 'function') {
+      _markersApplyImpl(target, marker, path);
+      return;
+    }
+    if (typeof marker.markroutine === 'function') {
+      try { marker.markroutine(target || currentPic, marker.frame, path); } catch (e) {}
+    }
   }
 
   // AoPS "styles" module — provides spFills (pastel fill pens) and spGray stroke pen.
@@ -7807,87 +8521,22 @@ function createInterpreter() {
 
       if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
 
-      // Draw n concentric arcs
+      // Draw n concentric arcs. Always emit each arc as a normal stroke;
+      // when a marker is present, apply its markroutine to the same arc
+      // path on top, mirroring Asymptote's draw(arc, marker=marker) call
+      // inside markangle.
       const gap = radius * 0.15;
       for (let i = 0; i < n; i++) {
         const r = radius + i * gap;
-
-        // Check if we have a marker with stickframe
-        if (marker && marker._tag === 'marker' && marker.frame &&
-            marker.frame._tag === 'markinterval' && marker.frame.frame &&
-            marker.frame.frame._tag === 'stickframe') {
-
-          const stickframe = marker.frame.frame;
-          const numTicks = stickframe.n;
-          const tickLength = stickframe.length;
-
-          // Convert tick length from mm to user coordinates
-          let tickLen = tickLength;
-          {
-            // Estimate bp→user conversion (same as radius conversion)
-            let bpPerUnit = 1;
-            if (sizeW > 0 || sizeH > 0) {
-              let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
-              for (const c of currentPic.commands) {
-                if (c.path) for (const s of c.path.segs) {
-                  for (const p of [s.p0, s.p3]) {
-                    if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
-                    if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
-                  }
-                }
-                if (c.pos) {
-                  if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
-                  if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
-                }
-              }
-              const rangeX = (cMaxX - cMinX) || 1;
-              const rangeY = (cMaxY - cMinY) || 1;
-              const sw = sizeW > 0 ? sizeW : sizeH;
-              const sh = sizeH > 0 ? sizeH : sizeW;
-              bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
-            } else if (hasUnitScale) {
-              bpPerUnit = unitScale;
-            }
-            // Convert from mm to bp (1mm = 2.834645669bp) then to user units
-            tickLen = (tickLength * 2.834645669) / bpPerUnit;
-          }
-
-          // Draw ticks at the midpoint of the arc
-          const midAngle = (a1 + a2) / 2;
-          const midAngleRad = midAngle * Math.PI / 180;
-
-          // Draw tick marks
-          const tickGap = tickLen * 0.3; // Small gap between multiple ticks
-          const totalTickWidth = numTicks * tickLen + (numTicks - 1) * tickGap;
-          const startOffset = -totalTickWidth / 2;
-
-          for (let t = 0; t < numTicks; t++) {
-            const tickOffset = startOffset + t * (tickLen + tickGap) + tickLen / 2;
-
-            // Calculate tick endpoints perpendicular to the arc
-            const perpAngle = midAngleRad + Math.PI / 2;
-            const tickStart = makePair(
-              B.x + r * Math.cos(midAngleRad) + tickOffset * Math.cos(perpAngle),
-              B.y + r * Math.sin(midAngleRad) + tickOffset * Math.sin(perpAngle)
-            );
-            const tickEnd = makePair(
-              B.x + r * Math.cos(midAngleRad) - tickOffset * Math.cos(perpAngle),
-              B.y + r * Math.sin(midAngleRad) - tickOffset * Math.sin(perpAngle)
-            );
-
-            // Draw the tick mark
-            const tickPath = makePath([tickStart, tickEnd]);
-            currentPic.commands.push({cmd:'draw', path:tickPath, pen:clonePen(pen), arrow: null, line:0});
-          }
-        } else {
-          // Normal arc without markers
-          const arcPath = makeArcPath(B, r, a1, a2);
-          // Tag with bp-truesize info so the renderer can rebuild the arc
-          // post-boost (radius is in bp; user-unit conversion uses the final
-          // pxPerUnit, not the pre-boost unitScale).
-          const _bpR = _bpRadius + i * (_bpRadius * 0.15);
-          currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
-            _markangleBpR: _bpR, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2});
+        const arcPath = makeArcPath(B, r, a1, a2);
+        // Tag with bp-truesize info so the renderer can rebuild the arc
+        // post-boost (radius is in bp; user-unit conversion uses the final
+        // pxPerUnit, not the pre-boost unitScale).
+        const _bpR = _bpRadius + i * (_bpRadius * 0.15);
+        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
+          _markangleBpR: _bpR, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2});
+        if (marker && marker._tag === 'marker') {
+          applyMarker(currentPic, marker, arcPath);
         }
       }
 
@@ -7906,32 +8555,10 @@ function createInterpreter() {
       return null;
     });
 
-    // Marker module functions
-    env.set('marker', (f) => {
-      // Create a marker object
-      return { _tag: 'marker', frame: f };
-    });
-
-    env.set('markinterval', (frame, rotated = false) => {
-      // Create a markinterval object
-      return { _tag: 'markinterval', frame: frame, rotated: rotated };
-    });
-
-    env.set('stickframe', (...args) => {
-      // Parse stickframe parameters
-      let n = 1;
-      let length = 2; // default 2mm
-      for (const a of args) {
-        if (a && typeof a === 'object' && a._named) {
-          if ('n' in a) n = Math.round(toNumber(a.n));
-          continue;
-        }
-        if (typeof a === 'number') length = a;
-      }
-      return { _tag: 'stickframe', n: n, length: length };
-    });
-
-    env.set('markers', null);
+    // Marker module functions are registered by installMarkersPackage when
+    // the corpus diagram does `import markers;` — see installMarkersPackage.
+    // The default markangle implementation below dispatches to the markers
+    // package's _markersApplyImpl when a marker= argument is present.
   }
 
   // ============================================================
@@ -16363,6 +16990,7 @@ function createInterpreter() {
     let barsSize = null;  // size in bp from Bar(size) / Bars(size); null = default
     let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
     let labelFilltype = null, labelPen = null;
+    let pathMarker = null; // marker= named arg or positional marker object
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -16395,8 +17023,10 @@ function createInterpreter() {
           if (isPair(a.align)) labelAlign = a.align;
           else if (typeof a.align === 'number') labelAlign = makePair(a.align, 0);
         }
+        if ('marker' in a && a.marker && a.marker._tag === 'marker') pathMarker = a.marker;
         continue;
       }
+      if (a && a._tag === 'marker') { pathMarker = a; continue; }
       if (isPath(a)) { if (!pathArg) pathArg = a; }
       else if (isPen(a)) {
         penCount++;
@@ -16455,6 +17085,12 @@ function createInterpreter() {
       // this command in place (matches Asymptote's 2D-layer-only transforms).
       if (pathArg._fromProjection) dc._from3d = true;
       target.commands.push(dc);
+      // Apply interval/uniform/node markers (e.g. StickIntervalMarker) along
+      // the drawn path. Marker frames are in bp units and converted to user
+      // units at emission time by the markroutine.
+      if (pathMarker && pathMarker._tag === 'marker' && pathArg.segs && pathArg.segs.length > 0) {
+        applyMarker(target, pathMarker, pathArg);
+      }
       // Emit Bar/Bars marks as short perpendicular segments at endpoint(s).
       if (barsStyle && pathArg.segs && pathArg.segs.length > 0) {
         // Default Bar size in Asymptote is barsize(pen) ≈ 0 but with fallback
@@ -18201,10 +18837,10 @@ function renderSVG(result, opts) {
 
   // Re-constrain bbox after label expansion: clip() must not be expanded by labels
   if (hasClip) {
-    minX = Math.max(minX, clipMinX - pad);
-    minY = Math.max(minY, clipMinY - pad);
-    maxX = Math.min(maxX, clipMaxX + pad);
-    maxY = Math.min(maxY, clipMaxY + pad);
+    minX = Math.max(minX, clipMinX - padX);
+    minY = Math.max(minY, clipMinY - padY);
+    maxX = Math.min(maxX, clipMaxX + padX);
+    maxY = Math.min(maxY, clipMaxY + padY);
   }
 
   // GIF mode: override bounds with union bounds across all frames so that
@@ -19084,10 +19720,10 @@ function renderSVG(result, opts) {
   // Re-constrain bbox after label re-expansion: clip() bounds must not be exceeded
   // (labelInfoBp already excludes out-of-clip items, but re-apply as a safety net)
   if (hasClip) {
-    minX = Math.max(minX, clipMinX - pad);
-    minY = Math.max(minY, clipMinY - pad);
-    maxX = Math.min(maxX, clipMaxX + pad);
-    maxY = Math.min(maxY, clipMaxY + pad);
+    minX = Math.max(minX, clipMinX - padX);
+    minY = Math.max(minY, clipMinY - padY);
+    maxX = Math.min(maxX, clipMaxX + padX);
+    maxY = Math.min(maxY, clipMaxY + padY);
   }
 
   // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
@@ -22244,22 +22880,45 @@ function patchASTNumbers(ast, oldToks, newToks) {
 
 // Feature detection: what can we interpret?
 function canInterpret(code) {
+  return detectUnsupportedFeature(code) === null;
+}
+
+// Identify the specific unsupported-by-HiTeXeR feature in `code` (if any).
+// Returns null when the JS interpreter can handle the source, or an object
+// {feature, message} describing what's not supported and what (if anything)
+// the user can do instead. The detection rules are kept in one place so
+// canInterpret() and the UI warning stay in sync.
+function detectUnsupportedFeature(code) {
   // Strip comments before checking so keywords in comments don't cause false positives
   const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  // Reject features we can't handle
-  if (/\bstruct\b/.test(stripped)) return false;
-  // 3D wireframe and basic surface() are supported
-  if (/\bimport\s+flowchart\b/.test(stripped)) return false;
-  if (/\bimport\s+animation\b/.test(stripped)) return false;
-  // import palette is now accepted (palette/Rainbow/Gradient stubs installed)
-  if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) return false;
-  // settings.render etc. are now accepted (silently ignored)
-  // texpath is now accepted (stub returns empty path array)
-  if (/\bshipout\b/.test(stripped)) return false;
-  // graphic() is now supported via pre-fetched image cache
-  // picture support is now implemented
-  // Accept everything else
-  return true;
+  if (/\bstruct\b/.test(stripped)) {
+    return {
+      feature: 'struct',
+      message: 'struct definitions are not supported by HiTeXeR\u2019s interpreter \u2014 falling back to server Asymptote.'
+    };
+  }
+  if (/\bimport\s+animation\b/.test(stripped)) {
+    return {
+      feature: 'animation',
+      message: '\u201Cimport animation\u201D is not supported by HiTeXeR (or by TeXeR). For animated output, click the GIF button in the toolbar to sweep a real variable and produce an animated GIF.'
+    };
+  }
+  if (/\bimport\s+animate\b/.test(stripped)) {
+    return {
+      feature: 'animate',
+      message: '\u201Cimport animate\u201D is not supported by HiTeXeR (or by TeXeR). For animated output, click the GIF button in the toolbar to sweep a real variable and produce an animated GIF.'
+    };
+  }
+  if (/\bimport\s+flowchart\b/.test(stripped)) {
+    return { feature: 'flowchart', message: '\u201Cimport flowchart\u201D is not supported by HiTeXeR\u2019s interpreter \u2014 falling back to server.' };
+  }
+  if (/\bfile\b/.test(stripped) && /\binput\b/.test(stripped)) {
+    return { feature: 'file-input', message: 'file/input I/O is not supported by HiTeXeR\u2019s interpreter \u2014 falling back to server.' };
+  }
+  if (/\bshipout\b/.test(stripped)) {
+    return { feature: 'shipout', message: 'shipout() is not supported by HiTeXeR\u2019s interpreter \u2014 falling back to server.' };
+  }
+  return null;
 }
 
 function render(code, opts) {
@@ -22270,6 +22929,7 @@ function render(code, opts) {
 
 window.AsyInterp = {
   canInterpret,
+  detectUnsupportedFeature,
   render,
   lex,
   parse,
