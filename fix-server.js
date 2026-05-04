@@ -270,6 +270,7 @@ const server = http.createServer((req, res) => {
 });
 
 process.on('uncaughtException', err => { console.error('[fix-server] Uncaught exception:', err.message); });
+process.on('unhandledRejection', (reason) => { console.error('[fix-server] Unhandled rejection:', reason); });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`fix-server listening on http://localhost:${PORT}`);
