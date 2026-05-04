@@ -17337,6 +17337,7 @@ function createInterpreter() {
         if (!align && a.align) align = a.align;
         if (!filltype && a.filltype) filltype = a.filltype;
         if (!labelTransform && a.transform) labelTransform = a.transform;
+        if (!pen && a.pen) pen = a.pen;
       }
       else if (a && a._tag === 'filltype') { filltype = a; }
       else if (isString(a) && !text) text = a;
@@ -20874,13 +20875,25 @@ function renderSVG(result, opts) {
             // Match Asymptote's labelmargin(p) = 0.28*fontsize + 0.5*linewidth
             const _labelLw2 = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
             const margin2 = (0.28 * effectiveFontSize) + 0.5 * _labelLw2 * bpCSSPixel;
-            const angleRad = Math.abs(angle * Math.PI / 180);
-            const cosA = Math.abs(Math.cos(angleRad));
-            const sinA = Math.abs(Math.sin(angleRad));
-            const rotW = W2 * cosA + H2 * sinA;
-            const rotH = W2 * sinA + H2 * cosA;
-            dx = ax2 * 0.5 * rotW + ax2 * margin2;
-            dy = -(ay2 * 0.5 * rotH + ay2 * margin2);
+            // Asymptote drawlabel.cc: shift = transform * pair(Align.x*W, Align.y*H)
+            //                              + unit(align) * labelmargin
+            // Align is L-inf-normalised to magnitude 0.5. The text-box offset is
+            // computed in the LOCAL (unrotated) frame using (W, H), then rotated
+            // to world space. This way `label(rotate(theta)*Label("long text"), pos, N)`
+            // offsets perpendicular to the rotated baseline by H/2 — not by half the
+            // rotated AABB (which would push long rotated text far above the path).
+            const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
+            const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
+            const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
+            const offLocalX = ax_n2 * W2;
+            const offLocalY = ay_n2 * H2;
+            const angleRad = angle * Math.PI / 180;
+            const cosT = Math.cos(angleRad);
+            const sinT = Math.sin(angleRad);
+            const offWorldX = cosT * offLocalX - sinT * offLocalY;
+            const offWorldY = sinT * offLocalX + cosT * offLocalY;
+            dx = offWorldX + ax2 * margin2;
+            dy = -(offWorldY + ay2 * margin2);
           }
           // Apply per-command screen-space offsets (used by axis labels to autoshift past
           // tick labels). Must be applied before baking dx/dy into the rotate pivot point.
