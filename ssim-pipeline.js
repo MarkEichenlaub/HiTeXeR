@@ -28,7 +28,11 @@ const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
 const RASTER_DPI  = 144;
 
 const args = process.argv.slice(2);
-const STEPS = new Set(args.length ? args : ['render-htx','render-asy','rasterize','ssim','html']);
+// render-asy is intentionally excluded from defaults: SSIM compares against
+// the cached texer_pngs/ references, so re-running real Asymptote is unneeded
+// for normal pipeline runs. Pass it explicitly (e.g. `node ssim-pipeline.js
+// render-asy`) when the asy_pngs/ side genuinely needs to be rebuilt.
+const STEPS = new Set(args.length ? args : ['render-htx','rasterize','ssim','html']);
 
 for (const d of [OUT_DIR, ASY_DIR, HTX_DIR, SVG_DIR, ASY_SRC_DIR, ASY_TMP, TEXER_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -200,6 +204,15 @@ async function main() {
     console.log(`  Saved ${allFiles.length} .asy files`);
 
     console.log('Rendering with HiTeXeR JS interpreter...');
+
+    // Files that infinite-loop in the JS interpreter (independent of the
+    // canInterpret feature gate). Treated as skips so the whole render
+    // step doesn't hang on a single corpus entry. Add new entries here as
+    // they are discovered.
+    const HANG_SKIP = new Set([
+      'gallery_2Dgraphs_electromagnetic.asy',
+    ]);
+
     global.window = global.window || {};
     global.katex = require('katex');
     require('./asy-interp.js');
@@ -209,6 +222,7 @@ async function main() {
     for (let i = 0; i < allFiles.length; i++) {
       const f = allFiles[i];
       const id = numId(i);
+      if (HANG_SKIP.has(f)) { skip++; continue; }
       const raw = fs.readFileSync(path.join(CORPUS_DIR, f), 'utf8');
       const code = '[asy]\n' + raw + '\n[/asy]';
 
