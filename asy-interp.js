@@ -9320,7 +9320,18 @@ function createInterpreter() {
           const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : perpAxisRange;
           const sw = sizeW > 0 ? sizeW : sizeH;
           const sh = sizeH > 0 ? sizeH : sizeW;
-          if (rX > 0 && rY > 0) bpPerUnit = Math.min(sw / rX, sh / rY);
+          // Tick extends perpendicular to the axis: y-axis ticks extend in x,
+          // x-axis ticks extend in y. On IgnoreAspect plots with very different
+          // x/y data ranges (e.g. 3900: y in [0,1.16e8], x in [0,1000]), the
+          // old Math.min(sw/rX, sh/rY) yielded the smaller (y-direction) factor
+          // for both axes, so y-axis ticks (extending in x) became ~10% of the
+          // x range — visually enormous. Use the perpendicular-direction factor
+          // for each axis to keep ticks at consistent screen length (~1mm).
+          if (_isXAxis) {
+            if (rY > 0) bpPerUnit = sh / rY;
+          } else {
+            if (rX > 0) bpPerUnit = sw / rX;
+          }
         } else if (hasUnitScale) {
           bpPerUnit = unitScale;
         } else {
@@ -9532,11 +9543,27 @@ function createInterpreter() {
                              pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
           return;
         }
+        // Asymptote convention: when an axisshift axis (XZero/YZero/XEquals/
+        // YEquals) coincides with a data boundary (xmin/xmax/ymin/ymax),
+        // ticks point INTO the plot regardless of LeftTicks/RightTicks. e.g.
+        // 3900 uses xaxis(axis=YZero, LeftTicks(...)) but ymin=0 so the x-axis
+        // sits at the bottom edge — ticks should go UP into the plot, not DOWN
+        // outside it. axisextent (Bottom/Left/etc.) follows L/RTicks normally.
+        // Detected by extent === null (axisshift case).
+        let actualSide = tickSide;
+        if (!extent && tickSide && crossMin !== undefined && crossMax !== undefined) {
+          const _span = Math.abs(crossMax - crossMin) || 1;
+          const _eps = _span * 1e-6;
+          // Axis at or BELOW content → ticks must point INTO plot (toward
+          // content), regardless of LeftTicks/RightTicks. Same for above.
+          if (axisOffset <= crossMin + _eps) actualSide = 'right';
+          else if (axisOffset >= crossMax - _eps) actualSide = 'left';
+        }
         let p0, p1;
-        if (tickSide === 'left') {
+        if (actualSide === 'left') {
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
-        } else if (tickSide === 'right') {
+        } else if (actualSide === 'right') {
           p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         } else {
@@ -9572,7 +9599,7 @@ function createInterpreter() {
       // without redrawing the axis line, and DOES want labels.
       const suppressByInvisible = axisInvisible && ticks.extend === true;
       const showLabels = ticks.labels &&
-                         !(ticks.sizeExplicit && ticks.size < 1.5) &&
+                         !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.explicitLabelArg) &&
                          !suppressByInvisible &&
                          !suppressByFormat;
       if (showLabels) {
@@ -9595,7 +9622,8 @@ function createInterpreter() {
               const exp = parseInt(s4.slice(eIdx + 1));
               const sign = mantissa < 0 ? '-' : '';
               const absMantissa = Math.abs(mantissa);
-              if (absMantissa === 1) return '$' + sign + '10^{' + exp + '}$';
+              // Asymptote's DefaultFormat preserves the "1\times" prefix even
+              // for unit mantissa (texer renders "1×10⁸", not "10⁸").
               return '$' + sign + absMantissa + '\\times10^{' + exp + '}$';
             }
             // Fixed notation: parseFloat trims trailing zeros correctly
@@ -9699,7 +9727,7 @@ function createInterpreter() {
           if ('arrow' in a) {
             let ar = a.arrow;
             if (typeof ar === 'function') { try { ar = ar(); } catch(e) {} }
-            if (ar && ar._tag === 'arrow') arrow = ar;
+            if (ar && ar._tag === 'arrow' && ar.style !== 'None') arrow = ar;
           }
           if ('L' in a) {
             const lv = a.L;
@@ -9718,12 +9746,12 @@ function createInterpreter() {
           else if (xmax === null) xmax = a;
         }
         else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
-        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'arrow' && a.style !== 'None') arrow = a;
         else if (a && a._tag === 'ticks') ticks = a;
         else if (typeof a === 'function') {
           try {
             const r = a();
-            if (r && r._tag === 'arrow') arrow = arrow || r;
+            if (r && r._tag === 'arrow' && r.style !== 'None') arrow = arrow || r;
             else if (r && r._tag === 'axisextent') extent = r.type;
             else if (r && r._tag === 'ticks') ticks = ticks || r;
           } catch(e) {}
@@ -9977,9 +10005,23 @@ function createInterpreter() {
         let lAlign, labelX;
         const xIsExplicitAxis = xIsBottomTop || extent === 'Bottom' || extent === 'Top';
         const xIsAboveAxis = xIsTopPrimary || extent === 'Top';
-        if (xIsExplicitAxis && labelAlign == null && labelPosition == null) {
-          lAlign = xIsAboveAxis ? {x:0, y:3} : {x:0, y:-3};
-          labelX = (xmin + xmax) / 2;
+        if (xIsExplicitAxis && labelAlign == null) {
+          // Use unit alignment (±1). The tickLabelClearance below adds the
+          // additional space to clear tick labels — using ±3 here would
+          // double-push the label far below the plot (issue observed in 8812).
+          lAlign = xIsAboveAxis ? {x:0, y:1} : {x:0, y:-1};
+          // labelPosition (e.g. position=1 in 8812) places the label along the
+          // axis without changing its perpendicular offset.
+          if (labelPosition != null) {
+            labelX = xmin + (xmax - xmin) * labelPosition;
+            // When the label is positioned at one end (0 or 1), align it with
+            // the axis endpoint horizontally (W if at xmax, E if at xmin) so it
+            // doesn't extend past the plot. Otherwise center-align (S/N).
+            if (labelPosition >= 1 - 1e-9) lAlign = xIsAboveAxis ? {x:-1, y:1} : {x:-1, y:-1};
+            else if (labelPosition <= 1e-9) lAlign = xIsAboveAxis ? {x:1, y:1} : {x:1, y:-1};
+          } else {
+            labelX = (xmin + xmax) / 2;
+          }
         } else {
           // Plain `xaxis("string")` with no arrow, no extent, no ticks, and
           // no explicit position/align: tighter vertical offset (y:-1) so the
@@ -9998,7 +10040,10 @@ function createInterpreter() {
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.y - axisShiftY) < 1e-6) {
               const fs = (c.pen && c.pen.fontsize) || 8;
-              const h = fs * 1.0 + 0.5 * fs;
+              // Tick label height in bp (clear the tick text). The ay=±1
+              // alignment on the axis label already accounts for half the
+              // label's own height, so we just need to clear the tick text.
+              const h = fs * 1.0;
               if (h > tickLabelClearance) tickLabelClearance = h;
             }
           }
@@ -10048,7 +10093,7 @@ function createInterpreter() {
           if ('arrow' in a) {
             let ar = a.arrow;
             if (typeof ar === 'function') { try { ar = ar(); } catch(e) {} }
-            if (ar && ar._tag === 'arrow') arrow = ar;
+            if (ar && ar._tag === 'arrow' && ar.style !== 'None') arrow = ar;
           }
           if ('L' in a) {
             const lv = a.L;
@@ -10067,11 +10112,11 @@ function createInterpreter() {
           else if (ymax === null) ymax = a;
         }
         else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
-        else if (a && a._tag === 'arrow') arrow = a;
+        else if (a && a._tag === 'arrow' && a.style !== 'None') arrow = a;
         else if (typeof a === 'function') {
           try {
             const r = a();
-            if (r && r._tag === 'arrow') arrow = arrow || r;
+            if (r && r._tag === 'arrow' && r.style !== 'None') arrow = arrow || r;
             else if (r && r._tag === 'axisextent') extent = r.type;
             else if (r && r._tag === 'ticks') ticks = ticks || r;
           } catch(e) {}
@@ -10197,8 +10242,12 @@ function createInterpreter() {
           // Skip label-below-extension when image() heatmap cells are present:
           // image()'s tight bounds should not be widened to make room for the
           // bottom xaxis label (which sits below the plot anyway).
+          // Also skip for invisible / gridline-only yaxis calls (the
+          // `yaxis(BottomTop, invisible, Ticks(extend=true, gray))` bigGrid
+          // idiom): the local ymin extension flows into _drawTicks and
+          // produces an extra gridline below user y=0 (e.g. diagram 8812).
           const _hasImageCellsLB = pic.commands.some(c2 => c2 && c2._imageCell && !c2._paletteLegend);
-          if (!_hasImageCellsLB && !yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
+          if (!_hasImageCellsLB && !isInvisible && !yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
             const ay = c._axisLabelBelowAy;
             const fs = c._axisLabelFontSize || 10;
             const ignoreAspect = (typeof keepAspect !== 'undefined') && !keepAspect;
@@ -10310,35 +10359,60 @@ function createInterpreter() {
         // arrow tip). This matches real Asymptote's behavior for the common
         // `yaxis("$v$", 0, ymax, Arrow(...))` idiom.
         const explicitEndpoint = labelPosition === 1 || labelPosition === 0;
+        const extentLeftRight = extent === 'Left' || extent === 'Right' || extent === 'LeftRight';
         // Left()/Right()/LeftRight extent markers force the traditional middle-
         // axis label placement (aligned outside the axis) even when an arrow is
         // present — they override the arrow-endpoint heuristic.
         // For LeftRight (axes drawn on both sides, e.g. a contour-plot frame),
         // the texer reference shows the y label upright at middle-left, NOT
         // rotated — different from Asymptote's "lone left axis" rotation case.
-        const extentForcesMiddle = extent === 'Left' || extent === 'Right' || extent === 'LeftRight';
+        // EXCEPTION: when the user explicitly sets position=0 or 1 via
+        // Label(s, position=...), follow Asymptote's standard convention
+        // (rotated 90° CCW, aligned to the LeftSide of the axis at the endpoint).
+        // E.g. diagram 8812 uses Label(s, position=1) with axis=LeftRight and
+        // the texer renders it rotated, anchored at the top end of the axis.
+        const extentForcesMiddle = extentLeftRight && !explicitEndpoint;
         const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null && !extentForcesMiddle;
         // Plain `yaxis("string")` with no arrow, no extent, no ticks, and no
         // explicit position/align: place label at top, upright (matches texer
         // and Asymptote's default for the bare-string idiom).
         const plainEndpointDefault = !arrow && !ticks && !extent
           && labelPosition == null && labelAlign == null;
-        const endpointDefault = arrowEndpointDefault || plainEndpointDefault;
-        const atEndpoint = explicitEndpoint || endpointDefault;
+        // Axisshift yaxis (axis=XZero/YZero) with ticks but no extent and
+        // no explicit position/align: texer renders label at TOP endpoint,
+        // rotated CCW, aligned west (e.g. diagram 3900). Different from
+        // arrow/plain-bare endpoint cases because the label is still ROTATED
+        // (along the axis) rather than upright.
+        const axisshiftRotatedEndpoint = !arrow && !!ticks && !extent
+          && axisShiftXExplicit && labelPosition == null && labelAlign == null;
+        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint;
+        // "uprightEndpoint" means the label is rendered upright (no rotation,
+        // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
+        // upright behavior to match prior conventions.
+        // axisshiftRotatedEndpoint is at-endpoint but ROTATED — exclude it.
+        const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault;
+        const atEndpoint = uprightEndpoint;
         const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
         const lAlign = labelAlign || (
           arrowEndpointDefault ? {x:-1, y:0} :
           plainEndpointDefault ? {x:-1, y:0} :
-          (atEndpoint ? {x:0, y:1} : {x:-1, y:0})
+          (uprightEndpoint ? {x:0, y:1} : {x:-1, y:0})
         );
         const labelY = ymin + (ymax - ymin) * effPos;
-        // Apply 90° CCW rotation when the label is placed along the axis (not endpoint)
+        // Apply 90° CCW rotation when the label is placed along the axis.
+        // Skip rotation only for upright-endpoint cases (arrow, plain bare,
+        // explicit-position-no-extent). extentLeftRight forces middle
+        // POSITION but the label is still rotated (matches texer for 3890,
+        // 8812, etc.).
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
-        const lt = labelTransform || ((atEndpoint || extentForcesMiddle) ? undefined : rot90ccw);
+        const lt = labelTransform || (uprightEndpoint ? undefined : rot90ccw);
         // Asymptote's graph.asy autoshifts the axis label past the tick labels so they don't
         // overlap. Only relevant for labels rotated along the axis (not endpoint labels).
         let tickLabelClearance = 0;
-        if (!atEndpoint && (labelAlign === null || (lAlign.x < 0 && lAlign.y === 0))) {
+        // Skip clearance only for upright-endpoint labels (no rotation, sit
+        // adjacent to the axis). Rotated labels — middle position OR endpoint
+        // (tickAxisshiftEndpoint, e.g. 3900) — must clear the tick labels.
+        if (!uprightEndpoint && (labelAlign === null || (lAlign.x < 0 && lAlign.y === 0))) {
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.x - axisShiftX) < 1e-6) {
               const txt = stripLaTeX(c.text || '');
@@ -10649,7 +10723,7 @@ function createInterpreter() {
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
-        else if (a && a._tag === 'label') { t.labels = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; }
+        else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('Step' in a) t.step = a.Step;
@@ -18746,8 +18820,29 @@ function renderSVG(result, opts) {
           const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
           const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
           const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
-          dx = ax_n * textWidthUser + ax * marginX;
-          dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
+          if (Math.abs(ltAngle) > 0.5) {
+            // Rotated label: Asymptote drawlabel.cc applies the alignment in the
+            // LOCAL (un-rotated) text frame, then rotates the offset to world coords.
+            // Mirror the render code's math (line ~20902) so the bbox center matches
+            // where the rotated label is actually drawn — otherwise a long axis label
+            // rotated 90° CCW (e.g. 8812 "Percentage of True Speed") gets bbox-expanded
+            // symmetrically around its anchor, falsely doubling the y-range and
+            // triggering the label-dominated scale path that shrinks the plot.
+            const W_bp = textWidthBpBase;
+            const H_bp = (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw);
+            const offLocalXbp = ax_n * W_bp;
+            const offLocalYbp = ay_n * H_bp;
+            const angleRad = ltAngle * Math.PI / 180;
+            const cosT = Math.cos(angleRad);
+            const sinT = Math.sin(angleRad);
+            const offWorldXbp = cosT * offLocalXbp - sinT * offLocalYbp;
+            const offWorldYbp = sinT * offLocalXbp + cosT * offLocalYbp;
+            dx = offWorldXbp / roughPxPerUnitX + ax * marginX;
+            dy = offWorldYbp / roughPxPerUnitY + ay * marginY;  // Asymptote y-up, no inversion
+          } else {
+            dx = ax_n * textWidthUser + ax * marginX;
+            dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
+          }
         }
         // Apply screen-space offsets (used by axis labels to autoshift past tick labels).
         // screenDx/screenDy are in bp; convert to user coords using rough scale.
@@ -19357,13 +19452,15 @@ function renderSVG(result, opts) {
 
   // Iterative scale solver: reduce pxPerUnit so total output
   // (geometry + truesize labels) fits within size constraint.
-  // Skip for IgnoreAspect (keepAspect=false with explicit sizeW and sizeH):
-  // real Asymptote does NOT shrink the plot in that case — the plot area is
-  // fixed at sizeW × sizeH and labels are allowed to overflow. Running the
-  // non-uniform per-axis shrink here would distort the requested aspect.
+  // For IgnoreAspect (keepAspect=false with explicit sizeW and sizeH), the
+  // solver scales x/y independently so labels fit within sizeW × sizeH —
+  // matching Asymptote's behavior where axis labels are allocated within
+  // the requested bounding box (e.g. 3900 with size(10cm,8cm,IgnoreAspect)
+  // and y-tick labels like "1.1×10⁸" needs to shrink the plot width so the
+  // labels fit, producing roughly square gridlines).
   const isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
   let labelShrinkFactor = 1;
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !isIgnoreAspect) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
@@ -19394,6 +19491,9 @@ function renderSVG(result, opts) {
       const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
       const exceed = Math.max(exceedW, exceedH);
       finalExceed = exceed;
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
+        console.error(`[solver] iter=${iter} totalW=${totalW.toFixed(1)} totalH=${totalH.toFixed(1)} tgtW=${tgtW} tgtH=${tgtH} exceedW=${exceedW.toFixed(3)} exceedH=${exceedH.toFixed(3)} pxPerUnitX=${pxPerUnitX.toFixed(4)} pxPerUnitY=${pxPerUnitY.toFixed(8)} keepAspect=${keepAspect}`);
+      }
 
       if (exceed <= 1.005) break; // fits within tolerance
 
@@ -19462,9 +19562,12 @@ function renderSVG(result, opts) {
         const exceedW = tgtW < Infinity ? totalW / tgtW : 0;
         const exceedH = tgtH < Infinity ? totalH / tgtH : 0;
         const mjxExceed = Math.max(exceedW, exceedH);
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
+          console.error(`[mjx-recheck] totalW=${totalW.toFixed(1)} totalH=${totalH.toFixed(1)} exceedW=${exceedW.toFixed(3)} exceedH=${exceedH.toFixed(3)} mjxExceed=${mjxExceed.toFixed(3)} finalExceed=${finalExceed.toFixed(3)}`);
+        }
         if (mjxExceed > 1.005) {
-          // Overwrite heuristic widths with measured widths so the
-          // label-dominated fallback below uses accurate dimensions.
+          // Overwrite heuristic widths with measured widths and update
+          // alignOffsets so subsequent iteration uses accurate dimensions.
           for (const li of labelInfoBp) {
             // Skip MJX for multi-line labels — see comment above.
             if (typeof li._text === 'string' && li._text.indexOf('\n') !== -1) continue;
@@ -19481,10 +19584,187 @@ function renderSVG(result, opts) {
                 }
                 li.widthBp = mw;
                 li.heightBp = mh;
+                if (li._axAl !== undefined && li._ayAl !== undefined) {
+                  const _ax = li._axAl, _ay = li._ayAl;
+                  const _aInf = Math.max(Math.abs(_ax), Math.abs(_ay));
+                  const _axN = _aInf > 0 ? (_ax * 0.5 / _aInf) : 0;
+                  const _ayN = _aInf > 0 ? (_ay * 0.5 / _aInf) : 0;
+                  let aoX = _axN * mw + _ax * 0.40 * li._fontSize;
+                  let aoY = _ayN * mh + _ay * 0.40 * li._fontSize;
+                  if (li._screenDx) aoX += li._screenDx;
+                  if (li._screenDy) aoY -= li._screenDy;
+                  li.alignOffsetXBp = aoX;
+                  li.alignOffsetYBp = aoY;
+                }
               }
             } catch (e) { /* ignore */ }
           }
           finalExceed = mjxExceed;
+          // For IgnoreAspect (explicit size(W,H,IgnoreAspect)), re-iterate
+          // the solver with measured widths so geometry shrinks to fit
+          // labels within size(). Without this, a tiny mjxExceed (e.g.
+          // 1.010 for 3900) abandons the solver entirely and the output
+          // overflows size() — making cells rectangular and the y-axis
+          // label sit outside the requested bounding box.
+          if (isIgnoreAspect) {
+            for (let iter = 0; iter < 5; iter++) {
+              let bMinX = geoMinX * pxPerUnitX;
+              let bMaxX = geoMaxX * pxPerUnitX;
+              let bMinY = geoMinY * pxPerUnitY;
+              let bMaxY = geoMaxY * pxPerUnitY;
+              for (const li of labelInfoBp) {
+                const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+                const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+                bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+                bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+              }
+              const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+              const eW = tgtW < Infinity ? tW / tgtW : 0;
+              const eH = tgtH < Infinity ? tH / tgtH : 0;
+              const e = Math.max(eW, eH);
+              if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
+                console.error(`[mjx-iter] iter=${iter} totalW=${tW.toFixed(1)} totalH=${tH.toFixed(1)} exceedW=${eW.toFixed(3)} exceedH=${eH.toFixed(3)} pxPerUnitX=${pxPerUnitX.toFixed(4)}`);
+              }
+              if (e <= 1.005) { finalExceed = e; break; }
+              if (eW > 1) pxPerUnitX /= eW;
+              if (eH > 1) pxPerUnitY /= eH;
+              pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+              finalExceed = e;
+            }
+            // Tick-label clearance: in IgnoreAspect mode, when the solver
+            // shrinks geometry to fit labels in size(W,H), x-tick labels can
+            // end up overlapping each other (e.g. 3900: "0 100 200 300..."
+            // run together). Asymptote's actual behavior is to enforce
+            // minimum tick-label spacing and let the output exceed size()
+            // when needed. Detect adjacent x/y tick-label series and boost
+            // pxPerUnitX/pxPerUnitY so labels clear with a small gap.
+            // Cluster labels by posY (for x-axis tick series) and posX
+            // (for y-axis tick series). Series with >= 3 labels that share
+            // the same y (or x) at low ltAngle (un-rotated) are tick labels.
+            const _xSeries = new Map(); // posY → [labels sorted by posX]
+            const _ySeries = new Map(); // posX → [labels sorted by posY]
+            for (const li of labelInfoBp) {
+              if (Math.abs(li._ltAngle) > 0.5) continue; // skip rotated labels
+              const yKey = Math.round(li.posY * 1e6) / 1e6;
+              const xKey = Math.round(li.posX * 1e6) / 1e6;
+              if (!_xSeries.has(yKey)) _xSeries.set(yKey, []);
+              _xSeries.get(yKey).push(li);
+              if (!_ySeries.has(xKey)) _ySeries.set(xKey, []);
+              _ySeries.get(xKey).push(li);
+            }
+            // For each x-series with >= 3 labels, compute min pxPerUnitX
+            // needed for adjacent labels not to overlap.
+            let minPxX = 0, minPxY = 0;
+            // Also track the modal tick step for x and y series so we can
+            // couple x/y scaling for diagrams where BOTH axes have regular
+            // tick label series (e.g. 3900: dx=100, dy=1e7). Texer renders
+            // such plots with square cells (cell-aspect = 1) regardless of
+            // IgnoreAspect, because labels dominate the layout. Without this
+            // coupling, my x-tick clearance can boost pxPerUnitX without
+            // boosting pxPerUnitY, leaving cells visibly wider than tall.
+            let xStepBp = 0, yStepBp = 0; // most-common tick step in user units
+            for (const [yKey, arr] of _xSeries) {
+              if (arr.length < 3) continue;
+              arr.sort((a, b) => a.posX - b.posX);
+              // Use median consecutive-difference as the canonical step
+              // (resists outliers from non-tick labels sharing y).
+              const diffs = [];
+              for (let i = 0; i < arr.length - 1; i++) {
+                const dx = arr[i+1].posX - arr[i].posX;
+                if (dx > 0) diffs.push(dx);
+              }
+              if (diffs.length) {
+                diffs.sort((a, b) => a - b);
+                const med = diffs[Math.floor(diffs.length / 2)];
+                if (xStepBp === 0 || med < xStepBp) xStepBp = med;
+              }
+              for (let i = 0; i < arr.length - 1; i++) {
+                const a = arr[i], b = arr[i+1];
+                const dx = b.posX - a.posX;
+                if (dx <= 0) continue;
+                // Only consider pairs at the modal tick step. This filters
+                // out non-tick labels (axis titles like "time(s)") that
+                // happen to share posY with the tick row but have wildly
+                // different spacing — those would produce huge spurious
+                // reqPx values (e.g. 3890 axis-title cluster).
+                if (xStepBp > 0 && Math.abs(dx - xStepBp) > xStepBp * 0.05) continue;
+                // Required bp spacing: half-widths plus a small gap.
+                const gap = 0.3 * (a._fontSize || 10);
+                const need = (a.widthBp + b.widthBp) / 2 + gap;
+                const reqPx = need / dx;
+                if (reqPx > minPxX) minPxX = reqPx;
+              }
+            }
+            for (const [xKey, arr] of _ySeries) {
+              if (arr.length < 3) continue;
+              arr.sort((a, b) => a.posY - b.posY);
+              const diffs = [];
+              for (let i = 0; i < arr.length - 1; i++) {
+                const dy = arr[i+1].posY - arr[i].posY;
+                if (dy > 0) diffs.push(dy);
+              }
+              if (diffs.length) {
+                diffs.sort((a, b) => a - b);
+                const med = diffs[Math.floor(diffs.length / 2)];
+                if (yStepBp === 0 || med < yStepBp) yStepBp = med;
+              }
+              for (let i = 0; i < arr.length - 1; i++) {
+                const a = arr[i], b = arr[i+1];
+                const dy = b.posY - a.posY;
+                if (dy <= 0) continue;
+                if (yStepBp > 0 && Math.abs(dy - yStepBp) > yStepBp * 0.05) continue;
+                const gap = 0.3 * (a._fontSize || 10);
+                const need = (a.heightBp + b.heightBp) / 2 + gap;
+                const reqPx = need / dy;
+                if (reqPx > minPxY) minPxY = reqPx;
+              }
+            }
+            // Square-cell coupling: when both axes have a regular tick
+            // series AND tick-label gap clearance was the limiting factor
+            // on at least one axis (i.e. labels dominate the layout —
+            // 3900-style sparse-data scatter), ensure
+            // (xStepBp * pxPerUnitX) == (yStepBp * pxPerUnitY) by boosting
+            // whichever side is currently shorter. Skip coupling when the
+            // solver's geometry-based pxPerUnit already exceeds gap
+            // clearance on both axes (3890-style geometry-dominated plot)
+            // because in that case texer's natural aspect ratio is set by
+            // the geometry and forcing square cells would distort it.
+            // Use a 10% margin so borderline cases (e.g. 3890 where
+            // gap-based reqPx is only ~5% over solver pxPerUnit) don't
+            // trigger square-cell coupling. Real label-dominated layouts
+            // (3900) exceed by 13%+.
+            const gapTriggeredX = minPxX > pxPerUnitX * 1.10;
+            const gapTriggeredY = minPxY > pxPerUnitY * 1.10;
+            if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
+              console.error(`[tick-clear-pre] preMinX=${minPxX.toFixed(4)} preMinY=${minPxY.toExponential(3)} gapTrigX=${gapTriggeredX} gapTrigY=${gapTriggeredY}`);
+            }
+            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY)) {
+              const targetXPx = Math.max(pxPerUnitX, minPxX);
+              const targetYPx = Math.max(pxPerUnitY, minPxY);
+              const xCellBp = xStepBp * targetXPx;
+              const yCellBp = yStepBp * targetYPx;
+              if (xCellBp > yCellBp) {
+                // Boost y so y-cell matches x-cell.
+                const newY = xCellBp / yStepBp;
+                if (newY > minPxY) minPxY = newY;
+              } else if (yCellBp > xCellBp) {
+                const newX = yCellBp / xStepBp;
+                if (newX > minPxX) minPxX = newX;
+              }
+            }
+            if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
+              console.error(`[tick-clear] minPxX=${minPxX.toFixed(4)} minPxY=${minPxY.toExponential(3)} curX=${pxPerUnitX.toFixed(4)} curY=${pxPerUnitY.toExponential(3)} xStep=${xStepBp} yStep=${yStepBp.toExponential(2)}`);
+            }
+            if (minPxX > pxPerUnitX) {
+              pxPerUnitX = minPxX;
+            }
+            if (minPxY > pxPerUnitY) {
+              pxPerUnitY = minPxY;
+            }
+            pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+          }
         } else if (finalExceed > 1.005) {
           // Heuristic thought geometry+labels exceeded size() but measurement
           // shows they actually fit. The heuristic-converged pxPerUnit may
@@ -20089,7 +20369,14 @@ function renderSVG(result, opts) {
       let dx = 0, dy = 0;
       if (dc.align) {
         const ax = dc.align.x, ay = dc.align.y;
-        const margin = 0.25 * fontSizeSVG;
+        // Match the renderer's labelmargin formula (line ~20834):
+        //   labelmargin = 0.28*fontsize + 0.5*linewidth*bpCSSPixel
+        // (Asymptote's plain_pens.asy:174). The previous 0.25*fontsize
+        // under-estimated dy for high-magnitude alignments (e.g. ay=-3),
+        // letting the viewBox clip the bottom of axis labels (08812).
+        const _bpcss = bpCSSPixel;
+        const _lwBb = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+        const margin = 0.28 * fontSizeSVG + 0.5 * _lwBb * _bpcss;
         // L-inf normalise the box offset; magnitude of align only scales margin push.
         const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
         const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
