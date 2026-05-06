@@ -5806,7 +5806,67 @@ function createInterpreter() {
         if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         return;
       }
-      const cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
+      // Sub-picture path-clip handling: in Asymptote, clip(picture, path) clips
+      // only that picture's contents. If we naively push the clip command to
+      // dest, all clip commands across all sub-pictures get unioned into one
+      // global SVG <clipPath> (since multiple paths in a clipPath form a
+      // union), which both bbox-constrains the whole canvas to the
+      // intersection of clip bboxes AND clips top-level draws. Instead, when
+      // src has clip commands, consume them: tag each non-clip src command
+      // with a per-add subpic clip ID + the (transformed) clip paths, and
+      // skip the clip commands themselves (don't push to dest).
+      let cmds;
+      const _srcClipCmds = src.commands.filter(c => c && c.cmd === 'clip' && c.path && c.path.segs && c.path.segs.length > 0);
+      if (_srcClipCmds.length > 0) {
+        // Build one clipPath def per src clip path. Sharp/librsvg does NOT
+        // honour `clip-path` attributes on <clipPath> elements, so we cannot
+        // express N-way intersection by chaining clipPath defs. Instead each
+        // path gets its OWN simple <clipPath>, and the renderer composes the
+        // intersection by wrapping the element in nested <g clip-path> groups
+        // (one per path).  For the common N=1 case we still use the existing
+        // single-clip attribute mechanism (no group wrapping needed).
+        const _baseCounter = _subpicClipIdCounter++;
+        const _clipPathDefs = _srcClipCmds.map((c, _i) => ({
+          id: `subpic-pclip-${_baseCounter}-${_i}`,
+          path: t ? applyTransformPath(t, c.path) : c.path,
+        }));
+        // Axis-aligned bbox intersection of the clip paths (used to clamp
+        // bbox contributions of clipped fills, mirroring the existing
+        // _subpicClipRect mechanism for crop limits).
+        let _cMinX = -Infinity, _cMaxX = Infinity, _cMinY = -Infinity, _cMaxY = Infinity;
+        for (const _def of _clipPathDefs) {
+          let _aMinX=Infinity, _aMaxX=-Infinity, _aMinY=Infinity, _aMaxY=-Infinity;
+          for (const _seg of _def.path.segs) {
+            for (const _p of [_seg.p0, _seg.cp1, _seg.cp2, _seg.p3]) {
+              if (!_p) continue;
+              if (_p.x < _aMinX) _aMinX = _p.x; if (_p.x > _aMaxX) _aMaxX = _p.x;
+              if (_p.y < _aMinY) _aMinY = _p.y; if (_p.y > _aMaxY) _aMaxY = _p.y;
+            }
+          }
+          _cMinX = Math.max(_cMinX, _aMinX);
+          _cMaxX = Math.min(_cMaxX, _aMaxX);
+          _cMinY = Math.max(_cMinY, _aMinY);
+          _cMaxY = Math.min(_cMaxY, _aMaxY);
+        }
+        const _clipRect = {xmin: _cMinX, xmax: _cMaxX, ymin: _cMinY, ymax: _cMaxY};
+        cmds = [];
+        for (const c of src.commands) {
+          if (!c || c.cmd === 'clip') continue;
+          const dc = t ? transformDrawCmd(t, c) : Object.assign({}, c);
+          dc._subpicClipPathDefs = _clipPathDefs;
+          if (_clipPathDefs.length === 1) {
+            // Single-clip: use existing attribute-based mechanism
+            dc._subpicClipId = _clipPathDefs[0].id;
+          } else {
+            // Multi-clip: renderer wraps element in nested <g clip-path> groups
+            dc._subpicClipIds = _clipPathDefs.map(d => d.id);
+          }
+          dc._subpicClipRect = _clipRect;
+          cmds.push(dc);
+        }
+      } else {
+        cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
+      }
       // If the source picture has per-picture crop limits, tag each non-label
       // command with a unique clip ID so the SVG renderer can create per-subpicture
       // clip regions (not one global clip that covers only the first sub-picture).
@@ -20189,10 +20249,27 @@ function renderSVG(result, opts) {
 
   // Per-subpicture crop clips: collect unique clip IDs from draw commands
   // and generate a <defs><clipPath> for each.
-  const subpicClipIds = new Set();
+  // Sharp/librsvg does NOT honour `clip-path` attributes on <clipPath>
+  // elements, so we cannot express N-way intersection by chaining clipPath
+  // defs.  Instead, each path-based clip becomes its own simple <clipPath>
+  // and the renderer composes the intersection by wrapping the element in
+  // nested <g clip-path> groups (one per path).
+  const subpicClipIdsEmitted = new Set();
   for (const dc of drawCommands) {
-    if (dc._subpicClipId && !subpicClipIds.has(dc._subpicClipId)) {
-      subpicClipIds.add(dc._subpicClipId);
+    // Path-based subpic clips (single or multi): emit one clipPath per path.
+    if (dc._subpicClipPathDefs) {
+      for (const def of dc._subpicClipPathDefs) {
+        if (subpicClipIdsEmitted.has(def.id)) continue;
+        subpicClipIdsEmitted.add(def.id);
+        elements.push(`<defs><clipPath id="${def.id}"><path d="${pathToD(def.path, minX, maxY, pxPerUnitX, pxPerUnitY)}"/></clipPath></defs>`);
+      }
+    }
+    // Rect-only subpic clips (from _picLimits.crop): emit a rect clipPath.
+    // Skip if the clip ID was already emitted as a path-based clipPath above
+    // (single-path case shares _subpicClipId with the def).
+    if (dc._subpicClipId && !subpicClipIdsEmitted.has(dc._subpicClipId) &&
+        dc._subpicClipRect && !dc._subpicClipPathDefs) {
+      subpicClipIdsEmitted.add(dc._subpicClipId);
       const r = dc._subpicClipRect;
       const cx1 = (r.xmin - minX) * pxPerUnitX;
       const cy1 = (maxY - r.ymax) * pxPerUnitY;
@@ -20200,6 +20277,18 @@ function renderSVG(result, opts) {
       const ch  = (r.ymax - r.ymin) * pxPerUnitY;
       elements.push(`<defs><clipPath id="${dc._subpicClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
     }
+  }
+  // Helper to wrap an SVG element string in nested <g clip-path> groups
+  // for multi-clip subpics (intersection of N clip paths).
+  function _wrapMultiClip(dc, el) {
+    if (dc._subpicClipIds && dc._subpicClipIds.length > 0) {
+      let wrapped = el;
+      for (const id of dc._subpicClipIds) {
+        wrapped = `<g clip-path="url(#${id})">${wrapped}</g>`;
+      }
+      return wrapped;
+    }
+    return el;
   }
 
   // Asymptote clip(): create SVG clipPath from clip commands.
@@ -20620,7 +20709,7 @@ function renderSVG(result, opts) {
       const singleDotLw = dc.pen ? dc.pen.linewidth : 0.5;
       const singleDotR = (singleDotLw / 2) * bpCSSPixel;
       const circClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
-      elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${circClip}/>`);
+      elements.push(_wrapMultiClip(dc, `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(singleDotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${circClip}/>`));
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       return;
     }
@@ -20779,7 +20868,7 @@ function renderSVG(result, opts) {
     }
     if (dc._subpicClipId) attrs += ` clip-path="url(#${dc._subpicClipId})"`;
 
-    elements.push(`<path ${attrs}/>`);
+    elements.push(_wrapMultiClip(dc, `<path ${attrs}/>`));
     commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
 
     // Arrow heads
@@ -20792,7 +20881,7 @@ function renderSVG(result, opts) {
         const clippedArrow = dc._subpicClipId
           ? arrowEl.replace(/(<(?:path|polygon)[^>]*)(\/>)/, `$1 clip-path="url(#${dc._subpicClipId})"$2`)
           : arrowEl;
-        elements.push(clippedArrow);
+        elements.push(_wrapMultiClip(dc, clippedArrow));
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       }
     }
@@ -21028,9 +21117,9 @@ function renderSVG(result, opts) {
         // UnFill: open dot — white interior, colored ring.
         // Ring width is 40% of the dot radius so the white interior is always visible.
         const ringW = dotR * 0.4;
-        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}${dotClip}/>`);
+        elements.push(_wrapMultiClip(dc, `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}${dotClip}/>`));
       } else {
-        elements.push(`<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${dotClip}/>`);
+        elements.push(_wrapMultiClip(dc, `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${dotClip}/>`));
       }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
