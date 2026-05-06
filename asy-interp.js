@@ -9516,15 +9516,20 @@ function createInterpreter() {
         if (noZero && Math.abs(v) < 1e-10) return;
         if (v < min - 1e-10 || v > max + 1e-10) return;
         // extend=true on Ticks() draws full gridlines across the plot area
-        // (from crossMin to crossMax), rendered below plot content. Used by the
-        // xaxis(..., invisible, Ticks(..., extend=true, gray)) gridline idiom.
+        // (from crossMin to crossMax), rendered below plot content by default.
+        // Used by the xaxis(..., invisible, Ticks(..., extend=true, gray))
+        // gridline idiom. When the user explicitly passed above=true on the
+        // xaxis/yaxis call (e.g. 04531: xaxis(graf[1], BottomTop, ..., invisible,
+        // tgrid, above=true)), render the gridlines on TOP of plot fills/curves
+        // instead — Asymptote's `above` keyword on the axis call applies to the
+        // entire axis including its extended gridlines.
         if (ticks.extend === true) {
           const cLo = crossMin !== undefined ? crossMin : -5;
           const cHi = crossMax !== undefined ? crossMax : 5;
           const gp0 = isX ? {x:v, y:cLo} : {x:cLo, y:v};
           const gp1 = isX ? {x:v, y:cHi} : {x:cHi, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(gp0, gp1)], false),
-                             pen:tickPen, arrow:null, line:0, above: -1, _isTickMark: true});
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : -1, _isTickMark: true});
           return;
         }
         if (isFrameExtend) {
