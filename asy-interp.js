@@ -10040,10 +10040,14 @@ function createInterpreter() {
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.y - axisShiftY) < 1e-6) {
               const fs = (c.pen && c.pen.fontsize) || 8;
-              // Tick label height in bp (clear the tick text). The ay=±1
-              // alignment on the axis label already accounts for half the
-              // label's own height, so we just need to clear the tick text.
-              const h = fs * 1.0;
+              // Asymptote's autoshift formula for axis labels past tick
+              // labels: tick label occupies ~fs (full text height) below
+              // the axis after its own labelmargin offset (0.28*fs). The
+              // axis label below ay=-1 needs another labelmargin gap (0.28*
+              // fs). Sum: fs (tick height) + 0.28*fs (tick's labelmargin)
+              // + 0.28*fs (axis label's labelmargin) = ~1.56*fs total
+              // distance from axis to top-of-axis-label.
+              const h = fs * 1.56;
               if (h > tickLabelClearance) tickLabelClearance = h;
             }
           }
@@ -10422,7 +10426,16 @@ function createInterpreter() {
             }
           }
         }
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true});
+        // Asymptote graph.asy at the middle of an axis applies ONLY a
+        // perpendicular shift (`realmult(width, I*dir(g,t)) * axislabelfactor`)
+        // — no shift along the axis direction. For rotated labels (90° CCW)
+        // the standard rotated-label dx/dy code would multiply the local
+        // alignment by the unrotated label width, producing a large
+        // along-axis offset (= +W/2 SVG) and pushing the label far below the
+        // axis center. Mark these labels so renderSVG suppresses the
+        // along-axis component.
+        const _midRotated = !uprightEndpoint && lt && effPos > 0 && effPos < 1;
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated});
       }
     });
 
@@ -20425,8 +20438,14 @@ function renderSVG(result, opts) {
         const hActual = fontSizeSVG * (1 + 1.2 * (numLines - 1));
         const topActual = cy - hActual / 2;
         const bottomActual = cy + hActual / 2;
-        padT = Math.max(padT, -topActual);
-        padB = Math.max(padB, bottomActual - viewH);
+        // Tick labels at the very top/bottom of the plot (e.g. 4150's "0.9"
+        // label centered at y = fontSize/2) end up flush with the viewBox
+        // boundary so the rasterizer clips the glyph ascender. Add a small
+        // safety margin equal to Asymptote's labelmargin (0.28×fontsize) so
+        // the topmost/bottommost tick label has visible breathing room.
+        const tickSafety = dc._isTickLabel ? fontSizeSVG * 0.28 : 0;
+        padT = Math.max(padT, -topActual + tickSafety);
+        padB = Math.max(padB, bottomActual - viewH + tickSafety);
         // Tick labels and axis labels may extend horizontally beyond the solver-
         // computed bbox (solver uses geometry extent, but ticks/axis labels are
         // placed by alignment beyond that). Pad horizontally for these.
@@ -20776,6 +20795,49 @@ function renderSVG(result, opts) {
     if (drawCommands[ci].above === 1) renderOrder.push(ci);
   }
 
+  // Dedupe overlapping extend=true gridlines (above:-1, _isTickMark).
+  // The bigGrid + smallGrid idiom (two xaxis(...) calls with extend=true at
+  // step xTickSpacing then xSubtickSpacing) emits major gridlines from the
+  // first call and minor gridlines from the second. At positions that are
+  // multiples of BOTH steps (e.g. x=0.2 with major=0.2,minor=0.1), the
+  // lightgray minor stroke is emitted second and overpaints the gray major
+  // stroke. Asymptote's PDF rasterizer effectively shows the darker stroke
+  // at those positions (texer reference 04150 has solid #7F7F7F at major
+  // positions, lightgray only at the in-between positions). Skip the
+  // lighter overlapping gridline so the darker one survives.
+  const _skipGridCi = new Set();
+  {
+    // Collect grid commands keyed by path geometry.
+    const _gridByKey = new Map(); // pathKey -> [{ci, gray}]
+    for (const ci of renderOrder) {
+      const dc = drawCommands[ci];
+      if (!dc._isTickMark || dc.above !== -1) continue;
+      if (!dc.path || !dc.path.segs || dc.path.segs.length !== 1) continue;
+      const seg = dc.path.segs[0];
+      if (!seg || !seg._linear) continue;
+      const a = seg.p0, b = seg.p3;
+      if (!a || !b) continue;
+      const k = `${a.x.toFixed(6)},${a.y.toFixed(6)}|${b.x.toFixed(6)},${b.y.toFixed(6)}`;
+      // Compute perceived gray (lower = darker). pen.r/g/b are 0..1.
+      let gray = 128;
+      const pen = dc.pen;
+      if (pen && typeof pen.r === 'number') {
+        gray = ((pen.r || 0) + (pen.g || 0) + (pen.b || 0)) / 3 * 255;
+      }
+      let arr = _gridByKey.get(k);
+      if (!arr) { arr = []; _gridByKey.set(k, arr); }
+      arr.push({ci, gray});
+    }
+    for (const arr of _gridByKey.values()) {
+      if (arr.length < 2) continue;
+      // Find darkest in group
+      let minGray = arr[0].gray;
+      for (const e of arr) if (e.gray < minGray) minGray = e.gray;
+      // Skip any with strictly higher (lighter) gray value
+      for (const e of arr) if (e.gray > minGray + 1) _skipGridCi.add(e.ci);
+    }
+  }
+
   // Build a map of dot positions → dot radius (in SVG user units) so that labels
   // placed at the same anchor point can be pushed outward by the dot radius
   // (matching Asymptote's dotmargin = labelmargin + dotfactor*linewidth/2 behavior).
@@ -20846,11 +20908,19 @@ function renderSVG(result, opts) {
   }
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
+    if (_skipGridCi.has(ci)) continue;
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= bpCSSPixel;
     if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit) {
       css.strokeWidth *= _autoScaledStrokeBoost;
+    }
+    // Extend=true gridlines (above:-1 with _isTickMark) render visually
+    // thinner via librsvg/sharp's SVG→PNG path than via Asymptote's
+    // PDF→PNG pipeline. Bump stroke-width slightly so the gridlines have
+    // similar visual weight to the texer reference rendering.
+    if (dc._isTickMark && dc.above === -1) {
+      css.strokeWidth *= 1.4;
     }
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
@@ -21110,6 +21180,17 @@ function renderSVG(result, opts) {
         _labelHEst = H;   // pass estimated height to MathJax renderer for correction
         _labelAyN = ay_n;
         anchor = 'middle';
+        // For axis labels with strong horizontal alignment (ax = ±1), use SVG's
+        // native text-anchor="end"/"start" so the right/left edge of the rendered
+        // text lands precisely at the labelmargin offset from the position,
+        // regardless of font-width estimation accuracy. Without this, axis
+        // labels like "Mass (kg)" placed at xmax with align W can extend past
+        // the viewBox right edge when the heuristic char-width factor (0.52)
+        // under-estimates the actual rendered width.
+        if (dc._isAxisLabel && Math.abs(ax) > 0.99 && !dc.labelTransform) {
+          anchor = ax < 0 ? 'end' : 'start';
+          dx = ax * margin + axUnit * dotPush;
+        }
       }
       let rawText = dc.text || '';
 
@@ -21162,25 +21243,34 @@ function renderSVG(result, opts) {
             // Match Asymptote's labelmargin(p) = 0.28*fontsize + 0.5*linewidth
             const _labelLw2 = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
             const margin2 = (0.28 * effectiveFontSize) + 0.5 * _labelLw2 * bpCSSPixel;
-            // Asymptote drawlabel.cc: shift = transform * pair(Align.x*W, Align.y*H)
-            //                              + unit(align) * labelmargin
-            // Align is L-inf-normalised to magnitude 0.5. The text-box offset is
-            // computed in the LOCAL (unrotated) frame using (W, H), then rotated
-            // to world space. This way `label(rotate(theta)*Label("long text"), pos, N)`
-            // offsets perpendicular to the rotated baseline by H/2 — not by half the
-            // rotated AABB (which would push long rotated text far above the path).
-            const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
-            const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
-            const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
-            const offLocalX = ax_n2 * W2;
-            const offLocalY = ay_n2 * H2;
-            const angleRad = angle * Math.PI / 180;
-            const cosT = Math.cos(angleRad);
-            const sinT = Math.sin(angleRad);
-            const offWorldX = cosT * offLocalX - sinT * offLocalY;
-            const offWorldY = sinT * offLocalX + cosT * offLocalY;
-            dx = offWorldX + ax2 * margin2;
-            dy = -(offWorldY + ay2 * margin2);
+            if (dc._axisLabelMidRotated) {
+              // Middle-of-axis rotated label: Asymptote applies only a
+              // perpendicular shift (no along-axis offset). The label center
+              // sits AT the axis center; tick-label clearance (screenDx) is
+              // appended below.
+              dx = ax2 * margin2;
+              dy = -(ay2 * margin2);
+            } else {
+              // Asymptote drawlabel.cc: shift = transform * pair(Align.x*W, Align.y*H)
+              //                              + unit(align) * labelmargin
+              // Align is L-inf-normalised to magnitude 0.5. The text-box offset is
+              // computed in the LOCAL (unrotated) frame using (W, H), then rotated
+              // to world space. This way `label(rotate(theta)*Label("long text"), pos, N)`
+              // offsets perpendicular to the rotated baseline by H/2 — not by half the
+              // rotated AABB (which would push long rotated text far above the path).
+              const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
+              const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
+              const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
+              const offLocalX = ax_n2 * W2;
+              const offLocalY = ay_n2 * H2;
+              const angleRad = angle * Math.PI / 180;
+              const cosT = Math.cos(angleRad);
+              const sinT = Math.sin(angleRad);
+              const offWorldX = cosT * offLocalX - sinT * offLocalY;
+              const offWorldY = sinT * offLocalX + cosT * offLocalY;
+              dx = offWorldX + ax2 * margin2;
+              dy = -(offWorldY + ay2 * margin2);
+            }
           }
           // Apply per-command screen-space offsets (used by axis labels to autoshift past
           // tick labels). Must be applied before baking dx/dy into the rotate pivot point.
