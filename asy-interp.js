@@ -1847,6 +1847,9 @@ function _projectTripleRaw(v, proj) {
 function createInterpreter() {
   // Draw commands output
   const drawCommands = [];
+  // Direction-redefinition warnings accumulated during execution
+  const directionWarnings = [];
+  const _warnedDirs = new Set();
   // Active picture (all drawing routes here; copied to drawCommands at end)
   let currentPic = {_tag:'picture', commands:[]};
   // 3D projection (set by import three / currentprojection = ...)
@@ -1864,6 +1867,19 @@ function createInterpreter() {
   let defaultPen = makePen({});
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
+
+  // Built-in Asymptote direction constants whose redefinition causes subtle bugs.
+  const _BUILTIN_DIRS = new Set([
+    'N','S','E','W','NE','NW','SE','SW',
+    'NNE','NNW','SSE','SSW','ENE','WNW','ESE','WSW',
+    'up','down','right','left',
+  ]);
+  function _warnDirRedef(name) {
+    if (!_warnedDirs.has(name)) {
+      _warnedDirs.add(name);
+      directionWarnings.push('dir-redef:' + name);
+    }
+  }
 
   // Project a triple to a pair using the current 3D projection.
   // For perspective projections, implements Asymptote's adjust=true:
@@ -4217,6 +4233,7 @@ function createInterpreter() {
         }
       }
     }
+    if (_BUILTIN_DIRS.has(node.name)) _warnDirRedef(node.name);
     env.set(node.name, val);
     return val;
   }
@@ -4225,6 +4242,7 @@ function createInterpreter() {
     const val = evalNode(node.value, env);
     if (node.target.type === 'Identifier') {
       const name = node.target.name;
+      if (_BUILTIN_DIRS.has(name)) _warnDirRedef(name);
       if (node.op === '=') {
         env.update(name, val);
       } else {
@@ -18182,6 +18200,8 @@ function createInterpreter() {
     _imageCache = opts.imageCache || {};
     // Reset state
     drawCommands.length = 0;
+    directionWarnings.length = 0;
+    _warnedDirs.clear();
     currentPic = {_tag:'picture', commands:[]};
     globalEnv.update('currentpicture', currentPic);
     projection = null;
@@ -18274,6 +18294,7 @@ function createInterpreter() {
       axisLimits: Object.assign({}, _axisLimits),
       dotfactor,
       currentlight,
+      directionWarnings: directionWarnings.slice(),
     };
   }
 
@@ -18352,7 +18373,7 @@ function renderSVG(result, opts) {
   let sizeW = _sizeW, sizeH = _sizeH;
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
   const dotfactor = _dotfactor || 6;
-  if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: [] };
+  if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: (result.directionWarnings || []).slice() };
 
   // Finalize auto-ranged graph-package axis lines.
   //
@@ -19049,7 +19070,7 @@ function renderSVG(result, opts) {
     maxY = opts.forcedBounds.maxY;
   }
 
-  const warnings = [];
+  const warnings = (result.directionWarnings || []).slice();
 
   // Determine scale
   const bboxW = maxX - minX, bboxH = maxY - minY;

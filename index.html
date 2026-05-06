@@ -2704,6 +2704,13 @@ async function doRender() {
       if (result.displayPercent < 100) {
         warns.push('Shrunk to fit: ' + result.displayPercent + '%');
       }
+      if (result.warnings) {
+        const dirRedefs = result.warnings.filter(w => w.startsWith('dir-redef:'));
+        if (dirRedefs.length > 0) {
+          const names = dirRedefs.map(w => w.slice(9)).join(', ');
+          warns.push('Built-in direction' + (dirRedefs.length > 1 ? 's' : '') + ' redefined: ' + names);
+        }
+      }
       showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
       lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
