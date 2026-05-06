@@ -105,17 +105,37 @@
   /* ── Checkbox filters ───────────────────────────────── */
   .filter-check { display: flex; align-items: center; gap: 3px; cursor: pointer; font-size: 12px; }
   .filter-check input { cursor: pointer; }
+
+  /* ── Collection multi-select dropdown ───────────────── */
+  .coll-dropdown { position: relative; }
+  .coll-btn { font-size: 13px; padding: 5px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; white-space: nowrap; }
+  .coll-btn:hover { border-color: #e94560; }
+  .coll-panel { position: absolute; top: calc(100% + 4px); left: 0; background: #16213e; border: 1px solid #475569; border-radius: 4px; padding: 6px 0; min-width: 240px; max-height: 320px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+  .coll-panel.open { display: block; }
+  .coll-item { display: flex; align-items: center; gap: 7px; padding: 4px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .coll-item:hover { background: #1e3a5f; }
+  .coll-item input[type=checkbox] { cursor: pointer; accent-color: #e94560; flex-shrink: 0; }
+  .coll-divider { border: none; border-top: 1px solid #0f3460; margin: 4px 0; }
 </style>
 </head>
 <body>
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v9</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v10</span></h1>
 
   <div class="filter-group">
-    <label>Collection:</label>
-    <select id="collection-filter"><option value="">All</option></select>
+    <label>Collections:</label>
+    <div class="coll-dropdown" id="coll-dropdown">
+      <button class="coll-btn" id="coll-btn">All collections</button>
+      <div class="coll-panel" id="coll-panel">
+        <label class="coll-item">
+          <input type="checkbox" id="coll-check-all" checked> <strong>Check / Uncheck All</strong>
+        </label>
+        <hr class="coll-divider">
+        <div id="coll-list"></div>
+      </div>
+    </div>
   </div>
 
   <div class="filter-group">
@@ -266,22 +286,53 @@
       document.getElementById('grid').innerHTML = `<p style="color:#f87171;padding:20px">Failed to load blink-manifest.json: ${err.message}</p>`;
     });
 
-  // ── Collections dropdown ─────────────────────────────
+  // ── Collections multi-checkbox dropdown ──────────────
   function initCollections() {
-    const sel = document.getElementById('collection-filter');
+    const list = document.getElementById('coll-list');
     for (const c of manifest.collections) {
       const name = (manifest.courseNames && manifest.courseNames[c]) || c;
       const count = manifest.diagrams.filter(d => d.collection === c).length;
-      const opt = document.createElement('option');
-      opt.value = c;
-      opt.textContent = `${name} (${count})`;
-      sel.appendChild(opt);
+      const label = document.createElement('label');
+      label.className = 'coll-item';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = c;
+      cb.checked = true;
+      cb.className = 'coll-cb';
+      cb.addEventListener('change', () => { syncCheckAll(); applyFilters(); });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(` ${name} (${count})`));
+      list.appendChild(label);
     }
+  }
+
+  function getCheckedCollections() {
+    return [...document.querySelectorAll('.coll-cb:checked')].map(cb => cb.value);
+  }
+
+  function syncCheckAll() {
+    const all = document.querySelectorAll('.coll-cb');
+    const checked = document.querySelectorAll('.coll-cb:checked');
+    const ctrl = document.getElementById('coll-check-all');
+    ctrl.indeterminate = checked.length > 0 && checked.length < all.length;
+    ctrl.checked = checked.length === all.length;
+    updateCollBtn();
+  }
+
+  function updateCollBtn() {
+    const all = document.querySelectorAll('.coll-cb');
+    const checked = document.querySelectorAll('.coll-cb:checked');
+    const btn = document.getElementById('coll-btn');
+    if (!all.length) return;
+    btn.textContent = checked.length === all.length
+      ? 'All collections'
+      : `${checked.length} / ${all.length} collections`;
   }
 
   // ── Filtering & sorting ──────────────────────────────
   function applyFilters() {
-    const coll = document.getElementById('collection-filter').value;
+    const checkedColls = getCheckedCollections();
+    const allChecked = checkedColls.length === manifest.collections.length;
     const sort = document.getElementById('sort-mode').value;
     const bothOnly  = document.getElementById('filter-both').checked;
     const htxOnly   = document.getElementById('filter-htx-only').checked;
@@ -290,7 +341,10 @@
 
     let list = manifest.diagrams;
 
-    if (coll) list = list.filter(d => d.collection === coll);
+    if (!allChecked) {
+      const collSet = new Set(checkedColls);
+      list = list.filter(d => collSet.has(d.collection));
+    }
     if (bothOnly) list = list.filter(d => d.hasTexer && d.hasHtx);
     if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasTexer);
     if (texerOnly) list = list.filter(d => d.hasTexer && !d.hasHtx);
@@ -1027,7 +1081,21 @@
   }
 
   // ── Event listeners ──────────────────────────────────
-  document.getElementById('collection-filter').addEventListener('change', applyFilters);
+  document.getElementById('coll-check-all').addEventListener('change', function() {
+    document.querySelectorAll('.coll-cb').forEach(cb => { cb.checked = this.checked; });
+    this.indeterminate = false;
+    updateCollBtn();
+    applyFilters();
+  });
+  document.getElementById('coll-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    document.getElementById('coll-panel').classList.toggle('open');
+  });
+  document.addEventListener('click', function(e) {
+    if (!document.getElementById('coll-dropdown').contains(e.target)) {
+      document.getElementById('coll-panel').classList.remove('open');
+    }
+  });
   document.getElementById('sort-mode').addEventListener('change', applyFilters);
   document.getElementById('filter-both').addEventListener('change', applyFilters);
   document.getElementById('filter-htx-only').addEventListener('change', applyFilters);
