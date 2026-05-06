@@ -623,7 +623,9 @@ function parse(tokens) {
     while (true) {
       const prec = infixPrec();
       if (prec <= minPrec) break;
+      const posBefore = pos;
       left = parseInfix(left, prec);
+      if (pos === posBefore) break; // safety: prevent infinite loops if parseInfix made no progress
     }
     return left;
   }
@@ -1066,7 +1068,13 @@ function parse(tokens) {
       return Identifier(t.value, ln);
     }
 
-    // Fallback: skip
+    // Fallback: closing delimiters are never valid prefixes — throw so callers
+    // (e.g. tryParseDir's try/catch) can restore pos cleanly. Without this, a
+    // mid-typed `{1,}` direction spec consumes the `}` here and creates an
+    // infinite loop in parseExpr (see parsePathExpr/tryParseDir).
+    if (t.type === T.RBRACE || t.type === T.RPAREN || t.type === T.RBRACKET) {
+      throw new Error('unexpected ' + (t.value || t.type));
+    }
     pos++;
     return NullLit(ln);
   }
