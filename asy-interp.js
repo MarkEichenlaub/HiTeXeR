@@ -20911,6 +20911,15 @@ function renderSVG(result, opts) {
       _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
     }
   }
+  // For diagrams with explicit unitsize/size (!isAutoScaled), the auto-scaled
+  // stroke boost above is bypassed, so default-pen strokes (axes, default-
+  // color line plots, e.g. the red function-plot in 04531) render at the
+  // raw 0.5 bp default which appears noticeably thinner than TeXeR's 240-DPI
+  // EPS rasterization at the same display size. Apply a 1.5× boost to default-
+  // pen strokes in this branch so axes and default-color graphs have visual
+  // weight comparable to TeXeR. Explicit linewidths (_lwExplicit) are
+  // untouched so user-specified pen widths render at literal size.
+  const _explicitSizeStrokeBoost = !isAutoScaled ? 1.5 : 1.0;
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
     if (_skipGridCi.has(ci)) continue;
@@ -20919,6 +20928,8 @@ function renderSVG(result, opts) {
     css.strokeWidth *= bpCSSPixel;
     if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit) {
       css.strokeWidth *= _autoScaledStrokeBoost;
+    } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit) {
+      css.strokeWidth *= _explicitSizeStrokeBoost;
     }
     // Extend=true gridlines (above:-1 with _isTickMark) render visually
     // thinner via librsvg/sharp's SVG→PNG path than via Asymptote's
