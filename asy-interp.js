@@ -18839,24 +18839,39 @@ function renderSVG(result, opts) {
           const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
           const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
           if (Math.abs(ltAngle) > 0.5) {
-            // Rotated label: Asymptote drawlabel.cc applies the alignment in the
-            // LOCAL (un-rotated) text frame, then rotates the offset to world coords.
-            // Mirror the render code's math (line ~20902) so the bbox center matches
-            // where the rotated label is actually drawn — otherwise a long axis label
-            // rotated 90° CCW (e.g. 8812 "Percentage of True Speed") gets bbox-expanded
-            // symmetrically around its anchor, falsely doubling the y-range and
-            // triggering the label-dominated scale path that shrinks the plot.
+            // Targeted fix (v4.32): for `label(rotate(±90)*txt, pos, W or E)` —
+            // the AoPS y-axis-label idiom — the LOCAL-frame formula below would
+            // place the rotated bbox center at world (0, ∓W_text/2), i.e. the
+            // text sits BELOW/ABOVE the anchor instead of to the left/right.
+            // The Asymptote-canonical answer (and what TeXeR draws) is to put
+            // the rotated bbox's right/left edge at the anchor, with margin
+            // clearance. For rotate(±90), the rotated bbox width = original H,
+            // so center is at world (ax*(H/2 + margin), 0).
+            const _isAxis90 = (Math.abs(Math.abs(ltAngle) - 90) < 1) &&
+                              (Math.abs(ay) < 0.01) && (Math.abs(ax) > 0.99);
             const W_bp = textWidthBpBase;
             const H_bp = (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw);
-            const offLocalXbp = ax_n * W_bp;
-            const offLocalYbp = ay_n * H_bp;
-            const angleRad = ltAngle * Math.PI / 180;
-            const cosT = Math.cos(angleRad);
-            const sinT = Math.sin(angleRad);
-            const offWorldXbp = cosT * offLocalXbp - sinT * offLocalYbp;
-            const offWorldYbp = sinT * offLocalXbp + cosT * offLocalYbp;
-            dx = offWorldXbp / roughPxPerUnitX + ax * marginX;
-            dy = offWorldYbp / roughPxPerUnitY + ay * marginY;  // Asymptote y-up, no inversion
+            if (_isAxis90) {
+              dx = ax * (H_bp / 2 / roughPxPerUnitX + marginX);
+              dy = 0;
+            } else {
+              // Rotated label: Asymptote drawlabel.cc applies the alignment in the
+              // LOCAL (un-rotated) text frame, then rotates the offset to world coords.
+              // Mirror the render code's math (line ~20902) so the bbox center matches
+              // where the rotated label is actually drawn — otherwise a long axis label
+              // rotated 90° CCW (e.g. 8812 "Percentage of True Speed") gets bbox-expanded
+              // symmetrically around its anchor, falsely doubling the y-range and
+              // triggering the label-dominated scale path that shrinks the plot.
+              const offLocalXbp = ax_n * W_bp;
+              const offLocalYbp = ay_n * H_bp;
+              const angleRad = ltAngle * Math.PI / 180;
+              const cosT = Math.cos(angleRad);
+              const sinT = Math.sin(angleRad);
+              const offWorldXbp = cosT * offLocalXbp - sinT * offLocalYbp;
+              const offWorldYbp = sinT * offLocalXbp + cosT * offLocalYbp;
+              dx = offWorldXbp / roughPxPerUnitX + ax * marginX;
+              dy = offWorldYbp / roughPxPerUnitY + ay * marginY;  // Asymptote y-up, no inversion
+            }
           } else {
             dx = ax_n * textWidthUser + ax * marginX;
             dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
@@ -21267,25 +21282,41 @@ function renderSVG(result, opts) {
               dx = ax2 * margin2;
               dy = -(ay2 * margin2);
             } else {
-              // Asymptote drawlabel.cc: shift = transform * pair(Align.x*W, Align.y*H)
-              //                              + unit(align) * labelmargin
-              // Align is L-inf-normalised to magnitude 0.5. The text-box offset is
-              // computed in the LOCAL (unrotated) frame using (W, H), then rotated
-              // to world space. This way `label(rotate(theta)*Label("long text"), pos, N)`
-              // offsets perpendicular to the rotated baseline by H/2 — not by half the
-              // rotated AABB (which would push long rotated text far above the path).
-              const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
-              const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
-              const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
-              const offLocalX = ax_n2 * W2;
-              const offLocalY = ay_n2 * H2;
-              const angleRad = angle * Math.PI / 180;
-              const cosT = Math.cos(angleRad);
-              const sinT = Math.sin(angleRad);
-              const offWorldX = cosT * offLocalX - sinT * offLocalY;
-              const offWorldY = sinT * offLocalX + cosT * offLocalY;
-              dx = offWorldX + ax2 * margin2;
-              dy = -(offWorldY + ay2 * margin2);
+              // Targeted fix (v4.32): for `label(rotate(±90)*txt, pos, W or E)`
+              // — the AoPS y-axis-label idiom — the LOCAL-frame formula below
+              // places the rotated bbox center at world (0, ∓W_text/2), so the
+              // label sits BELOW/ABOVE the anchor instead of to the left/right.
+              // For rotate(±90), the rotated bbox width = original H, so the
+              // bbox right/left edge is at the anchor; shift by margin for
+              // visual clearance. (Cardinal align + cardinal rotation only —
+              // non-cardinal cases keep the v4.31 LOCAL-frame formula, which
+              // is what the bulk of the corpus is calibrated against.)
+              const _isAxis90 = (Math.abs(Math.abs(angle) - 90) < 1) &&
+                                (Math.abs(ay2) < 0.01) && (Math.abs(ax2) > 0.99);
+              if (_isAxis90) {
+                dx = ax2 * (H2 / 2 + margin2);
+                dy = 0;
+              } else {
+                // Asymptote drawlabel.cc: shift = transform * pair(Align.x*W, Align.y*H)
+                //                              + unit(align) * labelmargin
+                // Align is L-inf-normalised to magnitude 0.5. The text-box offset is
+                // computed in the LOCAL (unrotated) frame using (W, H), then rotated
+                // to world space. This way `label(rotate(theta)*Label("long text"), pos, N)`
+                // offsets perpendicular to the rotated baseline by H/2 — not by half the
+                // rotated AABB (which would push long rotated text far above the path).
+                const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
+                const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
+                const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
+                const offLocalX = ax_n2 * W2;
+                const offLocalY = ay_n2 * H2;
+                const angleRad = angle * Math.PI / 180;
+                const cosT = Math.cos(angleRad);
+                const sinT = Math.sin(angleRad);
+                const offWorldX = cosT * offLocalX - sinT * offLocalY;
+                const offWorldY = sinT * offLocalX + cosT * offLocalY;
+                dx = offWorldX + ax2 * margin2;
+                dy = -(offWorldY + ay2 * margin2);
+              }
             }
           }
           // Apply per-command screen-space offsets (used by axis labels to autoshift past
