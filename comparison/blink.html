@@ -520,7 +520,13 @@
 
   // Build the renderable source descriptor for a given kind ('htx' | 'texer' | 'asy')
   function sourceDescriptor(d, kind, cacheBust) {
-    const ts = cacheBust ? ('?t=' + Date.now()) : '';
+    // If cacheBust is set, always emit a fresh timestamp.  Otherwise, if this
+    // diagram's TeXeR PNG was refetched in the current session, keep using its
+    // sticky timestamp so subsequent renders (e.g. after toggling side-swap or
+    // modes) still pull the new file rather than the browser's cached stale URL.
+    let ts = '';
+    if (cacheBust) ts = '?t=' + Date.now();
+    else if (kind === 'texer' && d._texerCacheBustTs) ts = '?t=' + d._texerCacheBustTs;
     if (kind === 'htx' && d.hasHtx) {
       if (d.hasSvg) return { src: `htx_svgs/${d.id}.svg${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
       return { src: `htx_pngs/${d.id}.png${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
@@ -996,18 +1002,13 @@
       if (res.ok) {
         btn.textContent = 'Done!';
         btn.style.background = '#2d6a4f';
-        // Mark as having texer and force-reload if currently viewing texer
+        // Mark as having texer and refresh whatever view is currently active.
+        // updateBlinkImage routes through sourceDescriptor, which appends a
+        // ?t=… cache-buster when cacheBust is true. This handles both
+        // side-by-side mode (default) and legacy single-image mode.
         d.hasTexer = true;
-        if (blinkSource === 'texer') {
-          // Append cache-buster to force <img> reload
-          const img = document.getElementById('blink-img');
-          const svgDiv = document.getElementById('blink-svg-inline');
-          svgDiv.style.display = 'none';
-          svgDiv.innerHTML = '';
-          img.style.display = '';
-          img.onload = () => fitImage(img, img.naturalWidth * TEXER_DISPLAY_SCALE, img.naturalHeight * TEXER_DISPLAY_SCALE);
-          img.src = `texer_pngs/${d.id}.png?t=${Date.now()}`;
-        }
+        d._texerCacheBustTs = Date.now();
+        updateBlinkImage({ cacheBust: true });
         // Also refresh the grid thumbnail if it was a texer image
         const thumb = document.querySelector(`.thumb[data-idx="${blinkIdx}"] img`);
         if (thumb) thumb.src = thumb.src.split('?')[0] + '?t=' + Date.now();
