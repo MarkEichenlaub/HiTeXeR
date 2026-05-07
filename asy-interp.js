@@ -1388,6 +1388,11 @@ function applyTransform3Mesh(t, mesh) {
     const newVerts = f.vertices.map(v => applyTransform3Triple(t, v));
     const nf = {vertices: newVerts};
     if (f.pen) nf.pen = f.pen;
+    // Preserve grid-quad indices so per-face palette coloring (which keys
+    // off f._gi/f._gj into the surface's _colors grid) still applies after
+    // a transform like zscale3(-1)*s on a parametric surface.
+    if (typeof f._gi === 'number') nf._gi = f._gi;
+    if (typeof f._gj === 'number') nf._gj = f._gj;
     nf.normal = faceNormal(nf); // recompute normal after transform
     return nf;
   });
@@ -16125,6 +16130,51 @@ function createInterpreter() {
         above: named.above,
       });
     });
+    // axes3(xlabel, ylabel, zlabel, arrow) — graph3 helper that draws all
+    // three axes in one call. Asymptote's signature is roughly:
+    //   void axes3(Label xlabel="", Label ylabel="", Label zlabel="",
+    //              bbox3 b=..., arrowbar3 arrow=None, ...)
+    // We only need to support the common usages from the corpus, e.g.
+    // `axes3("$x$","$y$","$z$",Arrow3)` (12812 p-orbital diagram).
+    env.set('axes3', (...args) => {
+      const pos = args.filter(a => !(a && a._named)).map(resolveAxis3Arg);
+      // Three string/Label slots for x/y/z labels, then an arrow constructor.
+      const labels = ['', '', ''];
+      let labelSlot = 0;
+      let arrow = null, pen = null, axisType = null, ticks = null;
+      for (const a of pos) {
+        if (typeof a === 'string' && labelSlot < 3) {
+          labels[labelSlot++] = a;
+        } else if (a && a._tag === 'label' && labelSlot < 3) {
+          labels[labelSlot++] = a.text;
+        } else if (a && a._tag === 'arrow') {
+          arrow = a;
+        } else if (a === _arrow3Func || a === _arrows3Func || a === _beginArrow3Func ||
+                   a === _endArrow3Func || a === _midArrow3Func) {
+          arrow = a();
+        } else if (isPen(a)) {
+          pen = a;
+        } else if (a && a._tag === 'axis3type') {
+          axisType = a;
+        } else if (a && a._tag === 'ticks3') {
+          ticks = a;
+        }
+      }
+      const named = _axis3NamedExtract(args);
+      if (!arrow && named.arrow) arrow = named.arrow;
+      if (!pen && named.pen) pen = named.pen;
+      if (!axisType && named.axisType) axisType = named.axisType;
+      if (!ticks && named.ticks) ticks = named.ticks;
+      const opts = {
+        xmin: named.xmin, xmax: named.xmax,
+        ymin: named.ymin, ymax: named.ymax,
+        zmin: named.zmin, zmax: named.zmax,
+        above: named.above,
+      };
+      _draw3DAxis('x', labels[0], axisType, ticks, pen, arrow, currentPic, opts);
+      _draw3DAxis('y', labels[1], axisType, ticks, pen, arrow, currentPic, opts);
+      _draw3DAxis('z', labels[2], axisType, ticks, pen, arrow, currentPic, opts);
+    });
 
     // Override point() to handle 3D box-relative coordinates in graph3
     // point(triple) returns the corner of the current bounding box
@@ -19564,6 +19614,9 @@ function renderSVG(result, opts) {
     // and matches the original 2-pass behavior when nothing more is needed).
     const _curFullW = (maxX - minX) || 1;
     const _curFullH = (maxY - minY) || 1;
+    if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
+      try { process.stderr.write('[bbox-pass ' + labelPass + '] minX=' + minX.toFixed(2) + ' maxX=' + maxX.toFixed(2) + ' minY=' + minY.toFixed(2) + ' maxY=' + maxY.toFixed(2) + ' roughPxPerUnit=' + roughPxPerUnit.toFixed(4) + ' autoScaled=' + autoScaled + '\n'); } catch(e){}
+    }
     if (labelPass > 0 && _prevFullW > 0 && _prevFullH > 0 &&
         Math.abs(_curFullW - _prevFullW) / _prevFullW < 0.005 &&
         Math.abs(_curFullH - _prevFullH) / _prevFullH < 0.005) {
