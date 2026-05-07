@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v4.69</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v4.70</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -4284,6 +4284,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const eigennodeNode = urlParams.get('eigennode_node');
   const eigennodeFile = urlParams.get('eigennode_file');
   const eigennodeCallbackFile = urlParams.get('eigennode_callback');
+  // Name hint from EigenNode (e.g. "head_to_toe" from "#asymptote head_to_toe").
+  // Used as the suggested filename when saving PNG/JPG/SVG/GIF exports.
+  const eigennodeName = urlParams.get('eigennode_name') || '';
 
   if (eigennodeFile) {
     // Load code from file via the server
@@ -5860,7 +5863,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (copied) {
           progressEl.textContent = 'Copied to clipboard!';
         } else {
-          downloadBlob(blob, 'animation.gif');
+          downloadBlob(blob, eigennodeName ? eigennodeName + '.gif' : 'animation.gif');
           progressEl.textContent = 'Clipboard not supported — downloaded instead.';
         }
       } else if (action === 'editor') {
@@ -5873,7 +5876,9 @@ document.addEventListener('DOMContentLoaded', () => {
           });
           const data = await resp.json();
           if (data.ok) {
-            window.open('http://127.0.0.1:8847/?path=' + encodeURIComponent(data.path), '_blank');
+            let editorUrl = 'http://127.0.0.1:8847/?path=' + encodeURIComponent(data.path);
+            if (eigennodeName) editorUrl += '&name=' + encodeURIComponent(eigennodeName);
+            window.open(editorUrl, '_blank');
             progressEl.textContent = 'Sent to editor!';
           } else {
             progressEl.textContent = 'Editor error: ' + (data.error || 'unknown');
@@ -5882,7 +5887,7 @@ document.addEventListener('DOMContentLoaded', () => {
           progressEl.textContent = 'Editor not reachable: ' + editorErr.message;
         }
       } else {
-        downloadBlob(blob, 'animation.gif');
+        downloadBlob(blob, eigennodeName ? eigennodeName + '.gif' : 'animation.gif');
         progressEl.textContent = 'Saved!';
       }
     } catch(err) {
@@ -6621,7 +6626,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const blob = new Blob([svgStr], { type: 'image/svg+xml' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'diagram.svg';
+    a.download = eigennodeName ? eigennodeName + '.svg' : 'diagram.svg';
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -6690,7 +6695,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const blob = await pngAddTextChunk(rawBlob, 'Source', extractAsyCode());
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'diagram.png';
+      a.download = eigennodeName ? eigennodeName + '.png' : 'diagram.png';
       a.click();
       URL.revokeObjectURL(a.href);
     } catch(err) {
@@ -6729,7 +6734,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const blob = await jpgAddComment(rawBlob, extractAsyCode());
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'diagram.jpg';
+      a.download = eigennodeName ? eigennodeName + '.jpg' : 'diagram.jpg';
       a.click();
       URL.revokeObjectURL(a.href);
     } catch(err) {
