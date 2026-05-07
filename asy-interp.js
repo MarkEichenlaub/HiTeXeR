@@ -4909,14 +4909,21 @@ function createInterpreter() {
       }
       // Frame-stored labels (set by `label(frame, ...)`): emit at the
       // marker position with the frame-local label-position offset
-      // converted to user units and rotated by the marker tangent.
+      // converted to user units and rotated by the marker tangent. When
+      // the marker is rotated (rotated=true on markinterval/markuniform),
+      // the label TEXT also rotates with the frame so it reads tangent
+      // to the path (12899 line 16: "$a$" labels around a circle).
       if (f.labels && f.labels.length) {
+        const markerRot = (Math.abs(angleRad) > 1e-9)
+          ? makeTransform(ca, -sa, sa, ca, 0, 0) : null;
         for (const L of f.labels) {
           const labOffsetBp = L.pos || makePair(0, 0);
           const placed = xform(labOffsetBp.x, labOffsetBp.y);
           const labelCmd = {cmd:'label', text: L.text, pos: placed, align: L.align,
                             pen: clonePen(L.pen || defaultPen), filltype: L.filltype, line: 0};
-          if (L.labelTransform) labelCmd.labelTransform = L.labelTransform;
+          let lt = L.labelTransform || null;
+          if (markerRot) lt = lt ? composeTransforms(markerRot, lt) : markerRot;
+          if (lt) labelCmd.labelTransform = lt;
           target.commands.push(labelCmd);
         }
       }
@@ -5112,30 +5119,43 @@ function createInterpreter() {
       return f;
     }
 
-    // tildeframe — vertical s-curve (matches Asymptote `tildemark` natural
-    // orientation). With TildeIntervalMarker's default angle=90 this rotates
-    // to a horizontal "~" along the path. Earlier the control points were
-    // laid out horizontally, so applying the 90° default produced a vertical
-    // tilde instead of a horizontal one (12899 lines 12, 13).
+    // tildeframe — Asymptote's source path is
+    //   z[0]{up}..{up}z[1]..z[2]{up}..{up}z[3]..z[4]{up}
+    // through z = (-0.5,-1.5),(-0.5,-0.75),(0.5,0),(-0.5,0.75),(-0.5,1.5).
+    // Reproducing that exactly with our Hobby solver is hard — when those
+    // points are rotated to a horizontal layout (TildeIntervalMarker default
+    // angle=90), world-up tangents at the x-zigzagging knots send Hobby's
+    // velocity formula (rho) toward its chord-reversing singularity and the
+    // curve runs off the page; in natural orientation the velocity stays so
+    // small the curve collapses to a single hump.
+    //
+    // Instead we sample a Catmull-Rom S-curve through five hand-chosen knots
+    // whose y is evenly spaced and whose x zigzags (-0.5, 0.5, 0, -0.5, 0.5).
+    // That produces the characteristic two-lobe tilde "~" shape with one lobe
+    // above the path's tangent line and one below.  The natural curve is then
+    // rotated by `angle` to lie along the path tangent.
     function _tildeframeImpl(args) {
       const a = _parseFrameArgs(args);
       const size = a.size > 0 ? a.size : _tildemarksize(a.pen);
       const space = a.space || makePair(1.5 * size, 0);
-      // Asymptote tildemark: (-0.5,1.5)..(-0.5,0.75)..(0.5,0)..(-0.5,-0.75)..(-0.5,-1.5)
-      // — vertical extent of 3 with mid-bulge to the right.
+      // Pre-v4.41 used a horizontal 5-point Catmull-Rom zigzag that produced
+      // a clean "~" shape.  Same point pattern here, rotated 90° so natural
+      // orientation is vertical (matching Asymptote's tildemark).
       const ctrl = [
-        { x: -0.5, y: -1.5 }, { x: -0.5, y: -0.75 }, { x: 0.5, y: 0 },
-        { x: -0.5, y: 0.75 }, { x: -0.5, y: 1.5 }
+        { x: -0.5, y: -1.5  }, { x:  0.5, y: -0.75 }, { x:  0, y: 0 },
+        { x: -0.5, y:  0.75 }, { x:  0.5, y:  1.5  }
       ];
-      // Catmull-Rom-like sampling between consecutive controls.
       const samp = [];
-      const N = 8;
+      const N = 16;
       for (let i = 0; i < ctrl.length - 1; i++) {
-        const p0 = ctrl[Math.max(0, i - 1)], p1 = ctrl[i], p2 = ctrl[i + 1], p3 = ctrl[Math.min(ctrl.length - 1, i + 2)];
+        const p0 = ctrl[Math.max(0, i-1)];
+        const p1 = ctrl[i];
+        const p2 = ctrl[i+1];
+        const p3 = ctrl[Math.min(ctrl.length-1, i+2)];
         for (let k = 0; k <= N; k++) {
           const t = k / N;
-          const t2 = t*t, t3 = t2*t;
-          // Catmull-Rom with tension 0.5
+          const t2 = t * t;
+          const t3 = t2 * t;
           const x = 0.5 * ((2*p1.x) + (-p0.x + p2.x)*t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x)*t2 + (-p0.x + 3*p1.x - 3*p2.x + p3.x)*t3);
           const y = 0.5 * ((2*p1.y) + (-p0.y + p2.y)*t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y)*t2 + (-p0.y + 3*p1.y - 3*p2.y + p3.y)*t3);
           if (samp.length > 0 && i > 0 && k === 0) continue; // dedupe joins
@@ -7409,6 +7429,18 @@ function createInterpreter() {
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
+    // Asymptote labelmargin(p) returns the small text padding used to push
+    // labels off their anchor point. The renderer (see comment near line
+    // ~21513) approximates Asymptote's value as 0.28*fontsize + 0.5*linewidth.
+    // Without this binding, `2labelmargin()` evaluated to 0 and AoPS idioms
+    // like `label(a,"$a$",(0,-2labelmargin()))` placed labels right at the
+    // anchor instead of just outside it (12899 line 16).
+    env.set('labelmargin', (...args) => {
+      const p = args.find(a => isPen(a)) || env.get('currentpen') || defaultPen;
+      const fs = (p && typeof p.fontsize === 'number' && p.fontsize > 0) ? p.fontsize : 12;
+      const lw = (p && typeof p.linewidth === 'number' && p.linewidth > 0) ? p.linewidth : 0.5;
+      return 0.28 * fs + 0.5 * lw;
+    });
     env.set('linetype', (...args) => {
       // linetype("dash pattern") or linetype(real[])
       let pattern = null;
