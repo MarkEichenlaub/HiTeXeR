@@ -19668,6 +19668,15 @@ function renderSVG(result, opts) {
         // cluster, matching the TeXeR reference scale for these diagrams.
         if (_clusteredPairs >= 5) {
           _overlapTgt = defaultSize;
+        } else if (_clusteredPairs >= 3) {
+          // Mid-cluster + arrow-draws → physics free-body diagram
+          // (e.g. 06174: inclined plane + box with mg/N/F_f force vectors,
+          // 6 labels but only 3 clustered pairs).  Generic geometry diagrams
+          // (e.g. 08032 with 4 pairs) don't have arrow-style draws, so the
+          // arrow-draw guard discriminates physics from geometry.
+          const _hasArrowDraws = drawCommands.some(dc =>
+            dc.cmd === 'draw' && dc.arrow && (dc.arrow._tag === 'arrow' || dc.arrow.style));
+          if (_hasArrowDraws) _overlapTgt = defaultSize;
         }
       }
       const tgtSize = Math.max(baseTgt, crowdedTgt, _overlapTgt);
