@@ -13532,8 +13532,13 @@ function createInterpreter() {
         // For closed-surface meshes (e.g. spheres), back-face cull so
         // interior facets don't bleed through; also propagate sphere metadata
         // so the renderer can apply specular shading at the silhouette.
+        // CRITICAL: only treat as a sphere when the revolution actually IS a
+        // sphere. cylinder() also sets {_radius,_center} on its result (plus
+        // _height); without the !_height guard, surface(cylinder(...)) would
+        // be silhouette-shaded as a giant sphere of the cylinder's radius
+        // (regression seen in 03335: thin disc renders as full sphere).
         const m = firstRev.mesh;
-        if (firstRev._radius && firstRev._center) {
+        if (firstRev._radius && firstRev._center && !firstRev._height) {
           m._closed = true;
           m._sphereCenter = firstRev._center;
           m._sphereRadius = firstRev._radius;
