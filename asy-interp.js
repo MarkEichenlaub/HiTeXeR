@@ -4164,6 +4164,7 @@ function createInterpreter() {
     if (hathatIndices.length > 0) {
       // Split into sub-paths at ^^ boundaries, return a path array
       const allSegs = [];
+      const subPathList = [];
       let start = 0;
       for (const hi of [...hathatIndices, joins.length]) {
         const subPoints = points.slice(start, hi + 1);
@@ -4172,13 +4173,22 @@ function createInterpreter() {
         if (subPoints.length >= 2) {
           const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs);
           allSegs.push(...subSegs);
+          subPathList.push(makePath(subSegs, false));
         } else if (subPoints.length === 1) {
           // Single point joined via ^^: zero-length segment (used by dot(a^^b^^c) to mark positions)
           allSegs.push(makeSeg(subPoints[0], subPoints[0], subPoints[0], subPoints[0]));
+          const sp = makePath([], false);
+          sp._singlePoint = subPoints[0];
+          subPathList.push(sp);
         }
         start = hi + 1;
       }
-      return makePath(allSegs, false);
+      const result = makePath(allSegs, false);
+      // Attach the per-^^ sub-paths so assignment to path[] (and for-each)
+      // recovers the array form. 03501 idiom: `path[] funnel = a--b--c ^^
+      // d--e--f;` then `funnel[0]` and `funnel[1]` index sub-paths.
+      if (subPathList.length >= 2) result._subPaths = subPathList;
+      return result;
     }
 
     return makePath(buildPathSegs(points, joins, hasCycle, directions), hasCycle);
@@ -4272,6 +4282,10 @@ function createInterpreter() {
         else val = makeGeoVector(cs, toPair(val));
       } else if (node.varType === 'pair' && (isPoint(val) || isGeoVector(val))) {
         val = toPair(val);
+      } else if (node.varType === 'path[]' && val && val._tag === 'path' && Array.isArray(val._subPaths)) {
+        // 03501 idiom: `path[] funnel = a--b--c ^^ d--e--f;` — unwrap the
+        // unified path with attached sub-paths into an actual path[].
+        val = val._subPaths;
       }
     } else {
       // Default values by type
