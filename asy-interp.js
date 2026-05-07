@@ -6169,6 +6169,13 @@ function createInterpreter() {
     env.set('acos', _broadcast1(Math.acos));
     env.set('atan', _broadcast1(Math.atan));
     env.set('atan2', _broadcast2(Math.atan2));
+    // Reciprocal trig and their inverses (06281 uses acot for arc-quarter geometry)
+    env.set('cot', _broadcast1((x) => 1 / Math.tan(x)));
+    env.set('sec', _broadcast1((x) => 1 / Math.cos(x)));
+    env.set('csc', _broadcast1((x) => 1 / Math.sin(x)));
+    env.set('acot', _broadcast1((x) => Math.PI / 2 - Math.atan(x)));
+    env.set('asec', _broadcast1((x) => Math.acos(1 / x)));
+    env.set('acsc', _broadcast1((x) => Math.asin(1 / x)));
     env.set('sqrt', _broadcast1(Math.sqrt));
     env.set('cbrt', _broadcast1(Math.cbrt));
     env.set('sinh', _broadcast1(Math.sinh));
