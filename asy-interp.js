@@ -2647,6 +2647,33 @@ function createInterpreter() {
       const t = existing ? composeTransforms(left, existing) : left;
       return Object.assign({}, right, {transform: t});
     }
+    // Transform * frame (mframe) → new frame with all stroke/fill points
+    // transformed. Used by markers idiom `scale(2)*dotframe(red)` etc., where
+    // the inner frame fed to e.g. StickIntervalMarker is pre-scaled. Without
+    // this branch the multiplication falls through and the frame is lost,
+    // so the marker's outer-endpoint dots disappear (12899 line 6 regression).
+    if (isTransform(left) && right && right._tag === 'mframe') {
+      const t = left;
+      const tPt = (p) => {
+        const tp = applyTransformPair(t, makePair(p.x, p.y));
+        return { x: tp.x, y: tp.y };
+      };
+      const out = { _tag: 'mframe',
+        strokes: (right.strokes || []).map(s => ({ pts: s.pts.map(tPt), closed: s.closed, pen: s.pen })),
+        fills:   (right.fills   || []).map(f => ({ pts: f.pts.map(tPt), pen: f.pen })),
+      };
+      if (right.labels && right.labels.length) {
+        out.labels = right.labels.map(L => {
+          const newL = Object.assign({}, L);
+          if (L.pos) {
+            const tp = applyTransformPair(t, L.pos);
+            newL.pos = makePair(tp.x, tp.y);
+          }
+          return newL;
+        });
+      }
+      return out;
+    }
     // Transform * real / real * Transform: Asymptote implicitly casts real→pair as
     // (r, 0), so e.g. rotate(th)*3.2 means rotate(th)*(3.2, 0) — a pair result.
     // (There is no standalone transform*real operator in plain.asy.)
@@ -4216,6 +4243,7 @@ function createInterpreter() {
           case 'string': val = ''; break;
           case 'bool': val = false; break;
           case 'picture': val = {_tag:'picture', commands:[]}; break;
+          case 'frame': val = {_tag:'mframe', strokes:[], fills:[]}; break;
           case 'surface': val = {_tag:'surface', mesh: makeMesh([])}; break;
           case 'revolution': val = {_tag:'revolution', mesh: makeMesh([])}; break;
           case 'tube': val = {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: makePath([], false)}; break;
@@ -4879,6 +4907,19 @@ function createInterpreter() {
           target.commands.push({cmd:'fill', path: makePath(segs, true), pen: clonePen(fl.pen || defaultPen), line:0});
         }
       }
+      // Frame-stored labels (set by `label(frame, ...)`): emit at the
+      // marker position with the frame-local label-position offset
+      // converted to user units and rotated by the marker tangent.
+      if (f.labels && f.labels.length) {
+        for (const L of f.labels) {
+          const labOffsetBp = L.pos || makePair(0, 0);
+          const placed = xform(labOffsetBp.x, labOffsetBp.y);
+          const labelCmd = {cmd:'label', text: L.text, pos: placed, align: L.align,
+                            pen: clonePen(L.pen || defaultPen), filltype: L.filltype, line: 0};
+          if (L.labelTransform) labelCmd.labelTransform = L.labelTransform;
+          target.commands.push(labelCmd);
+        }
+      }
     }
 
     // De Casteljau evaluation of a path at parameter t in [0,1] with both
@@ -5071,17 +5112,20 @@ function createInterpreter() {
       return f;
     }
 
-    // tildeframe — yscale(1.25) applied to a small s-curve, scaled by `size`.
-    // Approximated as 8 line segments along the s-curve for fidelity.
+    // tildeframe — vertical s-curve (matches Asymptote `tildemark` natural
+    // orientation). With TildeIntervalMarker's default angle=90 this rotates
+    // to a horizontal "~" along the path. Earlier the control points were
+    // laid out horizontally, so applying the 90° default produced a vertical
+    // tilde instead of a horizontal one (12899 lines 12, 13).
     function _tildeframeImpl(args) {
       const a = _parseFrameArgs(args);
       const size = a.size > 0 ? a.size : _tildemarksize(a.pen);
       const space = a.space || makePair(1.5 * size, 0);
-      // s-curve through (-1.5,-0.5) (-0.75,0.5) (0,0) (0.75,-0.5) (1.5,0.5)
-      // Sample 33 points on the cubic-like spline and yscale by 1.25.
+      // Asymptote tildemark: (-0.5,1.5)..(-0.5,0.75)..(0.5,0)..(-0.5,-0.75)..(-0.5,-1.5)
+      // — vertical extent of 3 with mid-bulge to the right.
       const ctrl = [
-        { x: -1.5, y: -0.5 }, { x: -0.75, y: 0.5 }, { x: 0, y: 0 },
-        { x: 0.75, y: -0.5 }, { x: 1.5, y: 0.5 }
+        { x: -0.5, y: -1.5 }, { x: -0.5, y: -0.75 }, { x: 0.5, y: 0 },
+        { x: -0.5, y: 0.75 }, { x: -0.5, y: 1.5 }
       ];
       // Catmull-Rom-like sampling between consecutive controls.
       const samp = [];
@@ -5095,7 +5139,7 @@ function createInterpreter() {
           const x = 0.5 * ((2*p1.x) + (-p0.x + p2.x)*t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x)*t2 + (-p0.x + 3*p1.x - 3*p2.x + p3.x)*t3);
           const y = 0.5 * ((2*p1.y) + (-p0.y + p2.y)*t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y)*t2 + (-p0.y + 3*p1.y - 3*p2.y + p3.y)*t3);
           if (samp.length > 0 && i > 0 && k === 0) continue; // dedupe joins
-          samp.push({ x, y: 1.25 * y });
+          samp.push({ x, y });
         }
       }
       let basePts = samp.map(p => ({ x: p.x * size, y: p.y * size }));
@@ -5123,11 +5167,15 @@ function createInterpreter() {
       const f = _newFrame();
       // n-armed cross: 2*n line segments through the origin, evenly rotated.
       // Mirrors plain_markers.asy's cross(n) with full r=0 (no inner radius).
+      // markers.asy crossframe(int n): n arms drawn from origin outward at
+      // 2π/n radial spacing — for n=3 a Y-shape, n=4 a +. Earlier code drew
+      // *diameters* (lines through origin) which gave 2n endpoints — making
+      // n=3 render as a 6-pointed star instead of a Y (12899 line 14 regression).
       const halfLen = 0.5 * size;
       for (let i = 0; i < nArms; i++) {
-        const ang = (i / nArms) * Math.PI; // arms separated by π/n (full cross has 2*n endpoints)
+        const ang = (i / nArms) * 2 * Math.PI;
         const dx = halfLen * Math.cos(ang), dy = halfLen * Math.sin(ang);
-        let pts = [{ x: -dx, y: -dy }, { x: dx, y: dy }];
+        let pts = [{ x: 0, y: 0 }, { x: dx, y: dy }];
         pts = pts.map(p => _rotPair(p, a.angle));
         pts = _shiftPts(pts, a.offset.x, a.offset.y);
         f.strokes.push({ pts, closed: false, pen: clonePen(a.pen) });
@@ -5138,6 +5186,15 @@ function createInterpreter() {
     // circlebarframe — circle of given radius with `n` parallel bars across.
     function _circlebarframeImpl(args) {
       const a = _parseFrameArgs(args);
+      // CircleBarIntervalMarker passes filltype + circleabove via named args
+      // for FillDraw/Fill semantics; pluck them from the raw args list.
+      let filltype = null, circleabove = false;
+      for (const ar of args) {
+        if (ar && typeof ar === 'object' && ar._named) {
+          if ('filltype' in ar && ar.filltype) filltype = ar.filltype;
+          if ('circleabove' in ar) circleabove = !!ar.circleabove;
+        }
+      }
       const radius = a.radius > 0 ? a.radius : _circlemarkradius(a.pen);
       const barsize = a.barsize > 0 ? a.barsize : _barmarksize(a.pen);
       const f = _newFrame();
@@ -5148,23 +5205,41 @@ function createInterpreter() {
         const ang = (i / N) * 2 * Math.PI;
         cpts.push({ x: a.offset.x + radius * Math.cos(ang), y: a.offset.y + radius * Math.sin(ang) });
       }
-      f.strokes.push({ pts: cpts, closed: true, pen: clonePen(a.pen) });
-      // n parallel bars at angle a.angle
+      // n parallel bars at angle a.angle (computed but pushed below in order
+      // dictated by circleabove flag).
       const ca = Math.cos(a.angle * Math.PI / 180), sa = Math.sin(a.angle * Math.PI / 180);
       const halfBar = 0.5 * barsize;
       const spaceVal = 2 * radius / (a.n + 1);
       const m = (a.n + 1) % 2;
-      let pos = 0, sign = 1;
-      for (let i = 1; i <= a.n; i++) {
-        const sx = spaceVal * (pos - 0.5 * m);
-        // Bar perpendicular to angle, shifted along angle by sx
-        const cx = a.offset.x + ca * sx;
-        const cy = a.offset.y + sa * sx;
-        const px = -sa * halfBar, py = ca * halfBar; // perpendicular direction
-        const pts = [{ x: cx - px, y: cy - py }, { x: cx + px, y: cy + py }];
-        f.strokes.push({ pts, closed: false, pen: clonePen(a.pen) });
-        pos += i * sign;
-        sign *= -1;
+      const barStrokes = [];
+      {
+        let pos = 0, sign = 1;
+        for (let i = 1; i <= a.n; i++) {
+          const sx = spaceVal * (pos - 0.5 * m);
+          const cx = a.offset.x + ca * sx;
+          const cy = a.offset.y + sa * sx;
+          const px = -sa * halfBar, py = ca * halfBar; // perpendicular
+          const pts = [{ x: cx - px, y: cy - py }, { x: cx + px, y: cy + py }];
+          barStrokes.push({ pts, closed: false, pen: clonePen(a.pen) });
+          pos += i * sign;
+          sign *= -1;
+        }
+      }
+      // Fill the circle's interior when filltype style is Fill or FillDraw.
+      // The fill pen comes from the filltype itself (e.g. FillDraw(.8red)).
+      const wantFill = filltype && (filltype.style === 'Fill' || filltype.style === 'FillDraw');
+      const wantStroke = !filltype || filltype.style !== 'Fill';
+      if (wantFill && filltype.pen) {
+        f.fills.push({ pts: cpts.slice(), pen: clonePen(filltype.pen) });
+      }
+      // Drawing order: by default bars are above the circle stroke; with
+      // circleabove=true the circle is drawn last so it overlays the bars.
+      if (circleabove) {
+        for (const s of barStrokes) f.strokes.push(s);
+        if (wantStroke) f.strokes.push({ pts: cpts, closed: true, pen: clonePen(a.pen) });
+      } else {
+        if (wantStroke) f.strokes.push({ pts: cpts, closed: true, pen: clonePen(a.pen) });
+        for (const s of barStrokes) f.strokes.push(s);
       }
       return f;
     }
@@ -5175,7 +5250,15 @@ function createInterpreter() {
     function _dotframeImpl(args) {
       const a = _parseFrameArgs(args);
       const lw = _penLW(a.pen);
-      const r = (1 + lw * 6) / 2; // matches dotsize for typical pen sizes
+      // Mirror the `dot()` AoPS-idiom convention: when the user explicitly
+      // sets a linewidth >= 1 on the dot pen (e.g. `dotframe(red+linewidth(4bp))`
+      // or `dotframe(6bp+red)`), interpret the linewidth as the dot
+      // *diameter* rather than the stroke width to feed into the
+      // `dotsize = 0.5 + lw*dotfactor` formula. Without this, 12899 line 5
+      // (pen=linewidth(4bp), dotframe(red+pn)) renders as 25 bp = full-line
+      // height red blobs instead of the small reference dots.
+      const useDirectDiameter = a.pen && a.pen._lwExplicit && lw >= 1;
+      const r = useDirectDiameter ? lw / 2 : (1 + lw * 6) / 2;
       const f = _newFrame();
       const N = 24;
       const pts = [];
@@ -5379,6 +5462,7 @@ function createInterpreter() {
           if (!haveFlags.rotated) { rotated = a; haveFlags.rotated = true; }
           else if (!haveFlags.above) { above = a; haveFlags.above = true; }
         } else if (isPen(a)) { pen = a; haveFlags.pen = true; }
+        else if (a && a._tag === 'filltype') { filltype = a; }
         else if (a && a._tag === 'mframe') { uniform = a; haveFlags.uniform = true; }
         else if (typeof a === 'function') {
           const rf = _resolveFrame(a);
@@ -5411,10 +5495,16 @@ function createInterpreter() {
       const p = _intervalMarkerArgs(args);
       // crossframe defaults n=3
       const nArms = ('n' in (args.find(a => a && a._named && 'n' in a) || {})) ? p.n : (p.n === 1 ? 3 : p.n);
+      // markers.asy declares CrossIntervalMarker with `real angle=90` default,
+      // so a 3-arm cross renders as Y (single arm pointing N) along the
+      // marker-local frame. Without this default the Y points E and is
+      // 90° off from the texer reference (12899 line 14).
+      const userSetAngle = args.some(a => a && a._named && 'angle' in a);
+      const ang = userSetAngle ? p.angle : 90;
       const inner = _crossframeImpl([
         { _named: true, n: nArms },
         { _named: true, size: p.size },
-        { _named: true, angle: p.angle },
+        { _named: true, angle: ang },
         { _named: true, offset: p.offset },
         p.p,
       ]);
@@ -5422,22 +5512,32 @@ function createInterpreter() {
     });
     env.set('CircleBarIntervalMarker', (...args) => {
       const p = _intervalMarkerArgs(args);
+      // Thread filltype (e.g. FillDraw(.8red)) and circleabove down so the
+      // circle can be filled and the draw-order flipped (12899 lines 9, 10, 11).
       const inner = _circlebarframeImpl([
         { _named: true, n: p.n },
         { _named: true, barsize: p.barsize },
         { _named: true, radius: p.radius },
         { _named: true, angle: p.angle },
         { _named: true, offset: p.offset },
+        { _named: true, filltype: p.filltype },
+        { _named: true, circleabove: p.circleabove },
         p.p,
       ]);
       return _markerFromInner(p, inner, p.rotated, p.uniform, p.above);
     });
     env.set('TildeIntervalMarker', (...args) => {
       const p = _intervalMarkerArgs(args);
+      // markers.asy declares TildeIntervalMarker with `real angle=90` default,
+      // so the tilde sits perpendicular to the path tangent. Without this
+      // default the tilde lies flat *along* the path and gets clipped to a
+      // tiny squiggle (12899 lines 12, 13).
+      const userSetAngle = args.some(a => a && a._named && 'angle' in a);
+      const ang = userSetAngle ? p.angle : 90;
       const inner = _tildeframeImpl([
         { _named: true, n: p.n },
         { _named: true, size: p.size },
-        { _named: true, angle: p.angle },
+        { _named: true, angle: ang },
         { _named: true, offset: p.offset },
         p.p,
       ]);
@@ -17500,8 +17600,17 @@ function createInterpreter() {
     if (args.length === 0) return;
     // Extract target picture if first arg is a picture
     let target = currentPic;
+    let frameTarget = null;
     if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
       target = args[0];
+      args = args.slice(1);
+    } else if (args.length > 0 && args[0] && args[0]._tag === 'mframe') {
+      // label(frame f, string s, pair pos, ...) — Asymptote markers idiom.
+      // Store label on the frame so when the frame is later used as a marker
+      // (e.g. markinterval(n, frame, true)), the label is emitted at each
+      // marker position. Without this, the label leaked to currentPic at
+      // (0,0) and rendered on top of the first diagram element.
+      frameTarget = args[0];
       args = args.slice(1);
     }
     // Convert geometry points to pairs
@@ -17611,6 +17720,13 @@ function createInterpreter() {
       );
     }
 
+    if (frameTarget) {
+      // Stash the label spec on the frame; consumed by _emitMarkerFrame
+      // when the frame is placed at marker positions on a path.
+      if (!frameTarget.labels) frameTarget.labels = [];
+      frameTarget.labels.push({ text, pos, align, pen, filltype, labelTransform });
+      return;
+    }
     if (graphicData) {
       // Compose any labelTransform into the graphic's transform
       if (labelTransform) {
