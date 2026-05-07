@@ -31,6 +31,11 @@ PORT = 8080
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
 DVISVGM = "dvisvgm"
 
+# In-memory store for the most recently "Copy GIF"-ed blob.
+# GET /clipboard.gif serves it so EigenNode can fetch the full animated GIF
+# (with embedded Asymptote metadata) during a paste operation.
+clipboard_gif_data: bytes | None = None
+
 def _find_ghostscript() -> str | None:
     """Locate gswin64c.exe or gs in common paths."""
     candidates = [
@@ -494,6 +499,18 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_error(404, "File not found")
             return
+        if parsed.path == "/clipboard.gif":
+            global clipboard_gif_data
+            if clipboard_gif_data is None:
+                self.send_error(404, "No clipboard GIF stored")
+                return
+            data = clipboard_gif_data
+            self.send_response(200)
+            self.send_header("Content-Type", "image/gif")
+            self.send_header("Content-Length", len(data))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         super().do_GET()
 
     def do_POST(self):
@@ -509,6 +526,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_render_gif()
         elif self.path == "/send-to-gif-editor":
             self.handle_send_to_gif_editor()
+        elif self.path == "/store-clipboard-gif":
+            self.handle_store_clipboard_gif()
         elif self.path == "/convert-eps":
             self.handle_convert_eps()
         elif self.path == "/fix":
@@ -1209,6 +1228,18 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(200, {"ok": True, "path": tmp.name})
         except Exception as e:
             self.send_json(500, {"error": str(e)})
+
+    def handle_store_clipboard_gif(self):
+        """Store GIF bytes in memory so GET /clipboard.gif can serve them.
+
+        Called by the browser's 'Copy GIF' action before writing the clipboard.
+        EigenNode fetches /clipboard.gif during paste to get the full animated
+        GIF (with embedded Asymptote metadata) rather than only the first frame.
+        """
+        global clipboard_gif_data
+        content_length = int(self.headers["Content-Length"])
+        clipboard_gif_data = self.rfile.read(content_length)
+        self.send_json(200, {"ok": True})
 
     def send_json(self, status, obj):
         response = json.dumps(obj).encode("utf-8")

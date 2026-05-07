@@ -5756,34 +5756,59 @@ document.addEventListener('DOMContentLoaded', () => {
       blob = await gifAddComment(blob, gifMeta);
 
       if (action === 'copy') {
-        // Chrome's Clipboard API only allows text/plain, text/html, and image/png.
-        // We encode the GIF as a base64 data URI inside an HTML <img> tag so it can
-        // be pasted into rich-text editors (Google Docs, EigenNode, etc.).
-        const base64 = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result.split(',')[1]);
-          r.onerror = rej;
-          r.readAsDataURL(blob);
+        // Strategy: store the GIF on the local server, then write image/png +
+        // text/html to the clipboard.  EigenNode's paste handler fires when it
+        // sees an image/* item; it then notices the .gif URL in the HTML and
+        // fetches the full animated GIF (with embedded Asymptote metadata) from
+        // the server instead of using the static PNG first-frame.
+        let storedOnServer = false;
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const resp = await fetch('/store-clipboard-gif', {
+            method: 'POST',
+            body: arrayBuffer,
+            headers: { 'Content-Type': 'image/gif' },
+          });
+          storedOnServer = resp.ok;
+        } catch(e) { /* server unavailable */ }
+
+        // Rasterise the first frame as PNG for the clipboard image/* item.
+        // (Chrome's clipboard.write only accepts image/png, not image/gif.)
+        const firstFramePng = await new Promise((res) => {
+          const img = new Image();
+          const url = URL.createObjectURL(blob);
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            canvas.getContext('2d').drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            canvas.toBlob(res, 'image/png');
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+          img.src = url;
         });
-        const html = `<img src="data:image/gif;base64,${base64}">`;
-        const htmlBlob = new Blob([html], { type: 'text/html' });
+
         let copied = false;
         try {
-          await navigator.clipboard.write([new ClipboardItem({
-            'text/html': htmlBlob,
-          })]);
-          copied = true;
-        } catch(e) {
-          // Fallback: try writing as plain image/png (render first frame)
-          try {
-            const firstFrame = gif.frames && gif.frames[0];
-            if (firstFrame) {
-              const pngBlob = await new Promise(r => firstFrame.toBlob(r, 'image/png'));
-              await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-              copied = true;
-            }
-          } catch(e2) { /* fall through to download */ }
-        }
+          if (storedOnServer && firstFramePng) {
+            // Primary path: image/png triggers EigenNode's image handler;
+            // text/html provides the .gif URL so it fetches the full animated
+            // GIF (with Asymptote source embedded in the GIF comment block).
+            const gifUrl = 'http://127.0.0.1:8080/clipboard.gif';
+            const htmlBlob = new Blob([`<img src="${gifUrl}">`], { type: 'text/html' });
+            await navigator.clipboard.write([new ClipboardItem({
+              'image/png': firstFramePng,
+              'text/html': htmlBlob,
+            })]);
+            copied = true;
+          } else if (firstFramePng) {
+            // Server unavailable — fall back to PNG only (loses animation + metadata).
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': firstFramePng })]);
+            copied = true;
+          }
+        } catch(e) { /* Clipboard API unavailable */ }
+
         if (copied) {
           progressEl.textContent = 'Copied to clipboard!';
         } else {
