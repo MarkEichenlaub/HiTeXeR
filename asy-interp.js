@@ -23681,12 +23681,16 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
   for (const p of parts) {
     if (p.type === 'frac') {
       const cx = curX + p.width / 2;
-      // Numerator above line
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.numText)}</text>`);
+      // Numerator above line. With font-size = 0.75*fontSize and dominant-baseline=
+      // "central", the numerator text extends ~0.375*fontSize above and below its
+      // y-coord. Bar is at y - 0.05*fontSize. Use 0.45 offset so the numerator
+      // bottom (y - 0.45*fs + 0.375*fs = y - 0.075*fs) sits just above the bar.
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.numText)}</text>`);
       // Fraction line
       els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
-      // Denominator below line
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
+      // Denominator below line. Mirrors the numerator: at y + 0.45*fs, denominator
+      // top (y + 0.45*fs - 0.375*fs = y + 0.075*fs) sits just below the bar.
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
     } else if (p.type === 'sqrt') {
       // Stacked fraction under the radical: extend the radical taller to cover both num and den
       const isFrac = p.isFrac;
@@ -23704,10 +23708,10 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
         const innerStartX = radX2;
         const cx = innerStartX + p.innerW / 2;
         const fs2 = p.fracFs;
-        // Numerator above fraction line
-        els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.35)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracNumText)}</text>`);
+        // Numerator above fraction line — use 0.45 offset so text doesn't overlap bar
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracNumText)}</text>`);
         els.push(`<line x1="${fmt(innerStartX + fontSize*0.05)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(innerStartX + p.innerW - fontSize*0.05)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
-        els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.35)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracDenText)}</text>`);
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracDenText)}</text>`);
       } else {
         const textX = radX2;
         els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
