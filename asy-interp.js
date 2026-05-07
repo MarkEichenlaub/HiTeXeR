@@ -8400,8 +8400,25 @@ function createInterpreter() {
     env.set('Relative', (r) => (typeof r === 'number' ? r : 0.5));
 
     // String functions
+    // Asymptote's `string(real)` uses defaultformat = "%.9g" which strips
+    // trailing zeros and the trailing decimal point. JS's String() prints
+    // the shortest faithful decimal, so values like 7/5*1.65 come out as
+    // "2.3099999999999996" instead of "2.31" (04083 axis tick labels).
+    const _asyStringReal = (x) => {
+      const n = Number(x);
+      if (!Number.isFinite(n)) return String(n);
+      if (Number.isInteger(n)) return String(n);
+      let s = n.toPrecision(9);
+      if (s.includes('e') || s.includes('E')) return s;
+      if (s.includes('.')) {
+        s = s.replace(/0+$/, '');
+        s = s.replace(/\.$/, '');
+      }
+      return s;
+    };
     env.set('string', (x) => {
-      if (isPair(x)) return `(${x.x},${x.y})`;
+      if (isPair(x)) return `(${_asyStringReal(x.x)},${_asyStringReal(x.y)})`;
+      if (typeof x === 'number') return _asyStringReal(x);
       return String(x);
     });
     env.set('format', (fmt, ...vals) => {
