@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v4.63</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v4.67</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -5624,25 +5624,73 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Pass 1: render all frames to compute union bounding box and consistent scale
-      progressEl.textContent = 'Pass 1: computing bounds...';
+      // Pass 1: render every frame, measure the ACTUAL rendered SVG content
+      // bbox via getBBox() (which accounts for true glyph metrics, stroke
+      // overshoot, and any other content that overflows the renderer's
+      // estimated viewBox), convert each side back to math coordinates, and
+      // union those.  The renderer-reported {minX,maxX,minY,maxY} alone can
+      // under-count font widths and clip labels (e.g. "source") on the left
+      // when Pass 2 re-renders at minPpu.
+      progressEl.textContent = 'Pass 1: measuring frame bounds...';
+
+      // Hidden measurement container — getBBox() requires the SVG to be in
+      // the DOM with layout.  Off-screen positioning avoids visual flicker.
+      const measureHost = document.createElement('div');
+      measureHost.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;pointer-events:none;visibility:hidden;';
+      document.body.appendChild(measureHost);
+      // Make sure web fonts are loaded so glyph metrics are accurate.
+      try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(_) {}
+
       let uMinX = Infinity, uMinY = Infinity, uMaxX = -Infinity, uMaxY = -Infinity;
       let minPpu = Infinity;
-      for (let i = 0; i < totalFrames; i++) {
-        const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
-        const value = startVal + (endVal - startVal) * t;
-        const result = renderFrame(value);
-        if (!result) continue;
-        // Accumulate union of math-coordinate bounds
-        uMinX = Math.min(uMinX, result.minX);
-        uMinY = Math.min(uMinY, result.minY);
-        uMaxX = Math.max(uMaxX, result.maxX);
-        uMaxY = Math.max(uMaxY, result.maxY);
-        minPpu = Math.min(minPpu, result.pxPerUnit);
-        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      let measuredFrames = 0;
+
+      try {
+        for (let i = 0; i < totalFrames; i++) {
+          const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+          const value = startVal + (endVal - startVal) * t;
+          const result = renderFrame(value);
+          if (!result) continue;
+
+          // Mount the SVG, strip overlays that shouldn't drive bounds, measure.
+          measureHost.innerHTML = result.svg;
+          const svgEl = measureHost.querySelector('svg');
+          let bbox = null;
+          if (svgEl) {
+            svgEl.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+            try { bbox = svgEl.getBBox(); } catch(_) { bbox = null; }
+          }
+
+          // Convert bp-space bbox back to math coordinates using this frame's
+          // own scale.  SVG y is inverted relative to Asymptote y.
+          let fMinX = result.minX, fMaxX = result.maxX;
+          let fMinY = result.minY, fMaxY = result.maxY;
+          if (bbox && isFinite(bbox.x) && isFinite(bbox.y) &&
+              isFinite(bbox.width) && isFinite(bbox.height) &&
+              bbox.width >= 0 && bbox.height >= 0) {
+            const ppuX = result.pxPerUnitX || result.pxPerUnit;
+            const ppuY = result.pxPerUnitY || result.pxPerUnit;
+            fMinX = result.minX + bbox.x / ppuX;
+            fMaxX = result.minX + (bbox.x + bbox.width) / ppuX;
+            fMaxY = result.maxY - bbox.y / ppuY;
+            fMinY = result.maxY - (bbox.y + bbox.height) / ppuY;
+          }
+
+          if (fMinX < uMinX) uMinX = fMinX;
+          if (fMinY < uMinY) uMinY = fMinY;
+          if (fMaxX > uMaxX) uMaxX = fMaxX;
+          if (fMaxY > uMaxY) uMaxY = fMaxY;
+          if (result.pxPerUnit < minPpu) minPpu = result.pxPerUnit;
+          measuredFrames++;
+
+          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+      } finally {
+        measureHost.innerHTML = '';
+        document.body.removeChild(measureHost);
       }
 
-      if (!isFinite(minPpu) || !isFinite(uMinX)) {
+      if (measuredFrames === 0 || !isFinite(minPpu) || !isFinite(uMinX)) {
         showWarnBadge('No frames could be rendered.');
         document.getElementById('gif-panel').classList.remove('gif-generating');
         gifStartPreview();
@@ -5713,7 +5761,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-          const canvas = await svgToCanvas(frameSvg, 1);
+          const canvas = await svgToCanvas(frameSvg, 1, transparent ? null : 'white');
           let delay = frameDelay;
           if (i === totalFrames - 1 && pauseMs > 0) delay += pauseMs;
           if (i === 0 && pauseFirstMs > 0) delay += pauseFirstMs;
@@ -6356,15 +6404,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Paste from clipboard via File menu. If the clipboard contains an image,
   // extract embedded Asymptote source. If it contains text, paste into editor.
+  //
+  // Note on text/html: the browser Clipboard API rejects image/gif on the
+  // image/* slot, so HiTeXeR's own Copy and EigenNode's Copy both stash the
+  // original animated GIF inside a text/html `<img src=...>` (either as a
+  // data: URL with the GIF base64-embedded, or as a local-server URL).  We
+  // try text/html FIRST so a round-tripped GIF still recovers its Asymptote
+  // source even when the image/png slot has been re-rasterized to a
+  // metadata-less first frame.
   async function doPasteFromClipboard() {
     try {
       const items = await navigator.clipboard.read();
       let imageBlob = null;
+      let htmlBlob = null;
       let textBlob = null;
       for (const item of items) {
         for (const type of item.types) {
           if (!imageBlob && type.startsWith('image/')) {
             imageBlob = await item.getType(type);
+          }
+          if (!htmlBlob && type === 'text/html') {
+            htmlBlob = await item.getType('text/html');
           }
           if (!textBlob && type === 'text/plain') {
             textBlob = await item.getType('text/plain');
@@ -6372,6 +6432,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
+      // Attempt 1: extract a GIF/PNG from text/html `<img src="...">`.
+      if (htmlBlob) {
+        const html = await htmlBlob.text();
+        const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (m) {
+          const src = m[1];
+          let bytes = null;
+          if (src.startsWith('data:')) {
+            const comma = src.indexOf(',');
+            if (comma > 0) {
+              const meta = src.slice(0, comma);
+              const payload = src.slice(comma + 1);
+              try {
+                if (meta.includes(';base64')) {
+                  const bin = atob(payload);
+                  bytes = new Uint8Array(bin.length);
+                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                } else {
+                  bytes = new TextEncoder().encode(decodeURIComponent(payload));
+                }
+              } catch(_) { bytes = null; }
+            }
+          } else if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(src)) {
+            // Only follow local-server URLs to avoid leaking clipboard content.
+            try {
+              const resp = await fetch(src);
+              if (resp.ok) bytes = new Uint8Array(await resp.arrayBuffer());
+            } catch(_) { bytes = null; }
+          }
+          if (bytes) {
+            const { code, gifSettings } = extractSourceFromBytes(bytes);
+            if (code) {
+              await loadExtractedSource(code, gifSettings);
+              return;
+            }
+          }
+        }
+      }
+
+      // Attempt 2: fall back to the image/* slot (e.g. a PNG with tEXt source).
       if (imageBlob) {
         const buf = await imageBlob.arrayBuffer();
         const { code, gifSettings } = extractSourceFromBytes(new Uint8Array(buf));
@@ -6526,7 +6626,7 @@ document.addEventListener('DOMContentLoaded', () => {
     URL.revokeObjectURL(a.href);
   }
 
-  function svgToCanvas(clone, scale) {
+  function svgToCanvas(clone, scale, bgColor) {
     // Replace foreignObject elements so SVG renders in <img> context
     replaceForeignObjects(clone);
     // Read intrinsic dimensions from SVG attributes (not img.width which
@@ -6546,6 +6646,15 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d');
+        // Optional opaque background fill — used by GIF Pass 2 so that any
+        // letterbox margin (when the renderer's overshoot expansion makes
+        // viewBox aspect differ from the SVG width/height aspect) is filled
+        // with the diagram bg color instead of remaining transparent (which
+        // gif.js encodes as black, producing visible bars on the edges).
+        if (bgColor) {
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, w, h);
+        }
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0, svgW, svgH);
         URL.revokeObjectURL(url);
