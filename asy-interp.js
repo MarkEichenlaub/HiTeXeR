@@ -13041,33 +13041,69 @@ function createInterpreter() {
     env.set('sqrtEpsilon', 1.4901161193847656e-8);
     env.set('mantissaBits', 53);
 
-    // 3D arrow types (treated same as 2D arrows for wireframe rendering)
-    env.set('Arrow3', (...args) => {
-      let sz = 5;
-      for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', style:'Arrow', size:sz};
-    });
-    env.set('Arrows3', (...args) => {
-      let sz = 5;
-      for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', style:'Arrows', size:sz};
-    });
-    env.set('BeginArrow3', (...args) => {
-      let sz = 5;
-      for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', style:'BeginArrow', size:sz};
-    });
-    env.set('EndArrow3', (...args) => {
-      let sz = 5;
-      for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', style:'EndArrow', size:sz};
-    });
-    env.set('MidArrow3', (...args) => {
-      let sz = 5;
-      for (const a of args) if (typeof a === 'number') sz = a;
-      return {_tag:'arrow', style:'MidArrow', size:sz};
-    });
+    // 3D arrow types (treated same as 2D arrows for wireframe rendering).
+    // Mirrors the 2D Arrow logic so 3D arrowhead sentinels (TeXHead2,
+    // HookHead3, DefaultHead2(normal=Z) etc.) propagate the texHead flag
+    // and proper default-size formula.  Without this Arrow3(TeXHead2(...))
+    // fell through to size=15*lw instead of 2.1*lw, blowing up the
+    // shorten-path-end length to 9.8 viewbox units on horizontal arc arrows
+    // (3552, 3555).
+    function _make3DArrow(styleName) {
+      return (...args) => {
+        let headKind = null;
+        for (const a of args) {
+          if (a === null) { headKind = 'TeXHead'; break; }
+          if (a && a._tag === 'arrowhead') { headKind = a.kind; break; }
+          if (typeof a === 'function' && a._tag === 'arrowhead') { headKind = a.kind; break; }
+        }
+        let sz = 6;
+        let sizeExplicit = false;
+        for (const a of args) {
+          if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
+        }
+        const out = {_tag:'arrow', style:styleName, size: sz, sizeExplicit};
+        if (headKind === 'TeXHead') out.texHead = true;
+        else if (headKind === 'HookHead') {
+          out.texHead = true;
+          if (!sizeExplicit) { out.size = 5; out.sizeExplicit = true; }
+        } else if (headKind) out.headKind = headKind;
+        return out;
+      };
+    }
+    env.set('Arrow3',      _make3DArrow('Arrow'));
+    env.set('Arrows3',     _make3DArrow('Arrows'));
+    env.set('BeginArrow3', _make3DArrow('BeginArrow'));
+    env.set('EndArrow3',   _make3DArrow('EndArrow'));
+    env.set('MidArrow3',   _make3DArrow('MidArrow'));
     env.set('NoArrow3', null);
+
+    // 3D arrowhead sentinels.  In Asymptote, TeXHead2/TeXHead3 etc. are
+    // arrowhead descriptors that can be passed bare (e.g. Arrows3(TeXHead3))
+    // OR called with a normal-vector arg (e.g. Arrow3(TeXHead2(normal=Z))).
+    // Make them callables that *also* carry the arrowhead tag, so both forms
+    // work with _make3DArrow's detection above.
+    function _makeHeadSentinel(kind) {
+      const fn = (...args) => ({_tag:'arrowhead', kind});
+      fn._tag = 'arrowhead';
+      fn.kind = kind;
+      return fn;
+    }
+    env.set('TeXHead0',     _makeHeadSentinel('TeXHead'));
+    env.set('TeXHead1',     _makeHeadSentinel('TeXHead'));
+    env.set('TeXHead2',     _makeHeadSentinel('TeXHead'));
+    env.set('TeXHead3',     _makeHeadSentinel('TeXHead'));
+    env.set('HookHead0',    _makeHeadSentinel('HookHead'));
+    env.set('HookHead1',    _makeHeadSentinel('HookHead'));
+    env.set('HookHead2',    _makeHeadSentinel('HookHead'));
+    env.set('HookHead3',    _makeHeadSentinel('HookHead'));
+    env.set('DefaultHead0', _makeHeadSentinel('DefaultHead'));
+    env.set('DefaultHead1', _makeHeadSentinel('DefaultHead'));
+    env.set('DefaultHead2', _makeHeadSentinel('DefaultHead'));
+    env.set('DefaultHead3', _makeHeadSentinel('DefaultHead'));
+    env.set('SimpleHead0',  _makeHeadSentinel('SimpleHead'));
+    env.set('SimpleHead1',  _makeHeadSentinel('SimpleHead'));
+    env.set('SimpleHead2',  _makeHeadSentinel('SimpleHead'));
+    env.set('SimpleHead3',  _makeHeadSentinel('SimpleHead'));
 
     // Projection constructors — support graph3-style named args:
     //   perspective/orthographic(camera=triple, up=triple, target=triple,
