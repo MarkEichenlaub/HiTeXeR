@@ -6333,8 +6333,16 @@ function createInterpreter() {
     env.set('sgn', _broadcast1(Math.sign));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
     env.set('degrees', (x) => {
-      // Asymptote's degrees(pair) returns atan2(y,x) in (-180,180], not [0,360)
-      if (isPair(x)) { return Math.atan2(x.y, x.x) * 180 / Math.PI; }
+      // Asymptote's degrees(pair) is documented to return [0, 360) per the
+      // Built-in Functions reference. 09087 author writes
+      //   real reflectAngle = degrees(unit((0,-4))); // 270
+      // and uses it with arc(c, r, 225, reflectAngle): with -90 the arc's
+      // auto-direction picks CW giving a 315° arc; with 270 we get 45° CCW.
+      if (isPair(x)) {
+        let d = Math.atan2(x.y, x.x) * 180 / Math.PI;
+        if (d < 0) d += 360;
+        return d;
+      }
       return toNumber(x) * 180 / Math.PI;
     });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
@@ -12592,16 +12600,22 @@ function createInterpreter() {
     const existingDegrees = env.get('degrees');
     env.set('degrees', (...args) => {
       const v = args[0];
+      // Asymptote's degrees() on a pair/vector/point returns [0, 360).
+      const wrap = (x, y) => {
+        let d = Math.atan2(y, x) * 180 / Math.PI;
+        if (d < 0) d += 360;
+        return d;
+      };
       if (isGeoVector(v)) {
         const d = locateVector(v);
-        return Math.atan2(d.y, d.x) * 180 / Math.PI;
+        return wrap(d.x, d.y);
       }
       if (isPoint(v)) {
         const p = locatePoint(v);
-        return Math.atan2(p.y, p.x) * 180 / Math.PI;
+        return wrap(p.x, p.y);
       }
       if (typeof existingDegrees === 'function') return existingDegrees(...args);
-      if (isPair(v)) return Math.atan2(v.y, v.x) * 180 / Math.PI;
+      if (isPair(v)) return wrap(v.x, v.y);
       return toNumber(v) * 180 / Math.PI;
     });
 
