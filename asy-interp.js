@@ -20557,6 +20557,13 @@ function renderSVG(result, opts) {
   const commandMap = []; // maps draw command index → SVG element index
   const elements = [];
   const ns = 'http://www.w3.org/2000/svg';
+  // Image dedupe: when the same EPS/PNG is embedded multiple times (e.g.
+  // 08941 places ba_waldo.eps four times via label() + scale()), reusing
+  // the same multi-MB base64 payload blows the SVG up to >10 MB and the
+  // browser fails to load.  Track each unique base64 payload, define it
+  // once in <defs> as a <symbol>, and reference all occurrences via <use>.
+  const _imgDedupe = new Map(); // png_b64 -> {id, w, h}
+  let _imgDedupeIdSeq = 0;
 
   // Crop clipping: if limits() was called with Crop, add SVG clipPath
   let cropClipId = null;
@@ -21405,7 +21412,24 @@ function renderSVG(result, opts) {
             transformAttr = ` transform="matrix(${fmt(ma)},${fmt(mb)},${fmt(mc)},${fmt(md)},${fmt(me)},${fmt(mf)})"`;
           }
         }
-        const imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
+        // Dedupe identical image payloads via <symbol> + <use> in defs.
+        let imgEl;
+        if (g.png_b64 && g.png_b64.length > 4096) {
+          let entry = _imgDedupe.get(g.png_b64);
+          if (!entry) {
+            const symId = `htx-img-${_imgDedupeIdSeq++}`;
+            // Define a unit-viewBox symbol so <use> width/height controls placement.
+            const defEl = `<defs><symbol id="${symId}" viewBox="0 0 1 1" preserveAspectRatio="none">` +
+              `<image x="0" y="0" width="1" height="1" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>` +
+              `</symbol></defs>`;
+            elements.push(defEl);
+            entry = { id: symId };
+            _imgDedupe.set(g.png_b64, entry);
+          }
+          imgEl = `<use href="#${entry.id}" x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}"/>`;
+        } else {
+          imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
+        }
         if (transformAttr) {
           elements.push(`<g${transformAttr}>${imgEl}</g>`);
         } else {
