@@ -1962,7 +1962,18 @@ function createInterpreter() {
         transform: existing ? composeTransforms(existing, t) : t
       });
     }
-    // Preserve alignment direction (don't transform it)
+    // For user labels (not axis/tick labels), rotate the text content with the
+    // picture, matching Asymptote's add(rotate(angle)*pic) convention. 06212:
+    // a free-body diagram is constructed level then rotated -100°; the labels
+    // (ℓ, T, m, θ, F) all visibly rotate with the geometry. Axis/tick labels
+    // (_isAxisLabel) keep upright orientation per graphing convention.
+    if (r.cmd === 'label' && !r._isAxisLabel) {
+      const linearOnly = (t.b !== 1 || t.c !== 0 || t.e !== 0 || t.f !== 1);
+      if (linearOnly) {
+        const lin = makeTransform(0, t.b, t.c, 0, t.e, t.f);
+        r.labelTransform = r.labelTransform ? composeTransforms(lin, r.labelTransform) : lin;
+      }
+    }
     return r;
   }
 
