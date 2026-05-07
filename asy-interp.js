@@ -8345,6 +8345,16 @@ function createInterpreter() {
         else if (isTransform(a)) labelTransform = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
         else if (a && typeof a === 'object' && a._tag === 'filltype') labelFilltype = a;
+        // 03606: Label(tr*"text", ...) — first arg is a pre-built label
+        // (from `transform*string` op). Adopt its text/transform/etc.
+        else if (a && typeof a === 'object' && a._tag === 'label') {
+          if (typeof a.text === 'string') text = a.text;
+          if (a.transform) labelTransform = labelTransform ? composeTransforms(a.transform, labelTransform) : a.transform;
+          if (a.pen) labelPen = labelPen ? mergePens(labelPen, a.pen) : a.pen;
+          if (a.align && align == null) align = a.align;
+          if (a.position != null && position === null) position = a.position;
+          if (a.filltype) labelFilltype = a.filltype;
+        }
         else if (isPair(a)) { if (!align) align = a; else { position = align; align = a; } }
         else if (a && typeof a === 'object' && a._named) {
           if ('s' in a && isString(a.s)) text = a.s;
