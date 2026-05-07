@@ -19064,7 +19064,12 @@ function renderSVG(result, opts) {
       const geoH = (geoMaxY - geoMinY) || 1;
       const fullW = (maxX - minX) || 1;
       const fullH = (maxY - minY) || 1;
-      _labelDominated = labelPass > 0 &&
+      // Only trigger label-dominated mode when BOTH axes are constrained.
+      // When an axis is unconstrained (sizeW=0 or sizeH=0), labels are allowed
+      // to overflow on that axis without shrinking geometry to fit. Otherwise
+      // (e.g. 08989 with size(80, 0) and fontsize(25)), labels growing fullH
+      // would feed back into pxPerUnit, collapsing geometry to a tiny strip.
+      _labelDominated = labelPass > 0 && sizeW > 0 && sizeH > 0 &&
         ((fullW / geoW >= 1.5) || (fullH / geoH >= 1.5));
       const refW = _labelDominated ? fullW : geoW;
       const refH = _labelDominated ? fullH : geoH;
