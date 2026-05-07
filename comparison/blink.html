@@ -976,29 +976,30 @@
   function fixDiagram() {
     const d = filtered[blinkIdx];
     if (!d) return;
-    const source = getCurrentCode();
-    if (!source) { alert('Source code not loaded yet'); return; }
-    const prompt = buildFixPrompt(d, source);
     const btn = document.getElementById('btn-fix');
     const orig = btn.textContent;
 
-    fetch('/fix', {
+    // POST to /enqueue so the run-loop picks it up with its standard prompt
+    // template and verifier pipeline rather than launching an ad-hoc session.
+    fetch('/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: d.id, prompt: prompt })
+      body: JSON.stringify({ id: d.id, description: '' })
     }).then(r => r.json()).then(res => {
       if (res.ok) {
-        btn.textContent = 'Launched!';
-        btn.style.background = '#2d8a4e';
+        btn.textContent = 'Queued (' + res.queueLength + ')';
+        btn.style.background = '#2d6a4f';
         setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3000);
       } else {
-        alert('fix-server error: ' + res.error);
+        btn.textContent = 'Error';
+        btn.style.background = '#991b1b';
+        setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3000);
+        console.error('enqueue error:', res.error);
       }
     }).catch(() => {
-      navigator.clipboard.writeText(prompt).then(() => {
-        btn.textContent = 'Copied (run: node fix-server.js)';
-        setTimeout(() => { btn.textContent = orig; }, 4000);
-      });
+      btn.textContent = 'Server offline';
+      btn.style.background = '#991b1b';
+      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3000);
     });
   }
 
@@ -1276,7 +1277,7 @@
   }
 
   setInterval(pollAutoFixStatus, 3000);
-  pollAutoFixStatus();
+  setTimeout(pollAutoFixStatus, 1500); // delay first poll so images load first
 
 })();
 </script>
