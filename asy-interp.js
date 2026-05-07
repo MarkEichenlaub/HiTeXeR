@@ -7846,11 +7846,20 @@ function createInterpreter() {
       }
     }
 
-    env.set('intersect', (p1, p2) => {
-      if (!isPath(p1) || !isPath(p2)) return [0, 0];
-      // Simplified: return first intersection time pair
-      // This is a basic implementation
-      return [0, 0];
+    env.set('intersect', (p1, p2, fuzz) => {
+      // Asymptote: real[] intersect(path g, path h, real fuzz=-1)
+      // Returns [t1, t2] for the first intersection (path-times into g and h),
+      // or empty array {} if no intersection.
+      if (!isPath(p1) || !isPath(p2)) return [];
+      const segs1 = p1.segs || [];
+      const segs2 = p2.segs || [];
+      for (let i1 = 0; i1 < segs1.length; i1++) {
+        for (let i2 = 0; i2 < segs2.length; i2++) {
+          const tp = bezierBezierIntersectFirstT(segs1[i1], segs2[i2]);
+          if (tp) return [i1 + tp[0], i2 + tp[1]];
+        }
+      }
+      return [];
     });
 
     // Convert geometry types (geoCircle, geoLine, etc.) to drawable paths
@@ -11574,6 +11583,7 @@ function createInterpreter() {
 
     // point(coordsys R, pair p, real m=1) → point
     // point(picture pic, pair dir) → pair (user-coord bbox point in direction)
+    const _origPointForGeom = env.get('point');
     env.set('point', (...args) => {
       // point(picture, dir): return the user-coord bbox point in that direction.
       // SW=(-1,-1)→(minX,minY), NE=(1,1)→(maxX,maxY), etc.
@@ -11585,6 +11595,13 @@ function createInterpreter() {
         const hx = (gb.maxX - gb.minX) / 2;
         const hy = (gb.maxY - gb.minY) / 2;
         return makePair(cx + d.x * hx, cy + d.y * hy);
+      }
+      // point(path, real t): sample the path at parameter t. The base point()
+      // delegates to _pointOnPath; the geometry override must defer to that
+      // so intersect()-based ray hit-testing (09011) keeps working after
+      // `import geometry`.
+      if (args.length >= 2 && isPath(args[0]) && isNumber(args[1])) {
+        return _origPointForGeom(args[0], args[1]);
       }
       let R = null, p = null, m = 1;
       for (const a of args) {
@@ -18545,6 +18562,63 @@ function createInterpreter() {
     }
     recurse(s1, s2, 0);
     return results.length > 0 ? results[0] : null;
+  }
+
+  // Returns [t1, t2] sub-segment parameters for first intersection, or null.
+  function bezierBezierIntersectFirstT(s1, s2) {
+    function bbox(seg) {
+      const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
+      const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
+      return {
+        minX: Math.min(...xs), maxX: Math.max(...xs),
+        minY: Math.min(...ys), maxY: Math.max(...ys),
+      };
+    }
+    function bboxOverlap(a, b, tol) {
+      return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
+             a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
+    }
+    function subdivide(seg, t) {
+      const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
+      const u = 1 - t;
+      const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
+      const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
+      const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
+      const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
+      const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
+      const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
+      return [makeSeg(p0, q0, r0, s0), makeSeg(s0, r1, q2, p3)];
+    }
+    function segSize(seg) {
+      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
+      return Math.abs(dx) + Math.abs(dy);
+    }
+    const tol = 1e-4;
+    let best = null; // {t1, t2} of smallest t1 found so far
+    function recurse(a, b, t1lo, t1hi, t2lo, t2hi, depth) {
+      if (best && t1lo > best.t1) return;
+      const ba = bbox(a), bb = bbox(b);
+      if (!bboxOverlap(ba, bb, tol)) return;
+      if (depth > 40 || (segSize(a) < tol && segSize(b) < tol)) {
+        const t1 = (t1lo + t1hi) / 2;
+        const t2 = (t2lo + t2hi) / 2;
+        if (!best || t1 < best.t1) best = {t1, t2};
+        return;
+      }
+      if (segSize(a) >= segSize(b)) {
+        const [a1, a2] = subdivide(a, 0.5);
+        const t1mid = (t1lo + t1hi) / 2;
+        recurse(a1, b, t1lo, t1mid, t2lo, t2hi, depth + 1);
+        recurse(a2, b, t1mid, t1hi, t2lo, t2hi, depth + 1);
+      } else {
+        const [b1, b2] = subdivide(b, 0.5);
+        const t2mid = (t2lo + t2hi) / 2;
+        recurse(a, b1, t1lo, t1hi, t2lo, t2mid, depth + 1);
+        recurse(a, b2, t1lo, t1hi, t2mid, t2hi, depth + 1);
+      }
+    }
+    recurse(s1, s2, 0, 1, 0, 1, 0);
+    return best ? [best.t1, best.t2] : null;
   }
 
   function bezierBezierAllIntersections(s1, s2) {
