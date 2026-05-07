@@ -116,9 +116,31 @@
   .coll-item:hover { background: #1e3a5f; }
   .coll-item input[type=checkbox] { cursor: pointer; accent-color: #e94560; flex-shrink: 0; }
   .coll-divider { border: none; border-top: 1px solid #0f3460; margin: 4px 0; }
+
+  /* ── Auto-fix status bar ─────────────────────────────── */
+  #autofix-bar { background: #080c16; border-bottom: 1px solid #1a2e4a; padding: 0 20px; font-size: 11px; display: flex; align-items: center; gap: 10px; min-height: 24px; color: #64748b; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; flex-shrink: 0; }
+  #autofix-bar .af-dot { font-size: 8px; flex-shrink: 0; transition: color 0.3s; }
+  .af-active { color: #22c55e; }
+  .af-idle   { color: #374151; }
+  #autofix-bar .af-sep { opacity: 0.2; margin: 0 2px; }
+  #autofix-bar #af-state { color: #94a3b8; }
+  #autofix-bar #af-last  { opacity: 0.7; }
+  #autofix-bar .af-accept { color: #86efac; }
+  #autofix-bar .af-reject { color: #fca5a5; }
+  #autofix-bar .af-skip   { color: #fde68a; }
+  #autofix-bar .af-rerender { color: #60a5fa; animation: af-blink 1.2s ease-in-out infinite; }
+  @keyframes af-blink { 0%,100%{ opacity:1 } 50%{ opacity:0.45 } }
 </style>
 </head>
 <body>
+
+<!-- ── Auto-fix status bar ────────────────────────────── -->
+<div id="autofix-bar">
+  <span class="af-dot af-idle" id="af-dot">●</span>
+  <span id="af-state">—</span>
+  <span class="af-sep">|</span>
+  <span id="af-last"></span>
+</div>
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
@@ -1166,6 +1188,95 @@
     if (e.target.closest('.blink-side-label')) return;
     toggleBlinkSource();
   });
+
+  // ── Auto-fix status polling ───────────────────────────
+  // Polls /status every 3 s. Reloads the manifest in-place whenever
+  // blink-manifest.json is regenerated (mtime changes) so the grid
+  // reflects updated SSIM scores and images without a full page reload.
+
+  let _afLastMtime = 0;
+
+  function reloadManifest() {
+    fetch('blink-manifest.json?t=' + Date.now())
+      .then(r => r.json())
+      .then(data => {
+        if (!manifest) return;
+        // Merge SSIM/existence flags in-place to preserve collection checkbox state.
+        const byId = Object.create(null);
+        for (const d of data.diagrams) byId[d.id] = d;
+        for (const d of manifest.diagrams) {
+          const f = byId[d.id];
+          if (!f) continue;
+          d.ssim = f.ssim; d.sizeScore = f.sizeScore; d.combined = f.combined;
+          d.hasHtx = f.hasHtx; d.hasSvg = f.hasSvg; d.src = f.src;
+        }
+        applyFilters();
+      })
+      .catch(() => {});
+  }
+
+  function pollAutoFixStatus() {
+    fetch('/status')
+      .then(r => r.json())
+      .then(s => {
+        const dot   = document.getElementById('af-dot');
+        const state = document.getElementById('af-state');
+        const last  = document.getElementById('af-last');
+
+        // ── Indicator dot & state text ──
+        if (s.runLoopRunning) {
+          dot.className = 'af-dot af-active';
+          const c = s.current;
+          if (c && c.phase === 'rerendering') {
+            state.innerHTML = '<span class="af-rerender">Re-rendering 200 diagrams…</span>';
+          } else if (c) {
+            const phaseLabel = c.phase === 'verifying'
+              ? 'Verifying ' + c.currentId + ' r' + c.round + '/' + c.roundMax
+              : c.currentId + ' r' + c.round + '/' + c.roundMax;
+            const q = s.queue && s.queue.length ? ' · Queue: ' + s.queue.length : '';
+            state.textContent = phaseLabel + q;
+          } else {
+            state.textContent = 'Active · Queue: ' + (s.queue || []).length;
+          }
+        } else {
+          dot.className = 'af-dot af-idle';
+          state.textContent = 'Idle · Queue: ' + (s.queue || []).length;
+        }
+
+        // ── Last attempt summary ──
+        if (s.lastAttempt) {
+          const a = s.lastAttempt;
+          const verdict = a.verdict || '?';
+          const vclass = verdict === 'accepted' ? 'af-accept'
+            : verdict.startsWith('attempt') ? 'af-reject' : 'af-skip';
+          const pre  = a.preSsim  != null ? (+a.preSsim).toFixed(3)  : '?';
+          const post = a.postSsim != null ? (+a.postSsim).toFixed(3) : '?';
+          const cost  = s.lastTelemetry && s.lastTelemetry.totalCostUsd != null
+            ? ' · $' + s.lastTelemetry.totalCostUsd.toFixed(3) : '';
+          const turns = s.lastTelemetry && s.lastTelemetry.numTurns != null
+            ? ' · ' + s.lastTelemetry.numTurns + 't' : '';
+          last.innerHTML = 'Last: <span class="' + vclass + '">' + a.id + ' ' + verdict +
+            '</span> (' + pre + '→' + post + ')' + cost + turns;
+        } else {
+          last.textContent = '';
+        }
+
+        // ── Manifest reload on mtime change ──
+        if (s.manifestMtime) {
+          if (_afLastMtime !== 0 && s.manifestMtime !== _afLastMtime) reloadManifest();
+          _afLastMtime = s.manifestMtime;
+        }
+      })
+      .catch(() => {
+        const state = document.getElementById('af-state');
+        if (state) { state.textContent = 'Server offline'; }
+        const dot = document.getElementById('af-dot');
+        if (dot) dot.className = 'af-dot af-idle';
+      });
+  }
+
+  setInterval(pollAutoFixStatus, 3000);
+  pollAutoFixStatus();
 
 })();
 </script>

@@ -79,6 +79,45 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/status') {
+    const status = {};
+    status.runLoopRunning = isRunLoopRunning();
+
+    // Current sub-agent phase (written by run-loop.js)
+    try {
+      status.current = JSON.parse(fs.readFileSync(path.join(ROOT, 'auto-fix', '.status.json'), 'utf8'));
+    } catch { status.current = null; }
+
+    // Pending queue
+    try {
+      const q = JSON.parse(fs.readFileSync(path.join(ROOT, 'auto-fix', 'queue.json'), 'utf8'));
+      status.queue = Array.isArray(q) ? q : [];
+    } catch { status.queue = []; }
+
+    // Most recent attempt record
+    try {
+      const lines = fs.readFileSync(path.join(ROOT, 'auto-fix', 'attempts.jsonl'), 'utf8')
+        .split(/\r?\n/).filter(Boolean);
+      status.lastAttempt = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
+    } catch { status.lastAttempt = null; }
+
+    // Most recent telemetry record (cost, turns)
+    try {
+      const lines = fs.readFileSync(path.join(ROOT, 'auto-fix', 'telemetry.jsonl'), 'utf8')
+        .split(/\r?\n/).filter(Boolean);
+      status.lastTelemetry = lines.length ? JSON.parse(lines[lines.length - 1]) : null;
+    } catch { status.lastTelemetry = null; }
+
+    // Manifest mtime — blink.html reloads the grid when this changes
+    try {
+      status.manifestMtime = fs.statSync(path.join(ROOT, 'comparison', 'blink-manifest.json')).mtimeMs;
+    } catch { status.manifestMtime = 0; }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(status));
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/refetch') {
     let body = '';
     req.on('data', chunk => { body += chunk; });

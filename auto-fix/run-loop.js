@@ -34,6 +34,7 @@ const VERIFIER_PATH  = path.join(__dirname, 'verify-visual.js');
 const QUEUE_PATH     = path.join(__dirname, 'queue.json');
 const CANARY_PATH    = path.join(__dirname, 'canary.json');
 const PID_FILE       = path.join(__dirname, '.run-loop-pid');
+const STATUS_FILE    = path.join(__dirname, '.status.json');
 
 const ALLOWED_FILES = new Set([
   'asy-interp.js',
@@ -451,6 +452,91 @@ const MALWARE_REMINDER_COUNTER = [
   'task.',
 ].join('\n');
 
+function writeStatus(obj) {
+  try { fs.writeFileSync(STATUS_FILE, JSON.stringify(obj)); } catch {}
+}
+
+// Fires-and-forgets a background re-render of the 200 worst-scoring diagrams
+// after a successful commit, then regenerates blink-manifest.json so the
+// comparator reflects updated images without a manual reload.
+let _rerenderActive = false;
+
+function rerender200Worst() {
+  if (_rerenderActive) {
+    console.log('[run-loop] rerender200: skipping (already in progress)');
+    return;
+  }
+  const ssimPath = path.join(ROOT, 'comparison', 'ssim-results.json');
+  let results;
+  try { results = JSON.parse(fs.readFileSync(ssimPath, 'utf8')); }
+  catch (e) { console.log('[run-loop] rerender200: cannot read ssim-results.json: ' + e.message); return; }
+
+  const worst200 = results
+    .filter(r => typeof r.combined === 'number' && isFinite(r.combined))
+    .sort((a, b) => a.combined - b.combined)
+    .slice(0, 200)
+    .map(r => r.id);
+
+  if (worst200.length === 0) return;
+  _rerenderActive = true;
+  console.log('[run-loop] rerender200: spawning background re-render of ' + worst200.length + ' diagrams...');
+
+  const node = cp.spawn(process.execPath, [
+    path.join(ROOT, 'auto-fix', 'render-and-score.js'),
+  ], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+
+  node.stdin.write(worst200.join('\n') + '\n');
+  node.stdin.end();
+
+  let stdout = '';
+  node.stdout.on('data', d => { stdout += d; });
+  node.stderr.on('data', d => { process.stderr.write(d); });
+
+  node.on('close', code => {
+    _rerenderActive = false;
+    console.log('[run-loop] rerender200: render done (exit=' + code + ')');
+
+    // Patch ssim-results.json in-place with updated scores.
+    try {
+      const updated = JSON.parse(fs.readFileSync(ssimPath, 'utf8'));
+      let changed = 0;
+      for (const line of stdout.split('\n')) {
+        const s = line.trim();
+        if (!s) continue;
+        try {
+          const row = JSON.parse(s);
+          if (row.id && row.ssim != null) {
+            const ex = updated.find(r => r.id === row.id);
+            if (ex) {
+              ex.ssim = row.ssim;
+              ex.sizeScore = row.sizeScore;
+              ex.combined = row.combined;
+              if (row.combined != null && row.combined >= 0) delete ex.error;
+              changed++;
+            }
+          }
+        } catch {}
+      }
+      if (changed > 0) {
+        updated.sort((a, b) => (a.combined ?? 0) - (b.combined ?? 0));
+        fs.writeFileSync(ssimPath, JSON.stringify(updated, null, 2));
+        console.log('[run-loop] rerender200: patched ' + changed + ' SSIM entries');
+      }
+    } catch (e) {
+      console.error('[run-loop] rerender200: ssim-results patch failed: ' + e.message);
+    }
+
+    // Regenerate blink-manifest.json — blink.html detects the mtime change
+    // via its /status poll and reloads the grid automatically.
+    try {
+      cp.execSync('node comparison/generate-manifest.js', { cwd: ROOT, stdio: 'pipe' });
+      console.log('[run-loop] rerender200: manifest regenerated');
+    } catch (e) {
+      console.error('[run-loop] rerender200: manifest regen failed: ' + e.message);
+    }
+  });
+}
+
 function runSubAgent(args, prompt) {
   return new Promise((resolve) => {
     const subArgs = [
@@ -535,6 +621,7 @@ async function runIteration(args, iter) {
   const target = selectTarget(forcedId);
   if (!target) { console.log('[run-loop] select-target returned DONE'); return 'done'; }
   console.log('[run-loop] target: ' + JSON.stringify({ id: target.id, family: target.familyKey, ssim: target.ssim }));
+  writeStatus({ currentId: target.id, phase: 'agent', round: 1, roundMax: MAX_VERIFIER_ROUNDS, iterStartedAt: new Date().toISOString() });
 
   // ── Ensure TeXeR reference PNG is present ────────────────────────────────
   // If the reference PNG is missing (e.g. after a machine reset that wiped
@@ -585,6 +672,7 @@ async function runIteration(args, iter) {
     if (round > 1) {
       console.log('\n[run-loop] === round ' + round + '/' + MAX_VERIFIER_ROUNDS +
                   ' (verifier feedback: ' + (verifierFeedback||[]).length + ' defects) ===');
+      writeStatus({ currentId: target.id, phase: 'agent', round, roundMax: MAX_VERIFIER_ROUNDS });
     }
 
     const prompt = renderPrompt(target, verifierFeedback, userDescription);
@@ -659,6 +747,7 @@ async function runIteration(args, iter) {
     const ssimGood = postSsim != null && postSsim >= SSIM_FLOOR;
 
     // Run the visual verifier (fresh Sonnet session, no edit history).
+    writeStatus({ currentId: target.id, phase: 'verifying', round, roundMax: MAX_VERIFIER_ROUNDS });
     const verdict = runVerifier(args, target);
     console.log('[run-loop] round ' + round + ' verifier verdict: ' + JSON.stringify(verdict));
 
@@ -691,6 +780,8 @@ async function runIteration(args, iter) {
                  ' conf=' + (verdict.confidence || '?'),
         });
       }
+      writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
+      rerender200Worst();
       return 'committed';
     }
 
@@ -733,10 +824,11 @@ async function main() {
 
   // Write PID file so fix-server can detect us; remove on exit.
   try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch {}
-  const removePid = () => { try { fs.unlinkSync(PID_FILE); } catch {} };
-  process.on('exit', removePid);
-  process.on('SIGINT',  () => { removePid(); process.exit(130); });
-  process.on('SIGTERM', () => { removePid(); process.exit(143); });
+  const removePid    = () => { try { fs.unlinkSync(PID_FILE);    } catch {} };
+  const removeStatus = () => { try { fs.unlinkSync(STATUS_FILE); } catch {} };
+  process.on('exit',   () => { removePid(); removeStatus(); });
+  process.on('SIGINT',  () => { removePid(); removeStatus(); process.exit(130); });
+  process.on('SIGTERM', () => { removePid(); removeStatus(); process.exit(143); });
 
   // Record how many telemetry lines existed before this session starts so the
   // post-run summary can slice exactly the entries we wrote (multi-round
