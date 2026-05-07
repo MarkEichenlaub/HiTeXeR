@@ -7581,6 +7581,86 @@ function createInterpreter() {
     env.set('unfill', (...args) => evalDraw('unfill', args));
     env.set('label', (...args) => evalLabel(args));
 
+    // arrow(picture pic=currentpicture, Label L="", pair b, pair dir,
+    //       real length=arrowlength, align align=NoAlign, pen p=currentpen,
+    //       arrowbar arrow=Arrow, ...)
+    //
+    // Asymptote draws this in a fresh sub-picture with no size() applied, so
+    // the arrow renders at fixed screen-bp size (~0.75cm) regardless of the
+    // parent picture's user-coordinate scale.  We approximate the screen-fixed
+    // sizing by converting the bp length to user units using the same
+    // bp-per-user-unit heuristic markers use, evaluated against the
+    // already-drawn geometry of the target picture.
+    env.set('arrow', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
+        target = args[0];
+        args = args.slice(1);
+      }
+      let label = null, b = null, dir = null;
+      let length_bp = 0.75 * 28.45274; // arrowlength = 0.75cm
+      let pen = null;
+      let arrowDesc = null;
+      let lengthExplicit = false;
+      let pairsSeen = 0;
+      for (const a of args) {
+        if (typeof a === 'string') { if (label === null) label = a; }
+        else if (a && a._tag === 'label') {
+          if (label === null) label = a.text || '';
+          if (!pen && a.pen) pen = a.pen;
+        }
+        else if (isPair(a)) {
+          if (pairsSeen === 0) b = a;
+          else if (pairsSeen === 1) dir = a;
+          pairsSeen++;
+        }
+        else if (isPen(a)) { pen = pen ? mergePens(pen, a) : a; }
+        else if (a && a._tag === 'arrow') { arrowDesc = a; }
+        else if (typeof a === 'number') {
+          if (!lengthExplicit) { length_bp = a; lengthExplicit = true; }
+        }
+        else if (a && a._named) {
+          if ('p' in a && isPen(a.p)) pen = a.p;
+          if ('arrow' in a && a.arrow && a.arrow._tag === 'arrow') arrowDesc = a.arrow;
+          if ('length' in a && typeof a.length === 'number') { length_bp = a.length; lengthExplicit = true; }
+        }
+      }
+      if (!b || !dir) return;
+      if (!pen) pen = clonePen(defaultPen);
+      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:6};
+
+      // bp-per-user-unit at call time (mirrors _markerBpPerUnit).
+      const _gb = getGeoBbox(target.commands);
+      const rangeX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.max(1e-9, _gb.maxX - _gb.minX) : 1;
+      const rangeY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.max(1e-9, _gb.maxY - _gb.minY) : 1;
+      let bpPerUnit;
+      if (sizeW > 0 || sizeH > 0) {
+        const sw = sizeW > 0 ? sizeW : sizeH;
+        const sh = sizeH > 0 ? sizeH : sizeW;
+        bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
+      } else if (hasUnitScale) {
+        bpPerUnit = unitScale;
+      } else {
+        bpPerUnit = 150 / Math.max(rangeX, rangeY);
+      }
+      if (!isFinite(bpPerUnit) || bpPerUnit <= 0) bpPerUnit = 50;
+      const length_user = length_bp / bpPerUnit;
+
+      const dlen = Math.sqrt(dir.x*dir.x + dir.y*dir.y) || 1;
+      const ux = dir.x / dlen, uy = dir.y / dlen;
+      const tip = b;
+      const tail = makePair(b.x + length_user * ux, b.y + length_user * uy);
+      const path = makePath([lineSegment(tail, tip)], false);
+
+      target.commands.push({cmd:'draw', path, pen: clonePen(pen), arrow: arrowDesc, line: args._line || 0});
+
+      if (label) {
+        target.commands.push({cmd:'label', text: label, pos: tail,
+                              align: makePair(ux, uy), pen: clonePen(pen),
+                              line: args._line || 0});
+      }
+    });
+
     // graphic(): embed external images (EPS/PNG) pre-fetched by the client
     env.set('graphic', (path, ...rest) => {
       const pathStr = String(path);
