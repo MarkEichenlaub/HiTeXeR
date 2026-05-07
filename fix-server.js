@@ -394,8 +394,8 @@ server.listen(PORT, '127.0.0.1', () => {
     const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
     const queue = fs.existsSync(queuePath) ? JSON.parse(fs.readFileSync(queuePath, 'utf8')) : [];
     if (Array.isArray(queue) && queue.length > 0 && !isRunLoopRunning()) {
-      console.log(`[fix-server] found ${queue.length} item(s) in queue — auto-starting run-loop`);
-      launchRunLoop();
+      console.log(`[fix-server] found ${queue.length} item(s) in queue — auto-starting run-loop (5s delay)`);
+      setTimeout(launchRunLoop, 5000);
     }
   } catch (e) {
     console.error('[fix-server] startup queue check failed:', e.message);
