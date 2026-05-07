@@ -22072,9 +22072,19 @@ function renderSVG(result, opts) {
         const trimmed2 = displayText.trim();
         if (trimmed2.startsWith('$') && trimmed2.endsWith('$') && trimmed2.indexOf('$', 1) === trimmed2.length - 1) {
           const inner2 = trimmed2.slice(1, -1).trim();
-          // If no remaining LaTeX math commands or ^/_ scripts, strip the $
-          if (!/\\[a-zA-Z]/.test(inner2) && !/[\^_]/.test(inner2)) {
-            displayText = inner2;
+          // Strip {} grouping that wrapped the size command (e.g. "{ d}" → "d")
+          const innerStripped = inner2.replace(/^\{(.*)\}$/, '$1').trim();
+          // If no remaining LaTeX math commands or ^/_ scripts, decide whether to keep math mode
+          if (!/\\[a-zA-Z]/.test(innerStripped) && !/[\^_]/.test(innerStripped)) {
+            if (/^[a-zA-Z]$/.test(innerStripped)) {
+              // Single bare letter → preserve math mode for italic rendering
+              // (e.g. ${\huge d}$ should render d as italic math, not Roman text — 06139).
+              displayText = '$' + innerStripped + '$';
+            } else {
+              // Multi-word text or non-letter content → render as plain text
+              // (e.g. "$\small Outgoing light$" → "Outgoing light")
+              displayText = innerStripped;
+            }
           }
         }
         // Apply LaTeX font-size selectors as absolute (capped at 12pt baseline)
