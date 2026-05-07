@@ -7707,13 +7707,29 @@ function createInterpreter() {
           if (label === null) label = a.text || '';
           if (!pen && a.pen) pen = a.pen;
         }
-        else if (isPair(a)) {
-          if (pairsSeen === 0) b = a;
-          else if (pairsSeen === 1) dir = a;
+        else if (isPair(a) || isTriple(a)) {
+          // Project triples to 2D using current projection.
+          // For direction triples, project the offset point and subtract origin
+          // to get a 2D direction in screen space.
+          let pair2d;
+          if (isTriple(a)) {
+            if (pairsSeen === 0) {
+              pair2d = projectTriple(a);
+            } else {
+              const o = projectTriple(makeTriple(0,0,0));
+              const p = projectTriple(a);
+              pair2d = makePair(p.x - o.x, p.y - o.y);
+            }
+          } else {
+            pair2d = a;
+          }
+          if (pairsSeen === 0) b = pair2d;
+          else if (pairsSeen === 1) dir = pair2d;
           pairsSeen++;
         }
         else if (isPen(a)) { pen = pen ? mergePens(pen, a) : a; }
         else if (a && a._tag === 'arrow') { arrowDesc = a; }
+        else if (a && a._tag === 'arrow3') { arrowDesc = {_tag:'arrow', style: a.style || 'Arrow', size: a.size || 6}; }
         else if (typeof a === 'number') {
           if (!lengthExplicit) { length_bp = a; lengthExplicit = true; }
         }
@@ -13280,9 +13296,16 @@ function createInterpreter() {
       else                        { cx = 1; cy = -2; cz = 0.5; }
       let ux = 0, uy = 0, uz = 1;
       const nums = pos.filter(a => typeof a === 'number');
+      const triples = pos.filter(a => isTriple(a));
       if (nums.length >= 3) { cx = nums[0]; cy = nums[1]; cz = nums[2]; }
-      else if (pos.length >= 1 && isTriple(pos[0])) { cx = pos[0].x; cy = pos[0].y; cz = pos[0].z; }
-      if (pos.length >= 2 && isTriple(pos[1])) { ux = pos[1].x; uy = pos[1].y; uz = pos[1].z; }
+      else if (triples.length >= 1) { cx = triples[0].x; cy = triples[0].y; cz = triples[0].z; }
+      // Up vector: when camera was given as 3 nums, the next triple is 'up'.
+      // When camera was given as a triple, the second triple is 'up'.
+      // Asymptote signature: perspective(real x, real y, real z, triple up=Z, ...).
+      const upIdx = (nums.length >= 3) ? 0 : 1;
+      if (triples.length > upIdx) {
+        ux = triples[upIdx].x; uy = triples[upIdx].y; uz = triples[upIdx].z;
+      }
       // Named args override / supply
       if (named.camera && isTriple(named.camera)) { cx = named.camera.x; cy = named.camera.y; cz = named.camera.z; }
       if (named.up && isTriple(named.up))         { ux = named.up.x; uy = named.up.y; uz = named.up.z; }
@@ -15887,7 +15910,6 @@ function createInterpreter() {
           let xEnd = (typeof ub.xmax === 'number') ? ub.xmax : b.maxX;
           let xStart;
           if (typeof ub.xmin === 'number') xStart = ub.xmin;
-          else if (typeof ub.xmax === 'number') xStart = -ub.xmax;
           else xStart = Math.min(0, b.minX);
           p0 = makeTriple(xStart, y0, z0);
           p1 = makeTriple(xEnd, y0, z0);
@@ -15925,8 +15947,12 @@ function createInterpreter() {
         // all 3D content — skip depth-sort entirely so it isn't occluded by
         // surface fills.
         const aboveFlag = !!(call.userBounds && call.userBounds.above);
+        // Dashed/dotted axes shouldn't be split into many small sub-segments
+        // because the dash pattern needs continuous path length to be visible.
+        // 12776: xaxis3(..., dashed, Arrow3) — keep as one segment.
+        const hasLinestyle = pen && (pen.linestyle && pen.linestyle !== '' && pen.linestyle !== 'solid');
         let cam = null;
-        if (projection && !aboveFlag) {
+        if (projection && !aboveFlag && !hasLinestyle) {
           cam = {x: projection.cx || 0, y: projection.cy || 0, z: projection.cz || 0};
         }
         const N = cam ? 24 : 1;
