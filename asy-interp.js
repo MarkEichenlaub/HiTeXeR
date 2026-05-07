@@ -8732,6 +8732,10 @@ function createInterpreter() {
         let sizeExplicit = false;
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
+          // 08823 idiom: Arrow(size=9) — named-arg form.
+          if (a && typeof a === 'object' && a._named && 'size' in a && typeof a.size === 'number') {
+            sz = a.size; sizeExplicit = true; break;
+          }
         }
         const out = {_tag:'arrow', style:name, size: sz, sizeExplicit};
         if (headKind === 'TeXHead') out.texHead = true;
@@ -13150,6 +13154,10 @@ function createInterpreter() {
         let sizeExplicit = false;
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
+          // 08823 idiom: Arrow(size=9) — named-arg form.
+          if (a && typeof a === 'object' && a._named && 'size' in a && typeof a.size === 'number') {
+            sz = a.size; sizeExplicit = true; break;
+          }
         }
         const out = {_tag:'arrow', style:styleName, size: sz, sizeExplicit};
         if (headKind === 'TeXHead') out.texHead = true;
