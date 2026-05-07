@@ -16358,8 +16358,20 @@ function createInterpreter() {
     // Draws n latitudinal circles + (by default) a few longitudinal arcs.
     {
       const revArg = args.find(a => a && a._tag === 'revolution' && a._grid);
-      const intArg = args.find(a => typeof a === 'number' && Number.isInteger(a) && a > 0);
-      const hasInt = args.some(a => typeof a === 'number' && Number.isInteger(a) && a > 0);
+      // Find skeleton-line count from positional integer or `m=N` named arg.
+      // Asymptote's solids.asy signature: draw(revolution r, int m=0, pen p,
+      // ..., pen longitudinalpen=p), where m is the per-segment line count.
+      // Often called as draw(sphere, m=7, blue) (named) — without named-arg
+      // handling, m was dropped and the diagram fell through to silhouette-only.
+      let intArg = args.find(a => typeof a === 'number' && Number.isInteger(a) && a > 0);
+      if (intArg === undefined) {
+        for (const a of args) {
+          if (a && a._named && typeof a.m === 'number' && Number.isInteger(a.m) && a.m > 0) {
+            intArg = a.m; break;
+          }
+        }
+      }
+      const hasInt = (intArg !== undefined);
       if (revArg && hasInt) {
         const grid = revArg._grid; // rotated[j][i]: (nLon+1) × (verts.length)
         const nLon = grid.length - 1;
