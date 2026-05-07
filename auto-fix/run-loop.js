@@ -31,6 +31,9 @@ const MAX_VERIFIER_ROUNDS = 3;    // max Opus→verifier cycles per iteration be
 const ATTEMPTS_PATH  = path.join(__dirname, 'attempts.jsonl');
 const TELEMETRY_PATH = path.join(__dirname, 'telemetry.jsonl');
 const VERIFIER_PATH  = path.join(__dirname, 'verify-visual.js');
+const QUEUE_PATH     = path.join(__dirname, 'queue.json');
+const CANARY_PATH    = path.join(__dirname, 'canary.json');
+const PID_FILE       = path.join(__dirname, '.run-loop-pid');
 
 const ALLOWED_FILES = new Set([
   'asy-interp.js',
@@ -41,6 +44,7 @@ const ALLOWED_FILES = new Set([
 ]);
 const WRITE_OK_UNCOMMITTED = new Set([
   'auto-fix/attempts.jsonl',
+  'auto-fix/queue.json',
   'auto-fix/skiplist.json',
   'auto-fix/telemetry.jsonl',
 ]);
@@ -49,7 +53,7 @@ const WRITE_OK_UNCOMMITTED = new Set([
 const WRITE_OK_RE = /^comparison\/(page-\d+\.html|blink-manifest\.json|index\.html)$/;
 
 function parseArgs(argv) {
-  const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 0, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false };
+  const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 0, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false, persistent: false, queueOnly: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--max') out.max = parseInt(argv[++i], 10) || 1;
@@ -63,6 +67,8 @@ function parseArgs(argv) {
     else if (a === '--ids-file') out.idsFile = argv[++i];
     else if (a === '--verifier-model') out.verifierModel = argv[++i];
     else if (a === '--no-verifier') out.skipVerifier = true;
+    else if (a === '--persistent') out.persistent = true;
+    else if (a === '--queue-only') out.queueOnly = true;
     else if (a === '-h' || a === '--help') { usage(); process.exit(0); }
     else { console.error('unknown arg: ' + a); usage(); process.exit(2); }
   }
@@ -81,19 +87,31 @@ function parseArgs(argv) {
     if (out.idList.length === 0) { console.error('--ids/--ids-file produced empty list'); process.exit(2); }
   }
 
+  // In persistent mode the loop runs until STOP; use a sentinel max.
+  if (out.persistent && out.max == null) out.max = Number.MAX_SAFE_INTEGER;
   // If an explicit ID list is given and --max isn't, default max to list length.
   if (out.max == null) out.max = out.idList ? out.idList.length : 1;
   return out;
 }
 
 function usage() {
-  console.error('usage: node auto-fix/run-loop.js [--max N] [--dry-run] [--stop-on-fail] [--model ID] [--timeout-ms N] [--max-turns N] [--full-pipeline-every N] [--ids A,B,C | --ids-file path] [--verifier-model ID] [--no-verifier]');
+  console.error('usage: node auto-fix/run-loop.js [--max N] [--persistent] [--queue-only] [--dry-run] [--stop-on-fail] [--model ID] [--timeout-ms N] [--max-turns N] [--full-pipeline-every N] [--ids A,B,C | --ids-file path] [--verifier-model ID] [--no-verifier]');
 }
 
 function runFullPipeline() {
   // Regenerates all HiTeXeR SVGs/PNGs and recomputes SSIM against the frozen
   // TeXeR reference PNGs, then rebuilds the canary baseline. Corpus directories
   // are NEVER touched (per project CLAUDE.md).
+  // Returns { ok, regressions } where regressions is an array of
+  // { id, oldSsim, newSsim, drop } for IDs that dropped > 0.05.
+  const REGRESSION_THRESHOLD = 0.05;
+
+  // Snapshot old canary before rebuild so we can detect regressions.
+  let oldCanary = {};
+  if (fs.existsSync(CANARY_PATH)) {
+    try { oldCanary = JSON.parse(fs.readFileSync(CANARY_PATH, 'utf8')); } catch {}
+  }
+
   console.log('[run-loop] running full pipeline: render-htx rasterize ssim ...');
   const t0 = Date.now();
   const r1 = cp.spawnSync('node', ['ssim-pipeline.js', 'render-htx', 'rasterize', 'ssim'], {
@@ -101,7 +119,7 @@ function runFullPipeline() {
   });
   if (r1.status !== 0) {
     console.error('[run-loop] full pipeline failed (status=' + r1.status + ')');
-    return false;
+    return { ok: false, regressions: [] };
   }
   console.log('[run-loop] pipeline complete in ' + ((Date.now() - t0)/60000).toFixed(1) + ' min; rebuilding canary');
   const r2 = cp.spawnSync('node', ['auto-fix/build-canary.js'], {
@@ -109,12 +127,47 @@ function runFullPipeline() {
   });
   if (r2.status !== 0) {
     console.error('[run-loop] build-canary failed (status=' + r2.status + ')');
-    return false;
+    return { ok: false, regressions: [] };
   }
+
+  // Diff new canary against old snapshot.
+  let newCanary = {};
+  if (fs.existsSync(CANARY_PATH)) {
+    try { newCanary = JSON.parse(fs.readFileSync(CANARY_PATH, 'utf8')); } catch {}
+  }
+  const regressions = [];
+  for (const [id, oldSsim] of Object.entries(oldCanary)) {
+    const newSsim = newCanary[id];
+    if (typeof newSsim === 'number' && typeof oldSsim === 'number') {
+      const drop = oldSsim - newSsim;
+      if (drop > REGRESSION_THRESHOLD) {
+        regressions.push({ id, oldSsim, newSsim, drop });
+      }
+    }
+  }
+  if (regressions.length > 0) {
+    regressions.sort((a, b) => b.drop - a.drop);
+    console.log('[run-loop] full-pipeline regressions (' + regressions.length + '): ' +
+      regressions.map(r => r.id + '(' + r.oldSsim.toFixed(3) + '->' + r.newSsim.toFixed(3) + ')').join(', '));
+  } else {
+    console.log('[run-loop] full-pipeline: no regressions detected');
+  }
+
   // Stage the regenerated ssim-results + canary so the user sees them in git
   // but do NOT auto-commit; they reflect aggregate pipeline state, not a single
   // sub-agent fix, and the commit policy only commits fix-owned deltas.
-  return true;
+  return { ok: true, regressions };
+}
+
+function dequeueNext() {
+  // Pop the first item from queue.json and return it, or null if empty.
+  let queue;
+  try { queue = JSON.parse(fs.readFileSync(QUEUE_PATH, 'utf8')); }
+  catch { return null; }
+  if (!Array.isArray(queue) || queue.length === 0) return null;
+  const item = queue.shift();
+  fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue, null, 2));
+  return item;  // { id, description, addedAt }
 }
 
 function priorAttemptsFor(id) {
@@ -155,18 +208,22 @@ function gitTrackedChanges() {
   return out;
 }
 
-function renderPrompt(target, verifierFeedback) {
+function renderPrompt(target, verifierFeedback, userDescription) {
   const tpl = fs.readFileSync(PROMPT_PATH, 'utf8');
   const familyKey = target.familyKey || (target.collection || '') + (target.lesson ? ('_'+target.lesson) : '');
+  const descBlock = userDescription
+    ? '> **User note:** ' + userDescription + '\n\n'
+    : '';
   let text = tpl
-    .replace(/\{\{TARGET_ID\}\}/g,         target.id)
-    .replace(/\{\{CORPUS_FILE\}\}/g,       target.corpusFile || '')
-    .replace(/\{\{COLLECTION_LESSON\}\}/g, familyKey)
-    .replace(/\{\{PRE_SSIM\}\}/g,          String(target.ssim))
-    .replace(/\{\{ASY_PATH\}\}/g,          target.asyPath)
-    .replace(/\{\{REF_PNG\}\}/g,           target.refPng)
-    .replace(/\{\{HTX_PNG\}\}/g,           target.htxPng)
-    .replace(/\{\{PRIOR_ATTEMPTS\}\}/g,    priorAttemptsFor(target.id));
+    .replace(/\{\{TARGET_ID\}\}/g,          target.id)
+    .replace(/\{\{CORPUS_FILE\}\}/g,        target.corpusFile || '')
+    .replace(/\{\{COLLECTION_LESSON\}\}/g,  familyKey)
+    .replace(/\{\{PRE_SSIM\}\}/g,           String(target.ssim))
+    .replace(/\{\{ASY_PATH\}\}/g,           target.asyPath)
+    .replace(/\{\{REF_PNG\}\}/g,            target.refPng)
+    .replace(/\{\{HTX_PNG\}\}/g,            target.htxPng)
+    .replace(/\{\{USER_DESCRIPTION\}\}/g,   descBlock)
+    .replace(/\{\{PRIOR_ATTEMPTS\}\}/g,     priorAttemptsFor(target.id));
 
   // For continuation rounds, prepend verifier feedback so Opus knows exactly
   // what still needs fixing without re-diagnosing from scratch.
@@ -454,10 +511,27 @@ async function runIteration(args, iter) {
 
   if (fs.existsSync(STOP_FILE)) { console.log('[run-loop] STOP file present, halting'); return 'stop'; }
 
-  // If the user provided an explicit ID list, use the one at position (iter-1);
-  // otherwise fall back to the automatic candidate selector.
-  const forcedId = args.idList ? args.idList[iter - 1] : null;
-  if (args.idList && !forcedId) { console.log('[run-loop] id list exhausted'); return 'done'; }
+  // Target selection priority: (1) manual queue, (2) explicit --ids list, (3) SSIM autopilot.
+  let forcedId = null;
+  let userDescription = null;
+
+  const queueItem = dequeueNext();
+  if (queueItem) {
+    forcedId = String(queueItem.id).padStart(5, '0');
+    userDescription = queueItem.description || null;
+    console.log('[run-loop] from queue: ' + forcedId +
+                (userDescription ? ' — "' + userDescription + '"' : ' (no description)'));
+  } else if (args.idList) {
+    forcedId = args.idList[iter - 1];
+    if (!forcedId) { console.log('[run-loop] id list exhausted'); return 'done'; }
+  }
+
+  // In --queue-only mode, stop when the queue is empty instead of auto-selecting by SSIM.
+  if (!forcedId && args.queueOnly) {
+    console.log('[run-loop] queue empty in --queue-only mode; stopping');
+    return 'done';
+  }
+
   const target = selectTarget(forcedId);
   if (!target) { console.log('[run-loop] select-target returned DONE'); return 'done'; }
   console.log('[run-loop] target: ' + JSON.stringify({ id: target.id, family: target.familyKey, ssim: target.ssim }));
@@ -490,7 +564,7 @@ async function runIteration(args, iter) {
   console.log('[run-loop] pre version: ' + preVersion + ', pre HEAD: ' + preCommit + ', pre-dirty: ' + preChanges.length);
 
   if (args.dryRun) {
-    const prompt = renderPrompt(target);
+    const prompt = renderPrompt(target, null, userDescription);
     console.log('[run-loop] --dry-run, would invoke `claude -p` with prompt:');
     console.log(prompt.split('\n').slice(0, 20).join('\n'));
     console.log('... [truncated]');
@@ -513,7 +587,7 @@ async function runIteration(args, iter) {
                   ' (verifier feedback: ' + (verifierFeedback||[]).length + ' defects) ===');
     }
 
-    const prompt = renderPrompt(target, verifierFeedback);
+    const prompt = renderPrompt(target, verifierFeedback, userDescription);
     const start = Date.now();
     const subResult = await runSubAgent(args, prompt);
     const dur = ((Date.now() - start) / 1000).toFixed(1);
@@ -657,6 +731,13 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   let committed = 0, skipped = 0, fail = 0;
 
+  // Write PID file so fix-server can detect us; remove on exit.
+  try { fs.writeFileSync(PID_FILE, String(process.pid)); } catch {}
+  const removePid = () => { try { fs.unlinkSync(PID_FILE); } catch {} };
+  process.on('exit', removePid);
+  process.on('SIGINT',  () => { removePid(); process.exit(130); });
+  process.on('SIGTERM', () => { removePid(); process.exit(143); });
+
   // Record how many telemetry lines existed before this session starts so the
   // post-run summary can slice exactly the entries we wrote (multi-round
   // iterations write one line per Opus round, not one per iteration).
@@ -673,7 +754,15 @@ async function main() {
       if (args.stopOnFail) break;
       continue;
     }
-    if (outcome === 'done' || outcome === 'stop') break;
+    if (outcome === 'done' || outcome === 'stop') {
+      if (args.persistent && outcome === 'done') {
+        console.log('[run-loop] queue empty and no SSIM candidates; sleeping 30s...');
+        await new Promise(r => setTimeout(r, 30000));
+        i--;  // don't advance the iteration counter during an idle sleep
+        continue;
+      }
+      break;
+    }
     if (outcome === 'committed') committed++;
     else if (outcome === 'skipped') skipped++;
     else if (outcome === 'fail') { fail++; if (args.stopOnFail) break; }
@@ -683,7 +772,25 @@ async function main() {
     // diagrams, not just target+canary+family slices.
     if (args.fullPipelineEvery > 0 && outcome === 'committed' && committed > 0 && committed % args.fullPipelineEvery === 0) {
       if (fs.existsSync(STOP_FILE)) { console.log('[run-loop] STOP file present, skipping full pipeline'); break; }
-      runFullPipeline();
+      const pipeResult = runFullPipeline();
+      // Auto-requeue any canary regressions at the head of the queue
+      if (pipeResult && pipeResult.ok && pipeResult.regressions && pipeResult.regressions.length > 0) {
+        let queue = [];
+        try { queue = JSON.parse(fs.readFileSync(QUEUE_PATH, 'utf8')); } catch {}
+        const newItems = pipeResult.regressions.map(r => ({
+          id: r.id,
+          description: 'Regressed in full-pipeline run: ' + r.oldSsim.toFixed(4) + ' → ' + r.newSsim.toFixed(4),
+          addedAt: new Date().toISOString(),
+        }));
+        // Prepend (highest priority) without duplicating IDs already in queue
+        const existingIds = new Set(queue.map(item => item.id));
+        const toAdd = newItems.filter(item => !existingIds.has(item.id));
+        if (toAdd.length > 0) {
+          queue = [...toAdd, ...queue];
+          fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue, null, 2));
+          console.log('[run-loop] prepended ' + toAdd.length + ' regression ID(s) to queue.json');
+        }
+      }
     }
   }
   const ok = committed + skipped;

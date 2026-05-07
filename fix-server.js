@@ -17,6 +17,33 @@ const path = require('path');
 
 const PORT = 7842;
 const ROOT = path.resolve(__dirname);
+const RUN_LOOP_PID_FILE = path.join(ROOT, 'auto-fix', '.run-loop-pid');
+
+// Returns true if a run-loop process is currently live.
+function isRunLoopRunning() {
+  try {
+    const pid = parseInt(fs.readFileSync(RUN_LOOP_PID_FILE, 'utf8'), 10);
+    if (!pid || isNaN(pid)) return false;
+    process.kill(pid, 0);  // throws if process doesn't exist
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Launch run-loop in a visible Windows Terminal tab so the user can see progress.
+// Uses --queue-only so it stops when the queue drains instead of auto-picking by SSIM.
+function launchRunLoop() {
+  const child = spawn('wt', [
+    '-w', '0', 'new-tab',
+    '-d', ROOT,
+    '--',
+    'node', path.join('auto-fix', 'run-loop.js'),
+    '--max', '999', '--queue-only',
+  ], { detached: true, stdio: 'ignore' });
+  child.unref();
+  console.log('[fix-server] launched run-loop in Windows Terminal tab');
+}
 
 const MIME = {
   '.html': 'text/html',
@@ -193,6 +220,88 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && req.url === '/enqueue') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { id, description } = JSON.parse(body);
+        if (!id) throw new Error('Missing id');
+
+        const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+        let queue = [];
+        if (fs.existsSync(queuePath)) {
+          try { queue = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch {}
+        }
+        // Replace any existing entry for this id so re-queuing updates the description
+        queue = queue.filter(item => item.id !== id);
+        queue.push({ id, description: description || '', addedAt: new Date().toISOString() });
+        fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+
+        console.log(`[fix-server] Enqueued diagram ${id} (queue length: ${queue.length})`);
+
+        // Auto-launch the run-loop if it's not already running.
+        if (!isRunLoopRunning()) {
+          launchRunLoop();
+        } else {
+          console.log('[fix-server] run-loop already running; item added to queue');
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, id, queueLength: queue.length }));
+      } catch (e) {
+        console.error('[fix-server] Error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/skip') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body);
+        if (!id) throw new Error('Missing id');
+
+        // Add to skiplist
+        const skiplistPath = path.join(ROOT, 'auto-fix', 'skiplist.json');
+        let skiplist = { ids: [] };
+        if (fs.existsSync(skiplistPath)) {
+          try { skiplist = JSON.parse(fs.readFileSync(skiplistPath, 'utf8')); } catch {}
+        }
+        if (!Array.isArray(skiplist.ids)) skiplist.ids = [];
+        if (!skiplist.ids.includes(id)) {
+          skiplist.ids.push(id);
+          fs.writeFileSync(skiplistPath, JSON.stringify(skiplist, null, 2));
+        }
+
+        // Also remove from queue if present
+        const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+        if (fs.existsSync(queuePath)) {
+          try {
+            const queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+            const filtered = queue.filter(item => item.id !== id);
+            if (filtered.length !== queue.length) {
+              fs.writeFileSync(queuePath, JSON.stringify(filtered, null, 2));
+            }
+          } catch {}
+        }
+
+        console.log(`[fix-server] Skipped diagram ${id}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, id }));
+      } catch (e) {
+        console.error('[fix-server] Error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/fix') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -278,4 +387,17 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Hitexer directory: ${ROOT}`);
   console.log('Click "Fix" on any comparator card to launch a claude session.');
   console.log('Press Ctrl+C to stop.\n');
+
+  // If there are already queued items (e.g. left over from a previous session),
+  // auto-start the run-loop immediately rather than waiting for the next enqueue.
+  try {
+    const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+    const queue = fs.existsSync(queuePath) ? JSON.parse(fs.readFileSync(queuePath, 'utf8')) : [];
+    if (Array.isArray(queue) && queue.length > 0 && !isRunLoopRunning()) {
+      console.log(`[fix-server] found ${queue.length} item(s) in queue — auto-starting run-loop`);
+      launchRunLoop();
+    }
+  } catch (e) {
+    console.error('[fix-server] startup queue check failed:', e.message);
+  }
 });
