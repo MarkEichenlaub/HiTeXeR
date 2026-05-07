@@ -7601,11 +7601,20 @@ function createInterpreter() {
         }
       }
       const pos = args.filter(a => !(a && typeof a === 'object' && a._named));
-      if (pos.length >= 1) sizeW = toNumber(pos[0]);
-      if (pos.length >= 2) sizeH = toNumber(pos[1]);
-      else if (pos.length === 1) sizeH = sizeW;  // Asymptote default: size(x) means size(x,x)
-      // 3rd positional arg is keepAspect (e.g. size(w, h, IgnoreAspect))
-      if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
+      // 04155 idiom: size(150, IgnoreAspect) — only one numeric arg with a
+      // boolean keepAspect after it. Treat the boolean as keepAspect, not as
+      // sizeH=toNumber(false)=0 which would collapse the height bound.
+      if (pos.length >= 2 && typeof pos[1] === 'boolean' && typeof pos[0] !== 'boolean') {
+        sizeW = toNumber(pos[0]);
+        sizeH = sizeW;
+        keepAspect = pos[1];
+      } else {
+        if (pos.length >= 1) sizeW = toNumber(pos[0]);
+        if (pos.length >= 2) sizeH = toNumber(pos[1]);
+        else if (pos.length === 1) sizeH = sizeW;  // Asymptote default: size(x) means size(x,x)
+        // 3rd positional arg is keepAspect (e.g. size(w, h, IgnoreAspect))
+        if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
+      }
     });
     env.set('defaultpen', (p) => {
       if (isPen(p)) {
