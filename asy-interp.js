@@ -1867,6 +1867,12 @@ function createInterpreter() {
   let defaultPen = makePen({});
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
+  // Registry mapping sentinel ids -> graphic objects, populated when a graphic
+  // value is string-concatenated (e.g. "\reflectbox{" + graphic(...) + "}").
+  // label() recovers the embedded graphic by scanning text for the sentinel.
+  const _graphicSentinels = {};
+  let _graphicSentinelCounter = 0;
+  const _GRAPHIC_SENTINEL_RE = /__HITEXER_GRAPHIC_(\d+)__/g;
 
   // Built-in Asymptote direction constants whose redefinition causes subtle bugs.
   const _BUILTIN_DIRS = new Set([
@@ -2685,8 +2691,21 @@ function createInterpreter() {
     }
 
     // String ops (concatenation, comparison)
-    if (isString(left) || isString(right)) {
-      if (op === T.PLUS) return String(isTriple(left)?tripleToStr(left):isPair(left)?pairToStr(left):left) + String(isTriple(right)?tripleToStr(right):isPair(right)?pairToStr(right):right);
+    if (isString(left) || isString(right) || isGraphic(left) || isGraphic(right)) {
+      if (op === T.PLUS) {
+        // 09043 idiom: `"\reflectbox{" + graphic(...) + "}"`. Replace embedded
+        // graphic objects with sentinels label() can recover (otherwise
+        // String(graphicObj) yields "[object Object]").
+        const _str = (v) => {
+          if (isGraphic(v)) {
+            const id = ++_graphicSentinelCounter;
+            _graphicSentinels[id] = v;
+            return '__HITEXER_GRAPHIC_' + id + '__';
+          }
+          return isTriple(v) ? tripleToStr(v) : isPair(v) ? pairToStr(v) : String(v);
+        };
+        return _str(left) + _str(right);
+      }
       if (op === T.EQ) return String(left) === String(right);
       if (op === T.NEQ) return String(left) !== String(right);
       if (op === T.LT) return String(left) < String(right);
@@ -2763,7 +2782,22 @@ function createInterpreter() {
       if (op===T.STAR) return makePair(left.x*right,left.y*right);
       if (op===T.SLASH) return right?makePair(left.x/right,left.y/right):makePair(0,0);
     }
-    if (isString(left)||isString(right)) { if(op===T.PLUS) return String(left)+String(right); }
+    if (isString(left)||isString(right)||isGraphic(left)||isGraphic(right)) {
+      if (op===T.PLUS) {
+        // 09043: `"\reflectbox{" + graphic(...) + "}"` concatenates a graphic
+        // object into a string. Plain String() coerces to "[object Object]";
+        // instead emit a sentinel that label() can recover the graphic from.
+        const _stringify = (v) => {
+          if (isGraphic(v)) {
+            const id = ++_graphicSentinelCounter;
+            _graphicSentinels[id] = v;
+            return '__HITEXER_GRAPHIC_' + id + '__';
+          }
+          return String(v);
+        };
+        return _stringify(left) + _stringify(right);
+      }
+    }
     const l=toNumber(left),r=toNumber(right);
     if (op===T.PLUS) return l+r;
     if (op===T.MINUS) return l-r;
@@ -17892,6 +17926,27 @@ function createInterpreter() {
       frameTarget.labels.push({ text, pos, align, pen, filltype, labelTransform });
       return;
     }
+
+    // 09043 idiom: `"\reflectbox{" + graphic(...) + "}"` produces a string
+    // containing a graphic sentinel. Recover the embedded graphic and apply
+    // \reflectbox{} as a horizontal flip about the graphic's center.
+    if (!graphicData && typeof text === 'string' && text.indexOf('__HITEXER_GRAPHIC_') !== -1) {
+      const sentinelOnly = text.match(/^\s*__HITEXER_GRAPHIC_(\d+)__\s*$/);
+      const reflectMatch = text.match(/^\s*\\reflectbox\{\s*__HITEXER_GRAPHIC_(\d+)__\s*\}\s*$/);
+      if (reflectMatch) {
+        const g = _graphicSentinels[reflectMatch[1]];
+        if (g) {
+          const flip = makeTransform(0, -1, 0, 0, 0, 1);
+          const t = g.transform ? composeTransforms(g.transform, flip) : flip;
+          graphicData = Object.assign({}, g, {transform: t});
+          text = '';
+        }
+      } else if (sentinelOnly) {
+        const g = _graphicSentinels[sentinelOnly[1]];
+        if (g) { graphicData = g; text = ''; }
+      }
+    }
+
     if (graphicData) {
       // Compose any labelTransform into the graphic's transform
       if (labelTransform) {
