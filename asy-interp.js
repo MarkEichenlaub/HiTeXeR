@@ -21546,7 +21546,19 @@ function renderSVG(result, opts) {
         const _preFsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
         let _pfsm, _pfsScale = 1.0;
         while ((_pfsm = _preFsCmdRe.exec(dc.text||'')) !== null) _pfsScale = _preFsSizes[_pfsm[0]] || 1.0;
-        if (_pfsScale !== 1.0) { fontSizeSVG *= _pfsScale; fontSizeCSS *= _pfsScale; }
+        if (_pfsScale !== 1.0) {
+          // \huge etc. are absolute font-size selectors in LaTeX, calibrated
+          // to the document class baseline (~12pt for Asymptote's default).
+          // The multipliers above match 12pt-class absolute sizes when applied
+          // to a 12pt baseline (e.g. \huge × 12 = 24.88pt). When fontsize()
+          // has explicitly raised the size beyond the class baseline (e.g.
+          // 06139 uses fontsize(24pt)+\huge), multiplying gives 49.78pt — far
+          // too big. Cap the baseline at 12pt so explicit fontsize() raises
+          // don't double-up with the absolute selector.
+          const _baseFs = Math.min(fontSize, 12);
+          fontSizeSVG = _baseFs * _pfsScale * bpCSSPixel;
+          fontSizeCSS = _baseFs * _pfsScale * labelShrinkFactor;
+        }
       }
       let dx = 0, dy = 0;
       let anchor = 'middle';
@@ -21841,8 +21853,13 @@ function renderSVG(result, opts) {
             displayText = inner2;
           }
         }
-        effectiveFontSize *= fontSizeScale;
-        effectiveFontSizeCSS *= fontSizeScale;
+        // Apply LaTeX font-size selectors as absolute (capped at 12pt baseline)
+        // — see longer comment above the matching pre-scale block. Without this,
+        // fontsize(24pt)+\huge in 06139 renders the bare "d" at 49.78pt instead
+        // of the expected ~24.88pt.
+        const _absRatio = Math.min(fontSize, 12) * fontSizeScale / fontSize;
+        effectiveFontSize *= _absRatio;
+        effectiveFontSizeCSS *= _absRatio;
       }
 
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
