@@ -21099,7 +21099,15 @@ function renderSVG(result, opts) {
       if (isSizeConstrained) {
         // Size()-constrained: normally only extend vertically using actual tspan height.
         // Actual rendered height = fontSizeSVG × (1 + 1.2 × (numLines-1)) due to tspan dy.
-        const hActual = fontSizeSVG * (1 + 1.2 * (numLines - 1));
+        // EXCEPTION: rotated labels (e.g. 90° y-axis labels in 08812) have visual
+        // height = original text width, so use the rotation-aware effH instead.
+        let _ltRotated = false;
+        if (dc.labelTransform) {
+          const _lt = dc.labelTransform;
+          const _ltAng = Math.atan2(_lt.e, _lt.b) * 180 / Math.PI;
+          if (Math.abs(_ltAng) > 0.5) _ltRotated = true;
+        }
+        const hActual = _ltRotated ? effH : fontSizeSVG * (1 + 1.2 * (numLines - 1));
         const topActual = cy - hActual / 2;
         const bottomActual = cy + hActual / 2;
         // Tick labels at the very top/bottom of the plot (e.g. 4150's "0.9"
