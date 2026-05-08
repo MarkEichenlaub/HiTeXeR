@@ -10277,12 +10277,11 @@ function createInterpreter() {
       if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
         try { process.stderr.write('[xaxis after _axisLim] xmin='+xmin+' xmax='+xmax+' pic.cmds='+pic.commands.length+' picLim='+JSON.stringify(pic._picLimits||{})+'\n'); } catch(e){}
       }
-      // Asymptote's xlimits is a hint/lower-bound: the picture's user bbox
-      // extends to include all content even if it goes beyond xlimits, and
-      // xaxis() ranges over the full user bbox (via pic.userMin/userMax).
-      // So if content extends past the xlimits-supplied xmin/xmax, expand
-      // the axis range to include it. This matches userBoxXY semantics.
-      if ((_xminFromUserLimits || _xmaxFromUserLimits) && !xminExplicit && !xmaxExplicit) {
+      // When xlimits is set WITHOUT crop, it acts as a lower-bound: expand to
+      // include any content that extends past it (matching Asymptote's
+      // pic.userMin/userMax). But when crop=Crop is specified, the user
+      // explicitly wants the axis to NOT extend past the limits.
+      if ((_xminFromUserLimits || _xmaxFromUserLimits) && !xminExplicit && !xmaxExplicit && !_axisLimits.crop) {
         let cMinX = Infinity, cMaxX = -Infinity;
         for (const dc of pic.commands) {
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
@@ -10344,8 +10343,9 @@ function createInterpreter() {
         }
       }
       if (!pen) pen = clonePen(defaultPen);
-      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
-      if (xmin !== null) {
+      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
+      // When crop is enabled, don't expand the limits beyond what the user specified.
+      if (xmin !== null && !_axisLimits.crop) {
         if (_axisLimits.xmin === null || xmin < _axisLimits.xmin) _axisLimits.xmin = xmin;
         if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
       }
@@ -10637,9 +10637,11 @@ function createInterpreter() {
       }
       if (ymin === null && _axisLimits.ymin !== null) { ymin = _axisLimits.ymin; _yminFromUserLimits = true; }
       if (ymax === null && _axisLimits.ymax !== null) { ymax = _axisLimits.ymax; _ymaxFromUserLimits = true; }
-      // See xaxis: ylimits is a lower-bound; expand to include any content
-      // that extends past it (matching Asymptote's pic.userMin/userMax).
-      if ((_yminFromUserLimits || _ymaxFromUserLimits) && !yminExplicit && !ymaxExplicit) {
+      // When ylimits is set WITHOUT crop, it acts as a lower-bound: expand to
+      // include any content that extends past it (matching Asymptote's
+      // pic.userMin/userMax). But when crop=Crop is specified, the user
+      // explicitly wants the axis to NOT extend past the limits.
+      if ((_yminFromUserLimits || _ymaxFromUserLimits) && !yminExplicit && !ymaxExplicit && !_axisLimits.crop) {
         let cMinY = Infinity, cMaxY = -Infinity;
         for (const dc of pic.commands) {
           if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel) continue;
@@ -10696,8 +10698,9 @@ function createInterpreter() {
         }
       }
       if (!pen) pen = clonePen(defaultPen);
-      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax
-      if (ymin !== null) {
+      // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
+      // When crop is enabled, don't expand the limits beyond what the user specified.
+      if (ymin !== null && !_axisLimits.crop) {
         if (_axisLimits.ymin === null || ymin < _axisLimits.ymin) _axisLimits.ymin = ymin;
         if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
       }
