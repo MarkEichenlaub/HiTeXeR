@@ -22196,8 +22196,14 @@ function renderSVG(result, opts) {
       // Also skip boost when defaultpen() set a linewidth — the author's
       // explicit global pen sizing should be respected (e.g. defaultpen(.5)
       // in 04025 should produce small dots, not boosted large ones).
-      const _dotBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
-        ? _autoScaledStrokeBoost : 1.0;
+      // For explicit-size diagrams (!isAutoScaled), also apply _explicitSizeStrokeBoost
+      // to dots — this matches the stroke boost applied to paths (line 22085) and
+      // ensures dots have visual weight comparable to TeXeR (e.g. 01298).
+      let _dotBoost = 1.0;
+      if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+        if (_autoScaledStrokeBoost > 1) _dotBoost = _autoScaledStrokeBoost;
+        else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
+      }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
       if (dc.filltype && dc.filltype.style === 'UnFill') {
