@@ -2090,7 +2090,19 @@ function createInterpreter() {
     const deferShift = isPureShift && (pic._sizeW || pic._sizeH);
     const newPic = deferShift
       ? {_tag:'picture', commands: pic.commands.slice()}
-      : {_tag:'picture', commands: pic.commands.map(c => c && c._from3d ? c : transformDrawCmd(t, c))};
+      : {_tag:'picture', commands: pic.commands.map(c => {
+          if (c && c._from3d) return c;
+          // For picture transforms (e.g. xscale(k)*picture), labels should have their
+          // positions transformed but NOT their visual appearance. Preserve any
+          // pre-existing labelTransform from the original label (e.g. rotate(45)*"text")
+          // but don't add the picture transform's contribution to labelTransform.
+          const origLT = c && c.labelTransform;
+          const tc = transformDrawCmd(t, c);
+          if (tc && tc.cmd === 'label' && !tc._isAxisLabel) {
+            tc.labelTransform = origLT || null;
+          }
+          return tc;
+        })};
     // Propagate per-picture sizing and fit metadata so that shift(..)*pic.fit()
     // still reports the expected bbox and is placed correctly when add()'d.
     if (pic._sizeW) newPic._sizeW = pic._sizeW;
@@ -6175,7 +6187,20 @@ function createInterpreter() {
           cmds.push(dc);
         }
       } else {
-        cmds = t ? src.commands.map(c => transformDrawCmd(t, c)) : src.commands;
+        // For add(transform*picture), labels should have their positions transformed
+        // but NOT their visual appearance (no scaling/skewing from the picture transform).
+        // Asymptote's behavior: xscale(k)*picture scales geometry but leaves label text
+        // aspect ratio intact. Preserve any pre-existing labelTransform from the original
+        // label command (e.g. rotate(45)*"text") but strip the picture transform's
+        // contribution to labelTransform.
+        cmds = t ? src.commands.map(c => {
+          const origLT = c.labelTransform;
+          const tc = transformDrawCmd(t, c);
+          if (tc.cmd === 'label' && !tc._isAxisLabel) {
+            tc.labelTransform = origLT || null;
+          }
+          return tc;
+        }) : src.commands;
       }
       // If the source picture has per-picture crop limits, tag each non-label
       // command with a unique clip ID so the SVG renderer can create per-subpicture
