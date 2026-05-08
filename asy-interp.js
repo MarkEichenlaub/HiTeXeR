@@ -44,6 +44,9 @@ const TYPE_NAMES = new Set([
   'tremble',
 ]);
 
+// Struct field definitions: Map<structName, Array<{type:string, name:string, init?}>>
+const STRUCT_DEFS = new Map();
+
 // ============================================================
 // Lexer
 // ============================================================
@@ -356,9 +359,8 @@ function parse(tokens) {
     // Skip 'static' modifier
     if (atVal(T.IDENT,'static')) pos++;
 
-    // struct Name { ... }   -- minimal support: register Name as a type and skip body.
-    // Also allow 'struct Name;' forward declaration. This prevents parse loops but
-    // does not fully implement struct semantics; calls to struct methods will return null.
+    // struct Name { type field; type field = init; ... } — parse and store field definitions
+    // Also allow 'struct Name;' forward declaration.
     if (atVal(T.IDENT,'struct')) {
       pos++;
       if (at(T.IDENT)) {
@@ -366,17 +368,60 @@ function parse(tokens) {
         pos++;
         TYPE_NAMES.add(sname);
         if (at(T.LBRACE)) {
-          // Skip balanced braces
-          let depth = 0;
-          eat(T.LBRACE); depth = 1;
-          while (depth > 0 && !at(T.EOF)) {
-            if (at(T.LBRACE)) { depth++; pos++; continue; }
-            if (at(T.RBRACE)) { depth--; pos++; continue; }
-            pos++;
+          eat(T.LBRACE);
+          const fields = [];
+          while (!at(T.RBRACE) && !at(T.EOF)) {
+            // Parse field: type name [= init];
+            // Skip methods (type name(...){...}) by checking for LPAREN after name
+            if (isTypeName()) {
+              let fType = eat(T.IDENT).value;
+              while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; fType += '[]'; }
+              if (at(T.IDENT)) {
+                const fName = cur().value;
+                pos++;
+                // Check if this is a method (has parens) — skip it
+                if (at(T.LPAREN)) {
+                  // Skip method: consume params and body
+                  let depth = 1; eat(T.LPAREN);
+                  while (depth > 0 && !at(T.EOF)) {
+                    if (at(T.LPAREN)) depth++;
+                    if (at(T.RPAREN)) depth--;
+                    pos++;
+                  }
+                  if (at(T.LBRACE)) {
+                    depth = 1; eat(T.LBRACE);
+                    while (depth > 0 && !at(T.EOF)) {
+                      if (at(T.LBRACE)) depth++;
+                      if (at(T.RBRACE)) depth--;
+                      pos++;
+                    }
+                  }
+                  tryEat(T.SEMI);
+                } else {
+                  // Array-after-name syntax: type name[]
+                  while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; fType += '[]'; }
+                  // Field with optional initializer
+                  let fInit = null;
+                  if (tryEat(T.ASSIGN)) fInit = parseExpr();
+                  fields.push({type: fType, name: fName, init: fInit});
+                  tryEat(T.SEMI);
+                }
+              } else {
+                // Skip to semicolon on parse error
+                while (!at(T.SEMI) && !at(T.RBRACE) && !at(T.EOF)) pos++;
+                tryEat(T.SEMI);
+              }
+            } else {
+              // Skip unrecognized line
+              while (!at(T.SEMI) && !at(T.RBRACE) && !at(T.EOF)) pos++;
+              tryEat(T.SEMI);
+            }
           }
+          eat(T.RBRACE);
+          STRUCT_DEFS.set(sname, fields);
         }
         tryEat(T.SEMI);
-        return null; // treat as no-op
+        return null; // struct definition doesn't produce a runtime node
       }
       // malformed struct — eat to next semicolon to avoid loops
       while (!at(T.SEMI) && !at(T.EOF)) pos++;
@@ -1091,6 +1136,30 @@ function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
     fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false, fontFamily:null}, props);
+}
+// Create a struct instance with default values for each field
+// Note: Initializers are NOT evaluated here (would need access to evalNode inside createInterpreter).
+// This is sufficient for simple structs like HitInfo that only use type defaults.
+function createStructInstance(structName) {
+  const fields = STRUCT_DEFS.get(structName);
+  if (!fields) return {}; // Unknown struct
+  const obj = {}; // Plain object, no _tag so generic member access works
+  for (const f of fields) {
+    // Default values by type (initializers ignored for simplicity)
+    switch(f.type) {
+      case 'int': case 'real': obj[f.name] = 0; break;
+      case 'pair': obj[f.name] = makePair(0,0); break;
+      case 'triple': obj[f.name] = makeTriple(0,0,0); break;
+      case 'string': obj[f.name] = ''; break;
+      case 'bool': obj[f.name] = false; break;
+      case 'pen': obj[f.name] = makePen({}); break;
+      case 'path': case 'guide': obj[f.name] = makePath([],false); break;
+      default:
+        if (f.type.endsWith('[]')) obj[f.name] = [];
+        else obj[f.name] = null;
+    }
+  }
+  return obj;
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -4323,6 +4392,11 @@ function createInterpreter() {
             val = makeGeoVector(cs, makePair(0,0));
             break;
           }
+          default:
+            // Check if this is a user-defined struct
+            if (STRUCT_DEFS.has(node.varType)) {
+              val = createStructInstance(node.varType);
+            }
         }
       }
     }
@@ -4388,8 +4462,9 @@ function createInterpreter() {
       if (isArray(obj) && mem === 'cyclic') {
         obj._cyclic = toBool(newVal);
       }
-      // General object property assignment (e.g. currentlight.background)
-      if (obj && typeof obj === 'object' && obj._tag && mem) {
+      // General object property assignment (e.g. currentlight.background, struct fields)
+      // Allow assignment for objects with _tag OR plain struct objects (no _tag)
+      if (obj && typeof obj === 'object' && mem) {
         obj[mem] = newVal;
       }
       return newVal;
@@ -5759,6 +5834,20 @@ function createInterpreter() {
         props._pale = true;
       }
       env.set(name, makePen(props));
+    }
+    // Capital-letter color aliases (Asymptote convention)
+    // Some scripts use Yellow/Red/Blue etc. as synonyms for lowercase variants
+    const CAPITAL_COLORS = {
+      Yellow:'#ffff00', Red:'#ff0000', Green:'#00ff00', Blue:'#0000ff',
+      Cyan:'#00ffff', Magenta:'#ff00ff', Black:'#000000', White:'#ffffff',
+      Gray:'#808080', Grey:'#808080', Orange:'#ff8000', Brown:'#800000',
+      Purple:'#8000ff', Pink:'#ffbfff',
+    };
+    for (const [name, hex] of Object.entries(CAPITAL_COLORS)) {
+      const r = parseInt(hex.substr(1,2),16)/255;
+      const g = parseInt(hex.substr(3,2),16)/255;
+      const b = parseInt(hex.substr(5,2),16)/255;
+      env.set(name, makePen({r, g, b}));
     }
 
     // Constants
@@ -8071,6 +8160,34 @@ function createInterpreter() {
     env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
     // intersect2paths(p1, p2) — cse5: returns array of intersection points between two paths
     env.set('intersect2paths', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+
+    // inside(path, pair) — returns true if pair is inside the closed path (2D)
+    // Uses ray-crossing algorithm: cast a horizontal ray from the point and count crossings
+    env.set('inside', (path, pt) => {
+      if (!isPath(path) || !path.segs || path.segs.length === 0) return false;
+      const p = toPair(pt);
+      const px = p.x, py = p.y;
+      let crossings = 0;
+      // Sample each segment and test ray crossings
+      for (const seg of path.segs) {
+        const N = seg._linear ? 2 : 16;
+        let prevY = seg.p0.y, prevX = seg.p0.x;
+        for (let i = 1; i <= N; i++) {
+          const t = i / N, u = 1 - t;
+          const x = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+          const y = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+          // Test if segment (prevX,prevY)->(x,y) crosses the horizontal ray from (px, py) going right
+          if ((prevY > py) !== (y > py)) {
+            // Compute x-coordinate of intersection with y=py line
+            const xInt = prevX + (y === prevY ? 0 : (py - prevY) * (x - prevX) / (y - prevY));
+            if (xInt > px) crossings++;
+          }
+          prevX = x; prevY = y;
+        }
+      }
+      return (crossings % 2) === 1;
+    });
+
     // CR(center, r) — cse5 shorthand for "Circle with Radius": returns a circle path.
     // CR(center, r, theta1, theta2[, direction]) — cse5 arc form, equivalent to
     // arc(center, r, theta1, theta2[, direction]). 03489 uses this for partial circles.
