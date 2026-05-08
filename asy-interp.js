@@ -6045,7 +6045,15 @@ function createInterpreter() {
           fs.x - gb.minX * s, s, 0,
           fs.y - gb.minY * s, 0, s
         );
-        const cmds = src.commands.map(c => transformDrawCmd(newT, c));
+        // Labels in size(pic,w) are placed in user-coords, but their font sizes
+        // stay in absolute bp — Asymptote's pic.fit() scales geometry and label
+        // positions but does NOT scale the label fonts. Strip the labelTransform
+        // that transformDrawCmd accrues from the geo-scale.
+        const cmds = src.commands.map(c => {
+          const tc = transformDrawCmd(newT, c);
+          if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
+          return tc;
+        });
         for (const c of cmds) dest.commands.push(c);
         if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         return;
