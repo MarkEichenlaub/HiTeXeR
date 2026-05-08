@@ -18163,6 +18163,7 @@ function createInterpreter() {
     args._line = savedLine;
     let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     let graphicData = null;
+    let pathForDefaultAlign = null; // Store path for deferred default-align computation
     for (const a of args) {
       if (isGraphic(a) && !graphicData) {
         graphicData = a;
@@ -18187,6 +18188,9 @@ function createInterpreter() {
         if (segs.length > 0) {
           const midSeg = segs[Math.floor(segs.length/2)];
           pos = makePair((midSeg.p0.x+midSeg.p3.x)/2, (midSeg.p0.y+midSeg.p3.y)/2);
+          // Save the path's midSeg for deferred default-align computation.
+          // We defer because explicit align args may come later in the arg list.
+          pathForDefaultAlign = midSeg;
         }
       }
       else if (isTriple(a)) {
@@ -18216,6 +18220,19 @@ function createInterpreter() {
           if (isTriple(pv)) pos = projectTriple(pv);
           else if (isPair(pv)) pos = pv;
         }
+      }
+    }
+    // Deferred default-align for label-on-path: if a path was provided but no
+    // explicit align was given anywhere in the args, compute the perpendicular
+    // direction (right side of the path, looking in path direction).
+    if (!align && pathForDefaultAlign) {
+      const midSeg = pathForDefaultAlign;
+      const dx = midSeg.p3.x - midSeg.p0.x;
+      const dy = midSeg.p3.y - midSeg.p0.y;
+      const len = Math.sqrt(dx*dx + dy*dy);
+      if (len > 1e-9) {
+        // Right-perpendicular: rotate tangent CW by 90° → (dy, -dx) normalized
+        align = makePair(dy/len, -dx/len);
       }
     }
     if (!pos) pos = makePair(0,0);
