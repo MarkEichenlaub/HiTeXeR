@@ -22449,17 +22449,17 @@ function renderSVG(result, opts) {
                 dx = ax2 * (H2 / 2 + margin2);
                 dy = 0;
               } else {
-                // Asymptote drawlabel.cc: shift = transform * pair(Align.x*W, Align.y*H)
-                //                              + unit(align) * labelmargin
-                // Align is L-inf-normalised to magnitude 0.5. The text-box offset is
-                // computed in the LOCAL (unrotated) frame using (W, H), then rotated
-                // to world space. This way `label(rotate(theta)*Label("long text"), pos, N)`
-                // offsets perpendicular to the rotated baseline by H/2 — not by half the
-                // rotated AABB (which would push long rotated text far above the path).
+                // v4.51: For rotated labels, cap the W/H ratio used in the rotation
+                // formula. Long text (W >> H) rotated by 45° causes offWorldY to be
+                // strongly negative, pushing labels DOWN when they should go UP for
+                // NW alignment. Capping W reduces this effect. This improves diagram
+                // 06617 where rotated labels were positioned too close to the lines.
                 const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
                 const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
                 const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
-                const offLocalX = ax_n2 * W2;
+                // Cap W at 2×H for the rotation formula to prevent extreme Y offsets
+                const W2capped = Math.min(W2, H2 * 2);
+                const offLocalX = ax_n2 * W2capped;
                 const offLocalY = ay_n2 * H2;
                 const angleRad = angle * Math.PI / 180;
                 const cosT = Math.cos(angleRad);
