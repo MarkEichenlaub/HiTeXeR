@@ -20043,6 +20043,7 @@ function renderSVG(result, opts) {
   const bboxW = maxX - minX, bboxH = maxY - minY;
   let pxPerUnit, pxPerUnitX, pxPerUnitY;
   let unitsizeBoostScale = 1;
+  let _labelDominatesSize = false;  // set true when labels expand bbox ≥1.5× beyond geometry
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
@@ -20418,8 +20419,8 @@ function renderSVG(result, opts) {
     const _geoRefH = (geoMaxY - geoMinY) || 1;
     const _fullRefW = (maxX - minX) || 1;
     const _fullRefH = (maxY - minY) || 1;
-    const _labelDominatesSize = (_fullRefW / _geoRefW >= 1.5)
-                              || (_fullRefH / _geoRefH >= 1.5);
+    _labelDominatesSize = (_fullRefW / _geoRefW >= 1.5)
+                        || (_fullRefH / _geoRefH >= 1.5);
     const scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
     const scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
     pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
@@ -20475,9 +20476,25 @@ function renderSVG(result, opts) {
     // pxPerUnit=0.574 ⇒ natural=350bp ⇒ no boost needed.  Without this
     // gate the secondary floor forced it to 150bp and the diagram rendered
     // ~2.3× too small (251×62 px vs TeXeR's 1170×350).
-    else if (pxPerUnit > 0 && pxPerUnit < 7 &&
-             Math.max(scaleRefW, scaleRefH) > 5 &&
-             maxNatural < 150) {
+    //
+    // Skip when _labelDominatesSize is true AND the geometry is large enough
+    // to be visible at the label-dominated scale (≥15bp on BOTH axes). The
+    // low pxPerUnit is intentional to fit geometry+labels inside size(),
+    // and boosting would over-expand the output (e.g. 04484: E-aligned slope
+    // labels expand bbox 4× beyond geometry; size(125) should produce ~125bp
+    // output, not ~150bp boosted). If geometry would be too small (< 15bp on
+    // either axis), the secondary floor still applies to keep shapes visible.
+    const _geoWbp = _geoRefW * pxPerUnit;
+    const _geoHbp = _geoRefH * pxPerUnit;
+    const _geoVisibleAtLabelScale = Math.min(_geoWbp, _geoHbp) >= 15;
+    const _skipSecondaryFloor = _labelDominatesSize && _geoVisibleAtLabelScale;
+    if (typeof process !== 'undefined' && process.env && process.env.HTX_DEBUG_FLOOR) {
+      process.stderr.write(`floor-debug: geoWbp=${_geoWbp.toFixed(2)} geoHbp=${_geoHbp.toFixed(2)} geoVisible=${_geoVisibleAtLabelScale} labelDom=${_labelDominatesSize} skipFloor=${_skipSecondaryFloor} pxPerUnit=${pxPerUnit.toFixed(2)}\n`);
+    }
+    if (pxPerUnit > 0 && pxPerUnit < 7 &&
+        Math.max(scaleRefW, scaleRefH) > 5 &&
+        maxNatural < 150 &&
+        !_skipSecondaryFloor) {
       const boostTarget = 150;
       const boostScale = boostTarget / Math.max(scaleRefW, scaleRefH) / pxPerUnit;
       pxPerUnit *= boostScale;
@@ -20973,7 +20990,13 @@ function renderSVG(result, opts) {
       // scales pxPerUnit up so the labels clear. Detect vertical overlap
       // between labels that share x-range and boost pxPerUnit uniformly
       // (keepAspect) or Y-axis (ignoreAspect) to separate them.
-      if (labelInfoBp.length >= 2) {
+      //
+      // Skip for label-dominated diagrams: the user's size() constraint was
+      // computed to fit geometry+labels together, and the tight label spacing
+      // is intentional. Boosting to separate labels defeats the compact layout
+      // that label-dominated mode aims for (e.g. 04484: E-aligned slope labels
+      // at vertically-stacked anchor points render tightly in TeXeR).
+      if (labelInfoBp.length >= 2 && !_labelDominatesSize) {
         let needsBoost = 1;
         for (let i = 0; i < labelInfoBp.length; i++) {
           for (let j = i+1; j < labelInfoBp.length; j++) {
