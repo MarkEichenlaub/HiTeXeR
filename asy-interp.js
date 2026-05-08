@@ -24113,22 +24113,34 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, width: fracW});
       totalWidth += fracW;
     } else if (seg.type === 'sqrt') {
-      // Detect a top-level \frac as the sole child → stacked fraction under radical
+      // Detect a leading \frac as first child → stacked fraction under radical
+      // Also handle mixed content: \sqrt{\frac13 + x^2} → frac + trailing text
       const innerSegs = seg.innerSegs || [];
-      const onlyFrac = innerSegs.length === 1 && innerSegs[0].type === 'frac' ? innerSegs[0] : null;
+      const leadingFrac = innerSegs.length > 0 && innerSegs[0].type === 'frac' ? innerSegs[0] : null;
       const radicalW = fontSize * 0.55;
       const sqrtPad = fontSize * 0.25;
       const leadPad = fontSize * 0.15; // breathing room before the radical
       let innerW;
-      if (onlyFrac) {
+      if (leadingFrac) {
         const fs2 = fontSize * 0.75;
-        const numText = stripLaTeX(onlyFrac.num);
-        const denText = stripLaTeX(onlyFrac.den);
+        const numText = stripLaTeX(leadingFrac.num);
+        const denText = stripLaTeX(leadingFrac.den);
         const numW = _estimateTextWidth(numText, fs2);
         const denW = _estimateTextWidth(denText, fs2);
-        innerW = Math.max(numW, denW) + fs2 * 0.3;
+        const fracW = Math.max(numW, denW) + fs2 * 0.3;
+        // Compute trailing text (everything after the fraction)
+        let trailingText = '';
+        for (let i = 1; i < innerSegs.length; i++) {
+          if (innerSegs[i].type === 'text') trailingText += innerSegs[i].text;
+          else if (innerSegs[i].type === 'frac') trailingText += stripLaTeX(innerSegs[i].num) + '/' + stripLaTeX(innerSegs[i].den);
+          else trailingText += stripLaTeX(innerSegs[i].content || '');
+        }
+        // Add small gap between fraction and trailing text (since leading space gets trimmed)
+        const trailGap = trailingText ? fontSize * 0.15 : 0;
+        const trailW = trailingText ? _estimateTextWidth(trailingText, fontSize) : 0;
+        innerW = fracW + trailGap + trailW;
         const totalSqrtW = leadPad + radicalW + innerW + sqrtPad;
-        parts.push({type:'sqrt', isFrac: true, fracNumText: numText, fracDenText: denText, fracFs: fs2, innerW, radicalW, leadPad, width: totalSqrtW});
+        parts.push({type:'sqrt', isFrac: true, fracNumText: numText, fracDenText: denText, fracFs: fs2, fracW, trailingText, trailGap, trailW, innerW, radicalW, leadPad, width: totalSqrtW});
         totalWidth += totalSqrtW;
       } else {
         const innerText = stripLaTeX(seg.content);
@@ -24193,12 +24205,19 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       els.push(`<path d="M${fmt(radX0)},${fmt(y - fontSize*0.05)} L${fmt(radX1)},${fmt(botY)} L${fmt(radX2)},${fmt(overlineY)} L${fmt(overlineEnd)},${fmt(overlineY)}" fill="none" stroke="${fill}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
       if (isFrac) {
         const innerStartX = radX2;
-        const cx = innerStartX + p.innerW / 2;
+        const fracW = p.fracW || p.innerW;
+        const cx = innerStartX + fracW / 2;
         const fs2 = p.fracFs;
         // Numerator above fraction line — use 0.45 offset so text doesn't overlap bar
         els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracNumText)}</text>`);
-        els.push(`<line x1="${fmt(innerStartX + fontSize*0.05)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(innerStartX + p.innerW - fontSize*0.05)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
+        els.push(`<line x1="${fmt(innerStartX + fontSize*0.05)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(innerStartX + fracW - fontSize*0.05)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
         els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracDenText)}</text>`);
+        // Trailing text after the fraction (e.g., " + x^2" in \sqrt{\frac13 + x^2})
+        // Use mathTextWithScriptsSvg to handle superscripts/subscripts like ^2
+        if (p.trailingText) {
+          const trailX = innerStartX + fracW + (p.trailGap || 0);
+          els.push(`<text x="${fmt(trailX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central"${opAttr}>${mathTextWithScriptsSvg(p.trailingText, fontSize)}</text>`);
+        }
       } else {
         const textX = radX2;
         // Use mixed italic for variables, upright for digits/operators/parens.
@@ -24511,14 +24530,15 @@ function mathTextWithScriptsSvg(text, fontSize) {
   for (const p of parts) p.text = p.text.replace(/[{}]/g, '');
 
   // Build SVG content with tspan elements
+  // Use mathTextSvg for normal text to apply italic/upright styling for math variables
   let inner = '';
   for (const p of parts) {
     if (p.mode === 'sup') {
-      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else if (p.mode === 'sub') {
-      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else {
-      inner += escSvg(p.text);
+      inner += mathTextSvg(p.text);
     }
   }
   return inner;
