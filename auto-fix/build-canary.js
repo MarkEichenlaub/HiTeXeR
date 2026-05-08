@@ -1,12 +1,15 @@
 // auto-fix/build-canary.js
-// One-time: build auto-fix/canary.json from comparison/ssim-results.json.
-// Samples ~50 IDs stratified across collections and SSIM tiers.
+// Build auto-fix/canary.json by selecting ~50 representative IDs from
+// ssim-results.json (for stratification) then LIVE-RENDERING each one
+// with the current interpreter so baselines always match what
+// render-and-score.js --canary will measure.
 //
-// Output: { "<id>": <baselineSsim>, ... }
+// Output: { "<id>": <liveRenderedSsim>, ... }
 'use strict';
 
 const fs   = require('fs');
 const path = require('path');
+const cp   = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const SSIM_RESULTS_PATH = path.join(ROOT, 'comparison', 'ssim-results.json');
@@ -127,8 +130,35 @@ function main() {
     }
   }
 
+  // Live-render each selected ID so the baseline matches what the current
+  // interpreter actually produces.  Fall back to ssim-results.json score
+  // only if rendering fails for a given ID.
+  const selectedIds = [...picked.keys()].sort();
+  console.log('live-rendering ' + selectedIds.length + ' canary IDs...');
+  const renderResult = cp.spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'render-and-score.js'), '--ids', selectedIds.join(',')],
+    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10 * 60 * 1000 }
+  );
+  const liveScores = new Map();
+  for (const line of (renderResult.stdout || '').split('\n')) {
+    try {
+      const obj = JSON.parse(line);
+      if (obj && obj.id && typeof obj.ssim === 'number') liveScores.set(obj.id, obj.ssim);
+    } catch {}
+  }
+  if (liveScores.size === 0) {
+    console.error('WARNING: live render produced no scores (stderr: ' + (renderResult.stderr||'').slice(0,200) + ')');
+    console.error('Falling back to ssim-results.json scores — canary may not match live renders');
+  } else {
+    console.log('live scores obtained for ' + liveScores.size + '/' + selectedIds.length + ' IDs');
+  }
+
   const out = {};
-  for (const [id, ssim] of [...picked.entries()].sort((a,b)=>a[0].localeCompare(b[0]))) out[id] = ssim;
+  for (const id of selectedIds) {
+    // Prefer live-rendered score; fall back to ssim-results.json if render failed.
+    out[id] = liveScores.has(id) ? liveScores.get(id) : picked.get(id);
+  }
 
   fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2) + '\n');
 
