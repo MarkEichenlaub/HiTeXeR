@@ -23896,9 +23896,12 @@ function stripLaTeX(text) {
   // ^single and _single character
   s = s.replace(/\^(.)/g, (_, ch) => toSuper(ch));
   s = s.replace(/_(.)/g, (_, ch) => toSub(ch));
-  // Collapse multiple spaces and remove spaces adjacent to parentheses/brackets
+  // Collapse multiple spaces and remove spaces inside parentheses/brackets,
+  // but preserve spaces before '(' when preceded by a binary operator (+ - = etc.)
+  // so that expressions like "x² + (xs)²" keep their proper math spacing.
   s = s.replace(/\s+/g, ' ');
-  s = s.replace(/\s+\(/g, '(');
+  // Only collapse space before '(' when NOT preceded by a binary operator
+  s = s.replace(/([^+\-=<>≤≥≠≈≡∈∉⊂⊃∪∩∧∨⊕⊗·×÷±∓])\s+\(/g, '$1(');
   s = s.replace(/\(\s+/g, '(');
   s = s.replace(/\s+\)/g, ')');
   s = s.replace(/\[\s+/g, '[');
@@ -24096,7 +24099,9 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
         els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(fs2)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.fracDenText)}</text>`);
       } else {
         const textX = radX2;
-        els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.innerText)}</text>`);
+        // Use mixed italic for variables, upright for digits/operators/parens.
+        // mathTextSvg() splits the text and wraps letters in italic tspans.
+        els.push(`<text x="${fmt(textX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central"${opAttr}>${mathTextSvg(p.innerText)}</text>`);
       }
     } else if (p.type === 'bigop') {
       const cx = curX + p.width / 2;
@@ -24323,6 +24328,33 @@ function extractTexArg(s) {
 function fmt(n) { return Number(n.toFixed(4)); }
 function opacityAttr(o) { return (o !== undefined && o !== 1) ? ` opacity="${fmt(o)}"` : ''; }
 function escSvg(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Render math text with proper italic for letters, upright for digits/operators.
+// Returns SVG inner content (tspans) suitable for embedding in a <text> element.
+function mathTextSvg(text) {
+  if (!text) return '';
+  // Split into runs: letters (a-zA-Z and Greek) get italic, everything else upright
+  const letterRe = /[a-zA-Zα-ωΑ-Ω]+/g;
+  let result = '';
+  let lastIdx = 0;
+  let m;
+  while ((m = letterRe.exec(text)) !== null) {
+    // Upright portion before this letter run
+    if (m.index > lastIdx) {
+      const upright = text.slice(lastIdx, m.index);
+      result += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(upright)}</tspan>`;
+    }
+    // Italic letter run
+    result += `<tspan font-family="KaTeX_Math, serif" font-style="italic">${escSvg(m[0])}</tspan>`;
+    lastIdx = m.index + m[0].length;
+  }
+  // Remaining upright portion after last letter run
+  if (lastIdx < text.length) {
+    const upright = text.slice(lastIdx);
+    result += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(upright)}</tspan>`;
+  }
+  return result;
+}
 
 // ============================================================
 // AST Caching for Slide Mode Performance
