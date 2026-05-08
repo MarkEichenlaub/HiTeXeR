@@ -17479,16 +17479,10 @@ function createInterpreter() {
           }
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
         }
-        // Skip rendering mesh faces when the pen came from a material() call —
-        // Asymptote's 2D fallback mode for 3D content doesn't render surfaces
-        // specified with material() because there's no proper 3D shading pipeline.
-        // The material specification is meant for OpenGL/PRC rendering only.
-        // This matches TeXeR's observed behavior where unitcube with material()
-        // renders as invisible in the PNG output.
-        const skipMaterialFill = meshPen && meshPen._emissivePen;
-        if (!skipMaterialFill) {
-          renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
-        }
+        // Render mesh faces. material() calls attach _emissivePen but we still
+        // render using the diffuse color — TeXeR's 2D fallback mode does render
+        // surfaces specified with material() (e.g. unitcube with material(gray(0.5),...)).
+        renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
         // If a named meshpen=... arg was supplied (e.g. meshpen=black+thick()),
         // draw the surface's grid lines on top. This matches Asymptote's
         // draw(surface, surfacepen, meshpen=...) rendering where the mesh
