@@ -16862,6 +16862,10 @@ function createInterpreter() {
               camAz = Math.atan2(dy, dx);
               if (camAz < 0) camAz += 2*Math.PI;
             }
+            // Add 90° to get the perpendicular meridian (silhouette boundary)
+            // matching Asymptote's solids.asy skeleton output.
+            camAz += Math.PI / 2;
+            if (camAz >= 2 * Math.PI) camAz -= 2 * Math.PI;
             const jStep = (2 * Math.PI) / nLon;
             const jFront = ((Math.round(camAz / jStep) % nLon) + nLon) % nLon;
             const jBack = (jFront + Math.round(nLon / 2)) % nLon;
@@ -18430,8 +18434,11 @@ function createInterpreter() {
       sly = vy + sphereUpTilt*upy;
       slz = vz + sphereUpTilt*upz;
     } else {
-      // World-space default light
-      slx = 0.25; sly = -0.25; slz = 1;
+      // World-space default light. Asymptote's three.asy declares
+      // (0.25,-0.25,1) but TeXeR's PRC rasterizer appears to use a
+      // direction closer to (0.25,0.25,1) for surface highlights. Empirically
+      // tuned against 03360 to put the focal in the upper-right quadrant.
+      slx = 0.25; sly = 1.2; slz = 1;
       const lvDot = slx*vx + sly*vy + slz*vz;
       if (lvDot < 0) { slx = -slx; sly = -sly; slz = -slz; }
     }
