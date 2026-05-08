@@ -18251,7 +18251,9 @@ function createInterpreter() {
     }
     // If dot has a label, add it too
     else if (text && text.trim()) {
-      if (!align) align = makePair(1, 1);
+      // Asymptote's default alignment for dot(Label, pair) is E (east), not NE.
+      // This places the label directly to the right of the dot, not above-right.
+      if (!align) align = makePair(1, 0);
       target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0, _fromDot: true});
     }
   }
@@ -21301,7 +21303,9 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
         const _useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
-        const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        // Add 0.5 bp safety margin to ensure dots at viewBox edges aren't clipped
+        // due to floating-point rounding or the _autoScaledStrokeBoost applied at render time.
+        const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel + 0.5 * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         // Skip points far outside the viewport — their overshoot is invisible
