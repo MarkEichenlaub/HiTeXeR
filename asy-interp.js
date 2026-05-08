@@ -22478,13 +22478,23 @@ function renderSVG(result, opts) {
       let effectiveFontSize = fontSizeSVG;
       let effectiveFontSizeCSS = fontSizeCSS;
       let labelTransformAttr = '';
+      let labelHorizStretch = 1; // for xscale-like transforms
       if (dc.labelTransform) {
         const lt = dc.labelTransform;
-        // Extract scale from transform matrix: scale = sqrt(b^2 + e^2) (x-axis scale)
+        // Extract scales from transform matrix:
+        // scaleX = sqrt(b^2 + e^2), scaleY = sqrt(c^2 + f^2)
         const scaleX = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
-        if (scaleX > 0 && Math.abs(scaleX - 1) > 0.01) {
-          effectiveFontSize = fontSizeSVG * scaleX;
-          effectiveFontSizeCSS = fontSizeCSS * scaleX;
+        const scaleY = Math.sqrt(lt.c * lt.c + lt.f * lt.f);
+        // For non-uniform scaling (e.g. xscale(0.8)*"text"), we need to apply
+        // different scaling to horizontal vs vertical. Font-size changes vertical;
+        // CSS scaleX changes horizontal stretch relative to that.
+        if (scaleY > 0 && Math.abs(scaleY - 1) > 0.01) {
+          effectiveFontSize = fontSizeSVG * scaleY;
+          effectiveFontSizeCSS = fontSizeCSS * scaleY;
+        }
+        // Compute horizontal stretch ratio (relative to vertical scale applied via font-size)
+        if (scaleY > 0 && Math.abs(scaleX / scaleY - 1) > 0.01) {
+          labelHorizStretch = scaleX / scaleY;
         }
         // Extract rotation angle from transform matrix
         const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
@@ -22551,7 +22561,14 @@ function renderSVG(result, opts) {
           // screenDx/Dy are in bp; scale to viewBox units via bpCSSPixel.
           if (dc.screenDx) dx += dc.screenDx * bpCSSPixel;
           if (dc.screenDy) dy += dc.screenDy * bpCSSPixel;
-          labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(sx+dx)}, ${fmt(sy+dy)})"`;
+          // Include horizontal stretch if present (rotation + xscale combined)
+          const px = sx + dx, py = sy + dy;
+          if (Math.abs(labelHorizStretch - 1) > 0.01) {
+            // Rotation + horizontal stretch: scale then rotate around the label position
+            labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) rotate(${fmt(-angle)}) scale(${fmt(labelHorizStretch)}, 1) translate(${fmt(-px)}, ${fmt(-py)})"`;
+          } else {
+            labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(px)}, ${fmt(py)})"`;
+          }
           // With rotation, text-anchor must be 'middle' so the label is centered at the
           // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
           anchor = 'middle';
@@ -22563,6 +22580,12 @@ function renderSVG(result, opts) {
       if (!labelTransformAttr) {
         if (dc.screenDx) dx += dc.screenDx * bpCSSPixel;
         if (dc.screenDy) dy += dc.screenDy * bpCSSPixel;
+        // For non-uniform scaling (xscale/yscale), apply horizontal stretch via CSS transform
+        if (Math.abs(labelHorizStretch - 1) > 0.01) {
+          // Scale horizontally around the label position: translate to origin, scale, translate back
+          const px = sx + dx, py = sy + dy;
+          labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) scale(${fmt(labelHorizStretch)}, 1) translate(${fmt(-px)}, ${fmt(-py)})"`;
+        }
       }
 
       // Handle multi-line text (produced by minipage with \n line breaks)
