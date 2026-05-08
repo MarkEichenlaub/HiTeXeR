@@ -22267,6 +22267,30 @@ function renderSVG(result, opts) {
       let anchor = 'middle';
       let baseline = 'central';
       let _labelHEst = 0, _labelAyN = 0;
+
+      // Pre-compute label width (used for both alignment and UnFill background)
+      // This uses MathJax measurement when available, falling back to heuristic.
+      let _labelWidthMeasured = null;
+      {
+        const _rawForMeas = (dc.text || '');
+        const _rawLines = _rawForMeas.split('\n');
+        const _cleanLines = _rawLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
+        const _cleanLen = (_cleanLines.length > 0 ? Math.max(..._cleanLines.map(l => l.length)) : 1) || 1;
+        // Heuristic width estimate
+        _labelWidthMeasured = _cleanLen * fontSizeSVG * 0.52 + fontSizeSVG * 0.1;
+        // Try MathJax measurement if available (single-line only)
+        if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function'
+            && _rawForMeas.indexOf('\n') === -1) {
+          try {
+            const _m = _mjxMeasureBp(_rawForMeas, fontSizeSVG);
+            if (_m && _m.wBp > 0) {
+              // Add small padding to measured width (like Asymptote's label background)
+              _labelWidthMeasured = _m.wBp * bpCSSPixel + fontSizeSVG * 0.1;
+            }
+          } catch (e) { /* ignore — fall back to heuristic */ }
+        }
+      }
+
       if (dc.align) {
         // Asymptote algorithm (plain_Label.asy + drawlabel.cc):
         //   S = position + align * labelmargin          (small margin push)
@@ -22385,9 +22409,8 @@ function renderSVG(result, opts) {
           const h = Math.round(Math.max(0,Math.min(255,c*255))).toString(16);
           return h.length<2?'0'+h:h;
         }).join('');
-        // Estimate text dimensions for background (tight fit like Asymptote)
-        const cleanLen = stripLaTeX(rawText).length;
-        const estW = cleanLen * fontSizeSVG * 0.52 + fontSizeSVG * 0.1;
+        // Use pre-measured label width (MathJax or heuristic) for background
+        const estW = _labelWidthMeasured;
         const estH = fontSizeSVG * 1.0;
         let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
         // Adjust rectangle position based on anchor
@@ -22395,7 +22418,9 @@ function renderSVG(result, opts) {
         if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
         else if (anchor === 'end') rectX = rx - estW + fontSizeSVG * 0.05;
         const rectY = ry - estH / 2;
-        const pad = fontSizeSVG * 0.04;
+        // Padding for UnFill background - tighter than labelmargin but enough to
+        // cover the text cleanly. Asymptote's fill background is quite tight.
+        const pad = fontSizeSVG * 0.12;
         elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
 
