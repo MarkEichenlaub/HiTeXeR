@@ -22076,16 +22076,20 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= bpCSSPixel;
+    // Gridlines (extend=true tick marks, above:-1) should not get the
+    // explicit-size stroke boost — they already have a dedicated 1.4×
+    // boost below and combining both makes them too thick (03901).
+    const isGridline = dc._isTickMark && dc.above === -1;
     if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
       css.strokeWidth *= _autoScaledStrokeBoost;
-    } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+    } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet && !isGridline) {
       css.strokeWidth *= _explicitSizeStrokeBoost;
     }
     // Extend=true gridlines (above:-1 with _isTickMark) render visually
     // thinner via librsvg/sharp's SVG→PNG path than via Asymptote's
     // PDF→PNG pipeline. Bump stroke-width slightly so the gridlines have
     // similar visual weight to the texer reference rendering.
-    if (dc._isTickMark && dc.above === -1) {
+    if (isGridline) {
       css.strokeWidth *= 1.4;
     }
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
