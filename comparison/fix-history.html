@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fix History — HiTeXeR</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  background: #0f0f1a; color: #e2e8f0; font-family: 'Cascadia Code', 'Consolas', monospace;
+  margin: 0; padding: 0; font-size: 13px;
+}
+header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: #1a1a2e; border-bottom: 1px solid #2d2d4a;
+  position: sticky; top: 0; z-index: 10;
+}
+header h1 { margin: 0; font-size: 16px; font-weight: 600; color: #c4b5fd; flex: 1; }
+header a  { color: #94a3b8; text-decoration: none; font-size: 12px; }
+header a:hover { color: #e2e8f0; }
+button.refresh {
+  background: #2d2d4a; border: 1px solid #4a4a6a; color: #94a3b8;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+}
+button.refresh:hover { background: #3a3a5a; color: #e2e8f0; }
+
+#list { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+#empty { padding: 40px; text-align: center; color: #4a4a6a; }
+
+/* Card */
+.card {
+  background: #1a1a2e; border: 1px solid #2d2d4a; border-radius: 6px;
+  overflow: hidden;
+}
+.card-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: #16162a; border-bottom: 1px solid #2d2d4a;
+  flex-wrap: wrap;
+}
+.card-id { font-weight: 700; font-size: 14px; color: #a78bfa; min-width: 46px; }
+.card-ts { color: #4a5568; font-size: 11px; }
+.card-desc { color: #94a3b8; flex: 1; min-width: 80px; white-space: pre-wrap; word-break: break-word; }
+.badge {
+  padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600;
+  white-space: nowrap;
+}
+.badge-committed   { background: #14532d; color: #86efac; }
+.badge-accepted    { background: #0c4a6e; color: #7dd3fc; }
+.badge-canary      { background: #7f1d1d; color: #fca5a5; }
+.badge-rejected    { background: #7c2d12; color: #fdba74; }
+.badge-unfixable   { background: #1e293b; color: #64748b; }
+.badge-queued      { background: #1e3a5f; color: #93c5fd; }
+.badge-pending     { background: #2d2d0f; color: #fde68a; }
+.badge-other       { background: #1e293b; color: #64748b; }
+
+.card-body { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; }
+
+/* Image triplet */
+.img-trio { display: flex; gap: 6px; flex-shrink: 0; }
+.img-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  cursor: pointer;
+}
+.img-cell:hover .thumb-wrap { border-color: #6d28d9; }
+.thumb-label { font-size: 10px; color: #64748b; text-align: center; }
+.thumb-wrap {
+  width: 90px; height: 90px; border: 1px solid #2d2d4a; border-radius: 3px;
+  background: #fff; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; transition: border-color .15s;
+}
+.thumb-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.thumb-wrap.no-img {
+  background: #131320; color: #4a4a6a; font-size: 10px; text-align: center; padding: 4px;
+}
+
+/* Stats column */
+.card-stats { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.stat-row { display: flex; align-items: baseline; gap: 6px; }
+.stat-label { color: #64748b; font-size: 11px; min-width: 56px; }
+.stat-val   { color: #e2e8f0; font-size: 12px; }
+.ssim-arrow { color: #6d28d9; margin: 0 2px; }
+.ssim-up   { color: #4ade80; }
+.ssim-down { color: #f87171; }
+.commit-link { color: #818cf8; text-decoration: none; font-family: monospace; }
+.commit-link:hover { text-decoration: underline; }
+.notes-text {
+  color: #94a3b8; font-size: 11px; line-height: 1.4; max-height: 60px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-word; background: #0f0f1a;
+  border-radius: 3px; padding: 4px 6px;
+}
+
+/* Fix Again */
+.fix-again-btn {
+  margin-top: auto; background: #1e5f3a; border: 1px solid #22c55e; color: #86efac;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;
+  white-space: nowrap;
+}
+.fix-again-btn:hover { background: #166534; }
+.fix-again-btn:disabled { opacity: .5; cursor: default; }
+
+/* Modal */
+#modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 100;
+  display: none; align-items: center; justify-content: center; padding: 20px;
+}
+#modal.open { display: flex; }
+#modal-inner {
+  background: #1a1a2e; border: 1px solid #4a4a6a; border-radius: 8px;
+  max-width: 95vw; max-height: 95vh; overflow: auto; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+#modal-title { font-size: 14px; color: #c4b5fd; font-weight: 600; }
+#modal-images { display: flex; gap: 12px; flex-wrap: wrap; }
+.modal-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.modal-col-label { font-size: 11px; color: #64748b; }
+.modal-col img {
+  max-width: min(30vw, 400px); max-height: 70vh; object-fit: contain;
+  background: #fff; border: 1px solid #2d2d4a; border-radius: 3px;
+}
+.modal-col .no-img {
+  width: 200px; height: 150px; background: #131320; color: #4a4a6a;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+  border-radius: 3px; border: 1px solid #2d2d4a;
+}
+#modal-close {
+  align-self: flex-end; background: #2d2d4a; border: 1px solid #4a4a6a; color: #94a3b8;
+  padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit;
+}
+#modal-close:hover { color: #e2e8f0; }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="blink.html">← Blink</a>
+  <h1>Fix History</h1>
+  <button class="refresh" onclick="load()">↺ Refresh</button>
+</header>
+
+<div id="list"><div id="empty">Loading…</div></div>
+
+<div id="modal">
+  <div id="modal-inner">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span id="modal-title"></span>
+      <button id="modal-close" onclick="closeModal()">✕ Close</button>
+    </div>
+    <div id="modal-images"></div>
+  </div>
+</div>
+
+<script>
+const BASE = 'http://localhost:7842';
+
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtSsim(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return v.toFixed(3);
+}
+
+function statusInfo(item) {
+  const a = item.attempt;
+  if (!a) {
+    if (item.queued) return { label: 'Queued',   cls: 'badge-queued'   };
+    return             { label: 'Pending',  cls: 'badge-pending'  };
+  }
+  switch (a.verdict) {
+    case 'fix':                 return { label: 'Committed',    cls: 'badge-committed'  };
+    case 'ssim-artifact':       return { label: 'Accepted',     cls: 'badge-accepted'   };
+    case 'regressed-canary':    return { label: 'Canary fail',  cls: 'badge-canary'     };
+    case 'attempted-no-improve':return { label: 'Rejected',     cls: 'badge-rejected'   };
+    case 'unfixable-feature':   return { label: 'Unfixable',    cls: 'badge-unfixable'  };
+    case 'skip':                return { label: 'Skipped',      cls: 'badge-other'      };
+    case 'no-result':           return { label: 'No commit',    cls: 'badge-other'      };
+    default:                    return { label: a.verdict || 'Unknown', cls: 'badge-other' };
+  }
+}
+
+function shortNotes(notes) {
+  if (!notes) return '';
+  // Strip the ACCEPTED/CANARY-FAIL/VERIFIER-REJECT suffixes that the run-loop appends
+  return notes.replace(/\s*\|\s*(ACCEPTED|CANARY-FAIL|VERIFIER-REJECT)[^|]*/gi, '').trim();
+}
+
+function imgUrl(rel) { return BASE + '/' + rel; }
+
+function thumbCell(url, label, clickFn) {
+  const cell = document.createElement('div');
+  cell.className = 'img-cell';
+  cell.onclick = clickFn || null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'thumb-wrap';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'thumb-label';
+  lbl.textContent = label;
+
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.onerror = () => { wrap.classList.add('no-img'); wrap.innerHTML = 'no image'; };
+    wrap.appendChild(img);
+  } else {
+    wrap.classList.add('no-img');
+    wrap.textContent = 'none';
+  }
+
+  cell.appendChild(wrap);
+  cell.appendChild(lbl);
+  return cell;
+}
+
+function openModal(item) {
+  const a = item.attempt;
+  document.getElementById('modal-title').textContent =
+    '#' + item.id + (item.description ? ' — ' + item.description : '');
+
+  const refUrl    = imgUrl('comparison/texer_pngs/' + item.id.padStart(5,'0') + '.png');
+  const beforeUrl = item.hasBeforeSnapshot
+    ? imgUrl('auto-fix/fix-snapshots/' + item.enqueueId + '-before.png') : null;
+  const afterUrl  = imgUrl('comparison/htx_pngs/' + item.id.padStart(5,'0') + '.png');
+
+  const cols = [
+    { url: refUrl,    label: 'TeXeR reference' },
+    { url: beforeUrl, label: 'HiTeXeR before'  },
+    { url: afterUrl,  label: 'HiTeXeR after (current)' },
+  ];
+
+  const container = document.getElementById('modal-images');
+  container.innerHTML = '';
+  cols.forEach(({ url, label }) => {
+    const col = document.createElement('div');
+    col.className = 'modal-col';
+    const lbl = document.createElement('div');
+    lbl.className = 'modal-col-label';
+    lbl.textContent = label;
+    col.appendChild(lbl);
+    if (url) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.onerror = () => { img.replaceWith(Object.assign(document.createElement('div'), { className:'no-img', textContent:'no image' })); };
+      col.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'no-img';
+      ph.textContent = 'not captured';
+      col.appendChild(ph);
+    }
+    container.appendChild(col);
+  });
+
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal')) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function buildCard(item) {
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const a = item.attempt;
+  const { label, cls } = statusInfo(item);
+  const idStr = item.id.padStart(5, '0');
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.className = 'card-header';
+  hdr.innerHTML =
+    `<span class="card-id">#${idStr}</span>` +
+    `<span class="card-ts">${fmtDate(item.enqueuedAt)}</span>` +
+    `<span class="badge ${cls}">${label}</span>` +
+    `<span class="card-desc">${item.description ? escHtml(item.description) : '<i style="color:#4a5568">no description</i>'}</span>`;
+  card.appendChild(hdr);
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'card-body';
+
+  // Image trio
+  const trio = document.createElement('div');
+  trio.className = 'img-trio';
+  const openFn = () => openModal(item);
+
+  const refUrl    = imgUrl('comparison/texer_pngs/' + idStr + '.png');
+  const beforeUrl = item.hasBeforeSnapshot
+    ? imgUrl('auto-fix/fix-snapshots/' + item.enqueueId + '-before.png') : null;
+  const afterUrl  = imgUrl('comparison/htx_pngs/' + idStr + '.png');
+
+  trio.appendChild(thumbCell(refUrl,    'TeXeR ref',    openFn));
+  trio.appendChild(thumbCell(beforeUrl, 'HTX before',   openFn));
+  trio.appendChild(thumbCell(afterUrl,  'HTX after',    openFn));
+  body.appendChild(trio);
+
+  // Stats
+  const stats = document.createElement('div');
+  stats.className = 'card-stats';
+
+  if (a) {
+    // SSIM row
+    const pre  = fmtSsim(a.preSsim);
+    const post = fmtSsim(a.postSsim);
+    const delta = (a.postSsim != null && a.preSsim != null) ? a.postSsim - a.preSsim : null;
+    const deltaStr = delta != null
+      ? `<span class="${delta >= 0 ? 'ssim-up' : 'ssim-down'}">${delta >= 0 ? '+' : ''}${delta.toFixed(3)}</span>`
+      : '';
+    stats.innerHTML += `<div class="stat-row">
+      <span class="stat-label">SSIM</span>
+      <span class="stat-val">${pre} <span class="ssim-arrow">→</span> ${post} ${deltaStr}</span>
+    </div>`;
+
+    // Canary
+    if (a.canaryWorst != null) {
+      const cw = a.canaryWorst.toFixed(4);
+      const cwCls = a.canaryWorst < -0.03 ? 'ssim-down' : (a.canaryWorst < 0 ? '' : 'ssim-up');
+      stats.innerHTML += `<div class="stat-row">
+        <span class="stat-label">canary Δ</span>
+        <span class="stat-val ${cwCls}">${a.canaryWorst >= 0 ? '+' : ''}${cw}</span>
+      </div>`;
+    }
+
+    // Commit
+    if (a.commit) {
+      stats.innerHTML += `<div class="stat-row">
+        <span class="stat-label">commit</span>
+        <span class="stat-val"><span class="commit-link">${escHtml(a.commit)}</span></span>
+      </div>`;
+    }
+
+    // Notes (cleaned)
+    const notes = shortNotes(a.notes);
+    if (notes) {
+      const nd = document.createElement('div');
+      nd.className = 'notes-text';
+      nd.textContent = notes;
+      stats.appendChild(nd);
+    }
+  } else {
+    const ph = document.createElement('div');
+    ph.style.cssText = 'color:#4a5568;font-size:12px;margin-top:4px';
+    ph.textContent = item.queued ? 'Waiting in queue…' : 'Processing or run-loop stopped.';
+    stats.appendChild(ph);
+  }
+
+  // Fix Again button
+  const btn = document.createElement('button');
+  btn.className = 'fix-again-btn';
+  btn.textContent = '↺ Fix Again';
+  btn.onclick = () => fixAgain(item, btn);
+  stats.appendChild(btn);
+
+  body.appendChild(stats);
+  card.appendChild(body);
+  return card;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function fixAgain(item, btn) {
+  const desc = prompt('Describe what to fix (optional):', item.description || '');
+  if (desc === null) return;
+  btn.disabled = true;
+  btn.textContent = 'Queuing…';
+  try {
+    const r = await fetch(BASE + '/enqueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id, description: desc }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      btn.textContent = 'Queued ✓';
+      btn.style.background = '#166534';
+      setTimeout(() => load(), 1500);
+    } else {
+      btn.textContent = 'Error';
+      btn.disabled = false;
+    }
+  } catch {
+    btn.textContent = 'Server offline';
+    btn.disabled = false;
+  }
+}
+
+async function load() {
+  document.getElementById('empty').textContent = 'Loading…';
+  document.getElementById('list').innerHTML = '<div id="empty">Loading…</div>';
+  try {
+    const r = await fetch(BASE + '/fix-history');
+    const items = await r.json();
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    if (!items.length) {
+      list.innerHTML = '<div id="empty">No fix history yet. Use the Fix button in the blink comparator.</div>';
+      return;
+    }
+    items.forEach(item => list.appendChild(buildCard(item)));
+  } catch (e) {
+    document.getElementById('list').innerHTML =
+      `<div id="empty">Could not reach fix-server at ${BASE}.<br>Start it with: <code>node fix-server.js</code></div>`;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

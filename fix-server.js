@@ -17,7 +17,9 @@ const path = require('path');
 
 const PORT = 7842;
 const ROOT = path.resolve(__dirname);
-const RUN_LOOP_PID_FILE = path.join(ROOT, 'auto-fix', '.run-loop-pid');
+const RUN_LOOP_PID_FILE    = path.join(ROOT, 'auto-fix', '.run-loop-pid');
+const ENQUEUE_HISTORY_PATH = path.join(ROOT, 'auto-fix', 'enqueue-history.jsonl');
+const FIX_SNAPSHOTS_DIR    = path.join(ROOT, 'auto-fix', 'fix-snapshots');
 
 // Returns true if a run-loop process is currently live.
 function isRunLoopRunning() {
@@ -274,8 +276,21 @@ const server = http.createServer((req, res) => {
         }
         // Replace any existing entry for this id so re-queuing updates the description
         queue = queue.filter(item => item.id !== id);
-        queue.push({ id, description: description || '', addedAt: new Date().toISOString() });
+        const enqueuedAt = new Date().toISOString();
+        const enqueueId  = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        queue.push({ id, description: description || '', addedAt: enqueuedAt });
         fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+
+        // Persist history entry so fix-history.html can show it later.
+        const historyEntry = { enqueueId, id, description: description || '', enqueuedAt };
+        fs.appendFileSync(ENQUEUE_HISTORY_PATH, JSON.stringify(historyEntry) + '\n');
+
+        // Snapshot the current HiTeXeR render as a "before" image.
+        const srcPng = path.join(ROOT, 'comparison', 'htx_pngs', id.padStart(5, '0') + '.png');
+        const dstPng = path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png');
+        if (fs.existsSync(srcPng)) {
+          try { fs.copyFileSync(srcPng, dstPng); } catch {}
+        }
 
         console.log(`[fix-server] Enqueued diagram ${id} (queue length: ${queue.length})`);
 
@@ -383,6 +398,57 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ── Fix history ───────────────────────────────────────
+  if (req.method === 'GET' && req.url === '/fix-history') {
+    try {
+      // Read enqueue history
+      const enqueueLines = fs.existsSync(ENQUEUE_HISTORY_PATH)
+        ? fs.readFileSync(ENQUEUE_HISTORY_PATH, 'utf8').trim().split('\n').filter(Boolean)
+        : [];
+      const enqueues = enqueueLines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+
+      // Read all attempts, group by id
+      const ATTEMPTS_PATH = path.join(ROOT, 'auto-fix', 'attempts.jsonl');
+      const attemptLines = fs.existsSync(ATTEMPTS_PATH)
+        ? fs.readFileSync(ATTEMPTS_PATH, 'utf8').trim().split('\n').filter(Boolean)
+        : [];
+      const allAttempts = attemptLines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+
+      // Read current queue to flag pending items
+      const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+      let currentQueue = [];
+      try { currentQueue = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch {}
+      const queuedIds = new Set((currentQueue || []).map(q => q.id));
+
+      // For each enqueue, find the earliest attempt with same id after enqueuedAt
+      const items = enqueues.map(eq => {
+        const matching = allAttempts
+          .filter(a => a.id === eq.id && a.ts >= eq.enqueuedAt)
+          .sort((a, b) => a.ts < b.ts ? -1 : 1);
+        // Use the last of the matching attempts (final verdict after retries)
+        const attempt = matching.length ? matching[matching.length - 1] : null;
+        const hasBeforeSnapshot = fs.existsSync(path.join(FIX_SNAPSHOTS_DIR, eq.enqueueId + '-before.png'));
+        return {
+          enqueueId: eq.enqueueId,
+          id: eq.id,
+          description: eq.description,
+          enqueuedAt: eq.enqueuedAt,
+          hasBeforeSnapshot,
+          queued: queuedIds.has(eq.id),
+          attempt,
+        };
+      }).reverse(); // newest first
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(items));
+    } catch (e) {
+      console.error('[fix-server] fix-history error:', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // ── Static file serving ───────────────────────────────
   if (req.method === 'GET') {
     let urlPath = decodeURIComponent(req.url.split('?')[0]);
@@ -419,6 +485,8 @@ const server = http.createServer((req, res) => {
 
 process.on('uncaughtException', err => { console.error('[fix-server] Uncaught exception:', err.message); });
 process.on('unhandledRejection', (reason) => { console.error('[fix-server] Unhandled rejection:', reason); });
+
+fs.mkdirSync(FIX_SNAPSHOTS_DIR, { recursive: true });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`fix-server listening on http://localhost:${PORT}`);
