@@ -19611,6 +19611,15 @@ function renderSVG(result, opts) {
           }
           if (glyphWidthBp > textWidthBpBase) textWidthBpBase = glyphWidthBp;
         }
+        // Also apply the 0.52 renderer-width floor to textWidthBpBase (not just lWidthBp
+        // below). The renderer computes W = cleanLen * fontSizeSVG * 0.52, so for
+        // axis labels with text-anchor='end', the left edge extends (cleanLen*0.52*fontSize)
+        // past the anchor. Without this floor, bbox under-estimates the width and the
+        // label's left edge gets clipped (e.g. diagram 04155 y-axis "Speed" label).
+        if (!hasFrac) {
+          const _renderWidthBpFloor = _effLenBB * fontSize * 0.52;
+          if (_renderWidthBpFloor > textWidthBpBase) textWidthBpBase = _renderWidthBpFloor;
+        }
         let textWidthUser = textWidthBpBase / roughPxPerUnitX;
         // Height estimate: for size()-constrained, use fuller capRatio; for auto-scaled, fuller height
         const heightFactor = autoScaled ? 0.7 : 0.65;
@@ -21311,8 +21320,34 @@ function renderSVG(result, opts) {
 
       // Text bounding box in viewBox coords (text-anchor="middle")
       const cx = sx + dx, cy = sy + dy;
-      const left = cx - effW / 2;
-      const right = cx + effW / 2;
+      let left = cx - effW / 2;
+      let right = cx + effW / 2;
+
+      // For axis labels with strong horizontal alignment (ax=±1), the renderer
+      // uses text-anchor='end'/'start' instead of 'middle', and dx = ax*margin
+      // (not ax_n*W + ax*margin). Recalculate left/right to match the actual
+      // rendering. The right edge (for W/ax=-1) is at sx + ax*margin, and left
+      // edge is at sx + ax*margin - effW. This fixes viewBox clipping for
+      // y-axis labels like "Speed" in diagram 04155.
+      if (dc._isAxisLabel && dc.align && Math.abs(dc.align.x) > 0.99 && !dc.labelTransform) {
+        const ax = dc.align.x;
+        const _lwBb = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+        const margin = 0.28 * fontSizeSVG + 0.5 * _lwBb * bpCSSPixel;
+        // Use renderer's W calculation (cleanLen * 0.52, not the measured/adjusted effW)
+        // to ensure we pad for the worst-case width. Add a 10% safety margin to account
+        // for font rendering differences (KaTeX's serif fonts are wider than heuristic).
+        const _wForAnchor = _effLenVB * fontSizeSVG * 0.52;
+        const wForPad = Math.max(effW, _wForAnchor) * 1.1;
+        if (ax < 0) {
+          // text-anchor='end': right edge at sx - margin, left at sx - margin - W
+          right = sx - margin;
+          left = sx - margin - wForPad;
+        } else {
+          // text-anchor='start': left edge at sx + margin, right at sx + margin + W
+          left = sx + margin;
+          right = sx + margin + wForPad;
+        }
+      }
       const top = cy - effH / 2;
       const bottom = cy + effH / 2;
 
