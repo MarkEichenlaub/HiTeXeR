@@ -37,6 +37,7 @@ const CANARY_PATH    = path.join(__dirname, 'canary.json');
 const PID_FILE       = path.join(__dirname, '.run-loop-pid');
 const STATUS_FILE    = path.join(__dirname, '.status.json');
 const FIX_SNAPSHOTS_DIR = path.join(__dirname, 'fix-snapshots');
+const RECOVERY_FILE    = path.join(__dirname, '.queue-recovery.json');
 
 const ALLOWED_FILES = new Set([
   'asy-interp.js',
@@ -48,6 +49,7 @@ const ALLOWED_FILES = new Set([
 const WRITE_OK_UNCOMMITTED = new Set([
   'auto-fix/attempts.jsonl',
   'auto-fix/queue.json',
+  'auto-fix/.queue-recovery.json',
   'auto-fix/skiplist.json',
   'auto-fix/telemetry.jsonl',
 ]);
@@ -164,13 +166,20 @@ function runFullPipeline() {
 
 function dequeueNext() {
   // Pop the first item from queue.json and return it, or null if empty.
+  // Writes a recovery file first so the item can be restored if the process
+  // is killed before the iteration completes; caller must call clearRecovery().
   let queue;
   try { queue = JSON.parse(fs.readFileSync(QUEUE_PATH, 'utf8')); }
   catch { return null; }
   if (!Array.isArray(queue) || queue.length === 0) return null;
   const item = queue.shift();
+  fs.writeFileSync(RECOVERY_FILE, JSON.stringify(item, null, 2));
   fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue, null, 2));
   return item;  // { id, description, addedAt }
+}
+
+function clearRecovery() {
+  try { fs.unlinkSync(RECOVERY_FILE); } catch {}
 }
 
 function priorAttemptsFor(id) {
@@ -921,6 +930,28 @@ async function main() {
   process.on('SIGINT',  () => { removePid(); removeStatus(); process.exit(130); });
   process.on('SIGTERM', () => { removePid(); removeStatus(); process.exit(143); });
 
+  // On startup, check for a recovery file left by a previous run that was
+  // killed mid-iteration. If found, prepend the item back to queue.json so it
+  // gets retried, then delete the recovery file.
+  if (fs.existsSync(RECOVERY_FILE)) {
+    try {
+      const recovered = JSON.parse(fs.readFileSync(RECOVERY_FILE, 'utf8'));
+      let queue = [];
+      try { queue = JSON.parse(fs.readFileSync(QUEUE_PATH, 'utf8')); } catch {}
+      if (!Array.isArray(queue)) queue = [];
+      // Only prepend if not already at the front (idempotent re-prepend guard).
+      if (queue.length === 0 || queue[0].id !== recovered.id) {
+        queue.unshift(recovered);
+        fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue, null, 2));
+        console.log('[run-loop] recovered interrupted item ' + recovered.id + ' → prepended to queue');
+      }
+      clearRecovery();
+    } catch (e) {
+      console.error('[run-loop] recovery file read failed (ignoring):', e.message);
+      clearRecovery();
+    }
+  }
+
   // Record how many telemetry lines existed before this session starts so the
   // post-run summary can slice exactly the entries we wrote (multi-round
   // iterations write one line per Opus round, not one per iteration).
@@ -930,9 +961,12 @@ async function main() {
 
   for (let i = 1; i <= args.max; i++) {
     let outcome;
-    try { outcome = await runIteration(args, i); }
-    catch (e) {
+    try {
+      outcome = await runIteration(args, i);
+      clearRecovery();  // iteration completed; item no longer needs recovery
+    } catch (e) {
       console.error('[run-loop] iteration error:', e && e.stack || e);
+      // Recovery file intentionally kept so the item is re-queued on restart.
       fail++;
       if (args.stopOnFail) break;
       continue;
