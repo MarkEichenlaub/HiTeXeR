@@ -22388,11 +22388,13 @@ function renderSVG(result, opts) {
         // the south edge land where the caller's anchor logic expects.
         // For S-aligned plain-text labels (like "ball 1" in 01128), use factor 1.38
         // to match TeXeR's label box height. For math labels and other alignments,
-        // use 1.0 to avoid over-pushing.
+        // use 1.0 to avoid over-pushing. Single-character labels like "A" or "B"
+        // (08875) don't need the 1.38 factor — require at least 3 chars.
         const _hasFrac = /\\frac\b/.test(dc.text || '');
         const _isSouthAligned = ay < -0.5;
-        const _isPlainText = !(/[\$\\]/.test(dc.text || ''));
-        const _hFactor = _hasFrac ? 1.45 : ((_isSouthAligned && _isPlainText) ? 1.38 : 1.0);
+        const _labelText = (dc.text || '').trim();
+        const _isMultiCharPlainText = !(/[\$\\]/.test(_labelText)) && _labelText.length >= 3;
+        const _hFactor = _hasFrac ? 1.45 : ((_isSouthAligned && _isMultiCharPlainText) ? 1.38 : 1.0);
         const H = fontSizeSVG * numLines * _hFactor;
         // Asymptote's labelmargin(p) = 0.28*fontsize(p) + 0.5*linewidth(p)
         // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
