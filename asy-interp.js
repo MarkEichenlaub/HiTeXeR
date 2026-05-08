@@ -21875,11 +21875,17 @@ function renderSVG(result, opts) {
         } else {
           imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
         }
+        // Apply sub-picture clipping to images (e.g. 08929 camera-box clip)
+        const imgClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
+        let finalImgEl;
         if (transformAttr) {
-          elements.push(`<g${transformAttr}>${imgEl}</g>`);
+          finalImgEl = `<g${transformAttr}${imgClip}>${imgEl}</g>`;
+        } else if (imgClip) {
+          finalImgEl = `<g${imgClip}>${imgEl}</g>`;
         } else {
-          elements.push(imgEl);
+          finalImgEl = imgEl;
         }
+        elements.push(_wrapMultiClip(dc, finalImgEl));
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       }
     } else if (dc.cmd === 'dot') {
