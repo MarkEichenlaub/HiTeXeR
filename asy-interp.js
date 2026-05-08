@@ -22982,9 +22982,57 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     arrowParts.push(arrowAt(segs[segs.length-1], true));
     arrowParts.push(arrowAt(segs[0], false));
   } else if (style === 'MidArrow') {
-    // Arrow at midpoint
-    const midIdx = Math.floor(segs.length / 2);
-    if (midIdx < segs.length) arrowParts.push(arrowAt(segs[midIdx], true));
+    // Arrow at true midpoint of path length
+    // Compute approximate arc length for each segment using chord length
+    const segLengths = segs.map(s => {
+      const dx = (s.p3.x - s.p0.x) * scaleX, dy = (s.p3.y - s.p0.y) * scaleY;
+      return Math.sqrt(dx*dx + dy*dy);
+    });
+    const pathLen = segLengths.reduce((a, b) => a + b, 0);
+    const halfLen = pathLen / 2;
+
+    // Find which segment contains the midpoint
+    let accum = 0;
+    let midSegIdx = 0;
+    let tInSeg = 0.5;
+    for (let i = 0; i < segs.length; i++) {
+      if (accum + segLengths[i] >= halfLen) {
+        midSegIdx = i;
+        // t parameter within this segment (linear approximation)
+        tInSeg = segLengths[i] > 1e-12 ? (halfLen - accum) / segLengths[i] : 0.5;
+        break;
+      }
+      accum += segLengths[i];
+    }
+
+    // Evaluate Bézier at parameter t to get midpoint position and tangent
+    const seg = segs[midSegIdx];
+    const t = tInSeg;
+    const t2 = t * t, t3 = t2 * t;
+    const mt = 1 - t, mt2 = mt * mt, mt3 = mt2 * mt;
+
+    // Bézier position: B(t) = (1-t)³P0 + 3(1-t)²tP1 + 3(1-t)t²P2 + t³P3
+    const midX = mt3 * seg.p0.x + 3 * mt2 * t * seg.cp1.x + 3 * mt * t2 * seg.cp2.x + t3 * seg.p3.x;
+    const midY = mt3 * seg.p0.y + 3 * mt2 * t * seg.cp1.y + 3 * mt * t2 * seg.cp2.y + t3 * seg.p3.y;
+
+    // Bézier tangent: B'(t) = 3(1-t)²(P1-P0) + 6(1-t)t(P2-P1) + 3t²(P3-P2)
+    const tanX = 3 * mt2 * (seg.cp1.x - seg.p0.x) + 6 * mt * t * (seg.cp2.x - seg.cp1.x) + 3 * t2 * (seg.p3.x - seg.cp2.x);
+    const tanY = 3 * mt2 * (seg.cp1.y - seg.p0.y) + 6 * mt * t * (seg.cp2.y - seg.cp1.y) + 3 * t2 * (seg.p3.y - seg.cp2.y);
+
+    // Convert to screen coordinates
+    const tipX = (midX - minX) * scaleX, tipY = (maxY - midY) * scaleY;
+    const tangentAngle = Math.atan2(tanY * scaleY, tanX * scaleX);
+    const screenAngle = -tangentAngle; // flip Y for screen coords
+    const s = arrowLen;
+
+    // Draw filled arrow head at midpoint (same as regular Arrow style)
+    const angle = 25 * Math.PI / 180;
+    const lx = tipX - s * Math.cos(screenAngle - angle);
+    const ly = tipY - s * Math.sin(screenAngle - angle);
+    const rx = tipX - s * Math.cos(screenAngle + angle);
+    const ry = tipY - s * Math.sin(screenAngle + angle);
+    const d = `M${fmt(tipX)} ${fmt(tipY)} L${fmt(lx)} ${fmt(ly)} L${fmt(rx)} ${fmt(ry)} Z`;
+    arrowParts.push({d, filled: true});
   } else if (style === 'Bar' || style === 'Bars') {
     // Bars are perpendicular marks, simplified as short lines
     return null;
