@@ -23798,6 +23798,88 @@ function expandMinipageText(text, pen) {
   );
 }
 
+// Like stripLaTeX but preserves ^{...} and _{...} syntax for later tspan rendering.
+// Used by renderLaTeXSVG's text segments so superscripts/subscripts can be rendered
+// properly with dy offsets instead of Unicode characters.
+function stripLaTeXPreserveScripts(text) {
+  if (!text) return '';
+  let s = text;
+  s = s.replace(/\$/g, '');
+  // Handle \frac{a}{b} → a/b (for nested fracs that weren't parsed as top-level)
+  s = s.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '$1/$2');
+  for (let _i = 0; _i < 4; _i++) {
+    const before = s;
+    s = s.replace(/\\frac\s*(\{[^}]*\}|\\[a-zA-Z]+|.)\s*(\{[^}]*\}|\\[a-zA-Z]+|.)/g, (_m, a, b) => {
+      const ua = a.startsWith('{') ? a.slice(1, -1) : a;
+      const ub = b.startsWith('{') ? b.slice(1, -1) : b;
+      return ua + '/' + ub;
+    });
+    if (s === before) break;
+  }
+  s = s.replace(/\\(?:underbrace|overbrace)\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
+  s = s.replace(/\\vspace\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
+  // Common LaTeX commands → Unicode
+  const texMap = {
+    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+    '\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ',
+    '\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π',
+    '\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ',
+    '\\chi':'χ','\\psi':'ψ','\\omega':'ω',
+    '\\Gamma':'Γ','\\Delta':'Δ','\\Theta':'Θ','\\Lambda':'Λ','\\Xi':'Ξ',
+    '\\Pi':'Π','\\Sigma':'Σ','\\Phi':'Φ','\\Psi':'Ψ','\\Omega':'Ω',
+    '\\infty':'∞','\\pm':'±','\\mp':'∓','\\times':'×','\\div':'÷',
+    '\\cdot':'·','\\cdots':'⋯','\\ldots':'…','\\vdots':'⋮','\\ddots':'⋱','\\dots':'⋯',
+    '\\le':'≤','\\leq':'≤','\\ge':'≥','\\geq':'≥',
+    '\\neq':'≠','\\approx':'≈','\\equiv':'≡',
+    '\\in':'∈','\\notin':'∉','\\subset':'⊂','\\supset':'⊃',
+    '\\cup':'∪','\\cap':'∩','\\forall':'∀','\\exists':'∃','\\neg':'¬',
+    '\\wedge':'∧','\\vee':'∨','\\oplus':'⊕','\\otimes':'⊗',
+    '\\rightarrow':'\u2192','\\leftarrow':'\u2190','\\Rightarrow':'\u21D2','\\Leftarrow':'\u21D0',
+    '\\leftrightarrow':'\u2194','\\triangle':'\u25B3','\\angle':'\u2220','\\perp':'\u22A5',
+    '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
+    '\\ell':'ℓ','\\prime':'′',
+    '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\left':'','\\right':'',
+    '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
+  };
+  const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
+  for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
+  s = s.replace(/\\[ ~;,:!]/g, ' ');
+  // Handle \quad and \qquad spacing - use U+2003 (em space) which isn't matched by \s
+  // \quad = 1em, \qquad = 2em; using multiple em-spaces for proper width
+  s = s.replace(/\\qquad\b/g, '\u2003\u2003\u2003\u2003');
+  s = s.replace(/\\quad\b/g, '\u2003\u2003');
+  s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\color\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\rm\b/g, '');
+  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\vec\s*\{([^}]*)\}/g, '$1\u20D7');
+  s = s.replace(/\\hat\s*\{([^}]*)\}/g, '$1\u0302');
+  s = s.replace(/\\bar\s*\{([^}]*)\}/g, '$1\u0304');
+  s = s.replace(/\\tilde\s*\{([^}]*)\}/g, '$1\u0303');
+  s = s.replace(/\\dot\s*\{([^}]*)\}/g, '$1\u0307');
+  s = s.replace(/\\ddot\s*\{([^}]*)\}/g, '$1\u0308');
+  s = s.replace(/\\overline\s*\{([^}]*)\}/g, '$1\u0305');
+  s = s.replace(/\\underline\s*\{([^}]*)\}/g, '$1\u0332');
+  s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
+  // Remove remaining \command sequences (but NOT ^ or _)
+  s = s.replace(/\\[a-zA-Z]+/g, '');
+  // Remove braces that are NOT part of ^{...} or _{...}
+  // This is tricky - we'll just remove isolated braces
+  s = s.replace(/(?<![_^])\{|\}(?![_^])/g, match => {
+    // Remove } always, remove { only if not preceded by ^ or _
+    return match === '}' ? '' : '';
+  });
+  // Simpler: just remove {} pairs that aren't script-related
+  // Actually let's keep braces and let mathTextWithScriptsSvg handle them
+  // Collapse regular whitespace but preserve em-spaces (U+2003) used for \quad
+  s = s.replace(/[ \t\n\r\f\v]+/g, ' ');
+  return s.trim();
+}
+
 function stripLaTeX(text) {
   if (!text) return '';
   let s = text;
@@ -23888,9 +23970,8 @@ function stripLaTeX(text) {
   s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \command sequences
   s = s.replace(/\\[a-zA-Z]+/g, '');
-  // Remove braces
-  s = s.replace(/[{}]/g, '');
-  // Convert ^{...} and _{...} to Unicode superscripts/subscripts
+  // Convert ^{...} and _{...} to Unicode superscripts/subscripts BEFORE removing braces
+  // (so the braced group pattern matches correctly)
   const superMap = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹',
     '+':'⁺','-':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ','a':'ᵃ','b':'ᵇ','c':'ᶜ','d':'ᵈ',
     'e':'ᵉ','f':'ᶠ','g':'ᵍ','h':'ʰ','j':'ʲ','k':'ᵏ','l':'ˡ','m':'ᵐ','o':'ᵒ','p':'ᵖ',
@@ -23907,6 +23988,8 @@ function stripLaTeX(text) {
   // ^single and _single character
   s = s.replace(/\^(.)/g, (_, ch) => toSuper(ch));
   s = s.replace(/_(.)/g, (_, ch) => toSub(ch));
+  // Remove braces (after script conversion so ^{...} patterns were matched)
+  s = s.replace(/[{}]/g, '');
   // Collapse multiple spaces and remove spaces inside parentheses/brackets,
   // but preserve spaces before '(' when preceded by a binary operator (+ - = etc.)
   // so that expressions like "x² + (xs)²" keep their proper math spacing.
@@ -23981,8 +24064,10 @@ function _estimateTextWidth(text, fontSize) {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const code = ch.charCodeAt(0);
+    // Em space (U+2003) - used for \quad spacing, should be 1em wide
+    if (code === 0x2003) w += 1.0;
     // Space
-    if (ch === ' ') w += 0.27;
+    else if (ch === ' ') w += 0.27;
     // Narrow characters: ( ) [ ] , . : ; ! | l i 1 t f j
     else if ('()[],.;:!|'.includes(ch)) w += 0.3;
     else if ('liftj1'.includes(ch)) w += 0.3;
@@ -24081,12 +24166,13 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // "central", the numerator text extends ~0.375*fontSize above and below its
       // y-coord. Bar is at y - 0.05*fontSize. Use 0.45 offset so the numerator
       // bottom (y - 0.45*fs + 0.375*fs = y - 0.075*fs) sits just above the bar.
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.numText)}</text>`);
+      // Use mathTextSvg to render variables in italic (math mode).
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.numText)}</text>`);
       // Fraction line
       els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line. Mirrors the numerator: at y + 0.45*fs, denominator
       // top (y + 0.45*fs - 0.375*fs = y + 0.075*fs) sits just below the bar.
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.denText)}</text>`);
+      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.denText)}</text>`);
     } else if (p.type === 'sqrt') {
       // Stacked fraction under the radical: extend the radical taller to cover both num and den
       const isFrac = p.isFrac;
@@ -24145,7 +24231,8 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
         els.push(`<text x="${fmt(cx)}" y="${fmt(lblY)}" fill="${fill}" font-size="${fmt(lblFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
-      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.text)}</text>`);
+      // Use mathTextWithScriptsSvg to handle ^{...} and _{...} in plain text
+      els.push(`<text x="${fmt(curX)}" y="${fmt(y)}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="start" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${mathTextWithScriptsSvg(p.text, fontSize)}</text>`);
     }
     curX += p.width;
   }
@@ -24196,14 +24283,15 @@ function parseLaTeXSegments(text) {
     let nextIdx = -1, nextType = '', nextCand = null;
     if (candidates.length > 0) { nextIdx = candidates[0].idx; nextType = candidates[0].type; nextCand = candidates[0]; }
     if (nextIdx < 0) {
-      // No more special commands
-      const cleaned = stripLaTeX(remaining);
+      // No more special commands - use stripLaTeXPreserveScripts so ^{...} and _{...}
+      // are preserved for proper tspan rendering in mathTextWithScriptsSvg
+      const cleaned = stripLaTeXPreserveScripts(remaining);
       if (cleaned) segments.push({type:'text', text: cleaned});
       break;
     }
     // Plain text before this command
     if (nextIdx > 0) {
-      const before = stripLaTeX(remaining.substring(0, nextIdx));
+      const before = stripLaTeXPreserveScripts(remaining.substring(0, nextIdx));
       if (before) segments.push({type:'text', text: before});
     }
     if (nextType === 'frac') {
@@ -24365,6 +24453,70 @@ function mathTextSvg(text) {
     result += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(upright)}</tspan>`;
   }
   return result;
+}
+
+// Render text with ^{sup} and _{sub} as proper SVG tspan elements.
+// Used by renderLaTeXSVG for plain-text segments that may contain scripts.
+// Returns SVG inner content (tspans) suitable for embedding in a <text> element.
+function mathTextWithScriptsSvg(text, fontSize) {
+  if (!text) return '';
+  // First apply common LaTeX → Unicode mappings (like \mathrm, \quad, etc.)
+  let s = text;
+  // Handle \mathrm{...}, \textrm{...}, \text{...} → just the content
+  s = s.replace(/\\(?:mathrm|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // Handle \quad, \qquad, \, \; \: spacing → space
+  s = s.replace(/\\quad\b/g, '  ');
+  s = s.replace(/\\qquad\b/g, '    ');
+  s = s.replace(/\\[,;:!]/g, ' ');
+  // Handle \left and \right (just remove them, keep delimiters)
+  s = s.replace(/\\left\s*/g, '');
+  s = s.replace(/\\right\s*/g, '');
+  // Strip remaining braces that aren't part of scripts
+  // (but preserve ^{...} and _{...} patterns)
+
+  // Parse into segments: normal text, superscript (^), subscript (_)
+  const parts = [];
+  let i = 0, cur = '', mode = 'normal';
+  while (i < s.length) {
+    if (s[i] === '^' || s[i] === '_') {
+      if (cur) parts.push({text: cur, mode});
+      mode = s[i] === '^' ? 'sup' : 'sub';
+      i++;
+      cur = '';
+      if (i < s.length && s[i] === '{') {
+        i++; // skip {
+        let depth = 1;
+        while (i < s.length && depth > 0) {
+          if (s[i] === '{') depth++;
+          else if (s[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+          cur += s[i]; i++;
+        }
+      } else if (i < s.length) {
+        cur = s[i]; i++;
+      }
+      parts.push({text: cur, mode});
+      cur = ''; mode = 'normal';
+    } else {
+      cur += s[i]; i++;
+    }
+  }
+  if (cur) parts.push({text: cur, mode});
+
+  // Strip leftover braces from part text
+  for (const p of parts) p.text = p.text.replace(/[{}]/g, '');
+
+  // Build SVG content with tspan elements
+  let inner = '';
+  for (const p of parts) {
+    if (p.mode === 'sup') {
+      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+    } else if (p.mode === 'sub') {
+      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${escSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+    } else {
+      inner += escSvg(p.text);
+    }
+  }
+  return inner;
 }
 
 // ============================================================
