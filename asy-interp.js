@@ -17943,18 +17943,21 @@ function createInterpreter() {
           return makePath([lineSegment(a, b)], false);
         };
         // End bar (style 'Bar' and 'Bars' both put a bar at the end)
+        // Bars should be solid even if the path pen is dashed/dotted.
+        const barPen = clonePen(pen);
+        delete barPen.linestyle;
         {
           const sL = pathArg.segs[pathArg.segs.length - 1];
           const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
           const barPath = makeBarAt(sL.p3, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: clonePen(pen), arrow: null, line: args._line || 0});
+          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0});
         }
         // Begin bar only for 'Bars'
         if (barsStyle === 'Bars') {
           const s0 = pathArg.segs[0];
           const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
           const barPath = makeBarAt(s0.p0, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: clonePen(pen), arrow: null, line: args._line || 0});
+          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0});
         }
       }
       // If draw call has a label, place it along the path at the specified position
