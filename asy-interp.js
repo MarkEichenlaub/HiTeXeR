@@ -10090,9 +10090,16 @@ function createInterpreter() {
                          !suppressByInvisible &&
                          !suppressByFormat;
       if (showLabels) {
-        for (const v of majorPositions) {
+        const beginlabel = ticks.beginlabel !== false;
+        const endlabel = ticks.endlabel !== false;
+        for (let i = 0; i < majorPositions.length; i++) {
+          const v = majorPositions[i];
           if (noZero && Math.abs(v) < 1e-10) continue;
           if (v < min - 1e-10 || v > max + 1e-10) continue;
+          // Skip first tick label if beginlabel=false
+          if (!beginlabel && i === 0) continue;
+          // Skip last tick label if endlabel=false
+          if (!endlabel && i === majorPositions.length - 1) continue;
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = isX ? {x:0, y:-1} : {x:-1, y:0};
           let txt;
@@ -11236,6 +11243,8 @@ function createInterpreter() {
           if ('extend' in a) t.extend = a.extend;
           if ('pTick' in a && isPen(a.pTick)) t.pen = a.pTick;
           if ('ptick' in a && isPen(a.ptick)) t.pen = a.ptick;
+          if ('beginlabel' in a) t.beginlabel = a.beginlabel;
+          if ('endlabel' in a) t.endlabel = a.endlabel;
         }
       }
       return t;
