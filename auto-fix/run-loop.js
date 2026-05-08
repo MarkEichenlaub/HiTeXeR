@@ -22,7 +22,7 @@ const ROOT         = path.resolve(__dirname, '..');
 const STOP_FILE    = path.join(__dirname, 'STOP');
 const PROMPT_PATH  = path.join(__dirname, 'prompt.md');
 const SELECT_PATH  = path.join(__dirname, 'select-target.js');
-const DEFAULT_MODEL = 'claude-opus-4-7';
+const DEFAULT_MODEL = 'claude-opus-4-5-20251101';
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000; // 60 min per iteration
 const DEFAULT_MAX_TURNS  = 250;  // was 150; raised to give novel-primitive diagnoses more headroom
 const DEFAULT_VERIFIER_MODEL = 'claude-sonnet-4-5';
@@ -572,7 +572,19 @@ function runSubAgent(args, prompt) {
     });
 
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; try { sub.kill('SIGTERM'); } catch {} }, args.timeoutMs);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (process.platform === 'win32') {
+          // On Windows, sub.kill('SIGTERM') only kills the cmd.exe shell wrapper,
+          // leaving the actual claude process as an orphan that holds stdout open.
+          // taskkill /F /T kills the entire process tree.
+          cp.spawnSync('taskkill', ['/F', '/T', '/PID', String(sub.pid)], { stdio: 'ignore' });
+        } else {
+          sub.kill('SIGTERM');
+        }
+      } catch {}
+    }, args.timeoutMs);
 
     let finalResult = null;
     let buf = '';
