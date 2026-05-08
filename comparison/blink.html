@@ -976,6 +976,8 @@
   function fixDiagram() {
     const d = filtered[blinkIdx];
     if (!d) return;
+    const description = prompt('Describe what to fix (optional):', '');
+    if (description === null) return; // user cancelled
     const btn = document.getElementById('btn-fix');
     const orig = btn.textContent;
 
@@ -984,7 +986,7 @@
     fetch('/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: d.id, description: '' })
+      body: JSON.stringify({ id: d.id, description })
     }).then(r => r.json()).then(res => {
       if (res.ok) {
         btn.textContent = 'Queued (' + res.queueLength + ')';
