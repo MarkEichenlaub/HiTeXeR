@@ -7781,7 +7781,32 @@ function createInterpreter() {
       let options = '';
       for (const a of rest) { if (isString(a)) options = a; }
       const cached = _imageCache[pathStr];
-      if (!cached || cached.error) throw new Error('graphic: image not available: ' + pathStr);
+      if (!cached || cached.error) {
+        // Image unavailable — return a placeholder graphic.
+        // Parse options string for explicit dimensions to size the placeholder.
+        const unitToBP = { cm: 28.3465, mm: 2.83465, in: 72, pt: 1, bp: 1, pc: 12, dd: 1.07, cc: 12.84 };
+        let w_bp = 50, h_bp = 50; // default placeholder size
+        const hm = options.match(/height\s*=\s*([\d.]+)\s*([a-z]+)/i);
+        const wm = options.match(/width\s*=\s*([\d.]+)\s*([a-z]+)/i);
+        if (hm) {
+          const val = parseFloat(hm[1]);
+          const conv = unitToBP[hm[2]] || 1;
+          h_bp = val * conv;
+          if (!wm) w_bp = h_bp; // default to square if only height given
+        }
+        if (wm) {
+          const val = parseFloat(wm[1]);
+          const conv = unitToBP[wm[2]] || 1;
+          w_bp = val * conv;
+          if (!hm) h_bp = w_bp; // default to square if only width given
+        }
+        return {
+          _tag: 'graphic', path: pathStr, options,
+          width_bp: w_bp, height_bp: h_bp,
+          png_b64: null, transform: null,
+          _placeholder: true
+        };
+      }
       return {
         _tag: 'graphic', path: pathStr, options,
         width_bp: cached.width_bp, height_bp: cached.height_bp,
@@ -13553,6 +13578,94 @@ function createInterpreter() {
     env.set('Sin', (deg) => Math.sin(toNumber(deg) * Math.PI / 180));
     env.set('Cos', (deg) => Math.cos(toNumber(deg) * Math.PI / 180));
     env.set('Tan', (deg) => Math.tan(toNumber(deg) * Math.PI / 180));
+
+    // planeproject(surface s) → transform3 that projects onto the plane of s
+    // planeproject(triple n, triple p) → project onto plane with normal n through p
+    // For surfaces like shift(-Z)*unitsquare3, this returns an orthogonal
+    // projection onto the z = -1 plane. Asymptote's planeproject is used by
+    // diagrams like 12819 to create a "shadow" or projected copy of a surface.
+    env.set('planeproject', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      // planeproject(surface) — extract plane from surface's vertices
+      if (pos.length >= 1 && pos[0] && pos[0]._tag === 'surface') {
+        const sf = pos[0];
+        // Get any three non-collinear vertices to define the plane
+        let verts = [];
+        if (sf._grid && sf._grid.length > 0) {
+          // Collect vertices from grid
+          for (const row of sf._grid) for (const v of row) {
+            if (v && (isTriple(v) || (v.x !== undefined && v.y !== undefined && v.z !== undefined))) {
+              verts.push(v);
+            }
+          }
+        } else if (sf.mesh && sf.mesh.faces && sf.mesh.faces.length > 0) {
+          for (const f of sf.mesh.faces) {
+            if (f.vertices) for (const v of f.vertices) {
+              if (v && (isTriple(v) || (v.x !== undefined && v.y !== undefined && v.z !== undefined))) {
+                verts.push(v);
+              }
+            }
+          }
+        }
+        if (verts.length < 3) {
+          // Can't determine plane; return identity
+          return identityT3();
+        }
+        const p0 = verts[0], p1 = verts[1], p2 = verts[verts.length - 1];
+        // Vectors in plane
+        const u = {x: p1.x - p0.x, y: p1.y - p0.y, z: p1.z - p0.z};
+        const v = {x: p2.x - p0.x, y: p2.y - p0.y, z: p2.z - p0.z};
+        // Normal = u × v
+        let nx = u.y * v.z - u.z * v.y;
+        let ny = u.z * v.x - u.x * v.z;
+        let nz = u.x * v.y - u.y * v.x;
+        const nLen = Math.sqrt(nx*nx + ny*ny + nz*nz);
+        if (nLen < 1e-12) {
+          // Degenerate (collinear vertices); return identity
+          return identityT3();
+        }
+        nx /= nLen; ny /= nLen; nz /= nLen;
+        // Point on plane: use centroid of the first few vertices
+        const px = (p0.x + p1.x + p2.x) / 3;
+        const py = (p0.y + p1.y + p2.y) / 3;
+        const pz = (p0.z + p1.z + p2.z) / 3;
+        // Projection matrix: P = I - n⊗n, then translate so plane passes through p
+        // For a point q, the projected point is q - ((q - p) · n) * n
+        // In matrix form: P(q) = q - (q·n - p·n)*n = q - (q·n)*n + (p·n)*n
+        //                      = (I - n⊗n)q + (p·n)n
+        // The 3x3 part is (I - n⊗n):
+        //   [ 1-nx² -nxny -nxnz ]
+        //   [ -nynx 1-ny² -nynz ]
+        //   [ -nznx -nzny 1-nz² ]
+        // The translation part is (p·n)*n = d*n where d = px*nx + py*ny + pz*nz
+        const d = px*nx + py*ny + pz*nz;
+        return makeTransform3([
+          1 - nx*nx, -nx*ny, -nx*nz, d*nx,
+          -ny*nx, 1 - ny*ny, -ny*nz, d*ny,
+          -nz*nx, -nz*ny, 1 - nz*nz, d*nz,
+          0, 0, 0, 1
+        ]);
+      }
+      // planeproject(triple normal, triple point) or planeproject(triple normal)
+      if (pos.length >= 1 && isTriple(pos[0])) {
+        let nx = pos[0].x, ny = pos[0].y, nz = pos[0].z;
+        const nLen = Math.sqrt(nx*nx + ny*ny + nz*nz);
+        if (nLen < 1e-12) return identityT3();
+        nx /= nLen; ny /= nLen; nz /= nLen;
+        let px = 0, py = 0, pz = 0;
+        if (pos.length >= 2 && isTriple(pos[1])) {
+          px = pos[1].x; py = pos[1].y; pz = pos[1].z;
+        }
+        const d = px*nx + py*ny + pz*nz;
+        return makeTransform3([
+          1 - nx*nx, -nx*ny, -nx*nz, d*nx,
+          -ny*nx, 1 - ny*ny, -ny*nz, d*ny,
+          -nz*nx, -nz*ny, 1 - nz*nz, d*nz,
+          0, 0, 0, 1
+        ]);
+      }
+      return identityT3();
+    });
 
     // (intersectionpoints defined earlier with proper implementation)
 
@@ -21707,8 +21820,11 @@ function renderSVG(result, opts) {
       if (dc.graphic) {
         const g = dc.graphic;
         const imgSize = computeGraphicDisplaySize(g, unitScale, hasUnitScale);
-        let imgW = imgSize.w_user * pxPerUnitX;
-        let imgH = imgSize.h_user * pxPerUnitY;
+        // Graphics with explicit physical dimensions (width=1cm, etc.) should
+        // render at those sizes in bp. The viewBox is also in bp, so use w_bp
+        // directly rather than scaling w_user by pxPerUnit.
+        let imgW = imgSize.w_bp;
+        let imgH = imgSize.h_bp;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
         let dx = -imgW / 2, dy = -imgH / 2;
@@ -21735,7 +21851,15 @@ function renderSVG(result, opts) {
         }
         // Dedupe identical image payloads via <symbol> + <use> in defs.
         let imgEl;
-        if (g.png_b64 && g.png_b64.length > 4096) {
+        if (g._placeholder || !g.png_b64) {
+          // Placeholder for unavailable images: render as a light gray rectangle with a diagonal cross
+          const rx = sx + dx, ry = sy + dy;
+          imgEl = `<g>` +
+            `<rect x="${fmt(rx)}" y="${fmt(ry)}" width="${fmt(imgW)}" height="${fmt(imgH)}" fill="#e0e0e0" stroke="#999" stroke-width="1"/>` +
+            `<line x1="${fmt(rx)}" y1="${fmt(ry)}" x2="${fmt(rx + imgW)}" y2="${fmt(ry + imgH)}" stroke="#999" stroke-width="0.5"/>` +
+            `<line x1="${fmt(rx + imgW)}" y1="${fmt(ry)}" x2="${fmt(rx)}" y2="${fmt(ry + imgH)}" stroke="#999" stroke-width="0.5"/>` +
+            `</g>`;
+        } else if (g.png_b64.length > 4096) {
           let entry = _imgDedupe.get(g.png_b64);
           if (!entry) {
             const symId = `htx-img-${_imgDedupeIdSeq++}`;
