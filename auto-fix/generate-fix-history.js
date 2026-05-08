@@ -117,13 +117,15 @@ a{color:inherit;text-decoration:none}
 #hdr h1{font-size:14px;font-weight:600;color:#c4b5fd;flex:1}
 #hdr a{font-size:11px;color:#64748b}
 #hdr a:hover{color:#e2e8f0}
-#gen-ts{font-size:10px;color:#3d3d5a}
+#gen-ts{font-size:10px;color:#94a3b8}
 
-#tabs{display:flex;gap:0;padding:6px 14px 0;background:#13131f;border-bottom:1px solid #2d2d4a}
+#tabs{display:flex;gap:0;padding:6px 14px 0;background:#13131f;border-bottom:1px solid #2d2d4a;align-items:flex-end}
 .tab{padding:5px 12px;cursor:pointer;font-size:11px;color:#64748b;border-bottom:2px solid transparent;transition:color .1s}
 .tab:hover{color:#a0aec0}
 .tab.active{color:#c4b5fd;border-bottom-color:#7c3aed}
-#count-note{margin-left:auto;font-size:10px;color:#3d3d5a;align-self:center;padding-right:4px}
+#sort-btn{margin-left:auto;background:none;border:1px solid #2d2d4a;color:#94a3b8;padding:2px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;margin-bottom:4px;white-space:nowrap}
+#sort-btn:hover{border-color:#64748b;color:#e2e8f0}
+#count-note{font-size:10px;color:#94a3b8;align-self:center;padding:0 8px 4px;white-space:nowrap}
 
 #list-wrap{padding:6px 10px;display:flex;flex-direction:column;gap:2px}
 #empty-msg{padding:40px;text-align:center;color:#3d3d5a}
@@ -168,7 +170,7 @@ a{color:inherit;text-decoration:none}
 .desc{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;font-size:11px;min-width:0}
 .desc.nodesc{color:#3d3d5a;font-style:italic}
 
-.ts-cell{width:60px;flex-shrink:0;font-size:15px;color:#3d3d5a;text-align:right;white-space:nowrap}
+.ts-cell{width:90px;flex-shrink:0;font-size:15px;color:#94a3b8;text-align:right;white-space:nowrap;margin-right:4px}
 
 .fix-btn{flex-shrink:0;background:#1e5f3a;border:1px solid #22c55e;color:#86efac;padding:2px 6px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px}
 .fix-btn:hover{background:#166534}
@@ -177,7 +179,7 @@ a{color:inherit;text-decoration:none}
 .pg-btn{background:#1e1e32;border:1px solid #2d2d4a;color:#94a3b8;padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px}
 .pg-btn:hover:not(:disabled){background:#2d2d4a;color:#e2e8f0}
 .pg-btn:disabled{opacity:.3;cursor:default}
-#pg-info{font-size:11px;color:#64748b}
+#pg-info{font-size:11px;color:#94a3b8}
 
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
 #modal.open{display:flex}
@@ -214,6 +216,7 @@ a{color:inherit;text-decoration:none}
   <div class="tab" data-f="committed">Committed</div>
   <div class="tab" data-f="rejected">Rejected</div>
   <div class="tab" data-f="pending">In Queue / Pending</div>
+  <button id="sort-btn" onclick="toggleSort()">newest first</button>
   <span id="count-note"></span>
 </div>
 
@@ -238,7 +241,15 @@ const DATA = ${dataJson};
 const PAGE_SIZE = 50;
 let currentFilter = 'all';
 let currentPage   = 1;
+let currentSort   = 'newest';  // 'newest' | 'oldest'
 let _modalItem    = null;
+
+function toggleSort(){
+  currentSort = currentSort === 'newest' ? 'oldest' : 'newest';
+  document.getElementById('sort-btn').textContent = currentSort + ' first';
+  currentPage = 1;
+  renderList();
+}
 
 function pad(id){ return String(id).padStart(5,'0'); }
 
@@ -312,8 +323,9 @@ function makeThumb(item, kind, label){
 }
 
 function filteredData(){
-  if(currentFilter==='all') return DATA;
-  return DATA.filter(item => statusInfo(item).cat === currentFilter);
+  const fd = currentFilter==='all' ? DATA.slice() : DATA.filter(item => statusInfo(item).cat === currentFilter);
+  if(currentSort === 'oldest') fd.reverse();
+  return fd;
 }
 
 function renderList(){
@@ -348,13 +360,13 @@ function renderList(){
     idEl.textContent = '#'+pad(item.id);
     row.appendChild(idEl);
 
-    // 4 thumbs: ref | before | after | current
+    // 4 thumbs: texer | before | after | current
     const thumbs = document.createElement('div');
     thumbs.className = 'thumbs';
-    thumbs.appendChild(makeThumb(item,'ref',    'ref'));
-    thumbs.appendChild(makeThumb(item,'before', 'bef'));
-    thumbs.appendChild(makeThumb(item,'after',  'aft'));
-    thumbs.appendChild(makeThumb(item,'current','cur'));
+    thumbs.appendChild(makeThumb(item,'ref',    'texer'));
+    thumbs.appendChild(makeThumb(item,'before', 'before'));
+    thumbs.appendChild(makeThumb(item,'after',  'after'));
+    thumbs.appendChild(makeThumb(item,'current','current'));
     row.appendChild(thumbs);
 
     const badge = document.createElement('span');
