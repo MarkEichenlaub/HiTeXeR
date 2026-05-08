@@ -36,6 +36,7 @@ const QUEUE_PATH     = path.join(__dirname, 'queue.json');
 const CANARY_PATH    = path.join(__dirname, 'canary.json');
 const PID_FILE       = path.join(__dirname, '.run-loop-pid');
 const STATUS_FILE    = path.join(__dirname, '.status.json');
+const FIX_SNAPSHOTS_DIR = path.join(__dirname, 'fix-snapshots');
 
 const ALLOWED_FILES = new Set([
   'asy-interp.js',
@@ -360,6 +361,18 @@ function runCanaryCheck() {
                   ' id=' + summary.worstId + ' (threshold=' + CANARY_THRESHOLD + ')');
   }
   return { ok, worstDelta: summary.worstCanaryDelta, worstId: summary.worstId };
+}
+
+function saveAfterSnapshot(targetId, commitHash) {
+  // Snapshot htx_pngs/{id}.png right after a successful commit so fix-history
+  // can show "after" alongside "before" (captured at enqueue time).
+  // Named by commit hash so the generator can find it without knowing enqueueId.
+  fs.mkdirSync(FIX_SNAPSHOTS_DIR, { recursive: true });
+  const src = path.join(ROOT, 'comparison', 'htx_pngs', String(targetId).padStart(5, '0') + '.png');
+  const dst = path.join(FIX_SNAPSHOTS_DIR, commitHash + '-after.png');
+  if (fs.existsSync(src)) {
+    try { fs.copyFileSync(src, dst); } catch (e) { console.error('[run-loop] after-snapshot failed:', e.message); }
+  }
 }
 
 function verifyDiffOrRevert(preChanges) {
@@ -794,6 +807,7 @@ async function runIteration(args, iter) {
 
     if (args.skipVerifier) {
       console.log('[run-loop] --no-verifier set; skipping visual verification');
+      saveAfterSnapshot(target.id, postCommit);
       return 'committed';
     }
 
@@ -834,6 +848,7 @@ async function runIteration(args, iter) {
           notes: (last.row.notes || '') + ' | VERIFIER-ERROR: ' + verdict.error,
         });
       }
+      saveAfterSnapshot(target.id, postCommit);
       return 'committed';
     }
 
@@ -855,6 +870,7 @@ async function runIteration(args, iter) {
                  ' conf=' + (verdict.confidence || '?'),
         });
       }
+      saveAfterSnapshot(target.id, postCommit);
       writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
       rerender200Worst();
       return 'committed';
