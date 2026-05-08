@@ -15702,19 +15702,28 @@ function createInterpreter() {
     // the diffusepen (named arg or first positional pen) so surfaces picked up
     // from `draw(surface, M)` shade from the intended diffuse color rather than
     // defaulting to black.
+    // Additionally, capture the emissive pen so the renderer can add its contribution
+    // as a base floor (emissive surfaces self-illuminate regardless of lighting).
     env.set('material', (...args) => {
       let diffuse = null;
+      let emissive = null;
+      // First check for named arguments
       for (const a of args) {
         if (a && typeof a === 'object' && a._named) {
-          if (a.diffusepen && isPen(a.diffusepen)) { diffuse = a.diffusepen; break; }
+          if (a.diffusepen && isPen(a.diffusepen)) diffuse = a.diffusepen;
+          if (a.emissivepen && isPen(a.emissivepen)) emissive = a.emissivepen;
         }
       }
-      if (!diffuse) {
-        for (const a of args) {
-          if (isPen(a)) { diffuse = a; break; }
-        }
+      // Fallback: positional pens are (diffuse, ambient, emissive, specular) in order
+      if (!diffuse || !emissive) {
+        const pens = args.filter(a => isPen(a));
+        if (!diffuse && pens.length >= 1) diffuse = pens[0];
+        // pens[1] would be ambient (ignored for now)
+        if (!emissive && pens.length >= 3) emissive = pens[2];
       }
-      return diffuse || makePen({});
+      const result = diffuse ? clonePen(diffuse) : makePen({});
+      if (emissive) result._emissivePen = emissive;
+      return result;
     });
     env.set('emissive', (p) => isPen(p) ? p : makePen({}));
 
@@ -17470,7 +17479,16 @@ function createInterpreter() {
           }
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
         }
-        renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
+        // Skip rendering mesh faces when the pen came from a material() call —
+        // Asymptote's 2D fallback mode for 3D content doesn't render surfaces
+        // specified with material() because there's no proper 3D shading pipeline.
+        // The material specification is meant for OpenGL/PRC rendering only.
+        // This matches TeXeR's observed behavior where unitcube with material()
+        // renders as invisible in the PNG output.
+        const skipMaterialFill = meshPen && meshPen._emissivePen;
+        if (!skipMaterialFill) {
+          renderMeshToPicture(mesh, meshPen, target, args._line || 0, _nolight);
+        }
         // If a named meshpen=... arg was supplied (e.g. meshpen=black+thick()),
         // draw the surface's grid lines on top. This matches Asymptote's
         // draw(surface, surfacepen, meshpen=...) rendering where the mesh
@@ -18663,9 +18681,15 @@ function createInterpreter() {
       const base = it.pen;
       const shaded = clonePen(base);
       const sp = it.specular || 0;
-      shaded.r = Math.max(0, Math.min(1, base.r * it.intensity + sp));
-      shaded.g = Math.max(0, Math.min(1, base.g * it.intensity + sp));
-      shaded.b = Math.max(0, Math.min(1, base.b * it.intensity + sp));
+      // Emissive contribution: if the pen has _emissivePen, add its color as a floor
+      // that's independent of lighting (emissive surfaces self-illuminate).
+      const em = base._emissivePen;
+      const emR = em ? (em.r || 0) : 0;
+      const emG = em ? (em.g || 0) : 0;
+      const emB = em ? (em.b || 0) : 0;
+      shaded.r = Math.max(0, Math.min(1, base.r * it.intensity + sp + emR));
+      shaded.g = Math.max(0, Math.min(1, base.g * it.intensity + sp + emG));
+      shaded.b = Math.max(0, Math.min(1, base.b * it.intensity + sp + emB));
       // Pale-family surface fills render at partial opacity so wireframe
       // surfaces drawn alongside (e.g. surfacepen=invisible,
       // meshpen=darkgreen+dashed) remain visible through them, matching
