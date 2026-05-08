@@ -10788,6 +10788,10 @@ function createInterpreter() {
         if (_yminFromUserLimits && isFinite(cMinY) && cMinY < ymin) ymin = cMinY;
         if (_ymaxFromUserLimits && isFinite(cMaxY) && cMaxY > ymax) ymax = cMaxY;
       }
+      // These variables track the content-derived y-range before any extension
+      // (e.g., to include the x-axis crossing). Used below to detect horizontal-
+      // line content that needs symmetric y-axis extension.
+      let _contentYmin = Infinity, _contentYmax = -Infinity;
       if (ymin === null || ymax === null) {
         let cMinY = Infinity, cMaxY = -Infinity;
         for (const dc of pic.commands) {
@@ -10806,6 +10810,8 @@ function createInterpreter() {
           }
           if (dc.pos && isFinite(dc.pos.y)) { if (dc.pos.y < cMinY) cMinY = dc.pos.y; if (dc.pos.y > cMaxY) cMaxY = dc.pos.y; }
         }
+        // Store content range for later symmetric-extension check
+        _contentYmin = cMinY; _contentYmax = cMaxY;
         if (ymin === null) { ymin = isFinite(cMinY) ? cMinY : -5; _yminFromContent = isFinite(cMinY); }
         if (ymax === null) { ymax = isFinite(cMaxY) ? cMaxY : 5; _ymaxFromContent = isFinite(cMaxY); }
         // Asymptote autoscale: round content-derived y limits outward to nice
@@ -10887,6 +10893,24 @@ function createInterpreter() {
             if (c._axisShiftY - extUser < ymin) ymin = c._axisShiftY - extUser;
           }
         }
+      }
+      // When y-content is essentially at a single value (horizontal line) and
+      // we extended ymin downward to include the origin, extend ymax upward by
+      // a similar amount so the content appears centered rather than at the
+      // edge. This matches real Asymptote's axes() behavior for constant
+      // functions like f(x)=4 with axes("xlabel","ylabel").
+      // Detect: content had a near-zero y-range (single horizontal line) and
+      // ymin was extended down to include the x-axis crossing (origin).
+      const contentYspan = _contentYmax - _contentYmin;
+      const contentWasHorizontalLine = isFinite(_contentYmin) && isFinite(_contentYmax)
+        && contentYspan < 1e-6 && _contentYmax > 0;
+      if (contentWasHorizontalLine && !ymaxExplicit && ymin <= 0 && ymax > 0) {
+        // Content is at a single y-value (_contentYmax ≈ _contentYmin > 0).
+        // After extension, ymin is now at or below 0 (origin), and ymax is still
+        // at the content value. Extend ymax upward so the content line sits in
+        // the middle: y-axis from ymin to ymax + (ymax - ymin).
+        // E.g., content at y=4, axis from 0 to 4 → extend to 0 to 8.
+        ymax = ymax + (ymax - ymin);
       }
       // Cross range for gridlines — prefer per-picture xlimits if set; transform to log space if needed
       let crossMin, crossMax;
@@ -11298,7 +11322,11 @@ function createInterpreter() {
       }
       const xArgs = []; const yArgs = [];
       if (xlabel) xArgs.push(xlabel);
-      if (ylabel) yArgs.push(ylabel);
+      // For y-axis labels from axes(), wrap in a Label with position=0.5 to
+      // get the traditional middle-of-axis rotated placement (matching real
+      // Asymptote's graph.asy behavior), instead of the plain-string
+      // endpoint-default placement used by standalone yaxis("string") calls.
+      if (ylabel) yArgs.push({_tag:'label', text: ylabel, position: 0.5});
       if (pen) { xArgs.push(pen); yArgs.push(pen); }
       if (arrow) { xArgs.push(arrow); yArgs.push(arrow); }
       invokeFunc(env.get('xaxis'), xArgs);
