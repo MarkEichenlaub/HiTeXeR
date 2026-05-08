@@ -10190,7 +10190,7 @@ function createInterpreter() {
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, labelPosition = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, labelPen = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       let extent = null; // BottomTop, etc.
       let above = false;
       const rawArgs = args;
@@ -10225,14 +10225,14 @@ function createInterpreter() {
           }
           if ('L' in a) {
             const lv = a.L;
-            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; }
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.pen) labelPen = lv.pen; }
             else if (isString(lv)) label = lv;
           }
           if ('xmin' in a && typeof a.xmin === 'number') xmin = a.xmin;
           if ('xmax' in a && typeof a.xmax === 'number') xmax = a.xmax;
           continue;
         }
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.pen) labelPen = a.pen; }
         else if (a && a._tag === 'axisshift' && a.axis === 'x') { axisShiftY = a.value; axisShiftYExplicit = true; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
@@ -10548,19 +10548,20 @@ function createInterpreter() {
         }
         // Below axis: positive screenDy (down). Above axis: negative.
         const sDy = lAlign.y < 0 ? tickLabelClearance : (lAlign.y > 0 ? -tickLabelClearance : 0);
-        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen, line:0, screenDy: sDy, _isAxisLabel: true});
+        const _xAxisLabelPen = labelPen || pen;
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen: _xAxisLabelPen, line:0, screenDy: sDy, _isAxisLabel: true});
         // If the label is below the axis (lAlign.y < 0), record that on the axis draw
         // command so yaxis() can extend its lower bound to include the label extent.
         if (_xaxisDrawCmd && lAlign.y < 0) {
           _xaxisDrawCmd._axisLabelBelowAy = lAlign.y;
-          _xaxisDrawCmd._axisLabelFontSize = (pen && pen.fontsize) || 10;
+          _xaxisDrawCmd._axisLabelFontSize = (_xAxisLabelPen && _xAxisLabelPen.fontsize) || 10;
         }
       }
     });
 
     env.set('yaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, labelPosition = null, labelTransform = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, labelTransform = null, labelPen = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
       let above = false;
       const rawArgs = args;
@@ -10595,14 +10596,14 @@ function createInterpreter() {
           }
           if ('L' in a) {
             const lv = a.L;
-            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.transform) labelTransform = lv.transform; }
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.transform) labelTransform = lv.transform; if (lv.pen) labelPen = lv.pen; }
             else if (isString(lv)) label = lv;
           }
           if ('ymin' in a && typeof a.ymin === 'number') ymin = a.ymin;
           if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
           continue;
         }
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; if (a.pen) labelPen = a.pen; }
         else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; axisShiftXExplicit = true; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
@@ -10932,7 +10933,7 @@ function createInterpreter() {
         // axis center. Mark these labels so renderSVG suppresses the
         // along-axis component.
         const _midRotated = !uprightEndpoint && lt && effPos > 0 && effPos < 1;
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated});
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated});
       }
     });
 
@@ -21302,8 +21303,16 @@ function renderSVG(result, opts) {
         const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
         const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
         const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
-        dx = ax_n * effW + ax * margin;
-        dy = -(ay_n * effH + ay * margin);
+        // For _axisLabelMidRotated labels, the renderer uses a simplified formula
+        // (only margin, no W/H offset) to match Asymptote's axis-label perpendicular
+        // shift. Mirror that here so viewBox padding aligns with actual rendering.
+        if (dc._axisLabelMidRotated) {
+          dx = ax * margin;
+          dy = -(ay * margin);
+        } else {
+          dx = ax_n * effW + ax * margin;
+          dy = -(ay_n * effH + ay * margin);
+        }
         // For horizontally-aligned labels (E/W with non-zero ax), the renderer
         // (line ~18185) uses a wider W formula (cleanLen × fontSizeSVG × 0.52,
         // even for math labels — pad uses 0.62) and a larger margin
@@ -21311,7 +21320,8 @@ function renderSVG(result, opts) {
         // dx is therefore larger than pad's dx for math E/W labels, causing the
         // label to extend past viewBox even with measured-width-based effW. Add
         // the gap to dx so right/left correctly cover the rendered position.
-        if (Math.abs(ax) > 0.01) {
+        // Skip for _axisLabelMidRotated — the renderer uses only margin (no W offset).
+        if (Math.abs(ax) > 0.01 && !dc._axisLabelMidRotated) {
           const _wRender = _effLenVB * fontSizeSVG * 0.52;
           const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
           const _marginRender = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
@@ -21385,8 +21395,12 @@ function renderSVG(result, opts) {
         // boundary so the rasterizer clips the glyph ascender. Add a small
         // safety margin equal to Asymptote's labelmargin (0.28×fontsize) so
         // the topmost/bottommost tick label has visible breathing room.
+        // For rotated axis labels (e.g. 08812 y-axis), the MathJax-measured
+        // width can underestimate the actual rendered width due to font
+        // differences. Add extra safety margin based on fontsize.
         const tickSafety = dc._isTickLabel ? fontSizeSVG * 0.28 : 0;
-        padT = Math.max(padT, -topActual + tickSafety);
+        const rotatedAxisSafety = (_ltRotated && dc._isAxisLabel) ? fontSizeSVG * 0.75 : 0;
+        padT = Math.max(padT, -topActual + tickSafety + rotatedAxisSafety);
         padB = Math.max(padB, bottomActual - viewH + tickSafety);
         // Tick labels and axis labels may extend horizontally beyond the solver-
         // computed bbox (solver uses geometry extent, but ticks/axis labels are
