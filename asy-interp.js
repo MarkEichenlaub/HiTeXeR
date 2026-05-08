@@ -10658,18 +10658,13 @@ function createInterpreter() {
           // additional space to clear tick labels — using ±3 here would
           // double-push the label far below the plot (issue observed in 8812).
           lAlign = xIsAboveAxis ? {x:0, y:1} : {x:0, y:-1};
-          // labelPosition (e.g. position=1 in 8812) places the label along the
-          // axis without changing its perpendicular offset.
-          if (labelPosition != null) {
-            labelX = xmin + (xmax - xmin) * labelPosition;
-            // When the label is positioned at one end (0 or 1), align it with
-            // the axis endpoint horizontally (W if at xmax, E if at xmin) so it
-            // doesn't extend past the plot. Otherwise center-align (S/N).
-            if (labelPosition >= 1 - 1e-9) lAlign = xIsAboveAxis ? {x:-1, y:1} : {x:-1, y:-1};
-            else if (labelPosition <= 1e-9) lAlign = xIsAboveAxis ? {x:1, y:1} : {x:1, y:-1};
-          } else {
-            labelX = (xmin + xmax) / 2;
-          }
+          // For framed axis extents (BottomTop, TopBottom, Bottom, Top), the
+          // axis label is always centered below/above the primary axis edge.
+          // The labelPosition parameter on a Label() in this context controls
+          // label rendering priority/layer, not placement along the axis —
+          // matching Asymptote's graph.asy behavior where xaxis(axis=BottomTop,
+          // L=Label("...", position=1)) still centers the label. (Issue 8812)
+          labelX = (xmin + xmax) / 2;
         } else {
           // Plain `xaxis("string")` with no arrow, no extent, no ticks, and
           // no explicit position/align: tighter vertical offset (y:-1) so the
