@@ -1870,6 +1870,7 @@ function createInterpreter() {
   let sizeW = 0, sizeH = 0;
   let keepAspect = true;
   let defaultPen = makePen({});
+  let _defaultpenLwSet = false; // whether defaultpen() explicitly set a linewidth
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
   // Registry mapping sentinel ids -> graphic objects, populated when a graphic
@@ -7655,6 +7656,8 @@ function createInterpreter() {
     });
     env.set('defaultpen', (p) => {
       if (isPen(p)) {
+        // Track if the pen has an explicit linewidth (from linewidth() call)
+        if (p._lwExplicit || p._lwDirect) _defaultpenLwSet = true;
         defaultPen = mergePens(defaultPen, p);
         // defaultpen(linewidth(n)) sets the default stroke width globally;
         // this is NOT the same as the "n+pen" per-call idiom used by dot()
@@ -7665,6 +7668,7 @@ function createInterpreter() {
       } else if (typeof p === 'number' && isFinite(p)) {
         // Asymptote real overload: defaultpen(real linewidth) sets the default
         // stroke width globally. Common idiom: defaultpen(1bp).
+        _defaultpenLwSet = true;
         defaultPen = mergePens(defaultPen, makePen({linewidth: p}));
         defaultPen._lwExplicit = false;
         defaultPen._lwDirect = false;
@@ -18933,6 +18937,7 @@ function createInterpreter() {
     unitScale = 1; hasUnitScale = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
+    _defaultpenLwSet = false;
     _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
 
     // Restore any built-in functions that were shadowed by user variables in a
@@ -19019,6 +19024,7 @@ function createInterpreter() {
       dotfactor,
       currentlight,
       directionWarnings: directionWarnings.slice(),
+      _defaultpenLwSet,
     };
   }
 
@@ -19092,7 +19098,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
@@ -21591,7 +21597,7 @@ function renderSVG(result, opts) {
       // When the auto-scaled stroke boost is active for default pens, scale the
       // arrow size by the same factor — TeXeR's reference renders behave as if
       // the effective default linewidth is the boosted one (e.g. 04315).
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       let baseSize;
       if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
@@ -21720,7 +21726,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost);
       if (arrowEl) {
@@ -21877,9 +21883,9 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= bpCSSPixel;
-    if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit) {
+    if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
       css.strokeWidth *= _autoScaledStrokeBoost;
-    } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit) {
+    } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
       css.strokeWidth *= _explicitSizeStrokeBoost;
     }
     // Extend=true gridlines (above:-1 with _isTickMark) render visually
@@ -21990,7 +21996,10 @@ function renderSVG(result, opts) {
       // Apply the auto-scaled stroke boost to dot radius too, but only for
       // non-explicit pens (matching the stroke-boost criterion at L18542):
       // explicit dot diameters/linewidths should keep their literal size.
-      const _dotBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit)
+      // Also skip boost when defaultpen() set a linewidth — the author's
+      // explicit global pen sizing should be respected (e.g. defaultpen(.5)
+      // in 04025 should produce small dots, not boosted large ones).
+      const _dotBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
