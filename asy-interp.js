@@ -20120,6 +20120,20 @@ function renderSVG(result, opts) {
           if (_hasArrowDraws) _overlapTgt = defaultSize;
         }
       }
+      // Physics force-vector diagrams: cm-scale unitsize with multiple arrow
+      // draws (≥3) suggests a free-body/force diagram where arrows represent
+      // physical vectors (mg, N, F_f, a_x, etc.).  These diagrams often have
+      // labels spread across the scene (not clustered), so the cluster test
+      // above may not trigger.  TeXeR renders these at a larger scale so the
+      // arrows and labels are clearly visible.  E.g. 06177: inclined plane
+      // with acceleration arrows has only 1 clustered pair but 5 arrow draws.
+      if (_overlapTgt === 0 && _cmLabelModestTgt && labelInfoBp.length >= 4) {
+        const _arrowDrawCount = drawCommands.filter(dc =>
+          dc.cmd === 'draw' && dc.arrow && (dc.arrow._tag === 'arrow' || dc.arrow.style)).length;
+        if (_arrowDrawCount >= 3) {
+          _overlapTgt = defaultSize;
+        }
+      }
       const tgtSize = Math.max(baseTgt, crowdedTgt, _overlapTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
