@@ -1,5 +1,5 @@
 // auto-fix/build-canary.js
-// Build auto-fix/canary.json by selecting ~50 representative IDs from
+// Build auto-fix/canary.json by selecting ~150 representative IDs from
 // ssim-results.json (for stratification) then LIVE-RENDERING each one
 // with the current interpreter so baselines always match what
 // render-and-score.js --canary will measure.
@@ -16,9 +16,9 @@ const SSIM_RESULTS_PATH = path.join(ROOT, 'comparison', 'ssim-results.json');
 const MANIFEST_PATH     = path.join(ROOT, 'comparison', 'blink-manifest.json');
 const OUT_PATH          = path.join(__dirname, 'canary.json');
 
-const TIER_COUNTS = { high: 15, mid: 20, low: 15 }; // total 50
+const TIER_COUNTS = { high: 45, mid: 60, low: 45 }; // total 150
 const MAJOR_COLLECTIONS = ['c10', 'c36', 'c53', 'c57', 'c71', 'gallery'];
-const MIN_PER_MAJOR = 2;
+const MIN_PER_MAJOR = 5;
 
 function collectionOf(corpusFile) {
   if (!corpusFile) return 'unknown';
@@ -121,10 +121,11 @@ function main() {
     }
   }
 
-  // If still under 50, top up from any remaining valid rows (tier/collection agnostic).
-  if (picked.size < 50) {
+  const targetSize = Object.values(TIER_COUNTS).reduce((a, b) => a + b, 0);
+  // If still under target, top up from any remaining valid rows (tier/collection agnostic).
+  if (picked.size < targetSize) {
     const pool = seededShuffle(valid.filter(r => !picked.has(r.id)), 0xFEEDBEEF);
-    while (picked.size < 50 && pool.length) {
+    while (picked.size < targetSize && pool.length) {
       const r = pool.shift();
       picked.set(r.id, r.ssim);
     }
