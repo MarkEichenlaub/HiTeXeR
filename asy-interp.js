@@ -21409,7 +21409,11 @@ function renderSVG(result, opts) {
         }
       }
       let W = _effLenVB * fontSizeSVG * charWFactor;
-      const H = fontSizeSVG * numLines;
+      // Add subscript depth: subscripts render at ~0.7× font size and extend
+      // ~0.3× below baseline. Without this, labels like "$\vec{F}_{f;C\to R}$"
+      // with S alignment get clipped at the bottom (06205).
+      const subscriptDepth = _hasSSVB ? fontSizeSVG * 0.35 : 0;
+      const H = fontSizeSVG * numLines + subscriptDepth;
       // In svg-native mode the actual label is rendered through MathJax which
       // gives precise widths.  The character-count heuristic above (charWFactor
       // 0.62 for math) over-estimates by ~50% for digit/symbol-heavy labels
