@@ -133,7 +133,7 @@ Once Phase 2 exit criteria are met:
 node auto-fix/render-and-score.js --canary --family {{COLLECTION_LESSON}}
 ```
 
-- Exit code must be `0` (no ID dropped > 0.05 vs its baseline).
+- Exit code must be `0` (no ID dropped > 0.03 vs its baseline).
 - If any ID regressed: **do not accept this as a final state**. Revert only
   the most recent offending edit (use `git diff` to see what changed), go
   back to Phase 2 step 1, and take a different approach that doesn't touch

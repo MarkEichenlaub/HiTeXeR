@@ -82,7 +82,7 @@ Remove the file when ready to resume.
 | `fix` | Change landed + committed. SSIM target ≥ 0.85 with visual match. | no |
 | `ssim-artifact` | Render visually matches reference; SSIM is noise. | no (permanent skip) |
 | `attempted-no-improve` | 15 cycles done, target still < 0.85 or defects remain. | up to 3, then skiplist |
-| `regressed-canary` | Target fixed, but canary/family dropped > 0.05. | up to 3, then skiplist |
+| `regressed-canary` | Target fixed, but canary/family dropped > 0.03. | up to 3, then skiplist |
 | `error` | Tooling / infra failure. | yes |
 
 There is **no `unfixable-feature` verdict**. The prompt explicitly instructs the

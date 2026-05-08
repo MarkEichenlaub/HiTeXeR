@@ -12,7 +12,7 @@
 //
 // Emits one JSON object per ID to stdout (newline-separated), then a final
 // summary line: {"summary": {...}}.
-// Exit 0 if no ID dropped > 0.05 vs its baseline; exit 1 if any did; exit 2 on usage error.
+// Exit 0 if no ID dropped > 0.03 vs its baseline; exit 1 if any did; exit 2 on usage error.
 'use strict';
 
 const fs   = require('fs');
@@ -29,7 +29,7 @@ const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
 const SSIM_RESULTS_PATH = path.join(OUT_DIR, 'ssim-results.json');
 const CANARY_PATH = path.join(__dirname, 'canary.json');
 const RASTER_DPI  = 144;
-const REGRESSION_THRESHOLD = 0.05;
+const REGRESSION_THRESHOLD = 0.03;
 const KATEX_FONTS_DIR = path.join(ROOT, 'node_modules', 'katex', 'dist', 'fonts');
 
 // ── CLI parsing ────────────────────────────────────────────────

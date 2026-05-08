@@ -27,6 +27,7 @@ const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000; // 60 min per iteration
 const DEFAULT_MAX_TURNS  = 250;  // was 150; raised to give novel-primitive diagnoses more headroom
 const DEFAULT_VERIFIER_MODEL = 'claude-sonnet-4-5';
 const SSIM_FLOOR = 0.85;          // SSIM threshold: above this, accept even if verifier is unhappy
+const CANARY_THRESHOLD = 0.03;    // max allowed canary drop per commit (enforced independently of sub-agent)
 const MAX_VERIFIER_ROUNDS = 3;    // max Opus→verifier cycles per iteration before giving up
 const ATTEMPTS_PATH  = path.join(__dirname, 'attempts.jsonl');
 const TELEMETRY_PATH = path.join(__dirname, 'telemetry.jsonl');
@@ -104,8 +105,8 @@ function runFullPipeline() {
   // TeXeR reference PNGs, then rebuilds the canary baseline. Corpus directories
   // are NEVER touched (per project CLAUDE.md).
   // Returns { ok, regressions } where regressions is an array of
-  // { id, oldSsim, newSsim, drop } for IDs that dropped > 0.05.
-  const REGRESSION_THRESHOLD = 0.05;
+  // { id, oldSsim, newSsim, drop } for IDs that dropped > 0.03.
+  const REGRESSION_THRESHOLD = 0.03;
 
   // Snapshot old canary before rebuild so we can detect regressions.
   let oldCanary = {};
@@ -333,6 +334,32 @@ function runVerifier(args, target) {
     console.error('[run-loop] verifier verdict parse failed: ' + e.message);
     return { match: null, defects: ['verdict parse error'], confidence: 'none', error: 'parse' };
   }
+}
+
+function runCanaryCheck() {
+  // Independently verify that no canary diagram regressed more than CANARY_THRESHOLD.
+  // Returns { ok, worstDelta, worstId, error? }.
+  // This runs regardless of what the sub-agent reported so a sub-agent that skips
+  // or misconfigures the canary step cannot silently land a regression.
+  const r = cp.spawnSync(process.execPath, [path.join(ROOT, 'auto-fix', 'render-and-score.js'), '--canary'], {
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 5 * 60 * 1000,
+  });
+  let summary = null;
+  for (const line of (r.stdout || '').split('\n')) {
+    try { const obj = JSON.parse(line); if (obj && obj.summary) { summary = obj.summary; break; } } catch {}
+  }
+  if (!summary) {
+    const err = 'canary-score failed (exit=' + r.status + '): ' + (r.stderr || '').slice(0, 200);
+    console.error('[run-loop] ' + err);
+    return { ok: false, worstDelta: null, worstId: null, error: err };
+  }
+  const ok = summary.worstCanaryDelta >= -CANARY_THRESHOLD;
+  if (!ok) {
+    console.error('[run-loop] canary regression: worstDelta=' + summary.worstCanaryDelta +
+                  ' id=' + summary.worstId + ' (threshold=' + CANARY_THRESHOLD + ')');
+  }
+  return { ok, worstDelta: summary.worstCanaryDelta, worstId: summary.worstId };
 }
 
 function verifyDiffOrRevert(preChanges) {
@@ -774,6 +801,25 @@ async function runIteration(args, iter) {
     const last     = readLastAttemptFor(target.id);
     const postSsim = last && typeof last.row.postSsim === 'number' ? last.row.postSsim : null;
     const ssimGood = postSsim != null && postSsim >= SSIM_FLOOR;
+
+    // ── Independent canary guard ──────────────────────────────────────────
+    // Run render-and-score --canary ourselves; do not trust the sub-agent's
+    // self-reported canaryWorst (it may have used the old 0.05 threshold or
+    // skipped the check entirely).
+    const canary = runCanaryCheck();
+    if (!canary.ok) {
+      sh('git reset --hard ' + preCommit);
+      const canaryNote = ' | CANARY-FAIL: worstDelta=' + canary.worstDelta + ' id=' + canary.worstId;
+      if (last) {
+        rewriteAttemptLine(last.lineIndex, {
+          verdict: 'regressed-canary',
+          commit: null,
+          notes: (last.row.notes || '') + canaryNote,
+        });
+      }
+      // Don't retry — a canary regression means the approach is wrong.
+      return 'fail';
+    }
 
     // Run the visual verifier (fresh Sonnet session, no edit history).
     writeStatus({ currentId: target.id, phase: 'verifying', round, roundMax: MAX_VERIFIER_ROUNDS });
