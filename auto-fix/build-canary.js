@@ -175,10 +175,63 @@ function main() {
   console.log(JSON.stringify(stats, null, 2));
 }
 
+// ── --update mode: ratchet existing baselines up, never down ─────────────────
+// Re-renders every ID already in canary.json and sets
+//   new_baseline = max(old_baseline, current_score)
+// Baselines can only rise (locking in improvements) but never fall
+// (regressions are not forgiven — they keep failing until fixed).
+// Call this after every successful commit so the canary stays current
+// without losing protection against re-breaking recently improved diagrams.
+function runUpdate() {
+  if (!fs.existsSync(OUT_PATH)) {
+    console.error('[build-canary] canary.json not found; run without --update first');
+    process.exit(1);
+  }
+  const existing = JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'));
+  const ids = Object.keys(existing).sort();
+  if (ids.length === 0) { console.log('[build-canary] canary.json is empty, nothing to update'); return; }
+
+  const renderResult = cp.spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'render-and-score.js'), '--ids', ids.join(',')],
+    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10 * 60 * 1000 }
+  );
+  const liveScores = new Map();
+  for (const line of (renderResult.stdout || '').split('\n')) {
+    try {
+      const obj = JSON.parse(line);
+      if (obj && obj.id && typeof obj.ssim === 'number') liveScores.set(obj.id, obj.ssim);
+    } catch {}
+  }
+  if (liveScores.size === 0) {
+    console.error('[build-canary] --update: live render produced no scores; canary unchanged');
+    return;
+  }
+
+  let raised = 0, unchanged = 0, noScore = 0;
+  const out = {};
+  for (const id of ids) {
+    const old  = existing[id];
+    const live = liveScores.has(id) ? liveScores.get(id) : null;
+    if (live === null) { out[id] = old; noScore++; continue; }
+    const next = Math.max(old, live);
+    if (next > old) raised++;
+    else unchanged++;
+    out[id] = next;
+  }
+
+  fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2) + '\n');
+  console.log('[build-canary] ratchet: ' + raised + ' raised, ' + unchanged + ' unchanged, ' + noScore + ' no-score (kept old)');
+}
+
 function stringHash(s) {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
   return h >>> 0;
 }
 
-main();
+if (process.argv.includes('--update')) {
+  runUpdate();
+} else {
+  main();
+}

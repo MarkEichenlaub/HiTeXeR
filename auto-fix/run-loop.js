@@ -182,6 +182,17 @@ function clearRecovery() {
   try { fs.unlinkSync(RECOVERY_FILE); } catch {}
 }
 
+function ratchetCanary() {
+  // Ratchet canary baselines up (never down) after a successful commit so the
+  // floor reflects recent improvements without forgiving regressions.
+  const r = cp.spawnSync(process.execPath, [path.join(ROOT, 'auto-fix', 'build-canary.js'), '--update'], {
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5 * 60 * 1000,
+  });
+  const out = (r.stdout || '').trim();
+  if (out) console.log('[run-loop] canary ratchet: ' + out);
+  if (r.status !== 0) console.error('[run-loop] canary ratchet failed (status=' + r.status + '): ' + (r.stderr||'').slice(0,200));
+}
+
 function priorAttemptsFor(id) {
   if (!fs.existsSync(ATTEMPTS_PATH)) return '_(none)_';
   const rows = fs.readFileSync(ATTEMPTS_PATH, 'utf8').split(/\r?\n/).filter(Boolean)
@@ -980,7 +991,10 @@ async function main() {
       }
       break;
     }
-    if (outcome === 'committed') committed++;
+    if (outcome === 'committed') {
+      committed++;
+      ratchetCanary();  // lock in any improvements; baselines can only rise
+    }
     else if (outcome === 'skipped') skipped++;
     else if (outcome === 'fail') { fail++; if (args.stopOnFail) break; }
 
