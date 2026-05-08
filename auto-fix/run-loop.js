@@ -934,6 +934,12 @@ async function main() {
     else if (outcome === 'skipped') skipped++;
     else if (outcome === 'fail') { fail++; if (args.stopOnFail) break; }
 
+    // Regenerate static fix-history page after every iteration.
+    try {
+      const { generate: genHistory } = require(path.join(ROOT, 'auto-fix', 'generate-fix-history.js'));
+      genHistory();
+    } catch (e) { console.error('[run-loop] fix-history gen failed:', e.message); }
+
     // Every N actual commits, refresh full-pipeline SSIM + canary so subsequent
     // target selection reflects the current HiTeXeR state across all 12K
     // diagrams, not just target+canary+family slices.

@@ -1,4 +1,58 @@
-<!DOCTYPE html>
+'use strict';
+// Generates comparison/fix-history.html as a fully static file with data embedded inline.
+// Called from fix-server.js (after enqueue) and run-loop.js (after each iteration).
+// No server is needed to view the generated page.
+
+const fs   = require('fs');
+const path = require('path');
+
+const ROOT              = path.resolve(__dirname, '..');
+const ENQUEUE_HISTORY   = path.join(__dirname, 'enqueue-history.jsonl');
+const ATTEMPTS          = path.join(__dirname, 'attempts.jsonl');
+const QUEUE_PATH        = path.join(__dirname, 'queue.json');
+const FIX_SNAPSHOTS_DIR = path.join(__dirname, 'fix-snapshots');
+const OUTPUT            = path.join(ROOT, 'comparison', 'fix-history.html');
+
+function readJsonl(p) {
+  if (!fs.existsSync(p)) return [];
+  return fs.readFileSync(p, 'utf8').trim().split('\n').filter(Boolean)
+    .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+}
+
+function generate() {
+  const enqueues    = readJsonl(ENQUEUE_HISTORY);
+  const allAttempts = readJsonl(ATTEMPTS);
+
+  let currentQueue = [];
+  try { currentQueue = JSON.parse(fs.readFileSync(QUEUE_PATH, 'utf8')); } catch {}
+  const queuedIds = new Set((Array.isArray(currentQueue) ? currentQueue : []).map(q => q.id));
+
+  const items = enqueues.map(eq => {
+    const matching = allAttempts
+      .filter(a => a.id === eq.id && a.ts >= eq.enqueuedAt)
+      .sort((a, b) => (a.ts < b.ts ? -1 : 1));
+    const attempt = matching.length ? matching[matching.length - 1] : null;
+    const snapshotFile = path.join(FIX_SNAPSHOTS_DIR, eq.enqueueId + '-before.png');
+    return {
+      enqueueId:          eq.enqueueId,
+      id:                 eq.id,
+      description:        eq.description || '',
+      enqueuedAt:         eq.enqueuedAt,
+      hasBeforeSnapshot:  fs.existsSync(snapshotFile),
+      queued:             queuedIds.has(eq.id),
+      attempt,
+    };
+  }).reverse(); // newest first
+
+  fs.writeFileSync(OUTPUT, buildHtml(items, new Date().toISOString()));
+  console.log('[generate-fix-history] wrote ' + items.length + ' items → ' + OUTPUT);
+}
+
+function buildHtml(items, generatedAt) {
+  // Escape data for embedding — only the DATA assignment is dynamic.
+  const dataJson = JSON.stringify(items).replace(/<\/script>/gi, '<\\/script>');
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -121,7 +175,7 @@ a{color:inherit;text-decoration:none}
 <div id="hdr">
   <a href="blink.html">← Blink</a>
   <h1>Fix History</h1>
-  <span id="gen-ts">Generated 2026-05-08 13:18:04 UTC</span>
+  <span id="gen-ts">Generated ${generatedAt.replace('T',' ').slice(0,19)} UTC</span>
 </div>
 
 <div id="tabs">
@@ -152,7 +206,7 @@ a{color:inherit;text-decoration:none}
 </div>
 
 <script>
-const DATA = [];
+const DATA = ${dataJson};
 const PAGE_SIZE = 50;
 let currentFilter = 'all';
 let currentPage   = 1;
@@ -399,7 +453,7 @@ function openModal(item){
 
   // Notes
   const notesEl = document.getElementById('modal-notes');
-  const rawNotes = a && a.notes ? a.notes.replace(/\s*\|\s*(ACCEPTED|CANARY-FAIL|VERIFIER-REJECT)[^|]*/gi,'').trim() : '';
+  const rawNotes = a && a.notes ? a.notes.replace(/\\s*\\|\\s*(ACCEPTED|CANARY-FAIL|VERIFIER-REJECT)[^|]*/gi,'').trim() : '';
   notesEl.style.display = rawNotes ? '' : 'none';
   notesEl.textContent = rawNotes;
 
@@ -456,4 +510,11 @@ document.querySelectorAll('.tab').forEach(tab=>{
 renderList();
 </script>
 </body>
-</html>
+</html>`;
+}
+
+if (require.main === module) {
+  generate();
+} else {
+  module.exports = { generate };
+}

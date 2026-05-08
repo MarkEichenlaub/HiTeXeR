@@ -11,7 +11,8 @@
 // Listens on http://localhost:7842
 
 const http = require('http');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const { generate: generateFixHistory } = require('./auto-fix/generate-fix-history.js');
 const fs   = require('fs');
 const path = require('path');
 
@@ -293,6 +294,9 @@ const server = http.createServer((req, res) => {
         }
 
         console.log(`[fix-server] Enqueued diagram ${id} (queue length: ${queue.length})`);
+
+        // Regenerate static fix-history page so it's always up to date.
+        try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
 
         // Auto-launch the run-loop if it's not already running.
         if (!isRunLoopRunning()) {
