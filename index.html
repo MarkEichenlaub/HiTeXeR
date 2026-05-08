@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.06</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.08</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -501,6 +501,7 @@ body {
     </div>
   </div>
   <button id="btn-slide" title="Toggle slide mode (drag free points)">Slide</button>
+  <button id="btn-label-slide" title="Toggle label slide mode (drag labels to reposition)">Labels</button>
   <button id="btn-gif" title="Toggle GIF mode">GIF</button>
   <button id="md-ai-chat" title="Toggle AI Chat">AI Chat</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
@@ -2717,6 +2718,7 @@ async function doRender() {
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       lastJsRenderOk = true;
       if (gridActive) applyGridOverlay();
+      if (labelSlideActive) applyLabelSlideOverlay();
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
     } catch(e) {
@@ -2782,6 +2784,7 @@ async function doRender() {
       applyCanvasTransform();
       setupSvgInteractivity(code);
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
+      if (labelSlideActive) applyLabelSlideOverlay();
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
     } catch(err) {
@@ -4185,6 +4188,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-coords').addEventListener('click', () => toggleCursorCoords());
   // Toolbar Slide button
   document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
+  // Toolbar Labels button
+  document.getElementById('btn-label-slide').addEventListener('click', () => toggleLabelSlideMode());
   // Toolbar GIF button
   document.getElementById('btn-gif').addEventListener('click', () => toggleGifMode());
   document.getElementById('gif-save-btn').addEventListener('click', () => generateGif('save'));
@@ -4520,8 +4525,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Don't schedule auto-render during slide drag/slider — those handlers render directly
-    if (!slideDragState && !suppressAutoRender) scheduleAutoRender();
+    // Don't schedule auto-render during slide drag/slider/label-drag — those handlers render directly
+    if (!slideDragState && !labelSlideDragState && !suppressAutoRender) scheduleAutoRender();
     // Re-sync GIF mode variable when code changes externally
     if (gifActive && gifSelectedVar && !suppressAutoRender) {
       const code = editor.getValue();
@@ -4703,8 +4708,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let slideSliderRanges = {};  // {varName: {min, max, step}} — preserve ranges across rebuilds
 
   function toggleSlideMode() {
-    // Mutual exclusion: deactivate GIF mode if active
+    // Mutual exclusion: deactivate GIF and label-slide modes if active
     if (gifActive) deactivateGifMode();
+    if (labelSlideActive) deactivateLabelSlideMode();
     slideActive = !slideActive;
     window.hitexerSlideActive = slideActive;
     const btnSlide = document.getElementById('btn-slide');
@@ -5319,6 +5325,417 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ============================================================
+  // Feature: Label Slide Mode
+  // Move labels by injecting/updating a _lblAdj pair variable
+  // ============================================================
+  let labelSlideActive = false;
+  let labelSlideLabelData = [];  // [{interpCi, lineIdx, adjustVarName, svgCX, svgCY, hitCircle, glowEls}]
+  let labelSlideDragState = null;
+  let labelSlideAdjCounter = 0;
+
+  function toggleLabelSlideMode() {
+    if (gifActive) deactivateGifMode();
+    if (slideActive) {
+      slideActive = false;
+      window.hitexerSlideActive = false;
+      const btnSlide = document.getElementById('btn-slide');
+      if (btnSlide) btnSlide.classList.remove('active');
+      deactivateSlideMode();
+    }
+    labelSlideActive = !labelSlideActive;
+    const btn = document.getElementById('btn-label-slide');
+    if (btn) btn.classList.toggle('active', labelSlideActive);
+    if (labelSlideActive) activateLabelSlideMode();
+    else deactivateLabelSlideMode();
+  }
+
+  function activateLabelSlideMode() {
+    probeReady.then(() => applyLabelSlideOverlay());
+  }
+
+  // Parse the second argument (position) of a label() call on a line.
+  // Returns {start, end} character positions (end is exclusive) or null.
+  function parseLabelSecondArg(line) {
+    const re = /\blabel\s*\(/g;
+    const m = re.exec(line);
+    if (!m) return null;
+    let i = m.index + m[0].length;
+    // Skip leading whitespace
+    while (i < line.length && line[i] === ' ') i++;
+    // Skip first argument: quoted string or balanced expression
+    if (i < line.length && line[i] === '"') {
+      i++; // past opening quote
+      while (i < line.length && line[i] !== '"') {
+        if (line[i] === '\\') i++; // skip escape
+        i++;
+      }
+      i++; // past closing quote
+    } else {
+      let depth = 0;
+      while (i < line.length) {
+        const c = line[i];
+        if (c === '(') depth++;
+        else if (c === ')') { if (depth === 0) return null; depth--; }
+        else if (c === ',' && depth === 0) break;
+        i++;
+      }
+    }
+    // Advance to comma separating arg1 from arg2
+    while (i < line.length && line[i] !== ',' && line[i] !== ')') i++;
+    if (i >= line.length || line[i] !== ',') return null;
+    i++; // past comma
+    while (i < line.length && line[i] === ' ') i++;
+    const argStart = i;
+    // Parse second argument: find the end at top-level comma or closing paren
+    let depth = 0;
+    while (i < line.length) {
+      const c = line[i];
+      if (c === '(') depth++;
+      else if (c === ')') { if (depth === 0) break; depth--; }
+      else if (c === ',' && depth === 0) break;
+      i++;
+    }
+    // Trim trailing whitespace
+    let argEnd = i;
+    while (argEnd > argStart && line[argEnd - 1] === ' ') argEnd--;
+    if (argEnd <= argStart) return null;
+    return { start: argStart, end: argEnd };
+  }
+
+  function applyLabelSlideOverlay() {
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
+
+    // Clean up previous overlay
+    svg.querySelectorAll('.label-slide-hit').forEach(el => el.remove());
+    svg.querySelectorAll('.label-slide-glow').forEach(el => el.classList.remove('label-slide-glow'));
+    labelSlideLabelData = [];
+
+    ensureSlideGlowFilter(svg);
+
+    // Helper: transform element local coords to SVG viewBox coords
+    function localToViewBox(el, lx, ly) {
+      const pt = svg.createSVGPoint();
+      pt.x = lx; pt.y = ly;
+      const elCTM = el.getCTM();
+      const svgCTM = svg.getCTM();
+      if (!elCTM || !svgCTM) return { x: lx, y: ly };
+      return pt.matrixTransform(svgCTM.inverse().multiply(elCTM));
+    }
+
+    const seenLines = new Set();
+
+    for (const [interpCi, lineIdx] of interpCmdToLineIdx) {
+      const line = lines[lineIdx] || '';
+      if (!/\blabel\s*\(/.test(line)) continue;
+      // Deduplicate: if multiple interp commands share a line, use first
+      if (seenLines.has(lineIdx)) continue;
+      seenLines.add(lineIdx);
+
+      const els = interpCmdToElements.get(interpCi) || [];
+      if (els.length === 0) continue;
+
+      // Find the SVG center of the label elements
+      let svgCX = null, svgCY = null;
+      for (const el of els) {
+        try {
+          const bbox = el.getBBox();
+          if (bbox.width === 0 && bbox.height === 0) continue;
+          const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+          svgCX = center.x;
+          svgCY = center.y;
+          break;
+        } catch (ignore) {}
+      }
+      if (svgCX === null) continue;
+
+      // Detect existing adjust variable name embedded in the label line
+      let adjustVarName = null;
+      const adjMatch = line.match(/\b(_lblAdj\d+)\b/);
+      if (adjMatch) adjustVarName = adjMatch[1];
+
+      // Create a cyan hit circle at label center
+      const vb = svg.getAttribute('viewBox');
+      let hitR = 18, hitStroke = 2.5;
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map(Number);
+        const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
+        hitR = vbDiag * 0.025;
+        hitStroke = hitR * 0.14;
+      }
+      const hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      hitCircle.setAttribute('cx', svgCX);
+      hitCircle.setAttribute('cy', svgCY);
+      hitCircle.setAttribute('r', hitR);
+      hitCircle.setAttribute('fill', 'rgba(106,196,233,0.25)');
+      hitCircle.setAttribute('stroke', '#6ac4e9');
+      hitCircle.setAttribute('stroke-width', hitStroke);
+      hitCircle.setAttribute('stroke-dasharray', `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`);
+      hitCircle.setAttribute('class', 'label-slide-hit');
+      svg.appendChild(hitCircle);
+
+      labelSlideLabelData.push({ interpCi, lineIdx, adjustVarName, svgCX, svgCY, hitCircle, glowEls: [...els] });
+    }
+
+    // Wire up drag handlers
+    svg.removeEventListener('mousedown', labelSlideMouseDown);
+    window.removeEventListener('mousemove', labelSlideMouseMove);
+    window.removeEventListener('mouseup', labelSlideMouseUp);
+    svg.addEventListener('mousedown', labelSlideMouseDown);
+    window.addEventListener('mousemove', labelSlideMouseMove);
+    window.addEventListener('mouseup', labelSlideMouseUp);
+
+    // Reconnect in-progress drag if overlay was rebuilt during a drag
+    if (labelSlideDragState) {
+      const old = labelSlideDragState.label;
+      const updated = labelSlideLabelData.find(l => l.lineIdx === old.lineIdx);
+      if (updated) labelSlideDragState.label = updated;
+    }
+  }
+
+  function deactivateLabelSlideMode() {
+    labelSlideActive = false;
+    const btn = document.getElementById('btn-label-slide');
+    if (btn) btn.classList.remove('active');
+    const svg = document.querySelector('#preview-container svg');
+    if (svg) {
+      svg.querySelectorAll('.label-slide-hit').forEach(el => el.remove());
+      svg.querySelectorAll('.label-slide-glow').forEach(el => el.classList.remove('label-slide-glow'));
+      svg.removeEventListener('mousedown', labelSlideMouseDown);
+      window.removeEventListener('mousemove', labelSlideMouseMove);
+      window.removeEventListener('mouseup', labelSlideMouseUp);
+    }
+    labelSlideLabelData = [];
+    labelSlideDragState = null;
+  }
+
+  function labelSlideMouseDown(e) {
+    if (!labelSlideActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const svg = document.querySelector('#preview-container svg');
+    if (!svg) return;
+    const screenCTM = svg.getScreenCTM().inverse();
+    const clickSvgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const clickSvgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+
+    // Find nearest hit circle within threshold
+    let bestLabel = null, bestDist = Infinity;
+    for (const lbl of labelSlideLabelData) {
+      const d = Math.hypot(clickSvgX - lbl.svgCX, clickSvgY - lbl.svgCY);
+      if (d < bestDist) { bestDist = d; bestLabel = lbl; }
+    }
+    const vb = svg.getAttribute('viewBox');
+    let hitThresh = 25;
+    if (vb) {
+      const parts = vb.split(/[\s,]+/).map(Number);
+      hitThresh = Math.hypot(parts[2] || 300, parts[3] || 300) * 0.04;
+    }
+    if (!bestLabel || bestDist > hitThresh) return;
+
+    // Compute pixels-per-math-unit for this drag
+    const pxPerUnit = (lastRenderInfo && lastRenderInfo.pxPerUnitX) || slidePxPerUnit || 28.35;
+    const screenPxPerMathUnit = pxPerUnit / Math.abs(screenCTM.a);
+
+    // If this label has no adjust variable yet, inject one now
+    if (!bestLabel.adjustVarName) {
+      const code = editor.getValue();
+      const lines = code.split('\n');
+      const line = lines[bestLabel.lineIdx];
+
+      const argBounds = parseLabelSecondArg(line);
+      if (!argBounds) return; // can't parse — bail
+
+      // Pick a unique counter (max of existing + 1)
+      const existingNums = (code.match(/_lblAdj(\d+)/g) || [])
+        .map(s => parseInt(s.replace('_lblAdj', ''), 10));
+      const maxExisting = existingNums.length > 0 ? Math.max(...existingNums) : 0;
+      if (labelSlideAdjCounter <= maxExisting) labelSlideAdjCounter = maxExisting + 1;
+      else labelSlideAdjCounter++;
+      const adjName = '_lblAdj' + labelSlideAdjCounter;
+
+      // Modify label line: append +adjName to the position argument
+      const oldPos = line.substring(argBounds.start, argBounds.end);
+      const newPos = oldPos + '+' + adjName;
+      const newLine = line.substring(0, argBounds.start) + newPos + line.substring(argBounds.end);
+
+      // Insert "pair adjName = (0,0);" on the line just above
+      const origLineIdx = bestLabel.lineIdx;
+      lines.splice(origLineIdx, 1, 'pair ' + adjName + ' = (0,0);', newLine);
+      const newCode = lines.join('\n');
+
+      suppressAutoRender = true;
+      editor.setValue(newCode);
+      suppressAutoRender = false;
+      if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
+
+      // Synchronous re-render and overlay rebuild
+      if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+        try {
+          const previewEl = document.getElementById('preview-container');
+          const dims = getPreviewDimensions();
+          const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+          const oldSvgEl = previewEl.querySelector('svg');
+          if (oldSvgEl) oldSvgEl.remove();
+          previewEl.insertAdjacentHTML('afterbegin', result.svg);
+          showStaleBadge(false);
+          lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+          applyCanvasTransform();
+          setupSvgInteractivityDirect(newCode, result.commandMap);
+          applyLabelSlideOverlay();
+          // After overlay rebuild, label is at origLineIdx+1 with adjName set
+          bestLabel = labelSlideLabelData.find(l => l.lineIdx === origLineIdx + 1 && l.adjustVarName === adjName);
+          if (!bestLabel) return;
+        } catch (err) {
+          // Async fallback — can't start drag this click
+          doRender().then(() => probeReady).then(() => applyLabelSlideOverlay());
+          return;
+        }
+      } else {
+        doRender().then(() => probeReady).then(() => applyLabelSlideOverlay());
+        return;
+      }
+    }
+
+    if (!bestLabel || !bestLabel.adjustVarName) return;
+
+    // Read current adj value from code
+    const curCode = editor.getValue();
+    const adjRe = new RegExp(bestLabel.adjustVarName + '\\s*=\\s*\\(\\s*([\\-\\d.]+)\\s*,\\s*([\\-\\d.]+)\\s*\\)');
+    let startAdjX = 0, startAdjY = 0;
+    for (const ln of curCode.split('\n')) {
+      const am = adjRe.exec(ln);
+      if (am) { startAdjX = parseFloat(am[1]); startAdjY = parseFloat(am[2]); break; }
+    }
+
+    // Glow label elements
+    for (const el of bestLabel.glowEls) el.classList.add('label-slide-glow', 'slide-free-glow');
+
+    svg.style.cursor = 'grabbing';
+    labelSlideDragState = {
+      label: bestLabel,
+      startAdjX, startAdjY,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      screenPxPerMathUnit,
+      origin: '+lbl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      preDragCode: curCode,
+      preDragHistory: editor.getDoc().getHistory(),
+      svg,
+    };
+  }
+
+  function labelSlideMouseMove(e) {
+    if (!labelSlideDragState) return;
+    e.preventDefault();
+    const { label, startAdjX, startAdjY, startClientX, startClientY, screenPxPerMathUnit } = labelSlideDragState;
+
+    const dx = (e.clientX - startClientX) / screenPxPerMathUnit;
+    const dy = -(e.clientY - startClientY) / screenPxPerMathUnit; // screen Y inverted
+    // Round to 3 decimal places, strip trailing zeros
+    const fmt = v => parseFloat(v.toFixed(3)).toString();
+    const newX = fmt(startAdjX + dx);
+    const newY = fmt(startAdjY + dy);
+
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    const adjName = label.adjustVarName;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(adjName)) {
+        lines[i] = lines[i].replace(
+          new RegExp(adjName + '\\s*=\\s*\\([^)]*\\)'),
+          adjName + ' = (' + newX + ', ' + newY + ')'
+        );
+        break;
+      }
+    }
+    const newCode = lines.join('\n');
+    editorReplaceFull(newCode, labelSlideDragState.origin);
+
+    // Real-time re-render via JS interpreter
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvgEl = previewEl.querySelector('svg');
+        if (oldSvgEl) oldSvgEl.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
+        setupSvgInteractivityDirect(newCode, result.commandMap);
+        applyLabelSlideOverlay();
+        return;
+      } catch (err) { /* fall through */ }
+    }
+
+    // Fallback: move label elements via SVG transform
+    const { svg } = labelSlideDragState;
+    if (!svg || !svg.isConnected) return;
+    const screenCTM = svg.getScreenCTM().inverse();
+    const nowSvgX = screenCTM.a * e.clientX + screenCTM.c * e.clientY + screenCTM.e;
+    const nowSvgY = screenCTM.b * e.clientX + screenCTM.d * e.clientY + screenCTM.f;
+    const dSvgX = nowSvgX - (screenCTM.a * startClientX + screenCTM.c * startClientY + screenCTM.e);
+    const dSvgY = nowSvgY - (screenCTM.b * startClientX + screenCTM.d * startClientY + screenCTM.f);
+    if (label.hitCircle) {
+      label.hitCircle.setAttribute('cx', label.svgCX + dSvgX);
+      label.hitCircle.setAttribute('cy', label.svgCY + dSvgY);
+    }
+    for (const el of label.glowEls) el.setAttribute('transform', `translate(${dSvgX},${dSvgY})`);
+  }
+
+  function labelSlideMouseUp() {
+    if (!labelSlideDragState) return;
+    const { svg, preDragCode, preDragHistory, label } = labelSlideDragState;
+    if (svg) svg.style.cursor = '';
+
+    // Remove glow
+    for (const el of (label.glowEls || [])) {
+      el.classList.remove('label-slide-glow', 'slide-free-glow');
+      el.removeAttribute('transform');
+    }
+
+    // Collapse all mousemove edits into one undo step
+    const doc = editor.getDoc();
+    const finalCode = editor.getValue();
+    if (preDragCode !== undefined && finalCode !== preDragCode) {
+      editor.operation(() => {
+        editor.setValue(preDragCode);
+        doc.setHistory(preDragHistory);
+        editor.setValue(finalCode);
+      });
+    }
+
+    labelSlideDragState = null;
+
+    // Final re-render
+    const code = editor.getValue();
+    if (window.AsyInterp && AsyInterp.canInterpret(code)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
+        const oldSvgEl = previewEl.querySelector('svg');
+        if (oldSvgEl) oldSvgEl.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
+        setupSvgInteractivityDirect(code, result.commandMap);
+        if (labelSlideActive) applyLabelSlideOverlay();
+        return;
+      } catch (err) { /* fall through */ }
+    }
+    doRender().then(() => probeReady).then(() => {
+      if (labelSlideActive) applyLabelSlideOverlay();
+    });
+  }
+
+  // ============================================================
   // Feature: GIF Mode
   // ============================================================
   let gifActive = false;
@@ -5336,6 +5753,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function activateGifMode() {
+    if (labelSlideActive) deactivateLabelSlideMode();
     const code = editor.getValue();
     const freeReals = findFreeReals(code);
     if (freeReals.length === 0) {
