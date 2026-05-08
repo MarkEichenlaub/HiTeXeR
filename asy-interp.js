@@ -10879,10 +10879,12 @@ function createInterpreter() {
         // the texer renders it rotated, anchored at the top end of the axis.
         const extentForcesMiddle = extentLeftRight && !explicitEndpoint;
         const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null && !extentForcesMiddle;
-        // Plain `yaxis("string")` with no arrow, no extent, no ticks, and no
-        // explicit position/align: place label at top, upright (matches texer
-        // and Asymptote's default for the bare-string idiom).
-        const plainEndpointDefault = !arrow && !ticks && !extent
+        // Plain `yaxis("string")` or `yaxis("string", Ticks(...))` with no arrow,
+        // no extent, and no explicit position/align: place label at top, upright
+        // (matches texer and Asymptote's default for the bare-string idiom).
+        // The presence of Ticks doesn't change the label placement - it just
+        // adds tick marks to the axis.
+        const plainEndpointDefault = !arrow && !extent
           && labelPosition == null && labelAlign == null;
         // Axisshift yaxis (axis=XZero/YZero) with ticks but no extent and
         // no explicit position/align: texer renders label at TOP endpoint,
