@@ -9620,10 +9620,12 @@ function createInterpreter() {
     // Check if an arg is an operator value
     function isOperator(a) { return a && a._tag === 'operator'; }
     function wantsSmooth(args) {
+      // Asymptote's graph() uses Spline (smooth) interpolation by default.
+      // Only use linear interpolation if explicitly specified with Linear (operator --).
       for (const a of args) {
-        if (isOperator(a) && (a.value === '..' || a.value === '...')) return true;
+        if (isOperator(a) && a.value === '--') return false;  // Linear explicitly requested
       }
-      return false;
+      return true;  // Default to smooth interpolation (Spline/Hermite)
     }
 
     // graph() function: plot a function over a range
