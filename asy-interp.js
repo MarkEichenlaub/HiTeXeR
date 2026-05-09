@@ -21571,7 +21571,12 @@ function renderSVG(result, opts) {
         // label to extend past viewBox even with measured-width-based effW. Add
         // the gap to dx so right/left correctly cover the rendered position.
         // Skip for _axisLabelMidRotated — the renderer uses only margin (no W offset).
-        if (Math.abs(ax) > 0.01 && !dc._axisLabelMidRotated) {
+        // For horizontally-aligned labels (E/W with non-zero ax), the renderer
+        // uses a wider W formula. However, skip this for rotated labels (labelTransform)
+        // since their horizontal extent is the rotated HEIGHT, not the original WIDTH.
+        // The "render override" was incorrectly using unrotated width for rotated labels,
+        // causing excessive left padding for y-axis labels (08812).
+        if (Math.abs(ax) > 0.01 && !dc._axisLabelMidRotated && !dc.labelTransform) {
           const _wRender = _effLenVB * fontSizeSVG * 0.52;
           const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
           const _marginRender = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
