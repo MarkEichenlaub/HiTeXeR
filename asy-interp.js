@@ -16032,7 +16032,7 @@ function createInterpreter() {
     }
 
     // Helper to compute nice tick values for an axis range
-    function _niceTickValues(min, max, targetCount) {
+    function _niceTickValues(min, max, targetCount, extendToNext) {
       const range = max - min;
       if (range <= 0) return [min];
       // Find a nice step size
@@ -16049,7 +16049,9 @@ function createInterpreter() {
       let t = Math.floor(min / niceStep) * niceStep;
       // If first tick is below min, move to next
       if (t < min - niceStep * 0.001) t += niceStep;
-      while (t <= max + niceStep * 0.001) {
+      // For extendToNext, use ceiling of max as the end bound
+      const endBound = extendToNext ? (Math.ceil(max / niceStep) * niceStep + niceStep * 0.001) : (max + niceStep * 0.001);
+      while (t <= endBound) {
         ticks.push(Math.round(t / niceStep) * niceStep);
         t += niceStep;
       }
@@ -16122,7 +16124,7 @@ function createInterpreter() {
       // Use tighter bounds - first tick >= minX, last tick <= maxX
       const xTicks = _niceTickValues(b.minX, b.maxX, 6);
       const yTicks = _niceTickValues(b.minY, b.maxY, 5);
-      const zTicks = _niceTickValues(b.minZ, b.maxZ, 5);
+      const zTicks = _niceTickValues(b.minZ, b.maxZ, 5, true);
       if (xTicks.length >= 2) {
         // Find first tick >= original minX (snapped inward)
         const firstTick = xTicks.find(t => t >= b.minX - 0.01) || xTicks[0];
@@ -16136,7 +16138,11 @@ function createInterpreter() {
         b.minY = firstTick;
         b.maxY = lastTick;
       }
-      // For Z, keep the natural bounds to show the full surface height
+      // For Z, extend to the next nice tick value (like Asymptote's Bounds style)
+      if (zTicks.length >= 2) {
+        b.minZ = zTicks[0];
+        b.maxZ = zTicks[zTicks.length - 1];
+      }
 
       const axisPen = makePen({r:0, g:0, b:0, linewidth: 0.5});
       const tickPen = makePen({r:0, g:0, b:0, linewidth: 0.3});
@@ -16236,7 +16242,7 @@ function createInterpreter() {
           const dy = belowPt.y - edgePt.y;
           const len = Math.sqrt(dx*dx + dy*dy) || 1;
           const tickLabelOffset = 1.5;
-          const axisLabelOffset = 3.0;
+          const axisLabelOffset = 2.0;
 
           for (let i = 0; i < ticks.length; i++) {
             const x = ticks[i];
@@ -17707,7 +17713,8 @@ function createInterpreter() {
           // Subdivide each face into K×K sub-faces with bicubic Catmull-Rom
           // interpolation of position (for smooth silhouette) + bilinear-slerp
           // of corner normals (for smooth shading).
-          const K = 4;
+          // Use higher subdivision for palette-colored surfaces to reduce banding
+          const K = hasColors ? 8 : 4;
           const lerp = (a, b, t) => a + (b - a) * t;
           const lerpN = (A, B, t) => ({x: lerp(A.x, B.x, t), y: lerp(A.y, B.y, t), z: lerp(A.z, B.z, t)});
           const norm = (v) => { const l = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z) || 1; return {x: v.x/l, y: v.y/l, z: v.z/l}; };
@@ -17755,16 +17762,119 @@ function createInterpreter() {
             if (!cyc) { if (j < 0) j = 0; if (j >= gC) j = gC - 1; }
             return i * gC + j;
           };
+          // RGB to HSV conversion
+          const rgb2hsv = (r, g, b) => {
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const d = max - min;
+            const v = max;
+            const s = max === 0 ? 0 : d / max;
+            let h = 0;
+            if (d !== 0) {
+              if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+              else if (max === g) h = (b - r) / d + 2;
+              else h = (r - g) / d + 4;
+              h /= 6;
+            }
+            return {h, s, v};
+          };
+          // HSV to RGB conversion
+          const hsv2rgb = (h, s, v) => {
+            const i = Math.floor(h * 6);
+            const f = h * 6 - i;
+            const p = v * (1 - s);
+            const q = v * (1 - f * s);
+            const t = v * (1 - (1 - f) * s);
+            switch (i % 6) {
+              case 0: return {r: v, g: t, b: p};
+              case 1: return {r: q, g: v, b: p};
+              case 2: return {r: p, g: v, b: t};
+              case 3: return {r: p, g: q, b: v};
+              case 4: return {r: t, g: p, b: v};
+              case 5: return {r: v, g: p, b: q};
+            }
+            return {r: v, g: v, b: v};
+          };
           const lerpPen = (p0, p1, t) => {
             if (!p0 || !p1) return p0 || p1 || null;
             const out = clonePen(p0);
+            // Convert to HSV to check if these are saturated Wheel colors
+            const hsv0 = rgb2hsv(p0.r || 0, p0.g || 0, p0.b || 0);
+            const hsv1 = rgb2hsv(p1.r || 0, p1.g || 0, p1.b || 0);
+            // If both colors are highly saturated (S > 0.9, V > 0.9), interpolate in HSV
+            // with proper hue wrap-around to avoid going through cyan for red-to-red transitions
+            if (hsv0.s > 0.9 && hsv1.s > 0.9 && hsv0.v > 0.9 && hsv1.v > 0.9) {
+              let h0 = hsv0.h, h1 = hsv1.h;
+              // Handle hue wrap-around: if the difference is > 0.5, go the short way
+              let dh = h1 - h0;
+              if (dh > 0.5) dh -= 1;
+              else if (dh < -0.5) dh += 1;
+              let h = h0 + dh * t;
+              if (h < 0) h += 1;
+              if (h >= 1) h -= 1;
+              const s = hsv0.s * (1 - t) + hsv1.s * t;
+              const v = hsv0.v * (1 - t) + hsv1.v * t;
+              const rgb = hsv2rgb(h, s, v);
+              out.r = rgb.r;
+              out.g = rgb.g;
+              out.b = rgb.b;
+              return out;
+            }
+            // Fallback to RGB interpolation for non-Wheel colors
             out.r = p0.r * (1 - t) + p1.r * t;
             out.g = p0.g * (1 - t) + p1.g * t;
             out.b = p0.b * (1 - t) + p1.b * t;
             return out;
           };
           const bilinPen = (C00, C10, C11, C01, t, s) => {
-            // Bilinear interpolation: lerp along i (t), then along j (s)
+            // Bilinear interpolation in HSV space for Wheel colors
+            if (!C00 || !C10 || !C11 || !C01) {
+              // Fallback to sequential lerp
+              const top = lerpPen(C00, C10, t);
+              const bot = lerpPen(C01, C11, t);
+              return lerpPen(top, bot, s);
+            }
+            // Check if all four corners are saturated Wheel colors
+            const hsv00 = rgb2hsv(C00.r || 0, C00.g || 0, C00.b || 0);
+            const hsv10 = rgb2hsv(C10.r || 0, C10.g || 0, C10.b || 0);
+            const hsv11 = rgb2hsv(C11.r || 0, C11.g || 0, C11.b || 0);
+            const hsv01 = rgb2hsv(C01.r || 0, C01.g || 0, C01.b || 0);
+            const isSat = (h) => h.s > 0.9 && h.v > 0.9;
+            if (isSat(hsv00) && isSat(hsv10) && isSat(hsv11) && isSat(hsv01)) {
+              // True bilinear interpolation in HSV with hue wrap-around
+              // First, find a common reference hue to handle wrap-around
+              const h00 = hsv00.h;
+              // Unwrap other hues relative to h00
+              const unwrap = (h, ref) => {
+                let dh = h - ref;
+                if (dh > 0.5) return h - 1;
+                if (dh < -0.5) return h + 1;
+                return h;
+              };
+              const h10 = unwrap(hsv10.h, h00);
+              const h01 = unwrap(hsv01.h, h00);
+              const h11 = unwrap(hsv11.h, h00);
+              // Bilinear interpolation of hue
+              const hTop = h00 * (1 - t) + h10 * t;
+              const hBot = h01 * (1 - t) + h11 * t;
+              let h = hTop * (1 - s) + hBot * s;
+              // Wrap h back to [0, 1)
+              if (h < 0) h += 1;
+              if (h >= 1) h -= 1;
+              // Bilinear interpolation of saturation and value
+              const sTop = hsv00.s * (1 - t) + hsv10.s * t;
+              const sBot = hsv01.s * (1 - t) + hsv11.s * t;
+              const sv = sTop * (1 - s) + sBot * s;
+              const vTop = hsv00.v * (1 - t) + hsv10.v * t;
+              const vBot = hsv01.v * (1 - t) + hsv11.v * t;
+              const vv = vTop * (1 - s) + vBot * s;
+              const rgb = hsv2rgb(h, sv, vv);
+              const out = clonePen(C00);
+              out.r = rgb.r;
+              out.g = rgb.g;
+              out.b = rgb.b;
+              return out;
+            }
+            // Fallback to sequential lerp for non-Wheel colors
             const top = lerpPen(C00, C10, t);
             const bot = lerpPen(C01, C11, t);
             return lerpPen(top, bot, s);
@@ -19085,10 +19195,13 @@ function createInterpreter() {
       // visible through every face.
       const fillOpacity = (typeof shaded.opacity === 'number') ? shaded.opacity : 1;
       if (fillOpacity >= 0.95) {
-        const stroke = clonePen(shaded);
-        if (it._subSmooth) stroke.linewidth = 0.3;
-        else stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
-        target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true, _faceDepth: it.depth});
+        // Skip antialiasing stroke for finely-subdivided smooth faces
+        // to avoid accumulating visible edges from many tiny faces
+        if (!it._subSmooth) {
+          const stroke = clonePen(shaded);
+          stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
+          target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true, _faceDepth: it.depth});
+        }
       }
     }
   }
