@@ -22258,6 +22258,10 @@ function renderSVG(result, opts) {
   // their sizing didn't change (still ~7 bp/unit floor or larger), and the
   // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
+  // Track narrow-span 1D horizontal diagrams so dot boost can be reduced
+  // (stroke boost needs to be high for lines/arrows, but dots are already
+  // prominent and don't need the same multiplier).
+  let _isNarrowFewDots1D = false;
   if (isAutoScaled) {
     const _w = (maxX - minX) || 1;
     const _h = (maxY - minY) || 1;
@@ -22298,8 +22302,8 @@ function renderSVG(result, opts) {
         }
         // Narrow-span (<2 user units) with few dots (≤3) needs higher boost
         const _geoSpan = (geoMaxX - geoMinX) || 1;
-        const _isNarrowFewDots = _geoSpan < 2 && _dotCount <= 3;
-        _autoScaledStrokeBoost = _isNarrowFewDots ? 3.25 : 1.67;
+        _isNarrowFewDots1D = _geoSpan < 2 && _dotCount <= 3;
+        _autoScaledStrokeBoost = _isNarrowFewDots1D ? 3.25 : 1.67;
       } else {
         _autoScaledStrokeBoost = 1.0;
       }
@@ -22452,8 +22456,13 @@ function renderSVG(result, opts) {
       // ensures dots have visual weight comparable to TeXeR (e.g. 01298).
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (_autoScaledStrokeBoost > 1) _dotBoost = _autoScaledStrokeBoost;
-        else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
+        if (_autoScaledStrokeBoost > 1) {
+          // For narrow-span 1D horizontal diagrams (e.g. 04219), dots don't need
+          // the high stroke boost (3.25×) which makes them 2-3× too large. Use
+          // a moderate 2.5× boost so dots match TeXeR's natural size while
+          // strokes still get the full 3.25× boost for visibility.
+          _dotBoost = _isNarrowFewDots1D ? 2.5 : _autoScaledStrokeBoost;
+        } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
