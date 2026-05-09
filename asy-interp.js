@@ -10690,7 +10690,11 @@ function createInterpreter() {
               // fs). Sum: fs (tick height) + 0.28*fs (tick's labelmargin)
               // + 0.28*fs (axis label's labelmargin) = ~1.56*fs total
               // distance from axis to top-of-axis-label.
-              const h = fs * 1.56;
+              // For centered axis labels (framed axis extents like BottomTop),
+              // TeXeR uses a tighter spacing (~1.2*fs) since the label sits
+              // centered below the axis rather than pushed past an endpoint.
+              const isCenteredLabel = xIsExplicitAxis && Math.abs(lAlign.x) < 0.01;
+              const h = fs * (isCenteredLabel ? 1.2 : 1.56);
               if (h > tickLabelClearance) tickLabelClearance = h;
             }
           }
