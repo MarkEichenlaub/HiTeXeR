@@ -21384,6 +21384,9 @@ function renderSVG(result, opts) {
   // to browsers (which honour overflow:visible).
   {
     let padL = 0, padR = 0, padT = 0, padB = 0; // extra space needed in viewBox units
+    // Build a map of dot radii at positions so label overshoot can add dotPush
+    // (matching the renderer's dotmargin = labelmargin + dotfactor*linewidth/2).
+    const _dotRadiusForOvershoot = new Map();
 
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
@@ -21394,6 +21397,11 @@ function renderSVG(result, opts) {
         const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel + 0.5 * bpCSSPixel;
         const sx = (dc.pos.x - minX) * pxPerUnitX;
         const sy = (maxY - dc.pos.y) * pxPerUnitY;
+        // Record dot radius for label overshoot (without the 0.5bp safety margin)
+        const _dotRPure = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
+        const _dkey = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
+        const _prevR = _dotRadiusForOvershoot.get(_dkey) || 0;
+        if (_dotRPure > _prevR) _dotRadiusForOvershoot.set(_dkey, _dotRPure);
         // Skip points far outside the viewport — their overshoot is invisible
         if (sx >= -dotR && sx <= viewW + dotR && sy >= -dotR && sy <= viewH + dotR) {
           padL = Math.max(padL, dotR - sx);
@@ -21569,6 +21577,19 @@ function renderSVG(result, opts) {
         } else {
           dx = ax_n * effW + ax * margin;
           dy = -(ay_n * effH + ay * margin);
+        }
+        // For labels from dot(), the renderer adds dotPush (dot radius) to the offset.
+        // Match that here so viewBox padding covers the actual label position.
+        if (dc._fromDot && dc.pos) {
+          const _dkey = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
+          const _dotPush = _dotRadiusForOvershoot.get(_dkey) || 0;
+          if (_dotPush > 0) {
+            const aMag = Math.hypot(ax, ay);
+            const axUnit = aMag > 0 ? ax / aMag : 0;
+            const ayUnit = aMag > 0 ? ay / aMag : 0;
+            dx += axUnit * _dotPush;
+            dy -= ayUnit * _dotPush;  // negate: SVG y-axis is inverted
+          }
         }
         // For horizontally-aligned labels (E/W with non-zero ax), the renderer
         // (line ~18185) uses a wider W formula (cleanLen × fontSizeSVG × 0.52,
