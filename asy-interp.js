@@ -11053,11 +11053,14 @@ function createInterpreter() {
         const extentForcesMiddle = extentLeftRight && !explicitEndpoint;
         const arrowEndpointDefault = !!arrow && labelPosition == null && labelAlign == null && !extentForcesMiddle;
         // Plain `yaxis("string")` or `yaxis("string", Ticks(...))` with no arrow,
-        // no extent, and no explicit position/align: place label at top, upright
-        // (matches texer and Asymptote's default for the bare-string idiom).
-        // The presence of Ticks doesn't change the label placement - it just
-        // adds tick marks to the axis.
-        const plainEndpointDefault = !arrow && !extent
+        // no extent, no axisshift, and no explicit position/align: place label
+        // at top, upright (matches texer and Asymptote's default for the
+        // bare-string idiom). The presence of Ticks doesn't change the label
+        // placement - it just adds tick marks to the axis.
+        // EXCEPTION: when axis is XZero/YZero (axisShiftXExplicit), the label
+        // should be rotated 90° CCW even without an explicit extent — see
+        // axisshiftRotatedEndpoint below.
+        const plainEndpointDefault = !arrow && !extent && !axisShiftXExplicit
           && labelPosition == null && labelAlign == null;
         // Axisshift yaxis (axis=XZero/YZero) with ticks but no extent and
         // no explicit position/align: texer renders label at TOP endpoint,
