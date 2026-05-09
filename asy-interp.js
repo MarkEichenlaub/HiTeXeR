@@ -22651,9 +22651,13 @@ function renderSVG(result, opts) {
           const px = sx + dx, py = sy + dy;
           if (Math.abs(labelHorizStretch - 1) > 0.01) {
             // Rotation + horizontal stretch: scale then rotate around the label position
-            labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) rotate(${fmt(-angle)}) scale(${fmt(labelHorizStretch)}, 1) translate(${fmt(-px)}, ${fmt(-py)})"`;
+            // Use +angle (not -angle): the Y-flip (maxY - y) for SVG coordinates
+            // mirrors geometry but NOT text reading direction. For y-axis labels
+            // rotated 90° CCW in Asymptote (text reads bottom-to-top), we need
+            // 90° CW in SVG (rotate(+90)) to achieve the same visual result.
+            labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) rotate(${fmt(angle)}) scale(${fmt(labelHorizStretch)}, 1) translate(${fmt(-px)}, ${fmt(-py)})"`;
           } else {
-            labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(px)}, ${fmt(py)})"`;
+            labelTransformAttr = ` transform="rotate(${fmt(angle)}, ${fmt(px)}, ${fmt(py)})"`;
           }
           // With rotation, text-anchor must be 'middle' so the label is centered at the
           // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
