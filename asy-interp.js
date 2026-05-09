@@ -22278,14 +22278,31 @@ function renderSVG(result, opts) {
       // trim+resize step squashes the diagram horizontally to fit a 1:1
       // square, which compresses the dot/stroke weights.  Apply 1.67× DPI-
       // ratio boost so dots/strokes survive the trim+resize compression.
+      // Special case: very narrow-span diagrams with few dots (e.g. 04219
+      // with span=1, 2 dots) need a higher boost because their dots/strokes
+      // are relatively thin at the 150 bp max-dim scale and get squashed
+      // more aggressively during SSIM trim+resize. Wide-span diagrams (like
+      // 09210 span=8, 09214 span=3) already have relatively thick dots and
+      // need just the standard 1.67× boost.
       // Vertical cases (x-range = 0, e.g. 00992 vertical line with dots and
       // a label at left): the diagram renders very tall and thin.  After
       // SSIM trim+resize, the major axis (y) gets compressed dramatically,
       // and the dots — already several bp wide — appear oversized relative
-      // to the squashed line height.  Boosting them further inflates the
-      // mismatch.  Skip the boost on vertical 1D so the dots match TeXeR's
-      // natural-sized rendering.
-      _autoScaledStrokeBoost = geoIs1DHorizontal ? 1.67 : 1.0;
+      // to the squashed line height.  Skip the boost on vertical 1D so the
+      // dots match TeXeR's natural-sized rendering.
+      if (geoIs1DHorizontal) {
+        // Count dots in the diagram
+        let _dotCount = 0;
+        for (const dc of drawCommands) {
+          if (dc.cmd === 'dot') _dotCount++;
+        }
+        // Narrow-span (<2 user units) with few dots (≤3) needs higher boost
+        const _geoSpan = (geoMaxX - geoMinX) || 1;
+        const _isNarrowFewDots = _geoSpan < 2 && _dotCount <= 3;
+        _autoScaledStrokeBoost = _isNarrowFewDots ? 3.25 : 1.67;
+      } else {
+        _autoScaledStrokeBoost = 1.0;
+      }
     } else if (_isFlatBanner) {
       _autoScaledStrokeBoost = 2.0;
     } else if (_aspect > 6 && _renderedMinDim >= 10) {
