@@ -19865,6 +19865,9 @@ function renderSVG(result, opts) {
   // (pxPerUnit) depends on the bbox, and labels expand the bbox.  Two passes
   // suffice: the first expands coarsely, the second refines with the updated bbox.
   const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
+  if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
+    try { process.stderr.write('[geo-only] geoMinX=' + geoMinX.toFixed(4) + ' geoMaxX=' + geoMaxX.toFixed(4) + ' geoMinY=' + geoMinY.toFixed(4) + ' geoMaxY=' + geoMaxY.toFixed(4) + ' geoW=' + ((geoMaxX-geoMinX)||1).toFixed(4) + ' geoH=' + ((geoMaxY-geoMinY)||1).toFixed(4) + '\n'); } catch(e){}
+  }
   const labelInfoBp = [];  // Collect label bp-space info for iterative scale solver
   // Track previous-pass label-expanded bbox so we can detect convergence and
   // bail out of extra iterations when the bbox stops growing.
@@ -23733,9 +23736,10 @@ function preprocessLatexForKatex(src) {
   src = src.replace(/[\t\r\n]+/g, ' ');
   // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
   // MathJax/KaTeX renders ^\circ with extra spacing around the ring operator.
-  // Use \!° (negative thin space + degree) to get tight spacing matching TeXeR.
-  src = src.replace(/\^\s*\{\\circ\}/g, '\\!°');
-  src = src.replace(/\^\s*\\circ\b/g, '\\!°');
+  // Use ^{°} (superscript unicode degree) for tight spacing matching TeXeR.
+  // The \! negative thin space pulls the superscript closer to the preceding number.
+  src = src.replace(/\^\s*\{\\circ\}/g, '\\!^{°}');
+  src = src.replace(/\^\s*\\circ\b/g, '\\!^{°}');
   const replacements = [
     [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
     [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
