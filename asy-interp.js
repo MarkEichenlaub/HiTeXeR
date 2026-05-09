@@ -23731,6 +23731,11 @@ function preprocessLatexForKatex(src) {
   // `\sinheta`) or reject it.  Map them to a real space so the macro is
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
+  // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
+  // MathJax/KaTeX renders ^\circ with extra spacing around the ring operator.
+  // Use \!° (negative thin space + degree) to get tight spacing matching TeXeR.
+  src = src.replace(/\^\s*\{\\circ\}/g, '\\!°');
+  src = src.replace(/\^\s*\\circ\b/g, '\\!°');
   const replacements = [
     [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
     [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
