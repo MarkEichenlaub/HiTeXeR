@@ -1925,7 +1925,8 @@ function createInterpreter() {
   const directionWarnings = [];
   const _warnedDirs = new Set();
   // Active picture (all drawing routes here; copied to drawCommands at end)
-  let currentPic = {_tag:'picture', commands:[]};
+  let _picIdCounter = 0;
+  let currentPic = {_tag:'picture', commands:[], _debugId: ++_picIdCounter};
   // 3D projection (set by import three / currentprojection = ...)
   let projection = null; // null = no 3D; {type, camera, target, up, ...}
   // Track all projected triples for camera auto-adjust (perspective adjust=true)
@@ -2549,6 +2550,14 @@ function createInterpreter() {
       if (op===T.SLASH) return right?makePair(left.x/right, left.y/right):makePair(0,0);
       if (op===T.PLUS) return makePair(left.x+right, left.y);
       if (op===T.MINUS) return makePair(left.x-right, left.y);
+      // Comparing pair to real: promote real to pair (r, 0) then compare
+      if (op===T.EQ) return left.x === right && left.y === 0;
+      if (op===T.NEQ) return left.x !== right || left.y !== 0;
+    }
+    if (isNumber(left) && isPair(right)) {
+      // Comparing real to pair: promote real to pair (r, 0) then compare
+      if (op===T.EQ) return left === right.x && right.y === 0;
+      if (op===T.NEQ) return left !== right.x || right.y !== 0;
     }
 
     // Numeric array broadcasting (element-wise ops for real[] arrays)
@@ -6433,7 +6442,77 @@ function createInterpreter() {
       const t = z + _lanczosG + 0.5;
       return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
     }
-    env.set('gamma', _broadcast1(_gammaReal));
+    // Complex gamma function using Lanczos approximation
+    // For z = x + iy, we need complex arithmetic throughout.
+    function _gammaComplex(zr, zi) {
+      // Reflection formula for Re(z) < 0.5
+      if (zr < 0.5) {
+        // Γ(z) = π / (sin(πz) * Γ(1-z))
+        // sin(πz) for complex z: sin(π(x+iy)) = sin(πx)cosh(πy) + i*cos(πx)sinh(πy)
+        const pizr = Math.PI * zr, pizi = Math.PI * zi;
+        const sinRe = Math.sin(pizr) * Math.cosh(pizi);
+        const sinIm = Math.cos(pizr) * Math.sinh(pizi);
+        // Γ(1-z)
+        const [g1r, g1i] = _gammaComplex(1 - zr, -zi);
+        // sin(πz) * Γ(1-z)
+        const denRe = sinRe * g1r - sinIm * g1i;
+        const denIm = sinRe * g1i + sinIm * g1r;
+        // π / (sin(πz) * Γ(1-z))
+        const denMag2 = denRe * denRe + denIm * denIm;
+        if (denMag2 < 1e-300) return [Infinity, 0];
+        return [Math.PI * denRe / denMag2, -Math.PI * denIm / denMag2];
+      }
+      // Lanczos approximation: Γ(z+1) = sqrt(2π) * (z+g+0.5)^(z+0.5) * e^(-(z+g+0.5)) * A(z)
+      // We compute Γ(z) = Γ(z+1)/z, so we work with z-1 internally (matching _gammaReal).
+      const wr = zr - 1, wi = zi;
+      // A(z) = c0 + sum_{k=1..g+1} c_k / (z+k)
+      let ar = _lanczosC[0], ai = 0;
+      for (let k = 1; k < _lanczosG + 2; k++) {
+        // 1 / (w + k + i*wi) = (w+k - i*wi) / ((w+k)^2 + wi^2)
+        const dr = wr + k, di = wi;
+        const mag2 = dr * dr + di * di;
+        if (mag2 < 1e-300) continue;
+        const invR = dr / mag2, invI = -di / mag2;
+        ar += _lanczosC[k] * invR;
+        ai += _lanczosC[k] * invI;
+      }
+      // t = z + g + 0.5 (where z-1 is stored in wr, so t = wr + g + 0.5 + 1 = wr + g + 1.5)
+      // Wait, that's wrong - _gammaReal uses t = z + g + 0.5 where z has been decremented.
+      // So t = (zr-1) + g + 0.5 = wr + g + 0.5
+      const tr = wr + _lanczosG + 0.5, ti = wi;
+      // t^(z+0.5) = t^(wr+0.5 + i*wi) = exp((wr+0.5 + i*wi) * log(t))
+      // log(t) for complex t: log(|t|) + i*arg(t)
+      const tMag = Math.sqrt(tr * tr + ti * ti);
+      const tArg = Math.atan2(ti, tr);
+      const logTr = Math.log(tMag), logTi = tArg;
+      // (wr+0.5 + i*wi) * (logTr + i*logTi)
+      const expr = (wr + 0.5) * logTr - wi * logTi;
+      const expi = (wr + 0.5) * logTi + wi * logTr;
+      // t^(z+0.5) = exp(expr + i*expi)
+      const powMag = Math.exp(expr);
+      const powR = powMag * Math.cos(expi), powI = powMag * Math.sin(expi);
+      // e^(-t) = exp(-tr - i*ti) = exp(-tr) * (cos(-ti) + i*sin(-ti))
+      const expNegMag = Math.exp(-tr);
+      const expNegR = expNegMag * Math.cos(-ti), expNegI = expNegMag * Math.sin(-ti);
+      // sqrt(2π) * t^(z+0.5) * e^(-t) * A(z)
+      const sqrt2pi = Math.sqrt(2 * Math.PI);
+      // First: t^(z+0.5) * e^(-t)
+      let rr = powR * expNegR - powI * expNegI;
+      let ri = powR * expNegI + powI * expNegR;
+      // Then: * A(z)
+      const tr2 = rr * ar - ri * ai;
+      const ti2 = rr * ai + ri * ar;
+      // Finally: * sqrt(2π)
+      return [sqrt2pi * tr2, sqrt2pi * ti2];
+    }
+    env.set('gamma', (v) => {
+      if (Array.isArray(v)) return v.map(x => env.get('gamma')(x));
+      if (isPair(v)) {
+        const [re, im] = _gammaComplex(v.x, v.y);
+        return makePair(re, im);
+      }
+      return _gammaReal(toNumber(v));
+    });
     function _factorialReal(n) {
       // Integer fast-path
       if (Number.isFinite(n) && n === Math.floor(n) && n >= 0 && n <= 170) {
@@ -14360,7 +14439,15 @@ function createInterpreter() {
       //   revolution(path3 g, triple axis, ...)            ← single triple AFTER path
       //   revolution(triple c, path3 g, ...)               ← single triple BEFORE path (axis defaults to Z)
       const triples = pos.filter(a => isTriple(a));
+      const triplesBefore = pos.filter((a, i) => isTriple(a) && i < pathIdx);
       const triplesAfter = pos.filter((a, i) => isTriple(a) && i > pathIdx);
+      // Center: triple BEFORE the path, or origin
+      let center = makeTriple(0, 0, 0);
+      if (named.c && isTriple(named.c)) {
+        center = named.c;
+      } else if (triplesBefore.length >= 1) {
+        center = triplesBefore[0];
+      }
       let axis;
       if (named.axis && isTriple(named.axis)) {
         axis = named.axis;
@@ -14387,24 +14474,27 @@ function createInterpreter() {
       // Normalize axis
       const aLen = Math.sqrt(axis.x*axis.x + axis.y*axis.y + axis.z*axis.z) || 1;
       const A = makeTriple(axis.x/aLen, axis.y/aLen, axis.z/aLen);
-      // For each vertex: closest point on axis through origin = (A·v) A
-      // Rodrigues rotation around axis A by angle θ:
-      //   v' = v*cosθ + (A×v)*sinθ + A*(A·v)*(1-cosθ)
+      // Translate vertices relative to center, then rotate around axis through origin,
+      // then translate back. This makes the axis of revolution pass through `center`.
       const rotated = [];
       for (let j = 0; j <= nLon; j++) {
         const th = (ang1 + (ang2 - ang1) * j / nLon) * Math.PI / 180;
-        const c = Math.cos(th), s = Math.sin(th);
+        const cosT = Math.cos(th), sinT = Math.sin(th);
         const row = [];
         for (const v of verts) {
-          const dot = A.x*v.x + A.y*v.y + A.z*v.z;
-          const cx = A.y*v.z - A.z*v.y;
-          const cy = A.z*v.x - A.x*v.z;
-          const cz = A.x*v.y - A.y*v.x;
-          row.push(makeTriple(
-            v.x*c + cx*s + A.x*dot*(1-c),
-            v.y*c + cy*s + A.y*dot*(1-c),
-            v.z*c + cz*s + A.z*dot*(1-c)
-          ));
+          // Translate by -center
+          const vx = v.x - center.x, vy = v.y - center.y, vz = v.z - center.z;
+          // Rodrigues rotation around axis A by angle θ:
+          //   v' = v*cosθ + (A×v)*sinθ + A*(A·v)*(1-cosθ)
+          const dot = A.x*vx + A.y*vy + A.z*vz;
+          const cx = A.y*vz - A.z*vy;
+          const cy = A.z*vx - A.x*vz;
+          const cz = A.x*vy - A.y*vx;
+          const rx = vx*cosT + cx*sinT + A.x*dot*(1-cosT);
+          const ry = vy*cosT + cy*sinT + A.y*dot*(1-cosT);
+          const rz = vz*cosT + cz*sinT + A.z*dot*(1-cosT);
+          // Translate back by +center
+          row.push(makeTriple(rx + center.x, ry + center.y, rz + center.z));
         }
         rotated.push(row);
       }
@@ -14419,23 +14509,25 @@ function createInterpreter() {
         }
       }
       // Sphere detection: if all generator vertices are equidistant from the
-      // origin (which lies on the rotation axis), then the revolution produces
-      // a portion of a sphere of that radius centred at the origin. Attach
+      // center (which lies on the rotation axis), then the revolution produces
+      // a portion of a sphere of that radius centred at the center. Attach
       // _center/_radius so surface() enables back-face culling + sphere-shading
       // and sph.silhouette() returns the proper analytic outline circle.
       let sphereR = null;
       if (verts.length >= 2) {
-        const r0 = Math.sqrt(verts[0].x*verts[0].x + verts[0].y*verts[0].y + verts[0].z*verts[0].z);
+        const dx0 = verts[0].x - center.x, dy0 = verts[0].y - center.y, dz0 = verts[0].z - center.z;
+        const r0 = Math.sqrt(dx0*dx0 + dy0*dy0 + dz0*dz0);
         let allEq = r0 > 1e-6;
         for (let i = 1; i < verts.length; i++) {
-          const ri = Math.sqrt(verts[i].x*verts[i].x + verts[i].y*verts[i].y + verts[i].z*verts[i].z);
+          const dxi = verts[i].x - center.x, dyi = verts[i].y - center.y, dzi = verts[i].z - center.z;
+          const ri = Math.sqrt(dxi*dxi + dyi*dyi + dzi*dzi);
           if (Math.abs(ri - r0) > 1e-3 * Math.max(1, r0)) { allEq = false; break; }
         }
         if (allEq) sphereR = r0;
       }
-      const out = {_tag:'revolution', mesh: makeMesh(faces), path: path, axis: A, _grid: rotated};
+      const out = {_tag:'revolution', mesh: makeMesh(faces), path: path, axis: A, _grid: rotated, _revolutionCenter: center};
       if (sphereR !== null) {
-        out._center = makeTriple(0, 0, 0);
+        out._center = center;
         out._radius = sphereR;
       }
       return out;
@@ -16021,6 +16113,31 @@ function createInterpreter() {
       // Don't artificially extend maxZ - keep it at actual surface max
       if (b.minZ > 0 && b.minZ < 0.5) b.minZ = 0;
 
+      // Store original data bounds before snapping for tick filtering
+      const origMinX = b.minX, origMaxX = b.maxX;
+      const origMinY = b.minY, origMaxY = b.maxY;
+
+      // Snap bounds to the innermost tick positions for cleaner axis visualization
+      // This matches Asymptote's Bounds style where the box aligns with tick marks
+      // Use tighter bounds - first tick >= minX, last tick <= maxX
+      const xTicks = _niceTickValues(b.minX, b.maxX, 6);
+      const yTicks = _niceTickValues(b.minY, b.maxY, 5);
+      const zTicks = _niceTickValues(b.minZ, b.maxZ, 5);
+      if (xTicks.length >= 2) {
+        // Find first tick >= original minX (snapped inward)
+        const firstTick = xTicks.find(t => t >= b.minX - 0.01) || xTicks[0];
+        const lastTick = [...xTicks].reverse().find(t => t <= b.maxX + 0.01) || xTicks[xTicks.length - 1];
+        b.minX = firstTick;
+        b.maxX = lastTick;
+      }
+      if (yTicks.length >= 2) {
+        const firstTick = yTicks.find(t => t >= b.minY - 0.01) || yTicks[0];
+        const lastTick = [...yTicks].reverse().find(t => t <= b.maxY + 0.01) || yTicks[yTicks.length - 1];
+        b.minY = firstTick;
+        b.maxY = lastTick;
+      }
+      // For Z, keep the natural bounds to show the full surface height
+
       const axisPen = makePen({r:0, g:0, b:0, linewidth: 0.5});
       const tickPen = makePen({r:0, g:0, b:0, linewidth: 0.3});
       const tickLen = 0.05 * Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
@@ -16533,23 +16650,15 @@ function createInterpreter() {
       // Check for 3D triple argument
       if (args.length === 1 && isTriple(args[0])) {
         const t = args[0];
-        // Get the surface bounds from picture metadata, or use defaults
+        // Get the surface bounds from picture's tracked _3dBounds, or use defaults
         const pic = currentPic;
-        let minX = -Math.PI, maxX = Math.PI;
-        let minY = -2, maxY = 2;
-        let minZ = 0, maxZ = 4;
-        // Try to find bounds from any drawn surfaces
-        for (const c of pic.commands) {
-          if (c.mesh && c.mesh.faces) {
-            for (const face of c.mesh.faces) {
-              for (const v of face.vertices || []) {
-                if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
-                if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
-                if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
-              }
-            }
-          }
-        }
+        const b = pic && pic._3dBounds;
+        let minX = (b && b.minX !== Infinity) ? b.minX : -Math.PI;
+        let maxX = (b && b.maxX !== -Infinity) ? b.maxX : Math.PI;
+        let minY = (b && b.minY !== Infinity) ? b.minY : -2;
+        let maxY = (b && b.maxY !== -Infinity) ? b.maxY : 2;
+        let minZ = (b && b.minZ !== Infinity) ? b.minZ : 0;
+        let maxZ = (b && b.maxZ !== -Infinity) ? b.maxZ : 4;
         // Map triple components to box coordinates
         const x = t.x < 0 ? minX : (t.x > 0 ? maxX : (minX + maxX) / 2);
         const y = t.y < 0 ? minY : (t.y > 0 ? maxY : (minY + maxY) / 2);
@@ -17512,7 +17621,8 @@ function createInterpreter() {
         }
         // If surface has per-vertex _colors from s.colors(palette(...)), annotate
         // each face with a pen averaged across its 4 grid-vertex colors.
-        else if (surfForColors && Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0 && surfForColors._gridCols) {
+        // Skip this if smooth shading will handle color interpolation (when _grid exists).
+        else if (surfForColors && Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0 && surfForColors._gridCols && !surfForColors._grid) {
           const cols = surfForColors._colors;
           const gCols = surfForColors._gridCols;
           const gRows = surfForColors._gridRows;
@@ -17557,8 +17667,11 @@ function createInterpreter() {
         // and slerp-interpolated smooth normals. This turns flat-shaded
         // facets into a smoothly graduated shading that approximates
         // Asymptote's PRC Gouraud output.
-        if (surfForColors && surfForColors._grid && surfForColors._gridRows && surfForColors._gridCols &&
-            !surfForColors._colors) {
+        // Also handles per-vertex palette colors by bilinearly interpolating
+        // colors at each sub-face.
+        if (surfForColors && surfForColors._grid && surfForColors._gridRows && surfForColors._gridCols) {
+          // Check if we have per-vertex colors to interpolate
+          const hasColors = Array.isArray(surfForColors._colors) && surfForColors._colors.length > 0;
           const grid = surfForColors._grid;
           const gR = surfForColors._gridRows;
           const gC = surfForColors._gridCols;
@@ -17634,6 +17747,28 @@ function createInterpreter() {
               cr(r0.z, r1.z, r2.z, r3.z, t),
             );
           };
+          // Color interpolation helpers for palette-colored surfaces
+          const cols = hasColors ? surfForColors._colors : null;
+          const colIdx = (i, j) => {
+            if (cyc) j = ((j % gC) + gC) % gC;
+            if (i < 0) i = 0; if (i >= gR) i = gR - 1;
+            if (!cyc) { if (j < 0) j = 0; if (j >= gC) j = gC - 1; }
+            return i * gC + j;
+          };
+          const lerpPen = (p0, p1, t) => {
+            if (!p0 || !p1) return p0 || p1 || null;
+            const out = clonePen(p0);
+            out.r = p0.r * (1 - t) + p1.r * t;
+            out.g = p0.g * (1 - t) + p1.g * t;
+            out.b = p0.b * (1 - t) + p1.b * t;
+            return out;
+          };
+          const bilinPen = (C00, C10, C11, C01, t, s) => {
+            // Bilinear interpolation: lerp along i (t), then along j (s)
+            const top = lerpPen(C00, C10, t);
+            const bot = lerpPen(C01, C11, t);
+            return lerpPen(top, bot, s);
+          };
           const newFaces = [];
           for (const f of mesh.faces) {
             if (typeof f._gi !== 'number' || typeof f._gj !== 'number') {
@@ -17644,6 +17779,11 @@ function createInterpreter() {
             const j1 = cyc ? ((j0 + 1) % (gC - 1)) : (j0 + 1);
             const N00 = vn[i0][j0], N10 = vn[i0+1][j0];
             const N11 = vn[i0+1][j1], N01 = vn[i0][j1];
+            // Get corner colors for this face
+            const C00 = hasColors ? cols[colIdx(i0, j0)] : null;
+            const C10 = hasColors ? cols[colIdx(i0+1, j0)] : null;
+            const C11 = hasColors ? cols[colIdx(i0+1, j0+1)] : null;
+            const C01 = hasColors ? cols[colIdx(i0, j0+1)] : null;
             for (let si = 0; si < K; si++) {
               const t0 = si / K, t1 = (si + 1) / K;
               for (let sj = 0; sj < K; sj++) {
@@ -17656,7 +17796,12 @@ function createInterpreter() {
                 const v00 = crPos(i0, j0, t0, s0), v10 = crPos(i0, j0, t1, s0);
                 const v11 = crPos(i0, j0, t1, s1), v01 = crPos(i0, j0, t0, s1);
                 const sn = bilinN((t0+t1)/2, (s0+s1)/2);
-                const sub = {vertices: [v00, v10, v11, v01], normal: sn, pen: f.pen, _subSmooth: true};
+                // Interpolate color at sub-face center
+                let subPen = f.pen;
+                if (hasColors && C00 && C10 && C11 && C01) {
+                  subPen = bilinPen(C00, C10, C11, C01, (t0+t1)/2, (s0+s1)/2);
+                }
+                const sub = {vertices: [v00, v10, v11, v01], normal: sn, pen: subPen, _subSmooth: true};
                 newFaces.push(sub);
               }
             }
@@ -19154,7 +19299,7 @@ function createInterpreter() {
     drawCommands.length = 0;
     directionWarnings.length = 0;
     _warnedDirs.clear();
-    currentPic = {_tag:'picture', commands:[]};
+    currentPic = {_tag:'picture', commands:[], _debugId: ++_picIdCounter};
     globalEnv.update('currentpicture', currentPic);
     projection = null;
     _projectedTriples.length = 0;
