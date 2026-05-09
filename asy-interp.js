@@ -22776,7 +22776,9 @@ function renderSVG(result, opts) {
               // perpendicular shift (no along-axis offset). The label center
               // sits AT the axis center; tick-label clearance (screenDx) is
               // appended below.
-              dx = ax2 * margin2;
+              // For 90° CCW rotation, the text height becomes horizontal extent.
+              // Offset by H2/2 so the label clears its own half-width from axis.
+              dx = ax2 * (H2 / 2 + margin2);
               dy = -(ay2 * margin2);
             } else {
               // Targeted fix (v4.32): for `label(rotate(±90)*txt, pos, W or E)`
