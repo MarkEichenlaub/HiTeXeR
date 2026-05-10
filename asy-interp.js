@@ -5830,7 +5830,7 @@ function createInterpreter() {
       // Light (50% white)
       lightred:'#ff8080', lightgreen:'#80ff80', lightblue:'#8080ff',
       lightcyan:'#80ffff', lightmagenta:'#ff80ff', lightyellow:'#ffff80',
-      lightgray:'#cccccc',
+      lightgray:'#e6e6e6',
       // Medium (25% white)
       mediumred:'#ff4040', mediumgreen:'#40ff40', mediumblue:'#4040ff',
       mediumcyan:'#40ffff', mediummagenta:'#ff40ff', mediumyellow:'#ffff40',
