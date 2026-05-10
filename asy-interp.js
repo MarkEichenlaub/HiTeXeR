@@ -22471,8 +22471,8 @@ function renderSVG(result, opts) {
       if (pen && typeof pen.r === 'number') {
         const brightness = ((pen.r || 0) + (pen.g || 0) + (pen.b || 0)) / 3;
         // brightness 0 = black, 1 = white. gray ~ 0.5, lightgray ~ 0.9
-        // Scale boost: darker → 1.53, lighter → 0.97
-        gridBoost = 2.23 - 1.4 * brightness;
+        // Scale boost: darker → 1.56, lighter → 0.91 for better visual differentiation
+        gridBoost = 2.33 - 1.58 * brightness;
       }
       css.strokeWidth *= gridBoost;
     }
@@ -23271,20 +23271,10 @@ function renderSVG(result, opts) {
         // Re-wrap single-letter stripped math in $...$ so MathJax treats it as math.
         // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
         //
-        // Exception: stripped math containing % (percent) should use SVG <text>
-        // directly, since MathJax renders \% with math-mode spacing that differs
-        // from TeXeR (e.g. "100%" tick labels).  We require the label to contain
-        // an actual % — pure-digit labels like $0$ or $1$ should still go through
-        // MathJax for proper math-font rendering.
-        const hasPercent = wasStrippedMath && /%/.test(displayText) && /^[0-9\s.,+\-()%]+$/.test(displayText);
-        if (hasPercent) {
-          const penFF = dc.pen && dc.pen.fontFamily;
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined);
-        } else {
-          const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
-          const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
-          labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
-        }
+        // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
+        const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
+        const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
+        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
