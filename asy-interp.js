@@ -22413,10 +22413,11 @@ function renderSVG(result, opts) {
         for (const dc of drawCommands) {
           if (dc.cmd === 'dot') _dotCount++;
         }
-        // Narrow-span (<2 user units) with few dots (≤3) needs higher boost
+        // Narrow-span (<2 user units) with few dots (≤3) needs modest boost
         const _geoSpan = (geoMaxX - geoMinX) || 1;
         _isNarrowFewDots1D = _geoSpan < 2 && _dotCount <= 3;
-        _autoScaledStrokeBoost = _isNarrowFewDots1D ? 3.25 : 1.67;
+        // 2.25× boost for narrow 1D: empirically tuned for SSIM match
+        _autoScaledStrokeBoost = _isNarrowFewDots1D ? 2.25 : 1.67;
       } else {
         _autoScaledStrokeBoost = 1.0;
       }
@@ -22582,11 +22583,9 @@ function renderSVG(result, opts) {
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
         if (_autoScaledStrokeBoost > 1) {
-          // For narrow-span 1D horizontal diagrams (e.g. 04219), dots don't need
-          // the high stroke boost (3.25×) which makes them 2-3× too large. Use
-          // a moderate 2.5× boost so dots match TeXeR's natural size while
-          // strokes still get the full 3.25× boost for visibility.
-          _dotBoost = _isNarrowFewDots1D ? 2.5 : _autoScaledStrokeBoost;
+          // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
+          // higher boost (3.25×) than strokes (2.25×) to match TeXeR's dot size.
+          _dotBoost = _isNarrowFewDots1D ? 3.25 : _autoScaledStrokeBoost;
         } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
