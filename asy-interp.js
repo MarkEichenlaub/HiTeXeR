@@ -22779,8 +22779,8 @@ function renderSVG(result, opts) {
       if (pen && typeof pen.r === 'number') {
         const brightness = ((pen.r || 0) + (pen.g || 0) + (pen.b || 0)) / 3;
         // brightness 0 = black, 1 = white. gray ~ 0.5, lightgray ~ 0.9
-        // Scale boost: darker → 1.56, lighter → 0.91 for better visual differentiation
-        gridBoost = 2.33 - 1.58 * brightness;
+        // Scale boost: darker → 1.51, lighter → 0.65 for better visual differentiation
+        gridBoost = 2.57 - 2.13 * brightness;
       }
       css.strokeWidth *= gridBoost;
     }
