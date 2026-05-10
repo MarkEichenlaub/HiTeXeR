@@ -1413,21 +1413,36 @@ function applyTransform3Triple(t, v) {
     z: m[8]*v.x + m[9]*v.y + m[10]*v.z + m[11]};
 }
 function applyTransform3Path(t, path) {
-  // Apply to any triple control points in a path (2D points are passed through
-  // as triples with z=0 if needed; but here we only touch segs whose endpoints
-  // are triples — flat 2D paths are left alone).
+  // Apply to any control points in a path. 2D pair points are promoted to
+  // triples with z=0 before transformation, so transform3 * path works
+  // for both 2D and 3D paths.
+  const toTriple = (p) => {
+    if (!p) return p;
+    if (p._tag === 'triple') return p;
+    if (p._tag === 'pair' || (typeof p.x === 'number' && typeof p.y === 'number')) {
+      return {_tag: 'triple', x: p.x, y: p.y, z: 0};
+    }
+    return p;
+  };
   const newSegs = path.segs.map(s => {
-    const nP0 = (s.p0 && s.p0._tag === 'triple') ? applyTransform3Triple(t, s.p0) : s.p0;
-    const nP1 = (s.cp1 && s.cp1._tag === 'triple') ? applyTransform3Triple(t, s.cp1) : s.cp1;
-    const nP2 = (s.cp2 && s.cp2._tag === 'triple') ? applyTransform3Triple(t, s.cp2) : s.cp2;
-    const nP3 = (s.p3 && s.p3._tag === 'triple') ? applyTransform3Triple(t, s.p3) : s.p3;
+    const p0t = toTriple(s.p0);
+    const cp1t = toTriple(s.cp1);
+    const cp2t = toTriple(s.cp2);
+    const p3t = toTriple(s.p3);
+    const nP0 = (p0t && p0t._tag === 'triple') ? applyTransform3Triple(t, p0t) : s.p0;
+    const nP1 = (cp1t && cp1t._tag === 'triple') ? applyTransform3Triple(t, cp1t) : s.cp1;
+    const nP2 = (cp2t && cp2t._tag === 'triple') ? applyTransform3Triple(t, cp2t) : s.cp2;
+    const nP3 = (p3t && p3t._tag === 'triple') ? applyTransform3Triple(t, p3t) : s.p3;
     return makeSeg(nP0, nP1, nP2, nP3);
   });
   const np = makePath(newSegs, path.closed);
-  if (path._singlePoint && path._singlePoint._tag === 'triple') {
-    np._singlePoint = applyTransform3Triple(t, path._singlePoint);
-  } else if (path._singlePoint) {
-    np._singlePoint = path._singlePoint;
+  if (path._singlePoint) {
+    const spt = toTriple(path._singlePoint);
+    if (spt && spt._tag === 'triple') {
+      np._singlePoint = applyTransform3Triple(t, spt);
+    } else {
+      np._singlePoint = path._singlePoint;
+    }
   }
   return np;
 }
@@ -2643,6 +2658,13 @@ function createInterpreter() {
         }
       }
       return out;
+    }
+    // transform3 * surface{boundary} → surface with transformed boundary path
+    // Handles surfaces created from 2D paths (e.g. surface(path) where path has
+    // pair vertices). The boundary path is transformed and returned as a new
+    // boundary-only surface.
+    if (isTransform3(left) && right && right._tag === 'surface' && right.boundary && !right.mesh) {
+      return {_tag: 'surface', boundary: applyTransform3Path(left, right.boundary)};
     }
     // transform3 * revolution → transformed revolution (preserve grid)
     if (isTransform3(left) && right && right._tag === 'revolution') {
@@ -4680,7 +4702,7 @@ function createInterpreter() {
       // Our graph-package install also registers these stats primitives.
       installGraphPackage(env);
     }
-    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3') || mod.includes('palette')) {
+    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3') || mod.includes('palette') || mod.includes('grid3')) {
       // `import palette;` is technically a 2D module, but our palette-related
       // built-ins (Automatic, Range, uniform, palette(), image(), Rainbow,
       // BWRainbow, Wheel, Gradient, …) live alongside the 3D installer because
@@ -16680,6 +16702,171 @@ function createInterpreter() {
       return args[0];
     });
 
+    // ========== grid3 module support ==========
+    // XYZgrid: constant for grid3() to draw grid on all visible box faces
+    const XYZgrid = {_tag:'grid3type', faces:'XYZ'};
+    env.set('XYZgrid', XYZgrid);
+    // Additional grid3 face constants
+    env.set('XYgrid', {_tag:'grid3type', faces:'XY'});
+    env.set('XZgrid', {_tag:'grid3type', faces:'XZ'});
+    env.set('YZgrid', {_tag:'grid3type', faces:'YZ'});
+
+    // Pending grid3 calls — deferred until bounds are known
+    const _pendingGrid3Calls = [];
+
+    // grid3(gridtype, ...) — draws a grid on the bounding box faces
+    // Asymptote signature: void grid3(grid3Type type=XYZgrid, pen p=gray(0.8))
+    env.set('grid3', (...args) => {
+      let gridType = XYZgrid;
+      let pen = makePen({r:0.8, g:0.8, b:0.8, linewidth:0.3, _lwExplicit:true});
+      for (const a of args) {
+        if (a && a._tag === 'grid3type') gridType = a;
+        else if (a && a._tag === 'pen') pen = a;
+      }
+      _pendingGrid3Calls.push({gridType, pen});
+    });
+
+    // Finalize grid3 calls once bounds are known
+    function _finalize3DGrid(pic) {
+      if (_pendingGrid3Calls.length === 0) return;
+      // Get bounds from picture
+      let b = pic._3dBounds;
+      if (!b || b.minX === Infinity) {
+        // Compute bounds from mesh commands (same as _finalize3DAxes)
+        b = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+        for (const c of pic.commands) {
+          if (c.mesh && c.mesh.faces) {
+            for (const face of c.mesh.faces) {
+              for (const v of face.vertices || []) {
+                if (v.x < b.minX) b.minX = v.x; if (v.x > b.maxX) b.maxX = v.x;
+                if (v.y < b.minY) b.minY = v.y; if (v.y > b.maxY) b.maxY = v.y;
+                if (v.z < b.minZ) b.minZ = v.z; if (v.z > b.maxZ) b.maxZ = v.z;
+              }
+            }
+          }
+        }
+      }
+      if (b.minX === Infinity) return; // No bounds, skip
+
+      // Generate grid line positions with finer spacing than axis ticks
+      // Asymptote's grid3 typically uses ~10-12 divisions per axis
+      function gridLines(min, max, targetCount) {
+        const range = max - min;
+        if (range <= 0) return [min];
+        // Find nice step size - prefer finer divisions for grid
+        const rawStep = range / targetCount;
+        const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+        let step;
+        const normalized = rawStep / mag;
+        // For grids, use finer step thresholds to get more lines
+        if (normalized <= 1.2) step = mag;
+        else if (normalized <= 2.5) step = 2 * mag;
+        else if (normalized <= 6) step = 5 * mag;
+        else step = 10 * mag;
+        // Generate lines from first multiple of step >= min to last <= max
+        const lines = [];
+        let v = Math.ceil(min / step - 0.001) * step;
+        while (v <= max + step * 0.001) {
+          lines.push(v);
+          v += step;
+        }
+        return lines;
+      }
+
+      // Get grid positions for each axis (finer than tick marks)
+      // Use high target count to get detailed grid matching reference
+      const xGridLines = gridLines(b.minX, b.maxX, 15);
+      const yGridLines = gridLines(b.minY, b.maxY, 15);
+      const zGridLines = gridLines(b.minZ, b.maxZ, 15);
+
+      // Snap bounds to outermost grid lines
+      if (xGridLines.length >= 2) {
+        b.minX = xGridLines[0]; b.maxX = xGridLines[xGridLines.length - 1];
+      }
+      if (yGridLines.length >= 2) {
+        b.minY = yGridLines[0]; b.maxY = yGridLines[yGridLines.length - 1];
+      }
+      if (zGridLines.length >= 2) {
+        b.minZ = zGridLines[0]; b.maxZ = zGridLines[zGridLines.length - 1];
+      }
+
+      // Determine visible faces based on camera position
+      let camX = 0, camY = -1, camZ = 1;
+      if (projection) {
+        camX = (projection.cx || 0) - (projection.tx || 0);
+        camY = (projection.cy || 0) - (projection.ty || 0);
+        camZ = (projection.cz || 0) - (projection.tz || 0);
+      }
+
+      // Helper: draw a single line segment in 3D
+      function drawGridLine(p0, p1, pen) {
+        const proj0 = projectTriple(makeTriple(p0[0], p0[1], p0[2]));
+        const proj1 = projectTriple(makeTriple(p1[0], p1[1], p1[2]));
+        const seg = makeSeg(proj0, proj0, proj1, proj1);
+        const path = makePath([seg], false);
+        // Insert at beginning of commands so grid is drawn behind surface
+        pic.commands.unshift({cmd:'draw', path, pen, line: 0, _isGrid3: true});
+      }
+
+      for (const call of _pendingGrid3Calls) {
+        const {gridType, pen} = call;
+        const faces = gridType.faces || 'XYZ';
+
+        // Draw grid lines on visible back faces
+        // XY plane grids (at z=minZ and/or z=maxZ)
+        if (faces.includes('XY') || faces.includes('Z')) {
+          // Back face at z=minZ (floor) - always draw if camera is above
+          if (camZ > 0 || !faces.includes('XYZ')) {
+            // Horizontal lines (constant y)
+            for (const y of yGridLines) {
+              if (y < b.minY || y > b.maxY) continue;
+              drawGridLine([b.minX, y, b.minZ], [b.maxX, y, b.minZ], pen);
+            }
+            // Vertical lines (constant x)
+            for (const x of xGridLines) {
+              if (x < b.minX || x > b.maxX) continue;
+              drawGridLine([x, b.minY, b.minZ], [x, b.maxY, b.minZ], pen);
+            }
+          }
+        }
+
+        // XZ plane grids (at y=minY or y=maxY) - side walls
+        if (faces.includes('XZ') || faces.includes('Y')) {
+          // Back wall: if camera at positive y, back is at maxY; if negative y, back at minY
+          const yBack = camY >= 0 ? b.maxY : b.minY;
+          // Horizontal lines (constant z)
+          for (const z of zGridLines) {
+            if (z < b.minZ || z > b.maxZ) continue;
+            drawGridLine([b.minX, yBack, z], [b.maxX, yBack, z], pen);
+          }
+          // Vertical lines (constant x)
+          for (const x of xGridLines) {
+            if (x < b.minX || x > b.maxX) continue;
+            drawGridLine([x, yBack, b.minZ], [x, yBack, b.maxZ], pen);
+          }
+        }
+
+        // YZ plane grids (at x=minX or x=maxX) - side walls
+        if (faces.includes('YZ') || faces.includes('X')) {
+          // Back wall: if camera at positive x, back is at maxX; if negative x, back at minX
+          const xBack = camX >= 0 ? b.maxX : b.minX;
+          // Horizontal lines (constant z)
+          for (const z of zGridLines) {
+            if (z < b.minZ || z > b.maxZ) continue;
+            drawGridLine([xBack, b.minY, z], [xBack, b.maxY, z], pen);
+          }
+          // Vertical lines (constant y)
+          for (const y of yGridLines) {
+            if (y < b.minY || y > b.maxY) continue;
+            drawGridLine([xBack, y, b.minZ], [xBack, y, b.maxZ], pen);
+          }
+        }
+      }
+      _pendingGrid3Calls.length = 0;
+    }
+
+    env.set('_finalize3DGrid', _finalize3DGrid);
+
     // Expose axis finalization for main interpreter to call
     env.set('_finalize3DAxes', _finalize3DAxes);
   }
@@ -17936,6 +18123,14 @@ function createInterpreter() {
             meshLinePen = a.meshpen;
             break;
           }
+        }
+        // Asymptote's surface mesh lines are thinner than the default pen.
+        // When no explicit linewidth is set on the meshpen, reduce it to
+        // match the visual weight seen in TeXeR's PRC output.
+        if (meshLinePen && !meshLinePen._lwExplicit) {
+          meshLinePen = clonePen(meshLinePen);
+          meshLinePen.linewidth = 0.25; // thin mesh lines
+          meshLinePen._lwExplicit = true;
         }
         if (meshLinePen && surfForColors && surfForColors._grid) {
           const grid = surfForColors._grid;
@@ -19483,6 +19678,12 @@ function createInterpreter() {
           entry.result.y = rp.y;
         }
       }
+    }
+
+    // Finalize 3D grid now that bounds are known (before axes, so grid is behind)
+    const _finalize3DGrid = globalEnv.get('_finalize3DGrid');
+    if (typeof _finalize3DGrid === 'function') {
+      _finalize3DGrid(currentPic);
     }
 
     // Finalize 3D axes now that bounds are known
