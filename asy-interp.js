@@ -22457,8 +22457,20 @@ function renderSVG(result, opts) {
     // thinner via librsvg/sharp's SVG→PNG path than via Asymptote's
     // PDF→PNG pipeline. Bump stroke-width slightly so the gridlines have
     // similar visual weight to the texer reference rendering.
+    // Major gridlines (darker pens like gray #808080) should be thicker than
+    // minor gridlines (lighter pens like lightgray #e6e6e6) — compute pen
+    // brightness and scale the boost accordingly. gray (50% bright) gets 1.6×,
+    // lightgray (90% bright) gets 1.3×.
     if (isGridline) {
-      css.strokeWidth *= 1.4;
+      let gridBoost = 1.4; // default
+      const pen = dc.pen;
+      if (pen && typeof pen.r === 'number') {
+        const brightness = ((pen.r || 0) + (pen.g || 0) + (pen.b || 0)) / 3;
+        // brightness 0 = black, 1 = white. gray ~ 0.5, lightgray ~ 0.9
+        // Scale boost: darker → 1.6, lighter → 1.3
+        gridBoost = 1.6 - 0.3 * brightness;
+      }
+      css.strokeWidth *= gridBoost;
     }
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
 
