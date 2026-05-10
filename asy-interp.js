@@ -22462,17 +22462,17 @@ function renderSVG(result, opts) {
     // similar visual weight to the texer reference rendering.
     // Major gridlines (darker pens like gray #808080) should be thicker than
     // minor gridlines (lighter pens like lightgray #e6e6e6) — compute pen
-    // brightness and scale the boost accordingly. gray (50% bright) gets 1.06×,
-    // lightgray (90% bright) gets 0.83×. The wider spread (0.58 coefficient)
-    // creates visible differentiation between major and minor gridlines.
+    // brightness and scale the boost accordingly. gray (50% bright) gets 1.45×,
+    // lightgray (90% bright) gets 0.97×. This creates visible differentiation
+    // matching the TeXeR reference rendering.
     if (isGridline) {
       let gridBoost = 1.4; // default
       const pen = dc.pen;
       if (pen && typeof pen.r === 'number') {
         const brightness = ((pen.r || 0) + (pen.g || 0) + (pen.b || 0)) / 3;
         // brightness 0 = black, 1 = white. gray ~ 0.5, lightgray ~ 0.9
-        // Scale boost: darker → 1.06, lighter → 0.83
-        gridBoost = 1.35 - 0.58 * brightness;
+        // Scale boost: darker → 1.45, lighter → 0.97
+        gridBoost = 1.93 - 1.07 * brightness;
       }
       css.strokeWidth *= gridBoost;
     }
