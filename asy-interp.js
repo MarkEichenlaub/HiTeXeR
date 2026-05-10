@@ -23161,8 +23161,10 @@ function renderSVG(result, opts) {
       const trimDT = displayText.trim();
       const isFullyWrapped = trimDT.startsWith('$') && trimDT.endsWith('$') && trimDT.indexOf('$', 1) === trimDT.length - 1;
       if (isFullyWrapped && !/\\[a-zA-Z]/.test(displayText) && !/[\^_]/.test(displayText)) {
-        const stripped = displayText.replace(/\$/g, '').trim();
-        if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()\u00B1\u00D7\u2212]*$/.test(stripped)) {
+        // Convert common LaTeX escapes to their Unicode equivalents before checking
+        // the "safe characters" pattern. \% → %, \# → #, \& → &, \$ → $
+        const stripped = displayText.replace(/\$/g, '').replace(/\\%/g, '%').replace(/\\#/g, '#').replace(/\\&/g, '&').trim();
+        if (/^[0-9a-zA-Z\s+\-*\/=.,!;:()%#&\u00B1\u00D7\u2212]*$/.test(stripped)) {
           // Don't strip if content has multiple space-separated operator-only tokens
           // (e.g. "- - - - -" or "+ + +" — needs KaTeX math spacing to render correctly).
           const spaceSepOps = /([+\-*\/=])\s+\1/.test(stripped);
@@ -23267,7 +23269,9 @@ function renderSVG(result, opts) {
         // librsvg falls back to a generic "serif" font (often bold/sans-looking)
         // because KaTeX_Math is not installed, making labels appear wrongly bold.
         // Re-wrap single-letter stripped math in $...$ so MathJax treats it as math.
-        const mjxInput = wasStrippedMath ? '$' + displayText + '$' : displayText;
+        // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
+        const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
+        const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
         labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
