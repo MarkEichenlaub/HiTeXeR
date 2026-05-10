@@ -16298,7 +16298,11 @@ function createInterpreter() {
           // from the camera in the xy plane.
           const xEdge = zAxisXEdge;
           const yEdge = zAxisYEdge;
-          const ticks = _niceTickValues(b.minZ, b.maxZ, 5);
+          // Use higher target count for z-axis to prefer step=1 for integer ranges
+          // (e.g., gamma function plots with z from 0 to ~12 should show every integer)
+          const zRange = b.maxZ - b.minZ;
+          const zTargetCount = zRange <= 15 ? Math.max(zRange, 5) : 5;
+          const ticks = _niceTickValues(b.minZ, b.maxZ, zTargetCount);
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const z = ticks[i];
@@ -22587,8 +22591,8 @@ function renderSVG(result, opts) {
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
         if (_autoScaledStrokeBoost > 1) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
-          // higher boost (3.1×) than strokes (2.25×) to match TeXeR's dot size.
-          _dotBoost = _isNarrowFewDots1D ? 3.1 : _autoScaledStrokeBoost;
+          // higher boost (3.04×) than strokes (2.25×) to match TeXeR's dot size.
+          _dotBoost = _isNarrowFewDots1D ? 3.04 : _autoScaledStrokeBoost;
         } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
