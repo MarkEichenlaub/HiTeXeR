@@ -23877,10 +23877,10 @@ function preprocessLatexForKatex(src) {
   src = src.replace(/[\t\r\n]+/g, ' ');
   // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
   // MathJax/KaTeX renders ^\circ with extra spacing around the ring operator.
-  // Use ^{\\!°} for tight spacing: \! provides a negative thin space (-3mu)
-  // that pulls the superscript closer to the preceding character.
-  src = src.replace(/\^\s*\{\\circ\}/g, '^{\\!°}');
-  src = src.replace(/\^\s*\\circ\b/g, '^{\\!°}');
+  // Use \!\!\! before the superscript to add negative space that pulls the
+  // entire superscript group toward the base character.
+  src = src.replace(/\^\s*\{\\circ\}/g, '\\!\\!\\!^{°}');
+  src = src.replace(/\^\s*\\circ\b/g, '\\!\\!\\!^{°}');
   const replacements = [
     [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
     [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
