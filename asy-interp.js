@@ -22880,7 +22880,7 @@ function renderSVG(result, opts) {
         if (_autoScaledStrokeBoost > 1) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
-          _dotBoost = _isNarrowFewDots1D ? 3.04 : _autoScaledStrokeBoost;
+          _dotBoost = _isNarrowFewDots1D ? 3.425 : _autoScaledStrokeBoost;
         } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
