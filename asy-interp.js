@@ -5830,7 +5830,7 @@ function createInterpreter() {
       // Light (50% white)
       lightred:'#ff8080', lightgreen:'#80ff80', lightblue:'#8080ff',
       lightcyan:'#80ffff', lightmagenta:'#ff80ff', lightyellow:'#ffff80',
-      lightgray:'#e6e6e6',
+      lightgray:'#cccccc',
       // Medium (25% white)
       mediumred:'#ff4040', mediumgreen:'#40ff40', mediumblue:'#4040ff',
       mediumcyan:'#40ffff', mediummagenta:'#ff40ff', mediumyellow:'#ffff40',
@@ -5858,7 +5858,7 @@ function createInterpreter() {
       salmon:'#ff8080',  // = lightred
       // Grey aliases (British spelling)
       grey:'#808080',
-      lightgrey:'#e6e6e6',
+      lightgrey:'#cccccc',
       mediumgrey:'#bfbfbf',
       heavygrey:'#404040',
       deepgrey:'#1a1a1a',
