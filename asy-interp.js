@@ -15673,19 +15673,30 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && a._named));
       return pos.filter(a => isPen(a));
     });
-    // Rainbow: dense rainbow gradient.
-    const rainbowPens = () => {
+    // Rainbow: Asymptote's rainbow gradient following palette.asy's 5-interval
+    // implementation: Magenta → Blue → Cyan → Green → Yellow → Red
+    const rainbowPens = (nColors = 256) => {
+      const pens = [];
+      const n = Math.max(5, Math.floor(nColors / 5)); // colors per interval
       const c = (r,g,b) => makePen({r, g, b});
-      // Violet → Blue → Cyan → Green → Yellow → Orange → Red (color-wheel order)
-      return [
-        c(0.5, 0, 1),   // violet
-        c(0, 0, 1),     // blue
-        c(0, 1, 1),     // cyan
-        c(0, 1, 0),     // green
-        c(1, 1, 0),     // yellow
-        c(1, 0.5, 0),   // orange
-        c(1, 0, 0),     // red
-      ];
+      for (let interval = 0; interval < 5; interval++) {
+        for (let i = 0; i < n; i++) {
+          const t = i / n; // 0 to ~1 within this interval
+          const t1 = 1 - t;
+          let r, g, b;
+          switch (interval) {
+            case 0: r = t1; g = 0; b = 1; break;   // Magenta→Blue
+            case 1: r = 0; g = t; b = 1; break;    // Blue→Cyan
+            case 2: r = 0; g = 1; b = t1; break;   // Cyan→Green
+            case 3: r = t; g = 1; b = 0; break;    // Green→Yellow
+            case 4: r = 1; g = t1; b = 0; break;   // Yellow→Red
+          }
+          pens.push(c(r, g, b));
+        }
+      }
+      // Add final red
+      pens.push(c(1, 0, 0));
+      return pens;
     };
     // BWRainbow: Asymptote's BWRainbow is Rainbow bracketed by black at the low
     // end and white at the high end (Black/White Rainbow). The reference texer
@@ -18174,7 +18185,7 @@ function createInterpreter() {
         // match the visual weight seen in TeXeR's PRC output.
         if (meshLinePen && !meshLinePen._lwExplicit) {
           meshLinePen = clonePen(meshLinePen);
-          meshLinePen.linewidth = 0.25; // thin mesh lines
+          meshLinePen.linewidth = 0.16; // thin mesh lines
           meshLinePen._lwExplicit = true;
         }
         if (meshLinePen && surfForColors && surfForColors._grid) {
@@ -22837,7 +22848,7 @@ function renderSVG(result, opts) {
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
         if (_autoScaledStrokeBoost > 1) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
-          // higher boost (3.04×) than strokes (2.25×) to match TeXeR's dot size.
+          // higher boost than strokes to match TeXeR's dot size.
           _dotBoost = _isNarrowFewDots1D ? 3.04 : _autoScaledStrokeBoost;
         } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
       }
@@ -23715,10 +23726,9 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     baseSize = 15 * lw * _boost;
   } else {
     // Explicit arrow size (e.g. Arrow(2mm)). Only boost for narrow 1D diagrams
-    // where the entire diagram is scaled up — using sqrt of the stroke boost
-    // so the arrowhead stays proportionate (~1.5× for 2.25× stroke boost).
+    // where the entire diagram is scaled up — using a tuned factor.
     // For regular diagrams, explicit sizes should stay at their requested bp value.
-    const explicitBoost = (isNarrow1D && _boost > 1) ? Math.sqrt(_boost) : 1.0;
+    const explicitBoost = (isNarrow1D && _boost > 1) ? 1.45 : 1.0;
     baseSize = (dc.arrow.size || 6) * explicitBoost;
   }
   let arrowLen = baseSize * bpCSSPixel;
