@@ -22587,8 +22587,8 @@ function renderSVG(result, opts) {
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
         if (_autoScaledStrokeBoost > 1) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
-          // higher boost (3.25×) than strokes (2.25×) to match TeXeR's dot size.
-          _dotBoost = _isNarrowFewDots1D ? 3.25 : _autoScaledStrokeBoost;
+          // higher boost (3.1×) than strokes (2.25×) to match TeXeR's dot size.
+          _dotBoost = _isNarrowFewDots1D ? 3.1 : _autoScaledStrokeBoost;
         } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
