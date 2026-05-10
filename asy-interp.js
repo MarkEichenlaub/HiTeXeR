@@ -22147,7 +22147,9 @@ function renderSVG(result, opts) {
         const lw = (dc.pen && dc.pen.linewidth) || 0.5;
         baseSize = 15 * lw * _arrowBoost;
       } else {
-        baseSize = dc.arrow.size || 6;
+        // Explicit arrow size: only boost for narrow 1D diagrams
+        const explicitBoost = (_isNarrowFewDots1D && _arrowBoost > 1) ? Math.sqrt(_arrowBoost) : 1.0;
+        baseSize = (dc.arrow.size || 6) * explicitBoost;
       }
       let arrowLen = baseSize * bpCSSPixel;
       // Clamp arrow length to 70% of total path length (same as generateArrowHead)
@@ -22268,7 +22270,7 @@ function renderSVG(result, opts) {
     if (dc.arrow && dc.cmd === 'draw') {
       const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
-      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost);
+      const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost, _isNarrowFewDots1D);
       if (arrowEl) {
         // Apply same clip-path to arrowhead as the path itself
         const clippedArrow = dc._subpicClipId
@@ -23437,7 +23439,7 @@ function linestyleToDasharray(style, strokeWidth) {
   }
 }
 
-function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arrowBoost) {
+function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arrowBoost, isNarrow1D) {
   const path = dc.path;
   const style = dc.arrow.style;
   // Arrow size: base size in bp (PostScript points), converted to viewBox units
@@ -23456,7 +23458,12 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     const lw = (dc.pen && dc.pen.linewidth) || 0.5;
     baseSize = 15 * lw * _boost;
   } else {
-    baseSize = dc.arrow.size || 6;
+    // Explicit arrow size (e.g. Arrow(2mm)). Only boost for narrow 1D diagrams
+    // where the entire diagram is scaled up — using sqrt of the stroke boost
+    // so the arrowhead stays proportionate (~1.5× for 2.25× stroke boost).
+    // For regular diagrams, explicit sizes should stay at their requested bp value.
+    const explicitBoost = (isNarrow1D && _boost > 1) ? Math.sqrt(_boost) : 1.0;
+    baseSize = (dc.arrow.size || 6) * explicitBoost;
   }
   let arrowLen = baseSize * bpCSSPixel;
   // Ensure a minimum of 3 viewBox units for regular Arrows so that very small
