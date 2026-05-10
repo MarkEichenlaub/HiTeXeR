@@ -16718,7 +16718,8 @@ function createInterpreter() {
     // Asymptote signature: void grid3(grid3Type type=XYZgrid, pen p=gray(0.8))
     env.set('grid3', (...args) => {
       let gridType = XYZgrid;
-      let pen = makePen({r:0.8, g:0.8, b:0.8, linewidth:0.3, _lwExplicit:true});
+      // Default pen: gray(0.8) matches Asymptote default, slightly thicker for visibility
+      let pen = makePen({r:0.75, g:0.75, b:0.75, linewidth:0.35, _lwExplicit:true});
       for (const a of args) {
         if (a && a._tag === 'grid3type') gridType = a;
         else if (a && a._tag === 'pen') pen = a;
@@ -16779,7 +16780,7 @@ function createInterpreter() {
       const yGridLines = gridLines(b.minY, b.maxY, 15);
       const zGridLines = gridLines(b.minZ, b.maxZ, 15);
 
-      // Snap bounds to outermost grid lines
+      // Snap bounds to outermost grid lines for consistent box edges
       if (xGridLines.length >= 2) {
         b.minX = xGridLines[0]; b.maxX = xGridLines[xGridLines.length - 1];
       }
@@ -16806,6 +16807,32 @@ function createInterpreter() {
         const path = makePath([seg], false);
         // Insert at beginning of commands so grid is drawn behind surface
         pic.commands.unshift({cmd:'draw', path, pen, line: 0, _isGrid3: true});
+      }
+
+      // Draw bounding box edges only on the back faces (visible behind the surface)
+      // The back faces are determined by the camera position
+      const boxPen = makePen({r:0.8, g:0.8, b:0.8, linewidth:0.4, _lwExplicit:true});
+
+      // Back y-wall edges (at yBack)
+      const yBack = camY >= 0 ? b.maxY : b.minY;
+      drawGridLine([b.minX, yBack, b.minZ], [b.maxX, yBack, b.minZ], boxPen);
+      drawGridLine([b.minX, yBack, b.maxZ], [b.maxX, yBack, b.maxZ], boxPen);
+      drawGridLine([b.minX, yBack, b.minZ], [b.minX, yBack, b.maxZ], boxPen);
+      drawGridLine([b.maxX, yBack, b.minZ], [b.maxX, yBack, b.maxZ], boxPen);
+
+      // Back x-wall edges (at xBack)
+      const xBack = camX >= 0 ? b.maxX : b.minX;
+      drawGridLine([xBack, b.minY, b.minZ], [xBack, b.maxY, b.minZ], boxPen);
+      drawGridLine([xBack, b.minY, b.maxZ], [xBack, b.maxY, b.maxZ], boxPen);
+      drawGridLine([xBack, b.minY, b.minZ], [xBack, b.minY, b.maxZ], boxPen);
+      drawGridLine([xBack, b.maxY, b.minZ], [xBack, b.maxY, b.maxZ], boxPen);
+
+      // Floor edges (at z=minZ) if camera is above
+      if (camZ > 0) {
+        drawGridLine([b.minX, b.minY, b.minZ], [b.maxX, b.minY, b.minZ], boxPen);
+        drawGridLine([b.maxX, b.minY, b.minZ], [b.maxX, b.maxY, b.minZ], boxPen);
+        drawGridLine([b.maxX, b.maxY, b.minZ], [b.minX, b.maxY, b.minZ], boxPen);
+        drawGridLine([b.minX, b.maxY, b.minZ], [b.minX, b.minY, b.minZ], boxPen);
       }
 
       for (const call of _pendingGrid3Calls) {
