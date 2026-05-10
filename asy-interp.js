@@ -15673,29 +15673,31 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && a._named));
       return pos.filter(a => isPen(a));
     });
-    // Rainbow: Asymptote's rainbow gradient following palette.asy's 5-interval
-    // implementation: Magenta → Blue → Cyan → Green → Yellow → Red
+    // Rainbow: Asymptote's rainbow gradient following palette.asy's Gradient approach.
+    // Rainbow(N) = Gradient(N, magenta, blue, cyan, green, yellow, red)
+    // This interpolates N pens evenly across the 6 color stops (5 intervals).
     const rainbowPens = (nColors = 256) => {
+      const stops = [
+        {r: 1, g: 0, b: 1}, // magenta
+        {r: 0, g: 0, b: 1}, // blue
+        {r: 0, g: 1, b: 1}, // cyan
+        {r: 0, g: 1, b: 0}, // green
+        {r: 1, g: 1, b: 0}, // yellow
+        {r: 1, g: 0, b: 0}, // red
+      ];
       const pens = [];
-      const n = Math.max(5, Math.floor(nColors / 5)); // colors per interval
-      const c = (r,g,b) => makePen({r, g, b});
-      for (let interval = 0; interval < 5; interval++) {
-        for (let i = 0; i < n; i++) {
-          const t = i / n; // 0 to ~1 within this interval
-          const t1 = 1 - t;
-          let r, g, b;
-          switch (interval) {
-            case 0: r = t1; g = 0; b = 1; break;   // Magenta→Blue
-            case 1: r = 0; g = t; b = 1; break;    // Blue→Cyan
-            case 2: r = 0; g = 1; b = t1; break;   // Cyan→Green
-            case 3: r = t; g = 1; b = 0; break;    // Green→Yellow
-            case 4: r = 1; g = t1; b = 0; break;   // Yellow→Red
-          }
-          pens.push(c(r, g, b));
-        }
+      const N = Math.max(2, nColors);
+      for (let i = 0; i < N; i++) {
+        // Map i to a position in [0, stops.length-1]
+        const t = i / (N - 1) * (stops.length - 1);
+        const idx = Math.min(Math.floor(t), stops.length - 2);
+        const frac = t - idx;
+        const c0 = stops[idx], c1 = stops[idx + 1];
+        const r = c0.r * (1 - frac) + c1.r * frac;
+        const g = c0.g * (1 - frac) + c1.g * frac;
+        const b = c0.b * (1 - frac) + c1.b * frac;
+        pens.push(makePen({r, g, b}));
       }
-      // Add final red
-      pens.push(c(1, 0, 0));
       return pens;
     };
     // BWRainbow: Asymptote's BWRainbow is Rainbow bracketed by black at the low
@@ -15716,7 +15718,11 @@ function createInterpreter() {
         c(1, 1, 1),        // white (high)
       ];
     };
-    env.set('Rainbow', (...args) => rainbowPens());
+    env.set('Rainbow', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const nColors = pos.length > 0 && typeof pos[0] === 'number' ? Math.max(8, Math.round(pos[0])) : 256;
+      return rainbowPens(nColors);
+    });
     env.set('BWRainbow', (...args) => bwRainbowPens());
     // image(picture, real[][] f, pair initial, pair final, pen[] palette)
     // Renders a pseudocolor heatmap by emitting one filled rectangle per data cell.
@@ -23532,10 +23538,23 @@ function renderSVG(result, opts) {
         // Re-wrap single-letter stripped math in $...$ so MathJax treats it as math.
         // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
         //
-        // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
-        const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
-        const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
-        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        // EXCEPTION: Tick labels containing only digits, %, °, and punctuation
+        // should use renderLabelWithScripts instead of MathJax. MathJax's glyph
+        // bounding boxes for % are larger than necessary, causing visual overlap
+        // between adjacent tick labels (e.g. 08812's y-axis "0%", "10%", "20%").
+        // These labels don't need italic math fonts — digits and punctuation
+        // are upright in TeX. Using native SVG text gives tighter vertical bounds.
+        // Note: wasStrippedMath labels have already been converted from $...\%...$
+        // to plain text like "10%", so check the displayText directly.
+        const _tickLabelDigitPct = dc._isTickLabel
+          && /^[0-9\s.,+\-−%°∘]+$/.test(displayText);
+        if (_tickLabelDigitPct) {
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
+        } else {
+          const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
+          const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
+          labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        }
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
