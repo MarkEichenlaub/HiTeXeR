@@ -21757,8 +21757,16 @@ function renderSVG(result, opts) {
     }
   }
 
-  const naturalW = (maxX - minX) * pxPerUnitX;
-  const naturalH = (maxY - minY) * pxPerUnitY;
+  // For IgnoreAspect, geometry is scaled to fill exactly size(W, H); labels extend
+  // outside and don't change the base display aspect ratio. Use geometry-only bbox for
+  // naturalW/H calculation. For keepAspect or no-size, use the label-expanded bbox.
+  const _isIgnoreAspect2 = !keepAspect && sizeW > 0 && sizeH > 0;
+  const naturalW = _isIgnoreAspect2
+    ? (geoMaxX - geoMinX) * pxPerUnitX
+    : (maxX - minX) * pxPerUnitX;
+  const naturalH = _isIgnoreAspect2
+    ? (geoMaxY - geoMinY) * pxPerUnitY
+    : (maxY - minY) * pxPerUnitY;
 
   // Apply explicit size() if given (sizes are in bp = 1/72 inch).
   // When only one dimension is constrained, scale the other to maintain
@@ -21774,7 +21782,8 @@ function renderSVG(result, opts) {
       svgW = naturalW;
       svgH = naturalH;
     } else {
-      // IgnoreAspect: naturalW/H already equal sizeW/H (independent scaling)
+      // IgnoreAspect: naturalW/H are based on geometry-only bbox, so they equal
+      // sizeW/H (independent scaling per axis). Labels extend outside.
       svgW = naturalW;
       svgH = naturalH;
     }
@@ -22266,11 +22275,18 @@ function renderSVG(result, opts) {
       const overshootScaleH = (viewH + extraH) / viewH;
       viewW += extraW;
       viewH += extraH;
-      // Scale display dimensions proportionally
-      svgW *= overshootScaleW;
-      svgH *= overshootScaleH;
-      intrinsicW *= overshootScaleW;
-      intrinsicH *= overshootScaleH;
+      // Scale display dimensions proportionally.
+      // For IgnoreAspect, don't scale intrinsic dimensions — keep them at the geometry-
+      // only values. The viewBox is expanded for labels, but the display aspect ratio
+      // is preserved. This matches TeXeR behavior where IgnoreAspect output has aspect
+      // ratio close to size(W,H) even when labels extend outside.
+      const _isIA2 = !keepAspect && sizeW > 0 && sizeH > 0;
+      if (!_isIA2) {
+        svgW *= overshootScaleW;
+        svgH *= overshootScaleH;
+        intrinsicW *= overshootScaleW;
+        intrinsicH *= overshootScaleH;
+      }
     }
   }
 
