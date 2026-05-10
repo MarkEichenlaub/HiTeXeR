@@ -15836,24 +15836,40 @@ function createInterpreter() {
       // can pass them to contour() / palette() for matching colormap windows.
       return {_tag:'bounds', min:vmin, max:vmax};
     });
-    // Wheel(): HSV color wheel palette. Maps degrees (0-360) through the hue spectrum.
-    // In Asymptote, Wheel() generates a 1024-entry palette for smooth hue interpolation.
+    // Wheel(): Asymptote's color wheel palette. Maps degrees (0-360) through a
+    // specific color ordering: Red→Magenta→Blue→Cyan→Green→Yellow→Red.
+    // This is the REVERSE of standard HSV hue order (which goes R→Y→G→C→B→M→R).
+    // The Asymptote ordering matches palette.asy's 6-interval implementation.
     const wheelPens = () => {
       const pens = [];
-      const N = 1024; // Match Asymptote's resolution
-      for (let i = 0; i < N; i++) {
-        const h = i / N; // hue in [0,1)
-        // Convert HSV (h, 1, 1) to RGB
-        const hp = h * 6;
-        const c = 1, x = 1 - Math.abs(hp % 2 - 1);
-        let r, g, b;
-        if (hp < 1)      { r = c; g = x; b = 0; }
-        else if (hp < 2) { r = x; g = c; b = 0; }
-        else if (hp < 3) { r = 0; g = c; b = x; }
-        else if (hp < 4) { r = 0; g = x; b = c; }
-        else if (hp < 5) { r = x; g = 0; b = c; }
-        else             { r = c; g = 0; b = x; }
-        pens.push(makePen({r, g, b}));
+      const N = 1024; // Match Asymptote's default NColors resolution
+      const n = Math.floor(N / 6); // entries per color interval
+      for (let interval = 0; interval < 6; interval++) {
+        for (let i = 0; i < n; i++) {
+          const t = i / n; // 0 to ~1 within this interval
+          const t1 = 1 - t;
+          let r, g, b;
+          // Asymptote's Wheel ordering (from palette.asy):
+          // Interval 0: Red→Magenta (R=1, G=0, B: 0→1)
+          // Interval 1: Magenta→Blue (R: 1→0, G=0, B=1)
+          // Interval 2: Blue→Cyan (R=0, G: 0→1, B=1)
+          // Interval 3: Cyan→Green (R=0, G=1, B: 1→0)
+          // Interval 4: Green→Yellow (R: 0→1, G=1, B=0)
+          // Interval 5: Yellow→Red (R=1, G: 1→0, B=0)
+          switch (interval) {
+            case 0: r = 1; g = 0; b = t;  break; // Red→Magenta
+            case 1: r = t1; g = 0; b = 1; break; // Magenta→Blue
+            case 2: r = 0; g = t; b = 1;  break; // Blue→Cyan
+            case 3: r = 0; g = 1; b = t1; break; // Cyan→Green
+            case 4: r = t; g = 1; b = 0;  break; // Green→Yellow
+            case 5: r = 1; g = t1; b = 0; break; // Yellow→Red
+          }
+          pens.push(makePen({r, g, b}));
+        }
+      }
+      // If N isn't perfectly divisible by 6, fill remaining slots to reach N
+      while (pens.length < N) {
+        pens.push(makePen({r: 1, g: 0, b: 0})); // red
       }
       return pens;
     };
@@ -16312,7 +16328,10 @@ function createInterpreter() {
           }
           if (call.label) {
             const midY = (b.minY + b.maxY) / 2;
-            const labelPos = projectTriple(makeTriple(xEdge + yOutSignX * labelOffset * 1.5, midY, b.minZ - labelOffset * 0.8));
+            // Position y-axis label at the midpoint of the y-axis along the floor edge,
+            // offset outward (away from box) in x. Using z=b.minZ keeps it aligned
+            // with the floor rather than floating below.
+            const labelPos = projectTriple(makeTriple(xEdge + yOutSignX * labelOffset * 1.8, midY, b.minZ));
             pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(-yOutSignX, 0), pen: axisPen, line: 0});
           }
         } else if (axisName === 'z') {
@@ -16718,7 +16737,7 @@ function createInterpreter() {
     // Asymptote signature: void grid3(grid3Type type=XYZgrid, pen p=gray(0.8))
     env.set('grid3', (...args) => {
       let gridType = XYZgrid;
-      // Default pen: gray(0.8) matches Asymptote default, slightly thicker for visibility
+      // Default pen: gray(0.75) for grid lines matching reference renders
       let pen = makePen({r:0.75, g:0.75, b:0.75, linewidth:0.35, _lwExplicit:true});
       for (const a of args) {
         if (a && a._tag === 'grid3type') gridType = a;
@@ -16774,11 +16793,10 @@ function createInterpreter() {
         return lines;
       }
 
-      // Get grid positions for each axis (finer than tick marks)
-      // Use high target count to get detailed grid matching reference
-      const xGridLines = gridLines(b.minX, b.maxX, 15);
-      const yGridLines = gridLines(b.minY, b.maxY, 15);
-      const zGridLines = gridLines(b.minZ, b.maxZ, 15);
+      // Get grid positions for each axis matching Asymptote's default ~10 divisions
+      const xGridLines = gridLines(b.minX, b.maxX, 10);
+      const yGridLines = gridLines(b.minY, b.maxY, 10);
+      const zGridLines = gridLines(b.minZ, b.maxZ, 10);
 
       // Snap bounds to outermost grid lines for consistent box edges
       if (xGridLines.length >= 2) {
@@ -16811,7 +16829,7 @@ function createInterpreter() {
 
       // Draw bounding box edges only on the back faces (visible behind the surface)
       // The back faces are determined by the camera position
-      const boxPen = makePen({r:0.8, g:0.8, b:0.8, linewidth:0.4, _lwExplicit:true});
+      const boxPen = makePen({r:0.75, g:0.75, b:0.75, linewidth:0.35, _lwExplicit:true});
 
       // Back y-wall edges (at yBack)
       const yBack = camY >= 0 ? b.maxY : b.minY;
