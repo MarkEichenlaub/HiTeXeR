@@ -20951,15 +20951,22 @@ function renderSVG(result, opts) {
     const _geoRefH = (geoMaxY - geoMinY) || 1;
     const _fullRefW = (maxX - minX) || 1;
     const _fullRefH = (maxY - minY) || 1;
-    _labelDominatesSize = (_fullRefW / _geoRefW >= 1.5)
-                        || (_fullRefH / _geoRefH >= 1.5);
+    // For IgnoreAspect (keepAspect=false with explicit sizeW and sizeH), scale
+    // geometry to fill size() independently on each axis. Labels are truesize
+    // and positioned relative to scaled geometry; they may extend outside size()
+    // but should NOT shrink the geometry scaling. The _labelDominatesSize path
+    // is designed for keepAspect diagrams where labels must fit within the
+    // uniform-scaled output. For IgnoreAspect, always use geometry-only bounds.
+    const _isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
+    _labelDominatesSize = !_isIgnoreAspect &&
+                          ((_fullRefW / _geoRefW >= 1.5) || (_fullRefH / _geoRefH >= 1.5));
     const scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
     const scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
     pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
-    if (!keepAspect && sizeW > 0 && sizeH > 0) {
-      // IgnoreAspect: independent scaling per axis
-      pxPerUnitX = sizeW / scaleRefW;
-      pxPerUnitY = sizeH / scaleRefH;
+    if (_isIgnoreAspect) {
+      // IgnoreAspect: scale geometry to fill size(), labels extend outside
+      pxPerUnitX = sizeW / _geoRefW;
+      pxPerUnitY = sizeH / _geoRefH;
     } else {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
     }
@@ -21023,10 +21030,13 @@ function renderSVG(result, opts) {
     if (typeof process !== 'undefined' && process.env && process.env.HTX_DEBUG_FLOOR) {
       process.stderr.write(`floor-debug: geoWbp=${_geoWbp.toFixed(2)} geoHbp=${_geoHbp.toFixed(2)} geoVisible=${_geoVisibleAtLabelScale} labelDom=${_labelDominatesSize} skipFloor=${_skipSecondaryFloor} pxPerUnit=${pxPerUnit.toFixed(2)}\n`);
     }
+    // Skip the secondary floor for IgnoreAspect diagrams since they have their
+    // own independent X/Y scaling that fills size() without needing a boost.
     if (pxPerUnit > 0 && pxPerUnit < 7 &&
         Math.max(scaleRefW, scaleRefH) > 5 &&
         maxNatural < 150 &&
-        !_skipSecondaryFloor) {
+        !_skipSecondaryFloor &&
+        !_isIgnoreAspect) {
       const boostTarget = 150;
       const boostScale = boostTarget / Math.max(scaleRefW, scaleRefH) / pxPerUnit;
       pxPerUnit *= boostScale;
@@ -21142,8 +21152,23 @@ function renderSVG(result, opts) {
         const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
         bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
         bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
-        bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
-        bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
+        // For 90°-rotated axis labels with horizontal alignment (W/E), the
+        // label extends mostly in the X direction. Including their full
+        // rotated height in the Y-extent calculation causes the solver to
+        // incorrectly shrink pxPerUnitY for IgnoreAspect diagrams (e.g.
+        // 08812's rotated y-axis title "Percentage of True Speed").
+        // These labels visually run alongside the axis, not perpendicular.
+        const _is90Rotated = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+        const _isHorizAligned = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+        if (_is90Rotated && _isHorizAligned && isIgnoreAspect) {
+          // Use only the narrow dimension (rotated width = original height)
+          // for Y-extent, not the full rotated height (original width).
+          bpMinY = Math.min(bpMinY, cy - li.widthBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + li.widthBp / 2);
+        } else {
+          bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
+        }
       }
 
       const totalW = bpMaxX - bpMinX;
