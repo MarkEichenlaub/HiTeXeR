@@ -23537,24 +23537,9 @@ function renderSVG(result, opts) {
         // because KaTeX_Math is not installed, making labels appear wrongly bold.
         // Re-wrap single-letter stripped math in $...$ so MathJax treats it as math.
         // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
-        //
-        // EXCEPTION: Tick labels containing only digits, %, °, and punctuation
-        // should use renderLabelWithScripts instead of MathJax. MathJax's glyph
-        // bounding boxes for % are larger than necessary, causing visual overlap
-        // between adjacent tick labels (e.g. 08812's y-axis "0%", "10%", "20%").
-        // These labels don't need italic math fonts — digits and punctuation
-        // are upright in TeX. Using native SVG text gives tighter vertical bounds.
-        // Note: wasStrippedMath labels have already been converted from $...\%...$
-        // to plain text like "10%", so check the displayText directly.
-        const _tickLabelDigitPct = dc._isTickLabel
-          && /^[0-9\s.,+\-−%°∘]+$/.test(displayText);
-        if (_tickLabelDigitPct) {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity);
-        } else {
-          const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
-          const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
-          labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
-        }
+        const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
+        const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
+        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -24794,6 +24779,10 @@ function stripLaTeX(text) {
   let s = text;
   // Remove $ delimiters
   s = s.replace(/\$/g, '');
+  // Handle ^\circ and ^{\circ} → degree symbol (°) before \circ → ∘ mapping
+  // This is the common LaTeX idiom for degree notation in math mode
+  s = s.replace(/\^\s*\{\\circ\}/g, '°');
+  s = s.replace(/\^\s*\\circ\b/g, '°');
   // Handle \frac{a}{b} → a/b (before removing braces)
   s = s.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '$1/$2');
   // Handle TeX \frac shorthand where a single token (no braces) is the
