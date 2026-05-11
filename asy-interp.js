@@ -22198,9 +22198,11 @@ function renderSVG(result, opts) {
 
       const isSizeConstrained = !isAutoScaled && !hasUnitScale;
       // For size()-constrained single-line labels: skip entirely (solver handles it).
-      // Exception: tick labels and axis labels may extend beyond the solver-computed
-      // geometry, so we still need to pad the viewBox for them.
-      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel) continue;
+      // Exception: tick labels, axis labels, and dot labels may extend beyond the
+      // solver-computed geometry, so we still need to pad the viewBox for them.
+      // Dot labels (_fromDot) get additional dotPush offset from the dot radius,
+      // which the solver doesn't fully account for (03491 labeled dots).
+      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
@@ -23043,16 +23045,21 @@ function renderSVG(result, opts) {
       // Also skip boost when defaultpen() set a linewidth — the author's
       // explicit global pen sizing should be respected (e.g. defaultpen(.5)
       // in 04025 should produce small dots, not boosted large ones).
-      // For explicit-size diagrams (!isAutoScaled), also apply _explicitSizeStrokeBoost
-      // to dots — this matches the stroke boost applied to paths (line 22085) and
-      // ensures dots have visual weight comparable to TeXeR (e.g. 01298).
+      // For auto-scaled diagrams, apply the auto-scaled stroke boost to dots.
+      // For explicit-size diagrams (!isAutoScaled), skip the boost for 2D dots:
+      // the 1.5× stroke boost compensates for DPI differences in stroke rendering,
+      // but dots at their native bp size already match TeXeR well — boosting them
+      // makes them appear too large relative to the geometry (e.g. 03491).
+      // 3D diagrams already skip this via the !_is3D check for stroke boost.
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
         if (_autoScaledStrokeBoost > 1) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
           _dotBoost = _isNarrowFewDots1D ? 3.425 : _autoScaledStrokeBoost;
-        } else if (_explicitSizeStrokeBoost > 1 && !_is3D) _dotBoost = _explicitSizeStrokeBoost;
+        }
+        // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
+        // no longer boost dots — native bp sizing matches TeXeR better.
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
