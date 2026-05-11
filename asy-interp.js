@@ -14711,8 +14711,10 @@ function createInterpreter() {
           t.x*u.y - t.y*u.x
         );
         const ring = [];
-        for (let k = 0; k < nSides; k++) {
-          const a = 2*Math.PI*k/nSides;
+        for (let k = 0; k <= nSides; k++) {
+          // Use k % nSides so that ring[nSides] duplicates ring[0]
+          // This matches the convention used by revolution surfaces
+          const a = 2*Math.PI*(k % nSides)/nSides;
           const ca = Math.cos(a), sa = Math.sin(a);
           ring.push(makeTriple(
             p0.x + r*(ca*u.x + sa*v.x),
@@ -14742,7 +14744,7 @@ function createInterpreter() {
       const mesh = makeMesh(faces);
       mesh._closed = true; // closed tube: back-face culling eliminates hidden faces
       const grid = rings;
-      return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid, _gridRows: rings.length, _gridCols: nSides, _gridCyclic: true}, center: p};
+      return {_tag:'tube', s: {_tag:'surface', mesh, _grid: grid, _gridRows: rings.length, _gridCols: nSides + 1, _gridCyclic: true}, center: p};
     });
     // Build a _grid for a sphere revolution: meridian (half-circle from north
     // pole to south pole in the xz half-plane) rotated around Z, translated
@@ -19565,13 +19567,12 @@ function createInterpreter() {
       // visible through every face.
       const fillOpacity = (typeof shaded.opacity === 'number') ? shaded.opacity : 1;
       if (fillOpacity >= 0.95) {
-        // Skip antialiasing stroke for finely-subdivided smooth faces
-        // to avoid accumulating visible edges from many tiny faces
-        if (!it._subSmooth) {
-          const stroke = clonePen(shaded);
-          stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
-          target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true, _faceDepth: it.depth});
-        }
+        // Add thin same-color stroke to close gaps between faces.
+        // For subdivided smooth faces, use a very thin stroke to avoid
+        // accumulating visible edges while still covering pixel gaps.
+        const stroke = clonePen(shaded);
+        stroke.linewidth = it._subSmooth ? 0.1 : Math.max(0.2, stroke.linewidth || 0.2);
+        target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true, _faceDepth: it.depth});
       }
     }
   }
