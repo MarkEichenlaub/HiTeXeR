@@ -1956,6 +1956,7 @@ function createInterpreter() {
   let keepAspect = true;
   let defaultPen = makePen({});
   let _defaultpenLwSet = false; // whether defaultpen() explicitly set a linewidth
+  let _legendEntries = [];    // collected {text, pen} entries for legend()
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
   // Registry mapping sentinel ids -> graphic objects, populated when a graphic
@@ -7170,6 +7171,117 @@ function createInterpreter() {
         return makePair(cx + d.x * hx, cy + d.y * hy);
       }
       return _pointOnPath(args[0], args[1]);
+    });
+
+    // truepoint(pair dir): return the user-coord bbox point in direction,
+    // same as point() for the current picture. Used with attach(legend(), ...).
+    env.set('truepoint', (...args) => {
+      let pic = currentPic, d = null;
+      if (args.length >= 1 && args[0] && args[0]._tag === 'picture') {
+        pic = args[0];
+        d = args[1];
+      } else if (args.length >= 1 && isPair(args[0])) {
+        d = args[0];
+      }
+      if (!d) d = makePair(0, 0);
+      let minX, maxX, minY, maxY;
+      if (pic._picLimits && pic._picLimits.xmin != null) {
+        minX = pic._picLimits.xmin; maxX = pic._picLimits.xmax;
+      }
+      if (pic._picLimits && pic._picLimits.ymin != null) {
+        minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
+      }
+      if (minX === undefined || minY === undefined) {
+        const gb = getGeoBbox(pic.commands);
+        if (minX === undefined) { minX = gb.minX; maxX = gb.maxX; }
+        if (minY === undefined) { minY = gb.minY; maxY = gb.maxY; }
+      }
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const hx = (maxX - minX) / 2;
+      const hy = (maxY - minY) / 2;
+      return makePair(cx + d.x * hx, cy + d.y * hy);
+    });
+
+    // legend(): build a picture containing a legend box with entries collected
+    // from draw(path, pen, Label(...)) calls. Returns a frame/picture object.
+    env.set('legend', (...args) => {
+      // Asymptote legend() takes optional args: perline, xmargin, ymargin, etc.
+      // For now, we render a simple vertical list of {line sample + text} rows.
+      const legendPic = {_tag:'picture', commands:[], _legendPic: true, _legendEntries: _legendEntries.slice()};
+      if (_legendEntries.length === 0) return legendPic;
+      legendPic._legendWidth = 1;
+      legendPic._legendHeight = 1;
+      return legendPic;
+    });
+
+    // attach(pic, position, dir): render a sub-picture at the given position,
+    // offset by dir (in user units). Used for placing legends, insets, etc.
+    // Common usage: attach(legend(), truepoint(S), 10*S) places legend below graph.
+    env.set('attach', (...args) => {
+      let subPic = null, position = null, offsetDir = null;
+      for (const a of args) {
+        if (a && a._tag === 'picture') { if (!subPic) subPic = a; }
+        else if (isPair(a)) {
+          if (!position) position = a;
+          else if (!offsetDir) offsetDir = a;
+        }
+      }
+      if (!subPic || !position) return;
+      if (!offsetDir) offsetDir = makePair(0, 0);
+
+      // Handle legend pictures specially - render directly onto main picture
+      if (subPic._legendPic && subPic._legendEntries && subPic._legendEntries.length > 0) {
+        const entries = subPic._legendEntries;
+        const n = entries.length;
+
+        // Get main picture's user-unit bbox for positioning
+        const mainBbox = getGeoBbox(currentPic.commands);
+        const mainW = Math.max(1, mainBbox.maxX - mainBbox.minX);
+        const mainCx = (mainBbox.minX + mainBbox.maxX) / 2;
+
+        // Legend layout in user units (scaled to main picture)
+        const lineLen = mainW * 0.11;      // sample line length
+        const rowHeight = mainW * 0.09;    // vertical spacing per entry
+        const margin = mainW * 0.035;      // padding inside box
+        const textGap = mainW * 0.015;     // gap between line sample and text
+        const textWidth = mainW * 0.28;    // estimated text width
+
+        const boxW = margin + lineLen + textGap + textWidth + margin;
+        const boxH = margin + n * rowHeight + margin;
+
+        // Position: centered horizontally, below the position by offset
+        const ox = mainCx - boxW / 2;
+        const oy = position.y + offsetDir.y * 0.15 - boxH;
+
+        // Draw surrounding box (black outline)
+        const boxPath = makePath([
+          lineSegment(makePair(ox, oy), makePair(ox + boxW, oy)),
+          lineSegment(makePair(ox + boxW, oy), makePair(ox + boxW, oy + boxH)),
+          lineSegment(makePair(ox + boxW, oy + boxH), makePair(ox, oy + boxH)),
+          lineSegment(makePair(ox, oy + boxH), makePair(ox, oy))
+        ], true);
+        // above:1 excludes legend from crop clipping so it's visible outside axis limits
+        currentPic.commands.push({cmd:'draw', path: boxPath, pen: makePen({}), line: 0, _fromLegend: true, above: 1});
+
+        // Draw entries from top to bottom
+        for (let i = 0; i < n; i++) {
+          const e = entries[i];
+          // y position: top entry is highest
+          const cy = oy + boxH - margin - (i + 0.5) * rowHeight;
+          // Draw sample line
+          const x1 = ox + margin;
+          const x2 = ox + margin + lineLen;
+          const linePath = makePath([lineSegment(makePair(x1, cy), makePair(x2, cy))], false);
+          currentPic.commands.push({cmd:'draw', path: linePath, pen: clonePen(e.pen), line: 0, _fromLegend: true, above: 1});
+          // Add text label after the line
+          const textX = x2 + textGap;
+          currentPic.commands.push({cmd:'label', text: e.text, pos: makePair(textX, cy), align: makePair(1, 0), pen: clonePen(e.pen), line: 0, _fromLegend: true});
+        }
+        return;
+      }
+
+      // General subpicture attach (non-legend) - not implemented yet
     });
 
     env.set('relpoint', (p, t) => {
@@ -18509,7 +18621,7 @@ function createInterpreter() {
     let barsStyle = null; // 'Bar' | 'Bars' | null — tracked separately so it
                           // can coexist with Arrows (geometry-module convention).
     let barsSize = null;  // size in bp from Bar(size) / Bars(size); null = default
-    let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null;
+    let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null, labelFromLabelObject = false;
     let labelFilltype = null, labelPen = null;
     let pathMarker = null; // marker= named arg or positional marker object
     let penCount = 0;
@@ -18568,9 +18680,9 @@ function createInterpreter() {
         } catch(e) {}
       }
       else if (a && a._tag === 'label') {
-        if (!labelText) { labelText = a.text || ''; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; if (a.filltype && !labelFilltype) labelFilltype = a.filltype; if (a.pen && !labelPen) labelPen = a.pen; }
+        if (!labelText) { labelText = a.text || ''; labelFromLabelObject = true; if (a.align) labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; if (a.filltype && !labelFilltype) labelFilltype = a.filltype; if (a.pen && !labelPen) labelPen = a.pen; }
       }
-      else if (isString(a) && !labelText && !pathArg) { labelText = a; }
+      else if (isString(a) && !labelText && !pathArg) { labelText = a; labelFromLabelObject = false; }
       else if (isTriple(a) && !pathArg) {
         pathArg = makePath([], false);
         pathArg._singlePoint = projectTriple(a);
@@ -18658,63 +18770,60 @@ function createInterpreter() {
           target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0});
         }
       }
-      // If draw call has a label, place it along the path at the specified position
+      // If draw call has a label, handle it: either register for legend or place inline
       if (labelText && pathArg.segs && pathArg.segs.length > 0) {
-        const t = (labelPosition != null) ? labelPosition : 0.5; // default midpoint
-        // Compute position at parameter t along the path (0=begin, 1=end)
-        const totalSegs = pathArg.segs.length;
-        const segParam = t * totalSegs;
-        const segIdx = Math.min(Math.floor(segParam), totalSegs - 1);
-        const localT = segParam - segIdx;
-        const seg = pathArg.segs[segIdx];
-        // De Casteljau evaluation for cubic Bezier at localT
-        const b = (1 - localT);
-        const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
-        const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
-        const labelPos = makePair(px, py);
-        // Default alignment when the user did not specify one, modeled after
-        // Asymptote's plain_Label.asy `relative(real position)`:
-        //   position == 0 → backward tangent at start (label past the start)
-        //   position == 1 → forward tangent at end    (label past the tip)
-        //   otherwise     → perpendicular to path
-        // For interior positions we keep the historical right-perpendicular
-        // default (rotate tangent 90° CW → (dy, -dx)); this matches how the
-        // rest of the corpus renders (e.g. `draw("$F$", A--B, Arrow)` with a
-        // rightward path places the label below the arrow, as on a free-body
-        // diagram). Endpoint positions newly use the forward/backward tangent
-        // so `Label(..., Relative(1))` on an arrow places the label past the
-        // tip in the direction the arrow points.
-        let effectiveAlign = labelAlign;
-        if (!effectiveAlign) {
-          // Tangent from derivative of cubic Bezier at localT
-          const tdx = 3*b*b*(seg.cp1.x - seg.p0.x) + 6*b*localT*(seg.cp2.x - seg.cp1.x) + 3*localT*localT*(seg.p3.x - seg.cp2.x);
-          const tdy = 3*b*b*(seg.cp1.y - seg.p0.y) + 6*b*localT*(seg.cp2.y - seg.cp1.y) + 3*localT*localT*(seg.p3.y - seg.cp2.y);
-          let tl = Math.sqrt(tdx*tdx + tdy*tdy);
-          let ux, uy;
-          if (tl < 1e-9) {
-            const ddx = seg.p3.x - seg.p0.x, ddy = seg.p3.y - seg.p0.y;
-            tl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
-            ux = ddx/tl; uy = ddy/tl;
-          } else {
-            ux = tdx/tl; uy = tdy/tl;
-          }
-          const EPS_POS = 1e-6;
-          if (t >= 1 - EPS_POS) {
-            // Endpoint (end): label past the tip along forward tangent.
-            effectiveAlign = makePair(ux, uy);
-          } else if (t <= EPS_POS) {
-            // Endpoint (start): label past the start along backward tangent.
-            effectiveAlign = makePair(-ux, -uy);
-          } else {
-            // Interior: right-perpendicular (rotate tangent 90° CW → (dy, -dx)).
-            effectiveAlign = makePair(uy, -ux);
-          }
-        }
         const labelEffectivePen = labelPen || pen;
-        const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0};
-        if (labelTransform) ldc.labelTransform = labelTransform;
-        if (labelFilltype) ldc.filltype = labelFilltype;
-        target.commands.push(ldc);
+
+        // Determine if this label is for legend or inline:
+        // - Label objects (from draw(graph(...), pen, Label(...))) → register for legend, don't inline
+        // - String labels (from draw("text", path)) → always inline, not for legend
+        const isLegendLabel = labelFromLabelObject && (labelPosition == null || labelPosition === 0.5);
+
+        if (isLegendLabel) {
+          // Register for legend system only; don't render inline
+          _legendEntries.push({text: labelText, pen: clonePen(labelEffectivePen)});
+        } else {
+          // Render inline on path (string labels or Label with explicit position)
+          const t = (labelPosition != null) ? labelPosition : 0.5;
+          // Compute position at parameter t along the path (0=begin, 1=end)
+          const totalSegs = pathArg.segs.length;
+          const segParam = t * totalSegs;
+          const segIdx = Math.min(Math.floor(segParam), totalSegs - 1);
+          const localT = segParam - segIdx;
+          const seg = pathArg.segs[segIdx];
+          // De Casteljau evaluation for cubic Bezier at localT
+          const b = (1 - localT);
+          const px = b*b*b*seg.p0.x + 3*b*b*localT*seg.cp1.x + 3*b*localT*localT*seg.cp2.x + localT*localT*localT*seg.p3.x;
+          const py = b*b*b*seg.p0.y + 3*b*b*localT*seg.cp1.y + 3*b*localT*localT*seg.cp2.y + localT*localT*localT*seg.p3.y;
+          const labelPos = makePair(px, py);
+          let effectiveAlign = labelAlign;
+          if (!effectiveAlign) {
+            // Tangent from derivative of cubic Bezier at localT
+            const tdx = 3*b*b*(seg.cp1.x - seg.p0.x) + 6*b*localT*(seg.cp2.x - seg.cp1.x) + 3*localT*localT*(seg.p3.x - seg.cp2.x);
+            const tdy = 3*b*b*(seg.cp1.y - seg.p0.y) + 6*b*localT*(seg.cp2.y - seg.cp1.y) + 3*localT*localT*(seg.p3.y - seg.cp2.y);
+            let tl = Math.sqrt(tdx*tdx + tdy*tdy);
+            let ux, uy;
+            if (tl < 1e-9) {
+              const ddx = seg.p3.x - seg.p0.x, ddy = seg.p3.y - seg.p0.y;
+              tl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+              ux = ddx/tl; uy = ddy/tl;
+            } else {
+              ux = tdx/tl; uy = tdy/tl;
+            }
+            const EPS_POS = 1e-6;
+            if (t >= 1 - EPS_POS) {
+              effectiveAlign = makePair(ux, uy);
+            } else if (t <= EPS_POS) {
+              effectiveAlign = makePair(-ux, -uy);
+            } else {
+              effectiveAlign = makePair(uy, -ux);
+            }
+          }
+          const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0};
+          if (labelTransform) ldc.labelTransform = labelTransform;
+          if (labelFilltype) ldc.filltype = labelFilltype;
+          target.commands.push(ldc);
+        }
       }
     }
   }
