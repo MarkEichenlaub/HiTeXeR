@@ -22030,6 +22030,34 @@ function renderSVG(result, opts) {
             }
           }
         }
+      } else if (dc.cmd === 'marker' && dc.markerPath && dc.markerPath.segs.length > 0) {
+        // Marker overshoot: thick-pen markers (>=1bp) are scaled by linewidth * bpCSSPixel;
+        // thin-pen markers are scaled by cssPixel (matching the rendering logic)
+        const mPath = dc.markerPath;
+        let mMaxX = 0, mMaxY = 0;
+        for (const seg of mPath.segs) {
+          for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+            mMaxX = Math.max(mMaxX, Math.abs(p.x));
+            mMaxY = Math.max(mMaxY, Math.abs(p.y));
+          }
+        }
+        const mLw = dc.pen ? dc.pen.linewidth : 0.5;
+        const useFilledMarker = mLw >= 1;
+        const markerScale = useFilledMarker ? mLw * bpCSSPixel : cssPixel;
+        const halfStroke = useFilledMarker ? 0 : (mLw * bpCSSPixel) / 2;
+        // Marker extent in SVG units
+        const markerExtentX = mMaxX * markerScale + halfStroke;
+        const markerExtentY = mMaxY * markerScale + halfStroke;
+        const sx = (dc.pos.x - minX) * pxPerUnitX;
+        const sy = (maxY - dc.pos.y) * pxPerUnitY;
+        // Pad viewBox to include marker extent
+        if (sx >= -markerExtentX && sx <= viewW + markerExtentX &&
+            sy >= -markerExtentY && sy <= viewH + markerExtentY) {
+          padL = Math.max(padL, markerExtentX - sx);
+          padR = Math.max(padR, (sx + markerExtentX) - viewW);
+          padT = Math.max(padT, markerExtentY - sy);
+          padB = Math.max(padB, (sy + markerExtentY) - viewH);
+        }
       }
     }
 
@@ -22928,18 +22956,24 @@ function renderSVG(result, opts) {
       }
       commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
     } else if (dc.cmd === 'marker') {
-      // draw(pair, path, pen): marker path is in bp/px units, centered at SVG position of pair
+      // draw(pair, path, [pen]): marker path centered at pair
+      // Thick-pen markers (linewidth >= 1bp) are filled and scaled by linewidth
+      // Thin-pen markers are stroked and scaled by cssPixel (baseline behavior)
       const svgCX = (dc.pos.x - minX) * pxPerUnitX;
       const svgCY = (maxY - dc.pos.y) * pxPerUnitY;
       const mPath = dc.markerPath;
+      const mLw = dc.pen ? dc.pen.linewidth : 0.5;
+      // Thick pens (>=1bp) indicate filled markers; thin pens indicate stroked markers
+      const useFilledMarker = mLw >= 1;
+      const markerScale = useFilledMarker ? mLw * bpCSSPixel : cssPixel;
       if (mPath.segs.length > 0) {
         let d = '';
         for (let i = 0; i < mPath.segs.length; i++) {
           const s = mPath.segs[i];
-          const p0x = svgCX + s.p0.x * cssPixel, p0y = svgCY - s.p0.y * cssPixel;
-          const cp1x = svgCX + s.cp1.x * cssPixel, cp1y = svgCY - s.cp1.y * cssPixel;
-          const cp2x = svgCX + s.cp2.x * cssPixel, cp2y = svgCY - s.cp2.y * cssPixel;
-          const p3x = svgCX + s.p3.x * cssPixel, p3y = svgCY - s.p3.y * cssPixel;
+          const p0x = svgCX + s.p0.x * markerScale, p0y = svgCY - s.p0.y * markerScale;
+          const cp1x = svgCX + s.cp1.x * markerScale, cp1y = svgCY - s.cp1.y * markerScale;
+          const cp2x = svgCX + s.cp2.x * markerScale, cp2y = svgCY - s.cp2.y * markerScale;
+          const p3x = svgCX + s.p3.x * markerScale, p3y = svgCY - s.p3.y * markerScale;
           if (i === 0) {
             d += `M${fmt(p0x)} ${fmt(p0y)}`;
           } else {
@@ -22954,7 +22988,12 @@ function renderSVG(result, opts) {
           }
         }
         if (mPath.closed) d += ' Z';
-        elements.push(`<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}"/>`);
+        // Thick-pen closed markers are filled; thin-pen markers are stroked
+        if (useFilledMarker && mPath.closed) {
+          elements.push(`<path d="${d}" fill="${css.stroke}" stroke="none"/>`);
+        } else {
+          elements.push(`<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}"/>`);
+        }
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
       }
     } else if (dc.path) {
