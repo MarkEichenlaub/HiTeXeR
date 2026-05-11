@@ -10140,7 +10140,7 @@ function createInterpreter() {
         return (bp / 6) * perpAxisRange * 0.015;
       }
       let majorSize = ticks.sizeExplicit ? _bpToUnit(ticks.size) : defaultTickSize;
-      let minorSize = ticks.subSizeExplicit ? _bpToUnit(ticks.subSize) : majorSize * 0.5;
+      let minorSize = ticks.subSizeExplicit ? _bpToUnit(ticks.subSize) : majorSize * 0.8;
       // If size was explicitly set extremely small (e.g. Size = 0.1pt), the user is
       // suppressing visible tick marks — skip drawing tick lines entirely.
       const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
@@ -21976,18 +21976,34 @@ function renderSVG(result, opts) {
       } else if (dc.path && dc.path.segs.length > 0) {
         const lw = dc.pen ? dc.pen.linewidth : 0.5;
         const halfStroke = (lw * bpCSSPixel) / 2;
-        // Check path endpoints for stroke overshoot
-        for (const seg of dc.path.segs) {
-          for (const p of [seg.p0, seg.p3]) {
-            const sx = (p.x - minX) * pxPerUnitX;
-            const sy = (maxY - p.y) * pxPerUnitY;
-            // Skip points far outside the viewport — their overshoot is invisible
-            if (sx < -halfStroke || sx > viewW + halfStroke ||
-                sy < -halfStroke || sy > viewH + halfStroke) continue;
-            padL = Math.max(padL, halfStroke - sx);
-            padR = Math.max(padR, (sx + halfStroke) - viewW);
-            padT = Math.max(padT, halfStroke - sy);
-            padB = Math.max(padB, (sy + halfStroke) - viewH);
+        // Tick marks: their full extent should be included in the viewbox, not just
+        // stroke overshoot. Tick marks extend outside the geometry bbox intentionally.
+        if (dc._isTickMark) {
+          for (const seg of dc.path.segs) {
+            for (const p of [seg.p0, seg.p3]) {
+              const sx = (p.x - minX) * pxPerUnitX;
+              const sy = (maxY - p.y) * pxPerUnitY;
+              // Include the full tick extent plus stroke overshoot
+              padL = Math.max(padL, halfStroke - sx);
+              padR = Math.max(padR, (sx + halfStroke) - viewW);
+              padT = Math.max(padT, halfStroke - sy);
+              padB = Math.max(padB, (sy + halfStroke) - viewH);
+            }
+          }
+        } else {
+          // Check path endpoints for stroke overshoot
+          for (const seg of dc.path.segs) {
+            for (const p of [seg.p0, seg.p3]) {
+              const sx = (p.x - minX) * pxPerUnitX;
+              const sy = (maxY - p.y) * pxPerUnitY;
+              // Skip points far outside the viewport — their overshoot is invisible
+              if (sx < -halfStroke || sx > viewW + halfStroke ||
+                  sy < -halfStroke || sy > viewH + halfStroke) continue;
+              padL = Math.max(padL, halfStroke - sx);
+              padR = Math.max(padR, (sx + halfStroke) - viewW);
+              padT = Math.max(padT, halfStroke - sy);
+              padB = Math.max(padB, (sy + halfStroke) - viewH);
+            }
           }
         }
         // Arrow overshoot: arrowheads extend perpendicular to the path by ~arrowLen/3.
