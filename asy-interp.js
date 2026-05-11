@@ -21147,7 +21147,19 @@ function renderSVG(result, opts) {
         maxNatural < 150 &&
         !_skipSecondaryFloor &&
         !_isIgnoreAspect) {
-      const boostTarget = 150;
+      // Base boost target is 150bp (matching no-size default). However, when
+      // labels dominate the bbox AND the geometry is very small (< 15bp on
+      // either axis), TeXeR empirically renders at a much larger scale to
+      // ensure labels are clearly readable. For diagrams like 03582 (Disk,
+      // Hoop, Sphere with labels and force vectors), TeXeR outputs ~528bp
+      // width vs our baseline 150bp. Increase the target for label-dominated
+      // layouts with tiny geometry.
+      let boostTarget = 150;
+      if (_labelDominatesSize && Math.min(_geoWbp, _geoHbp) < 15) {
+        // Labels dominate, geometry is tiny: use a larger target.
+        // TeXeR empirically uses ~350-550bp for these cases.
+        boostTarget = 350;
+      }
       const boostScale = boostTarget / Math.max(scaleRefW, scaleRefH) / pxPerUnit;
       pxPerUnit *= boostScale;
       pxPerUnitX *= boostScale;
