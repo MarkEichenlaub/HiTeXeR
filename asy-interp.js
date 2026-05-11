@@ -19774,6 +19774,7 @@ function createInterpreter() {
       currentlight,
       directionWarnings: directionWarnings.slice(),
       _defaultpenLwSet,
+      _is3D: !!projection,
     };
   }
 
@@ -19847,7 +19848,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
@@ -22942,7 +22943,7 @@ function renderSVG(result, opts) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
           _dotBoost = _isNarrowFewDots1D ? 3.425 : _autoScaledStrokeBoost;
-        } else if (_explicitSizeStrokeBoost > 1) _dotBoost = _explicitSizeStrokeBoost;
+        } else if (_explicitSizeStrokeBoost > 1 && !_is3D) _dotBoost = _explicitSizeStrokeBoost;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
