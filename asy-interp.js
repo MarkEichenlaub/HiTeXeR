@@ -13356,7 +13356,7 @@ function createInterpreter() {
       }
 
       // Draw axis lines with arrows
-      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize, sizeExplicit: true};
       // Vertical axis (x=0)
       const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
@@ -13423,7 +13423,7 @@ function createInterpreter() {
       }
 
       // ── Axis lines with arrows ──
-      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize};
+      const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize, sizeExplicit: true};
       const vPath = makePath([lineSegment({x:0, y:ybottom}, {x:0, y:ytop})], false);
       pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
       const hPath = makePath([lineSegment({x:xleft, y:0}, {x:xright, y:0})], false);
