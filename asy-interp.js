@@ -1316,7 +1316,9 @@ function mergePens(a,b) {
   if (b._lwExplicit) r._lwExplicit = true;
   if (b._lwDirect) r._lwDirect = true;
   if (b.linestyle) r.linestyle = b.linestyle;
-  if (b.fontsize !== 12) r.fontsize = b.fontsize;
+  // fontsize: copy if explicitly set OR if differs from the base 12
+  if (b._fzExplicit || b.fontsize !== 12) r.fontsize = b.fontsize;
+  if (b._fzExplicit) r._fzExplicit = true;
   if (b.opacity !== 1) r.opacity = b.opacity;
   if (b.linecap) r.linecap = b.linecap;
   if (b.linejoin) r.linejoin = b.linejoin;
@@ -7853,7 +7855,7 @@ function createInterpreter() {
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
-    env.set('fontsize', (s) => makePen({fontsize:toNumber(s)}));
+    env.set('fontsize', (s) => makePen({fontsize:toNumber(s), _fzExplicit:true}));
     // Asymptote labelmargin(p) returns the small text padding used to push
     // labels off their anchor point. The renderer (see comment near line
     // ~21513) approximates Asymptote's value as 0.28*fontsize + 0.5*linewidth.
@@ -21243,13 +21245,15 @@ function renderSVG(result, opts) {
     // a higher pxPerUnit (~100) for such diagrams, producing roughly 2.5× larger
     // output. Apply a floor of 100 bp/unit when:
     // - Geometry is small (maxDim < 10 user units)
-    // - Aspect ratio is high (maxDim/minDim > 3)
+    // - Aspect ratio is very high (maxDim/minDim > 5) — excludes moderate aspect
+    //   ratios like 06292's balance beam (4×1.1, aspect 3.6) which render fine
+    //   at the default scale
     // - minDim is non-degenerate (> 0.1 user units) — excludes flat-banner 1D
     //   diagrams like 09210 (row of dots at y=0) where minDim≈0
     // This ensures tall-narrow diagrams with small geometry get adequate scale
     // to match TeXeR's output dimensions, without affecting degenerate cases.
     const aspectRatio = maxDim / (minDim || 0.001);
-    if (maxDim < 10 && minDim > 0.1 && aspectRatio > 3 && pxPerUnit < 100) {
+    if (maxDim < 10 && minDim > 0.1 && aspectRatio > 5 && pxPerUnit < 100) {
       pxPerUnit = 100;
     }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
