@@ -21237,9 +21237,29 @@ function renderSVG(result, opts) {
         pxPerUnit = 13;
       }
     }
+    // High aspect ratio floor: for small geometry with high aspect ratio (e.g.
+    // 00999: 0.64×4.01, aspect=6.27), the default scaling produces pxPerUnit~37
+    // which makes the output too small compared to TeXeR. TeXeR appears to use
+    // a higher pxPerUnit (~100) for such diagrams, producing roughly 2.5× larger
+    // output. Apply a floor of 100 bp/unit when:
+    // - Geometry is small (maxDim < 10 user units)
+    // - Aspect ratio is high (maxDim/minDim > 3)
+    // - minDim is non-degenerate (> 0.1 user units) — excludes flat-banner 1D
+    //   diagrams like 09210 (row of dots at y=0) where minDim≈0
+    // This ensures tall-narrow diagrams with small geometry get adequate scale
+    // to match TeXeR's output dimensions, without affecting degenerate cases.
+    const aspectRatio = maxDim / (minDim || 0.001);
+    if (maxDim < 10 && minDim > 0.1 && aspectRatio > 3 && pxPerUnit < 100) {
+      pxPerUnit = 100;
+    }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
-    sizeW = Math.max(defaultSize, scaleRefW2 * pxPerUnit);
-    sizeH = Math.max(defaultSize, scaleRefH2 * pxPerUnit);
+    // For auto-scaled diagrams, the larger dimension equals defaultSize (150bp)
+    // and the smaller dimension scales proportionally to preserve aspect ratio.
+    // Do NOT force both dimensions to be >= defaultSize — that destroys the
+    // aspect ratio for tall/narrow or wide/short diagrams (e.g. 00999 sine-wave
+    // diagram with ~4:1 height:width ratio).
+    sizeW = scaleRefW2 * pxPerUnit;
+    sizeH = scaleRefH2 * pxPerUnit;
     warnings.push('auto-scaled');
   }
 
