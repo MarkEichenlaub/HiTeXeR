@@ -19566,12 +19566,15 @@ function createInterpreter() {
       // gaps anyway because the underlying background is itself partly
       // visible through every face.
       const fillOpacity = (typeof shaded.opacity === 'number') ? shaded.opacity : 1;
-      if (fillOpacity >= 0.95) {
+      if (fillOpacity >= 0.95 && !it._subSmooth) {
         // Add thin same-color stroke to close gaps between faces.
-        // For subdivided smooth faces, use a very thin stroke to avoid
-        // accumulating visible edges while still covering pixel gaps.
+        // Skip for _subSmooth faces (Catmull-Clark subdivisions) because
+        // strokes between subdivision patches accumulate into visible grid
+        // lines on what should be a smooth surface (e.g. tube() spirals).
+        // The many small subdivision patches don't have pixel-gap issues
+        // that non-subdivided faces have, so strokes aren't needed.
         const stroke = clonePen(shaded);
-        stroke.linewidth = it._subSmooth ? 0.1 : Math.max(0.2, stroke.linewidth || 0.2);
+        stroke.linewidth = Math.max(0.2, stroke.linewidth || 0.2);
         target.commands.push({cmd: 'draw', path: p, pen: stroke, arrow: null, line, _from3d: true, _faceDepth: it.depth});
       }
     }
