@@ -19377,17 +19377,23 @@ function createInterpreter() {
       }
       // Colors: gradient stops empirically matched to TeXeR pixel samples
       // on 03361 (lightblue × intensity, with specular at the focal point).
-      // Brightest at focal: base * 0.97 + 0.28 (specular peak).
-      // Mid: base * 0.65 (ambient + half diffuse).
-      // Edge (silhouette terminator/shadow): base * 0.18 (deep shadow).
+      // Brightest at focal: base * 0.97 + specular (peak).
+      // Mid: base * 0.68 (ambient + half diffuse).
+      // Edge (silhouette terminator/shadow): base * 0.25 (deep shadow).
+      // Specular intensity 0.40 pushes the highlight toward pure white for
+      // gray base colors (e.g. 03633 material(gray(0.7),...)).
       const br = basePen.r || 0, bg = basePen.g || 0, bb = basePen.b || 0;
       const lit = {
-        r: Math.max(0, Math.min(1, br*0.97 + 0.28)),
-        g: Math.max(0, Math.min(1, bg*0.97 + 0.28)),
-        b: Math.max(0, Math.min(1, bb*0.97 + 0.28)),
+        r: Math.max(0, Math.min(1, br*0.97 + 0.45)),
+        g: Math.max(0, Math.min(1, bg*0.97 + 0.45)),
+        b: Math.max(0, Math.min(1, bb*0.97 + 0.45)),
       };
-      const mid = { r: br*0.72, g: bg*0.72, b: bb*0.72 };
-      const dark = { r: br*0.22, g: bg*0.22, b: bb*0.22 };
+      // Intermediate stop between lit and mid for smoother highlight falloff
+      // Higher value keeps the bright area larger before falling off to mid
+      // litMid extends the bright highlight area
+      const litMid = { r: br*0.97, g: bg*0.97, b: bb*0.97 };
+      const mid = { r: br*0.70, g: bg*0.70, b: bb*0.70 };
+      const dark = { r: br*0.18, g: bg*0.18, b: bb*0.18 };
       // Build path along projected silhouette
       const sphSegs = [];
       for (let i = 0; i < N_SIL; i++) {
@@ -19407,7 +19413,7 @@ function createInterpreter() {
         _faceDepth: 1e9,
         _sphereGradient: {
           cx: ccx, cy: ccy, r: radius, fx: hp.x, fy: hp.y,
-          lit, mid, dark,
+          lit, litMid, mid, dark,
         },
       });
       return;
@@ -22708,7 +22714,8 @@ function renderSVG(result, opts) {
         elements.push(
           `<defs><radialGradient id="${gid}" cx="${fmt(cxPx)}" cy="${fmt(cyPx)}" r="${fmt(rPx)}" fx="${fmt(fxPx)}" fy="${fmt(fyPx)}" gradientUnits="userSpaceOnUse">` +
           `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
-          `<stop offset="35%" stop-color="${_rgb(sg.mid)}"/>` +
+          `<stop offset="4%" stop-color="${_rgb(sg.litMid)}"/>` +
+          `<stop offset="45%" stop-color="${_rgb(sg.mid)}"/>` +
           `<stop offset="100%" stop-color="${_rgb(sg.dark)}"/>` +
           `</radialGradient></defs>`
         );
