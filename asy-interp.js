@@ -2071,6 +2071,36 @@ function createInterpreter() {
     return r;
   }
 
+  // Find t values in (0,1) where the cubic Bezier's derivative is zero for one coordinate.
+  // Returns the actual extreme values (not t values) for convenience.
+  function bezierExtremaCoord(p0c, cp1c, cp2c, p3c) {
+    // B'(t) = 3(At² + 2Bt + C) where:
+    const A = p3c - 3*cp2c + 3*cp1c - p0c;
+    const B = cp2c - 2*cp1c + p0c;
+    const C = cp1c - p0c;
+    const vals = [];
+    const evalAt = t => {
+      const mt = 1-t;
+      return mt*mt*mt*p0c + 3*mt*mt*t*cp1c + 3*mt*t*t*cp2c + t*t*t*p3c;
+    };
+    if (Math.abs(A) < 1e-12) {
+      if (Math.abs(B) > 1e-12) {
+        const t = -C / (2*B);
+        if (t > 1e-9 && t < 1-1e-9) vals.push(evalAt(t));
+      }
+    } else {
+      const disc = B*B - A*C;
+      if (disc >= 0) {
+        const sqD = Math.sqrt(disc);
+        for (const s of [-1, 1]) {
+          const t = (-B + s*sqD) / A;
+          if (t > 1e-9 && t < 1-1e-9) vals.push(evalAt(t));
+        }
+      }
+    }
+    return vals;
+  }
+
   // Compute the geometric bounding box of draw commands (paths + dot positions, not labels/clips)
   function getGeoBbox(commands) {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -2078,10 +2108,22 @@ function createInterpreter() {
       if (!dc || dc.cmd === 'clip' || dc.cmd === 'label') continue;
       if (dc.path) {
         for (const seg of (dc.path.segs || [])) {
-          for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+          // Always include endpoints
+          for (const p of [seg.p0, seg.p3]) {
             if (!p) continue;
             if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
             if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+          }
+          // Include actual interior Bezier extrema (not the control hull).
+          // For loop Beziers (p0==p3), the control hull grossly over-estimates
+          // the actual curve extent, causing wrong size() scaling.
+          if (seg.cp1 && seg.cp2 && seg.p0 && seg.p3) {
+            for (const v of bezierExtremaCoord(seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x)) {
+              if (v < minX) minX = v; if (v > maxX) maxX = v;
+            }
+            for (const v of bezierExtremaCoord(seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y)) {
+              if (v < minY) minY = v; if (v > maxY) maxY = v;
+            }
           }
         }
       }
@@ -2881,21 +2923,25 @@ function createInterpreter() {
               Math.abs((first.y||0) - (last.y||0)) <= 1e-9 &&
               Math.abs((first.z||0) - (last.z||0)) <= 1e-9;
             if (alreadyClosed) return makePath(left.segs.slice(), true);
-            // Implement Asymptote's plain_paths.asy:
+            // Implement Asymptote's plain_paths.asy verbatim:
             //   straight(p,n-1) ? subpath(p,0,n-1)--cycle
-            //                   : subpath(p,0,n-1)..controls postcontrol(p,n-1) and precontrol(p,n)..cycle
+            //                   : subpath(p,0,n-1)..controls postcontrol(p,n-1)
+            //                       and precontrol(p,n)..cycle
             //
             // subpath(p,0,n-1) drops the last segment → segs[0..n-2]
-            // postcontrol(p,n-1) = lastSeg.cp1
-            // precontrol(p,n)   = lastSeg.cp2
-            // cycle destination  = first = segs[0].p0
+            // postcontrol(p,n-1) = cp1 of dropped last segment
+            // precontrol(p,n)   = cp2 of dropped last segment
+            // The new closing segment runs from end-of-subpath (=lastSeg.p0)
+            // back to first, REUSING the dropped segment's cp1/cp2.
+            //
+            // For this to produce the correct visual result on arcs etc., the
+            // path's segmentation must match Asymptote's: arc() must split at
+            // multiples of 90° via unitcircle subdivision (see makeArcPath).
             const subSegs = left.segs.slice(0, n - 1);
-            // Start of closing segment = end of subpath (= start of dropped last seg)
             const closingStart = lastSeg.p0;
             if (lastSeg._linear) {
               subSegs.push(lineSegment(closingStart, first));
             } else {
-              // Bezier reusing last seg's controls but aimed at cycle (first point)
               subSegs.push(makeSeg(closingStart, lastSeg.cp1, lastSeg.cp2, first));
             }
             return makePath(subSegs, true);
@@ -19194,21 +19240,88 @@ function createInterpreter() {
   }
 
   function makeArcPath(center, r, startDeg, endDeg) {
-    const startRad = startDeg * Math.PI / 180;
-    const endRad = endDeg * Math.PI / 180;
-    let sweep = endRad - startRad;
-    // Normalize to handle both directions
+    // Asymptote's arc(c,r,a1,a2) is defined as
+    //   shift(c) * scale(r) * subpath(unitcircle, a1/90, a2/90)
+    // where `unitcircle` consists of FOUR fixed cubic Bezier segments at
+    // quadrant boundaries (nodes at 0°, 90°, 180°, 270°). A non-quadrant-
+    // aligned arc is therefore built by de Casteljau-subdividing those
+    // quadrant Beziers — NOT by computing a fresh closed-form optimal-arc
+    // Bezier per sub-arc. This matters because operators like `& cycle`,
+    // `subpath`, `postcontrol`, `precontrol`, `length` all read the
+    // resulting Bezier control points, so the segmentation/shape must
+    // match Asymptote exactly to reproduce TeXeR's output.
+    if (Math.abs(endDeg - startDeg) < 1e-12) return makePath([], false);
+    const ccw = endDeg >= startDeg;
+    // a1 <= a2 in the CCW build direction; we reverse afterwards for CW.
+    const a1 = ccw ? startDeg : endDeg;
+    const a2 = ccw ? endDeg : startDeg;
     const segs = [];
-    const nSegs = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI/2)));
-    const dAngle = sweep / nSegs;
-
-    for (let i = 0; i < nSegs; i++) {
-      const a1 = startRad + i * dAngle;
-      const a2 = a1 + dAngle;
-      const segResult = arcSegment(center, r, a1, a2);
-      segs.push(segResult);
+    let cur = a1;
+    while (cur < a2 - 1e-9) {
+      const qIdx = Math.floor(cur / 90 + 1e-9);
+      const next = Math.min((qIdx + 1) * 90, a2);
+      const u1 = (cur - qIdx * 90) / 90;
+      const u2 = (next - qIdx * 90) / 90;
+      segs.push(_unitcircleSubBezierTransformed(qIdx, u1, u2, center, r));
+      cur = next;
+    }
+    if (!ccw) {
+      return makePath(
+        segs.map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0)).reverse(),
+        false
+      );
     }
     return makePath(segs, false);
+  }
+
+  // unitcircle's 4 cubic Bezier quadrants (CCW from angle 0°).
+  // kappa = 4*(sqrt(2)-1)/3 is the standard constant making the off-curve
+  // controls tangent to the circle with optimal radial deviation.
+  const _UNITCIRCLE_KAPPA = 4 * (Math.sqrt(2) - 1) / 3;
+  const _UNITCIRCLE_QUADS = [
+    { p0:{x:1,y:0},  cp1:{x:1,y:_UNITCIRCLE_KAPPA},  cp2:{x:_UNITCIRCLE_KAPPA,y:1},  p3:{x:0,y:1}  },
+    { p0:{x:0,y:1},  cp1:{x:-_UNITCIRCLE_KAPPA,y:1}, cp2:{x:-1,y:_UNITCIRCLE_KAPPA}, p3:{x:-1,y:0} },
+    { p0:{x:-1,y:0}, cp1:{x:-1,y:-_UNITCIRCLE_KAPPA},cp2:{x:-_UNITCIRCLE_KAPPA,y:-1},p3:{x:0,y:-1} },
+    { p0:{x:0,y:-1}, cp1:{x:_UNITCIRCLE_KAPPA,y:-1}, cp2:{x:1,y:-_UNITCIRCLE_KAPPA}, p3:{x:1,y:0}  },
+  ];
+
+  // Take quadrant qIdx of the unit circle (mod 4) and return the sub-cubic
+  // covering local parameter range [u1, u2] (each in [0,1]), then map it
+  // by  x -> center + r*x . Uses repeated de Casteljau subdivision.
+  function _unitcircleSubBezierTransformed(qIdx, u1, u2, center, r) {
+    const q = _UNITCIRCLE_QUADS[((qIdx % 4) + 4) % 4];
+    let p0 = q.p0, cp1 = q.cp1, cp2 = q.cp2, p3 = q.p3;
+    // Subdivide at u1, keep right half.
+    if (u1 > 1e-12) {
+      const t = u1;
+      const Q0 = {x:(1-t)*p0.x+t*cp1.x, y:(1-t)*p0.y+t*cp1.y};
+      const Q1 = {x:(1-t)*cp1.x+t*cp2.x, y:(1-t)*cp1.y+t*cp2.y};
+      const Q2 = {x:(1-t)*cp2.x+t*p3.x,  y:(1-t)*cp2.y+t*p3.y};
+      const R0 = {x:(1-t)*Q0.x+t*Q1.x,   y:(1-t)*Q0.y+t*Q1.y};
+      const R1 = {x:(1-t)*Q1.x+t*Q2.x,   y:(1-t)*Q1.y+t*Q2.y};
+      const S0 = {x:(1-t)*R0.x+t*R1.x,   y:(1-t)*R0.y+t*R1.y};
+      p0 = S0; cp1 = R1; cp2 = Q2;
+    }
+    // Re-parameterize to local param of right half, then subdivide and
+    // keep left half to terminate at original u2.
+    const denom = 1 - u1;
+    const t2 = denom > 1e-12 ? (u2 - u1) / denom : 0;
+    if (t2 < 1 - 1e-12) {
+      const t = t2;
+      const Q0 = {x:(1-t)*p0.x+t*cp1.x, y:(1-t)*p0.y+t*cp1.y};
+      const Q1 = {x:(1-t)*cp1.x+t*cp2.x, y:(1-t)*cp1.y+t*cp2.y};
+      const Q2 = {x:(1-t)*cp2.x+t*p3.x,  y:(1-t)*cp2.y+t*p3.y};
+      const R0 = {x:(1-t)*Q0.x+t*Q1.x,   y:(1-t)*Q0.y+t*Q1.y};
+      const R1 = {x:(1-t)*Q1.x+t*Q2.x,   y:(1-t)*Q1.y+t*Q2.y};
+      const S0 = {x:(1-t)*R0.x+t*R1.x,   y:(1-t)*R0.y+t*R1.y};
+      cp1 = Q0; cp2 = R0; p3 = S0;
+    }
+    return makeSeg(
+      { x: center.x + r * p0.x,  y: center.y + r * p0.y  },
+      { x: center.x + r * cp1.x, y: center.y + r * cp1.y },
+      { x: center.x + r * cp2.x, y: center.y + r * cp2.y },
+      { x: center.x + r * p3.x,  y: center.y + r * p3.y  }
+    );
   }
 
   function arcSegment(center, r, a1, a2) {
@@ -20220,8 +20333,9 @@ function renderSVG(result, opts) {
   }
 
   function expandBezierBBox(seg) {
-    // Include endpoints and control points, plus Bezier extrema
-    for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) expandBBox(p.x, p.y);
+    // Include endpoints only (control points can extend beyond the actual curve).
+    // Interior extrema are found analytically below and added separately.
+    for (const p of [seg.p0, seg.p3]) expandBBox(p.x, p.y);
     // Find extrema in x and y
     for (let dim = 0; dim < 2; dim++) {
       const key = dim === 0 ? 'x' : 'y';
