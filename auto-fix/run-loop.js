@@ -383,6 +383,20 @@ function runCanaryCheck() {
   return { ok, worstDelta: summary.worstCanaryDelta, worstId: summary.worstId };
 }
 
+function commitAttemptLog() {
+  // Fold any attempts.jsonl changes into the most recent fix commit so they
+  // survive a future git reset --hard (which resets to the pre-iteration HEAD).
+  try {
+    const dirty = sh('git status --porcelain auto-fix/attempts.jsonl').trim();
+    if (!dirty) return; // nothing to fold in
+    sh('git add auto-fix/attempts.jsonl');
+    sh('git commit --amend --no-edit --no-verify');
+    console.log('[run-loop] amended fix commit to include attempts.jsonl');
+  } catch (e) {
+    console.error('[run-loop] commitAttemptLog failed:', e.message);
+  }
+}
+
 function saveAfterSnapshot(targetId, commitHash) {
   // Snapshot htx_pngs/{id}.png right after a successful commit so fix-history
   // can show "after" alongside "before" (captured at enqueue time).
@@ -828,6 +842,7 @@ async function runIteration(args, iter) {
     if (args.skipVerifier) {
       console.log('[run-loop] --no-verifier set; skipping visual verification');
       saveAfterSnapshot(target.id, postCommit);
+      commitAttemptLog();
       return 'committed';
     }
 
@@ -869,6 +884,7 @@ async function runIteration(args, iter) {
         });
       }
       saveAfterSnapshot(target.id, postCommit);
+      commitAttemptLog();
       return 'committed';
     }
 
@@ -891,6 +907,7 @@ async function runIteration(args, iter) {
         });
       }
       saveAfterSnapshot(target.id, postCommit);
+      commitAttemptLog();
       writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
       rerender200Worst();
       return 'committed';
