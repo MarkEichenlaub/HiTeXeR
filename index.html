@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.68</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.69</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -989,6 +989,38 @@ const AsyParser = {
               const synth = { vars: callVars, lineIndex: i, braceDepth: 0 };
               for (const l of this.findDependencies(synth, parsed.assignments)) depLines.add(l);
             }
+          }
+        }
+      }
+      // Include definitions of user-defined functions called from any dependency line
+      // (e.g. `path lHalf = shift(pHalf) * planoconvex(h, t)` needs the planoconvex def)
+      {
+        const tracedFuncs = new Set();
+        const funcQueue = [];
+        for (const li of depLines) {
+          const ids = (parsed.lines[li] || '').match(/[a-zA-Z_]\w*/g) || [];
+          for (const id of ids) { if (funcByName.has(id)) funcQueue.push(id); }
+        }
+        while (funcQueue.length) {
+          const fname = funcQueue.shift();
+          if (tracedFuncs.has(fname)) continue;
+          tracedFuncs.add(fname);
+          const fdef = funcByName.get(fname);
+          if (!fdef) continue;
+          const start = fdef.lineIndex, end = fdef.endLineIndex != null ? fdef.endLineIndex : start;
+          const extraVars = new Set();
+          for (let i = start; i <= end; i++) {
+            depLines.add(i);
+            const ids = (parsed.lines[i] || '').match(/[a-zA-Z_]\w*/g) || [];
+            for (const id of ids) {
+              if (BUILTINS.has(id) && !parsed.userVarNames.has(id)) continue;
+              if (funcByName.has(id)) { if (!tracedFuncs.has(id)) funcQueue.push(id); }
+              else extraVars.add(id);
+            }
+          }
+          if (extraVars.size > 0) {
+            const synth = { vars: [...extraVars], lineIndex: start, braceDepth: 0 };
+            for (const l of this.findDependencies(synth, parsed.assignments)) depLines.add(l);
           }
         }
       }
