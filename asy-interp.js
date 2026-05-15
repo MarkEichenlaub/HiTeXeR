@@ -2870,15 +2870,35 @@ function createInterpreter() {
                                right === undefined || right === null;
           if (isRightCycle) {
             if (!left.segs.length) return left;
+            if (left.closed) return left; // already cyclic
+            const n = left.segs.length;
             const first = left.segs[0].p0;
-            const last = left.segs[left.segs.length - 1].p3;
-            const needClose = !first || !last ||
-              Math.abs((first.x||0) - (last.x||0)) > 1e-9 ||
-              Math.abs((first.y||0) - (last.y||0)) > 1e-9 ||
-              Math.abs((first.z||0) - (last.z||0)) > 1e-9;
-            const segs = left.segs.slice();
-            if (needClose) segs.push(lineSegment(last, first));
-            return makePath(segs, true);
+            const lastSeg = left.segs[n - 1];
+            const last = lastSeg.p3;
+            // Check if path already closes on itself (endpoints match)
+            const alreadyClosed =
+              Math.abs((first.x||0) - (last.x||0)) <= 1e-9 &&
+              Math.abs((first.y||0) - (last.y||0)) <= 1e-9 &&
+              Math.abs((first.z||0) - (last.z||0)) <= 1e-9;
+            if (alreadyClosed) return makePath(left.segs.slice(), true);
+            // Implement Asymptote's plain_paths.asy:
+            //   straight(p,n-1) ? subpath(p,0,n-1)--cycle
+            //                   : subpath(p,0,n-1)..controls postcontrol(p,n-1) and precontrol(p,n)..cycle
+            //
+            // subpath(p,0,n-1) drops the last segment → segs[0..n-2]
+            // postcontrol(p,n-1) = lastSeg.cp1
+            // precontrol(p,n)   = lastSeg.cp2
+            // cycle destination  = first = segs[0].p0
+            const subSegs = left.segs.slice(0, n - 1);
+            // Start of closing segment = end of subpath (= start of dropped last seg)
+            const closingStart = lastSeg.p0;
+            if (lastSeg._linear) {
+              subSegs.push(lineSegment(closingStart, first));
+            } else {
+              // Bezier reusing last seg's controls but aimed at cycle (first point)
+              subSegs.push(makeSeg(closingStart, lastSeg.cp1, lastSeg.cp2, first));
+            }
+            return makePath(subSegs, true);
           }
           if (isPath(right)) {
             const segs = left.segs.slice();
@@ -8847,9 +8867,28 @@ function createInterpreter() {
       return String(x);
     });
     env.set('format', (fmt, ...vals) => {
-      // Simplified format
       let s = String(fmt);
-      for (const v of vals) s = s.replace(/%[^%]*[dfegs]/, String(toNumber(v)));
+      let vi = 0;
+      s = s.replace(/%-?[0-9]*\.?[0-9]*[dfegs]/g, (spec) => {
+        if (vi >= vals.length) return spec;
+        const v = vals[vi++];
+        const type = spec[spec.length - 1];
+        if (type === 's') return String(v);
+        const n = toNumber(v);
+        const m = spec.match(/^%-?[0-9]*\.?([0-9]*)([dfegs])$/);
+        const prec = m && m[1] !== '' ? parseInt(m[1]) : undefined;
+        if (type === 'f') return n.toFixed(prec !== undefined ? prec : 6);
+        if (type === 'e') return n.toExponential(prec !== undefined ? prec : 6);
+        if (type === 'd') return String(Math.trunc(n));
+        if (type === 'g') {
+          const p = prec !== undefined ? (prec === 0 ? 1 : prec) : 6;
+          let r = n.toPrecision(p);
+          if (r.includes('.') && !r.includes('e') && !r.includes('E'))
+            r = r.replace(/\.?0+$/, '');
+          return r;
+        }
+        return String(n);
+      });
       return s;
     });
     env.set('substr', (s, start, len) => String(s).substr(toNumber(start), len !== undefined ? toNumber(len) : undefined));
@@ -23928,7 +23967,13 @@ function isLinear(seg) {
   // 90° span, so 1% of chord is well within the curved regime.
   const dx = seg.p3.x-seg.p0.x, dy = seg.p3.y-seg.p0.y;
   const d = Math.sqrt(dx*dx+dy*dy);
-  if (d < 1e-12) return true;
+  if (d < 1e-12) {
+    // p0 ≈ p3: this is a loop Bezier (e.g. from `arc(..) & cycle` on a single
+    // segment). It's NOT linear unless the control points are also at p0.
+    const dcp1 = Math.sqrt((seg.cp1.x-seg.p0.x)**2+(seg.cp1.y-seg.p0.y)**2);
+    const dcp2 = Math.sqrt((seg.cp2.x-seg.p0.x)**2+(seg.cp2.y-seg.p0.y)**2);
+    return dcp1 < 1e-12 && dcp2 < 1e-12;
+  }
   const tol = Math.max(1e-9, 0.01 * d);
   for (const cp of [seg.cp1, seg.cp2]) {
     const t = ((cp.x-seg.p0.x)*dx+(cp.y-seg.p0.y)*dy)/(d*d);
