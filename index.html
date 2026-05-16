@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.79</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.80</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -627,7 +627,7 @@ label("$C$", C, N);
       <!-- Hide Mode Overlay -->
       <div id="hide-mode-overlay" style="display:none;position:absolute;inset:0;z-index:400;cursor:pointer;" title="Click an element to hide/show it"></div>
       <!-- Hide Mode Ghost Layer -->
-      <div id="hide-ghost-layer" style="display:none;position:absolute;inset:0;pointer-events:none;opacity:0.25;z-index:250;filter:drop-shadow(0 0 4px #e9c46a);"></div>
+      <div id="hide-ghost-layer" style="display:none;position:absolute;inset:0;pointer-events:none;opacity:0.25;z-index:250;filter:drop-shadow(0 0 4px #e9c46a);display:flex;align-items:center;justify-content:center;"></div>
       <!-- GIF Mode Control Panel -->
       <div id="gif-panel" style="display:none;position:absolute;top:0;left:0;right:0;background:rgba(30,30,46,0.95);border-bottom:2px solid #e9c46a;padding:8px 16px;z-index:5000;font-size:12px;color:#ccc;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -3752,19 +3752,13 @@ function applyCanvasTransform() {
 function updateZoomLabel() {
   const el = document.getElementById('canvas-zoom-label');
   if (!el) return;
-  if (inFitMode && lastRenderInfo && lastRenderInfo.displayPercent != null) {
-    el.textContent = Math.round(lastRenderInfo.displayPercent) + '%';
-  } else {
-    el.textContent = Math.round(canvasZoom * 100) + '%';
-  }
+  // Effective zoom = renderer's display% × CSS transform scale
+  const dp = (lastRenderInfo && lastRenderInfo.displayPercent != null) ? lastRenderInfo.displayPercent : 100;
+  el.textContent = Math.round(dp * canvasZoom) + '%';
 }
 function _enterManualZoom() {
-  if (inFitMode && lastRenderInfo && lastRenderInfo.displayPercent != null) {
-    canvasZoom = lastRenderInfo.displayPercent / 100;
-    inFitMode = false;
-  } else if (inFitMode) {
-    inFitMode = false;
-  }
+  // SVG width/height already bake in displayPercent — canvasZoom=1 means "as rendered"
+  inFitMode = false;
 }
 function canvasZoomIn() { _enterManualZoom(); canvasZoom = Math.min(20, canvasZoom * 1.25); applyCanvasTransform(); updateZoomLabel(); }
 function canvasZoomOut() { _enterManualZoom(); canvasZoom = Math.max(0.05, canvasZoom / 1.25); applyCanvasTransform(); updateZoomLabel(); }
@@ -4303,7 +4297,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
   document.getElementById('btn-canvas-zoom-100').addEventListener('click', () => {
-    inFitMode = false; canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0;
+    const dp = (lastRenderInfo && lastRenderInfo.displayPercent) ? lastRenderInfo.displayPercent : 100;
+    inFitMode = false; canvasZoom = 100 / dp; canvasPanX = 0; canvasPanY = 0;
     applyCanvasTransform(); updateZoomLabel();
   });
   document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
@@ -8003,9 +7998,6 @@ document.addEventListener('DOMContentLoaded', () => {
     while (msvg.firstChild) msvg.removeChild(msvg.firstChild);
     if (!lastRenderInfo) return;
 
-    const allPts = [...waypoints];
-    if (cursorAsy) allPts; // just use waypoints for committed; cursor handled separately
-
     // Draw committed segments
     let cumulative = 0;
     for (let i = 0; i + 1 < waypoints.length; i++) {
@@ -8014,11 +8006,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const o2 = asyToOverlayPx(p2.mx, p2.my);
       if (!o1 || !o2) continue;
 
-      // Solid yellow line
-      msvg.appendChild(makeSvgEl('line', {
-        x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y,
-        stroke: '#e9c46a', 'stroke-width': 1.5, 'stroke-linecap': 'round',
-      }));
+      // Dark outline + yellow line for visibility on any background
+      msvg.appendChild(makeSvgEl('line', { x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y, stroke: '#333', 'stroke-width': 3.5, 'stroke-linecap': 'round' }));
+      msvg.appendChild(makeSvgEl('line', { x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y, stroke: '#e9c46a', 'stroke-width': 2, 'stroke-linecap': 'round' }));
 
       const segAsy = dist2D(p1, p2);
       const segPx  = overlayDist(p1, p2);
@@ -8069,11 +8059,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const o1 = asyToOverlayPx(last.mx, last.my);
       const o2 = asyToOverlayPx(cursorAsy.mx, cursorAsy.my);
       if (o1 && o2) {
-        msvg.appendChild(makeSvgEl('line', {
-          x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y,
-          stroke: '#e9c46a', 'stroke-width': 1.5,
-          'stroke-dasharray': '5,4', 'stroke-linecap': 'round', opacity: 0.75,
-        }));
+        msvg.appendChild(makeSvgEl('line', { x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y, stroke: '#333', 'stroke-width': 3.5, 'stroke-dasharray': '5,4', 'stroke-linecap': 'round', opacity: 0.6 }));
+        msvg.appendChild(makeSvgEl('line', { x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y, stroke: '#e9c46a', 'stroke-width': 2, 'stroke-dasharray': '5,4', 'stroke-linecap': 'round', opacity: 0.85 }));
       }
     }
 
@@ -8081,10 +8068,24 @@ document.addEventListener('DOMContentLoaded', () => {
     for (const wp of waypoints) {
       const o = asyToOverlayPx(wp.mx, wp.my);
       if (!o) continue;
-      msvg.appendChild(makeSvgEl('circle', {
-        cx: o.x, cy: o.y, r: 5,
-        fill: '#e9c46a', stroke: '#333', 'stroke-width': 1,
-      }));
+      // Dark outline for visibility on any background
+      msvg.appendChild(makeSvgEl('circle', { cx: o.x, cy: o.y, r: 6, fill: 'none', stroke: '#333', 'stroke-width': 3 }));
+      msvg.appendChild(makeSvgEl('circle', { cx: o.x, cy: o.y, r: 6, fill: '#e9c46a', stroke: '#fff', 'stroke-width': 1.5 }));
+    }
+
+    // Cursor crosshair (always shown while hovering)
+    if (cursorAsy) {
+      const o = asyToOverlayPx(cursorAsy.mx, cursorAsy.my);
+      if (o) {
+        const R = 10;
+        // Shadow cross
+        msvg.appendChild(makeSvgEl('line', { x1: o.x - R, y1: o.y, x2: o.x + R, y2: o.y, stroke: '#333', 'stroke-width': 3, 'stroke-linecap': 'round' }));
+        msvg.appendChild(makeSvgEl('line', { x1: o.x, y1: o.y - R, x2: o.x, y2: o.y + R, stroke: '#333', 'stroke-width': 3, 'stroke-linecap': 'round' }));
+        // Yellow cross
+        msvg.appendChild(makeSvgEl('line', { x1: o.x - R, y1: o.y, x2: o.x + R, y2: o.y, stroke: '#e9c46a', 'stroke-width': 1.5, 'stroke-linecap': 'round' }));
+        msvg.appendChild(makeSvgEl('line', { x1: o.x, y1: o.y - R, x2: o.x, y2: o.y + R, stroke: '#e9c46a', 'stroke-width': 1.5, 'stroke-linecap': 'round' }));
+        msvg.appendChild(makeSvgEl('circle', { cx: o.x, cy: o.y, r: 2.5, fill: '#e9c46a', stroke: '#333', 'stroke-width': 1 }));
+      }
     }
   }
 
@@ -8363,14 +8364,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const result = AsyInterp.render(ghostCode, renderOpts);
       ghostLayer.innerHTML = result.svg;
-      // Make ghost SVG fill the container exactly like the main SVG
+      // Match ghost SVG dimensions to main SVG so flexbox centering aligns them
+      const mainSvg = document.querySelector('#preview-container > svg');
       const ghostSvg = ghostLayer.querySelector('svg');
-      if (ghostSvg) {
-        ghostSvg.style.position = 'absolute';
-        ghostSvg.style.top = '0'; ghostSvg.style.left = '0';
-        ghostSvg.style.width = '100%'; ghostSvg.style.height = '100%';
+      if (mainSvg && ghostSvg) {
+        const mw = mainSvg.getAttribute('width');
+        const mh = mainSvg.getAttribute('height');
+        if (mw) ghostSvg.setAttribute('width', mw);
+        if (mh) ghostSvg.setAttribute('height', mh);
       }
-      ghostLayer.style.display = '';
+      ghostLayer.style.display = 'flex';
     } catch(e) {
       ghostLayer.style.display = 'none';
     }
