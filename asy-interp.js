@@ -4099,32 +4099,36 @@ function createInterpreter() {
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
     let hasCycle = false;
     let cycleDirIn = null; // direction spec before 'cycle' (e.g. ..{W}cycle)
+    let cycleControlsIn = null; // explicit in-control before 'cycle' (e.g. ..controls P and Q..cycle)
 
     for (let i = 0; i < node.nodes.length; i++) {
       const n = node.nodes[i];
       if (n.isCycle) {
         hasCycle = true;
         if (n.dirIn) cycleDirIn = evalDirSpec(n.dirIn, env);
+        if (n.controlsIn) cycleControlsIn = toPair(evalNode(n.controlsIn, env));
         continue;
       }
       const val = evalNode(n.point, env);
       const eDirIn = evalDirSpec(n.dirIn, env);
       const eDirOut = evalDirSpec(n.dirOut, env);
+      const eControlsOut = n.controlsOut ? toPair(evalNode(n.controlsOut, env)) : null;
+      const eControlsIn = n.controlsIn ? toPair(evalNode(n.controlsIn, env)) : null;
       if (isPath(val) && val.segs.length > 0) {
-        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, _origPath: val});
+        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn, _origPath: val});
       } else if (isPath(val) && val.segs.length === 0) {
         // Empty path/guide — check if it has a _singlePoint marker (single-point path)
         if (val._singlePoint) {
           // Treat single-point path as a pair for concatenation
           const pt = isTriple(val._singlePoint) ? val._singlePoint : toPair(val._singlePoint);
-          elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
+          elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn});
         }
         // Otherwise skip entirely (truly empty path like uninitialized "guide g")
         continue;
       } else {
         // Preserve triples so path3 flows through as triple-valued segments.
         const pt = isTriple(val) ? val : toPair(val);
-        elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut});
+        elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn});
       }
     }
 
@@ -4132,8 +4136,11 @@ function createInterpreter() {
     const hasInlinePaths = elements.some(e => e.type === 'path');
     if (hasInlinePaths) {
       // Helper: build a connection (join) between two points honoring directions.
-      // joinKind is '..' or '--'. If '..' and dirs given, build a Hobby 2-point segment.
-      const makeJoinSeg = (a, b, joinKind, dirOutA, dirInB) => {
+      // joinKind is '..' or '--'. Optional cp1/cp2 are explicit Bezier control points
+      // from ..controls P and Q.. syntax; when set they override Hobby's algorithm.
+      const makeJoinSeg = (a, b, joinKind, dirOutA, dirInB, cp1 = null, cp2 = null) => {
+        if (cp1 && cp2) return makeSeg(a, cp1, cp2, b);
+        if (cp1) return makeSeg(a, cp1, {x:b.x-(b.x-cp1.x)*0.01, y:b.y-(b.y-cp1.y)*0.01}, b);
         if (joinKind === '..' && (dirOutA != null || dirInB != null)) {
           return hobbyTwoPointSegment(a, b, dirOutA, dirInB);
         }
@@ -4152,17 +4159,21 @@ function createInterpreter() {
       let pendingPt = null; // pair waiting to be connected to next element
       let pendingDirOut = null; // dirOut of the pending pair
       let pendingDirIn = null; // dirIn of the pending pair (only meaningful if it is the start knot)
+      let pendingControlsOut = null; // explicit out-control from ..controls.. on the pending pair
 
       // Helper: attempt to batch a run of consecutive pair-with-..-join elements
       // starting at index i (inclusive) and build a Hobby multi-knot spline anchored
       // at the previous endpoint (prevPt with prevDirOut). Returns the number of
       // elements consumed, or 0 to fall back to per-segment processing.
       const tryBatchRun = (startIdx, prevPt, prevDirOut, includeCycleClose) => {
-        // Find end of run: consecutive pair elements each joined by '..' to the prior
+        // Find end of run: consecutive pair elements each joined by '..' to the prior.
+        // Stop at any segment that has explicit Bezier control points (..controls P and Q..)
+        // since those must be used directly rather than passed through Hobby's algorithm.
         let endIdx = startIdx;
         while (endIdx < elements.length
                && elements[endIdx].type === 'pair'
                && (endIdx === 0 || elements[endIdx-1].join === '..')) {
+          if (elements[endIdx].controlsIn || (endIdx > 0 && elements[endIdx-1].controlsOut)) break;
           endIdx++;
         }
         // Run is elements[startIdx..endIdx-1]. Need enough knots to make a Hobby spline
@@ -4227,20 +4238,18 @@ function createInterpreter() {
           // Connect from pending point or previous endpoint to start of path (unless ^^ gap)
           if (!isHatHat) {
             if (pendingPt) {
-              allSegs.push(makeJoinSeg(pendingPt, start, prevJoin, pendingDirOut, el.dirIn));
-              pendingPt = null;
-              pendingDirOut = null;
-              pendingDirIn = null;
+              allSegs.push(makeJoinSeg(pendingPt, start, prevJoin, pendingDirOut, el.dirIn,
+                pendingControlsOut, el.controlsIn));
+              pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
               if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
-                allSegs.push(makeJoinSeg(prev, start, prevJoin, null, el.dirIn));
+                const prevCtrlOut = i > 0 ? elements[i-1].controlsOut : null;
+                allSegs.push(makeJoinSeg(prev, start, prevJoin, null, el.dirIn, prevCtrlOut, el.controlsIn));
               }
             }
           } else {
-            pendingPt = null; // discard pending point across ^^ gap
-            pendingDirOut = null;
-            pendingDirIn = null;
+            pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
           }
           allSegs.push(...el.segs);
         } else {
@@ -4248,32 +4257,32 @@ function createInterpreter() {
           if (!isHatHat) {
             // Try to batch a run of pair-..-pair starting here (or the pending pair)
             // if it would span 3+ knots including a prior anchor point.
+            // Skip batching if the first segment in the potential run has explicit controls.
             const anchorPt = pendingPt || (allSegs.length > 0 ? allSegs[allSegs.length-1].p3 : null);
             const anchorDirOut = pendingPt ? pendingDirOut
                               : (allSegs.length > 0 && elements[i-1] && elements[i-1].type === 'path'
                                  && elements[i-1].dirOut != null ? elements[i-1].dirOut : null);
-            if (anchorPt && prevJoin === '..') {
+            const firstSegCtrl = el.controlsIn || (pendingPt ? pendingControlsOut
+              : (i > 0 ? elements[i-1].controlsOut : null));
+            if (anchorPt && prevJoin === '..' && !firstSegCtrl) {
               const consumed = tryBatchRun(i, anchorPt, anchorDirOut, true);
               if (consumed > 0) {
-                pendingPt = null;
-                pendingDirOut = null;
-                pendingDirIn = null;
+                pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
                 i += consumed - 1; // skip consumed elements (loop increments)
                 continue;
               }
             }
             if (pendingPt) {
               // Two consecutive pairs, connect them
-              allSegs.push(makeJoinSeg(pendingPt, el.pt, prevJoin, pendingDirOut, el.dirIn));
-              pendingPt = null;
-              pendingDirOut = null;
-              pendingDirIn = null;
+              allSegs.push(makeJoinSeg(pendingPt, el.pt, prevJoin, pendingDirOut, el.dirIn,
+                pendingControlsOut, el.controlsIn));
+              pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
               if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
-                // Use dirOut of previous path element if present
                 const prevDirOut = i > 0 ? elements[i-1].dirOut : null;
-                allSegs.push(makeJoinSeg(prev, el.pt, prevJoin, prevDirOut, el.dirIn));
+                const prevCtrlOut = i > 0 ? elements[i-1].controlsOut : null;
+                allSegs.push(makeJoinSeg(prev, el.pt, prevJoin, prevDirOut, el.dirIn, prevCtrlOut, el.controlsIn));
               }
             } else {
               // First element with no segments yet — store as pending.
@@ -4281,12 +4290,11 @@ function createInterpreter() {
               pendingPt = el.pt;
               pendingDirOut = el.dirOut != null ? el.dirOut : null;
               pendingDirIn = el.dirIn != null ? el.dirIn : null;
+              pendingControlsOut = el.controlsOut || null;
             }
           } else {
             // ^^ gap: start fresh from this point
-            pendingPt = null;
-            pendingDirOut = null;
-            pendingDirIn = null;
+            pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
             // Add zero-length seg to preserve point position for dot() usage
             allSegs.push(makeSeg(el.pt, el.pt, el.pt, el.pt));
           }
@@ -4340,6 +4348,21 @@ function createInterpreter() {
       dirOut: e.dirOut != null ? e.dirOut : null
     }));
 
+    // Build per-segment explicit Bezier control points from ..controls P and Q.. syntax.
+    // segControls[i] covers the join from elements[i] to elements[i+1].
+    const segControls = [];
+    for (let i = 0; i < elements.length - 1; i++) {
+      const cp1 = elements[i].controlsOut || null;
+      const cp2 = elements[i + 1].controlsIn || null;
+      segControls.push((cp1 || cp2) ? {cp1: cp1 || cp2, cp2: cp2 || cp1} : null);
+    }
+    if (hasCycle && elements.length > 0) {
+      const cp1 = elements[elements.length - 1].controlsOut || null;
+      const cp2 = cycleControlsIn;
+      segControls.push((cp1 || cp2) ? {cp1: cp1 || cp2, cp2: cp2 || cp1} : null);
+    }
+    const hasExplicitControls = segControls.some(Boolean);
+
     // Single point: create a path with no segments but marked with _singlePoint
     // This allows the point to be used in path concatenation without adding stray segments
     if (points.length === 1) {
@@ -4366,8 +4389,9 @@ function createInterpreter() {
         const subPoints = points.slice(start, hi + 1);
         const subJoins = joins.slice(start, hi);
         const subDirs = directions.slice(start, hi + 1);
+        const subControls = hasExplicitControls ? segControls.slice(start, hi) : null;
         if (subPoints.length >= 2) {
-          const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs);
+          const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs, subControls);
           allSegs.push(...subSegs);
           subPathList.push(makePath(subSegs, false));
         } else if (subPoints.length === 1) {
@@ -4387,10 +4411,33 @@ function createInterpreter() {
       return result;
     }
 
-    return makePath(buildPathSegs(points, joins, hasCycle, directions), hasCycle);
+    return makePath(buildPathSegs(points, joins, hasCycle, directions, hasExplicitControls ? segControls : null), hasCycle);
   }
 
-  function buildPathSegs(points, joins, hasCycle, directions) {
+  function buildPathSegs(points, joins, hasCycle, directions, controls) {
+    // When explicit Bezier control points are provided (..controls P and Q.. syntax),
+    // use them directly for those segments instead of running Hobby's algorithm.
+    if (controls && controls.some(Boolean)) {
+      const segs = [];
+      const len = hasCycle ? points.length : points.length - 1;
+      for (let i = 0; i < len; i++) {
+        const j = (i + 1) % points.length;
+        const ctrl = controls[i];
+        if (ctrl) {
+          segs.push(makeSeg(points[i], ctrl.cp1, ctrl.cp2, points[j]));
+        } else if ((joins[i] || '..') === '--') {
+          segs.push(lineSegment(points[i], points[j]));
+        } else {
+          const d0 = directions ? directions[i] : null;
+          const d1 = directions ? directions[j % directions.length] : null;
+          segs.push(hobbyTwoPointSegment(points[i], points[j],
+            d0 && d0.dirOut != null ? d0.dirOut : null,
+            d1 && d1.dirIn != null ? d1.dirIn : null));
+        }
+      }
+      return segs;
+    }
+
     // Check if all joins are '--' (straight line)
     const allStraight = joins.every(j => j === '--');
 
