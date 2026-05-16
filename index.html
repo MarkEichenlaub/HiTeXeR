@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.77</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.78</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -503,9 +503,12 @@ body {
   <button id="btn-slide" title="Toggle slide mode (drag free points)">Slide</button>
   <button id="btn-label-slide" title="Toggle label slide mode (drag labels to reposition)">Labels</button>
   <button id="btn-gif" title="Toggle GIF mode">GIF</button>
+  <button id="btn-measure" title="Toggle distance measuring tool">&#x1F4CF; Measure</button>
+  <button id="btn-hide-mode" title="Toggle hide mode — click elements to comment/uncomment them">Hide</button>
   <button id="md-ai-chat" title="Toggle AI Chat">AI Chat</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
+  <button id="btn-texer" title="Open AoPS TeXeR and copy code to clipboard" style="background:#2980b9;border-color:#1a6fa0;">TeXeR</button>
   <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
   <span class="status" id="status">Ready</span>
 </div>
@@ -568,7 +571,10 @@ label("$C$", C, N);
     <div id="preview-container">
       <div class="canvas-controls canvas-controls-tl">
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-in" title="Zoom in">+</button>
+        <span id="canvas-zoom-label" style="font-size:11px;min-width:34px;text-align:center;color:#ccc;font-family:monospace;cursor:default;user-select:none;" title="Current zoom level">100%</span>
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-out" title="Zoom out">&#x2212;</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-100" title="Reset to 100% (fit in window)">100%</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-fit" title="Fit in window and recenter">Fit</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-rotate" title="Rotate view">&#x21BB; Rotate</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-crop" title="Crop / clip diagram">&#x2702; Crop</button>
@@ -611,6 +617,18 @@ label("$C$", C, N);
           <div class="crop-handle" data-h="w"></div>
         </div>
       </div>
+      <!-- Measure Tool Overlay -->
+      <div id="measure-overlay" style="display:none;position:absolute;inset:0;z-index:300;cursor:crosshair;"></div>
+      <!-- Measure Tool Info Panel -->
+      <div id="measure-panel" style="display:none;position:absolute;bottom:8px;left:8px;z-index:310;background:rgba(22,33,62,0.95);border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:8px 12px;font-family:monospace;font-size:11px;color:#eee;max-width:340px;pointer-events:none;"></div>
+      <!-- Measure magnifier -->
+      <canvas id="measure-magnifier" width="96" height="96" style="display:none;position:absolute;z-index:320;border:2px solid #e9c46a;border-radius:50%;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,0.6);"></canvas>
+      <!-- Measure SVG overlay for lines/dots/ticks -->
+      <svg id="measure-svg" style="display:none;position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:305;" overflow="visible"></svg>
+      <!-- Hide Mode Overlay -->
+      <div id="hide-mode-overlay" style="display:none;position:absolute;inset:0;z-index:400;cursor:pointer;" title="Click an element to hide/show it"></div>
+      <!-- Hide Mode Ghost Layer -->
+      <div id="hide-ghost-layer" style="display:none;position:absolute;inset:0;pointer-events:none;opacity:0.25;z-index:250;filter:drop-shadow(0 0 4px #e9c46a);"></div>
       <!-- GIF Mode Control Panel -->
       <div id="gif-panel" style="display:none;position:absolute;top:0;left:0;right:0;background:rgba(30,30,46,0.95);border-bottom:2px solid #e9c46a;padding:8px 16px;z-index:5000;font-size:12px;color:#ccc;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -624,6 +642,7 @@ label("$C$", C, N);
           <label>Loop: <input id="gif-loop" type="number" value="0" min="0" style="width:36px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">0=inf</span></label>
           <label>Pause first: <input id="gif-pause-first" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
           <label>Pause last: <input id="gif-pause" type="number" value="0" min="0" step="0.1" style="width:42px;background:#2a2a3e;color:#eee;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:center;"> <span style="color:#888;">s</span></label>
+          <label style="cursor:pointer;" title="Lock scale and position across all frames so elements don't drift"><input type="checkbox" id="gif-stabilize" checked style="accent-color:#e9c46a;"> Stabilize</label>
           <label style="cursor:pointer;"><input type="checkbox" id="gif-transparent" style="accent-color:#e9c46a;"> Transparent</label>
           <button id="gif-save-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Save GIF</button>
           <button id="gif-copy-btn" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;">Copy GIF</button>
@@ -1490,7 +1509,7 @@ const StyleMenu = {
     if (isPath || isDot) {
       html += `<div class="sm-heading">Line Width</div>`;
       const curLw = parseFloat(info.penProps.linewidth) || '';
-      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.1" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
+      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.25" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
     }
 
     // ---- Arrows (draw only, not fill/filldraw) ----
@@ -1849,7 +1868,7 @@ const StyleMenu = {
     if (flags.hasPath || flags.hasDot) {
       html += `<div class="sm-heading">Line Width</div>`;
       const curLw = (this._sharedPenProps && parseFloat(this._sharedPenProps.linewidth)) || '';
-      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.1" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
+      html += `<div class="opt-row"><label>Width</label><input type="number" id="sm-linewidth" value="${curLw}" min="0.25" max="10" step="0.25" placeholder="default (0.5bp)"></div>`;
     }
 
     // ---- Font size (if any label) ----
@@ -2523,6 +2542,37 @@ function showStaleBadge(show) {
   if (badge) badge.style.display = show ? 'block' : 'none';
 }
 
+// Scan Asymptote source for lines that appear to be statements but lack a trailing semicolon.
+// Returns an array of human-readable warning strings.
+function detectMissingSemicolons(code) {
+  const warnings = [];
+  const lines = code.split('\n');
+  let parenDepth = 0;
+  let inComment = false;
+  for (let i = 0; i < lines.length; i++) {
+    let raw = lines[i];
+    if (inComment) { const e = raw.indexOf('*/'); if (e >= 0) { inComment = false; raw = raw.slice(e + 2); } else continue; }
+    raw = raw.replace(/\/\*.*?\*\//g, '').replace(/\/\/.*$/, '');
+    if (raw.includes('/*')) { inComment = true; raw = raw.slice(0, raw.indexOf('/*')); }
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    for (const ch of trimmed) { if ('(['.includes(ch)) parenDepth++; else if (')]'.includes(ch)) parenDepth--; }
+    if (parenDepth !== 0) continue; // mid-expression (multi-line call)
+    const last = trimmed[trimmed.length - 1];
+    if (';{},'.includes(last)) continue;
+    if (/^(if|else|for|while|do)\b/.test(trimmed)) continue;
+    // If next non-empty line opens a block, this is a function/struct header — no semicolon needed
+    let nextNE = '';
+    for (let j = i + 1; j < lines.length; j++) { const t = lines[j].trim(); if (t) { nextNE = t; break; } }
+    if (nextNE.startsWith('{')) continue;
+    // Flag if the line looks like a statement (contains = or () call or is an expression)
+    if (/[=\(]/.test(trimmed) || /^(return|break|continue)\b/.test(trimmed)) {
+      warnings.push(`Line ${i + 1}: missing semicolon — \`${trimmed.slice(0, 50)}${trimmed.length > 50 ? '…' : ''}\``);
+    }
+  }
+  return warnings;
+}
+
 function showWarnBadge(text) {
   const badge = document.getElementById('preview-warn-badge');
   if (badge) {
@@ -2745,6 +2795,9 @@ async function doRender() {
           warns.push('Built-in direction' + (dirRedefs.length > 1 ? 's' : '') + ' redefined: ' + names);
         }
       }
+      // Detect missing semicolons in source
+      const semiWarns = detectMissingSemicolons(code);
+      warns.push(...semiWarns);
       showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
       lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
@@ -3697,8 +3750,12 @@ function applyCanvasTransform() {
   if (gridActive) applyGridOverlay();
 }
 
-function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); }
-function canvasZoomOut() { canvasZoom = Math.max(0.1, canvasZoom / 1.25); applyCanvasTransform(); }
+function updateZoomLabel() {
+  const el = document.getElementById('canvas-zoom-label');
+  if (el) el.textContent = Math.round(canvasZoom * 100) + '%';
+}
+function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); updateZoomLabel(); }
+function canvasZoomOut() { canvasZoom = Math.max(0.1, canvasZoom / 1.25); applyCanvasTransform(); updateZoomLabel(); }
 function canvasShrinkToFit() {
   canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; canvasRotate = 0;
   const slider = document.getElementById('rotate-slider');
@@ -3709,6 +3766,7 @@ function canvasShrinkToFit() {
   // since the user is asking for a clean reset.
   if (typeof removeRotationFromEditor === 'function') removeRotationFromEditor();
   applyCanvasTransform();
+  updateZoomLabel();
 }
 
 // ============================================================
@@ -4231,6 +4289,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Canvas controls
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
+  document.getElementById('btn-canvas-zoom-100').addEventListener('click', () => { canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; applyCanvasTransform(); updateZoomLabel(); });
+  document.getElementById('btn-canvas-zoom-fit').addEventListener('click', () => canvasShrinkToFit());
   document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
   // Rotation view controls
   (function(){
@@ -4361,6 +4421,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }).catch(err => console.error('Failed to send to EigenNode:', err));
     });
   }
+
+  // TeXeR button: open AoPS TeXeR and copy [asy]...[/asy]-wrapped code to clipboard
+  document.getElementById('btn-texer').addEventListener('click', async () => {
+    const code = editor.getValue().trim();
+    const wrapped = `[asy]\n${code}\n[/asy]`;
+    try { await navigator.clipboard.writeText(wrapped); } catch(e) {}
+    window.open('https://artofproblemsolving.com/texer', '_blank');
+    const btn = document.getElementById('btn-texer');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  });
 
   // Load code from URL hash if present (e.g. #code=ENCODED)
   if (location.hash && location.hash.startsWith('#code=')) {
@@ -6075,81 +6147,89 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Pass 1: render every frame, measure the ACTUAL rendered SVG content
-      // bbox via getBBox() (which accounts for true glyph metrics, stroke
-      // overshoot, and any other content that overflows the renderer's
-      // estimated viewBox), convert each side back to math coordinates, and
-      // union those.  The renderer-reported {minX,maxX,minY,maxY} alone can
-      // under-count font widths and clip labels (e.g. "source") on the left
-      // when Pass 2 re-renders at minPpu.
-      progressEl.textContent = 'Pass 1: measuring frame bounds...';
+      const stabilize = document.getElementById('gif-stabilize').checked;
 
-      // Hidden measurement container — getBBox() requires the SVG to be in
-      // the DOM with layout.  Off-screen positioning avoids visual flicker.
-      const measureHost = document.createElement('div');
-      measureHost.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;pointer-events:none;visibility:hidden;';
-      document.body.appendChild(measureHost);
-      // Make sure web fonts are loaded so glyph metrics are accurate.
-      try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(_) {}
+      let uMinX, uMinY, uMaxX, uMaxY, minPpu;
 
-      let uMinX = Infinity, uMinY = Infinity, uMaxX = -Infinity, uMaxY = -Infinity;
-      let minPpu = Infinity;
-      let measuredFrames = 0;
+      if (stabilize) {
+        // Pass 1: render every frame, measure the ACTUAL rendered SVG content
+        // bbox via getBBox(), union all frame bounds so every frame uses the
+        // same scale and viewport (elements don't drift across frames).
+        progressEl.textContent = 'Pass 1: measuring frame bounds...';
 
-      try {
-        for (let i = 0; i < totalFrames; i++) {
-          const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
-          const value = startVal + (endVal - startVal) * t;
-          const result = renderFrame(value);
-          if (!result) continue;
+        const measureHost = document.createElement('div');
+        measureHost.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;pointer-events:none;visibility:hidden;';
+        document.body.appendChild(measureHost);
+        try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(_) {}
 
-          // Mount the SVG, strip overlays that shouldn't drive bounds, measure.
-          measureHost.innerHTML = result.svg;
-          const svgEl = measureHost.querySelector('svg');
-          let bbox = null;
-          if (svgEl) {
-            svgEl.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
-            try { bbox = svgEl.getBBox(); } catch(_) { bbox = null; }
+        uMinX = Infinity; uMinY = Infinity; uMaxX = -Infinity; uMaxY = -Infinity;
+        minPpu = Infinity;
+        let measuredFrames = 0;
+
+        try {
+          for (let i = 0; i < totalFrames; i++) {
+            const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+            const value = startVal + (endVal - startVal) * t;
+            const result = renderFrame(value);
+            if (!result) continue;
+
+            measureHost.innerHTML = result.svg;
+            const svgEl = measureHost.querySelector('svg');
+            let bbox = null;
+            if (svgEl) {
+              svgEl.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+              try { bbox = svgEl.getBBox(); } catch(_) { bbox = null; }
+            }
+
+            let fMinX = result.minX, fMaxX = result.maxX;
+            let fMinY = result.minY, fMaxY = result.maxY;
+            if (bbox && isFinite(bbox.x) && isFinite(bbox.y) &&
+                isFinite(bbox.width) && isFinite(bbox.height) &&
+                bbox.width >= 0 && bbox.height >= 0) {
+              const ppuX = result.pxPerUnitX || result.pxPerUnit;
+              const ppuY = result.pxPerUnitY || result.pxPerUnit;
+              fMinX = result.minX + bbox.x / ppuX;
+              fMaxX = result.minX + (bbox.x + bbox.width) / ppuX;
+              fMaxY = result.maxY - bbox.y / ppuY;
+              fMinY = result.maxY - (bbox.y + bbox.height) / ppuY;
+            }
+
+            if (fMinX < uMinX) uMinX = fMinX;
+            if (fMinY < uMinY) uMinY = fMinY;
+            if (fMaxX > uMaxX) uMaxX = fMaxX;
+            if (fMaxY > uMaxY) uMaxY = fMaxY;
+            if (result.pxPerUnit < minPpu) minPpu = result.pxPerUnit;
+            measuredFrames++;
+
+            if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
           }
-
-          // Convert bp-space bbox back to math coordinates using this frame's
-          // own scale.  SVG y is inverted relative to Asymptote y.
-          let fMinX = result.minX, fMaxX = result.maxX;
-          let fMinY = result.minY, fMaxY = result.maxY;
-          if (bbox && isFinite(bbox.x) && isFinite(bbox.y) &&
-              isFinite(bbox.width) && isFinite(bbox.height) &&
-              bbox.width >= 0 && bbox.height >= 0) {
-            const ppuX = result.pxPerUnitX || result.pxPerUnit;
-            const ppuY = result.pxPerUnitY || result.pxPerUnit;
-            fMinX = result.minX + bbox.x / ppuX;
-            fMaxX = result.minX + (bbox.x + bbox.width) / ppuX;
-            fMaxY = result.maxY - bbox.y / ppuY;
-            fMinY = result.maxY - (bbox.y + bbox.height) / ppuY;
-          }
-
-          if (fMinX < uMinX) uMinX = fMinX;
-          if (fMinY < uMinY) uMinY = fMinY;
-          if (fMaxX > uMaxX) uMaxX = fMaxX;
-          if (fMaxY > uMaxY) uMaxY = fMaxY;
-          if (result.pxPerUnit < minPpu) minPpu = result.pxPerUnit;
-          measuredFrames++;
-
-          if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        } finally {
+          measureHost.innerHTML = '';
+          document.body.removeChild(measureHost);
         }
-      } finally {
-        measureHost.innerHTML = '';
-        document.body.removeChild(measureHost);
-      }
 
-      if (measuredFrames === 0 || !isFinite(minPpu) || !isFinite(uMinX)) {
-        showWarnBadge('No frames could be rendered.');
-        document.getElementById('gif-panel').classList.remove('gif-generating');
-        gifStartPreview();
-        return;
+        if (measuredFrames === 0 || !isFinite(minPpu) || !isFinite(uMinX)) {
+          showWarnBadge('No frames could be rendered.');
+          document.getElementById('gif-panel').classList.remove('gif-generating');
+          gifStartPreview();
+          return;
+        }
+      } else {
+        // No stabilization: use the first frame's natural bounds/scale.
+        const firstResult = renderFrame(startVal);
+        if (!firstResult) {
+          showWarnBadge('Cannot render first frame.');
+          document.getElementById('gif-panel').classList.remove('gif-generating');
+          gifStartPreview();
+          return;
+        }
+        uMinX = firstResult.minX; uMinY = firstResult.minY;
+        uMaxX = firstResult.maxX; uMaxY = firstResult.maxY;
+        minPpu = firstResult.pxPerUnit;
       }
 
       const ppu = minPpu;
-      const forcedBounds = { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY };
+      const forcedBounds = stabilize ? { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY } : undefined;
 
       // Union viewBox dimensions (in SVG/pixel units)
       const natW = (uMaxX - uMinX) * ppu;
@@ -6184,12 +6264,13 @@ document.addEventListener('DOMContentLoaded', () => {
         transparent: transparent ? 0x00000000 : null,
       });
 
-      // Pass 2: re-render each frame with forced bounds and scale, then rasterize
+      // Pass 2: re-render each frame (with forced bounds/scale when stabilizing), then rasterize
       let framesAdded = 0;
       for (let i = 0; i < totalFrames; i++) {
         const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
         const value = startVal + (endVal - startVal) * t;
-        const result = renderFrame(value, { forcedBounds, forcedPxPerUnit: ppu });
+        const frameOpts = stabilize ? { forcedBounds, forcedPxPerUnit: ppu } : {};
+        const result = renderFrame(value, frameOpts);
         if (!result) continue;
 
         const frameDiv = document.createElement('div');
@@ -7831,6 +7912,517 @@ document.addEventListener('DOMContentLoaded', () => {
   editor.setOption('gutters', ['CodeMirror-lint-markers', 'CodeMirror-linenumbers']);
   editor.setOption('lint', { getAnnotations: asyLintAsync, async: true, delay: 500 });
 });
+
+// ============================================================
+// Feature A: Distance Measuring Tool
+// ============================================================
+(function() {
+  const TICK_CANDIDATES = [0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100];
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  let active = false;
+  let waypoints = [];   // [{mx, my}] in Asymptote coords
+  let cursorAsy = null; // current cursor Asymptote coords
+
+  const btn       = document.getElementById('btn-measure');
+  const overlay   = document.getElementById('measure-overlay');
+  const panel     = document.getElementById('measure-panel');
+  const magnifier = document.getElementById('measure-magnifier');
+  const msvg      = document.getElementById('measure-svg');
+
+  function asyToOverlayPx(mx, my) {
+    try {
+      const info = lastRenderInfo;
+      if (!info) return null;
+      const svg = document.querySelector('#preview-container svg');
+      if (!svg) return null;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return null;
+      const containerRect = document.getElementById('preview-container').getBoundingClientRect();
+      const svgX = (mx - info.minX) * info.pxPerUnitX;
+      const svgY = (info.maxY - my) * info.pxPerUnitY;
+      const screenX = ctm.a * svgX + ctm.c * svgY + ctm.e;
+      const screenY = ctm.b * svgX + ctm.d * svgY + ctm.f;
+      return { x: screenX - containerRect.left, y: screenY - containerRect.top };
+    } catch(e) { return null; }
+  }
+
+  function dist2D(a, b) {
+    return Math.hypot(b.mx - a.mx, b.my - a.my);
+  }
+
+  function overlayDist(p1, p2) {
+    const o1 = asyToOverlayPx(p1.mx, p1.my);
+    const o2 = asyToOverlayPx(p2.mx, p2.my);
+    if (!o1 || !o2) return 0;
+    return Math.hypot(o2.x - o1.x, o2.y - o1.y);
+  }
+
+  function chooseTickInterval(segAsy, segPx) {
+    if (segAsy < 1e-9) return 1;
+    const pxPerUnit = segPx / segAsy;
+    for (const c of TICK_CANDIDATES) {
+      const gap = c * pxPerUnit;
+      if (gap >= 40 && gap <= 80) return c;
+    }
+    // fallback: pick closest to 60px spacing
+    let best = TICK_CANDIDATES[0], bestErr = Infinity;
+    for (const c of TICK_CANDIDATES) {
+      const gap = c * (segPx / segAsy);
+      const err = Math.abs(gap - 60);
+      if (err < bestErr) { bestErr = err; best = c; }
+    }
+    return best;
+  }
+
+  function makeSvgEl(tag, attrs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  }
+
+  function redrawMeasureSvg() {
+    while (msvg.firstChild) msvg.removeChild(msvg.firstChild);
+    if (!lastRenderInfo) return;
+
+    const allPts = [...waypoints];
+    if (cursorAsy) allPts; // just use waypoints for committed; cursor handled separately
+
+    // Draw committed segments
+    let cumulative = 0;
+    for (let i = 0; i + 1 < waypoints.length; i++) {
+      const p1 = waypoints[i], p2 = waypoints[i + 1];
+      const o1 = asyToOverlayPx(p1.mx, p1.my);
+      const o2 = asyToOverlayPx(p2.mx, p2.my);
+      if (!o1 || !o2) continue;
+
+      // Solid yellow line
+      msvg.appendChild(makeSvgEl('line', {
+        x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y,
+        stroke: '#e9c46a', 'stroke-width': 1.5, 'stroke-linecap': 'round',
+      }));
+
+      const segAsy = dist2D(p1, p2);
+      const segPx  = overlayDist(p1, p2);
+      const ti = chooseTickInterval(segAsy, segPx);
+
+      // Direction vectors
+      const dMx = p2.mx - p1.mx, dMy = p2.my - p1.my;
+      const lenAsy = Math.hypot(dMx, dMy) || 1;
+      const dxUnit = dMx / lenAsy, dyUnit = dMy / lenAsy;
+      // Perpendicular in screen space: need to compute from overlay coords
+      const screenDx = (o2.x - o1.x), screenDy = (o2.y - o1.y);
+      const screenLen = Math.hypot(screenDx, screenDy) || 1;
+      const perpX = -screenDy / screenLen, perpY = screenDx / screenLen;
+
+      const numTicks = Math.floor(segAsy / ti);
+      for (let t = 1; t <= numTicks; t++) {
+        const frac = (t * ti) / segAsy;
+        if (frac > 1) break;
+        const tmx = p1.mx + frac * dMx;
+        const tmy = p1.my + frac * dMy;
+        const to = asyToOverlayPx(tmx, tmy);
+        if (!to) continue;
+
+        const halfLen = 4;
+        msvg.appendChild(makeSvgEl('line', {
+          x1: to.x - perpX * halfLen, y1: to.y - perpY * halfLen,
+          x2: to.x + perpX * halfLen, y2: to.y + perpY * halfLen,
+          stroke: '#e9c46a', 'stroke-width': 1,
+        }));
+
+        if (t % 5 === 0) {
+          const labelDist = cumulative + t * ti;
+          const txt = makeSvgEl('text', {
+            x: to.x + perpX * 10, y: to.y + perpY * 10,
+            fill: '#e9c46a', 'font-size': '9', 'font-family': 'monospace',
+            'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          });
+          txt.textContent = labelDist.toFixed(2);
+          msvg.appendChild(txt);
+        }
+      }
+      cumulative += segAsy;
+    }
+
+    // Live preview line from last waypoint to cursor
+    if (cursorAsy && waypoints.length > 0) {
+      const last = waypoints[waypoints.length - 1];
+      const o1 = asyToOverlayPx(last.mx, last.my);
+      const o2 = asyToOverlayPx(cursorAsy.mx, cursorAsy.my);
+      if (o1 && o2) {
+        msvg.appendChild(makeSvgEl('line', {
+          x1: o1.x, y1: o1.y, x2: o2.x, y2: o2.y,
+          stroke: '#e9c46a', 'stroke-width': 1.5,
+          'stroke-dasharray': '5,4', 'stroke-linecap': 'round', opacity: 0.75,
+        }));
+      }
+    }
+
+    // Waypoint dots
+    for (const wp of waypoints) {
+      const o = asyToOverlayPx(wp.mx, wp.my);
+      if (!o) continue;
+      msvg.appendChild(makeSvgEl('circle', {
+        cx: o.x, cy: o.y, r: 5,
+        fill: '#e9c46a', stroke: '#333', 'stroke-width': 1,
+      }));
+    }
+  }
+
+  function updatePanel() {
+    if (!active) return;
+    const lines = [];
+    let cumulative = 0;
+    const info = lastRenderInfo;
+    const pxPerUnit = info ? (info.pxPerUnitX + info.pxPerUnitY) / 2 : null;
+
+    for (let i = 0; i + 1 < waypoints.length; i++) {
+      const d = dist2D(waypoints[i], waypoints[i + 1]);
+      const dpx = pxPerUnit ? Math.round(d * pxPerUnit) : '?';
+      cumulative += d;
+      lines.push(`Seg ${i + 1}: ${d.toFixed(3)} u (${dpx}px)`);
+    }
+    if (waypoints.length > 1) {
+      const cpx = pxPerUnit ? Math.round(cumulative * pxPerUnit) : '?';
+      lines.push(`Total: ${cumulative.toFixed(3)} u (${cpx}px)`);
+    }
+    if (cursorAsy && waypoints.length > 0) {
+      const last = waypoints[waypoints.length - 1];
+      const d = dist2D(last, cursorAsy);
+      const dpx = pxPerUnit ? Math.round(d * pxPerUnit) : '?';
+      lines.push('');
+      lines.push(`Live: ${d.toFixed(3)} u (${dpx}px) from last`);
+    } else if (cursorAsy && lastRenderInfo) {
+      lines.push(`Cursor: (${cursorAsy.mx.toFixed(3)}, ${cursorAsy.my.toFixed(3)})`);
+    } else if (!lastRenderInfo) {
+      lines.push('No render yet');
+    } else {
+      lines.push('Click to start measuring');
+    }
+    panel.innerHTML = lines.join('<br>');
+  }
+
+  let magnifierBlobUrl = null;
+  let magnifierImg = null;
+
+  function rebuildMagnifierImg() {
+    try {
+      const svg = document.querySelector('#preview-container svg');
+      if (!svg) return;
+      const svgStr = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      if (magnifierBlobUrl) URL.revokeObjectURL(magnifierBlobUrl);
+      magnifierBlobUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { magnifierImg = img; };
+      img.src = magnifierBlobUrl;
+    } catch(e) {}
+  }
+
+  function updateMagnifier(clientX, clientY, containerRect) {
+    const canvas = magnifier;
+    const ctx = canvas.getContext('2d');
+    const W = 96, H = 96, ZOOM = 4;
+    const regionW = W / ZOOM, regionH = H / ZOOM; // 24×24 px region
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Draw SVG background
+    const svg = document.querySelector('#preview-container svg');
+    if (svg && magnifierImg && magnifierImg.complete) {
+      try {
+        const svgRect = svg.getBoundingClientRect();
+        // cursor position relative to svg element
+        const cx = clientX - svgRect.left;
+        const cy = clientY - svgRect.top;
+        // source region in the rendered SVG image coords
+        // magnifierImg is the full SVG at its natural size
+        const scaleX = magnifierImg.naturalWidth  / svgRect.width;
+        const scaleY = magnifierImg.naturalHeight / svgRect.height;
+        const srcX = (cx - regionW / 2) * scaleX;
+        const srcY = (cy - regionH / 2) * scaleY;
+        const srcW = regionW * scaleX;
+        const srcH = regionH * scaleY;
+        ctx.drawImage(magnifierImg, srcX, srcY, srcW, srcH, 0, 0, W, H);
+      } catch(e) {
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, W, H);
+      }
+    } else {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Yellow crosshair
+    ctx.strokeStyle = '#e9c46a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H);
+    ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2);
+    ctx.stroke();
+
+    // Position magnifier near cursor
+    const margin = 20;
+    let mx = clientX - containerRect.left + margin;
+    let my = clientY - containerRect.top  + margin;
+    if (mx + W + 4 > containerRect.width)  mx = clientX - containerRect.left - W - margin;
+    if (my + H + 4 > containerRect.height) my = clientY - containerRect.top  - H - margin;
+    canvas.style.left = mx + 'px';
+    canvas.style.top  = my + 'px';
+  }
+
+  function onMouseMove(e) {
+    if (!active) return;
+    const containerRect = document.getElementById('preview-container').getBoundingClientRect();
+    const cx = e.clientX - containerRect.left;
+    const cy = e.clientY - containerRect.top;
+    cursorAsy = lastRenderInfo ? { mx: null, my: null } : null;
+    try {
+      const r = containerPxToAsy(cx, cy);
+      cursorAsy = r;
+    } catch(err) {}
+    redrawMeasureSvg();
+    updatePanel();
+    updateMagnifier(e.clientX, e.clientY, containerRect);
+  }
+
+  function onClick(e) {
+    if (!active) return;
+    const containerRect = document.getElementById('preview-container').getBoundingClientRect();
+    const cx = e.clientX - containerRect.left;
+    const cy = e.clientY - containerRect.top;
+    try {
+      const r = containerPxToAsy(cx, cy);
+      if (r) {
+        waypoints.push(r);
+        rebuildMagnifierImg();
+        redrawMeasureSvg();
+        updatePanel();
+      }
+    } catch(err) {}
+  }
+
+  function onDblClick(e) {
+    if (!active) return;
+    e.stopPropagation();
+    clearMeasure();
+  }
+
+  function onKeyDown(e) {
+    if (!active) return;
+    if (e.key === 'Escape') clearMeasure();
+  }
+
+  function clearMeasure() {
+    waypoints = [];
+    cursorAsy = null;
+    redrawMeasureSvg();
+    updatePanel();
+  }
+
+  function activate() {
+    active = true;
+    btn.classList.add('active');
+    overlay.style.display   = '';
+    panel.style.display     = '';
+    msvg.style.display      = '';
+    magnifier.style.display = '';
+    rebuildMagnifierImg();
+    updatePanel();
+  }
+
+  function deactivate() {
+    active = false;
+    btn.classList.remove('active');
+    overlay.style.display   = 'none';
+    panel.style.display     = 'none';
+    msvg.style.display      = 'none';
+    magnifier.style.display = 'none';
+    clearMeasure();
+  }
+
+  btn.addEventListener('click', () => {
+    if (active) deactivate(); else activate();
+  });
+
+  overlay.addEventListener('mousemove', onMouseMove);
+  overlay.addEventListener('click', onClick);
+  overlay.addEventListener('dblclick', onDblClick);
+  document.addEventListener('keydown', onKeyDown);
+
+  // Hook into DOM mutations to know when SVG changes
+  const _previewContainer = document.getElementById('preview-container');
+  if (_previewContainer) {
+    const obs = new MutationObserver(() => {
+      if (active) rebuildMagnifierImg();
+    });
+    obs.observe(_previewContainer, { childList: true, subtree: false });
+  }
+})();
+
+// ============================================================
+// Feature B: Hide Mode
+// ============================================================
+(function() {
+  const HTX_HIDE_PREFIX = '// htx-hide: ';
+
+  let hideActive = false;
+  const hiddenLines = new Set(); // set of 0-based line indices that we've hidden
+
+  const btn         = document.getElementById('btn-hide-mode');
+  const overlay     = document.getElementById('hide-mode-overlay');
+  const ghostLayer  = document.getElementById('hide-ghost-layer');
+
+  function getLines() {
+    return editor.getValue().split('\n');
+  }
+
+  function isHiddenByUs(lineText) {
+    return lineText.startsWith(HTX_HIDE_PREFIX);
+  }
+
+  function hideLine(lineIdx) {
+    const lines = getLines();
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    if (isHiddenByUs(lines[lineIdx])) return; // already hidden
+    lines[lineIdx] = HTX_HIDE_PREFIX + lines[lineIdx];
+    hiddenLines.add(lineIdx);
+    applyLines(lines);
+  }
+
+  function unhideLine(lineIdx) {
+    const lines = getLines();
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    if (!isHiddenByUs(lines[lineIdx])) return;
+    lines[lineIdx] = lines[lineIdx].slice(HTX_HIDE_PREFIX.length);
+    hiddenLines.delete(lineIdx);
+    applyLines(lines);
+  }
+
+  function toggleHideLine(lineIdx) {
+    const lines = getLines();
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    if (isHiddenByUs(lines[lineIdx])) {
+      unhideLine(lineIdx);
+    } else {
+      hideLine(lineIdx);
+    }
+  }
+
+  function applyLines(lines) {
+    const cursor = editor.getCursor();
+    editor.setValue(lines.join('\n'));
+    editor.setCursor(cursor);
+    doRender();
+  }
+
+  function syncHiddenLinesFromEditor() {
+    // Rebuild hiddenLines set from current editor content
+    hiddenLines.clear();
+    const lines = getLines();
+    for (let i = 0; i < lines.length; i++) {
+      if (isHiddenByUs(lines[i])) hiddenLines.add(i);
+    }
+  }
+
+  async function renderGhostLayer() {
+    if (!hideActive || hiddenLines.size === 0) {
+      ghostLayer.style.display = 'none';
+      ghostLayer.innerHTML = '';
+      return;
+    }
+    try {
+      const lines = getLines();
+      const ghostLines = lines.map((l, i) =>
+        isHiddenByUs(l) ? l.slice(HTX_HIDE_PREFIX.length) : l
+      );
+      const ghostCode = ghostLines.join('\n');
+      if (!window.AsyInterp || !AsyInterp.canInterpret(ghostCode)) {
+        ghostLayer.style.display = 'none';
+        return;
+      }
+      const previewEl = document.getElementById('preview-container');
+      const dims = { w: previewEl.clientWidth, h: previewEl.clientHeight };
+      const result = AsyInterp.render(ghostCode, { containerW: dims.w, containerH: dims.h });
+      ghostLayer.innerHTML = result.svg;
+      ghostLayer.style.display = '';
+    } catch(e) {
+      ghostLayer.style.display = 'none';
+    }
+  }
+
+  function findDataLineAtEvent(e) {
+    // Temporarily disable overlay pointer events to hit-test through it
+    overlay.style.pointerEvents = 'none';
+    let el;
+    try {
+      el = document.elementFromPoint(e.clientX, e.clientY);
+    } finally {
+      overlay.style.pointerEvents = '';
+    }
+    if (!el) return -1;
+    const svgEl = document.querySelector('#preview-container svg');
+    if (!svgEl) return -1;
+    // Walk up DOM to find data-line attribute, staying within svg
+    let target = el;
+    while (target && target !== svgEl) {
+      if (target.dataset && target.dataset.line != null) {
+        return parseInt(target.dataset.line, 10);
+      }
+      target = target.parentElement;
+    }
+    return -1;
+  }
+
+  function onOverlayClick(e) {
+    if (!hideActive) return;
+    e.preventDefault();
+    const lineIdx = findDataLineAtEvent(e);
+    if (lineIdx < 0) return;
+    toggleHideLine(lineIdx);
+    // Ghost layer will be updated after doRender triggers MutationObserver
+    setTimeout(renderGhostLayer, 80);
+  }
+
+  function activate() {
+    hideActive = true;
+    btn.classList.add('active');
+    overlay.style.display = '';
+    document.getElementById('preview-container').classList.add('hide-mode-active');
+    syncHiddenLinesFromEditor();
+    renderGhostLayer();
+  }
+
+  function deactivate() {
+    hideActive = false;
+    btn.classList.remove('active');
+    overlay.style.display = 'none';
+    ghostLayer.style.display = 'none';
+    ghostLayer.innerHTML = '';
+    document.getElementById('preview-container').classList.remove('hide-mode-active');
+  }
+
+  btn.addEventListener('click', () => {
+    if (hideActive) deactivate(); else activate();
+  });
+
+  overlay.addEventListener('click', onOverlayClick);
+
+  // Watch for renders to refresh the ghost layer
+  const _previewContainer = document.getElementById('preview-container');
+  if (_previewContainer) {
+    const obs = new MutationObserver(() => {
+      if (hideActive) {
+        syncHiddenLinesFromEditor();
+        renderGhostLayer();
+      }
+    });
+    obs.observe(_previewContainer, { childList: true, subtree: false });
+  }
+})();
+
+// END_MEASURE_AND_HIDE
 </script>
 <div id="cursor-coords-tooltip"></div>
 </body>
