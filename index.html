@@ -447,7 +447,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.83</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.84</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -8352,21 +8352,15 @@ document.addEventListener('DOMContentLoaded', () => {
     for (const el of els) highlightSvgElement(el, 'strong', '#e9c46a');
   }
 
-  // Hit-test through overlay; try 9 points so nearby clicks register
+  // Find nearest element by geometric distance — same algorithm as normal hover.
+  // This works identically for visible and ghost elements so behaviour is consistent.
   function findInterpCmdAtPoint(clientX, clientY) {
-    overlay.style.pointerEvents = 'none';
-    let found = null;
-    try {
-      for (const [dx, dy] of [[0,0],[8,0],[-8,0],[0,8],[0,-8],[6,6],[-6,6],[6,-6],[-6,-6]]) {
-        let target = document.elementFromPoint(clientX + dx, clientY + dy);
-        while (target) {
-          if (elementToInterpCmd.has(target)) { found = elementToInterpCmd.get(target); break; }
-          target = target.parentElement;
-        }
-        if (found != null) break;
-      }
-    } finally { overlay.style.pointerEvents = ''; }
-    return found;
+    let bestCi = null, bestDist = Infinity;
+    for (const [el, ci] of elementToInterpCmd) {
+      const d = distToElementScreen(clientX, clientY, el);
+      if (d < bestDist) { bestDist = d; bestCi = ci; }
+    }
+    return bestDist <= 30 ? bestCi : null;
   }
 
   function findDataLineAtEvent(e) {
