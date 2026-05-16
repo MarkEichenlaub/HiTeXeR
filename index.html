@@ -447,7 +447,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.84</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.85</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -8366,9 +8366,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function findDataLineAtEvent(e) {
     const ci = findInterpCmdAtPoint(e.clientX, e.clientY);
     if (ci == null) return -1;
-    // interpCmdToLineIdx covers visible elements; ghostInterpCiToLineIdx covers ghost elements
-    if (interpCmdToLineIdx.has(ci)) return interpCmdToLineIdx.get(ci);
+    // Ghost map takes priority: interpCmdToLineIdx can map ghost elements to nearby
+    // non-comment lines (wrong), while ghostInterpCiToLineIdx always has the correct line.
     if (ghostInterpCiToLineIdx.has(ci)) return ghostInterpCiToLineIdx.get(ci);
+    if (interpCmdToLineIdx.has(ci)) return interpCmdToLineIdx.get(ci);
     return -1;
   }
 
