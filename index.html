@@ -446,7 +446,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.78</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.79</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -571,10 +571,9 @@ label("$C$", C, N);
     <div id="preview-container">
       <div class="canvas-controls canvas-controls-tl">
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-in" title="Zoom in">+</button>
-        <span id="canvas-zoom-label" style="font-size:11px;min-width:34px;text-align:center;color:#ccc;font-family:monospace;cursor:default;user-select:none;" title="Current zoom level">100%</span>
+        <span id="canvas-zoom-label" style="font-size:11px;min-width:34px;text-align:center;color:#e9c46a;font-family:monospace;cursor:default;user-select:none;font-weight:600;" title="Current zoom level">100%</span>
         <button class="canvas-ctrl-btn" id="btn-canvas-zoom-out" title="Zoom out">&#x2212;</button>
-        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-100" title="Reset to 100% (fit in window)">100%</button>
-        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-fit" title="Fit in window and recenter">Fit</button>
+        <button class="canvas-ctrl-btn" id="btn-canvas-zoom-100" title="Show at actual 100% size (may go offscreen)">100%</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-grid" title="Toggle grid">Grid</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-rotate" title="Rotate view">&#x21BB; Rotate</button>
         <button class="canvas-ctrl-btn" id="btn-canvas-crop" title="Crop / clip diagram">&#x2702; Crop</button>
@@ -2785,9 +2784,7 @@ async function doRender() {
       if (result.warnings && result.warnings.includes('auto-scaled')) {
         warns.push('No unitsize/size specified — auto-scaled to fit');
       }
-      if (result.displayPercent < 100) {
-        warns.push('Shrunk to fit: ' + result.displayPercent + '%');
-      }
+
       if (result.warnings) {
         const dirRedefs = result.warnings.filter(w => w.startsWith('dir-redef:'));
         if (dirRedefs.length > 0) {
@@ -2801,6 +2798,7 @@ async function doRender() {
       showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
       lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+      updateZoomLabel();
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
       lastJsRenderOk = true;
       if (gridActive) applyGridOverlay();
@@ -3730,18 +3728,19 @@ let canvasZoom = 1.0;
 let canvasPanX = 0, canvasPanY = 0;
 let canvasRotate = 0; // view-only rotation in degrees
 let canvasPanDrag = null; // { startX, startY, startPanX, startPanY }
+let inFitMode = true; // true = CSS shrink-to-fit; false = explicit canvasZoom at 100% native
 
 function applyCanvasTransform() {
   const svg = document.querySelector('#preview-container svg');
   if (!svg) return;
-  if (canvasZoom === 1.0 && canvasPanX === 0 && canvasPanY === 0 && canvasRotate === 0) {
-    // Default view: remove inline overrides and let CSS handle max-width/max-height
+  if (inFitMode) {
+    // Default view: let CSS handle max-width/max-height (shrink to fit)
     svg.style.transform = '';
     svg.style.transformOrigin = '';
     svg.style.maxWidth = '';
     svg.style.maxHeight = '';
   } else {
-    // Zoomed/panned/rotated: remove CSS size constraints, apply transform
+    // Explicit zoom/pan/rotate: remove CSS size constraints, apply transform
     svg.style.maxWidth = 'none';
     svg.style.maxHeight = 'none';
     svg.style.transformOrigin = 'center center';
@@ -3752,12 +3751,25 @@ function applyCanvasTransform() {
 
 function updateZoomLabel() {
   const el = document.getElementById('canvas-zoom-label');
-  if (el) el.textContent = Math.round(canvasZoom * 100) + '%';
+  if (!el) return;
+  if (inFitMode && lastRenderInfo && lastRenderInfo.displayPercent != null) {
+    el.textContent = Math.round(lastRenderInfo.displayPercent) + '%';
+  } else {
+    el.textContent = Math.round(canvasZoom * 100) + '%';
+  }
 }
-function canvasZoomIn() { canvasZoom *= 1.25; applyCanvasTransform(); updateZoomLabel(); }
-function canvasZoomOut() { canvasZoom = Math.max(0.1, canvasZoom / 1.25); applyCanvasTransform(); updateZoomLabel(); }
+function _enterManualZoom() {
+  if (inFitMode && lastRenderInfo && lastRenderInfo.displayPercent != null) {
+    canvasZoom = lastRenderInfo.displayPercent / 100;
+    inFitMode = false;
+  } else if (inFitMode) {
+    inFitMode = false;
+  }
+}
+function canvasZoomIn() { _enterManualZoom(); canvasZoom = Math.min(20, canvasZoom * 1.25); applyCanvasTransform(); updateZoomLabel(); }
+function canvasZoomOut() { _enterManualZoom(); canvasZoom = Math.max(0.05, canvasZoom / 1.25); applyCanvasTransform(); updateZoomLabel(); }
 function canvasShrinkToFit() {
-  canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; canvasRotate = 0;
+  inFitMode = true; canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; canvasRotate = 0;
   const slider = document.getElementById('rotate-slider');
   const valEl = document.getElementById('rotate-value');
   if (slider) slider.value = '0';
@@ -3845,7 +3857,8 @@ function initCanvasPan() {
     if (panPending && !canvasPanDrag) {
       const dist = Math.hypot(e.clientX - panPending.startX, e.clientY - panPending.startY);
       if (dist > 4) {
-        canvasPanDrag = { ...panPending };
+        _enterManualZoom(); // switch out of fit mode before panning
+        canvasPanDrag = { ...panPending, startPanX: canvasPanX, startPanY: canvasPanY };
         panPending = null;
         container.style.cursor = 'grabbing';
       }
@@ -4289,8 +4302,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Canvas controls
   document.getElementById('btn-canvas-zoom-in').addEventListener('click', () => canvasZoomIn());
   document.getElementById('btn-canvas-zoom-out').addEventListener('click', () => canvasZoomOut());
-  document.getElementById('btn-canvas-zoom-100').addEventListener('click', () => { canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; applyCanvasTransform(); updateZoomLabel(); });
-  document.getElementById('btn-canvas-zoom-fit').addEventListener('click', () => canvasShrinkToFit());
+  document.getElementById('btn-canvas-zoom-100').addEventListener('click', () => {
+    inFitMode = false; canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0;
+    applyCanvasTransform(); updateZoomLabel();
+  });
   document.getElementById('btn-canvas-grid').addEventListener('click', () => toggleGrid());
   // Rotation view controls
   (function(){
@@ -4424,7 +4439,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // TeXeR button: open AoPS TeXeR and copy [asy]...[/asy]-wrapped code to clipboard
   document.getElementById('btn-texer').addEventListener('click', async () => {
-    const code = editor.getValue().trim();
+    let code = editor.getValue().trim();
+    // Strip existing [asy]...[/asy] wrapper if present
+    const asyMatch = code.match(/^\[asy\]([\s\S]*?)\[\/asy\]$/i);
+    if (asyMatch) code = asyMatch[1].trim();
     const wrapped = `[asy]\n${code}\n[/asy]`;
     try { await navigator.clipboard.writeText(wrapped); } catch(e) {}
     window.open('https://artofproblemsolving.com/texer', '_blank');
@@ -8175,25 +8193,18 @@ document.addEventListener('DOMContentLoaded', () => {
   function onMouseMove(e) {
     if (!active) return;
     const containerRect = document.getElementById('preview-container').getBoundingClientRect();
-    const cx = e.clientX - containerRect.left;
-    const cy = e.clientY - containerRect.top;
-    cursorAsy = lastRenderInfo ? { mx: null, my: null } : null;
-    try {
-      const r = containerPxToAsy(cx, cy);
-      cursorAsy = r;
-    } catch(err) {}
+    cursorAsy = null;
+    try { cursorAsy = getAsyCoords(e); } catch(err) {}
     redrawMeasureSvg();
     updatePanel();
+    magnifier.style.display = '';
     updateMagnifier(e.clientX, e.clientY, containerRect);
   }
 
   function onClick(e) {
     if (!active) return;
-    const containerRect = document.getElementById('preview-container').getBoundingClientRect();
-    const cx = e.clientX - containerRect.left;
-    const cy = e.clientY - containerRect.top;
     try {
-      const r = containerPxToAsy(cx, cy);
+      const r = getAsyCoords(e);
       if (r) {
         waypoints.push(r);
         rebuildMagnifierImg();
@@ -8227,7 +8238,7 @@ document.addEventListener('DOMContentLoaded', () => {
     overlay.style.display   = '';
     panel.style.display     = '';
     msvg.style.display      = '';
-    magnifier.style.display = '';
+    magnifier.style.display = 'none'; // shown on first mousemove
     rebuildMagnifierImg();
     updatePanel();
   }
@@ -8334,7 +8345,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     try {
       const lines = getLines();
-      const ghostLines = lines.map((l, i) =>
+      const ghostLines = lines.map((l) =>
         isHiddenByUs(l) ? l.slice(HTX_HIDE_PREFIX.length) : l
       );
       const ghostCode = ghostLines.join('\n');
@@ -8344,8 +8355,21 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const previewEl = document.getElementById('preview-container');
       const dims = { w: previewEl.clientWidth, h: previewEl.clientHeight };
-      const result = AsyInterp.render(ghostCode, { containerW: dims.w, containerH: dims.h });
+      // Use forced bounds from main render so ghost aligns exactly
+      const renderOpts = { containerW: dims.w, containerH: dims.h };
+      if (lastRenderInfo) {
+        renderOpts.forcedBounds = { minX: lastRenderInfo.minX, minY: lastRenderInfo.minY, maxX: lastRenderInfo.maxX, maxY: lastRenderInfo.maxY };
+        renderOpts.forcedPxPerUnit = lastRenderInfo.pxPerUnit;
+      }
+      const result = AsyInterp.render(ghostCode, renderOpts);
       ghostLayer.innerHTML = result.svg;
+      // Make ghost SVG fill the container exactly like the main SVG
+      const ghostSvg = ghostLayer.querySelector('svg');
+      if (ghostSvg) {
+        ghostSvg.style.position = 'absolute';
+        ghostSvg.style.top = '0'; ghostSvg.style.left = '0';
+        ghostSvg.style.width = '100%'; ghostSvg.style.height = '100%';
+      }
       ghostLayer.style.display = '';
     } catch(e) {
       ghostLayer.style.display = 'none';
@@ -8362,13 +8386,13 @@ document.addEventListener('DOMContentLoaded', () => {
       overlay.style.pointerEvents = '';
     }
     if (!el) return -1;
-    const svgEl = document.querySelector('#preview-container svg');
-    if (!svgEl) return -1;
-    // Walk up DOM to find data-line attribute, staying within svg
+    // Walk up DOM, look up element in the global SVG interactivity maps
     let target = el;
-    while (target && target !== svgEl) {
-      if (target.dataset && target.dataset.line != null) {
-        return parseInt(target.dataset.line, 10);
+    while (target) {
+      if (elementToInterpCmd.has(target)) {
+        const interpCi = elementToInterpCmd.get(target);
+        const lineIdx = interpCmdToLineIdx.get(interpCi);
+        return (lineIdx != null) ? lineIdx : -1;
       }
       target = target.parentElement;
     }
