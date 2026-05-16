@@ -2888,6 +2888,15 @@ function createInterpreter() {
       if (op === T.GE) return String(left) >= String(right);
     }
 
+    // Pen equality comparison (e.g. `if (myPen != white)`)
+    if (isPen(left) && isPen(right)) {
+      const eq = left.r === right.r && left.g === right.g && left.b === right.b &&
+                 left.opacity === right.opacity && left.linewidth === right.linewidth &&
+                 left.linestyle === right.linestyle;
+      if (op === T.EQ) return eq;
+      if (op === T.NEQ) return !eq;
+    }
+
     // Number ops
     const l = toNumber(left), r = toNumber(right);
     switch(op) {
