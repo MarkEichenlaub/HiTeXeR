@@ -8896,8 +8896,14 @@ function createInterpreter() {
     env.set('BeginPoint', 0);
     env.set('MidPoint', 0.5);
     // Relative(real r) — relative position along a path (0=begin, 1=end).
-    // We model this as a plain number so existing Label-position handling works.
-    env.set('Relative', (r) => (typeof r === 'number' ? r : 0.5));
+    // Returns a tagged object so Arrow(Relative(t)) can distinguish a position
+    // from a size argument. valueOf() makes numeric coercion (label arithmetic) work.
+    env.set('Relative', (r) => {
+      const t = typeof r === 'number' ? r : 0.5;
+      const obj = {_tag: 'relative', t};
+      obj.valueOf = () => t;
+      return obj;
+    });
 
     // String functions
     // Asymptote's `string(real)` uses defaultformat = "%.9g" which strips
@@ -9283,6 +9289,11 @@ function createInterpreter() {
         // matching Asymptote's plain_arrows.asy TeXHead.size definition.
         let sz = 6;
         let sizeExplicit = false;
+        // Detect Arrow(Relative(t)) — position along the path, not a size.
+        let relativePos = undefined;
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._tag === 'relative') { relativePos = a.t; break; }
+        }
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
           // 08823 idiom: Arrow(size=9) — named-arg form.
@@ -9291,6 +9302,7 @@ function createInterpreter() {
           }
         }
         const out = {_tag:'arrow', style:name, size: sz, sizeExplicit};
+        if (relativePos !== undefined) out.position = relativePos;
         if (headKind === 'TeXHead') out.texHead = true;
         else if (headKind === 'HookHead') {
           // HookHead: render the TeX-style chevron glyph, but at a normal
@@ -22834,9 +22846,11 @@ function renderSVG(result, opts) {
 
       const shortenLen = arrowLen;
 
-      const shortenEnd = (style === 'Arrow' || style === 'EndArrow' ||
+      // Arrow(Relative(t)) places the head mid-path; don't shorten path endpoints.
+      const _hasRelPos = dc.arrow.position !== undefined;
+      const shortenEnd = !_hasRelPos && (style === 'Arrow' || style === 'EndArrow' ||
         style === 'ArcArrow' || style === 'EndArcArrow' || style === 'Arrows' || style === 'ArcArrows');
-      const shortenBegin = (style === 'BeginArrow' || style === 'BeginArcArrow' ||
+      const shortenBegin = !_hasRelPos && (style === 'BeginArrow' || style === 'BeginArcArrow' ||
         style === 'Arrows' || style === 'ArcArrows');
 
       if (shortenEnd || shortenBegin) {
@@ -24326,15 +24340,80 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled};
   }
 
+  // Shared helper: arrowhead at fractional arc-length position `frac` (0=begin, 1=end).
+  // Uses chord-length approximation per segment.
+  function arrowAtFraction(frac, halfAngleDeg) {
+    const segLengths = segs.map(sg => {
+      const dx = (sg.p3.x - sg.p0.x) * scaleX, dy = (sg.p3.y - sg.p0.y) * scaleY;
+      return Math.sqrt(dx*dx + dy*dy);
+    });
+    const pathLen = segLengths.reduce((a, b) => a + b, 0);
+    const targetLen = pathLen * Math.max(0, Math.min(1, frac));
+
+    let accum = 0, segIdx = segs.length - 1, tInSeg = 1;
+    for (let i = 0; i < segs.length; i++) {
+      if (accum + segLengths[i] >= targetLen || i === segs.length - 1) {
+        segIdx = i;
+        tInSeg = segLengths[i] > 1e-12 ? (targetLen - accum) / segLengths[i] : 0;
+        tInSeg = Math.max(0, Math.min(1, tInSeg));
+        break;
+      }
+      accum += segLengths[i];
+    }
+
+    const sg = segs[segIdx];
+    const t = tInSeg;
+    const t2 = t * t, t3 = t2 * t;
+    const mt = 1 - t, mt2 = mt * mt, mt3 = mt2 * mt;
+
+    // Bézier position
+    const px = mt3*sg.p0.x + 3*mt2*t*sg.cp1.x + 3*mt*t2*sg.cp2.x + t3*sg.p3.x;
+    const py = mt3*sg.p0.y + 3*mt2*t*sg.cp1.y + 3*mt*t2*sg.cp2.y + t3*sg.p3.y;
+    // Bézier tangent
+    const tanX = 3*mt2*(sg.cp1.x-sg.p0.x) + 6*mt*t*(sg.cp2.x-sg.cp1.x) + 3*t2*(sg.p3.x-sg.cp2.x);
+    const tanY = 3*mt2*(sg.cp1.y-sg.p0.y) + 6*mt*t*(sg.cp2.y-sg.cp1.y) + 3*t2*(sg.p3.y-sg.cp2.y);
+
+    const tipX = (px - minX) * scaleX, tipY = (maxY - py) * scaleY;
+    const tangentAngle = Math.atan2(tanY * scaleY, tanX * scaleX);
+    const screenAngle = -tangentAngle;
+    const s = arrowLen;
+    const halfAngle = halfAngleDeg * Math.PI / 180;
+
+    if (isArcStyle) {
+      const arcAngle = 25 * Math.PI / 180;
+      const lx = tipX - s*Math.cos(screenAngle - arcAngle);
+      const ly = tipY - s*Math.sin(screenAngle - arcAngle);
+      const rx = tipX - s*Math.cos(screenAngle + arcAngle);
+      const ry = tipY - s*Math.sin(screenAngle + arcAngle);
+      const bow = s * 0.15;
+      const axCos = Math.cos(screenAngle), axSin = Math.sin(screenAngle);
+      const midLx = (tipX+lx)/2 + bow*axCos, midLy = (tipY+ly)/2 + bow*axSin;
+      const midRx = (tipX+rx)/2 + bow*axCos, midRy = (tipY+ry)/2 + bow*axSin;
+      const d = `M${fmt(tipX)} ${fmt(tipY)} Q${fmt(midLx)} ${fmt(midLy)} ${fmt(lx)} ${fmt(ly)} L${fmt(rx)} ${fmt(ry)} Q${fmt(midRx)} ${fmt(midRy)} ${fmt(tipX)} ${fmt(tipY)} Z`;
+      return {d, filled: true};
+    }
+    const lx = tipX - s*Math.cos(screenAngle - halfAngle);
+    const ly = tipY - s*Math.sin(screenAngle - halfAngle);
+    const rx = tipX - s*Math.cos(screenAngle + halfAngle);
+    const ry = tipY - s*Math.sin(screenAngle + halfAngle);
+    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled: true};
+  }
+
   if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow' || style === 'EndArcArrow') {
-    arrowParts.push(arrowAt(segs[segs.length-1], true));
+    const pos = dc.arrow.position;
+    if (pos !== undefined && pos < 1.0) {
+      // Arrow(Relative(t)) — arrowhead at fractional arc-length position
+      arrowParts.push(arrowAtFraction(pos, 15));
+    } else {
+      arrowParts.push(arrowAt(segs[segs.length-1], true));
+    }
   } else if (style === 'BeginArrow' || style === 'BeginArcArrow') {
     arrowParts.push(arrowAt(segs[0], false));
   } else if (style === 'Arrows' || style === 'ArcArrows') {
     arrowParts.push(arrowAt(segs[segs.length-1], true));
     arrowParts.push(arrowAt(segs[0], false));
   } else if (style === 'MidArrow') {
-    // Arrow at true midpoint of path length
+    // Arrow at true midpoint of path length (kept separate for backward compat)
     // Compute approximate arc length for each segment using chord length
     const segLengths = segs.map(s => {
       const dx = (s.p3.x - s.p0.x) * scaleX, dy = (s.p3.y - s.p0.y) * scaleY;
