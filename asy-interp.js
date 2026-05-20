@@ -9836,6 +9836,65 @@ function createInterpreter() {
       return null;
     });
 
+    // MarkAngle: AoPS/olympiad convenience wrapper for markangle
+    // Signature: MarkAngle(label, A, B, C, radius, pen)
+    //   label: string to place inside the arc
+    //   A: first ray endpoint (arc starts from ray BA)
+    //   B: vertex (center of the arc)
+    //   C: second ray endpoint (arc ends at ray BC)
+    //   radius: arc radius in user coordinates
+    //   pen: stroke/fill color
+    env.set('MarkAngle', (...args) => {
+      let label = null;
+      let pen = null;
+      let radius = 0.3;
+      const pairs = [];
+      let posNums = [];
+
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._named) {
+          if ('radius' in a) radius = toNumber(a.radius);
+          if ('r' in a) radius = toNumber(a.r);
+          continue;
+        }
+        if (isPair(a)) { pairs.push(toPair(a)); continue; }
+        if (isPen(a)) { pen = a; continue; }
+        if (isString(a)) { label = a; continue; }
+        if (a && a._tag === 'label') { label = a.text; if (a.pen) pen = a.pen; continue; }
+        if (typeof a === 'number') { posNums.push(a); continue; }
+      }
+
+      if (pairs.length < 3) return null;
+      // A, B (vertex), C are the first three pairs in order
+      const A = pairs[0];
+      const B = pairs[1]; // vertex
+      const C = pairs[2];
+
+      // radius from positional number if provided
+      if (posNums.length > 0) radius = posNums[0];
+
+      if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+
+      // Angles from vertex B to A and C
+      let a1 = Math.atan2(A.y - B.y, A.x - B.x) * 180 / Math.PI;
+      let a2 = Math.atan2(C.y - B.y, C.x - B.x) * 180 / Math.PI;
+      // CCW sweep from BA to BC
+      while (a2 <= a1) a2 += 360;
+
+      // Draw the arc
+      const arcPath = makeArcPath(B, radius, a1, a2);
+      currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0});
+
+      // Label at the arc midpoint
+      if (label) {
+        const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
+        const labelR = radius * 1.4;
+        const pos = makePair(B.x + labelR * Math.cos(midAngle), B.y + labelR * Math.sin(midAngle));
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0});
+      }
+      return null;
+    });
+
     // Marker module functions are registered by installMarkersPackage when
     // the corpus diagram does `import markers;` — see installMarkersPackage.
     // The default markangle implementation below dispatches to the markers
