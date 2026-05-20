@@ -9150,6 +9150,7 @@ function createInterpreter() {
           if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') labelFilltype = a.filltype;
         }
         else if (typeof a === 'number' && position === null) position = a;
+        else if (a && typeof a === 'object' && a._tag === 'relative' && position === null) position = a.t;
       }
       const lbl = {_tag:'label', text, align};
       if (position !== null) lbl.position = position;
