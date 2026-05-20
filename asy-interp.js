@@ -3533,23 +3533,41 @@ function createInterpreter() {
     // Picture methods
     if (obj && obj._tag === 'picture') {
       if (method === 'fit') {
-        // fit() returns the picture (scaling handled at render). Compute a
-        // fit bbox in bp-space so min(frame)/max(frame) and shift(frame)
+        // fit([xsize[, ysize[, keepAspect]]]) returns the picture with optional
+        // size constraints. When called with arguments, override _sizeW/_sizeH.
+        // Compute a fit bbox in bp-space so min(frame)/max(frame) and shift(frame)
         // composition work for multi-subpicture layouts.
-        if (!obj._fitBbox) {
-          if (obj._sizeW || obj._sizeH) {
-            const w = obj._sizeW || obj._sizeH || 100;
-            const h = obj._sizeH || obj._sizeW || 100;
+        let resultPic = obj;
+        // If args are provided, create a copy with updated size constraints
+        const numArgs = args.filter(a => typeof a === 'number' || (a && typeof a.x === 'number'));
+        if (numArgs.length > 0) {
+          // fit(xsize) or fit(xsize, ysize) — constrain to these bp dimensions
+          const newSizeW = toNumber(numArgs[0]);
+          const newSizeH = numArgs.length > 1 ? toNumber(numArgs[1]) : newSizeW;
+          resultPic = {
+            _tag: 'picture',
+            commands: obj.commands.slice(),
+            _sizeW: newSizeW,
+            _sizeH: newSizeH,
+            _sizeAniso: obj._sizeAniso,
+            _fitShift: obj._fitShift,
+            _picLimits: obj._picLimits
+          };
+        }
+        if (!resultPic._fitBbox) {
+          if (resultPic._sizeW || resultPic._sizeH) {
+            const w = resultPic._sizeW || resultPic._sizeH || 100;
+            const h = resultPic._sizeH || resultPic._sizeW || 100;
             // Start with the size()-constrained geometry box in bp-space
             let bbMinX = 0, bbMinY = 0, bbMaxX = w, bbMaxY = h;
             // Compute user-coord geometry bbox so we can map label positions to bp
-            const gb = getGeoBbox(obj.commands);
+            const gb = getGeoBbox(resultPic.commands);
             const userW = (gb.maxX - gb.minX) || 1;
             const userH = (gb.maxY - gb.minY) || 1;
             const sx = w / userW;
             const sy = h / userH;
             // Scan labels and extend bbox for each label's approximate extent
-            for (const dc of obj.commands) {
+            for (const dc of resultPic.commands) {
               if (!dc || dc.cmd !== 'label') continue;
               if (dc.pen && dc.pen.opacity === 0) continue;
               const pos = dc.pos || dc;
@@ -3582,16 +3600,16 @@ function createInterpreter() {
               if (lbMinY < bbMinY) bbMinY = lbMinY;
               if (lbMaxY > bbMaxY) bbMaxY = lbMaxY;
             }
-            obj._fitBbox = { min: makePair(bbMinX, bbMinY), max: makePair(bbMaxX, bbMaxY) };
+            resultPic._fitBbox = { min: makePair(bbMinX, bbMinY), max: makePair(bbMaxX, bbMaxY) };
           } else {
-            const gb = getGeoBbox(obj.commands);
-            obj._fitBbox = {
+            const gb = getGeoBbox(resultPic.commands);
+            resultPic._fitBbox = {
               min: makePair(gb.minX, gb.minY),
               max: makePair(gb.maxX, gb.maxY),
             };
           }
         }
-        return obj;
+        return resultPic;
       }
       if (method === 'add') {
         // pic.add(otherPic) — add commands from other picture
@@ -4005,6 +4023,26 @@ function createInterpreter() {
     if (obj && obj._tag === 'bounds') {
       if (m === 'min') return obj.min;
       if (m === 'max') return obj.max;
+    }
+    // Picture properties: xsize/ysize return the bp dimensions of the fit bbox.
+    // These are used by multi-picture composition: add(pic, pic2.fit(pic1.ysize), ...)
+    if (obj && obj._tag === 'picture') {
+      if (m === 'xsize' || m === 'ysize') {
+        // Compute fit bbox if not already cached
+        if (!obj._fitBbox) {
+          if (obj._sizeW || obj._sizeH) {
+            const w = obj._sizeW || obj._sizeH || 100;
+            const h = obj._sizeH || obj._sizeW || 100;
+            obj._fitBbox = { min: makePair(0, 0), max: makePair(w, h) };
+          } else {
+            const gb = getGeoBbox(obj.commands);
+            obj._fitBbox = { min: makePair(gb.minX, gb.minY), max: makePair(gb.maxX, gb.maxY) };
+          }
+        }
+        const fb = obj._fitBbox;
+        if (m === 'xsize') return fb.max.x - fb.min.x;
+        if (m === 'ysize') return fb.max.y - fb.min.y;
+      }
     }
     // Projection struct fields used by user code (e.g. drawSphere helpers
     // in AoPS Lesson 9, script 30, where `triple camv = currentprojection.normal`
@@ -6163,7 +6201,15 @@ function createInterpreter() {
         const shiftX = align.x + position.x - (mX + MX) / 2 + rx * sizeX / 2;
         const shiftY = align.y + position.y - (mY + MY) / 2 + ry * sizeY / 2;
         const shiftT = makeTransform(shiftX, 1, 0, shiftY, 0, 1);
-        const cmds = scaledCmds.map(c => transformDrawCmd(shiftT, c));
+        // Labels in size(pic,w) are placed in user-coords, but their font sizes
+        // stay in absolute bp — Asymptote's pic.fit() scales geometry and label
+        // positions but does NOT scale the label fonts. Strip the labelTransform
+        // that transformDrawCmd accrues from the geo-scale.
+        const cmds = scaledCmds.map(c => {
+          const tc = transformDrawCmd(shiftT, c);
+          if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
+          return tc;
+        });
         for (const c of cmds) dest.commands.push(c);
         if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         return;
