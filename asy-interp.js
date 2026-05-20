@@ -22960,11 +22960,11 @@ function renderSVG(result, opts) {
 
       const isSizeConstrained = !isAutoScaled && !hasUnitScale;
       // For size()-constrained single-line labels: skip entirely (solver handles it).
-      // Exception: tick labels, axis labels, and dot labels may extend beyond the
-      // solver-computed geometry, so we still need to pad the viewBox for them.
-      // Dot labels (_fromDot) get additional dotPush offset from the dot radius,
-      // which the solver doesn't fully account for (03491 labeled dots).
-      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot) continue;
+      // Exception: tick labels, axis labels, dot labels, and rotated labels may
+      // extend beyond the solver-computed geometry, so we still need to pad the
+      // viewBox for them. Rotated labels (labelTransform) can extend diagonally
+      // past the geometry bbox (e.g. 05918 rotated SW-aligned labels).
+      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
@@ -23056,6 +23056,29 @@ function renderSVG(result, opts) {
         if (dc._axisLabelMidRotated) {
           dx = ax * margin;
           dy = -(ay * margin);
+        } else if (dc.labelTransform) {
+          // For rotated labels, match the rendering code (line ~24168): compute
+          // offset in local (unrotated) coordinates using original W/H (capped),
+          // then rotate to world coords. This fixes bbox mismatch for labels like
+          // label(rotate(45)*"text", pos, SW) where the offset direction depends
+          // on the rotation angle.
+          const lt = dc.labelTransform;
+          const ltAngle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
+          const ltScale = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
+          // Use scaled but unrotated dimensions (matching W2, H2 in renderer)
+          const localW = W * (ltScale > 0 ? ltScale : 1);
+          const localH = H * (ltScale > 0 ? ltScale : 1);
+          // Cap width at 2×H to match renderer's W2capped logic
+          const localWCapped = Math.min(localW, localH * 2);
+          const offLocalX = ax_n * localWCapped;
+          const offLocalY = ay_n * localH;
+          const angleRad = ltAngle * Math.PI / 180;
+          const cosT = Math.cos(angleRad);
+          const sinT = Math.sin(angleRad);
+          const offWorldX = cosT * offLocalX - sinT * offLocalY;
+          const offWorldY = sinT * offLocalX + cosT * offLocalY;
+          dx = offWorldX + ax * margin;
+          dy = -(offWorldY + ay * margin);
         } else {
           dx = ax_n * effW + ax * margin;
           dy = -(ay_n * effH + ay * margin);
@@ -23167,13 +23190,10 @@ function renderSVG(result, opts) {
         const rotatedAxisSafety = (_ltRotated && dc._isAxisLabel) ? fontSizeSVG * 0.75 : 0;
         padT = Math.max(padT, -topActual + tickSafety + rotatedAxisSafety);
         padB = Math.max(padB, bottomActual - viewH + tickSafety);
-        // Tick labels and axis labels may extend horizontally beyond the solver-
-        // computed bbox (solver uses geometry extent, but ticks/axis labels are
-        // placed by alignment beyond that). Pad horizontally for these.
-        if (dc._isTickLabel || dc._isAxisLabel) {
-          padL = Math.max(padL, -left);
-          padR = Math.max(padR, right - viewW);
-        }
+        // All labels may extend horizontally beyond the viewBox (e.g. rotated
+        // labels with SW alignment at the right edge, like 05918). Pad for these.
+        padL = Math.max(padL, -left);
+        padR = Math.max(padR, right - viewW);
       } else {
         padL = Math.max(padL, -left);
         padR = Math.max(padR, right - viewW);
@@ -25086,6 +25106,8 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
   // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
   s = s.replace(/\\[ ~;,:!]/g, ' ');
+  // Bare ~ is TeX non-breaking space (tie) — convert to space
+  s = s.replace(/~/g, ' ');
   // Strip \definecolor{name}{model}{values} declarations (no visible output)
   s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
   // Strip \color[model]{values} (xcolor optional-arg form) and \color{name}, keeping surrounding text
