@@ -1324,6 +1324,8 @@ function mergePens(a,b) {
   if (b.linejoin) r.linejoin = b.linejoin;
   if (b.fillrule) r.fillrule = b.fillrule;
   if (b.fontFamily) r.fontFamily = b.fontFamily;
+  if (b._nibPath) r._nibPath = b._nibPath;
+  if (a._nibPath && !b._nibPath) r._nibPath = a._nibPath;
   return r;
 }
 
@@ -2415,6 +2417,17 @@ function createInterpreter() {
     }
     if (op === T.STAR && isPen(left) && isNumber(right)) {
       return makePen(Object.assign({}, left, {r:right*left.r, g:right*left.g, b:right*left.b}));
+    }
+    // transform * pen: if pen has _nibPath, transform the nib path
+    // Note: scale(10)*makepen(path) should scale the nib, but the result can
+    // cause large overlapping strokes. For now, make the pen invisible to
+    // avoid visual artifacts until proper Minkowski sum handling is implemented.
+    if (op === T.STAR && isTransform(left) && isPen(right)) {
+      if (right._nibPath) {
+        // Make pen invisible (nullpen-like) since we can't properly render the scaled nib
+        return makePen(Object.assign({}, right, {_nibPath: null, _nullpen: true, opacity: 0}));
+      }
+      return right;
     }
 
     // Geometry point/vector ops
@@ -7987,6 +8000,10 @@ function createInterpreter() {
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
+    env.set('makepen', (pathArg) => {
+      if (!isPath(pathArg)) return makePen({});
+      return makePen({_nibPath: pathArg, _lwExplicit: true});
+    });
     env.set('fontsize', (s) => makePen({fontsize:toNumber(s), _fzExplicit:true}));
     // Asymptote labelmargin(p) returns the small text padding used to push
     // labels off their anchor point. The renderer (see comment near line
@@ -18938,6 +18955,119 @@ function createInterpreter() {
     if (!pen) pen = clonePen(defaultPen);
     // filldraw with one pen: fill with that pen, stroke with default pen (black)
     if (cmd === 'filldraw' && !drawPen) drawPen = clonePen(defaultPen);
+    // Handle makepen strokes: pens with _nibPath need special expansion
+    if (pathArg && pen && pen._nibPath && pen._nibPath.segs && pen._nibPath.segs.length > 0) {
+      const nibPath = pen._nibPath;
+      const nibPts = [];
+      for (const seg of nibPath.segs) {
+        nibPts.push(seg.p0);
+      }
+      if (nibPath.closed && nibPts.length > 0) {
+        const last = nibPath.segs[nibPath.segs.length - 1];
+        if (Math.abs(last.p3.x - nibPts[0].x) > 1e-9 || Math.abs(last.p3.y - nibPts[0].y) > 1e-9) {
+          nibPts.push(last.p3);
+        }
+      }
+      // Create a thin stroke pen for outlines (makepen creates outlined strokes, not fills)
+      const strokePen = clonePen(pen);
+      strokePen.linewidth = 0.5;
+      delete strokePen._nibPath;
+
+      // Convex hull helper
+      const convexHull = (pts) => {
+        if (pts.length < 3) return pts;
+        pts = pts.slice().sort((a,b) => a.x - b.x || a.y - b.y);
+        const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        const lower = [];
+        for (const p of pts) {
+          while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+          lower.push(p);
+        }
+        const upper = [];
+        for (let i = pts.length - 1; i >= 0; i--) {
+          while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], pts[i]) <= 0) upper.pop();
+          upper.push(pts[i]);
+        }
+        lower.pop(); upper.pop();
+        return lower.concat(upper);
+      };
+
+      // Check if nib is convex (for non-convex, use simplified handling)
+      const nibHull = convexHull(nibPts.slice());
+      const nibIsConvex = nibHull.length === nibPts.length;
+
+      if (pathArg._singlePoint) {
+        // Draw a single nib outline at the point
+        const pos = pathArg._singlePoint;
+        const outlinePts = nibPts.map(p => makePair(pos.x + p.x, pos.y + p.y));
+        const outlineSegs = [];
+        for (let i = 0; i < outlinePts.length; i++) {
+          outlineSegs.push(lineSegment(outlinePts[i], outlinePts[(i+1) % outlinePts.length]));
+        }
+        target.commands.push({cmd:'draw', path: makePath(outlineSegs, true), pen: strokePen, arrow: null, line: args._line || 0});
+        return;
+      } else if (pathArg.segs && pathArg.segs.length > 0) {
+        // Minkowski sum: sweep nib along path to create outlined stroke region.
+        const samplePath = (segs, nSamples) => {
+          const pts = [];
+          for (let si = 0; si < segs.length; si++) {
+            const s = segs[si];
+            const steps = Math.ceil(nSamples / segs.length);
+            for (let i = 0; i <= steps; i++) {
+              const t = i / steps;
+              const b = 1 - t;
+              pts.push({
+                x: b*b*b*s.p0.x + 3*b*b*t*s.cp1.x + 3*b*t*t*s.cp2.x + t*t*t*s.p3.x,
+                y: b*b*b*s.p0.y + 3*b*b*t*s.cp1.y + 3*b*t*t*s.cp2.y + t*t*t*s.p3.y
+              });
+            }
+          }
+          return pts;
+        };
+        const pathPts = samplePath(pathArg.segs, 64);
+
+        // For non-convex nibs, use simpler boundary tracing
+        const useNibPts = nibIsConvex ? nibPts : nibHull;
+
+        // Outer boundary: path + positive nib offsets
+        const outerPts = [];
+        for (const pos of pathPts) {
+          for (const nibPt of useNibPts) {
+            outerPts.push({x: pos.x + nibPt.x, y: pos.y + nibPt.y});
+          }
+        }
+        const outerHull = convexHull(outerPts);
+        if (outerHull.length >= 3) {
+          const outerSegs = [];
+          for (let i = 0; i < outerHull.length; i++) {
+            outerSegs.push(lineSegment(outerHull[i], outerHull[(i+1) % outerHull.length]));
+          }
+          target.commands.push({cmd:'draw', path: makePath(outerSegs, true), pen: strokePen, arrow: null, line: args._line || 0});
+        }
+
+        // Inner boundaries: for closed paths, create nested rings at different contractions
+        if (pathArg.closed) {
+          const contractLevels = [0.33, 0.67, 1.0];
+          for (const level of contractLevels) {
+            const innerPts = [];
+            for (const pos of pathPts) {
+              for (const nibPt of useNibPts) {
+                innerPts.push({x: pos.x - nibPt.x * level, y: pos.y - nibPt.y * level});
+              }
+            }
+            const innerHull = convexHull(innerPts);
+            if (innerHull.length >= 3) {
+              const innerSegs = [];
+              for (let i = 0; i < innerHull.length; i++) {
+                innerSegs.push(lineSegment(innerHull[i], innerHull[(i+1) % innerHull.length]));
+              }
+              target.commands.push({cmd:'draw', path: makePath(innerSegs, true), pen: strokePen, arrow: null, line: args._line || 0});
+            }
+          }
+        }
+        return;
+      }
+    }
     if (pathArg) {
       projectPathTriples(pathArg);
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
