@@ -7931,6 +7931,16 @@ function createInterpreter() {
         if (args[3] && args[3]._tag === 'scaleT') p._zScale = args[3];
         return null;
       }
+      // scale(scaleT, scaleT) without picture: apply to currentpicture
+      if (args.length >= 1 && args[0] && args[0]._tag === 'scaleT') {
+        const pic = env.get('currentpicture');
+        if (pic && pic._tag === 'picture') {
+          pic._xScale = args[0];
+          if (args[1] && args[1]._tag === 'scaleT') pic._yScale = args[1];
+          if (args[2] && args[2]._tag === 'scaleT') pic._zScale = args[2];
+        }
+        return null;
+      }
       if (args.length === 1) {
         const s = toNumber(args[0]);
         return makeTransform(0,s,0,0,0,s);
@@ -10010,13 +10020,35 @@ function createInterpreter() {
       for (const a of args) {
         if (a && a._tag === 'picture') { graphPic = a; break; }
       }
-      const xScaleLog = !!(graphPic && graphPic._xScale && graphPic._xScale.type === 'log');
-      const yScaleLog = !!(graphPic && graphPic._yScale && graphPic._yScale.type === 'log');
+      // Fall back to currentpicture if no explicit picture passed
+      if (!graphPic) {
+        const cp = env.get('currentpicture');
+        if (cp && cp._tag === 'picture') graphPic = cp;
+      }
+      const xScale = graphPic && graphPic._xScale;
+      const yScale = graphPic && graphPic._yScale;
+      const xScaleLog = !!(xScale && (xScale.type === 'log' || xScale.type === 'custom-log'));
+      const yScaleLog = !!(yScale && (yScale.type === 'log' || yScale.type === 'custom-log'));
       if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
         try { process.stderr.write('[graph] graphPic='+!!graphPic+' xScaleLog='+xScaleLog+' yScaleLog='+yScaleLog+' args='+args.map(a=> a===null?'null':(a===undefined?'undef':(a && a._tag ? ('<'+a._tag+'>') : typeof a))).join(',')+'\n'); } catch(e){}
       }
-      const _xT = (x) => (xScaleLog && x > 0) ? Math.log10(x) : x;
-      const _yT = (y) => (yScaleLog && y > 0) ? Math.log10(y) : y;
+      // Use custom forward transform if available, otherwise log10
+      const _xT = (x) => {
+        if (!xScaleLog || x <= 0) return x;
+        if (xScale && xScale.forward) {
+          const fwd = xScale.forward;
+          return typeof fwd === 'function' ? fwd(x) : callUserFuncValues(fwd, [x]);
+        }
+        return Math.log10(x);
+      };
+      const _yT = (y) => {
+        if (!yScaleLog || y <= 0) return y;
+        if (yScale && yScale.forward) {
+          const fwd = yScale.forward;
+          return typeof fwd === 'function' ? fwd(y) : callUserFuncValues(fwd, [y]);
+        }
+        return Math.log10(y);
+      };
       // Strip operator/bool3/picture args and named args for cleaner matching
       const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named) && !(a && a._tag === 'picture'));
 
@@ -11152,18 +11184,29 @@ function createInterpreter() {
       let _yminFromContent = false, _ymaxFromContent = false;
       let _yminFromUserLimits = false, _ymaxFromUserLimits = false;
       // If picture has log y-scale, transform explicit limits to log space.
-      const yIsLog = !!(pic._yScale && pic._yScale.type === 'log');
+      const yScale = pic._yScale;
+      const yIsLog = !!(yScale && (yScale.type === 'log' || yScale.type === 'custom-log'));
+      const yLogBase = (yScale && yScale.logBase) || 10;
+      // Transform function: use custom forward if available
+      const yLogTransform = (val) => {
+        if (val <= 0) return val;
+        if (yScale && yScale.forward) {
+          const fwd = yScale.forward;
+          return typeof fwd === 'function' ? fwd(val) : callUserFuncValues(fwd, [val]);
+        }
+        return Math.log10(val);
+      };
       if (yIsLog) {
-        if (ymin !== null && ymin > 0) ymin = Math.log10(ymin);
-        if (ymax !== null && ymax > 0) ymax = Math.log10(ymax);
+        if (ymin !== null && ymin > 0) ymin = yLogTransform(ymin);
+        if (ymax !== null && ymax > 0) ymax = yLogTransform(ymax);
       }
       // Auto-range from picture's own per-picture limits first, then global, then content
       if (ymin === null && pic._picLimits && pic._picLimits.ymin != null) {
-        ymin = yIsLog && pic._picLimits.ymin > 0 ? Math.log10(pic._picLimits.ymin) : pic._picLimits.ymin;
+        ymin = yIsLog && pic._picLimits.ymin > 0 ? yLogTransform(pic._picLimits.ymin) : pic._picLimits.ymin;
         _yminFromUserLimits = true;
       }
       if (ymax === null && pic._picLimits && pic._picLimits.ymax != null) {
-        ymax = yIsLog && pic._picLimits.ymax > 0 ? Math.log10(pic._picLimits.ymax) : pic._picLimits.ymax;
+        ymax = yIsLog && pic._picLimits.ymax > 0 ? yLogTransform(pic._picLimits.ymax) : pic._picLimits.ymax;
         _ymaxFromUserLimits = true;
       }
       if (ymin === null && _axisLimits.ymin !== null) { ymin = _axisLimits.ymin; _yminFromUserLimits = true; }
@@ -11384,16 +11427,17 @@ function createInterpreter() {
                              _isAxisLine: 'y', _axisShiftX: mirrorX, _isMirror: true});
         }
       }
-      // For log y-axis, synthesize tick positions at integer powers of 10.
+      // For log y-axis, synthesize tick positions at integer powers of the base.
       let yTicks = ticks;
       if (yIsLog && ticks) {
         const positions = [];
         const lo = Math.ceil(ymin - 1e-9);
         const hi = Math.floor(ymax + 1e-9);
         for (let k = lo; k <= hi; k++) positions.push(k);
+        const baseStr = yLogBase === Math.E ? 'e' : String(Math.round(yLogBase));
         yTicks = Object.assign({}, ticks, {
           positions: positions,
-          labelFunc: (v) => '$10^{' + Math.round(v) + '}$',
+          labelFunc: (v) => '$' + baseStr + '^{' + Math.round(v) + '}$',
           step: 1,
         });
       }
@@ -11847,6 +11891,34 @@ function createInterpreter() {
     env.set('Log',    {_tag:'scaleT', type:'log'});
     env.set('Logarithmic', {_tag:'scaleT', type:'log'});
     env.set('Broken', (...args) => ({_tag:'scaleT', type:'linear'}));
+    // scaleT(forward, inverse, logarithmic=false) — custom scale constructor.
+    // When logarithmic=true, tick labels are formatted as powers of the base.
+    env.set('scaleT', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const named = args.filter(a => a && a._named);
+      let logarithmic = false;
+      for (const n of named) if (n.logarithmic === true) logarithmic = true;
+      // Check for function - could be JS function, or asy func/overload
+      const isAsyFunc = (v) => v && (typeof v === 'function' || v._tag === 'func' || v._tag === 'overload');
+      const forward = isAsyFunc(pos[0]) ? pos[0] : null;
+      const inverse = isAsyFunc(pos[1]) ? pos[1] : null;
+      // Detect log base: find b where forward(b) = 1
+      let logBase = 10;
+      if (logarithmic && forward) {
+        const callF = (v) => {
+          if (typeof forward === 'function') return forward(v);
+          return callUserFuncValues(forward, [v]);
+        };
+        // Check common bases first
+        for (const b of [2, 10, Math.E]) {
+          try {
+            const val = callF(b);
+            if (Math.abs(val - 1) < 1e-9) { logBase = b; break; }
+          } catch(e) {}
+        }
+      }
+      return {_tag:'scaleT', type: logarithmic ? 'custom-log' : 'custom', forward, inverse, logarithmic, logBase};
+    });
 
     // xlimits/ylimits — store axis ranges for xaxis/yaxis to use.
     // If a picture is passed as first arg, store per-picture; else global.
@@ -14111,8 +14183,8 @@ function createInterpreter() {
         try { process.stderr.write('[scale-9756] n='+args.length+' args='+args.map(a=> a===null?'null':(a===undefined?'undef':(a && a._tag ? ('<'+a._tag+'>') : typeof a))).join(',')+'\n'); } catch(e){}
       }
       const pos = args.filter(a => !(a && a._named));
-      // Picture-form: scale(pic, scaleT, scaleT[, scaleT]) — delegate to orig
-      if (pos.length >= 1 && pos[0] && pos[0]._tag === 'picture') {
+      // Picture-form and scaleT-form are handled by origScale
+      if (pos.length >= 1 && pos[0] && (pos[0]._tag === 'picture' || pos[0]._tag === 'scaleT')) {
         if (origScale) return origScale(...args);
         return null;
       }
