@@ -4311,11 +4311,22 @@ function createInterpreter() {
         return runLen;
       };
 
+      const closeIndices = []; // segment indices after which to emit Z (for ^^ with closed subpaths)
+      let currentSubPathStart = 0; // track start of current subpath for cycle closing
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
         // Check if previous element used ^^ (pen-up) — if so, don't connect
         const prevJoin = i > 0 ? elements[i-1].join : '--';
         const isHatHat = prevJoin === '^^';
+        // Track closure boundaries: if previous element was a closed path and we're at a ^^ gap
+        if (isHatHat && i > 0 && allSegs.length > 0) {
+          const prevEl = elements[i-1];
+          if (prevEl.type === 'path' && prevEl._origPath && prevEl._origPath.closed) {
+            closeIndices.push(allSegs.length - 1);
+          }
+          // Reset subpath start for next subpath (cycle close should use this start, not global start)
+          currentSubPathStart = allSegs.length;
+        }
         if (el.type === 'path') {
           const start = el.segs[0].p0;
           // Connect from pending point or previous endpoint to start of path (unless ^^ gap)
@@ -4333,6 +4344,13 @@ function createInterpreter() {
             }
           } else {
             pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
+          }
+          // Preserve _closeIndices from nested paths, offsetting by current allSegs length
+          if (el._origPath && el._origPath._closeIndices) {
+            const offset = allSegs.length;
+            for (const ci of el._origPath._closeIndices) {
+              closeIndices.push(ci + offset);
+            }
           }
           allSegs.push(...el.segs);
         } else {
@@ -4383,9 +4401,9 @@ function createInterpreter() {
           }
         }
       }
-      // Close if cycle
-      if (hasCycle && allSegs.length > 0) {
-        const first = allSegs[0].p0;
+      // Close if cycle - use currentSubPathStart so we close to the current subpath's start, not global start
+      if (hasCycle && allSegs.length > currentSubPathStart) {
+        const first = allSegs[currentSubPathStart].p0;
         const last = allSegs[allSegs.length - 1].p3;
         if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
           // Determine the join kind before cycle: from last element's join
@@ -4403,13 +4421,19 @@ function createInterpreter() {
         }
       }
       const result = makePath(allSegs, hasCycle);
+      // Attach close indices for ^^ with closed subpaths (09209: cycle ^^ cycle ^^ cycle)
+      if (closeIndices.length > 0) {
+        result._closeIndices = closeIndices;
+      }
       // When the expression is purely `pathA ^^ pathB ^^ pathC` (every element
       // is a full path and every inter-element join is `^^`), preserve the
       // component paths so `path[] g = pathA ^^ pathB` (and for-each over g)
       // can recover the array form. Asymptote's `^^` operator returns path[]
       // when assigned to a path[]-typed LHS; we approximate that by attaching
       // the components and unwrapping at iteration / array-coercion sites.
-      if (!hasCycle && elements.length >= 2
+      // Also preserve _subPaths when elements have cycles so pathToD can emit
+      // per-subpath Z closes (09209: cycle ^^ cycle ^^ cycle).
+      if (elements.length >= 2
           && elements.every(e => e.type === 'path' && e._origPath)
           && elements.slice(0, -1).every(e => e.join === '^^')) {
         result._subPaths = elements.map(e => e._origPath);
@@ -24777,6 +24801,10 @@ function pathToD(path, minX, maxY, scaleX, scaleY) {
   if (scaleY === undefined) scaleY = scaleX; // backward compat
   const segs = path.segs;
   if (segs.length === 0) return '';
+
+  // _closeIndices contains segment indices after which to emit Z (for ^^ with closed subpaths)
+  const closeSet = path._closeIndices ? new Set(path._closeIndices) : null;
+
   let d = '';
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
@@ -24803,6 +24831,10 @@ function pathToD(path, minX, maxY, scaleX, scaleY) {
       d += ` L${fmt(p3x)} ${fmt(p3y)}`;
     } else {
       d += ` C${fmt(cp1x)} ${fmt(cp1y)} ${fmt(cp2x)} ${fmt(cp2y)} ${fmt(p3x)} ${fmt(p3y)}`;
+    }
+    // Emit Z after this segment if it's a close boundary (^^ with closed subpath)
+    if (closeSet && closeSet.has(i)) {
+      d += ' Z';
     }
   }
   if (path.closed) d += ' Z';
