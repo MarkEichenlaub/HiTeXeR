@@ -1934,7 +1934,25 @@ function _projectTripleRaw(v, proj) {
   }
   const sx = px*rx + py*ry + pz*rz;
   const sy = px*upx + py*upy + pz*upz;
-  return makePair(sx, sy);
+  // Apply zoom factor for orthographic projections (default zoom=1).
+  // For diagrams with mixed 2D/3D content (typically small camera distances
+  // with default Z up-vector), normalize projection so the x-axis projects
+  // at unit scale. This aligns 3D content with 2D overlays. Skip for large
+  // camera distances or non-default up vectors to avoid distorting pure-3D
+  // diagrams like heat transfer visualizations.
+  const zoom = (typeof proj.zoom === 'number') ? proj.zoom : 1;
+  let orthoScale = zoom;
+  // Apply x-normalization only for "small" orthographic setups that likely
+  // have mixed 2D/3D content. Threshold of dist<10 catches typical solids
+  // module diagrams while excluding large-scale technical drawings.
+  if (proj.type === 'orthographic' && dist < 10) {
+    const isDefaultUp = (Math.abs(ux) < 0.01 && Math.abs(uy) < 0.01 && Math.abs(uz - 1) < 0.01);
+    if (isDefaultUp) {
+      const xNorm = Math.abs(rx);
+      if (xNorm > 0.1) orthoScale = zoom / xNorm;
+    }
+  }
+  return makePair(sx * orthoScale, sy * orthoScale);
 }
 
 function createInterpreter() {
