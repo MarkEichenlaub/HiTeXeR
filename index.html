@@ -448,7 +448,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.86</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.87</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3898,7 +3898,7 @@ function initCanvasPan() {
     container.style.cursor = '';
   });
   container.addEventListener('mousemove', (e) => {
-    if (coordsActive) updateCursorCoords(e);
+    updateCursorCoords(e);
   });
   container.addEventListener('mouseleave', () => {
     document.getElementById('cursor-coords-tooltip').style.display = 'none';
@@ -3914,7 +3914,6 @@ function toggleCursorCoords() {
   document.getElementById('md-coords').classList.toggle('checked', coordsActive);
   if (!coordsActive) {
     document.getElementById('cursor-coords-tooltip').style.display = 'none';
-    document.getElementById('pib-cursor-section').style.display = 'none';
   }
 }
 
@@ -3937,6 +3936,13 @@ function updateCursorCoords(e) {
   if (!coords) { tooltip.style.display = 'none'; return; }
   const { mx, my } = coords;
   const fmt = (v) => v.toFixed(3).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  // Update info bar cursor position (always)
+  const cursorEl = document.getElementById('pib-cursor-pos');
+  if (cursorEl) cursorEl.textContent = `(${fmt(mx)}, ${fmt(my)})`;
+  const section = document.getElementById('pib-cursor-section');
+  if (section) section.style.display = '';
+  // Floating tooltip only when toggled on
+  if (!coordsActive) return;
   tooltip.textContent = `(${fmt(mx)}, ${fmt(my)})`;
   tooltip.style.display = 'block';
   // Position: above and to the right of cursor
@@ -3947,11 +3953,6 @@ function updateCursorCoords(e) {
   if (ty < 4) ty = e.clientY + offset / 2;
   tooltip.style.left = tx + 'px';
   tooltip.style.top = ty + 'px';
-  // Update info bar cursor position
-  const cursorEl = document.getElementById('pib-cursor-pos');
-  if (cursorEl) cursorEl.textContent = `(${fmt(mx)}, ${fmt(my)})`;
-  const section = document.getElementById('pib-cursor-section');
-  if (section && coordsActive) section.style.display = '';
 }
 
 function updateInfoBar() {
