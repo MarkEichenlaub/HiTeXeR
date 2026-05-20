@@ -3533,83 +3533,95 @@ function createInterpreter() {
     // Picture methods
     if (obj && obj._tag === 'picture') {
       if (method === 'fit') {
-        // fit([xsize[, ysize[, keepAspect]]]) returns the picture with optional
-        // size constraints. When called with arguments, override _sizeW/_sizeH.
-        // Compute a fit bbox in bp-space so min(frame)/max(frame) and shift(frame)
-        // composition work for multi-subpicture layouts.
-        let resultPic = obj;
-        // If args are provided, create a copy with updated size constraints
+        // fit([xsize[, ysize[, keepAspect]]]) — Asymptote's pic.fit() returns a
+        // frame (frozen snapshot of picture contents) scaled to fit within the
+        // specified bp dimensions. Convert picture commands to an mframe.
         const numArgs = args.filter(a => typeof a === 'number' || (a && typeof a.x === 'number'));
-        if (numArgs.length > 0) {
-          // fit(xsize) or fit(xsize, ysize) — constrain to these bp dimensions
-          const newSizeW = toNumber(numArgs[0]);
-          const newSizeH = numArgs.length > 1 ? toNumber(numArgs[1]) : newSizeW;
-          resultPic = {
-            _tag: 'picture',
-            commands: obj.commands.slice(),
-            _sizeW: newSizeW,
-            _sizeH: newSizeH,
-            _sizeAniso: obj._sizeAniso,
-            _fitShift: obj._fitShift,
-            _picLimits: obj._picLimits
-          };
+        let targetW = numArgs.length > 0 ? toNumber(numArgs[0]) : 0;
+        let targetH = numArgs.length > 1 ? toNumber(numArgs[1]) : targetW;
+        const keepAspect = args.some(a => a === true || a === env.get('Aspect')) || (numArgs.length <= 2);
+        // Compute user-coord bbox of the picture's geometry
+        const gb = getGeoBbox(obj.commands);
+        const userW = (gb.maxX - gb.minX) || 1;
+        const userH = (gb.maxY - gb.minY) || 1;
+        // If no size given, use 1:1 (user→bp)
+        if (!targetW) targetW = userW;
+        if (!targetH) targetH = userH;
+        // Compute scale to fit within target size
+        let sx = targetW / userW;
+        let sy = targetH / userH;
+        if (keepAspect) {
+          const s = Math.min(sx, sy);
+          sx = s; sy = s;
         }
-        if (!resultPic._fitBbox) {
-          if (resultPic._sizeW || resultPic._sizeH) {
-            const w = resultPic._sizeW || resultPic._sizeH || 100;
-            const h = resultPic._sizeH || resultPic._sizeW || 100;
-            // Start with the size()-constrained geometry box in bp-space
-            let bbMinX = 0, bbMinY = 0, bbMaxX = w, bbMaxY = h;
-            // Compute user-coord geometry bbox so we can map label positions to bp
-            const gb = getGeoBbox(resultPic.commands);
-            const userW = (gb.maxX - gb.minX) || 1;
-            const userH = (gb.maxY - gb.minY) || 1;
-            const sx = w / userW;
-            const sy = h / userH;
-            // Scan labels and extend bbox for each label's approximate extent
-            for (const dc of resultPic.commands) {
-              if (!dc || dc.cmd !== 'label') continue;
-              if (dc.pen && dc.pen.opacity === 0) continue;
-              const pos = dc.pos || dc;
-              if (!pos || !isFinite(pos.x) || !isFinite(pos.y)) continue;
-              const fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
-              const text = dc.text || dc.label || '';
-              const clean = typeof text === 'string' ? stripLaTeX(text) : '';
-              const textW = clean.length * fontSize * 0.45;
-              const textH = fontSize * 0.85;
-              // Map pos to bp-space (origin at 0,0 after shift)
-              const pxBp = (pos.x - gb.minX) * sx;
-              const pyBp = (pos.y - gb.minY) * sy;
-              // align: -1 = label to left/below, 0 = centered, +1 = to right/above
-              const ax = (dc.align && dc.align.x) || 0;
-              const ay = (dc.align && dc.align.y) || 0;
-              const marginPerUnit = 0.25 * fontSize;
-              // L-inf normalise the box offset; magnitude only scales margin push.
-              const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
-              const ax_n = aInfMax > 0 ? (ax * 0.5 / aInfMax) : 0;
-              const ay_n = aInfMax > 0 ? (ay * 0.5 / aInfMax) : 0;
-              const cx = pxBp + ax_n * textW + ax * marginPerUnit;
-              const cy = pyBp + ay_n * textH + ay * marginPerUnit;
-              // Label bbox in bp
-              const lbMinX = cx - textW / 2;
-              const lbMaxX = cx + textW / 2;
-              const lbMinY = cy - textH / 2;
-              const lbMaxY = cy + textH / 2;
-              if (lbMinX < bbMinX) bbMinX = lbMinX;
-              if (lbMaxX > bbMaxX) bbMaxX = lbMaxX;
-              if (lbMinY < bbMinY) bbMinY = lbMinY;
-              if (lbMaxY > bbMaxY) bbMaxY = lbMaxY;
+        // Helper to sample a cubic bezier segment into line points
+        const sampleBezier = (seg, nSamples) => {
+          const pts = [];
+          for (let i = 0; i <= nSamples; i++) {
+            const t = i / nSamples;
+            const b = 1 - t;
+            const px = b*b*b*seg.p0.x + 3*b*b*t*seg.cp1.x + 3*b*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+            const py = b*b*b*seg.p0.y + 3*b*b*t*seg.cp1.y + 3*b*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+            pts.push({x: (px - gb.minX) * sx, y: (py - gb.minY) * sy});
+          }
+          return pts;
+        };
+        // Determine if a segment is curved (control points differ from line)
+        const isCurved = (seg) => {
+          const eps = 1e-6;
+          const t1_3 = 1/3, t2_3 = 2/3;
+          const lineCp1x = seg.p0.x * (1-t1_3) + seg.p3.x * t1_3;
+          const lineCp1y = seg.p0.y * (1-t1_3) + seg.p3.y * t1_3;
+          const lineCp2x = seg.p0.x * (1-t2_3) + seg.p3.x * t2_3;
+          const lineCp2y = seg.p0.y * (1-t2_3) + seg.p3.y * t2_3;
+          return Math.abs(seg.cp1.x - lineCp1x) > eps || Math.abs(seg.cp1.y - lineCp1y) > eps ||
+                 Math.abs(seg.cp2.x - lineCp2x) > eps || Math.abs(seg.cp2.y - lineCp2y) > eps;
+        };
+        // Create an mframe with strokes/fills from the picture commands
+        const frame = {_tag: 'mframe', strokes: [], fills: [], labels: []};
+        for (const dc of obj.commands) {
+          if (!dc) continue;
+          if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
+            const pts = [];
+            for (const seg of dc.path.segs) {
+              if (isCurved(seg)) {
+                const sampled = sampleBezier(seg, 8);
+                if (pts.length === 0) pts.push(sampled[0]);
+                for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
+              } else {
+                if (pts.length === 0) pts.push({x: (seg.p0.x - gb.minX) * sx, y: (seg.p0.y - gb.minY) * sy});
+                pts.push({x: (seg.p3.x - gb.minX) * sx, y: (seg.p3.y - gb.minY) * sy});
+              }
             }
-            resultPic._fitBbox = { min: makePair(bbMinX, bbMinY), max: makePair(bbMaxX, bbMaxY) };
-          } else {
-            const gb = getGeoBbox(resultPic.commands);
-            resultPic._fitBbox = {
-              min: makePair(gb.minX, gb.minY),
-              max: makePair(gb.maxX, gb.maxY),
-            };
+            frame.strokes.push({pts, closed: !!dc.path.closed, pen: dc.pen || defaultPen});
+          }
+          if ((dc.cmd === 'fill' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
+            const pts = [];
+            for (const seg of dc.path.segs) {
+              if (isCurved(seg)) {
+                const sampled = sampleBezier(seg, 8);
+                if (pts.length === 0) pts.push(sampled[0]);
+                for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
+              } else {
+                if (pts.length === 0) pts.push({x: (seg.p0.x - gb.minX) * sx, y: (seg.p0.y - gb.minY) * sy});
+                pts.push({x: (seg.p3.x - gb.minX) * sx, y: (seg.p3.y - gb.minY) * sy});
+              }
+            }
+            frame.fills.push({pts, pen: dc.pen || defaultPen});
+          }
+          if (dc.cmd === 'label' && dc.pos) {
+            frame.labels.push({
+              text: dc.text || '',
+              pos: makePair((dc.pos.x - gb.minX) * sx, (dc.pos.y - gb.minY) * sy),
+              align: dc.align,
+              pen: dc.pen || defaultPen
+            });
           }
         }
-        return resultPic;
+        // Store fitted size for min()/max() computations
+        frame._fitW = userW * sx;
+        frame._fitH = userH * sy;
+        return frame;
       }
       if (method === 'add') {
         // pic.add(otherPic) — add commands from other picture
@@ -6113,7 +6125,40 @@ function createInterpreter() {
     // add() composites a picture into currentpicture (or a destination picture),
     // optionally with a transform.
     // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
+    // Also: add(frame, frame, pair) — compose frames at position offset
     env.set('add', (...args) => {
+      // Handle frame-to-frame composition: add(destFrame, srcFrame, offset)
+      let frames = [], framePairs = [];
+      for (const a of args) {
+        if (a && a._tag === 'mframe') frames.push(a);
+        else if (isPair(a)) framePairs.push(a);
+      }
+      if (frames.length >= 2) {
+        const destFrame = frames[0];
+        const srcFrame = frames[1];
+        const offset = framePairs.length > 0 ? framePairs[0] : {x:0, y:0};
+        // Copy srcFrame's strokes/fills to destFrame with offset applied
+        for (const s of (srcFrame.strokes || [])) {
+          const newPts = s.pts.map(p => ({x: p.x + offset.x, y: p.y + offset.y}));
+          destFrame.strokes.push({pts: newPts, closed: s.closed, pen: s.pen});
+        }
+        for (const f of (srcFrame.fills || [])) {
+          const newPts = f.pts.map(p => ({x: p.x + offset.x, y: p.y + offset.y}));
+          destFrame.fills.push({pts: newPts, pen: f.pen});
+        }
+        if (srcFrame.labels) {
+          if (!destFrame.labels) destFrame.labels = [];
+          for (const L of srcFrame.labels) {
+            destFrame.labels.push({
+              text: L.text,
+              pos: makePair(L.pos.x + offset.x, L.pos.y + offset.y),
+              align: L.align,
+              pen: L.pen
+            });
+          }
+        }
+        return;
+      }
       let pics = [], t = null, pairs = [];
       for (const a of args) {
         if (a && a._tag === 'picture') pics.push(a);
@@ -6453,6 +6498,83 @@ function createInterpreter() {
       }
       for (const c of cmds) dest.commands.push(c);
     });
+    // shipout(frame) — emit frame contents to currentpicture. In Asymptote,
+    // shipout renders a frame (or picture) to file; here we emit to currentPic
+    // so the SVG renderer picks it up. Also handles shipout() with no args.
+    env.set('shipout', (...args) => {
+      let frameArg = null;
+      for (const a of args) {
+        if (a && a._tag === 'mframe') { frameArg = a; break; }
+      }
+      if (!frameArg) return; // shipout() with no frame or picture — ignore
+      // Compute frame bbox to set size() constraint so auto-scaling uses
+      // the actual frame coordinates (which are already in bp space)
+      let fMinX = Infinity, fMaxX = -Infinity, fMinY = Infinity, fMaxY = -Infinity;
+      for (const s of (frameArg.strokes || [])) {
+        for (const p of (s.pts || [])) {
+          if (p.x < fMinX) fMinX = p.x; if (p.x > fMaxX) fMaxX = p.x;
+          if (p.y < fMinY) fMinY = p.y; if (p.y > fMaxY) fMaxY = p.y;
+        }
+      }
+      for (const f of (frameArg.fills || [])) {
+        for (const p of (f.pts || [])) {
+          if (p.x < fMinX) fMinX = p.x; if (p.x > fMaxX) fMaxX = p.x;
+          if (p.y < fMinY) fMinY = p.y; if (p.y > fMaxY) fMaxY = p.y;
+        }
+      }
+      for (const L of (frameArg.labels || [])) {
+        if (L.pos) {
+          if (L.pos.x < fMinX) fMinX = L.pos.x; if (L.pos.x > fMaxX) fMaxX = L.pos.x;
+          if (L.pos.y < fMinY) fMinY = L.pos.y; if (L.pos.y > fMaxY) fMaxY = L.pos.y;
+        }
+      }
+      // Set size() constraint to the frame's actual bp dimensions
+      // and translate coordinates to start at (0,0) for proper viewBox alignment
+      let offsetX = 0, offsetY = 0;
+      if (isFinite(fMinX) && isFinite(fMaxX) && isFinite(fMinY) && isFinite(fMaxY)) {
+        const frameW = fMaxX - fMinX;
+        const frameH = fMaxY - fMinY;
+        if (frameW > 0 && frameH > 0) {
+          sizeW = frameW;
+          sizeH = frameH;
+          // Also set unitsize to 1 so coordinates map 1:1 to bp
+          unitScale = 1;
+          hasUnitScale = true;
+          // Translate so content starts at (0,0) - the viewBox always starts at origin
+          offsetX = fMinX;
+          offsetY = fMinY;
+        }
+      }
+      // Emit frame strokes/fills as draw commands to currentPic (translated to origin)
+      for (const s of (frameArg.strokes || [])) {
+        if (!s.pts || s.pts.length < 2) continue;
+        const segs = [];
+        for (let k = 0; k < s.pts.length - 1; k++) {
+          segs.push(lineSegment(makePair(s.pts[k].x - offsetX, s.pts[k].y - offsetY), makePair(s.pts[k+1].x - offsetX, s.pts[k+1].y - offsetY)));
+        }
+        if (s.closed && s.pts.length >= 2) {
+          segs.push(lineSegment(makePair(s.pts[s.pts.length-1].x - offsetX, s.pts[s.pts.length-1].y - offsetY), makePair(s.pts[0].x - offsetX, s.pts[0].y - offsetY)));
+        }
+        if (segs.length > 0) {
+          currentPic.commands.push({cmd:'draw', path: makePath(segs, !!s.closed), pen: clonePen(s.pen || defaultPen), arrow:null, line:0});
+        }
+      }
+      for (const f of (frameArg.fills || [])) {
+        if (!f.pts || f.pts.length < 3) continue;
+        const segs = [];
+        for (let k = 0; k < f.pts.length - 1; k++) {
+          segs.push(lineSegment(makePair(f.pts[k].x - offsetX, f.pts[k].y - offsetY), makePair(f.pts[k+1].x - offsetX, f.pts[k+1].y - offsetY)));
+        }
+        segs.push(lineSegment(makePair(f.pts[f.pts.length-1].x - offsetX, f.pts[f.pts.length-1].y - offsetY), makePair(f.pts[0].x - offsetX, f.pts[0].y - offsetY)));
+        currentPic.commands.push({cmd:'fill', path: makePath(segs, true), pen: clonePen(f.pen || defaultPen), line:0});
+      }
+      // Emit frame labels (translated to origin)
+      if (frameArg.labels && frameArg.labels.length > 0) {
+        for (const L of frameArg.labels) {
+          currentPic.commands.push({cmd:'label', text: L.text || '', pos: makePair(L.pos.x - offsetX, L.pos.y - offsetY), align: L.align, pen: clonePen(L.pen || defaultPen), line:0});
+        }
+      }
+    });
     env.set('invisible', makePen({opacity:0}));
     env.set('solid', makePen({linestyle:'solid'}));
 
@@ -6737,6 +6859,18 @@ function createInterpreter() {
         const gb = getGeoBbox(p.commands);
         return makePair(gb.minX, gb.minY);
       }
+      if (args.length===1 && args[0] && args[0]._tag === 'mframe') {
+        // min(frame) — return (0, 0) as frames are origin-normalized by fit()
+        const f = args[0];
+        let minX = 0, minY = 0;
+        for (const s of (f.strokes || [])) {
+          for (const p of s.pts) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; }
+        }
+        for (const fl of (f.fills || [])) {
+          for (const p of fl.pts) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; }
+        }
+        return makePair(minX, minY);
+      }
       if (args.length===1 && isArray(args[0])) return Math.min(...args[0].map(toNumber));
       return Math.min(...args.map(toNumber));
     });
@@ -6746,6 +6880,18 @@ function createInterpreter() {
         if (p._fitBbox) return makePair(p._fitBbox.max.x, p._fitBbox.max.y);
         const gb = getGeoBbox(p.commands);
         return makePair(gb.maxX, gb.maxY);
+      }
+      if (args.length===1 && args[0] && args[0]._tag === 'mframe') {
+        // max(frame) — compute max corner from frame's strokes/fills
+        const f = args[0];
+        let maxX = f._fitW || 0, maxY = f._fitH || 0;
+        for (const s of (f.strokes || [])) {
+          for (const p of s.pts) { if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+        }
+        for (const fl of (f.fills || [])) {
+          for (const p of fl.pts) { if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+        }
+        return makePair(maxX, maxY);
       }
       if (args.length===1 && isArray(args[0])) return Math.max(...args[0].map(toNumber));
       return Math.max(...args.map(toNumber));
@@ -14792,7 +14938,41 @@ function createInterpreter() {
           m._sphereCenter = firstRev._center;
           m._sphereRadius = firstRev._radius;
         }
-        return {_tag:'surface', mesh: m};
+        // Transfer grid data from revolution for smooth shading support.
+        // Revolution stores _grid as [rotationStep][pathVertex], but smooth
+        // shading expects cyclic dimension in columns. Transpose so that:
+        // - New rows = path vertices (not cyclic)
+        // - New columns = rotation steps (cyclic)
+        const surf = {_tag:'surface', mesh: m};
+        if (firstRev._grid) {
+          const oldGrid = firstRev._grid;
+          const oldRows = oldGrid.length; // rotation steps
+          const oldCols = (oldGrid[0] && oldGrid[0].length) || 0; // path vertices
+          // Transpose: newGrid[pathIdx][rotIdx]
+          const newGrid = [];
+          for (let p = 0; p < oldCols; p++) {
+            const row = [];
+            for (let r = 0; r < oldRows; r++) {
+              row.push(oldGrid[r][p]);
+            }
+            newGrid.push(row);
+          }
+          surf._grid = newGrid;
+          surf._gridRows = oldCols; // path vertices
+          surf._gridCols = oldRows; // rotation steps
+          surf._gridCyclic = true; // rotation wraps around (now in columns)
+          // Also need to update face indices: swap _gi and _gj to match transposed grid
+          if (m && m.faces) {
+            for (const f of m.faces) {
+              if (typeof f._gi === 'number' && typeof f._gj === 'number') {
+                const oldGi = f._gi, oldGj = f._gj;
+                f._gi = oldGj; // path position → new row index
+                f._gj = oldGi; // rotation step → new column index
+              }
+            }
+          }
+        }
+        return surf;
       }
       // surface(surface s, transform3 t, ...) — combine surfaces under transforms
       const firstSurf = args.find(a => a && a._tag === 'surface');
@@ -14927,7 +15107,7 @@ function createInterpreter() {
         for (let i = 0; i < verts.length - 1; i++) {
           const v00 = rotated[j][i], v10 = rotated[j+1][i];
           const v11 = rotated[j+1][i+1], v01 = rotated[j][i+1];
-          const face = {vertices: [v00, v10, v11, v01]};
+          const face = {vertices: [v00, v10, v11, v01], _gi: j, _gj: i};
           face.normal = faceNormal(face);
           faces.push(face);
         }
@@ -17342,8 +17522,15 @@ function createInterpreter() {
     if (args.length === 0) return;
     // Extract target picture if first arg is a picture
     let target = currentPic;
+    let frameTarget = null;
     if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
       target = args[0];
+      args = args.slice(1);
+    } else if (args.length > 0 && args[0] && args[0]._tag === 'mframe') {
+      // draw(frame, path, pen) — store stroke/fill in the frame's strokes/fills arrays.
+      // Coordinates are stored as-is (in user coords or bp, depending on the caller's
+      // transform). The frame will be emitted to a picture by shipout(frame) or add().
+      frameTarget = args[0];
       args = args.slice(1);
     }
     // Handle L=Label(...) named arg: place a label along the drawn path
@@ -18280,7 +18467,8 @@ function createInterpreter() {
             if (pen) return {...f, pen};
             return f;
           });
-          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
+          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
+                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius};
         }
         // If surface has per-vertex _colors from s.colors(palette(...)), annotate
         // each face with a pen averaged across its 4 grid-vertex colors.
@@ -18322,7 +18510,8 @@ function createInterpreter() {
             }
             return f;
           });
-          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
+          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
+                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius};
         }
         // Smooth shading for parametric surfaces: compute per-grid-vertex
         // normals (average of adjacent face normals) and subdivide each grid
@@ -18573,7 +18762,8 @@ function createInterpreter() {
               }
             }
           }
-          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed};
+          mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
+                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius};
         }
         // Render mesh faces. material() calls attach _emissivePen but we still
         // render using the diffuse color — TeXeR's 2D fallback mode does render
@@ -19116,6 +19306,27 @@ function createInterpreter() {
     }
     if (pathArg) {
       projectPathTriples(pathArg);
+      // If drawing to a frame, store in the frame's strokes/fills arrays
+      if (frameTarget) {
+        const pts = [];
+        if (pathArg.segs && pathArg.segs.length > 0) {
+          pts.push({x: pathArg.segs[0].p0.x, y: pathArg.segs[0].p0.y});
+          for (const seg of pathArg.segs) {
+            pts.push({x: seg.p3.x, y: seg.p3.y});
+          }
+        } else if (pathArg._singlePoint) {
+          pts.push({x: pathArg._singlePoint.x, y: pathArg._singlePoint.y});
+        }
+        if (pts.length > 0) {
+          if (cmd === 'fill' || cmd === 'filldraw') {
+            frameTarget.fills.push({pts, pen: pen || clonePen(defaultPen)});
+          }
+          if (cmd === 'draw' || cmd === 'filldraw') {
+            frameTarget.strokes.push({pts, closed: !!pathArg.closed, pen: pen || clonePen(defaultPen)});
+          }
+        }
+        return;
+      }
       const dc = {cmd, path:pathArg, pen, arrow, line: args._line || 0};
       if (drawPen) dc.drawPen = drawPen;
       if (margin) dc.margin = margin;
@@ -19922,7 +20133,18 @@ function createInterpreter() {
         if (viewDot < 0) continue; // back-face cull (camera-facing faces only)
       }
       let dot = n.x*lx + n.y*ly + n.z*lz;
-      if (dot < 0) dot = -dot;
+      // For closed meshes (spheres, etc), back-faces are already culled, so all
+      // remaining faces are front-facing. Use abs to light both lit and shadow sides.
+      // For open meshes (bowls, sheets), we may be viewing the back side of faces.
+      // Flip the effective normal for back-facing surfaces so lighting is computed
+      // from the visible side's perspective.
+      if (mesh && mesh._closed) {
+        if (dot < 0) dot = -dot; // abs for closed surfaces
+      } else {
+        const viewDot = n.x*vx + n.y*vy + n.z*vz;
+        if (viewDot < 0) dot = -dot; // flip for back-facing open surfaces
+        if (dot < 0) dot = 0; // clamp to 0 (face in shadow)
+      }
       // nolight on a CLOSED mesh (e.g. surface(sphere(...))): skip
       // front-facing interior patches and emit only rim (near-edge-on)
       // patches. Asymptote's PRC raster fallback for unlit closed
@@ -19936,7 +20158,9 @@ function createInterpreter() {
         const viewDot = Math.abs(n.x*vx + n.y*vy + n.z*vz);
         if (viewDot > 0.20) continue; // only keep rim-grazing patches
       }
-      let intensity = nolight ? 1.0 : (0.35 + 0.65 * dot);
+      // Lower ambient floor (0.18) allows darker shadows for open surfaces like
+      // paraboloid bowls (03592) to match TeXeR's deeper shading gradient.
+      let intensity = nolight ? 1.0 : (0.18 + 0.82 * dot);
       let specular = 0;
       // Phong-style specular highlight for sphere meshes (mesh has
       // _sphereCenter/_sphereRadius). Use the face centroid → sphere-center
@@ -19986,10 +20210,16 @@ function createInterpreter() {
       const sp = it.specular || 0;
       // Emissive contribution: if the pen has _emissivePen, add its color as a floor
       // that's independent of lighting (emissive surfaces self-illuminate).
+      // However, TeXeR's PRC raster fallback appears to ignore or heavily attenuate
+      // emissive for most surfaces - 03592's material(gray(0.8), black, gray(0.5))
+      // renders with a dark-to-light gradient, not a 0.5+ floor. Scale emissive
+      // down to ~10% to approximate this behavior while still allowing truly
+      // emissive surfaces (like light sources) to glow slightly.
       const em = base._emissivePen;
-      const emR = em ? (em.r || 0) : 0;
-      const emG = em ? (em.g || 0) : 0;
-      const emB = em ? (em.b || 0) : 0;
+      const emScale = 0.1;
+      const emR = em ? (em.r || 0) * emScale : 0;
+      const emG = em ? (em.g || 0) * emScale : 0;
+      const emB = em ? (em.b || 0) * emScale : 0;
       shaded.r = Math.max(0, Math.min(1, base.r * it.intensity + sp + emR));
       shaded.g = Math.max(0, Math.min(1, base.g * it.intensity + sp + emG));
       shaded.b = Math.max(0, Math.min(1, base.b * it.intensity + sp + emB));
