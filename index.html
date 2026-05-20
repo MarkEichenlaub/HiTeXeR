@@ -448,7 +448,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.87</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v5.88</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -5134,10 +5134,20 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    // If a drag is in progress, reconnect slideDragState.fp to the newly rebuilt entry
+    // If a drag is in progress, reconnect slideDragState.fp to the newly rebuilt entry.
+    // Lines with multiple inline pairs (e.g. `path p = (a,b)--(c,d)--(e,f);`) all share
+    // lineIdx, so we must also match by varName (for named points) or by matchStart
+    // (the line-offset of the literal we're editing). slideMouseMove only changes the
+    // length of the pair being dragged, so this pair's matchStart is stable across
+    // re-renders even though pairs AFTER it on the line may shift.
     if (slideDragState) {
       const oldFp = slideDragState.fp;
-      const newFp = slideFreePointData.find(fp => fp.lineIdx === oldFp.lineIdx);
+      const newFp = slideFreePointData.find(fp =>
+        fp.lineIdx === oldFp.lineIdx &&
+        (oldFp.varName
+          ? fp.varName === oldFp.varName
+          : fp.matchStart === oldFp.matchStart)
+      );
       if (newFp) slideDragState.fp = newFp;
     }
 
