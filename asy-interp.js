@@ -347,7 +347,7 @@ function parse(tokens) {
     if (atVal(T.IDENT,'return')) {
       const ln = cur().line; pos++;
       let val = null;
-      if (!at(T.SEMI) && !at(T.EOF)) val = parseExpr();
+      if (!at(T.SEMI) && !at(T.EOF)) val = parseAssignExpr();
       tryEat(T.SEMI);
       return ReturnStmt(val, ln);
     }
