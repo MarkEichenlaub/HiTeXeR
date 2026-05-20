@@ -25913,6 +25913,10 @@ function stripLaTeXPreserveScripts(text) {
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ','\\prime':'′',
     '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
+    '\\sec':'sec','\\csc':'csc','\\cot':'cot',
+    '\\arcsin':'arcsin','\\arccos':'arccos','\\arctan':'arctan',
+    '\\sinh':'sinh','\\cosh':'cosh','\\tanh':'tanh',
+    '\\exp':'exp','\\min':'min','\\max':'max',
     '\\left':'','\\right':'',
     '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
