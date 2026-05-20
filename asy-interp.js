@@ -25086,14 +25086,51 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
 
-    // Draw filled arrow head at midpoint (same as regular Arrow style)
-    const angle = 25 * Math.PI / 180;
-    const lx = tipX - s * Math.cos(screenAngle - angle);
-    const ly = tipY - s * Math.sin(screenAngle - angle);
-    const rx = tipX - s * Math.cos(screenAngle + angle);
-    const ry = tipY - s * Math.sin(screenAngle + angle);
-    const d = `M${fmt(tipX)} ${fmt(tipY)} L${fmt(lx)} ${fmt(ly)} L${fmt(rx)} ${fmt(ry)} Z`;
-    arrowParts.push({d, filled: true});
+    if (isTexHead) {
+      // Render TeXHead chevron at midpoint (same as arrowAt TeXHead logic)
+      const LOCAL_SCALE = s / 84;
+      const cx = Math.cos(screenAngle), sn = Math.sin(screenAngle);
+      const mapPt = (lx, ly) => {
+        const ax = (lx - 84) * LOCAL_SCALE;
+        const ay = ly * LOCAL_SCALE;
+        const dxA = ax * cx, dyA = ax * sn;
+        const dxP = -ay * sn, dyP = ay * cx;
+        return [tipX + dxA + dxP, tipY + dyA + dyP];
+      };
+      const p1 = mapPt(0, 20), p2 = mapPt(-108, 166), p3 = mapPt(-93, 178);
+      const p4 = mapPt(-77, 168), p5 = mapPt(70, 14), p6 = mapPt(84, 0);
+      const p7 = mapPt(70, -14), p8 = mapPt(-77, -168), p9 = mapPt(-93, -178);
+      const p10 = mapPt(-108, -166), p11 = mapPt(0, -20);
+      const c1a = mapPt(-75, 75), c1b = mapPt(-108, 158);
+      const c2a = mapPt(-108, 175), c2b = mapPt(-100, 178);
+      const c3a = mapPt(-82, 178), c3b = mapPt(-80, 173);
+      const c4a = mapPt(-62, 134), c4b = mapPt(-30, 61);
+      const c5a = mapPt(82, 8), c5b = mapPt(84, 7);
+      const c6a = mapPt(84, -7), c6b = mapPt(82, -8);
+      const c7a = mapPt(-30, -61), c7b = mapPt(-62, -134);
+      const c8a = mapPt(-80, -173), c8b = mapPt(-82, -178);
+      const c9a = mapPt(-100, -178), c9b = mapPt(-108, -175);
+      const c10a = mapPt(-108, -158), c10b = mapPt(-75, -75);
+      const bez = (ca, cb, pn) =>
+        `C${fmt(ca[0])} ${fmt(ca[1])} ${fmt(cb[0])} ${fmt(cb[1])} ${fmt(pn[0])} ${fmt(pn[1])} `;
+      const lin = (pn) => `L${fmt(pn[0])} ${fmt(pn[1])} `;
+      const d =
+        `M${fmt(p1[0])} ${fmt(p1[1])} ` +
+        bez(c1a, c1b, p2) + bez(c2a, c2b, p3) + bez(c3a, c3b, p4) +
+        bez(c4a, c4b, p5) + bez(c5a, c5b, p6) + bez(c6a, c6b, p7) +
+        bez(c7a, c7b, p8) + bez(c8a, c8b, p9) + bez(c9a, c9b, p10) +
+        bez(c10a, c10b, p11) + lin(p1) + `Z`;
+      arrowParts.push({d, filled: true});
+    } else {
+      // Draw filled arrow head at midpoint (same as regular Arrow style)
+      const angle = 25 * Math.PI / 180;
+      const lx = tipX - s * Math.cos(screenAngle - angle);
+      const ly = tipY - s * Math.sin(screenAngle - angle);
+      const rx = tipX - s * Math.cos(screenAngle + angle);
+      const ry = tipY - s * Math.sin(screenAngle + angle);
+      const d = `M${fmt(tipX)} ${fmt(tipY)} L${fmt(lx)} ${fmt(ly)} L${fmt(rx)} ${fmt(ry)} Z`;
+      arrowParts.push({d, filled: true});
+    }
   } else if (style === 'Bar' || style === 'Bars') {
     // Bars are perpendicular marks, simplified as short lines
     return null;
