@@ -552,7 +552,7 @@ function writeStatus(obj) {
 // comparator reflects updated images without a manual reload.
 let _rerenderActive = false;
 
-function rerender200Worst() {
+function rerender200Worst(mustInclude = []) {
   if (_rerenderActive) {
     console.log('[run-loop] rerender200: skipping (already in progress)');
     return;
@@ -568,15 +568,20 @@ function rerender200Worst() {
     .slice(0, 200)
     .map(r => r.id);
 
-  if (worst200.length === 0) return;
+  // Always include the just-fixed diagram even if its new SSIM is already good
+  // (the sub-agent updated ssim-results.json so it may no longer be in worst200).
+  const ids = [...new Set([...mustInclude, ...worst200])];
+
+  if (ids.length === 0) return;
   _rerenderActive = true;
-  console.log('[run-loop] rerender200: spawning background re-render of ' + worst200.length + ' diagrams...');
+  console.log('[run-loop] rerender200: spawning background re-render of ' + ids.length + ' diagrams' +
+    (mustInclude.length ? ' (priority: ' + mustInclude.join(',') + ')' : '') + '...');
 
   const node = cp.spawn(process.execPath, [
     path.join(ROOT, 'auto-fix', 'render-and-score.js'),
   ], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
 
-  node.stdin.write(worst200.join('\n') + '\n');
+  node.stdin.write(ids.join('\n') + '\n');
   node.stdin.end();
 
   let stdout = '';
@@ -843,6 +848,8 @@ async function runIteration(args, iter) {
       console.log('[run-loop] --no-verifier set; skipping visual verification');
       saveAfterSnapshot(target.id, postCommit);
       commitAttemptLog();
+      writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
+      rerender200Worst([target.id]);
       return 'committed';
     }
 
@@ -885,6 +892,8 @@ async function runIteration(args, iter) {
       }
       saveAfterSnapshot(target.id, postCommit);
       commitAttemptLog();
+      writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
+      rerender200Worst([target.id]);
       return 'committed';
     }
 
@@ -909,7 +918,7 @@ async function runIteration(args, iter) {
       saveAfterSnapshot(target.id, postCommit);
       commitAttemptLog();
       writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
-      rerender200Worst();
+      rerender200Worst([target.id]);
       return 'committed';
     }
 
