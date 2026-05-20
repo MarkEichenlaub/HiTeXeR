@@ -20526,17 +20526,15 @@ function renderSVG(result, opts) {
     maxY = Math.min(maxY, clipMaxY);
   }
 
-  // When Crop is enabled, constrain bbox to axis limits (plus padding for labels/axes)
+  // When Crop is enabled, constrain geometry bbox to axis limits.
+  // Label expansion (below) will add margin for labels outside the crop region.
   if (axisLimits && axisLimits.crop &&
       axisLimits.xmin !== null && axisLimits.xmax !== null &&
       axisLimits.ymin !== null && axisLimits.ymax !== null) {
-    // Allow a small margin beyond limits for axis labels/ticks
-    const xMargin = (axisLimits.xmax - axisLimits.xmin) * 0.15;
-    const yMargin = (axisLimits.ymax - axisLimits.ymin) * 0.15;
-    minX = Math.max(minX, axisLimits.xmin - xMargin);
-    maxX = Math.min(maxX, axisLimits.xmax + xMargin);
-    minY = Math.max(minY, axisLimits.ymin - yMargin);
-    maxY = Math.min(maxY, axisLimits.ymax + yMargin);
+    minX = Math.max(minX, axisLimits.xmin);
+    maxX = Math.min(maxX, axisLimits.xmax);
+    minY = Math.max(minY, axisLimits.ymin);
+    maxY = Math.min(maxY, axisLimits.ymax);
   }
 
   // Add padding for stroke overshoot
