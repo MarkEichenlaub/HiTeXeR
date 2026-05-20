@@ -38,7 +38,7 @@ const TYPE_NAMES = new Set([
   'picture','transform','transform3','void','var','Label','file','frame',
   'projection','revolution','surface','material','patch','tube','coloredpath',
   'coordsys','point','vector',
-  'line','segment','circle','triangle',
+  'line','segment','circle','triangle','arc',
   'side','vertex',
   'TreeNode',
   'tremble',
@@ -2126,6 +2126,8 @@ function createInterpreter() {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const dc of commands) {
       if (!dc || dc.cmd === 'clip' || dc.cmd === 'label') continue;
+      // Skip infinite lines (geometry module extended lines) from bbox
+      if (dc.path && dc.path._infiniteLine) continue;
       if (dc.path) {
         for (const seg of (dc.path.segs || [])) {
           // Always include endpoints
@@ -4621,7 +4623,7 @@ function createInterpreter() {
           case 'pair': val = makePair(0,0); break;
           case 'triple': val = makeTriple(0,0,0); break;
           case 'pen': val = makePen({}); break;
-          case 'path': case 'path3': case 'guide': val = makePath([],false); break;
+          case 'path': case 'path3': case 'guide': case 'arc': val = makePath([],false); break;
           case 'transform': val = makeTransform(0,1,0,0,0,1); break;
           case 'string': val = ''; break;
           case 'bool': val = false; break;
@@ -7277,6 +7279,23 @@ function createInterpreter() {
           segs.push(lineSegment(samples[i], samples[i+1]));
         }
         return makePath(segs, false);
+      }
+      // Geometry module: arc(geocircle, angle1, angle2[, direction])
+      // Extracts center and radius from the geocircle.
+      if (args.length >= 3 && isGeoCircle(args[0])) {
+        const circ = args[0];
+        const c = toPair(circ.C);
+        let r = circ.r;
+        let a1 = toNumber(args[1]), a2 = toNumber(args[2]);
+        if (r < 0) {
+          r = -r;
+          const tmp = a1; a1 = a2; a2 = tmp;
+        }
+        const ccw = args.length >= 4 ? !!args[3]
+                  : (_namedDir !== undefined ? !!_namedDir : (a2 >= a1));
+        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
+        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
+        return makeArcPath(c, r, a1, a2);
       }
       // Asymptote: arc(center, radius, angle1, angle2, direction)
       // With explicit direction: CCW normalizes angle2 > angle1, CW normalizes angle2 < angle1.
@@ -13184,6 +13203,50 @@ function createInterpreter() {
         }
         return results;
       }
+      // geoline + path (arc) intersection: sample path and find line crossings
+      if (glines.length >= 1) {
+        const paths = args.filter(a => isPath(a));
+        if (paths.length >= 1) {
+          const l = glines[0], arcPath = paths[0];
+          const A = locatePoint(l.A), B = locatePoint(l.B);
+          const dx = B.x-A.x, dy = B.y-A.y;
+          const len = Math.sqrt(dx*dx+dy*dy) || 1;
+          const ux = dx/len, uy = dy/len;
+          const results = [];
+          const cs = env.get('currentcoordsys') || defaultCS;
+          // Sample each path segment and find where it crosses the infinite line
+          for (const seg of arcPath.segs) {
+            const N = seg._linear ? 2 : 32;
+            let prevPt = seg.p0;
+            let prevCross = (prevPt.x - A.x)*uy - (prevPt.y - A.y)*ux;
+            for (let i = 1; i <= N; i++) {
+              const t = i / N, u = 1 - t;
+              const px = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+              const py = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+              const curCross = (px - A.x)*uy - (py - A.y)*ux;
+              // Check if sign changed (crossed the line)
+              if ((prevCross >= 0 && curCross <= 0) || (prevCross <= 0 && curCross >= 0)) {
+                // Interpolate to find crossing point
+                const denom = Math.abs(curCross - prevCross);
+                const frac = denom > 1e-12 ? Math.abs(prevCross) / denom : 0.5;
+                const ix = prevPt.x + frac * (px - prevPt.x);
+                const iy = prevPt.y + frac * (py - prevPt.y);
+                // Deduplicate
+                let dup = false;
+                for (const r of results) {
+                  if (Math.abs(r.x - ix) < 0.001 && Math.abs(r.y - iy) < 0.001) { dup = true; break; }
+                }
+                if (!dup) {
+                  results.push(makePoint(cs, cs.defaultToRelative(makePair(ix, iy)), 1));
+                }
+              }
+              prevPt = {x: px, y: py};
+              prevCross = curCross;
+            }
+          }
+          return results;
+        }
+      }
       // Fallback to existing
       if (typeof existingIPs === 'function') return existingIPs(...args);
       return [];
@@ -17637,14 +17700,17 @@ function createInterpreter() {
       if (isGeoLine(a)) {
         const A = locatePoint(a.A), B = locatePoint(a.B);
         let p0 = A, p1 = B;
-        if (a.extendA || a.extendB) {
+        const isInfinite = a.extendA || a.extendB;
+        if (isInfinite) {
           const dx = B.x-A.x, dy = B.y-A.y;
           const len = Math.sqrt(dx*dx+dy*dy) || 1;
           const far = 200;
           if (a.extendA) p0 = makePair(A.x - far*dx/len, A.y - far*dy/len);
           if (a.extendB) p1 = makePair(B.x + far*dx/len, B.y + far*dy/len);
         }
-        return makePath([lineSegment(p0, p1)], false);
+        const path = makePath([lineSegment(p0, p1)], false);
+        if (isInfinite) path._infiniteLine = true;
+        return path;
       }
       if (isGeoCircle(a)) {
         const C = toPair(a.C);
@@ -20995,6 +21061,8 @@ function renderSVG(result, opts) {
       // Extended lines (drawline) don't contribute to bbox — they get clipped
       // to the final bbox after scaling is determined.
       if (dc._extendedLine) continue;
+      // Geometry module infinite lines also don't contribute to bbox
+      if (dc.path && dc.path._infiniteLine) continue;
       if (dc._subpicClipRect) {
         // Paths clipped to a sub-picture crop region should not expand the bbox
         // beyond that region — save bbox state, expand, then clamp contribution.
