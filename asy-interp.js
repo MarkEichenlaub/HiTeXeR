@@ -7759,6 +7759,26 @@ function createInterpreter() {
         return makePath(candidates[0].segs, true);
       }
       // General n-path case (n >= 3):
+      // First check: if paths form an end-to-end chain (each path's end matches
+      // the next path's start, cyclically), just concatenate them into a closed
+      // cycle. This handles the common case of buildcycle used to close a polygon
+      // built from consecutive path segments without needing intersection search.
+      const endToEndTol = 1e-3;
+      let isEndToEndChain = true;
+      for (let i = 0; i < n && isEndToEndChain; i++) {
+        const curr = paths[i];
+        const next = paths[(i + 1) % n];
+        const currEnd = curr.segs[curr.segs.length - 1].p3;
+        const nextStart = next.segs[0].p0;
+        const dist = Math.abs(currEnd.x - nextStart.x) + Math.abs(currEnd.y - nextStart.y);
+        if (dist > endToEndTol) isEndToEndChain = false;
+      }
+      if (isEndToEndChain) {
+        // Paths connect end-to-end; concatenate them directly
+        const segs = [];
+        for (const p of paths) for (const s of p.segs) segs.push(s);
+        return makePath(segs, true);
+      }
       // For each consecutive pair (i, i+1) mod n, find intersections.
       // Each path g_i is walked from its intersection with g_{i-1} to its
       // intersection with g_{i+1}. Enumerate combinations and pick the
