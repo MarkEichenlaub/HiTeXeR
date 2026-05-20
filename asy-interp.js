@@ -12220,6 +12220,7 @@ function createInterpreter() {
         if (a && a._tag === 'picture') targetPic = a;
         else if (isPair(a)) pairs.push(a);
         else if (a === true) hasCrop = true; // Crop is env-set to true
+        else if (a && a._named && a.crop === true) hasCrop = true; // crop=Crop keyword arg
       }
       // If a specific picture is given, store limits on that picture (not globally)
       // so each sub-picture gets its own crop clip region
