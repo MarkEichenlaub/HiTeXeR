@@ -19467,6 +19467,7 @@ function createInterpreter() {
     let barsSize = null;  // size in bp from Bar(size) / Bars(size); null = default
     let labelText = null, labelAlign = null, labelPosition = null, labelTransform = null, labelFromLabelObject = false;
     let labelFilltype = null, labelPen = null;
+    let labelPosArg = null; // position for draw(string, position, [align], [pen]) form
     let pathMarker = null; // marker= named arg or positional marker object
     let penCount = 0;
     for (let i = 0; i < args.length; i++) {
@@ -19535,10 +19536,27 @@ function createInterpreter() {
         if (!pathArg && !labelText) {
           pathArg = makePath([], false);
           pathArg._singlePoint = a;
+        } else if (labelText && !pathArg && !labelPosArg) {
+          // Only capture position when there's no path — draw(string, position, ...) form
+          labelPosArg = a;
         } else if (labelText && !labelAlign) {
-          labelAlign = a; // alignment for draw label
+          labelAlign = a; // alignment for draw label (with or without path)
         }
       }
+      else if (isTransform(a) && labelText && !labelTransform) {
+        labelTransform = a; // transform for draw(string, position, transform, pen)
+      }
+    }
+    // Handle draw(string, position, [align], [pen]) without a path: emit label directly
+    if (labelText && labelPosArg && (!pathArg || (pathArg && (!pathArg.segs || pathArg.segs.length === 0) && !pathArg._singlePoint))) {
+      const effPen = labelPen || pen || clonePen(defaultPen);
+      // Expand minipage LaTeX wrapper to multi-line text
+      const expandedText = (typeof labelText === 'string') ? expandMinipageText(labelText, effPen) : labelText;
+      const ldc = {cmd:'label', text:expandedText, pos:labelPosArg, align:labelAlign || makePair(0,0), pen: effPen, line: args._line || 0};
+      if (labelTransform) ldc.labelTransform = labelTransform;
+      if (labelFilltype) ldc.filltype = labelFilltype;
+      target.commands.push(ldc);
+      return;
     }
     if (!pathArg && args.length > 0) {
       const first = args[0];
