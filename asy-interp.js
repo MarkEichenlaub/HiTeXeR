@@ -22165,10 +22165,14 @@ function renderSVG(result, opts) {
     //   at the default scale
     // - minDim is non-degenerate (> 0.1 user units) — excludes flat-banner 1D
     //   diagrams like 09210 (row of dots at y=0) where minDim≈0
+    // - Diagram is tall-narrow (height > width), not wide-short — wide-short
+    //   diagrams like 01121 (row of circles: 7×1) render correctly at default
+    //   scale; the boost was only designed for tall-narrow diagrams
     // This ensures tall-narrow diagrams with small geometry get adequate scale
     // to match TeXeR's output dimensions, without affecting degenerate cases.
     const aspectRatio = maxDim / (minDim || 0.001);
-    if (maxDim < 10 && minDim > 0.1 && aspectRatio > 5 && pxPerUnit < 100) {
+    const isTallNarrow = scaleRefH2 > scaleRefW2;
+    if (maxDim < 10 && minDim > 0.1 && aspectRatio > 5 && pxPerUnit < 100 && isTallNarrow) {
       pxPerUnit = 100;
     }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
