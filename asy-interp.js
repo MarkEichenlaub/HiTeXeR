@@ -21339,11 +21339,10 @@ function renderSVG(result, opts) {
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
       // This will be refined after pxPerUnit is computed below
     } else if (dc.cmd === 'image' && dc.graphic) {
-      // Expand bbox to include image extent (position ± half display size)
-      const imgSize = computeGraphicDisplaySize(dc.graphic, unitScale, hasUnitScale);
-      const hw = imgSize.w_user / 2, hh = imgSize.h_user / 2;
-      expandBBox(dc.pos.x - hw, dc.pos.y - hh);
-      expandBBox(dc.pos.x + hw, dc.pos.y + hh);
+      // Images float outside the crop region like text labels, so we include
+      // only the anchor position in the initial geometry bbox. The full image
+      // extent is expanded AFTER crop clamping, in the label expansion section.
+      expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'marker') {
       // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
       expandBBox(dc.pos.x, dc.pos.y);
@@ -21740,6 +21739,27 @@ function renderSVG(result, opts) {
             });
           }
         }
+      } else if (dc.cmd === 'image' && dc.graphic) {
+        // Expand bbox for images (like labels, they float outside the crop region).
+        // Use the same alignment-offset math as the image rendering code.
+        const pos = dc.pos;
+        if (!pos || pos.x === undefined) continue;
+        const imgSize = computeGraphicDisplaySize(dc.graphic, unitScale, hasUnitScale);
+        const w_user = imgSize.w_bp / roughPxPerUnitX;
+        const h_user = imgSize.h_bp / roughPxPerUnitY;
+        let ax_n = 0, ay_n = 0;
+        if (dc.align) {
+          const ax = dc.align.x, ay = dc.align.y;
+          const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+          if (aInfMax > 0) {
+            ax_n = ax * 0.5 / aInfMax;
+            ay_n = ay * 0.5 / aInfMax;
+          }
+        }
+        const cx = pos.x + (ax_n * w_user);
+        const cy = pos.y + (ay_n * h_user);
+        expandBBox(cx - w_user/2, cy - h_user/2);
+        expandBBox(cx + w_user/2, cy + h_user/2);
       }
     }
     // Convergence: bail out once the label-expanded bbox stops changing
@@ -22967,6 +22987,29 @@ function renderSVG(result, opts) {
       maxX = Math.max(maxX, cx + hw);
       minY = Math.min(minY, cy - hh);
       maxY = Math.max(maxY, cy + hh);
+    }
+    // Also expand for images (they float outside crop like labels)
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'image' && dc.graphic && dc.pos) {
+        const imgSize = computeGraphicDisplaySize(dc.graphic, unitScale, hasUnitScale);
+        const w_user = imgSize.w_bp / pxPerUnitX;
+        const h_user = imgSize.h_bp / pxPerUnitY;
+        let ax_n = 0, ay_n = 0;
+        if (dc.align) {
+          const ax = dc.align.x, ay = dc.align.y;
+          const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+          if (aInfMax > 0) {
+            ax_n = ax * 0.5 / aInfMax;
+            ay_n = ay * 0.5 / aInfMax;
+          }
+        }
+        const cx = dc.pos.x + (ax_n * w_user);
+        const cy = dc.pos.y + (ay_n * h_user);
+        minX = Math.min(minX, cx - w_user/2);
+        maxX = Math.max(maxX, cx + w_user/2);
+        minY = Math.min(minY, cy - h_user/2);
+        maxY = Math.max(maxY, cy + h_user/2);
+      }
     }
   }
 
@@ -24223,6 +24266,9 @@ function renderSVG(result, opts) {
         }
         elements.push(_wrapMultiClip(dc, finalImgEl));
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+        // Exclude images from crop clipping — images from label(graphic(...))
+        // should float outside the axis limits like text labels.
+        aboveElementIndices.add(elements.length - 1);
       }
     } else if (dc.cmd === 'dot') {
       // Render dots in program order so later fills can cover them
