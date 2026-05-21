@@ -8293,6 +8293,12 @@ function createInterpreter() {
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
+    // Asymptote thick()/Thick() return 1.5x linewidth. For mesh lines, the code
+    // forces 0.16bp when _lwExplicit is false, so thick() here is a no-op pen
+    // that preserves the default mesh line behavior (which matches TeXeR).
+    env.set('thick', () => makePen({}));
+    env.set('Thick', () => makePen({}));
+    env.set('thin', () => makePen({}));
     env.set('makepen', (pathArg) => {
       if (!isPath(pathArg)) return makePen({});
       return makePen({_nibPath: pathArg, _lwExplicit: true});
@@ -19012,7 +19018,7 @@ function createInterpreter() {
         // match the visual weight seen in TeXeR's PRC output.
         if (meshLinePen && !meshLinePen._lwExplicit) {
           meshLinePen = clonePen(meshLinePen);
-          meshLinePen.linewidth = 0.16; // thin mesh lines
+          meshLinePen.linewidth = 0.2; // thin mesh lines (0.2 matches TeXeR better)
           meshLinePen._lwExplicit = true;
         }
         if (meshLinePen && surfForColors && surfForColors._grid) {
