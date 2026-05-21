@@ -21804,13 +21804,27 @@ function renderSVG(result, opts) {
     const _smallCmLabelDominated = unitScale >= 3 && unitScale < 10
       && _smallCmNatMax > 0 && _smallCmNatMax < 80
       && _smallCmFullNatMax >= minReasonable;
+    // Physics force-vector diagrams: cm-scale unitsize (≥20 bp/unit, e.g.
+    // unitsize(1cm)=28.3) with multiple arrow draws (≥3) and multiple labels
+    // (≥4) typically represent free-body diagrams where labels are scattered
+    // across the scene (not packed in rows). These labels expand fullNat above
+    // minReasonable, causing the boost block to be skipped — but the geometry
+    // remains tiny (~25bp) and unreadable. TeXeR renders these at ~200bp so the
+    // force vectors and labels are clearly visible. E.g. 06175: inclined plane
+    // with mg/N/Ff force vectors has fullNat ~80bp but geometry only ~25bp.
+    const _arrowDrawCountPre = drawCommands.filter(dc =>
+      dc.cmd === 'draw' && dc.arrow && (dc.arrow._tag === 'arrow' || dc.arrow.style)).length;
+    const _physicsForceVectorBoost = unitScale >= 20
+      && labelInfoBp.length >= 4
+      && _arrowDrawCountPre >= 3
+      && Math.max(naturalW, naturalH) < 60;
     if (!geoIsDegenerate
         && !is1DDegenerate
-        && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny)
+        && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny || _physicsForceVectorBoost)
         && !_sizeExplicit
         && !_midRangeSkipBoost
         && naturalW < defaultSize && naturalH < defaultSize
-        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated)) {
+        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated || _physicsForceVectorBoost)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
       // labels at edge midpoints don't crowd each other.  Only applies when
