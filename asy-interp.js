@@ -2069,6 +2069,9 @@ function createInterpreter() {
     const r = Object.assign({}, dc);
     if (r.path) r.path = applyTransformPath(t, r.path);
     if (r.pos) r.pos = applyTransformPair(t, r.pos);
+    // Note: align direction is NOT transformed here. For rotated pictures,
+    // the labelTransform rotation is set and the rendering code handles
+    // aligning the rotated label using its rotated bounding box (lines 24416-24472).
     // Compose picture transform into graphic's transform for image commands
     if (r.cmd === 'image' && r.graphic) {
       const existing = r.graphic.transform;
@@ -2175,14 +2178,22 @@ function createInterpreter() {
       ? {_tag:'picture', commands: pic.commands.slice()}
       : {_tag:'picture', commands: pic.commands.map(c => {
           if (c && c._from3d) return c;
-          // For picture transforms (e.g. xscale(k)*picture), labels should have their
-          // positions transformed but NOT their visual appearance. Preserve any
-          // pre-existing labelTransform from the original label (e.g. rotate(45)*"text")
-          // but don't add the picture transform's contribution to labelTransform.
+          // For picture transforms, labels should have positions transformed. For
+          // scaling (xscale, yscale), strip label scaling to preserve aspect ratio.
+          // For rotation (rotate), PRESERVE the rotation — 06212 pendulum diagram
+          // shows labels should rotate -100° with geometry, not stay upright.
           const origLT = c && c.labelTransform;
           const tc = transformDrawCmd(t, c);
           if (tc && tc.cmd === 'label' && !tc._isAxisLabel) {
-            tc.labelTransform = origLT || null;
+            // Extract rotation angle from picture transform's linear part
+            const theta = Math.atan2(t.e, t.b);
+            const cosT = Math.cos(theta), sinT = Math.sin(theta);
+            if (Math.abs(sinT) < 1e-6 && Math.abs(cosT - 1) < 1e-6) {
+              tc.labelTransform = origLT || null;
+            } else {
+              const rotOnly = makeTransform(0, cosT, -sinT, 0, sinT, cosT);
+              tc.labelTransform = origLT ? composeTransforms(rotOnly, origLT) : rotOnly;
+            }
           }
           return tc;
         })};
@@ -6500,16 +6511,25 @@ function createInterpreter() {
         }
       } else {
         // For add(transform*picture), labels should have their positions transformed
-        // but NOT their visual appearance (no scaling/skewing from the picture transform).
-        // Asymptote's behavior: xscale(k)*picture scales geometry but leaves label text
-        // aspect ratio intact. Preserve any pre-existing labelTransform from the original
-        // label command (e.g. rotate(45)*"text") but strip the picture transform's
-        // contribution to labelTransform.
+        // but NOT scaled/skewed from the picture transform. Rotation IS preserved:
+        // add(rotate(angle)*pic) rotates label text with geometry. 06212 pendulum
+        // diagram demonstrates this — labels rotate -100° with the pendulum.
+        // Extract rotation-only from picture transform; strip scaling/skewing.
         cmds = t ? src.commands.map(c => {
           const origLT = c.labelTransform;
           const tc = transformDrawCmd(t, c);
           if (tc.cmd === 'label' && !tc._isAxisLabel) {
-            tc.labelTransform = origLT || null;
+            // Extract rotation angle from picture transform's linear part
+            const theta = Math.atan2(t.e, t.b);
+            const cosT = Math.cos(theta), sinT = Math.sin(theta);
+            // Check if this is close to identity rotation (no rotation needed)
+            if (Math.abs(sinT) < 1e-6 && Math.abs(cosT - 1) < 1e-6) {
+              tc.labelTransform = origLT || null;
+            } else {
+              // Build rotation-only transform (no translation, no scaling)
+              const rotOnly = makeTransform(0, cosT, -sinT, 0, sinT, cosT);
+              tc.labelTransform = origLT ? composeTransforms(rotOnly, origLT) : rotOnly;
+            }
           }
           return tc;
         }) : src.commands;
