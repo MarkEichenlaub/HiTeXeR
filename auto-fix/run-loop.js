@@ -399,7 +399,7 @@ function commitAttemptLog() {
   // Fold any attempts.jsonl changes into the most recent fix commit so they
   // survive a future git reset --hard (which resets to the pre-iteration HEAD).
   try {
-    const dirty = sh('git status --porcelain auto-fix/attempts.jsonl').trim();
+    const dirty = sh('git status --porcelain auto-fix/attempts.jsonl').stdout.trim();
     if (!dirty) return; // nothing to fold in
     sh('git add auto-fix/attempts.jsonl');
     sh('git commit --amend --no-edit --no-verify');
