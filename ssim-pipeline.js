@@ -217,6 +217,8 @@ async function main() {
     global.katex = require('katex');
     require('./asy-interp.js');
     const A = window.AsyInterp;
+    let epsCache = null;
+    try { epsCache = require('./eps-cache'); } catch (e) {}
 
     let ok = 0, skip = 0, fail = 0;
     for (let i = 0; i < allFiles.length; i++) {
@@ -228,8 +230,13 @@ async function main() {
 
       if (!A.canInterpret(code)) { skip++; continue; }
 
+      let imageCache = {};
+      if (epsCache) {
+        try { imageCache = epsCache.getImageCache(raw); } catch (e) {}
+      }
+
       try {
-        const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native' });
+        const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
         fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), r.svg);
         ok++;
       } catch (e) { fail++; }

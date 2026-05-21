@@ -207,8 +207,20 @@ function priorAttemptsFor(id) {
 
 function sh(cmd, opts) {
   // Returns { code, stdout, stderr } without throwing.
-  const r = cp.spawnSync(cmd, { shell: true, cwd: ROOT, encoding: 'utf8', ...(opts||{}) });
+  const r = cp.spawnSync(cmd, { shell: true, cwd: ROOT, encoding: 'utf8', windowsHide: true, ...(opts||{}) });
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '', signal: r.signal };
+}
+
+function resetHard(commit) {
+  // Save queue.json before the reset — it's a tracked file so git reset --hard
+  // would wipe any items that were enqueued while the loop was running.
+  const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+  let savedQueue = null;
+  try { savedQueue = fs.readFileSync(queuePath, 'utf8'); } catch {}
+  sh('git reset --hard ' + commit);
+  if (savedQueue !== null) {
+    try { fs.writeFileSync(queuePath, savedQueue); } catch {}
+  }
 }
 
 function readVersion() {
@@ -648,6 +660,7 @@ function runSubAgent(args, prompt) {
       cwd: ROOT,
       stdio: ['pipe', 'pipe', 'inherit'],
       shell: process.platform === 'win32',
+      windowsHide: true,
     });
 
     let timedOut = false;
@@ -817,13 +830,13 @@ async function runIteration(args, iter) {
 
     if (subResult.timedOut) {
       console.error('[run-loop] sub-agent timed out in round ' + round + ', reverting to ' + preCommit);
-      sh('git reset --hard ' + preCommit);
+      resetHard(preCommit);
       return 'fail';
     }
 
     // Revert any disallowed tracked-file changes the sub-agent may have left.
     if (!verifyDiffOrRevert(preChanges)) {
-      sh('git reset --hard ' + preCommit);
+      resetHard(preCommit);
       return 'fail';
     }
 
@@ -832,7 +845,7 @@ async function runIteration(args, iter) {
 
     if (anyCommit && !verifyVersionBumped(preVersion)) {
       console.error('[run-loop] commit landed but index.html version did not bump; resetting HEAD to ' + preCommit);
-      sh('git reset --hard ' + preCommit);
+      resetHard(preCommit);
       return 'fail';
     }
 
@@ -864,7 +877,7 @@ async function runIteration(args, iter) {
     // skipped the check entirely).
     const canary = runCanaryCheck();
     if (!canary.ok) {
-      sh('git reset --hard ' + preCommit);
+      resetHard(preCommit);
       const canaryNote = ' | CANARY-FAIL: worstDelta=' + canary.worstDelta + ' id=' + canary.worstId;
       if (last) {
         rewriteAttemptLine(last.lineIndex, {
@@ -936,7 +949,7 @@ async function runIteration(args, iter) {
     } else {
       // All rounds exhausted — revert everything back to the pre-iteration state.
       console.log('[run-loop] all ' + MAX_VERIFIER_ROUNDS + ' rounds exhausted, reverting to ' + preCommit);
-      sh('git reset --hard ' + preCommit);
+      resetHard(preCommit);
       if (last) {
         rewriteAttemptLine(last.lineIndex, {
           verdict: 'attempted-no-improve',

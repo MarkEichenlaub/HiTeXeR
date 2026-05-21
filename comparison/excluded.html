@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excluded Diagrams — HiTeXeR</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+
+  .header { background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #0f3460; }
+  .header h1 { font-size: 18px; color: #9ca3af; white-space: nowrap; }
+  .header a { font-size: 12px; color: #60a5fa; text-decoration: none; }
+  .header a:hover { text-decoration: underline; }
+  .header button, .header input { font-size: 13px; padding: 5px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .header button:hover { border-color: #9ca3af; }
+  .header .stats { margin-left: auto; font-size: 12px; opacity: 0.7; white-space: nowrap; }
+  .filter-group { display: flex; align-items: center; gap: 6px; }
+  .filter-group label { font-size: 12px; opacity: 0.7; }
+
+  #grid-view { padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .thumb { position: relative; background: #16213e; border: 1px solid #374151; border-radius: 6px; overflow: hidden; cursor: pointer; transition: border-color 0.15s; }
+  .thumb:hover { border-color: #9ca3af; }
+  .thumb .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #0f3460; position: relative; }
+  .thumb .half { position: relative; background: #fff; overflow: hidden; }
+  .thumb .half img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; display: block; }
+  .thumb .half .no-img { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #f87171; background: #2a2a3a; }
+  .thumb .half .half-label { position: absolute; bottom: 2px; left: 3px; font-size: 9px; background: rgba(0,0,0,0.65); color: #fff; padding: 0 4px; border-radius: 2px; font-weight: 600; letter-spacing: 0.3px; }
+  .thumb .info { padding: 4px 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+  .thumb .id { font-family: monospace; flex: 1; }
+  .thumb .badge { padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-green  { background: #2d6a4f; color: #b7e4c7; }
+  .badge-yellow { background: #7c6a0a; color: #fde68a; }
+  .badge-orange { background: #9a3412; color: #fed7aa; }
+  .badge-red    { background: #991b1b; color: #fecaca; }
+  .badge-none   { background: #374151; color: #9ca3af; }
+  .thumb .coll-tag { position: absolute; top: 4px; left: 4px; font-size: 9px; background: rgba(0,0,0,0.6); color: #94a3b8; padding: 1px 4px; border-radius: 3px; z-index: 2; }
+
+  /* Restore button */
+  .thumb-restore-btn { font-size: 9px; background: #1a3a2e; color: #86efac; padding: 2px 6px; border-radius: 3px; border: 1px solid #22c55e; cursor: pointer; font-family: inherit; font-weight: 600; flex-shrink: 0; }
+  .thumb-restore-btn:hover { background: #166534; }
+
+  .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; flex-wrap: wrap; }
+  .pagination button { min-width: 36px; font-size: 13px; padding: 5px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .pagination .current { color: #9ca3af; font-weight: 600; }
+
+  .empty { padding: 60px 20px; text-align: center; opacity: 0.4; font-size: 14px; }
+
+  /* Blink view (zoomed) */
+  #blink-view { display: none; position: fixed; inset: 0; background: #111; z-index: 100; flex-direction: column; }
+  #blink-view.active { display: flex; }
+  .blink-header { background: #16213e; padding: 8px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #0f3460; flex-shrink: 0; flex-wrap: wrap; }
+  .blink-header .meta { font-size: 12px; opacity: 0.7; }
+  .blink-header button { font-size: 12px; padding: 4px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .blink-header button:hover { border-color: #9ca3af; }
+  .blink-header button.action-btn { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; font-weight: 600; }
+  .blink-body { flex: 1; display: flex; overflow: hidden; }
+  .blink-image-area { flex: 1; display: flex; flex-direction: row; }
+  .blink-side { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #fff; overflow: auto; position: relative; }
+  .blink-side + .blink-side { border-left: 2px solid #0f3460; }
+  .blink-side img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+  .blink-side-label { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.65); color: #fff; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; z-index: 2; }
+  .blink-side-label.htx   { background: rgba(34,211,238,0.85); color: #06333d; }
+  .blink-side-label.texer { background: rgba(167,139,250,0.85); color: #261452; }
+  .blink-side .no-img { display: flex; align-items: center; justify-content: center; color: #f87171; font-size: 14px; font-weight: 600; width: 100%; height: 100%; }
+  .restore-btn { background: #1a3a2e; border: 1px solid #22c55e; color: #86efac; font-weight: 600; }
+  .restore-btn:hover { background: #166534; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Excluded Diagrams</h1>
+  <a href="blink.html">← Back to Comparator</a>
+  <div class="filter-group">
+    <label>Search:</label>
+    <input type="text" id="search-input" placeholder="ID or filename..." style="width:140px">
+  </div>
+  <div class="stats" id="stats"></div>
+</div>
+
+<div id="grid-view">
+  <div class="grid" id="grid"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<div id="blink-view">
+  <div class="blink-header">
+    <button id="blink-back">← Grid</button>
+    <div class="meta">
+      <span id="blink-id" style="font-family:monospace;font-weight:600"></span>
+      <span id="blink-file" style="margin-left:8px;opacity:0.7"></span>
+      <span id="blink-ssim" style="margin-left:8px"></span>
+      <span id="blink-pos" style="margin-left:8px;opacity:0.5"></span>
+    </div>
+    <button id="btn-restore" class="action-btn restore-btn">Restore to Comparator</button>
+    <button id="btn-nav-prev">↑ Prev</button>
+    <button id="btn-nav-next">↓ Next</button>
+  </div>
+  <div class="blink-body">
+    <div class="blink-image-area" id="blink-container">
+      <div class="blink-side" id="blink-left">
+        <div class="blink-side-label texer">TeXeR</div>
+        <div id="blink-left-content"></div>
+      </div>
+      <div class="blink-side" id="blink-right">
+        <div class="blink-side-label htx">HiTeXeR</div>
+        <div id="blink-right-content"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  let manifest = null;
+  let filtered = [];
+  let page = 0;
+  const PER_PAGE = 200;
+  let blinkIdx = 0;
+  let blinkActive = false;
+
+  fetch('blink-manifest.json')
+    .then(r => r.json())
+    .then(data => {
+      manifest = data;
+      applyFilters();
+    })
+    .catch(err => {
+      document.getElementById('grid').innerHTML = `<p style="color:#f87171;padding:20px">Failed to load manifest: ${err.message}</p>`;
+    });
+
+  function ssimBadge(ssim) {
+    if (ssim === null || ssim === undefined) return '<span class="badge badge-none">N/A</span>';
+    const val = ssim.toFixed(3);
+    if (ssim >= 0.95) return `<span class="badge badge-green">${val}</span>`;
+    if (ssim >= 0.85) return `<span class="badge badge-yellow">${val}</span>`;
+    if (ssim >= 0.70) return `<span class="badge badge-orange">${val}</span>`;
+    return `<span class="badge badge-red">${val}</span>`;
+  }
+
+  function applyFilters() {
+    if (!manifest) return;
+    const droppedSet = new Set(manifest.droppedIds || []);
+    const search = document.getElementById('search-input').value.trim().toLowerCase();
+    const names = manifest.courseNames || {};
+
+    let list = manifest.diagrams.filter(d => droppedSet.has(d.id));
+    if (search) {
+      list = list.filter(d =>
+        d.id.includes(search) ||
+        d.source.toLowerCase().includes(search) ||
+        d.collection.toLowerCase().includes(search) ||
+        (names[d.collection] || '').toLowerCase().includes(search)
+      );
+    }
+    filtered = list;
+    page = 0;
+    renderGrid();
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById('grid');
+    const start = page * PER_PAGE;
+    const end = Math.min(start + PER_PAGE, filtered.length);
+    const slice = filtered.slice(start, end);
+
+    document.getElementById('stats').textContent =
+      `${filtered.length} excluded diagrams | Page ${page + 1} of ${Math.ceil(filtered.length / PER_PAGE) || 1}`;
+
+    if (slice.length === 0) {
+      grid.innerHTML = '<div class="empty">No excluded diagrams' + (document.getElementById('search-input').value ? ' matching search' : '') + '.</div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = slice.map((d, i) => {
+      const texerHalf = d.hasTexer
+        ? `<img src="texer_pngs/${d.id}.png" loading="lazy" alt="${d.id} TeXeR">`
+        : '<div class="no-img">no TeXeR</div>';
+      const htxHalf = d.hasHtx
+        ? `<img src="htx_pngs/${d.id}.png" loading="lazy" alt="${d.id} HiTeXeR">`
+        : '<div class="no-img">no HTX</div>';
+      const badge = ssimBadge(d.ssim);
+      return `<div class="thumb" data-idx="${start + i}" data-id="${d.id}" title="${d.source}">
+        <div class="coll-tag">${d.collection}</div>
+        <div class="pair">
+          <div class="half">${texerHalf}<div class="half-label">TeXeR</div></div>
+          <div class="half">${htxHalf}<div class="half-label">HiTeXeR</div></div>
+        </div>
+        <div class="info">
+          <span class="id">${d.id}</span>
+          ${badge}
+          <button class="thumb-restore-btn" data-id="${d.id}" title="Restore to main comparator">Restore</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.thumb').forEach(el => {
+      const restoreBtn = el.querySelector('.thumb-restore-btn');
+      restoreBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        restoreDiagram(restoreBtn.dataset.id, el);
+      });
+      el.addEventListener('click', (e) => {
+        if (e.target.classList.contains('thumb-restore-btn')) return;
+        enterBlink(parseInt(el.dataset.idx, 10));
+      });
+    });
+
+    renderPagination();
+  }
+
+  function renderPagination() {
+    const total = Math.ceil(filtered.length / PER_PAGE) || 1;
+    const pag = document.getElementById('pagination');
+    if (total <= 1) { pag.innerHTML = ''; return; }
+    let html = `<button ${page === 0 ? 'disabled' : ''} data-page="${page - 1}">&laquo; Prev</button>`;
+    for (let i = 0; i < total; i++) {
+      html += `<button data-page="${i}" ${i === page ? 'class="current"' : ''}>${i + 1}</button>`;
+    }
+    html += `<button ${page === total - 1 ? 'disabled' : ''} data-page="${page + 1}">Next &raquo;</button>`;
+    pag.innerHTML = html;
+    pag.querySelectorAll('button[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = parseInt(btn.dataset.page, 10);
+        if (p >= 0 && p < total) { page = p; renderGrid(); window.scrollTo(0, 0); }
+      });
+    });
+  }
+
+  function restoreDiagram(id, thumbEl) {
+    fetch('/undrop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    }).then(r => r.json()).then(res => {
+      if (res.ok) {
+        // Remove from manifest's droppedIds
+        if (manifest.droppedIds) {
+          manifest.droppedIds = manifest.droppedIds.filter(x => x !== id);
+        }
+        if (thumbEl) thumbEl.remove();
+        // Update stats
+        filtered = filtered.filter(d => d.id !== id);
+        document.getElementById('stats').textContent =
+          `${filtered.length} excluded diagrams | Page ${page + 1} of ${Math.ceil(filtered.length / PER_PAGE) || 1}`;
+        // If in blink view, move to next
+        if (blinkActive && filtered[blinkIdx] && filtered[blinkIdx].id === id) {
+          if (filtered.length > blinkIdx) updateBlinkView();
+          else exitBlink();
+        }
+      }
+    }).catch(() => {});
+  }
+
+  function enterBlink(idx) {
+    blinkIdx = idx;
+    blinkActive = true;
+    document.getElementById('blink-view').classList.add('active');
+    document.body.style.overflow = 'hidden';
+    updateBlinkView();
+  }
+
+  function exitBlink() {
+    blinkActive = false;
+    document.getElementById('blink-view').classList.remove('active');
+    document.body.style.overflow = '';
+  }
+
+  function updateBlinkView() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+
+    document.getElementById('blink-id').textContent = d.id;
+    document.getElementById('blink-file').textContent = d.source;
+    document.getElementById('blink-ssim').textContent = d.ssim != null ? `SSIM: ${d.ssim.toFixed(4)}` : '';
+    document.getElementById('blink-pos').textContent = `${blinkIdx + 1}/${filtered.length}`;
+
+    const leftContent = document.getElementById('blink-left-content');
+    const rightContent = document.getElementById('blink-right-content');
+
+    leftContent.innerHTML = d.hasTexer
+      ? `<img src="texer_pngs/${d.id}.png" style="max-width:100%;max-height:100%">`
+      : '<div class="no-img">no TeXeR</div>';
+
+    if (d.hasSvg) {
+      fetch(`htx_svgs/${d.id}.svg`).then(r => r.text()).then(svgText => {
+        rightContent.innerHTML = svgText;
+        const svgEl = rightContent.querySelector('svg');
+        if (svgEl) { svgEl.style.maxWidth = '100%'; svgEl.style.maxHeight = '100%'; }
+      }).catch(() => {
+        rightContent.innerHTML = d.hasHtx
+          ? `<img src="htx_pngs/${d.id}.png" style="max-width:100%;max-height:100%">`
+          : '<div class="no-img">no HiTeXeR</div>';
+      });
+    } else {
+      rightContent.innerHTML = d.hasHtx
+        ? `<img src="htx_pngs/${d.id}.png" style="max-width:100%;max-height:100%">`
+        : '<div class="no-img">no HiTeXeR</div>';
+    }
+  }
+
+  document.getElementById('blink-back').addEventListener('click', exitBlink);
+  document.getElementById('btn-nav-prev').addEventListener('click', () => {
+    if (blinkIdx > 0) { blinkIdx--; updateBlinkView(); }
+  });
+  document.getElementById('btn-nav-next').addEventListener('click', () => {
+    if (blinkIdx < filtered.length - 1) { blinkIdx++; updateBlinkView(); }
+  });
+  document.getElementById('btn-restore').addEventListener('click', () => {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    restoreDiagram(d.id, null);
+  });
+  document.getElementById('search-input').addEventListener('input', applyFilters);
+
+  document.addEventListener('keydown', (e) => {
+    if (!blinkActive) return;
+    if (e.key === 'Escape') { e.preventDefault(); exitBlink(); }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); if (blinkIdx > 0) { blinkIdx--; updateBlinkView(); } }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (blinkIdx < filtered.length - 1) { blinkIdx++; updateBlinkView(); } }
+  });
+
+})();
+</script>
+</body>
+</html>

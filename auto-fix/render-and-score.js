@@ -128,9 +128,16 @@ async function scoreOne(id, A, fontCSS, opts) {
   const raw = fs.readFileSync(asyPath, 'utf8');
   const code = '[asy]\n' + raw + '\n[/asy]';
 
+  // Resolve /var/www/cdn/... EPS images via the persistent cache so graphic()
+  // calls produce real image data and not gray placeholder rectangles.
+  let imageCache = {};
+  if (opts.epsCache) {
+    try { imageCache = opts.epsCache.getImageCache(raw); } catch (e) {}
+  }
+
   let svg;
   try {
-    const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native' });
+    const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
     svg = r.svg;
     fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), svg);
   } catch (e) {
@@ -264,6 +271,11 @@ async function main() {
   require(path.join(ROOT, 'asy-interp.js'));
   const A = global.window.AsyInterp;
 
+  // EPS image cache: resolves /var/www/cdn/... graphic() paths to PNG data
+  // so re-rendered SVGs contain real images instead of placeholder rectangles.
+  let epsCache = null;
+  try { epsCache = require(path.join(ROOT, 'eps-cache')); } catch (e) {}
+
   const fontCSS = buildFontFaceCSS();
   const ids = [...idSet].sort();
 
@@ -275,7 +287,7 @@ async function main() {
   const familyPrefix = args.family ? args.family + '_' : null;
 
   for (const id of ids) {
-    const row = await scoreOne(id, A, fontCSS, { fast: args.fast });
+    const row = await scoreOne(id, A, fontCSS, { fast: args.fast, epsCache });
     if (row.err) { errors++; console.log(JSON.stringify(row)); continue; }
     // Baseline selection: canary.json overrides ssim-results.json when applicable.
     let pre = null, baselineSource = null;

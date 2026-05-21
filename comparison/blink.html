@@ -45,6 +45,8 @@
   .queue-badge { display: none; font-size: 9px; background: #78350f; color: #fde68a; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
   .thumb.queued .queue-badge { display: inline; }
   #blink-queued { font-size: 11px; background: #78350f; color: #fde68a; padding: 1px 6px; border-radius: 3px; font-weight: 600; white-space: nowrap; }
+  .thumb-exclude-btn { position: absolute; top: 4px; right: 26px; width: 18px; height: 18px; background: rgba(0,0,0,0.5); border: 1px solid #374151; border-radius: 3px; color: #6b7280; font-size: 13px; line-height: 1; cursor: pointer; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 0; }
+  .thumb-exclude-btn:hover { background: rgba(127,29,29,0.85); border-color: #ef4444; color: #fca5a5; }
 
   /* ── Pagination ─────────────────────────────────────── */
   .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; flex-wrap: wrap; }
@@ -195,6 +197,7 @@
 
   <button id="help-btn" title="Keyboard shortcuts">? Help</button>
   <button onclick="window.open('fix-history.html','_blank')" title="View fix queue history" style="background:#2d1b4a;border:1px solid #7c3aed;color:#c4b5fd;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Fix History</button>
+  <button onclick="window.open('excluded.html','_blank')" title="View excluded diagrams" style="background:#1f1a3a;border:1px solid #4f46e5;color:#a5b4fc;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Excluded</button>
 
   <div class="stats" id="stats"></div>
 </div>
@@ -227,8 +230,10 @@
     <button id="blink-code-toggle" title="Toggle code panel (C)">Hide Code</button>
     <button id="btn-rerender" class="action-btn" title="Re-render HiTeXeR and recompute SSIM for this diagram (H)" style="background:#1e3a5f;border-color:#60a5fa;color:#bfdbfe">Re-render</button>
     <button id="btn-fix" class="action-btn" title="Send to Claude Code for fixing (F)" style="background:#1e5f3a;border-color:#22c55e;color:#86efac">Fix</button>
+    <button id="btn-dequeue" class="action-btn" title="Remove from fix queue (D)" style="display:none;background:#1a3a5f;border-color:#3b82f6;color:#93c5fd">Dequeue</button>
+    <button id="btn-exclude" class="action-btn" title="Exclude from comparator (X)" style="background:#3b1a5f;border-color:#7c3aed;color:#c4b5fd">Exclude</button>
     <button id="btn-refetch" class="action-btn" title="Re-fetch TeXeR PNG (cache-bust) (R)" style="background:#5f1e5f;border-color:#c025c0;color:#efac86">Re-fetch</button>
-    <div class="help">L/R: swap sides | Up/Down: prev/next | Space: blink | S: side view | H: re-render | C: code | F: fix | R: re-fetch | Esc: grid</div>
+    <div class="help">L/R: swap sides | Up/Down: prev/next | Space: blink | S: side view | H: re-render | C: code | F: fix | D: dequeue | X: exclude | R: re-fetch | Esc: grid</div>
   </div>
   <div class="blink-body">
     <div class="blink-image-area side-mode" id="blink-container">
@@ -306,11 +311,15 @@
   // IDs currently in the fix queue (populated from /status poll).
   let queuedIds = new Set();
 
+  // IDs excluded from the main comparator (populated from manifest.droppedIds).
+  let droppedSet = new Set();
+
   // ── Load manifest ────────────────────────────────────
   fetch('blink-manifest.json')
     .then(r => r.json())
     .then(data => {
       manifest = data;
+      droppedSet = new Set(manifest.droppedIds || []);
       initCollections();
       applyFilters();
     })
@@ -371,7 +380,7 @@
     const texerOnly = document.getElementById('filter-texer-only').checked;
     const search   = document.getElementById('search-input').value.trim().toLowerCase();
 
-    let list = manifest.diagrams;
+    let list = manifest.diagrams.filter(d => !droppedSet.has(d.id));
 
     if (!allChecked) {
       const collSet = new Set(checkedColls);
@@ -447,6 +456,7 @@
       const isQueued = queuedIds.has(d.id);
       return `<div class="thumb${isSel ? ' selected' : ''}${isQueued ? ' queued' : ''}" data-idx="${start + i}" data-id="${d.id}" title="${d.source}">
         <input type="checkbox" class="thumb-check" ${isSel ? 'checked' : ''} title="Select">
+        <button class="thumb-exclude-btn" data-id="${d.id}" title="Exclude from comparator" tabindex="-1">×</button>
         <div class="coll-tag">${d.collection}</div>
         <div class="pair">
           <div class="half">${texerHalf}<div class="half-label">TeXeR</div></div>
@@ -470,8 +480,14 @@
         el.classList.toggle('selected', cb.checked);
         updateSelectedCount();
       });
+      const xBtn = el.querySelector('.thumb-exclude-btn');
+      if (xBtn) xBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        excludeDiagram(xBtn.dataset.id, el);
+      });
       el.addEventListener('click', (e) => {
         if (e.target.classList.contains('thumb-check')) return;
+        if (e.target.classList.contains('thumb-exclude-btn')) return;
         enterBlink(parseInt(el.dataset.idx, 10));
       });
     });
@@ -711,6 +727,8 @@
     posEl.textContent = ` | ${blinkIdx + 1}/${filtered.length}`;
     const qEl = document.getElementById('blink-queued');
     if (qEl) qEl.style.display = queuedIds.has(d.id) ? '' : 'none';
+    const dqBtn = document.getElementById('btn-dequeue');
+    if (dqBtn) dqBtn.style.display = queuedIds.has(d.id) ? '' : 'none';
 
     // Determine which sides to render
     const leftEl  = document.getElementById('blink-side-left');
@@ -963,6 +981,37 @@
     window.open(url, '_blank');
   }
 
+  // ── Exclude diagram from comparator ──────────────────
+  function excludeDiagram(id, thumbEl) {
+    fetch('/exclude', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    }).then(r => r.json()).then(res => {
+      if (!res.ok) return;
+      droppedSet.add(id);
+      if (!manifest.droppedIds) manifest.droppedIds = [];
+      if (!manifest.droppedIds.includes(id)) manifest.droppedIds.push(id);
+      if (thumbEl) thumbEl.remove();
+      // If in blink view on this diagram, exit blink before re-filtering
+      if (blinkActive && filtered[blinkIdx] && filtered[blinkIdx].id === id) {
+        document.getElementById('blink-back').click();
+      }
+      applyFilters();
+    }).catch(() => {});
+  }
+
+  // ── Dequeue diagram ───────────────────────────────────
+  function dequeueDiagram(id) {
+    fetch('/dequeue', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    }).then(r => r.json()).then(res => {
+      if (!res.ok) return;
+      queuedIds.delete(id);
+      updateQueueIndicators();
+    }).catch(() => {});
+  }
+
   // ── Fix via Claude Code ───────────────────────────────
   function buildFixPrompt(d, source) {
     return 'You are working on the HiTeXeR Asymptote interpreter (asy-interp.js) in C:\\Users\\Mark Eichenlaub\\github\\hitexer.\n\n' +
@@ -1152,6 +1201,8 @@
   document.getElementById('btn-texer').addEventListener('click', openInTexer);
   document.getElementById('btn-hitexer').addEventListener('click', openInHitexer);
   document.getElementById('btn-fix').addEventListener('click', fixDiagram);
+  document.getElementById('btn-dequeue').addEventListener('click', () => { const d = filtered[blinkIdx]; if (d) dequeueDiagram(d.id); });
+  document.getElementById('btn-exclude').addEventListener('click', () => { const d = filtered[blinkIdx]; if (d) excludeDiagram(d.id, null); });
   document.getElementById('btn-refetch').addEventListener('click', refetchTexerPng);
   document.getElementById('btn-rerender').addEventListener('click', rerenderDiagram);
   document.getElementById('blink-side-toggle').addEventListener('click', toggleSideMode);
@@ -1188,6 +1239,10 @@
           toggleCodePanel(); break;
         case 'f': case 'F':
           fixDiagram(); break;
+        case 'd': case 'D':
+          { const d = filtered[blinkIdx]; if (d) dequeueDiagram(d.id); } break;
+        case 'x': case 'X':
+          { const d = filtered[blinkIdx]; if (d) excludeDiagram(d.id, null); } break;
         case 'r': case 'R':
           refetchTexerPng(); break;
         case 'h': case 'H':

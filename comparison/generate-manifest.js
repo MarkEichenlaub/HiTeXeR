@@ -63,6 +63,13 @@ const COURSE_NAMES = {
 const allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort();
 console.log(`Corpus: ${allFiles.length} .asy files`);
 
+// Read excluded (dropped) diagram IDs
+const DROPLIST_FILE = path.join(ROOT, 'auto-fix', 'droplist.json');
+let droppedIds = [];
+try { if (fs.existsSync(DROPLIST_FILE)) droppedIds = JSON.parse(fs.readFileSync(DROPLIST_FILE, 'utf-8')); } catch {}
+const droppedSet = new Set(droppedIds.map(id => String(id).padStart(5, '0')));
+if (droppedSet.size) console.log(`Excluded: ${droppedSet.size} diagram(s)`);
+
 // Build sets of existing PNGs/SVGs
 const asySet   = new Set(fs.readdirSync(ASY_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
 const htxSet   = new Set(fs.readdirSync(HTX_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
@@ -133,7 +140,7 @@ for (const c of collections) {
   if (COURSE_NAMES[c]) courseNames[c] = COURSE_NAMES[c];
 }
 
-const manifest = { diagrams, collections, courseNames };
+const manifest = { diagrams, collections, courseNames, droppedIds: [...droppedSet] };
 fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2));
 console.log(`\nWrote ${MANIFEST}`);
 console.log(`  ${diagrams.length} diagrams, ${collections.length} collections`);

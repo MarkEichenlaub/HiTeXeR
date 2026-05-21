@@ -174,6 +174,8 @@ a{color:inherit;text-decoration:none}
 
 .fix-btn{flex-shrink:0;background:#1e5f3a;border:1px solid #22c55e;color:#86efac;padding:2px 6px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px}
 .fix-btn:hover{background:#166534}
+.deq-btn{flex-shrink:0;background:#1a3a5f;border:1px solid #3b82f6;color:#93c5fd;padding:2px 6px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px}
+.deq-btn:hover{background:#1e4a8f}
 
 #pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;border-top:1px solid #1e1e32}
 .pg-btn{background:#1e1e32;border:1px solid #2d2d4a;color:#94a3b8;padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px}
@@ -397,6 +399,15 @@ function renderList(){
     btn.onclick = e => { e.stopPropagation(); fixAgain(item, btn); };
     row.appendChild(btn);
 
+    if (item.queued && !item.isProcessing) {
+      const dqBtn = document.createElement('button');
+      dqBtn.className = 'deq-btn';
+      dqBtn.textContent = 'dequeue';
+      dqBtn.title = 'Remove from queue';
+      dqBtn.onclick = e => { e.stopPropagation(); dequeueItem(item, dqBtn); };
+      row.appendChild(dqBtn);
+    }
+
     wrap.appendChild(row);
   });
 
@@ -517,6 +528,21 @@ async function fixAgain(item, btn){
     });
     const j = await r.json();
     if(j.ok){ btn.textContent='Queued'; }
+    else    { btn.textContent='Error'; btn.disabled=false; }
+  } catch {
+    btn.textContent='Server offline'; btn.disabled=false;
+  }
+}
+
+async function dequeueItem(item, btn){
+  btn.disabled = true; btn.textContent = 'Removing...';
+  try{
+    const r = await fetch('http://localhost:7842/dequeue',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:item.id}),
+    });
+    const j = await r.json();
+    if(j.ok){ item.queued = false; btn.textContent='Dequeued'; renderList(); }
     else    { btn.textContent='Error'; btn.disabled=false; }
   } catch {
     btn.textContent='Server offline'; btn.disabled=false;

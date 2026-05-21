@@ -11,7 +11,7 @@
 // Listens on http://localhost:7842
 
 const http = require('http');
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 const { generate: generateFixHistory } = require('./auto-fix/generate-fix-history.js');
 const fs   = require('fs');
 const path = require('path');
@@ -21,6 +21,14 @@ const ROOT = path.resolve(__dirname);
 const RUN_LOOP_PID_FILE    = path.join(ROOT, 'auto-fix', '.run-loop-pid');
 const ENQUEUE_HISTORY_PATH = path.join(ROOT, 'auto-fix', 'enqueue-history.jsonl');
 const FIX_SNAPSHOTS_DIR    = path.join(ROOT, 'auto-fix', 'fix-snapshots');
+const DROPLIST_PATH        = path.join(ROOT, 'auto-fix', 'droplist.json');
+
+function readDroplist() {
+  try { return JSON.parse(fs.readFileSync(DROPLIST_PATH, 'utf8')); } catch { return []; }
+}
+function writeDroplist(ids) {
+  fs.writeFileSync(DROPLIST_PATH, JSON.stringify(ids, null, 2));
+}
 
 // Returns true if a run-loop process is currently live.
 function isRunLoopRunning() {
@@ -34,18 +42,23 @@ function isRunLoopRunning() {
   }
 }
 
-// Launch run-loop in a visible Windows Terminal tab so the user can see progress.
-// Uses --queue-only so it stops when the queue drains instead of auto-picking by SSIM.
+// Launch run-loop headlessly as a background child process.
+// Logs to auto-fix/run-loop.log; uses --queue-only so it stops when the queue drains.
 function launchRunLoop() {
-  const child = spawn('wt', [
-    '-w', '0', 'new-tab',
-    '-d', ROOT,
-    '--',
-    'node', path.join('auto-fix', 'run-loop.js'),
+  const logPath = path.join(ROOT, 'auto-fix', 'run-loop.log');
+  const out = fs.openSync(logPath, 'a');
+  const child = spawn(process.execPath, [
+    path.join('auto-fix', 'run-loop.js'),
     '--max', '999', '--queue-only',
-  ], { detached: true, stdio: 'ignore' });
+  ], {
+    cwd: ROOT,
+    detached: true,
+    stdio: ['ignore', out, out],
+    windowsHide: true,
+  });
   child.unref();
-  console.log('[fix-server] launched run-loop in Windows Terminal tab');
+  fs.close(out, () => {});
+  console.log('[fix-server] launched run-loop headlessly (log: auto-fix/run-loop.log)');
 }
 
 const MIME = {
@@ -353,6 +366,76 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: true, id }));
       } catch (e) {
         console.error('[fix-server] Error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/exclude') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body);
+        if (!id) throw new Error('Missing id');
+        const ids = readDroplist();
+        if (!ids.includes(id)) { ids.push(id); writeDroplist(ids); }
+        // Remove from queue too
+        const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+        try {
+          const q = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+          fs.writeFileSync(queuePath, JSON.stringify(q.filter(item => item.id !== id), null, 2));
+        } catch {}
+        try { spawnSync(process.execPath, ['comparison/generate-manifest.js'], { cwd: ROOT, stdio: 'pipe' }); } catch {}
+        console.log(`[fix-server] Excluded diagram ${id}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, id }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/undrop') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body);
+        if (!id) throw new Error('Missing id');
+        writeDroplist(readDroplist().filter(x => x !== id));
+        try { spawnSync(process.execPath, ['comparison/generate-manifest.js'], { cwd: ROOT, stdio: 'pipe' }); } catch {}
+        console.log(`[fix-server] Restored diagram ${id}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, id }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/dequeue') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body);
+        if (!id) throw new Error('Missing id');
+        const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+        let queue = [];
+        try { queue = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch {}
+        const filtered = queue.filter(item => item.id !== id);
+        fs.writeFileSync(queuePath, JSON.stringify(filtered, null, 2));
+        console.log(`[fix-server] Dequeued diagram ${id} (queue length: ${filtered.length})`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, id, queueLength: filtered.length }));
+      } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
