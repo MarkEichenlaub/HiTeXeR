@@ -13670,19 +13670,61 @@ function createInterpreter() {
     });
 
     // bisector(point A, point O, point B) or bisector(line l) [perpendicular bisector]
+    // bisector(line l1, line l2, bool internal) — angle bisector of two lines
     env.set('bisector', (...args) => {
       const pts = [];
-      let l = null;
+      const lines = [];
+      let internal = true;
       for (const a of args) {
         if (isPoint(a)) pts.push(a);
         else if (isPair(a)) {
           const cs = env.get('currentcoordsys') || defaultCS;
           pts.push(makePoint(cs, a, 1));
         }
-        else if (isGeoLine(a)) l = a;
+        else if (isGeoLine(a)) lines.push(a);
+        else if (typeof a === 'boolean') internal = a;
+      }
+      // Angle bisector of two lines: bisector(line l1, line l2, bool internal)
+      if (lines.length >= 2) {
+        const l1 = lines[0], l2 = lines[1];
+        const A1 = locatePoint(l1.A), B1 = locatePoint(l1.B);
+        const A2 = locatePoint(l2.A), B2 = locatePoint(l2.B);
+        // Find intersection point of the two lines
+        const d1x = B1.x - A1.x, d1y = B1.y - A1.y;
+        const d2x = B2.x - A2.x, d2y = B2.y - A2.y;
+        const denom = d1x * d2y - d1y * d2x;
+        let O;
+        if (Math.abs(denom) < 1e-12) {
+          // Parallel lines — use midpoint between them
+          O = makePair((A1.x + A2.x) / 2, (A1.y + A2.y) / 2);
+        } else {
+          const t = ((A2.x - A1.x) * d2y - (A2.y - A1.y) * d2x) / denom;
+          O = makePair(A1.x + t * d1x, A1.y + t * d1y);
+        }
+        // Get unit direction vectors of both lines
+        const len1 = Math.sqrt(d1x * d1x + d1y * d1y) || 1;
+        const len2 = Math.sqrt(d2x * d2x + d2y * d2y) || 1;
+        const u1 = makePair(d1x / len1, d1y / len1);
+        const u2 = makePair(d2x / len2, d2y / len2);
+        // Internal bisector: sum of unit directions; external: difference
+        let bisDir;
+        if (internal) {
+          bisDir = makePair(u1.x + u2.x, u1.y + u2.y);
+        } else {
+          bisDir = makePair(u1.x - u2.x, u1.y - u2.y);
+        }
+        // If bisector direction is degenerate (parallel lines with same dir), use perpendicular
+        const bisLen = Math.sqrt(bisDir.x * bisDir.x + bisDir.y * bisDir.y);
+        if (bisLen < 1e-12) {
+          bisDir = makePair(-u1.y, u1.x);
+        }
+        const P2 = makePair(O.x + bisDir.x, O.y + bisDir.y);
+        const cs = l1.A.coordsys;
+        return makeGeoLine(makePoint(cs, cs.defaultToRelative(O), 1), makePoint(cs, cs.defaultToRelative(P2), 1), true, true);
       }
       // Perpendicular bisector of segment/line
-      if (l) {
+      if (lines.length === 1) {
+        const l = lines[0];
         const A = locatePoint(l.A), B = locatePoint(l.B);
         const M = makePair((A.x+B.x)/2, (A.y+B.y)/2);
         const dx = B.x-A.x, dy = B.y-A.y;
