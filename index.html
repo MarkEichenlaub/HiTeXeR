@@ -443,12 +443,140 @@ body {
 #search-count { font-size: 11px; color: #888; white-space: nowrap; min-width: 54px; text-align: center; }
 .cm-search-match { background: rgba(255,200,0,0.22); border-radius: 2px; }
 .cm-search-match-current { background: rgba(255,120,0,0.55); border-radius: 2px; }
+
+/* ---- Library overlay ---- */
+#lib-overlay {
+  position: fixed; inset: 0; z-index: 1000; background: #1a1a2e;
+  display: none; flex-direction: column; color: #eee;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#lib-header {
+  background: #16213e; border-bottom: 2px solid #0f3460;
+  padding: 8px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+#lib-header h2 { margin: 0; font-size: 18px; color: #e94560; letter-spacing: 1px; }
+#lib-search-input {
+  background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
+  padding: 5px 10px; border-radius: 4px; font-size: 13px; width: 220px;
+}
+#lib-search-input::placeholder { color: #888; }
+.lib-flag-chip {
+  background: rgba(15,52,96,0.5); color: #ccc; border: 1px solid #1a1a5e;
+  padding: 4px 10px; border-radius: 12px; font-size: 12px; cursor: pointer;
+  user-select: none;
+}
+.lib-flag-chip:hover { background: #0f3460; color: #eee; }
+.lib-flag-chip.active { background: #e94560; color: #fff; border-color: #e94560; }
+#lib-sort-select {
+  background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
+  padding: 4px 8px; border-radius: 4px; font-size: 12px;
+}
+#lib-require-thumb-label { font-size: 12px; color: #ccc; cursor: pointer; user-select: none; }
+#lib-require-thumb-label input { vertical-align: middle; margin-right: 4px; }
+#lib-count { font-size: 12px; color: #888; margin-left: 6px; min-width: 100px; }
+#lib-close-btn {
+  background: #e94560; color: #fff; border: none; padding: 5px 12px;
+  border-radius: 4px; cursor: pointer; font-size: 13px; margin-left: auto;
+}
+#lib-close-btn:hover { background: #c73e54; }
+#lib-body { flex: 1; display: flex; min-height: 0; }
+#lib-tree {
+  width: 260px; flex-shrink: 0; overflow-y: auto;
+  background: #16213e; border-right: 1px solid #0f3460;
+  padding: 8px; font-size: 13px;
+}
+.lib-tree-node {
+  padding: 4px 8px; cursor: pointer; border-radius: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lib-tree-node:hover { background: rgba(15,52,96,0.6); }
+.lib-tree-node.selected { background: #0f3460; color: #fff; }
+.lib-tree-coll-name { font-weight: 500; }
+.lib-tree-lesson { padding-left: 26px; font-size: 12px; color: #ccc; }
+.lib-tree-count { float: right; color: #888; font-size: 11px; margin-left: 8px; }
+.lib-tree-arrow { display: inline-block; width: 12px; color: #888; font-size: 10px; }
+#lib-main { flex: 1; display: flex; min-width: 0; }
+#lib-grid-wrap { flex: 1; overflow-y: auto; padding: 12px; min-width: 0; }
+#lib-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.lib-card {
+  background: #16213e; border: 1px solid #0f3460; border-radius: 4px;
+  padding: 6px; cursor: pointer; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.lib-card:hover { border-color: #e94560; }
+.lib-card.selected { border-color: #e9c46a; }
+.lib-card img {
+  width: 100%; height: 140px; object-fit: contain;
+  background: #fff; border-radius: 2px;
+}
+.lib-card .lib-no-thumb {
+  width: 100%; height: 140px; border-radius: 2px;
+  background: repeating-linear-gradient(45deg, #222, #222 5px, #2a2a2a 5px, #2a2a2a 10px);
+  display: flex; align-items: center; justify-content: center;
+  color: #555; font-size: 10px;
+}
+.lib-card-label {
+  font-size: 11px; color: #ccc; margin-top: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: monospace;
+}
+.lib-card-sub {
+  font-size: 10px; color: #888;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#lib-sentinel { height: 20px; }
+#lib-detail {
+  width: 460px; flex-shrink: 0; display: none; flex-direction: column;
+  background: #16213e; border-left: 1px solid #0f3460; overflow: hidden;
+}
+#lib-detail-header {
+  padding: 8px 12px; border-bottom: 1px solid #0f3460;
+  display: flex; align-items: center; gap: 8px;
+}
+#lib-detail-title { font-family: monospace; font-size: 13px; flex: 1; color: #eee;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#lib-detail-close {
+  background: none; color: #888; border: none; cursor: pointer; font-size: 18px;
+  line-height: 1; padding: 0 4px;
+}
+#lib-detail-close:hover { color: #eee; }
+#lib-detail-img {
+  background: #fff; max-height: 220px; width: 100%; object-fit: contain;
+  border-bottom: 1px solid #0f3460; display: block;
+}
+#lib-detail-meta {
+  padding: 8px 12px; font-size: 12px; color: #ccc;
+  border-bottom: 1px solid #0f3460;
+  max-height: 240px; overflow-y: auto;
+}
+#lib-detail-meta div { margin: 3px 0; }
+#lib-detail-meta b { color: #eee; font-weight: 600; }
+.lib-detail-context {
+  font-style: italic; color: #aaa; margin-top: 6px; font-size: 11px;
+  line-height: 1.4;
+}
+#lib-detail-source {
+  flex: 1; overflow: auto; background: #0f1525; color: #ccc;
+  padding: 8px 12px; font-family: monospace; font-size: 11px;
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  min-height: 0;
+}
+#lib-load-btn {
+  background: #e94560; color: #fff; border: none; padding: 10px 12px;
+  cursor: pointer; font-size: 13px; font-weight: 500; border-top: 1px solid #0f3460;
+}
+#lib-load-btn:hover { background: #c73e54; }
+#lib-loading { color: #888; padding: 40px; text-align: center; font-size: 13px; }
+.lib-empty { color: #888; padding: 40px; text-align: center; font-size: 13px; }
 </style>
 </head>
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.05</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.07</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -510,10 +638,50 @@ body {
   <button id="md-ai-chat" title="Toggle AI Chat">AI Chat</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
+  <button id="btn-library" title="Browse the AoPS diagram library" style="background:#5a3a8a;border-color:#4a2e75;">Library</button>
   <button id="btn-texer" title="Open AoPS TeXeR and copy code to clipboard" style="background:#2980b9;border-color:#1a6fa0;">TeXeR</button>
   <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
   <span class="status" id="status">Ready</span>
 </div>
+<!-- Library overlay -->
+<div id="lib-overlay">
+  <div id="lib-header">
+    <h2>Library</h2>
+    <input id="lib-search-input" type="text" placeholder="Search id, title, context, imports...">
+    <div class="lib-flag-chip" data-flag="has_3d" title="diagrams that use import three / graph3 / tube / solids / revolution">3D</div>
+    <div class="lib-flag-chip" data-flag="has_axes" title="diagrams that draw xaxis / yaxis / axes">axes</div>
+    <div class="lib-flag-chip" data-flag="has_arrows" title="diagrams that use Arrow / EndArrow / MidArrow">arrows</div>
+    <div class="lib-flag-chip" data-flag="has_palette" title="diagrams that import palette or contour">palette</div>
+    <label id="lib-require-thumb-label"><input type="checkbox" id="lib-require-thumb" checked>has thumbnail</label>
+    <select id="lib-sort-select">
+      <option value="natural">Natural order</option>
+      <option value="loc-asc">LOC: small first</option>
+      <option value="loc-desc">LOC: large first</option>
+    </select>
+    <span id="lib-count">— diagrams</span>
+    <button id="lib-close-btn" title="Close (Esc)">Close</button>
+  </div>
+  <div id="lib-body">
+    <div id="lib-tree"></div>
+    <div id="lib-main">
+      <div id="lib-grid-wrap">
+        <div id="lib-loading" style="display:none">Loading manifest...</div>
+        <div id="lib-grid"></div>
+      </div>
+      <div id="lib-detail">
+        <div id="lib-detail-header">
+          <span id="lib-detail-title"></span>
+          <button id="lib-detail-close" title="Close panel">&times;</button>
+        </div>
+        <img id="lib-detail-img" alt="">
+        <div id="lib-detail-meta"></div>
+        <pre id="lib-detail-source"></pre>
+        <button id="lib-load-btn">Load into editor</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Hidden file input for Open .asy -->
 <input type="file" id="file-open-input" accept=".asy" style="display:none">
 <input type="file" id="file-open-image-input" accept=".svg,.png,.jpg,.jpeg,.gif,.pdf" style="display:none">
@@ -8423,6 +8591,450 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // END_MEASURE_AND_HIDE
 </script>
+
+<!-- Library overlay logic -->
+<script>
+(function () {
+  'use strict';
+
+  const MANIFEST_URL = 'library/manifest.json';
+  const PAGE_SIZE = 240;
+
+  let manifest = null;       // {records:[...]}
+  let visible = [];          // currently filtered records
+  let renderedUpTo = 0;      // how many cards are in DOM
+  let imgObserver = null;    // for lazy thumb loading
+  let sentinelObserver = null;
+  let currentDetail = null;
+
+  const state = {
+    collectionId: null,      // number or null
+    lessonKey: null,         // "__none__" | "12" | null
+    search: '',
+    flags: { has_3d: false, has_axes: false, has_arrows: false, has_palette: false },
+    requireThumb: true,
+    sort: 'natural',
+  };
+
+  // ---- Init wiring ----
+
+  function init() {
+    const openBtn = document.getElementById('btn-library');
+    if (openBtn) openBtn.addEventListener('click', openLibrary);
+
+    document.getElementById('lib-close-btn').addEventListener('click', closeLibrary);
+    document.getElementById('lib-detail-close').addEventListener('click', closeDetail);
+    document.getElementById('lib-load-btn').addEventListener('click', loadIntoEditor);
+
+    document.getElementById('lib-search-input').addEventListener('input', (e) => {
+      state.search = e.target.value.trim().toLowerCase();
+      applyFilters();
+    });
+    document.querySelectorAll('.lib-flag-chip').forEach(el => {
+      el.addEventListener('click', () => {
+        const f = el.dataset.flag;
+        state.flags[f] = !state.flags[f];
+        el.classList.toggle('active', state.flags[f]);
+        applyFilters();
+      });
+    });
+    document.getElementById('lib-sort-select').addEventListener('change', (e) => {
+      state.sort = e.target.value;
+      applyFilters();
+    });
+    document.getElementById('lib-require-thumb').addEventListener('change', (e) => {
+      state.requireThumb = e.target.checked;
+      applyFilters();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const ov = document.getElementById('lib-overlay');
+      if (ov.style.display === 'none' || !ov.style.display) return;
+      const det = document.getElementById('lib-detail');
+      if (det.style.display === 'flex') {
+        closeDetail();
+      } else {
+        closeLibrary();
+      }
+    });
+  }
+
+  // ---- Open / close ----
+
+  function openLibrary() {
+    document.getElementById('lib-overlay').style.display = 'flex';
+    if (manifest === null) {
+      loadManifest();
+    }
+  }
+
+  function closeLibrary() {
+    document.getElementById('lib-overlay').style.display = 'none';
+  }
+
+  async function loadManifest() {
+    const loadingEl = document.getElementById('lib-loading');
+    loadingEl.style.display = 'block';
+    loadingEl.textContent = 'Loading manifest...';
+    try {
+      const res = await fetch(MANIFEST_URL);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      loadingEl.textContent = 'Parsing manifest...';
+      const text = await res.text();
+      manifest = JSON.parse(text);
+      loadingEl.style.display = 'none';
+      buildTree();
+      applyFilters();
+    } catch (e) {
+      loadingEl.textContent = 'Failed to load library/manifest.json: ' + e.message
+        + '. Run library/build-manifest.py first.';
+    }
+  }
+
+  // ---- Collection tree ----
+
+  function buildTree() {
+    const byColl = new Map();
+    for (const r of manifest.records) {
+      if (!byColl.has(r.collection_id)) {
+        byColl.set(r.collection_id, {
+          id: r.collection_id,
+          name: r.collection_name,
+          lessons: new Map(),
+          total: 0,
+        });
+      }
+      const c = byColl.get(r.collection_id);
+      c.total++;
+      const lk = (r.lesson === null || r.lesson === undefined) ? '__none__' : String(r.lesson);
+      if (!c.lessons.has(lk)) {
+        c.lessons.set(lk, {
+          key: lk,
+          number: r.lesson,
+          title: r.lesson_title || null,
+          count: 0,
+        });
+      }
+      c.lessons.get(lk).count++;
+    }
+
+    const treeEl = document.getElementById('lib-tree');
+    const colls = [...byColl.values()].sort((a, b) => a.id - b.id);
+    let html = `<div class="lib-tree-node selected" data-coll="" data-lesson="">All <span class="lib-tree-count">${manifest.records.length}</span></div>`;
+    for (const c of colls) {
+      html += `<div class="lib-tree-coll">
+        <div class="lib-tree-node lib-tree-coll-name" data-coll="${c.id}" data-lesson="">
+          <span class="lib-tree-arrow">&#9656;</span> ${escapeHtml(c.name || ('Collection ' + c.id))}<span class="lib-tree-count">${c.total}</span>
+        </div>
+        <div class="lib-tree-lessons" style="display:none">`;
+      const lessons = [...c.lessons.values()].sort((a, b) => {
+        if (a.number === null) return 1;
+        if (b.number === null) return -1;
+        return a.number - b.number;
+      });
+      for (const l of lessons) {
+        const label = l.number === null ? '(no lesson)' : ('L' + l.number);
+        const title = l.title ? (' &mdash; ' + escapeHtml(l.title)) : '';
+        html += `<div class="lib-tree-node lib-tree-lesson" data-coll="${c.id}" data-lesson="${l.key}">
+          ${label}${title}<span class="lib-tree-count">${l.count}</span>
+        </div>`;
+      }
+      html += `</div></div>`;
+    }
+    treeEl.innerHTML = html;
+
+    // "All" node
+    treeEl.querySelector('[data-coll=""]').addEventListener('click', () => {
+      selectNode(null, null);
+    });
+    // Collection nodes: toggle expand AND select
+    treeEl.querySelectorAll('.lib-tree-coll-name').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const lessonsEl = el.parentElement.querySelector('.lib-tree-lessons');
+        const arrow = el.querySelector('.lib-tree-arrow');
+        const isOpen = lessonsEl.style.display === 'block';
+        lessonsEl.style.display = isOpen ? 'none' : 'block';
+        arrow.innerHTML = isOpen ? '&#9656;' : '&#9662;';
+        selectNode(parseInt(el.dataset.coll, 10), null);
+      });
+    });
+    // Lesson nodes
+    treeEl.querySelectorAll('.lib-tree-lesson').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectNode(parseInt(el.dataset.coll, 10), el.dataset.lesson);
+      });
+    });
+  }
+
+  function selectNode(collectionId, lessonKey) {
+    state.collectionId = collectionId;
+    state.lessonKey = lessonKey;
+    // Visual selection
+    const treeEl = document.getElementById('lib-tree');
+    treeEl.querySelectorAll('.lib-tree-node').forEach(n => n.classList.remove('selected'));
+    let sel;
+    if (collectionId === null) {
+      sel = treeEl.querySelector('[data-coll=""]');
+    } else if (lessonKey === null) {
+      sel = treeEl.querySelector(`.lib-tree-coll-name[data-coll="${collectionId}"]`);
+    } else {
+      sel = treeEl.querySelector(`.lib-tree-lesson[data-coll="${collectionId}"][data-lesson="${lessonKey}"]`);
+    }
+    if (sel) sel.classList.add('selected');
+    applyFilters();
+  }
+
+  // ---- Filtering ----
+
+  function applyFilters() {
+    if (!manifest) return;
+    let recs = manifest.records;
+
+    if (state.collectionId !== null) {
+      recs = recs.filter(r => r.collection_id === state.collectionId);
+    }
+    if (state.lessonKey !== null) {
+      if (state.lessonKey === '__none__') {
+        recs = recs.filter(r => r.lesson === null || r.lesson === undefined);
+      } else {
+        const n = parseInt(state.lessonKey, 10);
+        recs = recs.filter(r => r.lesson === n);
+      }
+    }
+    if (state.requireThumb) {
+      recs = recs.filter(r => !!r.thumb_path);
+    }
+    for (const k of Object.keys(state.flags)) {
+      if (state.flags[k]) {
+        recs = recs.filter(r => r.features && r.features[k]);
+      }
+    }
+    if (state.search) {
+      const s = state.search;
+      recs = recs.filter(r => {
+        if (r.id && r.id.toLowerCase().includes(s)) return true;
+        if (r.collection_name && r.collection_name.toLowerCase().includes(s)) return true;
+        if (r.lesson_title && r.lesson_title.toLowerCase().includes(s)) return true;
+        if (r.context_before && r.context_before.toLowerCase().includes(s)) return true;
+        if (r.context_after && r.context_after.toLowerCase().includes(s)) return true;
+        if (r.features && r.features.imports) {
+          for (const imp of r.features.imports) {
+            if (imp.toLowerCase().includes(s)) return true;
+          }
+        }
+        return false;
+      });
+    }
+    if (state.sort === 'loc-asc' || state.sort === 'loc-desc') {
+      const dir = state.sort === 'loc-asc' ? 1 : -1;
+      recs = recs.slice().sort((a, b) => {
+        const al = (a.features && a.features.loc) || 0;
+        const bl = (b.features && b.features.loc) || 0;
+        return dir * (al - bl);
+      });
+    }
+    visible = recs;
+    document.getElementById('lib-count').textContent = visible.length + ' diagrams';
+    renderGrid();
+  }
+
+  // ---- Grid rendering with lazy thumbs + infinite scroll ----
+
+  function renderGrid() {
+    const grid = document.getElementById('lib-grid');
+    grid.innerHTML = '';
+    renderedUpTo = 0;
+    if (imgObserver) imgObserver.disconnect();
+    if (sentinelObserver) sentinelObserver.disconnect();
+
+    const gridWrap = document.getElementById('lib-grid-wrap');
+    imgObserver = new IntersectionObserver(onImgIntersect, {
+      root: gridWrap,
+      rootMargin: '300px',
+    });
+
+    if (!visible.length) {
+      grid.innerHTML = '<div class="lib-empty">No diagrams match your filters.</div>';
+      return;
+    }
+    renderMore();
+    setupSentinel();
+  }
+
+  function renderMore() {
+    const grid = document.getElementById('lib-grid');
+    const end = Math.min(renderedUpTo + PAGE_SIZE, visible.length);
+    const frag = document.createDocumentFragment();
+    for (let i = renderedUpTo; i < end; i++) {
+      frag.appendChild(makeCard(visible[i]));
+    }
+    grid.appendChild(frag);
+    renderedUpTo = end;
+    grid.querySelectorAll('img[data-src]:not([data-observed])').forEach(img => {
+      img.dataset.observed = '1';
+      imgObserver.observe(img);
+    });
+  }
+
+  function setupSentinel() {
+    const grid = document.getElementById('lib-grid');
+    let sentinel = document.getElementById('lib-sentinel');
+    if (sentinel) sentinel.remove();
+    if (renderedUpTo >= visible.length) return;
+    sentinel = document.createElement('div');
+    sentinel.id = 'lib-sentinel';
+    grid.parentElement.appendChild(sentinel);
+    const gridWrap = document.getElementById('lib-grid-wrap');
+    sentinelObserver = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) {
+        sentinelObserver.disconnect();
+        renderMore();
+        setupSentinel();
+      }
+    }, { root: gridWrap, rootMargin: '500px' });
+    sentinelObserver.observe(sentinel);
+  }
+
+  function makeCard(rec) {
+    const card = document.createElement('div');
+    card.className = 'lib-card';
+    card.dataset.id = rec.id;
+    if (rec.thumb_path) {
+      const img = document.createElement('img');
+      img.dataset.src = rec.thumb_path;
+      img.alt = rec.id;
+      card.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'lib-no-thumb';
+      ph.textContent = 'no thumb';
+      card.appendChild(ph);
+    }
+    const label = document.createElement('div');
+    label.className = 'lib-card-label';
+    label.textContent = rec.id;
+    const sub = document.createElement('div');
+    sub.className = 'lib-card-sub';
+    const lessonStr = (rec.lesson === null || rec.lesson === undefined)
+      ? '' : (' · L' + rec.lesson);
+    sub.textContent = (rec.collection_name || ('c' + rec.collection_id)) + lessonStr;
+    card.appendChild(label);
+    card.appendChild(sub);
+    card.addEventListener('click', () => openDetail(rec, card));
+    return card;
+  }
+
+  function onImgIntersect(entries) {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const img = e.target;
+      if (img.dataset.src) {
+        img.src = img.dataset.src;
+        delete img.dataset.src;
+        imgObserver.unobserve(img);
+      }
+    }
+  }
+
+  // ---- Detail panel ----
+
+  async function openDetail(rec, cardEl) {
+    currentDetail = rec;
+    document.getElementById('lib-detail').style.display = 'flex';
+    document.getElementById('lib-detail-title').textContent = rec.id;
+
+    // Visual: mark selected card
+    document.querySelectorAll('.lib-card.selected').forEach(c => c.classList.remove('selected'));
+    if (cardEl) cardEl.classList.add('selected');
+
+    const f = rec.features || {};
+    const flagsList = ['has_3d','has_animation','has_axes','has_arrows','has_palette']
+      .filter(k => f[k]);
+    const primitives = f.primitive_counts ? Object.entries(f.primitive_counts)
+      .sort((a,b) => b[1]-a[1])
+      .map(([k,v]) => `${k}×${v}`).join(', ') : '';
+    const colors = (f.pen_colors || []).join(', ');
+    const ctx = (rec.context_before || '') + ' [...] ' + (rec.context_after || '');
+
+    document.getElementById('lib-detail-meta').innerHTML = `
+      <div><b>Course:</b> ${escapeHtml(rec.collection_name || '')} (id ${rec.collection_id})</div>
+      <div><b>Lesson:</b> ${rec.lesson === null || rec.lesson === undefined ? '(none)' : rec.lesson}${rec.lesson_title ? ' &mdash; ' + escapeHtml(rec.lesson_title) : ''}</div>
+      <div><b>Source:</b> ${escapeHtml(rec.source_kind)}${rec.problem_id ? ' (problem ' + rec.problem_id + ')' : ''}</div>
+      <div><b>LOC:</b> ${f.loc != null ? f.loc : '—'}${f.total_lines != null ? ' / ' + f.total_lines + ' total' : ''}</div>
+      <div><b>Imports:</b> ${(f.imports || []).join(', ') || '(none)'}</div>
+      ${primitives ? `<div><b>Primitives:</b> ${escapeHtml(primitives)}</div>` : ''}
+      ${colors ? `<div><b>Colors:</b> ${escapeHtml(colors)}</div>` : ''}
+      ${flagsList.length ? `<div><b>Flags:</b> ${flagsList.join(', ')}</div>` : ''}
+      ${(rec.context_before || rec.context_after) ? `<div class="lib-detail-context">${escapeHtml(ctx)}</div>` : ''}
+    `;
+
+    const img = document.getElementById('lib-detail-img');
+    if (rec.thumb_path) {
+      img.src = rec.thumb_path;
+      img.style.display = '';
+    } else {
+      img.removeAttribute('src');
+      img.style.display = 'none';
+    }
+
+    const sourcePre = document.getElementById('lib-detail-source');
+    sourcePre.textContent = 'Loading source...';
+    try {
+      const res = await fetch(rec.asy_path);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      sourcePre.textContent = await res.text();
+    } catch (e) {
+      sourcePre.textContent = '(failed to load ' + rec.asy_path + ': ' + e.message + ')';
+    }
+  }
+
+  function closeDetail() {
+    document.getElementById('lib-detail').style.display = 'none';
+    document.querySelectorAll('.lib-card.selected').forEach(c => c.classList.remove('selected'));
+    currentDetail = null;
+  }
+
+  async function loadIntoEditor() {
+    if (!currentDetail) return;
+    try {
+      const res = await fetch(currentDetail.asy_path);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const src = await res.text();
+      const wrapped = '[asy]\n' + src + '\n[/asy]';
+      if (typeof editor !== 'undefined' && editor && typeof editor.setValue === 'function') {
+        editor.setValue(wrapped);
+      } else {
+        alert('Editor not ready');
+        return;
+      }
+      closeLibrary();
+    } catch (e) {
+      alert('Failed to load source: ' + e.message);
+    }
+  }
+
+  // ---- Utility ----
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
 <div id="cursor-coords-tooltip"></div>
 </body>
 </html>

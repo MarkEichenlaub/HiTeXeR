@@ -24321,9 +24321,12 @@ function renderSVG(result, opts) {
         if (scaleY > 0 && Math.abs(scaleX / scaleY - 1) > 0.01) {
           labelHorizStretch = scaleX / scaleY;
         }
+        // Detect reflection: negative determinant indicates a reflection transform
+        const det = lt.b * lt.f - lt.c * lt.e;
+        const hasReflection = det < -0.01;
         // Extract rotation angle from transform matrix
         const angle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
-        if (Math.abs(angle) > 0.1) {
+        if (Math.abs(angle) > 0.1 || hasReflection) {
           // For aligned rotated labels: recompute dx/dy using the rotated bounding box so
           // the label center is correctly offset from the anchor.  Asymptote positions the
           // label with its NW (for SE align) corner at the anchor point, using the axis-
@@ -24390,11 +24393,23 @@ function renderSVG(result, opts) {
           if (dc.screenDy) dy += dc.screenDy * bpCSSPixel;
           // Include horizontal stretch if present (rotation + xscale combined)
           const px = sx + dx, py = sy + dy;
+          // Build transform: for reflection, include scale(1,-1); for rotation, include rotate
+          // For shift: translate by (lt.a, lt.d) in bp → SVG viewBox units via bpCSSPixel
+          // (Label transforms like shift() use PostScript point coordinates, not user units)
+          // SVG transforms are applied right-to-left, so: outer-translate → shift → rotate → reflect → inner-translate
+          const reflectScale = hasReflection ? 'scale(1, -1) ' : '';
+          const rotateStr = Math.abs(angle) > 0.1 ? `rotate(${fmt(-angle)}) ` : '';
+          // Shift translation in SVG units (applied after rotate/reflect in Asymptote order)
+          const shiftTx = lt.a * bpCSSPixel;
+          const shiftTy = -lt.d * bpCSSPixel; // Y inverted in SVG
+          const hasShift = Math.abs(lt.a) > 0.01 || Math.abs(lt.d) > 0.01;
+          const shiftStr = hasShift ? `translate(${fmt(shiftTx)}, ${fmt(shiftTy)}) ` : '';
           if (Math.abs(labelHorizStretch - 1) > 0.01) {
-            // Rotation + horizontal stretch: scale then rotate around the label position
-            labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) rotate(${fmt(-angle)}) scale(${fmt(labelHorizStretch)}, 1) translate(${fmt(-px)}, ${fmt(-py)})"`;
-          } else {
-            labelTransformAttr = ` transform="rotate(${fmt(-angle)}, ${fmt(px)}, ${fmt(py)})"`;
+            // Rotation + horizontal stretch + possible reflection + possible shift
+            labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) ${shiftStr}${rotateStr}${reflectScale}scale(${fmt(labelHorizStretch)}, 1) translate(${fmt(-px)}, ${fmt(-py)})"`;
+          } else if (hasReflection || Math.abs(angle) > 0.1 || hasShift) {
+            // Rotation and/or reflection and/or shift around the label position
+            labelTransformAttr = ` transform="translate(${fmt(px)}, ${fmt(py)}) ${shiftStr}${rotateStr}${reflectScale}translate(${fmt(-px)}, ${fmt(-py)})"`;
           }
           // With rotation, text-anchor must be 'middle' so the label is centered at the
           // anchor point. 'end'/'start' causes text to extend off-screen after rotation.
@@ -26345,7 +26360,9 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       parts.push({type:'bigop', sym: seg.sym, sub: seg.sub || '', sup: seg.sup || '', opFs, limFs, width: w});
       totalWidth += w;
     } else if (seg.type === 'underbrace' || seg.type === 'overbrace') {
-      const braceW = seg.width || fontSize * 8;
+      // seg.width is in pt (from \hspace{...cm}); convert to viewBox units using fontSize ratio
+      // fontSize is in viewBox units representing 10pt, so scale = fontSize/10
+      const braceW = seg.width ? seg.width * (fontSize / 10) : fontSize * 8;
       const labelText = stripLaTeX(seg.label || '');
       parts.push({type: seg.type, braceW, labelText, width: braceW});
       totalWidth += braceW;
