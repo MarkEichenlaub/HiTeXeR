@@ -10809,15 +10809,20 @@ function createInterpreter() {
           const b = Math.floor(max);
           if (b > a) {
             const divs = _tickDivisors(a, b);
-            // Pick largest divisor count that doesn't overcrowd
-            // Asymptote targets roughly 4-8 major ticks
+            // Pick divisor count closest to 5 (targeting 5-6 major ticks like
+            // TeXeR reference renders). Previously picked the largest N in
+            // [2,10] which gave too many ticks for large ranges (08635: N=10
+            // instead of N=5).
             step = (b - a);
             let stepFound = false;
-            for (let i = divs.length - 1; i >= 0; i--) {
-              const N = divs[i];
-              const s = (b - a) / N;
-              if (N >= 2 && N <= 10) { step = s; stepFound = true; break; }
+            let bestN = 0, bestDist = Infinity;
+            for (const N of divs) {
+              if (N >= 3 && N <= 8) {
+                const dist = Math.abs(N - 5);
+                if (dist < bestDist) { bestDist = dist; bestN = N; }
+              }
             }
+            if (bestN > 0) { step = (b - a) / bestN; stepFound = true; }
             // Fallback: when (b-a) has no divisor giving 2..10 major ticks
             // (e.g. b-a is a large prime like 11 or 13), don't degenerate to
             // step=range (one tick at each end). Use the same nice-step
@@ -11607,6 +11612,9 @@ function createInterpreter() {
         }
         // Store content range for later symmetric-extension check
         _contentYmin = cMinY; _contentYmax = cMaxY;
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
+          try { process.stderr.write('[yaxis-range] cMinY=' + cMinY.toFixed(2) + ' cMaxY=' + cMaxY.toFixed(2) + ' cmdCount=' + pic.commands.length + '\n'); } catch(e){}
+        }
         if (ymin === null) { ymin = isFinite(cMinY) ? cMinY : -5; _yminFromContent = isFinite(cMinY); }
         if (ymax === null) { ymax = isFinite(cMaxY) ? cMaxY : 5; _ymaxFromContent = isFinite(cMaxY); }
         // Asymptote autoscale: round content-derived y limits outward to nice
@@ -11671,7 +11679,13 @@ function createInterpreter() {
           // idiom): the local ymin extension flows into _drawTicks and
           // produces an extra gridline below user y=0 (e.g. diagram 8812).
           const _hasImageCellsLB = pic.commands.some(c2 => c2 && c2._imageCell && !c2._paletteLegend);
-          if (!_hasImageCellsLB && !isInvisible && !yminExplicit && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
+          // Skip label-below-extension for IgnoreAspect diagrams with extreme
+          // y-ranges: the small bpPerUserY makes the extension in user units
+          // huge (e.g., 6bp label clearance → 300 user units when yRange=10000
+          // and sizeH=200). This breaks tick spacing for plots like 08635 where
+          // the y-axis should stay at 0..10000, not extend to -300..10000.
+          const _skipLabelExtY = (typeof keepAspect !== 'undefined') && !keepAspect;
+          if (!_hasImageCellsLB && !isInvisible && !yminExplicit && !_skipLabelExtY && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
             const ay = c._axisLabelBelowAy;
             const fs = c._axisLabelFontSize || 10;
             const ignoreAspect = (typeof keepAspect !== 'undefined') && !keepAspect;
@@ -21980,6 +21994,9 @@ function renderSVG(result, opts) {
     } else {
       pxPerUnitX = pxPerUnitY = pxPerUnit;
     }
+    if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
+      try { process.stderr.write('[pxPerUnit-post] _isIgnoreAspect=' + _isIgnoreAspect + ' sizeW=' + sizeW.toFixed(2) + ' sizeH=' + sizeH.toFixed(2) + ' _geoRefW=' + _geoRefW.toFixed(2) + ' _geoRefH=' + _geoRefH.toFixed(2) + ' pxPerUnitX=' + pxPerUnitX.toFixed(4) + ' pxPerUnitY=' + pxPerUnitY.toFixed(4) + '\n'); } catch(e){}
+    }
     // Minimum-size floor: when size() is very small (e.g. size(1.6cm)), real
     // Asymptote/TeXeR still renders geometry at a readable scale alongside
     // truesize labels — the tiny size() effectively acts as a "preferred" but
@@ -22174,8 +22191,18 @@ function renderSVG(result, opts) {
   // and y-tick labels like "1.1×10⁸" needs to shrink the plot width so the
   // labels fit, producing roughly square gridlines).
   const isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
+  // For IgnoreAspect with extreme geometry aspect ratios (e.g., 08635:
+  // x=[1,100], y=[1,10000], aspect ~100:1), skip the iterative solver's width
+  // shrinking. The solver sees Y-axis labels as extending the "width" bbox
+  // and shrinks pxPerUnitX to fit them, but those labels should extend
+  // OUTSIDE the size(W,H) box, not shrink the plot. Real Asymptote/TeXeR
+  // renders such diagrams at exactly size(W,H) with labels outside.
+  const _geoAspectExtremeForSolver = isIgnoreAspect && (
+    (geoMaxY - geoMinY) / ((geoMaxX - geoMinX) || 1) > 10 ||
+    (geoMaxX - geoMinX) / ((geoMaxY - geoMinY) || 1) > 10
+  );
   let labelShrinkFactor = 1;
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_geoAspectExtremeForSolver) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
@@ -22470,7 +22497,15 @@ function renderSVG(result, opts) {
             if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
               console.error(`[tick-clear-pre] preMinX=${minPxX.toFixed(4)} preMinY=${minPxY.toExponential(3)} gapTrigX=${gapTriggeredX} gapTrigY=${gapTriggeredY}`);
             }
-            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY)) {
+            // Skip square-cell coupling when geometry has extreme aspect ratio
+            // (e.g., x: 0-100, y: 0-10000). In such cases, the axes are
+            // inherently anisotropic and forcing square cells would distort
+            // the intended IgnoreAspect output (08635).
+            const _geoW2 = (geoMaxX - geoMinX) || 1;
+            const _geoH2 = (geoMaxY - geoMinY) || 1;
+            const _geoAspect = (_geoH2 / _geoW2);
+            const _skipSquareCells = _geoAspect > 5 || _geoAspect < 0.2;
+            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_skipSquareCells) {
               const targetXPx = Math.max(pxPerUnitX, minPxX);
               const targetYPx = Math.max(pxPerUnitY, minPxY);
               const xCellBp = xStepBp * targetXPx;
@@ -22811,6 +22846,9 @@ function renderSVG(result, opts) {
   const naturalH = _isIgnoreAspect2
     ? (geoMaxY - geoMinY) * pxPerUnitY
     : (maxY - minY) * pxPerUnitY;
+  if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
+    try { process.stderr.write('[naturalWH] _isIgnoreAspect2=' + _isIgnoreAspect2 + ' geoW=' + (geoMaxX-geoMinX).toFixed(2) + ' geoH=' + (geoMaxY-geoMinY).toFixed(2) + ' pxPerUnitX=' + pxPerUnitX.toFixed(4) + ' pxPerUnitY=' + pxPerUnitY.toFixed(4) + ' naturalW=' + naturalW.toFixed(2) + ' naturalH=' + naturalH.toFixed(2) + '\n'); } catch(e){}
+  }
 
   // Apply explicit size() if given (sizes are in bp = 1/72 inch).
   // When only one dimension is constrained, scale the other to maintain
