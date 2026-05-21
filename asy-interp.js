@@ -23174,7 +23174,13 @@ function renderSVG(result, opts) {
       // extend beyond the solver-computed geometry, so we still need to pad the
       // viewBox for them. Rotated labels (labelTransform) can extend diagonally
       // past the geometry bbox (e.g. 05918 rotated SW-aligned labels).
-      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform) continue;
+      // Also exception: labels with E/W alignment at the edge of the geometry
+      // (e.g. 08635: label at x=xmax with E alignment) extend past the viewBox.
+      const extendsHoriz = dc.align && (
+        (dc.align.x > 0 && sx > viewW * 0.9) ||  // E-aligned near right edge
+        (dc.align.x < 0 && sx < viewW * 0.1)      // W-aligned near left edge
+      );
+      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
