@@ -16837,26 +16837,30 @@ function createInterpreter() {
     // the diffusepen (named arg or first positional pen) so surfaces picked up
     // from `draw(surface, M)` shade from the intended diffuse color rather than
     // defaulting to black.
-    // Additionally, capture the emissive pen so the renderer can add its contribution
-    // as a base floor (emissive surfaces self-illuminate regardless of lighting).
+    // Additionally, capture the emissive and ambient pens so the renderer can use them:
+    // - emissive: base floor (emissive surfaces self-illuminate regardless of lighting)
+    // - ambient: scales the ambient floor in shadows (black ambient = darker shadows)
     env.set('material', (...args) => {
       let diffuse = null;
+      let ambient = null;
       let emissive = null;
       // First check for named arguments
       for (const a of args) {
         if (a && typeof a === 'object' && a._named) {
           if (a.diffusepen && isPen(a.diffusepen)) diffuse = a.diffusepen;
+          if (a.ambientpen && isPen(a.ambientpen)) ambient = a.ambientpen;
           if (a.emissivepen && isPen(a.emissivepen)) emissive = a.emissivepen;
         }
       }
       // Fallback: positional pens are (diffuse, ambient, emissive, specular) in order
-      if (!diffuse || !emissive) {
+      if (!diffuse || !ambient || !emissive) {
         const pens = args.filter(a => isPen(a));
         if (!diffuse && pens.length >= 1) diffuse = pens[0];
-        // pens[1] would be ambient (ignored for now)
+        if (!ambient && pens.length >= 2) ambient = pens[1];
         if (!emissive && pens.length >= 3) emissive = pens[2];
       }
       const result = diffuse ? clonePen(diffuse) : makePen({});
+      if (ambient) result._ambientPen = ambient;
       if (emissive) result._emissivePen = emissive;
       return result;
     });
@@ -20383,7 +20387,13 @@ function createInterpreter() {
       }
       // Lower ambient floor (0.18) allows darker shadows for open surfaces like
       // paraboloid bowls (03592) to match TeXeR's deeper shading gradient.
-      let intensity = nolight ? 1.0 : (0.18 + 0.82 * dot);
+      // When the material has an _ambientPen, use its brightness to scale the
+      // ambient floor: black ambient = 0 floor (pure shadow), white = 0.18.
+      const penForAmbient = face.pen || basePen;
+      const ambPen = penForAmbient._ambientPen;
+      const ambBright = ambPen ? ((ambPen.r || 0) + (ambPen.g || 0) + (ambPen.b || 0)) / 3 : 1;
+      const ambientFloor = 0.18 * ambBright;
+      let intensity = nolight ? 1.0 : (ambientFloor + (1 - ambientFloor) * dot);
       let specular = 0;
       // Phong-style specular highlight for sphere meshes (mesh has
       // _sphereCenter/_sphereRadius). Use the face centroid → sphere-center
