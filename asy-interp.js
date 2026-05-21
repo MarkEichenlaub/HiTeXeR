@@ -8834,21 +8834,34 @@ function createInterpreter() {
       // 2D path × path
       p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
-      const pts = [];
-      for (const s1 of p1.segs) {
+      const ptsWithT = [];
+      for (let segIdx = 0; segIdx < p1.segs.length; segIdx++) {
+        const s1 = p1.segs[segIdx];
         for (const s2 of p2.segs) {
           const ips = bezierBezierAllIntersections(s1, s2);
           for (const ip of ips) {
+            // Compute approximate t along segment s1 for sorting
+            // For linear: t = projection onto line segment
+            const dx = s1.p3.x - s1.p0.x, dy = s1.p3.y - s1.p0.y;
+            const len2 = dx*dx + dy*dy;
+            let t = 0;
+            if (len2 > 1e-12) {
+              t = ((ip.x - s1.p0.x)*dx + (ip.y - s1.p0.y)*dy) / len2;
+            }
+            // Global time = segment index + t within segment
+            const globalT = segIdx + Math.max(0, Math.min(1, t));
             // Deduplicate across segments
             let dup = false;
-            for (const p of pts) {
-              if (Math.abs(p.x - ip.x) < 0.001 && Math.abs(p.y - ip.y) < 0.001) { dup = true; break; }
+            for (const p of ptsWithT) {
+              if (Math.abs(p.pt.x - ip.x) < 0.001 && Math.abs(p.pt.y - ip.y) < 0.001) { dup = true; break; }
             }
-            if (!dup) pts.push(ip);
+            if (!dup) ptsWithT.push({pt: ip, t: globalT});
           }
         }
       }
-      return pts;
+      // Sort by position along first path
+      ptsWithT.sort((a, b) => a.t - b.t);
+      return ptsWithT.map(x => x.pt);
     });
 
     // Aliases for intersectionpoint(s) — cse5/olympiad shorthand
@@ -13346,6 +13359,80 @@ function createInterpreter() {
           results.push(makePoint(cs, cs.defaultToRelative(makePair(mx-h*dy/d, my+h*dx/d)), 1));
         }
         return results;
+      }
+      // path + geoCircle intersection: sample path and find circle crossings
+      if (circles.length >= 1 && glines.length === 0) {
+        const paths = args.filter(a => isPath(a));
+        if (paths.length >= 1) {
+          const circ = circles[0];
+          const thePath = paths[0];
+          const C = toPair(circ.C), r = circ.r;
+          const results = [];
+          const cs = env.get('currentcoordsys') || defaultCS;
+          for (const seg of thePath.segs) {
+            if (seg._linear) {
+              const ax = seg.p0.x, ay = seg.p0.y;
+              const bx = seg.p3.x, by = seg.p3.y;
+              const dx = bx - ax, dy = by - ay;
+              const fx = ax - C.x, fy = ay - C.y;
+              const qa = dx*dx + dy*dy;
+              const qb = 2*(fx*dx + fy*dy);
+              const qc = fx*fx + fy*fy - r*r;
+              const disc = qb*qb - 4*qa*qc;
+              if (disc >= 0 && qa > 1e-12) {
+                const sqrtD = Math.sqrt(disc);
+                for (const t of [(-qb - sqrtD)/(2*qa), (-qb + sqrtD)/(2*qa)]) {
+                  if (t >= -1e-9 && t <= 1 + 1e-9) {
+                    const ix = ax + t*dx, iy = ay + t*dy;
+                    let dup = false;
+                    for (const rr of results) {
+                      if (Math.abs(rr.x - ix) < 0.001 && Math.abs(rr.y - iy) < 0.001) { dup = true; break; }
+                    }
+                    if (!dup) {
+                      results.push(makePoint(cs, cs.defaultToRelative(makePair(ix, iy)), 1));
+                    }
+                  }
+                }
+              }
+            } else {
+              const N = 64;
+              let prevPt = seg.p0;
+              let prevDist = Math.sqrt((prevPt.x-C.x)*(prevPt.x-C.x)+(prevPt.y-C.y)*(prevPt.y-C.y)) - r;
+              for (let i = 1; i <= N; i++) {
+                const t = i / N, u = 1 - t;
+                const px = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+                const py = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+                const curDist = Math.sqrt((px-C.x)*(px-C.x)+(py-C.y)*(py-C.y)) - r;
+                if ((prevDist >= 0 && curDist <= 0) || (prevDist <= 0 && curDist >= 0)) {
+                  let lo = (i-1)/N, hi = i/N;
+                  for (let iter = 0; iter < 12; iter++) {
+                    const mid = (lo + hi) / 2;
+                    const um = 1 - mid;
+                    const mx = um*um*um*seg.p0.x + 3*um*um*mid*seg.cp1.x + 3*um*mid*mid*seg.cp2.x + mid*mid*mid*seg.p3.x;
+                    const my = um*um*um*seg.p0.y + 3*um*um*mid*seg.cp1.y + 3*um*mid*mid*seg.cp2.y + mid*mid*mid*seg.p3.y;
+                    const md = Math.sqrt((mx-C.x)*(mx-C.x)+(my-C.y)*(my-C.y)) - r;
+                    if ((prevDist >= 0 && md >= 0) || (prevDist <= 0 && md <= 0)) lo = mid;
+                    else hi = mid;
+                  }
+                  const fm = (lo + hi) / 2;
+                  const um = 1 - fm;
+                  const ix = um*um*um*seg.p0.x + 3*um*um*fm*seg.cp1.x + 3*um*fm*fm*seg.cp2.x + fm*fm*fm*seg.p3.x;
+                  const iy = um*um*um*seg.p0.y + 3*um*um*fm*seg.cp1.y + 3*um*fm*fm*seg.cp2.y + fm*fm*fm*seg.p3.y;
+                  let dup = false;
+                  for (const rr of results) {
+                    if (Math.abs(rr.x - ix) < 0.001 && Math.abs(rr.y - iy) < 0.001) { dup = true; break; }
+                  }
+                  if (!dup) {
+                    results.push(makePoint(cs, cs.defaultToRelative(makePair(ix, iy)), 1));
+                  }
+                }
+                prevPt = {x: px, y: py};
+                prevDist = curDist;
+              }
+            }
+          }
+          return results;
+        }
       }
       // geoline + path (arc) intersection: sample path and find line crossings
       if (glines.length >= 1) {
