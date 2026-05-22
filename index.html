@@ -577,7 +577,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.24</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.25</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2994,6 +2994,7 @@ async function doRender() {
         if (previewEl.querySelector('svg:not([data-perm])')) {
           showStaleBadge(true);
           statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+          if (labelSlideActive) applyLabelSlideOverlay();
           return;
         }
       }
@@ -3020,6 +3021,7 @@ async function doRender() {
         if (previewEl.querySelector('svg:not([data-perm])')) {
           showStaleBadge(true);
           statusEl.textContent = 'Showing last valid render'; statusEl.style.color = '#e9c46a';
+          if (labelSlideActive) applyLabelSlideOverlay();
         } else {
           // No previous SVG — show error (preserve badges)
           const oldSvg2 = previewEl.querySelector('svg:not([data-perm])');
@@ -5941,7 +5943,9 @@ document.addEventListener('DOMContentLoaded', () => {
       new RegExp(adjName + '\\s*=\\s*\\([^)]*\\)'),
       adjName + ' = (' + fmt(curX + dir[0] * step) + ', ' + fmt(curY + dir[1] * step) + ')'
     );
+    suppressAutoRender = true;
     editorReplaceFull(newCode, '+lbl-key-' + adjName);
+    suppressAutoRender = false;
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
       try {
         const previewEl = document.getElementById('preview-container');
@@ -5958,7 +5962,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       } catch (err) { /* fall through */ }
     }
-    scheduleAutoRender();
+    doRender().then(() => probeReady).then(() => { if (labelSlideActive) applyLabelSlideOverlay(); });
   }
 
   function labelSlideMouseDown(e) {
