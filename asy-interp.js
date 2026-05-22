@@ -21518,8 +21518,14 @@ function renderSVG(result, opts) {
       // to overflow on that axis without shrinking geometry to fit. Otherwise
       // (e.g. 08989 with size(80, 0) and fontsize(25)), labels growing fullH
       // would feed back into pxPerUnit, collapsing geometry to a tiny strip.
+      // Only trigger label-dominated mode when labels TRULY dominate (3x or more).
+      // At 1.5x, moderately-sized labels on diagrams like unit circles with
+      // coordinate labels trigger the mode, causing feedback that shrinks
+      // geometry to near-invisible sizes (02824 regression). TeXeR keeps
+      // geometry at size() scale and lets labels overflow; only when labels
+      // are vastly larger than geometry does it shrink geometry to fit both.
       _labelDominated = labelPass > 0 && sizeW > 0 && sizeH > 0 &&
-        ((fullW / geoW >= 1.5) || (fullH / geoH >= 1.5));
+        ((fullW / geoW >= 3.0) || (fullH / geoH >= 3.0));
       const refW = _labelDominated ? fullW : geoW;
       const refH = _labelDominated ? fullH : geoH;
       const tW = sizeW > 0 ? sizeW : Infinity;

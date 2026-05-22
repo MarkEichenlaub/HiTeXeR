@@ -231,6 +231,37 @@ function resetHard(commit) {
   }
 }
 
+// Sync local HEAD to origin/master at the start of each iteration so that UI
+// commits pushed externally (fix buttons, pagination fixes, etc.) are always
+// present before preCommit is captured.  Uses reset --hard rather than pull so
+// dirty tracked files (enqueue-history, queue, fix-history) don't block it.
+function syncToOrigin() {
+  const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+  let savedQueue = null;
+  try { savedQueue = fs.readFileSync(queuePath, 'utf8'); } catch {}
+
+  const fetch = sh('git fetch origin master');
+  if (fetch.code !== 0) {
+    console.warn('[run-loop] syncToOrigin: fetch failed, skipping sync');
+    return;
+  }
+  const localHash  = headCommitHash();
+  const remoteHash = sh('git rev-parse origin/master').stdout.trim();
+  if (localHash === remoteHash) return; // already in sync
+
+  // Only fast-forward (never reset behind origin/master).
+  const isBehind = sh('git merge-base --is-ancestor ' + localHash + ' ' + remoteHash).code === 0;
+  if (!isBehind) {
+    console.warn('[run-loop] syncToOrigin: local is ahead of or diverged from origin, skipping sync');
+    return;
+  }
+  console.log('[run-loop] syncToOrigin: advancing ' + localHash.slice(0,8) + ' -> ' + remoteHash.slice(0,8));
+  sh('git reset --hard origin/master');
+  if (savedQueue !== null) {
+    try { fs.writeFileSync(queuePath, savedQueue); } catch {}
+  }
+}
+
 function readVersion() {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const m = html.match(/<h1>HiTeXeR\s*<span[^>]*>v(\d+\.\d+)<\/span>/);
@@ -773,6 +804,9 @@ async function runIteration(args, iter) {
                   ') for ' + target.id + ' — sub-agent will likely log error; continuing');
     }
   }
+
+  // Pull any remotely-pushed commits (UI fixes, etc.) before locking in preCommit.
+  syncToOrigin();
 
   const preVersion = readVersion();
   const preCommit  = headCommitHash();
