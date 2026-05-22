@@ -22,12 +22,18 @@ const RUN_LOOP_PID_FILE    = path.join(ROOT, 'auto-fix', '.run-loop-pid');
 const ENQUEUE_HISTORY_PATH = path.join(ROOT, 'auto-fix', 'enqueue-history.jsonl');
 const FIX_SNAPSHOTS_DIR    = path.join(ROOT, 'auto-fix', 'fix-snapshots');
 const DROPLIST_PATH        = path.join(ROOT, 'auto-fix', 'droplist.json');
+const EXCLUDE_LOG_PATH     = path.join(ROOT, 'auto-fix', 'exclude-history.jsonl');
 
 function readDroplist() {
   try { return JSON.parse(fs.readFileSync(DROPLIST_PATH, 'utf8')); } catch { return []; }
 }
 function writeDroplist(ids) {
   fs.writeFileSync(DROPLIST_PATH, JSON.stringify(ids, null, 2));
+}
+function logExclude(id) {
+  // Append-only exclude log — survives droplist.json loss; used to reconstruct it.
+  const entry = JSON.stringify({ ts: new Date().toISOString(), id, snapshot: readDroplist() });
+  try { fs.appendFileSync(EXCLUDE_LOG_PATH, entry + '\n'); } catch {}
 }
 
 // Returns true if a run-loop process is currently live.
@@ -381,7 +387,7 @@ const server = http.createServer((req, res) => {
         const { id } = JSON.parse(body);
         if (!id) throw new Error('Missing id');
         const ids = readDroplist();
-        if (!ids.includes(id)) { ids.push(id); writeDroplist(ids); }
+        if (!ids.includes(id)) { ids.push(id); writeDroplist(ids); logExclude(id); }
         // Remove from queue too
         const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
         try {
@@ -581,6 +587,22 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Hitexer directory: ${ROOT}`);
   console.log('Click "Fix" on any comparator card to launch a claude session.');
   console.log('Press Ctrl+C to stop.\n');
+
+  // If droplist.json is missing, reconstruct it from exclude-history.jsonl.
+  if (!fs.existsSync(DROPLIST_PATH) && fs.existsSync(EXCLUDE_LOG_PATH)) {
+    try {
+      const lines = fs.readFileSync(EXCLUDE_LOG_PATH, 'utf8').split('\n').filter(Boolean);
+      if (lines.length > 0) {
+        const last = JSON.parse(lines[lines.length - 1]);
+        if (Array.isArray(last.snapshot)) {
+          writeDroplist(last.snapshot);
+          console.log(`[fix-server] droplist.json reconstructed from exclude-history (${last.snapshot.length} entries)`);
+        }
+      }
+    } catch (e) {
+      console.error('[fix-server] droplist reconstruction failed:', e.message);
+    }
+  }
 
   // Regenerate blink-manifest.json on startup so excluded diagrams (droplist.json)
   // are reflected even if blink-manifest.json was reset by git reset --hard.
