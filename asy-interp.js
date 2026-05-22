@@ -10929,16 +10929,7 @@ function createInterpreter() {
         // 0 (auto), it auto-picks sub-divisions per major interval. Mirror
         // this only for "nice" auto-picked major steps so we don't introduce
         // minor ticks where users gave an explicit non-multiple major step.
-        let effSubStep = ticks.subStep;
-        if (effSubStep <= 0 && ticks.step <= 0 && !ticks.positions) {
-          // Mantissa of step (ignoring power-of-10 magnitude)
-          const _mag = Math.pow(10, Math.floor(Math.log10(step)));
-          const _f = step / _mag;
-          if (Math.abs(_f - 2) < 1e-6) effSubStep = step / 2;       // step=2 → sub at every 1
-          else if (Math.abs(_f - 5) < 1e-6) effSubStep = step / 5;  // step=5 → sub at every 1
-          else if (Math.abs(_f - 1) < 1e-6) effSubStep = step / 2;  // step=1 → sub at every 0.5
-          else if (Math.abs(_f - 10) < 1e-6) effSubStep = step / 2; // step=10 → sub at every 5
-        }
+        const effSubStep = ticks.subStep;
         const subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
         if (subN > 1) {
           const subStep = step / subN;
@@ -20079,7 +20070,15 @@ function createInterpreter() {
     // that KaTeX/MathJax flag as an error (rendered red).  Replace with a
     // single space so the macro is terminated and the trailing letters
     // print, matching the TeX reference.
+    // FIRST: recover corrupted \t-escape Greek letters where \theta became
+    // TAB+"heta", \tau became TAB+"au", etc.  These must be fixed BEFORE
+    // the generic TAB→space fallback so they render as the intended symbol.
     if (typeof text === 'string' && text.indexOf('\t') !== -1) {
+      text = text.replace(/\theta\b/g, '\\theta');
+      text = text.replace(/\tau\b/g, '\\tau');
+      text = text.replace(/\times\b/g, '\\times');
+      text = text.replace(/\triangle\b/g, '\\triangle');
+      // Generic fallback for any remaining TABs
       text = text.replace(/\t/g, ' ');
     }
 
@@ -26423,6 +26422,17 @@ function stripLaTeXPreserveScripts(text) {
 function stripLaTeX(text) {
   if (!text) return '';
   let s = text;
+  // Recover corrupted \t-escape Greek letters: Asymptote string literals
+  // containing "\theta" get \t converted to a literal TAB, leaving TAB+"heta".
+  // Recover these BEFORE removing $ delimiters so they can be mapped properly.
+  if (s.indexOf('\t') !== -1) {
+    s = s.replace(/\theta\b/g, '\\theta');
+    s = s.replace(/\tau\b/g, '\\tau');
+    s = s.replace(/\times\b/g, '\\times');
+    s = s.replace(/\triangle\b/g, '\\triangle');
+    // Generic fallback for any remaining TABs (e.g. \cos<TAB>heta → \cos heta)
+    s = s.replace(/\t/g, ' ');
+  }
   // Remove $ delimiters
   s = s.replace(/\$/g, '');
   // Handle ^\circ and ^{\circ} → degree symbol (°) before \circ → ∘ mapping
