@@ -16879,9 +16879,7 @@ function createInterpreter() {
     env.set('paleyellow',  mkPalePen(1.0, 1.0, 0.75));
 
     // texpath(label|string) — produces path outline of rasterized TeX output.
-    // Approximation: return a single rectangle path whose width/height are crude
-    // estimates from the string length, so extrude(texpath(...)) still produces
-    // some visible geometry instead of nothing.
+    // Uses MathJax to extract real glyph paths when available.
     env.set('texpath', (...args) => {
       let s = '';
       for (const a of args) {
@@ -16889,10 +16887,13 @@ function createInterpreter() {
         if (a && a._tag === 'Label' && typeof a.text === 'string') { s = a.text; break; }
       }
       if (!s) return [makePath([], false)];
-      // Strip common LaTeX math / formatting markers for a rough length
+      // Try MathJax path extraction
+      const mjxPaths = _texpathViaMathJax(s);
+      if (mjxPaths && mjxPaths.length > 0) return mjxPaths;
+      // Fallback: rectangle approximation
       const core = s.replace(/\$|\\displaystyle|\\text[a-z]*|\\mathrm|\\mathbf|\\hbox|\\emph|\\tt|\\frac|\\sqrt|\\pi|\\alpha|\\infty|\\,|\\\\|[{}_^\\]/g, '');
       const len = Math.max(1, core.length);
-      const w = 0.35 * len; // approximate em-width per character
+      const w = 0.35 * len;
       const h = 1.0;
       const rect = makePath([
         lineSegment(makePair(0, 0), makePair(w, 0)),
@@ -25937,6 +25938,124 @@ function _ensureMathJax() {
     _mjxState = { unavailable: true };
     return null;
   }
+}
+
+// Extract glyph paths from MathJax SVG output for texpath().
+// MathJax structure: <defs> contain <path id="..." d="...">, and <use> elements
+// inside nested <g transform="translate(x,y)"> reference those paths.
+function _texpathViaMathJax(rawText) {
+  const state = _ensureMathJax();
+  if (!state) return null;
+  let math = (rawText || '').trim();
+  if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
+  if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
+  math = preprocessLatexForKatex(math);
+  if (!math) return null;
+  let html;
+  try {
+    const node = state.doc.convert(math, { display: false, em: 16, ex: 8, containerWidth: 1280 });
+    html = state.adaptor.outerHTML(node);
+  } catch (e) { return null; }
+  const mOuter = html.match(/<svg([^>]*)>([\s\S]*)<\/svg>/);
+  if (!mOuter) return null;
+  const inner = mOuter[2];
+  // Build map of path defs: id -> d attribute
+  const defPaths = new Map();
+  const pathRe = /<path[^>]+id="([^"]+)"[^>]+d="([^"]+)"|<path[^>]+d="([^"]+)"[^>]+id="([^"]+)"/g;
+  let pm;
+  while ((pm = pathRe.exec(inner)) !== null) {
+    const id = pm[1] || pm[4], d = pm[2] || pm[3];
+    if (id && d) defPaths.set(id, d);
+  }
+  if (defPaths.size === 0) return null;
+  // Parse SVG structure to find <use> elements with their accumulated transforms
+  const usages = [];
+  const gStack = [{tx:0, ty:0, sx:1, sy:1}];
+  const tagRe = /<(\/?)(g|use)([^>]*)>/g;
+  while ((pm = tagRe.exec(inner)) !== null) {
+    const isClose = pm[1] === '/';
+    const tag = pm[2];
+    const attrs = pm[3];
+    if (tag === 'g') {
+      if (isClose) {
+        if (gStack.length > 1) gStack.pop();
+      } else {
+        const parent = gStack[gStack.length - 1];
+        let localTx = 0, localTy = 0, localSx = 1, localSy = 1;
+        const transM = attrs.match(/transform="([^"]+)"/);
+        if (transM) {
+          const tr = transM[1];
+          const translateM = tr.match(/translate\(([-\d.]+)(?:[,\s]+([-\d.]+))?\)/);
+          if (translateM) { localTx = parseFloat(translateM[1])||0; localTy = parseFloat(translateM[2])||0; }
+          const scaleM = tr.match(/scale\(([-\d.]+)(?:[,\s]+([-\d.]+))?\)/);
+          if (scaleM) { localSx = parseFloat(scaleM[1])||1; localSy = (scaleM[2]!==undefined?parseFloat(scaleM[2]):localSx); }
+        }
+        const tx = parent.sx * localTx + parent.tx;
+        const ty = parent.sy * localTy + parent.ty;
+        const sx = parent.sx * localSx;
+        const sy = parent.sy * localSy;
+        gStack.push({tx, ty, sx, sy});
+      }
+    } else if (tag === 'use' && !isClose) {
+      const hrefM = attrs.match(/(?:xlink:)?href="#([^"]+)"/);
+      if (hrefM) {
+        const refId = hrefM[1];
+        const d = defPaths.get(refId);
+        if (d) {
+          const t = gStack[gStack.length - 1];
+          usages.push({d, tx:t.tx, ty:t.ty, sx:t.sx, sy:t.sy});
+        }
+      }
+    }
+  }
+  if (usages.length === 0) return null;
+  // Center text around origin
+  const txs = usages.map(u => u.tx);
+  const tys = usages.map(u => u.ty);
+  const centerX = (Math.min(...txs) + Math.max(...txs)) / 2;
+  const centerY = (Math.min(...tys) + Math.max(...tys)) / 2;
+  const rangeX = Math.max(...txs) - Math.min(...txs);
+  const rangeY = Math.max(...tys) - Math.min(...tys);
+  // Compress Y to make formula more horizontal (subscripts/superscripts)
+  for (const u of usages) {
+    u.tx -= centerX;
+    u.ty = (u.ty - centerY) * 0.05;
+  }
+  // Parse SVG path d-string into Asymptote path segments
+  const svgScale = 0.005;
+  function parseSvgD(d, tx, ty, ssx, ssy) {
+    const segs = [];
+    let cx=0, cy=0, sx0=0, sy0=0, lastCmd='', lcp2x=0, lcp2y=0;
+    const tokens = [];
+    const re = /([MmLlHhVvCcSsQqTtAaZz])|([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/g;
+    let m;
+    while ((m = re.exec(d)) !== null) tokens.push(m[1] ? {c:m[1]} : {n:parseFloat(m[2])});
+    let i = 0;
+    const num = () => { while (i<tokens.length && tokens[i].c) i++; return i<tokens.length ? tokens[i++].n : 0; };
+    // Transform coords: Y is flipped (SVG Y-down to Asymptote Y-up)
+    const pt = (x,y) => makePair((x*ssx + tx)*svgScale, -(y*ssy + ty)*svgScale);
+    while (i < tokens.length) {
+      if (tokens[i].c) { lastCmd = tokens[i++].c; }
+      const cmd = lastCmd, rel = cmd===cmd.toLowerCase(), C = cmd.toUpperCase();
+      if (C==='M') { let x=num(),y=num(); if(rel){x+=cx;y+=cy;} cx=x;cy=y;sx0=x;sy0=y; lastCmd=rel?'l':'L'; }
+      else if (C==='L') { let x=num(),y=num(); if(rel){x+=cx;y+=cy;} segs.push(lineSegment(pt(cx,cy),pt(x,y))); cx=x;cy=y; }
+      else if (C==='H') { let x=num(); if(rel)x+=cx; segs.push(lineSegment(pt(cx,cy),pt(x,cy))); cx=x; }
+      else if (C==='V') { let y=num(); if(rel)y+=cy; segs.push(lineSegment(pt(cx,cy),pt(cx,y))); cy=y; }
+      else if (C==='C') { let x1=num(),y1=num(),x2=num(),y2=num(),x=num(),y=num(); if(rel){x1+=cx;y1+=cy;x2+=cx;y2+=cy;x+=cx;y+=cy;} segs.push(makeSeg(pt(cx,cy),pt(x1,y1),pt(x2,y2),pt(x,y))); lcp2x=x2;lcp2y=y2;cx=x;cy=y; }
+      else if (C==='S') { let cp1x=2*cx-lcp2x,cp1y=2*cy-lcp2y,x2=num(),y2=num(),x=num(),y=num(); if(rel){x2+=cx;y2+=cy;x+=cx;y+=cy;} segs.push(makeSeg(pt(cx,cy),pt(cp1x,cp1y),pt(x2,y2),pt(x,y))); lcp2x=x2;lcp2y=y2;cx=x;cy=y; }
+      else if (C==='Q') { let x1=num(),y1=num(),x=num(),y=num(); if(rel){x1+=cx;y1+=cy;x+=cx;y+=cy;} const cp1x=cx+2/3*(x1-cx),cp1y=cy+2/3*(y1-cy),cp2x=x+2/3*(x1-x),cp2y=y+2/3*(y1-y); segs.push(makeSeg(pt(cx,cy),pt(cp1x,cp1y),pt(cp2x,cp2y),pt(x,y))); lcp2x=x1;lcp2y=y1;cx=x;cy=y; }
+      else if (C==='T') { let qx=2*cx-lcp2x,qy=2*cy-lcp2y,x=num(),y=num(); if(rel){x+=cx;y+=cy;} const cp1x=cx+2/3*(qx-cx),cp1y=cy+2/3*(qy-cy),cp2x=x+2/3*(qx-x),cp2y=y+2/3*(qy-y); segs.push(makeSeg(pt(cx,cy),pt(cp1x,cp1y),pt(cp2x,cp2y),pt(x,y))); lcp2x=qx;lcp2y=qy;cx=x;cy=y; }
+      else if (C==='Z') { if(Math.abs(cx-sx0)>1e-6||Math.abs(cy-sy0)>1e-6) segs.push(lineSegment(pt(cx,cy),pt(sx0,sy0))); cx=sx0;cy=sy0; }
+      else if (C==='A') { num();num();num();num();num();let x=num(),y=num(); if(rel){x+=cx;y+=cy;} segs.push(lineSegment(pt(cx,cy),pt(x,y))); cx=x;cy=y; }
+    }
+    return segs;
+  }
+  const paths = [];
+  for (const u of usages) {
+    const segs = parseSvgD(u.d, u.tx, u.ty, u.sx, u.sy);
+    if (segs.length > 0) paths.push(makePath(segs, true));
+  }
+  return paths.length > 0 ? paths : null;
 }
 
 const _mjxCache = new Map();

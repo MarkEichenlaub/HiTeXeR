@@ -49,13 +49,13 @@ function isRunLoopRunning() {
 }
 
 // Launch run-loop headlessly as a background child process.
-// Logs to auto-fix/run-loop.log; uses --queue-only so it stops when the queue drains.
+// Logs to auto-fix/run-loop.log; runs persistently with full-pipeline every 10 commits.
 function launchRunLoop() {
   const logPath = path.join(ROOT, 'auto-fix', 'run-loop.log');
   const out = fs.openSync(logPath, 'a');
   const child = spawn(process.execPath, [
     path.join('auto-fix', 'run-loop.js'),
-    '--max', '999', '--queue-only',
+    '--persistent', '--full-pipeline-every', '10',
   ], {
     cwd: ROOT,
     detached: true,
