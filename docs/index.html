@@ -328,6 +328,52 @@ body {
 .CodeMirror-lint-mark-error { background: none; border-bottom: 2px wavy #e94560; }
 .CodeMirror-lint-mark-warning { background: none; border-bottom: 2px wavy #e9c46a; }
 
+/* Library panel styles */
+#lib-panel {
+  display: none; flex-direction: column; background: #16213e; border-left: 2px solid #0f3460;
+  width: 320px; flex-shrink: 0; position: relative;
+}
+#lib-panel.open { display: flex; }
+.lib-header {
+  padding: 10px 14px; border-bottom: 1px solid #0f3460; display: flex;
+  align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.lib-header h3 { font-size: 14px; color: #e9c46a; font-weight: 600; margin: 0; }
+.lib-header button {
+  background: none; border: none; color: #888; cursor: pointer; font-size: 18px; padding: 0 4px;
+}
+.lib-header button:hover { color: #eee; }
+#lib-search {
+  margin: 8px 12px; padding: 5px 10px; background: #0f3460; color: #eee;
+  border: 1px solid #1a1a5e; border-radius: 4px; font-size: 12px; width: calc(100% - 24px); box-sizing: border-box;
+}
+#lib-content { flex: 1; overflow-y: auto; padding: 6px 0; }
+.lib-section { margin-bottom: 2px; }
+.lib-section-header {
+  padding: 6px 14px; font-size: 12px; font-weight: 700; color: #e9c46a;
+  cursor: pointer; display: flex; align-items: center; gap: 6px;
+  user-select: none; letter-spacing: 0.03em; text-transform: uppercase;
+}
+.lib-section-header:hover { background: rgba(255,255,255,0.04); }
+.lib-section-header .lib-arrow { font-size: 10px; transition: transform 0.15s; }
+.lib-section-header.collapsed .lib-arrow { transform: rotate(-90deg); }
+.lib-section-body { overflow: hidden; }
+.lib-subsection { margin-bottom: 1px; }
+.lib-subsection-header {
+  padding: 4px 14px 4px 24px; font-size: 12px; font-weight: 600; color: #aaa;
+  cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none;
+}
+.lib-subsection-header:hover { background: rgba(255,255,255,0.04); color: #ccc; }
+.lib-subsection-header .lib-arrow { font-size: 9px; transition: transform 0.15s; }
+.lib-subsection-header.collapsed .lib-arrow { transform: rotate(-90deg); }
+.lib-diagram-list { overflow: hidden; }
+.lib-diagram-item {
+  padding: 5px 14px 5px 34px; font-size: 12px; color: #bbb;
+  cursor: pointer; line-height: 1.4; border-left: 2px solid transparent;
+}
+.lib-diagram-item:hover { background: rgba(255,255,255,0.06); color: #eee; border-left-color: #0f3460; }
+.lib-diagram-item.direct { padding-left: 24px; }
+
 /* Autocomplete hint styles */
 .CodeMirror-hints { background: #1e1e2e !important; border: 1px solid #555 !important; border-radius: 4px !important; }
 .CodeMirror-hint { color: #ccc !important; padding: 4px 8px !important; }
@@ -337,7 +383,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v1.28</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v1.29</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -388,6 +434,7 @@ body {
   <button id="btn-slide" title="Toggle slide mode (drag free points)">Slide</button>
   <button id="btn-gif" title="Toggle GIF mode">GIF</button>
   <button id="md-ai-chat" title="Toggle AI Chat">AI Chat</button>
+  <button id="btn-library" title="Physics Library">Library</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <span id="texer-loaded-info" style="display:none;font-size:11px;color:#888;margin-left:8px;"></span>
@@ -500,6 +547,14 @@ label("$C$", C, N);
       </div>
     </div>
     <input type="file" id="chat-file-input" accept="image/*" style="display:none">
+  </div>
+  <div id="lib-panel">
+    <div class="lib-header">
+      <h3>Physics Library</h3>
+      <button id="lib-close-btn">&times;</button>
+    </div>
+    <input type="text" id="lib-search" placeholder="Search diagrams...">
+    <div id="lib-content"><div style="padding:20px 14px;color:#888;font-size:12px;">Loading...</div></div>
   </div>
 </div>
 
@@ -5766,6 +5821,125 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('preview-panel').style.width = '50%';
     }
   }
+
+  // ── Physics Library Panel ──────────────────────────────────────────
+  const libPanel = document.getElementById('lib-panel');
+  let libData = null;
+
+  function toggleLibPanel() {
+    const isOpen = libPanel.classList.contains('open');
+    libPanel.classList.toggle('open', !isOpen);
+    if (!isOpen) {
+      document.getElementById('preview-panel').style.width = 'calc(50% - 160px)';
+      if (!libData) loadLibData();
+    } else {
+      document.getElementById('preview-panel').style.width = '50%';
+    }
+  }
+
+  async function loadLibData() {
+    try {
+      const resp = await fetch('physics-library.json');
+      libData = await resp.json();
+      renderLib('');
+    } catch (e) {
+      document.getElementById('lib-content').innerHTML =
+        '<div style="padding:20px 14px;color:#e94560;font-size:12px;">Failed to load library.</div>';
+    }
+  }
+
+  function renderLib(filter) {
+    if (!libData) return;
+    const q = filter.toLowerCase().trim();
+    const container = document.getElementById('lib-content');
+    let html = '';
+
+    for (const section of libData.sections) {
+      // Collect matching diagrams in this section
+      let sectionHtml = '';
+      let sectionHasMatch = false;
+
+      for (const sub of section.subsections) {
+        const diagrams = sub.diagrams.filter(d =>
+          !q || d.name.toLowerCase().includes(q) || (sub.name && sub.name.toLowerCase().includes(q)) || section.name.toLowerCase().includes(q)
+        );
+        if (!diagrams.length) continue;
+        sectionHasMatch = true;
+
+        if (sub.name) {
+          sectionHtml += `<div class="lib-subsection">
+            <div class="lib-subsection-header" data-toggle="sub">
+              <span class="lib-arrow">&#9660;</span>${escapeHtml(sub.name)}
+            </div>
+            <div class="lib-diagram-list">`;
+          for (const d of diagrams) {
+            sectionHtml += `<div class="lib-diagram-item" data-slug="${escapeHtml(d.slug)}">${escapeHtml(d.name)}</div>`;
+          }
+          sectionHtml += `</div></div>`;
+        } else {
+          // Diagrams directly under section (no subsection)
+          for (const d of diagrams) {
+            sectionHtml += `<div class="lib-diagram-item direct" data-slug="${escapeHtml(d.slug)}">${escapeHtml(d.name)}</div>`;
+          }
+        }
+      }
+
+      if (!sectionHasMatch) continue;
+      html += `<div class="lib-section">
+        <div class="lib-section-header" data-toggle="sec">
+          <span class="lib-arrow">&#9660;</span>${escapeHtml(section.name)}
+        </div>
+        <div class="lib-section-body">${sectionHtml}</div>
+      </div>`;
+    }
+
+    container.innerHTML = html || '<div style="padding:20px 14px;color:#888;font-size:12px;">No results.</div>';
+
+    // Toggle expand/collapse
+    container.querySelectorAll('[data-toggle="sec"]').forEach(hdr => {
+      hdr.addEventListener('click', () => {
+        hdr.classList.toggle('collapsed');
+        hdr.nextElementSibling.style.display = hdr.classList.contains('collapsed') ? 'none' : '';
+      });
+    });
+    container.querySelectorAll('[data-toggle="sub"]').forEach(hdr => {
+      hdr.addEventListener('click', () => {
+        hdr.classList.toggle('collapsed');
+        hdr.nextElementSibling.style.display = hdr.classList.contains('collapsed') ? 'none' : '';
+      });
+    });
+
+    // Click diagram → load code
+    container.querySelectorAll('.lib-diagram-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const slug = item.dataset.slug;
+        const diag = findDiagramBySlug(slug);
+        if (diag && editor) {
+          editor.setValue(diag.code);
+          editor.clearHistory();
+          doRender();
+        }
+      });
+    });
+  }
+
+  function findDiagramBySlug(slug) {
+    if (!libData) return null;
+    for (const sec of libData.sections)
+      for (const sub of sec.subsections)
+        for (const d of sub.diagrams)
+          if (d.slug === slug) return d;
+    return null;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  document.getElementById('btn-library').addEventListener('click', toggleLibPanel);
+  document.getElementById('lib-close-btn').addEventListener('click', toggleLibPanel);
+  document.getElementById('lib-search').addEventListener('input', e => renderLib(e.target.value));
+  // ── End Physics Library Panel ───────────────────────────────────────
 
   chatCloseBtn.addEventListener('click', toggleChatPanel);
   chatSendBtn.addEventListener('click', sendChatMessage);
