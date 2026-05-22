@@ -22377,9 +22377,9 @@ function renderSVG(result, opts) {
     // a higher pxPerUnit (~100) for such diagrams, producing roughly 2.5× larger
     // output. Apply a floor of 100 bp/unit when:
     // - Geometry is small (maxDim < 10 user units)
-    // - Aspect ratio is very high (maxDim/minDim > 5) — excludes moderate aspect
-    //   ratios like 06292's balance beam (4×1.1, aspect 3.6) which render fine
-    //   at the default scale
+    // - Aspect ratio is very high (maxDim/minDim >= 6) — excludes moderate aspect
+    //   ratios like 06292's balance beam (4×1.1, aspect 3.6) or 04039's force
+    //   diagram (1.07×6, aspect 5.6) which render fine at the default scale
     // - minDim is non-degenerate (> 0.1 user units) — excludes flat-banner 1D
     //   diagrams like 09210 (row of dots at y=0) where minDim≈0
     // - Diagram is tall-narrow (height > width), not wide-short — wide-short
@@ -22389,7 +22389,7 @@ function renderSVG(result, opts) {
     // to match TeXeR's output dimensions, without affecting degenerate cases.
     const aspectRatio = maxDim / (minDim || 0.001);
     const isTallNarrow = scaleRefH2 > scaleRefW2;
-    if (maxDim < 10 && minDim > 0.1 && aspectRatio > 5 && pxPerUnit < 100 && isTallNarrow) {
+    if (maxDim < 10 && minDim > 0.1 && aspectRatio >= 6 && pxPerUnit < 100 && isTallNarrow) {
       pxPerUnit = 100;
     }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
