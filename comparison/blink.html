@@ -47,6 +47,8 @@
   #blink-queued { font-size: 11px; background: #78350f; color: #fde68a; padding: 1px 6px; border-radius: 3px; font-weight: 600; white-space: nowrap; }
   .thumb-exclude-btn { position: absolute; top: 4px; right: 26px; width: 18px; height: 18px; background: rgba(0,0,0,0.5); border: 1px solid #374151; border-radius: 3px; color: #6b7280; font-size: 13px; line-height: 1; cursor: pointer; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 0; }
   .thumb-exclude-btn:hover { background: rgba(127,29,29,0.85); border-color: #ef4444; color: #fca5a5; }
+  .thumb-fix-btn { position: absolute; top: 4px; right: 48px; width: 18px; height: 18px; background: rgba(0,0,0,0.5); border: 1px solid #374151; border-radius: 3px; color: #6b7280; font-size: 10px; font-weight: 700; line-height: 1; cursor: pointer; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 0; font-family: inherit; }
+  .thumb-fix-btn:hover { background: rgba(20,83,45,0.9); border-color: #22c55e; color: #86efac; }
 
   /* ── Pagination ─────────────────────────────────────── */
   .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; flex-wrap: wrap; }
@@ -457,6 +459,7 @@
       return `<div class="thumb${isSel ? ' selected' : ''}${isQueued ? ' queued' : ''}" data-idx="${start + i}" data-id="${d.id}" title="${d.source}">
         <input type="checkbox" class="thumb-check" ${isSel ? 'checked' : ''} title="Select">
         <button class="thumb-exclude-btn" data-id="${d.id}" title="Exclude from comparator" tabindex="-1">×</button>
+        <button class="thumb-fix-btn" data-id="${d.id}" title="Send to fix queue (F)" tabindex="-1">F</button>
         <div class="coll-tag">${d.collection}</div>
         <div class="pair">
           <div class="half">${texerHalf}<div class="half-label">TeXeR</div></div>
@@ -485,9 +488,15 @@
         e.stopPropagation();
         excludeDiagram(xBtn.dataset.id, el);
       });
+      const fBtn = el.querySelector('.thumb-fix-btn');
+      if (fBtn) fBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fixDiagramById(fBtn.dataset.id, fBtn);
+      });
       el.addEventListener('click', (e) => {
         if (e.target.classList.contains('thumb-check')) return;
         if (e.target.classList.contains('thumb-exclude-btn')) return;
+        if (e.target.classList.contains('thumb-fix-btn')) return;
         enterBlink(parseInt(el.dataset.idx, 10));
       });
     });
@@ -1013,6 +1022,30 @@
   }
 
   // ── Fix via Claude Code ───────────────────────────────
+  function fixDiagramById(id, btnEl) {
+    const d = manifest && manifest.diagrams.find(x => x.id === id);
+    if (!d) return;
+    const description = prompt('Describe what to fix (optional):', '');
+    if (description === null) return;
+    const orig = btnEl ? btnEl.textContent : 'F';
+    fetch('/enqueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: d.id, description })
+    }).then(r => r.json()).then(res => {
+      if (res.ok) {
+        if (btnEl) { btnEl.textContent = '✓'; btnEl.style.background = 'rgba(20,83,45,0.9)'; btnEl.style.borderColor = '#22c55e'; btnEl.style.color = '#86efac'; setTimeout(() => { btnEl.textContent = orig; btnEl.style.background = ''; btnEl.style.borderColor = ''; btnEl.style.color = ''; }, 2000); }
+        queuedIds.add(String(d.id));
+        updateQueueIndicators();
+      } else {
+        if (btnEl) { btnEl.textContent = '!'; setTimeout(() => { btnEl.textContent = orig; }, 2000); }
+        console.error('enqueue error:', res.error);
+      }
+    }).catch(() => {
+      if (btnEl) { btnEl.textContent = '!'; setTimeout(() => { btnEl.textContent = orig; }, 2000); }
+    });
+  }
+
   function buildFixPrompt(d, source) {
     return 'You are working on the HiTeXeR Asymptote interpreter (asy-interp.js) in C:\\Users\\Mark Eichenlaub\\github\\hitexer.\n\n' +
       'Your task: fix diagram ' + d.source + ' (ID: ' + d.id + ') so HiTeXeR renders it to match the TeXeR reference.\n\n' +

@@ -582,6 +582,15 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('Click "Fix" on any comparator card to launch a claude session.');
   console.log('Press Ctrl+C to stop.\n');
 
+  // Regenerate blink-manifest.json on startup so excluded diagrams (droplist.json)
+  // are reflected even if blink-manifest.json was reset by git reset --hard.
+  try {
+    spawnSync(process.execPath, ['comparison/generate-manifest.js'], { cwd: ROOT, stdio: 'pipe' });
+    console.log('[fix-server] manifest regenerated from droplist on startup');
+  } catch (e) {
+    console.error('[fix-server] startup manifest regeneration failed:', e.message);
+  }
+
   // If there are already queued items (e.g. left over from a previous session),
   // auto-start the run-loop immediately rather than waiting for the next enqueue.
   try {
