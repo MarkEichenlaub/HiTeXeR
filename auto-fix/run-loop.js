@@ -218,6 +218,13 @@ function resetHard(commit) {
   let savedQueue = null;
   try { savedQueue = fs.readFileSync(queuePath, 'utf8'); } catch {}
   sh('git reset --hard ' + commit);
+  // Re-apply any remote-only commits (e.g. UI fixes pushed while the loop was
+  // running) that would otherwise be lost by the hard reset.  --ff-only is safe:
+  // it's a no-op when the remote hasn't moved ahead, and never creates a merge.
+  const pull = sh('git pull --ff-only origin master');
+  if (pull.code !== 0) {
+    console.warn('[run-loop] post-reset pull skipped (non-fast-forward or offline):', pull.stderr.trim().split('\n')[0]);
+  }
   if (savedQueue !== null) {
     try { fs.writeFileSync(queuePath, savedQueue); } catch {}
   }
