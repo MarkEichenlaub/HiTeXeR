@@ -374,7 +374,7 @@
   }
 
   // ── Filtering & sorting ──────────────────────────────
-  function applyFilters() {
+  function applyFilters(preservePage) {
     const checkedColls = getCheckedCollections();
     const allChecked = checkedColls.length === manifest.collections.length;
     const sort = document.getElementById('sort-mode').value;
@@ -426,7 +426,9 @@
     }
 
     filtered = list;
-    page = 0;
+    const maxPage = Math.max(0, Math.ceil(filtered.length / PER_PAGE) - 1);
+    if (!preservePage) page = 0;
+    else if (page > maxPage) page = maxPage;
     renderGrid();
   }
 
@@ -1319,7 +1321,7 @@
           d.ssim = f.ssim; d.sizeScore = f.sizeScore; d.combined = f.combined;
           d.hasHtx = f.hasHtx; d.hasSvg = f.hasSvg; d.src = f.src;
         }
-        applyFilters();
+        applyFilters(true);
       })
       .catch(() => {});
   }
