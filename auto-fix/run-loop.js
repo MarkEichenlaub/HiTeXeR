@@ -48,6 +48,7 @@ const ALLOWED_FILES = new Set([
 ]);
 const WRITE_OK_UNCOMMITTED = new Set([
   'auto-fix/attempts.jsonl',
+  'auto-fix/enqueue-history.jsonl',  // user can enqueue mid-iteration
   'auto-fix/queue.json',
   'auto-fix/.queue-recovery.json',
   'auto-fix/skiplist.json',
