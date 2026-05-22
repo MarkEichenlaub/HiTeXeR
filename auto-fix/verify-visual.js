@@ -19,9 +19,10 @@
 //   4  output unparseable
 'use strict';
 
-const fs   = require('fs');
-const path = require('path');
-const cp   = require('child_process');
+const fs    = require('fs');
+const path  = require('path');
+const cp    = require('child_process');
+const sharp = require('sharp');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_MODEL   = 'claude-sonnet-4-5';
@@ -50,18 +51,35 @@ function parseArgs(argv) {
 function buildPrompt(args) {
   const ref = path.isAbsolute(args.ref) ? args.ref : path.join(ROOT, args.ref);
   const htx = path.isAbsolute(args.htx) ? args.htx : path.join(ROOT, args.htx);
+
+  const refDims = args.refW && args.refH ? args.refW + '×' + args.refH + ' px' : 'unknown';
+  const htxDims = args.htxW && args.htxH ? args.htxW + '×' + args.htxH + ' px' : 'unknown';
+  let sizeWarning = '';
+  if (args.refW && args.htxW && args.refH && args.htxH) {
+    const maxRef = Math.max(args.refW, args.refH);
+    const maxHtx = Math.max(args.htxW, args.htxH);
+    const ratio  = maxHtx / maxRef;
+    if (ratio < 0.80 || ratio > 1.25) {
+      sizeWarning = '\nWARNING: The TEST image pixel dimensions differ from the REFERENCE by ' +
+        Math.round(Math.abs(ratio - 1) * 100) + '%. That is a substantial size defect.';
+    }
+  }
+
   return [
     'You are a visual inspection assistant for the HiTeXeR auto-fix loop.',
     'Your ONLY job is to compare two images and rate how well they match.',
     '',
     'TARGET DIAGRAM: ' + args.id,
     'REFERENCE IMAGE (the correct rendering): ' + ref,
+    '  Reference pixel size: ' + refDims,
     'TEST IMAGE (what we are evaluating):      ' + htx,
+    '  Test pixel size:      ' + htxDims,
+    sizeWarning,
     '',
     'TASK:',
     '1. Read both images using the Read tool.',
     '2. Compare them on: STRUCTURE (shapes, lines, primitives), COLOR,',
-    '   ORIENTATION, SCALE, and LABEL PLACEMENT (positions and content of text).',
+    '   ORIENTATION, ABSOLUTE SIZE, and LABEL PLACEMENT (positions and content of text).',
     '3. Rate the match quality at one of three levels:',
     '   - "good"  : essentially perfect. Only minor antialiasing, sub-pixel font',
     '               rendering, or barely-noticeable color variations. A human',
@@ -73,11 +91,18 @@ function buildPrompt(args) {
     '               The diagram is clearly the same mathematical figure.',
     '   - "poor"  : significant defects that would confuse or mislead a reader —',
     '               wrong or missing shapes, wrong color fills/strokes, wrong',
-    '               orientation, wrong scale (>15% size difference), labels in',
-    '               wrong positions or with wrong text, missing major elements,',
-    '               extra spurious elements, overlapping text that should be apart.',
+    '               orientation, labels in wrong positions or with wrong text,',
+    '               missing major elements, extra spurious elements, overlapping',
+    '               text that should be apart.',
+    '               ALSO "poor": the TEST image is substantially the wrong',
+    '               absolute size. Compare the pixel dimensions shown above.',
+    '               If the largest dimension of TEST differs from REFERENCE by',
+    '               more than ~20%, that is a "poor" size defect regardless of',
+    '               whether the content structure looks similar at display scale.',
+    '               Do NOT rate a wrong-size diagram as "minor" — it is "poor".',
     '4. Use "minor" when the diagram conveys the correct mathematics with cosmetic',
-    '   differences. Reserve "poor" for structurally wrong or incomplete renders.',
+    '   differences. Reserve "poor" for structurally wrong, incomplete, or',
+    '   wrong-size renders.',
     '',
     'OUTPUT:',
     'Your FINAL message must be a single JSON object on its own line, with no',
@@ -91,11 +116,11 @@ function buildPrompt(args) {
     '',
     'CONSTRAINTS:',
     '- Do NOT edit any files. Do NOT run bash. Only use the Read tool.',
-    '- Do NOT consider SSIM scores, file sizes, or anything outside the images.',
+    '- Do NOT consider SSIM scores or anything outside the images and their stated dimensions.',
     '- Rate based on visual impact to a math student reading the diagram.',
     '',
     'Begin.',
-  ].join('\n');
+  ].filter(l => l !== null).join('\n');
 }
 
 function truncate(s, n) {
@@ -158,6 +183,19 @@ function extractVerdict(allText) {
 
 async function run() {
   const args = parseArgs(process.argv.slice(2));
+
+  // Pre-read pixel dimensions so the verifier prompt carries hard numbers.
+  const refAbs = path.isAbsolute(args.ref) ? args.ref : path.join(ROOT, args.ref);
+  const htxAbs = path.isAbsolute(args.htx) ? args.htx : path.join(ROOT, args.htx);
+  try {
+    const refMeta = await sharp(refAbs).metadata();
+    const htxMeta = await sharp(htxAbs).metadata();
+    args.refW = refMeta.width;  args.refH = refMeta.height;
+    args.htxW = htxMeta.width;  args.htxH = htxMeta.height;
+  } catch (e) {
+    console.error('[verify] could not read image dimensions: ' + (e && e.message));
+  }
+
   const prompt = buildPrompt(args);
 
   const subArgs = [

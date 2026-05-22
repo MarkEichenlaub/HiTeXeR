@@ -118,7 +118,13 @@ Repeat this loop. Each pass is one cycle.
    - New SSIM, and delta vs `{{PRE_SSIM}}`.
 6. Update your defect list (strike resolved ones, add new ones, reprioritize).
 7. **Exit the loop only when BOTH are true:**
-   - Target SSIM ≥ **0.85**, AND
+   - Target **combined** score ≥ **0.90** — use the `combined` field from
+     `render-and-score.js` output, NOT the raw `ssim` field.
+     `combined = ssim × sizeScore`, so a diagram that is the wrong absolute
+     size will have low `combined` even when raw `ssim` is high.
+     If `sizeScore` < 0.70, the diagram is substantially mis-sized (>~20%
+     off in its largest dimension) — that is a defect to fix before anything
+     else, AND
    - You can honestly assert: *"The HTX render matches the reference in
      structure, color, orientation, scale, and label placement. No visible
      defects remain."*
@@ -156,7 +162,7 @@ When Phases 2 and 3 both pass:
 4. Log:
    ```bash
    node auto-fix/log.js --id {{TARGET_ID}} --verdict fix \
-        --pre {{PRE_SSIM}} --post <final-target-ssim> \
+        --pre {{PRE_SSIM}} --post <final-combined-score> \
         --canary-worst <worst-canary-delta> --family-worst <worst-family-delta> \
         --commit $(git rev-parse --short HEAD) \
         --notes "<one-line diagnosis>"
@@ -199,7 +205,7 @@ attempts at each defect:
 ```bash
 git checkout -- asy-interp.js index.html
 node auto-fix/log.js --id {{TARGET_ID}} --verdict attempted-no-improve \
-     --pre {{PRE_SSIM}} --post <best-target-ssim-seen> \
+     --pre {{PRE_SSIM}} --post <best-combined-score-seen> \
      --notes "<detailed: which defects you resolved, which you couldn't, what approaches you tried and why each failed, what the next attempt should try differently>"
 ```
 
