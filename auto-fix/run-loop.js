@@ -213,11 +213,12 @@ function sh(cmd, opts) {
 }
 
 function resetHard(commit) {
-  // Save queue.json before the reset — it's a tracked file so git reset --hard
-  // would wipe any items that were enqueued while the loop was running.
-  const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
-  let savedQueue = null;
-  try { savedQueue = fs.readFileSync(queuePath, 'utf8'); } catch {}
+  // Save tracked runtime files before the reset so they survive git reset --hard.
+  const queuePath    = path.join(ROOT, 'auto-fix', 'queue.json');
+  const attemptsPath = path.join(ROOT, 'auto-fix', 'attempts.jsonl');
+  let savedQueue = null, savedAttempts = null;
+  try { savedQueue    = fs.readFileSync(queuePath,    'utf8'); } catch {}
+  try { savedAttempts = fs.readFileSync(attemptsPath, 'utf8'); } catch {}
   sh('git reset --hard ' + commit);
   // Re-apply any remote-only commits (e.g. UI fixes pushed while the loop was
   // running) that would otherwise be lost by the hard reset.  --ff-only is safe:
@@ -226,9 +227,8 @@ function resetHard(commit) {
   if (pull.code !== 0) {
     console.warn('[run-loop] post-reset pull skipped (non-fast-forward or offline):', pull.stderr.trim().split('\n')[0]);
   }
-  if (savedQueue !== null) {
-    try { fs.writeFileSync(queuePath, savedQueue); } catch {}
-  }
+  if (savedQueue    !== null) { try { fs.writeFileSync(queuePath,    savedQueue);    } catch {} }
+  if (savedAttempts !== null) { try { fs.writeFileSync(attemptsPath, savedAttempts); } catch {} }
 }
 
 // Sync local HEAD to origin/master at the start of each iteration so that UI
@@ -236,9 +236,11 @@ function resetHard(commit) {
 // present before preCommit is captured.  Uses reset --hard rather than pull so
 // dirty tracked files (enqueue-history, queue, fix-history) don't block it.
 function syncToOrigin() {
-  const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
-  let savedQueue = null;
-  try { savedQueue = fs.readFileSync(queuePath, 'utf8'); } catch {}
+  const queuePath    = path.join(ROOT, 'auto-fix', 'queue.json');
+  const attemptsPath = path.join(ROOT, 'auto-fix', 'attempts.jsonl');
+  let savedQueue = null, savedAttempts = null;
+  try { savedQueue    = fs.readFileSync(queuePath,    'utf8'); } catch {}
+  try { savedAttempts = fs.readFileSync(attemptsPath, 'utf8'); } catch {}
 
   const fetch = sh('git fetch origin master');
   if (fetch.code !== 0) {
@@ -257,9 +259,8 @@ function syncToOrigin() {
   }
   console.log('[run-loop] syncToOrigin: advancing ' + localHash.slice(0,8) + ' -> ' + remoteHash.slice(0,8));
   sh('git reset --hard origin/master');
-  if (savedQueue !== null) {
-    try { fs.writeFileSync(queuePath, savedQueue); } catch {}
-  }
+  if (savedQueue    !== null) { try { fs.writeFileSync(queuePath,    savedQueue);    } catch {} }
+  if (savedAttempts !== null) { try { fs.writeFileSync(attemptsPath, savedAttempts); } catch {} }
 }
 
 function readVersion() {
