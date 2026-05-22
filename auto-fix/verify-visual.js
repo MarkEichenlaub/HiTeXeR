@@ -172,6 +172,7 @@ async function run() {
     cwd: ROOT,
     stdio: ['pipe', 'pipe', 'inherit'],
     shell: process.platform === 'win32',
+    windowsHide: true,
   });
 
   let timedOut = false;

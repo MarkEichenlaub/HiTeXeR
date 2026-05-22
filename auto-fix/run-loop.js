@@ -121,7 +121,7 @@ function runFullPipeline() {
   console.log('[run-loop] running full pipeline: render-htx rasterize ssim ...');
   const t0 = Date.now();
   const r1 = cp.spawnSync('node', ['ssim-pipeline.js', 'render-htx', 'rasterize', 'ssim'], {
-    cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32'
+    cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32', windowsHide: true,
   });
   if (r1.status !== 0) {
     console.error('[run-loop] full pipeline failed (status=' + r1.status + ')');
@@ -129,7 +129,7 @@ function runFullPipeline() {
   }
   console.log('[run-loop] pipeline complete in ' + ((Date.now() - t0)/60000).toFixed(1) + ' min; rebuilding canary');
   const r2 = cp.spawnSync('node', ['auto-fix/build-canary.js'], {
-    cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32'
+    cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32', windowsHide: true,
   });
   if (r2.status !== 0) {
     console.error('[run-loop] build-canary failed (status=' + r2.status + ')');
@@ -187,7 +187,7 @@ function ratchetCanary() {
   // Ratchet canary baselines up (never down) after a successful commit so the
   // floor reflects recent improvements without forgiving regressions.
   const r = cp.spawnSync(process.execPath, [path.join(ROOT, 'auto-fix', 'build-canary.js'), '--update'], {
-    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5 * 60 * 1000,
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5 * 60 * 1000, windowsHide: true,
   });
   const out = (r.stdout || '').trim();
   if (out) console.log('[run-loop] canary ratchet: ' + out);
@@ -391,6 +391,7 @@ function runVerifier(args, target) {
     cwd: ROOT,
     encoding: 'utf8',
     shell: false,
+    windowsHide: true,
   });
   // Mirror the verifier's stdout to our log so the user can audit what it saw.
   if (r.stdout) process.stdout.write(r.stdout);
@@ -416,7 +417,7 @@ function runCanaryCheck() {
   // or misconfigures the canary step cannot silently land a regression.
   const r = cp.spawnSync(process.execPath, [path.join(ROOT, 'auto-fix', 'render-and-score.js'), '--canary'], {
     cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 5 * 60 * 1000,
+    timeout: 5 * 60 * 1000, windowsHide: true,
   });
   let summary = null;
   for (const line of (r.stdout || '').split('\n')) {
@@ -797,6 +798,7 @@ async function runIteration(args, iter) {
       stdio: 'inherit',
       shell: process.platform === 'win32',
       timeout: 120000,  // 2 min max per fetch
+      windowsHide: true,
     });
     if (fetchR.status === 0 && fs.existsSync(texerPngPath)) {
       console.log('[run-loop] texer PNG fetched OK for ' + target.id);
