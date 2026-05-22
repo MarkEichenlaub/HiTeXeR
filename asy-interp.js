@@ -10745,8 +10745,18 @@ function createInterpreter() {
           const _gb = getGeoBbox(pic.commands);
           const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.abs(_gb.maxX - _gb.minX) : alongRange;
           const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : perpAxisRange;
-          const sw = sizeW > 0 ? sizeW : sizeH;
-          const sh = sizeH > 0 ? sizeH : sizeW;
+          // When one dimension is 0 (auto), compute proportional size based on
+          // data aspect ratio. size(w,0) preserves aspect so height = w*(rY/rX).
+          let sw, sh;
+          if (sizeW > 0 && sizeH > 0) {
+            sw = sizeW; sh = sizeH;
+          } else if (sizeW > 0) {
+            sw = sizeW;
+            sh = (rX > 0 && rY > 0) ? sizeW * (rY / rX) : sizeW;
+          } else {
+            sh = sizeH;
+            sw = (rX > 0 && rY > 0) ? sizeH * (rX / rY) : sizeH;
+          }
           // Tick extends perpendicular to the axis: y-axis ticks extend in x,
           // x-axis ticks extend in y. On IgnoreAspect plots with very different
           // x/y data ranges (e.g. 3900: y in [0,1.16e8], x in [0,1000]), the
@@ -10799,8 +10809,18 @@ function createInterpreter() {
         const _gb2 = getGeoBbox(pic.commands);
         const rX2 = (_gb2 && isFinite(_gb2.maxX - _gb2.minX)) ? Math.abs(_gb2.maxX - _gb2.minX) : (Math.abs(max - min) || 1);
         const rY2 = (_gb2 && isFinite(_gb2.maxY - _gb2.minY)) ? Math.abs(_gb2.maxY - _gb2.minY) : perpAxisRange;
-        const sw2 = sizeW > 0 ? sizeW : sizeH;
-        const sh2 = sizeH > 0 ? sizeH : sizeW;
+        // When one dimension is 0 (auto), compute proportional size based on
+        // data aspect ratio. size(w,0) preserves aspect so height = w*(rY/rX).
+        let sw2, sh2;
+        if (sizeW > 0 && sizeH > 0) {
+          sw2 = sizeW; sh2 = sizeH;
+        } else if (sizeW > 0) {
+          sw2 = sizeW;
+          sh2 = (rX2 > 0 && rY2 > 0) ? sizeW * (rY2 / rX2) : sizeW;
+        } else {
+          sh2 = sizeH;
+          sw2 = (rX2 > 0 && rY2 > 0) ? sizeH * (rX2 / rY2) : sizeH;
+        }
         // Tick extends perpendicular to the axis: y-axis ticks extend in x,
         // x-axis ticks extend in y.
         if (_isXAxis) {
