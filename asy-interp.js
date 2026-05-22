@@ -19877,10 +19877,20 @@ function createInterpreter() {
       if (a && typeof a === 'object' && a._named) {
         if ('p' in a && isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
         if ('pen' in a && isPen(a.pen)) pen = pen ? mergePens(pen, a.pen) : a.pen;
-        if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
+        if ('filltype' in a) {
+          let ft = a.filltype;
+          // Handle bare filltype functions (e.g. filltype=Draw without parentheses)
+          if (typeof ft === 'function') ft = ft();
+          if (ft && ft._tag === 'filltype') filltype = ft;
+        }
         continue;
       }
+      // Handle positional filltype (either object or bare function reference)
       if (a && a._tag === 'filltype') { filltype = a; continue; }
+      if (typeof a === 'function') {
+        const ftResult = a();
+        if (ftResult && ftResult._tag === 'filltype') { filltype = ftResult; continue; }
+      }
       if (a && a._tag === 'label') {
         if (!text) text = a.text || '';
         if (a.align && !align) align = a.align;
@@ -24336,6 +24346,11 @@ function renderSVG(result, opts) {
         // Ring width is 40% of the dot radius so the white interior is always visible.
         const ringW = dotR * 0.4;
         elements.push(_wrapMultiClip(dc, `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="white" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}${dotClip}/>`));
+      } else if (dc.filltype && dc.filltype.style === 'Draw') {
+        // Draw: open dot — no fill, stroked outline only (like UnFill but transparent interior).
+        // Ring width is 40% of the dot radius for visual consistency with UnFill.
+        const ringW = dotR * 0.4;
+        elements.push(_wrapMultiClip(dc, `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="none" stroke="${css.fill}" stroke-width="${fmt(ringW)}"${opacityAttr(css.opacity)}${dotClip}/>`));
       } else {
         elements.push(_wrapMultiClip(dc, `<circle cx="${fmt(sx)}" cy="${fmt(sy)}" r="${fmt(dotR)}" fill="${css.fill}" stroke="none"${opacityAttr(css.opacity)}${dotClip}/>`));
       }
