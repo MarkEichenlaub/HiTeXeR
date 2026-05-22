@@ -238,6 +238,7 @@ body {
 .slide-free-glow:active { cursor: grabbing !important; }
 .slide-hit-circle { cursor: grab !important; }
 .slide-hit-circle:active { cursor: grabbing !important; }
+.label-slide-hit-selected { stroke: #e9c46a !important; fill: rgba(233,196,106,0.3) !important; stroke-dasharray: none !important; }
 
 /* GIF mode */
 #gif-panel input:focus, #gif-panel select:focus { outline: 1px solid #e9c46a; outline-offset: 0; }
@@ -576,7 +577,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.23</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.24</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -5656,6 +5657,8 @@ document.addEventListener('DOMContentLoaded', () => {
   labelSlideActive = false;
   let labelSlideLabelData = [];  // [{interpCi, lineIdx, adjustVarName, svgCX, svgCY, hitCircle, glowEls}]
   let labelSlideDragState = null;
+  let labelSlideSelectedLabel = null;  // label selected via click for arrow-key nudging
+  let labelSlidePendingClick = null;   // tracks mousedown until we know if it's click or drag
   let labelSlideAdjCounter = 0;
 
   function toggleLabelSlideMode() {
@@ -5676,6 +5679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function activateLabelSlideMode() {
     probeReady.then(() => applyLabelSlideOverlay());
+    window.addEventListener('keydown', labelSlideKeyDown);
   }
 
   // Parse the second argument (position) of a label() call on a line.
@@ -5818,22 +5822,143 @@ document.addEventListener('DOMContentLoaded', () => {
       const updated = labelSlideLabelData.find(l => l.lineIdx === old.lineIdx);
       if (updated) labelSlideDragState.label = updated;
     }
+
+    // Restore selection glow after overlay rebuild
+    if (labelSlideSelectedLabel) {
+      const updated = labelSlideLabelData.find(l => l.lineIdx === labelSlideSelectedLabel.lineIdx);
+      if (updated) {
+        labelSlideSelectedLabel = updated;
+        for (const el of updated.glowEls) el.classList.add('label-slide-glow', 'slide-free-glow');
+        if (updated.hitCircle) updated.hitCircle.classList.add('label-slide-hit-selected');
+      } else {
+        labelSlideSelectedLabel = null;
+      }
+    }
   }
 
   function deactivateLabelSlideMode() {
     labelSlideActive = false;
+    window.removeEventListener('keydown', labelSlideKeyDown);
     const btn = document.getElementById('btn-label-slide');
     if (btn) btn.classList.remove('active');
     const svg = document.querySelector('#preview-container svg:not([data-perm])');
     if (svg) {
       svg.querySelectorAll('.label-slide-hit').forEach(el => el.remove());
-      svg.querySelectorAll('.label-slide-glow').forEach(el => el.classList.remove('label-slide-glow'));
+      svg.querySelectorAll('.label-slide-glow').forEach(el => el.classList.remove('label-slide-glow', 'slide-free-glow'));
       svg.removeEventListener('mousedown', labelSlideMouseDown);
       window.removeEventListener('mousemove', labelSlideMouseMove);
       window.removeEventListener('mouseup', labelSlideMouseUp);
     }
     labelSlideLabelData = [];
     labelSlideDragState = null;
+    labelSlideSelectedLabel = null;
+    labelSlidePendingClick = null;
+  }
+
+  // Inject _lblAdj variable if not present; sync re-renders and returns fresh label or null.
+  function ensureLabelAdjVar(label) {
+    if (label.adjustVarName) return label;
+    const code = editor.getValue();
+    const lines = code.split('\n');
+    const line = lines[label.lineIdx];
+    const argBounds = parseLabelSecondArg(line);
+    if (!argBounds) return null;
+    const existingNums = (code.match(/_lblAdj(\d+)/g) || []).map(s => parseInt(s.replace('_lblAdj', ''), 10));
+    const maxExisting = existingNums.length > 0 ? Math.max(...existingNums) : 0;
+    if (labelSlideAdjCounter <= maxExisting) labelSlideAdjCounter = maxExisting + 1;
+    else labelSlideAdjCounter++;
+    const adjName = '_lblAdj' + labelSlideAdjCounter;
+    const oldPos = line.substring(argBounds.start, argBounds.end);
+    const newLine = line.substring(0, argBounds.start) + oldPos + '+' + adjName + line.substring(argBounds.end);
+    const origLineIdx = label.lineIdx;
+    lines.splice(origLineIdx, 1, 'pair ' + adjName + ' = (0,0);', newLine);
+    const newCode = lines.join('\n');
+    suppressAutoRender = true;
+    editor.setValue(newCode);
+    suppressAutoRender = false;
+    if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
+        if (oldSvgEl) oldSvgEl.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
+        setupSvgInteractivityDirect(newCode, result.commandMap);
+        applyLabelSlideOverlay();
+        return labelSlideLabelData.find(l => l.lineIdx === origLineIdx + 1 && l.adjustVarName === adjName) || null;
+      } catch (err) {
+        doRender().then(() => probeReady).then(() => applyLabelSlideOverlay());
+        return null;
+      }
+    } else {
+      doRender().then(() => probeReady).then(() => applyLabelSlideOverlay());
+      return null;
+    }
+  }
+
+  // Round rawStep to nearest 1/2/5 * power-of-ten.
+  function niceStep(rawStep) {
+    if (rawStep <= 0) return 0.05;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const frac = rawStep / mag;
+    if (frac < 1.5) return mag;
+    if (frac < 3.5) return 2 * mag;
+    if (frac < 7.5) return 5 * mag;
+    return 10 * mag;
+  }
+
+  // Arrow-key nudge for the currently-selected label (~1 screen pixel per press).
+  function labelSlideKeyDown(e) {
+    if (!labelSlideActive || !labelSlideSelectedLabel) return;
+    if (editor.hasFocus()) return;
+    const dirMap = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+    const dir = dirMap[e.key];
+    if (!dir) return;
+    e.preventDefault();
+    const label = labelSlideSelectedLabel;
+    if (!label.adjustVarName) return;
+    const svg = document.querySelector('#preview-container svg:not([data-perm])');
+    if (!svg) return;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const pxPerUnit = (lastRenderInfo && lastRenderInfo.pxPerUnitX) || 28.35;
+    const step = niceStep(1 / (pxPerUnit * Math.abs(ctm.a)));
+    const code = editor.getValue();
+    const adjName = label.adjustVarName;
+    const adjRe = new RegExp(adjName + '\\s*=\\s*\\(\\s*([\\-\\d.]+)\\s*,\\s*([\\-\\d.]+)\\s*\\)');
+    let curX = 0, curY = 0;
+    for (const ln of code.split('\n')) {
+      const am = adjRe.exec(ln);
+      if (am) { curX = parseFloat(am[1]); curY = parseFloat(am[2]); break; }
+    }
+    const fmt = v => parseFloat(v.toFixed(6)).toString();
+    const newCode = code.replace(
+      new RegExp(adjName + '\\s*=\\s*\\([^)]*\\)'),
+      adjName + ' = (' + fmt(curX + dir[0] * step) + ', ' + fmt(curY + dir[1] * step) + ')'
+    );
+    editorReplaceFull(newCode, '+lbl-key-' + adjName);
+    if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
+      try {
+        const previewEl = document.getElementById('preview-container');
+        const dims = getPreviewDimensions();
+        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
+        const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
+        if (oldSvgEl) oldSvgEl.remove();
+        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        showStaleBadge(false);
+        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+        applyCanvasTransform();
+        setupSvgInteractivityDirect(newCode, result.commandMap);
+        applyLabelSlideOverlay();
+        return;
+      } catch (err) { /* fall through */ }
+    }
+    scheduleAutoRender();
   }
 
   function labelSlideMouseDown(e) {
@@ -5859,101 +5984,51 @@ document.addEventListener('DOMContentLoaded', () => {
       const parts = vb.split(/[\s,]+/).map(Number);
       hitThresh = Math.hypot(parts[2] || 300, parts[3] || 300) * 0.04;
     }
-    if (!bestLabel || bestDist > hitThresh) return;
+    if (!bestLabel || bestDist > hitThresh) {
+      // Click in empty area — deselect
+      if (labelSlideSelectedLabel) {
+        for (const el of (labelSlideSelectedLabel.glowEls || [])) el.classList.remove('label-slide-glow', 'slide-free-glow');
+        if (labelSlideSelectedLabel.hitCircle) labelSlideSelectedLabel.hitCircle.classList.remove('label-slide-hit-selected');
+        labelSlideSelectedLabel = null;
+      }
+      return;
+    }
 
-    // Compute pixels-per-math-unit for this drag
+    // Compute pixels-per-math-unit for drag (stored for later use)
     const pxPerUnit = (lastRenderInfo && lastRenderInfo.pxPerUnitX) || slidePxPerUnit || 28.35;
     const screenPxPerMathUnit = pxPerUnit / Math.abs(screenCTM.a);
 
-    // If this label has no adjust variable yet, inject one now
-    if (!bestLabel.adjustVarName) {
-      const code = editor.getValue();
-      const lines = code.split('\n');
-      const line = lines[bestLabel.lineIdx];
-
-      const argBounds = parseLabelSecondArg(line);
-      if (!argBounds) return; // can't parse — bail
-
-      // Pick a unique counter (max of existing + 1)
-      const existingNums = (code.match(/_lblAdj(\d+)/g) || [])
-        .map(s => parseInt(s.replace('_lblAdj', ''), 10));
-      const maxExisting = existingNums.length > 0 ? Math.max(...existingNums) : 0;
-      if (labelSlideAdjCounter <= maxExisting) labelSlideAdjCounter = maxExisting + 1;
-      else labelSlideAdjCounter++;
-      const adjName = '_lblAdj' + labelSlideAdjCounter;
-
-      // Modify label line: append +adjName to the position argument
-      const oldPos = line.substring(argBounds.start, argBounds.end);
-      const newPos = oldPos + '+' + adjName;
-      const newLine = line.substring(0, argBounds.start) + newPos + line.substring(argBounds.end);
-
-      // Insert "pair adjName = (0,0);" on the line just above
-      const origLineIdx = bestLabel.lineIdx;
-      lines.splice(origLineIdx, 1, 'pair ' + adjName + ' = (0,0);', newLine);
-      const newCode = lines.join('\n');
-
-      suppressAutoRender = true;
-      editor.setValue(newCode);
-      suppressAutoRender = false;
-      if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
-
-      // Synchronous re-render and overlay rebuild
-      if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
-        try {
-          const previewEl = document.getElementById('preview-container');
-          const dims = getPreviewDimensions();
-          const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-          const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
-          if (oldSvgEl) oldSvgEl.remove();
-          previewEl.insertAdjacentHTML('afterbegin', result.svg);
-          showStaleBadge(false);
-          lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
-          applyCanvasTransform();
-          setupSvgInteractivityDirect(newCode, result.commandMap);
-          applyLabelSlideOverlay();
-          // After overlay rebuild, label is at origLineIdx+1 with adjName set
-          bestLabel = labelSlideLabelData.find(l => l.lineIdx === origLineIdx + 1 && l.adjustVarName === adjName);
-          if (!bestLabel) return;
-        } catch (err) {
-          // Async fallback — can't start drag this click
-          doRender().then(() => probeReady).then(() => applyLabelSlideOverlay());
-          return;
-        }
-      } else {
-        doRender().then(() => probeReady).then(() => applyLabelSlideOverlay());
-        return;
-      }
-    }
-
-    if (!bestLabel || !bestLabel.adjustVarName) return;
-
-    // Read current adj value from code
-    const curCode = editor.getValue();
-    const adjRe = new RegExp(bestLabel.adjustVarName + '\\s*=\\s*\\(\\s*([\\-\\d.]+)\\s*,\\s*([\\-\\d.]+)\\s*\\)');
-    let startAdjX = 0, startAdjY = 0;
-    for (const ln of curCode.split('\n')) {
-      const am = adjRe.exec(ln);
-      if (am) { startAdjX = parseFloat(am[1]); startAdjY = parseFloat(am[2]); break; }
-    }
-
-    // Glow label elements
-    for (const el of bestLabel.glowEls) el.classList.add('label-slide-glow', 'slide-free-glow');
-
-    svg.style.cursor = 'grabbing';
-    labelSlideDragState = {
-      label: bestLabel,
-      startAdjX, startAdjY,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      screenPxPerMathUnit,
-      origin: '+lbl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-      preDragCode: curCode,
-      preDragHistory: editor.getDoc().getHistory(),
-      svg,
-    };
+    // Store pending click — mousemove will promote to drag if mouse travels >3px
+    labelSlidePendingClick = { label: bestLabel, startClientX: e.clientX, startClientY: e.clientY, svg, screenPxPerMathUnit };
   }
 
   function labelSlideMouseMove(e) {
+    // Promote pending click to drag once mouse moves far enough
+    if (labelSlidePendingClick && !labelSlideDragState) {
+      const pending = labelSlidePendingClick;
+      if (Math.hypot(e.clientX - pending.startClientX, e.clientY - pending.startClientY) <= 3) return;
+      labelSlidePendingClick = null;
+      const label = ensureLabelAdjVar(pending.label);
+      if (!label) return;
+      const freshSvg = document.querySelector('#preview-container svg:not([data-perm])') || pending.svg;
+      const curCode = editor.getValue();
+      const adjRe = new RegExp(label.adjustVarName + '\\s*=\\s*\\(\\s*([\\-\\d.]+)\\s*,\\s*([\\-\\d.]+)\\s*\\)');
+      let startAdjX = 0, startAdjY = 0;
+      for (const ln of curCode.split('\n')) {
+        const am = adjRe.exec(ln);
+        if (am) { startAdjX = parseFloat(am[1]); startAdjY = parseFloat(am[2]); break; }
+      }
+      for (const el of label.glowEls) el.classList.add('label-slide-glow', 'slide-free-glow');
+      freshSvg.style.cursor = 'grabbing';
+      labelSlideDragState = {
+        label, startAdjX, startAdjY,
+        startClientX: pending.startClientX, startClientY: pending.startClientY,
+        screenPxPerMathUnit: pending.screenPxPerMathUnit,
+        origin: '+lbl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        preDragCode: curCode, preDragHistory: editor.getDoc().getHistory(),
+        svg: freshSvg,
+      };
+    }
     if (!labelSlideDragState) return;
     e.preventDefault();
     const { label, startAdjX, startAdjY, startClientX, startClientY, screenPxPerMathUnit } = labelSlideDragState;
@@ -6014,6 +6089,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function labelSlideMouseUp() {
+    // Pure click (no drag) — toggle selection on the pending label
+    if (labelSlidePendingClick) {
+      const pending = labelSlidePendingClick;
+      labelSlidePendingClick = null;
+      if (labelSlideSelectedLabel && labelSlideSelectedLabel.lineIdx === pending.label.lineIdx) {
+        // Clicking already-selected label deselects it
+        for (const el of (labelSlideSelectedLabel.glowEls || [])) el.classList.remove('label-slide-glow', 'slide-free-glow');
+        if (labelSlideSelectedLabel.hitCircle) labelSlideSelectedLabel.hitCircle.classList.remove('label-slide-hit-selected');
+        labelSlideSelectedLabel = null;
+      } else {
+        // Deselect previous
+        if (labelSlideSelectedLabel) {
+          for (const el of (labelSlideSelectedLabel.glowEls || [])) el.classList.remove('label-slide-glow', 'slide-free-glow');
+          if (labelSlideSelectedLabel.hitCircle) labelSlideSelectedLabel.hitCircle.classList.remove('label-slide-hit-selected');
+          labelSlideSelectedLabel = null;
+        }
+        // Select new label (inject _lblAdj if needed so arrow keys can work immediately)
+        const label = ensureLabelAdjVar(pending.label);
+        if (label) {
+          labelSlideSelectedLabel = label;
+          for (const el of label.glowEls) el.classList.add('label-slide-glow', 'slide-free-glow');
+          if (label.hitCircle) label.hitCircle.classList.add('label-slide-hit-selected');
+        }
+      }
+      return;
+    }
     if (!labelSlideDragState) return;
     const { svg, preDragCode, preDragHistory, label } = labelSlideDragState;
     if (svg) svg.style.cursor = '';
