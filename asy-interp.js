@@ -5210,18 +5210,14 @@ function createInterpreter() {
       const contentW = Math.max(1, maxX - minX);
       const contentH = Math.max(1, maxY - minY);
       const sizeFn = env.get('size');
-      // The renderer boosts size() < 60bp up to 150bp to keep tiny
-      // diagrams visible. Drawtree's natural content is often in the
-      // 40–60bp range, so pin size at >=61bp to dodge the boost while
-      // preserving the natural aspect ratio. (Passing size() IgnoreAspect
-      // isn't right here — we want a single uniform scale.)
-      const sizeFloor = 61;
-      let sW = contentW, sH = contentH;
-      if (Math.max(sW, sH) < sizeFloor) {
-        const s = sizeFloor / Math.max(sW, sH);
-        sW *= s; sH *= s;
-      }
-      if (typeof sizeFn === 'function') sizeFn(sW, sH);
+      // Drawtree coordinates are in bp. Call size(contentW, contentH,
+      // IgnoreAspect) so the renderer uses pxPerUnitX = sizeW/geoW = 1
+      // and pxPerUnitY = sizeH/geoH = 1, rendering at 1:1 bp scale.
+      // IgnoreAspect is key: it skips the secondary floor boost (which
+      // otherwise scales small diagrams up to 150bp) and sets independent
+      // X/Y scales equal to content/content = 1.
+      const IgnoreAspect = env.get('IgnoreAspect');
+      if (typeof sizeFn === 'function') sizeFn(contentW, contentH, IgnoreAspect);
       // Asymptote's drawtree builds into a frame then add(f, pos);
       // we render directly into currentPic shifted by pos.
       drawAll(root, pos.x, pos.y);
@@ -21488,6 +21484,11 @@ function renderSVG(result, opts) {
   // Track previous-pass label-expanded bbox so we can detect convergence and
   // bail out of extra iterations when the bbox stops growing.
   let _prevFullW = 0, _prevFullH = 0;
+  // Track divergence — detect accelerating growth (true divergence) vs decelerating
+  // growth (converging). 02824 accelerates (0.6→0.9→1.4→2.0), 03491 decelerates (10→5).
+  let _divergenceDetected = false;
+  let _prevRatio = 0;
+  let _prevGrowth = 0;
   // Allow more passes for label-dominated layouts so the pxPerUnit / label-
   // width feedback loop can converge (e.g. 04484: East-aligned slope labels at
   // right-edge points — initial geometry-only pxPerUnit underestimates label
@@ -21518,14 +21519,19 @@ function renderSVG(result, opts) {
       // to overflow on that axis without shrinking geometry to fit. Otherwise
       // (e.g. 08989 with size(80, 0) and fontsize(25)), labels growing fullH
       // would feed back into pxPerUnit, collapsing geometry to a tiny strip.
-      // Only trigger label-dominated mode when labels TRULY dominate (3x or more).
-      // At 1.5x, moderately-sized labels on diagrams like unit circles with
-      // coordinate labels trigger the mode, causing feedback that shrinks
-      // geometry to near-invisible sizes (02824 regression). TeXeR keeps
-      // geometry at size() scale and lets labels overflow; only when labels
-      // are vastly larger than geometry does it shrink geometry to fit both.
-      _labelDominated = labelPass > 0 && sizeW > 0 && sizeH > 0 &&
-        ((fullW / geoW >= 3.0) || (fullH / geoH >= 3.0));
+      // Divergence detection: most label-dominated diagrams converge (ratio
+      // growth decelerates each pass). But 02824 diverges: ratio growth
+      // ACCELERATES (0.6→0.9→1.4→2.0), collapsing geometry. Detect this by
+      // checking if growth rate is increasing while ratio exceeds 4x.
+      const _curRatio = Math.max(fullW / geoW, fullH / geoH);
+      const _curGrowth = _curRatio - _prevRatio;
+      if (labelPass >= 2 && _curRatio > 4.0 && _curGrowth > _prevGrowth + 0.1) {
+        _divergenceDetected = true;
+      }
+      _prevGrowth = _curGrowth;
+      _prevRatio = _curRatio;
+      _labelDominated = labelPass > 0 && sizeW > 0 && sizeH > 0 && !_divergenceDetected &&
+        ((fullW / geoW >= 1.5) || (fullH / geoH >= 1.5));
       const refW = _labelDominated ? fullW : geoW;
       const refH = _labelDominated ? fullH : geoH;
       const tW = sizeW > 0 ? sizeW : Infinity;
