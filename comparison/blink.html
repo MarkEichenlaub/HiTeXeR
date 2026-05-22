@@ -198,6 +198,7 @@
   </div>
 
   <button id="help-btn" title="Keyboard shortcuts">? Help</button>
+  <button id="btn-copy-queue" title="Copy queued diagram IDs to clipboard (backup)">Copy Queue (<span id="queue-count">0</span>)</button>
   <button onclick="window.open('fix-history.html','_blank')" title="View fix queue history" style="background:#2d1b4a;border:1px solid #7c3aed;color:#c4b5fd;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Fix History</button>
   <button onclick="window.open('excluded.html','_blank')" title="View excluded diagrams" style="background:#1f1a3a;border:1px solid #4f46e5;color:#a5b4fc;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Excluded</button>
 
@@ -1244,6 +1245,7 @@
   });
   document.getElementById('btn-copy-selected').addEventListener('click', copySelectedIds);
   document.getElementById('btn-clear-selected').addEventListener('click', clearSelected);
+  document.getElementById('btn-copy-queue').addEventListener('click', copyQueue);
 
   // Ensure code panel needs the source loaded even on page load
   // (the panel starts visible, code loads on enterBlink)
@@ -1333,6 +1335,21 @@
       const qEl = document.getElementById('blink-queued');
       if (qEl && d) qEl.style.display = queuedIds.has(d.id) ? '' : 'none';
     }
+    // Header queue count.
+    const qc = document.getElementById('queue-count');
+    if (qc) qc.textContent = queuedIds.size;
+  }
+
+  function copyQueue() {
+    if (queuedIds.size === 0) { alert('Queue is empty.'); return; }
+    const order = new Map((manifest ? manifest.diagrams : []).map((d, i) => [d.id, i]));
+    const ids = [...queuedIds].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
+    navigator.clipboard.writeText(ids.join(', ')).then(() => {
+      const btn = document.getElementById('btn-copy-queue');
+      const orig = btn.innerHTML;
+      btn.textContent = `Copied ${ids.length}!`;
+      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    });
   }
 
   function pollAutoFixStatus() {
