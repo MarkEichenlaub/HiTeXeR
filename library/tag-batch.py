@@ -500,6 +500,7 @@ def _run_one_cli(rec, vocab, claude_bin, max_turns, timeout):
     try:
         proc = subprocess.run(
             [claude_bin, '-p', '--output-format', 'text',
+             '--model', MODEL,
              '--max-turns', str(max_turns)],
             input=prompt,
             capture_output=True,
