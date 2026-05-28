@@ -73,27 +73,30 @@ function generate() {
     };
   }).reverse(); // newest first
 
-  // Append pending queue items that have no attempt yet.
+  // Append a "queued" row for every item currently in queue.json. This is the
+  // build-time fallback; at view time the page re-syncs against the live queue
+  // via /status (see syncLiveQueue() in the page script), so it always agrees
+  // with the Blink comparator. We deliberately do NOT skip ids that also have a
+  // past attempt — an item that was attempted before and is back in the queue is
+  // genuinely pending again, and gets its own queued row in addition to the
+  // historical attempt row.
   for (const qi of queueItems) {
     const id = padId(qi.id);
-    const hasAttempt = allAttempts.some(a => padId(a.id) === id && a.ts >= qi.addedAt);
-    if (!hasAttempt) {
-      const eq = enqueues.filter(e => padId(e.id) === id).pop();
-      const enqueueId = eq ? eq.enqueueId : null;
-      const beforeFile = enqueueId ? path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png') : null;
-      items.unshift({
-        id,
-        ts:                qi.addedAt,
-        attempt:           null,
-        enqueueId,
-        description:       qi.description || (eq ? eq.description || '' : ''),
-        hasBeforeSnapshot: beforeFile ? fs.existsSync(beforeFile) : false,
-        hasAfterSnapshot:  false,
-        commitHash:        null,
-        queued:            true,
-        isProcessing:      id === processingId,
-      });
-    }
+    const eq = enqueues.filter(e => padId(e.id) === id).pop();
+    const enqueueId = eq ? eq.enqueueId : null;
+    const beforeFile = enqueueId ? path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png') : null;
+    items.unshift({
+      id,
+      ts:                qi.addedAt,
+      attempt:           null,
+      enqueueId,
+      description:       qi.description || (eq ? eq.description || '' : ''),
+      hasBeforeSnapshot: beforeFile ? fs.existsSync(beforeFile) : false,
+      hasAfterSnapshot:  false,
+      commitHash:        null,
+      queued:            true,
+      isProcessing:      id === processingId,
+    });
   }
 
   fs.writeFileSync(OUTPUT, buildHtml(items, new Date().toISOString()));
@@ -537,12 +540,18 @@ async function fixAgain(item, btn){
 async function dequeueItem(item, btn){
   btn.disabled = true; btn.textContent = 'Removing...';
   try{
-    const r = await fetch('http://localhost:7842/dequeue',{
+    const r = await fetch('/dequeue',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:item.id}),
     });
     const j = await r.json();
-    if(j.ok){ item.queued = false; btn.textContent='Dequeued'; renderList(); }
+    if(j.ok){
+      // Pure queue row (no historical attempt) → remove it entirely so it
+      // doesn't linger as a "Pending" ghost; otherwise just clear the flag.
+      const i = DATA.indexOf(item);
+      if(i>=0 && !item.attempt) DATA.splice(i,1); else item.queued=false;
+      btn.textContent='Dequeued'; renderList();
+    }
     else    { btn.textContent='Error'; btn.disabled=false; }
   } catch {
     btn.textContent='Server offline'; btn.disabled=false;
@@ -559,7 +568,53 @@ document.querySelectorAll('.tab').forEach(tab=>{
   });
 });
 
-renderList();
+// ── Live queue reconciliation ─────────────────────────────────────────────
+// The Committed / Rejected history baked into DATA is a build-time snapshot and
+// is fine as-is (those records are append-only). But the queue changes after the
+// page is generated (dequeue, batch enqueue, sync), so the "In Queue / Pending"
+// view must reflect the LIVE queue.json or it drifts out of sync with Blink —
+// which is exactly the bug this fixes. On load we fetch /status, discard the
+// stale queued rows baked into DATA, and rebuild them from the live queue.
+// If the server is unreachable (e.g. opened via file://) we keep the snapshot.
+async function syncLiveQueue(){
+  let queue, processingId = null;
+  try {
+    const r = await fetch('/status', { cache: 'no-store' });
+    const s = await r.json();
+    queue = Array.isArray(s.queue) ? s.queue : [];
+    processingId = (s.current && s.current.currentId) ? pad(s.current.currentId) : null;
+  } catch {
+    renderList();   // offline → fall back to the embedded snapshot
+    return;
+  }
+
+  // Keep enrichment (before-snapshot, enqueueId) from any existing DATA row.
+  const byId = {};
+  for (const it of DATA) { if (!byId[it.id]) byId[it.id] = it; }
+
+  // Drop the stale queued rows, then rebuild from the live queue.
+  for (let i = DATA.length - 1; i >= 0; i--) { if (DATA[i].queued) DATA.splice(i, 1); }
+  for (const qi of queue) {
+    const id = pad(qi.id);
+    const e  = byId[id] || {};
+    DATA.unshift({
+      id,
+      ts: qi.addedAt || e.ts || new Date().toISOString(),
+      attempt: null,
+      enqueueId: e.enqueueId || null,
+      description: qi.description || e.description || '',
+      hasBeforeSnapshot: !!e.hasBeforeSnapshot,
+      hasAfterSnapshot: false,
+      commitHash: null,
+      queued: true,
+      isProcessing: id === processingId,
+    });
+  }
+  renderList();
+}
+
+renderList();      // immediate paint from the embedded snapshot
+syncLiveQueue();   // then reconcile against the live queue
 </script>
 </body>
 </html>`;

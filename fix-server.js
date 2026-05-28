@@ -367,6 +367,7 @@ const server = http.createServer((req, res) => {
           } catch {}
         }
 
+        try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
         console.log(`[fix-server] Skipped diagram ${id}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, id }));
@@ -395,6 +396,7 @@ const server = http.createServer((req, res) => {
           fs.writeFileSync(queuePath, JSON.stringify(q.filter(item => item.id !== id), null, 2));
         } catch {}
         try { spawnSync(process.execPath, ['comparison/generate-manifest.js'], { cwd: ROOT, stdio: 'pipe' }); } catch {}
+        try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
         console.log(`[fix-server] Excluded diagram ${id}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, id }));
@@ -438,6 +440,7 @@ const server = http.createServer((req, res) => {
         try { queue = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch {}
         const filtered = queue.filter(item => item.id !== id);
         fs.writeFileSync(queuePath, JSON.stringify(filtered, null, 2));
+        try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
         console.log(`[fix-server] Dequeued diagram ${id} (queue length: ${filtered.length})`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, id, queueLength: filtered.length }));
@@ -611,6 +614,16 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('[fix-server] manifest regenerated from droplist on startup');
   } catch (e) {
     console.error('[fix-server] startup manifest regeneration failed:', e.message);
+  }
+
+  // Regenerate the static fix-history page on startup so its embedded fallback
+  // reflects the current queue even if the loop hasn't run since the last queue
+  // change. (The page also re-syncs against /status live when opened.)
+  try {
+    generateFixHistory();
+    console.log('[fix-server] fix-history regenerated on startup');
+  } catch (e) {
+    console.error('[fix-server] startup fix-history regeneration failed:', e.message);
   }
 
   // If there are already queued items (e.g. left over from a previous session),
