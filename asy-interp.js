@@ -23566,7 +23566,20 @@ function renderSVG(result, opts) {
       // ~0.3× below baseline. Without this, labels like "$\vec{F}_{f;C\to R}$"
       // with S alignment get clipped at the bottom (06205).
       const subscriptDepth = _hasSSVB ? fontSizeSVG * 0.35 : 0;
-      const H = fontSizeSVG * numLines + subscriptDepth;
+      // Match the height factor from the rendering code (line ~24648): S-aligned
+      // multi-char plain text labels use 1.38× height for better baseline
+      // alignment. Without this, the viewBox clips the bottom of multi-line
+      // S-aligned labels like shortstack (03881).
+      const _hasFracVB = /\\frac\b/.test(_rawVB);
+      const _isSouthAlignedVB = dc.align && dc.align.y < -0.5;
+      const _labelTextVB = _rawVB.trim();
+      const _isMultiCharPlainTextVB = !(/[\$\\]/.test(_labelTextVB)) && _labelTextVB.length >= 3;
+      const _hFactorVB = _hasFracVB ? 1.45 : 1.0;
+      // Match the multi-line height formula from rendering (line ~24661): account for
+      // 1.2× line spacing between lines instead of multiplying _hFactor by numLines.
+      const H = (numLines > 1
+        ? fontSizeSVG * ((numLines - 1) * 1.2 + _hFactorVB)
+        : fontSizeSVG * _hFactorVB) + subscriptDepth;
       // In svg-native mode the actual label is rendered through MathJax which
       // gives precise widths.  The character-count heuristic above (charWFactor
       // 0.62 for math) over-estimates by ~50% for digit/symbol-heavy labels
@@ -24637,16 +24650,17 @@ function renderSVG(result, opts) {
         // to denominator-bottom (y_center + 0.35*fs + 0.5*fracFs); with
         // fracFs=0.75*fs that's a total height of ~1.45*fs. Using 1.45 makes
         // the south edge land where the caller's anchor logic expects.
-        // For S-aligned plain-text labels (like "ball 1" in 01128), use factor 1.38
-        // to match TeXeR's label box height. For math labels and other alignments,
-        // use 1.0 to avoid over-pushing. Single-character labels like "A" or "B"
-        // (08875) don't need the 1.38 factor — require at least 3 chars.
+        // Fractions (\frac) render taller (1.45× fontSize) due to stacked layout.
+        // All other labels use 1.0× fontSize for the height factor.
         const _hasFrac = /\\frac\b/.test(dc.text || '');
-        const _isSouthAligned = ay < -0.5;
-        const _labelText = (dc.text || '').trim();
-        const _isMultiCharPlainText = !(/[\$\\]/.test(_labelText)) && _labelText.length >= 3;
-        const _hFactor = _hasFrac ? 1.45 : ((_isSouthAligned && _isMultiCharPlainText) ? 1.38 : 1.0);
-        const H = fontSizeSVG * numLines * _hFactor;
+        const _hFactor = _hasFrac ? 1.45 : 1.0;
+        // For multi-line labels, account for line spacing (1.2× between lines) instead
+        // of multiplying _hFactor by numLines. The rendered height is:
+        //   (numLines - 1) * lineHeight + lastLineHeight
+        // where lineHeight = 1.2 * fontSize and lastLineHeight = _hFactor * fontSize.
+        const H = numLines > 1
+          ? fontSizeSVG * ((numLines - 1) * 1.2 + _hFactor)
+          : fontSizeSVG * _hFactor;
         // Asymptote's labelmargin(p) = 0.28*fontsize(p) + 0.5*linewidth(p)
         // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
         // and including the linewidth term gives labels proper clearance from
