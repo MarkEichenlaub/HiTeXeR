@@ -57,6 +57,8 @@ try:
 except ImportError:
     HAS_SELENIUM = False
 
+CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-opus-4-8')
+
 # ── Paths ────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent
 COMPARISON = ROOT / "comparison"
@@ -489,7 +491,7 @@ the `v` string in the `<h1>` header) so we can confirm the change.
         # agentic mode and can use tools (Read, Edit, Bash) to fix the code.
         cmd = (
             f'claude --dangerously-skip-permissions '
-            f'--model claude-opus-4-7 '
+            f'--model {CLAUDE_MODEL} '
             f'--output-format text '
             f'--max-turns 30 '
             f'< "{prompt_file}"'
@@ -568,7 +570,7 @@ IMPORTANT: After editing asy-interp.js, bump the version number in index.html.
     try:
         cmd = (
             f'claude --dangerously-skip-permissions '
-            f'--model claude-opus-4-7 '
+            f'--model {CLAUDE_MODEL} '
             f'--output-format text '
             f'--max-turns 30 '
             f'< "{prompt_file}"'
