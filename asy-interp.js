@@ -7104,6 +7104,25 @@ function createInterpreter() {
     });
     env.set('dot', (...args) => evalDot(args));
 
+    // cross(triple, triple) — 3D vector cross product
+    // Also cross(int n) — marker path: n-pointed asterisk (from plain_markers.asy)
+    env.set('cross', (...args) => {
+      // cross(int n) — marker path
+      if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
+        const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        const segs = [];
+        for (let i = 0; i < n; i++) {
+          const angle = i * Math.PI / n;
+          const dx = Math.cos(angle), dy = Math.sin(angle);
+          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+        }
+        return makePath(segs, false);
+      }
+      // cross(triple, triple) — 3D vector cross product
+      const u = toTriple(args[0]), v = toTriple(args[1]);
+      return makeTriple(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
+    });
+
     // realmult(pair a, pair b) — componentwise pair multiplication
     // Used by gallery layout idioms: shift(realmult(size,(i,j)))*frame
     env.set('realmult', (a, b) => {
@@ -19899,6 +19918,15 @@ function createInterpreter() {
 
   function evalDot(args) {
     if (args.length === 0) return;
+    // dot(triple, triple) or dot(pair, pair) is dot product, not drawing
+    // This check is needed when dot() is called from inside user-defined functions
+    // where the call bypasses the calleeName check in evalFuncCall
+    if (args.length === 2 && isTriple(args[0]) && isTriple(args[1])) {
+      return args[0].x*args[1].x + args[0].y*args[1].y + args[0].z*args[1].z;
+    }
+    if (args.length === 2 && isPair(args[0]) && isPair(args[1])) {
+      return args[0].x*args[1].x + args[0].y*args[1].y;
+    }
     // Extract target picture if first arg is a picture
     let target = currentPic;
     if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
