@@ -21368,7 +21368,12 @@ function renderSVG(result, opts) {
       // Images float outside the crop region like text labels, so we include
       // only the anchor position in the initial geometry bbox. The full image
       // extent is expanded AFTER crop clamping, in the label expansion section.
-      expandBBox(dc.pos.x, dc.pos.y);
+      // EXCEPTION: Images clipped to a sub-picture region (e.g. 08941 camera-box
+      // diagrams) can have positions FAR outside their visible clip rect — the
+      // image is placed at a distant coordinate but only a clipped portion shows.
+      // Including such positions would inflate the viewBox far beyond visible
+      // content. Skip them here; the clip rect itself contributes via its paths.
+      if (!dc._subpicClipRect) expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'marker') {
       // Marker is in bp units — only include anchor position in bbox (marker size is tiny)
       expandBBox(dc.pos.x, dc.pos.y);
@@ -21786,6 +21791,11 @@ function renderSVG(result, opts) {
         // Use the same alignment-offset math as the image rendering code.
         const pos = dc.pos;
         if (!pos || pos.x === undefined) continue;
+        // Images clipped to a sub-picture region (e.g. pinhole camera diagrams like 08941)
+        // should only contribute the clip rect bounds, not the full image bounds. The clip
+        // rect itself is already accounted for in the geometry bbox. Skip these images to
+        // avoid expanding the viewBox far beyond what's actually visible.
+        if (dc._subpicClipRect) continue;
         const imgSize = computeGraphicDisplaySize(dc.graphic, unitScale, hasUnitScale);
         const w_user = imgSize.w_bp / roughPxPerUnitX;
         const h_user = imgSize.h_bp / roughPxPerUnitY;
@@ -24300,7 +24310,14 @@ function renderSVG(result, opts) {
         const imgClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
         let finalImgEl;
         if (transformAttr) {
-          finalImgEl = `<g${transformAttr}${imgClip}>${imgEl}</g>`;
+          if (imgClip) {
+            // Separate clip and transform into nested groups: clip on outer, transform on inner.
+            // This avoids a librsvg bug where clip-path + negative-scale transform on the same
+            // element produces incorrect clipping (the clip region is inverted/offset).
+            finalImgEl = `<g${imgClip}><g${transformAttr}>${imgEl}</g></g>`;
+          } else {
+            finalImgEl = `<g${transformAttr}>${imgEl}</g>`;
+          }
         } else if (imgClip) {
           finalImgEl = `<g${imgClip}>${imgEl}</g>`;
         } else {
