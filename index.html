@@ -577,7 +577,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.25</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.26</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2729,10 +2729,14 @@ function detectMissingSemicolons(code) {
     const last = trimmed[trimmed.length - 1];
     if (';{},'.includes(last)) continue;
     if (/^(if|else|for|while|do)\b/.test(trimmed)) continue;
+    // Asymptote path continuation: lines starting with -- or .. are not statements
+    if (/^(--)|(\.\.)\s/.test(trimmed) || trimmed === '--' || trimmed === '..') continue;
     // If next non-empty line opens a block, this is a function/struct header — no semicolon needed
     let nextNE = '';
     for (let j = i + 1; j < lines.length; j++) { const t = lines[j].trim(); if (t) { nextNE = t; break; } }
     if (nextNE.startsWith('{')) continue;
+    // If next non-empty line is a path continuation (--/../..), this line is the start of a multi-line path
+    if (/^(--)|(\.\.)\s/.test(nextNE) || nextNE.startsWith('--') || nextNE.startsWith('..')) continue;
     // Flag if the line looks like a statement (contains = or () call or is an expression)
     if (/[=\(]/.test(trimmed) || /^(return|break|continue)\b/.test(trimmed)) {
       warnings.push(`Line ${i + 1}: missing semicolon — \`${trimmed.slice(0, 50)}${trimmed.length > 50 ? '…' : ''}\``);
