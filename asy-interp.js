@@ -8929,11 +8929,76 @@ function createInterpreter() {
     });
 
     // D() — cse5/olympiad shorthand for draw that returns its path
+    // In AoPS/cse5 convention, D() uses blue pen by default (unlike draw() which uses black)
     env.set('D', (...args) => {
+      // Inject blue pen if no pen provided in args
+      let hasPen = false;
+      for (const a of args) { if (isPen(a)) { hasPen = true; break; } }
+      if (!hasPen) {
+        const bluePen = env.get('blue') || makePen({r:0, g:0, b:1});
+        args = [...args, bluePen];
+      }
       evalDraw('draw', args);
       // Return the first path argument so D() can be chained
       for (const a of args) { if (isPath(a)) return a; }
       return makePath([], false);
+    });
+
+    // MA() — AoPS Mark Angle function: draws angle arc with label
+    // Signature: MA(label, fontSize, pen, point1, vertex, point2, radius, n, pen)
+    // point1 and point2 define the rays from vertex, arc sweeps CCW from ray to point1 to ray to point2
+    env.set('MA', (...args) => {
+      let label = null;
+      let pen = null;
+      let radius = 0.1;
+      let n = 1;
+      const pairs = [];
+      const nums = [];
+
+      for (const a of args) {
+        if (isPair(a)) { pairs.push(toPair(a)); continue; }
+        if (isPen(a)) { pen = a; continue; }
+        if (isString(a)) { label = a; continue; }
+        if (typeof a === 'number') { nums.push(a); continue; }
+      }
+
+      // Need at least 3 pairs: point1, vertex, point2
+      if (pairs.length < 3) return makePath([], false);
+      const P1 = pairs[0];     // first ray endpoint
+      const V = pairs[1];      // vertex (center of arc)
+      const P2 = pairs[2];     // second ray endpoint
+
+      // Extract radius from numeric args (typically 4th numeric arg after fontSize)
+      // Format: MA(label, fontSize, pen, P1, V, P2, radius, n, pen)
+      // nums[0] = fontSize (12), nums[1] = radius (0.1), nums[2] = n (1)
+      if (nums.length >= 2) radius = nums[1];
+      if (nums.length >= 3) n = Math.max(1, Math.floor(nums[2]));
+
+      if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+
+      // Angles from vertex V to P1 and P2 (in degrees)
+      let a1 = Math.atan2(P1.y - V.y, P1.x - V.x) * 180 / Math.PI;
+      let a2 = Math.atan2(P2.y - V.y, P2.x - V.x) * 180 / Math.PI;
+      // CCW sweep from ray VP1 to ray VP2
+      while (a2 <= a1) a2 += 360;
+
+      // Draw the arc
+      const arcPath = makeArcPath(V, radius, a1, a2);
+      currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0,
+        _markangleBpR: radius * 72, _markangleVertex: V, _markangleA1: a1 * Math.PI / 180, _markangleA2: a2 * Math.PI / 180});
+
+      // Label at the arc midpoint
+      if (label) {
+        const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
+        const labelR = radius * 1.6;
+        const pos = makePair(V.x + labelR * Math.cos(midAngle), V.y + labelR * Math.sin(midAngle));
+        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0,
+          _markangleBpR: labelR * 72, _markangleVertex: V, _markangleMidAngle: midAngle});
+      }
+
+      // Return null - MA() already drew the arc and label. Returning the path would cause
+      // draw(MA(...)) to draw the arc a second time.
+      return null;
     });
 
     // Geometry (olympiad/cse5 package)
