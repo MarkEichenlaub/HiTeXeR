@@ -11170,7 +11170,8 @@ function createInterpreter() {
           // Skip last tick label if endlabel=false
           if (!endlabel && i === majorPositions.length - 1) continue;
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
-          const align = isX ? {x:0, y:-1} : {x:-1, y:0};
+          const defaultAlign = isX ? {x:0, y:-1} : {x:-1, y:0};
+          const align = ticks.labelAlign || defaultAlign;
           let txt;
           // Default format: Asymptote uses "%.4g" rendered via TeX.
           // toPrecision(4) matches %.4g semantics.
@@ -12356,7 +12357,7 @@ function createInterpreter() {
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
-        else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; }
+        else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; if (a.align) t.labelAlign = a.align; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('Step' in a) t.step = a.Step;
@@ -21358,10 +21359,80 @@ function renderSVG(result, opts) {
             if (c._autoXmax && Math.abs(lc.pos.x - oldHi) < 1e-6) lc.pos = { x: hi, y };
             else if (c._autoXmin && Math.abs(lc.pos.x - oldLo) < 1e-6) lc.pos = { x: lo, y };
           }
-          // Move any arrow attached to this axis (arrows currently render via
-          // separate paths, so this only matters if the arrow was stored on
-          // the same draw cmd — Asymptote arrows in our pipeline draw at
-          // path endpoints, which are now updated via c.path replacement).
+          // Generate new tick marks and labels for the extended x-axis range.
+          // Find existing x-axis tick labels to determine step and pen.
+          const existingTickLabels = [];
+          let tickLabelPen = null;
+          let tickLabelAlign = { x: 0, y: -1 }; // Default align=S (south/below)
+          let tickMarkPen = null;
+          let tickSize = 0;
+          let refTickLabelPen = null; // Reference pen from first x-axis tick label found
+          for (const dc of drawCommands) {
+            if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.y - y) < 1e-6) {
+              // Filter: only include labels whose color matches the first x-axis tick label.
+              // This excludes y-axis tick labels at y=0 which have different pen color (e.g. red vs blue).
+              if (refTickLabelPen && dc.pen) {
+                const refR = refTickLabelPen.r != null ? refTickLabelPen.r : 0;
+                const refG = refTickLabelPen.g != null ? refTickLabelPen.g : 0;
+                const refB = refTickLabelPen.b != null ? refTickLabelPen.b : 0;
+                const dcR = dc.pen.r != null ? dc.pen.r : 0;
+                const dcG = dc.pen.g != null ? dc.pen.g : 0;
+                const dcB = dc.pen.b != null ? dc.pen.b : 0;
+                // Compare colors - if different, skip this label
+                if (Math.abs(dcR - refR) > 0.1 || Math.abs(dcG - refG) > 0.1 || Math.abs(dcB - refB) > 0.1) continue;
+              }
+              if (!refTickLabelPen && dc.pen) refTickLabelPen = dc.pen;
+              existingTickLabels.push(dc.pos.x);
+              if (!tickLabelPen && dc.pen) tickLabelPen = dc.pen;
+              if (dc.align) tickLabelAlign = dc.align;
+            }
+            if (dc._isTickMark && dc.path && dc.path.segs && dc.path.segs.length > 0) {
+              const ts = dc.path.segs[0];
+              const midY = (ts.p0.y + ts.p3.y) / 2;
+              if (Math.abs(midY - y) < 0.5) {
+                if (!tickMarkPen && dc.pen) tickMarkPen = dc.pen;
+                const sz = Math.abs(ts.p3.y - ts.p0.y) / 2;
+                if (sz > tickSize) tickSize = sz;
+              }
+            }
+          }
+          existingTickLabels.sort((a, b) => a - b);
+          if (existingTickLabels.length >= 2) {
+            let step = existingTickLabels[1] - existingTickLabels[0];
+            for (let i = 2; i < existingTickLabels.length; i++) {
+              const diff = existingTickLabels[i] - existingTickLabels[i - 1];
+              if (Math.abs(diff - step) < 1e-8) continue;
+              if (diff < step) step = diff;
+            }
+            if (step > 0 && tickLabelPen) {
+              const fmtTick = (v) => {
+                if (v === 0) return '0';
+                const s4 = v.toPrecision(4);
+                const eIdx = s4.indexOf('e');
+                if (eIdx !== -1) {
+                  const mantissa = parseFloat(s4.slice(0, eIdx));
+                  const exp = parseInt(s4.slice(eIdx + 1));
+                  const sign = mantissa < 0 ? '-' : '';
+                  const absMantissa = Math.abs(mantissa);
+                  return '$' + sign + absMantissa + '\\times10^{' + exp + '}$';
+                }
+                return String(parseFloat(s4));
+              };
+              const alreadyLabeled = new Set(existingTickLabels.map(x => Math.round(x * 1e10)));
+              for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-10; v += step) {
+                const vRounded = Math.round(v * 1e10) / 1e10;
+                if (alreadyLabeled.has(Math.round(vRounded * 1e10))) continue;
+                if (vRounded < lo - 1e-10 || vRounded > hi + 1e-10) continue;
+                const pos = { x: vRounded, y };
+                drawCommands.push({ cmd: 'label', text: fmtTick(vRounded), pos, align: tickLabelAlign, pen: tickLabelPen, line: 0, _isTickLabel: true });
+                if (tickMarkPen && tickSize > 0) {
+                  const p0 = { x: vRounded, y: y - tickSize };
+                  const p1 = { x: vRounded, y: y + tickSize };
+                  drawCommands.push({ cmd: 'draw', path: { segs: [{ p0, cp1: p0, cp2: p1, p3: p1 }], closed: false }, pen: tickMarkPen, arrow: null, line: 0, above: 0, _isTickMark: true });
+                }
+              }
+            }
+          }
         }
       } else if (c._isAxisLine === 'y') {
         let y0 = seg.p0.y, y1 = seg.p3.y;
@@ -21402,6 +21473,82 @@ function renderSVG(result, opts) {
             if (Math.abs(lc.pos.x - x) > 1e-6) continue;
             if (c._autoYmax && Math.abs(lc.pos.y - oldHi) < 1e-6) lc.pos = { x, y: hi };
             else if (c._autoYmin && Math.abs(lc.pos.y - oldLo) < 1e-6) lc.pos = { x, y: lo };
+          }
+          // Generate new tick marks and labels for the extended y-axis range.
+          // Get the y-axis pen to filter out x-axis tick labels (which may have pos.x=0)
+          const yAxisPen = c.pen;
+          const existingTickLabels = [];
+          let tickLabelPen = null;
+          let tickLabelAlign = { x: 1, y: 0 }; // Default align=E (east/right)
+          let tickMarkPen = null;
+          let tickSize = 0;
+          const xTol = Math.abs(x) < 1 ? 0.01 : Math.abs(x) * 0.01;
+          let refTickLabelPen = null; // Reference pen from first y-axis tick label found
+          for (const dc of drawCommands) {
+            if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.x - x) < xTol) {
+              // Filter: only include labels whose color matches the first y-axis tick label.
+              // This excludes x-axis tick labels at x=0 which have different pen color (e.g. blue vs red).
+              if (refTickLabelPen && dc.pen) {
+                const refR = refTickLabelPen.r != null ? refTickLabelPen.r : 0;
+                const refG = refTickLabelPen.g != null ? refTickLabelPen.g : 0;
+                const refB = refTickLabelPen.b != null ? refTickLabelPen.b : 0;
+                const dcR = dc.pen.r != null ? dc.pen.r : 0;
+                const dcG = dc.pen.g != null ? dc.pen.g : 0;
+                const dcB = dc.pen.b != null ? dc.pen.b : 0;
+                // Compare colors - if different, skip this label
+                if (Math.abs(dcR - refR) > 0.1 || Math.abs(dcG - refG) > 0.1 || Math.abs(dcB - refB) > 0.1) continue;
+              }
+              if (!refTickLabelPen && dc.pen) refTickLabelPen = dc.pen;
+              existingTickLabels.push(dc.pos.y);
+              if (!tickLabelPen && dc.pen) tickLabelPen = dc.pen;
+              if (dc.align) tickLabelAlign = dc.align;
+            }
+            if (dc._isTickMark && dc.path && dc.path.segs && dc.path.segs.length > 0) {
+              const ts = dc.path.segs[0];
+              const midX = (ts.p0.x + ts.p3.x) / 2;
+              if (Math.abs(midX - x) < 0.5) {
+                if (!tickMarkPen && dc.pen) tickMarkPen = dc.pen;
+                const sz = Math.abs(ts.p3.x - ts.p0.x) / 2;
+                if (sz > tickSize) tickSize = sz;
+              }
+            }
+          }
+          existingTickLabels.sort((a, b) => a - b);
+          if (existingTickLabels.length >= 2) {
+            let step = existingTickLabels[1] - existingTickLabels[0];
+            for (let i = 2; i < existingTickLabels.length; i++) {
+              const diff = existingTickLabels[i] - existingTickLabels[i - 1];
+              if (Math.abs(diff - step) < 1e-8) continue;
+              if (diff < step) step = diff;
+            }
+            if (step > 0 && tickLabelPen) {
+              const fmtTick = (v) => {
+                if (v === 0) return '0';
+                const s4 = v.toPrecision(4);
+                const eIdx = s4.indexOf('e');
+                if (eIdx !== -1) {
+                  const mantissa = parseFloat(s4.slice(0, eIdx));
+                  const exp = parseInt(s4.slice(eIdx + 1));
+                  const sign = mantissa < 0 ? '-' : '';
+                  const absMantissa = Math.abs(mantissa);
+                  return '$' + sign + absMantissa + '\\times10^{' + exp + '}$';
+                }
+                return String(parseFloat(s4));
+              };
+              const alreadyLabeled = new Set(existingTickLabels.map(y => Math.round(y * 1e10)));
+              for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-10; v += step) {
+                const vRounded = Math.round(v * 1e10) / 1e10;
+                if (alreadyLabeled.has(Math.round(vRounded * 1e10))) continue;
+                if (vRounded < lo - 1e-10 || vRounded > hi + 1e-10) continue;
+                const pos = { x, y: vRounded };
+                drawCommands.push({ cmd: 'label', text: fmtTick(vRounded), pos, align: tickLabelAlign, pen: tickLabelPen, line: 0, _isTickLabel: true });
+                if (tickMarkPen && tickSize > 0) {
+                  const p0 = { x: x - tickSize, y: vRounded };
+                  const p1 = { x: x + tickSize, y: vRounded };
+                  drawCommands.push({ cmd: 'draw', path: { segs: [{ p0, cp1: p0, cp2: p1, p3: p1 }], closed: false }, pen: tickMarkPen, arrow: null, line: 0, above: 0, _isTickMark: true });
+                }
+              }
+            }
           }
         }
       }
