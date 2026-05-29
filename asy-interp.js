@@ -23871,8 +23871,13 @@ function renderSVG(result, opts) {
       // only values. The viewBox is expanded for labels, but the display aspect ratio
       // is preserved. This matches TeXeR behavior where IgnoreAspect output has aspect
       // ratio close to size(W,H) even when labels extend outside.
+      // For auto-scaled diagrams with moderate label overshoot (both < 1.18), skip
+      // intrinsic scaling to match TeXeR's geometry-based sizing. Large overshoot
+      // (from labels dominating a small dimension) still gets scaled for visibility.
       const _isIA2 = !keepAspect && sizeW > 0 && sizeH > 0;
-      if (!_isIA2) {
+      const _maxOvershoot = Math.max(overshootScaleW, overshootScaleH);
+      const _skipAutoScaleOvershoot = isAutoScaled && _maxOvershoot < 1.18;
+      if (!_isIA2 && !_skipAutoScaleOvershoot) {
         svgW *= overshootScaleW;
         svgH *= overshootScaleH;
         intrinsicW *= overshootScaleW;
