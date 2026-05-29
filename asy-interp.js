@@ -6561,10 +6561,20 @@ function createInterpreter() {
     // shipout(frame) — emit frame contents to currentpicture. In Asymptote,
     // shipout renders a frame (or picture) to file; here we emit to currentPic
     // so the SVG renderer picks it up. Also handles shipout() with no args.
+    // shipout(bbox(margin)) draws a rounded rectangle border around content.
     env.set('shipout', (...args) => {
       let frameArg = null;
+      let bboxArg = null;
       for (const a of args) {
-        if (a && a._tag === 'mframe') { frameArg = a; break; }
+        if (a && a._tag === 'mframe') { frameArg = a; }
+        if (a && a._tag === 'bbox') { bboxArg = a; }
+      }
+      // Handle shipout(bbox(margin)) — store bbox spec for SVG renderer to draw border
+      if (bboxArg && !frameArg) {
+        // Store the bbox specification on the picture; the SVG renderer will
+        // draw the border after computing the final viewBox dimensions.
+        currentPic._bboxSpec = bboxArg;
+        return;
       }
       if (!frameArg) return; // shipout() with no frame or picture — ignore
       // Compute frame bbox to set size() constraint so auto-scaling uses
@@ -9832,6 +9842,24 @@ function createInterpreter() {
     env.set('PenMargins', null);
     env.set('BeginPenMargin', null);
     env.set('EndPenMargin', null);
+
+    // bbox(xmargin, ymargin=xmargin, pen=currentpen, fillpen=white): creates a
+    // bounding box specification for shipout(). Draws a rounded rectangle frame
+    // around the diagram content with the specified margin and pens.
+    env.set('bbox', (...args) => {
+      let xmargin = 0, ymargin = null, pen = null, fillpen = null;
+      for (const a of args) {
+        if (typeof a === 'number') {
+          if (xmargin === 0) xmargin = a;
+          else if (ymargin === null) ymargin = a;
+        } else if (isPen(a)) {
+          if (pen === null) pen = a;
+          else fillpen = a;
+        }
+      }
+      if (ymargin === null) ymargin = xmargin;
+      return {_tag:'bbox', xmargin, ymargin, pen: pen || defaultPen, fillpen: fillpen || makePen({r:1,g:1,b:1})};
+    });
 
     // baseline(string s, pair align=S): wraps a label with baseline positioning.
     // Simplified to pass-through of the label text.
@@ -21099,6 +21127,7 @@ function createInterpreter() {
       directionWarnings: directionWarnings.slice(),
       _defaultpenLwSet,
       _is3D: !!projection,
+      _bboxSpec: currentPic._bboxSpec,
     };
   }
 
@@ -21172,9 +21201,15 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D } = result;
+  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
+  // When shipout(bbox(margin)) is used, the size constraint applies to
+  // content + margin combined. Reduce effective size by margin to leave room.
+  if (_bboxSpec && (sizeW > 0 || sizeH > 0)) {
+    if (sizeW > 0) sizeW = Math.max(1, sizeW - 2 * _bboxSpec.xmargin);
+    if (sizeH > 0) sizeH = Math.max(1, sizeH - 2 * _bboxSpec.ymargin);
+  }
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: (result.directionWarnings || []).slice() };
@@ -23846,6 +23881,50 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Handle shipout(bbox(margin)) — expand viewBox and draw a rounded rectangle border.
+  // The size constraints were already reduced by margin earlier, so now we add
+  // the margin back to the viewBox to make room for the border.
+  let _bboxBorderEl = null;
+  if (_bboxSpec) {
+    // Margin is in bp (1/72 inch). ViewBox is in CSS pixels (1/96 inch).
+    // Convert bp to viewBox pixels: multiply by 96/72 ≈ 1.33
+    const bpToViewPx = 96 / 72;
+    const marginPxX = _bboxSpec.xmargin * bpToViewPx;
+    const marginPxY = _bboxSpec.ymargin * bpToViewPx;
+    // Save original viewBox dimensions
+    const origViewW = viewW;
+    const origViewH = viewH;
+    // Expand viewBox by margin on all sides
+    minX -= _bboxSpec.xmargin / pxPerUnitX;
+    maxY += _bboxSpec.ymargin / pxPerUnitY;
+    viewW += marginPxX * 2;
+    viewH += marginPxY * 2;
+    // Scale display dimensions proportionally
+    svgW = svgW * viewW / origViewW;
+    svgH = svgH * viewH / origViewH;
+    intrinsicW = intrinsicW * viewW / origViewW;
+    intrinsicH = intrinsicH * viewH / origViewH;
+    // Draw a rounded rectangle border at the edge of the expanded viewBox
+    // Corner radius ≈ 3% of the smaller dimension, matching typical Asymptote bbox output
+    const cornerRadius = Math.min(viewW, viewH) * 0.03;
+    // Stroke width for bbox border; use explicit pen linewidth if set, else 0.75bp default
+    // (0.5bp is too thin and renders inconsistently across rasterizers)
+    const strokeW = (_bboxSpec.pen && _bboxSpec.pen._lwExplicit) ? _bboxSpec.pen.linewidth : 0.75;
+    // Stroke color from the pen; if white pen is passed, border is invisible against white fill
+    const strokeHex = (_bboxSpec.pen && isPen(_bboxSpec.pen)) ?
+      '#' + [_bboxSpec.pen.r, _bboxSpec.pen.g, _bboxSpec.pen.b].map(c => {
+        const h = Math.round(Math.max(0, Math.min(255, (c || 0) * 255))).toString(16);
+        return h.length < 2 ? '0' + h : h;
+      }).join('') : '#000000';
+    const fillHex = (_bboxSpec.fillpen && isPen(_bboxSpec.fillpen)) ?
+      '#' + [_bboxSpec.fillpen.r, _bboxSpec.fillpen.g, _bboxSpec.fillpen.b].map(c => {
+        const h = Math.round(Math.max(0, Math.min(255, (c || 0) * 255))).toString(16);
+        return h.length < 2 ? '0' + h : h;
+      }).join('') : '#ffffff';
+    // The rect goes at (0,0) with the expanded viewW/viewH
+    _bboxBorderEl = `<rect x="${fmt(strokeW/2)}" y="${fmt(strokeW/2)}" width="${fmt(viewW - strokeW)}" height="${fmt(viewH - strokeW)}" rx="${fmt(cornerRadius)}" ry="${fmt(cornerRadius)}" fill="${fillHex}" stroke="${strokeHex}" stroke-width="${fmt(strokeW)}"/>`;
+  }
+
   // Render draw commands in two passes: first paths/fills/dots, then labels on top
   // This prevents fills drawn later in program order from covering earlier labels
   // Dots are rendered in program order (not deferred) to allow later fills to cover them
@@ -25269,7 +25348,8 @@ function renderSVG(result, opts) {
   // pxPerUnitX/Y — no preserveAspectRatio="none" needed.
   const parAttr = '';
   const svgStyle = '';
-  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${bgRect}${innerContent}\n</svg>`;
+  const bboxEl = _bboxBorderEl || '';
+  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${bgRect}${bboxEl}${innerContent}\n</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
 }
