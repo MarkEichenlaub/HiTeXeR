@@ -22572,6 +22572,19 @@ function renderSVG(result, opts) {
     if (maxDim < 10 && minDim > 0.1 && aspectRatio >= 6 && pxPerUnit < 100 && isTallNarrow) {
       pxPerUnit = 100;
     }
+    // Tick-label floor: for small diagrams (maxDim < 15) with many tick labels
+    // (>=10), the default scaling compresses tick text below legibility. TeXeR
+    // uses a higher pxPerUnit (~57) for axis-heavy diagrams like 04031 where
+    // axes are drawn before late content extends the geometry bbox.
+    if (maxDim < 15 && pxPerUnit < 60) {
+      let tickLabelCount = 0;
+      for (const dc of drawCommands) {
+        if (dc._isTickLabel) tickLabelCount++;
+      }
+      if (tickLabelCount >= 10) {
+        pxPerUnit = 57;
+      }
+    }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
     // For auto-scaled diagrams, the larger dimension equals defaultSize (150bp)
     // and the smaller dimension scales proportionally to preserve aspect ratio.
