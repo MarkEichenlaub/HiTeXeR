@@ -3570,7 +3570,16 @@ function createInterpreter() {
         const numArgs = args.filter(a => typeof a === 'number' || (a && typeof a.x === 'number'));
         let targetW = numArgs.length > 0 ? toNumber(numArgs[0]) : 0;
         let targetH = numArgs.length > 1 ? toNumber(numArgs[1]) : targetW;
-        const keepAspect = args.some(a => a === true || a === env.get('Aspect')) || (numArgs.length <= 2);
+        let keepAspect = args.some(a => a === true || a === env.get('Aspect')) || (numArgs.length <= 2);
+        // When fit() is called with no explicit size, honor the picture's own
+        // size(pic, W, H[, SW, NE]) constraint so the fitted frame matches the
+        // author's intended bp dimensions instead of falling back to 1:1 user
+        // coords (which collapses log/large-range axes into a sliver).
+        if (!targetW && obj._sizeW) {
+          targetW = obj._sizeW;
+          targetH = obj._sizeH || obj._sizeW;
+          if (obj._sizeAniso) keepAspect = false;
+        }
         // Compute user-coord bbox of the picture's geometry
         const gb = getGeoBbox(obj.commands);
         const userW = (gb.maxX - gb.minX) || 1;
@@ -6210,6 +6219,63 @@ function createInterpreter() {
         }
         return;
       }
+      // Single-frame composition onto currentpicture:
+      //   add(frame), add(frame, position), add(frame, position, align)
+      // The frame's strokes/fills/labels are already in bp space; emit them as
+      // draw/fill/label commands so the SVG renderer / auto-scaler picks them up.
+      if (frames.length === 1 && !args.some(a => a && a._tag === 'picture')) {
+        const fr = frames[0];
+        let offX = 0, offY = 0;
+        if (framePairs.length === 1) {
+          offX = framePairs[0].x; offY = framePairs[0].y;
+        } else if (framePairs.length >= 2) {
+          // position + align form: place the frame's bbox so its align-aligned
+          // point sits at position (mirrors the picture add(src,pos,align) logic).
+          const position = framePairs[0], align = framePairs[1];
+          let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+          const acc = (p) => { if (p.x < mnX) mnX = p.x; if (p.x > mxX) mxX = p.x; if (p.y < mnY) mnY = p.y; if (p.y > mxY) mxY = p.y; };
+          for (const s of (fr.strokes || [])) for (const p of (s.pts || [])) acc(p);
+          for (const f of (fr.fills || [])) for (const p of (f.pts || [])) acc(p);
+          for (const L of (fr.labels || [])) if (L.pos) acc(L.pos);
+          if (isFinite(mnX)) {
+            const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+            const halfW = (mxX - mnX) / 2, halfH = (mxY - mnY) / 2;
+            const mag = Math.max(Math.abs(align.x), Math.abs(align.y)) || 1;
+            offX = align.x + position.x - cx + (align.x / mag) * halfW;
+            offY = align.y + position.y - cy + (align.y / mag) * halfH;
+          }
+        }
+        for (const s of (fr.strokes || [])) {
+          if (!s.pts || s.pts.length < 2) continue;
+          const segs = [];
+          for (let k = 0; k < s.pts.length - 1; k++) {
+            segs.push(lineSegment(makePair(s.pts[k].x + offX, s.pts[k].y + offY), makePair(s.pts[k+1].x + offX, s.pts[k+1].y + offY)));
+          }
+          if (s.closed && s.pts.length >= 2) {
+            segs.push(lineSegment(makePair(s.pts[s.pts.length-1].x + offX, s.pts[s.pts.length-1].y + offY), makePair(s.pts[0].x + offX, s.pts[0].y + offY)));
+          }
+          if (segs.length > 0) currentPic.commands.push({cmd:'draw', path: makePath(segs, !!s.closed), pen: clonePen(s.pen || defaultPen), arrow:null, line:0});
+        }
+        for (const f of (fr.fills || [])) {
+          if (!f.pts || f.pts.length < 3) continue;
+          const segs = [];
+          for (let k = 0; k < f.pts.length - 1; k++) {
+            segs.push(lineSegment(makePair(f.pts[k].x + offX, f.pts[k].y + offY), makePair(f.pts[k+1].x + offX, f.pts[k+1].y + offY)));
+          }
+          segs.push(lineSegment(makePair(f.pts[f.pts.length-1].x + offX, f.pts[f.pts.length-1].y + offY), makePair(f.pts[0].x + offX, f.pts[0].y + offY)));
+          currentPic.commands.push({cmd:'fill', path: makePath(segs, true), pen: clonePen(f.pen || defaultPen), line:0});
+        }
+        for (const L of (fr.labels || [])) {
+          if (!L.pos) continue;
+          currentPic.commands.push({cmd:'label', text: L.text || '', pos: makePair(L.pos.x + offX, L.pos.y + offY), align: L.align, pen: clonePen(L.pen || defaultPen), line:0});
+        }
+        // Frame coords are already in bp space; pin the picture to 1 bp per unit
+        // so the SVG renderer reproduces the author's absolute dimensions instead
+        // of auto-rescaling the frame geometry as if it were user coords.
+        unitScale = 1;
+        hasUnitScale = true;
+        return;
+      }
       let pics = [], t = null, pairs = [];
       for (const a of args) {
         if (a && a._tag === 'picture') pics.push(a);
@@ -8439,8 +8505,11 @@ function createInterpreter() {
         if (numArgs.length >= 1) pic._sizeW = toNumber(numArgs[0]);
         if (numArgs.length >= 2) pic._sizeH = toNumber(numArgs[1]);
         else if (numArgs.length === 1) pic._sizeH = pic._sizeW;
-        // Anisotropic mapping only when SW/NE corner pairs provided
-        pic._sizeAniso = pairArgs.length >= 2;
+        // Anisotropic mapping when SW/NE corner pairs are provided, or when the
+        // author passes IgnoreAspect (the boolean `false`) — both mean the w×h
+        // box should be filled without preserving the geometry's aspect ratio.
+        const ignoreAspect = rest.some(a => a === false);
+        pic._sizeAniso = pairArgs.length >= 2 || ignoreAspect;
         return;
       }
       for (const a of args) {
