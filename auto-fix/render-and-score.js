@@ -141,7 +141,7 @@ async function scoreOne(id, A, fontCSS, opts) {
     svg = r.svg;
     fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), svg);
   } catch (e) {
-    return { id, err: 'htx-render: ' + e.message.substring(0,120) };
+    return { id, err: 'htx-render: ' + String((e && e.message) || e).substring(0,120) };
   }
 
   const iw = svg.match(/data-intrinsic-w="([^"]+)"/);
@@ -155,7 +155,7 @@ async function scoreOne(id, A, fontCSS, opts) {
   try {
     await sharp(svgBuf, { density: RASTER_DPI }).flatten({ background:{r:255,g:255,b:255} }).png().toFile(htxPng);
   } catch (e) {
-    return { id, err: 'rasterize: ' + e.message.substring(0,120) };
+    return { id, err: 'rasterize: ' + String((e && e.message) || e).substring(0,120) };
   }
 
   const refPng = path.join(TEXER_DIR, id + '.png');
@@ -213,7 +213,7 @@ async function scoreOne(id, A, fontCSS, opts) {
 
     return { id, ssim: mssim, sizeScore, combined };
   } catch (e) {
-    return { id, err: 'ssim: ' + e.message.substring(0,120) };
+    return { id, err: 'ssim: ' + String((e && e.message) || e).substring(0,120) };
   }
 }
 
