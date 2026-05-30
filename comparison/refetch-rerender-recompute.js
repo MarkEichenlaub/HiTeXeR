@@ -21,6 +21,9 @@
  * Other flags:
  *   --workers N          parallel refetch workers (default 4)
  *   --batch N            render-and-score chunk size (default 120)
+ *   --jobs N             parallel render-and-score processes in step 2
+ *                        (default: cpus-1). Each renders a separate chunk;
+ *                        aggregation is single-threaded so results never race.
  *   --no-refetch         skip the TeXeR refetch step (rerender + recompute only)
  *   --skip-fresh N       resume helper: don't re-fetch ids whose texer PNG was
  *                        modified within the last N minutes (they were just
@@ -31,6 +34,7 @@
 const { spawn, spawnSync, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const ROOT = path.resolve(__dirname, '..');
 const ASY_SRC = path.join(ROOT, 'comparison', 'asy_src');
@@ -48,7 +52,8 @@ function readJson(p, dflt) { try { return JSON.parse(fs.readFileSync(p, 'utf8'))
 // ── args ────────────────────────────────────────────────────────
 const A = process.argv.slice(2);
 const opt = { workers: 3, batch: 120, refetch: true, dryRun: false, range: null, repaired: false, missing: false, ids: [], idsFile: null,
-  throttleMs: 0, failBurst: 6, cooldownMs: 60000, cooldownMaxMs: 300000, skipFreshMin: 0 };
+  throttleMs: 0, failBurst: 6, cooldownMs: 60000, cooldownMaxMs: 300000, skipFreshMin: 0,
+  jobs: Math.max(1, (os.cpus().length || 2) - 1) };
 for (let i = 0; i < A.length; i++) {
   const a = A[i];
   if (a === '--range') opt.range = A[++i];
@@ -58,6 +63,7 @@ for (let i = 0; i < A.length; i++) {
   else if (a === '--ids-file') opt.idsFile = A[++i];
   else if (a === '--workers') opt.workers = parseInt(A[++i], 10) || 3;
   else if (a === '--batch') opt.batch = parseInt(A[++i], 10) || 120;
+  else if (a === '--jobs') opt.jobs = Math.max(1, parseInt(A[++i], 10) || 1);
   else if (a === '--throttle-ms') opt.throttleMs = parseInt(A[++i], 10) || 0;
   else if (a === '--fail-burst') opt.failBurst = parseInt(A[++i], 10) || 6;
   else if (a === '--cooldown-ms') opt.cooldownMs = parseInt(A[++i], 10) || 60000;
@@ -237,14 +243,26 @@ async function verifyFailuresSerially(ids) {
 
 // ── step 2: rerender + recompute SSIM (chunked) ─────────────────
 function rerenderChunk(chunk) {
-  const r = spawnSync(process.execPath, [path.join(ROOT, 'auto-fix', 'render-and-score.js'), '--ids', chunk.join(',')],
-    { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
-  const rows = [];
-  for (const line of (r.stdout || '').split('\n')) {
-    const s = line.trim(); if (!s) continue;
-    try { const o = JSON.parse(s); if (o.summary) continue; rows.push(o); } catch {}
-  }
-  return rows;
+  // Spawn render-and-score for one chunk; resolve with parsed JSONL rows.
+  // render-and-score.js only READS ssim-results.json and writes unique
+  // per-id SVG/PNG, so concurrent chunks never race on a shared file.
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath,
+      [path.join(ROOT, 'auto-fix', 'render-and-score.js'), '--ids', chunk.join(',')],
+      { cwd: ROOT });
+    let out = '';
+    child.stdout.on('data', d => { out += d; });
+    child.stderr.on('data', () => {});
+    child.on('close', () => {
+      const rows = [];
+      for (const line of out.split('\n')) {
+        const s = line.trim(); if (!s) continue;
+        try { const o = JSON.parse(s); if (o.summary) continue; rows.push(o); } catch {}
+      }
+      resolve(rows);
+    });
+    child.on('error', () => resolve([]));
+  });
 }
 
 // Final set of genuine TeXeR compile errors (verified one-at-a-time). Populated
@@ -314,12 +332,17 @@ let genuineCompileErrors = [];
   const byId = new Map(results.map(r => [r.id, r]));
   let scored = 0, htxFail = 0, noTexer = 0, inserted = 0;
 
-  for (let i = 0; i < toScore.length; i += opt.batch) {
-    const chunk = toScore.slice(i, i + opt.batch);
-    const rows = rerenderChunk(chunk);
-    const seen = new Set();
+  // Split into chunks, then run up to opt.jobs render-and-score processes
+  // concurrently. Aggregation runs in each chunk's await continuation —
+  // single-threaded, so the shared results/byId/counters never race.
+  const chunks = [];
+  for (let i = 0; i < toScore.length; i += opt.batch) chunks.push(toScore.slice(i, i + opt.batch));
+  console.log(`  ${chunks.length} chunk(s) × up to ${opt.jobs} parallel job(s)`);
+
+  let done = 0;
+  function aggregate(rows) {
     for (const row of rows) {
-      const id = row.id; seen.add(id);
+      const id = row.id;
       let rec = byId.get(id);
       if (!rec) { rec = { id, idx: parseInt(id, 10) - 1 }; results.push(rec); byId.set(id, rec); inserted++; }
       if (row.ssim != null) {
@@ -334,8 +357,18 @@ let genuineCompileErrors = [];
         }
       }
     }
-    console.log(`  scored [${Math.min(i + opt.batch, toScore.length)}/${toScore.length}] ok=${scored} htxFail=${htxFail} noTexer=${noTexer} new=${inserted}`);
+    done++;
+    console.log(`  scored [${done}/${chunks.length} chunks] ok=${scored} htxFail=${htxFail} noTexer=${noTexer} new=${inserted}`);
   }
+
+  let next = 0;
+  async function worker() {
+    while (next < chunks.length) {
+      const chunk = chunks[next++];
+      aggregate(await rerenderChunk(chunk));
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(opt.jobs, chunks.length) }, worker));
 
   results.sort((a, b) => (a.combined ?? 1) - (b.combined ?? 1));
   fs.writeFileSync(SSIM_FILE, JSON.stringify(results, null, 2));

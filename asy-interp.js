@@ -10771,6 +10771,11 @@ function createInterpreter() {
     function _tickDivisors(a, b) {
       const n = Math.round(b - a);
       if (n <= 0) return [1];
+      // Guard: a huge range (e.g. an axis left in value-space instead of
+      // log-space) would make the O(sqrt(n)) divisor scan run billions of
+      // iterations. Bail to [1] so the caller falls back to its nice-step
+      // (1/2/5×10^k) algorithm instead of hanging.
+      if (n > 1e6) return [1];
       const dlist = [1];
       if (n === 1) return [1, 10, 100];
       if (n === 2) return [1, 2];
@@ -11349,8 +11354,8 @@ function createInterpreter() {
         xmax = xIsLog && pic._picLimits.xmax > 0 ? Math.log10(pic._picLimits.xmax) : pic._picLimits.xmax;
         _xmaxFromUserLimits = true;
       }
-      if (xmin === null && _axisLimits.xmin !== null) { xmin = _axisLimits.xmin; _xminFromUserLimits = true; }
-      if (xmax === null && _axisLimits.xmax !== null) { xmax = _axisLimits.xmax; _xmaxFromUserLimits = true; }
+      if (xmin === null && _axisLimits.xmin !== null) { xmin = xIsLog && _axisLimits.xmin > 0 ? Math.log10(_axisLimits.xmin) : _axisLimits.xmin; _xminFromUserLimits = true; }
+      if (xmax === null && _axisLimits.xmax !== null) { xmax = xIsLog && _axisLimits.xmax > 0 ? Math.log10(_axisLimits.xmax) : _axisLimits.xmax; _xmaxFromUserLimits = true; }
       if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
         try { process.stderr.write('[xaxis after _axisLim] xmin='+xmin+' xmax='+xmax+' pic.cmds='+pic.commands.length+' picLim='+JSON.stringify(pic._picLimits||{})+'\n'); } catch(e){}
       }
@@ -12410,9 +12415,17 @@ function createInterpreter() {
     // was set earlier in this function; we re-bind to the scale-type object here so
     // `scale(pic, Log, Linear)` works. Call sites that accepted Linear as an
     // interpolation op now check for _tag='scaleT' or just pass Spline/Hermite.
-    env.set('Linear', {_tag:'scaleT', type:'linear'});
-    env.set('Log',    {_tag:'scaleT', type:'log'});
-    env.set('Logarithmic', {_tag:'scaleT', type:'log'});
+    // Each scale type is usable two ways in Asymptote: as a bare value
+    // (`scale(Log, Linear)`) and as a function (`scale(Log(true), Linear(true))`,
+    // the auto-min/max form). Bind a callable that ALSO carries the scaleT
+    // props on itself so both spellings resolve to the same {_tag,type}. Without
+    // the callable form, `Log(true)` returns null, the axis stays linear, and a
+    // wide log range (e.g. 12717: 10..1e23) drives _tickDivisors into a ~3e11
+    // iteration hang.
+    const _scaleType = (type) => { const f = () => ({_tag:'scaleT', type}); f._tag = 'scaleT'; f.type = type; return f; };
+    env.set('Linear', _scaleType('linear'));
+    env.set('Log',    _scaleType('log'));
+    env.set('Logarithmic', _scaleType('log'));
     env.set('Broken', (...args) => ({_tag:'scaleT', type:'linear'}));
     // scaleT(forward, inverse, logarithmic=false) — custom scale constructor.
     // When logarithmic=true, tick labels are formatted as powers of the base.
