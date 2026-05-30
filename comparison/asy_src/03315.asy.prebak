@@ -1,0 +1,23 @@
+size(5cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=16, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real wall_h = 1, wall_w = 0.3, spring_l = 1, box_s = 0.4, l=2, z=-0.75;
+fill(box((-wall_w-l, wall_h/2), (-l, -wall_h/2)), gray(0.8)); draw((-l, wall_h/2)--(-l, -wall_h/2));
+fill(box((wall_w+l, wall_h/2), (l, -wall_h/2)), gray(0.8)); draw((l, wall_h/2)--(l, -wall_h/2));
+
+draw(Label("", align=dir(90)), spring((-l, 0), (-box_s/2, z)));
+draw(Label("", align=dir(90)), spring((box_s/2, z), (l, 0)));
+
+draw(shift(0,z)*scale(box_s)*shift((-0.5, -0.5))*unitsquare);
+label("$m$", (0,z));
+
+draw("$z$",  (-l - 2*wall_w, 0) -- (-l - 2*wall_w, z), Bars(5));
+draw("$l_s$", shift(0, 0.8)*((-box_s/2, z)--(-l, 0)), Bars(5));

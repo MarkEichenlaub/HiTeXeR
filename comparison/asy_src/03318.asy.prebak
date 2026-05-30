@@ -1,0 +1,23 @@
+size(5cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=16, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real wall_h = 1, wall_w = 0.3, spring_l = 1, box_s = 0.4;
+fill(box((-wall_w, wall_h/2), (0, -wall_h/2)), gray(0.8)); draw((0, wall_h/2)--(0, -wall_h/2));
+
+draw(Label("$nk$", align=dir(90)), spring((0, 0), (spring_l, 0)));
+
+draw(shift(spring_l)*scale(box_s)*shift(0, -1/2)*unitsquare);
+label("$m$", (spring_l + box_s/2, 0));
+
+draw(Label("$k$", align=dir(90)), shift(spring_l + box_s)*spring((0, 0), (spring_l, 0)));
+
+draw(shift(2*spring_l + box_s)*scale(box_s)*shift(0, -1/2)*unitsquare);
+label("$m$", (2*spring_l + 3*box_s/2, 0));

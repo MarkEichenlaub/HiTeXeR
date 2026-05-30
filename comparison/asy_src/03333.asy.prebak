@@ -1,0 +1,33 @@
+//TeXeR source: https://artofproblemsolving.com/texer/rnnjrkcl
+import graph;
+size(9cm);
+real size = 9cm;
+defaultpen(fontsize(10pt));
+
+picture p1, p2, p3;
+
+pen gridpen = gray(0.6)+dashed;
+ticks y_ticks = RightTicks(Step=1, begin=false, end=false, extend=true, gridpen),
+\tx_ticks = LeftTicks(Step=1, begin=false, end=false, extend=true, gridpen);
+
+draw(p1, graph(new real(real t){ return cos(pi*t); }, 0, 10));
+draw(p1, graph(new real(real t){ return cos(pi*t);}, .95, 1.05), red+2.5);
+draw(p1, graph(new real(real t){ return cos(pi*t);}, 1.95, 2.05), red+2.5);
+draw(p1, graph(new real(real t){ return cos(pi*t);}, .45, .56), red+2);
+draw(p1, graph(new real(real t){ return cos(pi*t);}, 1.45, 1.56), red+2);
+yaxis(p1, "$x/A$", LeftRight, -1, 1, y_ticks);
+xaxis(p1, BottomTop, 0, 10, x_ticks);
+
+draw(p2, graph(new real(real t){ return -0.8*sin(pi*t); }, 0, 10), rgb(0, 0.6, 1));
+yaxis(p2, "$v/(\omega A)$", LeftRight, -1, 1, y_ticks);
+xaxis(p2, BottomTop, 0, 10, x_ticks);
+
+draw(p3, graph(new real(real t){ return -0.64*sin(pi*t); }, 0, 10), rgb(1, 0.2, 0.4));
+yaxis(p3, "Aceleration $a$", LeftRight, -1, 1, y_ticks);
+
+xaxis(p2, "$\omega t/\pi$", BottomTop, 0, 10, x_ticks);
+
+real sep = 3.1;
+add(p1);
+currentpicture = shift(0, sep)*currentpicture;
+add(p2);

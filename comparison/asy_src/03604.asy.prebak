@@ -1,0 +1,36 @@
+size(6cm);
+defaultpen(fontsize(10pt));
+
+real r = 1;
+
+fill(box((-r, 0), (9*r, 0.6)), gray(0.7));
+draw((-r, 0)--(9*r, 0));
+
+real h1 = -1.3-r, h2 = -2-3*r;
+pair C1 = (r, h2), C2 = (3*r, h1), C3 = (5*r, h2), C4 = (7*r, h1);
+draw(circle(C1, r));
+draw(circle(C2, r));
+draw(circle(C3, r));
+draw(circle(C4, r));
+
+real dangle = 2.5;
+draw((0, 0)--C1+r*W
+\t--arc(C1, r, -180, 0)
+\t--C2+r*W
+\t--arc(C2, r, 180, 0)
+\t--C3+r*W
+\t--arc(C3, r, -180, 0)
+\t--C4+r*W
+\t--arc(C4, r, 180, 0)
+\t--C4+(r, -dangle),
+\tlinewidth(1.5));
+dot("$M$", C4 + (r, -dangle), linewidth(5));
+
+draw((C2.x, 0)--C2);
+draw((C4.x, 0)--C4);
+
+real dangle2 = r + 0.8;
+draw(C1--C1+dangle2*S);
+dot("$m$", C1+dangle2*S, linewidth(5));
+draw(C3--C3+dangle2*S);
+dot("$m$", C3+dangle2*S, linewidth(5));

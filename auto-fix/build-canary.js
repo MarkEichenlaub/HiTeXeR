@@ -14,7 +14,16 @@ const cp   = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const SSIM_RESULTS_PATH = path.join(ROOT, 'comparison', 'ssim-results.json');
 const MANIFEST_PATH     = path.join(ROOT, 'comparison', 'blink-manifest.json');
+const RANDOM_IDS_PATH   = path.join(ROOT, 'comparison', 'random-ids.json');
 const OUT_PATH          = path.join(__dirname, 'canary.json');
+
+// IDs whose .asy uses the RNG: HiTeXeR can't reproduce Asymptote's random
+// sequence, so their SSIM is meaningless as a regression baseline. Never let
+// them into the canary.
+function loadRandomIds() {
+  try { return new Set(JSON.parse(fs.readFileSync(RANDOM_IDS_PATH, 'utf8')).map(String)); }
+  catch { return new Set(); }
+}
 
 const TIER_COUNTS = { high: 45, mid: 60, low: 45 }; // total 150
 const MAJOR_COLLECTIONS = ['c10', 'c36', 'c53', 'c57', 'c71', 'gallery'];
@@ -61,8 +70,10 @@ function main() {
   // Optional: filter to IDs with a valid asy_src + texer_pngs reference
   const ASY_SRC_DIR = path.join(ROOT, 'comparison', 'asy_src');
   const TEXER_DIR   = path.join(ROOT, 'comparison', 'texer_pngs');
+  const randomIds = loadRandomIds();
   const valid = rows.filter(r =>
     r && typeof r.ssim === 'number' &&
+    !randomIds.has(r.id) &&
     fs.existsSync(path.join(ASY_SRC_DIR, r.id + '.asy')) &&
     fs.existsSync(path.join(TEXER_DIR, r.id + '.png'))
   );
@@ -189,6 +200,11 @@ function runUpdate() {
     process.exit(1);
   }
   const existing = JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'));
+  // Evict any random-RNG ids that slipped into an older canary.
+  const randomIds = loadRandomIds();
+  let evicted = 0;
+  for (const id of Object.keys(existing)) if (randomIds.has(id)) { delete existing[id]; evicted++; }
+  if (evicted) console.log('[build-canary] --update: evicted ' + evicted + ' random-RNG id(s) from canary');
   const ids = Object.keys(existing).sort();
   if (ids.length === 0) { console.log('[build-canary] canary.json is empty, nothing to update'); return; }
 

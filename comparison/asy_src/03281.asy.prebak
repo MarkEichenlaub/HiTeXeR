@@ -1,0 +1,32 @@
+import three;
+import graph3;
+size(5cm);
+defaultpen(fontsize(10pt));
+
+currentprojection = orthographic(1, 2, 1.5);
+triple parab(real t){ return (t, 1/4*t^2, 0); }
+triple curved_face(pair r){ return (r.x, parab(r.x).y, r.y); }
+
+material M = material(gray(0.7), black, gray(0.5)),
+\tM2 = material(gray(0.8), black, gray(0.3));
+
+real h = 2;
+draw(surface((0, 0, 0)--(2, 0, 0)--(2, 0, h)--(0, 0, h)--cycle), M2);
+draw(shift(2, 0, 0)*surface((0, 0, 0)--(0, 1, 0)--(0, 1, h)--(0, 0, h)--cycle), M);
+draw(surface(curved_face, (0, 0), (2, h)), M2, meshpen=gray(0.8));
+draw(surface(shift(0, 0, h)*graph(parab, 0, 2)--(2, 0, h)--cycle), M);
+
+draw(shift(0, 0, h)*graph(parab, 0, 2)--(2, 0, h)--cycle);
+draw((2, 0, h)--(2, 0, 0)--(2, 1, 0)--(2, 1, h));
+draw((0, 0, h)--graph(parab, 0, 2));
+
+real eps = 0.3;
+draw(Label("$2\;\mathrm{m}$", p=white, align=(0, 0), UnFill(1.5)), shift(0, 0, eps)*((0, 0, h)--(2, 0, h)), Bars3(5, dir=Z));
+label(Label(XZ()*"$2\;\mathrm{m}$", align=(0, 0)), shift(0, 0, eps)*((0, 0, h)--(2, 0, h)));
+
+real parab2(real t){ return 1.5*parab(t).y; }
+draw(graph(parab2, 0, 2)--(2, 0));
+xaxis("$x$", 0, 2.2, Arrow(TeXHead));
+yaxis("$y$", 0, 1.7, Arrow(TeXHead));
+
+currentpicture = shift(1, -0.3)*currentpicture;

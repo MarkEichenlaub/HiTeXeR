@@ -1,0 +1,53 @@
+size(8cm);
+defaultpen(fontsize(10pt));
+DefaultHead = TeXHead;
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real spring1 = 0.7, spring2 = 1, spring3 = 1.3, cart_l = 0.8, wall_h = 0.6, wheel_r = 0.06, cart_h = 0.3, wheel_pos = 0.2;
+
+draw(spring((-spring2/2, 0), (spring2/2, 0), zigs=16, width = 1/spring2));
+draw(shift(spring2/2 + cart_l + spring3/2)*spring((-spring3/2, 0), (spring3/2, 0), zigs=16, width = 1/spring3));
+draw(shift(-spring2/2 - cart_l - spring1/2)*spring((-spring1/2, 0), (spring1/2, 0), zigs=16, width = 1/spring1));
+
+draw(box((-spring2/2 - cart_l, -cart_h/2), (-spring2/2, cart_h/2)));
+draw(box((spring2/2 + cart_l, -cart_h/2), (spring2/2, cart_h/2)));
+draw(circle((-spring2/2 - (1 - wheel_pos)*cart_l, -cart_h/2 - wheel_r), wheel_r));
+draw(circle((-spring2/2 - wheel_pos*cart_l, -cart_h/2 - wheel_r), wheel_r));
+draw(circle((spring2/2 + (1 - wheel_pos)*cart_l, -cart_h/2 - wheel_r), wheel_r));
+draw(circle((spring2/2 + wheel_pos*cart_l, -cart_h/2 - wheel_r), wheel_r));
+
+real arrow_h = 0.8;
+draw("$x$", shift(-spring2/2 - cart_l/2, arrow_h*cart_h)*((0.3, 0)--(0, 0)), Arrow(), BeginBar(3));
+draw("$x$", shift(spring2/2 + cart_l/2, arrow_h*cart_h)*((0.3, 0)--(0, 0)), Arrow(), BeginBar(3));
+
+real eps = 0.01;
+draw(shift(0, -eps)*((-spring2/2 - cart_l - spring1, wall_h - cart_h/2 - 2*wheel_r)
+\t--(-spring2/2 - cart_l - spring1, -cart_h/2 - 2*wheel_r)
+\t--(spring2/2 + cart_l + spring3, -cart_h/2 - 2*wheel_r)
+\t--(spring2/2 + cart_l + spring3, wall_h - cart_h/2 - 2*wheel_r)), linewidth(1.5));
+
+currentpicture = shift(-0.3, -1)*currentpicture;
+spring1 = spring2 = spring3 = 1;
+
+draw(spring((-spring2/2, 0), (spring2/2, 0), zigs=16, width = 1/spring2));
+draw(shift(spring2/2 + cart_l + spring3/2)*spring((-spring3/2, 0), (spring3/2, 0), zigs=16, width = 1/spring3));
+draw(shift(-spring2/2 - cart_l - spring1/2)*spring((-spring1/2, 0), (spring1/2, 0), zigs=16, width = 1/spring1));
+
+draw(box((-spring2/2 - cart_l, -cart_h/2), (-spring2/2, cart_h/2)));
+draw(box((spring2/2 + cart_l, -cart_h/2), (spring2/2, cart_h/2)));
+draw(circle((-spring2/2 - (1 - wheel_pos)*cart_l, -cart_h/2 - wheel_r), wheel_r));
+draw(circle((-spring2/2 - wheel_pos*cart_l, -cart_h/2 - wheel_r), wheel_r));
+draw(circle((spring2/2 + (1 - wheel_pos)*cart_l, -cart_h/2 - wheel_r), wheel_r));
+draw(circle((spring2/2 + wheel_pos*cart_l, -cart_h/2 - wheel_r), wheel_r));
+
+draw(shift(0, -eps)*((-spring2/2 - cart_l - spring1, wall_h - cart_h/2 - 2*wheel_r)
+\t--(-spring2/2 - cart_l - spring1, -cart_h/2 - 2*wheel_r)
+\t--(spring2/2 + cart_l + spring3, -cart_h/2 - 2*wheel_r)
+\t--(spring2/2 + cart_l + spring3, wall_h - cart_h/2 - 2*wheel_r)), linewidth(1.5));

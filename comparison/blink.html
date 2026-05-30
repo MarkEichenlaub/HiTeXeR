@@ -45,10 +45,6 @@
   .queue-badge { display: none; font-size: 9px; background: #78350f; color: #fde68a; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
   .thumb.queued .queue-badge { display: inline; }
   #blink-queued { font-size: 11px; background: #78350f; color: #fde68a; padding: 1px 6px; border-radius: 3px; font-weight: 600; white-space: nowrap; }
-  .thumb-exclude-btn { position: absolute; top: 4px; right: 26px; width: 18px; height: 18px; background: rgba(0,0,0,0.5); border: 1px solid #374151; border-radius: 3px; color: #6b7280; font-size: 13px; line-height: 1; cursor: pointer; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 0; }
-  .thumb-exclude-btn:hover { background: rgba(127,29,29,0.85); border-color: #ef4444; color: #fca5a5; }
-  .thumb-fix-btn { position: absolute; top: 4px; right: 48px; width: 18px; height: 18px; background: rgba(0,0,0,0.5); border: 1px solid #374151; border-radius: 3px; color: #6b7280; font-size: 10px; font-weight: 700; line-height: 1; cursor: pointer; z-index: 3; display: flex; align-items: center; justify-content: center; padding: 0; font-family: inherit; }
-  .thumb-fix-btn:hover { background: rgba(20,83,45,0.9); border-color: #22c55e; color: #86efac; }
 
   /* ── Pagination ─────────────────────────────────────── */
   .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; flex-wrap: wrap; }
@@ -65,6 +61,7 @@
   .blink-header .source-label.texer { color: #a78bfa; }
   .blink-header .meta { font-size: 12px; opacity: 0.7; }
   .blink-header .meta .ssim-val { font-weight: 600; margin-left: 4px; }
+  #blink-random { margin-left: 8px; color: #fbbf24; font-weight: 600; cursor: help; opacity: 1; }
   .blink-header .help { margin-left: auto; font-size: 11px; opacity: 0.5; }
   .blink-header button { font-size: 12px; padding: 4px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
   .blink-header button:hover { border-color: #e94560; }
@@ -121,6 +118,14 @@
   .coll-btn:hover { border-color: #e94560; }
   .coll-panel { position: absolute; top: calc(100% + 4px); left: 0; background: #16213e; border: 1px solid #475569; border-radius: 4px; padding: 6px 0; min-width: 240px; max-height: 320px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
   .coll-panel.open { display: block; }
+  .bulk-dropdown { position: relative; }
+  .bulk-panel { position: absolute; top: calc(100% + 4px); left: 0; background: #16213e; border: 1px solid #475569; border-radius: 4px; padding: 4px 0; min-width: 220px; z-index: 200; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+  .bulk-panel.open { display: block; }
+  .bulk-panel button { display: block; width: 100%; text-align: left; background: none; border: none; color: #e0e0e0; padding: 7px 14px; font-size: 12px; font-family: inherit; cursor: pointer; }
+  .bulk-panel button:hover { background: #0f3460; }
+  .bulk-panel button:disabled { color: #5b6478; cursor: default; }
+  .bulk-panel .bulk-sep { border-top: 1px solid #2a3550; margin: 4px 0; }
+  .bulk-busy { font-size: 11px; opacity: 0.75; padding: 4px 14px 2px; color: #fbbf24; }
   .coll-item { display: flex; align-items: center; gap: 7px; padding: 4px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
   .coll-item:hover { background: #1e3a5f; }
   .coll-item input[type=checkbox] { cursor: pointer; accent-color: #e94560; flex-shrink: 0; }
@@ -193,7 +198,19 @@
   </div>
 
   <div class="filter-group">
-    <button id="btn-copy-selected" title="Copy IDs of selected diagrams to clipboard">Copy Selected IDs (<span id="selected-count">0</span>)</button>
+    <div class="bulk-dropdown" id="bulk-dropdown">
+      <button class="coll-btn" id="bulk-btn" title="Actions on selected diagrams">Selected (<span id="selected-count">0</span>) &#9662;</button>
+      <div class="bulk-panel" id="bulk-panel">
+        <button data-action="copy">Copy IDs</button>
+        <div class="bulk-sep"></div>
+        <button data-action="refetch">Refetch + re-render + SSIM</button>
+        <button data-action="rerender">Re-render + recompute SSIM</button>
+        <button data-action="enqueue">Send to fix queue</button>
+        <div class="bulk-sep"></div>
+        <button data-action="exclude">Exclude from comparator</button>
+        <div class="bulk-busy" id="bulk-busy" style="display:none"></div>
+      </div>
+    </div>
     <button id="btn-clear-selected" title="Clear selection">Clear</button>
   </div>
 
@@ -201,6 +218,7 @@
   <button id="btn-copy-queue" title="Copy queued diagram IDs to clipboard (backup)">Copy Queue (<span id="queue-count">0</span>)</button>
   <button onclick="window.open('fix-history.html','_blank')" title="View fix queue history" style="background:#2d1b4a;border:1px solid #7c3aed;color:#c4b5fd;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Fix History</button>
   <button onclick="window.open('excluded.html','_blank')" title="View excluded diagrams" style="background:#1f1a3a;border:1px solid #4f46e5;color:#a5b4fc;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Excluded</button>
+  <button onclick="window.open('rejected-review.html','_blank')" title="Review edits the auto-fix loop tried and reverted" style="background:#3a2a1a;border:1px solid #b45309;color:#fcd34d;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Rejected Edits</button>
 
   <div class="stats" id="stats"></div>
 </div>
@@ -223,6 +241,7 @@
       <span id="blink-combined-wrap" style="display:none">Comb:<span class="ssim-val" id="blink-combined"></span></span>
       <span id="blink-position"></span>
       <span id="blink-queued" style="display:none">queued</span>
+      <span id="blink-random" style="display:none" title="This diagram uses Asymptote's RNG (rand/unitrand/Gaussrand). HiTeXeR does not replicate Asymptote's random sequence, so the SSIM score is not meaningful — the images legitimately differ.">⚠ random — SSIM not meaningful</span>
     </div>
     <button id="blink-side-toggle" title="Toggle side-by-side / single view (S)">Side-by-side: ON</button>
     <button id="blink-auto" title="Toggle auto-blink (Space)">Auto-blink: OFF</button>
@@ -316,6 +335,14 @@
 
   // IDs excluded from the main comparator (populated from manifest.droppedIds).
   let droppedSet = new Set();
+
+  // IDs whose .asy uses the RNG — SSIM is not meaningful (HiTeXeR can't match
+  // Asymptote's random sequence). Used to show a warning in the blink header.
+  let randomSet = new Set();
+  fetch('random-ids.json')
+    .then(r => r.ok ? r.json() : [])
+    .then(ids => { randomSet = new Set((ids || []).map(String)); })
+    .catch(() => {});
 
   // ── Load manifest ────────────────────────────────────
   fetch('blink-manifest.json')
@@ -461,8 +488,6 @@
       const isQueued = queuedIds.has(d.id);
       return `<div class="thumb${isSel ? ' selected' : ''}${isQueued ? ' queued' : ''}" data-idx="${start + i}" data-id="${d.id}" title="${d.source}">
         <input type="checkbox" class="thumb-check" ${isSel ? 'checked' : ''} title="Select">
-        <button class="thumb-exclude-btn" data-id="${d.id}" title="Exclude from comparator" tabindex="-1">×</button>
-        <button class="thumb-fix-btn" data-id="${d.id}" title="Send to fix queue (F)" tabindex="-1">F</button>
         <div class="coll-tag">${d.collection}</div>
         <div class="pair">
           <div class="half">${texerHalf}<div class="half-label">TeXeR</div></div>
@@ -486,20 +511,8 @@
         el.classList.toggle('selected', cb.checked);
         updateSelectedCount();
       });
-      const xBtn = el.querySelector('.thumb-exclude-btn');
-      if (xBtn) xBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        excludeDiagram(xBtn.dataset.id, el);
-      });
-      const fBtn = el.querySelector('.thumb-fix-btn');
-      if (fBtn) fBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        fixDiagramById(fBtn.dataset.id, fBtn);
-      });
       el.addEventListener('click', (e) => {
         if (e.target.classList.contains('thumb-check')) return;
-        if (e.target.classList.contains('thumb-exclude-btn')) return;
-        if (e.target.classList.contains('thumb-fix-btn')) return;
         enterBlink(parseInt(el.dataset.idx, 10));
       });
     });
@@ -521,10 +534,8 @@
     const ids = [...selected].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
     const text = ids.join('\n');
     navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('btn-copy-selected');
-      const orig = btn.innerHTML;
-      btn.textContent = `Copied ${ids.length}!`;
-      setTimeout(() => { btn.innerHTML = orig; updateSelectedCount(); }, 1500);
+      bulkBusy('Copied ' + ids.length + ' IDs');
+      setTimeout(() => bulkBusy(''), 1500);
     });
   }
 
@@ -533,6 +544,101 @@
     document.querySelectorAll('.thumb.selected').forEach(el => el.classList.remove('selected'));
     document.querySelectorAll('.thumb-check').forEach(cb => { cb.checked = false; });
     updateSelectedCount();
+  }
+
+  // ── Bulk actions on the selected set ─────────────────
+  function selectedIdsOrdered() {
+    const order = new Map(filtered.map((d, i) => [d.id, i]));
+    return [...selected].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
+  }
+
+  function bulkBusy(msg) {
+    const el = document.getElementById('bulk-busy');
+    if (!el) return;
+    if (msg) { el.textContent = msg; el.style.display = ''; }
+    else { el.textContent = ''; el.style.display = 'none'; }
+  }
+
+  function setBulkDisabled(disabled) {
+    document.querySelectorAll('#bulk-panel button[data-action]').forEach(b => { b.disabled = disabled; });
+  }
+
+  // Patch in-memory diagram objects from a /refetch-batch or /rerender-batch
+  // response so the grid reflects new SSIM without a full manifest reload.
+  function applyBulkScores(res, didRefetch) {
+    const byId = new Map(manifest.diagrams.map(d => [d.id, d]));
+    for (const r of (res.results || [])) {
+      if (!r.ok || !r.row || r.row.ssim == null) continue;
+      const d = byId.get(r.id);
+      if (!d) continue;
+      d.ssim = r.row.ssim; d.sizeScore = r.row.sizeScore; d.combined = r.row.combined;
+      d.hasHtx = true;
+      if (didRefetch) { d.hasTexer = true; d._texerCacheBustTs = Date.now(); }
+    }
+    applyFilters(true);
+    // Cache-bust visible thumbnails so the fresh PNGs load.
+    const ts = Date.now();
+    document.querySelectorAll('.thumb img').forEach(img => { img.src = img.src.split('?')[0] + '?t=' + ts; });
+  }
+
+  async function handleBulkAction(action) {
+    const ids = selectedIdsOrdered();
+    document.getElementById('bulk-panel').classList.remove('open');
+    if (!ids.length) return;
+
+    if (action === 'copy') { copySelectedIds(); return; }
+
+    let endpoint, body = { ids };
+    if (action === 'refetch')  endpoint = '/refetch-batch';
+    else if (action === 'rerender') endpoint = '/rerender-batch';
+    else if (action === 'enqueue') {
+      const description = prompt('Describe what to fix (optional) — applied to all ' + ids.length + ' diagrams:', '');
+      if (description === null) return;
+      endpoint = '/enqueue-batch'; body = { ids, description };
+    } else if (action === 'exclude') {
+      if (!confirm('Exclude ' + ids.length + ' diagram(s) from the comparator?')) return;
+      endpoint = '/exclude-batch';
+    } else return;
+
+    setBulkDisabled(true);
+    const verb = action === 'refetch' ? 'Refetching + re-scoring'
+               : action === 'rerender' ? 'Re-rendering + scoring'
+               : action === 'enqueue' ? 'Enqueuing'
+               : 'Excluding';
+    bulkBusy(verb + ' ' + ids.length + ' diagram(s)…');
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const res = await r.json();
+      if (!res.ok) { bulkBusy('Error: ' + (res.error || 'failed')); return; }
+
+      if (action === 'refetch' || action === 'rerender') {
+        applyBulkScores(res, action === 'refetch');
+        const okCount = res.okCount != null ? res.okCount : ids.length;
+        bulkBusy('Done: ' + okCount + '/' + ids.length + ' scored');
+      } else if (action === 'enqueue') {
+        ids.forEach(id => queuedIds.add(String(id)));
+        updateQueueIndicators();
+        bulkBusy('Enqueued ' + ids.length + ' (queue ' + res.queueLength + ')');
+      } else if (action === 'exclude') {
+        ids.forEach(id => {
+          droppedSet.add(id);
+          if (manifest.droppedIds && !manifest.droppedIds.includes(id)) manifest.droppedIds.push(id);
+          selected.delete(id);
+        });
+        applyFilters(true);
+        updateSelectedCount();
+        bulkBusy('Excluded ' + ids.length);
+      }
+    } catch (e) {
+      bulkBusy('Server not running');
+      console.error('bulk action error:', e);
+    } finally {
+      setBulkDisabled(false);
+      setTimeout(() => bulkBusy(''), 4000);
+    }
   }
 
   function ssimBadge(ssim) {
@@ -739,6 +845,8 @@
     posEl.textContent = ` | ${blinkIdx + 1}/${filtered.length}`;
     const qEl = document.getElementById('blink-queued');
     if (qEl) qEl.style.display = queuedIds.has(d.id) ? '' : 'none';
+    const rndEl = document.getElementById('blink-random');
+    if (rndEl) rndEl.style.display = randomSet.has(d.id) ? '' : 'none';
     const dqBtn = document.getElementById('btn-dequeue');
     if (dqBtn) dqBtn.style.display = queuedIds.has(d.id) ? '' : 'none';
 
@@ -1024,31 +1132,6 @@
     }).catch(() => {});
   }
 
-  // ── Fix via Claude Code ───────────────────────────────
-  function fixDiagramById(id, btnEl) {
-    const d = manifest && manifest.diagrams.find(x => x.id === id);
-    if (!d) return;
-    const description = prompt('Describe what to fix (optional):', '');
-    if (description === null) return;
-    const orig = btnEl ? btnEl.textContent : 'F';
-    fetch('/enqueue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: d.id, description })
-    }).then(r => r.json()).then(res => {
-      if (res.ok) {
-        if (btnEl) { btnEl.textContent = '✓'; btnEl.style.background = 'rgba(20,83,45,0.9)'; btnEl.style.borderColor = '#22c55e'; btnEl.style.color = '#86efac'; setTimeout(() => { btnEl.textContent = orig; btnEl.style.background = ''; btnEl.style.borderColor = ''; btnEl.style.color = ''; }, 2000); }
-        queuedIds.add(String(d.id));
-        updateQueueIndicators();
-      } else {
-        if (btnEl) { btnEl.textContent = '!'; setTimeout(() => { btnEl.textContent = orig; }, 2000); }
-        console.error('enqueue error:', res.error);
-      }
-    }).catch(() => {
-      if (btnEl) { btnEl.textContent = '!'; setTimeout(() => { btnEl.textContent = orig; }, 2000); }
-    });
-  }
-
   function buildFixPrompt(d, source) {
     return 'You are working on the HiTeXeR Asymptote interpreter (asy-interp.js) in C:\\Users\\Mark Eichenlaub\\github\\hitexer.\n\n' +
       'Your task: fix diagram ' + d.source + ' (ID: ' + d.id + ') so HiTeXeR renders it to match the TeXeR reference.\n\n' +
@@ -1110,6 +1193,7 @@
   function rerenderDiagram() {
     const d = filtered[blinkIdx];
     if (!d) return;
+    const targetId = d.id;              // capture — user may navigate away mid-flight
     const btn = document.getElementById('btn-rerender');
     const orig = btn.textContent;
     btn.textContent = 'Rendering...';
@@ -1118,7 +1202,7 @@
     fetch('/rerender', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: d.id })
+      body: JSON.stringify({ id: targetId })
     }).then(async r => {
       if (r.status === 404) {
         throw new Error('Endpoint /rerender not found on server (status 404). Restart fix-server.js to pick up the new endpoint.');
@@ -1127,21 +1211,20 @@
       try { return JSON.parse(text); }
       catch { throw new Error('Bad response from server: ' + text.substring(0, 200)); }
     }).then(res => {
+      // Patch the diagram object by reference regardless of navigation.
+      if (res.ok && res.row && res.row.ssim != null) {
+        d.ssim      = res.row.ssim;
+        d.sizeScore = res.row.sizeScore;
+        d.combined  = res.row.combined;
+        d.hasHtx    = true;
+      }
+      if (!blinkStillOn(targetId)) return;
       if (res.ok) {
-        // Update the diagram entry in-place with new SSIM
-        if (res.row && res.row.ssim != null) {
-          d.ssim      = res.row.ssim;
-          d.sizeScore = res.row.sizeScore;
-          d.combined  = res.row.combined;
-          d.hasHtx    = true;
-        }
         btn.textContent = res.row && res.row.ssim != null
           ? `SSIM ${res.row.ssim.toFixed(3)}`
           : 'Done';
         btn.style.background = '#2d6a4f';
-        // Re-render with cache-bust so the new SVG/PNG loads
         updateBlinkImage({ cacheBust: true });
-        // Refresh grid thumbnail too (in case user returns to grid)
         document.querySelectorAll(`.thumb[data-idx="${blinkIdx}"] img`).forEach(img => {
           img.src = img.src.split('?')[0] + '?t=' + Date.now();
         });
@@ -1150,25 +1233,35 @@
         btn.style.background = '#991b1b';
         console.error('Re-render failed:', res.error);
       }
-      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3500);
+      setTimeout(() => { if (blinkStillOn(targetId)) { btn.textContent = orig; btn.style.background = ''; } }, 3500);
     }).catch(err => {
       const msg = String(err && err.message || err);
+      console.error('Re-render error:', msg);
+      if (!blinkStillOn(targetId)) return;
       if (msg.includes('/rerender not found')) {
         btn.textContent = 'Restart fix-server!';
       } else {
         btn.textContent = 'Server not running';
       }
       btn.style.background = '#991b1b';
-      console.error('Re-render error:', msg);
-      alert('Re-render failed: ' + msg);
-      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 5000);
+      setTimeout(() => { if (blinkStillOn(targetId)) { btn.textContent = orig; btn.style.background = ''; } }, 5000);
     });
   }
 
-  // ── Re-fetch TeXeR PNG (cache-bust) ──────────────────
+  // True if the blink view is still showing the diagram we kicked off work for.
+  // Guards against a race: the user can flip to another diagram while a
+  // refetch/rerender is in flight, and the async result must NOT clobber the
+  // now-current diagram's image or button. Data is still patched on the
+  // captured diagram object regardless (that's keyed by id, so it's safe).
+  function blinkStillOn(targetId) {
+    return blinkActive && filtered[blinkIdx] && filtered[blinkIdx].id === targetId;
+  }
+
+  // ── Re-fetch TeXeR PNG, then auto re-render HiTeXeR + recompute SSIM ──
   function refetchTexerPng() {
     const d = filtered[blinkIdx];
     if (!d) return;
+    const targetId = d.id;              // capture — user may navigate away mid-flight
     const btn = document.getElementById('btn-refetch');
     const orig = btn.textContent;
     btn.textContent = 'Fetching...';
@@ -1177,19 +1270,27 @@
     fetch('/refetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: d.id })
+      body: JSON.stringify({ id: targetId })
     }).then(r => r.json()).then(res => {
+      // Patch the diagram object by reference no matter where the user is now.
       if (res.ok) {
-        btn.textContent = 'Done!';
-        btn.style.background = '#2d6a4f';
-        // Mark as having texer and refresh whatever view is currently active.
-        // updateBlinkImage routes through sourceDescriptor, which appends a
-        // ?t=… cache-buster when cacheBust is true. This handles both
-        // side-by-side mode (default) and legacy single-image mode.
         d.hasTexer = true;
         d._texerCacheBustTs = Date.now();
+        if (res.row && res.row.ssim != null) {
+          d.ssim      = res.row.ssim;
+          d.sizeScore = res.row.sizeScore;
+          d.combined  = res.row.combined;
+          d.hasHtx    = true;
+        }
+      }
+      // Only touch the visible button / image if we're still on this diagram.
+      if (!blinkStillOn(targetId)) return;
+      if (res.ok) {
+        btn.textContent = res.row && res.row.ssim != null
+          ? `SSIM ${res.row.ssim.toFixed(3)}`
+          : 'Done!';
+        btn.style.background = '#2d6a4f';
         updateBlinkImage({ cacheBust: true });
-        // Also refresh the grid thumbnail if it was a texer image
         const thumb = document.querySelector(`.thumb[data-idx="${blinkIdx}"] img`);
         if (thumb) thumb.src = thumb.src.split('?')[0] + '?t=' + Date.now();
       } else {
@@ -1197,12 +1298,13 @@
         btn.style.background = '#991b1b';
         console.error('Re-fetch failed:', res.error);
       }
-      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 3000);
+      setTimeout(() => { if (blinkStillOn(targetId)) { btn.textContent = orig; btn.style.background = ''; } }, 3000);
     }).catch(err => {
+      console.error('Re-fetch error:', err);
+      if (!blinkStillOn(targetId)) return;
       btn.textContent = 'Server not running';
       btn.style.background = '#991b1b';
-      console.error('Re-fetch error:', err);
-      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 4000);
+      setTimeout(() => { if (blinkStillOn(targetId)) { btn.textContent = orig; btn.style.background = ''; } }, 4000);
     });
   }
 
@@ -1245,7 +1347,18 @@
   document.getElementById('help-btn').addEventListener('click', () => {
     document.getElementById('hints-overlay').classList.toggle('active');
   });
-  document.getElementById('btn-copy-selected').addEventListener('click', copySelectedIds);
+  document.getElementById('bulk-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('bulk-panel').classList.toggle('open');
+  });
+  document.querySelectorAll('#bulk-panel button[data-action]').forEach(b => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); handleBulkAction(b.dataset.action); });
+  });
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('bulk-dropdown').contains(e.target)) {
+      document.getElementById('bulk-panel').classList.remove('open');
+    }
+  });
   document.getElementById('btn-clear-selected').addEventListener('click', clearSelected);
   document.getElementById('btn-copy-queue').addEventListener('click', copyQueue);
 
@@ -1366,8 +1479,12 @@
         if (s.runLoopRunning) {
           dot.className = 'af-dot af-active';
           const c = s.current;
-          if (c && c.phase === 'rerendering') {
+          if (c && c.phase === 'full-pipeline') {
+            state.innerHTML = '<span class="af-rerender">Full pipeline: re-rendering &amp; re-scoring all diagrams…</span>';
+          } else if (c && c.phase === 'rerendering') {
             state.innerHTML = '<span class="af-rerender">Re-rendering 200 diagrams…</span>';
+          } else if (c && c.phase === 'ground-truth') {
+            state.innerHTML = '<span class="af-rerender">Refreshing ground truth for ' + c.currentId + ' (refetch + re-score)…</span>';
           } else if (c) {
             const phaseLabel = c.phase === 'verifying'
               ? 'Verifying ' + c.currentId + ' r' + c.round + '/' + c.roundMax

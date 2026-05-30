@@ -1,0 +1,37 @@
+//TeXeR source: https://artofproblemsolving.com/texer/kwjvvnku
+
+size(6cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+//origin at left end of rod
+real ell = 2, rod_thickness = 0.1, L = 0.8, eps = 0.05;
+draw(box((-eps, -eps), (ell + eps, eps)));
+filldraw(scale(eps)*unitcircle, gray(0.8));
+label("Pivot", (0, -eps), dir(-90));
+
+real length_label_dist = 0.2;
+draw(Label("$l$", align=(0, 0), UnFill), shift(0, length_label_dist)*((ell + eps, 0)--(0, 0)), Bars(5));
+
+//origin at right end of rod
+currentpicture = shift(-ell, 0)*currentpicture;
+
+draw(spring((0, 0), (L, 0), zigs=15));
+draw(Label("$L + l$", align=2*dir(90)), shift(0, length_label_dist)*((eps, 0)--(L, 0)), Bar(5));
+
+real r = 0.05;
+unfill(circle((L, 0), r)); draw(circle((L, 0), r));
+label("Post", (L, -r), dir(-90));
+
+real cut = -0.5, cut_L = -0.2, cut_R = 0.25, cut_h = 0.035;
+
+unfill(rotate(90)*(box((cut_L, cut - cut_h), (cut_R, cut + cut_h))));
+draw(rotate(90)*((cut_L, cut - cut_h)--(cut_R, cut - cut_h)), dotted);
+draw(rotate(90)*((cut_L, cut + cut_h)--(cut_R, cut + cut_h)), dotted);

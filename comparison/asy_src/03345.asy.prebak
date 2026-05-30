@@ -1,0 +1,48 @@
+//TeXeR source: https://artofproblemsolving.com/texer/tpknztie
+
+size(10cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+// origin at the left end of rod
+real ell = 2, rod_thickness = 0.1, L = 3, eps = 0.05;
+real theta = 15;
+
+draw(rotate(theta)*box((-eps, -eps), (ell + eps, eps)));
+filldraw(scale(eps)*unitcircle, gray(0.8));
+
+pair plank_bottom = rotate(theta)*(-eps, -eps);
+draw(plank_bottom--(plank_bottom + (ell/3, 0)), linetype("4 6"));
+draw("$\theta$", arc(plank_bottom, ell/4, 0, theta));
+
+real length_label_dist = 0.18;
+draw(Label("$\frac l2$", align=(0, 0), UnFill),
+\trotate(theta)*shift(0, length_label_dist)*((ell/2 + eps, 0)--(0, 0)),
+    Bars(5));
+
+draw(Label("$L$", align=(0, 0), UnFill(1.2)),
+\tshift(length_label_dist + ell, 0)*((0, 0)--(0, -L)),
+\tBars(5));
+draw(Label("$\frac{l}{2}\sin\theta$", align=dir(0), UnFill),
+\tshift(length_label_dist + ell, 0)*((0, 0)--(0, ell/2*Sin(theta))),
+\tBar(5));
+draw(spring(ell/2*dir(theta), (ell/2, -L), zigs=55));
+
+draw(Label("$\frac{l}{2}\cos\theta$", align=(0, 0), UnFill(1.2)),
+\tshift(0, -L - length_label_dist)*((0, 0)--(ell/2*Cos(theta), 0)),
+\tBeginBar(5));
+draw(Label("$\frac{l}{2}(1 - \cos\theta)$", align=1.2*dir(-90)),
+\tshift(0, -L - length_label_dist)*((ell/2*Cos(theta), 0)--(ell/2, 0)), rgb(0, 0.6, 1),
+\tBars(5));
+
+real r = 0.05;
+unfill(circle((ell/2, -L), r)); draw(circle((ell/2, -L), r));
+
+//draw(Label("$l$", align=(0, 0), UnFill), rotate(theta)*shift(0, length_label_dist)*((ell/2 + eps, 0)--(0, 0)), Bars(5));

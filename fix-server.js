@@ -23,6 +23,8 @@ const ENQUEUE_HISTORY_PATH = path.join(ROOT, 'auto-fix', 'enqueue-history.jsonl'
 const FIX_SNAPSHOTS_DIR    = path.join(ROOT, 'auto-fix', 'fix-snapshots');
 const DROPLIST_PATH        = path.join(ROOT, 'auto-fix', 'droplist.json');
 const EXCLUDE_LOG_PATH     = path.join(ROOT, 'auto-fix', 'exclude-history.jsonl');
+const REJECTED_EDITS_DIR   = path.join(ROOT, 'auto-fix', 'rejected-edits');
+const REJECTED_EDITS_LOG   = path.join(ROOT, 'auto-fix', 'rejected-edits.jsonl');
 
 function readDroplist() {
   try { return JSON.parse(fs.readFileSync(DROPLIST_PATH, 'utf8')); } catch { return []; }
@@ -49,13 +51,15 @@ function isRunLoopRunning() {
 }
 
 // Launch run-loop headlessly as a background child process.
-// Logs to auto-fix/run-loop.log; runs persistently with full-pipeline every 5 commits.
+// Logs to auto-fix/run-loop.log; processes the fix queue then stops (it does
+// NOT run persistently / auto-select by SSIM). Full pipeline recompute still
+// runs every 5 commits while the queue is being drained.
 function launchRunLoop() {
   const logPath = path.join(ROOT, 'auto-fix', 'run-loop.log');
   const out = fs.openSync(logPath, 'a');
   const child = spawn(process.execPath, [
     path.join('auto-fix', 'run-loop.js'),
-    '--persistent', '--full-pipeline-every', '5',
+    '--queue-only', '--full-pipeline-every', '5',
   ], {
     cwd: ROOT,
     detached: true,
@@ -65,6 +69,95 @@ function launchRunLoop() {
   child.unref();
   fs.close(out, () => {});
   console.log('[fix-server] launched run-loop headlessly (log: auto-fix/run-loop.log)');
+}
+
+// Regenerate the blink manifest (synchronous). Callers that touch many ids
+// should call this ONCE at the end rather than per-id.
+function regenManifest() {
+  try {
+    execSync('node comparison/generate-manifest.js', { cwd: ROOT, stdio: 'pipe' });
+  } catch (e) {
+    console.error('[fix-server] Manifest regen warning:', e.message);
+  }
+}
+
+// Re-fetch a single diagram's TeXeR PNG via the Python helper. cb(err, result).
+function refetchSingle(id, cb) {
+  const py = spawn('python', [
+    path.join(ROOT, 'comparison', 'refetch-single.py'), id,
+  ], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '';
+  py.stdout.on('data', d => { stdout += d; });
+  py.stderr.on('data', d => { stderr += d; });
+  py.on('close', (code) => {
+    if (code === 0) {
+      let result;
+      try { result = JSON.parse(stdout.trim()); } catch (_) { result = { ok: true }; }
+      cb(null, result);
+    } else {
+      cb(new Error((stderr.trim() || stdout.trim() || `exit code ${code}`).substring(0, 500)), null);
+    }
+  });
+}
+
+// Re-render a single diagram through HiTeXeR and rescore it against TeXeR,
+// patching comparison/ssim-results.json in place. Does NOT regenerate the
+// manifest — the caller decides when (so batch callers regen once). Invokes
+// cb(err, row) where row is the per-id {id, ssim, sizeScore, combined} object.
+function rerenderAndScore(id, cb) {
+  const node = spawn(process.execPath, [
+    path.join(ROOT, 'auto-fix', 'render-and-score.js'),
+  ], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
+
+  node.stdin.write(id + '\n');
+  node.stdin.end();
+
+  let stdout = '', stderr = '';
+  node.stdout.on('data', d => { stdout += d; });
+  node.stderr.on('data', d => { stderr += d; });
+
+  node.on('close', (code) => {
+    // render-and-score.js exits 1 on a "regression"; we still want the row.
+    let row = null;
+    for (const line of stdout.split('\n')) {
+      const s = line.trim();
+      if (!s) continue;
+      try {
+        const obj = JSON.parse(s);
+        if (obj.id === id && obj.ssim != null) { row = obj; break; }
+        if (obj.id === id && obj.err)          { row = obj; break; }
+      } catch {}
+    }
+
+    if (!row) {
+      const errMsg = (stderr.trim() || stdout.trim() || `exit code ${code}`).substring(0, 500);
+      cb(new Error(errMsg), null);
+      return;
+    }
+
+    // Patch ssim-results.json in place.
+    const ssimPath = path.join(ROOT, 'comparison', 'ssim-results.json');
+    if (row.ssim != null && fs.existsSync(ssimPath)) {
+      try {
+        const results = JSON.parse(fs.readFileSync(ssimPath, 'utf8'));
+        const existing = results.find(r => r.id === id);
+        if (existing) {
+          existing.ssim      = row.ssim;
+          existing.sizeScore = row.sizeScore;
+          existing.combined  = row.combined;
+          if (row.combined != null && row.combined >= 0) delete existing.error;
+        } else {
+          results.push({ id, ssim: row.ssim, sizeScore: row.sizeScore, combined: row.combined });
+        }
+        results.sort((a, b) => a.combined - b.combined);
+        fs.writeFileSync(ssimPath, JSON.stringify(results, null, 2));
+      } catch (e) {
+        console.error('[fix-server] ssim-results.json update warning:', e.message);
+      }
+    }
+
+    cb(null, row);
+  });
 }
 
 const MIME = {
@@ -81,6 +174,7 @@ const MIME = {
   '.woff2':'font/woff2',
   '.ttf':  'font/ttf',
   '.asy':  'text/plain',
+  '.patch':'text/plain',
 };
 
 const server = http.createServer((req, res) => {
@@ -162,20 +256,26 @@ const server = http.createServer((req, res) => {
 
         py.on('close', (code) => {
           if (code === 0) {
-            // Regenerate the blink manifest so the comparator picks up the new PNG
-            try {
-              require('child_process').execSync('node comparison/generate-manifest.js', {
-                cwd: ROOT, stdio: 'pipe',
-              });
-            } catch (e) {
-              console.error('[fix-server] Manifest regen warning:', e.message);
-            }
-
             let result;
             try { result = JSON.parse(stdout.trim()); } catch (_) { result = { ok: true }; }
-            console.log(`[fix-server] Re-fetch done for ${id}:`, result);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, id, result }));
+
+            // Chain: a fresh TeXeR PNG is only meaningful once HiTeXeR is
+            // re-rendered and re-scored against it. Do that, then regen the
+            // manifest ONCE so the comparator picks up both the new PNG and
+            // the new SSIM together.
+            rerenderAndScore(id, (rerErr, row) => {
+              regenManifest();
+              if (rerErr) {
+                console.error(`[fix-server] Re-fetch ok but re-render failed for ${id}:`, rerErr.message);
+                // The refetch itself succeeded — surface that, but flag the score gap.
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, id, result, rerenderError: rerErr.message }));
+                return;
+              }
+              console.log(`[fix-server] Re-fetch + re-score done for ${id}:`, row);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, id, result, row }));
+            });
           } else {
             let errMsg = stderr.trim() || stdout.trim() || `exit code ${code}`;
             console.error(`[fix-server] Re-fetch failed for ${id}:`, errMsg);
@@ -202,78 +302,143 @@ const server = http.createServer((req, res) => {
 
         console.log(`[fix-server] Re-rendering HiTeXeR for diagram ${id}...`);
 
-        // Spawn render-and-score.js, feeding the id via stdin
-        const node = spawn(process.execPath, [
-          path.join(ROOT, 'auto-fix', 'render-and-score.js'),
-        ], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
-
-        node.stdin.write(id + '\n');
-        node.stdin.end();
-
-        let stdout = '', stderr = '';
-        node.stdout.on('data', d => { stdout += d; });
-        node.stderr.on('data', d => { stderr += d; });
-
-        node.on('close', (code) => {
-          // Parse per-ID result line. Note: render-and-score.js exits with code 1
-          // when it detects a "regression" (SSIM drop beyond threshold). For the
-          // interactive Re-render button we WANT to see the new SSIM even if it
-          // regressed — surfacing a regression as "Failed" hides the data we
-          // need to diagnose. Only treat the subprocess as truly failed when we
-          // can't recover a per-id row at all.
-          let row = null;
-          for (const line of stdout.split('\n')) {
-            const s = line.trim();
-            if (!s) continue;
-            try {
-              const obj = JSON.parse(s);
-              if (obj.id === id && obj.ssim != null) { row = obj; break; }
-              if (obj.id === id && obj.err) { row = obj; break; }
-            } catch {}
-          }
-
-          if (!row) {
-            const errMsg = (stderr.trim() || stdout.trim() || `exit code ${code}`).substring(0, 500);
-            console.error(`[fix-server] Re-render failed for ${id}:`, errMsg);
+        rerenderAndScore(id, (err, row) => {
+          if (err) {
+            console.error(`[fix-server] Re-render failed for ${id}:`, err.message);
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: errMsg }));
+            res.end(JSON.stringify({ ok: false, error: err.message }));
             return;
           }
-
-          // Patch ssim-results.json in place
-          const ssimPath = path.join(ROOT, 'comparison', 'ssim-results.json');
-          if (row && row.ssim != null && fs.existsSync(ssimPath)) {
-            try {
-              const results = JSON.parse(fs.readFileSync(ssimPath, 'utf8'));
-              const existing = results.find(r => r.id === id);
-              if (existing) {
-                existing.ssim      = row.ssim;
-                existing.sizeScore = row.sizeScore;
-                existing.combined  = row.combined;
-                if (row.combined != null && row.combined >= 0) delete existing.error;
-                results.sort((a, b) => a.combined - b.combined);
-                fs.writeFileSync(ssimPath, JSON.stringify(results, null, 2));
-              }
-            } catch (e) {
-              console.error('[fix-server] ssim-results.json update warning:', e.message);
-            }
-          }
-
-          // Regenerate manifest so hasHtx / hasSvg flags are fresh
-          try {
-            require('child_process').execSync('node comparison/generate-manifest.js', {
-              cwd: ROOT, stdio: 'pipe',
-            });
-          } catch (e) {
-            console.error('[fix-server] Manifest regen warning:', e.message);
-          }
-
-          console.log(`[fix-server] Re-render done for ${id}:`, row || '(no row)');
+          // Regenerate manifest so hasHtx / hasSvg flags are fresh.
+          regenManifest();
+          console.log(`[fix-server] Re-render done for ${id}:`, row);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, id, row }));
         });
       } catch (e) {
         console.error('[fix-server] Error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Bulk actions on a selected set of ids ─────────────
+  // Body: { ids: ["123", ...] }. All process the list serially (refetch must
+  // be serial to avoid TeXeR rate-limits) and regen the manifest ONCE at the
+  // end. Respond with a per-id summary so the client can report results.
+  if (req.method === 'POST' && (req.url === '/refetch-batch' || req.url === '/rerender-batch')) {
+    const withRefetch = req.url === '/refetch-batch';
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let ids;
+      try {
+        ids = JSON.parse(body).ids;
+        if (!Array.isArray(ids) || !ids.length) throw new Error('Missing ids[]');
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+        return;
+      }
+      console.log(`[fix-server] Bulk ${withRefetch ? 'refetch+' : ''}rerender for ${ids.length} ids...`);
+      const results = [];
+      let i = 0;
+      const step = () => {
+        if (i >= ids.length) {
+          regenManifest();
+          const okCount = results.filter(r => r.ok).length;
+          console.log(`[fix-server] Bulk done: ${okCount}/${ids.length} ok`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, total: ids.length, okCount, results }));
+          return;
+        }
+        const id = ids[i++];
+        const doScore = () => rerenderAndScore(id, (err, row) => {
+          results.push(err ? { id, ok: false, error: err.message } : { id, ok: true, row });
+          step();
+        });
+        if (withRefetch) {
+          refetchSingle(id, (err) => {
+            if (err) { results.push({ id, ok: false, error: 'refetch: ' + err.message }); step(); return; }
+            doScore();
+          });
+        } else {
+          doScore();
+        }
+      };
+      step();
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/exclude-batch') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const ids = JSON.parse(body).ids;
+        if (!Array.isArray(ids) || !ids.length) throw new Error('Missing ids[]');
+        const drop = readDroplist();
+        const dropSet = new Set(drop);
+        for (const id of ids) {
+          if (!dropSet.has(id)) { drop.push(id); dropSet.add(id); logExclude(id); }
+        }
+        writeDroplist(drop);
+        // Remove all from the queue in one pass.
+        const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+        try {
+          const q = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+          const idSet = new Set(ids);
+          fs.writeFileSync(queuePath, JSON.stringify(q.filter(item => !idSet.has(item.id)), null, 2));
+        } catch {}
+        regenManifest();
+        try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
+        console.log(`[fix-server] Bulk-excluded ${ids.length} ids`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, count: ids.length }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/enqueue-batch') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        const ids = parsed.ids;
+        const description = parsed.description || '';
+        if (!Array.isArray(ids) || !ids.length) throw new Error('Missing ids[]');
+
+        const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
+        let queue = [];
+        if (fs.existsSync(queuePath)) {
+          try { queue = JSON.parse(fs.readFileSync(queuePath, 'utf8')); } catch {}
+        }
+        const idSet = new Set(ids);
+        queue = queue.filter(item => !idSet.has(item.id));
+        for (const id of ids) {
+          const enqueuedAt = new Date().toISOString();
+          const enqueueId  = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          queue.push({ id, description, addedAt: enqueuedAt });
+          fs.appendFileSync(ENQUEUE_HISTORY_PATH, JSON.stringify({ enqueueId, id, description, enqueuedAt }) + '\n');
+          const srcPng = path.join(ROOT, 'comparison', 'htx_pngs', id.padStart(5, '0') + '.png');
+          const dstPng = path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png');
+          if (fs.existsSync(srcPng)) { try { fs.copyFileSync(srcPng, dstPng); } catch {} }
+        }
+        fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
+        try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
+        if (!isRunLoopRunning()) launchRunLoop();
+        console.log(`[fix-server] Bulk-enqueued ${ids.length} ids (queue length: ${queue.length})`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, count: ids.length, queueLength: queue.length }));
+      } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
@@ -487,6 +652,140 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: true, id }));
       } catch (e) {
         console.error('[fix-server] Error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Rejected edits (canary-failure review) ────────────
+  // List edits the auto-fix loop tried and reverted, newest first. Each record
+  // carries the patch filename + snapshot filenames (served statically from
+  // /auto-fix/rejected-edits/…), so the review page can render the 4-up grids.
+  if (req.method === 'GET' && req.url === '/rejected-edits') {
+    try {
+      const lines = fs.existsSync(REJECTED_EDITS_LOG)
+        ? fs.readFileSync(REJECTED_EDITS_LOG, 'utf8').trim().split('\n').filter(Boolean)
+        : [];
+      const records = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      // Annotate with which artifacts actually exist on disk.
+      for (const r of records) {
+        r.patchExists = !!(r.patchFile && fs.existsSync(path.join(REJECTED_EDITS_DIR, r.patchFile)));
+        r.targetAfterExists = !!(r.targetAfterSnapshot && fs.existsSync(path.join(REJECTED_EDITS_DIR, r.targetAfterSnapshot)));
+        // before-snapshot lives in fix-snapshots, keyed by enqueueId
+        r.targetBeforeFile = r.targetBeforeEnqueueId
+          ? ('auto-fix/fix-snapshots/' + r.targetBeforeEnqueueId + '-before.png') : null;
+        r.targetBeforeExists = !!(r.targetBeforeEnqueueId &&
+          fs.existsSync(path.join(FIX_SNAPSHOTS_DIR, r.targetBeforeEnqueueId + '-before.png')));
+      }
+      records.reverse();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(records));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Accept a rejected edit: re-apply its saved patch onto the current code.
+  // git apply --3way merges cleanly when the surrounding code hasn't moved; on
+  // conflict it leaves conflict markers and we hand off to a Sonnet session in a
+  // new terminal tab to resolve, re-verify, bump the version and recompute.
+  if (req.method === 'POST' && req.url === '/accept-rejected') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { rejectId } = JSON.parse(body);
+        if (!rejectId) throw new Error('Missing rejectId');
+        const lines = fs.existsSync(REJECTED_EDITS_LOG)
+          ? fs.readFileSync(REJECTED_EDITS_LOG, 'utf8').trim().split('\n').filter(Boolean)
+          : [];
+        const rec = lines.map(l => { try { return JSON.parse(l); } catch { return null; } })
+                         .filter(Boolean).find(r => r.rejectId === rejectId);
+        if (!rec) throw new Error('Unknown rejectId ' + rejectId);
+        if (!rec.patchFile) throw new Error('No patch saved for this edit');
+        const patchPath = path.join(REJECTED_EDITS_DIR, rec.patchFile);
+        if (!fs.existsSync(patchPath)) throw new Error('Patch file missing: ' + rec.patchFile);
+
+        // Try a clean 3-way apply first (leaves changes staged for review).
+        const apply = spawnSync('git', ['apply', '--3way', '--index', patchPath],
+          { cwd: ROOT, encoding: 'utf8' });
+
+        if (apply.status === 0) {
+          console.log(`[fix-server] Accepted rejected edit ${rejectId} — applied cleanly (staged)`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, rejectId, mode: 'clean',
+            message: 'Patch applied and staged. Review with `git diff --staged`, then re-render and commit.' }));
+          return;
+        }
+
+        // Conflict — hand off to a Sonnet-assisted resolution session.
+        const conflictMsg = (apply.stderr || apply.stdout || '').trim().substring(0, 500);
+        console.log(`[fix-server] Edit ${rejectId} did not apply cleanly; launching Sonnet resolver`);
+        const prompt = [
+          'A previously auto-rejected HiTeXeR fix needs to be re-applied to the current code and the merge conflicts resolved.',
+          '',
+          'Saved patch: ' + patchPath,
+          'It was originally generated against commit ' + (rec.baseCommit || '(unknown)') + ' but the code has since moved, so `git apply --3way` reported conflicts:',
+          conflictMsg,
+          '',
+          'Target diagram: ' + rec.targetId + (rec.description ? ' — "' + rec.description + '"' : ''),
+          'Original reject reason: ' + rec.reason,
+          (rec.verifierDefects && rec.verifierDefects.length ? 'Verifier defects: ' + rec.verifierDefects.join('; ') : ''),
+          (rec.regressedCanaries && rec.regressedCanaries.length
+            ? 'It originally regressed these canaries (do NOT re-regress them): ' + rec.regressedCanaries.map(c => c.id).join(', ') : ''),
+          '',
+          'Steps:',
+          '1. Inspect the patch: git apply --3way ' + patchPath + ' (resolve any <<<< conflict markers in asy-interp.js).',
+          '2. Re-render: node render-hitexer.js comparison/asy_src/' + String(rec.targetId).padStart(5,'0') + '.asy and compare to comparison/texer_pngs/' + String(rec.targetId).padStart(5,'0') + '.png',
+          '3. Run the canary guard: node auto-fix/render-and-score.js --canary — ensure no canary drops > 0.03.',
+          '4. If good, bump the version in index.html and run: node recompute-htx.js render-htx rasterize ssim html',
+          '5. Commit the change.',
+        ].join('\n');
+        const promptFile = path.join(ROOT, '_accept_prompt.txt');
+        fs.writeFileSync(promptFile, prompt, 'utf8');
+        const promptFileSq = promptFile.replace(/'/g, "''");
+        const psCmd = [
+          `$p = Get-Content -Path '${promptFileSq}' -Raw -Encoding UTF8`,
+          `claude --dangerously-skip-permissions --model claude-sonnet-4-6 $p`,
+        ].join('; ');
+        const child = spawn('wt', ['-w', '0', 'new-tab', '-d', ROOT, '--',
+          'powershell', '-NoExit', '-Command', psCmd], { detached: true, stdio: 'ignore' });
+        child.unref();
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, rejectId, mode: 'conflict',
+          message: 'Patch did not apply cleanly. Launched a Sonnet session to resolve the conflict.' }));
+      } catch (e) {
+        console.error('[fix-server] accept-rejected error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Dismiss a rejected edit from the review list (removes its log line; leaves
+  // patch/snapshot files in place in case they're wanted later).
+  if (req.method === 'POST' && req.url === '/dismiss-rejected') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { rejectId } = JSON.parse(body);
+        if (!rejectId) throw new Error('Missing rejectId');
+        const lines = fs.existsSync(REJECTED_EDITS_LOG)
+          ? fs.readFileSync(REJECTED_EDITS_LOG, 'utf8').trim().split('\n').filter(Boolean)
+          : [];
+        const kept = lines.filter(l => { try { return JSON.parse(l).rejectId !== rejectId; } catch { return true; } });
+        fs.writeFileSync(REJECTED_EDITS_LOG, kept.length ? kept.join('\n') + '\n' : '');
+        console.log(`[fix-server] Dismissed rejected edit ${rejectId}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, rejectId }));
+      } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }

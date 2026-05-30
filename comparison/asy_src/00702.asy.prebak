@@ -1,0 +1,23 @@
+size(275);
+pathpen = black + linewidth(0.7);
+pointpen = black;
+pen s = fontsize(8);
+path scale(real s, pair D, pair E, real p) { return (point(D--E,p)+scale(s)*(-point(D--E,p)+D)--point(D--E,p)+scale(s)*(-point(D--E,p)+E));}
+pair A = dir(40), B = dir(-40), C = dir(210),C1 = C+scale(1.7)*(A-C);
+pair I = incenter(A,B,C), D = foot(I,A,B), F = foot(I,C,B);
+pair K = extension(C,I,A,B);
+pair Z = extension(A,bisectorpoint(C1,A,B),C,I), X = foot(Z,A,B), Y = foot(Z,C,B);
+pair A1 = IPs(C--A,Circle((I+Z)/2,length(I-Z)/2))[0];
+pair B1 = IPs(C--Y,Circle((I+Z)/2,length(I-Z)/2))[1];
+draw(MP("A",A,N,s)--MP("B",B,S,s)--MP("C",C,W,s)--cycle);
+MP("C",C,W,s);
+draw(incircle(A,B,C),heavygreen);
+draw(Circle(Z,length(Z-foot(Z,A,B))),heavygreen);
+draw(Circle((I+Z)/2,length(I-Z)/2),orange);
+draw(MP("F",F,S,s)--MP("I",I,N,s)--MP("D",D,SE,s)^^MP("X",X,scale(3)*NE,s)--MP("Z",Z,SE,s)--MP("Y",Y,S,s),heavyred);
+draw(scale(1.4,C,Y,0),arrow=ArcArrow(SimpleHead));
+draw(C--C1,arrow=ArcArrow(SimpleHead));
+draw(scale(1.6,C,Z,0),arrow=ArcArrow(SimpleHead));
+draw(rightanglemark(I,F,C,2)^^rightanglemark(I,D,B,2)^^rightanglemark(A,X,Z,2)^^rightanglemark(Z,Y,B,2),heavyred);
+draw(MP("A'",A1,NW,s)--MP("B'",B1,S,s));
+MP("K",K,NW,s)

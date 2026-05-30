@@ -1,0 +1,29 @@
+size(6cm);
+defaultpen(fontsize(10pt));
+DefaultHead = TeXHead;
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=16, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real r = 0.3;
+real wall_th = 0.1, wall_h = 2.2*r, wall_w = 2.6;
+fill((-wall_th, -wall_th)--(-wall_th, wall_h)--(0, wall_h)--(0, 0)--(wall_w, 0)--(wall_w, -wall_th)--cycle, gray(0.8));
+draw((0, wall_h)--(0, 0)--(wall_w, 0));
+
+real circ_x = 2;
+draw(circle((circ_x, r), r));
+draw(spring((0, r), (circ_x, r), buf=0.2, zigs=20, width=0.8), gray(0.7));
+dot((circ_x, r));
+
+real F_spr = 0.6, F_fric = 0.4, eps = 0.03;
+draw(Label("$F_s$", align=dir(95), Relative(1)), (circ_x, r)--(circ_x - F_spr, r), rgb(0, 0.2, 0.6), Arrow());
+
+draw((circ_x, eps)--(circ_x + F_fric, eps), linewidth(1)+rgb(0, 0.4, 0), Arrow(size=1.4));
+label("$f$", (circ_x + F_fric, eps), NE, rgb(0, 0.4, 0));
+
+draw("$x$", (circ_x, 2*r + 0.08)--(circ_x - 0.2, 2*r + 0.08), Bar(2), BeginArrow());

@@ -143,5 +143,17 @@ for (const c of collections) {
 const manifest = { diagrams, collections, courseNames, droppedIds: [...droppedSet] };
 fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2));
 console.log(`\nWrote ${MANIFEST}`);
+
+// Refresh comparison/random-ids.json (drives the comparator's "random — SSIM
+// not meaningful" warning and the canary RNG exclusion). Cheap; keeps it current.
+try {
+  const { isRandomSource } = require(path.join(ROOT, 'auto-fix', 'random-detect.js'));
+  const ASY_SRC = path.join(OUT_DIR, 'asy_src');
+  const rndHits = fs.readdirSync(ASY_SRC).filter(f => f.endsWith('.asy'))
+    .filter(f => { try { return isRandomSource(fs.readFileSync(path.join(ASY_SRC, f), 'utf8')); } catch { return false; } })
+    .map(f => f.slice(0, -4)).sort();
+  fs.writeFileSync(path.join(OUT_DIR, 'random-ids.json'), JSON.stringify(rndHits, null, 2) + '\n');
+  console.log(`  random-ids.json: ${rndHits.length} RNG diagram(s)`);
+} catch (e) { console.error('  random-ids regen failed: ' + e.message); }
 console.log(`  ${diagrams.length} diagrams, ${collections.length} collections`);
 console.log(`  Collections: ${collections.map(c => `${c} (${courseNames[c] || '?'})`).join(', ')}`);

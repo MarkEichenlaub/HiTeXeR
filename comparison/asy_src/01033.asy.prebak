@@ -1,0 +1,47 @@
+//TeXeR source: https://artofproblemsolving.com/texer/idkcuotu
+
+unitsize(.5cm);
+
+//plano-convex lens
+
+real R = 20; //radius of curvature
+real t = 1; // thickness at thickest part
+real x = R-t; //distance from center of curvature to flat side of lens
+
+real n = 2; //index of refraction
+
+real f = R/(n-1); //lensmaker's equation
+
+real h = sqrt(R^2 - (R-t)^2); //half the height
+
+real theta = atan(h/(R-t)); //half angle subtended by lens, from center of curvature
+real theta_deg = theta * 180/pi;
+
+draw(arc((0,0),R,180-theta_deg, 180 + theta_deg) );
+draw((-x,-h)--(-x,h));
+
+int n_lines = 6;
+
+real dy = 2*h/(n_lines-1);
+
+for (int i = 0; i<n_lines; ++i){
+if(i == 1 ){
+\treal y = h-i*dy;
+\tdraw((-x-f,0)--(-sqrt(R^2 - y^2),y)--(-x,y), deepgreen);
+    draw((-x+.5,0)--(-x+.5,y),brown+dotted+1bp,Arrows(2mm));
+    label("$y$",(-x+.5,y/2), UnFill);
+    label("$\tau$",(-x,y),NW*.7);
+    draw((0,0)--(-x,y), dotted);
+label("$R -\tau_0 + \delta $",(-x/2,y/2),NE);
+}
+}
+
+draw((-x-f,0)--(-x,0), deepgreen);
+
+draw((-x,-.2)--(-x-f,-.2),brown+dotted+1bp,Arrows(2mm));
+label("$f$",(-x-f/2,-.2), UnFill);
+
+draw((0,0)--(-x,0), dotted);
+
+draw((0,-.3)--(-x,-.3),brown+dotted+1bp,Arrows(2mm));
+label("$R-\tau_0$",(-x/2,-.3), UnFill);

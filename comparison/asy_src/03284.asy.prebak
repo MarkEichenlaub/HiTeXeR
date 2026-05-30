@@ -1,0 +1,39 @@
+import trembling;
+import roundedpath;
+import stats;
+size(10cm);
+defaultpen(fontsize(10pt));
+DefaultHead = TeXHead;
+
+tremble rock_tr = tremble(frequency=1, angle=20);
+tremble water_tr = tremble(frequency=0.1, angle=5);
+
+path rock = rock_tr.deform(roundedpath((0, 0)--(1, 1)--(2, 0), 0.4));
+real max_t = 0.55, max_x = relpoint(rock, max_t).x;
+real actual_rock_func(real t){
+\treturn intersectionpoint((t, -1)--(t, 3), rock).y + Gaussian(t - max_x, 0.2)/10;
+}
+
+draw(graph(actual_rock_func, 0.9, 2));
+
+real water_length = 5.7;
+draw(water_tr.deform((0.9, 0)--(water_length, 0)), 0.5*rgb(0, 0.6, 1));
+
+draw(Label("$H$", align=(0, 0), UnFill(1.4)), shift(0.8, 0)*((0, 0)--(0, actual_rock_func(max_x))), Bars(5));
+
+real theta = -20;
+real ell = 4.5, eps = 0.05;
+pair sh = (max_x, actual_rock_func(max_x)) + eps/2*dir(90 + theta);
+currentpicture = shift(-sh)*currentpicture;
+
+draw(rotate(theta)*box((0, -eps/2), (ell, eps/2)));
+pair rod_water_intersect = extension(-sh, -sh + 1, origin, origin + dir(theta));
+
+real norm = 0.7, fric = 0.5, mg = 0.9, fb = 0.4;
+pair g_center = rotate(theta)*(ell/2, 0), b_center = g_center + rod_water_intersect/2;
+draw(Label("$N$", Relative(1)), rotate(theta)*((0, 0)--(0, norm)), rgb(0.7, 0.4, 1), Arrow());
+draw(Label("$\mu N$", Relative(1)), rotate(theta)*((0, 0)--(-fric, 0)), rgb(0, 0.4, 0), Arrow());
+draw(Label("$F_g$", Relative(1)), g_center--(g_center + mg*S), rgb(0, 0.6, 1), Arrow());
+draw(Label("$F_b$", Relative(1)), b_center--(b_center + fb*N), rgb(1, 0.4, 0.1), Arrow());
+
+draw("$\theta$", arc(rod_water_intersect + eps/Sin(theta)/2*E, 0.42, 180 + theta, 180), rgb(0.7, 0.1, 0.3));

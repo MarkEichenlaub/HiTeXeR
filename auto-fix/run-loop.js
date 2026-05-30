@@ -28,6 +28,7 @@ const DEFAULT_MAX_TURNS  = 250;  // was 150; raised to give novel-primitive diag
 const DEFAULT_VERIFIER_MODEL = 'claude-sonnet-4-6';
 const SSIM_FLOOR = 0.90;          // combined (ssim×sizeScore) threshold: above this, accept even if verifier is unhappy
 const CANARY_THRESHOLD = 0.03;    // max allowed canary drop per commit (enforced independently of sub-agent)
+const SSIM_REGRESS_MARGIN = 0.02; // a fix whose post-SSIM is this far BELOW the target's pre-fix SSIM is a regression — never accept it on the verifier's say-so alone
 const MAX_VERIFIER_ROUNDS = 3;    // max Opus→verifier cycles per iteration before giving up
 const ATTEMPTS_PATH  = path.join(__dirname, 'attempts.jsonl');
 const TELEMETRY_PATH = path.join(__dirname, 'telemetry.jsonl');
@@ -37,7 +38,10 @@ const CANARY_PATH    = path.join(__dirname, 'canary.json');
 const PID_FILE       = path.join(__dirname, '.run-loop-pid');
 const STATUS_FILE    = path.join(__dirname, '.status.json');
 const FIX_SNAPSHOTS_DIR = path.join(__dirname, 'fix-snapshots');
+const ENQUEUE_HISTORY_PATH = path.join(__dirname, 'enqueue-history.jsonl');
 const RECOVERY_FILE    = path.join(__dirname, '.queue-recovery.json');
+const REJECTED_EDITS_DIR = path.join(__dirname, 'rejected-edits');   // saved patches + snapshots for the canary-failure review view
+const REJECTED_EDITS_LOG = path.join(__dirname, 'rejected-edits.jsonl');
 
 const ALLOWED_FILES = new Set([
   'asy-interp.js',
@@ -59,7 +63,7 @@ const WRITE_OK_UNCOMMITTED = new Set([
 const WRITE_OK_RE = /^comparison\/(page-\d+\.html|blink-manifest\.json|index\.html)$/;
 
 function parseArgs(argv) {
-  const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 0, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false, persistent: false, queueOnly: false };
+  const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 0, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false, persistent: false, queueOnly: false, refreshGroundTruth: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--max') out.max = parseInt(argv[++i], 10) || 1;
@@ -75,6 +79,7 @@ function parseArgs(argv) {
     else if (a === '--no-verifier') out.skipVerifier = true;
     else if (a === '--persistent') out.persistent = true;
     else if (a === '--queue-only') out.queueOnly = true;
+    else if (a === '--no-ground-truth-refresh') out.refreshGroundTruth = false;
     else if (a === '-h' || a === '--help') { usage(); process.exit(0); }
     else { console.error('unknown arg: ' + a); usage(); process.exit(2); }
   }
@@ -101,7 +106,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.error('usage: node auto-fix/run-loop.js [--max N] [--persistent] [--queue-only] [--dry-run] [--stop-on-fail] [--model ID] [--timeout-ms N] [--max-turns N] [--full-pipeline-every N] [--ids A,B,C | --ids-file path] [--verifier-model ID] [--no-verifier]');
+  console.error('usage: node auto-fix/run-loop.js [--max N] [--persistent] [--queue-only] [--dry-run] [--stop-on-fail] [--model ID] [--timeout-ms N] [--max-turns N] [--full-pipeline-every N] [--ids A,B,C | --ids-file path] [--verifier-model ID] [--no-verifier] [--no-ground-truth-refresh]');
 }
 
 function runFullPipeline() {
@@ -420,20 +425,25 @@ function runCanaryCheck() {
     timeout: 5 * 60 * 1000, windowsHide: true,
   });
   let summary = null;
+  const rows = [];   // per-id canary rows {id, ssim, pre, delta, baselineSource}
   for (const line of (r.stdout || '').split('\n')) {
-    try { const obj = JSON.parse(line); if (obj && obj.summary) { summary = obj.summary; break; } } catch {}
+    try {
+      const obj = JSON.parse(line);
+      if (obj && obj.summary) { summary = obj.summary; }
+      else if (obj && obj.id && obj.baselineSource === 'canary') { rows.push(obj); }
+    } catch {}
   }
   if (!summary) {
     const err = 'canary-score failed (exit=' + r.status + '): ' + (r.stderr || '').slice(0, 200);
     console.error('[run-loop] ' + err);
-    return { ok: false, worstDelta: null, worstId: null, error: err };
+    return { ok: false, worstDelta: null, worstId: null, error: err, rows };
   }
   const ok = summary.worstCanaryDelta >= -CANARY_THRESHOLD;
   if (!ok) {
     console.error('[run-loop] canary regression: worstDelta=' + summary.worstCanaryDelta +
                   ' id=' + summary.worstId + ' (threshold=' + CANARY_THRESHOLD + ')');
   }
-  return { ok, worstDelta: summary.worstCanaryDelta, worstId: summary.worstId };
+  return { ok, worstDelta: summary.worstCanaryDelta, worstId: summary.worstId, rows };
 }
 
 function commitAttemptLog() {
@@ -460,6 +470,162 @@ function saveAfterSnapshot(targetId, commitHash) {
   if (fs.existsSync(src)) {
     try { fs.copyFileSync(src, dst); } catch (e) { console.error('[run-loop] after-snapshot failed:', e.message); }
   }
+}
+
+// Capture the "before" render at iteration start, regardless of how the target
+// was selected (manual queue, auto-requeued canary regression, --ids list). The
+// fix-server only records a before-snapshot for diagrams enqueued through its
+// /enqueue endpoint, so without this run-loop-side capture the before column is
+// blank for every other target. We append an enqueue-history record (which the
+// fix-history generator matches by id+timestamp) and copy the current PNG to
+// {enqueueId}-before.png. Returns the enqueueId so the reject path can attach a
+// matching {enqueueId}-after.png for runs that never commit.
+function saveBeforeSnapshot(targetId, description) {
+  const id = String(targetId).padStart(5, '0');
+  const enqueueId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    fs.appendFileSync(ENQUEUE_HISTORY_PATH, JSON.stringify({
+      enqueueId, id, description: description || '', enqueuedAt: new Date().toISOString(),
+    }) + '\n');
+  } catch (e) { console.error('[run-loop] before-snapshot history append failed:', e.message); }
+  fs.mkdirSync(FIX_SNAPSHOTS_DIR, { recursive: true });
+  const src = path.join(ROOT, 'comparison', 'htx_pngs', id + '.png');
+  if (fs.existsSync(src)) {
+    try { fs.copyFileSync(src, path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png')); }
+    catch (e) { console.error('[run-loop] before-snapshot copy failed:', e.message); }
+  }
+  return enqueueId;
+}
+
+// Snapshot the current (rejected) render so fix-history can show "after" even
+// when the attempt was reverted and has no commit hash. Keyed by the iteration's
+// enqueueId so the generator can fall back to it when commitHash is null.
+function saveRejectSnapshot(targetId, enqueueId) {
+  if (!enqueueId) return;
+  fs.mkdirSync(FIX_SNAPSHOTS_DIR, { recursive: true });
+  const src = path.join(ROOT, 'comparison', 'htx_pngs', String(targetId).padStart(5, '0') + '.png');
+  if (fs.existsSync(src)) {
+    try { fs.copyFileSync(src, path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-after.png')); }
+    catch (e) { console.error('[run-loop] reject-snapshot failed:', e.message); }
+  }
+}
+
+// Persist a rejected edit (verifier reject or canary regression) for later
+// human review in the canary-failure review page. Captures, BEFORE the tree is
+// reset: (a) the patch diff baseCommit..headCommit, (b) the target's rejected
+// render, and (c) for canary regressions, the rejected render of every canary
+// that dropped past the threshold along with its baseline/new SSIM. MUST be
+// called while the edited commits and freshly-rendered htx_pngs are still on
+// disk (i.e. before resetHard). Returns the rejectId or null.
+function saveRejectedEdit(info) {
+  try {
+    fs.mkdirSync(REJECTED_EDITS_DIR, { recursive: true });
+    const rejectId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+    // (a) The edit itself, as a patch from the pre-iteration base to current HEAD.
+    let patchSaved = false;
+    if (info.baseCommit && info.headCommit && info.headCommit !== info.baseCommit) {
+      const diff = sh('git diff ' + info.baseCommit + ' ' + info.headCommit);
+      if (diff.code === 0 && diff.stdout) {
+        fs.writeFileSync(path.join(REJECTED_EDITS_DIR, rejectId + '.patch'), diff.stdout);
+        patchSaved = true;
+      }
+    }
+
+    // (b) The target's rejected render.
+    const copyHtx = (id, dstName) => {
+      const src = path.join(ROOT, 'comparison', 'htx_pngs', String(id).padStart(5, '0') + '.png');
+      if (fs.existsSync(src)) {
+        try { fs.copyFileSync(src, path.join(REJECTED_EDITS_DIR, dstName)); return true; } catch {}
+      }
+      return false;
+    };
+    copyHtx(info.targetId, rejectId + '-target-after.png');
+
+    // (c) Each regressed canary's rejected render.
+    const canaries = (info.regressedCanaries || []).map(c => {
+      const after = rejectId + '-canary-' + String(c.id).padStart(5, '0') + '-after.png';
+      const haveAfter = copyHtx(c.id, after);
+      return { id: c.id, baselineSsim: c.baselineSsim, newSsim: c.newSsim, delta: c.delta, afterSnapshot: haveAfter ? after : null };
+    });
+
+    const record = {
+      rejectId,
+      targetId: info.targetId,
+      description: info.description || '',
+      reason: info.reason,                 // 'verifier-reject' | 'canary-regression'
+      ts: new Date().toISOString(),
+      baseCommit: info.baseCommit,
+      headCommit: info.headCommit,
+      beforeSsim: info.beforeSsim != null ? info.beforeSsim : null,
+      afterSsim: info.afterSsim != null ? info.afterSsim : null,
+      verifierDefects: info.verifierDefects || [],
+      patchFile: patchSaved ? rejectId + '.patch' : null,
+      targetAfterSnapshot: rejectId + '-target-after.png',
+      targetBeforeEnqueueId: info.iterEnqueueId || null,  // {enqueueId}-before.png in fix-snapshots
+      regressedCanaries: canaries,
+    };
+    fs.appendFileSync(REJECTED_EDITS_LOG, JSON.stringify(record) + '\n');
+    console.log('[run-loop] saved rejected edit ' + rejectId + ' (' + info.reason +
+                ', patch=' + patchSaved + ', canaries=' + canaries.length + ')');
+    return rejectId;
+  } catch (e) {
+    console.error('[run-loop] saveRejectedEdit failed:', e.message);
+    return null;
+  }
+}
+
+// Synchronously re-render HiTeXeR + recompute SSIM for ONE id, then patch the
+// score back into ssim-results.json. Returns the fresh ssim (or null).
+function rescoreOne(id) {
+  const padId = String(id).padStart(5, '0');
+  const r = cp.spawnSync(process.execPath,
+    [path.join(ROOT, 'auto-fix', 'render-and-score.js'), '--ids', padId],
+    { cwd: ROOT, encoding: 'utf8', timeout: 4 * 60 * 1000, windowsHide: true });
+  let row = null;
+  for (const line of (r.stdout || '').split('\n')) {
+    const s = line.trim(); if (!s) continue;
+    try { const o = JSON.parse(s); if (o.summary) continue; if (o.id === padId) row = o; } catch {}
+  }
+  if (!row) { console.error('[run-loop] rescoreOne: no row for ' + padId); return null; }
+  const ssimPath = path.join(ROOT, 'comparison', 'ssim-results.json');
+  try {
+    const results = JSON.parse(fs.readFileSync(ssimPath, 'utf8'));
+    let rec = results.find(x => x.id === padId);
+    if (!rec) { rec = { id: padId, idx: parseInt(padId, 10) - 1 }; results.push(rec); }
+    if (row.ssim != null) {
+      rec.ssim = row.ssim; rec.sizeScore = row.sizeScore; rec.combined = row.combined; delete rec.error;
+    } else if (row.err) {
+      const hasTexer = fs.existsSync(path.join(ROOT, 'comparison', 'texer_pngs', padId + '.png'));
+      if (/no texer ref/i.test(row.err) || !hasTexer) rec.error = row.err;
+      else { rec.ssim = 0; rec.sizeScore = 0; rec.combined = 0; rec.error = row.err; }
+    }
+    results.sort((a, b) => (a.combined ?? 1) - (b.combined ?? 1));
+    fs.writeFileSync(ssimPath, JSON.stringify(results, null, 2));
+  } catch (e) { console.error('[run-loop] rescoreOne: ssim patch failed: ' + e.message); }
+  return row.ssim != null ? row.ssim : null;
+}
+
+// Per-cycle ground-truth failsafe (item 8). Before the sub-agent runs, force a
+// fresh TeXeR refetch (cache-busting) and a HiTeXeR re-render + re-score for the
+// target. This neutralizes three sources of false signal: a stale/wrong-cached
+// TeXeR reference, a HiTeXeR score that drifted since it was last computed, and
+// the caching bug that served the wrong reference for a block of IDs. Returns
+// the refreshed ssim (or null). Best-effort: a failed refetch keeps the old PNG.
+function refreshTargetGroundTruth(id) {
+  const padId = String(id).padStart(5, '0');
+  const texPng = path.join(ROOT, 'comparison', 'texer_pngs', padId + '.png');
+  const hadPng = fs.existsSync(texPng);
+  const fr = cp.spawnSync('python', [path.join(ROOT, 'comparison', 'refetch-single.py'), padId],
+    { cwd: ROOT, encoding: 'utf8', timeout: 120000, windowsHide: true });
+  let fo = {}; try { fo = JSON.parse((fr.stdout || '').trim() || '{}'); } catch {}
+  if (fo.ok) console.log('[run-loop] ground-truth: refreshed TeXeR ref for ' + padId);
+  else console.log('[run-loop] ground-truth: TeXeR refetch for ' + padId +
+                   ' not ok (' + String(fo.error || 'unknown').slice(0, 60) + ')' +
+                   (hadPng ? ' — keeping existing ref' : ' — no ref present'));
+  const ssim = rescoreOne(padId);
+  if (ssim != null) console.log('[run-loop] ground-truth: re-scored ' + padId + ' ssim=' + ssim.toFixed(4));
+  return ssim;
 }
 
 function verifyDiffOrRevert(preChanges) {
@@ -786,9 +952,9 @@ async function runIteration(args, iter) {
   writeStatus({ currentId: target.id, phase: 'agent', round: 1, roundMax: MAX_VERIFIER_ROUNDS, iterStartedAt: new Date().toISOString() });
 
   // ── Ensure TeXeR reference PNG is present ────────────────────────────────
-  // If the reference PNG is missing (e.g. after a machine reset that wiped
-  // comparison/texer_pngs/), fetch it now via AoPS TeXeR before the sub-agent
-  // runs. The sub-agent cannot do anything useful without the reference image.
+  // Fallback for when the ground-truth refresh is disabled or its refetch failed
+  // while no reference existed yet (e.g. after a machine reset that wiped
+  // comparison/texer_pngs/). The sub-agent cannot do anything without the ref.
   const texerPngPath = path.join(ROOT, 'comparison', 'texer_pngs', target.id + '.png');
   if (!fs.existsSync(texerPngPath)) {
     console.log('[run-loop] texer PNG missing for ' + target.id + ' — fetching from AoPS TeXeR...');
@@ -811,10 +977,29 @@ async function runIteration(args, iter) {
   // Pull any remotely-pushed commits (UI fixes, etc.) before locking in preCommit.
   syncToOrigin();
 
+  // ── Per-cycle ground-truth failsafe (item 8) ─────────────────────────────
+  // Force a fresh TeXeR refetch + HiTeXeR re-render + re-score for the target so
+  // neither a stale/wrong-cached reference nor a drifted HiTeXeR score can
+  // trigger a false reject. Run AFTER syncToOrigin so the `git reset --hard` it
+  // may perform doesn't discard the refreshed score written to the (tracked)
+  // ssim-results.json. The refreshed score is captured into beforeSsim for the
+  // regression guard, and the uncommitted ssim-results.json edit is allowed.
+  let beforeSsim = (typeof target.ssim === 'number') ? target.ssim : null;
+  if (args.refreshGroundTruth && !args.dryRun) {
+    writeStatus({ currentId: target.id, phase: 'ground-truth', round: 1, roundMax: MAX_VERIFIER_ROUNDS });
+    const fresh = refreshTargetGroundTruth(target.id);
+    if (fresh != null) { beforeSsim = fresh; target.ssim = fresh; }
+    writeStatus({ currentId: target.id, phase: 'agent', round: 1, roundMax: MAX_VERIFIER_ROUNDS, iterStartedAt: new Date().toISOString() });
+  }
+
   const preVersion = readVersion();
   const preCommit  = headCommitHash();
   const preChanges = gitTrackedChanges();
   console.log('[run-loop] pre version: ' + preVersion + ', pre HEAD: ' + preCommit + ', pre-dirty: ' + preChanges.length);
+
+  // Capture the "before" render now (covers queue / auto-requeue / --ids targets
+  // that the fix-server never snapshotted). enqueueId links a later reject-after.
+  const iterEnqueueId = args.dryRun ? null : saveBeforeSnapshot(target.id, userDescription);
 
   if (args.dryRun) {
     const prompt = renderPrompt(target, null, userDescription);
@@ -922,6 +1107,17 @@ async function runIteration(args, iter) {
     // skipped the check entirely).
     const canary = runCanaryCheck();
     if (!canary.ok) {
+      saveRejectSnapshot(target.id, iterEnqueueId);  // last rendered (rejected) state
+      // Save the rejected edit + every regressed canary's render for review,
+      // BEFORE resetHard wipes the commits and the freshly-rendered canary pngs.
+      const regressedCanaries = (canary.rows || [])
+        .filter(r => r.delta != null && r.delta < -CANARY_THRESHOLD)
+        .map(r => ({ id: r.id, baselineSsim: r.pre, newSsim: r.ssim, delta: r.delta }));
+      saveRejectedEdit({
+        targetId: target.id, description: userDescription, reason: 'canary-regression',
+        baseCommit: preCommit, headCommit: postCommit,
+        beforeSsim, afterSsim: postSsim, regressedCanaries, iterEnqueueId,
+      });
       resetHard(preCommit);
       const canaryNote = ' | CANARY-FAIL: worstDelta=' + canary.worstDelta + ' id=' + canary.worstId;
       if (last) {
@@ -955,10 +1151,21 @@ async function runIteration(args, iter) {
       return 'committed';
     }
 
-    // Acceptance: keep commit if SSIM is above floor OR verifier quality is good/minor.
-    // Only reject when BOTH the SSIM is low AND the verifier says the render is poor.
+    // Acceptance: keep commit if SSIM is above floor OR verifier quality is good/minor,
+    // UNLESS the edit regressed the target's own pre-fix SSIM. A "fix" that makes the
+    // match to TeXeR worse is the wrong direction even if the verifier rates the
+    // standalone render as good/minor (the 01286 class: a plausible-looking but
+    // mathematically wrong change). Such cases must not be rubber-stamped.
     const verifierGood = verdict.quality === 'good' || verdict.quality === 'minor';
-    const accept = ssimGood || verifierGood;
+    const regressed = (beforeSsim != null && postSsim != null &&
+                       postSsim < beforeSsim - SSIM_REGRESS_MARGIN);
+    const accept = !regressed && (ssimGood || verifierGood);
+
+    if (regressed) {
+      console.log('[run-loop] round ' + round + ' REGRESSED target SSIM: ' +
+                  beforeSsim.toFixed(4) + ' -> ' + postSsim.toFixed(4) +
+                  ' (margin ' + SSIM_REGRESS_MARGIN + '); not accepting on verifier alone');
+    }
 
     if (accept) {
       const why = [];
@@ -980,20 +1187,32 @@ async function runIteration(args, iter) {
       return 'committed';
     }
 
-    // Both checks failed.  Decide whether to retry or give up.
+    // Rejected (either both checks failed, or the edit regressed the target SSIM).
     const rejInfo = 'quality=' + (verdict.quality || '?') +
-                    ' SSIM=' + (postSsim != null ? postSsim.toFixed(4) : 'n/a');
+                    ' SSIM=' + (postSsim != null ? postSsim.toFixed(4) : 'n/a') +
+                    (regressed ? ' REGRESSED(from ' + beforeSsim.toFixed(4) + ')' : '');
     console.log('[run-loop] round ' + round + ' rejected (' + rejInfo + ')' +
                 ', defects: ' + JSON.stringify(verdict.defects));
 
     if (round < MAX_VERIFIER_ROUNDS) {
-      // Pass the verifier's defect list to the next Opus round.
-      verifierFeedback = verdict.defects || [];
+      // Pass the verifier's defect list to the next Opus round. If the only
+      // problem was a SSIM regression the verifier didn't flag, synthesize a
+      // defect so the next round knows the edit moved the wrong way.
+      verifierFeedback = (verdict.defects && verdict.defects.length) ? verdict.defects.slice() : [];
+      if (regressed) verifierFeedback.push(
+        'The edit LOWERED the match to the reference (SSIM ' + beforeSsim.toFixed(4) +
+        ' -> ' + postSsim.toFixed(4) + '). Re-examine: the change moved the render away from the target.');
       console.log('[run-loop] will retry with ' + verifierFeedback.length + ' defects as feedback');
       // Do NOT revert — keep current commits as the base for the next round.
     } else {
       // All rounds exhausted — revert everything back to the pre-iteration state.
       console.log('[run-loop] all ' + MAX_VERIFIER_ROUNDS + ' rounds exhausted, reverting to ' + preCommit);
+      saveRejectSnapshot(target.id, iterEnqueueId);  // last rendered (rejected) state
+      saveRejectedEdit({
+        targetId: target.id, description: userDescription, reason: 'verifier-reject',
+        baseCommit: preCommit, headCommit: headCommitHash(),
+        beforeSsim, afterSsim: postSsim, verifierDefects: (verdict.defects || []), iterEnqueueId,
+      });
       resetHard(preCommit);
       if (last) {
         rewriteAttemptLine(last.lineIndex, {
@@ -1093,6 +1312,9 @@ async function main() {
     // diagrams, not just target+canary+family slices.
     if (args.fullPipelineEvery > 0 && outcome === 'committed' && committed > 0 && committed % args.fullPipelineEvery === 0) {
       if (fs.existsSync(STOP_FILE)) { console.log('[run-loop] STOP file present, skipping full pipeline'); break; }
+      // Clear the stale 'rerendering' status so the comparator stops showing
+      // "Re-rendering 200 diagrams…" for the (much longer) full-pipeline pass.
+      writeStatus({ currentId: null, phase: 'full-pipeline', startedAt: new Date().toISOString() });
       const pipeResult = runFullPipeline();
       // Auto-requeue any canary regressions at the head of the queue
       if (pipeResult && pipeResult.ok && pipeResult.regressions && pipeResult.regressions.length > 0) {

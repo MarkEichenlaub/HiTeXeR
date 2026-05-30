@@ -1,0 +1,204 @@
+//------ DATA -----------------
+
+bool plotPoints = false;
+bool plotCurve = true; 
+
+real phase_shift = 0;  // Define phase shift (you can adjust this value)
+
+// Define the three curves
+real curve1(real t){
+    return sin(pi*t + phase_shift) + 0.6*sin(3*pi*t + 2*phase_shift);
+}
+
+real curve2(real t){
+    return sin(1.5*pi*t + phase_shift) - 0.8*sin(3*pi*t + 2*phase_shift);
+}
+
+real curveSum(real t){
+    return curve1(t) + curve2(t);
+}
+
+//-------ESSENTIAL OPTIONS------------
+
+string xAxisLabel = "Time, $10^{-4}\;\mathrm{s}$"; 
+string yAxisLabel = "Displacement, $10^{-8}\;\mathrm{m}$";
+
+real xmin = 0; 
+real xmax = 4;
+real ymin = -3;
+real ymax = 3;
+
+real xTickSpacing = 1; 
+real xSubtickSpacing = 0.25;
+real yTickSpacing = 1;
+real ySubtickSpacing = 0.25;
+
+//-------------ENTIRE IMAGE------------
+
+real xsize = 14; //in cm
+real ysize = 10; 
+
+//----------- LABEL OPTIONS ---------------
+
+real xlabel_loc = 1;
+real ylabel_loc = 0.5;
+
+real labelSize = 12; 
+
+//------------ AXES ----------
+
+bool equalAxisRatio = false;
+
+bool fourSides = true;
+
+bool xAxisRightArrow = false;
+bool xAxisLeftArrow = false;
+bool yAxisUpArrow = false;
+bool yAxisDownArrow = false;
+
+bool forcexAxisAtZero = false;
+bool forceyAxisAtZero = false;
+
+//-----------  TICK MARKS ----------------
+bool showTicks = true;
+
+bool ticksGoThroughAxes = false;
+
+real tickSize = 6;
+real subtickSize = 3;
+
+// -----------  NUMBERING ON AXES -----------
+
+bool axisNumbers = true;
+real numberSize = 12;
+
+bool controlDecimals = false;
+bool trailingZeros = true;
+int numDecimalPoints = 1; 
+
+//------------ GRID -------------------
+
+bool bigGrid = true;
+bool smallGrid = true;
+
+//------------ TITLE -----------
+
+string title = ""; 
+real titleSize = 16;
+
+//--------BELOW HERE YOU USUALLY DON'T NEED TO CHANGE ANYTHING------------------------
+
+size(xsize*72/2.54, ysize*72/2.54, IgnoreAspect);
+
+import graph; 
+
+arrowbar xarrow = None;
+if(xAxisRightArrow && xAxisLeftArrow){
+xarrow = Arrows;
+}
+else{
+\tif(xAxisRightArrow){
+\t\txarrow = EndArrow;
+        }
+    if(xAxisLeftArrow){
+\t\txarrow = BeginArrow;
+\t}
+}
+
+arrowbar yarrow = None;
+if(yAxisUpArrow && yAxisDownArrow){
+yarrow = Arrows;
+}
+else{
+\tif(yAxisUpArrow){
+\t\tyarrow = EndArrow;
+\t}
+    if(yAxisDownArrow){
+\t\tyarrow = BeginArrow;
+    }
+}
+
+Label xLabel = Label(s = xAxisLabel, position = xlabel_loc, p = fontsize(labelSize), filltype = Fill(p = white) );
+Label yLabel = Label(s = yAxisLabel, position = ylabel_loc, p = fontsize(labelSize),filltype = Fill(p = white) );
+
+axis xAxisType = Bottom;
+axis yAxisType = Left;
+if(fourSides){
+xAxisType = BottomTop;
+yAxisType = LeftRight;
+}
+if(forcexAxisAtZero){
+xAxisType = YZero;
+}
+if(forceyAxisAtZero){
+yAxisType = XZero;
+}
+
+Label tickFormat = Label(" ");
+
+string decimalString = "";
+if(controlDecimals){
+\tif(trailingZeros){
+\t\tdecimalString = "%#." + string(numDecimalPoints) + "f";
+        }
+    else{
+    \tdecimalString = "%." + string(numDecimalPoints) + "f";
+        }
+}
+
+if(axisNumbers){
+tickFormat = Label(decimalString, filltype = Fill(p = white), p = fontsize(numberSize) );
+}
+
+if(!showTicks){
+subtickSize = -1;
+tickSize = -1;
+}
+
+ticks xticks = LeftTicks(format = tickFormat, Step = xTickSpacing, step = xSubtickSpacing, size = subtickSize, Size = tickSize);
+ticks yticks = RightTicks(format = tickFormat, Step = yTickSpacing, step = ySubtickSpacing, size = subtickSize, Size = tickSize );
+
+if(ticksGoThroughAxes){
+xticks = Ticks(format = tickFormat, xTickSpacing, xSubtickSpacing, size = subtickSize, Size = tickSize);
+yticks = Ticks(format = tickFormat, yTickSpacing, ySubtickSpacing, size = subtickSize, Size = tickSize);
+}
+
+dot((xmin,ymin), black+0);
+dot((xmax,ymax),black+0);
+
+//----------------DO THE DRAWING----------------
+
+xaxis(xmin = xmin, xmax = xmax, L = xLabel, axis = xAxisType, arrow = xarrow, ticks = xticks);
+yaxis(ymin = ymin, ymax = ymax, L = yLabel, axis = yAxisType, arrow = yarrow, ticks = yticks);
+
+if(bigGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xTickSpacing, extend = true, gray) );
+yaxis(BottomTop, invisible, Ticks(Step = yTickSpacing, extend = true, gray) );
+}
+
+if(smallGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xSubtickSpacing, extend = true, lightgray) );
+yaxis(BottomTop, invisible, Ticks(Step = ySubtickSpacing, extend = true, lightgray) );
+}
+
+//label(title, (xmax/2 + xmin/2, ymax),N, fontsize(titleSize));
+
+// Draw the three curves with different colors
+draw(graph(curve1, xmin, xmax, n=500), blue+dashed+linewidth(1pt));
+draw(graph(curve2, xmin, xmax, n=500), red+dashed+linewidth(1pt));
+draw(graph(curveSum, xmin, xmax, n=500), heavygreen+linewidth(2pt));
+
+// Add legend
+real legendX = xmax - 2;
+real legendY = ymax - 0.5;
+real legendSpacing = 0.3;
+
+// Draw legend lines
+draw((legendX, legendY)--(legendX + 0.5, legendY), blue+linewidth(1.5pt));
+draw((legendX, legendY - legendSpacing)--(legendX + 0.5, legendY - legendSpacing), red+linewidth(1.5pt));
+draw((legendX, legendY - 2*legendSpacing)--(legendX + 0.5, legendY - 2*legendSpacing), heavygreen+linewidth(2pt));
+
+// Add legend labels
+label("Clarinet", (legendX + 0.6, legendY), E, fontsize(10));
+label("Flute", (legendX + 0.6, legendY - legendSpacing), E, fontsize(10));
+label("Result", (legendX + 0.6, legendY - 2*legendSpacing), E, fontsize(10));

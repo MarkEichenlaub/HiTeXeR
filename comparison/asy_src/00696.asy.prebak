@@ -1,0 +1,18 @@
+size(250);
+pathpen = black + linewidth(0.7);
+pointpen = black;
+pen s = fontsize(8);
+
+pair A = dir(110), B = dir(-10), C = dir(260);
+pair E = (A+C)/2, F = (A+B)/2, D = (C+B)/2;
+pair Y = foot(B,A,C), X = foot(A,C,B), Z = foot(C,A,B);
+pair H = orthocenter(A,B,C);
+pair K = midpoint(H--A), L = midpoint(H--B), M = midpoint(H--C);
+draw(MP("A",A,N,s)--MP("B",B,rotate(180)*W,s)--MP("C",C,SW,s)--cycle);
+draw(MP("E",E,W,s)--MP("F",F,NE,s)--MP("D",D,S,s)--cycle,gray);
+draw(circumcircle(E,F,D),heavygreen);
+draw(B--MP("Y",Y,W,s)^^A--MP("X",X,SE,s)^^C--MP("Z",Z,NE,s),lightred);
+draw(K--F--D--M--cycle);
+draw(rightanglemark(M,K,F,1.5)^^rightanglemark(K,F,D,1.5)^^rightanglemark(F,D,M,1.5)^^rightanglemark(D,M,K,1.5));
+draw(rightanglemark(A,Y,B,1.5)^^rightanglemark(C,Z,B,1.5)^^rightanglemark(A,X,C,1.5));
+MP("K",K,rotate(20)*NE,s);MP("M",M,rotate(15)*S,s);MP("L",L,NE,s);MP("H",H,N,s)

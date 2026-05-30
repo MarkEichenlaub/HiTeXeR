@@ -10,6 +10,7 @@ Usage:
     e.g. python comparison/refetch-single.py 00042
 """
 
+import os
 import sys
 import time
 import json
@@ -35,6 +36,10 @@ TEXER_URL = "https://artofproblemsolving.com/texer/"
 
 def setup_driver():
     options = webdriver.ChromeOptions()
+    # Headless by default so fetch windows don't steal focus. Set TEXER_HEADED=1
+    # to launch a visible window (e.g. to debug a fetch that misbehaves headless).
+    if os.environ.get("TEXER_HEADED") != "1":
+        options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1400,1000")
     options.add_argument("--disable-extensions")

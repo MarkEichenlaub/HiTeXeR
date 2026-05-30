@@ -1,0 +1,35 @@
+//TeXeR source: https://artofproblemsolving.com/texer/fmpolkzk
+
+unitsize(3cm);
+
+path blob = shift(-.55,-.45)*((0,.1)..(.3,0)..(.5,0)..(1,.2)..(.9,.7)..(.5,1)..(.1,.3)..cycle);
+pair F = .5*dir((1,2));
+
+real t = times(blob, .3)[0];
+pair intercept = point(blob,t);
+pair rot = intercept + F/4;
+
+picture blobforce(pair F, real x){
+\tpicture p;
+
+\tdraw(p,blob);
+
+\treal t = times(blob, x)[0];
+\tpair intercept = point(blob,t);
+\tdraw(p,shift(intercept)*shift(-F)*((0,0)--F), arrow = Arrow(6), red+linewidth(2pt));
+    dot(p,rot,black);
+    return p;
+}
+
+add(blobforce(F,.3) );
+label("(A)",(0,-1.3));
+
+real dx = 2;
+add(shift(dx,0)*blobforce(F,-.5) );
+label("(B)",(dx,-1.3));
+
+dx = 4;
+path line = -10*F -- 10*F;
+real x = intersectionpoint(blob,line).x;
+add(shift(dx,0)*blobforce(F,x) );
+label("(C)",(dx,-1.3));

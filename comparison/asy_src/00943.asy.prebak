@@ -1,0 +1,104 @@
+//TeXeR source: https://artofproblemsolving.com/texer/qslhpozp
+
+int inductor(pair start, pair end){
+
+path ind = (0,0)--(.2,0);
+
+for(int i = 0; i<4; ++i){
+ind = ind--arc((.275 + .15*i,0),.075,180,0);
+}
+
+ind = ind--(1,0);
+
+pair delta = end-start;
+real theta = angle(delta);
+real len = length(delta);
+
+draw(shift(start)*rotate(180/pi*theta)*scale(len)*ind);
+return 0;
+}
+
+int resistor(pair start, pair end){
+\tpath resist = start--start+(end-start)/3;
+ int zigs = 12;
+
+ real direction = angle(end-start);
+
+ pair zig_end = start + (end-start)/3;
+ pair zig_start = zig_end;
+
+ for (int i = 1; i <= zigs; ++i){
+ int pm = -1;
+ if(quotient(i,2) % 2 == 0){
+ \tpm = 1;
+ }
+ real zig_length = length(end-start)/18;
+ zig_end = zig_start + zig_length*(cos(direction+pm*pi/3),sin(direction+pm*pi/3));
+ resist = resist--zig_end;
+ zig_start = zig_end;
+ }
+ resist = resist--end;
+draw(resist);
+ return 0;
+}
+
+int battery(pair start, pair end){
+\tdraw(start--(start+(end-start)*2/5) );
+    draw((start+(end-start)*(3/5-1/20))--end);
+
+    draw(shift(start + (end - start)*2/5)*scale(.1)*rotate(90)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*2/5)*scale(.1)*rotate(-90)*((0,0)--(end-start)));
+
+    draw(shift(start + (end - start)*2/5)*scale(.1)*rotate(90)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*2/5)*scale(.1)*rotate(-90)*((0,0)--(end-start)));
+
+        draw(shift(start + (end - start)*9/20)*scale(.06)*rotate(90)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*9/20)*scale(.06)*rotate(-90)*((0,0)--(end-start)));
+
+    draw(shift(start + (end - start)*2.5/5)*scale(.1)*rotate(90)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*2.5/5)*scale(.1)*rotate(-90)*((0,0)--(end-start)));
+
+        draw(shift(start + (end - start)*2.75/5)*scale(.06)*rotate(90)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*2.75/5)*scale(.06)*rotate(-90)*((0,0)--(end-start)));
+
+    return 0;
+}
+
+int capacitor(pair start, pair end){
+\tdraw(start--(start+(end-start)*2/5) );
+    draw((start+(end-start)*3/5)--end);
+
+    draw(shift(start + (end - start)*2/5)*rotate(90)*scale(.2)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*2/5)*scale(.2)*rotate(-90)*((0,0)--(end-start)));
+
+    draw(shift(start + (end - start)*3/5)*scale(.2)*rotate(90)*((0,0)--(end-start)));
+    draw(shift(start + (end - start)*3/5)*scale(.2)*rotate(-90)*((0,0)--(end-start)));
+
+    return 0;
+}
+
+battery((0,1),(0,0));
+draw((0,1)--(0,2)--(2,2));
+resistor((1,2),(1,1));
+resistor((1,1),(1,0));
+resistor((2,2),(2,1));
+resistor((2,1),(2,0));
+draw((2,0)--(0,0));
+
+dot((1,1));
+dot((2,1));
+label("$A$",(1,1),W);
+label("$B$",(2,1),E);
+
+label("$R_1$",(0.95,1.5),W);
+label("$R_2$",(2.05,1.5),E);
+label("$R_v$",(0.95,.5),W);
+label("$R_x$",(2.05,.5),E);
+
+label("$V$",(-.05,.5),W);
+
+draw((1,1)--(1.3,1));
+draw(shift(1.5,1)*scale(.2)*unitcircle);
+draw((1.7,1)--(2,1));
+
+label("$A$",(1.5,1));

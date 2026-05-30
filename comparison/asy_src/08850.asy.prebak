@@ -1,0 +1,85 @@
+size(12cm);
+//variables I don't expect to change within a drawing
+real wall_dist = 7; // distance from light source to wall
+int n_lines = 9;
+real fov = 60; // field of view, i.e. the angle between the two furthest-apart light rays
+real radius = 0.4;
+
+//cosmetic variables
+pen light_pen = red+dashed;
+
+//variables calculated from the above
+pair light_loc = (0, 0);
+pair wall = light_loc + (0,wall_dist); //center of wall
+real wall_width = 2*wall_dist*Tan(fov/2*(1 + 1/n_lines)); // making the wall a bit wider than the last rays drawn to it
+
+
+pair hit_wall(real theta){
+\treturn (wall_dist/Tan(theta) , wall.y);
+}
+
+real theta(int line){
+\treal gaps = n_lines -1; //number of gaps between lines
+    real d_theta = fov / gaps; //angle between lines in degrees
+    real min_theta = 90 - fov/2; //angle of first line from the x-axis
+    return min_theta + line*d_theta; //angle of line through center of the ball
+}
+
+//the parameter is how many lines the ball will block; the rest is calculated from that.
+//the lines that hit the tangent of the sphere do not count as blocked
+picture make_scene(int lines_blocked, int center_line){
+\tpicture p;
+    
+    
+    //finding the center of the ball, given how many rays it's blocking, which ray its center is on, and its radius
+\treal fov_blocked = fov*(lines_blocked+1)/(n_lines-1);
+    real d = radius/Sin(fov_blocked/2); //distance from light to center of ball
+    pair center = d*dir(theta(center_line));
+        
+    //ball
+    path ball = shift(center)*scale(radius)*unitcircle;
+    path big_ball = shift(center)*scale(radius*1.001)*unitcircle; //makes sure tangents intersect
+    draw(p,ball);
+
+\t//light source
+\tdot(p,light_loc, red+8pt); //made light source slightly larger so it doesn't blend into all the lines coming in to it
+    label(p,"Light Source", light_loc, S);
+    
+    //wall
+    draw(p,(-wall_width/2,wall.y)--(wall_width/2,wall.y));
+    
+    //shadow
+    //first find left and right points where rays are tangent
+    int left_line = center_line + (int)((lines_blocked+1)/2); 
+    path left_path = light_loc--hit_wall(theta(left_line));
+    
+    int right_line = center_line - (int)((lines_blocked+1)/2);
+    path right_path = light_loc--hit_wall(theta(right_line));
+    
+    pair left_tangent = intersectionpoint(big_ball,left_path);
+    pair right_tangent = intersectionpoint(big_ball, right_path);
+    
+    fill(p, left_tangent--right_tangent--right_path--hit_wall(theta(left_line))--cycle, gray); //actual shadow
+    draw(p,shift(0,.2)*(hit_wall(theta(left_line))--hit_wall(theta(right_line))), arrow=Arrows(TeXHead));
+    label(p,"Shadow",(hit_wall(theta(center_line)).x,hit_wall(theta(center_line)).y+.2),N);
+for(int i = 0; i<n_lines; ++i){     
+        path ray = light_loc--hit_wall(theta(i));
+        
+        if(abs(i - center_line) <= (lines_blocked-1)/2){
+        \tpair intersection = intersectionpoint(ball, ray);
+            draw(p,light_loc--intersection, light_pen);
+        }
+        else{
+        \tdraw(p,ray, light_pen);
+        }
+    }
+
+    
+    filldraw(p,ball, white);
+    
+    return p;
+}
+
+add(make_scene(1,4));
+add(shift(0,-11)*make_scene(1,7));
+//add(shift(-hit_wall(theta(7)).x,-9)*make_scene(1,7));

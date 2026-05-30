@@ -1,0 +1,41 @@
+//TeXeR source: https://artofproblemsolving.com/texer/xijoulbl
+
+size(6cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real x = 1.5, m1 = 0.6, m2 = 0.4, box_h = 0.5;
+draw(spring((-x/2, 0), (x/2, 0), zigs=20));
+label("$k$", (0, 0), 1.5*dir(90));
+
+draw(box((-x/2 - m1, -box_h/2), (-x/2, box_h/2)));
+draw(box((x/2 + m2, -box_h/2), (x/2, box_h/2)));
+label("$m_1$", (-x/2 - m1/2, 0));
+label("$m_2$", (x/2 + m2/2, 0));
+
+// NEXT PIC
+real sh = 0.9;
+currentpicture = shift(0, sh)*currentpicture;
+// NEXT PIC
+
+real dx2 = 0.8, dx1 = m2/m1*dx2;
+
+draw(spring((-x/2 - dx1, 0), (x/2 + dx2, 0), zigs=20, width=x/(x + dx1 + dx2)));
+
+draw(box((-x/2 - dx1 - m1, -box_h/2), (-x/2 - dx1, box_h/2)));
+draw(box((x/2 + dx2 + m2, -box_h/2), (x/2 + dx2, box_h/2)));
+label("$m_1$", (-x/2 - dx1 - m1/2, 0));
+label("$m_2$", (x/2 + dx2 + m2/2, 0));
+
+real bar_h = -0.5;
+draw((x/2, bar_h)--(x/2, sh - box_h/2), gray(0.7)+dashed);
+draw("$x$", (x/2, bar_h)--(x/2 + dx2, bar_h), Bars(5));
+draw((-x/2, bar_h)--(-x/2, sh - box_h/2), gray(0.7)+dashed);
+draw("$\frac{m_{2_{}}}{m_1}x$", (-x/2 - dx1, bar_h)--(-x/2, bar_h), Bars(5));

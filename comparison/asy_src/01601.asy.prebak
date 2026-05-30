@@ -1,0 +1,27 @@
+size(170, 90);
+pair A = (1,3), B = (0,0), C = (5,0);
+real a = abs(B-C), b = abs(C-A), c = abs(A-B);
+pair I = a/(a+b+c)*A + b/(a+b+c)*B + c/(a+b+c)*C;
+pair X = .5(I + reflect(B,C)*I);
+pair Y = .5(I + reflect(C,A)*I);
+pair Z = .5(I + reflect(A,B)*I);
+draw(A--B--C--cycle);
+draw(circle(I, abs(I-X)));
+draw(X--I--Y);
+draw(I--Z);
+draw(A--I--B);
+draw(C--I);
+draw(rightanglemark(I, X, C));
+draw(rightanglemark(I, Y, A));
+draw(rightanglemark(I, Z, B));
+label("$x$", (A+Y)/2, NE);
+label("$x$", (A+Z)/2, NW);
+label("$y$", (B+X)/2, S);
+label("$y$", (B+Z)/2, NW);
+label("$z$", (C+X)/2, S);
+label("$z$", (C+Y)/2, NE);
+label("$A$", A, N);
+label("$B$", B, S);
+label("$C$", C, S);
+label("$I$", I, ENE);
+label("$r$", (I+X)/2, 0.8*E)

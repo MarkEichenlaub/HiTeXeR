@@ -1,0 +1,65 @@
+//TeXeR source: https://artofproblemsolving.com/texer/xmlabiri
+size(20cm);
+
+// ---------- reusable scene ----------
+picture makePanel(string sheetLabel, real p, int seed){
+  picture pic;
+  real t=0.2, h=0.6, w=1;
+  real ystart=1.0;
+  int num_rays=30;
+  real xmin=-0.2, xmax=w+t+0.2;
+  real ray_spacing=(xmax-xmin)/(num_rays-1);
+
+  pen edge=linewidth(0.8pt);
+  pen ground=linewidth(2pt);
+  pen sheetpen=linewidth(.3pt);
+  pen raypen1=linewidth(1pt)+orange;
+  real thickness = p;
+  pen raypen2=linewidth(thickness*1pt)+orange;
+
+  srand(seed);
+
+  // towers
+  draw(pic,box((0,0),(t,h)),edge);
+  draw(pic,box((w,0),(w+t,h)),edge);
+
+  // ground
+  draw(pic,(-.3,0)--(w+t+.3,0),ground);
+
+  // sheet
+  draw(pic,(t,h)--(w,h),sheetpen);
+
+  // rays
+  void drawRay(real x){
+    if(x>=0 && x<=t){ draw(pic,(x,ystart)--(x,h),raypen1); return; }
+    if(x>=w && x<=w+t){ draw(pic,(x,ystart)--(x,h),raypen1); return; }
+    if(x>=t && x<=w){
+      draw(pic,(x,ystart)--(x,h),raypen1);
+      if(p > 0){
+      \tdraw(pic,(x,h)--(x,0),raypen2);}
+    } else {
+      draw(pic,(x,ystart)--(x,0),raypen1);
+    }
+  }
+
+  for(int i=0;i<num_rays;++i){
+    real x=xmin+i*ray_spacing;
+    drawRay(x);
+  }
+
+  label(pic, sheetLabel, (w/2 + t/2, 0), S, fontsize(18pt));
+  return pic;
+}
+
+// ---------- build panels ----------
+picture P1 = makePanel("Plastic Wrap", 1.0, 42);
+picture P2 = makePanel("Tracing Paper", 0.6, 43);
+picture P3 = makePanel("Paper Towel", 0.3, 44);
+picture P4 = makePanel("Aluminum Foil", 0.0, 45);
+
+// ---------- lay out side by side ----------
+real dx = 2.0;
+add(shift((0*dx,0))*P1);
+add(shift((1*dx,0))*P2);
+add(shift((2*dx,0))*P3);
+add(shift((3*dx,0))*P4);

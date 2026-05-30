@@ -1,0 +1,20 @@
+//TeXeR source: https://artofproblemsolving.com/texer/dlnhvvci
+
+import trembling;
+import roundedpath;
+size(6cm);
+defaultpen(fontsize(10pt));
+
+tremble tr = tremble(frequency=1, angle=20);
+
+path p = tr.deform(roundedpath((0, 0)--(1, 1)--(2, 0), 0.4));
+real max_t = 0.54;
+draw(p);
+
+path new_p = nullpath;
+for(real t = 0.15; t < 0.85; t += 0.01){
+\treal dt = 0.01;
+\tpair vel = 0.028*dir(relpoint(p, t + dt) - relpoint(p, t));
+\tnew_p = new_p--(relpoint(p, t) + rotate(90)*vel);
+}
+draw(new_p, linewidth(4));

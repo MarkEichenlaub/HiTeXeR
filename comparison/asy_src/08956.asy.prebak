@@ -1,0 +1,50 @@
+//TeXeR source: https://artofproblemsolving.com/texer/lifeguard13
+real scale = 0.002;
+unitsize(scale*cm); //1 point is 1 cm
+
+real R = 2500;
+
+//lifeguard
+pair dim_lifeguard = (256,500); //pixels
+real r = dim_lifeguard.x/dim_lifeguard.y;
+real true_height = 160; //of object in image, in cm
+real h = true_height*scale; //height of image in drawing
+real true_width = true_height*r;
+
+string height = "height="+string(h)+"cm";
+string lifeguard = graphic("/var/www/cdn/school/crypt/00540-e12599cedadfdc40445dca22ddd227e6417975d2/files/lifeguard.eps", height);
+label(lifeguard, (0,R+true_height/2));
+layer(); //allows drawing on top
+
+pair eye = (0,R + 0.87*true_height);
+
+//arc of earth
+draw(arc((0,0),R,90,-270),linewidth(1pt));
+
+//angle between lifeguard, center of earth, and horizon
+real theta = degrees(acos(R/(R+true_height)));
+
+pair T = dir(90-theta)*R;
+
+int n = 5;
+
+for (int i = 1; i <= n; ++i) {
+  real th = 1/3 * theta * i;
+  pair P = rotate(-th) * (0, R);
+  //dot(P);
+  string letter = format("(%c)", 96 + i);
+  //label(letter, 0.98 * P);
+  if(i==3){
+  \tdraw((0,R+.87*true_height)--P, dashed+red);}
+}
+
+draw((-30,0)--(-30,R+0.87*true_height),dotted);
+label(rotate(90)*"$6{,}378,138.6 \;\mathrm{m}$",(0,R/2),W);
+
+label("$d$",(eye+T)/2,NE,red);
+
+draw((0,0)--T, dotted);
+label(rotate(90-theta)*"$6{,}378{,}137 \;\mathrm{m}$",T/2,SE);
+
+markscalefactor = 20;
+draw(rightanglemark((0,0),T,eye));

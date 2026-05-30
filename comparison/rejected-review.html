@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HiTeXeR — Rejected Edits Review</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0f1117; color: #e0e0e0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  header { position: sticky; top: 0; z-index: 10; background: #141a2e; border-bottom: 1px solid #2a3550; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { opacity: 0.6; font-size: 12px; }
+  header a { color: #93c5fd; text-decoration: none; margin-left: auto; }
+  header a:hover { text-decoration: underline; }
+  #list { padding: 20px; display: flex; flex-direction: column; gap: 22px; max-width: 1200px; margin: 0 auto; }
+  .empty { opacity: 0.6; padding: 40px; text-align: center; }
+  .card { background: #161b2e; border: 1px solid #2a3550; border-radius: 8px; overflow: hidden; }
+  .card.canary { border-color: #7a4a1a; }
+  .card-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #1a2138; border-bottom: 1px solid #2a3550; flex-wrap: wrap; }
+  .card-head .id { font-size: 15px; font-weight: 700; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .tag.verifier { background: #3a2a1a; color: #fbbf24; border: 1px solid #7a5a2a; }
+  .tag.canary { background: #3a1a1a; color: #fca5a5; border: 1px solid #7a2a2a; }
+  .ssim { font-size: 12px; opacity: 0.85; }
+  .ssim .down { color: #f87171; }
+  .ssim .up { color: #4ade80; }
+  .when { margin-left: auto; opacity: 0.5; font-size: 11px; }
+  .desc { padding: 8px 16px; font-size: 12px; opacity: 0.85; border-bottom: 1px solid #2a3550; }
+  .defects { padding: 8px 16px; font-size: 12px; border-bottom: 1px solid #2a3550; }
+  .defects ul { margin: 4px 0 0; padding-left: 18px; }
+  .defects li { color: #fca5a5; margin: 2px 0; }
+  .section-label { padding: 10px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.55; }
+  .grid { display: flex; gap: 8px; padding: 4px 16px 12px; flex-wrap: wrap; }
+  .shot { display: flex; flex-direction: column; align-items: center; width: 200px; }
+  .shot .frame { width: 200px; height: 200px; background: #fff; border: 1px solid #2a3550; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .shot .frame img { max-width: 100%; max-height: 100%; }
+  .shot .frame .missing { color: #888; font-size: 11px; background: #1a2138; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .shot .lbl { font-size: 11px; margin-top: 4px; opacity: 0.7; }
+  .canary-row { border-top: 1px dashed #2a3550; }
+  .canary-row .section-label { display: flex; gap: 10px; align-items: baseline; }
+  .actions { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #2a3550; align-items: center; }
+  button { font-family: inherit; font-size: 12px; padding: 6px 12px; border-radius: 5px; border: 1px solid #2a3550; background: #1a2138; color: #e0e0e0; cursor: pointer; }
+  button:hover { border-color: #4b5878; }
+  button.accept { background: #14532d; border-color: #22c55e; color: #bbf7d0; }
+  button.accept:hover { background: #166534; }
+  button.dismiss { background: #2a1a1a; border-color: #7a3a3a; color: #fca5a5; }
+  a.patch { color: #93c5fd; text-decoration: none; font-size: 12px; }
+  a.patch:hover { text-decoration: underline; }
+  .msg { font-size: 12px; margin-left: auto; opacity: 0.85; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rejected Edits Review</h1>
+  <span class="sub" id="count"></span>
+  <a href="blink.html">&larr; Back to comparator</a>
+</header>
+<div id="list"><div class="empty">Loading…</div></div>
+
+<script>
+const SERVER = location.origin;
+function pad(id) { return String(id).padStart(5, '0'); }
+const bust = () => '?t=' + Date.now();
+
+function frame(src, missingText) {
+  if (!src) return `<div class="frame"><div class="missing">${missingText || 'n/a'}</div></div>`;
+  return `<div class="frame"><img src="${src}" loading="lazy" onerror="this.parentNode.innerHTML='<div class=\\'missing\\'>missing</div>'"></div>`;
+}
+function shot(src, label, missingText) {
+  return `<div class="shot">${frame(src, missingText)}<div class="lbl">${label}</div></div>`;
+}
+
+function targetGrid(r) {
+  const id = pad(r.targetId);
+  const texer   = `texer_pngs/${id}.png`;
+  const before  = r.targetBeforeExists ? `/${r.targetBeforeFile}` : null;
+  const after   = r.targetAfterExists ? `/auto-fix/rejected-edits/${r.targetAfterSnapshot}` : null;
+  const current = `htx_pngs/${id}.png` + bust();
+  return `<div class="grid">
+    ${shot(texer, 'TeXeR (reference)')}
+    ${shot(before, 'HiTeXeR before')}
+    ${shot(after, 'Rejected edit', 'not captured')}
+    ${shot(current, 'HiTeXeR now (reverted)')}
+  </div>`;
+}
+
+function canaryRow(r, c) {
+  const id = pad(c.id);
+  const texer = `texer_pngs/${id}.png`;
+  const after = c.afterSnapshot ? `/auto-fix/rejected-edits/${c.afterSnapshot}` : null;
+  const current = `htx_pngs/${id}.png` + bust();
+  const d = (c.delta != null) ? c.delta.toFixed(4) : '?';
+  const base = (c.baselineSsim != null) ? c.baselineSsim.toFixed(4) : '?';
+  const now  = (c.newSsim != null) ? c.newSsim.toFixed(4) : '?';
+  return `<div class="canary-row">
+    <div class="section-label">
+      <span>Regressed canary ${id}</span>
+      <span class="ssim">baseline ${base} &rarr; <span class="down">${now}</span> (&Delta; ${d})</span>
+    </div>
+    <div class="grid">
+      ${shot(texer, 'TeXeR (reference)')}
+      ${shot(current, 'Baseline (reverted)')}
+      ${shot(after, 'Under rejected edit', 'not captured')}
+    </div>
+  </div>`;
+}
+
+function ssimLine(r) {
+  if (r.beforeSsim == null && r.afterSsim == null) return '';
+  const b = r.beforeSsim != null ? r.beforeSsim.toFixed(4) : '?';
+  const a = r.afterSsim != null ? r.afterSsim.toFixed(4) : '?';
+  const worse = (r.beforeSsim != null && r.afterSsim != null && r.afterSsim < r.beforeSsim);
+  const cls = worse ? 'down' : 'up';
+  return `<span class="ssim">SSIM ${b} &rarr; <span class="${cls}">${a}</span></span>`;
+}
+
+function card(r) {
+  const reasonTag = r.reason === 'canary-regression'
+    ? '<span class="tag canary">canary regression</span>'
+    : '<span class="tag verifier">verifier reject</span>';
+  const when = new Date(r.ts).toLocaleString();
+  const defects = (r.verifierDefects && r.verifierDefects.length)
+    ? `<div class="defects">Verifier defects:<ul>${r.verifierDefects.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul></div>` : '';
+  const desc = r.description ? `<div class="desc">Note: ${escapeHtml(r.description)}</div>` : '';
+  const canaries = (r.regressedCanaries || []).map(c => canaryRow(r, c)).join('');
+  const patchLink = r.patchExists
+    ? `<a class="patch" href="/auto-fix/rejected-edits/${r.patchFile}" target="_blank">View patch (.diff)</a>`
+    : '<span class="msg">no patch saved</span>';
+  return `<div class="card ${r.reason === 'canary-regression' ? 'canary' : ''}" data-reject="${r.rejectId}">
+    <div class="card-head">
+      <span class="id">${pad(r.targetId)}</span>
+      ${reasonTag}
+      ${ssimLine(r)}
+      <span class="when">${when}</span>
+    </div>
+    ${desc}
+    ${defects}
+    <div class="section-label">Target diagram</div>
+    ${targetGrid(r)}
+    ${canaries}
+    <div class="actions">
+      <button class="accept" data-reject="${r.rejectId}">Accept (re-apply patch)</button>
+      <button class="dismiss" data-reject="${r.rejectId}">Dismiss</button>
+      ${patchLink}
+      <span class="msg" id="msg-${r.rejectId}"></span>
+    </div>
+  </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function load() {
+  const listEl = document.getElementById('list');
+  let records;
+  try {
+    const r = await fetch('/rejected-edits');
+    records = await r.json();
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty">Could not reach fix-server. Start it with <code>node fix-server.js</code>.</div>`;
+    return;
+  }
+  document.getElementById('count').textContent = records.length + ' rejected edit(s)';
+  if (!records.length) { listEl.innerHTML = '<div class="empty">No rejected edits recorded. They appear here when the auto-fix loop reverts a change.</div>'; return; }
+  listEl.innerHTML = records.map(card).join('');
+
+  listEl.querySelectorAll('button.accept').forEach(b => b.addEventListener('click', () => accept(b.dataset.reject, b)));
+  listEl.querySelectorAll('button.dismiss').forEach(b => b.addEventListener('click', () => dismiss(b.dataset.reject, b)));
+}
+
+async function accept(rejectId, btn) {
+  const msg = document.getElementById('msg-' + rejectId);
+  btn.disabled = true; msg.textContent = 'Applying…';
+  try {
+    const r = await fetch('/accept-rejected', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rejectId })
+    });
+    const res = await r.json();
+    msg.textContent = res.ok ? res.message : ('Error: ' + res.error);
+  } catch (e) {
+    msg.textContent = 'Server not running';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function dismiss(rejectId, btn) {
+  if (!confirm('Dismiss this rejected edit from the list?')) return;
+  try {
+    const r = await fetch('/dismiss-rejected', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rejectId })
+    });
+    const res = await r.json();
+    if (res.ok) {
+      const card = btn.closest('.card');
+      if (card) card.remove();
+    }
+  } catch (e) {}
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+//TeXeR source: https://artofproblemsolving.com/texer/tnrggewd
+
+unitsize(.5cm);
+
+//plano-convex lens
+
+real R = 10; //radius of curvature
+real t = 1; // thickness at thickest part
+real x = R-t; //distance from center of curvature to flat side of lens
+
+real n = 2; //index of refraction
+
+real f = R/(n-1); //lensmaker's equation
+
+real i = 1.5*f;
+real o = i*f/(i-f);
+
+real h = sqrt(R^2 - (R-t)^2); //half the height
+
+real theta = atan(h/(R-t)); //half angle subtended by lens, from center of curvature
+real theta_deg = theta * 180/pi;
+
+draw(arc((0,0),R,180-theta_deg, 180 + theta_deg) );
+draw((-x,-h)--(-x,h));
+
+int n_lines = 6;
+
+real dy = 2*h/(n_lines-1);
+
+for (int j = 0; j<n_lines; ++j){
+\treal y = h-j*dy;
+\tdraw((-x-i,0)--(-sqrt(R^2 - y^2),y)--(-x,y)--(-x+o,0), deepgreen);
+}
+
+dot((-x-f,0));
+label("$f$",(-x-f,0),S);
+dot((-x-i,0));
+label("$i$",(-x-i,0),S);
+dot((-x+o,0));
+label("$o$",(-x+o,0),S);

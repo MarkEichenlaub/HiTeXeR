@@ -1,0 +1,26 @@
+//TeXeR source: https://artofproblemsolving.com/texer/omdzqrex
+
+import trembling;
+size(3cm);
+
+tremble tr = tremble(angle=10, frequency=0.5);
+
+real cup_w = 2, cup_h = 2.5;
+path cup = shift(-cup_w/2, 0)*((0, cup_h)--(0, 0)--(cup_w, 0)--(cup_w, cup_h));
+draw(cup);
+
+real water_h = 2;
+draw(tr.deform((-cup_w/2, water_h)--(cup_w/2, water_h)));
+
+real s = 0.9;
+transform t = shift(0, water_h/2)*scale(s)*shift(-1/2, -1/2);
+
+draw(t*unitsquare);
+
+int n = 3;
+for(real j = 0.5; j < n; ++j){
+\tdraw(t*shift(1/2, 1/2)*((-1/2 + j/n, -1/2 - 0.45)--(-1/2 + j/n, -1/2 - 0.1)), Arrow(TeXHead));
+\tdraw(t*shift(1/2, 1/2)*rotate(90)*((-1/2 + j/n, -1/2 - 0.45 + 0.1*j/n)--(-1/2 + j/n, -1/2 - 0.1)), Arrow(TeXHead));
+\tdraw(t*shift(1/2, 1/2)*rotate(180)*((-1/2 + j/n, -1/2 - 0.35)--(-1/2 + j/n, -1/2 - 0.1)), Arrow(TeXHead));
+\tdraw(t*shift(1/2, 1/2)*rotate(270)*((-1/2 + j/n, -1/2 - 0.35 - 0.1*j/n)--(-1/2 + j/n, -1/2 - 0.1)), Arrow(TeXHead));
+}

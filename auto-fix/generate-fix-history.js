@@ -58,7 +58,15 @@ function generate() {
     const enqueueId = eq ? eq.enqueueId : null;
     const beforeFile = enqueueId ? path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png') : null;
     const commitHash = attempt.commit || null;
-    const afterFile  = commitHash ? path.join(FIX_SNAPSHOTS_DIR, commitHash + '-after.png') : null;
+    // "after" is keyed by commit hash for committed attempts; for reverted
+    // (rejected/canary-fail) attempts run-loop saves {enqueueId}-after.png with
+    // the last rendered (rejected) state, so fall back to that.
+    let afterName = commitHash ? commitHash + '-after.png' : null;
+    if ((!afterName || !fs.existsSync(path.join(FIX_SNAPSHOTS_DIR, afterName))) && enqueueId) {
+      const rej = enqueueId + '-after.png';
+      if (fs.existsSync(path.join(FIX_SNAPSHOTS_DIR, rej))) afterName = rej;
+    }
+    const hasAfter = afterName ? fs.existsSync(path.join(FIX_SNAPSHOTS_DIR, afterName)) : false;
     return {
       id,
       ts:                attempt.ts,
@@ -66,7 +74,8 @@ function generate() {
       enqueueId,
       description:       eq ? (eq.description || '') : '',
       hasBeforeSnapshot: beforeFile ? fs.existsSync(beforeFile) : false,
-      hasAfterSnapshot:  afterFile  ? fs.existsSync(afterFile)  : false,
+      hasAfterSnapshot:  hasAfter,
+      afterSnapshotFile: hasAfter ? afterName : null,
       commitHash,
       queued:            false,
       isProcessing:      id === processingId,
@@ -304,8 +313,8 @@ function thumbUrl(item, kind){
   if(kind==='ref')     return 'texer_pngs/'+pid+'.png';
   if(kind==='before')  return (item.hasBeforeSnapshot && item.enqueueId)
     ? '../auto-fix/fix-snapshots/'+item.enqueueId+'-before.png' : null;
-  if(kind==='after')   return (item.hasAfterSnapshot && item.commitHash)
-    ? '../auto-fix/fix-snapshots/'+item.commitHash+'-after.png' : null;
+  if(kind==='after')   return (item.hasAfterSnapshot && item.afterSnapshotFile)
+    ? '../auto-fix/fix-snapshots/'+item.afterSnapshotFile : null;
   if(kind==='current') return 'htx_pngs/'+pid+'.png';
   return null;
 }

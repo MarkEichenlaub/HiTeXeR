@@ -1,0 +1,224 @@
+//TeXeR source: https://artofproblemsolving.com/texer/paaneexa
+
+//this is a template for creating blank axes
+//change the variables below to suit your needs, then click "RENDER AS IMAGE" above. right click and download the image
+
+//------ DATA -----------------
+
+bool plotPoints = true;
+bool plotCurve = false;
+
+real[] xdata = {0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,1.1,1.2,1.4,1.5,1.6,1.7,1.8,1.9,2.1,2.2,2.3,2.4,2.5,2.7,2.8,2.9,3,3.1,3.2,3.5,3.6,3.7,3.9,4,4.1,4.2,4.3,4.4,4.5,4.6,4.8,4.9,5.4,5.5,5.6,5.7,5.8,5.9,6.1,6.2,6.4,7.2,7.3,7.4,7.5,7.6,7.8,7.9,8,8.1,8.2,8.4,8.5,8.6,8.7,8.8,8.9,9.1,9.2,9.3,9.4,9.5,9.6,9.7,9.8,9.9,10,10.1,10.2,10.3,10.4,10.6,10.7,10.8,10.9,11,11.2,11.3,11.4,11.5,12,11.83917879,12.16766467,12.29084688,12.50983747,12.72882806,13.15312233,13.34473909,13.42686056,13.52266895,13.72797263,13.97433704,14.07014542,14.16595381,14.31650984,14.41231822,14.60393499,14.9597947,15.01454234,15.13772455,15.17878529,15.31565441,15.534645,15.67151411,15.86313088,16.16424294,16.50641574};
+
+real x_transform(real x){ 
+return x; //change to, e.g. "return x^2;" to plot x^2 on the horizontal axis. 
+}
+
+real[] ydata ={15.2238663,15.96731957,17.08249947,17.91888439,20.1492442,22.75133064,24.70289547,24.05237386,23.9594422,23.21598893,22.47253566,22.65839898,21.2644241,19.49872259,19.31285927,19.0340643,17.26836278,17.73302108,17.82595274,16.89663615,16.43197786,16.52490952,14.94507132,15.03800298,12.5288482,12.5288482,11.13487332,10.48435171,10.2984884,9.926761763,7.696401959,7.231743666,6.952948691,4.815520545,4.722588887,3.049819033,2.771024058,2.492229082,1.655844156,0.4477325953,0.4477325953,-2.061422184,-1.968490526,-7.172663402,-7.079731744,-8.194911646,-8.194911646,-8.845433255,-8.752501597,-10.05354482,-10.61113477,-12.28390462,-18.78912072,-19.25377901,-20.27602725,-21.01948052,-21.57707047,-23.34277198,-23.90036193,-24.82967852,-26.03779008,-26.59538003,-28.73280818,-29.29039813,-30.03385139,-30.96316798,-31.89248456,-31.89248456,-33.75111773,-34.494571,-34.9592293,-36.26027251,-36.26027251,-37.84011071,-38.67649564,-39.51288056,-40.07047051,-41.83617202,-41.83617202,-42.95135193,-44.25239515,-44.15946349,-47.0403449,-47.31913988,-48.06259314,-48.80604641,-49.36363636,-52.15158612,-52.33744944,-53.17383436,-53.545561,-54.38194592,-55.16951577,-55.1664867,-55.75551473,-57.67152814,-59.44000056,-62.68198965,-63.12284564,-62.38438346,-61.94087703,-62.67668878,-64.29736779,-64.4440253,-63.41035493,-63.85158956,-64.44087002,-65.91451289,-66.50139534,-66.94351344,-66.05713164,-67.08953989,-67.53090073,-67.0862584,-65.90466841,-66.93568834,-68.26078055,-69.7330351};
+real y_transform(real y){
+return y;
+}
+
+//define what curve to draw
+real curve(real x){
+return x^2;  //change to the equation for your curve
+}
+
+//style of graph line
+pen graphpen = deepred+linewidth(1.0 pt);
+
+//style of dots
+dotfactor = 10; //size
+pen dotpen = blue; 
+filltype dotfill = Fill; //can change to "NoFill" for hollow dots
+
+//-------ESSENTIAL OPTIONS------------
+
+string xAxisLabel = "$\mathrm{Altitude} \quad (\mathrm{km})$"; //for no label, delete the stuff between the quotes
+string yAxisLabel = "$\mathrm{Temperature} \quad ({}^\circ \mathrm{C})$";
+
+real xmin = 0; 
+real xmax = 16;
+real ymin = -70;
+real ymax = 30;
+
+real xTickSpacing = 2; 
+real xSubtickSpacing = .5; //set to xTickSpacing if you don't want little ticks
+real yTickSpacing = 10;
+real ySubtickSpacing = 5;
+
+//-------------ENTIRE IMAGE------------
+
+real xsize = 15; //in cm
+real ysize = 12;
+
+//next line only used if you also set "equalAxisRatio" to "true" in the "AXES" section
+real overallSize = 30;
+
+//----------- LABEL OPTIONS ---------------
+
+real xlabel_loc = 1; //what fraction down the axis you want the label
+real ylabel_loc = 1;
+
+real labelSize = 12;
+
+//------------ AXES ----------
+
+bool equalAxisRatio = false; //when true, 1 unit is same size on both axes. overwrites ysize
+
+bool fourSides = true; //if true, draw axes on the right and top as well as left and bottom
+
+bool xAxisRightArrow = false; //puts arrows at the end of the axes
+bool xAxisLeftArrow = false;
+bool yAxisUpArrow = false;
+bool yAxisDownArrow = false;
+
+bool forcexAxisAtZero = false; //x axis at y = 0, even if y extends negative
+bool forceyAxisAtZero = false;
+
+//-----------  TICK MARKS ----------------
+bool showTicks = true;
+
+bool ticksGoThroughAxes = false;
+
+real tickSize = 6;
+real subtickSize = 3;
+
+// -----------  NUMBERING ON AXES -----------
+
+bool axisNumbers = true;
+real numberSize = 12;
+
+bool controlDecimals = false; //next two don't do anything unless this is "true"
+bool trailingZeros = true;
+int numDecimalPoints = 1;
+
+//------------ GRID -------------------
+
+//to adjust the grid spacing, change the tick spacing
+
+bool bigGrid = true; //gridlines for the labeled tick marks
+bool smallGrid = true; //gridlines for the smaller subticks
+
+//------------ TITLE -----------
+
+string title = ""; 
+real titleSize = 20;
+
+//--------BELOW HERE YOU USUALLY DON'T NEED TO CHANGE ANYTHING------------------------
+
+//for documentation, see https://asymptote.sourceforge.io/doc/graph.html
+
+if(equalAxisRatio){
+unitsize(overallSize);
+}
+else{
+size(xsize*72/2.54, ysize*72/2.54, IgnoreAspect);
+}
+
+import graph;
+
+arrowbar xarrow = None;
+if(xAxisRightArrow && xAxisLeftArrow){
+xarrow = Arrows;
+}
+else{
+\tif(xAxisRightArrow){
+\t\txarrow = EndArrow;
+        }
+    if(xAxisLeftArrow){
+\t\txarrow = BeginArrow;
+\t}
+}
+
+arrowbar yarrow = None;
+if(yAxisUpArrow && yAxisDownArrow){
+yarrow = Arrows;
+}
+else{
+\tif(yAxisUpArrow){
+\t\tyarrow = EndArrow;
+\t}
+    if(yAxisDownArrow){
+\t\tyarrow = BeginArrow;
+    }
+}
+
+Label xLabel = Label(s = xAxisLabel, position = xlabel_loc, p = fontsize(labelSize), filltype = Fill(p = white) );
+Label yLabel = Label(s = yAxisLabel, position = ylabel_loc, p = fontsize(labelSize),filltype = Fill(p = white) );
+
+real killZero = 9805675997679076690980969.000123;
+
+axis xAxisType = Bottom;
+axis yAxisType = Left;
+if(fourSides){
+xAxisType = BottomTop;
+yAxisType = LeftRight;
+}
+if(forcexAxisAtZero){
+xAxisType = YZero;
+}
+if(forceyAxisAtZero){
+yAxisType = XZero;
+killZero = 0;
+}
+
+Label tickFormat = Label(" ");
+
+string decimalString = "";
+if(controlDecimals){
+\tif(trailingZeros){
+\t\tdecimalString = "%#." + string(numDecimalPoints) + "f";
+        }
+    else{
+    \tdecimalString = "%." + string(numDecimalPoints) + "f";
+        }
+}
+
+if(axisNumbers){
+tickFormat = Label(decimalString, filltype = Fill(p = white), p = fontsize(numberSize) );
+}
+
+if(!showTicks){
+subtickSize = -1;
+tickSize = -1;
+}
+
+ticks xticks = LeftTicks(format = tickFormat, Step = xTickSpacing, step = xSubtickSpacing, size = subtickSize, Size = tickSize);
+ticks yticks = RightTicks(format = tickFormat, Step = yTickSpacing, step = ySubtickSpacing, size = subtickSize, Size = tickSize );
+
+if(ticksGoThroughAxes){
+xticks = Ticks(format = tickFormat, xTickSpacing, xSubtickSpacing, size = subtickSize, Size = tickSize);
+yticks = Ticks(format = tickFormat, yTickSpacing, ySubtickSpacing, size = subtickSize, Size = tickSize);
+}
+
+dot((xmin,ymin), black+0);// so the graph package knows where to place the top and bottom x axes
+dot((xmax,ymax),black+0);
+
+//----------------DO THE DRAWING----------------
+
+xaxis(xmin = xmin, xmax = xmax, L = xLabel, axis = xAxisType, arrow = xarrow, ticks = xticks);
+yaxis(ymin = ymin, ymax = ymax, L = yLabel, axis = yAxisType, arrow = yarrow, ticks = yticks);
+
+if(bigGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xTickSpacing, extend = true, gray) );
+yaxis(BottomTop, invisible, Ticks(Step = yTickSpacing, extend = true, gray) );
+}
+
+if(smallGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xSubtickSpacing, extend = true, lightgray) );
+yaxis(BottomTop, invisible, Ticks(Step = ySubtickSpacing, extend = true, lightgray) );
+}
+
+label(title, (xmax/2 + xmin/2, ymax),N, fontsize(titleSize));
+
+real[] x_to_plot = map(x_transform, xdata);
+real[] y_to_plot = map(y_transform, ydata);
+
+if(plotPoints){
+for(int i = 0; i< xdata.length; ++i){
+dot((x_to_plot[i], y_to_plot[i]), filltype = dotfill, p = dotpen);
+}}
+
+if(plotCurve){
+draw(graph(curve, xmin, xmax), p = graphpen);}

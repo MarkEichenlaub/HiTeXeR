@@ -1,0 +1,22 @@
+unitsize(7mm);
+int[] alice = {0,2};
+int[] bob = {0,2,4};
+pair[] aliceoffsets = {NNW,SSW};
+pair[] boboffsets = {NNW,NE,SSW};
+pen[] colors = {red,blue};
+
+label("Alice",(1.5,5.5),colors[0]);
+label("Bob",(4.5,5.5),colors[1]);
+for (int i=0; i<alice.length; ++i)
+{
+  draw((0,0)--(3,2.5-5i),colors[0]);
+  label("$\$"+string(alice[i])+"$",(0,0)--(3,2.5-5i),aliceoffsets[i],colors[0]);
+  for (int j=0; j<bob.length; ++j)
+  {
+    draw((3,2.5-5i)--(6,4-5i-1.5j),colors[1]);
+    label("$\$"+string(bob[j])+"$",(3,2.5-5i)--(6,4-5i-1.5j),boboffsets[j],colors[1]);
+
+    label("${\color{red}\$" + string(alice[i]) + "}+{\color{blue}\$" + string(bob[j]) + "} = \$" + string(alice[i]+bob[j]) + "$", (8,4-5i-1.5j));
+  }
+}
+label(scale(0.9)*"$\begin{array}{rl}\n{\color{red}{(x^0+x^2)}}{\color{blue}{(x^0+x^2+x^4)}}\hspace{-2.5mm} &= {\color{red}x^0}\cdot {\color{blue}x^0} + {\color{red}x^0}\cdot {\color{blue}x^2} + {\color{red}x^0}\cdot {\color{blue}x^4} + {\color{red}x^2}\cdot {\color{blue}x^0} + {\color{red}x^2}\cdot {\color{blue}x^2} + {\color{red}x^2}\cdot {\color{blue}x^4} \[7pt]\n&= x^{{\color{red}0}+{\color{blue}0}} + x^{{\color{red}0}+{\color{blue}2}} + x^{{\color{red}0}+{\color{blue}4}} + x^{{\color{red}2}+{\color{blue}0}} + x^{{\color{red}2}+{\color{blue}2}} + x^{{\color{red}2}+{\color{blue}4}} \\n&= x^0 + x^2 + x^4 + x^2 + x^4 + x^6\n\end{array}$", (9,-6));

@@ -1,0 +1,37 @@
+//TeXeR source: https://artofproblemsolving.com/texer/hhnvelci
+
+size(8cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+// origin at the left end of rod
+real ell = 2, rod_thickness = 0.1, L = 3, eps = 0.05;
+real theta = 15;
+
+draw(rotate(theta)*box((-eps, -eps), (ell + eps, eps)));
+filldraw(scale(eps)*unitcircle, gray(0.8));
+
+pair plank_bottom = rotate(theta)*(-eps, -eps);
+draw(plank_bottom--(plank_bottom + (ell/2, 0)), linetype("4 6"));
+draw("$\theta$", arc(plank_bottom, ell/3, 0, theta));
+
+real length_label_dist = 0.2;
+draw(Label("$l$", align=(0, 0), UnFill), rotate(theta)*shift(0, length_label_dist)*((ell + eps, 0)--(0, 0)), Bars(5));
+
+draw(Label("$L$", align=(0, 0), UnFill(1.2)), shift(length_label_dist + ell, 0)*((0, 0)--(0, -L)), Bars(5));
+draw(Label("$~~l\sin\theta$", align=(0, 0), UnFill), shift(length_label_dist + ell, 0)*((0, 0)--(0, ell*Sin(theta))), Bar(5));
+draw(spring(ell*dir(theta), (ell, -L), zigs=55));
+
+draw(Label("$l$", align=(0, 0), UnFill(1.2)), shift(0, -L - length_label_dist)*((0, 0)--(ell, 0)), Bars(5));
+draw(Label("$l\cos\theta$", align=(0, 0), UnFill(1.2)), shift(0, ell*Sin(theta) + 1.7*length_label_dist)*((0, 0)--(ell*Cos(theta), 0)), BeginBar(5));
+draw(Label("$l(1 - \cos\theta)$"), shift(0, ell*Sin(theta) + 1.7*length_label_dist)*((ell + eps, 0)--(ell*Cos(theta), 0)), rgb(0, 0.6, 1), Bars(5));
+
+real r = 0.05;
+unfill(circle((ell, -L), r)); draw(circle((ell, -L), r));

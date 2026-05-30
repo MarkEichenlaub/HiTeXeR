@@ -1,0 +1,234 @@
+//https://artofproblemsolving.com/texer/awgkjrhy
+//Doppler Effect: Source Passing at Different Heights
+//Observer stationary at origin (0, 0)
+//Source moves horizontally at height h with constant speed v_source
+//f' = f * v_sound / (v_sound + v_source * x / sqrt(x^2 + h^2))
+//
+//The "sharpness" of the pitch transition depends on closest-approach distance h.
+//Small h  -->  steep S-curve (sharp pitch change)
+//Large h  -->  gentle S-curve (gradual pitch change)
+
+//-------ESSENTIAL OPTIONS------------
+
+string xAxisLabel = "Source horizontal position, $x$ (m)"; 
+string yAxisLabel = "Measured Frequency, $f'$ (Hz)";
+
+real xmin = -150; 
+real xmax = 150;
+real ymin = 570;
+real ymax = 680;
+
+real xTickSpacing = 50; 
+real xSubtickSpacing = 10;
+real yTickSpacing = 20;
+real ySubtickSpacing = 5;
+
+//-------------ENTIRE IMAGE------------
+
+real xsize = 12; //in cm
+real ysize = 9;
+
+real overallSize = 30;
+
+//----------- LABEL OPTIONS ---------------
+
+real xlabel_loc = .5;
+real ylabel_loc = .5;
+
+real labelSize = 12;
+
+//------------ AXES ----------
+
+bool equalAxisRatio = false;
+
+bool fourSides = false;
+
+bool xAxisRightArrow = false;
+bool xAxisLeftArrow = false;
+bool yAxisUpArrow = false;
+bool yAxisDownArrow = false;
+
+bool forcexAxisAtZero = false;
+bool forceyAxisAtZero = false;
+
+//-----------  TICK MARKS ----------------
+bool showTicks = true;
+
+bool ticksGoThroughAxes = false;
+
+real tickSize = 6;
+real subtickSize = 3;
+
+// -----------  NUMBERING ON AXES -----------
+
+bool axisNumbers = true;
+real numberSize = 10;
+
+bool controlDecimals = false;
+bool trailingZeros = false;
+int numDecimalPoints = 0;
+
+//------------ GRID -------------------
+
+bool bigGrid = true;
+bool smallGrid = true;
+
+//------------ TITLE -----------
+
+string title = ""; 
+real titleSize = 16;
+
+//--------BELOW HERE YOU USUALLY DON'T NEED TO CHANGE ANYTHING------------------------
+
+if(equalAxisRatio){
+unitsize(overallSize);
+}
+else{
+size(xsize*72/2.54, ysize*72/2.54, IgnoreAspect);
+}
+
+import graph;
+
+arrowbar xarrow = None;
+if(xAxisRightArrow && xAxisLeftArrow){
+xarrow = Arrows;
+}
+else{
+\tif(xAxisRightArrow){
+\t\txarrow = EndArrow;
+        }
+    if(xAxisLeftArrow){
+\t\txarrow = BeginArrow;
+\t}
+}
+
+arrowbar yarrow = None;
+if(yAxisUpArrow && yAxisDownArrow){
+yarrow = Arrows;
+}
+else{
+\tif(yAxisUpArrow){
+\t\tyarrow = EndArrow;
+\t}
+    if(yAxisDownArrow){
+\t\tyarrow = BeginArrow;
+    }
+}
+
+Label xLabel = Label(s = xAxisLabel, position = xlabel_loc, p = fontsize(labelSize), filltype = Fill(p = white) );
+Label yLabel = Label(s = yAxisLabel, position = ylabel_loc, p = fontsize(labelSize),filltype = Fill(p = white) );
+
+real killZero = 9805675997679076690980969.000123;
+
+axis xAxisType = Bottom;
+axis yAxisType = Left;
+if(fourSides){
+xAxisType = BottomTop;
+yAxisType = LeftRight;
+}
+if(forcexAxisAtZero){
+xAxisType = YZero;
+}
+if(forceyAxisAtZero){
+yAxisType = XZero;
+killZero = 0;
+}
+
+Label tickFormat = Label(" ");
+
+string decimalString = "";
+if(controlDecimals){
+\tif(trailingZeros){
+\t\tdecimalString = "%#." + string(numDecimalPoints) + "f";
+        }
+    else{
+    \tdecimalString = "%." + string(numDecimalPoints) + "f";
+        }
+}
+
+if(axisNumbers){
+tickFormat = Label(decimalString, filltype = Fill(p = white), p = fontsize(numberSize) );
+}
+
+if(!showTicks){
+subtickSize = -1;
+tickSize = -1;
+}
+
+ticks xticks = LeftTicks(format = tickFormat, Step = xTickSpacing, step = xSubtickSpacing, size = subtickSize, Size = tickSize);
+ticks yticks = RightTicks(format = tickFormat, Step = yTickSpacing, step = ySubtickSpacing, size = subtickSize, Size = tickSize );
+
+if(ticksGoThroughAxes){
+xticks = Ticks(format = tickFormat, xTickSpacing, xSubtickSpacing, size = subtickSize, Size = tickSize);
+yticks = Ticks(format = tickFormat, yTickSpacing, ySubtickSpacing, size = subtickSize, Size = tickSize);
+}
+
+dot((xmin,ymin), black+0);
+dot((xmax,ymax),black+0);
+
+//----------------DO THE DRAWING----------------
+
+xaxis(xmin = xmin, xmax = xmax, L = xLabel, axis = xAxisType, arrow = xarrow, ticks = xticks);
+yaxis(ymin = ymin, ymax = ymax, L = yLabel, axis = yAxisType, arrow = yarrow, ticks = yticks);
+
+if(bigGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xTickSpacing, extend = true, gray) );
+yaxis(BottomTop, invisible, Ticks(Step = yTickSpacing, extend = true, gray) );
+}
+
+if(smallGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xSubtickSpacing, extend = true, lightgray) );
+yaxis(BottomTop, invisible, Ticks(Step = ySubtickSpacing, extend = true, lightgray) );
+}
+
+label(title, (xmax/2 + xmin/2, ymax),N, fontsize(titleSize));
+
+//================== DOPPLER CURVES AND ANNOTATIONS ==================
+
+// Physics parameters
+real fsource = 624;    // source frequency in Hz
+real vsound  = 343;    // speed of sound in m/s
+real vsource = 25;     // source horizontal speed in m/s
+
+// --- Define function for h = 5 ---
+
+real fh5(real x)  { return fsource * 343 / (343 + 25 * x / sqrt(x*x + 25));    }  // h = 5 m
+
+// Curve colors
+pen c0  = purple;
+pen c5  = red;
+
+// h = 0 limiting case (step function)
+draw((-150,673)--(0,673),c0+1.5bp);
+draw((0,581)--(0,673),c0+1.5bp);
+draw((0,581)--(150,581),c0+1.5bp);
+
+// h = 5 curve
+draw(graph(fh5,  xmin, xmax, n=500), c5  + 1.5bp);
+
+// Dashed reference line at the source frequency
+draw((xmin, fsource)--(xmax, fsource), dashed+gray+1bp);
+label("$f$", (xmax, fsource), E, fontsize(10));
+
+// Mark the common point where all curves cross: (0, f_source)
+dot((0, fsource), black+5bp);
+
+// --- Legend (upper right) ---
+
+real lx = 60;             // left edge of legend line segments
+real ly = 676;            // top legend entry y-position
+real ldy = 12;            // vertical spacing between entries
+real llen = 20;           // length of each colored line segment
+
+// White background box for legend
+fill(box((lx - 4, ly - ldy - 3),(lx + llen + 48, ly + 4)), white);
+draw(box((lx - 4, ly - ldy - 3),(lx + llen + 48, ly + 4)), gray+0.5bp);
+
+draw((lx, ly)--(lx + llen, ly),                 c0  + 1.5bp);
+draw((lx, ly - ldy)--(lx + llen, ly - ldy),     c5  + 1.5bp);
+
+label("$h = 0$ m",  (lx + llen + 3, ly),          E, fontsize(9));
+label("$h = 5$ m",  (lx + llen + 3, ly - ldy),    E, fontsize(9));
+
+// Source speed annotation (lower left)
+label("$v_{\mathrm{source}} = 25$ m/s", (xmin + 5, ymin + 4), E, fontsize(9));
