@@ -39,9 +39,12 @@ def parse_name(fname):
     if m:
         return {'type': 'problem', 'cid': int(m.group(1)), 'lesson': int(m.group(2)),
                 'pid': int(m.group(3)), 'field': m.group(4), 'idx': int(m.group(5))}
-    m = re.match(r'c(\d+)_L(\d+)_script_(\d+)$', b)
+    # Lesson may be a real number OR the literal "None" (null-lesson script docs,
+    # whose DB key is (cid, None)); keep that mapping so these are re-scrapeable.
+    m = re.match(r'c(\d+)_L(None|\d+)_script_(\d+)$', b)
     if m:
-        return {'type': 'script', 'cid': int(m.group(1)), 'lesson': int(m.group(2)), 'idx': int(m.group(3))}
+        lesson = None if m.group(2) == 'None' else int(m.group(2))
+        return {'type': 'script', 'cid': int(m.group(1)), 'lesson': lesson, 'idx': int(m.group(3))}
     return None
 
 def load_manifest_map():
