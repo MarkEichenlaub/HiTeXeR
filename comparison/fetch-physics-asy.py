@@ -18,15 +18,75 @@ from aops_db import get_connection, PHYSICS_COURSES, fetch_all_course_data
 
 CORPUS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'asy_corpus')
 
+def unescape_asy(code):
+    """String-aware unescape of one [asy] block: convert \\n/\\t/\\\\ OUTSIDE
+    string literals, but leave backslash sequences inside strings intact so
+    LaTeX commands (\\theta, \\nu, \\textbf) survive instead of being turned
+    into raw TAB/NEWLINE by a blanket replace. Asymptote strings may be delimited
+    by single OR double quotes (and a backslash escapes the delimiter in both),
+    so both are tracked; otherwise LaTeX in '$\\tan$' / '$\\rho$' gets mangled."""
+    out = []
+    i, n = 0, len(code)
+    str_delim = None  # None outside strings; otherwise the opening quote char
+    in_line = in_block = False
+    while i < n:
+        c = code[i]
+        c2 = code[i + 1] if i + 1 < n else ''
+        if str_delim is not None:
+            if c == '\\':
+                out.append(c)
+                if i + 1 < n:
+                    out.append(code[i + 1]); i += 2
+                else:
+                    i += 1
+                continue
+            if c == str_delim:
+                str_delim = None
+            out.append(c); i += 1; continue
+        # Structural line breaks (\n, \r) expand everywhere outside strings —
+        # including inside comments, where a literal \n is what TERMINATES a //
+        # line comment. These must run before the comment-copy branches.
+        if c == '\\' and c2 == 'n':
+            out.append('\n'); i += 2; in_line = False; continue
+        if c == '\\' and c2 == 'r':
+            out.append('\r'); i += 2; continue
+        if c == '\n':
+            out.append(c); i += 1; in_line = False; continue
+        # Inside a comment, copy verbatim (as inside a string) so a backslash
+        # sequence in a commented-out label, e.g. //label("$\theta$"), is NOT
+        # mangled into a raw TAB. Only the structural \n/\r above expand here.
+        if in_line:
+            out.append(c); i += 1; continue
+        if in_block:
+            if c == '*' and c2 == '/':
+                out.append('*/'); i += 2; in_block = False; continue
+            out.append(c); i += 1; continue
+        # OUTSIDE strings and comments: expand structural \t / \\ (indentation
+        # and escaped backslashes that belong to live code, not string content).
+        if c == '\\' and c2 == 't':
+            out.append('\t'); i += 2; continue
+        if c == '\\' and c2 == '\\':
+            out.append('\\'); i += 2; continue
+        if c == '/' and c2 == '/':
+            in_line = True; out.append(c); i += 1; continue
+        if c == '/' and c2 == '*':
+            in_block = True; out.append(c); i += 1; continue
+        if c == '"' or c == "'":
+            str_delim = c
+        out.append(c); i += 1; continue
+    return ''.join(out)
+
 def extract_asy_blocks(text):
-    """Extract all [asy]...[/asy] blocks from text, expanding escape sequences."""
+    """Extract all [asy]...[/asy] blocks from text, expanding escape sequences.
+
+    Blocks are matched on the raw text then unescaped per-block (string-aware)
+    so LaTeX label commands survive and prose quotes can't corrupt a block.
+    """
     if not text:
         return []
-    # Expand literal \n to real newlines (Redshift stores them escaped)
-    expanded = text.replace('\\n', '\n')
     blocks = []
-    for m in re.finditer(r'\[asy\](.*?)\[/asy\]', expanded, re.DOTALL):
-        code = m.group(1).strip()
+    for m in re.finditer(r'\[asy\](.*?)\[/asy\]', text, re.DOTALL):
+        code = unescape_asy(m.group(1)).strip()
         if code:
             blocks.append(code)
     return blocks

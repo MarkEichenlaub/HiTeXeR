@@ -180,12 +180,70 @@ def _fetch_redshift_names(conn, collection_ids):
 # ---------------------------------------------------------------------------
 
 def unescape_db_text(text):
-    """Unescape literal \\n, \\t, \\\\ from database text."""
+    """Unescape literal \\n, \\t, \\\\ from database PROSE text (no asy code).
+
+    Safe for prose/context only. Asy code must use unescape_asy() instead, which
+    protects LaTeX backslash sequences inside string literals.
+    """
     if not text:
         return text
     return (text.replace('\\n', '\n')
                 .replace('\\t', '\t')
                 .replace('\\\\', '\\'))
+
+
+def unescape_asy(code):
+    """String-aware unescape of one [asy] block: convert \\n/\\t/\\\\ OUTSIDE
+    string literals, but leave backslash sequences inside strings intact so
+    LaTeX commands (\\theta, \\nu, \\textbf) survive instead of being turned
+    into raw TAB/NEWLINE by a blanket replace. Asymptote strings may be delimited
+    by single OR double quotes (and a backslash escapes the delimiter in both),
+    so both are tracked; otherwise LaTeX in '$\\tan$' / '$\\rho$' gets mangled.
+    Comments are tracked so a stray quote in a comment can't toggle string state,
+    and structural \\n/\\r expand even inside comments (a literal \\n terminates a
+    // line comment) while \\t inside a comment is left as-is."""
+    out = []
+    i, n = 0, len(code)
+    str_delim = None  # None outside strings; otherwise the opening quote char
+    in_line = in_block = False
+    while i < n:
+        c = code[i]
+        c2 = code[i + 1] if i + 1 < n else ''
+        if str_delim is not None:
+            if c == '\\':
+                out.append(c)
+                if i + 1 < n:
+                    out.append(code[i + 1]); i += 2
+                else:
+                    i += 1
+                continue
+            if c == str_delim:
+                str_delim = None
+            out.append(c); i += 1; continue
+        if c == '\\' and c2 == 'n':
+            out.append('\n'); i += 2; in_line = False; continue
+        if c == '\\' and c2 == 'r':
+            out.append('\r'); i += 2; continue
+        if c == '\n':
+            out.append(c); i += 1; in_line = False; continue
+        if in_line:
+            out.append(c); i += 1; continue
+        if in_block:
+            if c == '*' and c2 == '/':
+                out.append('*/'); i += 2; in_block = False; continue
+            out.append(c); i += 1; continue
+        if c == '\\' and c2 == 't':
+            out.append('\t'); i += 2; continue
+        if c == '\\' and c2 == '\\':
+            out.append('\\'); i += 2; continue
+        if c == '/' and c2 == '/':
+            in_line = True; out.append(c); i += 1; continue
+        if c == '/' and c2 == '*':
+            in_block = True; out.append(c); i += 1; continue
+        if c == '"' or c == "'":
+            str_delim = c
+        out.append(c); i += 1; continue
+    return ''.join(out)
 
 
 # Drop [hide]...[/hide] spoiler/solution blocks entirely (their inner text
@@ -210,7 +268,10 @@ def strip_bbcode(text):
     return text
 
 
-ASY_BLOCK_RE = re.compile(r';?\[asy\](.*?);?\[/asy\]', re.DOTALL)
+# Keep the leading ;[asy] delimiter optional, but do NOT strip a trailing ;
+# before [/asy]: the non-greedy .*? would otherwise eat the final statement's
+# own terminating semicolon and truncate the block ("unexpected end of input").
+ASY_BLOCK_RE = re.compile(r';?\[asy\](.*?)\[/asy\]', re.DOTALL)
 
 
 def extract_blocks_with_context(text,
@@ -224,11 +285,12 @@ def extract_blocks_with_context(text,
     """
     if not text:
         return []
-    text = unescape_db_text(text)
+    # Match blocks on RAW text; unescape the asy body string-aware (protects
+    # LaTeX), and unescape prose context windows with the plain replacer.
     matches = list(ASY_BLOCK_RE.finditer(text))
     blocks = []
     for i, m in enumerate(matches):
-        body = m.group(1).strip()
+        body = unescape_asy(m.group(1)).strip()
         if not body:
             continue
         prev_end = matches[i - 1].end() if i > 0 else 0
@@ -237,8 +299,8 @@ def extract_blocks_with_context(text,
         raw_after = text[m.end():min(next_start, m.end() + after)]
         blocks.append({
             "asy": body,
-            "context_before": strip_bbcode(raw_before),
-            "context_after": strip_bbcode(raw_after),
+            "context_before": strip_bbcode(unescape_db_text(raw_before)),
+            "context_after": strip_bbcode(unescape_db_text(raw_after)),
         })
     return blocks
 

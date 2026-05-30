@@ -42,12 +42,72 @@ def parse_name(fname):
                 'idx': int(m.group(3))}
     return None
 
+def unescape_asy(code):
+    """String-aware unescape of one [asy] block: convert \\n/\\t/\\\\ OUTSIDE
+    string literals, but leave backslash sequences inside strings intact so
+    LaTeX commands (\\theta, \\nu, \\textbf) survive instead of being turned
+    into raw TAB/NEWLINE by a blanket replace. Asymptote strings may be delimited
+    by single OR double quotes (and a backslash escapes the delimiter in both),
+    so both are tracked; otherwise LaTeX in '$\\tan$' / '$\\rho$' gets mangled."""
+    out = []
+    i, n = 0, len(code)
+    str_delim = None  # None outside strings; otherwise the opening quote char
+    in_line = in_block = False
+    while i < n:
+        c = code[i]
+        c2 = code[i + 1] if i + 1 < n else ''
+        if str_delim is not None:
+            if c == '\\':
+                out.append(c)
+                if i + 1 < n:
+                    out.append(code[i + 1]); i += 2
+                else:
+                    i += 1
+                continue
+            if c == str_delim:
+                str_delim = None
+            out.append(c); i += 1; continue
+        # Structural line breaks (\n, \r) expand everywhere outside strings —
+        # including inside comments, where a literal \n is what TERMINATES a //
+        # line comment. These must run before the comment-copy branches.
+        if c == '\\' and c2 == 'n':
+            out.append('\n'); i += 2; in_line = False; continue
+        if c == '\\' and c2 == 'r':
+            out.append('\r'); i += 2; continue
+        if c == '\n':
+            out.append(c); i += 1; in_line = False; continue
+        # Inside a comment, copy verbatim (as inside a string) so a backslash
+        # sequence in a commented-out label, e.g. //label("$\theta$"), is NOT
+        # mangled into a raw TAB. Only the structural \n/\r above expand here.
+        if in_line:
+            out.append(c); i += 1; continue
+        if in_block:
+            if c == '*' and c2 == '/':
+                out.append('*/'); i += 2; in_block = False; continue
+            out.append(c); i += 1; continue
+        # OUTSIDE strings and comments: expand structural \t / \\ (indentation
+        # and escaped backslashes that belong to live code, not string content).
+        if c == '\\' and c2 == 't':
+            out.append('\t'); i += 2; continue
+        if c == '\\' and c2 == '\\':
+            out.append('\\'); i += 2; continue
+        if c == '/' and c2 == '/':
+            in_line = True; out.append(c); i += 1; continue
+        if c == '/' and c2 == '*':
+            in_block = True; out.append(c); i += 1; continue
+        if c == '"' or c == "'":
+            str_delim = c
+        out.append(c); i += 1; continue
+    return ''.join(out)
+
 def extract_asy_blocks(text):
     if not text:
         return []
-    # Expand escaped sequences from database
-    text = text.replace('\\n', '\n').replace('\\t', '\t').replace('\\\\', '\\')
-    return [m.strip() for m in re.findall(r';?\[asy\](.*?);?\[/asy\]', text, re.DOTALL) if m.strip()]
+    # Match blocks on raw text, then unescape each block string-aware. Keep the
+    # leading ;[asy] delimiter optional, but do NOT strip a trailing ; before
+    # [/asy] — the non-greedy .*? would eat the final statement's terminating
+    # semicolon and truncate the block ("unexpected end of input").
+    return [unescape_asy(m).strip() for m in re.findall(r';?\[asy\](.*?)\[/asy\]', text, re.DOTALL) if m.strip()]
 
 # Field name normalization
 FIELD_MAP = {
