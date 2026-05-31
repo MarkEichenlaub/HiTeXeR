@@ -1996,6 +1996,18 @@ function createInterpreter() {
     'NNE','NNW','SSE','SSW','ENE','WNW','ESE','WSW',
     'up','down','right','left',
   ]);
+  // Base/auto-imported module names. Asymptote lets authors qualify an exported
+  // symbol with its module (e.g. `plain.N` to disambiguate the compass direction
+  // North from a local pair named N). These modules are flattened into the global
+  // env, so `module.symbol` resolves to the global `symbol`.
+  const _KNOWN_MODULE_NAMES = new Set([
+    'plain','math','graph','geometry','three','palette','contour','markers',
+    'stats','graph3','solids','trembling','slopefield','olympiad','cse5',
+  ]);
+  // Pristine compass-direction values, populated by installStdlib. Used to
+  // resolve `plain.N` etc. to the module's canonical direction even when the
+  // author has shadowed the bare global (e.g. `pair N = (6,5)`).
+  let _BUILTIN_DIR_VALUES = null;
   function _warnDirRedef(name) {
     if (!_warnedDirs.has(name)) {
       _warnedDirs.add(name);
@@ -4216,6 +4228,22 @@ function createInterpreter() {
     if (obj && typeof obj === 'object' && !obj._tag && Object.prototype.hasOwnProperty.call(obj, m)) {
       return obj[m];
     }
+    // Qualified module access: `plain.N`, `math.pi`, etc. The base module name
+    // is auto-imported and has no runtime value, so `node.object` evaluated to
+    // null above. Resolve the member from the (flattened) global env instead,
+    // so e.g. `label("$N$", N, plain.N)` gets the North direction (0,1) rather
+    // than a null alignment.
+    if ((obj === null || obj === undefined) && node.object && node.object.type === 'Identifier'
+        && _KNOWN_MODULE_NAMES.has(node.object.name)) {
+      // Compass directions must resolve to the module's pristine value even when
+      // the author shadowed the bare global with a same-named variable (the very
+      // reason they qualify it, e.g. `pair N=(6,5); label("$N$",N,plain.N)`).
+      if (_BUILTIN_DIR_VALUES && Object.prototype.hasOwnProperty.call(_BUILTIN_DIR_VALUES, m)) {
+        return _BUILTIN_DIR_VALUES[m];
+      }
+      const g = env.get(m);
+      if (g !== undefined) return g;
+    }
     return null;
   }
 
@@ -6148,6 +6176,7 @@ function createInterpreter() {
       up:makePair(0,1), down:makePair(0,-1), right:makePair(1,0), left:makePair(-1,0),
     };
     for (const [k,v] of Object.entries(dirs)) env.set(k, v);
+    _BUILTIN_DIR_VALUES = dirs;
 
     // Named colors — exact Asymptote definitions from plain_pens.asy
     // Base: red=(1,0,0) green=(0,1,0) blue=(0,0,1) cyan=(0,1,1) magenta=(1,0,1) yellow=(1,1,0)
