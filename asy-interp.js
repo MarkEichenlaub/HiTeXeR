@@ -22900,6 +22900,7 @@ function renderSVG(result, opts) {
     const maxDim = Math.max(scaleRefW2, scaleRefH2);
     const minDim = Math.min(scaleRefW2, scaleRefH2);
     pxPerUnit = defaultSize / maxDim;
+    let _autoFloorApplied = false;
     // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
     // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
     // (rendered in absolute bp at fontSize) physically large compared to
@@ -22930,8 +22931,16 @@ function renderSVG(result, opts) {
       }
       const bboxArea = scaleRefW2 * scaleRefH2;
       const labelDensity = labelCount / Math.max(bboxArea, 1);
-      if (labelDensity > 3e-4) {
+      // Require >=3 labels: the floor targets *label-dense* figures. A figure
+      // with only 1-2 labels (e.g. 04747/04746: a 60×30 grid with corner
+      // endpoint markers $A$,$B$) is not label-dense regardless of how small
+      // its bbox makes the density value look — its small area inflates
+      // density (2/1800 ≈ 1.1e-3) above the 06387 threshold even though the
+      // natural defaultSize=150bp scale (pxPerUnit=2.5 → 504px) already matches
+      // TeXeR. Flooring such grids to 7bp/unit over-scales them ~2.8×.
+      if (labelCount >= 3 && labelDensity > 3e-4) {
         pxPerUnit = 7;
+        _autoFloorApplied = true;
       }
     }
     // Extended floor: when maxDim is in the 15–50 user-unit range AND the
@@ -22954,6 +22963,7 @@ function renderSVG(result, opts) {
       // over a similar bbox) stay below this threshold and aren't boosted.
       if (labelDensity > 0.05) {
         pxPerUnit = 13;
+        _autoFloorApplied = true;
       }
     }
     // High aspect ratio floor: for small geometry with high aspect ratio (e.g.
@@ -22976,6 +22986,7 @@ function renderSVG(result, opts) {
     const isTallNarrow = scaleRefH2 > scaleRefW2;
     if (maxDim < 10 && minDim > 0.1 && aspectRatio >= 6 && pxPerUnit < 100 && isTallNarrow) {
       pxPerUnit = 100;
+      _autoFloorApplied = true;
     }
     // Tick-label floor: for small diagrams (maxDim < 15) with many tick labels
     // (>=10), the default scaling compresses tick text below legibility. TeXeR
@@ -22988,6 +22999,7 @@ function renderSVG(result, opts) {
       }
       if (tickLabelCount >= 10) {
         pxPerUnit = 57;
+        _autoFloorApplied = true;
       }
     }
     pxPerUnitX = pxPerUnitY = pxPerUnit;
@@ -22998,6 +23010,51 @@ function renderSVG(result, opts) {
     // diagram with ~4:1 height:width ratio).
     sizeW = scaleRefW2 * pxPerUnit;
     sizeH = scaleRefH2 * pxPerUnit;
+    // Fit geometry+labels (not geometry alone) to defaultSize, matching TeXeR's
+    // size(150) which bounds the WHOLE picture including truesize labels. Without
+    // this, corner labels at the geometry extremes (e.g. 04747/04746's $A$/$B$ at
+    // the grid corners) push the rendered bbox ~13% past defaultSize, oversizing
+    // the output and tanking the size score even when the structure matches.
+    // Labels are fixed bp, so shrinking geometry doesn't shrink them
+    // proportionally — iterate to convergence.
+    //
+    // Scoped to the large-2D regime (maxDim > 50, minDim >= 5) for safety: that
+    // is where geometry genuinely fills defaultSize and a few short corner labels
+    // cause real, render-confirmed overshoot. Thin/1D figures (number lines like
+    // 05976, minDim=2), tiny figures (04219, maxDim=1), and text-dominated figures
+    // (03928, maxDim~6 with long "Situation 1…" labels) are excluded: for those
+    // TeXeR keeps geometry at defaultSize and lets labels hang outside, and the
+    // bp-space label-extent estimate overshoots (esp. fractions/long text),
+    // which would over-shrink and regress them. Also skipped when a floor branch
+    // above intentionally oversized the diagram for label legibility (06387 etc.),
+    // and when the estimated overshoot is large (> 1.25) — a large overshoot means
+    // labels dominate the bbox, the TeXeR-bounds-everything assumption breaks, and
+    // the fixed-bp estimate is least reliable.
+    if (!_autoFloorApplied && labelInfoBp.length > 0 && maxDim > 50 && minDim >= 5) {
+      const estOvershoot = () => {
+        let bpMinX = geoMinX * pxPerUnit, bpMaxX = geoMaxX * pxPerUnit;
+        let bpMinY = geoMinY * pxPerUnit, bpMaxY = geoMaxY * pxPerUnit;
+        for (const li of labelInfoBp) {
+          const cx = li.posX * pxPerUnit + li.alignOffsetXBp;
+          const cy = li.posY * pxPerUnit + li.alignOffsetYBp;
+          bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
+          bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
+          bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
+        }
+        return Math.max(bpMaxX - bpMinX, bpMaxY - bpMinY) / defaultSize;
+      };
+      if (estOvershoot() <= 1.25) {
+        for (let iter = 0; iter < 6; iter++) {
+          const overshoot = estOvershoot();
+          if (overshoot <= 1.005) break;
+          pxPerUnit *= 1 / overshoot;
+        }
+        pxPerUnitX = pxPerUnitY = pxPerUnit;
+        sizeW = scaleRefW2 * pxPerUnit;
+        sizeH = scaleRefH2 * pxPerUnit;
+      }
+    }
     warnings.push('auto-scaled');
   }
 
