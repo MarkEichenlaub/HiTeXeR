@@ -1983,6 +1983,11 @@ function createInterpreter() {
   // Settings
   let unitScale = 1;       // unitsize value in points
   let hasUnitScale = false; // whether unitsize() was explicitly called
+  // Set when hasUnitScale/unitScale=1 was pinned to render already-fitted FRAME
+  // content at truesize (add(frame)) rather than by an explicit unitsize() call.
+  // Truesize frame content must NOT be rescaled by a picture-level size() — in
+  // Asymptote a frame added via add(frame) keeps its absolute bp dimensions.
+  let _trueSizeFrame = false;
   let sizeW = 0, sizeH = 0;
   let keepAspect = true;
   let defaultPen = makePen({});
@@ -3637,6 +3642,12 @@ function createInterpreter() {
         let targetW = numArgs.length > 0 ? toNumber(numArgs[0]) : 0;
         let targetH = numArgs.length > 1 ? toNumber(numArgs[1]) : targetW;
         let keepAspect = args.some(a => a === true || a === env.get('Aspect')) || (numArgs.length <= 2);
+        // True when the caller (or the picture's own size()) imposes a bp size to
+        // fit into. When false, fit() is a 1:1 pass-through of an already-sized
+        // picture (e.g. the outer add(pic.fit()) of a composition whose sub-pics
+        // were already placed in bp space) — in that case the label-extent shrink
+        // below must NOT run, or it squeezes the whole composition (00778).
+        const explicitSize = numArgs.length > 0 || !!obj._sizeW;
         // When fit() is called with no explicit size, honor the picture's own
         // size(pic, W, H[, SW, NE]) constraint so the fitted frame matches the
         // author's intended bp dimensions instead of falling back to 1:1 user
@@ -3674,7 +3685,7 @@ function createInterpreter() {
             const uy = aMag > 0 ? dc.align.y / aMag : 0;
             labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy });
           }
-          if (labelExt.length > 0 && isFinite(s) && s > 0) {
+          if (explicitSize && labelExt.length > 0 && isFinite(s) && s > 0) {
             for (let it = 0; it < 6; it++) {
               let fMinX = gb.minX, fMaxX = gb.maxX, fMinY = gb.minY, fMaxY = gb.maxY;
               for (const L of labelExt) {
@@ -3768,6 +3779,17 @@ function createInterpreter() {
         // Store fitted size for min()/max() computations
         frame._fitW = userW * sx;
         frame._fitH = userH * sy;
+        // Retain the original (unflattened) picture commands + the user→bp fit
+        // transform so that add(picture dest, frame, position, align) can re-emit
+        // them with full fidelity (arrowheads, dots-as-dots, bezier curves, pen
+        // details) instead of the flattened polyline strokes. The fit transform
+        // maps user coords (x,y) → ((x-minX)*sx, (y-minY)*sy) in bp space.
+        frame._srcCommands = obj.commands;
+        frame._fitSx = sx;
+        frame._fitSy = sy;
+        frame._fitMinX = gb.minX;
+        frame._fitMinY = gb.minY;
+        if (process.env.HTX_DEBUG_FIT) console.error('FIT explicit',explicitSize,'targetW',targetW,'userW',userW.toFixed(1),'sx',sx.toFixed(3),'fitW',(userW*sx).toFixed(1));
         return frame;
       }
       if (method === 'add') {
@@ -6427,6 +6449,93 @@ function createInterpreter() {
         // of auto-rescaling the frame geometry as if it were user coords.
         unitScale = 1;
         hasUnitScale = true;
+        _trueSizeFrame = true;
+        return;
+      }
+      // add(picture dest, frame src, pair position[, pair align]) — place a
+      // frozen frame INTO an explicit destination picture (not currentpicture).
+      // This is the multi-picture composition idiom add(pic, sub.fit(), pos, align)
+      // used to lay sub-diagrams out side-by-side (e.g. 00778 c134_L6_script_3).
+      // Without this branch the frame is silently dropped and dest stays empty.
+      if (frames.length === 1 && args.some(a => a && a._tag === 'picture')) {
+        const destPic = args.find(a => a && a._tag === 'picture');
+        const fr = frames[0];
+        // Compute placement offset in the frame's (bp) coord space, using the
+        // same bbox+align formula as the single-frame→currentpicture branch.
+        let offX = 0, offY = 0;
+        if (framePairs.length === 1) {
+          offX = framePairs[0].x; offY = framePairs[0].y;
+        } else if (framePairs.length >= 2) {
+          const position = framePairs[0], align = framePairs[1];
+          let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+          const acc = (p) => { if (p.x < mnX) mnX = p.x; if (p.x > mxX) mxX = p.x; if (p.y < mnY) mnY = p.y; if (p.y > mxY) mxY = p.y; };
+          for (const s of (fr.strokes || [])) for (const p of (s.pts || [])) acc(p);
+          for (const f of (fr.fills || [])) for (const p of (f.pts || [])) acc(p);
+          for (const D of (fr.dots || [])) if (D.pos) acc(D.pos);
+          for (const L of (fr.labels || [])) {
+            if (!L.pos) continue;
+            const fs = _texCapFontSize((L.pen && L.pen.fontsize) || 10);
+            const rawTxt = typeof L.text === 'string' ? L.text : '';
+            const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+            const tw = _estimateTextWidth(cleanTxt || 'x', fs);
+            const aMag = L.align ? Math.max(Math.abs(L.align.x), Math.abs(L.align.y)) : 0;
+            const ux = aMag > 0 ? L.align.x / aMag : 0;
+            const uy = aMag > 0 ? L.align.y / aMag : 0;
+            const ccx = L.pos.x + ux * 0.5 * tw, ccy = L.pos.y + uy * 0.5 * fs;
+            acc({ x: ccx - 0.5 * tw, y: ccy - 0.5 * fs });
+            acc({ x: ccx + 0.5 * tw, y: ccy + 0.5 * fs });
+          }
+          if (isFinite(mnX)) {
+            const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
+            const halfW = (mxX - mnX) / 2, halfH = (mxY - mnY) / 2;
+            const mag = Math.max(Math.abs(align.x), Math.abs(align.y)) || 1;
+            offX = align.x + position.x - cx + (align.x / mag) * halfW;
+            offY = align.y + position.y - cy + (align.y / mag) * halfH;
+          }
+        }
+        // Preferred path: re-emit the ORIGINAL picture commands (carried on the
+        // frame by fit()) so arrowheads, dots, bezier curves and pen attributes
+        // survive. Compose the user→bp fit transform with the placement offset:
+        //   (x,y) → (sx*(x-minX)+offX, sy*(y-minY)+offY)
+        if (fr._srcCommands) {
+          const sx = fr._fitSx, sy = fr._fitSy;
+          const combinedT = makeTransform(
+            offX - sx * fr._fitMinX, sx, 0,
+            offY - sy * fr._fitMinY, 0, sy
+          );
+          for (const c of fr._srcCommands) {
+            const tc = transformDrawCmd(combinedT, c);
+            // Geometry scales with the fit, but label fonts stay at their
+            // absolute bp size (Asymptote's size(pic,W) does not scale fonts).
+            if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
+            destPic.commands.push(tc);
+          }
+          return;
+        }
+        // Fallback: frame without retained source commands (e.g. a hand-built
+        // frame) — emit the flattened strokes/fills/labels/dots.
+        for (const s of (fr.strokes || [])) {
+          if (!s.pts || s.pts.length < 2) continue;
+          const segs = [];
+          for (let k = 0; k < s.pts.length - 1; k++) segs.push(lineSegment(makePair(s.pts[k].x + offX, s.pts[k].y + offY), makePair(s.pts[k+1].x + offX, s.pts[k+1].y + offY)));
+          if (s.closed && s.pts.length >= 2) segs.push(lineSegment(makePair(s.pts[s.pts.length-1].x + offX, s.pts[s.pts.length-1].y + offY), makePair(s.pts[0].x + offX, s.pts[0].y + offY)));
+          if (segs.length > 0) destPic.commands.push({cmd:'draw', path: makePath(segs, !!s.closed), pen: clonePen(s.pen || defaultPen), arrow:null, line:0});
+        }
+        for (const f of (fr.fills || [])) {
+          if (!f.pts || f.pts.length < 3) continue;
+          const segs = [];
+          for (let k = 0; k < f.pts.length - 1; k++) segs.push(lineSegment(makePair(f.pts[k].x + offX, f.pts[k].y + offY), makePair(f.pts[k+1].x + offX, f.pts[k+1].y + offY)));
+          segs.push(lineSegment(makePair(f.pts[f.pts.length-1].x + offX, f.pts[f.pts.length-1].y + offY), makePair(f.pts[0].x + offX, f.pts[0].y + offY)));
+          destPic.commands.push({cmd:'fill', path: makePath(segs, true), pen: clonePen(f.pen || defaultPen), line:0});
+        }
+        for (const L of (fr.labels || [])) {
+          if (!L.pos) continue;
+          destPic.commands.push({cmd:'label', text: L.text || '', pos: makePair(L.pos.x + offX, L.pos.y + offY), align: L.align, pen: clonePen(L.pen || defaultPen), line:0});
+        }
+        for (const D of (fr.dots || [])) {
+          if (!D.pos) continue;
+          destPic.commands.push({cmd:'dot', pos: makePair(D.pos.x + offX, D.pos.y + offY), pen: clonePen(D.pen || defaultPen), filltype: D.filltype, text: D.text, line:0});
+        }
         return;
       }
       let pics = [], t = null, pairs = [];
@@ -21534,7 +21643,7 @@ function createInterpreter() {
     globalEnv.update('currentpicture', currentPic);
     projection = null;
     _projectedTriples.length = 0;
-    unitScale = 1; hasUnitScale = false;
+    unitScale = 1; hasUnitScale = false; _trueSizeFrame = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
     _defaultpenLwSet = false;
@@ -21623,7 +21732,7 @@ function createInterpreter() {
 
     return {
       drawCommands: drawCommands.slice(),
-      unitScale, hasUnitScale,
+      unitScale, hasUnitScale, _trueSizeFrame,
       sizeW, sizeH, keepAspect,
       defaultPen,
       axisLimits: Object.assign({}, _axisLimits),
@@ -21706,7 +21815,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -22769,7 +22878,10 @@ function renderSVG(result, opts) {
     // When size() is also explicitly set, use it to govern the geometry scale.
     // Real Asymptote/TeXeR scales 3D diagrams (and others with both set) to the
     // requested size() regardless of unitsize(), so size() acts as an override.
-    if (sizeW > 0 || sizeH > 0) {
+    // EXCEPTION: truesize frame content (add(frame)) keeps its absolute bp
+    // dimensions and must not be rescaled by a picture-level size() — e.g. a
+    // composition of pre-fit sub-pictures added as a frame (00778).
+    if (!_trueSizeFrame && (sizeW > 0 || sizeH > 0)) {
       const _sw = sizeW > 0 ? sizeW : Infinity;
       const _sh = sizeH > 0 ? sizeH : Infinity;
       const _gW = (geoMaxX - geoMinX) || 1;
