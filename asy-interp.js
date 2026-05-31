@@ -3637,7 +3637,40 @@ function createInterpreter() {
         let sx = targetW / userW;
         let sy = targetH / userH;
         if (keepAspect) {
-          const s = Math.min(sx, sy);
+          let s = Math.min(sx, sy);
+          // Asymptote's size(pic, W) fits the ENTIRE picture bbox — including
+          // label text extents — into W bp, not just the drawn geometry. Label
+          // extents are fixed bp (independent of s) while geometry scales with s,
+          // so iterate to converge on the scale at which geometry+labels fits.
+          const labelExt = [];
+          for (const dc of obj.commands) {
+            if (dc.cmd !== 'label' || !dc.pos) continue;
+            const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
+            const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+            const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+            const tw = _estimateTextWidth(cleanTxt || 'x', fs);
+            const aMag = dc.align ? Math.max(Math.abs(dc.align.x), Math.abs(dc.align.y)) : 0;
+            const ux = aMag > 0 ? dc.align.x / aMag : 0;
+            const uy = aMag > 0 ? dc.align.y / aMag : 0;
+            labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy });
+          }
+          if (labelExt.length > 0 && isFinite(s) && s > 0) {
+            for (let it = 0; it < 6; it++) {
+              let fMinX = gb.minX, fMaxX = gb.maxX, fMinY = gb.minY, fMaxY = gb.maxY;
+              for (const L of labelExt) {
+                const twU = L.tw / s, thU = L.th / s;
+                const cx = L.x + L.ux * 0.5 * twU;
+                const cy = L.y + L.uy * 0.5 * thU;
+                if (cx - 0.5 * twU < fMinX) fMinX = cx - 0.5 * twU;
+                if (cx + 0.5 * twU > fMaxX) fMaxX = cx + 0.5 * twU;
+                if (cy - 0.5 * thU < fMinY) fMinY = cy - 0.5 * thU;
+                if (cy + 0.5 * thU > fMaxY) fMaxY = cy + 0.5 * thU;
+              }
+              const fullW = (fMaxX - fMinX) || 1;
+              const fullH = (fMaxY - fMinY) || 1;
+              s = Math.min(targetW / fullW, targetH / fullH);
+            }
+          }
           sx = s; sy = s;
         }
         // Helper to sample a cubic bezier segment into line points
@@ -3664,7 +3697,7 @@ function createInterpreter() {
                  Math.abs(seg.cp2.x - lineCp2x) > eps || Math.abs(seg.cp2.y - lineCp2y) > eps;
         };
         // Create an mframe with strokes/fills from the picture commands
-        const frame = {_tag: 'mframe', strokes: [], fills: [], labels: []};
+        const frame = {_tag: 'mframe', strokes: [], fills: [], labels: [], dots: []};
         for (const dc of obj.commands) {
           if (!dc) continue;
           if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
@@ -3701,6 +3734,14 @@ function createInterpreter() {
               pos: makePair((dc.pos.x - gb.minX) * sx, (dc.pos.y - gb.minY) * sy),
               align: dc.align,
               pen: dc.pen || defaultPen
+            });
+          }
+          if (dc.cmd === 'dot' && dc.pos) {
+            frame.dots.push({
+              pos: makePair((dc.pos.x - gb.minX) * sx, (dc.pos.y - gb.minY) * sy),
+              pen: dc.pen || defaultPen,
+              filltype: dc.filltype,
+              text: dc.text
             });
           }
         }
@@ -6290,7 +6331,24 @@ function createInterpreter() {
           const acc = (p) => { if (p.x < mnX) mnX = p.x; if (p.x > mxX) mxX = p.x; if (p.y < mnY) mnY = p.y; if (p.y > mxY) mxY = p.y; };
           for (const s of (fr.strokes || [])) for (const p of (s.pts || [])) acc(p);
           for (const f of (fr.fills || [])) for (const p of (f.pts || [])) acc(p);
-          for (const L of (fr.labels || [])) if (L.pos) acc(L.pos);
+          for (const D of (fr.dots || [])) if (D.pos) acc(D.pos);
+          // Account for label INK extent (not just position): an outward-aligned
+          // label sticks out past its anchor by ~half its text box. Asymptote's
+          // frame bbox includes this ink, so composited sub-pictures must be
+          // spaced by it — otherwise edge labels overlap into the gap.
+          for (const L of (fr.labels || [])) {
+            if (!L.pos) continue;
+            const fs = _texCapFontSize((L.pen && L.pen.fontsize) || 10);
+            const rawTxt = typeof L.text === 'string' ? L.text : '';
+            const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+            const tw = _estimateTextWidth(cleanTxt || 'x', fs);
+            const aMag = L.align ? Math.max(Math.abs(L.align.x), Math.abs(L.align.y)) : 0;
+            const ux = aMag > 0 ? L.align.x / aMag : 0;
+            const uy = aMag > 0 ? L.align.y / aMag : 0;
+            const ccx = L.pos.x + ux * 0.5 * tw, ccy = L.pos.y + uy * 0.5 * fs;
+            acc({ x: ccx - 0.5 * tw, y: ccy - 0.5 * fs });
+            acc({ x: ccx + 0.5 * tw, y: ccy + 0.5 * fs });
+          }
           if (isFinite(mnX)) {
             const cx = (mnX + mxX) / 2, cy = (mnY + mxY) / 2;
             const halfW = (mxX - mnX) / 2, halfH = (mxY - mnY) / 2;
@@ -6322,6 +6380,10 @@ function createInterpreter() {
         for (const L of (fr.labels || [])) {
           if (!L.pos) continue;
           currentPic.commands.push({cmd:'label', text: L.text || '', pos: makePair(L.pos.x + offX, L.pos.y + offY), align: L.align, pen: clonePen(L.pen || defaultPen), line:0});
+        }
+        for (const D of (fr.dots || [])) {
+          if (!D.pos) continue;
+          currentPic.commands.push({cmd:'dot', pos: makePair(D.pos.x + offX, D.pos.y + offY), pen: clonePen(D.pen || defaultPen), filltype: D.filltype, text: D.text, line:0});
         }
         // Frame coords are already in bp space; pin the picture to 1 bp per unit
         // so the SVG renderer reproduces the author's absolute dimensions instead
