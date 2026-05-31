@@ -23727,7 +23727,12 @@ function renderSVG(result, opts) {
                       _pxMin > 5 && _pxMax < 60;
   }
   let labelShrinkFactor = 1;
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_geoAspectExtremeForSolver && !_iaGeoDominated) {
+  // Truesize frame content (add(pic.fit())) keeps its absolute bp dimensions and
+  // must not be shrunk to fit a picture-level size() — the picture's own
+  // size(p,W) already fixed the fitted frame's scale. Skipping the solver here
+  // mirrors the _trueSizeFrame guard on the size()-rescale block above; without
+  // it an outer size(8cm) crushes a 12cm-fitted frame down to 8cm (03401).
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_geoAspectExtremeForSolver && !_iaGeoDominated && !_trueSizeFrame) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
