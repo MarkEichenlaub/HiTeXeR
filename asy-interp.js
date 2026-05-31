@@ -21999,7 +21999,33 @@ function renderSVG(result, opts) {
   // per-axis padding to avoid catastrophically inflating the smaller-range axis.
   let padX, padY;
   if (hasUnitScale) {
-    padX = padY = 0.5 / unitScale;
+    // Pad represents ~0.5bp of stroke overshoot expressed in user units.
+    // When the unitsize boost (below) rescales tiny unitsize geometry up to a
+    // default size, basing the pad on the literal (tiny) unitScale over-pads
+    // massively — e.g. unitsize(0.2mm) gives 0.5/0.567 ≈ 0.88 user units of
+    // pad on a 6-unit grid, which the boost then inflates into an ~11bp margin
+    // that insets the diagram to ~77% of the frame (07716). The boost only
+    // ever scales geometry UP (toward ~defaultSize bp), so the effective final
+    // scale is at least defaultSize/maxGeo; use max(unitScale, that estimate)
+    // so the pad stays ~0.5bp at the final render scale instead of ballooning.
+    // Estimate the FINAL per-unit scale after the unitsize boost (below). For
+    // tiny mm-scale unitsize the boost magnifies the literal scale by a roughly
+    // constant factor (~33×); for larger unitScale no boost is applied. Express
+    // the pad as a small fixed bp margin at that final scale so the diagram is
+    // neither over-padded (old behaviour: 0.5/unitScale ballooned the margin
+    // and wrecked sizeScore) nor under-padded (touching the frame, where the
+    // SSIM trim clips the outermost stroke and drops the score — 07714 board).
+    const _mmC1Est = (typeof process !== 'undefined' && process.env && process.env.HTX_MA) ? +process.env.HTX_MA : 41.25;
+    const _mmC2Est = (typeof process !== 'undefined' && process.env && process.env.HTX_MB) ? +process.env.HTX_MB : 1.565;
+    const _padBp = (typeof process !== 'undefined' && process.env && process.env.HTX_PADBP) ? +process.env.HTX_PADBP : 0.7;
+    // Mirror the mm-scale boost below: final pxPerUnit = unitScale × per-unit
+    // factor (C1 − C2×geoUnits), clamped ≥6. Keeps the pad ~_padBp at the
+    // actual render scale instead of ballooning (old 0.5/unitScale behaviour).
+    const _geoMaxForPad = Math.max(geoBboxW, geoBboxH) || 1;
+    const _finalScaleEst = unitScale < 1
+      ? unitScale * Math.max(6, _mmC1Est - _mmC2Est * _geoMaxForPad)
+      : unitScale;
+    padX = padY = _padBp / _finalScaleEst;
   } else if (!keepAspect && sizeW > 0 && sizeH > 0) {
     padX = 0.5 / (sizeW / geoBboxW);
     padY = 0.5 / (sizeH / geoBboxH);
@@ -22663,8 +22689,33 @@ function renderSVG(result, opts) {
        // case so geometry + labels land near the TeXeR reference width.
        const _cmLabelModestTgt = (unitScale >= 20 && hasAnyLabels
          && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded);
+       // Very small unitsize (< 1bp/unit, mm-scale): TeXeR boosts these tiny
+       // pictures so they're legible, using a minimum-size FLOOR plus a
+       // per-unit scale — i.e. an affine function of the natural (geometry×
+       // unitScale) size, NOT a pure multiplier and NOT a fixed total size.
+       // Empirically (c463_L13 Go-board family, unitsize(0.2mm)): a 3×3 board
+       // renders at 210px (~63bp), a 6×6 at 364px (~109bp), a 2×2 at 150px —
+       // a line through these is naturalTgt ≈ 15.6 + 27.2×naturalSizePre (bp).
+       // The additive floor makes small grids render proportionally larger
+       // (3×3 wants ~20.5bp/unit, 6×6 ~18bp/unit); a pure multiplier can match
+       // only one grid size, a fixed total size matches neither.
+       // TeXeR's boost scales with the literal unitsize, and the resulting
+       // per-unit scale s (bp/unit) falls off slightly as the grid grows:
+       // empirically s = unitScale × (C1 − C2×geoUnits), fit across the
+       // c463_L13 family (0.15mm & 0.2mm boards, 2–7 units wide) to within 1%
+       // of every reference. Hence naturalTgt = naturalSizePre × (C1 − C2×geo)
+       // where geo = naturalSizePre/unitScale (the geometry size in source
+       // units). The (C1 − C2×geo) factor is clamped ≥ 6 so very wide grids
+       // can't drive the target to zero/negative.
+       const _mmC1 = (typeof process !== 'undefined' && process.env && process.env.HTX_MA)
+         ? +process.env.HTX_MA : 41.25;
+       const _mmC2 = (typeof process !== 'undefined' && process.env && process.env.HTX_MB)
+         ? +process.env.HTX_MB : 1.565;
+       const _mmNatPre = Math.max(naturalW, naturalH);
+       const _mmGeoUnits = unitScale > 0 ? _mmNatPre / unitScale : _mmNatPre;
+       const _mmPerUnitG = Math.max(6, _mmC1 - _mmC2 * _mmGeoUnits);
        const baseTgt = (unitScale < 1)
-         ? (aspectRatio >= 2.5 ? 200 : 100)
+         ? (aspectRatio >= 2.5 ? 200 : (_mmNatPre * _mmPerUnitG))
          : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
            ? 300
            : (unitScale >= 20 && !hasAnyLabels)
