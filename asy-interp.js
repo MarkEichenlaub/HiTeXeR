@@ -11902,13 +11902,20 @@ function createInterpreter() {
           // additional space to clear tick labels — using ±3 here would
           // double-push the label far below the plot (issue observed in 8812).
           lAlign = xIsAboveAxis ? {x:0, y:1} : {x:0, y:-1};
-          // For framed axis extents (BottomTop, TopBottom, Bottom, Top), the
-          // axis label is always centered below/above the primary axis edge.
-          // The labelPosition parameter on a Label() in this context controls
-          // label rendering priority/layer, not placement along the axis —
-          // matching Asymptote's graph.asy behavior where xaxis(axis=BottomTop,
-          // L=Label("...", position=1)) still centers the label. (Issue 8812)
-          labelX = (xmin + xmax) / 2;
+          // For framed axis extents (BottomTop, TopBottom, Bottom, Top) the
+          // x-title centers below/above the axis by default. BUT an explicit
+          // endpoint position — Label(s, position=1) or position=0 — is honored:
+          // TeXeR anchors the title at that axis end (08743 "Distance (m)" and
+          // 08812 "Angle Between Radar and Target" both right-align at
+          // position=1, right edge at the frame's right edge). At position=1 the
+          // label is right-aligned (extends left, lAlign.x=-1); at position=0
+          // it is left-aligned (lAlign.x=+1). Any interior position centers.
+          if (labelPosition != null && (labelPosition >= 0.999 || labelPosition <= 0.001)) {
+            labelX = xmin + (xmax - xmin) * labelPosition;
+            lAlign.x = labelPosition >= 0.999 ? -1 : 1;
+          } else {
+            labelX = (xmin + xmax) / 2;
+          }
         } else {
           // Plain `xaxis("string")` with no arrow, no extent, no ticks, and
           // no explicit position/align: tighter vertical offset (y:-1) so the
@@ -12380,7 +12387,16 @@ function createInterpreter() {
         // axis center. Mark these labels so renderSVG suppresses the
         // along-axis component.
         const _midRotated = !uprightEndpoint && lt && effPos > 0 && effPos < 1;
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated});
+        // Rotated label pinned to an axis ENDPOINT (effPos 0 or 1). Asymptote
+        // anchors such a label so it extends INTO the axis span (the label's
+        // far edge sits at the endpoint), never overhanging past the axis end.
+        // Without this, a long rotated y-title at position=1 renders entirely
+        // ABOVE the frame top (e.g. 08743 "Sound Pressure (mPa)"), inflating
+        // the trimmed bbox height. +1 ⇒ shift label down into the axis (top
+        // endpoint); -1 ⇒ shift up into the axis (bottom endpoint).
+        const _endRotated = !uprightEndpoint && lt && (effPos >= 0.999 || effPos <= 0.001);
+        const _axisLabelEndShift = _endRotated ? (effPos >= 0.999 ? 1 : -1) : 0;
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
       }
     });
 
@@ -23266,8 +23282,39 @@ function renderSVG(result, opts) {
     (geoMaxY - geoMinY) / ((geoMaxX - geoMinX) || 1) > 10 ||
     (geoMaxX - geoMinX) / ((geoMaxY - geoMinY) || 1) > 10
   );
+  // IgnoreAspect, geometry-dominated case: real Asymptote scales the geometry
+  // bbox to exactly size(W,H) and lets truesize axis labels extend OUTSIDE the
+  // box. The label-shrink solver below instead crams labels inside size(),
+  // which over-compresses large-span plots (e.g. 08743: a 10×20-unit graph
+  // whose tick numbers and axis titles are small decorations in the margin).
+  // Detect this: if every non-rotated label is small relative to size() (the
+  // plot is dominated by geometry, not by labels), skip the shrink so the
+  // frame matches size() exactly. Label-dominated IgnoreAspect plots (e.g.
+  // 06515: a ~1-unit span swamped by large labels) still need the shrink.
+  let _iaGeoDominated = false;
+  if (isIgnoreAspect && sizeW > 0 && sizeH > 0 && labelInfoBp.length > 0) {
+    let _maxLabelFrac = 0;
+    for (const li of labelInfoBp) {
+      if (Math.abs(li._ltAngle) > 0.5) continue; // skip rotated axis titles
+      const wf = li.widthBp / sizeW, hf = li.heightBp / sizeH;
+      if (wf > _maxLabelFrac) _maxLabelFrac = wf;
+      if (hf > _maxLabelFrac) _maxLabelFrac = hf;
+    }
+    // pxPerUnit here is the size()-derived scale (sizeW/geoW, sizeH/geoH).
+    // Restrict no-shrink to plots whose per-unit scale is in a "normal graph"
+    // band: too small (<5 bp/unit) means a sparse annotation diagram with a
+    // huge near-empty coordinate box that TeXeR trims to its small content
+    // (08817); too large (>60 bp/unit) means a tiny coordinate span swamped by
+    // large labels that genuinely must shrink (06515, 12736, 12949). Only the
+    // mid-band (e.g. 08743 at ~11-28 bp/unit) is a geometry-filled plot whose
+    // frame should match size() with labels spilling into the margin.
+    const _pxMin = Math.min(pxPerUnitX, pxPerUnitY);
+    const _pxMax = Math.max(pxPerUnitX, pxPerUnitY);
+    _iaGeoDominated = _maxLabelFrac > 0 && _maxLabelFrac < 0.4 &&
+                      _pxMin > 5 && _pxMax < 60;
+  }
   let labelShrinkFactor = 1;
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_geoAspectExtremeForSolver) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_geoAspectExtremeForSolver && !_iaGeoDominated) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
@@ -25642,6 +25689,14 @@ function renderSVG(result, opts) {
               if (_isAxis90) {
                 dx = ax2 * (H2 / 2 + margin2);
                 dy = 0;
+                // Endpoint-pinned rotated axis label: shift its center along the
+                // axis by half its (rotated) length so the far edge sits at the
+                // endpoint and the label extends INTO the axis span rather than
+                // overhanging past the end (SVG +y = down = toward a top endpoint's
+                // interior). Matches Asymptote/TeXeR for position=1/0 axis titles.
+                if (dc._axisLabelEndShift) {
+                  dy += dc._axisLabelEndShift * (W2 / 2);
+                }
               } else {
                 // v4.51: For rotated labels, cap the W/H ratio used in the rotation
                 // formula. Long text (W >> H) rotated by 45° causes offWorldY to be
