@@ -22778,11 +22778,28 @@ function renderSVG(result, opts) {
       && labelInfoBp.length >= 4
       && _arrowDrawCountPre >= 3
       && Math.max(naturalW, naturalH) < 60;
+    // Small-cm unitsize (3 ≤ unitScale < 10, e.g. 0.3cm = 8.5bp/unit) where the
+    // geometry is already substantial at literal scale (naturalMax ≥ 45bp).
+    // Real Asymptote/AoPS-TeXeR honors the literal cm-based unitsize in this
+    // case rather than boosting to ~200bp — verified against the c57_L13 arc
+    // family, where wide multi-panel variants (naturalW > defaultSize, boost
+    // skipped) render at literal scale and match TeXeR, while the single-panel
+    // 8×8 versions were boosted ~2.4× too large.  Mirrors _midRangeSkipBoost
+    // for the next tier up [10,20).  Excludes graph-axis / crowded / label-
+    // dominated layouts (e.g. 02158 rr_cartesian_axes) that genuinely need it.
+    const _smallCmNatMaxSkip = Math.max(naturalW, naturalH);
+    const _smallCmSkipBoost = unitScale >= 3 && unitScale < 10
+      && _smallCmNatMaxSkip >= 45
+      && !_hasGraphAxis
+      && !_crowdRequiresBoost
+      && !_smallCmLabelDominated
+      && !_physicsForceVectorBoost;
     if (!geoIsDegenerate
         && !is1DDegenerate
         && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny || _physicsForceVectorBoost)
         && !_sizeExplicit
         && !_midRangeSkipBoost
+        && !_smallCmSkipBoost
         && naturalW < defaultSize && naturalH < defaultSize
         && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated || _physicsForceVectorBoost)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
