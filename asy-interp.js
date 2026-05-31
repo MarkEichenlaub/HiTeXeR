@@ -11017,6 +11017,38 @@ function createInterpreter() {
       return [...new Set(dlist)].sort((a, b) => a - b);
     }
 
+    // bp-per-data-unit in the direction a tick mark extends ('x' = horizontal,
+    // 'y' = vertical). Mirrors the per-axis bpPerUnit logic inside _drawTicks so
+    // that xequals/yequals tick marks sized with Size= (in bp) render at the same
+    // physical length as axis ticks instead of being treated as data-unit lengths.
+    function _perpBpPerUnit(extDir, pic) {
+      if (!pic) pic = currentPic;
+      const _gb = getGeoBbox(pic.commands);
+      let rX = (_gb && isFinite(_gb.maxX - _gb.minX) && _gb.maxX > _gb.minX) ? Math.abs(_gb.maxX - _gb.minX) : 1;
+      let rY = (_gb && isFinite(_gb.maxY - _gb.minY) && _gb.maxY > _gb.minY) ? Math.abs(_gb.maxY - _gb.minY) : 1;
+      // Prefer the diagram's declared axis range (xlimits/ylimits). When xequals/
+      // yequals runs, only the partial geometry drawn so far is in the picture, so
+      // getGeoBbox underestimates the true data range and ticks come out too short.
+      if (_axisLimits.xmin !== null && _axisLimits.xmax !== null && _axisLimits.xmax > _axisLimits.xmin) {
+        rX = Math.abs(_axisLimits.xmax - _axisLimits.xmin);
+      }
+      if (_axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin) {
+        rY = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
+      }
+      if (sizeW > 0 || sizeH > 0) {
+        let sw, sh;
+        if (sizeW > 0 && sizeH > 0) { sw = sizeW; sh = sizeH; }
+        else if (sizeW > 0) { sw = sizeW; sh = sizeW * (rY / rX); }
+        else { sh = sizeH; sw = sizeH * (rX / rY); }
+        return extDir === 'x' ? sw / rX : sh / rY;
+      } else if (hasUnitScale) {
+        return unitScale;
+      } else {
+        const maxDim = Math.max(rX, rY);
+        return maxDim > 0 ? 150 / maxDim : 0;
+      }
+    }
+
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
@@ -12338,19 +12370,29 @@ function createInterpreter() {
       pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
-        const tickSize = ticks.size || 0.1;
+        // ticks.size is in bp (PostScript points). xequals ticks extend in the x
+        // direction, so convert bp → x data units; otherwise a 0.1cm (~2.835bp)
+        // tick is drawn ~2.835 units wide, spanning the whole plot as a grid line.
+        const _bppu = _perpBpPerUnit('x', pic);
+        const _sizeBp = ticks.sizeExplicit ? ticks.size : 2.834645669;
+        const tickSize = _bppu > 0 ? _sizeBp / _bppu : (ticks.size || 0.1);
         // When Size is explicitly set to a very small value (e.g. Size = 0.1pt),
         // treat as intentionally suppressed tick marks — skip drawing the tick lines.
         const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
-        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.format);
+        // Asymptote convention: format "%" suppresses numeric labels entirely
+        // (Ticks("%", ...) draws tick marks without numbers).
+        const suppressByFormat = ticks.format === '%' && !ticks.labelFunc;
+        const showTickLabels = ticks.labels && !suppressByFormat;
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
           for (let v = Math.ceil(ymin/ticks.step)*ticks.step; v <= ymax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
         }
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
-          const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
-          pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+          if (!skipTickMarks) {
+            const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
+            pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+          }
           if (showTickLabels) {
             pic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
           }
@@ -12409,19 +12451,27 @@ function createInterpreter() {
       pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
       if (ticks) {
         const tickPen = ticks.pen || pen;
-        const tickSize = ticks.size || 0.1;
+        // ticks.size is in bp. yequals ticks extend in the y direction, so convert
+        // bp → y data units (see xequals for rationale).
+        const _bppu = _perpBpPerUnit('y', pic);
+        const _sizeBp = ticks.sizeExplicit ? ticks.size : 2.834645669;
+        const tickSize = _bppu > 0 ? _sizeBp / _bppu : (ticks.size || 0.1);
         // When Size is explicitly set to a very small value (e.g. Size = 0.1pt),
         // treat as intentionally suppressed tick marks — skip drawing the tick lines.
         const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
-        const showTickLabels = ticks.labels && !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.format);
+        // Asymptote convention: format "%" suppresses numeric labels entirely.
+        const suppressByFormat = ticks.format === '%' && !ticks.labelFunc;
+        const showTickLabels = ticks.labels && !suppressByFormat;
         const positions = ticks.positions && isArray(ticks.positions) ? ticks.positions.map(v=>toNumber(v)) : [];
         if (positions.length === 0 && ticks.step > 0) {
           for (let v = Math.ceil(xmin/ticks.step)*ticks.step; v <= xmax+1e-10; v += ticks.step) positions.push(Math.round(v*1e10)/1e10);
         }
         for (const v of positions) {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
-          const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
-          pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+          if (!skipTickMarks) {
+            const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
+            pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+          }
           if (showTickLabels) {
             pic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
           }
@@ -22209,7 +22259,13 @@ function renderSVG(result, opts) {
         // past the anchor. Without this floor, bbox under-estimates the width and the
         // label's left edge gets clipped (e.g. diagram 04155 y-axis "Speed" label).
         if (!hasFrac) {
-          const _renderWidthBpFloor = _effLenBB * fontSize * 0.52;
+          // Binary operators (+, -, =) in math mode render with surrounding medium
+          // space (~0.22em each side), so labels like "-2-2i" / "2+(-3)i" are wider
+          // than a flat per-char estimate. Add that operator spacing to the bbox-side
+          // floor so the viewBox reserves enough room (the leftmost glyph of an
+          // SW/end-anchored label was being clipped, e.g. 08567's "-2-2i").
+          const _opCount = (text.match(/[-+=]/g) || []).length;
+          const _renderWidthBpFloor = _effLenBB * fontSize * 0.52 + _opCount * fontSize * 0.28;
           if (_renderWidthBpFloor > textWidthBpBase) textWidthBpBase = _renderWidthBpFloor;
         }
         let textWidthUser = textWidthBpBase / roughPxPerUnitX;
