@@ -3789,6 +3789,10 @@ function createInterpreter() {
         frame._fitSy = sy;
         frame._fitMinX = gb.minX;
         frame._fitMinY = gb.minY;
+        // Carry the picture's size(pic, W[, H]) so add(frame, (i,0)) can space
+        // sub-pictures by one slot (_sizeW bp) per user-unit offset, matching
+        // the picture-form branch's per-slot layout (03398 c190_L1 panel grid).
+        if (obj._sizeW) { frame._sizeW = obj._sizeW; frame._sizeH = obj._sizeH; }
         if (process.env.HTX_DEBUG_FIT) console.error('FIT explicit',explicitSize,'targetW',targetW,'userW',userW.toFixed(1),'sx',sx.toFixed(3),'fitW',(userW*sx).toFixed(1));
         return frame;
       }
@@ -6381,7 +6385,35 @@ function createInterpreter() {
         const fr = frames[0];
         let offX = 0, offY = 0;
         if (framePairs.length === 1) {
-          offX = framePairs[0].x; offY = framePairs[0].y;
+          if (fr._sizeW) {
+            // add(pic.fit(), (i,0)) — the offset is in the OUTER picture's user
+            // coords, but the frame geometry is already in bp space (~_sizeW bp
+            // wide). Map each user-unit step of offset to one picture slot
+            // (_sizeW bp) so sub-pics lay out side-by-side instead of stacking
+            // 1bp apart. Mirrors the picture-form branch (search _sizedAddSteps).
+            if (!currentPic._sizedAddSteps) currentPic._sizedAddSteps = { x: 0, y: 0 };
+            const steps = currentPic._sizedAddSteps;
+            const px = framePairs[0].x, py = framePairs[0].y;
+            const absX = Math.abs(px), absY = Math.abs(py);
+            if (absX > 0 && (steps.x === 0 || absX < steps.x)) steps.x = absX;
+            if (absY > 0 && (steps.y === 0 || absY < steps.y)) steps.y = absY;
+            const stepX = steps.x > 0 ? steps.x : 1;
+            const stepY = steps.y > 0 ? steps.y : 1;
+            offX = (px / stepX) * fr._sizeW;
+            offY = (py / stepY) * (fr._sizeH || fr._sizeW);
+            // Align panels by their sub-picture USER ORIGIN (0,0), not the
+            // fitted bbox-min corner. Asymptote's add(frame,(i,0)) anchors the
+            // frame origin at the slot, so panels whose geometry dips below y=0
+            // (03398 panel A's sin curve reaches -0.4) keep their t-axis on the
+            // shared baseline instead of floating up by the dip. Both the
+            // _srcCommands replay (net = off - s*fitMin) and the flattened
+            // fallback (pt = (v-fitMin)*s + off) net to the slot offset once we
+            // pre-add s*fitMin here.
+            offX += (fr._fitSx || 1) * (fr._fitMinX || 0);
+            offY += (fr._fitSy || 1) * (fr._fitMinY || 0);
+          } else {
+            offX = framePairs[0].x; offY = framePairs[0].y;
+          }
         } else if (framePairs.length >= 2) {
           // position + align form: place the frame's bbox so its align-aligned
           // point sits at position (mirrors the picture add(src,pos,align) logic).
@@ -6415,6 +6447,27 @@ function createInterpreter() {
             offX = align.x + position.x - cx + (align.x / mag) * halfW;
             offY = align.y + position.y - cy + (align.y / mag) * halfH;
           }
+        }
+        // Preferred path: replay the ORIGINAL picture commands carried on the
+        // frame by fit() so arrowheads, dots, bezier curves and pen attributes
+        // survive (the flattened strokes below drop EndArrow/TeXHead axis arrows
+        // — see 03398 c190_L1, whose xaxis/yaxis EndArrow(TeXHead) tips vanished).
+        // Mirrors the dest-picture branch (search fr._srcCommands below).
+        if (fr._srcCommands) {
+          const sx = fr._fitSx, sy = fr._fitSy;
+          const combinedT = makeTransform(
+            offX - sx * fr._fitMinX, sx, 0,
+            offY - sy * fr._fitMinY, 0, sy
+          );
+          for (const c of fr._srcCommands) {
+            const tc = transformDrawCmd(combinedT, c);
+            if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
+            currentPic.commands.push(tc);
+          }
+          unitScale = 1;
+          hasUnitScale = true;
+          _trueSizeFrame = true;
+          return;
         }
         for (const s of (fr.strokes || [])) {
           if (!s.pts || s.pts.length < 2) continue;
