@@ -11907,6 +11907,7 @@ function createInterpreter() {
                         _xMinFromUserLimits: _xminFromUserLimits,
                         _xMaxFromUserLimits: _xmaxFromUserLimits,
                         _bareIdiom: _xaxisBareIdiom,
+                        _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
                         _extentDeferred: _xExtentDeferred};
         pic.commands.push(_xaxisDrawCmd);
         // Mirror axis for BottomTop/TopBottom extent
@@ -12324,6 +12325,7 @@ function createInterpreter() {
                            _yMinFromUserLimits: _yminFromUserLimits,
                            _yMaxFromUserLimits: _ymaxFromUserLimits,
                            _bareIdiom: _yaxisBareIdiom,
+                           _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
                            _extentDeferred: _yExtentDeferred});
         if (yIsLeftRight) {
           const mirrorX = yIsRightPrimary ? crossMin : crossMax;
@@ -21748,6 +21750,49 @@ function renderSVG(result, opts) {
       }
     }
     if (!isFinite(cMinX) || !isFinite(cMinY)) return;
+    // Label-inclusive content bounds: extend the geometry bounds by each body
+    // label's estimated text extent (in user units). Real Asymptote sizes axes
+    // to pic.userMin/userMax which include label bounding boxes, so an axis with
+    // explicit far ticks (e.g. xaxis(RightTicks(..,{-5..5})), declared BEFORE any
+    // draw() so its range fell back to ±5) keeps the ticks that fall under a wide
+    // body label and drops the ones past the actual content.  Used only to decide
+    // which already-drawn explicit ticks to preserve vs. remove as orphans.
+    let lcMinX = cMinX, lcMaxX = cMaxX, lcMinY = cMinY, lcMaxY = cMaxY;
+    {
+      const gW = (cMaxX - cMinX) || 1, gH = (cMaxY - cMinY) || 1;
+      let bpPerUnit = 0;
+      if (hasUnitScale) bpPerUnit = unitScale;
+      else if (sizeW > 0 || sizeH > 0) bpPerUnit = Math.min((sizeW > 0 ? sizeW : Infinity) / gW, (sizeH > 0 ? sizeH : Infinity) / gH);
+      else bpPerUnit = Math.min(150 / gW, 150 / gH);
+      if (isFinite(bpPerUnit) && bpPerUnit > 0) {
+        for (const dc of drawCommands) {
+          if (dc.cmd !== 'label' || dc._isAxisLabel || dc._isTickLabel) continue;
+          if (dc.pen && dc.pen.opacity === 0) continue;
+          const pos = dc.pos || dc;
+          if (!pos || !isFinite(pos.x)) continue;
+          const t = dc.text || dc.label || '';
+          const clean = stripLaTeX(typeof t === 'string' ? t : '');
+          if (!clean) continue;
+          const fs = (dc.pen && dc.pen.fontsize) || 10;
+          // 1.15× generosity approximates TeX advance width vs. the tight estimate.
+          const wU = (_estimateMathRunWidth(clean, fs) * 1.15) / bpPerUnit;
+          const hU = (fs * 1.2) / bpPerUnit;
+          const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
+          const ay = (dc.align && typeof dc.align.y === 'number') ? dc.align.y : 0;
+          const lx = ax > 0.1 ? pos.x : ax < -0.1 ? pos.x - wU : pos.x - wU / 2;
+          const rx = ax > 0.1 ? pos.x + wU : ax < -0.1 ? pos.x : pos.x + wU / 2;
+          const by = ay > 0.1 ? pos.y : ay < -0.1 ? pos.y - hU : pos.y - hU / 2;
+          const ty = ay > 0.1 ? pos.y + hU : ay < -0.1 ? pos.y : pos.y + hU / 2;
+          if (lx < lcMinX) lcMinX = lx;
+          if (rx > lcMaxX) lcMaxX = rx;
+          if (by < lcMinY) lcMinY = by;
+          if (ty > lcMaxY) lcMaxY = ty;
+        }
+      }
+    }
+    // Tick marks/labels that end up outside their (possibly extended) auto axis
+    // range are removed at the end of this pass.
+    const _orphanTicks = new Set();
     // Deferred-extent pass: when xaxis(axis=Bottom)/yaxis(axis=Left) etc.
     // ran BEFORE any draw() statements, the cross-range fell back to ±5
     // defaults and the axis was anchored at user_y=-5 (or similar), well
@@ -21848,6 +21893,25 @@ function renderSVG(result, opts) {
           if (c._autoXmin && !c._xMinFromUserLimits) lo = lo - _ext;
           if (c._autoXmax && !c._xMaxFromUserLimits) hi = hi + _ext;
         }
+        // Explicit-tick axes (xaxis(RightTicks(.., real[]))) declared before any
+        // draw() fell back to the ±5 default range and drew every listed tick.
+        // Preserve ticks that fall within the label-inclusive content bound by
+        // extending the axis line out to the farthest such tick; the rest are
+        // removed as orphans below.
+        const _xAxisY = c._axisShiftY != null ? c._axisShiftY : seg.p0.y;
+        if (c._explicitTicks) {
+          let tkLo = Infinity, tkHi = -Infinity;
+          for (const dc of drawCommands) {
+            if (!dc._isTickMark || !dc.path || !dc.path.segs || !dc.path.segs.length) continue;
+            const ts = dc.path.segs[0];
+            if (Math.abs((ts.p0.y + ts.p3.y) / 2 - _xAxisY) > 0.5) continue;
+            const tx = ts.p0.x;
+            if (tx < tkLo) tkLo = tx;
+            if (tx > tkHi) tkHi = tx;
+          }
+          if (c._autoXmax && !c._xMaxFromUserLimits && isFinite(tkHi) && tkHi > hi && tkHi <= lcMaxX + 1e-9) hi = tkHi;
+          if (c._autoXmin && !c._xMinFromUserLimits && isFinite(tkLo) && tkLo < lo && tkLo >= lcMinX - 1e-9) lo = tkLo;
+        }
         if (lo !== oldLo || hi !== oldHi) {
           const y = c._axisShiftY != null ? c._axisShiftY : seg.p0.y;
           c.path = { segs: [{
@@ -21898,7 +21962,10 @@ function renderSVG(result, opts) {
             }
           }
           existingTickLabels.sort((a, b) => a - b);
-          if (existingTickLabels.length >= 2) {
+          // Explicit-position ticks (real[] array) are not a uniform grid aligned
+          // to 0, so uniform-step in-fill would add wrong-phase ticks (e.g. 0,2,4
+          // for an odd {-5,-3,-1,1,3,5} set). Only preserve/remove, never in-fill.
+          if (!c._explicitTicks && existingTickLabels.length >= 2) {
             let step = existingTickLabels[1] - existingTickLabels[0];
             for (let i = 2; i < existingTickLabels.length; i++) {
               const diff = existingTickLabels[i] - existingTickLabels[i - 1];
@@ -21932,6 +21999,20 @@ function renderSVG(result, opts) {
                   drawCommands.push({ cmd: 'draw', path: { segs: [{ p0, cp1: p0, cp2: p1, p3: p1 }], closed: false }, pen: tickMarkPen, arrow: null, line: 0, above: 0, _isTickMark: true });
                 }
               }
+            }
+          }
+        }
+        // Remove explicit ticks that ended up outside the final [lo,hi] range.
+        if (c._explicitTicks) {
+          for (const dc of drawCommands) {
+            if (dc === c) continue;
+            if (dc._isTickMark && dc.path && dc.path.segs && dc.path.segs.length) {
+              const ts = dc.path.segs[0];
+              if (Math.abs((ts.p0.y + ts.p3.y) / 2 - _xAxisY) > 0.5) continue;
+              const tx = ts.p0.x;
+              if (tx < lo - 1e-9 || tx > hi + 1e-9) _orphanTicks.add(dc);
+            } else if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.y - _xAxisY) < 1e-6) {
+              if (dc.pos.x < lo - 1e-9 || dc.pos.x > hi + 1e-9) _orphanTicks.add(dc);
             }
           }
         }
@@ -22015,7 +22096,10 @@ function renderSVG(result, opts) {
             }
           }
           existingTickLabels.sort((a, b) => a - b);
-          if (existingTickLabels.length >= 2) {
+          // Explicit-position ticks (real[] array) are not a uniform grid aligned
+          // to 0, so uniform-step in-fill would add wrong-phase ticks (e.g. 0,2,4
+          // for an odd {-5,-3,-1,1,3,5} set). Only preserve/remove, never in-fill.
+          if (!c._explicitTicks && existingTickLabels.length >= 2) {
             let step = existingTickLabels[1] - existingTickLabels[0];
             for (let i = 2; i < existingTickLabels.length; i++) {
               const diff = existingTickLabels[i] - existingTickLabels[i - 1];
@@ -22052,6 +22136,11 @@ function renderSVG(result, opts) {
             }
           }
         }
+      }
+    }
+    if (_orphanTicks.size) {
+      for (let i = drawCommands.length - 1; i >= 0; i--) {
+        if (_orphanTicks.has(drawCommands[i])) drawCommands.splice(i, 1);
       }
     }
   })();
