@@ -12771,6 +12771,7 @@ function createInterpreter() {
         else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; if (a.align) t.labelAlign = a.align; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
+          if ('format' in a && typeof a.format === 'string') { t.format = a.format; t.labels = true; }
           if ('Step' in a) t.step = a.Step;
           if ('step' in a) t.subStep = a.step;
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
@@ -24222,11 +24223,19 @@ function renderSVG(result, opts) {
   // outside and don't change the base display aspect ratio. Use geometry-only bbox for
   // naturalW/H calculation. For keepAspect or no-size, use the label-expanded bbox.
   const _isIgnoreAspect2 = !keepAspect && sizeW > 0 && sizeH > 0;
+  // IgnoreAspect: the iterative solver above already shrinks pxPerUnitX/Y so
+  // that geometry + truesize labels together fit within size(W,H). The canvas
+  // must therefore span the FULL label-inclusive bbox — using geometry-only
+  // bounds here drops the label overflow (e.g. rotated below-axis column
+  // labels in 12959), producing a canvas shorter than size() requested and
+  // a badly mis-sized output. Use the full bbox on whichever axis the labels
+  // extend beyond the geometry; fall back to geometry-only when the full
+  // bbox is degenerate/smaller (numerical safety).
   const naturalW = _isIgnoreAspect2
-    ? (geoMaxX - geoMinX) * pxPerUnitX
+    ? Math.max((maxX - minX) * pxPerUnitX, (geoMaxX - geoMinX) * pxPerUnitX)
     : (maxX - minX) * pxPerUnitX;
   const naturalH = _isIgnoreAspect2
-    ? (geoMaxY - geoMinY) * pxPerUnitY
+    ? Math.max((maxY - minY) * pxPerUnitY, (geoMaxY - geoMinY) * pxPerUnitY)
     : (maxY - minY) * pxPerUnitY;
   if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
     try { process.stderr.write('[naturalWH] _isIgnoreAspect2=' + _isIgnoreAspect2 + ' geoW=' + (geoMaxX-geoMinX).toFixed(2) + ' geoH=' + (geoMaxY-geoMinY).toFixed(2) + ' pxPerUnitX=' + pxPerUnitX.toFixed(4) + ' pxPerUnitY=' + pxPerUnitY.toFixed(4) + ' naturalW=' + naturalW.toFixed(2) + ' naturalH=' + naturalH.toFixed(2) + '\n'); } catch(e){}
