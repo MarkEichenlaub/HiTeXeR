@@ -4007,30 +4007,32 @@ function createInterpreter() {
           return {x: c.x + co*dx - si*dy, y: c.y + si*dx + co*dy};
         }
 
-        // Rotate postcontrol of segment i around its p0, and precontrol
-        // around its p3, by random angles. This mirrors Asymptote's loop:
-        //   post = rotate(a, point(tg, i-1)) * postcontrol(tg, i-1);
-        //   pre  = rotate((a+b)/2, point(tg, i)) * precontrol(tg, i);
-        // Where each segment i in our representation corresponds to
-        // (point(tg,i-1) ... point(tg,i)), with cp1=postcontrol(i-1) and
-        // cp2=precontrol(i).
+        // Assign one random angle per NODE and rotate BOTH that node's
+        // precontrol and postcontrol around it by that same angle. Rotating
+        // both handles at a shared node by an identical angle preserves the
+        // node's tangent continuity (G1) — the curve stays smooth, just
+        // shaken. (Rotating a node's two handles by *different* angles, as an
+        // earlier version did, breaks the tangent and produces a cusp at every
+        // joint — visible as a spurious sharp peak on rounded corners.)
+        const N = segs.length;
+        const nodeAngle = new Array(N + 1);
+        for (let i = 0; i <= N; i++) nodeAngle[i] = randf();
+        // For a closed path the last node coincides with the first; share the
+        // angle so the seam stays smooth too.
+        if (pIn.closed && N > 0) nodeAngle[N] = nodeAngle[0];
+
         const outSegs = [];
-        for (let i = 0; i < segs.length; i++) {
+        for (let i = 0; i < N; i++) {
           const s = segs[i];
-          const a = randf();
-          const b = randf();
-          const newCp1 = rot(s.cp1, s.p0, a);
-          const newCp2 = rot(s.cp2, s.p3, (a + b) / 2);
+          // cp1 is the postcontrol of node i; cp2 is the precontrol of node i+1.
+          const newCp1 = rot(s.cp1, s.p0, nodeAngle[i]);
+          const newCp2 = rot(s.cp2, s.p3, nodeAngle[i + 1]);
           outSegs.push(makeSeg(
             {x:s.p0.x, y:s.p0.y},
             newCp1, newCp2,
             {x:s.p3.x, y:s.p3.y},
           ));
         }
-        // Ensure continuity at joints: if the path is not perfectly cyclic
-        // the consecutive endpoint sharing is already correct (each segment
-        // keeps its original p0/p3). Return the new path with same closed
-        // flag.
         return makePath(outSegs, pIn.closed);
       }
     }
@@ -7789,6 +7791,78 @@ function createInterpreter() {
       if (!isPath(p)) return makePair(0,0);
       const time = toNumber(t) * p.segs.length;
       return _pointOnPath(p, time);
+    });
+
+    // roundedpath(path A, real R, real S=1): round the corners of a polygonal
+    // path. At each interior vertex, cut back distance R (clamped to half the
+    // shorter adjacent segment) along both edges to points a (toward previous)
+    // and b (toward next), then join a..b with a cubic whose control points are
+    // pulled toward the corner by factor S (S=1 → tight round, S=0 → chamfer).
+    // Mirrors Asymptote's roundedpath.asy.
+    env.set('roundedpath', (...args) => {
+      const A = args[0];
+      const R = args.length > 1 ? toNumber(args[1]) : 0;
+      const S = args.length > 2 ? toNumber(args[2]) : 1;
+      if (!isPath(A) || A.segs.length === 0 || R === 0) return A;
+      const round_factor = 1;
+      const segsIn = A.segs;
+      const n = segsIn.length; // length(A)
+      const V = [ {x: segsIn[0].p0.x, y: segsIn[0].p0.y} ];
+      for (const s of segsIn) V.push({x: s.p3.x, y: s.p3.y});
+      const cyclic = !!A.closed;
+      const sub = (a,b) => ({x:a.x-b.x, y:a.y-b.y});
+      const add = (a,b) => ({x:a.x+b.x, y:a.y+b.y});
+      const scl = (a,k) => ({x:a.x*k, y:a.y*k});
+      const len = (a) => Math.hypot(a.x, a.y);
+      const unit = (a) => { const l = len(a) || 1; return {x:a.x/l, y:a.y/l}; };
+      const dot = (a,b) => a.x*b.x + a.y*b.y;
+      // Build the cubic for a rounded corner at vertex p between cut points
+      // a (toward previous) and b (toward next). The corner approximates the
+      // circular arc tangent to both edges: control handles run along the
+      // tangents from a and b toward the corner, with length given by the
+      // standard cubic-arc constant (4/3)·tan(α/4)·ρ. S scales roundedness
+      // (S=1 → circular arc, S→0 → straight chamfer).
+      const corner = (a, b, p, dm, dp, rm, rp) => {
+        const cph = Math.max(-1, Math.min(1, dot(dm, dp)));
+        const psi = Math.acos(cph);           // interior angle at the corner
+        const kappa = Math.tan(psi/2) * (4/3) * Math.tan((Math.PI - psi)/4);
+        const ta = unit(sub(p, a)), tb = unit(sub(p, b));
+        const la = kappa * S * rm, lb = kappa * S * rp;
+        return makeSeg(a, add(a, scl(ta, la)), add(b, scl(tb, lb)), b);
+      };
+      const out = [];
+      if (!cyclic) {
+        let prev = V[0];
+        for (let i = 1; i < n; i++) {
+          const p = V[i], pm = V[i-1], pp = V[i+1];
+          const dm = unit(sub(pm,p)), dp = unit(sub(pp,p));
+          const rm = Math.min(R, round_factor*len(sub(pm,p))/2);
+          const rp = Math.min(R, round_factor*len(sub(pp,p))/2);
+          const a = add(p, scl(dm,rm)), b = add(p, scl(dp,rp));
+          out.push(lineSegment(prev, a));
+          out.push(corner(a, b, p, dm, dp, rm, rp));
+          prev = b;
+        }
+        out.push(lineSegment(prev, V[n]));
+        return makePath(out, false);
+      }
+      // Cyclic: round every vertex, then connect consecutive corners.
+      const cornersOut = [];
+      const aArr = [], bArr = [];
+      for (let i = 0; i < n; i++) {
+        const p = V[i], pm = V[(i-1+n)%n], pp = V[(i+1)%n];
+        const dm = unit(sub(pm,p)), dp = unit(sub(pp,p));
+        const rm = Math.min(R, round_factor*len(sub(pm,p))/2);
+        const rp = Math.min(R, round_factor*len(sub(pp,p))/2);
+        const a = add(p, scl(dm,rm)), b = add(p, scl(dp,rp));
+        cornersOut.push(corner(a, b, p, dm, dp, rm, rp));
+        aArr.push(a); bArr.push(b);
+      }
+      for (let i = 0; i < n; i++) {
+        out.push(cornersOut[i]);
+        out.push(lineSegment(bArr[i], aArr[(i+1)%n]));
+      }
+      return makePath(out, true);
     });
 
     // waypoint(path p, real r): point at arclength fraction r on p.
