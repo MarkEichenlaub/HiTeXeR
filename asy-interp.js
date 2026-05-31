@@ -6221,7 +6221,7 @@ function createInterpreter() {
     env.set('nullpath', makePath([],false));
     env.set('nullpen', makePen({opacity:0}));
     env.set('currentpen', makePen({}));
-    env.set('pathpen', makePen({}));
+    env.set('pathpen', makePen({r:0, g:0, b:1}));
     env.set('pointpen', makePen({}));
     env.set('currentpicture', currentPic);
     env.set('currentprojection', null);
@@ -9187,12 +9187,14 @@ function createInterpreter() {
     // D() — cse5/olympiad shorthand for draw that returns its path
     // In AoPS/cse5 convention, D() uses blue pen by default (unlike draw() which uses black)
     env.set('D', (...args) => {
-      // Inject blue pen if no pen provided in args
+      // cse5's D() draws with `pathpen` when no pen is supplied. pathpen
+      // defaults to blue (AoPS TeXeR default) but diagrams routinely reassign
+      // it, e.g. `pathpen = black + linewidth(0.65)`, and we must honor that.
       let hasPen = false;
       for (const a of args) { if (isPen(a)) { hasPen = true; break; } }
       if (!hasPen) {
-        const bluePen = env.get('blue') || makePen({r:0, g:0, b:1});
-        args = [...args, bluePen];
+        const pp = env.get('pathpen') || env.get('blue') || makePen({r:0, g:0, b:1});
+        args = [...args, pp];
       }
       evalDraw('draw', args);
       // Return the first path argument so D() can be chained
@@ -22975,7 +22977,15 @@ function renderSVG(result, opts) {
     // number lines (100 wide × 2 tall). For those, TeXeR renders at the
     // natural defaultSize=150bp/maxDim, NOT the 7bp/unit floor, so applying
     // the floor would oversize the banner ~2-5×. Detect by minDim < 5.
-    if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7) {
+    // Tall-narrow large-geometry diagrams (height ≥ 2× width, e.g. the
+    // c4_L11 triangle+incircle problems 08517/08518 with a ~50×145 bbox) are
+    // rendered by TeXeR at the natural defaultSize=150bp fit (pxPerUnit ≈
+    // 150/maxDim ≈ 1), NOT at the 7 bp/unit label-proportionality floor. The
+    // floor would over-scale them ~7× (1173×3387 vs the 204×504 reference).
+    // For these the natural scale already keeps labels visibly large relative
+    // to the slender figure, matching TeXeR — so skip the floor entirely.
+    const _floorTallNarrow = scaleRefH2 >= 2 * scaleRefW2;
+    if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7 && !_floorTallNarrow) {
       // Gate by label density: the floor exists to keep labels proportional to
       // small geometric features (e.g. 06387: 4 labels in ~112×59 area,
       // density ≈ 6e-4). When labels are sparse relative to bbox area (e.g.
@@ -24968,6 +24978,21 @@ function renderSVG(result, opts) {
       _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
     }
   }
+  // The auto-scaled boost compensates default-pen STROKES for SSIM trim+resize
+  // compression. It only applies to non-explicit pens; if every stroked command
+  // in the diagram carries an explicit linewidth (e.g. 08517's
+  // `pathpen = black + linewidth(0.65)`), no stroke is actually boosted and the
+  // geometry already matches TeXeR at literal width. Boosting the (default-pen)
+  // dots in that case has nothing to anchor to and makes them disproportionately
+  // large relative to the unboosted lines. Detect "no boosted stroke" so the dot
+  // boost can be suppressed and dots render at their natural TeXeR-matching size.
+  let _hasBoostedStroke = false;
+  if (_autoScaledStrokeBoost > 1 && !_defaultpenLwSet) {
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'draw' && dc.cmd !== 'filldraw') continue;
+      if (dc.pen && !dc.pen._lwExplicit) { _hasBoostedStroke = true; break; }
+    }
+  }
   // For diagrams with explicit unitsize/size (!isAutoScaled), the auto-scaled
   // stroke boost above is bypassed, so default-pen strokes (axes, default-
   // color line plots, e.g. the red function-plot in 04531) render at the
@@ -25135,9 +25160,14 @@ function renderSVG(result, opts) {
       // 3D diagrams already skip this via the !_is3D check for stroke boost.
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (_autoScaledStrokeBoost > 1) {
+        if (_autoScaledStrokeBoost > 1 && (geoIs1D || _hasBoostedStroke)) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
+          // For 2D diagrams with no boosted stroke (all geometry uses explicit
+          // linewidths, e.g. 08517), skip the dot boost so dots stay
+          // proportional to the unboosted lines. 1D dot diagrams (09210/09212)
+          // have no strokes at all but still need the boost to survive SSIM
+          // trim+resize, so they always keep it.
           _dotBoost = _isNarrowFewDots1D ? 3.425 : _autoScaledStrokeBoost;
         }
         // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
