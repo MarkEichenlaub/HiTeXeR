@@ -21192,6 +21192,13 @@ function createInterpreter() {
       return Math.abs(dx) + Math.abs(dy);
     }
     const tol = 1e-4;
+    // Dedup tolerance must scale with the coordinate magnitude of the inputs:
+    // the subdivision solver's residual noise is proportional to segment size,
+    // so a fixed absolute threshold lets near-duplicate estimates of the SAME
+    // crossing slip through on large-coordinate paths (e.g. a circle-path of
+    // radius 7 crossing a line yields two estimates ~1e-3 apart per arc) while
+    // being needlessly coarse on tiny-coordinate diagrams.
+    const dedupTol = Math.max(Math.max(segSize(s1), segSize(s2)) * 2e-3, 1e-4);
     const results = [];
     function recurse(a, b, depth) {
       const ba = bbox(a), bb = bbox(b);
@@ -21201,7 +21208,7 @@ function createInterpreter() {
         const my = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
         // Deduplicate: skip if too close to existing result
         for (const r of results) {
-          if (Math.abs(r.x - mx) < 0.001 && Math.abs(r.y - my) < 0.001) return;
+          if (Math.abs(r.x - mx) < dedupTol && Math.abs(r.y - my) < dedupTol) return;
         }
         results.push(makePair(mx, my));
         return;
