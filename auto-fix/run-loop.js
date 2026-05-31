@@ -100,6 +100,8 @@ function parseArgs(argv) {
 
   // In persistent mode the loop runs until STOP; use a sentinel max.
   if (out.persistent && out.max == null) out.max = Number.MAX_SAFE_INTEGER;
+  // In queue-only mode, drain the full queue; runIteration exits early when queue is empty.
+  if (out.queueOnly && out.max == null) out.max = Number.MAX_SAFE_INTEGER;
   // If an explicit ID list is given and --max isn't, default max to list length.
   if (out.max == null) out.max = out.idList ? out.idList.length : 1;
   return out;

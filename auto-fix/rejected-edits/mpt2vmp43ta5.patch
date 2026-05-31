@@ -1,0 +1,147 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 4347b1a0..fd9cb7bb 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -2246,8 +2246,17 @@ function createInterpreter() {
+   }
+ 
+   // Environment (scoped)
++  const _isCallableBinding = (v) =>
++    typeof v === 'function' || (v && (v._tag === 'func' || v._tag === 'overload'));
++
+   function createEnv(parent) {
+     const vars = new Map();
++    // Asymptote keeps variables and functions of the same name in separate
++    // overload sets — e.g. `pair r(pair,pair,real)` and `real r = .4;` coexist,
++    // resolved by usage (call-site → function, value-site → variable). When a
++    // non-callable variable is declared over a same-named callable in this
++    // scope, stash the callable here so call resolution can still find it.
++    const shadowedFuncs = new Map();
+     return {
+       parent,
+       get(name) {
+@@ -2255,10 +2264,30 @@ function createInterpreter() {
+         if (parent) return parent.get(name);
+         return undefined;
+       },
+-      set(name, val) { vars.set(name, val); },
++      getFunc(name) {
++        if (vars.has(name) && _isCallableBinding(vars.get(name))) return vars.get(name);
++        if (shadowedFuncs.has(name)) return shadowedFuncs.get(name);
++        if (parent && parent.getFunc) return parent.getFunc(name);
++        return undefined;
++      },
++      set(name, val) {
++        const cur = vars.get(name);
++        if (cur !== undefined && _isCallableBinding(cur) && !_isCallableBinding(val)) {
++          shadowedFuncs.set(name, cur);
++        } else if (_isCallableBinding(val)) {
++          shadowedFuncs.delete(name);
++        }
++        vars.set(name, val);
++      },
+       has(name) { return vars.has(name) || (parent && parent.has(name)); },
+       update(name, val) {
+-        if (vars.has(name)) { vars.set(name, val); return true; }
++        if (vars.has(name)) {
++          const cur = vars.get(name);
++          if (cur !== undefined && _isCallableBinding(cur) && !_isCallableBinding(val)) {
++            shadowedFuncs.set(name, cur);
++          }
++          vars.set(name, val); return true;
++        }
+         if (parent && parent.update(name, val)) return true;
+         vars.set(name, val); return true;
+       },
+@@ -3122,8 +3151,14 @@ function createInterpreter() {
+       if (callee !== undefined && typeof callee !== 'function' &&
+           !(callee && callee._tag === 'func') &&
+           !(callee && callee._tag === 'overload')) {
+-        const builtin = _builtinFuncs.get(calleeName);
+-        if (builtin) callee = builtin;
++        // A non-callable value shadows a same-named function. Recover the
++        // callable: first a user function shadowed in some scope, then a builtin.
++        const shadowed = env.getFunc ? env.getFunc(calleeName) : undefined;
++        if (shadowed !== undefined) callee = shadowed;
++        else {
++          const builtin = _builtinFuncs.get(calleeName);
++          if (builtin) callee = builtin;
++        }
+       }
+     } else if (node.callee.type === 'MemberAccess') {
+       // e.g. path.length
+@@ -20217,6 +20252,17 @@ function createInterpreter() {
+     }
+     if (typeof text === 'string') text = expandShortstackText(text);
+     if (typeof text === 'string') text = expandMinipageText(text, pen);
++    // \begin{tabular}...\end{tabular} in a dot label: flatten to newline-
++    // separated rows so the multi-line label renderer stacks them. Mirrors the
++    // same expansion in evalLabel (KaTeX/MathJax have no tabular environment,
++    // so without this the label renders as a giant error box that also blows up
++    // the diagram bounding box — e.g. 00468 "Launch \\ pad").
++    if (typeof text === 'string' && /\\begin\s*\{tabular\}/.test(text)) {
++      text = text.replace(
++        /\\begin\s*\{tabular\}\s*(?:\{[^}]*\})?([\s\S]*?)\\end\s*\{tabular\}/g,
++        (_m, body) => body.split(/\\\\/).map(r => r.replace(/&/g, ' ').trim()).filter(r => r.length > 0).join('\n')
++      );
++    }
+     // Dot radius = dotfactor * linewidth(p).
+     if (multiDots) {
+       for (const pt of multiDots) {
+@@ -22683,7 +22729,7 @@ function renderSVG(result, opts) {
+     // uniform-scaled output. For IgnoreAspect, always use geometry-only bounds.
+     const _isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
+     _labelDominatesSize = !_isIgnoreAspect &&
+-                          ((_fullRefW / _geoRefW >= 1.5) || (_fullRefH / _geoRefH >= 1.5));
++                          ((_fullRefW / _geoRefW >= 1.05) || (_fullRefH / _geoRefH >= 1.05));
+     const scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
+     const scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
+     pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
+@@ -23900,7 +23946,20 @@ function renderSVG(result, opts) {
+       const sx = (dc.pos.x - minX) * pxPerUnitX;
+       const sy = (maxY - dc.pos.y) * pxPerUnitY;
+       // Cap to match TeX font-substitution behaviour for fontsize > 25pt.
+-      const fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
++      let fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
++      // Apply LaTeX font-size selectors (\scriptsize, \small, \huge, …) so the
++      // padding reserved for the label matches its ACTUAL rendered size. The
++      // render pass scales the glyph via the _preFs block (capped at a 12pt
++      // baseline); without mirroring it here, a \scriptsize/\small label
++      // reserves padding as if rendered at full size, over-extending the
++      // viewBox (e.g. 00468's rightmost "Observer" and leftmost "250").
++      {
++        const _fsCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
++        const _fsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
++        let _m2, _fsScale = 1.0;
++        while ((_m2 = _fsCmdRe.exec(dc.text || '')) !== null) _fsScale = _fsSizes[_m2[0]] || 1.0;
++        if (_fsScale !== 1.0) fontSize = Math.min(fontSize, 12) * _fsScale;
++      }
+       const fontSizeSVG = fontSize * bpCSSPixel;
+       // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
+       const rawLabelLines = (dc.text || '').split('\n');
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 5e5b3fc1..02a36b37 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -30466,7 +30466,7 @@
+     "id": "00558",
+     "idx": 557,
+     "corpusFile": "c134_L10_script_7.asy",
+-    "ssim": 0.8587066282512595,
++    "ssim": 0.9936382387983153,
+     "rawSsim": 0.5420805530162338,
+     "softSsim": 0.8587066282512595,
+     "sizeScore": 0.9193653402741611,
+diff --git a/index.html b/index.html
+index 66b3d4b3..38e4e660 100644
+--- a/index.html
++++ b/index.html
+@@ -577,7 +577,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.38</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.40</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

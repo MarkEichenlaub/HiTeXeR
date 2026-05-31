@@ -1,0 +1,58 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index ebbace82..b5da637e 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -10804,11 +10804,19 @@ function createInterpreter() {
+             curSeg = [];
+             continue;
+           }
+-          // Detect large y-jumps (asymptotes) — break path if jump exceeds visible range
++          // Detect large y-jumps (asymptotes). A jump that CROSSES the axis
++          // (opposite signs, both large) is a pole crossing — break the path so
++          // we don't draw a spurious line linking +inf to -inf. A large
++          // SAME-SIGN jump is a steep one-sided approach to an asymptote (e.g.
++          // f(x)=1/(x-c) sampled with an endpoint placed right next to the pole,
++          // as in 00091's graph(f,xmin,332.999)). Keep that point so the branch
++          // reaches the crop edge, where limits(...,Crop) clips it — dropping it
++          // truncates the spike and collapses the diagram's height.
+           if (curSeg.length > 0) {
+             const prev = curSeg[curSeg.length - 1];
+             const yRange = _yRangeUseful ? (_axisLimits.ymax - _axisLimits.ymin) : 100;
+-            if (Math.abs(pt.y - prev.y) > yRange * 2) {
++            const crossesAxis = (pt.y > 0) !== (prev.y > 0);
++            if (Math.abs(pt.y - prev.y) > yRange * 2 && crossesAxis) {
+               if (curSeg.length >= 2) segments.push(curSeg);
+               curSeg = [];
+             }
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index b45a7391..ed2db263 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -27111,11 +27111,11 @@
+     "id": "00091",
+     "idx": 90,
+     "corpusFile": "c10_L15_script_7.asy",
+-    "ssim": 0.7313661533785424,
++    "ssim": 0.9870436606306435,
+     "rawSsim": 0.609266846226031,
+-    "softSsim": 0.7313661533785424,
++    "softSsim": 0.9870436606306435,
+     "sizeScore": 0.9977044486419155,
+-    "combined": 0.7296872648118973,
++    "combined": 0.9847778512149942,
+     "wRatio": 0.9898305084745763,
+     "hRatio": 0.4350282485875706,
+     "refDims": [
+diff --git a/index.html b/index.html
+index 8826b854..66b3d4b3 100644
+--- a/index.html
++++ b/index.html
+@@ -577,7 +577,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.37</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v6.38</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>
