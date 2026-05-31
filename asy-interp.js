@@ -1482,6 +1482,7 @@ function applyTransform3Mesh(t, mesh) {
     // a transform like zscale3(-1)*s on a parametric surface.
     if (typeof f._gi === 'number') nf._gi = f._gi;
     if (typeof f._gj === 'number') nf._gj = f._gj;
+    if (f._coneLateral) { nf._coneLateral = true; nf._coneApexIdx = f._coneApexIdx || 0; }
     nf.normal = faceNormal(nf); // recompute normal after transform
     return nf;
   });
@@ -1581,13 +1582,20 @@ function _buildConeMesh(nLon) {
   const faces = [];
   const apex = {x:0, y:0, z:1};
   const center = {x:0, y:0, z:0};
-  // Side faces
+  // Side faces. Tag as cone-lateral with apex at vertex index 0 so the 3D
+  // renderer can apply a smooth apex→base vertical gradient (Gouraud): a real
+  // cone's facet normal is constant along each generator, so flat per-face
+  // shading produces a uniform band; Asymptote's Bezier-patch render instead
+  // shows a dark (degenerate-normal) apex blending down to a lit base rim.
   for (let i = 0; i < nLon; i++) {
     const th1 = 2*Math.PI * i / nLon;
     const th2 = 2*Math.PI * (i+1) / nLon;
     const a = {x: Math.cos(th1), y: Math.sin(th1), z: 0};
     const b = {x: Math.cos(th2), y: Math.sin(th2), z: 0};
-    faces.push(_mkFace([apex, a, b]));
+    const f = _mkFace([apex, a, b]);
+    f._coneLateral = true;
+    f._coneApexIdx = 0;
+    faces.push(f);
   }
   // Base cap
   for (let i = 0; i < nLon; i++) {
@@ -21150,6 +21158,61 @@ function createInterpreter() {
             // jagged edges from the per-face mesh tessellation.
             specular = Math.pow(RdotV, 22) * 0.28;
           }
+        }
+      }
+      // Cone lateral faces: Asymptote renders the cone's Bezier surface with a
+      // smooth apex→base gradient because the apex is a degenerate (collapsed)
+      // patch whose interpolated normal contributes ~no diffuse, while the base
+      // rim carries the full slant-normal Lambert. A flat per-face fill would
+      // instead show a uniform vertical band. Reproduce the gradient by
+      // subdividing each lateral triangle along its generators into height bands
+      // and shading each band with intensity linearly interpolated from a dark
+      // apex to the lit base. (`intensity` above is the base-rim Lambert value.)
+      if (!nolight && face._coneLateral) {
+        const ai = face._coneApexIdx || 0;
+        const apexV = V[ai];
+        const baseVs = V.filter((_, k) => k !== ai);
+        if (baseVs.length === 2) {
+          const A = baseVs[0], B = baseVs[1];
+          // Base-rim Lambert from Asymptote's FIXED world default light
+          // (three.asy White ≈ direction (0.25,-0.25,1)), not the renderer's
+          // view-relative light: the reference cone's highlight tracks a world
+          // light, so brightness peaks at the world-right silhouette rather than
+          // at the camera-facing centre. Orient the facet normal outward
+          // (radially away from the +Z cone axis) so the shadowed side stays
+          // dark. Linear amb/diffuse fit (0.30 + 0.70·n·L) matches the TeXeR
+          // rim samples (left ≈0.43, right ≈0.83).
+          let onx = n.x, ony = n.y, onz = n.z;
+          if (onx * cx + ony * cy < 0) { onx = -onx; ony = -ony; onz = -onz; }
+          const onl = Math.sqrt(onx*onx + ony*ony + onz*onz) || 1;
+          onx /= onl; ony /= onl; onz /= onl;
+          const Lwl = Math.sqrt(0.25*0.25 + 0.25*0.25 + 1);
+          const Lwx = -0.25/Lwl, Lwy = 0.25/Lwl, Lwz = 1/Lwl;
+          let nd = onx*Lwx + ony*Lwy + onz*Lwz;
+          if (nd < 0) nd = 0;
+          const baseI = Math.min(1, 0.21 + 1.15 * nd);
+          const apexI = 0.03; // degenerate apex: ambient-only, near black
+          const NB = 36;      // height bands per generator triangle (fine = smooth gradient)
+          const lerpV = (p, q, t) => makeTriple(
+            p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t);
+          for (let kb = 0; kb < NB; kb++) {
+            const t0 = kb / NB, t1 = (kb + 1) / NB; // t: 0 apex → 1 base rim
+            const mt = (t0 + t1) / 2;
+            const bandI = apexI + (baseI - apexI) * mt;
+            const At0 = lerpV(apexV, A, t0), At1 = lerpV(apexV, A, t1);
+            const Bt0 = lerpV(apexV, B, t0), Bt1 = lerpV(apexV, B, t1);
+            const wv = (kb === 0) ? [apexV, At1, Bt1] : [At0, At1, Bt1, Bt0];
+            let bcx = 0, bcy = 0, bcz = 0;
+            for (const v of wv) { bcx += v.x; bcy += v.y; bcz += v.z; }
+            bcx /= wv.length; bcy /= wv.length; bcz /= wv.length;
+            const bdepth = Math.sqrt(
+              (camPos.x - bcx) * (camPos.x - bcx) +
+              (camPos.y - bcy) * (camPos.y - bcy) +
+              (camPos.z - bcz) * (camPos.z - bcz));
+            items.push({depth: bdepth, intensity: bandI, specular: 0,
+              poly: wv.map(v => projectTriple(v)), pen: face.pen || basePen, _subSmooth: true});
+          }
+          continue;
         }
       }
       // Project polygon
