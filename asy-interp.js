@@ -1326,6 +1326,7 @@ function mergePens(a,b) {
   if (b.fontFamily) r.fontFamily = b.fontFamily;
   if (b._nibPath) r._nibPath = b._nibPath;
   if (a._nibPath && !b._nibPath) r._nibPath = a._nibPath;
+  if (b._fillPattern) r._fillPattern = b._fillPattern;
   return r;
 }
 
@@ -1979,6 +1980,7 @@ function createInterpreter() {
   let defaultPen = makePen({});
   let _defaultpenLwSet = false; // whether defaultpen() explicitly set a linewidth
   let _legendEntries = [];    // collected {text, pen} entries for legend()
+  const patternRegistry = {}; // name -> {_tag:'pattern',...} from patterns module
   let iterationLimit = 100000;
   let _imageCache = {};    // pre-fetched graphic() image data
   // Registry mapping sentinel ids -> graphic objects, populated when a graphic
@@ -2842,6 +2844,15 @@ function createInterpreter() {
       const p = applyTransformPair(left, locatePoint(right));
       const cs = right.coordsys;
       return makePoint(cs, cs.defaultToRelative(p), right.m);
+    }
+    // Transform * pattern (e.g. shift(1.414mm,0)*hatch(...)) — fold the
+    // translation into the pattern's phase offset; ignore rotation/scale of
+    // the tile (rare for hatch idioms).
+    if (isTransform(left) && right && right._tag === 'pattern') {
+      const out = Object.assign({}, right);
+      out.shift = { x: (right.shift ? right.shift.x : 0) + (left.a || 0),
+                    y: (right.shift ? right.shift.y : 0) + (left.d || 0) };
+      return out;
     }
     // Transform * picture
     if (isTransform(left) && right && right._tag === 'picture') return transformPicture(left, right);
@@ -6224,6 +6235,12 @@ function createInterpreter() {
     // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
     // Also: add(frame, frame, pair) — compose frames at position offset
     env.set('add', (...args) => {
+      // patterns module: add(string name, pattern tile) registers a named fill
+      // pattern for later pattern(name) lookup.
+      if (args.length >= 2 && typeof args[0] === 'string' && args[1] && args[1]._tag === 'pattern') {
+        patternRegistry[args[0]] = args[1];
+        return;
+      }
       // Handle frame-to-frame composition: add(destFrame, srcFrame, offset)
       let frames = [], framePairs = [];
       for (const a of args) {
@@ -6788,6 +6805,38 @@ function createInterpreter() {
     env.set('beveljoin', makePen({linejoin:'bevel'}));
     env.set('evenodd', makePen({fillrule:'evenodd'}));
     env.set('zerowinding', makePen({fillrule:'nonzero'}));
+
+    // patterns module: hatch/crosshatch build a tile descriptor; add(name,tile)
+    // registers it; pattern(name) returns a fill pen referencing the tile.
+    // H is the tile spacing in bp (mm/cm unit constants already convert to bp).
+    // dir is a pair giving the hatch line direction (default NE = 45°).
+    const _makeHatch = (cross, args) => {
+      let H = 5 * (72/25.4); // default 5mm
+      let dir = null;
+      let pen = null;
+      for (const a of args) {
+        if (a && a._named) {
+          if (typeof a.H === 'number') H = a.H;
+          if (isPair(a.dir)) dir = a.dir;
+          if (isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+        }
+        else if (typeof a === 'number') H = a;
+        else if (isPair(a)) dir = a;
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+      }
+      const angle = dir ? Math.atan2(dir.y, dir.x) : Math.PI/4;
+      return {_tag:'pattern', kind: cross ? 'crosshatch' : 'hatch',
+              H, angle, pen: pen ? clonePen(pen) : clonePen(defaultPen),
+              shift: {x:0, y:0}};
+    };
+    env.set('hatch', (...args) => _makeHatch(false, args));
+    env.set('crosshatch', (...args) => _makeHatch(true, args));
+    env.set('pattern', (name) => {
+      const spec = patternRegistry[name];
+      const p = makePen({});
+      p._fillPattern = spec || null;
+      return p;
+    });
 
     // Units
     env.set('bp', 1);
@@ -24518,6 +24567,42 @@ function renderSVG(result, opts) {
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
       fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
+      // patterns module: hatch/crosshatch fill. Emit an SVG <pattern> of
+      // parallel (or crossed) lines at the correct absolute spacing and set
+      // fill to url(#...). The tile background is transparent so overlapping
+      // hatch fills both remain visible (matches Asymptote's patterns).
+      if (dc.cmd === 'fill' && dc.pen && dc.pen._fillPattern !== undefined) {
+        const spec = dc.pen._fillPattern;
+        if (!spec) {
+          fill = 'none'; // pattern(name) found no registered tile
+        } else {
+          if (typeof globalThis._hatchPatCounter !== 'number') globalThis._hatchPatCounter = 0;
+          globalThis._hatchPatCounter += 1;
+          const pid = `_hpat${globalThis._hatchPatCounter}`;
+          const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
+          const lwPx = Math.max(0.4, ((spec.pen && spec.pen.linewidth) || 0.5) * bpCSSPixel);
+          const hp = spec.pen || {r:0,g:0,b:0};
+          const hcol = '#' + [hp.r,hp.g,hp.b].map(c => {
+            const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
+            return h.length<2?'0'+h:h;
+          }).join('');
+          const angDeg = ((spec.angle != null ? spec.angle : Math.PI/4) * 180 / Math.PI);
+          const sx = (spec.shift ? spec.shift.x : 0) * bpCSSPixel;
+          const sy = (spec.shift ? spec.shift.y : 0) * bpCSSPixel;
+          // Horizontal lines spaced d_px apart, rotated to the hatch angle.
+          // Screen y is down, so negate the math-coords angle.
+          let lines = `<line x1="0" y1="0" x2="${fmt(d_px)}" y2="0" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+          if (spec.kind === 'crosshatch') {
+            lines += `<line x1="0" y1="0" x2="0" y2="${fmt(d_px)}" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+          }
+          const ptrans = `translate(${fmt(sx)},${fmt(sy)}) rotate(${fmt(-angDeg)})`;
+          elements.push(
+            `<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(d_px)}" height="${fmt(d_px)}" patternTransform="${ptrans}">` +
+            lines + `</pattern></defs>`
+          );
+          fill = `url(#${pid})`;
+        }
+      }
       // Closed-sphere radial-gradient fill (see renderMeshToPicture
       // short-circuit). Replace flat fill with url(#...) and emit a
       // <defs><radialGradient> inline. World coords in dc._sphereGradient
