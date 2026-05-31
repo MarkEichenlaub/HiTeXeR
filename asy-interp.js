@@ -27862,6 +27862,43 @@ function _estimateTextWidth(text, fontSize) {
   return w * fontSize;
 }
 
+// Binary relations that take LaTeX \thickmuskip on each side (≈0.28em).
+const _MATH_RELATION_RE = /[=<>≤≥≠≈≡±]/;
+const _MATH_RELATION_SPACE = 0.24; // em of extra space inserted on EACH side
+
+// Width of a math run including the relation spacing that _mathTextSvgSpaced adds,
+// so center/right-anchored labels stay aligned with the rendered glyphs.
+function _estimateMathRunWidth(text, fontSize) {
+  const base = _estimateTextWidth(text, fontSize);
+  const relCount = (text.match(new RegExp(_MATH_RELATION_RE.source, 'g')) || []).length;
+  return base + relCount * 2 * _MATH_RELATION_SPACE * fontSize;
+}
+
+// Like mathTextSvg, but inserts LaTeX-style spacing around binary relations
+// (=, <, >, ≤, ≥, ≠, ≈, ≡, ±) so "DG=2R" renders as "DG = 2R".
+function _mathTextSvgSpaced(text, fontSize) {
+  if (!text || !_MATH_RELATION_RE.test(text)) return mathTextSvg(text);
+  const sp = fmt(fontSize * _MATH_RELATION_SPACE);
+  const splitRe = new RegExp('(' + _MATH_RELATION_RE.source + ')');
+  const pieces = text.split(splitRe);
+  const relTest = new RegExp('^' + _MATH_RELATION_RE.source + '$');
+  let out = '';
+  let leadNext = false;
+  for (const piece of pieces) {
+    if (piece === '') continue;
+    if (relTest.test(piece)) {
+      out += `<tspan dx="${sp}">${mathTextSvg(piece)}</tspan>`;
+      leadNext = true;
+    } else if (leadNext) {
+      out += `<tspan dx="${sp}">${mathTextSvg(piece)}</tspan>`;
+      leadNext = false;
+    } else {
+      out += mathTextSvg(piece);
+    }
+  }
+  return out;
+}
+
 // Render LaTeX labels with fractions/underbraces as SVG elements
 function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
   x = parseFloat(x); y = parseFloat(y);
@@ -27937,7 +27974,7 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       totalWidth += braceW;
     } else {
       // Plain text
-      const w = _estimateTextWidth(seg.text, fontSize);
+      const w = _estimateMathRunWidth(seg.text, fontSize);
       parts.push({type:'text', text: seg.text, width: w});
       totalWidth += w;
     }
@@ -28310,7 +28347,7 @@ function mathTextWithScriptsSvg(text, fontSize) {
     } else if (p.mode === 'sub') {
       inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
     } else {
-      inner += mathTextSvg(p.text);
+      inner += _mathTextSvgSpaced(p.text, fontSize);
     }
   }
   return inner;
