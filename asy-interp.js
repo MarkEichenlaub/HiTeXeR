@@ -22104,6 +22104,16 @@ function renderSVG(result, opts) {
         // for very-large fontsize() labels (capped near 25pt by font subst).
         let fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
         const text = dc.text || dc.label || '';
+        // Fold LaTeX font-size selectors into fontSize so the heuristic width
+        // matches the rendered (and MathJax-measured) size. Mirrors the render
+        // path's _preFs cap (baseline 12pt) and _mjxMeasureBp.
+        {
+          const _hfsRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
+          const _hfsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
+          let _hfsm, _hfsScale = 1.0;
+          while ((_hfsm = _hfsRe.exec(typeof text === 'string' ? text : '')) !== null) _hfsScale = _hfsSizes[_hfsm[0]] || 1.0;
+          if (_hfsScale !== 1.0) fontSize = Math.min(fontSize, 12) * _hfsScale;
+        }
         // For multiline labels (minipage), stripLaTeX collapses whitespace including \n.
         // Split on \n first, strip each line, use longest for width estimation.
         const rawLines = typeof text === 'string' ? text.split('\n') : [''];
@@ -25777,6 +25787,9 @@ function renderSVG(result, opts) {
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
+        if (/\\(?:bf|bfseries|mathbf|textbf|boldsymbol)(?![a-zA-Z])/.test(displayText)) {
+          labelEl = `<g font-weight="bold" stroke="${css.fill}" stroke-width="${fmt(effectiveFontSize*0.04)}">${labelEl}</g>`;
+        }
       } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
         // Use KaTeX for math rendering via foreignObject.  When rendering for
         // rasterization (labelOutput === 'svg-native'), go through MathJax
@@ -26823,6 +26836,23 @@ function _mjxMeasureBp(rawText, fontSize) {
   fontSize = _texCapFontSize(fontSize);
   // Normalize text following renderLabelMathJaxSVG's pre-processing.
   let math = (rawText || '').trim();
+  // Strip LaTeX font-size selectors (\footnotesize, \small, \huge, …) and fold
+  // their scale into fontSize. These are size directives, not displayable text;
+  // without removing them the mixed-content path below wraps "\footnotesize" in
+  // \text{} and MathJax renders it as literal glyphs, grossly over-measuring the
+  // label width (e.g. "\footnotesize $-1$" → ~85bp instead of ~6bp). The render
+  // path (renderLabelMathJaxSVG / _preFs block) caps the baseline at 12pt before
+  // applying the selector scale; mirror that here so measured widths match.
+  {
+    const _fsRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
+    const _fsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
+    let _fsm, _fsScale = 1.0;
+    while ((_fsm = _fsRe.exec(math)) !== null) _fsScale = _fsSizes[_fsm[0]] || 1.0;
+    if (_fsScale !== 1.0) {
+      math = math.replace(_fsRe, '').trim();
+      fontSize = Math.min(fontSize, 12) * _fsScale;
+    }
+  }
   const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
   if (reflectMatch) math = reflectMatch[1].trim();
   const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
