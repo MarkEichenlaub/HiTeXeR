@@ -18425,6 +18425,16 @@ function createInterpreter() {
           else if (lv && lv._tag === 'label') lblObj = lv;
         }
       }
+      // Positional Label-first form: draw(Label L, path g, ...).  A leading
+      // label object (e.g. from scale(0.5)*"12") anchors a label along the
+      // path at its midpoint, matching Asymptote's draw(Label,path) signature.
+      // Used by the AoPS drawGraph idiom to place edge-weight labels on arrows
+      // (e.g. 12287's "12"/"6"/"4" capacities).
+      if (!lblObj) {
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._tag === 'label' && a.text) { lblObj = a; break; }
+        }
+      }
       if (lblObj && lblObj.text) {
         // Find first path arg to anchor the label.
         let anchorPath = null;
@@ -18455,6 +18465,7 @@ function createInterpreter() {
             pos: lpos,
             align: lblAlign,
             pen: lblPen,
+            labelTransform: lblObj.transform || null,
             filltype: lblObj.filltype || null,
             line: args._line || 0,
           });
@@ -22823,14 +22834,34 @@ function renderSVG(result, opts) {
       && !_crowdRequiresBoost
       && !_smallCmLabelDominated
       && !_physicsForceVectorBoost;
+    // Node-link graph idiom (AoPS drawGraph family, e.g. c647_L14): a small
+    // cm-based unitsize diagram with many arrow edges (≥3) and several
+    // vertex/edge labels (≥4) drawn on tiny geometry.  Real AoPS-TeXeR scales
+    // the GEOMETRY up to a large canvas (≈1000–1300px) while keeping the
+    // edge/vertex labels at ~truesize, so nodes and arrows dominate and the
+    // weight labels read small.  HTX otherwise skips the boost here because the
+    // truesize labels expand the label-bbox past minReasonable, leaving the
+    // graph rendered at literal unitsize (e.g. 12287 at unitsize(0.5cm) came
+    // out 166px wide vs TeXeR's 1250px).  Gate by small geometry-only natural
+    // size (< 80bp) so already-large graphs at unitsize(1cm) with multi-unit
+    // spans (12272/12279) keep their literal scale, and by unitScale < 20 so
+    // cm-scale physics free-body diagrams (handled by _physicsForceVectorBoost)
+    // are unaffected.  Boost the geometry to a larger target than defaultSize
+    // (200bp) since these graphs render at ~360bp on TeXeR.
+    const _graphIdiomBoost = unitScale < 20
+      && !(sizeW > 0 || sizeH > 0)
+      && _arrowDrawCountPre >= 3
+      && labelInfoBp.length >= 4
+      && Math.max(naturalW, naturalH) < 80;
+    const _graphIdiomTgt = 360;
     if (!geoIsDegenerate
         && !is1DDegenerate
-        && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny || _physicsForceVectorBoost)
+        && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny || _physicsForceVectorBoost || _graphIdiomBoost)
         && !_sizeExplicit
-        && !_midRangeSkipBoost
-        && !_smallCmSkipBoost
+        && (!_midRangeSkipBoost || _graphIdiomBoost)
+        && (!_smallCmSkipBoost || _graphIdiomBoost)
         && naturalW < defaultSize && naturalH < defaultSize
-        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated || _physicsForceVectorBoost)) {
+        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated || _physicsForceVectorBoost || _graphIdiomBoost)) {
       // For very small unitsize with wide-aspect geometry (e.g. multiple
       // horizontally-shifted subgraphs), use a larger target size so dense
       // labels at edge midpoints don't crowd each other.  Only applies when
@@ -22896,7 +22927,9 @@ function renderSVG(result, opts) {
        const _mmNatPre = Math.max(naturalW, naturalH);
        const _mmGeoUnits = unitScale > 0 ? _mmNatPre / unitScale : _mmNatPre;
        const _mmPerUnitG = Math.max(6, _mmC1 - _mmC2 * _mmGeoUnits);
-       const baseTgt = (unitScale < 1)
+       const baseTgt = _graphIdiomBoost
+         ? _graphIdiomTgt
+         : (unitScale < 1)
          ? (aspectRatio >= 2.5 ? 200 : (_mmNatPre * _mmPerUnitG))
          : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
            ? 300
@@ -22988,7 +23021,13 @@ function renderSVG(result, opts) {
           _overlapTgt = defaultSize;
         }
       }
-      const tgtSize = Math.max(baseTgt, crowdedTgt, _overlapTgt);
+      // For the node-link graph idiom, honor the fixed geometry target and do
+      // NOT fold in crowdedTgt/_overlapTgt: the many edge-weight labels on a
+      // dense graph (e.g. 12275's 12 edges) otherwise drive crowdedTgt to a
+      // huge value and inflate the canvas to several thousand px.
+      const tgtSize = _graphIdiomBoost
+        ? _graphIdiomTgt
+        : Math.max(baseTgt, crowdedTgt, _overlapTgt);
       // Scale up while maintaining aspect ratio
       const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
