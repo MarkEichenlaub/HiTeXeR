@@ -9200,7 +9200,17 @@ function createInterpreter() {
               t = ((ip.x - s1.p0.x)*dx + (ip.y - s1.p0.y)*dy) / len2;
             }
             // Global time = segment index + t within segment
-            const globalT = segIdx + Math.max(0, Math.min(1, t));
+            let globalT = segIdx + Math.max(0, Math.min(1, t));
+            // Seam handling for closed paths: an intersection that lands on
+            // the start/closing node is reported at the END of the path by
+            // Asymptote (time == length), not the beginning (time 0). Remap
+            // it so the ordering of intersectionpoints matches Asymptote.
+            if (p1.closed && p1.segs.length > 0) {
+              const sn = p1.segs[0].p0;
+              const ndist = Math.hypot(ip.x - sn.x, ip.y - sn.y);
+              const ntol = 1e-3 * Math.max(1, Math.hypot(sn.x, sn.y));
+              if (ndist < ntol) globalT = p1.segs.length;
+            }
             // Deduplicate across segments
             let dup = false;
             for (const p of ptsWithT) {
