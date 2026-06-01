@@ -6,6 +6,12 @@
 <title>HiTeXeR Blink Comparator</title>
 <!-- KaTeX fonts: needed so SVGs using KaTeX_Math/KaTeX_Main render correctly -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<!-- KaTeX JS + the live HiTeXeR interpreter: the comparator renders the HiTeXeR
+     side in-browser from .asy source via the SAME code path as index.html, so
+     what you see here is identical to the live tool (not the svg-native render
+     used for SSIM rasterization). -->
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="../asy-interp.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
@@ -28,6 +34,8 @@
   .thumb .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #0f3460; }
   .thumb .half { position: relative; background: #fff; overflow: hidden; }
   .thumb .half img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; display: block; }
+  .thumb .half .half-svg { width: 100%; aspect-ratio: 1; background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .thumb .half .half-svg svg { max-width: 100%; max-height: 100%; }
   .thumb .half .no-img { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #f87171; background: #2a2a3a; }
   .thumb .half .half-label { position: absolute; bottom: 2px; left: 3px; font-size: 9px; background: rgba(0,0,0,0.65); color: #fff; padding: 0 4px; border-radius: 2px; font-weight: 600; letter-spacing: 0.3px; }
   .thumb .info { padding: 4px 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; }
@@ -161,7 +169,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v11</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v12</span></h1>
 
   <div class="filter-group">
     <label>Collections:</label>
@@ -352,6 +360,75 @@
     .then(ids => { randomSet = new Set((ids || []).map(String)); })
     .catch(() => {});
 
+  // ── Live HiTeXeR rendering ───────────────────────────
+  // The HiTeXeR side is rendered in-browser from the .asy source via the SAME
+  // AsyInterp.render default options as index.html (no labelOutput), so the
+  // comparator shows exactly the live tool's output — KaTeX <foreignObject>
+  // labels and all — not the svg-native render that feeds SSIM rasterization.
+  // Memoized per id (svg string, or null when interpretation isn't possible —
+  // callers then fall back to the precomputed htx_pngs PNG).
+  const liveSvgCache = new Map();
+  let _graphicCache = {};
+  let thumbObserver = null;  // lazily renders HiTeXeR thumbnails on scroll-in
+
+  function fetchSourceCode(id) {
+    if (codeCache[id] !== undefined) return Promise.resolve(codeCache[id]);
+    return fetch(`asy_src/${id}.asy`)
+      .then(r => { if (!r.ok) throw new Error('Not found'); return r.text(); })
+      .then(code => { codeCache[id] = code; return code; })
+      .catch(() => { codeCache[id] = null; return null; });
+  }
+
+  // Mirror of index.html prefetchGraphicImages: resolve graphic() EPS paths to
+  // base64 via the same-origin /convert-eps endpoint. Most diagrams have none.
+  async function prefetchGraphicImages(code) {
+    const matches = [...new Set((code.match(/\/var\/www\/cdn\/[^\s"'\\)]+/g) || []))];
+    if (matches.length === 0) return _graphicCache;
+    const uncached = matches.filter(p => !_graphicCache[p]);
+    if (uncached.length > 0) {
+      try {
+        const resp = await fetch('/convert-eps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paths: uncached }),
+        });
+        const data = await resp.json();
+        if (data.images) for (const [p, info] of Object.entries(data.images)) _graphicCache[p] = info;
+      } catch (e) { /* fall through — render without the image */ }
+    }
+    return _graphicCache;
+  }
+
+  async function liveHtxSvg(id) {
+    if (liveSvgCache.has(id)) return liveSvgCache.get(id);
+    let svg = null;
+    try {
+      const code = await fetchSourceCode(id);
+      if (code && window.AsyInterp && AsyInterp.canInterpret(code)) {
+        const imageCache = await prefetchGraphicImages(code);
+        const result = AsyInterp.render(code, { containerW: 800, containerH: 600, imageCache });
+        svg = (result && result.svg) || null;
+      }
+    } catch (e) { svg = null; }
+    liveSvgCache.set(id, svg);
+    return svg;
+  }
+
+  // Inject a live-rendered SVG string into a container, sized to fit its box.
+  // Returns true on success; false if the live render was unavailable.
+  async function injectLiveHtx(container, id) {
+    const svg = await liveHtxSvg(id);
+    if (!svg) return false;
+    container.innerHTML = svg;
+    const svgEl = container.querySelector('svg');
+    if (svgEl) {
+      svgEl.style.display = 'block';
+      svgEl.style.maxWidth = '100%';
+      svgEl.style.maxHeight = '100%';
+    }
+    return true;
+  }
+
   // ── Load manifest ────────────────────────────────────
   fetch('blink-manifest.json')
     .then(r => r.json())
@@ -488,8 +565,9 @@
       const texerHalf = d.hasTexer
         ? `<img src="texer_pngs/${d.id}.png" loading="lazy" alt="${d.id} TeXeR">`
         : '<div class="no-img">no TeXeR</div>';
+      // HiTeXeR half is rendered live (lazily, on scroll-in) from .asy source.
       const htxHalf = d.hasHtx
-        ? `<img src="htx_pngs/${d.id}.png" loading="lazy" alt="${d.id} HiTeXeR">`
+        ? `<div class="half-svg" data-htx-id="${d.id}"></div>`
         : '<div class="no-img">no HTX</div>';
       const sortMode = document.getElementById('sort-mode').value;
       const badge = ssimBadge(sortMode.startsWith('combined') ? (d.combined ?? d.ssim) : d.ssim);
@@ -525,6 +603,21 @@
         enterBlink(parseInt(el.dataset.idx, 10));
       });
     });
+
+    // Lazily render the HiTeXeR thumbnails (live SVG) as they scroll into view.
+    if (thumbObserver) thumbObserver.disconnect();
+    thumbObserver = new IntersectionObserver((entries, obs) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const el = entry.target;
+        obs.unobserve(el);
+        const id = el.dataset.htxId;
+        injectLiveHtx(el, id).then(ok => {
+          if (!ok) el.outerHTML = `<img src="htx_pngs/${id}.png" loading="lazy" alt="${id} HiTeXeR">`;
+        });
+      }
+    }, { rootMargin: '200px' });
+    grid.querySelectorAll('.half-svg[data-htx-id]').forEach(el => thumbObserver.observe(el));
 
     updateSelectedCount();
 
@@ -759,8 +852,9 @@
     if (cacheBust) ts = '?t=' + Date.now();
     else if (kind === 'texer' && d._texerCacheBustTs) ts = '?t=' + d._texerCacheBustTs;
     if (kind === 'htx' && d.hasHtx) {
-      if (d.hasSvg) return { src: `htx_svgs/${d.id}.svg${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
-      return { src: `htx_pngs/${d.id}.png${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
+      // Rendered live in-browser from .asy (same path as the live tool); falls
+      // back to the precomputed PNG if interpretation isn't possible.
+      return { live: true, id: d.id, pngSrc: `htx_pngs/${d.id}.png${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
     }
     if (kind === 'texer' && d.hasTexer) {
       return { src: `texer_pngs/${d.id}.png${ts}`, label: 'TeXeR', cls: 'texer', scale: TEXER_DISPLAY_SCALE, kind: 'texer' };
@@ -784,6 +878,18 @@
       div.className = 'no-img';
       div.textContent = '(not available)';
       container.appendChild(div);
+      return;
+    }
+    if (desc.live) {
+      injectLiveHtx(container, desc.id).then(ok => {
+        if (ok) return;
+        // Fall back to the precomputed svg-native PNG.
+        const img = document.createElement('img');
+        img.onerror = () => { container.innerHTML = '<div class="no-img">render failed</div>'; };
+        container.innerHTML = '';
+        img.src = desc.pngSrc;
+        container.appendChild(img);
+      });
       return;
     }
     const isSvg = desc.src.split('?')[0].endsWith('.svg');
@@ -910,6 +1016,22 @@
       }
       singleLabel.textContent = desc.label;
       singleLabel.className = 'source-label ' + desc.cls;
+
+      if (desc.live) {
+        img.style.display = 'none';
+        svgDiv.style.display = '';
+        svgDiv.innerHTML = '';
+        injectLiveHtx(svgDiv, desc.id).then(ok => {
+          if (ok) return;
+          svgDiv.style.display = 'none';
+          svgDiv.innerHTML = '';
+          img.style.display = '';
+          img.onload = () => fitImage(img, img.naturalWidth, img.naturalHeight);
+          img.onerror = () => { svgDiv.style.display = ''; svgDiv.innerHTML = '<div class="no-img">render failed</div>'; img.style.display = 'none'; };
+          img.src = desc.pngSrc;
+        });
+        return;
+      }
 
       const isSvg = desc.src.split('?')[0].endsWith('.svg');
       if (isSvg) {
