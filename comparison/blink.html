@@ -144,6 +144,9 @@
   #autofix-bar .af-skip   { color: #fde68a; }
   #autofix-bar .af-rerender { color: #60a5fa; animation: af-blink 1.2s ease-in-out infinite; }
   @keyframes af-blink { 0%,100%{ opacity:1 } 50%{ opacity:0.45 } }
+
+  /* ── Blink header flex line-break ───────────────────── */
+  .blink-header-break { flex-basis: 100%; height: 0; }
 </style>
 </head>
 <body>
@@ -158,7 +161,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v10</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v11</span></h1>
 
   <div class="filter-group">
     <label>Collections:</label>
@@ -216,6 +219,7 @@
 
   <button id="help-btn" title="Keyboard shortcuts">? Help</button>
   <button id="btn-copy-queue" title="Copy queued diagram IDs to clipboard (backup)">Copy Queue (<span id="queue-count">0</span>)</button>
+  <button id="btn-hide-queued" title="Hide diagrams that are already in the fix queue">Hide Queued</button>
   <button onclick="window.open('fix-history.html','_blank')" title="View fix queue history" style="background:#2d1b4a;border:1px solid #7c3aed;color:#c4b5fd;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Fix History</button>
   <button onclick="window.open('excluded.html','_blank')" title="View excluded diagrams" style="background:#1f1a3a;border:1px solid #4f46e5;color:#a5b4fc;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Excluded</button>
   <button onclick="window.open('rejected-review.html','_blank')" title="Review edits the auto-fix loop tried and reverted" style="background:#3a2a1a;border:1px solid #b45309;color:#fcd34d;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Rejected Edits</button>
@@ -250,6 +254,7 @@
     <button id="btn-texer" class="action-btn" title="Open in AoPS TeXeR">Open in TeXeR</button>
     <button id="btn-hitexer" class="action-btn" title="Open in HiTeXeR">Open in HiTeXeR</button>
     <button id="blink-code-toggle" title="Toggle code panel (C)">Hide Code</button>
+    <div class="blink-header-break"></div>
     <button id="btn-rerender" class="action-btn" title="Re-render HiTeXeR and recompute SSIM for this diagram (H)" style="background:#1e3a5f;border-color:#60a5fa;color:#bfdbfe">Re-render</button>
     <button id="btn-fix" class="action-btn" title="Send to Claude Code for fixing (F)" style="background:#1e5f3a;border-color:#22c55e;color:#86efac">Fix</button>
     <button id="btn-dequeue" class="action-btn" title="Remove from fix queue (D)" style="display:none;background:#1a3a5f;border-color:#3b82f6;color:#93c5fd">Dequeue</button>
@@ -333,6 +338,9 @@
   // IDs currently in the fix queue (populated from /status poll).
   let queuedIds = new Set();
 
+  // Whether to hide queued diagrams from the main grid.
+  let hideQueued = false;
+
   // IDs excluded from the main comparator (populated from manifest.droppedIds).
   let droppedSet = new Set();
 
@@ -411,6 +419,7 @@
     const search   = document.getElementById('search-input').value.trim().toLowerCase();
 
     let list = manifest.diagrams.filter(d => !droppedSet.has(d.id));
+    if (hideQueued) list = list.filter(d => !queuedIds.has(d.id));
 
     if (!allChecked) {
       const collSet = new Set(checkedColls);
@@ -1361,6 +1370,15 @@
   });
   document.getElementById('btn-clear-selected').addEventListener('click', clearSelected);
   document.getElementById('btn-copy-queue').addEventListener('click', copyQueue);
+  document.getElementById('btn-hide-queued').addEventListener('click', () => {
+    hideQueued = !hideQueued;
+    const btn = document.getElementById('btn-hide-queued');
+    btn.textContent = hideQueued ? 'Show Queued' : 'Hide Queued';
+    btn.style.background = hideQueued ? '#78350f' : '';
+    btn.style.borderColor = hideQueued ? '#f59e0b' : '';
+    btn.style.color = hideQueued ? '#fde68a' : '';
+    applyFilters(true);
+  });
 
   // Ensure code panel needs the source loaded even on page load
   // (the panel starts visible, code loads on enterBlink)
@@ -1440,10 +1458,14 @@
   }
 
   function updateQueueIndicators() {
-    // Grid: add/remove 'queued' class on currently-rendered thumbs.
-    document.querySelectorAll('#grid .thumb').forEach(el => {
-      el.classList.toggle('queued', queuedIds.has(el.dataset.id));
-    });
+    // If hiding queued diagrams, re-filter so newly queued items disappear/reappear.
+    if (hideQueued) applyFilters(true);
+    else {
+      // Grid: add/remove 'queued' class on currently-rendered thumbs.
+      document.querySelectorAll('#grid .thumb').forEach(el => {
+        el.classList.toggle('queued', queuedIds.has(el.dataset.id));
+      });
+    }
     // Blink view: show/hide the queued badge next to position info.
     if (blinkActive) {
       const d = filtered[blinkIdx];
