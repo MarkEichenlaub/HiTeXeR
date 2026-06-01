@@ -223,7 +223,12 @@ def unescape_asy(code):
         if c == '\\' and c2 == 'n':
             out.append('\n'); i += 2; in_line = False; continue
         if c == '\\' and c2 == 'r':
-            out.append('\r'); i += 2; continue
+            # Only a CRLF (\r\n) is a structural break worth expanding. A LONE \r
+            # is almost always LaTeX (\rho, \rm, \rightarrow) in a comment/label;
+            # expanding it to a bare CR breaks the // comment and makes TeXeR
+            # refuse to compile. Leave a lone \r for verbatim copy below.
+            if code[i + 2:i + 4] == '\\n':
+                out.append('\r'); i += 2; continue
         if c == '\n':
             out.append(c); i += 1; in_line = False; continue
         if in_line:

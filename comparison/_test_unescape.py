@@ -58,6 +58,16 @@ CASES = [
     # \theta inside a // comment stays literal backslash (not TAB)
     ('comment_theta', '//label("$' + BS + 'theta$")' + BS + 'nreal x;',
                       '//label("$' + BS + 'theta$")' + NL + 'real x;'),
+    # \rho inside a // comment: a LONE \r must NOT expand to CR (would break the
+    # comment and make TeXeR refuse to compile). Stays literal backslash-r.
+    ('comment_rho', '//label("$' + BS + 'rho$")' + BS + 'nreal x;',
+                    '//label("$' + BS + 'rho$")' + NL + 'real x;'),
+    # \rm in a comment: same, lone \r preserved
+    ('comment_rm', '//$' + BS + 'rm max$' + BS + 'nx;',
+                   '//$' + BS + 'rm max$' + NL + 'x;'),
+    # a true CRLF (\r\n) OUTSIDE strings still expands to CR+NL
+    ('struct_crlf', 'draw(A);' + BS + 'r' + BS + 'nlabel("x");',
+                    'draw(A);' + CR + NL + 'label("x");'),
 ]
 
 def show(s):
