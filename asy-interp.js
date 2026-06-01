@@ -23571,6 +23571,21 @@ function renderSVG(result, opts) {
     const maxDim = Math.max(scaleRefW2, scaleRefH2);
     const minDim = Math.min(scaleRefW2, scaleRefH2);
     pxPerUnit = defaultSize / maxDim;
+    // Large, near-square radial layouts (the c289_L7 dihedral Cayley diagrams
+    // 04388/04389: a ~100×96 bp pentagon ringed by $R^i$/$R^iT$ labels with
+    // long radial arrows) are rendered by TeXeR at the natural defaultSize=150bp
+    // geometry fit, with the fixed-bp labels hanging just outside — NOT at the
+    // 7 bp/unit label-proportionality floor, and NOT shrunk to bound the labels.
+    // Their geometric features are large relative to the bbox, so labels sit
+    // large but non-overlapping (the reference look). This flag gates them out
+    // of both the floor and the label-inclusive shrink below.
+    //
+    // The aspect bound is tight (< 1.1, i.e. within 10% of square): 04388/04389
+    // are 1.04. A looser bound (< 1.3) wrongly catches taller axes+circle
+    // diagrams like 07413 (a 105×125 complex-plane plot, aspect 1.19, with long
+    // coordinate labels "$18+83i$") whose reference DOES want small labels
+    // relative to geometry — those must stay floored/shrunk.
+    const _isLargeSquareRadial = minDim > 70 && (maxDim / minDim) < 1.1;
     let _autoFloorApplied = false;
     // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
     // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
@@ -23617,7 +23632,7 @@ function renderSVG(result, opts) {
       // density (2/1800 ≈ 1.1e-3) above the 06387 threshold even though the
       // natural defaultSize=150bp scale (pxPerUnit=2.5 → 504px) already matches
       // TeXeR. Flooring such grids to 7bp/unit over-scales them ~2.8×.
-      if (labelCount >= 3 && labelDensity > 3e-4) {
+      if (labelCount >= 3 && labelDensity > 3e-4 && !_isLargeSquareRadial) {
         pxPerUnit = 7;
         _autoFloorApplied = true;
       }
@@ -23709,7 +23724,7 @@ function renderSVG(result, opts) {
     // and when the estimated overshoot is large (> 1.25) — a large overshoot means
     // labels dominate the bbox, the TeXeR-bounds-everything assumption breaks, and
     // the fixed-bp estimate is least reliable.
-    if (!_autoFloorApplied && labelInfoBp.length > 0 && maxDim > 50 && minDim >= 5) {
+    if (!_autoFloorApplied && !_isLargeSquareRadial && labelInfoBp.length > 0 && maxDim > 50 && minDim >= 5) {
       const estOvershoot = () => {
         let bpMinX = geoMinX * pxPerUnit, bpMaxX = geoMaxX * pxPerUnit;
         let bpMinY = geoMinY * pxPerUnit, bpMaxY = geoMaxY * pxPerUnit;
