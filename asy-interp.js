@@ -4500,6 +4500,7 @@ function createInterpreter() {
         }
         if (el.type === 'path') {
           const start = el.segs[0].p0;
+          const hadPreceding = !isHatHat && (pendingPt || allSegs.length > 0);
           // Connect from pending point or previous endpoint to start of path (unless ^^ gap)
           if (!isHatHat) {
             if (pendingPt) {
@@ -4523,7 +4524,19 @@ function createInterpreter() {
               closeIndices.push(ci + offset);
             }
           }
-          allSegs.push(...el.segs);
+          // Asymptote semantics: a nested cyclic guide written as the LAST element
+          // of a larger guide closes its `cycle` to the start of the OUTER path,
+          // not to its own first node. e.g. `A -- (B--C--D--cycle)` yields the
+          // closed quad A--B--C--D--A, NOT A--B--C--D--B with A as a dangling
+          // spur. Drop the nested self-closing segment and let the outer
+          // cycle-close (below) close back to this subpath's start (A).
+          if (hadPreceding && el._origPath && el._origPath.closed
+              && el.segs.length >= 2 && i === elements.length - 1) {
+            allSegs.push(...el.segs.slice(0, -1));
+            hasCycle = true;
+          } else {
+            allSegs.push(...el.segs);
+          }
         } else {
           // pair element
           if (!isHatHat) {
@@ -7633,27 +7646,40 @@ function createInterpreter() {
           y: wHat.z*uHat.x - wHat.x*uHat.z,
           z: wHat.x*uHat.y - wHat.y*uHat.x
         };
-        // Asymptote's arc(...,polar,...) goes "CCW around polar". When polar is
-        // reversed (e.g. -Z), the arc traverses the complementary azimuth direction —
-        // for an equatorial 180° span this crosses phi=180° instead of phi=0°,
-        // i.e. the BACK hemisphere rather than the FRONT.
-        let dphi = ph2 - ph1;
-        if (polar.z < 0 && Math.abs(dphi) > 1e-9) {
-          dphi = dphi > 0 ? dphi - 2*Math.PI : dphi + 2*Math.PI;
-        }
+        // Asymptote's arc(c,r,theta1,phi1,theta2,phi2) draws the GREAT-CIRCLE arc
+        // on the sphere from c+r*dir(theta1,phi1) to c+r*dir(theta2,phi2) — i.e. the
+        // geodesic between the two endpoints, NOT a constant-theta small circle.
+        // (When theta1==theta2==90 the geodesic IS the equator, so equatorial arcs
+        // are unaffected; only oblique spans like 03714's theta=15 phi 0->180 — which
+        // arcs over the pole, not around the latitude — depend on this.)
+        const dirVec = (th, ph) => {
+          const st = Math.sin(th), ct = Math.cos(th);
+          const lu = st * Math.cos(ph), lv = st * Math.sin(ph), lw = ct;
+          return {
+            x: lu*uHat.x + lv*vHat.x + lw*wHat.x,
+            y: lu*uHat.y + lv*vHat.y + lw*wHat.y,
+            z: lu*uHat.z + lv*vHat.z + lw*wHat.z
+          };
+        };
+        const d1 = dirVec(th1, ph1), d2 = dirVec(th2, ph2);
+        const cosA = Math.max(-1, Math.min(1, d1.x*d2.x + d1.y*d2.y + d1.z*d2.z));
+        let ang = Math.acos(cosA);
+        // in-plane unit vector perpendicular to d1, toward d2
+        let e2x = d2.x - cosA*d1.x, e2y = d2.y - cosA*d1.y, e2z = d2.z - cosA*d1.z;
+        let e2l = Math.hypot(e2x, e2y, e2z);
+        if (e2l < 1e-9) { e2x = vHat.x; e2y = vHat.y; e2z = vHat.z; e2l = 1; }
+        e2x /= e2l; e2y /= e2l; e2z /= e2l;
+        // direction=false (CW) selects the complementary long arc on the same circle
+        const longArc = (_namedDir !== undefined) ? !_namedDir : false;
+        if (longArc) { ang = 2*Math.PI - ang; e2x = -e2x; e2y = -e2y; e2z = -e2z; }
         const nSamp = 32;
         const samples = [];
         for (let i = 0; i <= nSamp; i++) {
-          const t = i / nSamp;
-          const th = th1 + (th2 - th1) * t;
-          const ph = ph1 + dphi * t;
-          const sinTh = Math.sin(th), cosTh = Math.cos(th);
-          const lu = sinTh * Math.cos(ph);
-          const lv = sinTh * Math.sin(ph);
-          const lw = cosTh;
-          const px = c.x + r * (lu*uHat.x + lv*vHat.x + lw*wHat.x);
-          const py = c.y + r * (lu*uHat.y + lv*vHat.y + lw*wHat.y);
-          const pz = c.z + r * (lu*uHat.z + lv*vHat.z + lw*wHat.z);
+          const a = ang * (i / nSamp);
+          const ca = Math.cos(a), sa = Math.sin(a);
+          const px = c.x + r * (ca*d1.x + sa*e2x);
+          const py = c.y + r * (ca*d1.y + sa*e2y);
+          const pz = c.z + r * (ca*d1.z + sa*e2z);
           samples.push(makeTriple(px, py, pz));
         }
         const segs = [];
