@@ -24754,7 +24754,19 @@ function renderSVG(result, opts) {
         (dc.align.x > 0 && sx > viewW * 0.9) ||  // E-aligned near right edge
         (dc.align.x < 0 && sx < viewW * 0.1)      // W-aligned near left edge
       );
-      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz) continue;
+      // Strongly S/N-aligned labels sitting at the bottom/top edge of the
+      // geometry push the glyph box outside the size()-solved bbox (the solver
+      // shrinks geometry to fit the size() box but never sets the content
+      // viewBox, which is the geometry bbox). Without padding, the label's
+      // vertical overhang is clipped — e.g. 03348's blue \overset{\uparrow}{...}
+      // dimension label below the number line, whose base text falls below the
+      // canvas. Mirror extendsHoriz so such labels still get viewBox padding.
+      // Don't gate on edge proximity: an S/N-aligned label offset off the
+      // baseline can overhang the bbox from anywhere. The padB/padT computation
+      // below is self-limiting (adds 0 when the label fits), so it is safe to
+      // run the full extent check for any strongly vertically-aligned label.
+      const extendsVert = dc.align && Math.abs(dc.align.y) > 0.5 && Math.abs(dc.align.x) < 0.5;
+      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
@@ -24979,8 +24991,29 @@ function renderSVG(result, opts) {
           if (Math.abs(_ltAng) > 0.5) _ltRotated = true;
         }
         const hActual = _ltRotated ? effH : fontSizeSVG * (1 + 1.2 * (numLines - 1));
-        const topActual = cy - hActual / 2;
-        const bottomActual = cy + hActual / 2;
+        let topActual = cy - hActual / 2;
+        let bottomActual = cy + hActual / 2;
+        // Vertically-overhanging MathJax labels (e.g. \overset stacks like
+        // 03348's blue dimension label) are far taller than one tspan line, so
+        // the hActual heuristic under-counts the glyph box and the overhang
+        // gets clipped. Replicate renderLabelMathJaxSVG's exact vertical
+        // placement using the measured height so the viewBox covers it.
+        if (extendsVert && opts && opts.labelOutput === 'svg-native'
+            && typeof _mjxMeasureBp === 'function') {
+          try {
+            const _mh = _mjxMeasureBp(dc.text, fontSize);
+            if (_mh && _mh.hBp > 0) {
+              const _svgH = _mh.hBp * bpCSSPixel;
+              const _ax = dc.align.x, _ay = dc.align.y;
+              const _aInf = Math.max(Math.abs(_ax), Math.abs(_ay));
+              const _ayN = _aInf > 0 ? (_ay * 0.5 / _aInf) : 0;
+              const _hEst = fontSizeSVG * (/\\frac\b/.test(dc.text || '') ? 1.45 : 1.0);
+              const _fy = cy - _svgH / 2 + _ayN * (_hEst - _svgH);
+              topActual = Math.min(topActual, _fy);
+              bottomActual = Math.max(bottomActual, _fy + _svgH);
+            }
+          } catch (e) { /* ignore — keep heuristic extent */ }
+        }
         // Tick labels at the very top/bottom of the plot (e.g. 4150's "0.9"
         // label centered at y = fontSize/2) end up flush with the viewBox
         // boundary so the rasterizer clips the glyph ascender. Add a small
