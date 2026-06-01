@@ -1,0 +1,128 @@
+size(250); 
+import three; 
+import graph3;
+
+//Draws 3D axes with the given constraints. Expects xmin < 0 < xmax, same for other 
+//coordinates
+void ThreeDAxes(real xmin, real xmax, real ymin, real ymax, real zmin, real zmax, pair dirX, pair dirY, pair dirZ)
+{
+   draw(O--xmax*X, Arrow3(size = 0.2cm)); 
+   draw(O--xmin*X, Arrow3(size = 0.2cm));
+   draw(O-- ymax*Y, Arrow3(size = 0.2cm)); 
+   draw(O-- xmin*Y, Arrow3(size = 0.2cm)); 
+   draw(O-- zmin*Z, Arrow3(size = 0.2cm));
+   draw(O-- zmax*Z, Arrow3(size = 0.2cm));
+   label("$x$", xmax*X, dirX); 
+   label("$y$", ymax*Y, dirY); 
+   label("$z$", zmax*Z, dirZ);
+}
+
+//Returns a point in cylindrical coordinates, using radians: 
+triple cylindricalPoint(real rho, real theta, real phi)
+{ 
+   return (rho*sin(phi)*cos(theta),rho*sin(phi)*sin(theta), rho*cos(phi));
+}
+
+triple P = cylindricalPoint(3,  pi/6, pi/2);
+
+triple persp = (7, 1.8, 3);
+
+currentprojection = orthographic(persp);
+
+triple X, Y, Z, O; 
+X = (1, 0, 0);  
+Y = (0, 1, 0); 
+Z = (0, 0, 1); 
+O = (0,0,0);
+
+//Scale up the axes: 
+real xmin, xmax, ymin, ymax, zmin, zmax;
+
+xmin = -5; xmax = 5; ymin = -5; ymax =5; zmin = -5; zmax = 5;
+
+int numLats = 8;
+int numLongs = 6;  
+real r = abs(P);
+triple up = (0, 0, P.z); 
+real r2 = sqrt(P.x^2 + P.y^2);
+
+path3 SectPhi = O--arc(O, P, r*Z)--cycle;
+path3 SectTheta = P--up--r2*X + up--arc(up, r2*X + up, P)--cycle;
+
+ThreeDAxes(xmin, xmax, ymin, ymax, zmin, zmax, NW, NE, N);
+
+//Draw the white sphere to block out the axes where they are hidden. 
+draw(scale(r,r,r)*unitsphere, white, nolight);
+
+draw(surface(SectPhi), palecyan, light = nolight);
+draw(surface(SectTheta), palegreen, light = nolight);
+
+for(int i = 0; i < numLongs; ++i)
+{
+    triple[] Inters = intersectionpoints(circle((0,0,0), r, (cos(i*pi/numLongs), sin(i*pi/numLongs),0)), surface(circle((0,0,0), r+1, persp))); 
+   if(Inters.length > 0)
+   {
+      triple end1 = Inters[0];
+      triple end2 = Inters[1];
+      path3 arc1 = arc((0,0,0), end2, end1, (cos(i*pi/numLongs), sin(i*pi/numLongs),0));
+      path3 arc2 = arc((0,0,0), end1, end2, (cos(i*pi/numLongs), sin(i*pi/numLongs),0));
+      if(intersectionpoints(arc1, (0,0,0)--(0, 0, r+1)).length > 0)
+      { 
+         draw(arc1, blue+linewidth(0.8));
+         draw(arc2, dotted+ blue+linewidth(0.8));
+      }    
+      else
+      {
+         draw(arc1, dotted +blue+linewidth(0.8));
+         draw(arc2, blue+linewidth(0.8));
+      }
+   }
+   else if(i< numLats/2) draw(circle((0,0,0), r, (cos(i*pi/numLongs), sin(i*pi/numLongs),0)),blue+ linewidth(0.8));
+   else  draw(circle((0,0,0), r, (cos(i*pi/numLongs), sin(i*pi/numLongs),0)),blue + linewidth(0.8)); 
+}
+
+for(int i = 0; i < numLats; ++i)
+{
+   real curHeight = r*cos(i*pi/numLats);
+   real curRad = r*sin(i*pi/numLats); 
+   triple[] Inters = intersectionpoints(Circle((0,0,r*cos(i*pi/numLats)), r*sin(i*pi/numLats), (0,0,1)), surface(circle((0,0,0), r+1, persp))); 
+   if(Inters.length > 0)
+   {
+      triple end1 = Inters[0];
+      triple end2 = Inters[1];
+      draw(arc((0,0,curHeight), end2, end1, (0,0,1)), red+linewidth(0.8)); 
+      draw(arc((0,0,curHeight), end1, end2, (0,0,1)), dotted + red+linewidth(0.8));  
+   }
+   else if(i< numLats/2) draw(circle((0,0,r*cos(i*pi/numLats)), r*sin(i*pi/numLats), (0,0,1)),red+ linewidth(0.8));
+   else draw(circle((0,0,r*cos(i*pi/numLats)), r*sin(i*pi/numLats), (0,0,1)),red+ linewidth(0.8) + dotted);
+}
+
+//Filling in the dashed axes inside the sphere, and also 
+//front solid axes 
+draw((r, 0, 0)--(xmax, 0, 0), Arrow3(size = 0.2cm));
+draw((r, 0, 0)--(xmin, 0, 0), linetype(new real[] {5,10}), Arrow3(size = 0.2cm));
+draw((0, r, 0)--(0, ymax, 0));
+draw((0, r, 0)--(0, ymin, 0), linetype(new real[] {5,10}));
+draw((0, 0, r)--(0, 0, zmax));
+draw((0, 0, r)--(0, 0, zmin), linetype(new real[] {5,10}));
+
+label("$x$", xmax*X, NW);
+
+//Draw the theta sector and label the angle: 
+draw(arc(up, up + 0.6*unit(P-up), up + 0.6*X), linewidth(1.0));
+draw(SectTheta, linewidth(0.8));
+label("$\theta$", up + 0.8*(unit(P-up) + X));
+
+//Draw the phi sector and label the angle: 
+draw(SectPhi, linewidth(0.8));
+draw(arc((0,0,0),0.6*unit(P), 0.6*Z), linewidth(1.0));
+label("$\phi$", 0.9(unit(P) + Z));
+
+//label("$\rho$", O -- P, NE);
+
+dot("$P$", P, SE);
+
+//Dot where the axes leave the sphere: 
+dot((0, 0, r), red);
+dot((r, 0, 0), red);
+dot((0, r, 0), red);

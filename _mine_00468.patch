@@ -1,0 +1,44 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 4347b1a0..fd9cb7bb 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -20217,6 +20252,17 @@ function createInterpreter() {
+     }
+     if (typeof text === 'string') text = expandShortstackText(text);
+     if (typeof text === 'string') text = expandMinipageText(text, pen);
++    // \begin{tabular}...\end{tabular} in a dot label: flatten to newline-
++    // separated rows so the multi-line label renderer stacks them. Mirrors the
++    // same expansion in evalLabel (KaTeX/MathJax have no tabular environment,
++    // so without this the label renders as a giant error box that also blows up
++    // the diagram bounding box — e.g. 00468 "Launch \\ pad").
++    if (typeof text === 'string' && /\\begin\s*\{tabular\}/.test(text)) {
++      text = text.replace(
++        /\\begin\s*\{tabular\}\s*(?:\{[^}]*\})?([\s\S]*?)\\end\s*\{tabular\}/g,
++        (_m, body) => body.split(/\\\\/).map(r => r.replace(/&/g, ' ').trim()).filter(r => r.length > 0).join('\n')
++      );
++    }
+     // Dot radius = dotfactor * linewidth(p).
+     if (multiDots) {
+       for (const pt of multiDots) {
+@@ -23900,7 +23946,20 @@ function renderSVG(result, opts) {
+       const sx = (dc.pos.x - minX) * pxPerUnitX;
+       const sy = (maxY - dc.pos.y) * pxPerUnitY;
+       // Cap to match TeX font-substitution behaviour for fontsize > 25pt.
+-      const fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
++      let fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
++      // Apply LaTeX font-size selectors (\scriptsize, \small, \huge, …) so the
++      // padding reserved for the label matches its ACTUAL rendered size. The
++      // render pass scales the glyph via the _preFs block (capped at a 12pt
++      // baseline); without mirroring it here, a \scriptsize/\small label
++      // reserves padding as if rendered at full size, over-extending the
++      // viewBox (e.g. 00468's rightmost "Observer" and leftmost "250").
++      {
++        const _fsCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
++        const _fsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
++        let _m2, _fsScale = 1.0;
++        while ((_m2 = _fsCmdRe.exec(dc.text || '')) !== null) _fsScale = _fsSizes[_m2[0]] || 1.0;
++        if (_fsScale !== 1.0) fontSize = Math.min(fontSize, 12) * _fsScale;
++      }
+       const fontSizeSVG = fontSize * bpCSSPixel;
+       // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
+       const rawLabelLines = (dc.text || '').split('\n');

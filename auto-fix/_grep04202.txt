@@ -1,0 +1,159 @@
+1480:    // Preserve grid-quad indices so per-face palette coloring (which keys
+1985:  let _imageCache = {};    // pre-fetched graphic() image data
+2077:    // Compose picture transform into graphic's transform for image commands
+2078:    if (r.cmd === 'image' && r.graphic) {
+2768:      // Preserve flat vertex list + face index metadata so palette coloring
+3446:    // Surface methods (parametric surfaces, palette colouring, etc.)
+3476:            // so that per-vertex palette coloring works across appended meshes.
+3510:            // _vertices array so per-vertex palette coloring (`s.colors(...)`)
+3748:        // a bp-space size used as a default for dblLeft/dblRight bounds.
+4123:    if (obj && obj._tag === 'bounds') {
+4953:    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('palette')) {
+5005:    if (mod.includes('three') || mod.includes('solids') || mod.includes('graph3') || mod.includes('labelpath3') || mod.includes('obj') || mod.includes('smoothcontour3') || mod.includes('palette') || mod.includes('grid3')) {
+5006:      // `import palette;` is technically a 2D module, but our palette-related
+5007:      // built-ins (Automatic, Range, uniform, palette(), image(), Rainbow,
+5008:      // BWRainbow, Wheel, Gradient, …) live alongside the 3D installer because
+5009:      // they're shared with surface() coloring. Triggering installThreePackage
+5011:      installThreePackage(env);
+6075:    // AoPS styles module fill palette. Index 0 is used by some diagrams (e.g. arbelos figures)
+7734:      // colorbar legend code: `palette(..., point(SE)+(0.5,0), point(NE)+(1,0), ...)`.
+8819:    // graphic(): embed external images (EPS/PNG) pre-fetched by the client
+8824:      const cached = _imageCache[pathStr];
+10155:        // Estimate bp→user conversion from size() and current picture bounds.
+10523:    // a, b: real x-bounds for the curve
+11597:          if (dc._paletteLegend) continue;
+11617:          if (dc._paletteLegend) continue;
+11639:        // Also skip when the picture has image() heatmap cells: image() supplies
+11640:        // exact bounds (e.g. [0, 2π] for diagram 12726) and rounding outward to
+11642:        const _hasImageCells = pic.commands.some(c => c && c._imageCell && !c._paletteLegend);
+11738:      // autoscale doesn't expand the bounds; the arrow head sits naturally
+11968:          if (dc._paletteLegend) continue;
+11993:          if (dc._paletteLegend) continue;
+12017:        // image() heatmap cells: image() supplies exact bounds and we want
+12019:        const _hasImageCellsY = pic.commands.some(c => c && c._imageCell && !c._paletteLegend);
+12065:          // Skip label-below-extension when image() heatmap cells are present:
+12066:          // image()'s tight bounds should not be widened to make room for the
+12072:          const _hasImageCellsLB = pic.commands.some(c2 => c2 && c2._imageCell && !c2._paletteLegend);
+14796:  function installThreePackage(env) {
+15967:        // Choose tessellation: clamp to reasonable bounds. Default bumped to
+16241:    // sf.map(fn) / sf.colors(palette(...)) can assign per-vertex colors.
+16461:      // (a=, b= for bounds; nx/ny/nz for resolution).
+16687:    // palette module range specifiers: image() and palette() take a "bounds"
+16690:    // (explicit override). Asymptote represents these as a `bounds` struct
+16692:    const _Automatic = {_tag:'imageRange', kind:'automatic'};
+16693:    const _Full      = {_tag:'imageRange', kind:'full'};
+16696:    env.set('Range', (mn, mx) => ({_tag:'imageRange', kind:'range', min:toNumber(mn), max:toNumber(mx)}));
+16697:    const _emptyBounds = () => ({_tag:'bounds', min:0, max:0});
+16706:    // palette module: map real values to interpolated pens from a range palette.
+16707:    // palette(real[] vals, pen[] range) -> pen[] (one interpolated pen per value)
+16728:    const _paletteStub = (...args) => {
+16730:      // Detect colorbar-legend form: palette(string label, bounds br, pair initial,
+16731:      // pair final, axisextent side, pen[] palette, ticks). Distinguishing
+16732:      // signature: a `bounds` arg is present and there are two pairs.
+16733:      const hasBounds = pos.some(a => a && a._tag === 'bounds');
+16736:        return _paletteLegend(args);
+16760:    // Colorbar-legend form of palette(): renders a vertical/horizontal pen-array
+16763:    const _paletteLegend = (args) => {
+16775:        if (a && a._tag === 'bounds' && !br) { br = a; continue; }
+16815:        target.commands.push({cmd:'fill', path: rect, pen, line, _imageCell:true, _paletteLegend:true});
+16825:      target.commands.push({cmd:'draw', path: outline, pen: outlinePen, line, _paletteLegend:true});
+16857:        target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: tickPen, line, _paletteLegend:true});
+16860:        target.commands.push({cmd:'label', text: labelText, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
+16878:            target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: subPen, line, _paletteLegend:true});
+16907:        target.commands.push({cmd:'label', text: label, pos: lp, align, pen: clonePen(defaultPen), labelTransform: lt, line, _paletteLegend:true});
+16912:    // `%+#0.1f`, `%g`, etc. — the subset used by AoPS palette legends.
+16939:    env.set('palette', _paletteStub);
+16941:    // builds a `ticks` config consumed by the colorbar-legend palette() form.
+16970:    // Gradient(pen, pen, ...) — return pen array (used by palette for interpolation)
+16975:    // Rainbow: Asymptote's rainbow gradient following palette.asy's Gradient approach.
+16976:    // Rainbow(N) = Gradient(N, magenta, blue, cyan, green, yellow, red)
+17002:    // BWRainbow: Asymptote's BWRainbow is Rainbow bracketed by black at the low
+17003:    // end and white at the high end (Black/White Rainbow). The reference texer
+17006:    const bwRainbowPens = () => {
+17020:    env.set('Rainbow', (...args) => {
+17025:    env.set('BWRainbow', (...args) => bwRainbowPens());
+17026:    // image(picture, real[][] f, pair initial, pair final, pen[] palette)
+17031:    env.set('image', (...args) => {
+17043:        if (a && a._tag === 'imageRange' && !rangeArg) { rangeArg = a; continue; }
+17058:          if ('palette' in a && Array.isArray(a.palette)) pens = a.palette;
+17065:      // Function form: image(real f(real,real), range, pair a, pair b, int N, pen[] palette).
+17097:          // returning them in the bounds object.
+17148:          target.commands.push({cmd: 'fill', path: rect, pen, line, _imageCell: true});
+17151:      // Return the computed bounds so the caller (e.g. `bounds range = image(...)`)
+17152:      // can pass them to contour() / palette() for matching colormap windows.
+17153:      return {_tag:'bounds', min:vmin, max:vmax};
+17155:    // Wheel(): Asymptote's color wheel palette. Maps degrees (0-360) through a
+17158:    // The Asymptote ordering matches palette.asy's 6-interval implementation.
+17168:          // Asymptote's Wheel ordering (from palette.asy):
+17198:      // If this is a palette result (per-vertex or per-patch pen array), pass
+17201:      // per-row array; since our palette() produces a 1D flat array indexed
+17215:    // Named pen constants commonly used by palette examples.
+17386:      // Queue axis for deferred rendering once bounds are known. userBounds
+17389:      // computed scene bounds for the axis line endpoints.
+17436:    // Finalize all 3D axes once bounds are known (called before picture is returned)
+17439:      // Get bounds from picture or use defaults
+17442:        // Try to compute bounds from mesh commands
+17461:      // Snap bounds to nice round values for axis display (like Asymptote's Bounds)
+17477:      // Store original data bounds before snapping for tick filtering
+17481:      // Snap bounds to the innermost tick positions for cleaner axis visualization
+17483:      // Use tighter bounds - first tick >= minX, last tick <= maxX
+17704:        // Read optional named bounds (xmin/xmax on xaxis3, etc.) collected at
+17846:    const _boundsFunc = env.get('Bounds');
+17860:      if (a === _boundsFunc || a === _inTicksFunc || a === _outTicksFunc || a === _inOutTicksFunc) {
+17872:    // invoked. The explicit bounds let xaxis3("$x$", xmax=3.35, ...) draw
+18025:        // Get the surface bounds from picture's tracked _3dBounds, or use defaults
+18054:    // Pending grid3 calls — deferred until bounds are known
+18070:    // Finalize grid3 calls once bounds are known
+18073:      // Get bounds from picture
+18076:        // Compute bounds from mesh commands (same as _finalize3DAxes)
+18090:      if (b.minX === Infinity) return; // No bounds, skip
+18122:      // Snap bounds to outermost grid lines for consistent box edges
+18305:    // path3 wire-frame: iterate over edges. Track 3D bounds so axis3 lines
+19079:        // Track 3D bounds from mesh faces for axis3 drawing
+19093:        // inactive (culled) samples don't inflate the bounds — otherwise
+19114:        // Also accept a pen[] as surfacepen (per-vertex palette coloring from
+19115:        // `mean(palette(...))`) — attach it as _colors so the existing
+19116:        // palette-aware face-coloring path below can consume it.
+19122:        // so that `draw(s, palette_array, black)` resolves black as meshpen,
+19196:        // If surface has per-vertex _colors from s.colors(palette(...)), annotate
+19245:        // Also handles per-vertex palette colors by bilinearly interpolating
+19285:          // Use higher subdivision for palette-colored surfaces to reduce banding
+19326:          // Color interpolation helpers for palette-colored surfaces
+20324:    // If dot has a graphic, add an image command
+20327:      target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
+20522:      target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
+20646:    // Track 3D bounds on currentPic so axis3 lines can size themselves to
+20649:    const bounds = currentPic && currentPic._3dBounds;
+21282:    _imageCache = opts.imageCache || {};
+21356:    // Finalize 3D grid now that bounds are known (before axes, so grid is behind)
+21362:    // Finalize 3D axes now that bounds are known
+21491:      if (dc._paletteLegend) continue;
+21900:    } else if (dc.cmd === 'image' && dc.graphic) {
+21902:      // only the anchor position in the initial geometry bbox. The full image
+21906:      // image is placed at a distant coordinate but only a clipped portion shows.
+22256:        // Expand bbox to include estimated text bounds
+22322:      } else if (dc.cmd === 'image' && dc.graphic) {
+22323:        // Expand bbox for images (like labels, they float outside the crop region).
+22324:        // Use the same alignment-offset math as the image rendering code.
+22328:        // should only contribute the clip rect bounds, not the full image bounds. The clip
+22329:        // rect itself is already accounted for in the geometry bbox. Skip these images to
+22375:  // GIF mode: override bounds with union bounds across all frames so that
+22443:    // non-zero axis alone and over-expands the image (2–3× larger than the
+22532:    // image isn't dominated by truesize labels (e.g. a 5×4 unit Riemann sum
+22625:      // smiley face at `unitsize(1cm)` as a compact ~80–90 px image, not a
+22645:       // Boosting to 200bp here makes the image 4× too large.
+22651:       // 200 here makes the image ~4× too large vs the TeXeR reference.
+22785:    // uniform-scaled output. For IgnoreAspect, always use geometry-only bounds.
+23589:    // Also expand for images (they float outside crop like labels)
+23591:      if (dc.cmd === 'image' && dc.graphic && dc.pos) {
+23614:  // Re-constrain bbox after label re-expansion: clip() bounds must not be exceeded
+23749:    // so that unitsize/size produce images matching real Asymptote/TeXeR output.
+24903:    } else if (dc.cmd === 'image') {
+24904:      // Render images in program order during Pass 1 so that geometry drawn
+24905:      // after the image (rays, paths, etc.) appears on top of it — matching
+24940:        // Dedupe identical image payloads via <symbol> + <use> in defs.
+24943:          // Placeholder for unavailable images: render as a light gray rectangle with a diagonal cross
+24956:              `<image x="0" y="0" width="1" height="1" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>` +
+24964:          imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="data:image/png;base64,${g.png_b64}" preserveAspectRatio="none"/>`;
+24966:        // Apply sub-picture clipping to images (e.g. 08929 camera-box clip)
+24985:        // Exclude images from crop clipping — images from label(graphic(...))

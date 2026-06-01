@@ -1,0 +1,19 @@
+A previously auto-rejected HiTeXeR fix needs to be re-applied to the current code and the merge conflicts resolved.
+
+Saved patch: C:\Users\Mark Eichenlaub\github\HiTeXeR\auto-fix\rejected-edits\mpt2vmp43ta5.patch
+It was originally generated against commit 18af2951 but the code has since moved, so `git apply --3way` reported conflicts:
+Applied patch to 'asy-interp.js' cleanly.
+error: comparison/ssim-results.json: does not match index
+Applied patch to 'index.html' cleanly.
+
+Target diagram: 00468
+Original reject reason: canary-regression
+
+It originally regressed these canaries (do NOT re-regress them): 08567, 12947, 12950
+
+Steps:
+1. Inspect the patch: git apply --3way C:\Users\Mark Eichenlaub\github\HiTeXeR\auto-fix\rejected-edits\mpt2vmp43ta5.patch (resolve any <<<< conflict markers in asy-interp.js).
+2. Re-render: node render-hitexer.js comparison/asy_src/00468.asy and compare to comparison/texer_pngs/00468.png
+3. Run the canary guard: node auto-fix/render-and-score.js --canary — ensure no canary drops > 0.03.
+4. If good, bump the version in index.html and run: node recompute-htx.js render-htx rasterize ssim html
+5. Commit the change.

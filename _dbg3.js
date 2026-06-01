@@ -1,0 +1,12 @@
+global.window = global.window || {};
+global.katex = require('katex');
+require('./asy-interp.js');
+const A = global.window.AsyInterp;
+const fs=require('fs');
+const interp = A._createInterpreter();
+const result = interp.execute(fs.readFileSync('comparison/asy_src/03281.asy','utf8'),{});
+const cmds = result.drawCommands;
+const c=cmds[0];
+console.log('cmd0 keys', Object.keys(c));
+console.log('path keys', c.path?Object.keys(c.path):'no path');
+console.log(JSON.stringify(c.path).slice(0,400));
