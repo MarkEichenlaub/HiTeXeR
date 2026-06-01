@@ -455,6 +455,34 @@ function runCanaryCheck() {
   return { ok, worstDelta: summary.worstCanaryDelta, worstId: summary.worstId, rows };
 }
 
+function runEpsCheck() {
+  // Independently verify that EPS-image diagrams (graphic("/var/www/cdn/...eps"))
+  // still render a real embedded <image>/<use> PNG and not the gray placeholder
+  // rectangle. EPS support has been dropped repeatedly by edits that mangle the
+  // graphic()/imageCache path; these diagrams are not in the canary set and the
+  // verifier never looks at them, so without this guard a broken commit sails
+  // through. Returns { ok, failedIds:[...], infraError:bool }.
+  // infraError (exit 2 / unparseable / no summary) means we could NOT determine
+  // EPS health — treat as non-gating so a cold eps-cache or missing Ghostscript
+  // never falsely rejects a good edit.
+  const r = cp.spawnSync(process.execPath, [path.join(ROOT, 'auto-fix', 'check-eps-images.js')], {
+    cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 60 * 1000, windowsHide: true,
+  });
+  if (r.status === 2) return { ok: true, failedIds: [], infraError: true };
+  let summary = null;
+  for (const line of (r.stdout || '').split('\n')) {
+    try { const o = JSON.parse(line); if (o && o.summary) summary = o.summary; } catch {}
+  }
+  if (!summary) {
+    console.error('[run-loop] eps-check produced no summary (exit=' + r.status + '): ' +
+                  (r.stderr || '').slice(0, 200));
+    return { ok: true, failedIds: [], infraError: true };
+  }
+  const failedIds = (summary.failures || []).map(f => f.id);
+  return { ok: failedIds.length === 0, failedIds, infraError: false };
+}
+
 function commitAttemptLog() {
   // Fold any attempts.jsonl changes into the most recent fix commit so they
   // survive a future git reset --hard (which resets to the pre-iteration HEAD).
@@ -562,7 +590,7 @@ function saveRejectedEdit(info) {
       rejectId,
       targetId: info.targetId,
       description: info.description || '',
-      reason: info.reason,                 // 'verifier-reject' | 'canary-regression'
+      reason: info.reason,                 // 'verifier-reject' | 'canary-regression' | 'eps-regression'
       ts: new Date().toISOString(),
       baseCommit: info.baseCommit,
       headCommit: info.headCommit,
@@ -573,6 +601,7 @@ function saveRejectedEdit(info) {
       targetAfterSnapshot: rejectId + '-target-after.png',
       targetBeforeEnqueueId: info.iterEnqueueId || null,  // {enqueueId}-before.png in fix-snapshots
       regressedCanaries: canaries,
+      epsFailedIds: info.epsFailedIds || [],
     };
     fs.appendFileSync(REJECTED_EDITS_LOG, JSON.stringify(record) + '\n');
     console.log('[run-loop] saved rejected edit ' + rejectId + ' (' + info.reason +
@@ -1028,6 +1057,18 @@ async function runIteration(args, iter) {
   //             each time so it knows exactly what still needs fixing.
   let verifierFeedback = null;  // defect list from the previous round's rejection
 
+  // Pre-iteration EPS-image baseline. We only attribute an EPS break to this
+  // edit if EPS rendered correctly BEFORE any edit this iteration — otherwise a
+  // cold eps-cache (offline / no Ghostscript) would make every diagram show a
+  // placeholder and falsely blame the AI.
+  const epsBaseline = runEpsCheck();
+  if (epsBaseline.infraError) {
+    console.log('[run-loop] EPS guard disabled this iteration (baseline infra error)');
+  } else if (!epsBaseline.ok) {
+    console.log('[run-loop] EPS guard disabled this iteration (already broken at baseline: ' +
+                epsBaseline.failedIds.join(', ') + ')');
+  }
+
   for (let round = 1; round <= MAX_VERIFIER_ROUNDS; round++) {
     if (round > 1) {
       console.log('\n[run-loop] === round ' + round + '/' + MAX_VERIFIER_ROUNDS +
@@ -1116,65 +1157,92 @@ async function runIteration(args, iter) {
     const postSsim = last && typeof last.row.postSsim === 'number' ? last.row.postSsim : null;
     const ssimGood = postSsim != null && postSsim >= SSIM_FLOOR;
 
-    // ── Independent canary guard ──────────────────────────────────────────
+    // ── Independent correctness guards (canary + EPS) ─────────────────────
     // Run render-and-score --canary ourselves; do not trust the sub-agent's
     // self-reported canaryWorst (it may have used the old 0.05 threshold or
-    // skipped the check entirely).
+    // skipped the check entirely). Also confirm EPS-image diagrams still embed a
+    // real image. Both are hard correctness regressions: they are NOT auto-
+    // accepted on SSIM/verifier, but — like a verifier rejection — they feed a
+    // defect back to the next round so the AI can redo the fix WITHOUT the
+    // regression, and only revert after the final round.
     const canary = runCanaryCheck();
-    if (!canary.ok) {
-      saveRejectSnapshot(target.id, iterEnqueueId);  // last rendered (rejected) state
-      // Save the rejected edit + every regressed canary's render for review,
-      // BEFORE resetHard wipes the commits and the freshly-rendered canary pngs.
-      const regressedCanaries = (canary.rows || [])
+    const canaryBroken = !canary.ok && !canary.error;
+    let canaryDefect = null;
+    let regressedCanaries = [];
+    if (canaryBroken) {
+      regressedCanaries = (canary.rows || [])
         .filter(r => r.delta != null && r.delta < -CANARY_THRESHOLD)
         .map(r => ({ id: r.id, baselineSsim: r.pre, newSsim: r.ssim, delta: r.delta }));
-      saveRejectedEdit({
-        targetId: target.id, description: userDescription, reason: 'canary-regression',
-        baseCommit: preCommit, headCommit: postCommit,
-        beforeSsim, afterSsim: postSsim, regressedCanaries, iterEnqueueId,
-      });
-      resetHard(preCommit);
-      const canaryNote = ' | CANARY-FAIL: worstDelta=' + canary.worstDelta + ' id=' + canary.worstId;
-      if (last) {
-        rewriteAttemptLine(last.lineIndex, {
-          verdict: 'regressed-canary',
-          commit: null,
-          notes: (last.row.notes || '') + canaryNote,
-        });
-      }
-      // Don't retry — a canary regression means the approach is wrong.
-      return 'fail';
+      canaryDefect = 'Your edit REGRESSED protected canary diagram(s) that must NOT get ' +
+        'worse: ' + regressedCanaries.map(r =>
+          r.id + ' (SSIM ' + (r.baselineSsim != null ? r.baselineSsim.toFixed(4) : '?') +
+          ' -> ' + (r.newSsim != null ? r.newSsim.toFixed(4) : '?') + ')').join(', ') +
+        '. Re-do the fix for ' + target.id + ' so it does NOT change the rendering of these ' +
+        'other diagrams — narrow the condition / scope the change more tightly.';
+      console.log('[run-loop] round ' + round + ' CANARY-BROKEN: worstDelta=' +
+                  canary.worstDelta + ' id=' + canary.worstId);
+    } else if (canary.error) {
+      console.log('[run-loop] canary check errored (' + canary.error + '); not gating on it this round');
     }
 
-    // Run the visual verifier (fresh Sonnet session, no edit history).
-    writeStatus({ currentId: target.id, phase: 'verifying', round, roundMax: MAX_VERIFIER_ROUNDS });
-    const verdict = runVerifier(args, target);
-    console.log('[run-loop] round ' + round + ' verifier verdict: ' + JSON.stringify(verdict));
-
-    // Verifier infrastructure error → keep commit, flag in log.
-    if (verdict.error) {
-      console.log('[run-loop] verifier errored (' + verdict.error + '); keeping commit');
-      if (last) {
-        rewriteAttemptLine(last.lineIndex, {
-          notes: (last.row.notes || '') + ' | VERIFIER-ERROR: ' + verdict.error,
-        });
+    // EPS-image guard: only attribute a break to this edit if EPS passed at the
+    // pre-iteration baseline (see epsBaseline above).
+    let epsBroken = false, epsDefect = null, epsFailedIds = [];
+    if (epsBaseline.ok && !epsBaseline.infraError) {
+      const eps = runEpsCheck();
+      if (!eps.ok && !eps.infraError) {
+        epsBroken = true;
+        epsFailedIds = eps.failedIds;
+        epsDefect = 'Your edit BROKE EPS image rendering for diagram(s) ' +
+          eps.failedIds.join(', ') + '. These use graphic("/var/www/cdn/...eps") and MUST ' +
+          'render a real embedded <image>/<use> PNG, not a gray placeholder rectangle ' +
+          '(fill="#e0e0e0"). The pipeline passes an imageCache via render() opts and ' +
+          'graphic() embeds it — preserve that path. Re-do the fix for ' + target.id +
+          ' without dropping the pre-fetched image payload.';
+        console.log('[run-loop] round ' + round + ' EPS-BROKEN: ' + eps.failedIds.join(', '));
       }
-      saveAfterSnapshot(target.id, postCommit);
-      commitAttemptLog();
-      writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
-      rerender200Worst([target.id]);
-      return 'committed';
+    }
+
+    const hardBroken = canaryBroken || epsBroken;
+
+    // Run the visual verifier (fresh Sonnet session, no edit history) — but skip
+    // it when a hard correctness guard already failed: we know we're rejecting,
+    // and the canary/EPS defect is the feedback that matters.
+    let verdict;
+    if (hardBroken) {
+      verdict = { quality: 'reject-hard', defects: [], confidence: 'n/a' };
+      console.log('[run-loop] round ' + round + ' hard correctness regression; skipping verifier');
+    } else {
+      writeStatus({ currentId: target.id, phase: 'verifying', round, roundMax: MAX_VERIFIER_ROUNDS });
+      verdict = runVerifier(args, target);
+      console.log('[run-loop] round ' + round + ' verifier verdict: ' + JSON.stringify(verdict));
+
+      // Verifier infrastructure error → keep commit, flag in log.
+      if (verdict.error) {
+        console.log('[run-loop] verifier errored (' + verdict.error + '); keeping commit');
+        if (last) {
+          rewriteAttemptLine(last.lineIndex, {
+            notes: (last.row.notes || '') + ' | VERIFIER-ERROR: ' + verdict.error,
+          });
+        }
+        saveAfterSnapshot(target.id, postCommit);
+        commitAttemptLog();
+        writeStatus({ currentId: target.id, phase: 'rerendering', round, roundMax: MAX_VERIFIER_ROUNDS });
+        rerender200Worst([target.id]);
+        return 'committed';
+      }
     }
 
     // Acceptance: keep commit if SSIM is above floor OR verifier quality is good/minor,
-    // UNLESS the edit regressed the target's own pre-fix SSIM. A "fix" that makes the
-    // match to TeXeR worse is the wrong direction even if the verifier rates the
-    // standalone render as good/minor (the 01286 class: a plausible-looking but
-    // mathematically wrong change). Such cases must not be rubber-stamped.
+    // UNLESS the edit regressed the target's own pre-fix SSIM or broke a hard guard
+    // (canary / EPS). A "fix" that makes the match to TeXeR worse is the wrong
+    // direction even if the verifier rates the standalone render as good/minor (the
+    // 01286 class: a plausible-looking but mathematically wrong change). Such cases
+    // must not be rubber-stamped.
     const verifierGood = verdict.quality === 'good' || verdict.quality === 'minor';
     const regressed = (beforeSsim != null && postSsim != null &&
                        postSsim < beforeSsim - SSIM_REGRESS_MARGIN);
-    const accept = !regressed && (ssimGood || verifierGood);
+    const accept = !regressed && !hardBroken && (ssimGood || verifierGood);
 
     if (regressed) {
       console.log('[run-loop] round ' + round + ' REGRESSED target SSIM: ' +
@@ -1202,18 +1270,27 @@ async function runIteration(args, iter) {
       return 'committed';
     }
 
-    // Rejected (either both checks failed, or the edit regressed the target SSIM).
+    // Rejected. Assemble feedback for the next round: hard-correctness defects
+    // (canary, EPS) first, then the verifier's visual defects, then a synthesized
+    // SSIM-regression note.
+    const hardDefects = [];
+    if (canaryDefect) hardDefects.push(canaryDefect);
+    if (epsDefect)    hardDefects.push(epsDefect);
+
     const rejInfo = 'quality=' + (verdict.quality || '?') +
                     ' SSIM=' + (postSsim != null ? postSsim.toFixed(4) : 'n/a') +
+                    (canaryBroken ? ' CANARY-BROKEN' : '') +
+                    (epsBroken ? ' EPS-BROKEN' : '') +
                     (regressed ? ' REGRESSED(from ' + beforeSsim.toFixed(4) + ')' : '');
     console.log('[run-loop] round ' + round + ' rejected (' + rejInfo + ')' +
                 ', defects: ' + JSON.stringify(verdict.defects));
 
     if (round < MAX_VERIFIER_ROUNDS) {
-      // Pass the verifier's defect list to the next Opus round. If the only
-      // problem was a SSIM regression the verifier didn't flag, synthesize a
-      // defect so the next round knows the edit moved the wrong way.
-      verifierFeedback = (verdict.defects && verdict.defects.length) ? verdict.defects.slice() : [];
+      // Pass defects to the next Opus round. If the only problem was a SSIM
+      // regression the verifier didn't flag, synthesize a defect so the next
+      // round knows the edit moved the wrong way.
+      verifierFeedback = hardDefects.slice();
+      if (verdict.defects && verdict.defects.length) verifierFeedback.push(...verdict.defects);
       if (regressed) verifierFeedback.push(
         'The edit LOWERED the match to the reference (SSIM ' + beforeSsim.toFixed(4) +
         ' -> ' + postSsim.toFixed(4) + '). Re-examine: the change moved the render away from the target.');
@@ -1223,19 +1300,24 @@ async function runIteration(args, iter) {
       // All rounds exhausted — revert everything back to the pre-iteration state.
       console.log('[run-loop] all ' + MAX_VERIFIER_ROUNDS + ' rounds exhausted, reverting to ' + preCommit);
       saveRejectSnapshot(target.id, iterEnqueueId);  // last rendered (rejected) state
+      const reason = canaryBroken ? 'canary-regression'
+                   : epsBroken    ? 'eps-regression'
+                   : 'verifier-reject';
       saveRejectedEdit({
-        targetId: target.id, description: userDescription, reason: 'verifier-reject',
+        targetId: target.id, description: userDescription, reason,
         baseCommit: preCommit, headCommit: headCommitHash(),
-        beforeSsim, afterSsim: postSsim, verifierDefects: (verdict.defects || []), iterEnqueueId,
+        beforeSsim, afterSsim: postSsim,
+        verifierDefects: (verdict.defects || []), regressedCanaries, epsFailedIds, iterEnqueueId,
       });
       resetHard(preCommit);
       if (last) {
+        const tag = canaryBroken ? 'CANARY-REGRESS' : epsBroken ? 'EPS-REGRESS' : 'VERIFIER-REJECT';
         rewriteAttemptLine(last.lineIndex, {
-          verdict: 'attempted-no-improve',
+          verdict: canaryBroken ? 'regressed-canary' : 'attempted-no-improve',
           commit: null,
           notes: (last.row.notes || '') +
-                 ' | VERIFIER-REJECT (all ' + MAX_VERIFIER_ROUNDS + ' rounds): ' +
-                 (verdict.defects || []).join('; '),
+                 ' | ' + tag + ' (all ' + MAX_VERIFIER_ROUNDS + ' rounds): ' +
+                 hardDefects.concat(verdict.defects || []).join('; '),
         });
       }
       return 'skipped';
