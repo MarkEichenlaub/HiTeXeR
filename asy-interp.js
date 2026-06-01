@@ -6943,12 +6943,24 @@ function createInterpreter() {
     // shipout renders a frame (or picture) to file; here we emit to currentPic
     // so the SVG renderer picks it up. Also handles shipout() with no args.
     // shipout(bbox(margin)) draws a rounded rectangle border around content.
+    // Page orientations (Asymptote's plain_picture orientations). shipout(Seascape)
+    // etc. rotate the whole page 90/180 degrees; we record the requested orientation
+    // on the picture and let the SVG renderer apply the final group transform.
+    env.set('Portrait',   {_tag:'orientation', name:'Portrait'});
+    env.set('Landscape',  {_tag:'orientation', name:'Landscape'});
+    env.set('Seascape',   {_tag:'orientation', name:'Seascape'});
+    env.set('UpsideDown', {_tag:'orientation', name:'UpsideDown'});
     env.set('shipout', (...args) => {
       let frameArg = null;
       let bboxArg = null;
+      let orientArg = null;
       for (const a of args) {
         if (a && a._tag === 'mframe') { frameArg = a; }
         if (a && a._tag === 'bbox') { bboxArg = a; }
+        if (a && a._tag === 'orientation') { orientArg = a; }
+      }
+      if (orientArg && orientArg.name && orientArg.name !== 'Portrait') {
+        currentPic._pageOrientation = orientArg.name;
       }
       // Handle shipout(bbox(margin)) — store bbox spec for SVG renderer to draw border
       if (bboxArg && !frameArg) {
@@ -21795,6 +21807,7 @@ function createInterpreter() {
       _defaultpenLwSet,
       _is3D: !!projection,
       _bboxSpec: currentPic._bboxSpec,
+      _pageOrientation: currentPic._pageOrientation,
     };
   }
 
@@ -21868,7 +21881,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec, _pageOrientation } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -26604,7 +26617,34 @@ function renderSVG(result, opts) {
   const parAttr = '';
   const svgStyle = '';
   const bboxEl = _bboxBorderEl || '';
-  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="0 0 ${fmt(viewW)} ${fmt(viewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(intrinsicW)}" data-intrinsic-h="${fmt(intrinsicH)}">\n${svgStyle}${bgRect}${bboxEl}${innerContent}\n</svg>`;
+
+  // Page orientation (shipout(Seascape|Landscape|UpsideDown)): rotate the whole
+  // page and swap the canvas dimensions. SVG angles are clockwise (y-down), so
+  // Seascape (Asymptote's clockwise-from-portrait) appears as a 90deg CCW screen
+  // rotation here, matching the TeXeR reference.
+  let rootOpen = '', rootClose = '';
+  let outViewW = viewW, outViewH = viewH, outSvgW = svgW, outSvgH = svgH, outIntrinsicW = intrinsicW, outIntrinsicH = intrinsicH;
+  if (_pageOrientation && _pageOrientation !== 'Portrait') {
+    let transform = '';
+    if (_pageOrientation === 'Seascape') {
+      transform = `translate(0 ${fmt(viewW)}) rotate(-90)`;
+    } else if (_pageOrientation === 'Landscape') {
+      transform = `translate(${fmt(viewH)} 0) rotate(90)`;
+    } else if (_pageOrientation === 'UpsideDown') {
+      transform = `translate(${fmt(viewW)} ${fmt(viewH)}) rotate(180)`;
+    }
+    if (transform) {
+      if (_pageOrientation !== 'UpsideDown') {
+        outViewW = viewH; outViewH = viewW;
+        outSvgW = svgH; outSvgH = svgW;
+        outIntrinsicW = intrinsicH; outIntrinsicH = intrinsicW;
+      }
+      rootOpen = `<g transform="${transform}">`;
+      rootClose = `</g>`;
+    }
+  }
+
+  const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(outSvgW)}" height="${fmt(outSvgH)}" viewBox="0 0 ${fmt(outViewW)} ${fmt(outViewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(outIntrinsicW)}" data-intrinsic-h="${fmt(outIntrinsicH)}">\n${svgStyle}${rootOpen}${bgRect}${bboxEl}${innerContent}\n${rootClose}</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
 }
