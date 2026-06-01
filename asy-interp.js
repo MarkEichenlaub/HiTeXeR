@@ -9375,15 +9375,26 @@ function createInterpreter() {
             }
             // Global time = segment index + t within segment
             let globalT = segIdx + Math.max(0, Math.min(1, t));
-            // Seam handling for closed paths: an intersection that lands on
-            // the start/closing node is reported at the END of the path by
+            // Seam handling for closed paths: an interior crossing that lands
+            // on the start/closing node is reported at the END of the path by
             // Asymptote (time == length), not the beginning (time 0). Remap
             // it so the ordering of intersectionpoints matches Asymptote.
+            // Exception: when the seam coincides with an *endpoint* of the
+            // second path, Asymptote keeps the seam at time 0 (first) — so
+            // skip the remap there (e.g. 00752, where a segment starts at the
+            // circle's (1,0) seam).
             if (p1.closed && p1.segs.length > 0) {
               const sn = p1.segs[0].p0;
               const ndist = Math.hypot(ip.x - sn.x, ip.y - sn.y);
               const ntol = 1e-3 * Math.max(1, Math.hypot(sn.x, sn.y));
-              if (ndist < ntol) globalT = p1.segs.length;
+              if (ndist < ntol) {
+                const e0 = p2.segs[0].p0;
+                const eN = p2.segs[p2.segs.length - 1].p3;
+                const atP2End =
+                  Math.hypot(ip.x - e0.x, ip.y - e0.y) < ntol ||
+                  Math.hypot(ip.x - eN.x, ip.y - eN.y) < ntol;
+                if (!atP2End) globalT = p1.segs.length;
+              }
             }
             // Deduplicate across segments
             let dup = false;
