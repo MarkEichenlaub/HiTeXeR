@@ -28509,9 +28509,11 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       parts.push({type:'bigop', sym: seg.sym, sub: seg.sub || '', sup: seg.sup || '', opFs, limFs, width: w});
       totalWidth += w;
     } else if (seg.type === 'underbrace' || seg.type === 'overbrace') {
-      // seg.width is in pt (from \hspace{...cm}); convert to viewBox units using fontSize ratio
-      // fontSize is in viewBox units representing 10pt, so scale = fontSize/10
-      const braceW = seg.width ? seg.width * (fontSize / 10) : fontSize * 8;
+      // seg.width is an absolute physical length in pt (from \hspace{...cm}).
+      // The label viewBox is in PostScript points, so it maps 1:1 — do NOT
+      // scale by fontSize (that made an 8cm brace 20% too wide, pushing the
+      // end-hooks outside the viewBox where they clipped to a flat line).
+      const braceW = seg.width ? seg.width : fontSize * 8;
       const labelText = stripLaTeX(seg.label || '');
       parts.push({type: seg.type, braceW, labelText, width: braceW});
       totalWidth += braceW;
@@ -28592,18 +28594,22 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       const cx = curX + p.width / 2;
       const isOver = (p.type === 'overbrace');
       // For underbrace: brace below baseline (peakY > by). For overbrace: brace above baseline (peakY < by).
-      const by = y;
-      const bh = fontSize * 0.28;
+      const sgnShift = isOver ? -1 : 1;
+      // The South/North label offset hangs the whole group below/above the
+      // anchor, but TeXeR draws the brace closer to the content. Pull the brace
+      // back toward the content so the hook-tips sit just past the rectangle.
+      const by = y - sgnShift * fontSize * 0.36;
+      const bh = fontSize * 0.44;
       const xL = curX, xR = curX + p.width;
       const hookR = Math.min(fontSize * 0.25, p.width * 0.1);
-      const midBump = bh * 0.4;
+      const midBump = bh * 0.5;
       const sgn = isOver ? -1 : 1;
       const armY = by + sgn * (bh - midBump);
       const peakY = by + sgn * bh;
       els.push(`<path d="M${fmt(xL)},${fmt(by)} Q${fmt(xL)},${fmt(armY)} ${fmt(xL+hookR)},${fmt(armY)} L${fmt(cx-hookR)},${fmt(armY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx)},${fmt(peakY)} Q${fmt(cx)},${fmt(armY)} ${fmt(cx+hookR)},${fmt(armY)} L${fmt(xR-hookR)},${fmt(armY)} Q${fmt(xR)},${fmt(armY)} ${fmt(xR)},${fmt(by)}" fill="none" stroke="${fill}" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
       if (p.labelText) {
         const lblFs = fontSize * 0.7;
-        const lblY = peakY + sgn * fontSize * 0.45;
+        const lblY = peakY + sgn * fontSize * 0.35;
         els.push(`<text x="${fmt(cx)}" y="${fmt(lblY)}" fill="${fill}" font-size="${fmt(lblFs)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(p.labelText)}</text>`);
       }
     } else {
