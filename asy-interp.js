@@ -9509,13 +9509,54 @@ function createInterpreter() {
       const V = pairs[1];      // vertex (center of arc)
       const P2 = pairs[2];     // second ray endpoint
 
-      // Extract radius from numeric args (typically 4th numeric arg after fontSize)
-      // Format: MA(label, fontSize, pen, P1, V, P2, radius, n, pen)
-      // nums[0] = fontSize (12), nums[1] = radius (0.1), nums[2] = n (1)
-      if (nums.length >= 2) radius = nums[1];
-      if (nums.length >= 3) n = Math.max(1, Math.floor(nums[2]));
+      // Two AoPS call forms, distinguished by whether a string label appears:
+      //   no-label: MA(P1, V, P2, radius, n)             -> nums = [radius, n]
+      //   label:    MA(label, fontSize, pen, P1,V,P2, radius, n, pen)
+      //                                                  -> nums = [fontSize, radius, n]
+      // radius is in USER coordinates (e.g. 0.2 of the unit circle), n is the
+      // number of concentric arcs. Skip the leading fontSize in the label form.
+      const numIdx = (label !== null) ? 1 : 0;
+      if (nums.length > numIdx) radius = nums[numIdx];
+      if (nums.length > numIdx + 1) n = Math.max(1, Math.floor(nums[numIdx + 1]));
 
       if (!pen) pen = clonePen(env.get('currentpen') || defaultPen);
+
+      // Estimate the bp/user ratio (mirrors markangle()) so the user-unit
+      // radius can be stored as a fixed-bp value and rebuilt by the renderer
+      // after any unitsize boost.
+      let bpPerUnit = 1;
+      {
+        let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
+        for (const c of currentPic.commands) {
+          if (c.path) for (const s of c.path.segs) {
+            for (const p of [s.p0, s.p3]) {
+              if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+              if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
+            }
+          }
+          if (c.pos) {
+            if (c.pos.x < cMinX) cMinX = c.pos.x; if (c.pos.x > cMaxX) cMaxX = c.pos.x;
+            if (c.pos.y < cMinY) cMinY = c.pos.y; if (c.pos.y > cMaxY) cMaxY = c.pos.y;
+          }
+        }
+        for (const p of [P1, V, P2]) {
+          if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
+          if (p.y < cMinY) cMinY = p.y; if (p.y > cMaxY) cMaxY = p.y;
+        }
+        const rangeX = (cMaxX - cMinX) || 1;
+        const rangeY = (cMaxY - cMinY) || 1;
+        if (sizeW > 0 || sizeH > 0) {
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          bpPerUnit = Math.min(sw / rangeX, sh / rangeY);
+        } else if (hasUnitScale) {
+          bpPerUnit = unitScale;
+        } else {
+          const defaultSize = 150;
+          const maxDim = Math.max(rangeX, rangeY) || 1;
+          bpPerUnit = defaultSize / maxDim;
+        }
+      }
 
       // Angles from vertex V to P1 and P2 (in degrees)
       let a1 = Math.atan2(P1.y - V.y, P1.x - V.x) * 180 / Math.PI;
@@ -9523,18 +9564,22 @@ function createInterpreter() {
       // CCW sweep from ray VP1 to ray VP2
       while (a2 <= a1) a2 += 360;
 
-      // Draw the arc
-      const arcPath = makeArcPath(V, radius, a1, a2);
-      currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0,
-        _markangleBpR: radius * 72, _markangleVertex: V, _markangleA1: a1 * Math.PI / 180, _markangleA2: a2 * Math.PI / 180});
+      // Draw n concentric arcs, spaced like markangle().
+      const gap = radius * 0.15;
+      for (let i = 0; i < n; i++) {
+        const r = radius + i * gap;
+        const arcPath = makeArcPath(V, r, a1, a2);
+        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0,
+          _markangleBpR: r * bpPerUnit, _markangleVertex: V, _markangleA1: a1 * Math.PI / 180, _markangleA2: a2 * Math.PI / 180});
+      }
 
       // Label at the arc midpoint
       if (label) {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
-        const labelR = radius * 1.6;
+        const labelR = radius + (n - 1) * gap + radius * 0.6;
         const pos = makePair(V.x + labelR * Math.cos(midAngle), V.y + labelR * Math.sin(midAngle));
         currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0,
-          _markangleBpR: labelR * 72, _markangleVertex: V, _markangleMidAngle: midAngle});
+          _markangleBpR: labelR * bpPerUnit, _markangleVertex: V, _markangleMidAngle: midAngle});
       }
 
       // Return null - MA() already drew the arc and label. Returning the path would cause
