@@ -23955,7 +23955,31 @@ function renderSVG(result, opts) {
           // overflows size() — making cells rectangular and the y-axis
           // label sit outside the requested bounding box.
           if (isIgnoreAspect) {
-            for (let iter = 0; iter < 5; iter++) {
+            // Early grid-plot detection: a graph plot (08812) has regular
+            // tick-label series on BOTH axes (>= 3 un-rotated labels sharing
+            // a posY for the x-axis row, and >= 3 sharing a posX for the
+            // y-axis column). Bar charts (06508) have only one such series.
+            // Grid plots need more solver iterations to converge their
+            // shrink within the 1.005 tolerance (exceedH bottoms out at
+            // ~1.008 after 5 iters but reaches 1.004 by ~30); other layouts
+            // must keep 5 iters or they over-converge and skip the
+            // label-dominated reset.
+            let _iaGridPlot = false;
+            {
+              const _xRows = new Map(), _yCols = new Map();
+              for (const li of labelInfoBp) {
+                if (Math.abs(li._ltAngle) > 0.5) continue;
+                const yK = Math.round(li.posY * 1e6) / 1e6;
+                const xK = Math.round(li.posX * 1e6) / 1e6;
+                _xRows.set(yK, (_xRows.get(yK) || 0) + 1);
+                _yCols.set(xK, (_yCols.get(xK) || 0) + 1);
+              }
+              let _hasX = false, _hasY = false;
+              for (const c of _xRows.values()) if (c >= 3) _hasX = true;
+              for (const c of _yCols.values()) if (c >= 3) _hasY = true;
+              _iaGridPlot = _hasX && _hasY;
+            }
+            for (let iter = 0; iter < (_iaGridPlot ? 30 : 5); iter++) {
               let bMinX = geoMinX * pxPerUnitX;
               let bMaxX = geoMaxX * pxPerUnitX;
               let bMinY = geoMinY * pxPerUnitY;
@@ -24096,7 +24120,23 @@ function renderSVG(result, opts) {
             const _geoH2 = (geoMaxY - geoMinY) || 1;
             const _geoAspect = (_geoH2 / _geoW2);
             const _skipSquareCells = _geoAspect > 5 || _geoAspect < 0.2;
-            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_skipSquareCells) {
+            // Square-cell coupling forces (xStepBp*pxX)==(yStepBp*pxY), i.e.
+            // it assumes TeXeR renders this plot with square grid cells. That
+            // holds for label-dominated sparse-data scatter (3900), but NOT
+            // for a graph plot whose size() aspect deliberately differs from
+            // the "square-cell" aspect. 08812 has size(10cm,5cm) → sizeAspect
+            // 2.0, while square cells would imply aspect ≈ 0.90 (10 x-cells
+            // vs 10 y-cells over a 90×100 box). When the two aspects diverge
+            // strongly, honour size() (rectangular cells) instead of forcing
+            // squares — otherwise the curve is vertically stretched 2.5×.
+            let _iaSizeAspectConflict = false;
+            if (xStepBp > 0 && yStepBp > 0 && sizeW > 0 && sizeH > 0) {
+              const _squareBoxAspect = (_geoW2 / xStepBp) / (_geoH2 / yStepBp);
+              const _sizeAspect = sizeW / sizeH;
+              const _r = _squareBoxAspect / _sizeAspect;
+              _iaSizeAspectConflict = _r > 1.6 || _r < 1 / 1.6;
+            }
+            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_skipSquareCells && !_iaSizeAspectConflict) {
               const targetXPx = Math.max(pxPerUnitX, minPxX);
               const targetYPx = Math.max(pxPerUnitY, minPxY);
               const xCellBp = xStepBp * targetXPx;
