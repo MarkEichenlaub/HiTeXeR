@@ -221,11 +221,15 @@ function sh(cmd, opts) {
 
 function resetHard(commit) {
   // Save tracked runtime files before the reset so they survive git reset --hard.
+  // enqueue-history.jsonl is tracked but append-only at runtime (before-snapshot
+  // link records); without preserving it the reset reverts it to its committed
+  // state, orphaning every {enqueueId}-before/after.png the fix-history page needs.
   const queuePath    = path.join(ROOT, 'auto-fix', 'queue.json');
   const attemptsPath = path.join(ROOT, 'auto-fix', 'attempts.jsonl');
-  let savedQueue = null, savedAttempts = null;
+  let savedQueue = null, savedAttempts = null, savedEnqueueHistory = null;
   try { savedQueue    = fs.readFileSync(queuePath,    'utf8'); } catch {}
   try { savedAttempts = fs.readFileSync(attemptsPath, 'utf8'); } catch {}
+  try { savedEnqueueHistory = fs.readFileSync(ENQUEUE_HISTORY_PATH, 'utf8'); } catch {}
   sh('git reset --hard ' + commit);
   // Re-apply any remote-only commits (e.g. UI fixes pushed while the loop was
   // running) that would otherwise be lost by the hard reset.  --ff-only is safe:
@@ -236,6 +240,7 @@ function resetHard(commit) {
   }
   if (savedQueue    !== null) { try { fs.writeFileSync(queuePath,    savedQueue);    } catch {} }
   if (savedAttempts !== null) { try { fs.writeFileSync(attemptsPath, savedAttempts); } catch {} }
+  if (savedEnqueueHistory !== null) { try { fs.writeFileSync(ENQUEUE_HISTORY_PATH, savedEnqueueHistory); } catch {} }
 }
 
 // Sync local HEAD to origin/master at the start of each iteration so that UI
@@ -245,9 +250,10 @@ function resetHard(commit) {
 function syncToOrigin() {
   const queuePath    = path.join(ROOT, 'auto-fix', 'queue.json');
   const attemptsPath = path.join(ROOT, 'auto-fix', 'attempts.jsonl');
-  let savedQueue = null, savedAttempts = null;
+  let savedQueue = null, savedAttempts = null, savedEnqueueHistory = null;
   try { savedQueue    = fs.readFileSync(queuePath,    'utf8'); } catch {}
   try { savedAttempts = fs.readFileSync(attemptsPath, 'utf8'); } catch {}
+  try { savedEnqueueHistory = fs.readFileSync(ENQUEUE_HISTORY_PATH, 'utf8'); } catch {}
 
   const fetch = sh('git fetch origin master');
   if (fetch.code !== 0) {
@@ -268,6 +274,7 @@ function syncToOrigin() {
   sh('git reset --hard origin/master');
   if (savedQueue    !== null) { try { fs.writeFileSync(queuePath,    savedQueue);    } catch {} }
   if (savedAttempts !== null) { try { fs.writeFileSync(attemptsPath, savedAttempts); } catch {} }
+  if (savedEnqueueHistory !== null) { try { fs.writeFileSync(ENQUEUE_HISTORY_PATH, savedEnqueueHistory); } catch {} }
 }
 
 function readVersion() {
@@ -1088,6 +1095,12 @@ async function runIteration(args, iter) {
     }
 
     console.log('[run-loop] round ' + round + ': committed ' + preCommit + ' -> ' + postCommit);
+
+    // Snapshot the post-commit render now, keyed by this commit hash, so EVERY
+    // committed round has a "HiTeXeR after" in fix-history — including
+    // intermediate verifier rounds that keep their commit hash but are never
+    // a terminal accept/reject. Terminal paths below re-call this harmlessly.
+    saveAfterSnapshot(target.id, postCommit);
 
     if (args.skipVerifier) {
       console.log('[run-loop] --no-verifier set; skipping visual verification');
