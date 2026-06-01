@@ -11391,6 +11391,52 @@ function createInterpreter() {
       }
     }
 
+    // Dense-data major step for an axis spanning [min,max] in direction
+    // 'x' or 'y'. Mirrors the dense-override inside _drawTicks: when the
+    // picture packs many data units into a physically small axis (low
+    // bp-per-unit along the axis, < 22), Asymptote uses a sparse "nice"
+    // (1/2/5)x10^k step (~55bp spacing) instead of a crowded one. Returns
+    // 0 when the axis is ordinary-density (so callers leave it untouched).
+    // Used to round user xlimits/ylimits outward to the next major tick,
+    // matching Asymptote's autoscale (e.g. 00115: x[-4,4] -> [-5,5] so the
+    // "5" tick is shown and the plot fills its square box).
+    function _denseAxisStep(min, max, dir, pic) {
+      if (!pic) pic = currentPic;
+      const range = Math.abs(max - min);
+      if (!(range > 0)) return 0;
+      const _gb = getGeoBbox(pic.commands);
+      let rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.abs(_gb.maxX - _gb.minX) : range;
+      let rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : range;
+      // Prefer the declared axis range (xlimits/ylimits): at axis-range time
+      // the axis line is not yet in pic.commands, so getGeoBbox underestimates
+      // the span and yields a different bp-per-unit than _drawTicks sees.
+      if (_axisLimits.xmin !== null && _axisLimits.xmax !== null && _axisLimits.xmax > _axisLimits.xmin) {
+        rX = Math.abs(_axisLimits.xmax - _axisLimits.xmin);
+      }
+      if (_axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin) {
+        rY = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
+      }
+      let alongBpPerUnit = 0;
+      if (sizeW > 0 || sizeH > 0) {
+        let swA, shA;
+        if (sizeW > 0 && sizeH > 0) { swA = sizeW; shA = sizeH; }
+        else if (sizeW > 0) { swA = sizeW; shA = (rX > 0 && rY > 0) ? sizeW * (rY / rX) : sizeW; }
+        else { shA = sizeH; swA = (rX > 0 && rY > 0) ? sizeH * (rX / rY) : sizeH; }
+        if (dir === 'x') { if (rX > 0) alongBpPerUnit = swA / rX; }
+        else { if (rY > 0) alongBpPerUnit = shA / rY; }
+      } else if (hasUnitScale) {
+        alongBpPerUnit = unitScale;
+      } else {
+        const maxDim = Math.max(rX, rY);
+        if (maxDim > 0) alongBpPerUnit = 150 / maxDim;
+      }
+      if (!(alongBpPerUnit > 0) || alongBpPerUnit >= 22) return 0;
+      const roughUnit = 55 / alongBpPerUnit;
+      const magN = Math.pow(10, Math.floor(Math.log10(roughUnit)));
+      const fN = roughUnit / magN;
+      return (fN <= 1 ? 1 : fN <= 2 ? 2 : fN <= 5 ? 5 : 10) * magN;
+    }
+
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
@@ -11572,6 +11618,7 @@ function createInterpreter() {
       // Compute major tick positions
       let majorPositions;
       let step;
+      let denseMinorN = 0; // autominor subdivision count when dense-override fires
       if (ticks.positions && isArray(ticks.positions)) {
         majorPositions = ticks.positions.map(v => toNumber(v));
         step = majorPositions.length > 1 ? Math.abs(majorPositions[1] - majorPositions[0]) : 1;
@@ -11634,6 +11681,48 @@ function createInterpreter() {
           } else {
             step = 1;
           }
+          // Dense-data sparsity: when the axis packs many data units into a
+          // physically small picture (low bp-per-unit along the axis), the
+          // integer-divisor step above yields too many crowded major ticks
+          // vs Asymptote, which targets roughly one major label per ~0.5in.
+          // Override with a "nice" (1/2/5)x10^k step sized to ~55bp spacing.
+          // Only triggers for genuinely dense plots (e.g. 00115: size(5cm)
+          // over x[-4,4], y[-4,8] -> ~12-18 bp/unit -> step 5); ordinary
+          // plots (bpPerUnit >= 22, e.g. family 00118/00119 at ~28-57)
+          // keep the divisor step so the rest of the corpus is unaffected.
+          {
+            let alongBpPerUnit = 0;
+            const _gbA = getGeoBbox(pic.commands);
+            const rXA = (_gbA && isFinite(_gbA.maxX - _gbA.minX)) ? Math.abs(_gbA.maxX - _gbA.minX) : (Math.abs(max - min) || 1);
+            const rYA = (_gbA && isFinite(_gbA.maxY - _gbA.minY)) ? Math.abs(_gbA.maxY - _gbA.minY) : (Math.abs(max - min) || 1);
+            if (sizeW > 0 || sizeH > 0) {
+              let swA, shA;
+              if (sizeW > 0 && sizeH > 0) { swA = sizeW; shA = sizeH; }
+              else if (sizeW > 0) { swA = sizeW; shA = (rXA > 0 && rYA > 0) ? sizeW * (rYA / rXA) : sizeW; }
+              else { shA = sizeH; swA = (rXA > 0 && rYA > 0) ? sizeH * (rXA / rYA) : sizeH; }
+              if (_isXAxis) { if (rXA > 0) alongBpPerUnit = swA / rXA; }
+              else { if (rYA > 0) alongBpPerUnit = shA / rYA; }
+            } else if (hasUnitScale) {
+              alongBpPerUnit = unitScale;
+            } else {
+              const maxDimA = Math.max(rXA, rYA);
+              if (maxDimA > 0) alongBpPerUnit = 150 / maxDimA;
+            }
+            if (alongBpPerUnit > 0 && alongBpPerUnit < 22) {
+              const roughUnit = 55 / alongBpPerUnit;
+              const magN = Math.pow(10, Math.floor(Math.log10(roughUnit)));
+              const fN = roughUnit / magN;
+              const niceStepDense = (fN <= 1 ? 1 : fN <= 2 ? 2 : fN <= 5 ? 5 : 10) * magN;
+              if (niceStepDense > step) {
+                step = niceStepDense;
+                // Asymptote autominor: a "5" major step subdivides into 5
+                // (minor every 1 unit, matching the 00115 reference); a "2"
+                // step into 4; a "1" step into 5.
+                const lead = niceStepDense / magN;
+                denseMinorN = (lead === 2 ? 4 : 5);
+              }
+            }
+          }
         }
         if (step <= 0) step = 1;
         majorPositions = [];
@@ -11650,7 +11739,8 @@ function createInterpreter() {
         // this only for "nice" auto-picked major steps so we don't introduce
         // minor ticks where users gave an explicit non-multiple major step.
         const effSubStep = ticks.subStep;
-        const subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
+        let subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
+        if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
         if (subN > 1) {
           const subStep = step / subN;
           for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
@@ -12025,6 +12115,34 @@ function createInterpreter() {
           const _d = _f <= 1 ? _mag : _f <= 2 ? 2*_mag : _f <= 5 ? 5*_mag : 10*_mag;
           xmin = Math.floor(cMinX / _d) * _d;
           xmax = Math.ceil(cMaxX / _d) * _d;
+        }
+      }
+      // Asymptote autoscale: when dense-data auto-ticks apply (see
+      // _denseAxisStep / the dense override in _drawTicks), round the axis
+      // limits outward to the nearest major tick so the outermost labeled
+      // tick and the full plot box are shown (e.g. 00115: x[-4,4] -> [-5,5],
+      // which fills the square IgnoreAspect box and renders the "5" label).
+      if (ticks && !ticks.positions && !(ticks.step > 0) && !_axisLimits.crop
+          && !xminExplicit && !xmaxExplicit
+          && xmin !== null && xmax !== null && xmax > xmin) {
+        const _dstep = _denseAxisStep(xmin, xmax, 'x', pic);
+        if (_dstep > 0) {
+          // Only extend when the in-range major ticks carry no (non-zero)
+          // label: e.g. x[-4,4] at step 5 has just 0 (dropped by NoZero), so
+          // the axis would render label-less. Extend the data-tight max side
+          // outward to the next major tick (-> 5) so one label shows. When a
+          // labeled tick already lies inside (e.g. y[-4,8] has 5), leave the
+          // range alone so we don't introduce spurious far ticks (10/-5).
+          const loT = Math.ceil(xmin / _dstep - 1e-9) * _dstep;
+          const hiT = Math.floor(xmax / _dstep + 1e-9) * _dstep;
+          let hasLabeled = false;
+          for (let v = loT; v <= hiT + 1e-9; v += _dstep) {
+            if (Math.abs(v) > 1e-9) { hasLabeled = true; break; }
+          }
+          if (!hasLabeled) {
+            const nMax = Math.ceil(xmax / _dstep - 1e-9) * _dstep;
+            if (nMax > xmax) xmax = nMax;
+          }
         }
       }
       if (!pen) pen = clonePen(defaultPen);
