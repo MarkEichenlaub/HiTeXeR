@@ -10212,7 +10212,6 @@ function createInterpreter() {
       }
     });
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
-    env.set('unitrand', () => Math.random());
 
     // Seeded PRNG for rand()/srand() — matches glibc's random()/initstate()
     // with a 256-byte state buffer, which is what Asymptote uses internally
@@ -10255,6 +10254,10 @@ function createInterpreter() {
     env.set('srand', (seed) => _srand(seed));
     env.set('rand', () => _rand());
     env.set('randMax', RAND_MAX);
+    // Asymptote: real unitrand() { return random()/(real)RANDOM_MAX; }
+    // Shares the same seeded random() stream as rand(), so srand(seed) makes
+    // unitrand()-driven diagrams (e.g. 04267) reproduce TeXeR's exact geometry.
+    env.set('unitrand', () => _rand() / RAND_MAX);
 
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
