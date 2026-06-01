@@ -152,7 +152,7 @@
   #autofix-bar .af-skip   { color: #fde68a; }
   #autofix-bar .af-rerender { color: #60a5fa; animation: af-blink 1.2s ease-in-out infinite; }
   @keyframes af-blink { 0%,100%{ opacity:1 } 50%{ opacity:0.45 } }
-  #af-ctrl { background:none; border:none; cursor:pointer; font-size:16px; padding:0 4px; line-height:1; margin-left:auto; transition:opacity 0.15s; flex-shrink:0; }
+  #af-ctrl { background:none; border:none; cursor:pointer; font-size:16px; padding:0 4px; line-height:1; transition:opacity 0.15s; flex-shrink:0; }
   #af-ctrl:hover { opacity:0.65; }
 
   /* ── Blink header flex line-break ───────────────────── */
@@ -165,9 +165,9 @@
 <div id="autofix-bar">
   <span class="af-dot af-idle" id="af-dot">●</span>
   <span id="af-state">—</span>
+  <button id="af-ctrl" style="display:none" title=""></button>
   <span class="af-sep">|</span>
   <span id="af-last"></span>
-  <button id="af-ctrl" style="display:none" title=""></button>
 </div>
 
 <!-- ── Header / Controls ──────────────────────────────── -->
@@ -456,7 +456,7 @@
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.value = c;
-      cb.checked = true;
+      cb.checked = !c.startsWith('gallery');
       cb.className = 'coll-cb';
       cb.addEventListener('change', () => { syncCheckAll(); applyFilters(); });
       label.appendChild(cb);
