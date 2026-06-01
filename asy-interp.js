@@ -26535,6 +26535,21 @@ function renderSVG(result, opts) {
         const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
         const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
         labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+      } else if (opts && opts.labelOutput === 'svg-native' && !hasMath && !hasLaTeX && !wasStrippedMath && !(dc.pen && dc.pen.fontFamily) && displayText && /[A-Za-z]/.test(displayText) && !/[_^]/.test(displayText)) {
+        // Plain text label (e.g. "Pivot", "Post") in rasterization mode.
+        // librsvg has no KaTeX_Main font installed, so a <text font-family="KaTeX_Main,
+        // serif"> falls back to a generic bold/sans face — but real Asymptote/TeXeR
+        // renders plain text in Computer Modern Roman.  Route through MathJax \text{}
+        // (same path the simple-math labels use) so real CM serif glyph <path>s are
+        // emitted and the label matches the reference.
+        let esc = '';
+        for (let i = 0; i < displayText.length; i++) {
+          const c = displayText[i];
+          if (c === '~') esc += ' ';
+          else if ('\\{}$&#^_%'.indexOf(c) !== -1) esc += '\\' + c;
+          else esc += c;
+        }
+        labelEl = renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
