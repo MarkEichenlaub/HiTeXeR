@@ -21224,12 +21224,22 @@ function createInterpreter() {
       if (v.y < b.minY) b.minY = v.y; if (v.y > b.maxY) b.maxY = v.y;
       if (v.z < b.minZ) b.minZ = v.z; if (v.z > b.maxZ) b.maxZ = v.z;
     };
-    for (const seg of p.segs) {
-      if (isTriple(seg.p0)) { updateBounds(seg.p0); const pr = projectTriple(seg.p0); seg.p0 = pr; }
-      if (isTriple(seg.cp1)) { updateBounds(seg.cp1); const pr = projectTriple(seg.cp1); seg.cp1 = pr; }
-      if (isTriple(seg.cp2)) { updateBounds(seg.cp2); const pr = projectTriple(seg.cp2); seg.cp2 = pr; }
-      if (isTriple(seg.p3)) { updateBounds(seg.p3); const pr = projectTriple(seg.p3); seg.p3 = pr; }
-    }
+    // Project into freshly-cloned seg objects rather than mutating in place.
+    // Paths built by join (e.g. `lowerPath = horLine -- ...`) share the same
+    // seg objects with their source paths. Mutating seg.p0/.../p3 here would
+    // overwrite the source path's 3D coords with 2D-projected garbage, so a
+    // later read like midpoint(horLine) would scatter dependent geometry.
+    let anyTriple = false;
+    const newSegs = p.segs.map((seg) => {
+      let ns = seg;
+      const cloneIfNeeded = () => { if (ns === seg) ns = Object.assign({}, seg); };
+      if (isTriple(seg.p0)) { anyTriple = true; updateBounds(seg.p0); cloneIfNeeded(); ns.p0 = projectTriple(seg.p0); }
+      if (isTriple(seg.cp1)) { anyTriple = true; updateBounds(seg.cp1); cloneIfNeeded(); ns.cp1 = projectTriple(seg.cp1); }
+      if (isTriple(seg.cp2)) { anyTriple = true; updateBounds(seg.cp2); cloneIfNeeded(); ns.cp2 = projectTriple(seg.cp2); }
+      if (isTriple(seg.p3)) { anyTriple = true; updateBounds(seg.p3); cloneIfNeeded(); ns.p3 = projectTriple(seg.p3); }
+      return ns;
+    });
+    if (anyTriple) p.segs = newSegs;
     if (p._singlePoint && isTriple(p._singlePoint)) {
       updateBounds(p._singlePoint);
       p._singlePoint = projectTriple(p._singlePoint);
