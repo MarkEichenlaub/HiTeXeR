@@ -152,6 +152,8 @@
   #autofix-bar .af-skip   { color: #fde68a; }
   #autofix-bar .af-rerender { color: #60a5fa; animation: af-blink 1.2s ease-in-out infinite; }
   @keyframes af-blink { 0%,100%{ opacity:1 } 50%{ opacity:0.45 } }
+  #af-ctrl { background:none; border:none; cursor:pointer; font-size:10px; padding:0 3px; line-height:1; margin-left:auto; transition:opacity 0.15s; }
+  #af-ctrl:hover { opacity:0.65; }
 
   /* ── Blink header flex line-break ───────────────────── */
   .blink-header-break { flex-basis: 100%; height: 0; }
@@ -165,6 +167,7 @@
   <span id="af-state">—</span>
   <span class="af-sep">|</span>
   <span id="af-last"></span>
+  <button id="af-ctrl" style="display:none" title=""></button>
 </div>
 
 <!-- ── Header / Controls ──────────────────────────────── -->
@@ -1659,6 +1662,24 @@
             '</span> (' + pre + '→' + post + ')' + cost + turns;
         } else {
           last.textContent = '';
+        }
+
+        // ── Stop / start control ──
+        const ctrl = document.getElementById('af-ctrl');
+        if (s.runLoopRunning) {
+          ctrl.textContent = '●';
+          ctrl.style.display = '';
+          ctrl.style.color = '#ef4444';
+          ctrl.title = 'Stop autofix loop';
+          ctrl.onclick = () => fetch('/stop-loop', { method: 'POST' }).then(() => pollAutoFixStatus());
+        } else if (s.queue && s.queue.length > 0) {
+          ctrl.textContent = '●';
+          ctrl.style.display = '';
+          ctrl.style.color = '#22c55e';
+          ctrl.title = 'Start autofix loop';
+          ctrl.onclick = () => fetch('/start-loop', { method: 'POST' }).then(() => pollAutoFixStatus());
+        } else {
+          ctrl.style.display = 'none';
         }
 
         // ── Queue indicators ──

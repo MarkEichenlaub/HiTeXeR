@@ -71,6 +71,17 @@ function launchRunLoop() {
   console.log('[fix-server] launched run-loop headlessly (log: auto-fix/run-loop.log)');
 }
 
+// Write the STOP sentinel and kill the process by PID.
+function stopRunLoop() {
+  const stopPath = path.join(ROOT, 'auto-fix', 'STOP');
+  try { fs.writeFileSync(stopPath, ''); } catch {}
+  try {
+    const pid = parseInt(fs.readFileSync(RUN_LOOP_PID_FILE, 'utf8'), 10);
+    if (pid && !isNaN(pid)) { process.kill(pid); return true; }
+  } catch {}
+  return false;
+}
+
 // Regenerate the blink manifest (synchronous). Callers that touch many ids
 // should call this ONCE at the end rather than per-id.
 function regenManifest() {
@@ -231,6 +242,33 @@ const server = http.createServer((req, res) => {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(status));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/stop-loop') {
+    const stopped = stopRunLoop();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, stopped }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/start-loop') {
+    let q = [];
+    try { q = JSON.parse(fs.readFileSync(path.join(ROOT, 'auto-fix', 'queue.json'), 'utf8')); } catch {}
+    if (!Array.isArray(q) || q.length === 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Queue is empty' }));
+      return;
+    }
+    if (isRunLoopRunning()) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, already: true }));
+      return;
+    }
+    try { fs.unlinkSync(path.join(ROOT, 'auto-fix', 'STOP')); } catch {}
+    launchRunLoop();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
