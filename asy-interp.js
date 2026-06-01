@@ -23228,12 +23228,23 @@ function renderSVG(result, opts) {
     // for the next tier up [10,20).  Excludes graph-axis / crowded / label-
     // dominated layouts (e.g. 02158 rr_cartesian_axes) that genuinely need it.
     const _smallCmNatMaxSkip = Math.max(naturalW, naturalH);
+    // Wide-aspect vector diagrams at small cm-unitsize (e.g. the c190_L2
+    // wind/plane vector families 03418/03428/03429: unitsize(0.2cm) with a
+    // single ~10-unit-long arrow at a shallow angle, geoW/geoH ≈ 3+).  TeXeR
+    // magnifies these tiny pictures up to roughly the same visual size as the
+    // unitsize(1cm) sibling (03430) — i.e. it does NOT honor the literal cm
+    // scale here.  Without this exception _smallCmSkipBoost suppresses the
+    // boost and the diagram renders ~3× too small (sizeScore ≈ 0).
+    const _smallCmAspect = (geoW > 0 && geoH > 0)
+      ? Math.max(geoW / geoH, geoH / geoW) : 1;
+    const _smallCmWideVector = _smallCmAspect >= 2.5 && _arrowDrawCountPre >= 2;
     const _smallCmSkipBoost = unitScale >= 3 && unitScale < 10
       && _smallCmNatMaxSkip >= 45
       && !_hasGraphAxis
       && !_crowdRequiresBoost
       && !_smallCmLabelDominated
-      && !_physicsForceVectorBoost;
+      && !_physicsForceVectorBoost
+      && !_smallCmWideVector;
     // Node-link graph idiom (AoPS drawGraph family, e.g. c647_L14): a small
     // cm-based unitsize diagram with many arrow edges (≥3) and several
     // vertex/edge labels (≥4) drawn on tiny geometry.  Real AoPS-TeXeR scales
@@ -23331,6 +23342,11 @@ function renderSVG(result, opts) {
          ? _graphIdiomTgt
          : (unitScale < 1)
          ? (aspectRatio >= 2.5 ? 200 : (_mmNatPre * _mmPerUnitG))
+         : _smallCmWideVector
+           // Wide-aspect vector diagram at small cm-unitsize (c190_L2 family):
+           // a target of ~267bp puts the boosted geometry width at TeXeR's
+           // reference (~970px); the generic 300 branch overshoots ~12%.
+           ? 267
          : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
            ? 300
            : (unitScale >= 20 && !hasAnyLabels)
