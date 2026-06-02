@@ -1,18 +1,20 @@
 'use strict';
 // Headless-Chromium (Blink/Skia) SVG -> PNG rasterizer.
 //
-// This is the SAME engine the user sees in comparison/blink.html: the SVG is
-// injected inline (innerHTML) into a white page that links the local KaTeX
-// stylesheet, so KaTeX_Math / KaTeX_Main glyphs render with the real fonts and
-// the exact metrics/positioning the user observes — unlike librsvg, which uses
-// base64-embedded fonts and a different text layout engine.
+// This is the SAME engine the user sees in comparison/blink.html. The SVG text
+// requests `font-family="KaTeX_Main, serif"` / `KaTeX_Math, serif`; we provide
+// those faces as base64-embedded @font-face rules so the glyphs are the real
+// KaTeX (Computer-Modern) shapes — NOT the `serif` (Times) fallback. Embedding
+// (rather than a <link> to the on-disk katex.min.css) is deliberate: headless
+// Chromium blocks file:// font subresources, which silently dropped us to the
+// Times fallback and made axis numbers / italic letters render with the wrong
+// font.
 //
 // One warm browser is reused across many IDs in a run (launch is the slow part).
 // Callers MUST invoke closeBrowser() when done so the process can exit.
 
 const fs   = require('fs');
 const path = require('path');
-const url  = require('url');
 
 // librsvg @ 144 density treats the SVG's px dimensions as points (72/in), an
 // effective 2x. We render Blink at the same factor so PNG pixel dims — and thus
@@ -20,17 +22,46 @@ const url  = require('url');
 // and to the 240-DPI TeXeR reference PNGs.
 const DEFAULT_SCALE = 2;
 
-const KATEX_CSS_PATH = path.join(__dirname, 'node_modules', 'katex', 'dist', 'katex.min.css');
-const KATEX_CSS_URL  = url.pathToFileURL(KATEX_CSS_PATH).href;
+const KATEX_FONTS_DIR = path.join(__dirname, 'node_modules', 'katex', 'dist', 'fonts');
+
+// Base64-embedded KaTeX @font-face block (same face set as the librsvg scorer in
+// auto-fix/render-and-score.js). Built once and cached.
+let _fontCSS = null;
+function fontFaceCSS() {
+  if (_fontCSS != null) return _fontCSS;
+  const faces = [
+    { family:'KaTeX_Main', style:'normal', weight:'normal', file:'KaTeX_Main-Regular.woff2' },
+    { family:'KaTeX_Main', style:'italic', weight:'normal', file:'KaTeX_Main-Italic.woff2' },
+    { family:'KaTeX_Main', style:'normal', weight:'bold',   file:'KaTeX_Main-Bold.woff2' },
+    { family:'KaTeX_Main', style:'italic', weight:'bold',   file:'KaTeX_Main-BoldItalic.woff2' },
+    { family:'KaTeX_Math', style:'normal', weight:'normal', file:'KaTeX_Math-Italic.woff2' },
+    { family:'KaTeX_Math', style:'italic', weight:'normal', file:'KaTeX_Math-Italic.woff2' },
+    { family:'KaTeX_Math', style:'normal', weight:'bold',   file:'KaTeX_Math-BoldItalic.woff2' },
+    { family:'KaTeX_Math', style:'italic', weight:'bold',   file:'KaTeX_Math-BoldItalic.woff2' },
+  ];
+  let css = '';
+  for (const f of faces) {
+    const p = path.join(KATEX_FONTS_DIR, f.file);
+    if (!fs.existsSync(p)) continue;
+    const b64 = fs.readFileSync(p).toString('base64');
+    css += `@font-face{font-family:"${f.family}";font-style:${f.style};font-weight:${f.weight};`
+        +  `src:url("data:font/woff2;base64,${b64}") format("woff2");}`;
+  }
+  _fontCSS = css;
+  return css;
+}
 
 let _browser = null;
 let _launching = null;
 
-async function getBrowser() {
+// opts.executablePath lets callers point at a specific Chromium-family browser
+// (e.g. the user's Brave) to verify the bundled Chromium renders identically.
+async function getBrowser(opts) {
+  opts = opts || {};
   if (_browser) return _browser;
   if (_launching) return _launching;
   const puppeteer = require('puppeteer');
-  _launching = puppeteer.launch({
+  const launch = {
     headless: 'new',
     args: [
       '--force-color-profile=srgb',   // deterministic colour, matches sRGB PNGs
@@ -38,7 +69,9 @@ async function getBrowser() {
       '--hide-scrollbars',
       '--no-sandbox',
     ],
-  }).then(b => { _browser = b; _launching = null; return b; });
+  };
+  if (opts.executablePath) launch.executablePath = opts.executablePath;
+  _launching = puppeteer.launch(launch).then(b => { _browser = b; _launching = null; return b; });
   return _launching;
 }
 
@@ -75,8 +108,8 @@ async function rasterizeSVG(svgText, opts) {
 
     const html =
       '<!DOCTYPE html><html><head><meta charset="utf-8">' +
-      `<link rel="stylesheet" href="${KATEX_CSS_URL}">` +
-      '<style>*{margin:0;padding:0;box-sizing:border-box}' +
+      '<style>' + fontFaceCSS() +
+      '*{margin:0;padding:0;box-sizing:border-box}' +
       'html,body{background:#fff}' +
       '#stage{display:inline-block;background:#fff}' +
       '#stage svg{display:block}</style></head>' +
