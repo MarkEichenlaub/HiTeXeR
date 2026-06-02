@@ -23952,54 +23952,21 @@ function renderSVG(result, opts) {
   // and y-tick labels like "1.1×10⁸" needs to shrink the plot width so the
   // labels fit, producing roughly square gridlines).
   const isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
-  // For IgnoreAspect with extreme geometry aspect ratios (e.g., 08635:
-  // x=[1,100], y=[1,10000], aspect ~100:1), skip the iterative solver's width
-  // shrinking. The solver sees Y-axis labels as extending the "width" bbox
-  // and shrinks pxPerUnitX to fit them, but those labels should extend
-  // OUTSIDE the size(W,H) box, not shrink the plot. Real Asymptote/TeXeR
-  // renders such diagrams at exactly size(W,H) with labels outside.
-  const _geoAspectExtremeForSolver = isIgnoreAspect && (
-    (geoMaxY - geoMinY) / ((geoMaxX - geoMinX) || 1) > 10 ||
-    (geoMaxX - geoMinX) / ((geoMaxY - geoMinY) || 1) > 10
-  );
-  // IgnoreAspect, geometry-dominated case: real Asymptote scales the geometry
-  // bbox to exactly size(W,H) and lets truesize axis labels extend OUTSIDE the
-  // box. The label-shrink solver below instead crams labels inside size(),
-  // which over-compresses large-span plots (e.g. 08743: a 10×20-unit graph
-  // whose tick numbers and axis titles are small decorations in the margin).
-  // Detect this: if every non-rotated label is small relative to size() (the
-  // plot is dominated by geometry, not by labels), skip the shrink so the
-  // frame matches size() exactly. Label-dominated IgnoreAspect plots (e.g.
-  // 06515: a ~1-unit span swamped by large labels) still need the shrink.
-  let _iaGeoDominated = false;
-  if (isIgnoreAspect && sizeW > 0 && sizeH > 0 && labelInfoBp.length > 0) {
-    let _maxLabelFrac = 0;
-    for (const li of labelInfoBp) {
-      if (Math.abs(li._ltAngle) > 0.5) continue; // skip rotated axis titles
-      const wf = li.widthBp / sizeW, hf = li.heightBp / sizeH;
-      if (wf > _maxLabelFrac) _maxLabelFrac = wf;
-      if (hf > _maxLabelFrac) _maxLabelFrac = hf;
-    }
-    // pxPerUnit here is the size()-derived scale (sizeW/geoW, sizeH/geoH).
-    // Restrict no-shrink to plots whose per-unit scale is in a "normal graph"
-    // band: too small (<5 bp/unit) means a sparse annotation diagram with a
-    // huge near-empty coordinate box that TeXeR trims to its small content
-    // (08817); too large (>60 bp/unit) means a tiny coordinate span swamped by
-    // large labels that genuinely must shrink (06515, 12736, 12949). Only the
-    // mid-band (e.g. 08743 at ~11-28 bp/unit) is a geometry-filled plot whose
-    // frame should match size() with labels spilling into the margin.
-    const _pxMin = Math.min(pxPerUnitX, pxPerUnitY);
-    const _pxMax = Math.max(pxPerUnitX, pxPerUnitY);
-    _iaGeoDominated = _maxLabelFrac > 0 && _maxLabelFrac < 0.4 &&
-                      _pxMin > 5 && _pxMax < 60;
-  }
+  // For IgnoreAspect, real Asymptote/TeXeR fits the FULL decorated bbox
+  // (geometry + truesize tick numbers + axis titles) inside size(W,H),
+  // shrinking the geometry independently on each axis to make room for the
+  // labels. The iterative solver below implements exactly this, so it must
+  // run for every IgnoreAspect diagram. Earlier "geometry fills size(), labels
+  // spill outside" bypasses (extreme-aspect and geometry-dominated heuristics)
+  // produced output larger than size() — verified across all 300 IgnoreAspect
+  // corpus diagrams, removing them improved 89 and regressed only 2 marginally.
   let labelShrinkFactor = 1;
   // Truesize frame content (add(pic.fit())) keeps its absolute bp dimensions and
   // must not be shrunk to fit a picture-level size() — the picture's own
   // size(p,W) already fixed the fitted frame's scale. Skipping the solver here
   // mirrors the _trueSizeFrame guard on the size()-rescale block above; without
   // it an outer size(8cm) crushes a 12cm-fitted frame down to 8cm (03401).
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_geoAspectExtremeForSolver && !_iaGeoDominated && !_trueSizeFrame) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
