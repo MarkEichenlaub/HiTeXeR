@@ -27591,33 +27591,52 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // subscript/superscript group detection above, clean up now).
   for (const p of parts) p.text = p.text.replace(/[{}]/g, '');
 
-  // Build SVG text with tspan elements
+  // Build SVG text with tspan elements.
+  // Track the cursor's vertical offset (cursorDy) and fold the baseline-reset dy
+  // into the next content-bearing tspan instead of an empty trailing tspan: dy on
+  // a glyph-less tspan is a no-op in the rasterizer, which would leave text after a
+  // script (e.g. a ")" after "kg^{1/2}") stuck at the raised baseline.
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  const supDy = -fontSize * 0.35, subDy = fontSize * 0.25;
+  const withDy = (content, dy) => {
+    if (dy === 0 || !content) return content;
+    if (content.startsWith('<tspan')) return `<tspan dy="${fmt(dy)}"` + content.slice(6);
+    return `<tspan dy="${fmt(dy)}">${content}</tspan>`;
+  };
   let inner = '';
+  let cursorDy = 0;
   for (const p of parts) {
     if (p.mode === 'sup') {
       const supText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
       const supUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
-      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}"${supUpright}>${escSvg(supText)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+      inner += `<tspan dy="${fmt(supDy - cursorDy)}" font-size="${fmt(fontSize * 0.7)}"${supUpright}>${escSvg(supText)}</tspan>`;
+      cursorDy = supDy;
     } else if (p.mode === 'sub') {
       const subText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
       const subUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
-      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}"${subUpright}>${escSvg(subText)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+      inner += `<tspan dy="${fmt(subDy - cursorDy)}" font-size="${fmt(fontSize * 0.7)}"${subUpright}>${escSvg(subText)}</tspan>`;
+      cursorDy = subDy;
     } else {
+      let partContent;
       if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
         // Mixed italic + upright in base text
         if (fontStyle === 'italic') {
           // Only letters italic; parens/digits/spaces upright (see no-scripts branch).
-          inner += mathTextSvg(p.text);
+          partContent = mathTextSvg(p.text);
         } else {
           const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
+          partContent = '';
           for (let si = 0; si < segs2.length; si++) {
-            if (si % 2 === 0) { inner += escSvg(segs2[si]); }
-            else { inner += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
+            if (si % 2 === 0) { partContent += escSvg(segs2[si]); }
+            else { partContent += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
           }
         }
       } else {
-        inner += escSvg(p.text);
+        partContent = escSvg(p.text);
+      }
+      if (partContent) {
+        inner += withDy(partContent, -cursorDy);
+        cursorDy = 0;
       }
     }
   }
@@ -29125,16 +29144,37 @@ function mathTextWithScriptsSvg(text, fontSize) {
   // Strip leftover braces from part text
   for (const p of parts) p.text = p.text.replace(/[{}]/g, '');
 
-  // Build SVG content with tspan elements
-  // Use mathTextSvg for normal text to apply italic/upright styling for math variables
+  // Build SVG content with tspan elements.
+  // Track the cursor's vertical offset from the baseline (cursorDy). Each part's
+  // first tspan carries the dy needed to move from the current offset to its
+  // target offset. We must NOT emit an empty trailing reset tspan: dy on a tspan
+  // with no glyphs is a no-op in the rasterizer (resvg), so a closing ")" after a
+  // superscript would stay raised (the 09104 "(kg^{1/2})" bug). Folding the reset
+  // dy into the next content-bearing tspan keeps the baseline correct.
+  const supDy = -fontSize * 0.35;
+  const subDy = fontSize * 0.25;
+  // Inject a dy onto the first <tspan> of a content string (wrap if none).
+  const withDy = (content, dy) => {
+    if (dy === 0) return content;
+    const idx = content.indexOf('<tspan');
+    if (idx === 0) return `<tspan dy="${fmt(dy)}"` + content.slice(6);
+    return `<tspan dy="${fmt(dy)}">${content}</tspan>`;
+  };
   let inner = '';
+  let cursorDy = 0; // current vertical offset of the text cursor from baseline
   for (const p of parts) {
     if (p.mode === 'sup') {
-      inner += `<tspan dy="${fmt(-fontSize * 0.35)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan><tspan dy="${fmt(fontSize * 0.35)}" font-size="${fmt(fontSize)}"></tspan>`;
+      inner += `<tspan dy="${fmt(supDy - cursorDy)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan>`;
+      cursorDy = supDy;
     } else if (p.mode === 'sub') {
-      inner += `<tspan dy="${fmt(fontSize * 0.25)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan><tspan dy="${fmt(-fontSize * 0.25)}" font-size="${fmt(fontSize)}"></tspan>`;
+      inner += `<tspan dy="${fmt(subDy - cursorDy)}" font-size="${fmt(fontSize * 0.7)}">${mathTextSvg(p.text)}</tspan>`;
+      cursorDy = subDy;
     } else {
-      inner += _mathTextSvgSpaced(p.text, fontSize);
+      const content = _mathTextSvgSpaced(p.text, fontSize);
+      if (content) {
+        inner += withDy(content, -cursorDy);
+        cursorDy = 0;
+      }
     }
   }
   return inner;
