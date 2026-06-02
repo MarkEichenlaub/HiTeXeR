@@ -9727,18 +9727,23 @@ function createInterpreter() {
       return n === 2 ? makePair(bx + Dy*pf, by - Dx*pf) : makePair(bx - Dy*pf, by + Dx*pf);
     });
 
-    // bisectorpoint(A, B): a point on the perpendicular bisector of segment AB
-    //   (Asymptote 2-arg overload from geometry.asy: rotate(90, midpoint(A--B)) * A).
+    // bisectorpoint(A, B): a point on the perpendicular bisector of segment AB.
+    //   AoPS/cse5 2-arg overload used by TeXeR:
+    //     midpoint(A--B) + unit(rotate(90) * (A - B))
+    //   i.e. UNIT distance (not |A-B|/2) from the midpoint along the
+    //   perpendicular. Authors then draw bisectorpoint..extension(...) lines;
+    //   using |A-B|/2 makes those lines render far too long (verified on 11391).
     // bisectorpoint(A, B, C): point at unit distance from vertex B along the
     //   internal bisector of angle ABC (Asymptote 3-arg overload from geometry.asy).
     env.set('bisectorpoint', (A, B, C) => {
       const a=toPair(A),b=toPair(B);
       if (C === undefined || C === null) {
-        // Rotate A by 90° CCW about midpoint(A,B): yields a point on the
-        // perpendicular bisector at distance |A-B|/2 from the midpoint.
         const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
-        const dx = a.x - mx, dy = a.y - my;
-        return makePair(mx - dy, my + dx);
+        // rotate (a-b) by 90° CCW, then normalise to unit length.
+        let px = -(a.y - b.y), py = (a.x - b.x);
+        const plen = Math.sqrt(px*px + py*py) || 1;
+        px /= plen; py /= plen;
+        return makePair(mx + px, my + py);
       }
       const c=toPair(C);
       const bax = a.x-b.x, bay = a.y-b.y;
