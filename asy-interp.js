@@ -23088,7 +23088,9 @@ function renderSVG(result, opts) {
               _axAl: _axAl,
               _ayAl: _ayAl,
               _screenDx: dc.screenDx || 0,
-              _screenDy: dc.screenDy || 0
+              _screenDy: dc.screenDy || 0,
+              _isTickLabel: dc._isTickLabel === true,
+              _isAxisLabel: dc._isAxisLabel === true
             });
           }
         }
@@ -24192,6 +24194,12 @@ function renderSVG(result, opts) {
             const _ySeries = new Map(); // posX → [labels sorted by posY]
             for (const li of labelInfoBp) {
               if (Math.abs(li._ltAngle) > 0.5) continue; // skip rotated labels
+              // Skip axis titles (e.g. "time (s)", "Percentage of True Speed"):
+              // a wide title that happens to share the tick row's posY and sit
+              // at a modal-step distance from a tick number is otherwise counted
+              // as a tick label, inflating the required tick spacing and blowing
+              // the whole plot up (08817/08818/08820 rendered ~1.8×/2.2× too big).
+              if (li._isAxisLabel) continue;
               const yKey = Math.round(li.posY * 1e6) / 1e6;
               const xKey = Math.round(li.posX * 1e6) / 1e6;
               if (!_xSeries.has(yKey)) _xSeries.set(yKey, []);
