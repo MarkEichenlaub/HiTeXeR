@@ -12758,8 +12758,18 @@ function createInterpreter() {
         // EXCEPTION: when axis is XZero/YZero (axisShiftXExplicit), the label
         // should be rotated 90° CCW even without an explicit extent — see
         // axisshiftRotatedEndpoint below.
+        // EXCEPTION: the full graph-axis form `yaxis(ymin, ymax, L=string,
+        // ticks=...)` — an explicit numeric y-range AND an explicit ticks
+        // argument together — is a left-edge value axis (e.g. the energy
+        // bar-chart family 06504/06507/06510/06516…). Asymptote rotates such
+        // a label 90° CCW and centres it on the axis (NOT upright at the top).
+        // Keying off BOTH the explicit range and the explicit ticks arg keeps
+        // the bare `yaxis("$y$", lo, hi)` axis-name idiom (00291, 05995, 08736,
+        // which pass no ticks) upright at the endpoint.
+        const _fullGraphAxis = yminExplicit && ymaxExplicit && !!ticks;
         const plainEndpointDefault = !arrow && !extent && !axisShiftXExplicit
-          && labelPosition == null && labelAlign == null;
+          && labelPosition == null && labelAlign == null
+          && !_fullGraphAxis;
         // Axisshift yaxis (axis=XZero/YZero) with ticks but no extent and
         // no explicit position/align: texer renders label at TOP endpoint,
         // rotated CCW, aligned west (e.g. diagram 3900). Different from
@@ -26442,7 +26452,19 @@ function renderSVG(result, opts) {
               // is what the bulk of the corpus is calibrated against.)
               const _isAxis90 = (Math.abs(Math.abs(angle) - 90) < 1) &&
                                 (Math.abs(ay2) < 0.01) && (Math.abs(ax2) > 0.99);
-              if (_isAxis90) {
+              // Cardinal N/S align + 90° rotation — the AoPS bar-chart x-tick idiom
+              // `label(rotate(90)*"Kinetic", (x,0), S)`. When the text is rotated 90°
+              // its on-screen vertical extent is the UNROTATED text width (W2), not its
+              // height. The general LOCAL-frame formula below caps W2 at 2·H2, leaving
+              // the rotated text centred on the anchor so it rides up over the bars.
+              // Instead push the whole rotated box clear of the anchor along the align
+              // axis by half its rotated length (W2/2) + margin, centred horizontally.
+              const _isVert90 = (Math.abs(Math.abs(angle) - 90) < 1) &&
+                                (Math.abs(ax2) < 0.01) && (Math.abs(ay2) > 0.99);
+              if (_isVert90) {
+                dx = 0;
+                dy = -(ay2 * (W2 / 2 + margin2));   // S (ay2<0) ⇒ push down (+SVG y)
+              } else if (_isAxis90) {
                 dx = ax2 * (H2 / 2 + margin2);
                 dy = 0;
                 // Endpoint-pinned rotated axis label: shift its center along the
@@ -27671,10 +27693,19 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
       if (seg.type === 'math') {
         html += katex.renderToString(seg.content, {throwOnError: false, displayMode: false, output: 'html'});
       } else {
+        // LaTeX spacing macros (\, \; \: \! and explicit \<space>) are valid in
+        // text mode but KaTeX only sees the math segments — the surrounding text
+        // is emitted as raw HTML here, so an un-converted "\,\," would render as
+        // the literal characters (seen in the energy bar-chart y-label
+        // "Energy \,\,($mgy$)").  Collapse them to a single space (\! to nothing),
+        // matching stripLaTeX and the MathJax \text{} path.
+        let txt = seg.content
+          .replace(/\\!/g, '')
+          .replace(/\\[,;: ]/g, ' ');
         // Preserve spaces: HTML collapses leading/trailing whitespace in text nodes
         // adjacent to inline elements (KaTeX output).  Use numeric char ref &#160;
         // (valid in XML/SVG; plain &nbsp; is only an HTML entity and breaks svg->png).
-        html += seg.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&#160;');
+        html += txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&#160;');
       }
     }
   } else {
