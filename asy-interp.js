@@ -27538,11 +27538,20 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
     if (needsUprightOps && s.includes(UPRIGHT_OPEN)) {
       // Build mixed italic + upright content: operator names get upright tspan elements
-      const segs = s.split(/\x01([^\x02]*)\x02/);
-      let mixed = '';
-      for (let si = 0; si < segs.length; si++) {
-        if (si % 2 === 0) { mixed += escSvg(segs[si]); }
-        else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
+      let mixed;
+      if (fontStyle === 'italic') {
+        // In math-italic mode only letters should be italic; parens/digits/spaces
+        // stay upright. mathTextSvg splits letter runs vs the rest AND handles the
+        // \x01..\x02 sentinels, so the non-sentinel content (e.g. "m (" and ")"
+        // around \mathrm{kg}) no longer inherits the parent text's italic style.
+        mixed = mathTextSvg(s);
+      } else {
+        const segs = s.split(/\x01([^\x02]*)\x02/);
+        mixed = '';
+        for (let si = 0; si < segs.length; si++) {
+          if (si % 2 === 0) { mixed += escSvg(segs[si]); }
+          else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
+        }
       }
       return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${mixed}</text>`;
     }
@@ -27597,10 +27606,15 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     } else {
       if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
         // Mixed italic + upright in base text
-        const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
-        for (let si = 0; si < segs2.length; si++) {
-          if (si % 2 === 0) { inner += escSvg(segs2[si]); }
-          else { inner += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
+        if (fontStyle === 'italic') {
+          // Only letters italic; parens/digits/spaces upright (see no-scripts branch).
+          inner += mathTextSvg(p.text);
+        } else {
+          const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
+          for (let si = 0; si < segs2.length; si++) {
+            if (si % 2 === 0) { inner += escSvg(segs2[si]); }
+            else { inner += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
+          }
         }
       } else {
         inner += escSvg(p.text);
