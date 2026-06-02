@@ -11718,6 +11718,13 @@ function createInterpreter() {
           // keep the divisor step so the rest of the corpus is unaffected.
           {
             let alongBpPerUnit = 0;
+            // Only a REAL physical size constraint (size()/unitsize()) makes the
+            // override meaningful. With no size()/unitsize(), the pipeline draws
+            // at a 150/maxDim auto-default, but TeXeR renders the same unsized
+            // picture at that same small scale and STILL uses the divisor/nice
+            // step (00066: 0..11.7 at ~12.5 bp/unit -> step 2, not 5). Firing the
+            // override off the 150/maxDim proxy wrongly sparsified those plots.
+            let bpFromRealSize = false;
             const _gbA = getGeoBbox(pic.commands);
             const rXA = (_gbA && isFinite(_gbA.maxX - _gbA.minX)) ? Math.abs(_gbA.maxX - _gbA.minX) : (Math.abs(max - min) || 1);
             const rYA = (_gbA && isFinite(_gbA.maxY - _gbA.minY)) ? Math.abs(_gbA.maxY - _gbA.minY) : (Math.abs(max - min) || 1);
@@ -11728,13 +11735,15 @@ function createInterpreter() {
               else { shA = sizeH; swA = (rXA > 0 && rYA > 0) ? sizeH * (rXA / rYA) : sizeH; }
               if (_isXAxis) { if (rXA > 0) alongBpPerUnit = swA / rXA; }
               else { if (rYA > 0) alongBpPerUnit = shA / rYA; }
+              bpFromRealSize = true;
             } else if (hasUnitScale) {
               alongBpPerUnit = unitScale;
+              bpFromRealSize = true;
             } else {
               const maxDimA = Math.max(rXA, rYA);
               if (maxDimA > 0) alongBpPerUnit = 150 / maxDimA;
             }
-            if (alongBpPerUnit > 0 && alongBpPerUnit < 22) {
+            if (bpFromRealSize && alongBpPerUnit > 0 && alongBpPerUnit < 22) {
               const roughUnit = 55 / alongBpPerUnit;
               const magN = Math.pow(10, Math.floor(Math.log10(roughUnit)));
               const fN = roughUnit / magN;
@@ -12046,6 +12055,13 @@ function createInterpreter() {
         }
         else if (a && a._tag === 'axisextent') { extent = a.type; }
       }
+      // xaxis(L, -infinity, x) / xaxis(L, x, infinity): the ±infinity bound
+      // means "extend to the picture's data bound" (Asymptote semantics).
+      // Treat it as unspecified so it auto-resolves from content below; left
+      // as ±Infinity it poisons the label position math (xmin + pos*(xmax-xmin)
+      // = -Inf + Inf = NaN), producing a NaN viewBox (12923).
+      if (xmin !== null && !isFinite(xmin)) xmin = null;
+      if (xmax !== null && !isFinite(xmax)) xmax = null;
       // Track whether range was explicitly provided (vs auto-computed)
       const xminExplicit = xmin !== null;
       const xmaxExplicit = xmax !== null;
@@ -12452,6 +12468,12 @@ function createInterpreter() {
         else if (a && a._tag === 'ticks') ticks = a;
         else if (a && a._tag === 'axisextent') { extent = a.type; }
       }
+      // yaxis(L, -infinity, y) / yaxis(L, y, infinity): ±infinity means
+      // "extend to the picture's data bound" (Asymptote). Treat as unspecified
+      // so it auto-resolves; left as ±Infinity it produces NaN label positions
+      // and a NaN viewBox (12923).
+      if (ymin !== null && !isFinite(ymin)) ymin = null;
+      if (ymax !== null && !isFinite(ymax)) ymax = null;
       // Track whether range was explicitly provided (vs auto-computed)
       const yminExplicit = ymin !== null;
       const ymaxExplicit = ymax !== null;
@@ -28334,7 +28356,11 @@ function stripLaTeXPreserveScripts(text) {
   s = s.replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '');
   s = s.replace(/\\color\s*\{[^}]*\}/g, '');
   s = s.replace(/\\rm\b/g, '');
-  s = s.replace(/\\(?:mathbf|mathrm|mathit|mathsf|mathtt|textbf|textit|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // \mathrm/\textrm/\text/\operatorname \u2192 upright: wrap in upright sentinels
+  // (\x01..\x02) so mathTextSvg renders the letters non-italic (e.g. \mathrm{kg}
+  // in 09104's "(\mathrm{kg}^{1/2})" stays upright, not math-italic "kg").
+  s = s.replace(/\\(?:mathrm|textrm|text|operatorname)\s*\{([^}]*)\}/g, '\x01$1\x02');
+  s = s.replace(/\\(?:mathbf|mathit|mathsf|mathtt|textbf|textit)\s*\{([^}]*)\}/g, '$1');
   s = s.replace(/\\vec\s*\{([^}]*)\}/g, '$1\u20D7');
   s = s.replace(/\\hat\s*\{([^}]*)\}/g, '$1\u0302');
   s = s.replace(/\\bar\s*\{([^}]*)\}/g, '$1\u0304');
@@ -28346,14 +28372,12 @@ function stripLaTeXPreserveScripts(text) {
   s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \command sequences (but NOT ^ or _)
   s = s.replace(/\\[a-zA-Z]+/g, '');
-  // Remove braces that are NOT part of ^{...} or _{...}
-  // This is tricky - we'll just remove isolated braces
-  s = s.replace(/(?<![_^])\{|\}(?![_^])/g, match => {
-    // Remove } always, remove { only if not preceded by ^ or _
-    return match === '}' ? '' : '';
-  });
-  // Simpler: just remove {} pairs that aren't script-related
-  // Actually let's keep braces and let mathTextWithScriptsSvg handle them
+  // Keep ALL braces and let mathTextWithScriptsSvg handle them: it consumes
+  // ^{...}/_{...} groups during script parsing, then strips any leftover
+  // grouping braces. The previous adjacency-based brace stripper here deleted
+  // the closing "}" of a "^{1/2}" group while keeping the "{", corrupting it to
+  // "^{1/2)" so the parser swallowed the trailing ")" into the superscript
+  // (09104's "(kg^{1/2})" rendered the ")" raised).
   // Collapse regular whitespace but preserve em-spaces (U+2003) used for \quad
   s = s.replace(/[ \t\n\r\f\v]+/g, ' ');
   return s.trim();
@@ -28558,6 +28582,8 @@ function _estimateTextWidth(text, fontSize) {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const code = ch.charCodeAt(0);
+    // Upright sentinels (\x01/\x02) wrapping \mathrm content are invisible.
+    if (code === 1 || code === 2) continue;
     // Em space (U+2003) - used for \quad spacing, should be 1em wide
     if (code === 0x2003) w += 1.0;
     // Space
@@ -28990,6 +29016,21 @@ function escSvg(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 // Returns SVG inner content (tspans) suitable for embedding in a <text> element.
 function mathTextSvg(text) {
   if (!text) return '';
+  // Upright sentinels (\x01..\x02) wrap \mathrm/\text content so it stays
+  // non-italic even though its letters would otherwise be math-italicized
+  // (e.g. \mathrm{kg} in 09104's "$\sqrt{m}\,(\mathrm{kg}^{1/2})$").
+  if (text.indexOf('\x01') !== -1) {
+    let result = '';
+    const re = /\x01([^\x02]*)\x02/g;
+    let last = 0, mm;
+    while ((mm = re.exec(text)) !== null) {
+      if (mm.index > last) result += mathTextSvg(text.slice(last, mm.index));
+      if (mm[1]) result += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(mm[1])}</tspan>`;
+      last = mm.index + mm[0].length;
+    }
+    if (last < text.length) result += mathTextSvg(text.slice(last));
+    return result;
+  }
   // Split into runs: letters (a-zA-Z and Greek) get italic, everything else upright
   const letterRe = /[a-zA-Zα-ωΑ-Ω]+/g;
   let result = '';
@@ -29020,8 +29061,10 @@ function mathTextWithScriptsSvg(text, fontSize) {
   if (!text) return '';
   // First apply common LaTeX → Unicode mappings (like \mathrm, \quad, etc.)
   let s = text;
-  // Handle \mathrm{...}, \textrm{...}, \text{...} → just the content
-  s = s.replace(/\\(?:mathrm|textrm|text|operatorname)\s*\{([^}]*)\}/g, '$1');
+  // Handle \mathrm{...}, \textrm{...}, \text{...} → upright content. Wrap in
+  // upright sentinels (\x01..\x02) so mathTextSvg keeps the letters non-italic
+  // (without the sentinel, "kg" from \mathrm{kg} would be math-italicized).
+  s = s.replace(/\\(?:mathrm|textrm|text|operatorname)\s*\{([^}]*)\}/g, '\x01$1\x02');
   // Handle \quad, \qquad, \, \; \: spacing → space
   s = s.replace(/\\quad\b/g, '  ');
   s = s.replace(/\\qquad\b/g, '    ');
