@@ -25363,13 +25363,64 @@ function renderSVG(result, opts) {
       // only values. The viewBox is expanded for labels, but the display aspect ratio
       // is preserved. This matches TeXeR behavior where IgnoreAspect output has aspect
       // ratio close to size(W,H) even when labels extend outside.
-      // For auto-scaled diagrams with moderate label overshoot (both < 1.18), skip
-      // intrinsic scaling to match TeXeR's geometry-based sizing. Large overshoot
-      // (from labels dominating a small dimension) still gets scaled for visibility.
       const _isIA2 = !keepAspect && sizeW > 0 && sizeH > 0;
-      const _maxOvershoot = Math.max(overshootScaleW, overshootScaleH);
-      const _skipAutoScaleOvershoot = isAutoScaled && _maxOvershoot < 1.18;
-      if (!_isIA2 && !_skipAutoScaleOvershoot) {
+      if (_isIA2) {
+        // no intrinsic scaling (see above)
+      } else if (isAutoScaled) {
+        // Auto-scaled (no size()/unitsize()): TeXeR fits the WHOLE label-inclusive
+        // picture into the default-size box, preserving aspect. Replicate that:
+        // expand each axis to the full label-inclusive extent, then apply a single
+        // UNIFORM clamp so the max axis never exceeds the geometry-only target
+        // (defaultSize). This shrinks the symmetric "a few corner labels push a
+        // compact figure past defaultSize" over-scale cluster (~264 diagrams,
+        // c57/c36/c289 families, previously ~1.17× too big) back to ~1.0, while
+        // leaving asymmetric thin diagrams untouched: when a label dominates a
+        // small axis the LARGE axis is still the geometry, so max==geometry and
+        // fit==1 (no shrink) — those keep the label-driven growth on the small
+        // axis that TeXeR also shows (the old 1.18 threshold scaled BOTH axes up
+        // for such cases, over-sizing the compact cluster as collateral). fit is
+        // clamped ≤1 so we only ever shrink from full label-inclusive size; the
+        // geometry-fitted base (no label overshoot) is unaffected (fit==1).
+        // Only bound the whole picture to defaultSize when the overshoot is
+        // SYMMETRIC — labels surround the geometry on all sides (both axes
+        // overshoot by a similar amount, e.g. corner labels on a triangle:
+        // osW≈osH≈1.15). That is the case TeXeR fits to the default-size box.
+        // When the overshoot is ASYMMETRIC (one axis balloons while the other
+        // is ~1.0, e.g. a single long caption hanging below the figure: osW=1.53,
+        // osH=1.10), TeXeR does NOT shrink — it expands the canvas to hold the
+        // label. Gate the clamp on min(osW,osH): both axes must overshoot by
+        // ≥ _symThr for the symmetric-fit clamp to apply; otherwise fall back to
+        // the per-axis expansion (the prior behavior), which sizes those
+        // single-label captions correctly (e.g. 03424, 00948).
+        const _symThr = 1.12;
+        const _balThr = 0.80;
+        const _osMin = Math.min(overshootScaleW, overshootScaleH);
+        const _osMax = Math.max(overshootScaleW, overshootScaleH);
+        // Symmetric ⟺ both axes overshoot meaningfully (_osMin ≥ _symThr) AND the
+        // two overshoots are balanced (_osMin/_osMax ≥ _balThr). The balance test
+        // separates corner-label figures (osW≈osH, ratio ~0.95 → clamp) from
+        // figures with one dominant label that overshoots a single axis far more
+        // than the other (ratio ~0.78 → expand, not clamp; e.g. 04746/03756).
+        const _symmetric = _osMin >= _symThr && (_osMin / _osMax) >= _balThr;
+        if (_symmetric) {
+          // Symmetric overshoot: fit the full label-inclusive picture into the
+          // defaultSize box (uniform clamp), matching TeXeR's bound-everything
+          // sizing for compact figures with labels on all sides.
+          const geomRefMax = Math.max(svgW, svgH);
+          const liW = svgW * overshootScaleW, liH = svgH * overshootScaleH;
+          const fit = Math.min(1, geomRefMax / Math.max(liW, liH, 1e-9));
+          const fW = overshootScaleW * fit, fH = overshootScaleH * fit;
+          svgW *= fW; svgH *= fH;
+          intrinsicW *= fW; intrinsicH *= fH;
+        } else if (Math.max(overshootScaleW, overshootScaleH) >= 1.18) {
+          // Asymmetric / single-direction overshoot (e.g. a long caption hanging
+          // off one side): keep the prior per-axis expansion — TeXeR expands the
+          // canvas to hold the label rather than shrinking the whole picture.
+          svgW *= overshootScaleW; svgH *= overshootScaleH;
+          intrinsicW *= overshootScaleW; intrinsicH *= overshootScaleH;
+        }
+        // else: small overshoot, no scaling (prior skip behavior)
+      } else {
         svgW *= overshootScaleW;
         svgH *= overshootScaleH;
         intrinsicW *= overshootScaleW;
