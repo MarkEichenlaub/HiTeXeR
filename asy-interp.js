@@ -18903,6 +18903,7 @@ function createInterpreter() {
             labelTransform: lblObj.transform || null,
             filltype: lblObj.filltype || null,
             line: args._line || 0,
+            _fromPathLabel: true,
           });
         }
       }
@@ -20781,7 +20782,7 @@ function createInterpreter() {
               effectiveAlign = makePair(uy, -ux);
             }
           }
-          const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0};
+          const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0, _fromPathLabel: true};
           if (labelTransform) ldc.labelTransform = labelTransform;
           if (labelFilltype) ldc.filltype = labelFilltype;
           target.commands.push(ldc);
@@ -23647,6 +23648,22 @@ function renderSVG(result, opts) {
       // pinpoint dots that should be ~3bp diameter relative to the boosted
       // (~200bp) circle.  Applied later (after labelInfoBp is finalized).
       unitsizeBoostScale = boostScale;
+    }
+    // Path-label cap. Verified live against the TeXeR service (see memory
+    // project_texer_pathlabel_sizing): when a label is attached to a path
+    // (draw("$x$", path) / draw(Label(...), path)), TeXeR ignores the literal
+    // unitsize and fits the picture so its longest geometry side is ~400bp.
+    // Plain point labels (label("$x$", pos)) do NOT trigger this. We only ever
+    // SHRINK toward the cap — diagrams already under it, and every no-path-label
+    // diagram, are left exactly as before, so the working corpus cannot regress.
+    // Skipped when size() is explicit (size() is the author's binding request).
+    if (!(sizeW > 0 || sizeH > 0)) {
+      const PL_CAP_BP = 400;
+      const _geoLongBp = Math.max(geoW * pxPerUnitX, geoH * pxPerUnitY);
+      if (_geoLongBp > PL_CAP_BP && drawCommands.some(dc => dc && dc._fromPathLabel)) {
+        const k = PL_CAP_BP / _geoLongBp;
+        pxPerUnit *= k; pxPerUnitX *= k; pxPerUnitY *= k;
+      }
     }
   } else if (sizeW > 0 || sizeH > 0) {
     // size() without unitsize(): scale geometry to fit the requested size.
