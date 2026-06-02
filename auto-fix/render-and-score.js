@@ -28,34 +28,38 @@ const HTX_DIR     = path.join(OUT_DIR, 'htx_pngs');
 const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
 const SSIM_RESULTS_PATH = path.join(OUT_DIR, 'ssim-results.json');
 const CANARY_PATH = path.join(__dirname, 'canary.json');
-const CANARY_BLINK_PATH = path.join(__dirname, 'canary-blink.json');
 const RASTER_DPI  = 144;
 const REGRESSION_THRESHOLD = 0.03;
 const KATEX_FONTS_DIR = path.join(ROOT, 'node_modules', 'katex', 'dist', 'fonts');
 
 // ── CLI parsing ────────────────────────────────────────────────
 function parseArgs(argv) {
-  const out = { ids: [], canary: false, canaryBlink: false, family: null, fast: false, blink: false, help: false };
+  // Blink (headless Chromium) is the default rasterizer — same engine the user
+  // sees in comparison/blink.html, and what canary.json / ssim-results.json
+  // baselines are now generated with. `--librsvg` (or RASTER_ENGINE=librsvg) is
+  // the escape hatch back to the old sharp/librsvg path.
+  const out = { ids: [], canary: false, family: null, fast: false, blink: true, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--ids')     { out.ids = out.ids.concat((argv[++i] || '').split(',').filter(Boolean)); }
     else if (a === '--canary') out.canary = true;
-    else if (a === '--canary-blink') { out.canaryBlink = true; out.blink = true; }
+    else if (a === '--canary-blink') out.canary = true;   // back-compat alias; canary.json is now Blink
     else if (a === '--family') out.family = argv[++i] || '';
     else if (a === '--fast')   out.fast = true;
-    else if (a === '--blink')  out.blink = true;
+    else if (a === '--blink')  out.blink = true;           // back-compat no-op (default)
+    else if (a === '--librsvg') out.blink = false;
     else if (a === '-h' || a === '--help') out.help = true;
     else { console.error('unknown arg: ' + a); out.help = true; }
   }
-  // env fallback for the engine toggle
-  if (process.env.RASTER_ENGINE === 'blink') out.blink = true;
+  // env override for the engine toggle
+  if (process.env.RASTER_ENGINE === 'blink')   out.blink = true;
+  if (process.env.RASTER_ENGINE === 'librsvg') out.blink = false;
   return out;
 }
 
 function usage() {
-  console.error('usage: node auto-fix/render-and-score.js [--ids A,B,C] [--canary] [--canary-blink] [--family c10_L21] [--fast] [--blink]');
-  console.error('       --blink rasterizes via headless Chromium (Blink) instead of librsvg.');
-  console.error('       --canary-blink baselines against canary-blink.json and implies --blink.');
+  console.error('usage: node auto-fix/render-and-score.js [--ids A,B,C] [--canary] [--family c10_L21] [--fast] [--librsvg]');
+  console.error('       Default rasterizer is Blink (headless Chromium); pass --librsvg for the old sharp path.');
   console.error('       echo "04484\\n05896" | node auto-fix/render-and-score.js');
 }
 
@@ -160,8 +164,9 @@ async function scoreOne(id, A, fontCSS, opts) {
   const htxPng = path.join(HTX_DIR, id + '.png');
   if (opts.blink) {
     // Headless-Chromium (Blink) raster — the same engine the user sees in
-    // blink.html. Blink loads KaTeX from the linked stylesheet, so no base64
-    // font embedding; viewBox expansion is still applied for off-canvas labels.
+    // blink.html. blink-raster base64-embeds the KaTeX faces itself (headless
+    // Chromium blocks file:// font subresources); viewBox expansion is still
+    // applied here for off-canvas labels.
     try {
       const png = await opts.blinkRaster.rasterizeSVG(expandViewBox(svg), {});
       await sharp(png).flatten({ background:{r:255,g:255,b:255} }).png().toFile(htxPng);
@@ -262,11 +267,8 @@ async function main() {
   if (args.help) { usage(); process.exit(2); }
 
   const { byId } = loadSsimResults();
-  // In Blink mode, baseline against canary-blink.json; otherwise canary.json.
-  const wantCanary = args.canary || args.canaryBlink;
-  const canaryMap = wantCanary
-    ? loadCanary(args.blink ? CANARY_BLINK_PATH : CANARY_PATH)
-    : {};
+  const wantCanary = args.canary;
+  const canaryMap = wantCanary ? loadCanary(CANARY_PATH) : {};
 
   // Collect IDs
   const idSet = new Set();

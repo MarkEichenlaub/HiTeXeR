@@ -27,6 +27,11 @@ const TEXER_DIR   = path.join(OUT_DIR, 'texer_pngs');
 //   Matching: D = 240 * 72 / 120 = 144
 const RASTER_DPI  = 144;
 
+// Blink (headless Chromium) is the default rasterizer — the same engine the user
+// sees in comparison/blink.html and what render-and-score.js / canary.json now
+// use. Set RASTER_ENGINE=librsvg to fall back to the old sharp/librsvg @144 path.
+const USE_BLINK = process.env.RASTER_ENGINE !== 'librsvg';
+
 const args = process.argv.slice(2);
 // render-asy is intentionally excluded from defaults: SSIM compares against
 // the cached texer_pngs/ references, so re-running real Asymptote is unneeded
@@ -444,9 +449,13 @@ async function main() {
 
   // ── Step 3: Rasterize SVGs to PNGs ────────────────────────────
   if (STEPS.has('rasterize')) {
-    console.log(`Rasterizing HiTeXeR SVGs to PNGs at ${RASTER_DPI} DPI (matching Asymptote)...`);
-    const fontCSS = buildFontFaceCSS();
-    console.log(`  Font CSS built: ${fontCSS.length} chars (${fontCSS ? 'OK' : 'EMPTY — fonts will fall back'})`);
+    const engineLabel = USE_BLINK ? 'Blink (headless Chromium)' : `librsvg @ ${RASTER_DPI} DPI`;
+    console.log(`Rasterizing HiTeXeR SVGs to PNGs via ${engineLabel}...`);
+    const fontCSS = USE_BLINK ? '' : buildFontFaceCSS();
+    if (!USE_BLINK)
+      console.log(`  Font CSS built: ${fontCSS.length} chars (${fontCSS ? 'OK' : 'EMPTY — fonts will fall back'})`);
+    const blink = USE_BLINK ? require('./blink-raster.js') : null;
+    if (blink) await blink.getBrowser();
     const svgFiles = fs.readdirSync(SVG_DIR).filter(f => f.endsWith('.svg')).sort();
     let ok = 0, fail = 0;
 
@@ -471,15 +480,22 @@ async function main() {
           svgStr = svgStr.replace(/(<svg[^>]*)\bheight="[^"]*"/, `$1height="${ih[1]}"`);
         }
         const svgExpanded = expandViewBox(svgStr);
-        const svgWithFonts = embedFontsInSVG(svgExpanded, fontCSS);
-        const svgBuf = Buffer.from(svgWithFonts, 'utf8');
-        await sharp(svgBuf, { density: RASTER_DPI }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
+        if (USE_BLINK) {
+          // blink-raster base64-embeds the KaTeX faces itself; no embedFontsInSVG.
+          const png = await blink.rasterizeSVG(svgExpanded, {});
+          await sharp(png).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
+        } else {
+          const svgWithFonts = embedFontsInSVG(svgExpanded, fontCSS);
+          const svgBuf = Buffer.from(svgWithFonts, 'utf8');
+          await sharp(svgBuf, { density: RASTER_DPI }).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toFile(outPng);
+        }
         ok++;
       } catch (e) { fail++; }
 
       if ((ok + fail) % 200 === 0)
         console.log(`  ${ok + fail}/${svgFiles.length}  ok=${ok} fail=${fail}`);
     }
+    if (blink) await blink.closeBrowser();
     console.log(`  Done: ok=${ok} fail=${fail}\n`);
   }
 

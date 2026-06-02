@@ -16,7 +16,6 @@ const SSIM_RESULTS_PATH = path.join(ROOT, 'comparison', 'ssim-results.json');
 const MANIFEST_PATH     = path.join(ROOT, 'comparison', 'blink-manifest.json');
 const RANDOM_IDS_PATH   = path.join(ROOT, 'comparison', 'random-ids.json');
 const OUT_PATH          = path.join(__dirname, 'canary.json');
-const BLINK_OUT_PATH    = path.join(__dirname, 'canary-blink.json');
 
 // IDs whose .asy uses the RNG: HiTeXeR can't reproduce Asymptote's random
 // sequence, so their SSIM is meaningless as a regression baseline. Never let
@@ -248,51 +247,7 @@ function stringHash(s) {
   return h >>> 0;
 }
 
-// ── --blink mode: build canary-blink.json (Blink baselines) ──────────────────
-// Reuses the EXACT same ID set as the librsvg canary.json so both canaries cover
-// identical diagrams, then live-renders each through render-and-score.js --blink
-// and writes the resulting SSIM as the Blink baseline. This is what keeps
-// Blink-mode scoring (render-and-score.js --canary-blink) comparing only against
-// same-engine baselines — the fix for the baseline-consistency trap.
-function runBlink() {
-  if (!fs.existsSync(OUT_PATH)) {
-    console.error('[build-canary] canary.json not found; run without --blink first to pick the ID set');
-    process.exit(1);
-  }
-  const ids = Object.keys(JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'))).sort();
-  if (ids.length === 0) { console.error('[build-canary] canary.json is empty'); process.exit(1); }
-
-  console.log('[build-canary] --blink: Blink-rendering ' + ids.length + ' canary IDs...');
-  const renderResult = cp.spawnSync(
-    process.execPath,
-    [path.join(__dirname, 'render-and-score.js'), '--ids', ids.join(','), '--blink'],
-    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30 * 60 * 1000 }
-  );
-  const liveScores = new Map();
-  for (const line of (renderResult.stdout || '').split('\n')) {
-    try {
-      const obj = JSON.parse(line);
-      if (obj && obj.id && typeof obj.ssim === 'number') liveScores.set(obj.id, obj.ssim);
-    } catch {}
-  }
-  if (liveScores.size === 0) {
-    console.error('[build-canary] --blink: live render produced no scores (stderr: ' + (renderResult.stderr||'').slice(0,300) + ')');
-    process.exit(1);
-  }
-
-  const out = {};
-  let missing = 0;
-  for (const id of ids) {
-    if (liveScores.has(id)) out[id] = liveScores.get(id);
-    else missing++;
-  }
-  fs.writeFileSync(BLINK_OUT_PATH, JSON.stringify(out, null, 2) + '\n');
-  console.log('[build-canary] wrote ' + BLINK_OUT_PATH + '  (' + Object.keys(out).length + ' baselines, ' + missing + ' missing)');
-}
-
-if (process.argv.includes('--blink')) {
-  runBlink();
-} else if (process.argv.includes('--update')) {
+if (process.argv.includes('--update')) {
   runUpdate();
 } else {
   main();
