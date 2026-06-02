@@ -14,14 +14,15 @@ const r = global.window.AsyInterp.render('[asy]\n'+src+'\n[/asy]', {
 fs.writeFileSync('_'+id+'.svg', r.svg);
 let sharp;
 try { sharp = require('sharp'); } catch(e) {}
+const blink = require('./blink-raster.js');
 async function convert() {
   if (!sharp) { console.log('wrote _'+id+'.svg (no sharp)'); return; }
-  const wm = r.svg.match(/data-intrinsic-w="([^"]+)"/);
-  const hm = r.svg.match(/data-intrinsic-h="([^"]+)"/);
-  const W = wm ? Math.round(parseFloat(wm[1])) : 800;
-  const H = hm ? Math.round(parseFloat(hm[1])) : 600;
-  await sharp(Buffer.from(r.svg), { density: 96 })
-    .resize(W, H, { fit: 'inside' }).png().toFile('_'+id+'.png');
+  // Rasterize via true Blink (same engine the user sees in blink.html) so the
+  // image I look at matches the comparator and the SSIM scorer.
+  const png = await blink.rasterizeSVG(r.svg, {});
+  await sharp(png).png().toFile('_'+id+'.png');
+  const ourMeta0 = await sharp('_'+id+'.png').metadata();
+  const W = ourMeta0.width, H = ourMeta0.height;
   const texPath = path.join('comparison', 'texer_pngs', id + '.png');
   if (fs.existsSync(texPath)) {
     const texMeta = await sharp(texPath).metadata();
@@ -33,7 +34,9 @@ async function convert() {
     const ourDims = await sharp(our).metadata();
     const sepW = 4;
     const totalW = texDims.width + sepW + ourDims.width;
-    await sharp({ create: { width: totalW, height: targetH, channels: 4, background: '#888888ff' } })
+    // White background: matches what the user and TeXeR see, and keeps gridline
+    // gray reading correctly (the old #888 inverted gridline contrast).
+    await sharp({ create: { width: totalW, height: targetH, channels: 4, background: '#ffffffff' } })
       .composite([
         { input: tex, left: 0, top: 0 },
         { input: our, left: texDims.width + sepW, top: 0 }
@@ -42,5 +45,6 @@ async function convert() {
   } else {
     console.log('wrote _'+id+'.png  HTX='+W+'x'+H);
   }
+  await blink.closeBrowser();
 }
-convert();
+convert().catch(e => { console.error(e.stack); process.exit(1); });
