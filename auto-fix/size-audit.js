@@ -41,11 +41,17 @@ function classify(asy) {
   const is3D = /\bsize3\s*\(/.test(src) || /import\s+three\b/.test(src) ||
                /\bcurrentprojection\b/.test(src);
   if (is3D) return '3D';
+  // AoPS graph-template family:
+  //   if(equalAxisRatio){ unitsize(overallSize); } else { size(...,IgnoreAspect); }
+  // Only one branch is live; the dead unitsize must not win the static match.
+  const eq = src.match(/\bbool\s+equalAxisRatio\s*=\s*(true|false)\b/);
+  if (eq && /\bunitsize\s*\(/.test(src) && /\bsize\s*\(/.test(src))
+    return eq[1] === 'true' ? 'unitsize-plain' : 'size';
   const um = src.match(/\bunitsize\s*\(\s*([^)]*)\)/);
   if (um) {
     const inside = um[1];
-    if (/\b(cm|mm)\b/.test(inside) || /\binch(es)?\b/.test(inside) || /\bpt\b/.test(inside))
-      return 'unitsize-cm';
+    // units may abut the number (e.g. 3cm, 0.7mm) so no leading \b
+    if (/(cm|mm|inch(es)?|pt)\b/.test(inside)) return 'unitsize-cm';
     return 'unitsize-plain';
   }
   if (/\bsize\s*\(/.test(src)) return 'size';
