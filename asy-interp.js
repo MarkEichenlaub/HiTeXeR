@@ -1988,6 +1988,10 @@ function createInterpreter() {
   // Truesize frame content must NOT be rescaled by a picture-level size() — in
   // Asymptote a frame added via add(frame) keeps its absolute bp dimensions.
   let _trueSizeFrame = false;
+  // Set when the diagram composes sub-pictures via add(picture) or reassigns
+  // currentpicture — these composites carry their own fixed scale and TeXeR does
+  // NOT fit them to the path-label ~400bp default (e.g. 06064 stays near literal).
+  let _usedPictureComposite = false;
   let sizeW = 0, sizeH = 0;
   let keepAspect = true;
   let defaultPen = makePen({});
@@ -4880,6 +4884,7 @@ function createInterpreter() {
       // Track currentpicture reassignment so drawing routes to the right picture
       if (name === 'currentpicture' && val && val._tag === 'picture') {
         currentPic = val;
+        _usedPictureComposite = true;
       }
       // Track currentprojection for 3D rendering
       if (name === 'currentprojection' && val && val._tag === 'projection') {
@@ -6352,6 +6357,9 @@ function createInterpreter() {
     // Forms: add(src), add(dest, src), add(transform*src), add(dest, transform*src)
     // Also: add(frame, frame, pair) — compose frames at position offset
     env.set('add', (...args) => {
+      // Composing a sub-picture (possibly transform-wrapped) marks this as a
+      // composite — exempt from the path-label fit (see _usedPictureComposite).
+      if (args.some(a => a && a._tag === 'picture')) _usedPictureComposite = true;
       // patterns module: add(string name, pattern tile) registers a named fill
       // pattern for later pattern(name) lookup.
       if (args.length >= 2 && typeof args[0] === 'string' && args[1] && args[1]._tag === 'pattern') {
@@ -21961,6 +21969,7 @@ function createInterpreter() {
     projection = null;
     _projectedTriples.length = 0;
     unitScale = 1; hasUnitScale = false; _trueSizeFrame = false;
+    _usedPictureComposite = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
     _defaultpenLwSet = false;
@@ -22060,6 +22069,7 @@ function createInterpreter() {
       _is3D: !!projection,
       _bboxSpec: currentPic._bboxSpec,
       _pageOrientation: currentPic._pageOrientation,
+      _usedPictureComposite,
     };
   }
 
@@ -22133,7 +22143,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec, _pageOrientation } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec, _pageOrientation, _usedPictureComposite } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -23672,10 +23682,11 @@ function renderSVG(result, opts) {
     // exactly as before (and only shrunk if they exceed the cap).
     // Skipped when size() is explicit (size() is the author's binding request).
     if (!(sizeW > 0 || sizeH > 0)
+        && !_usedPictureComposite
         && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign)) {
       const PL_FIT_BP = 400;        // AoPS default ~400bp longest side
       const PL_TAU = 27.7;          // saturation constant (fit to TeXeR B0 curve)
-      const PL_ENLARGE_MAX = 200;   // only enlarge sub-200bp-literal geometry
+      const PL_ENLARGE_MAX = 400;   // enlarge any sub-cap literal geometry
       const PL_LABEL_DOM = 1.4;     // skip enlarge when labels dominate the bbox
       const geoLongBp = Math.max(naturalW, naturalH);    // geometry only, literal
       const totalLongBp = Math.max(fullNatW, fullNatH);  // incl truesize labels
@@ -23686,22 +23697,22 @@ function renderSVG(result, opts) {
           pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * k;
         } else if (geoLongBp < PL_ENLARGE_MAX
                    && totalLongBp <= PL_LABEL_DOM * geoLongBp) {
-          // Small literal geometry whose labels don't dominate the bbox:
+          // Sub-cap literal geometry whose labels don't dominate the bbox:
           // saturating enlarge toward ~400bp. Label-dominated diagrams (e.g.
           // 06065: unitcircle + many dot/arc labels) are skipped — fitting the
           // GEOMETRY to the target would overshoot the label-extended total
-          // (TeXeR fits the whole bbox, not just the geometry). Large-geometry
-          // composites that TeXeR keeps near literal (06064: picture/add
-          // unitcircle @4cm, literal ~226bp) are skipped by the ENLARGE_MAX gate.
+          // (TeXeR fits the whole bbox, not just the geometry). Picture/add
+          // composites that TeXeR keeps near literal (06064: unitcircle @4cm)
+          // are skipped earlier via _usedPictureComposite.
           const targetBp = PL_FIT_BP * (1 - Math.exp(-geoLongBp / PL_TAU));
           const fitScale = targetBp / geoLongBp;
           if (fitScale > 1) {
             pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * fitScale;
           }
         }
-        // Mid-range literal (200..400bp) and label-dominated small geometry are
-        // left exactly as before — TeXeR's behavior there is shape/composite
-        // dependent and not safely modelled, so we do not risk a punch-down.
+        // Label-dominated geometry is left exactly as before — TeXeR fits the
+        // whole bbox there in a shape-dependent way we don't model, so we do not
+        // risk a punch-down.
       }
     }
   } else if (sizeW > 0 || sizeH > 0) {
