@@ -18904,6 +18904,7 @@ function createInterpreter() {
             filltype: lblObj.filltype || null,
             line: args._line || 0,
             _fromPathLabel: true,
+            _fromPathLabelNoAlign: !lblAlign,
           });
         }
       }
@@ -20782,7 +20783,7 @@ function createInterpreter() {
               effectiveAlign = makePair(uy, -ux);
             }
           }
-          const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0, _fromPathLabel: true};
+          const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0, _fromPathLabel: true, _fromPathLabelNoAlign: !labelAlign};
           if (labelTransform) ldc.labelTransform = labelTransform;
           if (labelFilltype) ldc.filltype = labelFilltype;
           target.commands.push(ldc);
@@ -23649,20 +23650,58 @@ function renderSVG(result, opts) {
       // (~200bp) circle.  Applied later (after labelInfoBp is finalized).
       unitsizeBoostScale = boostScale;
     }
-    // Path-label cap. Verified live against the TeXeR service (see memory
-    // project_texer_pathlabel_sizing): when a label is attached to a path
-    // (draw("$x$", path) / draw(Label(...), path)), TeXeR ignores the literal
-    // unitsize and fits the picture so its longest geometry side is ~400bp.
-    // Plain point labels (label("$x$", pos)) do NOT trigger this. We only ever
-    // SHRINK toward the cap — diagrams already under it, and every no-path-label
-    // diagram, are left exactly as before, so the working corpus cannot regress.
+    // Path-label size-fit. Verified live against the TeXeR service (see memory
+    // project_texer_pathlabel_sizing). The TRIGGER is a path label with NO
+    // explicit alignment arg: draw("$x$", path) fits the picture toward a
+    // ~400bp longest side; draw("$x$", path, dir(..)/N/S/E/W) stays literal, as
+    // do plain point labels label("$x$", pos). Once triggered, the fit is a
+    // SATURATING enlarge-toward-400, not a hard clamp: measured TeXeR longest
+    // side vs unitsize on a physics-incline test diagram (B0) is
+    //   {0.3cm->111, 0.8->219, 1.5->303, 3->387, 6->401},
+    // well modelled by target = 400*(1-exp(-literalLongBp/27.7)) where
+    // literalLongBp is the geometry-only long side at the literal unitsize.
+    // This reproduces 03724 (literal ~119 -> ~394, TeXeR 399), the 0.8cm
+    // physics family 06173/06174 (literal ~23 -> ~224, TeXeR 235), and the
+    // shrink case 05150 (literal ~727 -> 400). It deliberately UNDER-fits the
+    // fast-saturating clean-triangle shapes (orientation-dependent rate we don't
+    // model) — under-fitting moves toward 1.0 without overshooting, so the
+    // mandate's "never punch another diagram down" holds. Large-geometry
+    // composites that TeXeR keeps near literal (06064: unitcircle @4cm, literal
+    // ~226 -> TeXeR 267, NOT 400) are protected by only ENLARGING when the
+    // literal long side is small (< PL_ENLARGE_MAX); larger literals are left
+    // exactly as before (and only shrunk if they exceed the cap).
     // Skipped when size() is explicit (size() is the author's binding request).
-    if (!(sizeW > 0 || sizeH > 0)) {
-      const PL_CAP_BP = 400;
-      const _geoLongBp = Math.max(geoW * pxPerUnitX, geoH * pxPerUnitY);
-      if (_geoLongBp > PL_CAP_BP && drawCommands.some(dc => dc && dc._fromPathLabel)) {
-        const k = PL_CAP_BP / _geoLongBp;
-        pxPerUnit *= k; pxPerUnitX *= k; pxPerUnitY *= k;
+    if (!(sizeW > 0 || sizeH > 0)
+        && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign)) {
+      const PL_FIT_BP = 400;        // AoPS default ~400bp longest side
+      const PL_TAU = 27.7;          // saturation constant (fit to TeXeR B0 curve)
+      const PL_ENLARGE_MAX = 200;   // only enlarge sub-200bp-literal geometry
+      const PL_LABEL_DOM = 1.4;     // skip enlarge when labels dominate the bbox
+      const geoLongBp = Math.max(naturalW, naturalH);    // geometry only, literal
+      const totalLongBp = Math.max(fullNatW, fullNatH);  // incl truesize labels
+      if (geoLongBp > 0) {
+        if (geoLongBp > PL_FIT_BP) {
+          // Already larger than the fit size: shrink to the cap.
+          const k = PL_FIT_BP / geoLongBp;
+          pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * k;
+        } else if (geoLongBp < PL_ENLARGE_MAX
+                   && totalLongBp <= PL_LABEL_DOM * geoLongBp) {
+          // Small literal geometry whose labels don't dominate the bbox:
+          // saturating enlarge toward ~400bp. Label-dominated diagrams (e.g.
+          // 06065: unitcircle + many dot/arc labels) are skipped — fitting the
+          // GEOMETRY to the target would overshoot the label-extended total
+          // (TeXeR fits the whole bbox, not just the geometry). Large-geometry
+          // composites that TeXeR keeps near literal (06064: picture/add
+          // unitcircle @4cm, literal ~226bp) are skipped by the ENLARGE_MAX gate.
+          const targetBp = PL_FIT_BP * (1 - Math.exp(-geoLongBp / PL_TAU));
+          const fitScale = targetBp / geoLongBp;
+          if (fitScale > 1) {
+            pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * fitScale;
+          }
+        }
+        // Mid-range literal (200..400bp) and label-dominated small geometry are
+        // left exactly as before — TeXeR's behavior there is shape/composite
+        // dependent and not safely modelled, so we do not risk a punch-down.
       }
     }
   } else if (sizeW > 0 || sizeH > 0) {
