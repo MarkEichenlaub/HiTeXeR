@@ -10553,7 +10553,8 @@ function createInterpreter() {
 
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
-      'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars','None'];
+      'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars',
+      'Bar3','Bars3','None'];
     for (const name of arrowNames) {
       env.set(name, (...args) => {
         // Arrow(arrowhead, real size) — first arg may be a null arrowhead
@@ -10585,7 +10586,13 @@ function createInterpreter() {
             sz = a.size; sizeExplicit = true; break;
           }
         }
-        const out = {_tag:'arrow', style:name, size: sz, sizeExplicit};
+        // Bars3/Bar3 are the three-module's 3D dimension bars. We render them
+        // as the existing perpendicular 2D bars (the dir=Z argument is a named
+        // arg ignored by the numeric size scan above), so normalize the style.
+        let outStyle = name;
+        if (name === 'Bars3') outStyle = 'Bars';
+        else if (name === 'Bar3') outStyle = 'Bar';
+        const out = {_tag:'arrow', style:outStyle, size: sz, sizeExplicit};
         if (relativePos !== undefined) out.position = relativePos;
         if (headKind === 'TeXHead') out.texHead = true;
         else if (headKind === 'HookHead') {
@@ -20926,18 +20933,22 @@ function createInterpreter() {
         // Bars should be solid even if the path pen is dashed/dotted.
         const barPen = clonePen(pen);
         delete barPen.linestyle;
+        // Bars on a projected 3D path belong to the 3D layer; tag them _from3d
+        // so a later 2D transform (shift(...)*currentpicture) leaves them on the
+        // dimension line rather than displacing them (e.g. 03281 Bars3 markers).
+        const _barFrom3d = !!pathArg._fromProjection;
         {
           const sL = pathArg.segs[pathArg.segs.length - 1];
           const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
           const barPath = makeBarAt(sL.p3, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0});
+          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d});
         }
         // Begin bar only for 'Bars'
         if (barsStyle === 'Bars') {
           const s0 = pathArg.segs[0];
           const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
           const barPath = makeBarAt(s0.p0, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0});
+          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d});
         }
       }
       // If draw call has a label, handle it: either register for legend or place inline
@@ -20992,6 +21003,9 @@ function createInterpreter() {
           const ldc = {cmd:'label', text:labelText, pos:labelPos, align:effectiveAlign, pen: labelEffectivePen, line: args._line || 0, _fromPathLabel: true, _fromPathLabelNoAlign: !labelAlign};
           if (labelTransform) ldc.labelTransform = labelTransform;
           if (labelFilltype) ldc.filltype = labelFilltype;
+          // A label on a projected 3D path belongs to the 3D layer; keep it put
+          // under a later 2D transform so it stays centered on the dimension line.
+          if (pathArg._fromProjection) ldc._from3d = true;
           target.commands.push(ldc);
         }
       }
@@ -21172,6 +21186,7 @@ function createInterpreter() {
     let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     let graphicData = null;
     let pathForDefaultAlign = null; // Store path for deferred default-align computation
+    let posFromProjection = false; // pos derived from a projected 3D path/triple
     for (const a of args) {
       if (isGraphic(a) && !graphicData) {
         graphicData = a;
@@ -21192,6 +21207,7 @@ function createInterpreter() {
         // otherwise the label lands at the (x,y) of the world-space
         // midpoint, which is meaningless on screen.
         projectPathTriples(a);
+        if (a._fromProjection) posFromProjection = true;
         const segs = a.segs;
         if (segs.length > 0) {
           const midSeg = segs[Math.floor(segs.length/2)];
@@ -21202,7 +21218,7 @@ function createInterpreter() {
         }
       }
       else if (isTriple(a)) {
-        if (!pos) pos = projectTriple(a);
+        if (!pos) { pos = projectTriple(a); posFromProjection = true; }
         else if (!align) align = projectTriple(a);
       }
       else if (isPair(a)) {
@@ -21225,7 +21241,7 @@ function createInterpreter() {
         }
         if ('position' in a && !pos) {
           const pv = a.position;
-          if (isTriple(pv)) pos = projectTriple(pv);
+          if (isTriple(pv)) { pos = projectTriple(pv); posFromProjection = true; }
           else if (isPair(pv)) pos = pv;
         }
       }
@@ -21336,6 +21352,9 @@ function createInterpreter() {
     } else {
       const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
       if (labelTransform) labelCmd.labelTransform = labelTransform;
+      // A label positioned from a projected 3D path/triple belongs to the 3D
+      // layer; keep it in place under a later 2D transform on the picture.
+      if (posFromProjection) labelCmd._from3d = true;
       target.commands.push(labelCmd);
     }
   }
@@ -21484,7 +21503,15 @@ function createInterpreter() {
       if (isTriple(seg.p3)) { anyTriple = true; updateBounds(seg.p3); cloneIfNeeded(); ns.p3 = projectTriple(seg.p3); }
       return ns;
     });
-    if (anyTriple) p.segs = newSegs;
+    if (anyTriple) {
+      p.segs = newSegs;
+      // This path was built from 3D triples and just got projected to 2D, so it
+      // belongs to the 3D layer. Mark it so a subsequent 2D transform applied to
+      // the picture (e.g. shift(1,-0.3)*currentpicture in 03281) leaves it in
+      // place, keeping explicit edge draws aligned with the surface fills rather
+      // than shifting only the outline.
+      p._fromProjection = true;
+    }
     if (p._singlePoint && isTriple(p._singlePoint)) {
       updateBounds(p._singlePoint);
       p._singlePoint = projectTriple(p._singlePoint);
