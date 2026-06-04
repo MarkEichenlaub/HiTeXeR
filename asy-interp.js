@@ -10875,6 +10875,7 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
 
       const pic = {_tag:'picture', commands:[], transform: null};
+      const _sfRegion = a.x + ',' + a.y + ',' + b.x + ',' + b.y;
       const dx = (b.x - a.x) / n;
       const dy = (b.y - a.y) / n;
       // Length of each slope segment (half the cell diagonal, scaled)
@@ -10898,7 +10899,7 @@ function createInterpreter() {
           const p0 = makePair(x - ux, y - uy);
           const p1 = makePair(x + ux, y + uy);
           const seg = makePath([lineSegment(p0, p1)], false);
-          pic.commands.push({cmd:'draw', path:seg, pen:clonePen(pen), arrow: arrow || null, line:0});
+          pic.commands.push({cmd:'draw', path:seg, pen:clonePen(pen), arrow: arrow || null, line:0, _slopefield:true, _sfRegion:_sfRegion});
         }
       }
       return pic;
@@ -22335,6 +22336,23 @@ function renderSVG(result, opts) {
           if (c._autoXmin && !c._xMinFromUserLimits) lo = lo - _ext;
           if (c._autoXmax && !c._xMaxFromUserLimits) hi = hi + _ext;
         }
+        // Arrow-bearing axis over add()-imported slopefield geometry: TeXeR
+        // extends the axis past the slope-field box (the non-arrow tail pokes
+        // out and the arrowhead sits beyond the field). Without this the slope-
+        // field grid fills a larger fraction of HTX's tight bbox than TeXeR's,
+        // so the two grids drift apart under SSIM trim+resize. Extend both ends
+        // so the content bbox matches; the tail side gets a deeper extension.
+        // Gate on the *two-half* pattern (>=2 distinct slopefield regions with a
+        // central gap, e.g. (-3,-3)-(-0.1,3) + (0.1,-3)-(3,3)). Single full-range
+        // fields (00259/00260) get NO poke-out in TeXeR, so extending them there
+        // catastrophically misaligns the grid (-0.33 SSIM).
+        if (c.arrow && hi > lo && new Set(drawCommands.filter(dc => dc && dc._slopefield).map(dc => dc._sfRegion)).size >= 2) {
+          const _rng = hi - lo;
+          const _eL = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_SF_EXTL) || '0.07');
+          const _eR = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_SF_EXTR) || '0.035');
+          if (c._autoXmin && !c._xMinFromUserLimits) lo = lo - _rng * _eL;
+          if (c._autoXmax && !c._xMaxFromUserLimits) hi = hi + _rng * _eR;
+        }
         // Explicit-tick axes (xaxis(RightTicks(.., real[]))) declared before any
         // draw() fell back to the ±5 default range and drew every listed tick.
         // Preserve ticks that fall within the label-inclusive content bound by
@@ -22486,6 +22504,16 @@ function renderSVG(result, opts) {
           const _ext = (hi - lo) * 0.06;
           if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _ext;
           if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _ext;
+        }
+        // Arrow-bearing axis over add()-imported slopefield geometry (see
+        // x-axis above). The bottom tail pokes out deeper than the top arrow.
+        // Same two-half gate as the x-axis block.
+        if (c.arrow && hi > lo && new Set(drawCommands.filter(dc => dc && dc._slopefield).map(dc => dc._sfRegion)).size >= 2) {
+          const _rng = hi - lo;
+          const _eB = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_SF_EXTB) || '0.07');
+          const _eT = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_SF_EXTT) || '0.035');
+          if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _rng * _eB;
+          if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _rng * _eT;
         }
         if (lo !== oldLo || hi !== oldHi) {
           const x = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
