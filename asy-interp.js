@@ -4664,7 +4664,7 @@ function createInterpreter() {
               pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
-              if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6) {
+              if (Math.abs(prev.x - start.x) > 1e-6 || Math.abs(prev.y - start.y) > 1e-6 || Math.abs((prev.z||0) - (start.z||0)) > 1e-6) {
                 const prevCtrlOut = i > 0 ? elements[i-1].controlsOut : null;
                 allSegs.push(makeJoinSeg(prev, start, prevJoin, null, el.dirIn, prevCtrlOut, el.controlsIn));
               }
@@ -4719,7 +4719,7 @@ function createInterpreter() {
               pendingPt = null; pendingDirOut = null; pendingDirIn = null; pendingControlsOut = null;
             } else if (allSegs.length > 0) {
               const prev = allSegs[allSegs.length - 1].p3;
-              if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6) {
+              if (Math.abs(prev.x - el.pt.x) > 1e-6 || Math.abs(prev.y - el.pt.y) > 1e-6 || Math.abs((prev.z||0) - (el.pt.z||0)) > 1e-6) {
                 const prevDirOut = i > 0 ? elements[i-1].dirOut : null;
                 const prevCtrlOut = i > 0 ? elements[i-1].controlsOut : null;
                 allSegs.push(makeJoinSeg(prev, el.pt, prevJoin, prevDirOut, el.dirIn, prevCtrlOut, el.controlsIn));
@@ -4744,7 +4744,7 @@ function createInterpreter() {
       if (hasCycle && allSegs.length > currentSubPathStart) {
         const first = allSegs[currentSubPathStart].p0;
         const last = allSegs[allSegs.length - 1].p3;
-        if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
+        if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6 || Math.abs((first.z||0) - (last.z||0)) > 1e-6) {
           // Determine the join kind before cycle: from last element's join
           const lastEl = elements[elements.length - 1];
           const closeJoin = (lastEl && lastEl.join) ? lastEl.join : '..';
@@ -16275,7 +16275,8 @@ function createInterpreter() {
               faceVertexIdx.push([0, i, i+1]);
             }
             if (faces.length > 0) {
-              return {_tag:'surface', mesh: makeMesh(faces),
+              const _m = makeMesh(faces); _m._flatPlanar = true;
+              return {_tag:'surface', mesh: _m,
                       _vertices: L.slice(), _faceVertexIdx: faceVertexIdx};
             }
           } else if (loops.length === 2) {
@@ -16355,7 +16356,7 @@ function createInterpreter() {
               f.normal = faceNormal(f);
               faces.push(f);
             }
-            if (faces.length > 0) return {_tag:'surface', mesh: makeMesh(faces)};
+            if (faces.length > 0) { const _m = makeMesh(faces); _m._flatPlanar = true; return {_tag:'surface', mesh: _m}; }
           }
         }
       }
@@ -21915,7 +21916,13 @@ function createInterpreter() {
       // down to ~10% to approximate this behavior while still allowing truly
       // emissive surfaces (like light sources) to glow slightly.
       const em = base._emissivePen;
-      const emScale = 0.1;
+      // Curved/open meshes (e.g. 03592 revolution bowl) read as a dark-to-light
+      // gradient in TeXeR's PRC fallback, so emissive is heavily attenuated.
+      // But FLAT planar surfaces (e.g. 03793's gray tabletop, built from
+      // surface(path, planar=true)) read close to emissive+diffuse — the
+      // tabletop renders as light grey ~0.8, not 0.5. Honor emissive at near
+      // full strength for flat planar meshes only.
+      const emScale = (mesh && mesh._flatPlanar) ? 0.70 : 0.1;
       const emR = em ? (em.r || 0) * emScale : 0;
       const emG = em ? (em.g || 0) * emScale : 0;
       const emB = em ? (em.b || 0) * emScale : 0;
