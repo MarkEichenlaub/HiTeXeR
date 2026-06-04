@@ -1983,6 +1983,11 @@ function createInterpreter() {
   // Settings
   let unitScale = 1;       // unitsize value in points
   let hasUnitScale = false; // whether unitsize() was explicitly called
+  // The bp-per-user-unit set by a global unitsize(n) call, preserved separately
+  // from unitScale (which gets clobbered to 1 by truesize add(frame) composites).
+  // Lets add(frame, (i,0)) convert its user-coord offset to bp (e.g. 03555 lays
+  // three 2.5cm panels at user x = -6, -3, 0 under unitsize(1cm)).
+  let _globalUnitSize = 0;
   // Set when hasUnitScale/unitScale=1 was pinned to render already-fitted FRAME
   // content at truesize (add(frame)) rather than by an explicit unitsize() call.
   // Truesize frame content must NOT be rescaled by a picture-level size() — in
@@ -3638,6 +3643,11 @@ function createInterpreter() {
 
     // Picture methods
     if (obj && obj._tag === 'picture') {
+      // pic.scale(xsize, ysize[, keepAspect]) — Asymptote fits the picture into
+      // an xsize-by-ysize bp box and returns a frame; identical to pic.fit() with
+      // explicit numeric sizes. Used by multi-panel composites like 03555 that do
+      // add(pic.scale(2.5cm, 2.5cm), offset). Route it through the fit path.
+      if (method === 'scale') method = 'fit';
       if (method === 'fit') {
         // fit([xsize[, ysize[, keepAspect]]]) — Asymptote's pic.fit() returns a
         // frame (frozen snapshot of picture contents) scaled to fit within the
@@ -6505,6 +6515,20 @@ function createInterpreter() {
         patternRegistry[args[0]] = args[1];
         return;
       }
+      // add(string label, pair position) — place a centered text label at the
+      // given user-coordinate position on currentpicture. Used by equation-style
+      // composites that interleave text with .scale() sub-picture panels (e.g.
+      // 03556: add("$I($", (-0.7,0)) between disk panels). The panels are emitted
+      // as truesize frames in bp; convert this label's user position to bp via the
+      // global unitsize so it lines up with them, and pin truesize.
+      if (typeof args[0] === 'string' && isPair(args[1]) && !args.some(a => a && (a._tag === 'mframe' || a._tag === 'picture'))) {
+        const us = _globalUnitSize > 0 ? _globalUnitSize : 1;
+        currentPic.commands.push({ cmd:'label', text: args[0],
+          pos: makePair(args[1].x * us, args[1].y * us),
+          align: makePair(0, 0), pen: clonePen(defaultPen), line:0 });
+        unitScale = 1; hasUnitScale = true; _trueSizeFrame = true;
+        return;
+      }
       // Handle frame-to-frame composition: add(destFrame, srcFrame, offset)
       let frames = [], framePairs = [];
       for (const a of args) {
@@ -6544,6 +6568,15 @@ function createInterpreter() {
       if (frames.length === 1 && !args.some(a => a && a._tag === 'picture')) {
         const fr = frames[0];
         let offX = 0, offY = 0;
+        // No-offset add(frame) inside a global-unitsize composite (e.g. 03555's
+        // add(three_d.scale(...)) with no position): center the panel's content
+        // at the origin so it lines up vertically with the offset-positioned
+        // sibling panels (which center-anchor below). Without this the no-offset
+        // panel bottom-anchors and floats above the others.
+        if (framePairs.length === 0 && _globalUnitSize > 0) {
+          offX = (fr._fitSx || 1) * (fr._fitMinX || 0);
+          offY = (fr._fitSy || 1) * (fr._fitMinY || 0);
+        }
         if (framePairs.length === 1) {
           if (fr._sizeW) {
             // add(pic.fit(), (i,0)) — the offset is in the OUTER picture's user
@@ -6572,7 +6605,26 @@ function createInterpreter() {
             offX += (fr._fitSx || 1) * (fr._fitMinX || 0);
             offY += (fr._fitSy || 1) * (fr._fitMinY || 0);
           } else {
-            offX = framePairs[0].x; offY = framePairs[0].y;
+            // The offset is in the OUTER picture's user coords. When a global
+            // unitsize(n) is in effect the frame geometry is in bp but the
+            // offset must be converted user→bp (n bp per unit), else multi-panel
+            // composites stack ~1bp apart instead of spreading by their unit gap
+            // (03555: panels at user x = -6,-3,0 under unitsize(1cm)).
+            const us = _globalUnitSize > 0 ? _globalUnitSize : 1;
+            const baseX = framePairs[0].x * us, baseY = framePairs[0].y * us;
+            // Anchor the frame's USER ORIGIN (0,0) at the offset — Asymptote's
+            // add(frame,pos) pins the frame origin at pos. The combinedT below
+            // places the content min-corner at offX, so pre-add s*fitMin to map
+            // user-origin → slot. This matches the no-offset branch (6576) and the
+            // _sizeW branch above, so multi-panel composites share a common origin
+            // baseline: 03564's left square and right diamond keep both open
+            // circles on the same line; 03555/03556's origin-centered circles and
+            // 03559's incline+FBD line up because their geometry is built around
+            // (0,0). Center-anchoring floated panels whose bbox isn't symmetric
+            // about the origin (03564's square sits in +x/+y, so its center is
+            // above the origin → it rode up).
+            offX = baseX + (fr._fitSx || 1) * (fr._fitMinX || 0);
+            offY = baseY + (fr._fitSy || 1) * (fr._fitMinY || 0);
           }
         } else if (framePairs.length >= 2) {
           // position + align form: place the frame's bbox so its align-aligned
@@ -9082,7 +9134,7 @@ function createInterpreter() {
         pic._unitScaleY = sy;
         return;
       }
-      if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; }
+      if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; _globalUnitSize = unitScale; }
     });
     env.set('size', (...args) => {
       // size(pic, w, h, keepAspect=bool) or size(w, h, keepAspect=bool) or size(w)
@@ -22113,6 +22165,7 @@ function createInterpreter() {
     projection = null;
     _projectedTriples.length = 0;
     unitScale = 1; hasUnitScale = false; _trueSizeFrame = false;
+    _globalUnitSize = 0;
     _usedPictureComposite = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
@@ -23854,6 +23907,7 @@ function renderSVG(result, opts) {
     // Skipped when size() is explicit (size() is the author's binding request).
     if (!(sizeW > 0 || sizeH > 0)
         && !_usedPictureComposite
+        && !_trueSizeFrame
         && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign)) {
       const PL_FIT_BP = 400;        // AoPS default ~400bp longest side
       const PL_TAU = 27.7;          // saturation constant (fit to TeXeR B0 curve)
