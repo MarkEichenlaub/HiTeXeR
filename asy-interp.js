@@ -9873,10 +9873,14 @@ function createInterpreter() {
       // in bp. Emit ticks as marker commands so they render at a fixed bp
       // size regardless of the surrounding picture's geo scale.
       const tickHalfBp = sizeBp > 0 ? sizeBp / 2 : 5;
-      // Ensure the tick mark stroke is at least ~0.8bp so it's visible at the
-      // displayed size; the default 0.5bp pen renders very thin.
+      // Render at the pen's literal width (default 0.5bp) and mark it explicit so
+      // the marker skips the auto/explicit-size stroke boost — markers are now
+      // scaled by bpCSSPixel (true fixed-bp size), so a 0.5bp tick matches the
+      // ~2px stroke of TeXeR's marks; the old 0.8bp floor + 1.5× boost rendered
+      // ticks ~2× too thick.
       const tickPen = clonePen(pen);
-      if (!(tickPen.linewidth > 0) || tickPen.linewidth < 0.8) tickPen.linewidth = 0.8;
+      if (!(tickPen.linewidth > 0)) tickPen.linewidth = 0.5;
+      tickPen._lwExplicit = true;
       const nT = Math.max(1, Math.round(n));
       const N = g.segs.length;
       // Convert bp spacing to fraction of arclength using bp/user. When no
@@ -26250,7 +26254,7 @@ function renderSVG(result, opts) {
       const mLw = dc.pen ? dc.pen.linewidth : 0.5;
       // Thick pens (>=1bp) indicate filled markers; thin pens indicate stroked markers
       const useFilledMarker = mLw >= 1;
-      const markerScale = useFilledMarker ? mLw * bpCSSPixel : cssPixel;
+      const markerScale = useFilledMarker ? mLw * bpCSSPixel : bpCSSPixel;
       if (mPath.segs.length > 0) {
         let d = '';
         for (let i = 0; i < mPath.segs.length; i++) {
@@ -27263,6 +27267,30 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
+
+    if (isArcStyle && isTexHead) {
+      // HookHead used as an arc arrowhead (ArcArrow(HookHead)/ArcArrows(HookHead)):
+      // render a barbed harpoon — straight arms from the tip out to two rear
+      // barb points, with the trailing edge notched inward (concave toward the
+      // tip) so the rear corners read as backward-pointing hooks. This matches
+      // TeXeR's filled-barbed HookHead silhouette (00301, 08682).
+      const sb = s * 1.4; // HookHead barbs read longer/thinner than the plain arc head
+      const barbAngle = 35 * Math.PI / 180;
+      const lx = tipX - sb*Math.cos(screenAngle - barbAngle);
+      const ly = tipY - sb*Math.sin(screenAngle - barbAngle);
+      const rx = tipX - sb*Math.cos(screenAngle + barbAngle);
+      const ry = tipY - sb*Math.sin(screenAngle + barbAngle);
+      const axCos = Math.cos(screenAngle), axSin = Math.sin(screenAngle);
+      // Concave trailing edge: pull the back-edge midpoint toward the tip.
+      const notch = sb * 0.62;
+      const backMidX = (lx + rx) / 2 + notch * axCos;
+      const backMidY = (ly + ry) / 2 + notch * axSin;
+      const d = `M${fmt(tipX)} ${fmt(tipY)} ` +
+                `L${fmt(lx)} ${fmt(ly)} ` +
+                `Q${fmt(backMidX)} ${fmt(backMidY)} ${fmt(rx)} ${fmt(ry)} ` +
+                `Z`;
+      return {d, filled: true};
+    }
 
     if (isArcStyle) {
       // ArcArrow: filled closed arrowhead with two curved bezier arms meeting
