@@ -11279,25 +11279,29 @@ function createInterpreter() {
     function buildGraphPath(pts, useSmooth) {
       if (pts.length < 2) return makePath([], false);
       if (useSmooth) {
-        // Catmull-Rom-style smooth curve
+        // Standard uniform Catmull-Rom -> Bezier conversion.
+        // cp1 = p0 + (p1 - prev)/6,  cp2 = p1 - (next - p0)/6.
+        // The control-point magnitude is tied to the ACTUAL tangent vector
+        // (the span between the two flanking knots), not to the current
+        // segment's chord length. The older "normalize tangent, rescale by
+        // chord/3" form decoupled direction from magnitude: a near-vertical
+        // segment (large chord) whose tangent was near-horizontal would fling
+        // the control point far sideways, producing spurious loops that cross
+        // back over earlier x (e.g. the topologist's sine curve 00325 looping
+        // left of the y-axis). For uniformly spaced smooth data both forms
+        // give ~chord/3 magnitude, so well-behaved graphs are unchanged.
         const segs = [];
         for (let i = 0; i < pts.length - 1; i++) {
           const p0 = pts[i], p1 = pts[i+1];
           const prev = i > 0 ? pts[i-1] : null;
           const next = i < pts.length - 2 ? pts[i+2] : null;
-          const dx = p1.x - p0.x, dy = p1.y - p0.y;
-          const len = Math.sqrt(dx*dx + dy*dy) / 3;
-          let tx0 = dx, ty0 = dy;
-          if (prev) { tx0 = (p1.x - prev.x)/2; ty0 = (p1.y - prev.y)/2; }
-          let tx1 = dx, ty1 = dy;
-          if (next) { tx1 = (next.x - p0.x)/2; ty1 = (next.y - p0.y)/2; }
-          const tLen0 = Math.sqrt(tx0*tx0+ty0*ty0) || 1;
-          const tLen1 = Math.sqrt(tx1*tx1+ty1*ty1) || 1;
-          segs.push({
-            p0, p3: p1,
-            cp1: {x: p0.x + tx0/tLen0*len, y: p0.y + ty0/tLen0*len},
-            cp2: {x: p1.x - tx1/tLen1*len, y: p1.y - ty1/tLen1*len}
-          });
+          const cp1 = prev
+            ? {x: p0.x + (p1.x - prev.x)/6, y: p0.y + (p1.y - prev.y)/6}
+            : {x: p0.x + (p1.x - p0.x)/3,   y: p0.y + (p1.y - p0.y)/3};
+          const cp2 = next
+            ? {x: p1.x - (next.x - p0.x)/6, y: p1.y - (next.y - p0.y)/6}
+            : {x: p1.x - (p1.x - p0.x)/3,   y: p1.y - (p1.y - p0.y)/3};
+          segs.push({ p0, p3: p1, cp1, cp2 });
         }
         return makePath(segs, false);
       }
