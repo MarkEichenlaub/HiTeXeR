@@ -3800,6 +3800,145 @@ function createInterpreter() {
         if (process.env.HTX_DEBUG_FIT) console.error('FIT explicit',explicitSize,'targetW',targetW,'userW',userW.toFixed(1),'sx',sx.toFixed(3),'fitW',(userW*sx).toFixed(1));
         return frame;
       }
+      if (method === 'fit3') {
+        // fit3([projection]) — Asymptote's 3D picture fit. By the time geometry
+        // reaches pic.commands the triple paths/labels have already been
+        // projected to 2D screen coords (see projectPathTriples / evalLabel),
+        // so fit3 only has to scale those 2D coords to bp and snapshot them into
+        // a frame — mirroring fit() but honoring the picture's unitsize(pic, n)
+        // (1 user unit = n bp) exactly, without the label-shrink fit-to-box that
+        // size(pic, W) performs. add(frame, pos) re-emits _srcCommands at full
+        // fidelity (arrowheads, dots) using the _fit* transform recorded here.
+        const gb = getGeoBbox(obj.commands);
+        // The triple geometry in obj.commands was projected by _projectTripleRaw,
+        // which for "mixed 2D/3D" orthographic setups (dist<10, default up) inflates
+        // every coord by orthoScale = zoom/|rx| to make 3D align with 2D overlays.
+        // Real Asymptote/TeXeR uses the raw orthographic projection (no such
+        // x-normalization), so a pure-3D picture fit via fit3() comes out
+        // orthoScale-times too large. Divide that factor back out here so the
+        // truesize frame matches the reference scale.
+        let orthoScale = 1;
+        if (projection && projection.type === 'orthographic') {
+          const dxp = (projection.cx||0)-(projection.tx||0);
+          const dyp = (projection.cy||0)-(projection.ty||0);
+          const dzp = (projection.cz||0)-(projection.tz||0);
+          const distp = Math.sqrt(dxp*dxp+dyp*dyp+dzp*dzp) || 1;
+          const zoom = (typeof projection.zoom === 'number') ? projection.zoom : 1;
+          orthoScale = zoom;
+          if (distp < 10) {
+            const upx = projection.ux||0, upy = projection.uy||0, upz = (projection.uz===undefined?1:projection.uz);
+            const isDefaultUp = (Math.abs(upx) < 0.01 && Math.abs(upy) < 0.01 && Math.abs(upz - 1) < 0.01);
+            if (isDefaultUp) {
+              const fwx = dxp/distp, fwy = dyp/distp, fwz = dzp/distp;
+              let rx = upy*fwz - upz*fwy, ry = upz*fwx - upx*fwz, rz = upx*fwy - upy*fwx;
+              const rlen = Math.sqrt(rx*rx+ry*ry+rz*rz) || 1;
+              const xNorm = Math.abs(rx/rlen);
+              if (xNorm > 0.1) orthoScale = zoom / xNorm;
+            }
+          }
+        }
+        const baseSx = (typeof obj._unitScaleX === 'number' && obj._unitScaleX > 0) ? obj._unitScaleX : 1;
+        const baseSy = (typeof obj._unitScaleY === 'number' && obj._unitScaleY > 0) ? obj._unitScaleY : baseSx;
+        const sx = baseSx / orthoScale;
+        const sy = baseSy / orthoScale;
+        const userW = (gb.maxX - gb.minX) || 1;
+        const userH = (gb.maxY - gb.minY) || 1;
+        const isCurved3 = (seg) => {
+          const eps = 1e-6;
+          const lineCp1x = seg.p0.x * (2/3) + seg.p3.x * (1/3);
+          const lineCp1y = seg.p0.y * (2/3) + seg.p3.y * (1/3);
+          const lineCp2x = seg.p0.x * (1/3) + seg.p3.x * (2/3);
+          const lineCp2y = seg.p0.y * (1/3) + seg.p3.y * (2/3);
+          return Math.abs(seg.cp1.x - lineCp1x) > eps || Math.abs(seg.cp1.y - lineCp1y) > eps ||
+                 Math.abs(seg.cp2.x - lineCp2x) > eps || Math.abs(seg.cp2.y - lineCp2y) > eps;
+        };
+        // Anchor frame content at the projected 3D origin (user-coord 0,0), NOT
+        // the content-min corner: Asymptote's add(frame,pos) places the frame
+        // ORIGIN at pos, so in multi-frame composites (e.g. 02088's cube + lattice
+        // added at O and 125E) the inter-frame gap must be measured origin-to-
+        // origin. Anchoring at content-min instead inflates the gap by each
+        // frame's (different) min offset, widening the composite. So map px->px*sx
+        // here and set _fitMin* = 0 below.
+        const sampleBez3 = (seg, n) => {
+          const pts = [];
+          for (let i = 0; i <= n; i++) {
+            const t = i / n, b = 1 - t;
+            const px = b*b*b*seg.p0.x + 3*b*b*t*seg.cp1.x + 3*b*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+            const py = b*b*b*seg.p0.y + 3*b*b*t*seg.cp1.y + 3*b*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+            pts.push({x: px * sx, y: py * sy});
+          }
+          return pts;
+        };
+        const frame = {_tag: 'mframe', strokes: [], fills: [], labels: [], dots: []};
+        for (const dc of obj.commands) {
+          if (!dc) continue;
+          // Asymptote's fit3() projects the 3D picture into a 2D frame; the 3D
+          // surface() layer (mesh fills + their antialias strokes, tagged
+          // _from3d) does NOT survive that projection — only the path/label
+          // geometry does. TeXeR mirrors this (its inline renderer emits no gray
+          // surface fills for these add(pic.fit3()) lattice diagrams), so drop
+          // _from3d commands here. The explicit wireframe draws are plain 2D
+          // projected lines (not _from3d) and are kept.
+          if (dc._from3d) continue;
+          if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
+            const pts = [];
+            for (const seg of dc.path.segs) {
+              if (isCurved3(seg)) {
+                const sampled = sampleBez3(seg, 8);
+                if (pts.length === 0) pts.push(sampled[0]);
+                for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
+              } else {
+                if (pts.length === 0) pts.push({x: seg.p0.x * sx, y: seg.p0.y * sy});
+                pts.push({x: seg.p3.x * sx, y: seg.p3.y * sy});
+              }
+            }
+            frame.strokes.push({pts, closed: !!dc.path.closed, pen: dc.pen || defaultPen});
+          }
+          if ((dc.cmd === 'fill' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
+            const pts = [];
+            for (const seg of dc.path.segs) {
+              if (isCurved3(seg)) {
+                const sampled = sampleBez3(seg, 8);
+                if (pts.length === 0) pts.push(sampled[0]);
+                for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
+              } else {
+                if (pts.length === 0) pts.push({x: seg.p0.x * sx, y: seg.p0.y * sy});
+                pts.push({x: seg.p3.x * sx, y: seg.p3.y * sy});
+              }
+            }
+            frame.fills.push({pts, pen: dc.pen || defaultPen});
+          }
+          if (dc.cmd === 'label' && dc.pos) {
+            frame.labels.push({
+              text: dc.text || '',
+              pos: makePair(dc.pos.x * sx, dc.pos.y * sy),
+              align: dc.align,
+              pen: dc.pen || defaultPen
+            });
+          }
+          if (dc.cmd === 'dot' && dc.pos) {
+            frame.dots.push({
+              pos: makePair(dc.pos.x * sx, dc.pos.y * sy),
+              pen: dc.pen || defaultPen,
+              filltype: dc.filltype,
+              text: dc.text
+            });
+          }
+        }
+        frame._fitW = userW * sx;
+        frame._fitH = userH * sy;
+        // add(frame,pos) re-emits _srcCommands at full fidelity; drop the 3D
+        // surface layer (_from3d) here too so the gray surface() fills don't
+        // reappear in the final render (see _from3d skip in the preview loop).
+        frame._srcCommands = obj.commands.filter(c => c && !c._from3d);
+        frame._fitSx = sx;
+        frame._fitSy = sy;
+        // Origin-anchored (see sampleBez3 comment): _fitMin* are 0 so the add
+        // re-emit transform places user-coord (0,0) at the frame position.
+        frame._fitMinX = 0;
+        frame._fitMinY = 0;
+        return frame;
+      }
       if (method === 'add') {
         // pic.add(otherPic) — add commands from other picture
         for (const a of args) {
