@@ -2093,10 +2093,12 @@ function createInterpreter() {
     }
 
     const result = _projectTripleRaw(v, proj);
-    // Track for later potential re-projection
-    if (proj.type === 'perspective' || proj.center) {
-      _projectedTriples.push({ triple: {x:v.x, y:v.y, z:v.z}, result });
-    }
+    // Track for later potential re-projection AND for computing a 3D-only
+    // projected bbox (used to fit size() to the dominant 3D figure in mixed
+    // 3D+2D scenes — see the _bbox3D logic in the size-fit block). Orthographic
+    // projections were previously untracked; track them too so mixed scenes
+    // (e.g. 03281: 3D parabolic wall + 2D parabola/axes) can be sized correctly.
+    _projectedTriples.push({ triple: {x:v.x, y:v.y, z:v.z}, result });
     return result;
   }
 
@@ -21765,7 +21767,16 @@ function createInterpreter() {
       const penForAmbient = face.pen || basePen;
       const ambPen = penForAmbient._ambientPen;
       const ambBright = ambPen ? ((ambPen.r || 0) + (ambPen.g || 0) + (ambPen.b || 0)) / 3 : 1;
-      const ambientFloor = 0.18 * ambBright;
+      let ambientFloor = 0.18 * ambBright;
+      // Open meshes (flat walls, curved sheets) read much brighter in TeXeR's
+      // PRC raster fallback than a Lambert term with no ambient floor produces.
+      // Materials commonly declare a black ambient pen (e.g. 03281/03592's
+      // material(gray(0.8), black, ...)), which zeroes ambBright and crushes
+      // camera-facing faces to near-black. TeXeR instead renders these surfaces
+      // close to their diffuse color with gentle shading, so enforce a minimum
+      // ambient floor for OPEN meshes regardless of the (black) ambient pen.
+      const _openMeshMinFloor = (typeof process !== 'undefined' && process.env && process.env.HTX_OPENFLOOR) ? +process.env.HTX_OPENFLOOR : 0.70;
+      if (!(mesh && mesh._closed)) ambientFloor = Math.max(ambientFloor, _openMeshMinFloor);
       let intensity = nolight ? 1.0 : (ambientFloor + (1 - ambientFloor) * dot);
       let specular = 0;
       // Phong-style specular highlight for sphere meshes (mesh has
@@ -22253,6 +22264,27 @@ function createInterpreter() {
     // Read currentlight for background color
     const currentlight = globalEnv.get('currentlight');
 
+    // Compute the projected 3D-only bbox extent (width/height in user units,
+    // translation-invariant) from the tracked projected triples. In mixed
+    // 3D+2D scenes a 2D overlay (axes/graphs) can extend the combined geometry
+    // bbox far beyond the dominant 3D figure; fitting size() to the combined
+    // bbox then crushes the 3D figure (03281). renderSVG uses this 3D-only
+    // extent to fit size() to the 3D figure and let the 2D overlay spill out,
+    // matching Asymptote/TeXeR semantics.
+    let _bbox3D = null;
+    if (projection && _projectedTriples.length > 0) {
+      let bx0=Infinity,by0=Infinity,bx1=-Infinity,by1=-Infinity;
+      for (const e of _projectedTriples) {
+        const r = e.result;
+        if (!r || !isFinite(r.x) || !isFinite(r.y)) continue;
+        if (r.x<bx0) bx0=r.x; if (r.x>bx1) bx1=r.x;
+        if (r.y<by0) by0=r.y; if (r.y>by1) by1=r.y;
+      }
+      if (isFinite(bx0) && isFinite(bx1) && isFinite(by0) && isFinite(by1)) {
+        _bbox3D = { minX:bx0, maxX:bx1, minY:by0, maxY:by1, w:bx1-bx0, h:by1-by0 };
+      }
+    }
+
     return {
       drawCommands: drawCommands.slice(),
       unitScale, hasUnitScale, _trueSizeFrame,
@@ -22264,6 +22296,7 @@ function createInterpreter() {
       directionWarnings: directionWarnings.slice(),
       _defaultpenLwSet,
       _is3D: !!projection,
+      _bbox3D,
       _bboxSpec: currentPic._bboxSpec,
       _pageOrientation: currentPic._pageOrientation,
       _usedPictureComposite,
@@ -22340,7 +22373,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bboxSpec, _pageOrientation, _usedPictureComposite } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -23426,6 +23459,11 @@ function renderSVG(result, opts) {
   let pxPerUnit, pxPerUnitX, pxPerUnitY;
   let unitsizeBoostScale = 1;
   let _labelDominatesSize = false;  // set true when labels expand bbox ≥1.5× beyond geometry
+  // Mixed 3D+2D scene: a 2D overlay (axes/graphs) extends the combined geometry
+  // bbox well beyond the dominant 3D figure. When set, size() is fit to the
+  // 3D-only bbox and the label-shrink solver is skipped so the 2D overlay
+  // spills outside size() (matching Asymptote semantics; 03281).
+  let _mixed3D2D = false;
   if (hasUnitScale) {
     // unitsize() was called: user coords → bp directly (labels just expand output)
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
@@ -23969,8 +24007,21 @@ function renderSVG(result, opts) {
     const _isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
     _labelDominatesSize = !_isIgnoreAspect &&
                           ((_fullRefW / _geoRefW >= 1.05) || (_fullRefH / _geoRefH >= 1.05));
-    const scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
-    const scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
+    let scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
+    let scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
+    // Mixed 3D+2D: if a 2D overlay extends the combined geometry bbox well
+    // beyond the projected 3D figure on at least one axis, fit size() to the
+    // 3D figure's bbox (so it is not crushed) and let the 2D overlay spill
+    // out. Detected by comparing the combined geo bbox to the 3D-only bbox.
+    if (_is3D && _bbox3D && _bbox3D.w > 1e-6 && _bbox3D.h > 1e-6 && !_isIgnoreAspect) {
+      const _rW = _geoRefW / _bbox3D.w;
+      const _rH = _geoRefH / _bbox3D.h;
+      if (_rW > 1.12 || _rH > 1.12) {
+        _mixed3D2D = true;
+        scaleRefW = _bbox3D.w;
+        scaleRefH = _bbox3D.h;
+      }
+    }
     pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
     if (_isIgnoreAspect) {
       // IgnoreAspect: scale geometry to fill size(), labels extend outside
@@ -24287,7 +24338,7 @@ function renderSVG(result, opts) {
   // size(p,W) already fixed the fitted frame's scale. Skipping the solver here
   // mirrors the _trueSizeFrame guard on the size()-rescale block above; without
   // it an outer size(8cm) crushes a 12cm-fitted frame down to 8cm (03401).
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
