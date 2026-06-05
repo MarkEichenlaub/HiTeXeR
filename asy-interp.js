@@ -24484,9 +24484,14 @@ function renderSVG(result, opts) {
     // Labels are fixed bp, so shrinking geometry doesn't shrink them
     // proportionally — iterate to convergence.
     //
-    // Scoped to the large-2D regime (maxDim > 50, minDim >= 5) for safety: that
-    // is where geometry genuinely fills defaultSize and a few short corner labels
-    // cause real, render-confirmed overshoot. Thin/1D figures (number lines like
+    // Scoped to the medium/large-2D regime (maxDim > 40, minDim >= 5) for safety:
+    // that is where geometry genuinely fills defaultSize and a few short corner
+    // labels cause real, render-confirmed overshoot. The c57_L7 triangle+bisector
+    // diagrams (11404/11405/11406: ~41×21 bbox, single-letter vertex labels X/Y/Z/K/L
+    // hanging just past the geometry) sit at maxDim≈41 and were oversized ~7% by the
+    // geometry-only fit until the threshold was lowered from 50 to 40; all three
+    // converge to the TeXeR size with no canary/family regression.
+    // Thin/1D figures (number lines like
     // 05976, minDim=2), tiny figures (04219, maxDim=1), and text-dominated figures
     // (03928, maxDim~6 with long "Situation 1…" labels) are excluded: for those
     // TeXeR keeps geometry at defaultSize and lets labels hang outside, and the
@@ -24496,7 +24501,7 @@ function renderSVG(result, opts) {
     // and when the estimated overshoot is large (> 1.25) — a large overshoot means
     // labels dominate the bbox, the TeXeR-bounds-everything assumption breaks, and
     // the fixed-bp estimate is least reliable.
-    if (!_autoFloorApplied && !_isLargeSquareRadial && labelInfoBp.length > 0 && maxDim > 50 && minDim >= 5) {
+    if (!_autoFloorApplied && !_isLargeSquareRadial && labelInfoBp.length > 0 && maxDim > 40 && minDim >= 5) {
       const estOvershoot = () => {
         let bpMinX = geoMinX * pxPerUnit, bpMaxX = geoMaxX * pxPerUnit;
         let bpMinY = geoMinY * pxPerUnit, bpMaxY = geoMaxY * pxPerUnit;
