@@ -16732,7 +16732,9 @@ function createInterpreter() {
             faces.push(face);
             faceVertexIdx.push([0, i, i+1]);
           }
-          return {_tag:'surface', mesh: makeMesh(faces),
+          const _m = makeMesh(faces);
+          _m._flatPlanar = true;
+          return {_tag:'surface', mesh: _m,
                   _vertices: dedup.slice(), _faceVertexIdx: faceVertexIdx};
         }
         return {_tag:'surface', boundary: firstPath};
@@ -21726,6 +21728,22 @@ function createInterpreter() {
   // ============================================================
   function renderMeshToPicture(mesh, basePen, target, line, nolight) {
     if (!mesh || !mesh.faces || mesh.faces.length === 0) return;
+    // TeXeR's PRC raster fallback does not render a flat *planar* surface that
+    // is filled with an opaque *achromatic* (gray) pen under `nolight`. The
+    // c134_L109 tetrahedron family (00501, 00516, 00517, 00518, …) and
+    // 09540/09542 all draw auxiliary gray faces this way, yet every reference
+    // image is a pure white wireframe with no gray fill (verified: 0 of 14
+    // such corpus diagrams show >3% gray in their texer PNG). Colored pale
+    // planar fills (08431 paleyellow, 03105 palegreen) are chromatic and still
+    // render; gray surfaces that are sphere/closed meshes or material()-shaded
+    // are not `nolight` flat-planar, so neither is affected. Skip the fill so
+    // only the separately-drawn 2D wireframe edges remain, matching TeXeR.
+    if (nolight && mesh._flatPlanar && basePen) {
+      const op = (typeof basePen.opacity === 'number') ? basePen.opacity : 1;
+      const r = basePen.r || 0, g = basePen.g || 0, b = basePen.b || 0;
+      const achromatic = Math.abs(r - g) < 0.04 && Math.abs(g - b) < 0.04 && Math.abs(r - b) < 0.04;
+      if (op >= 0.99 && achromatic) return;
+    }
     const proj = projection;
     // View axis (camera - target), normalized — used both for depth and light
     let vx, vy, vz, camPos;
