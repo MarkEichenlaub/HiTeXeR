@@ -17809,6 +17809,33 @@ function createInterpreter() {
       if (hasBounds && pairCount >= 2) {
         return _paletteLegend(args);
       }
+      // 2D form: palette(real[][] data, pen[] range) -> pen[][]. Each value is
+      // mapped through the range using the GLOBAL min/max across the whole grid
+      // (Asymptote normalizes the entire matrix together). Used by latticeshade
+      // pseudocolor fills, e.g. `latticeshade(unitsquare, palette(g, Rainbow()))`.
+      {
+        let data2d = null, range2d = null;
+        for (const a of pos) {
+          if (Array.isArray(a) && a.length > 0 && Array.isArray(a[0]) &&
+              a[0].length > 0 && typeof a[0][0] === 'number' && !data2d) { data2d = a; continue; }
+          if (Array.isArray(a) && a.length > 0 && isPen(a[0]) && !range2d) { range2d = a; continue; }
+        }
+        if (data2d && range2d && range2d.length > 0) {
+          let g2min = Infinity, g2max = -Infinity;
+          for (const row of data2d) {
+            if (!Array.isArray(row)) continue;
+            for (const v of row) { const n = toNumber(v); if (n < g2min) g2min = n; if (n > g2max) g2max = n; }
+          }
+          const g2span = g2max - g2min;
+          const out2d = data2d.map(row => Array.isArray(row)
+            ? row.map(v => (g2span > 0 && isFinite(g2span))
+                ? _interpolatePens(range2d, (toNumber(v) - g2min) / g2span)
+                : clonePen(range2d[0]))
+            : []);
+          try { out2d._isPaletteResult = true; } catch (e) {}
+          return out2d;
+        }
+      }
       let vals = null, range = null;
       for (const a of pos) {
         if (Array.isArray(a) && a.length > 0) {
@@ -18225,6 +18252,64 @@ function createInterpreter() {
       // Return the computed bounds so the caller (e.g. `bounds range = image(...)`)
       // can pass them to contour() / palette() for matching colormap windows.
       return {_tag:'bounds', min:vmin, max:vmax};
+    });
+    // latticeshade(picture pic=currentpicture, path[] g, pen[][] p, ...):
+    // Fill the bounding box of g with a lattice of pens. p[i][j] colors the
+    // cell at column i (x, left→right) and row j (y, bottom→top), matching the
+    // layout image() uses. Emits one filled rect per cell. Typical usage:
+    //   pen[][] p = palette(g, Rainbow()); latticeshade(unitsquare, p);
+    env.set('latticeshade', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      let target = currentPic;
+      let pathArg = null;
+      let pens = null; // pen[][]
+      for (const a of pos) {
+        if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
+        if (isPath(a) && !pathArg) { pathArg = a; continue; }
+        if (Array.isArray(a) && a.length > 0 && isPath(a[0]) && !pathArg) { pathArg = a[0]; continue; }
+        if (Array.isArray(a) && a.length > 0 && Array.isArray(a[0]) &&
+            a[0].length > 0 && isPen(a[0][0]) && !pens) { pens = a; continue; }
+      }
+      for (const a of args) {
+        if (a && a._named) {
+          if ('p' in a && Array.isArray(a.p)) pens = a.p;
+          if ('pic' in a && a.pic && a.pic._tag === 'picture') target = a.pic;
+          if ('g' in a && isPath(a.g)) pathArg = a.g;
+        }
+      }
+      if (!pathArg || !pens || pens.length === 0) return;
+      // Bounding box of the path from its segment endpoints/control points.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      const acc = (pt) => {
+        if (!pt || typeof pt.x !== 'number') return;
+        if (pt.x < minX) minX = pt.x; if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y; if (pt.y > maxY) maxY = pt.y;
+      };
+      for (const seg of (pathArg.segs || [])) { acc(seg.p0); acc(seg.cp1); acc(seg.cp2); acc(seg.p3); }
+      if (!isFinite(minX) || !isFinite(minY) || maxX <= minX || maxY <= minY) return;
+      const nx = pens.length;
+      const ny = (pens[0] && pens[0].length) || 0;
+      if (nx === 0 || ny === 0) return;
+      const dx = (maxX - minX) / nx;
+      const dy = (maxY - minY) / ny;
+      const line = args._line || 0;
+      for (let i = 0; i < nx; i++) {
+        const col = pens[i];
+        if (!Array.isArray(col)) continue;
+        const cx0 = minX + i * dx, cx1 = minX + (i + 1) * dx;
+        for (let j = 0; j < ny; j++) {
+          const pen = col[j];
+          if (!isPen(pen)) continue;
+          const cy0 = minY + j * dy, cy1 = minY + (j + 1) * dy;
+          const rect = makePath([
+            lineSegment(makePair(cx0, cy0), makePair(cx1, cy0)),
+            lineSegment(makePair(cx1, cy0), makePair(cx1, cy1)),
+            lineSegment(makePair(cx1, cy1), makePair(cx0, cy1)),
+            lineSegment(makePair(cx0, cy1), makePair(cx0, cy0)),
+          ], true);
+          target.commands.push({cmd: 'fill', path: rect, pen: clonePen(pen), line, _imageCell: true});
+        }
+      }
     });
     // Wheel(): Asymptote's color wheel palette. Maps degrees (0-360) through a
     // specific color ordering: Red→Magenta→Blue→Cyan→Green→Yellow→Red.
