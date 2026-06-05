@@ -14996,7 +14996,7 @@ function createInterpreter() {
     env.set('bisector', (...args) => {
       const pts = [];
       const lines = [];
-      let internal = true;
+      let sharp = true;
       for (const a of args) {
         if (isPoint(a)) pts.push(a);
         else if (isPair(a)) {
@@ -15004,7 +15004,7 @@ function createInterpreter() {
           pts.push(makePoint(cs, a, 1));
         }
         else if (isGeoLine(a)) lines.push(a);
-        else if (typeof a === 'boolean') internal = a;
+        else if (typeof a === 'boolean') sharp = a;
       }
       // Angle bisector of two lines: bisector(line l1, line l2, bool internal)
       if (lines.length >= 2) {
@@ -15027,18 +15027,23 @@ function createInterpreter() {
         const len1 = Math.sqrt(d1x * d1x + d1y * d1y) || 1;
         const len2 = Math.sqrt(d2x * d2x + d2y * d2y) || 1;
         const u1 = makePair(d1x / len1, d1y / len1);
-        const u2 = makePair(d2x / len2, d2y / len2);
-        // Internal bisector: sum of unit directions; external: difference
-        let bisDir;
-        if (internal) {
-          bisDir = makePair(u1.x + u2.x, u1.y + u2.y);
-        } else {
-          bisDir = makePair(u1.x - u2.x, u1.y - u2.y);
+        let u2 = makePair(d2x / len2, d2y / len2);
+        // A line's stored direction is arbitrary up to sign, so the raw sum/diff
+        // of u1,u2 doesn't reliably pick the acute vs. obtuse bisector. Align u2
+        // so the pair spans the acute angle (dot >= 0); their sum then bisects
+        // that acute angle — geometry.asy's default ("sharp") bisector. When
+        // sharp is false, return the perpendicular (obtuse-angle) bisector.
+        if (u1.x * u2.x + u1.y * u2.y < 0) {
+          u2 = makePair(-u2.x, -u2.y);
         }
+        let bisDir = makePair(u1.x + u2.x, u1.y + u2.y);
         // If bisector direction is degenerate (parallel lines with same dir), use perpendicular
         const bisLen = Math.sqrt(bisDir.x * bisDir.x + bisDir.y * bisDir.y);
         if (bisLen < 1e-12) {
           bisDir = makePair(-u1.y, u1.x);
+        }
+        if (!sharp) {
+          bisDir = makePair(-bisDir.y, bisDir.x);
         }
         const P2 = makePair(O.x + bisDir.x, O.y + bisDir.y);
         const cs = l1.A.coordsys;
