@@ -451,7 +451,10 @@
     const list = document.getElementById('coll-list');
     for (const c of manifest.collections) {
       const name = (manifest.courseNames && manifest.courseNames[c]) || c;
-      const count = manifest.diagrams.filter(d => d.collection === c).length;
+      // "eps" is a virtual cross-cutting collection keyed off the hasEps flag.
+      const count = c === 'eps'
+        ? manifest.diagrams.filter(d => d.hasEps).length
+        : manifest.diagrams.filter(d => d.collection === c).length;
       const label = document.createElement('label');
       label.className = 'coll-item';
       const cb = document.createElement('input');
@@ -504,7 +507,8 @@
 
     if (!allChecked) {
       const collSet = new Set(checkedColls);
-      list = list.filter(d => collSet.has(d.collection));
+      const epsWanted = collSet.has('eps');  // virtual collection — match hasEps
+      list = list.filter(d => collSet.has(d.collection) || (epsWanted && d.hasEps));
     }
     if (bothOnly) list = list.filter(d => d.hasTexer && d.hasHtx);
     if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasTexer);

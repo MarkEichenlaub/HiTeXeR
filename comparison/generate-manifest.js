@@ -105,6 +105,7 @@ function getCollection(filename) {
 const collectionsSet = new Set();
 const diagrams = [];
 
+let epsCount = 0;
 for (let i = 0; i < allFiles.length; i++) {
   const source = allFiles[i];
   const id = numId(i);
@@ -112,10 +113,19 @@ for (let i = 0; i < allFiles.length; i++) {
   const collection = getCollection(source);
   collectionsSet.add(collection);
 
+  // Flag diagrams that embed an external EPS image via graphic("….eps").
+  // This drives the virtual "eps" collection in the comparator. Computed here
+  // (not in blink.html) so it is regenerated on every manifest rebuild and can
+  // never silently disappear after a full-pipeline run or git reset.
+  let hasEps = false;
+  try { hasEps = /\.eps\b/i.test(fs.readFileSync(path.join(CORPUS_DIR, source), 'utf-8')); } catch {}
+  if (hasEps) epsCount++;
+
   diagrams.push({
     id,
     source,
     collection,
+    hasEps,
     hasAsy:  asySet.has(id),
     hasHtx:  htxSet.has(id),
     hasSvg:  svgSet.has(id),
@@ -134,11 +144,18 @@ const collections = [...collectionsSet].sort((a, b) => {
   return a.localeCompare(b);
 });
 
+// Virtual "eps" collection: a cross-cutting group of every diagram that embeds
+// an EPS image, regardless of its course. Appended last so it sorts after the
+// real cN/gallery collections. blink.html filters it via the per-diagram
+// `hasEps` flag rather than `collection === 'eps'`.
+if (epsCount > 0) collections.push('eps');
+
 // Build courseNames for collections that have names
 const courseNames = {};
 for (const c of collections) {
   if (COURSE_NAMES[c]) courseNames[c] = COURSE_NAMES[c];
 }
+if (epsCount > 0) courseNames['eps'] = 'EPS images';
 
 const manifest = { diagrams, collections, courseNames, droppedIds: [...droppedSet] };
 fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2));
