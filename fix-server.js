@@ -13,6 +13,7 @@
 const http = require('http');
 const { spawn, spawnSync, execSync } = require('child_process');
 const { generate: generateFixHistory } = require('./auto-fix/generate-fix-history.js');
+const epsCache = require('./eps-cache');
 const fs   = require('fs');
 const path = require('path');
 
@@ -269,6 +270,28 @@ const server = http.createServer((req, res) => {
     launchRunLoop();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/convert-eps') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { paths } = JSON.parse(body);
+        if (!Array.isArray(paths) || paths.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing or empty paths array' }));
+          return;
+        }
+        const images = epsCache.getImageCache(paths);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ images }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(err && err.message || err) }));
+      }
+    });
     return;
   }
 

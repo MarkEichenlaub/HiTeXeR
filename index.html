@@ -577,7 +577,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.18</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.21</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2680,20 +2680,32 @@ async function prefetchGraphicImages(code) {
   // Find uncached paths
   const uncached = matches.filter(p => !window._graphicCache[p]);
   if (uncached.length > 0) {
-    try {
-      const resp = await fetch(`${SERVER_URL}/convert-eps`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({paths: uncached}),
-      });
-      const data = await resp.json();
-      if (data.images) {
-        for (const [path, info] of Object.entries(data.images)) {
-          window._graphicCache[path] = info;
+    // Try same-origin /convert-eps first (works whether the page is served
+    // from the comparator's fix-server on 7842 or server.py on 8080), then
+    // fall back to the absolute SERVER_URL (covers a file:// open).
+    const endpoints = [];
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      endpoints.push('/convert-eps');
+    }
+    endpoints.push(`${SERVER_URL}/convert-eps`);
+    for (const url of endpoints) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({paths: uncached}),
+        });
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        if (data.images) {
+          for (const [path, info] of Object.entries(data.images)) {
+            window._graphicCache[path] = info;
+          }
+          break;
         }
+      } catch (e) {
+        console.warn(`graphic() image pre-fetch failed (${url}):`, e.message);
       }
-    } catch (e) {
-      console.warn('graphic() image pre-fetch failed:', e.message);
     }
   }
   return window._graphicCache;
