@@ -9407,6 +9407,49 @@ function createInterpreter() {
     env.set('unfill', (...args) => evalDraw('unfill', args));
     env.set('label', (...args) => evalLabel(args));
 
+    // labelpath(string s, path g[, pen p, ...]) — from labelpath.asy. Lay text
+    // out along a path. We flatten the path to a polyline (user coords) here and
+    // emit a {cmd:'labelpath'} command; the render pass (which knows the user→bp
+    // scale and font metrics) walks the polyline and emits one rotated
+    // single-char label per glyph so the text curves along the path (e.g. 05458
+    // Venn captions "multiples of 6"/"multiples of 8" along the circle arcs).
+    env.set('labelpath', (...args) => {
+      let target = currentPic;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') { target = args[0]; args = args.slice(1); }
+      let text = null, pth = null, pen = null;
+      for (const a of args) {
+        if (isString(a) && text === null) text = a;
+        else if (a && a._tag === 'label' && text === null) text = a.text || '';
+        else if (isPath(a) && !pth) pth = a;
+        else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+      }
+      if (text === null || !pth || !pth.segs || pth.segs.length === 0) return null;
+      const segs = pth.segs;
+      const SUB = 24;
+      const pts = [];
+      const addPt = (x, y) => {
+        if (pts.length === 0) { pts.push({x, y, s: 0}); return; }
+        const prev = pts[pts.length - 1];
+        const ds = Math.hypot(x - prev.x, y - prev.y);
+        if (ds < 1e-9) return;
+        pts.push({x, y, s: prev.s + ds});
+      };
+      addPt(segs[0].p0.x, segs[0].p0.y);
+      for (const sg of segs) {
+        const p0 = sg.p0, c1 = sg.cp1, c2 = sg.cp2, p3 = sg.p3;
+        for (let k = 1; k <= SUB; k++) {
+          const t = k / SUB, b = 1 - t;
+          const x = b*b*b*p0.x + 3*b*b*t*c1.x + 3*b*t*t*c2.x + t*t*t*p3.x;
+          const y = b*b*b*p0.y + 3*b*b*t*c1.y + 3*b*t*t*c2.y + t*t*t*p3.y;
+          addPt(x, y);
+        }
+      }
+      if (pts.length < 2) return null;
+      const labelPen = pen ? mergePens(clonePen(defaultPen), pen) : clonePen(defaultPen);
+      target.commands.push({cmd: 'labelpath', text: String(text), pts, pen: labelPen, line: 0});
+      return null;
+    });
+
     // arrow(picture pic=currentpicture, Label L="", pair b, pair dir,
     //       real length=arrowlength, align align=NoAlign, pen p=currentpen,
     //       arrowbar arrow=Arrow, ...)
@@ -17231,8 +17274,6 @@ function createInterpreter() {
     // obj(filename[, pen]) — load Wavefront .obj mesh; browser can't read files
     // so return an empty surface. Callers like draw(obj(...)) will produce empty.
     env.set('obj', (...args) => ({_tag:'surface', mesh: makeMesh([])}));
-    // labelpath(string, path[, ...]) — draw text along a path. Stub: ignore.
-    env.set('labelpath', (...args) => null);
     // contour3 / smoothcontour3 / implicitsurface — isosurface extraction via
     // marching tetrahedra. Each grid cell is split into 6 tetrahedra; for each
     // tet we emit 0–2 triangles on the iso=0 surface with linear edge
@@ -26675,6 +26716,54 @@ function renderSVG(result, opts) {
     const elsBefore = elements.length;
     if (dc.cmd === 'label') {
       deferredLabels.push({ci, dc, css: {...css}});
+    } else if (dc.cmd === 'labelpath') {
+      // Lay the string out along the precomputed polyline: place each glyph
+      // centered on the path at its cumulative advance, rotated to the local
+      // tangent. Per-glyph advance uses the same 0.52·fontSize heuristic the
+      // label-width estimator uses, converted from viewBox units to user units.
+      const pts = dc.pts;
+      if (pts && pts.length >= 2) {
+        const totalLen = pts[pts.length - 1].s;
+        const fontSize = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
+        const fontSizeSVG = fontSize * bpCSSPixel;
+        const pxPerU = ((pxPerUnitX + pxPerUnitY) / 2) || pxPerUnitX || 1;
+        const uPerVB = 1 / pxPerU;
+        const widthFactor = (ch) => {
+          if (ch === ' ') return 0.3;
+          if ('iljtfrI.,\'!|;:'.includes(ch)) return 0.32;
+          if ('mwMW'.includes(ch)) return 0.85;
+          return 0.52;
+        };
+        const locate = (s) => {
+          if (s < 0) s = 0; else if (s > totalLen) s = totalLen;
+          let i = 1;
+          while (i < pts.length && pts[i].s < s) i++;
+          if (i >= pts.length) i = pts.length - 1;
+          const a = pts[i - 1], b = pts[i];
+          const seg = (b.s - a.s) || 1e-9;
+          const t = (s - a.s) / seg;
+          return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t,
+                   ang: Math.atan2(b.y - a.y, b.x - a.x) };
+        };
+        const chars = Array.from(dc.text);
+        // Asymptote's labelpath centers the string along the path: compute the
+        // total advance first, then start at (pathLen - textLen)/2.
+        let textLen = 0;
+        for (const ch of chars) textLen += widthFactor(ch) * fontSizeSVG * uPerVB;
+        let cum = Math.max(0, (totalLen - textLen) / 2);
+        for (const ch of chars) {
+          const w = widthFactor(ch) * fontSizeSVG * uPerVB;
+          const sCenter = cum + w / 2;
+          cum += w;
+          if (ch === ' ') continue;
+          const loc = locate(sCenter);
+          const cosA = Math.cos(loc.ang), sinA = Math.sin(loc.ang);
+          const lt = makeTransform(0, cosA, -sinA, 0, sinA, cosA);
+          const charDc = { cmd: 'label', text: ch, pos: { x: loc.x, y: loc.y },
+                           align: null, pen: dc.pen, labelTransform: lt, line: dc.line };
+          deferredLabels.push({ci, dc: charDc, css: {...css}});
+        }
+      }
     } else if (dc.cmd === 'image') {
       // Render images in program order during Pass 1 so that geometry drawn
       // after the image (rays, paths, etc.) appears on top of it — matching
