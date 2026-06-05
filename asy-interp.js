@@ -21962,7 +21962,13 @@ function createInterpreter() {
       // surface(path, planar=true)) read close to emissive+diffuse — the
       // tabletop renders as light grey ~0.8, not 0.5. Honor emissive at near
       // full strength for flat planar meshes only.
-      const emScale = (mesh && mesh._flatPlanar) ? 0.70 : 0.1;
+      // Curved parametric sheets that are NOT revolution surfaces (e.g. 03281's
+      // swept parabolic wall, surface(f,lo,hi)) also read near their emissive+
+      // diffuse in TeXeR — near white with a faint mesh, not the dark-to-light
+      // gradient of a revolution bowl. Honor emissive at near full strength for
+      // those too, but keep revolution bowls (03592) and closed meshes attenuated.
+      const emScale = (mesh && (mesh._flatPlanar ||
+                       (!mesh._closed && !mesh._revolutionSurf))) ? 0.70 : 0.1;
       const emR = em ? (em.r || 0) * emScale : 0;
       const emG = em ? (em.g || 0) * emScale : 0;
       const emB = em ? (em.b || 0) * emScale : 0;
