@@ -8679,6 +8679,25 @@ function createInterpreter() {
         return makePath(paths[0].segs.slice(), true);
       }
       if (n === 2) {
+        // Area-under-curve idiom: two OPEN paths sharing both endpoints bound
+        // a single region (path0 then reverse(path1)). _bcLens would instead
+        // pick the smallest sub-lens when the paths ALSO touch at an interior
+        // point — e.g. 00029, where the V-curve vertex (2,0) sits on the
+        // baseline, splitting the region into two triangles and making the
+        // left sliver the minimum-area lens. Trace the full boundary directly.
+        const p0 = paths[0], p1 = paths[1];
+        if (!p0.closed && !p1.closed) {
+          const s0 = p0.segs[0].p0, e0 = p0.segs[p0.segs.length - 1].p3;
+          const s1 = p1.segs[0].p0, e1 = p1.segs[p1.segs.length - 1].p3;
+          const near = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-3;
+          const revSegs = (segs) => segs.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0));
+          if (near(s0, s1) && near(e0, e1)) {
+            return makePath(_bcWeld(p0.segs.concat(revSegs(p1.segs))), true);
+          }
+          if (near(s0, e1) && near(e0, s1)) {
+            return makePath(_bcWeld(p0.segs.concat(p1.segs)), true);
+          }
+        }
         // 2-path buildcycle: lens (overlap) between two paths.
         const lens = _bcLens(paths[0], paths[1]);
         if (!lens) {
@@ -11830,6 +11849,8 @@ function createInterpreter() {
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
+      // NoTicks: draw the axis line/arrow only, no tick marks at all.
+      if (ticks.none) return;
       if (!pic) pic = currentPic;
       // Tick pen: prefer ticks.pen (e.g. pTick=gray), then fall back to the axis
       // pen. But if the axis pen is invisible (the labeled-offset-axis idiom
@@ -13570,7 +13591,7 @@ function createInterpreter() {
     env.set('Ticks', (...args) => _makeTicks(args, {}));
     env.set('LeftTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'left'; return t; });
     env.set('RightTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'right'; return t; });
-    env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null});
+    env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null, none:true});
     env.set('NoZero', {_tag:'tickmod', noZero:true});
     env.set('NoZeroFormat', {_tag:'tickmod', noZero:true});
 
