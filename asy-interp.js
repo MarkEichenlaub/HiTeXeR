@@ -9010,7 +9010,15 @@ function createInterpreter() {
       if (!wrap) {
         if (tb >= ta) return forward(p, ta, tb);
         if (p.closed) return forward(p, ta, tb); // forward handles wrap when tb<ta
-        return [];
+        // Open path, tb < ta: the direct arc from point(ta) to point(tb) runs
+        // backwards along the path. Walk forward(tb→ta) and reverse it so the
+        // result still goes ta→tb. Without this, buildcycle of two open paths
+        // that share both endpoints (the "area under a graph" idiom:
+        // buildcycle(graph(f,a,b), (a,0)--...--(b,0)) ) finds no lens candidate
+        // and falls back to naive concat, fracturing the fill into a straight-
+        // topped trapezoid instead of tracing the curve.
+        const back = forward(p, tb, ta);
+        return back.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0));
       } else {
         // "long way" = the complement arc: the path from point(ta) to point(tb)
         // that does NOT coincide with the direct forward(ta,tb) interval.
