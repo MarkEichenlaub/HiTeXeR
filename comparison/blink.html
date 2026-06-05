@@ -172,7 +172,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v12</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v13</span></h1>
 
   <div class="filter-group">
     <label>Collections:</label>
@@ -324,6 +324,14 @@
 (function() {
   'use strict';
 
+  // ── URL persistence (replaceState — no new history entries) ─────────────
+  function pushUrl(params) {
+    const url = new URL(location.href);
+    url.search = '';
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+    history.replaceState(null, '', url);
+  }
+
   // ── State ────────────────────────────────────────────
   let manifest = null;
   let filtered = [];
@@ -441,6 +449,7 @@
       droppedSet = new Set(manifest.droppedIds || []);
       initCollections();
       applyFilters();
+      restoreUrlState();
     })
     .catch(err => {
       document.getElementById('grid').innerHTML = `<p style="color:#f87171;padding:20px">Failed to load blink-manifest.json: ${err.message}</p>`;
@@ -466,6 +475,26 @@
       label.appendChild(cb);
       label.appendChild(document.createTextNode(` ${name} (${count})`));
       list.appendChild(label);
+    }
+  }
+
+  function restoreUrlState() {
+    const qp = new URLSearchParams(location.search);
+    const initId   = qp.get('id');
+    const initPage = parseInt(qp.get('p') || '1', 10);
+    if (initId) {
+      const idx = filtered.findIndex(d => d.id === initId);
+      if (idx >= 0) {
+        page = Math.floor(idx / PER_PAGE);
+        renderGrid();
+        enterBlink(idx);
+        return;
+      }
+    }
+    if (initPage > 1) {
+      const maxPage = Math.max(0, Math.ceil(filtered.length / PER_PAGE) - 1);
+      page = Math.min(initPage - 1, maxPage);
+      renderGrid();
     }
   }
 
@@ -787,7 +816,11 @@
     pag.querySelectorAll('button[data-page]').forEach(btn => {
       btn.addEventListener('click', () => {
         const p = parseInt(btn.dataset.page, 10);
-        if (p >= 0 && p < total) { page = p; renderGrid(); window.scrollTo(0, 0); }
+        if (p >= 0 && p < total) {
+          page = p;
+          pushUrl(page > 0 ? { p: page + 1 } : {});
+          renderGrid(); window.scrollTo(0, 0);
+        }
       });
     });
 
@@ -795,7 +828,11 @@
     if (jumpInput) {
       jumpInput.addEventListener('change', () => {
         const p = parseInt(jumpInput.value, 10) - 1;
-        if (p >= 0 && p < total) { page = p; renderGrid(); window.scrollTo(0, 0); }
+        if (p >= 0 && p < total) {
+          page = p;
+          pushUrl(page > 0 ? { p: page + 1 } : {});
+          renderGrid(); window.scrollTo(0, 0);
+        }
       });
       jumpInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') jumpInput.dispatchEvent(new Event('change'));
@@ -809,6 +846,8 @@
     blinkSource = 'htx';
     sideSwapped = false;
     blinkActive = true;
+    const d = filtered[idx];
+    if (d) pushUrl({ id: d.id });
     codePanelOpen = true;
     document.getElementById('code-panel').classList.remove('collapsed');
     document.getElementById('blink-code-toggle').textContent = 'Hide Code';
@@ -827,6 +866,7 @@
     stopAutoBlink();
     document.getElementById('blink-view').classList.remove('active');
     document.body.style.overflow = '';
+    pushUrl(page > 0 ? { p: page + 1 } : {});
   }
 
   // Asymptote PNGs are rasterized at 240 DPI from EPS.  HiTeXeR internally uses
@@ -1110,6 +1150,8 @@
       blinkIdx = newIdx;
       blinkSource = 'htx';
       sideSwapped = false;
+      const d = filtered[blinkIdx];
+      if (d) pushUrl({ id: d.id });
       updateBlinkImage();
       loadCode(); // always populate cache so "Open in HiTeXeR" works regardless of panel state
     }
