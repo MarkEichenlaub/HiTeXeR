@@ -8631,6 +8631,45 @@ function createInterpreter() {
     // buildcycle: construct the innermost cyclic path bounded by the given
     // input paths. Walks each path between its intersections with its
     // neighbors, choosing arcs/intersections that minimize the enclosed area.
+    // Snap each sub-arc's start point onto the previous sub-arc's end so the
+    // returned cycle is one contiguous subpath. buildcycle stitches arcs taken
+    // from different parent paths; the shared intersection point is evaluated
+    // via slightly different parameterizations on each parent, leaving ~1e-4
+    // gaps. pathToD (and the planar-fill subpath splitter) treat any gap >1e-6
+    // / >1e-9 as a moveto, which fractures the fill into open arc-lunes — the
+    // recurring "buildcycle renders as slivers" bug. Welding to exact equality
+    // keeps it a single closed region.
+    function _bcWeld(segs) {
+      for (let i = 1; i < segs.length; i++) {
+        segs[i] = makeSeg(segs[i-1].p3, segs[i].cp1, segs[i].cp2, segs[i].p3);
+      }
+      return segs;
+    }
+    // 2-path lens: the smallest-area cycle bounded by one arc of each path
+    // (the overlap region of two closed curves). Returns welded segs or null.
+    function _bcLens(p0, p1) {
+      const ips = _bcIntersections(p0, p1);
+      if (ips.length < 2) return null;
+      const candidates = [];
+      for (let i = 0; i < ips.length; i++) {
+        for (let j = i+1; j < ips.length; j++) {
+          const ipA = ips[i], ipB = ips[j];
+          for (let f1 = 0; f1 < 2; f1++) {
+            for (let f2 = 0; f2 < 2; f2++) {
+              const sub1 = _bcSubarc(p0, ipA.t1, ipB.t1, f1 === 1);
+              const sub2 = _bcSubarc(p1, ipB.t2, ipA.t2, f2 === 1);
+              if (sub1.length === 0 || sub2.length === 0) continue;
+              const segs = sub1.concat(sub2);
+              const area = Math.abs(_bcSignedArea(segs));
+              if (area > 1e-9) candidates.push({ segs, area });
+            }
+          }
+        }
+      }
+      if (candidates.length === 0) return null;
+      candidates.sort((a, b) => a.area - b.area);
+      return { segs: _bcWeld(candidates[0].segs), area: candidates[0].area };
+    }
     env.set('buildcycle', (...rawPaths) => {
       const paths = rawPaths.map(geoToPath).filter(p => isPath(p) && p.segs.length > 0);
       const n = paths.length;
@@ -8640,45 +8679,43 @@ function createInterpreter() {
         return makePath(paths[0].segs.slice(), true);
       }
       if (n === 2) {
-        // 2-path buildcycle: lens between two paths.
-        // Find two intersections; build cycle as subpath(g1, t1a, t1b) ++ subpath(g2, t2b, t2a).
-        const ips = _bcIntersections(paths[0], paths[1]);
-        if (ips.length < 2) {
-          // Fallback: concatenate
+        // 2-path buildcycle: lens (overlap) between two paths.
+        const lens = _bcLens(paths[0], paths[1]);
+        if (!lens) {
           const segs = [];
           for (const p of paths) for (const s of p.segs) segs.push(s);
           return makePath(segs, true);
         }
-        // Try the first two intersections
-        const candidates = [];
-        for (let i = 0; i < ips.length; i++) {
-          for (let j = i+1; j < ips.length; j++) {
-            const ipA = ips[i], ipB = ips[j];
-            // 4 ways to pick arc directions on each path
-            for (let f1 = 0; f1 < 2; f1++) {
-              for (let f2 = 0; f2 < 2; f2++) {
-                const sub1 = _bcSubarc(paths[0], ipA.t1, ipB.t1, f1 === 1);
-                const sub2 = _bcSubarc(paths[1], ipB.t2, ipA.t2, f2 === 1);
-                // Both sub-arcs must be non-empty: a valid buildcycle is built
-                // from one arc of each path. If one is empty (e.g. wrap=true on
-                // a non-closed path returns []), concatenating with the non-empty
-                // sub-arc would yield a degenerate shape — just one path closed
-                // by a chord — which is not what buildcycle should produce.
-                if (sub1.length === 0 || sub2.length === 0) continue;
-                const segs = sub1.concat(sub2);
-                const area = Math.abs(_bcSignedArea(segs));
-                if (area > 1e-9) candidates.push({ segs, area });
-              }
-            }
+        return makePath(lens.segs, true);
+      }
+      // Flower case: n>=3 closed paths that mutually overlap pairwise (each
+      // consecutive pair forms a lens). In Asymptote, buildcycle(A,B,C) of
+      // three overlapping circles yields the UNION of the pairwise overlaps
+      // (the 3-petal "flower"), not the central triple intersection — verified
+      // against the c53_L3 Venn family references (09365/09368/09380). Build it
+      // as the concatenation of the n pairwise lenses: left as separate
+      // subpaths so the default nonzero fill rule unions them (the shared
+      // central region keeps winding >=1 and stays filled).
+      if (paths.every(p => p.closed)) {
+        const lensLoops = [];
+        let allLenses = true;
+        for (let i = 0; i < n; i++) {
+          const lens = _bcLens(paths[i], paths[(i + 1) % n]);
+          if (!lens) { allLenses = false; break; }
+          // Normalize every lens loop to the same (CCW / positive-signed-area)
+          // orientation. The nonzero fill rule unions them only when they wind
+          // consistently; mixed orientations cancel and fill the wrong regions.
+          let segs = lens.segs;
+          if (_bcSignedArea(segs) < 0) {
+            segs = _bcWeld(segs.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0)));
           }
+          lensLoops.push(segs);
         }
-        if (candidates.length === 0) {
+        if (allLenses && lensLoops.length === n) {
           const segs = [];
-          for (const p of paths) for (const s of p.segs) segs.push(s);
+          for (const loop of lensLoops) for (const s of loop) segs.push(s);
           return makePath(segs, true);
         }
-        candidates.sort((a, b) => a.area - b.area);
-        return makePath(candidates[0].segs, true);
       }
       // General n-path case (n >= 3):
       // First check: if paths form an end-to-end chain (each path's end matches
@@ -8834,7 +8871,7 @@ function createInterpreter() {
       // mutually intersect — e.g., the triple-intersection Reuleaux for 3
       // overlapping circles.
       finalPool.sort((a, b) => a.area - b.area);
-      return makePath(finalPool[0].segs, true);
+      return makePath(_bcWeld(finalPool[0].segs), true);
     });
 
     // Helpers for buildcycle.
@@ -8975,24 +9012,18 @@ function createInterpreter() {
         if (p.closed) return forward(p, ta, tb); // forward handles wrap when tb<ta
         return [];
       } else {
-        // long way: walk from ta forward past tb's complement.
+        // "long way" = the complement arc: the path from point(ta) to point(tb)
+        // that does NOT coincide with the direct forward(ta,tb) interval.
+        // For a closed loop this is always reverse(forward(tb, ta)):
+        //   - tb >= ta: forward(tb, ta) wraps tb→n→0→ta; reversed = ta→0→n→tb.
+        //   - tb <  ta: forward(tb, ta) is direct tb→ta;   reversed = ta→tb.
+        // (The previous tb>=ta branch concatenated forward(ta,n)+forward(0,tb),
+        // which self-overlaps and never yields the true complement arc — so the
+        // small lens between two circles whose overlap straddles the path seam
+        // was never generated.)
         if (!p.closed) return [];
-        if (tb >= ta) {
-          // long way = ta → 0 (reversed) ... no, simpler: ta → end → 0 → tb is forward when tb<ta.
-          // For tb>=ta, "long way" = ta backward to tb = forward from ta wrapping all the way around.
-          // i.e., forward(p, ta, tb + n) — but our forward doesn't accept that. Equivalent:
-          // forward(p, ta, n) ++ forward(p, 0, tb)
-          const a = forward(p, ta, n);
-          const b = forward(p, 0, tb);
-          return a.concat(b);
-        } else {
-          // tb < ta: forward goes wrap (ta→n→0→tb). Long way is direct ta→tb backward, which
-          // we'd need reverse for. Instead: build forward(tb→ta) and reverse it.
-          const fwd = forward(p, tb, ta);
-          // reverse and flip each segment
-          const rev = fwd.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0));
-          return rev;
-        }
+        const fwd = forward(p, tb, ta);
+        return fwd.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0));
       }
     }
     // Signed area enclosed by a closed polyline approximation of segs.
