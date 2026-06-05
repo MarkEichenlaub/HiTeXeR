@@ -45,14 +45,21 @@ function percentile(sorted, p) {
   return sorted[lo] * (1 - frac) + sorted[hi] * frac;
 }
 
-function buildHistogram(values, binSize) {
-  const nBins = Math.round(1 / binSize); // 50 bins for 0.02
+function buildHistogram(values, binSize, loBound = 0) {
+  // Bins span [loBound, 1.0]; values below loBound are skipped (the SSIM
+  // distribution is tightly packed near 1.0, so the low tail just wastes width).
+  const nBins = Math.round((1 - loBound) / binSize); // 40 bins for 0.005 over [0.8,1.0]
   const bins = [];
   for (let i = 0; i < nBins; i++) {
-    bins.push({ lo: +(i * binSize).toFixed(4), hi: +((i + 1) * binSize).toFixed(4), count: 0 });
+    bins.push({
+      lo: +(loBound + i * binSize).toFixed(4),
+      hi: +(loBound + (i + 1) * binSize).toFixed(4),
+      count: 0,
+    });
   }
   for (const v of values) {
-    let idx = Math.floor(v / binSize);
+    if (v < loBound) continue; // skip the low tail
+    let idx = Math.floor((v - loBound) / binSize);
     if (idx >= nBins) idx = nBins - 1; // include 1.0 in the last bin
     if (idx < 0) idx = 0;
     bins[idx].count++;
@@ -182,7 +189,7 @@ function main() {
       p90: +percentile(values, 90).toFixed(6),
       p99: +percentile(values, 99).toFixed(6),
     },
-    histogram: buildHistogram(values, 0.02),
+    histogram: buildHistogram(values, 0.005, 0.8),
     vsPrev,
   };
 

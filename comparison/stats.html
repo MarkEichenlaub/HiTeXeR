@@ -142,13 +142,21 @@ function render(idx) {
   // ── Histogram ──
   const hist = c.histogram || [];
   const maxCount = Math.max(1, ...hist.map(b => b.count));
-  html += '<section><h2>Histogram (0.02 bins)</h2><div class="hist">';
+  // Derive bin size, range, and axis labels from the data so the page stays
+  // correct no matter how the bins are configured in compute-ssim-stats.js.
+  const binSize = hist.length ? (hist[0].hi - hist[0].lo) : 0;
+  const histLo = hist.length ? hist[0].lo : 0;
+  const histHi = hist.length ? hist[hist.length - 1].hi : 1;
+  const binLabel = binSize ? binSize.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') : '?';
+  html += '<section><h2>Histogram (' + binLabel + ' bins, ≥ ' + histLo.toFixed(2) + ')</h2><div class="hist">';
   html += hist.map(b => {
     const h = (b.count / maxCount) * 100;
     return '<div class="bar" style="height:' + h + '%">' +
-      '<span class="tip">[' + b.lo.toFixed(2) + '–' + b.hi.toFixed(2) + '): ' + b.count + '</span></div>';
+      '<span class="tip">[' + b.lo.toFixed(3) + '–' + b.hi.toFixed(3) + '): ' + b.count + '</span></div>';
   }).join('');
-  html += '</div><div class="hist-axis"><span>0.00</span><span>0.25</span><span>0.50</span><span>0.75</span><span>1.00</span></div></section>';
+  const axis = [0, 0.25, 0.5, 0.75, 1].map(f =>
+    '<span>' + (histLo + (histHi - histLo) * f).toFixed(2) + '</span>').join('');
+  html += '</div><div class="hist-axis">' + axis + '</div></section>';
 
   // ── Changes vs previous checkpoint ──
   if (c.vsPrev) {
