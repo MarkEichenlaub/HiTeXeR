@@ -16487,6 +16487,14 @@ function createInterpreter() {
           m._sphereCenter = firstRev._center;
           m._sphereRadius = firstRev._radius;
         }
+        // Mark non-sphere revolution surfaces so the renderer can apply a
+        // deeper Lambert shadow on their side walls. TeXeR's PRC fallback
+        // renders swept (revolution) walls — e.g. the cylindrical rim of a
+        // disc (03555) or a bowl (03592) — with strong dark-to-light contrast,
+        // unlike flat extruded quad walls (03281) which read close to their
+        // diffuse colour. A flat 0.70 open-mesh floor flattens the swept walls;
+        // a lower floor here restores the contrast without darkening flat walls.
+        if (!m._closed) m._revolutionSurf = true;
         // Transfer grid data from revolution for smooth shading support.
         // Revolution stores _grid as [rotationStep][pathVertex], but smooth
         // shading expects cyclic dimension in columns. Transpose so that:
@@ -20038,7 +20046,7 @@ function createInterpreter() {
             return f;
           });
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
-                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius};
+                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius, _revolutionSurf: mesh._revolutionSurf, _flatPlanar: mesh._flatPlanar};
         }
         // If surface has per-vertex _colors from s.colors(palette(...)), annotate
         // each face with a pen averaged across its 4 grid-vertex colors.
@@ -20081,7 +20089,7 @@ function createInterpreter() {
             return f;
           });
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
-                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius};
+                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius, _revolutionSurf: mesh._revolutionSurf, _flatPlanar: mesh._flatPlanar};
         }
         // Smooth shading for parametric surfaces: compute per-grid-vertex
         // normals (average of adjacent face normals) and subdivide each grid
@@ -20333,7 +20341,7 @@ function createInterpreter() {
             }
           }
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
-                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius};
+                  _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius, _revolutionSurf: mesh._revolutionSurf, _flatPlanar: mesh._flatPlanar};
         }
         // Render mesh faces. material() calls attach _emissivePen but we still
         // render using the diffuse color — TeXeR's 2D fallback mode does render
@@ -21829,7 +21837,13 @@ function createInterpreter() {
       // camera-facing faces to near-black. TeXeR instead renders these surfaces
       // close to their diffuse color with gentle shading, so enforce a minimum
       // ambient floor for OPEN meshes regardless of the (black) ambient pen.
-      const _openMeshMinFloor = (typeof process !== 'undefined' && process.env && process.env.HTX_OPENFLOOR) ? +process.env.HTX_OPENFLOOR : 0.70;
+      let _openMeshMinFloor = (typeof process !== 'undefined' && process.env && process.env.HTX_OPENFLOOR) ? +process.env.HTX_OPENFLOOR : 0.70;
+      // Swept (revolution) surfaces — disc rims (03555), bowls (03592) — read in
+      // TeXeR with a deep Lambert shadow on their side walls, so use a much
+      // lower floor than flat extruded quad walls (which keep the 0.70 floor).
+      if (mesh && mesh._revolutionSurf) {
+        _openMeshMinFloor = (typeof process !== 'undefined' && process.env && process.env.HTX_REVFLOOR) ? +process.env.HTX_REVFLOOR : 0.20;
+      }
       if (!(mesh && mesh._closed)) ambientFloor = Math.max(ambientFloor, _openMeshMinFloor);
       let intensity = nolight ? 1.0 : (ambientFloor + (1 - ambientFloor) * dot);
       let specular = 0;
