@@ -3988,7 +3988,26 @@ function createInterpreter() {
           (!!projection && _fit3Proj.type === projection.type &&
            _fit3Proj.cx === projection.cx && _fit3Proj.cy === projection.cy && _fit3Proj.cz === projection.cz &&
            _fit3Proj.tx === projection.tx && _fit3Proj.ty === projection.ty && _fit3Proj.tz === projection.tz);
-        const keepProjected = _projMatchesCurrent;
+        // Re-project the picture's 3D geometry under fit3's OWN projection when it
+        // differs from currentprojection (e.g. 01966's two panels, each fit3'd with
+        // a distinct orthographic camera). Re-projection uses the original triples
+        // stashed on each command (_origTripleSegs / _pos3D) by projectPathTriples.
+        const reproject = !!(_fit3Proj && _fit3Proj._tag === 'projection') && !_projMatchesCurrent;
+        const useProj = reproject ? _fit3Proj : projection;
+        const keepProjected = true;
+        // A colored (chromatic, opaque) flat surface fill is a real plane in the
+        // figure (e.g. 01966's paleyellow plane P, the pale-cyan xy-plane) and must
+        // survive fit3 even though it is tagged _from3d — only the gray Lambert
+        // mesh-shading layer of curved surfaces is dropped. Detect chromatic pens.
+        const _isColoredFill = (c) => {
+          if (!c || c.cmd !== 'fill' || !c.pen) return false;
+          const p = c.pen;
+          const op = (typeof p.opacity === 'number') ? p.opacity : 1;
+          if (op < 0.2) return false;
+          const r = p.r || 0, g = p.g || 0, b = p.b || 0;
+          const chro = Math.max(Math.abs(r-g), Math.abs(g-b), Math.abs(r-b));
+          return chro > 0.03;
+        };
         // The triple geometry in obj.commands was projected by _projectTripleRaw,
         // which for "mixed 2D/3D" orthographic setups (dist<10, default up) inflates
         // every coord by orthoScale = zoom/|rx| to make 3D align with 2D overlays.
@@ -3997,15 +4016,15 @@ function createInterpreter() {
         // orthoScale-times too large. Divide that factor back out here so the
         // truesize frame matches the reference scale.
         let orthoScale = 1;
-        if (projection && projection.type === 'orthographic') {
-          const dxp = (projection.cx||0)-(projection.tx||0);
-          const dyp = (projection.cy||0)-(projection.ty||0);
-          const dzp = (projection.cz||0)-(projection.tz||0);
+        if (useProj && useProj.type === 'orthographic') {
+          const dxp = (useProj.cx||0)-(useProj.tx||0);
+          const dyp = (useProj.cy||0)-(useProj.ty||0);
+          const dzp = (useProj.cz||0)-(useProj.tz||0);
           const distp = Math.sqrt(dxp*dxp+dyp*dyp+dzp*dzp) || 1;
-          const zoom = (typeof projection.zoom === 'number') ? projection.zoom : 1;
+          const zoom = (typeof useProj.zoom === 'number') ? useProj.zoom : 1;
           orthoScale = zoom;
           if (distp < 10) {
-            const upx = projection.ux||0, upy = projection.uy||0, upz = (projection.uz===undefined?1:projection.uz);
+            const upx = useProj.ux||0, upy = useProj.uy||0, upz = (useProj.uz===undefined?1:useProj.uz);
             const isDefaultUp = (Math.abs(upx) < 0.01 && Math.abs(upy) < 0.01 && Math.abs(upz - 1) < 0.01);
             if (isDefaultUp) {
               const fwx = dxp/distp, fwy = dyp/distp, fwz = dzp/distp;
@@ -4036,86 +4055,141 @@ function createInterpreter() {
         // ORIGIN at pos, so in multi-frame composites (e.g. 02088's cube + lattice
         // added at O and 125E) the inter-frame gap must be measured origin-to-
         // origin. Anchoring at content-min instead inflates the gap by each
-        // frame's (different) min offset, widening the composite. So map px->px*sx
+        // frame's (different) min offset, widening the composite. So map px->px*scale
         // here and set _fitMin* = 0 below.
-        const sampleBez3 = (seg, n) => {
+        const reProjTriple = (t) => {
+          const p = _projectTripleRaw(t, useProj);
+          return { x: p.x, y: p.y };
+        };
+        // P-space (pre-scale) seg list for a command. When re-projecting, rebuild
+        // from the stashed 3D triples (path edges via _origTripleSegs, surface
+        // quads via _faceTriples); else use the already-2D-projected segs.
+        const pspaceSegs = (dc) => {
+          if (reproject && dc.path) {
+            if (dc.path._origTripleSegs) {
+              return dc.path._origTripleSegs.map(os => ({
+                p0: isTriple(os.p0) ? reProjTriple(os.p0) : os.p0,
+                cp1: isTriple(os.cp1) ? reProjTriple(os.cp1) : os.cp1,
+                cp2: isTriple(os.cp2) ? reProjTriple(os.cp2) : os.cp2,
+                p3: isTriple(os.p3) ? reProjTriple(os.p3) : os.p3,
+              }));
+            }
+            if (dc._faceTriples && dc._faceTriples.length >= 2) {
+              const fv = dc._faceTriples.map(reProjTriple);
+              const segs = [];
+              for (let i = 0; i < fv.length; i++) segs.push({ p0: fv[i], p3: fv[(i + 1) % fv.length] });
+              return segs;
+            }
+          }
+          return dc.path.segs;
+        };
+        const pspacePos = (dc) => {
+          if (reproject && dc._pos3D) return reProjTriple(dc._pos3D);
+          return dc.pos;
+        };
+        const segsToPts = (segs) => {
           const pts = [];
-          for (let i = 0; i <= n; i++) {
-            const t = i / n, b = 1 - t;
-            const px = b*b*b*seg.p0.x + 3*b*b*t*seg.cp1.x + 3*b*t*t*seg.cp2.x + t*t*t*seg.p3.x;
-            const py = b*b*b*seg.p0.y + 3*b*b*t*seg.cp1.y + 3*b*t*t*seg.cp2.y + t*t*t*seg.p3.y;
-            pts.push({x: px * sx, y: py * sy});
+          for (const seg of segs) {
+            if (seg.cp1 && seg.cp2 && isCurved3(seg)) {
+              const sampled = [];
+              for (let i = 0; i <= 8; i++) {
+                const t = i / 8, b = 1 - t;
+                sampled.push({
+                  x: b*b*b*seg.p0.x + 3*b*b*t*seg.cp1.x + 3*b*t*t*seg.cp2.x + t*t*t*seg.p3.x,
+                  y: b*b*b*seg.p0.y + 3*b*b*t*seg.cp1.y + 3*b*t*t*seg.cp2.y + t*t*t*seg.p3.y,
+                });
+              }
+              if (pts.length === 0) pts.push(sampled[0]);
+              for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
+            } else {
+              if (pts.length === 0) pts.push({ x: seg.p0.x, y: seg.p0.y });
+              pts.push({ x: seg.p3.x, y: seg.p3.y });
+            }
           }
           return pts;
         };
+        // Keep predicate: 2D layer survives; of the 3D layer keep explicitly
+        // projected wireframe/arrow/label draws (_projectedPath) and chromatic
+        // flat surface fills (real planes). The gray Lambert mesh layer is dropped.
+        const keepCmd = (dc) => dc && (!dc._from3d || dc._projectedPath || _isColoredFill(dc));
         const frame = {_tag: 'mframe', strokes: [], fills: [], labels: [], dots: []};
+        let bbMinX = Infinity, bbMaxX = -Infinity, bbMinY = Infinity, bbMaxY = -Infinity;
+        const acc = (x, y) => {
+          if (!isFinite(x) || !isFinite(y)) return;
+          if (x < bbMinX) bbMinX = x; if (x > bbMaxX) bbMaxX = x;
+          if (y < bbMinY) bbMinY = y; if (y > bbMaxY) bbMaxY = y;
+        };
+        const pStrokes = [], pFills = [], pLabels = [], pDots = [];
         for (const dc of obj.commands) {
-          if (!dc) continue;
-          // Asymptote's fit3() projects the 3D picture into a 2D frame; the 3D
-          // surface() layer (mesh fills + their antialias strokes, tagged
-          // _from3d) does NOT survive that projection — only the path/label
-          // geometry does. TeXeR mirrors this (its inline renderer emits no gray
-          // surface fills for these add(pic.fit3()) lattice diagrams), so drop
-          // _from3d commands here. Explicit projected wireframe/arrow/label draws
-          // are ALSO _from3d (so they survive 2D picture transforms) but carry
-          // _projectedPath — keep those; only the surface mesh layer is dropped.
-          if (dc._from3d && !(dc._projectedPath && keepProjected)) continue;
+          if (!keepCmd(dc)) continue;
           if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
-            const pts = [];
-            for (const seg of dc.path.segs) {
-              if (isCurved3(seg)) {
-                const sampled = sampleBez3(seg, 8);
-                if (pts.length === 0) pts.push(sampled[0]);
-                for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
-              } else {
-                if (pts.length === 0) pts.push({x: seg.p0.x * sx, y: seg.p0.y * sy});
-                pts.push({x: seg.p3.x * sx, y: seg.p3.y * sy});
-              }
-            }
-            frame.strokes.push({pts, closed: !!dc.path.closed, pen: dc.pen || defaultPen});
+            const pts = segsToPts(pspaceSegs(dc));
+            pStrokes.push({pts, closed: !!dc.path.closed, pen: dc.pen || defaultPen});
+            for (const p of pts) acc(p.x, p.y);
           }
           if ((dc.cmd === 'fill' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
-            const pts = [];
-            for (const seg of dc.path.segs) {
-              if (isCurved3(seg)) {
-                const sampled = sampleBez3(seg, 8);
-                if (pts.length === 0) pts.push(sampled[0]);
-                for (let i = 1; i < sampled.length; i++) pts.push(sampled[i]);
-              } else {
-                if (pts.length === 0) pts.push({x: seg.p0.x * sx, y: seg.p0.y * sy});
-                pts.push({x: seg.p3.x * sx, y: seg.p3.y * sy});
-              }
-            }
-            frame.fills.push({pts, pen: dc.pen || defaultPen});
+            const pts = segsToPts(pspaceSegs(dc));
+            pFills.push({pts, pen: dc.pen || defaultPen});
+            for (const p of pts) acc(p.x, p.y);
           }
           if (dc.cmd === 'label' && dc.pos) {
-            frame.labels.push({
-              text: dc.text || '',
-              pos: makePair(dc.pos.x * sx, dc.pos.y * sy),
-              align: dc.align,
-              pen: dc.pen || defaultPen
-            });
+            const pos = pspacePos(dc);
+            pLabels.push({text: dc.text || '', pos, align: dc.align, pen: dc.pen || defaultPen});
+            acc(pos.x, pos.y);
           }
           if (dc.cmd === 'dot' && dc.pos) {
-            frame.dots.push({
-              pos: makePair(dc.pos.x * sx, dc.pos.y * sy),
-              pen: dc.pen || defaultPen,
-              filltype: dc.filltype,
-              text: dc.text
-            });
+            const pos = pspacePos(dc);
+            pDots.push({pos, pen: dc.pen || defaultPen, filltype: dc.filltype, text: dc.text});
+            acc(pos.x, pos.y);
           }
         }
-        frame._fitW = userW * sx;
-        frame._fitH = userH * sy;
-        // add(frame,pos) re-emits _srcCommands at full fidelity; drop the 3D
-        // surface mesh layer (_from3d without _projectedPath) here too so the gray
-        // surface() fills don't reappear, while keeping the explicit projected
-        // wireframe/arrow/label draws (_projectedPath) that ARE the diagram.
-        frame._srcCommands = obj.commands.filter(c => c && (!c._from3d || (c._projectedPath && keepProjected)));
-        frame._fitSx = sx;
-        frame._fitSy = sy;
-        // Origin-anchored (see sampleBez3 comment): _fitMin* are 0 so the add
-        // re-emit transform places user-coord (0,0) at the frame position.
+        // size(pic, W) fit: a pure-3D picture carries no unitsize, so fit3 would
+        // otherwise render at raw-projection scale (~16 bp, tiny). When the author
+        // called size(pic, W), scale the content so its larger bp dimension equals
+        // W — mirroring what size(pic, W) does for 2D pictures (01966's two panels
+        // are each size(pic, 220)).
+        let extra = 1;
+        if (obj._sizeW && isFinite(bbMaxX - bbMinX)) {
+          const fw = (bbMaxX - bbMinX) * sx;
+          const fh = (bbMaxY - bbMinY) * sy;
+          const big = Math.max(Math.abs(fw), Math.abs(fh)) || 1;
+          const targetSize = Math.max(obj._sizeW, obj._sizeH || obj._sizeW) || obj._sizeW;
+          extra = targetSize / big;
+        }
+        const fsx = sx * extra, fsy = sy * extra;
+        for (const s of pStrokes) frame.strokes.push({pts: s.pts.map(p => ({x: p.x*fsx, y: p.y*fsy})), closed: s.closed, pen: s.pen});
+        for (const f of pFills) frame.fills.push({pts: f.pts.map(p => ({x: p.x*fsx, y: p.y*fsy})), pen: f.pen});
+        for (const L of pLabels) frame.labels.push({text: L.text, pos: makePair(L.pos.x*fsx, L.pos.y*fsy), align: L.align, pen: L.pen});
+        for (const D of pDots) frame.dots.push({pos: makePair(D.pos.x*fsx, D.pos.y*fsy), pen: D.pen, filltype: D.filltype, text: D.text});
+        frame._fitW = (bbMaxX - bbMinX) * fsx;
+        frame._fitH = (bbMaxY - bbMinY) * fsy;
+        // _srcCommands feed the high-fidelity add(frame,pos) re-emit. Keep the same
+        // command set; when re-projecting, swap each command's 2D geometry for its
+        // re-projected P-space coords (scaled by _fitSx at re-emit) so the replayed
+        // arrowheads/dots/fills line up with the frame.
+        frame._srcCommands = obj.commands.filter(keepCmd).map((c) => {
+          if (!reproject) return c;
+          if (c.path && (c.path._origTripleSegs || (c._faceTriples && c._faceTriples.length >= 2))) {
+            const nsegs = pspaceSegs(c).map(s => makeSeg(
+              makePair(s.p0.x, s.p0.y),
+              makePair(s.cp1 ? s.cp1.x : s.p0.x, s.cp1 ? s.cp1.y : s.p0.y),
+              makePair(s.cp2 ? s.cp2.x : s.p3.x, s.cp2 ? s.cp2.y : s.p3.y),
+              makePair(s.p3.x, s.p3.y)
+            ));
+            const np = makePath(nsegs, c.path.closed);
+            np._fromProjection = true;
+            return Object.assign({}, c, {path: np});
+          }
+          if (c._pos3D) {
+            const np = pspacePos(c);
+            return Object.assign({}, c, {pos: makePair(np.x, np.y)});
+          }
+          return c;
+        });
+        frame._fitSx = fsx;
+        frame._fitSy = fsy;
+        // Origin-anchored: _fitMin* are 0 so the add re-emit transform places
+        // user-coord (0,0) — i.e. the projected 3D origin — at the frame position.
         frame._fitMinX = 0;
         frame._fitMinY = 0;
         return frame;
@@ -21460,7 +21534,7 @@ function createInterpreter() {
     args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
     args._line = savedLine;
     let pos = null, pen = null, text = null, align = null, multiDots = null;
-    let graphicData = null, filltype = null;
+    let graphicData = null, filltype = null, pos3D = null;
     for (const a of args) {
       // Named args: dot(pos, filltype = Fill, p = blue) etc.
       if (a && typeof a === 'object' && a._named) {
@@ -21490,7 +21564,7 @@ function createInterpreter() {
       }
       else if (isGraphic(a) && !graphicData) graphicData = a;
       else if (isTriple(a)) {
-        if (!pos) pos = projectTriple(a);
+        if (!pos) { pos = projectTriple(a); pos3D = a; }
         else if (!align) align = projectTriple(a);
       }
       else if (isPair(a)) {
@@ -21559,7 +21633,7 @@ function createInterpreter() {
       return;
     }
     if (!pos) return;
-    target.commands.push({cmd:'dot', pos, pen, filltype, line: args._line || 0});
+    target.commands.push({cmd:'dot', pos, pen, filltype, line: args._line || 0, _pos3D: pos3D});
     // If dot has a graphic, add an image command
     if (graphicData) {
       if (!align) align = makePair(1, 1);
@@ -21570,7 +21644,7 @@ function createInterpreter() {
       // Asymptote's default alignment for dot(Label, pair) is E (east), not NE.
       // This places the label directly to the right of the dot, not above-right.
       if (!align) align = makePair(1, 0);
-      target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0, _fromDot: true});
+      target.commands.push({cmd:'label', text, pos, align, pen, line: args._line || 0, _fromDot: true, _pos3D: pos3D});
     }
   }
 
@@ -21599,6 +21673,7 @@ function createInterpreter() {
     let graphicData = null;
     let pathForDefaultAlign = null; // Store path for deferred default-align computation
     let posFromProjection = false; // pos derived from a projected 3D path/triple
+    let pos3D = null; // original 3D triple behind pos (for pic.fit3 re-projection)
     for (const a of args) {
       if (isGraphic(a) && !graphicData) {
         graphicData = a;
@@ -21622,15 +21697,23 @@ function createInterpreter() {
         if (a._fromProjection) posFromProjection = true;
         const segs = a.segs;
         if (segs.length > 0) {
-          const midSeg = segs[Math.floor(segs.length/2)];
+          const midIdx = Math.floor(segs.length/2);
+          const midSeg = segs[midIdx];
           pos = makePair((midSeg.p0.x+midSeg.p3.x)/2, (midSeg.p0.y+midSeg.p3.y)/2);
           // Save the path's midSeg for deferred default-align computation.
           // We defer because explicit align args may come later in the arg list.
           pathForDefaultAlign = midSeg;
+          // For pic.fit3 re-projection: recover the 3D midpoint triple.
+          if (a._origTripleSegs && a._origTripleSegs[midIdx]) {
+            const os = a._origTripleSegs[midIdx];
+            if (isTriple(os.p0) && isTriple(os.p3)) {
+              pos3D = makeTriple((os.p0.x+os.p3.x)/2, (os.p0.y+os.p3.y)/2, (os.p0.z+os.p3.z)/2);
+            }
+          }
         }
       }
       else if (isTriple(a)) {
-        if (!pos) { pos = projectTriple(a); posFromProjection = true; }
+        if (!pos) { pos = projectTriple(a); posFromProjection = true; pos3D = a; }
         else if (!align) align = projectTriple(a);
       }
       else if (isPair(a)) {
@@ -21653,7 +21736,7 @@ function createInterpreter() {
         }
         if ('position' in a && !pos) {
           const pv = a.position;
-          if (isTriple(pv)) { pos = projectTriple(pv); posFromProjection = true; }
+          if (isTriple(pv)) { pos = projectTriple(pv); posFromProjection = true; pos3D = pv; }
           else if (isPair(pv)) pos = pv;
         }
       }
@@ -21763,6 +21846,7 @@ function createInterpreter() {
       target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
     } else {
       const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
+      if (pos3D) labelCmd._pos3D = pos3D;
       if (labelTransform) labelCmd.labelTransform = labelTransform;
       // A label positioned from a projected 3D path/triple belongs to the 3D
       // layer; keep it in place under a later 2D transform on the picture.
@@ -21917,6 +22001,11 @@ function createInterpreter() {
       return ns;
     });
     if (anyTriple) {
+      // Retain the ORIGINAL 3D triple segs before replacing with the 2D
+      // projection. pic.fit3(otherProjection) needs them to re-project the
+      // geometry under a DIFFERENT camera than currentprojection (e.g. 01966's
+      // two side-by-side panels, each fit3'd with its own orthographic view).
+      p._origTripleSegs = p.segs;
       p.segs = newSegs;
       // This path was built from 3D triples and just got projected to 2D, so it
       // belongs to the 3D layer. Mark it so a subsequent 2D transform applied to
@@ -21927,6 +22016,7 @@ function createInterpreter() {
     }
     if (p._singlePoint && isTriple(p._singlePoint)) {
       updateBounds(p._singlePoint);
+      p._origSinglePoint3D = p._singlePoint;
       p._singlePoint = projectTriple(p._singlePoint);
     }
     return p;
@@ -22326,14 +22416,16 @@ function createInterpreter() {
               (camPos.y - bcy) * (camPos.y - bcy) +
               (camPos.z - bcz) * (camPos.z - bcz));
             items.push({depth: bdepth, intensity: bandI, specular: 0,
-              poly: wv.map(v => projectTriple(v)), pen: face.pen || basePen, _subSmooth: true});
+              poly: wv.map(v => projectTriple(v)), pen: face.pen || basePen, _subSmooth: true,
+              _faceTriples: wv});
           }
           continue;
         }
       }
       // Project polygon
       const poly = V.map(v => projectTriple(v));
-      items.push({depth, intensity, specular, poly, pen: face.pen || basePen, _subSmooth: !!face._subSmooth});
+      items.push({depth, intensity, specular, poly, pen: face.pen || basePen, _subSmooth: !!face._subSmooth,
+        _faceTriples: V});
     }
     // Sort: farthest first
     items.sort((a, b) => b.depth - a.depth);
@@ -22404,7 +22496,7 @@ function createInterpreter() {
       // shift(a,b)*currentpicture) leave them in place — matching Asymptote's
       // semantics where a 2D transform applies only to the 2D layer of a
       // picture and the 3D layer retains its own projection.
-      target.commands.push({cmd: 'fill', path: p, pen: shaded, line, _from3d: true, _faceDepth: it.depth});
+      target.commands.push({cmd: 'fill', path: p, pen: shaded, line, _from3d: true, _faceDepth: it.depth, _faceTriples: it._faceTriples});
       // Add thin same-color stroke to close antialiasing gaps between
       // adjacent faces. Subdivided smooth faces use a narrower stroke so
       // the fine sub-grid doesn't show visible ribs, but still enough to
