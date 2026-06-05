@@ -1629,6 +1629,12 @@ function _buildDiskMesh(nLon) {
 function hobbySpline(knots, closed, directions) {
   const n = knots.length;
   if (n < 2) return [];
+  // 3D knots: the 2D solver below only sees (x,y), so any arc whose variation
+  // is in z (or whose x,y projection is collinear) comes out as garbage. Run a
+  // plane-reduced 3D solve instead.
+  if (knots.some(k => k && k._tag === 'triple')) {
+    return hobbySpline3(knots, closed, directions);
+  }
   if (n === 2) {
     // Simple case: single segment with default smooth tangents
     const dOut = directions && directions[0] ? directions[0].dirOut : null;
@@ -1786,6 +1792,12 @@ function hobbyRho(theta, phi) {
 }
 
 function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
+  if ((a && a._tag === 'triple') || (b && b._tag === 'triple')) {
+    // A two-point '..' with no in-plane direction constraints is just the
+    // chord (matches Asymptote: `a..b` with no dir specs is a straight line).
+    // 3D direction specs are not expressible as the 2D angles passed here.
+    return lineSegment(a, b);
+  }
   // Default smooth tangents for two-point spline
   const dx = b.x - a.x, dy = b.y - a.y;
   const d = Math.sqrt(dx*dx + dy*dy);
@@ -1812,6 +1824,79 @@ function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
     {x: b.x - beta*Math.cos(angleB), y: b.y - beta*Math.sin(angleB)},
     b
   );
+}
+
+// --- 3D vector helpers for plane-reduced Hobby splines ---
+function _vsub3(a,b){ return {x:(a.x||0)-(b.x||0), y:(a.y||0)-(b.y||0), z:(a.z||0)-(b.z||0)}; }
+function _vadd3(a,b){ return {x:a.x+b.x, y:a.y+b.y, z:a.z+b.z}; }
+function _vscale3(a,s){ return {x:a.x*s, y:a.y*s, z:a.z*s}; }
+function _vcross3(a,b){ return {x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x}; }
+function _vdot3(a,b){ return a.x*b.x+a.y*b.y+a.z*b.z; }
+function _vlen3(a){ return Math.sqrt(_vdot3(a,a)); }
+function _vunit3(a){ const l=_vlen3(a)||1; return {x:a.x/l,y:a.y/l,z:a.z/l}; }
+
+// Hobby spline through 3D (triple) knots.  Asymptote computes '..' splines in
+// 3D; here we reduce to the planar case by projecting the knots onto their
+// best-fit plane, running the existing 2D solver, then mapping the resulting
+// control points back into 3D.  For knots that are exactly coplanar (the common
+// case: a circular/parabolic arc lying in an axis plane) this is exact; for
+// genuinely non-planar runs it is a reasonable approximation (and far better
+// than the old behaviour, which dropped z entirely and produced loops).
+function hobbySpline3(knots, closed, directions) {
+  const n = knots.length;
+  if (n < 2) return [];
+  if (n === 2) {
+    return [hobbyTwoPointSegment(knots[0], knots[1],
+      directions && directions[0] ? directions[0].dirOut : null,
+      directions && directions[1] ? directions[1].dirIn : null)];
+  }
+
+  // Best-fit plane normal: sum of consecutive chord cross products (sign-aligned).
+  let normal = {x:0,y:0,z:0};
+  const crossCount = closed ? n : n - 2;
+  for (let i = 0; i < crossCount; i++) {
+    const a = knots[i % n], b = knots[(i+1) % n], c = knots[(i+2) % n];
+    let cr = _vcross3(_vsub3(b,a), _vsub3(c,b));
+    if (_vdot3(cr, normal) < 0) cr = _vscale3(cr, -1);
+    normal = _vadd3(normal, cr);
+  }
+
+  const segLen = closed ? n : n - 1;
+
+  // Collinear / degenerate → straight segments (avoids divide-by-zero basis).
+  if (_vlen3(normal) < 1e-12) {
+    const segs = [];
+    for (let i = 0; i < segLen; i++) segs.push(lineSegment(knots[i % n], knots[(i+1) % n]));
+    return segs;
+  }
+
+  const nrm = _vunit3(normal);
+  // In-plane basis e1: overall span, orthogonalized against the normal.
+  let e1 = _vsub3(knots[closed ? 1 : n-1], knots[0]);
+  e1 = _vsub3(e1, _vscale3(nrm, _vdot3(e1, nrm)));
+  if (_vlen3(e1) < 1e-12) {
+    e1 = Math.abs(nrm.x) < 0.9 ? _vcross3(nrm, {x:1,y:0,z:0}) : _vcross3(nrm, {x:0,y:1,z:0});
+  }
+  e1 = _vunit3(e1);
+  const e2 = _vcross3(nrm, e1); // unit: nrm,e1 orthonormal
+  const origin = knots[0];
+  const to2d = (p) => { const r = _vsub3(p, origin); return {x:_vdot3(r,e1), y:_vdot3(r,e2)}; };
+  const to3d = (q) => makeTriple(
+    origin.x + e1.x*q.x + e2.x*q.y,
+    origin.y + e1.y*q.x + e2.y*q.y,
+    (origin.z||0) + e1.z*q.x + e2.z*q.y);
+
+  const knots2d = knots.map(to2d);
+  const segs2d = hobbySpline(knots2d, closed, null);
+
+  const segs = [];
+  for (let i = 0; i < segs2d.length; i++) {
+    const s = segs2d[i];
+    // Keep the original triples at the endpoints (exact z); only the interior
+    // control points come from the in-plane solve mapped back to 3D.
+    segs.push(makeSeg(knots[i % n], to3d(s.cp1), to3d(s.cp2), knots[(i+1) % n]));
+  }
+  return segs;
 }
 
 function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
