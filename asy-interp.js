@@ -4906,50 +4906,72 @@ function createInterpreter() {
     // Hobby spline (with natural curl-1 end conditions at '--' boundaries),
     // matching Asymptote's behaviour.
     const segs = [];
-    const len = hasCycle ? points.length : points.length - 1;
+    const np = points.length;
+    const len = hasCycle ? np : np - 1;
 
-    let i = 0;
-    while (i < len) {
-      if (joins[i] === '--') {
-        segs.push(lineSegment(points[i], points[(i + 1) % points.length]));
-        i++;
+    // Cyclic seam handling: when both the closing join (last point → point 0)
+    // and the opening join (point 0 → point 1) are '..', point 0 is a SMOOTH
+    // interior knot and the closing curve + opening curve form ONE continuous
+    // spline through it. e.g. `(0,0)..(1,1)..(2,0)--(3,-1)..cycle`: the run
+    // P3..P0..P1..P2 is a single Hobby spline, not two pieces split at point 0.
+    // Splitting it (the old behaviour) collapses the closing `..cycle` to a
+    // straight chord. Rotate the scan to begin just after a '--' breakpoint so
+    // the wrapped run is collected contiguously, then rotate the emitted
+    // segments back so the path still begins at point 0 (preserving t=0 and
+    // subpath/point indexing). All-'..' cycles never reach here (handled above),
+    // so a '--' breakpoint always exists when seamIsWrap is true.
+    const seamIsWrap = hasCycle && joins[np - 1] === '..' && joins[0] === '..';
+    let startOff = 0;
+    if (seamIsWrap) {
+      for (let k = 0; k < len; k++) {
+        if (joins[k] === '--') { startOff = (k + 1) % np; break; }
+      }
+    }
+
+    let processed = 0;
+    while (processed < len) {
+      const ji = (startOff + processed) % np;
+      if (joins[ji] === '--') {
+        segs.push(lineSegment(points[ji], points[(ji + 1) % np]));
+        processed++;
       } else {
-        // Collect a contiguous run of '..' joins starting at i
-        const runStart = i;
-        while (i < len && joins[i] === '..') i++;
-        // The run covers joins[runStart..i-1], touching points runStart..i
-        // (indices mod points.length when cyclic)
-        const runKnots = [];
-        const runDirs = [];
-        for (let k = runStart; k <= i; k++) {
-          const idx = k % points.length;
-          runKnots.push(points[idx]);
+        // Collect a contiguous run of '..' joins beginning at join index ji.
+        const runStartIdx = ji;
+        // Asymptote semantics: at a '..'-'--' boundary, a {dir} on the boundary
+        // knot applies to the adjoining straight segment, not to the spline, so
+        // the spline must use a natural curl-1 end there, not a tangent clamp.
+        const joinBeforeStart = seamIsWrap
+          ? joins[(ji - 1 + np) % np]
+          : (ji > 0 ? joins[ji - 1] : null);
+        const startD = directions
+          ? Object.assign({}, directions[runStartIdx])
+          : {dirIn: null, dirOut: null};
+        if (joinBeforeStart === '--') startD.dirIn = null;
+        const runKnots = [points[runStartIdx]];
+        const runDirs = [startD];
+        while (processed < len && joins[(startOff + processed) % np] === '..') {
+          const jcur = (startOff + processed) % np;
+          const nextKnot = (jcur + 1) % np;
+          processed++;
+          const isRunEnd = !(processed < len && joins[(startOff + processed) % np] === '..');
+          const joinAfter = processed < len ? joins[(startOff + processed) % np] : null;
           const d = directions
-            ? Object.assign({}, directions[idx])
+            ? Object.assign({}, directions[nextKnot])
             : {dirIn: null, dirOut: null};
-          // Asymptote semantics: at a '..'-'--' boundary, a {dir} on the boundary
-          // knot applies to the adjoining straight segment, not to the spline.
-          //   `(z){dir}--` puts {dir} into d.dirOut; the `--` is straight, so
-          //     the spline ending at z must NOT see this as an incoming
-          //     constraint.
-          //   `--{dir}(z)..` puts {dir} into d.dirIn; the `--` is straight, so
-          //     the spline starting at z must NOT see this as an outgoing
-          //     constraint.
-          // Without this clearing, the spline picks up a spurious tangent
-          // clamp and produces visibly wrong curves (e.g. asymmetric loops or
-          // knots reversed near the boundary).
-          if (k === i && k < joins.length && joins[k] === '--') {
-            d.dirOut = null;
-          }
-          if (k === runStart && k > 0 && joins[k - 1] === '--') {
-            d.dirIn = null;
-          }
+          if (isRunEnd && joinAfter === '--') d.dirOut = null;
+          runKnots.push(points[nextKnot]);
           runDirs.push(d);
         }
 
         const runSegs = hobbySpline(runKnots, false, runDirs);
         segs.push(...runSegs);
       }
+    }
+
+    if (seamIsWrap) {
+      const k0 = segs.findIndex(s =>
+        Math.abs(s.p0.x - points[0].x) < 1e-9 && Math.abs(s.p0.y - points[0].y) < 1e-9);
+      if (k0 > 0) return segs.slice(k0).concat(segs.slice(0, k0));
     }
     return segs;
   }
