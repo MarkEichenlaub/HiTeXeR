@@ -7680,6 +7680,16 @@ function createInterpreter() {
       return _gammaReal(n + 1);
     }
     env.set('factorial', _broadcast1(_factorialReal));
+    env.set('choose', (n, k) => {
+      // Asymptote's choose(int n, int k) — binomial coefficient C(n,k).
+      n = Math.round(toNumber(n)); k = Math.round(toNumber(k));
+      if (k < 0 || k > n) return 0;
+      if (k === 0 || k === n) return 1;
+      if (k > n - k) k = n - k;
+      let r = 1;
+      for (let i = 1; i <= k; i++) r = r * (n - k + i) / i;
+      return Math.round(r);
+    });
     env.set('min', (...args) => {
       if (args.length===1 && args[0] && args[0]._tag === 'picture') {
         const p = args[0];
