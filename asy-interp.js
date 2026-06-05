@@ -10227,71 +10227,45 @@ function createInterpreter() {
       }
       const pic = {_tag:'picture', commands:[], transform: null};
       if (!g || g.segs.length === 0) return pic;
-      // Asymptote markers.asy default tick size is ticksize=3 (6bp total),
-      // but TeXeR's actual rendered marks are visually larger — match that
-      // appearance with a 5bp half-length (10bp total) by default. If the
-      // caller passes an explicit size/ticksize, honor it as full tick length
-      // in bp. Emit ticks as marker commands so they render at a fixed bp
-      // size regardless of the surrounding picture's geo scale.
-      const tickHalfBp = sizeBp > 0 ? sizeBp / 2 : 5;
-      // Render at the pen's literal width (default 0.5bp) and mark it explicit so
-      // the marker skips the auto/explicit-size stroke boost — markers are now
-      // scaled by bpCSSPixel (true fixed-bp size), so a 0.5bp tick matches the
-      // ~2px stroke of TeXeR's marks; the old 0.8bp floor + 1.5× boost rendered
-      // ticks ~2× too thick.
+      // This `pathticks` is the AoPS olympiad.asy version, NOT markers.asy:
+      //   picture pathticks(path g,int n=1,real r=.5,real spacing=6,real s=8,pen p)
+      //   { real l=arclength(g), space=spacing*markscalefactor,
+      //          halftick=s*markscalefactor/2;
+      //     direct=unit(dir(g,arctime(g,r*l)));
+      //     for i in 0..n-1: t=r*l-(n-1)/2*space + i*space;
+      //       B=point(g,arctime(g,t))+(0,1)*halftick*direct;  // +i*halftick*dir
+      //       C=B+2*(0,-1)*halftick*direct; draw(B--C,p); }
+      // markscalefactor=0.03 (olympiad.asy global). The ticks are perpendicular
+      // to the path and measured in USER coordinates (× markscalefactor), so
+      // they must scale WITH the diagram geometry — emit them as ordinary draw
+      // commands in user space, NOT as fixed-bp markers. (`spacingBp`/`sizeBp`
+      // carry the 4th/5th positional args `spacing` and `s`, despite the names.)
+      const markscalefactor = 0.03;
       const tickPen = clonePen(pen);
-      if (!(tickPen.linewidth > 0)) tickPen.linewidth = 0.5;
-      tickPen._lwExplicit = true;
       const nT = Math.max(1, Math.round(n));
       const N = g.segs.length;
-      // Convert bp spacing to fraction of arclength using bp/user. When no
-      // unitsize is active, estimate bp/user from the currentpicture's geo
-      // bbox under the default size(150) constraint so user-unit arclengths
-      // get scaled to plausible bp values for spacing-fraction computation.
-      let arcUser = 0;
-      for (const seg of g.segs) arcUser += bezierArcLength(seg);
-      let bpPerUnit = hasUnitScale ? unitScale : 0;
-      if (bpPerUnit <= 0) {
-        try {
-          const cp = env.get('currentpicture');
-          if (cp && cp.commands && cp.commands.length > 0) {
-            const gb = getGeoBbox(cp.commands);
-            const gw = (gb.maxX - gb.minX);
-            const gh = (gb.maxY - gb.minY);
-            const cands = [];
-            if (gw > 0) cands.push(150 / gw);
-            if (gh > 0) cands.push(150 / gh);
-            if (cands.length > 0) bpPerUnit = Math.min.apply(null, cands);
-          }
-        } catch (_) {}
-        if (!(bpPerUnit > 0)) bpPerUnit = 30;
-      }
-      const arcBp = arcUser * bpPerUnit;
-      const spacingFrac = arcBp > 0 ? Math.min(0.5, spacingBp / arcBp) : 0.05;
+      let l = 0;
+      for (const seg of g.segs) l += bezierArcLength(seg);
+      if (!(l > 0)) return pic;
+      const sVal = sizeBp > 0 ? sizeBp : 8;       // olympiad default s=8
+      const halftick = sVal * markscalefactor / 2;     // user units
+      const space = spacingBp * markscalefactor;       // user units along arclength
+      const spaceFrac = space / l;                     // fraction of arclength
+      // direct = unit tangent at r (computed once, like olympiad.asy)
+      const rc = Math.max(0, Math.min(1, r));
+      const ctan = _dirOnPath(g, rc * N);
+      const ctlen = Math.sqrt(ctan.x*ctan.x + ctan.y*ctan.y) || 1;
+      const ux = ctan.x / ctlen, uy = ctan.y / ctlen;  // unit tangent
+      const perpX = -uy, perpY = ux;                   // unit perpendicular (i·direct)
       for (let k = 0; k < nT; k++) {
-        // center tick k at fraction r + (k - (nT-1)/2)*spacingFrac
-        let frac = r + (k - (nT - 1) / 2) * spacingFrac;
+        let frac = r + (k - (nT - 1) / 2) * spaceFrac;
         if (frac < 0) frac = 0;
         if (frac > 1) frac = 1;
-        const time = frac * N;
-        const pt = _pointOnPath(g, time);
-        const tan = _dirOnPath(g, time);
-        // perpendicular direction in bp space (rotate tangent 90°). Tangent
-        // is in user units; we only need the angle, so normalize.
-        const tlen = Math.sqrt(tan.x*tan.x + tan.y*tan.y) || 1;
-        const perpX = -tan.y / tlen, perpY = tan.x / tlen;
-        // Marker path coords are in bp. Y is flipped by the marker renderer
-        // (it does `svgCY - s.p0.y * cssPixel`), so use perpY as-is.
-        const p1 = makePair(perpX * tickHalfBp, perpY * tickHalfBp);
-        const p2 = makePair(-perpX * tickHalfBp, -perpY * tickHalfBp);
-        const tp = makePath([lineSegment(p1, p2)], false);
-        pic.commands.push({
-          cmd:'marker',
-          pos: makePair(pt.x, pt.y),
-          markerPath: tp,
-          pen: clonePen(tickPen),
-          line: 0,
-        });
+        const pt = _pointOnPath(g, frac * N);
+        const b = makePair(pt.x + perpX * halftick, pt.y + perpY * halftick);
+        const c = makePair(pt.x - perpX * halftick, pt.y - perpY * halftick);
+        const tp = makePath([lineSegment(b, c)], false);
+        pic.commands.push({cmd:'draw', path: tp, pen: clonePen(tickPen), arrow:null, line:0});
       }
       return pic;
     });
