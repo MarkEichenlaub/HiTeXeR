@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiTeXeR SSIM Stats</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding-bottom: 60px; }
+  a { color: #93c5fd; }
+
+  .header { background: #16213e; padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #0f3460; position: sticky; top: 0; z-index: 10; }
+  .header h1 { font-size: 18px; color: #e94560; white-space: nowrap; }
+  .header select, .header button { font-size: 13px; padding: 5px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .header select:hover, .header button:hover { border-color: #e94560; }
+  .header .sub { font-size: 12px; opacity: 0.7; }
+
+  .wrap { padding: 18px 22px; max-width: 1200px; }
+  section { margin-bottom: 28px; }
+  h2 { font-size: 15px; color: #c4b5fd; margin-bottom: 10px; border-bottom: 1px solid #2a2a44; padding-bottom: 5px; }
+
+  .cards { display: flex; flex-wrap: wrap; gap: 10px; }
+  .card { background: #16213e; border: 1px solid #0f3460; border-radius: 6px; padding: 10px 14px; min-width: 110px; }
+  .card .label { font-size: 11px; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .value { font-size: 20px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+  table { border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 4px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+  th { color: #9ca3af; font-weight: 600; border-bottom: 1px solid #2a2a44; }
+  td.id, th.id { text-align: left; }
+  .pct-table td:first-child, .pct-table th:first-child { text-align: left; color: #9ca3af; }
+
+  /* histogram */
+  .hist { display: flex; align-items: flex-end; gap: 2px; height: 220px; padding: 8px 4px; background: #11111f; border: 1px solid #0f3460; border-radius: 6px; }
+  .hist .bar { flex: 1; background: linear-gradient(to top, #6d28d9, #a78bfa); border-radius: 2px 2px 0 0; position: relative; min-height: 1px; }
+  .hist .bar:hover { background: #e94560; }
+  .hist .bar .tip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #000; color: #fff; font-size: 11px; padding: 3px 6px; border-radius: 3px; white-space: nowrap; z-index: 5; }
+  .hist .bar:hover .tip { display: block; }
+  .hist-axis { display: flex; justify-content: space-between; font-size: 10px; opacity: 0.55; padding: 2px 4px 0; }
+
+  .movers { display: flex; flex-wrap: wrap; gap: 26px; }
+  .movers > div { flex: 1; min-width: 320px; }
+  .delta-up { color: #4ade80; }
+  .delta-down { color: #f87171; }
+  .pad-note { font-size: 11px; opacity: 0.6; font-style: italic; margin-top: 4px; }
+  .open-link { cursor: pointer; color: #93c5fd; text-decoration: underline; }
+
+  .commits { font-size: 12px; line-height: 1.7; max-height: 320px; overflow: auto; background: #11111f; border: 1px solid #0f3460; border-radius: 6px; padding: 8px 12px; }
+  .commits code { color: #fbbf24; }
+  .empty { opacity: 0.55; font-style: italic; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>SSIM Stats</h1>
+  <button onclick="window.location.href='blink.html'">&larr; Comparator</button>
+  <label class="sub">Checkpoint:
+    <select id="checkpoint-select"></select>
+  </label>
+  <span class="sub" id="checkpoint-meta"></span>
+</div>
+
+<div class="wrap" id="content"></div>
+
+<script>
+const OPEN_BASE = '../index.html?id=';
+let history = [];
+
+function fmt(x, d = 4) { return (typeof x === 'number') ? x.toFixed(d) : '—'; }
+
+async function load() {
+  try {
+    const res = await fetch('ssim-stats-history.json?t=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    history = await res.json();
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      '<p class="empty">No stats history found (ssim-stats-history.json). ' +
+      'Run a full SSIM recompute or <code>node auto-fix/compute-ssim-stats.js</code> to seed it.</p>';
+    return;
+  }
+  if (!Array.isArray(history) || history.length === 0) {
+    document.getElementById('content').innerHTML = '<p class="empty">Stats history is empty.</p>';
+    return;
+  }
+  const sel = document.getElementById('checkpoint-select');
+  history.forEach((c, i) => {
+    const opt = document.createElement('option');
+    const d = new Date(c.timestamp);
+    opt.value = i;
+    opt.textContent = '#' + (i + 1) + '  ' + d.toLocaleString() + '  (' + c.commit + ')';
+    sel.appendChild(opt);
+  });
+  sel.value = history.length - 1;
+  sel.addEventListener('change', () => render(+sel.value));
+  render(history.length - 1);
+}
+
+function statCard(label, value) {
+  return '<div class="card"><div class="label">' + label + '</div><div class="value">' + value + '</div></div>';
+}
+
+function moverRows(list) {
+  if (!list || list.length === 0) return '<tr><td colspan="4" class="empty">none</td></tr>';
+  return list.map(m => {
+    const cls = m.delta >= 0 ? 'delta-up' : 'delta-down';
+    const sign = m.delta >= 0 ? '+' : '';
+    return '<tr>' +
+      '<td class="id"><span class="open-link" onclick="window.open(\'' + OPEN_BASE + m.id + '\',\'_blank\')">' + m.id + '</span></td>' +
+      '<td>' + fmt(m.from) + '</td>' +
+      '<td>' + fmt(m.to) + '</td>' +
+      '<td class="' + cls + '">' + sign + fmt(m.delta) + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function render(idx) {
+  const c = history[idx];
+  const meta = document.getElementById('checkpoint-meta');
+  meta.textContent = c.count.toLocaleString() + ' diagrams · ' + new Date(c.timestamp).toLocaleString() + ' · commit ' + c.commit;
+
+  let html = '';
+
+  // ── Summary cards ──
+  html += '<section><h2>Summary</h2><div class="cards">';
+  html += statCard('Count', c.count.toLocaleString());
+  html += statCard('Mean', fmt(c.mean));
+  html += statCard('Median', fmt(c.median));
+  html += statCard('Min', fmt(c.min));
+  html += statCard('Max', fmt(c.max));
+  html += statCard('Range', fmt(c.range));
+  html += '</div></section>';
+
+  // ── Percentiles ──
+  const p = c.percentiles || {};
+  html += '<section><h2>Percentiles</h2><table class="pct-table"><tr>' +
+    '<th>pct</th><th>1%</th><th>10%</th><th>25%</th><th>50%</th><th>75%</th><th>90%</th><th>99%</th></tr>' +
+    '<tr><td>SSIM</td>' +
+    ['p1','p10','p25','p50','p75','p90','p99'].map(k => '<td>' + fmt(p[k]) + '</td>').join('') +
+    '</tr></table></section>';
+
+  // ── Histogram ──
+  const hist = c.histogram || [];
+  const maxCount = Math.max(1, ...hist.map(b => b.count));
+  html += '<section><h2>Histogram (0.02 bins)</h2><div class="hist">';
+  html += hist.map(b => {
+    const h = (b.count / maxCount) * 100;
+    return '<div class="bar" style="height:' + h + '%">' +
+      '<span class="tip">[' + b.lo.toFixed(2) + '–' + b.hi.toFixed(2) + '): ' + b.count + '</span></div>';
+  }).join('');
+  html += '</div><div class="hist-axis"><span>0.00</span><span>0.25</span><span>0.50</span><span>0.75</span><span>1.00</span></div></section>';
+
+  // ── Changes vs previous checkpoint ──
+  if (c.vsPrev) {
+    const v = c.vsPrev;
+    html += '<section><h2>Change since previous checkpoint (' + (v.prevCommit || '?') + ')</h2>';
+    html += '<div class="cards">';
+    html += statCard('Increased', '<span class="delta-up">' + v.increased + '</span>');
+    html += statCard('Decreased', '<span class="delta-down">' + v.decreased + '</span>');
+    html += statCard('Unchanged', v.unchanged);
+    if (v.added) html += statCard('New', v.added);
+    if (v.removed) html += statCard('Removed', v.removed);
+    html += '</div>';
+
+    html += '<div class="movers" style="margin-top:14px">';
+    html += '<div><h2>Top 20 increases</h2><table>' +
+      '<tr><th class="id">id</th><th>from</th><th>to</th><th>Δ</th></tr>' +
+      moverRows(v.topIncreases) + '</table></div>';
+
+    html += '<div><h2>Top 20 decreases</h2><table>' +
+      '<tr><th class="id">id</th><th>from</th><th>to</th><th>Δ</th></tr>' +
+      moverRows(v.topDecreases) + '</table>';
+    if (typeof v.decreasedActualCount === 'number' && v.decreasedActualCount < 20) {
+      html += '<div class="pad-note">Only ' + v.decreasedActualCount +
+        ' diagram(s) decreased; the rest are the smallest increases.</div>';
+    }
+    html += '</div></div>';
+
+    // commits
+    html += '<h2 style="margin-top:18px">Commits since previous checkpoint (' + (v.commits ? v.commits.length : 0) + ')</h2>';
+    if (v.commits && v.commits.length) {
+      html += '<div class="commits">' + v.commits.map(cm =>
+        '<div><code>' + cm.hash + '</code> ' + escapeHtml(cm.subject) + '</div>').join('') + '</div>';
+    } else {
+      html += '<p class="empty">No commits recorded between checkpoints.</p>';
+    }
+    html += '</section>';
+  } else {
+    html += '<section><h2>Change since previous checkpoint</h2>' +
+      '<p class="empty">This is the first checkpoint — no previous data to compare against.</p></section>';
+  }
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+load();
+</script>
+</body>
+</html>

@@ -63,7 +63,7 @@ const WRITE_OK_UNCOMMITTED = new Set([
 const WRITE_OK_RE = /^comparison\/(page-\d+\.html|blink-manifest\.json|index\.html)$/;
 
 function parseArgs(argv) {
-  const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 0, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false, persistent: false, queueOnly: false, refreshGroundTruth: true };
+  const out = { max: null, dryRun: false, stopOnFail: false, model: DEFAULT_MODEL, timeoutMs: DEFAULT_TIMEOUT_MS, maxTurns: DEFAULT_MAX_TURNS, fullPipelineEvery: 5, ids: null, idsFile: null, verifierModel: DEFAULT_VERIFIER_MODEL, skipVerifier: false, persistent: false, queueOnly: false, refreshGroundTruth: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--max') out.max = parseInt(argv[++i], 10) || 1;
@@ -166,10 +166,32 @@ function runFullPipeline() {
     console.log('[run-loop] full-pipeline: no regressions detected');
   }
 
-  // Stage the regenerated ssim-results + canary so the user sees them in git
-  // but do NOT auto-commit; they reflect aggregate pipeline state, not a single
-  // sub-agent fix, and the commit policy only commits fix-owned deltas.
+  // The ssim step (inside ssim-pipeline.js) appended a corpus-wide stats
+  // checkpoint; commit ONLY those stats files so the checkpoint is durable
+  // across clones and survives reset --hard. ssim-results + canary are left
+  // staged-but-uncommitted (aggregate state, not a fix-owned delta) per policy.
+  commitStatsCheckpoint();
+
   return { ok: true, regressions };
+}
+
+function commitStatsCheckpoint() {
+  const files = ['comparison/ssim-stats-history.json', 'auto-fix/ssim-stats-last-scores.json'];
+  try {
+    const present = files.filter(f => fs.existsSync(path.join(ROOT, f)));
+    if (present.length === 0) return;
+    sh('git add ' + present.map(f => '"' + f + '"').join(' '));
+    const staged = sh('git diff --cached --name-only -- ' + present.map(f => '"' + f + '"').join(' ')).stdout.trim();
+    if (!staged) return; // no checkpoint change to commit
+    // Pathspec-limited commit: only the stats files land, even if ssim-results /
+    // canary happen to be staged too.
+    const r = sh('git commit --no-verify -m "auto-fix: SSIM stats checkpoint" -- ' +
+                 present.map(f => '"' + f + '"').join(' '));
+    if (r.code !== 0) console.error('[run-loop] stats checkpoint commit failed:', (r.stderr || '').trim().split('\n')[0]);
+    else console.log('[run-loop] committed SSIM stats checkpoint (' + staged.split('\n').length + ' file(s))');
+  } catch (e) {
+    console.error('[run-loop] commitStatsCheckpoint failed:', e.message);
+  }
 }
 
 function dequeueNext() {

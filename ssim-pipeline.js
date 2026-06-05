@@ -645,6 +645,19 @@ async function main() {
     fs.writeFileSync(path.join(OUT_DIR, 'ssim-results.json'), JSON.stringify(results, null, 2));
 
     console.log(`  Saved ${results.length} results to comparison/ssim-results.json`);
+
+    // Every full SSIM recompute appends a corpus-wide stats checkpoint (mean,
+    // median, percentiles, histogram, movers vs the previous checkpoint) for the
+    // comparator Stats page. Non-fatal: a stats failure must not fail the pipeline.
+    try {
+      const statsRes = spawnSync(process.execPath, [path.join(__dirname, 'auto-fix', 'compute-ssim-stats.js')], {
+        cwd: __dirname, stdio: 'inherit', windowsHide: true,
+      });
+      if (statsRes.status !== 0) console.error('  [ssim-stats] checkpoint step exited ' + statsRes.status);
+    } catch (e) {
+      console.error('  [ssim-stats] checkpoint failed: ' + e.message);
+    }
+
     console.log(`  Worst 10:`);
     for (const r of results.slice(0, 10))
       console.log(`    #${r.id} (${r.corpusFile}) combined=${r.combined.toFixed(4)} ssim=${r.ssim.toFixed(4)} size=${r.sizeScore.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
