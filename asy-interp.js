@@ -3919,6 +3919,20 @@ function createInterpreter() {
         // size(pic, W) performs. add(frame, pos) re-emits _srcCommands at full
         // fidelity (arrowheads, dots) using the _fit* transform recorded here.
         const gb = getGeoBbox(obj.commands);
+        // The explicit projected path/arrow/label draws (_projectedPath) were
+        // projected into pic.commands using currentprojection. fit3 does not
+        // re-project — it just scales those 2D coords. So keeping them is only
+        // correct when fit3's projection arg is absent or equals currentprojection
+        // (e.g. 02063 bare fit3()). When fit3 is given a DIFFERENT projection
+        // (e.g. 01966/02271/02379 fit3(orthographic(4.3,-2.3,1.1)) vs
+        // currentprojection(4.3,-1.1,1.7)), the stored coords are mis-projected;
+        // dropping them (old behavior) scores better than rendering them askew.
+        const _fit3Proj = args[0];
+        const _projMatchesCurrent = !(_fit3Proj && _fit3Proj._tag === 'projection') ||
+          (!!projection && _fit3Proj.type === projection.type &&
+           _fit3Proj.cx === projection.cx && _fit3Proj.cy === projection.cy && _fit3Proj.cz === projection.cz &&
+           _fit3Proj.tx === projection.tx && _fit3Proj.ty === projection.ty && _fit3Proj.tz === projection.tz);
+        const keepProjected = _projMatchesCurrent;
         // The triple geometry in obj.commands was projected by _projectTripleRaw,
         // which for "mixed 2D/3D" orthographic setups (dist<10, default up) inflates
         // every coord by orthoScale = zoom/|rx| to make 3D align with 2D overlays.
@@ -3986,9 +4000,10 @@ function createInterpreter() {
           // _from3d) does NOT survive that projection — only the path/label
           // geometry does. TeXeR mirrors this (its inline renderer emits no gray
           // surface fills for these add(pic.fit3()) lattice diagrams), so drop
-          // _from3d commands here. The explicit wireframe draws are plain 2D
-          // projected lines (not _from3d) and are kept.
-          if (dc._from3d) continue;
+          // _from3d commands here. Explicit projected wireframe/arrow/label draws
+          // are ALSO _from3d (so they survive 2D picture transforms) but carry
+          // _projectedPath — keep those; only the surface mesh layer is dropped.
+          if (dc._from3d && !(dc._projectedPath && keepProjected)) continue;
           if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.path && dc.path.segs) {
             const pts = [];
             for (const seg of dc.path.segs) {
@@ -4037,9 +4052,10 @@ function createInterpreter() {
         frame._fitW = userW * sx;
         frame._fitH = userH * sy;
         // add(frame,pos) re-emits _srcCommands at full fidelity; drop the 3D
-        // surface layer (_from3d) here too so the gray surface() fills don't
-        // reappear in the final render (see _from3d skip in the preview loop).
-        frame._srcCommands = obj.commands.filter(c => c && !c._from3d);
+        // surface mesh layer (_from3d without _projectedPath) here too so the gray
+        // surface() fills don't reappear, while keeping the explicit projected
+        // wireframe/arrow/label draws (_projectedPath) that ARE the diagram.
+        frame._srcCommands = obj.commands.filter(c => c && (!c._from3d || (c._projectedPath && keepProjected)));
         frame._fitSx = sx;
         frame._fitSy = sy;
         // Origin-anchored (see sampleBez3 comment): _fitMin* are 0 so the add
@@ -21138,7 +21154,10 @@ function createInterpreter() {
       if (margin) dc.margin = margin;
       // Propagate 3D-projection origin so that 2D picture transforms leave
       // this command in place (matches Asymptote's 2D-layer-only transforms).
-      if (pathArg._fromProjection) dc._from3d = true;
+      // Also flag it _projectedPath: unlike the surface() mesh layer (also
+      // _from3d), an explicit projected path/arrow draw must SURVIVE pic.fit3()
+      // (02063 lattice arrows/wireframe). fit3 drops _from3d-but-not-_projectedPath.
+      if (pathArg._fromProjection) { dc._from3d = true; dc._projectedPath = true; }
       target.commands.push(dc);
       // Apply interval/uniform/node markers (e.g. StickIntervalMarker) along
       // the drawn path. Marker frames are in bp units and converted to user
@@ -21186,14 +21205,14 @@ function createInterpreter() {
           const sL = pathArg.segs[pathArg.segs.length - 1];
           const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
           const barPath = makeBarAt(sL.p3, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d});
+          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
         }
         // Begin bar only for 'Bars'
         if (barsStyle === 'Bars') {
           const s0 = pathArg.segs[0];
           const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
           const barPath = makeBarAt(s0.p0, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d});
+          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
         }
       }
       // If draw call has a label, handle it: either register for legend or place inline
@@ -21250,7 +21269,8 @@ function createInterpreter() {
           if (labelFilltype) ldc.filltype = labelFilltype;
           // A label on a projected 3D path belongs to the 3D layer; keep it put
           // under a later 2D transform so it stays centered on the dimension line.
-          if (pathArg._fromProjection) ldc._from3d = true;
+          // _projectedPath so it also survives pic.fit3() (02063 vector labels).
+          if (pathArg._fromProjection) { ldc._from3d = true; ldc._projectedPath = true; }
           target.commands.push(ldc);
         }
       }
@@ -21599,7 +21619,8 @@ function createInterpreter() {
       if (labelTransform) labelCmd.labelTransform = labelTransform;
       // A label positioned from a projected 3D path/triple belongs to the 3D
       // layer; keep it in place under a later 2D transform on the picture.
-      if (posFromProjection) labelCmd._from3d = true;
+      // _projectedPath so it also survives pic.fit3() (02063 vector labels).
+      if (posFromProjection) { labelCmd._from3d = true; labelCmd._projectedPath = true; }
       target.commands.push(labelCmd);
     }
   }
