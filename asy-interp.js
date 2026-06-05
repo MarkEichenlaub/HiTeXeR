@@ -12158,7 +12158,16 @@ function createInterpreter() {
         // tgrid, above=true)), render the gridlines on TOP of plot fills/curves
         // instead — Asymptote's `above` keyword on the axis call applies to the
         // entire axis including its extended gridlines.
-        if (ticks.extend === true) {
+        //
+        // extend=true only produces gridlines when the axis call supplies a
+        // frame extent (BottomTop/LeftRight, i.e. isExtend) — that is the far
+        // edge the ticks extend to. A plain single-axis call (e.g.
+        // xaxis(0, xmax, Ticks(..., extend=true), Arrow)) has no opposite frame
+        // edge, so extend has nothing to span and Asymptote draws ordinary tick
+        // marks instead (12131: a visible black extend=true axis used purely for
+        // numbered ticks, with the actual grid supplied separately by an
+        // invisible-pen BottomTop call).
+        if (ticks.extend === true && isExtend) {
           const cLo = crossMin !== undefined ? crossMin : -5;
           const cHi = crossMax !== undefined ? crossMax : 5;
           const gp0 = isX ? {x:v, y:cLo} : {x:cLo, y:v};
@@ -24898,6 +24907,41 @@ function renderSVG(result, opts) {
               pxPerUnitY = minPxY;
             }
             pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+          } else {
+            // keepAspect (size(N) only): re-iterate the geometry-shrink solver
+            // with the now-measured label widths so geometry shrinks just
+            // enough that geometry + truesize labels fit size(). The heuristic
+            // solver converged using estimated widths; the measured widths
+            // differ, leaving finalExceed = mjxExceed > 1.005, which would
+            // otherwise trigger the label-dominated escape hatch below and
+            // reset pxPerUnit to the un-shrunk preSolver scale (12131: two wide
+            // E/NE log-function labels at the right edge render ~11% oversize).
+            // Set finalExceed to the CONVERGED exceed so a layout that genuinely
+            // fits after shrinking skips the escape hatch, while a truly
+            // label-dominated layout (loop can't reach 1.005 in 8 iters) keeps
+            // its overflow behaviour.
+            let _ke = mjxExceed;
+            for (let iter = 0; iter < 8; iter++) {
+              let bMinX = geoMinX * pxPerUnitX;
+              let bMaxX = geoMaxX * pxPerUnitX;
+              let bMinY = geoMinY * pxPerUnitY;
+              let bMaxY = geoMaxY * pxPerUnitY;
+              for (const li of labelInfoBp) {
+                const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+                const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+                bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+                bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+              }
+              const eW = tgtW < Infinity ? (bMaxX - bMinX) / tgtW : 0;
+              const eH = tgtH < Infinity ? (bMaxY - bMinY) / tgtH : 0;
+              const e = Math.max(eW, eH);
+              _ke = e;
+              if (e <= 1.005) break;
+              pxPerUnit = pxPerUnitX = pxPerUnitY = pxPerUnit / e;
+            }
+            finalExceed = _ke;
           }
         } else if (finalExceed > 1.005) {
           // Heuristic thought geometry+labels exceeded size() but measurement
