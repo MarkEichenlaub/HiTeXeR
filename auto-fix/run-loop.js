@@ -507,6 +507,36 @@ function saveAfterSnapshot(targetId, commitHash) {
   if (fs.existsSync(src)) {
     try { fs.copyFileSync(src, dst); } catch (e) { console.error('[run-loop] after-snapshot failed:', e.message); }
   }
+  // Make the after-snapshot DURABLE across clones. Snapshots live in the
+  // *.png-ignored fix-snapshots/ dir, so an untracked PNG saved here only ever
+  // exists on the worker that made the fix — another clone that pulls the commit
+  // via reset --hard origin/master gets the commit but not the snapshot, leaving
+  // a blank "after" column in its comparator (the symptom for 09540/12403/11731).
+  // Fold the PNG into the fix commit (force-add past *.png, then amend HEAD) so
+  // it travels with the pushed/pulled history. This runs while HEAD is still the
+  // fix commit and before any external push, so the push carries the amended
+  // tree. The amend changes the git hash, but fix-history looks the snapshot up
+  // by attempts.jsonl's `commit` field, which still agrees with this filename.
+  foldAfterSnapshotIntoCommit(commitHash);
+}
+
+function foldAfterSnapshotIntoCommit(commitHash) {
+  try {
+    const png = path.join(FIX_SNAPSHOTS_DIR, commitHash + '-after.png');
+    if (!fs.existsSync(png)) return;
+    const rel = path.relative(ROOT, png).replace(/\\/g, '/');
+    // Only fold when HEAD is a real fix commit we can amend (not the initial
+    // pre-iteration state). Cheap guard: there must be commits.
+    sh('git add -f "' + rel + '"');
+    const staged = sh('git diff --cached --name-only -- "' + rel + '"').stdout.trim();
+    if (!staged) return; // already committed in a prior call this iteration
+    const amend = sh('git commit --amend --no-edit --no-verify');
+    if (amend.code !== 0) {
+      console.error('[run-loop] after-snapshot amend failed:', (amend.stderr || '').trim().split('\n')[0]);
+    }
+  } catch (e) {
+    console.error('[run-loop] foldAfterSnapshotIntoCommit failed:', e.message);
+  }
 }
 
 // Capture the "before" render at iteration start, regardless of how the target
