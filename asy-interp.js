@@ -19242,10 +19242,22 @@ function createInterpreter() {
       // path at its midpoint, matching Asymptote's draw(Label,path) signature.
       // Used by the AoPS drawGraph idiom to place edge-weight labels on arrows
       // (e.g. 12287's "12"/"6"/"4" capacities).
+      let lblFromPositional = false;
       if (!lblObj) {
         for (const a of args) {
-          if (a && typeof a === 'object' && a._tag === 'label' && a.text) { lblObj = a; break; }
+          if (a && typeof a === 'object' && a._tag === 'label' && a.text) { lblObj = a; lblFromPositional = true; break; }
         }
+      }
+      // A positional label with an explicit, non-center Relative() position
+      // (e.g. 03606's force-vector labels at Relative(1)/Relative(0.8)) is
+      // rendered inline by the main draw loop below, in the draw pen's colour
+      // and with proper Bezier-tangent alignment. Re-rendering it here would
+      // duplicate it in black at the wrong anchor. The main loop only treats a
+      // positional label as a legend entry (and skips inline rendering) when its
+      // position is null/0.5 — so only fire this early anchor for that case.
+      if (lblFromPositional && lblObj &&
+          typeof lblObj.position === 'number' && lblObj.position !== 0.5) {
+        lblObj = null;
       }
       if (lblObj && lblObj.text) {
         // Find first path arg to anchor the label.
