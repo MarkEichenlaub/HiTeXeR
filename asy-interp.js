@@ -3834,6 +3834,44 @@ function createInterpreter() {
             }
           }
           sx = s; sy = s;
+        } else if (explicitSize) {
+          // Anisotropic (IgnoreAspect) sizing: Asymptote's
+          // size(pic,W,H,IgnoreAspect) still fits the WHOLE picture bbox —
+          // including fixed-bp label/arrow-label extents — into W×H, just with
+          // independent x/y scales. Without this, geometry fills W×H exactly and
+          // labels pad OUTSIDE, inflating the frame (00444: x/y axis labels and
+          // "1" tick labels pushed the frame to 213×158 instead of ~200×140).
+          // Shrink each axis independently so geometry+labels fit.
+          const labelExt = [];
+          for (const dc of obj.commands) {
+            if (dc.cmd !== 'label' || !dc.pos) continue;
+            const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
+            const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+            const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+            const tw = _estimateTextWidth(cleanTxt || 'x', fs);
+            const aMag = dc.align ? Math.max(Math.abs(dc.align.x), Math.abs(dc.align.y)) : 0;
+            const ux = aMag > 0 ? dc.align.x / aMag : 0;
+            const uy = aMag > 0 ? dc.align.y / aMag : 0;
+            labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy });
+          }
+          if (labelExt.length > 0 && isFinite(sx) && sx > 0 && isFinite(sy) && sy > 0) {
+            for (let it = 0; it < 6; it++) {
+              let fMinX = gb.minX, fMaxX = gb.maxX, fMinY = gb.minY, fMaxY = gb.maxY;
+              for (const L of labelExt) {
+                const twU = L.tw / sx, thU = L.th / sy;
+                const cx = L.x + L.ux * 0.5 * twU;
+                const cy = L.y + L.uy * 0.5 * thU;
+                if (cx - 0.5 * twU < fMinX) fMinX = cx - 0.5 * twU;
+                if (cx + 0.5 * twU > fMaxX) fMaxX = cx + 0.5 * twU;
+                if (cy - 0.5 * thU < fMinY) fMinY = cy - 0.5 * thU;
+                if (cy + 0.5 * thU > fMaxY) fMaxY = cy + 0.5 * thU;
+              }
+              const fullW = (fMaxX - fMinX) || 1;
+              const fullH = (fMaxY - fMinY) || 1;
+              sx = targetW / fullW;
+              sy = targetH / fullH;
+            }
+          }
         }
         // Helper to sample a cubic bezier segment into line points
         const sampleBezier = (seg, nSamples) => {
@@ -13605,8 +13643,11 @@ function createInterpreter() {
       return parseFloat(n.toPrecision(4)).toString();
     }
     env.set('labelx', (...args) => {
+      let pic = currentPic, startIdx = 0;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') { pic = args[0]; startIdx = 1; }
       let text = '', x = 0, pen = null, align = null, hasX = false;
-      for (const a of args) {
+      for (let i = startIdx; i < args.length; i++) {
+        const a = args[i];
         if (isString(a) && !text) text = a;
         else if (isPair(a)) align = toPair(a);
         else if (typeof a === 'number') { x = a; hasX = true; }
@@ -13615,11 +13656,14 @@ function createInterpreter() {
       if (!text && hasX) text = '$' + _formatAxisNum(x) + '$';
       if (!pen) pen = clonePen(defaultPen);
       if (!align) align = {x:0, y:-1};
-      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align, pen, line:0});
+      pic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align, pen, line:0});
     });
     env.set('labely', (...args) => {
+      let pic = currentPic, startIdx = 0;
+      if (args.length > 0 && args[0] && args[0]._tag === 'picture') { pic = args[0]; startIdx = 1; }
       let text = '', y = 0, pen = null, align = null, hasY = false;
-      for (const a of args) {
+      for (let i = startIdx; i < args.length; i++) {
+        const a = args[i];
         if (isString(a) && !text) text = a;
         else if (isPair(a)) align = toPair(a);
         else if (typeof a === 'number') { y = a; hasY = true; }
@@ -13628,7 +13672,7 @@ function createInterpreter() {
       if (!text && hasY) text = '$' + _formatAxisNum(y) + '$';
       if (!pen) pen = clonePen(defaultPen);
       if (!align) align = {x:-1, y:0};
-      currentPic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align, pen, line:0});
+      pic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align, pen, line:0});
     });
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
