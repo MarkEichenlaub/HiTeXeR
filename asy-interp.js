@@ -3071,6 +3071,24 @@ function createInterpreter() {
       }
       return out;
     }
+    // Transform ^ integer: repeated composition. t^0 = identity, t^n = t*t*…*t
+    // (n times), t^-n = inverse composed n times. Used by symmetry idioms like
+    // `transform t = rotate(60); draw(t^2*p);` (04743) to lay out rotated copies.
+    if (op === T.CARET && isTransform(left) && isNumber(right)) {
+      let exp = Math.round(right);
+      let base = left;
+      if (exp < 0) {
+        const det = left.b*left.f - left.c*left.e;
+        if (!det) return makeTransform(0,1,0,0,0,1);
+        const ib = left.f/det, ic = -left.c/det, ie = -left.e/det, iff = left.b/det;
+        base = makeTransform(-(ib*left.a + ic*left.d), ib, ic,
+                             -(ie*left.a + iff*left.d), ie, iff);
+        exp = -exp;
+      }
+      let result = makeTransform(0,1,0,0,0,1); // identity
+      for (let i = 0; i < exp; ++i) result = composeTransforms(result, base);
+      return result;
+    }
     // Transform * real / real * Transform: Asymptote implicitly casts real→pair as
     // (r, 0), so e.g. rotate(th)*3.2 means rotate(th)*(3.2, 0) — a pair result.
     // (There is no standalone transform*real operator in plain.asy.)
