@@ -22041,7 +22041,17 @@ function createInterpreter() {
       const op = (typeof basePen.opacity === 'number') ? basePen.opacity : 1;
       const r = basePen.r || 0, g = basePen.g || 0, b = basePen.b || 0;
       const achromatic = Math.abs(r - g) < 0.04 && Math.abs(g - b) < 0.04 && Math.abs(r - b) < 0.04;
-      if (op >= 0.99 && achromatic) return;
+      if (achromatic) {
+        // Opaque achromatic gray nolight flat fills render as pure white
+        // wireframe in TeXeR's PRC raster (00517 tetrahedra) — skip the fill.
+        if (op >= 0.99) return;
+        // Translucent achromatic gray nolight flat fills (09540/09542
+        // truncated-icosahedron pentagon faces, gray(0.8)+opacity(0.8)) also
+        // render near-white in TeXeR — overlapping translucent layers do NOT
+        // accumulate into visible gray panels there. Drop the fill to a faint
+        // tint so only the separately-drawn wireframe edges read.
+        basePen = Object.assign({}, basePen, { opacity: Math.min(op, 0.05) });
+      }
     }
     const proj = projection;
     // View axis (camera - target), normalized — used both for depth and light
