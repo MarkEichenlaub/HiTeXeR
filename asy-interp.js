@@ -2054,6 +2054,9 @@ function createInterpreter() {
       const dx = proj.cx-tx, dy = proj.cy-ty, dz = proj.cz-tz;
       const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
       const fwx = dx/dist, fwy = dy/dist, fwz = dz/dist;
+      // Capture the author's ORIGINAL camera distance once, before any
+      // autoadjust pushback mutates proj.c{x,y,z}. Used below to pick the FOV.
+      if (proj._authorDist == null) proj._authorDist = dist;
 
       // Compute the lateral extent of this point (perpendicular to view axis)
       const px = v.x-tx, py = v.y-ty, pz = v.z-tz;
@@ -2062,13 +2065,22 @@ function createInterpreter() {
       const lateral = Math.sqrt(Math.max(0, lateralSq));
 
       // Required camera distance: lateral extent / tan(fov/2) + depth offset.
-      // Asymptote's `perspective()` defaults to angle=30° (half-angle 15°),
-      // giving a fairly narrow / near-orthographic perspective. Using a
-      // wider FOV exaggerates foreshortening (closer objects much larger
-      // than far ones) and shrinks the apparent Z extent of solid shapes
-      // — e.g. in 12845 a wider FOV makes the cylinder side wall too short
-      // relative to the top/bottom ellipse extents.
-      const tanHalfFov = 0.2679; // tan(15°)
+      // Baseline ~15° half-FOV gives a near-orthographic perspective that suits
+      // the common far default camera (perspective(5,4,2), dist 6.7) and large
+      // scenes whose camera sits well outside the geometry. But when the author
+      // deliberately places a CLOSE camera (small |camera-target|) they intend a
+      // strong foreshortened perspective; the fixed 15° FOV then over-pushes the
+      // camera back to ~6× and renders the figure too orthographic — e.g. the
+      // c268_L15 unit-cube family (camera (1/2,-1,1/2), dist ~1.22) projected too
+      // tall (cube aspect 0.96 vs Asymptote's ~1.04). Widen the FOV smoothly for
+      // close author cameras (dist < 2) so foreshortening matches Asymptote, while
+      // leaving far cameras (00517 dist 2.45, 12845 dist 6.7, etc.) untouched.
+      let tanHalfFov = 0.2679; // tan(15°)
+      const _ad = proj._authorDist;
+      if (_ad != null && _ad < 2.0) {
+        const t = Math.max(0, Math.min(1, (2.0 - _ad) / (2.0 - 1.2)));
+        tanHalfFov = 0.2679 + t * (0.42 - 0.2679);
+      }
       const requiredDist = lateral / tanHalfFov + depth;
 
       // Also ensure point is not within 50% of camera distance
