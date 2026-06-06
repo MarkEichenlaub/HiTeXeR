@@ -26126,9 +26126,21 @@ function renderSVG(result, opts) {
           const m = _mjxMeasureBp(dc.text, fontSize);
           if (m && m.wBp > 0) {
             const measuredW = m.wBp * bpCSSPixel;
-            // Apply a small (5%) safety margin so subpixel rounding doesn't clip
-            // glyph edges, but never grow past the heuristic estimate.
-            W = Math.min(W, measuredW * 1.05);
+            if (numLines <= 1) {
+              // Single-line: the MathJax width is exact, so trust it for the
+              // viewBox extent. The 1.06 factor restores the typographic
+              // side-bearings that TeXeR's LaTeX label bbox includes but
+              // MathJax's tight glyph bbox omits — without it all-text diagrams
+              // (02422) render with a canvas that hugs the ink, losing sizeScore
+              // vs TeXeR's padded PNG.
+              W = measuredW * 1.06;
+            } else {
+              // Multi-line: _mjxMeasureBp measures the concatenated single line
+              // (MathJax ignores embedded \n), grossly over-wide, so keep the
+              // char-count heuristic as the cap (guards shortstack/minipage
+              // blowups like 03881, 04702).
+              W = Math.min(W, measuredW * 1.05);
+            }
           }
         } catch (e) { /* ignore — fall back to heuristic */ }
       }
@@ -29072,6 +29084,17 @@ function _texCapFontSize(n) {
 // heuristic under-estimates wide sans-serif/bold text (e.g. \textsf{NOON})
 // by 2×+, which prevents the solver from detecting label-dominated layouts
 // that exceed size() and require uniform downscaling.
+// MathJax's bundled Computer-Modern-clone glyphs have advance widths ~7%
+// narrower than the real Computer Modern that TeXeR/dvisvgm ships, while their
+// vertical metrics match. Left uncorrected, every math label renders ~7% too
+// narrow, so label-width-dominated diagrams (e.g. 02422's Sarrus grid + the
+// "-ary-bpz-cqx" expansion) lose sizeScore even when structurally perfect.
+// Apply a horizontal-only stretch to bring advance widths in line with CM.
+// Must be applied identically in _mjxMeasureBp (so the bbox/viewBox grows to
+// fit the wider label) and renderLabelMathJaxSVG (the actual emitted glyphs,
+// via preserveAspectRatio="none" on the nested <svg>).
+const _MJX_HSTRETCH = 1.072;
+
 function _mjxMeasureBp(rawText, fontSize) {
   const state = _ensureMathJax();
   if (!state) return null;
@@ -29143,7 +29166,7 @@ function _mjxMeasureBp(rawText, fontSize) {
   // Match renderLabelMathJaxSVG: em = fontSize/1.21, exRatio = 0.5.
   const em = fontSize / 1.21;
   const exRatio = 0.5;
-  return { wBp: parsed.wEx * exRatio * em, hBp: parsed.hEx * exRatio * em };
+  return { wBp: parsed.wEx * exRatio * em * _MJX_HSTRETCH, hBp: parsed.hEx * exRatio * em };
 }
 
 // Browser-only counterpart to _mjxMeasureBp.  Renders the label through KaTeX
@@ -29327,7 +29350,8 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   // equals what the renderer actually emits.
   const em = fontSizeCSS / 1.21;
   const exRatio = 0.5;
-  const svgW = parsed.wEx * exRatio * em;
+  // Horizontal-only CM advance-width correction (see _MJX_HSTRETCH note).
+  const svgW = parsed.wEx * exRatio * em * _MJX_HSTRETCH;
   const svgH = parsed.hEx * exRatio * em;
 
   let fx = parseFloat(x), fy = parseFloat(y);
@@ -29344,7 +29368,7 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   const colorAttr = ` color="${fill || '#000000'}"`;
   // Nested <svg> must redeclare xmlns:xlink since MathJax's inner content
   // uses xlink:href (librsvg rejects undeclared namespace prefixes).
-  const core = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="${parsed.viewBox}" overflow="visible"${colorAttr}${op}>${parsed.inner}</svg>`;
+  const core = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(svgW)}" height="${fmt(svgH)}" viewBox="${parsed.viewBox}" preserveAspectRatio="none" overflow="visible"${colorAttr}${op}>${parsed.inner}</svg>`;
   if (reflectX) {
     // Flip horizontally around the label's own center.
     const cx = fx + svgW / 2;
