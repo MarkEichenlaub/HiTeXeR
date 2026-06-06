@@ -9820,6 +9820,32 @@ function createInterpreter() {
         target = args[0];
         args = args.slice(1);
       }
+      // Overload: arrow(arrowhead=DefaultHead, path g, pen p, real size=0,
+      //                 real angle, filltype, position position=EndPoint, ...)
+      // Returns a picture containing ONLY the arrowhead drawn at `position`
+      // along path g; the path itself is drawn separately by the caller.
+      // Used by the add(arrow(TeXHead, p, pen, Relative(t))) idiom (00953).
+      if (args.some(a => isPath(a))) {
+        let gpath = null, ghead = null, gpen = null, gpos = undefined;
+        let gsize = 6, gsizeExplicit = false;
+        for (const a of args) {
+          if (isPath(a)) { if (!gpath) gpath = a; }
+          else if (a && a._tag === 'arrowhead') { ghead = a.kind; }
+          else if (a && a._tag === 'relative') { gpos = a.t; }
+          else if (isPen(a)) { gpen = gpen ? mergePens(gpen, a) : a; }
+          else if (typeof a === 'number') { gsize = a; gsizeExplicit = true; }
+        }
+        if (gpath) {
+          if (!gpen) gpen = clonePen(defaultPen);
+          const arr = {_tag:'arrow', style:'Arrow', size: gsize, sizeExplicit: gsizeExplicit};
+          if (gpos !== undefined) arr.position = gpos;
+          if (ghead === 'TeXHead') arr.texHead = true;
+          else if (ghead === 'HookHead') { arr.texHead = true; if (!gsizeExplicit) { arr.size = 5; arr.sizeExplicit = true; } }
+          else if (ghead) arr.headKind = ghead;
+          target.commands.push({cmd:'draw', path: gpath, pen: clonePen(gpen), arrow: arr, line: args._line || 0, _arrowOnly: true});
+        }
+        return;
+      }
       let label = null, b = null, dir = null;
       let length_bp = 0.75 * 28.45274; // arrowlength = 0.75cm
       let pen = null;
@@ -27127,8 +27153,13 @@ function renderSVG(result, opts) {
     }
     if (dc._subpicClipId) attrs += ` clip-path="url(#${dc._subpicClipId})"`;
 
-    elements.push(_wrapMultiClip(dc, `<path ${attrs}/>`));
-    commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    // _arrowOnly draw commands (from arrow(arrowhead, path, pen, position))
+    // contribute only their arrowhead — the path stroke is suppressed because
+    // the same path is already drawn by the caller.
+    if (!dc._arrowOnly) {
+      elements.push(_wrapMultiClip(dc, `<path ${attrs}/>`));
+      commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
+    }
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
@@ -28555,6 +28586,30 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
   // TeXHead uses a thin stroked chevron (not filled), matching LaTeX arrow glyph shape.
   const filled = style !== 'Bar' && style !== 'Bars' && !isTexHead;
 
+  // Authentic Asymptote texhead glyph (plain_arrows.asy) at an arbitrary
+  // tip position/angle. Shared by mid-path arrowheads (Relative positions).
+  function texHeadGlyphAt(tipX, tipY, screenAngle, s) {
+    const LOCAL_SCALE = s / 84;
+    const cx = Math.cos(screenAngle), sn = Math.sin(screenAngle);
+    const mapPt = (lx, ly) => {
+      const ax = (lx - 84) * LOCAL_SCALE, ay = ly * LOCAL_SCALE;
+      return [tipX + ax*cx - ay*sn, tipY + ax*sn + ay*cx];
+    };
+    const p1=mapPt(0,20),p2=mapPt(-108,166),p3=mapPt(-93,178),p4=mapPt(-77,168),
+          p5=mapPt(70,14),p6=mapPt(84,0),p7=mapPt(70,-14),p8=mapPt(-77,-168),
+          p9=mapPt(-93,-178),p10=mapPt(-108,-166),p11=mapPt(0,-20);
+    const c1a=mapPt(-75,75),c1b=mapPt(-108,158),c2a=mapPt(-108,175),c2b=mapPt(-100,178),
+          c3a=mapPt(-82,178),c3b=mapPt(-80,173),c4a=mapPt(-62,134),c4b=mapPt(-30,61),
+          c5a=mapPt(82,8),c5b=mapPt(84,7),c6a=mapPt(84,-7),c6b=mapPt(82,-8),
+          c7a=mapPt(-30,-61),c7b=mapPt(-62,-134),c8a=mapPt(-80,-173),c8b=mapPt(-82,-178),
+          c9a=mapPt(-100,-178),c9b=mapPt(-108,-175),c10a=mapPt(-108,-158),c10b=mapPt(-75,-75);
+    const bez=(ca,cb,pn)=>`C${fmt(ca[0])} ${fmt(ca[1])} ${fmt(cb[0])} ${fmt(cb[1])} ${fmt(pn[0])} ${fmt(pn[1])} `;
+    const d = `M${fmt(p1[0])} ${fmt(p1[1])} `+bez(c1a,c1b,p2)+bez(c2a,c2b,p3)+bez(c3a,c3b,p4)+
+      bez(c4a,c4b,p5)+bez(c5a,c5b,p6)+bez(c6a,c6b,p7)+bez(c7a,c7b,p8)+bez(c8a,c8b,p9)+
+      bez(c9a,c9b,p10)+bez(c10a,c10b,p11)+`L${fmt(p1[0])} ${fmt(p1[1])} Z`;
+    return {d, filled:true};
+  }
+
   function arrowAt(seg, atEnd) {
     let tip, tangentAngle;
     if (atEnd) {
@@ -28752,6 +28807,8 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     const screenAngle = -tangentAngle;
     const s = arrowLen;
     const halfAngle = halfAngleDeg * Math.PI / 180;
+
+    if (isTexHead) return texHeadGlyphAt(tipX, tipY, screenAngle, s);
 
     if (isArcStyle) {
       const arcAngle = 25 * Math.PI / 180;
