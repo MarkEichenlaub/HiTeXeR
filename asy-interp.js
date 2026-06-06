@@ -12405,8 +12405,17 @@ function createInterpreter() {
       let _ticksBpPerUnit = 0;
       if (sizeW > 0 || sizeH > 0) {
         const _gb2 = getGeoBbox(pic.commands);
-        const rX2 = (_gb2 && isFinite(_gb2.maxX - _gb2.minX)) ? Math.abs(_gb2.maxX - _gb2.minX) : (Math.abs(max - min) || 1);
-        const rY2 = (_gb2 && isFinite(_gb2.maxY - _gb2.minY)) ? Math.abs(_gb2.maxY - _gb2.minY) : perpAxisRange;
+        // Prefer the explicitly-plotted axis limits over the raw geometry bbox.
+        // graph() samples near vertical asymptotes (or any pre-Crop curve) can
+        // shoot far past the plotted window, inflating the geo bbox by orders of
+        // magnitude. Using that for the perpendicular range would make an
+        // explicit Size= tick (e.g. Size=2) compute against a huge range and
+        // balloon to full plot height (12481: f(x) with poles at x=±3 and
+        // limits(...,Crop) — ticks must stay ~2bp, not span the window).
+        const _alXR = (_axisLimits.xmax !== null && _axisLimits.xmin !== null) ? Math.abs(_axisLimits.xmax - _axisLimits.xmin) : 0;
+        const _alYR = (_axisLimits.ymax !== null && _axisLimits.ymin !== null) ? Math.abs(_axisLimits.ymax - _axisLimits.ymin) : 0;
+        const rX2 = _alXR > 0 ? _alXR : ((_gb2 && isFinite(_gb2.maxX - _gb2.minX)) ? Math.abs(_gb2.maxX - _gb2.minX) : (Math.abs(max - min) || 1));
+        const rY2 = _alYR > 0 ? _alYR : ((_gb2 && isFinite(_gb2.maxY - _gb2.minY)) ? Math.abs(_gb2.maxY - _gb2.minY) : perpAxisRange);
         // When one dimension is 0 (auto), compute proportional size based on
         // data aspect ratio. size(w,0) preserves aspect so height = w*(rY/rX).
         let sw2, sh2;
