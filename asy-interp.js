@@ -21808,6 +21808,32 @@ function createInterpreter() {
       );
     }
 
+    // LaTeX math array environment (e.g. Sarrus determinant grids, 02422):
+    // the node MathJax renderer (3.2.1) cannot render alignment environments —
+    // \begin{array}/\begin{matrix}/\begin{gathered} all throw, and a bare \\ at
+    // top level does not stack rows either. So we lay the grid out ourselves by
+    // emitting one label per row, each a normal single-line colored math label
+    // (MathJax handles \color + \quad spacing fine), stacked vertically around
+    // the label position. & column separators become \quad spacing.
+    // The corpus source writes row separators as a backslash followed by a real
+    // line break and also embeds insignificant formatting newlines (from \n
+    // escapes); split rows on backslash+EOL and treat bare newlines as spaces.
+    let arrayRows = null;
+    if (typeof text === 'string' && /\\begin\s*\{array\}/.test(text)) {
+      const am = text.match(/\\begin\s*\{array\}\s*(?:\{[^}]*\})?([\s\S]*?)\\end\s*\{array\}/);
+      if (am) {
+        const ROWSEP = '@@HTXROW@@';
+        arrayRows = am[1]
+          .replace(/\\+[ \t]*\r?\n/g, ROWSEP)
+          .replace(/[\r\n]+/g, ' ')
+          .split(ROWSEP)
+          .map(r => r.trim())
+          .filter(r => r.length > 0)
+          .map(r => '$' + r.split('&').map(c => c.trim()).join('\\quad ') + '$');
+        if (arrayRows.length < 2) arrayRows = null;
+      }
+    }
+
     if (frameTarget) {
       // Stash the label spec on the frame; consumed by _emitMarkerFrame
       // when the frame is placed at marker positions on a path.
@@ -21844,6 +21870,22 @@ function createInterpreter() {
         graphicData = Object.assign({}, graphicData, {transform: t});
       }
       target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
+    } else if (arrayRows) {
+      // Stack the flattened array rows vertically around `pos`. The row gap is
+      // the LaTeX array row spacing for the label font (~1.15× font size, tuned
+      // to match TeXeR's array row pitch on 02422), converted from bp to user
+      // units via the current unit scale (points per user unit). Top row first,
+      // descending.
+      const fsbp = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0) ? pen.fontsize : 12;
+      const bpPerUnit = (hasUnitScale && unitScale > 0) ? unitScale
+                       : (_globalUnitSize > 0 ? _globalUnitSize : 28.3464567);
+      const rowGap = fsbp * 1.15 / bpPerUnit;
+      const n = arrayRows.length;
+      for (let i = 0; i < n; i++) {
+        const dy = ((n - 1) / 2 - i) * rowGap;
+        const rPos = makePair(pos.x, pos.y + dy);
+        target.commands.push({cmd:'label', text: arrayRows[i], pos: rPos, align, pen, filltype, line: args._line || 0});
+      }
     } else {
       const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
       if (pos3D) labelCmd._pos3D = pos3D;
