@@ -1483,6 +1483,7 @@ async function main() {
           console.log('[run-loop] prepended ' + toAdd.length + ' regression ID(s) to queue.json');
         }
       }
+      writeStatus({ currentId: null, phase: 'idle' });
     }
   }
   const ok = committed + skipped;

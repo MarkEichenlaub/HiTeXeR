@@ -927,4 +927,6 @@ document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
   console.log('Pipeline complete.');
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// sharp's worker thread pool keeps Node alive after all work is done.
+// Force-exit so spawnSync in run-loop.js is not blocked indefinitely.
+main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
