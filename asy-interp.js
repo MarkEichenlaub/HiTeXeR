@@ -10253,6 +10253,65 @@ function createInterpreter() {
     // intersect2paths(p1, p2) — cse5: returns array of intersection points between two paths
     env.set('intersect2paths', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
 
+    // real[][] intersections(path g, path h, real fuzz=-1)
+    // Returns each intersection as a 2-element array [t_g, t_h] of path-times,
+    // sorted by t_g (time along the first path) — matching Asymptote so that
+    // intersections(g,h)[k][0] / [k][1] index the k-th crossing's times.
+    // Used by the Venn-diagram idiom: subpath(g, intersections(g,h)[i][0], ...).
+    env.set('intersections', (p1, p2 /*, fuzz */) => {
+      p1 = geoToPath(p1); p2 = geoToPath(p2);
+      if (!isPath(p1) || !isPath(p2)) return [];
+      if (!p1.segs || !p2.segs || p1.segs.length === 0 || p2.segs.length === 0) return [];
+      // Accurate path-time of point pt on a single bezier segment: coarse scan
+      // then golden-section refine. Chord projection (used by intersectionpoints)
+      // is only correct for straight segments; ellipse arcs need the true param.
+      const localT = (seg, pt) => {
+        const evalB = (t) => {
+          const u = 1 - t;
+          return {
+            x: u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x,
+            y: u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y,
+          };
+        };
+        const N = 64;
+        let bestT = 0, bestD = Infinity;
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, b = evalB(t);
+          const d = (b.x-pt.x)*(b.x-pt.x) + (b.y-pt.y)*(b.y-pt.y);
+          if (d < bestD) { bestD = d; bestT = t; }
+        }
+        let lo = Math.max(0, bestT - 1/N), hi = Math.min(1, bestT + 1/N);
+        for (let it = 0; it < 40; it++) {
+          const m1 = lo + (hi-lo)/3, m2 = hi - (hi-lo)/3;
+          const b1 = evalB(m1), b2 = evalB(m2);
+          const d1 = (b1.x-pt.x)*(b1.x-pt.x) + (b1.y-pt.y)*(b1.y-pt.y);
+          const d2 = (b2.x-pt.x)*(b2.x-pt.x) + (b2.y-pt.y)*(b2.y-pt.y);
+          if (d1 < d2) hi = m2; else lo = m1;
+        }
+        return (lo + hi) / 2;
+      };
+      const found = [];
+      const tolPt = Math.max(1e-3, 1e-3 * Math.max(
+        Math.abs(p1.segs[0].p0.x) + Math.abs(p1.segs[0].p0.y), 1));
+      for (let i = 0; i < p1.segs.length; i++) {
+        const s1 = p1.segs[i];
+        for (let j = 0; j < p2.segs.length; j++) {
+          const s2 = p2.segs[j];
+          const ips = bezierBezierAllIntersections(s1, s2);
+          for (const ip of ips) {
+            let dup = false;
+            for (const f of found) {
+              if (Math.abs(f.pt.x - ip.x) < tolPt && Math.abs(f.pt.y - ip.y) < tolPt) { dup = true; break; }
+            }
+            if (dup) continue;
+            found.push({ pt: ip, t1: i + localT(s1, ip), t2: j + localT(s2, ip) });
+          }
+        }
+      }
+      found.sort((a, b) => a.t1 - b.t1);
+      return found.map(f => [f.t1, f.t2]);
+    });
+
     // inside(path, pair) — returns true if pair is inside the closed path (2D)
     // Uses ray-crossing algorithm: cast a horizontal ray from the point and count crossings
     env.set('inside', (path, pt) => {
