@@ -2625,6 +2625,12 @@ function createInterpreter() {
       return right;
     }
 
+    // transform * Break (axis-break glyph): accumulate the transform so it can
+    // be applied to the glyph paths at label() time (e.g. rotate(90)*Break).
+    if (op === T.STAR && isTransform(left) && right && right._tag === 'breaksym') {
+      return {_tag:'breaksym', tf: right.tf ? composeTransforms(left, right.tf) : left};
+    }
+
     // Geometry point/vector ops
     if (isPoint(left) || isPoint(right) || isGeoVector(left) || isGeoVector(right)) {
       // point + vector → point (shift point by vector displacement)
@@ -11902,19 +11908,21 @@ function createInterpreter() {
       }
       // Use custom forward transform if available, otherwise log10
       const _xT = (x) => {
-        if (!xScaleLog || x <= 0) return x;
         if (xScale && xScale.forward) {
+          if (xScaleLog && x <= 0) return x;
           const fwd = xScale.forward;
           return typeof fwd === 'function' ? fwd(x) : callUserFuncValues(fwd, [x]);
         }
+        if (!xScaleLog || x <= 0) return x;
         return Math.log10(x);
       };
       const _yT = (y) => {
-        if (!yScaleLog || y <= 0) return y;
         if (yScale && yScale.forward) {
+          if (yScaleLog && y <= 0) return y;
           const fwd = yScale.forward;
           return typeof fwd === 'function' ? fwd(y) : callUserFuncValues(fwd, [y]);
         }
+        if (!yScaleLog || y <= 0) return y;
         return Math.log10(y);
       };
       // Strip operator/bool3/picture args and named args for cleaner matching
@@ -12426,6 +12434,13 @@ function createInterpreter() {
         step = majorPositions.length > 1 ? Math.abs(majorPositions[1] - majorPositions[0]) : 1;
       } else {
         step = ticks.step;
+        // Broken axis: forward() maps data integers to scaled integers (the
+        // shift skip=b-a is an integer) while the collapsed region lands on the
+        // half-integer `a`. A step of 1 in scaled space therefore reproduces
+        // exactly the intended data-value ticks (e.g. x=8,9,10 → 1,2,3;
+        // y=3 → 1) and never lands inside the break gap.
+        const _axScaleT = (axisDir === 'x') ? (pic && pic._xScale) : (pic && pic._yScale);
+        if (step <= 0 && _axScaleT && _axScaleT.broken) step = 1;
         if (step <= 0) {
           // Auto-compute step using Asymptote's divisors algorithm
           const range = max - min;
@@ -12540,6 +12555,14 @@ function createInterpreter() {
         for (let v = Math.ceil(min / step) * step; v <= max + 1e-10; v += step) {
           majorPositions.push(Math.round(v * 1e10) / 1e10);
         }
+      }
+      // begin=false / end=false (Ticks) suppress the tick at the axis min/max
+      // endpoint (e.g. broken-axis number lines that draw their own origin).
+      if (ticks.begin === false && majorPositions.length) {
+        majorPositions = majorPositions.filter(v => v > min + 1e-9);
+      }
+      if (ticks.end === false && majorPositions.length) {
+        majorPositions = majorPositions.filter(v => v < max - 1e-9);
       }
 
       // Compute sub-tick positions (minor ticks between major ticks)
@@ -13981,6 +14004,8 @@ function createInterpreter() {
           if ('ptick' in a && isPen(a.ptick)) t.pen = a.ptick;
           if ('beginlabel' in a) t.beginlabel = a.beginlabel;
           if ('endlabel' in a) t.endlabel = a.endlabel;
+          if ('begin' in a) t.begin = a.begin;
+          if ('end' in a) t.end = a.end;
         }
       }
       return t;
@@ -13991,6 +14016,9 @@ function createInterpreter() {
     env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null, none:true});
     env.set('NoZero', {_tag:'tickmod', noZero:true});
     env.set('NoZeroFormat', {_tag:'tickmod', noZero:true});
+    // Break: the small zig-zag glyph drawn on a broken axis (placed via
+    // label(Break, pos) / label(rotate(90)*Break, pos)). See evalLabel.
+    env.set('Break', {_tag:'breaksym', tf:null});
 
     // polargraph — plot r = f(theta) in polar coordinates
     env.set('polargraph', (...args) => {
@@ -14033,7 +14061,56 @@ function createInterpreter() {
     env.set('Linear', _scaleType('linear'));
     env.set('Log',    _scaleType('log'));
     env.set('Logarithmic', _scaleType('log'));
-    env.set('Broken', (...args) => ({_tag:'scaleT', type:'linear'}));
+    // Broken(a,b): a "broken axis" scale that collapses the data interval
+    // [a,b) onto the single screen coordinate `a`, shifting everything >= b
+    // down by (b-a). A break symbol is drawn at `a`. Used by number-line /
+    // partial-graph diagrams (e.g. c10_L8: scale(Broken(0.5,7.5),Broken(0.5,2.5))
+    // so x=8,9,10 map to screen 1,2,3 and y=3 maps to screen 1).
+    env.set('Broken', (...args) => {
+      const nums = args.filter(a => typeof a === 'number');
+      const a = nums.length >= 1 ? nums[0] : 0;
+      const b = nums.length >= 2 ? nums[1] : a;
+      const skip = b - a;
+      const forward = (x) => (x <= a) ? x : (x < b ? a : x - skip);
+      const inverse = (x) => (x <= a) ? x : x + skip;
+      return {_tag:'scaleT', type:'custom', forward, inverse, broken:true, brokenA:a, brokenB:b};
+    });
+    // Scale / ScaleX / ScaleY: apply the current picture's axis scale forward
+    // transform to a value, converting data coords into the (scaled) drawing
+    // coordinate space. Diagrams using a Broken/Log scale place manual labels
+    // with these, e.g. label("$8$",(ScaleX(8),0),S).
+    const _applyScaleFwd = (scaleObj, v) => {
+      if (scaleObj && scaleObj.forward) {
+        if ((scaleObj.type === 'log' || scaleObj.type === 'custom-log') && v <= 0) return v;
+        const f = scaleObj.forward;
+        return typeof f === 'function' ? f(v) : callUserFuncValues(f, [v]);
+      }
+      if (scaleObj && (scaleObj.type === 'log' || scaleObj.type === 'custom-log') && v > 0) return Math.log10(v);
+      return v;
+    };
+    const _scaleAxisPic = (args) => {
+      for (const a of args) if (a && a._tag === 'picture') return a;
+      const cp = env.get('currentpicture');
+      return (cp && cp._tag === 'picture') ? cp : null;
+    };
+    env.set('ScaleX', (...args) => {
+      const pic = _scaleAxisPic(args);
+      const x = toNumber(args.filter(a => typeof a === 'number')[0]);
+      return _applyScaleFwd(pic && pic._xScale, x);
+    });
+    env.set('ScaleY', (...args) => {
+      const pic = _scaleAxisPic(args);
+      const y = toNumber(args.filter(a => typeof a === 'number')[0]);
+      return _applyScaleFwd(pic && pic._yScale, y);
+    });
+    env.set('Scale', (...args) => {
+      const pic = _scaleAxisPic(args);
+      const p = args.find(a => isPair(a));
+      if (p) return makePair(_applyScaleFwd(pic && pic._xScale, p.x), _applyScaleFwd(pic && pic._yScale, p.y));
+      const x = toNumber(args.filter(a => typeof a === 'number')[0]);
+      return _applyScaleFwd(pic && pic._xScale, x);
+    });
+
     // scaleT(forward, inverse, logarithmic=false) — custom scale constructor.
     // When logarithmic=true, tick labels are formatted as powers of the base.
     env.set('scaleT', (...args) => {
@@ -21871,6 +21948,48 @@ function createInterpreter() {
     const savedLine = args._line;
     args = args.map(a => isPoint(a) ? locatePoint(a) : (isGeoVector(a) ? locateVector(a) : a));
     args._line = savedLine;
+    // Axis-break glyph: label(Break, pos) / label(rotate(90)*Break, pos).
+    // Draw two short parallel slashes crossing the (broken) axis at pos.
+    {
+      const bsym = args.find(a => a && a._tag === 'breaksym');
+      if (bsym) {
+        let bpos = null, bpen = null;
+        for (const a of args) {
+          if (isPair(a) && !bpos) bpos = a;
+          else if (isPen(a) && !bpen) bpen = a;
+        }
+        if (!bpos) bpos = makePair(0, 0);
+        if (!bpen) bpen = clonePen(defaultPen);
+        const tf = bsym.tf;
+        // Snap the break onto its axis line. The break is placed at the gap
+        // coordinate `a` on one axis; the other coordinate comes from
+        // point(S).y / point(W).x, which Asymptote evaluates as the axis-line
+        // position but our text-inflated bbox returns too low/left. Use the
+        // actual axis-line position. rotate(90)*Break sits on the x-axis;
+        // a bare Break sits on the y-axis.
+        let xAxisY = null, yAxisX = null;
+        for (const c of target.commands) {
+          if (c && c._isAxisLine === 'x') xAxisY = (c._axisShiftY != null) ? c._axisShiftY : (c.path && c.path.segs[0] && c.path.segs[0].p0.y);
+          if (c && c._isAxisLine === 'y') yAxisX = (c._axisShiftX != null) ? c._axisShiftX : (c.path && c.path.segs[0] && c.path.segs[0].p0.x);
+        }
+        if (tf && xAxisY != null) bpos = makePair(bpos.x, xAxisY);
+        else if (!tf && yAxisX != null) bpos = makePair(yAxisX, bpos.y);
+        const xf = (x, y) => {
+          let p = {x, y};
+          if (tf) p = applyTransformPair(tf, p);
+          return {x: p.x + bpos.x, y: p.y + bpos.y};
+        };
+        const slashes = [
+          [[-0.09, -0.14], [0.09, -0.04]],
+          [[-0.09,  0.04], [0.09,  0.14]],
+        ];
+        for (const s of slashes) {
+          const path = makePath([lineSegment(xf(s[0][0], s[0][1]), xf(s[1][0], s[1][1]))], false);
+          target.commands.push({cmd: 'draw', path, pen: bpen, line: args._line || 0, above: 1});
+        }
+        return;
+      }
+    }
     let text = '', pos = null, align = null, pen = null, filltype = null, labelTransform = null;
     let graphicData = null;
     let pathForDefaultAlign = null; // Store path for deferred default-align computation
