@@ -3346,6 +3346,14 @@ function createInterpreter() {
         const envDraw = env.get('draw');
         if (typeof envDraw === 'function') return envDraw(...args);
       }
+      // binarytree module installs a draw(binarytree, ...) override; the tree
+      // object may be the first arg, or the second after a picture target.
+      if (calleeName === 'draw' &&
+          ((args[0] && args[0]._tag === 'binarytree') ||
+           (args.length >= 2 && args[1] && args[1]._tag === 'binarytree'))) {
+        const envDraw = env.get('draw');
+        if (typeof envDraw === 'function') return envDraw(...args);
+      }
       if (calleeName === 'dot') {
         // dot(triple, triple) is dot product, not drawing
         if (args.length === 2 && isTriple(args[0]) && isTriple(args[1])) {
@@ -5553,6 +5561,9 @@ function createInterpreter() {
     if (mod === 'drawtree' || mod.endsWith('/drawtree')) {
       installDrawtreePackage(env);
     }
+    if (mod === 'binarytree' || mod.endsWith('/binarytree')) {
+      installBinarytreePackage(env);
+    }
     if (mod === 'cad' || mod.endsWith('/cad')) {
       installCADPackage(env);
     }
@@ -5824,6 +5835,197 @@ function createInterpreter() {
         return drawTree(root, pos);
       }
       // Fall through to original draw
+      if (typeof baseDraw === 'function') return baseDraw(...args);
+    });
+  }
+
+  // Asymptote "binarytree" module (binarytree.asy by Tobias Langner, mod.
+  // John Bowman). Draws binary trees: numbered circular nodes connected to
+  // their children by short arrows. Two constructors:
+  //   binarytree(...key[] keys) — build from a PREORDER serialization where
+  //       each node value is followed by its left then right subtree, and
+  //       `nil` marks an empty child.
+  //   searchtree(...int[] keys) — build a BST by sequential insertion.
+  // The drawing/layout below replicates binarytree.asy's geometry so the
+  // render matches TeXeR: nodeDiameter is sized from the widest key label,
+  // levelDist = 1.8*nodeDiameter, and horizontal spacing at a given level is
+  // (nodeDiameter+minDist)*2^(height-level)/2 split left/right of the parent.
+  function installBinarytreePackage(env) {
+    const cmBp = 72/2.54;
+    const minDistDefault = 0.2*cmBp;     // 0.2cm
+    const nodeMarginDefault = 0.1*cmBp;  // 0.1cm
+    env.set('minDistDefault', minDistDefault);
+    env.set('nodeMarginDefault', nodeMarginDefault);
+
+    // `nil` sentinel for empty children in the preorder constructor.
+    const NIL = {_tag:'btnil', n:0, active:false};
+    env.set('nil', NIL);
+
+    function isNil(x) {
+      return x == null || x === NIL ||
+        (x && typeof x === 'object' && (x._tag === 'btnil' || x.active === false));
+    }
+    function keyVal(x) {
+      if (typeof x === 'number') return x;
+      if (x && typeof x === 'object' && typeof x.n === 'number') return x.n;
+      return Number(x);
+    }
+
+    // Build a tree from a preorder key list (value, left-subtree, right-subtree),
+    // matching binarytree.build().
+    function buildPreorder(keys) {
+      let i = 0;
+      function build() {
+        if (i >= keys.length) return null;
+        const k = keys[i]; i++;
+        if (isNil(k)) return null;
+        const node = {key: keyVal(k), left:null, right:null, parent:null};
+        node.left = build();
+        node.right = build();
+        if (node.left) node.left.parent = node;
+        if (node.right) node.right.parent = node;
+        return node;
+      }
+      return build();
+    }
+
+    env.set('binarytree', (...args) => {
+      const keys = args.filter(a => !(a && typeof a === 'object' && a._named));
+      return {_tag:'binarytree', root: buildPreorder(keys)};
+    });
+
+    env.set('searchtree', (...args) => {
+      const keys = args.filter(a => typeof a === 'number' ||
+        (a && typeof a === 'object' && typeof a.n === 'number')).map(keyVal);
+      let root = null;
+      for (const key of keys) {
+        const newNode = {key, left:null, right:null, parent:null};
+        if (!root) { root = newNode; continue; }
+        let n = root, placed = false;
+        while (n && !placed) {
+          if (key < n.key) {
+            if (n.left) n = n.left;
+            else { n.left = newNode; newNode.parent = n; placed = true; }
+          } else if (key > n.key) {
+            if (n.right) n = n.right;
+            else { n.right = newNode; newNode.parent = n; placed = true; }
+          } else placed = true; // ignore duplicate
+        }
+      }
+      return {_tag:'binarytree', root};
+    });
+
+    function getHeight(node) {
+      if (!node) return 0;
+      if (!node.left && !node.right) return 1;
+      if (!node.left) return getHeight(node.right) + 1;
+      if (!node.right) return getHeight(node.left) + 1;
+      return Math.max(getHeight(node.left), getHeight(node.right)) + 1;
+    }
+    function getLevel(node) {
+      let lvl = 1, n = node;
+      while (n.parent) { lvl++; n = n.parent; }
+      return lvl;
+    }
+
+    // Approximate the diagonal of the bounding box enclosing all key labels
+    // (all drawn at the origin), matching abs(max(f)-min(f)) in binarytree.asy.
+    // Per-digit advance + cap-height tuned for the default ~12pt CM math digits;
+    // refined visually against the 08673 reference.
+    function labelBBoxDiag(root) {
+      let maxChars = 1;
+      (function walk(n) {
+        if (!n) return;
+        const len = String(n.key).length;
+        if (len > maxChars) maxChars = len;
+        walk(n.left); walk(n.right);
+      })(root);
+      const digitH = 9.6;
+      const charW = 7.7;
+      const w = maxChars * charW;
+      return Math.sqrt(w*w + digitH*digitH);
+    }
+
+    const baseDraw = env.get('draw');
+
+    function drawBinarytree(target, tree, minDist, nodeMargin, pen) {
+      const root = tree.root;
+      if (!root) return;
+      const nodeDiameter = labelBBoxDiag(root) + 2*nodeMargin;
+      const levelDist = nodeDiameter * 1.8;
+      const height = getHeight(root);
+      const r = nodeDiameter/2;
+
+      const nodes = [];
+      const edges = [];
+
+      function place(node, px, py) {
+        node._x = px; node._y = py;
+        nodes.push(node);
+        const dist = (nodeDiameter + minDist) * Math.pow(2, height - getLevel(node)) / 2;
+        if (node.left) {
+          const cx = px - dist/2, cy = py - levelDist;
+          edges.push([node, node.left]);
+          place(node.left, cx, cy);
+        }
+        if (node.right) {
+          const cx = px + dist/2, cy = py - levelDist;
+          edges.push([node, node.right]);
+          place(node.right, cx, cy);
+        }
+      }
+      place(root, 0, 0);
+
+      const arrow = {_tag:'arrow', style:'Arrow', size:5};
+
+      // Draw into currentPic (not the local `pic` arg). The corpus idiom is
+      // `draw(pic,bt); add(pic.fit());` — routing through pic.fit() renders the
+      // subpicture at its natural 1:1 bp scale and drops the outer size(400),
+      // leaving the tree far too small. Drawing straight into currentPic lets
+      // size()/unitsize() on the main picture scale the tree as Asymptote does.
+      // (The same approach the drawtree module uses.)
+
+      // Draw connecting arrows first (so circles/labels sit on top, matching
+      // the module which adds node frames after the deferred connections).
+      for (const [par, ch] of edges) {
+        const dx = ch._x - par._x, dy = ch._y - par._y;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx/len, uy = dy/len;
+        const start = makePair(par._x + r*ux, par._y + r*uy);
+        const end = makePair(ch._x - r*ux, ch._y - r*uy);
+        evalDraw('draw', [makePath([lineSegment(toPair(start), toPair(end))], false), arrow, pen]);
+      }
+
+      // Draw nodes: circle + centered key label.
+      for (const n of nodes) {
+        evalDraw('draw', [makeCirclePath({x:n._x, y:n._y}, r), pen]);
+        evalLabel(['$' + n.key + '$', makePair(n._x, n._y)]);
+      }
+    }
+
+    env.set('draw', (...args) => {
+      // draw([pic,] binarytree, [minDist], [nodeMargin], [pen])
+      let target = currentPic;
+      let rest = args;
+      if (rest.length > 0 && rest[0] && rest[0]._tag === 'picture') { target = rest[0]; rest = rest.slice(1); }
+      if (rest.length > 0 && rest[0] && rest[0]._tag === 'binarytree') {
+        const tree = rest[0];
+        let minDist = minDistDefault, nodeMargin = nodeMarginDefault, pen = null;
+        const pos = rest.slice(1);
+        const nums = pos.filter(a => typeof a === 'number');
+        if (nums.length >= 1) minDist = nums[0];
+        if (nums.length >= 2) nodeMargin = nums[1];
+        for (const a of pos) { if (isPen(a)) { pen = a; break; } }
+        // Named-arg overrides.
+        for (const a of pos) {
+          if (a && typeof a === 'object' && a._named) {
+            if ('minDist' in a) minDist = toNumber(a.minDist);
+            if ('nodeMargin' in a) nodeMargin = toNumber(a.nodeMargin);
+            if ('p' in a && isPen(a.p)) pen = a.p;
+          }
+        }
+        return drawBinarytree(target, tree, minDist, nodeMargin, pen);
+      }
       if (typeof baseDraw === 'function') return baseDraw(...args);
     });
   }
