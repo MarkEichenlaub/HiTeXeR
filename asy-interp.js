@@ -10641,7 +10641,10 @@ function createInterpreter() {
         if (a && typeof a === 'object' && a._named) { if ('n' in a) n = a.n; continue; }
         if (isPair(a) && P === null) { P = toPair(a); continue; }
         if (isPair(a) && Cc === null) { Cc = toPair(a); continue; }
-        if (typeof a === 'number' && r === null) { r = a; continue; }
+        if (typeof a === 'number') {
+          if (r === null) { r = a; continue; }
+          n = a; continue;  // second positional number is the tangent index n
+        }
       }
       if (!P || !Cc || r === null) return makePair(0, 0);
       const Dx = P.x - Cc.x, Dy = P.y - Cc.y;
