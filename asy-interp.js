@@ -12447,8 +12447,16 @@ function createInterpreter() {
         let bpPerUnit = 0;
         if (sizeW > 0 || sizeH > 0) {
           const _gb = getGeoBbox(pic.commands);
-          const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.abs(_gb.maxX - _gb.minX) : alongRange;
-          const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : perpAxisRange;
+          // Prefer the explicitly-plotted axis limits over the raw geometry
+          // bbox (same rationale as the explicit-Size block below). When
+          // xlimits/ylimits expand the window past the drawn geometry (00115:
+          // ylimits(-4,8) but the curves only span y≈0..4), the geo bbox
+          // underestimates the perpendicular range, inflating bpPerUnit and
+          // shrinking default 1mm ticks to a fraction of their intended length.
+          const _alXR = (_axisLimits.xmax !== null && _axisLimits.xmin !== null) ? Math.abs(_axisLimits.xmax - _axisLimits.xmin) : 0;
+          const _alYR = (_axisLimits.ymax !== null && _axisLimits.ymin !== null) ? Math.abs(_axisLimits.ymax - _axisLimits.ymin) : 0;
+          const rX = _alXR > 0 ? _alXR : ((_gb && isFinite(_gb.maxX - _gb.minX)) ? Math.abs(_gb.maxX - _gb.minX) : alongRange);
+          const rY = _alYR > 0 ? _alYR : ((_gb && isFinite(_gb.maxY - _gb.minY)) ? Math.abs(_gb.maxY - _gb.minY) : perpAxisRange);
           // When one dimension is 0 (auto), compute proportional size based on
           // data aspect ratio. size(w,0) preserves aspect so height = w*(rY/rX).
           let sw, sh;
@@ -12794,16 +12802,28 @@ function createInterpreter() {
           const _eps = _span * 1e-6;
           // Axis at or BELOW content → ticks must point INTO plot (toward
           // content), regardless of LeftTicks/RightTicks. Same for above.
-          if (axisOffset <= crossMin + _eps) actualSide = 'right';
-          else if (axisOffset >= crossMax - _eps) actualSide = 'left';
+          // The side that points "into the plot" differs by axis orientation:
+          // for the x-axis, into-plot at the bottom edge is UP ('left' under the
+          // perpendicular convention below); for the y-axis, into-plot at the
+          // left edge is RIGHT ('right'). Keep these isX-aware so interior axes
+          // (e.g. 00115: x-axis at y=0 with ylimits(-4,8)) fall through to the
+          // literal LeftTicks/RightTicks direction.
+          if (axisOffset <= crossMin + _eps) actualSide = isX ? 'left' : 'right';
+          else if (axisOffset >= crossMax - _eps) actualSide = isX ? 'right' : 'left';
         }
+        // Perpendicular tick direction. Walking the axis in its positive
+        // direction, "left"/"right" name the hand sides:
+        //   x-axis (+x, east):  left → UP (+y),    right → DOWN (-y)
+        //   y-axis (+y, north): left → LEFT (-x),  right → RIGHT (+x)
+        // RightTicks on a horizontal axis therefore points DOWN (matches
+        // Asymptote/TeXeR), and LeftTicks on a vertical axis points LEFT.
         let p0, p1;
         if (actualSide === 'left') {
-          p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
-          p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
+          p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset-sz, y:v};
+          p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset, y:v};
         } else if (actualSide === 'right') {
-          p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
-          p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
+          p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset, y:v};
+          p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset+sz, y:v};
         } else {
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
@@ -13317,7 +13337,12 @@ function createInterpreter() {
           // label sits just below the axis end, matching texer's spacing.
           const plainEndpointDefault = !arrow && !ticks && !extent
             && labelPosition == null && labelAlign == null;
-          lAlign = labelAlign || (plainEndpointDefault ? {x:-1, y:-1} : {x:-1, y:-3});
+          // y:-1 (one labelmargin) is correct even when ticks are present: the
+          // tickLabelClearance screenDy below already pushes the label past the
+          // tick labels, so an additional y:-3 alignment double-pushes the title
+          // far below the axis (00115 "x" sat ~2.4fs down vs TeXeR's ~1.8fs,
+          // just past the "5" tick label).
+          lAlign = labelAlign || {x:-1, y:-1};
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
         }
