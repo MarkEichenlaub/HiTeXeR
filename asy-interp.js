@@ -24448,6 +24448,21 @@ function renderSVG(result, opts) {
         }
         const effectiveLen = hasFrac ? maxLineLen * 1.6 : _effLenBB;
         let textWidthBpBase = effectiveLen * charWidthBp;
+        // Fraction labels render as a stacked numerator/denominator layout whose
+        // true width the flat stripLaTeX char-count cannot model (the linear text
+        // "49π/100" over/under-counts the rendered "49π over 100" column). Use the
+        // same MathJax measurement the renderer uses so the size()-solver's bbox
+        // matches the actual rendered width. Without this, the post-scale overshoot
+        // padding inflates the viewBox past the size() target — 02582's wide
+        // coordinate label pushed the canvas ~10% too wide (sizeScore 0.79).
+        if (hasFrac && opts && opts.labelOutput === 'svg-native'
+            && typeof _mjxMeasureBp === 'function'
+            && typeof text === 'string' && text.indexOf('\n') === -1) {
+          try {
+            const _mm = _mjxMeasureBp(text, fontSize);
+            if (_mm && _mm.wBp > 0) textWidthBpBase = _mm.wBp;
+          } catch (e) { /* fall back to heuristic */ }
+        }
         // Guard against severe width under-estimation for size()-constrained labels:
         // the flat 0.288-em ratio is tight for alpha glyphs but too narrow for digits
         // and mixed text+units labels (e.g. "0.650 kg"). Use the per-glyph estimator
@@ -27152,6 +27167,24 @@ function renderSVG(result, opts) {
         svgH *= overshootScaleH;
         intrinsicW *= overshootScaleW;
         intrinsicH *= overshootScaleH;
+        // Pure size() keepAspect diagrams: Asymptote/TeXeR fits the ENTIRE
+        // label-inclusive picture (geometry + truesize labels + arrow/dot
+        // overshoot) into the size() box. The overshoot expansion above can push
+        // the canvas past size() when a wide truesize label renders beyond the
+        // solver's reserved width (e.g. 02582's NE coordinate label off a dot).
+        // Clamp the padded canvas back to the size() target with a single uniform
+        // scale so the rasterized output matches TeXeR's absolute size while
+        // keeping all content visible. Excludes unitsize() (hasUnitScale), where
+        // the user fixed the scale and labels legitimately enlarge the output.
+        if (keepAspect && !hasUnitScale && sizeW > 0) {
+          const _sizeTargetDisp = Math.max(sizeW, sizeH || sizeW) * bpToCSSPx;
+          const _maxDisp = Math.max(svgW, svgH);
+          if (_sizeTargetDisp > 0 && _maxDisp > _sizeTargetDisp * 1.005) {
+            const _clamp = _sizeTargetDisp / _maxDisp;
+            svgW *= _clamp; svgH *= _clamp;
+            intrinsicW *= _clamp; intrinsicH *= _clamp;
+          }
+        }
       }
     }
   }
