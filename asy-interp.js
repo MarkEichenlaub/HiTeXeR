@@ -10731,9 +10731,11 @@ function createInterpreter() {
         if (a && typeof a === 'object' && a._named) {
           if ('n' in a) n = toNumber(a.n);
           if ('r' in a) r = toNumber(a.r);
-          // Asymptote prefix-matches `s` → `spacing` (first 's'-prefix param
-          // in the signature). Treat `s=<num>` as spacing in bp.
-          if ('s' in a) spacingBp = toNumber(a.s);
+          // olympiad.asy signature is `pathticks(...,real spacing=6,real s=8,pen p)`.
+          // `s` is an EXACT parameter name (the 5th param = tick size). Asymptote
+          // binds `s=<num>` to that exact param (exact match beats prefix match),
+          // so `s=` sets the tick SIZE, not spacing.
+          if ('s' in a) sizeBp = toNumber(a.s);
           if ('spacing' in a) spacingBp = toNumber(a.spacing);
           if ('size' in a) sizeBp = toNumber(a.size);
           if ('ticksize' in a) sizeBp = toNumber(a.ticksize);
