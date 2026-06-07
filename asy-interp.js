@@ -25091,7 +25091,9 @@ function renderSVG(result, opts) {
       const PL_FIT_BP = 400;        // AoPS default ~400bp longest side
       const PL_TAU = 27.7;          // saturation constant (fit to TeXeR B0 curve)
       const PL_ENLARGE_MAX = 400;   // enlarge any sub-cap literal geometry
-      const PL_LABEL_DOM = 1.4;     // skip enlarge when labels dominate the bbox
+      const PL_LABEL_DOM = 1.4;     // skip geo-enlarge when labels dominate the bbox
+      const PL_LD_RATIO_MAX = 2.0;  // upper bound on label domination for the LP fit
+      const PL_LD_TAU = 53;         // saturation constant for the label-dominated LP fit
       const geoLongBp = Math.max(naturalW, naturalH);    // geometry only, literal
       const totalLongBp = Math.max(fullNatW, fullNatH);  // incl truesize labels
       if (geoLongBp > 0) {
@@ -25103,20 +25105,38 @@ function renderSVG(result, opts) {
                    && totalLongBp <= PL_LABEL_DOM * geoLongBp) {
           // Sub-cap literal geometry whose labels don't dominate the bbox:
           // saturating enlarge toward ~400bp. Label-dominated diagrams (e.g.
-          // 06065: unitcircle + many dot/arc labels) are skipped — fitting the
-          // GEOMETRY to the target would overshoot the label-extended total
-          // (TeXeR fits the whole bbox, not just the geometry). Picture/add
-          // composites that TeXeR keeps near literal (06064: unitcircle @4cm)
-          // are skipped earlier via _usedPictureComposite.
+          // 06065: unitcircle + many dot/arc labels) are handled by the LP-fit
+          // branch below. Picture/add composites that TeXeR keeps near literal
+          // (06064: unitcircle @4cm) are skipped earlier via _usedPictureComposite.
           const targetBp = PL_FIT_BP * (1 - Math.exp(-geoLongBp / PL_TAU));
           const fitScale = targetBp / geoLongBp;
           if (fitScale > 1) {
             pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * fitScale;
           }
+        } else if (totalLongBp < PL_LD_RATIO_MAX * geoLongBp
+                   && pxPerUnit === unitScale) {
+          // Moderately label-dominated (1.4 < total/geo < 2.0) AND no earlier
+          // boost heuristic claimed this diagram (pxPerUnit still literal). TeXeR
+          // fits the FULL bbox (geometry + the label-extended margin) toward a
+          // saturating ~400bp longest side. Scale the whole literal bbox
+          // uniformly so its long side reaches the saturating target. This is
+          // the 06065 unitcircle (geo 58bp / total 92bp → TeXeR 275bp) and the
+          // 12972 case; the more-than-2× label-dominated graph-axis group
+          // (00210/00233/00247/00248: TeXeR 137–201bp) is a different fit
+          // mechanism and is excluded by the ratio cap. Boost-tower-sized
+          // siblings (06173–06177 etc.) are excluded by the pxPerUnit gate so
+          // their existing sizing is preserved.
+          const targetTotal = PL_FIT_BP * (1 - Math.exp(-geoLongBp / PL_LD_TAU));
+          if (targetTotal > totalLongBp) {
+            // The renderer scales the WHOLE literal bbox (scaled geometry plus
+            // the label-extended margin) by pxPerUnit, so the final longest side
+            // tracks totalLongBp*s (not naturalW*s). Scale uniformly so the full
+            // literal long side reaches the saturating target. (An earlier
+            // pad-decomposition LP divided by naturalW alone and overshot ~1.4×.)
+            const s = targetTotal / totalLongBp;
+            if (s > 1) pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * s;
+          }
         }
-        // Label-dominated geometry is left exactly as before — TeXeR fits the
-        // whole bbox there in a shape-dependent way we don't model, so we do not
-        // risk a punch-down.
       }
     }
     // Multi-panel composite size-fit. `currentpicture = transform*currentpicture`
