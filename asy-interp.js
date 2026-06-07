@@ -22086,13 +22086,18 @@ function createInterpreter() {
       else if (typeof a === 'number' && !pos) { pos = makePair(a, 0); }
       else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
       else if (isPath(a) && a.segs.length > 0 && !pos) {
-        // Multi-dot: dot all segment endpoints (for ^^ paths)
-        const points = [a.segs[0].p0];
+        // Multi-dot: dot all segment endpoints (for ^^ paths). Endpoints are
+        // triples when the ^^ path was built from triples (e.g. dot(C1^^C2^^C3)
+        // in a 3D diagram); project those so the dots land on the same screen
+        // positions as the lines drawn through the same points — otherwise they
+        // render at raw (x,y) and float away from the projected geometry.
+        const raw = [a.segs[0].p0];
         for (const seg of a.segs) {
           const p3 = seg.p3;
-          if (!points.some(p => Math.abs(p.x-p3.x)<1e-10 && Math.abs(p.y-p3.y)<1e-10))
-            points.push(p3);
+          if (!raw.some(p => Math.abs(p.x-p3.x)<1e-10 && Math.abs(p.y-p3.y)<1e-10 && Math.abs((p.z||0)-(p3.z||0))<1e-10))
+            raw.push(p3);
         }
+        const points = raw.map(p => isTriple(p) ? projectTriple(p) : p);
         if (points.length > 1) { multiDots = points; } else { pos = points[0]; }
       }
       else if (Array.isArray(a) && !pos && !multiDots) {
