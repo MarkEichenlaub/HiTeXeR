@@ -25483,6 +25483,21 @@ function renderSVG(result, opts) {
     // and rendered it ~2.7× too large vs TeXeR's natural defaultSize=150 fit.
     const _isLargeSquareRadial = minDim > 50 && (maxDim / minDim) < 1.1;
     let _autoFloorApplied = false;
+    // Multi-picture composite true-bp floor: a no-size diagram that composes
+    // sub-pictures via add(picture) (e.g. 08867: add(p1); add(shift(250,0)*p2))
+    // carries its own fixed scale — Asymptote/TeXeR render the composite at TRUE
+    // bp size (1 user unit = 1 bp), NOT scaled down to the defaultSize=150 cap.
+    // The single-picture defaultSize fit (pxPerUnit = 150/maxDim) shrinks these
+    // large composites ~3× too small (08867: geo 472bp → 150bp ⇒ 500px vs TeXeR's
+    // 1570px). Floor pxPerUnit at 1.0 (true bp) so the natural extent is kept.
+    // Only engages when 150/maxDim < 1 (geometry already > 150 units); smaller
+    // composites still scale up toward defaultSize. Gated on the composite flag
+    // so single-picture large diagrams (e.g. 12649: 524-unit ellipse, capped to
+    // 150bp by TeXeR) are unaffected.
+    if (_usedPictureComposite && pxPerUnit < 1.0) {
+      pxPerUnit = 1.0;
+      _autoFloorApplied = true;
+    }
     // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
     // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
     // (rendered in absolute bp at fontSize) physically large compared to
