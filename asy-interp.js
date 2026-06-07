@@ -6860,6 +6860,9 @@ function createInterpreter() {
     ];
     env.set('spFills', spFills);
     env.set('spGray', pen(0.4,0.4,0.4));
+    // Named fill pen used by 11731's filldraw; without it filldraw falls back to
+    // a black pen and renders the segment solid black. Aliases the palette purple.
+    env.set('spPurpleFill', spFills[5]);
   }
 
   // ============================================================
