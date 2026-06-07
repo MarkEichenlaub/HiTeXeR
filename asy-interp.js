@@ -13075,7 +13075,11 @@ function createInterpreter() {
         // exact bounds (e.g. [0, 2π] for diagram 12726) and rounding outward to
         // the next tick (e.g. 7) extends the axes past the data.
         const _hasImageCells = pic.commands.some(c => c && c._imageCell && !c._paletteLegend);
-        const _skipRounding = (!ticks && !_hasNonAxisLabel) || _hasImageCells;
+        // Asymptote disables autoscale rounding when Ticks carries an explicit
+        // Step: the axis then spans the exact data extent (e.g. graph over
+        // [-7,7] with Ticks(Step=1) stays [-7,7], not rounded out to [-8,8]).
+        const _explicitStepTicks = !!(ticks && ticks.step > 0);
+        const _skipRounding = (!ticks && !_hasNonAxisLabel) || _hasImageCells || _explicitStepTicks;
         if (!_skipRounding && !xminExplicit && !xmaxExplicit && _xminFromContent && _xmaxFromContent && cMaxX > cMinX) {
           const _rawRange = cMaxX - cMinX;
           const _roughStep = _rawRange / 10;
@@ -13226,6 +13230,7 @@ function createInterpreter() {
                         _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit,
                         _xMinFromUserLimits: _xminFromUserLimits,
                         _xMaxFromUserLimits: _xmaxFromUserLimits,
+                        _explicitStepTicks: !!(ticks && ticks.step > 0),
                         _bareIdiom: _xaxisBareIdiom,
                         _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
                         _extentDeferred: _xExtentDeferred};
@@ -13650,6 +13655,7 @@ function createInterpreter() {
                            _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit,
                            _yMinFromUserLimits: _yminFromUserLimits,
                            _yMaxFromUserLimits: _ymaxFromUserLimits,
+                           _explicitStepTicks: !!(ticks && ticks.step > 0),
                            _bareIdiom: _yaxisBareIdiom,
                            _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
                            _extentDeferred: _yExtentDeferred});
@@ -23619,6 +23625,23 @@ function renderSVG(result, opts) {
           if (c._autoXmin && !c._xMinFromUserLimits) lo = lo - _ext;
           if (c._autoXmax && !c._xMaxFromUserLimits) hi = hi + _ext;
         }
+        // Arrow-bearing axis with explicit Step ticks (e.g. a function graph
+        // with xaxis(Ticks(Step=1),Arrow(2mm))): TeXeR extends the axis past the
+        // data on the arrow side by ~one arrow length so the arrowhead clears
+        // the last tick/data point. Extend by the physical arrow size converted
+        // to user units (NOT a fraction of range, which would over-extend
+        // wide-range plots). Only the auto'd arrow (max) side moves; the
+        // non-arrow side stays data-tight. Gating on explicit-Step ticks keeps
+        // the cardioid/polar closed-curve diagrams (bare/auto-tick axes) out.
+        if (c.arrow && c._explicitStepTicks && !c._bareIdiom && c._autoXmax && !c._xMaxFromUserLimits && hi > lo) {
+          const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
+          const _bpu = hasUnitScale ? unitScale
+            : (sizeW > 0 || sizeH > 0)
+              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
+              : Math.min(150 / _gW, 150 / _gH);
+          const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
+          if (isFinite(_bpu) && _bpu > 0) hi = hi + _arrowBp / _bpu;
+        }
         // Arrow-bearing axis over add()-imported slopefield geometry: TeXeR
         // extends the axis past the slope-field box (the non-arrow tail pokes
         // out and the arrowhead sits beyond the field). Without this the slope-
@@ -23787,6 +23810,17 @@ function renderSVG(result, opts) {
           const _ext = (hi - lo) * 0.06;
           if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _ext;
           if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _ext;
+        }
+        // Arrow-bearing axis with explicit Step ticks (see x-axis above):
+        // extend the arrow (max) side by ~one arrow length in user units.
+        if (c.arrow && c._explicitStepTicks && !c._bareIdiom && c._autoYmax && !c._yMaxFromUserLimits && hi > lo) {
+          const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
+          const _bpu = hasUnitScale ? unitScale
+            : (sizeW > 0 || sizeH > 0)
+              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
+              : Math.min(150 / _gW, 150 / _gH);
+          const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
+          if (isFinite(_bpu) && _bpu > 0) hi = hi + _arrowBp / _bpu;
         }
         // Arrow-bearing axis over add()-imported slopefield geometry (see
         // x-axis above). The bottom tail pokes out deeper than the top arrow.
