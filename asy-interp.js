@@ -2082,6 +2082,14 @@ function createInterpreter() {
   // currentpicture — these composites carry their own fixed scale and TeXeR does
   // NOT fit them to the path-label ~400bp default (e.g. 06064 stays near literal).
   let _usedPictureComposite = false;
+  // Set only when `currentpicture = transform*currentpicture` reassigns the
+  // current picture (the multi-panel idiom, e.g. 12008/11370 shift three
+  // makediagram() calls side by side). This operation flips the picture into
+  // deferred-size mode: TeXeR fits the result toward a ~400bp longest side.
+  // Verified across all 195 corpus diagrams using this idiom — every one has a
+  // TeXeR longest side ≤ ~455bp (192 ≤ 420bp). Distinct from the add()-picture
+  // composite (06064), which TeXeR keeps near literal.
+  let _usedCurrentpictureReassign = false;
   let sizeW = 0, sizeH = 0;
   let keepAspect = true;
   let defaultPen = makePen({});
@@ -5315,6 +5323,20 @@ function createInterpreter() {
       if (name === 'currentpicture' && val && val._tag === 'picture') {
         currentPic = val;
         _usedPictureComposite = true;
+        // Narrow the fit-to-400 trigger to the multi-panel idiom
+        // `currentpicture = <transform> * currentpicture`, where the existing
+        // current picture is transformed in place to lay panels side by side
+        // (12008/11370: shift three makediagram() calls). A plain
+        // `currentpicture = P` that assigns a different/fresh picture and then
+        // sets unitsize()+add() (the c190 cantilever family 06273-06279) is a
+        // different construction that TeXeR keeps at literal scale, so it must
+        // NOT trigger the fit.
+        const rhs = node.value;
+        if (rhs && rhs.type === 'BinaryOp' && rhs.op === T.STAR &&
+            ((rhs.left && rhs.left.type === 'Identifier' && rhs.left.name === 'currentpicture') ||
+             (rhs.right && rhs.right.type === 'Identifier' && rhs.right.name === 'currentpicture'))) {
+          _usedCurrentpictureReassign = true;
+        }
       }
       // Track currentprojection for 3D rendering
       if (name === 'currentprojection' && val && val._tag === 'projection') {
@@ -23242,6 +23264,7 @@ function createInterpreter() {
     unitScale = 1; hasUnitScale = false; _trueSizeFrame = false;
     _globalUnitSize = 0;
     _usedPictureComposite = false;
+    _usedCurrentpictureReassign = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
     _defaultpenLwSet = false;
@@ -23364,6 +23387,7 @@ function createInterpreter() {
       _bboxSpec: currentPic._bboxSpec,
       _pageOrientation: currentPic._pageOrientation,
       _usedPictureComposite,
+      _usedCurrentpictureReassign,
     };
   }
 
@@ -23437,7 +23461,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedCurrentpictureReassign } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -25068,6 +25092,25 @@ function renderSVG(result, opts) {
         // Label-dominated geometry is left exactly as before — TeXeR fits the
         // whole bbox there in a shape-dependent way we don't model, so we do not
         // risk a punch-down.
+      }
+    }
+    // Multi-panel composite size-fit. `currentpicture = transform*currentpicture`
+    // (the shift-three-panels idiom, e.g. 12008/11370) flips the picture into
+    // deferred-size mode; TeXeR fits it toward a ~400bp longest side instead of
+    // honoring the literal unitsize. Measured across all 195 corpus diagrams
+    // using this idiom: every TeXeR longest side is ≤ ~455bp (192 of 195 ≤ 420bp),
+    // whereas HiTeXeR otherwise renders them at literal (12008: 918bp geometry →
+    // 3158px PNG vs TeXeR's 1390px). SHRINK-ONLY (geoLong > 400) so small-geometry
+    // panels are untouched (no punch-down) and only oversized composites are
+    // capped. Skipped when size() is explicit (the author's binding request).
+    if (!(sizeW > 0 || sizeH > 0)
+        && _usedCurrentpictureReassign
+        && !_trueSizeFrame) {
+      const CP_FIT_BP = 400;
+      const geoLongBp = Math.max(naturalW, naturalH);
+      if (geoLongBp > CP_FIT_BP) {
+        const k = CP_FIT_BP / geoLongBp;
+        pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * k;
       }
     }
   } else if (sizeW > 0 || sizeH > 0) {
