@@ -15652,7 +15652,7 @@ function createInterpreter() {
       return makeGeoCircle(center, r);
     });
 
-    env.set('orthocenter', (...args) => {
+    const orthocenterGeo = (...args) => {
       const pts = [];
       for (const a of args) {
         if (isTriangleGeo(a)) { pts.push(a.A, a.B, a.C); break; }
@@ -15672,7 +15672,10 @@ function createInterpreter() {
       const H = makePair(A.x+B.x+C.x - 2*ux, A.y+B.y+C.y - 2*uy);
       const cs = pts[0].coordsys;
       return makePoint(cs, cs.defaultToRelative(H), 1);
-    });
+    };
+    env.set('orthocenter', orthocenterGeo);
+    // geometry.asy names the orthocenter point constructor orthocentercenter
+    env.set('orthocentercenter', orthocenterGeo);
 
     // altitude(vertex V, triangle t) — altitude from vertex
     env.set('altitude', (...args) => {
