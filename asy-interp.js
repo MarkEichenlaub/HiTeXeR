@@ -24460,12 +24460,28 @@ function renderSVG(result, opts) {
         // matches the actual rendered width. Without this, the post-scale overshoot
         // padding inflates the viewBox past the size() target — 02582's wide
         // coordinate label pushed the canvas ~10% too wide (sizeScore 0.79).
-        if (hasFrac && opts && opts.labelOutput === 'svg-native'
+        // labelTransform-scaled labels fold their scale into the font size; the flat
+        // char-count model doesn't track that, so its width is wrong even before the
+        // overshoot pass. They alone get a side-bearing margin and bypass the heuristic
+        // width floors below (via _mjxMeasured). All other labels keep the plain
+        // measured width (baseline) — adding the margin/floor-bypass to them shifted
+        // the bbox enough to mis-scale whole diagrams (10760 sizeScore collapse,
+        // 05537 -0.074, 02582 -0.019).
+        const _ltHasScale = !!dc.labelTransform && Math.abs(ltScale - 1) > 0.01;
+        let _mjxMeasured = false;
+        if ((hasFrac || _ltHasScale) && opts && opts.labelOutput === 'svg-native'
             && typeof _mjxMeasureBp === 'function'
             && typeof text === 'string' && text.indexOf('\n') === -1) {
           try {
             const _mm = _mjxMeasureBp(text, fontSize);
-            if (_mm && _mm.wBp > 0) textWidthBpBase = _mm.wBp;
+            if (_mm && _mm.wBp > 0) {
+              textWidthBpBase = _mm.wBp;
+              // Reserve a side-bearing margin so an SE/E-anchored scaled caption gets
+              // edge clearance instead of sitting flush against the viewBox and
+              // clipping (04456's scale(0.75) "y = -2x + 24"). Let the measured width
+              // stand instead of the floors so it isn't re-inflated and width-bound.
+              if (_ltHasScale) { textWidthBpBase = _mm.wBp + fontSize * 0.25; _mjxMeasured = true; }
+            }
           } catch (e) { /* fall back to heuristic */ }
         }
         // Guard against severe width under-estimation for size()-constrained labels:
@@ -24474,7 +24490,7 @@ function renderSVG(result, opts) {
         // from _estimateTextWidth as a lower bound on the widest line so such labels
         // aren't clipped by the computed viewBox. Only used as a ceiling — never
         // shrinks the existing estimate for other labels.
-        if (!autoScaled && !hasFrac) {
+        if (!autoScaled && !hasFrac && !_mjxMeasured) {
           const widestLine = cleanLines.reduce((m, l) => (l.length > m.length ? l : m), '');
           let glyphWidthBp = _estimateTextWidth(widestLine, fontSize);
           // When sub/sup are present, the Unicode-subscripted widestLine over-counts
@@ -24490,7 +24506,7 @@ function renderSVG(result, opts) {
         // axis labels with text-anchor='end', the left edge extends (cleanLen*0.52*fontSize)
         // past the anchor. Without this floor, bbox under-estimates the width and the
         // label's left edge gets clipped (e.g. diagram 04155 y-axis "Speed" label).
-        if (!hasFrac) {
+        if (!hasFrac && !_mjxMeasured) {
           // Binary operators (+, -, =) in math mode render with surrounding medium
           // space (~0.22em each side), so labels like "-2-2i" / "2+(-3)i" are wider
           // than a flat per-char estimate. Add that operator spacing to the bbox-side
@@ -28235,6 +28251,18 @@ function renderSVG(result, opts) {
               W = _m.wBp * bpCSSPixel;
             }
           } catch (e) { /* ignore — fall back to heuristic */ }
+        }
+        // A labelTransform scale (e.g. scale(0.75)*"...") is folded into the font
+        // size LATER (effectiveFontSize below), so the rendered glyph width is
+        // W*ltScale, not W. The horizontal-alignment offset (dx = ax_n*W + ax*margin)
+        // must therefore use the SCALED width — otherwise a scaled E/W/SE/NE-anchored
+        // label is offset as if it were full size, pushing it ~ax_n*(1-ltScale)*W past
+        // its anchor (04456's SE "y=-2x+24" caption clipped the viewBox right edge).
+        // Pure-scale labels keep this dx (the rotated/reflected branch below recomputes
+        // its own offset), so scaling here is safe.
+        if (dc.labelTransform) {
+          const _ltS = Math.sqrt(dc.labelTransform.b * dc.labelTransform.b + dc.labelTransform.e * dc.labelTransform.e);
+          if (_ltS > 0 && Math.abs(_ltS - 1) > 0.01) W *= _ltS;
         }
         // Fractions (\frac) render with stacked numerator/denominator plus
         // ascender/descender padding. The actual rendered fraction in
