@@ -22135,8 +22135,11 @@ function createInterpreter() {
     // it as a row break followed by the literal text "pad", so the tabular cell
     // renders as two centered rows "Launch" / "pad". Expand before the tabular
     // flatten so the inserted \\ becomes a row separator. Match only the bare
-    // control word (not \spadesuit, \padding, etc).
-    if (typeof text === 'string') text = text.replace(/\\pad(?![a-zA-Z])/g, '\\\\ pad');
+    // control word (not \spadesuit, \padding, etc), AND only inside a tabular
+    // environment so this can never touch a non-tabular diagram (the only corpus
+    // uses of bare \pad are 00467/00468, both inside \begin{tabular}).
+    if (typeof text === 'string' && /\\begin\s*\{tabular\}/.test(text))
+      text = text.replace(/\\pad(?![a-zA-Z])/g, '\\\\ pad');
     // \begin{tabular}...\end{tabular} in a dot label: flatten to newline-
     // separated rows so the multi-line label renderer stacks them. Mirrors the
     // same expansion in evalLabel (KaTeX/MathJax have no tabular environment,
@@ -22357,7 +22360,9 @@ function createInterpreter() {
     if (typeof text === 'string') text = expandMinipageText(text, pen);
 
     // AoPS \pad macro (see evalDot): expands to a row break + literal "pad".
-    if (typeof text === 'string') text = text.replace(/\\pad(?![a-zA-Z])/g, '\\\\ pad');
+    // Guarded to tabular text only so it can never affect a non-tabular label.
+    if (typeof text === 'string' && /\\begin\s*\{tabular\}/.test(text))
+      text = text.replace(/\\pad(?![a-zA-Z])/g, '\\\\ pad');
 
     // LaTeX \begin{tabular}...\end{tabular} environment in label text:
     // flatten to newline-separated rows (the multi-line label renderer further
