@@ -25533,8 +25533,36 @@ function renderSVG(result, opts) {
     // and when the estimated overshoot is large (> 1.25) — a large overshoot means
     // labels dominate the bbox, the TeXeR-bounds-everything assumption breaks, and
     // the fixed-bp estimate is least reliable.
-    if (!_autoFloorApplied && !_isLargeSquareRadial && labelInfoBp.length > 0 && maxDim > 40 && minDim >= 5) {
+    // Thin/small no-size diagrams whose geometry fills defaultSize on the long
+    // axis but a short label at a geometry extreme pushes the bbox past
+    // defaultSize (e.g. 03668: 1+cos(x) plot, x-axis ~150bp wide, "$4I_0$"
+    // hanging west of the y-axis adds ~24bp ⇒ 174bp total vs TeXeR's ~150bp
+    // full-bbox fit). The existing fit below is scoped to the medium/large-2D
+    // regime (maxDim>40 && minDim>=5) and excludes these thin (minDim<5) and
+    // small (maxDim<40) cases. Extend the fit to them, but ONLY when labels are
+    // short: the bp label-extent estimate is unreliable for wide/long-text
+    // labels (it overshoots on fractions/multi-word text, e.g. 03928 maxLblW
+    // 288), so gate on the widest label being a small fraction of defaultSize.
+    // maxDim>5 excludes the near-1D tiny case (04219 maxDim≈1). The shared
+    // estOvershoot<=1.25 guard still protects label-dominated layouts.
+    const _maxLblW = labelInfoBp.reduce((m, li) => Math.max(m, li.widthBp || 0), 0);
+    const _existingFitGate = maxDim > 40 && minDim >= 5;
+    const _shortLabelFit = !_existingFitGate && maxDim > 5 && _maxLblW <= 40;
+    if (!_autoFloorApplied && !_isLargeSquareRadial && labelInfoBp.length > 0 &&
+        (_existingFitGate || _shortLabelFit)) {
+      // estOvershoot returns the predicted longest-side / defaultSize ratio.
+      // - Existing medium/large-2D regime: the bp label-extent estimate
+      //   (recomputed below) is well-tuned and stays as-is.
+      // - New thin/small regime (_shortLabelFit): use the ACTUAL label-expanded
+      //   bbox (maxX/maxY were already grown for labels by the iterative pass
+      //   above). Since the rendered viewBox is naturalW = (maxX-minX)*pxPerUnit,
+      //   fitting THIS to defaultSize lands the output exactly at defaultSize —
+      //   the recomputed estimate over-pads ~5% (it double-counts the alignment
+      //   margin + centered-label half-widths), which over-shrinks the output.
       const estOvershoot = () => {
+        if (_shortLabelFit) {
+          return Math.max(maxX - minX, maxY - minY) * pxPerUnit / defaultSize;
+        }
         let bpMinX = geoMinX * pxPerUnit, bpMaxX = geoMaxX * pxPerUnit;
         let bpMinY = geoMinY * pxPerUnit, bpMaxY = geoMaxY * pxPerUnit;
         for (const li of labelInfoBp) {
