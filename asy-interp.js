@@ -25509,7 +25509,14 @@ function renderSVG(result, opts) {
       // density (2/1800 ≈ 1.1e-3) above the 06387 threshold even though the
       // natural defaultSize=150bp scale (pxPerUnit=2.5 → 504px) already matches
       // TeXeR. Flooring such grids to 7bp/unit over-scales them ~2.8×.
-      if (labelCount >= 3 && labelDensity > 3e-4 && !_isLargeSquareRadial) {
+      // Threshold 5e-4 keeps the dense 06387-style figures (4 labels in a
+      // 112×59 force diagram, density ≈ 6.05e-4) while excluding the c462_L3
+      // complex-plane circle cluster (07412/07413/07421/07422: a ~105×125
+      // axes+circumcircle plot with 4–5 long coordinate labels like
+      // "$18+83i$", density 3.0–3.8e-4). For that cluster TeXeR renders at the
+      // natural defaultSize=150 fit (pxPerUnit≈1.2) with the labels small
+      // relative to the big circle — the 7bp/unit floor oversized them ~5.8×.
+      if (labelCount >= 3 && labelDensity > 5e-4 && !_isLargeSquareRadial) {
         pxPerUnit = 7;
         _autoFloorApplied = true;
       }
@@ -25621,7 +25628,17 @@ function renderSVG(result, opts) {
     const _maxLblW = labelInfoBp.reduce((m, li) => Math.max(m, li.widthBp || 0), 0);
     const _existingFitGate = maxDim > 40 && minDim >= 5;
     const _shortLabelFit = !_existingFitGate && maxDim > 5 && _maxLblW <= 40;
-    if (!_autoFloorApplied && !_isLargeSquareRadial && labelInfoBp.length > 0 &&
+    // Skip this (geometry-only-bbox) shrink for the wide-label medium/large-2D
+    // case: the bp label-extent re-estimate in estOvershoot over-pads wide math
+    // labels (e.g. 07413's "$18+83i$" coordinate tags, _maxLblW≈45) by ~30%,
+    // over-shrinking the diagram. For those the downstream viewBox-pad symmetric
+    // clamp (which uses MathJax-measured label widths) fits the whole label-
+    // inclusive picture to defaultSize correctly — running both here compounds
+    // into a ~0.77× double-shrink. Narrow-label cases (single-letter vertex tags
+    // like 11404-11406) keep this shrink.
+    const _wideLabelAutoFit = _existingFitGate && _maxLblW > 40;
+    if (!_autoFloorApplied && !_isLargeSquareRadial && !_wideLabelAutoFit &&
+        labelInfoBp.length > 0 &&
         (_existingFitGate || _shortLabelFit)) {
       // estOvershoot returns the predicted longest-side / defaultSize ratio.
       // - Existing medium/large-2D regime: the bp label-extent estimate
@@ -26931,10 +26948,27 @@ function renderSVG(result, opts) {
         // For _axisLabelMidRotated labels, the renderer uses a simplified formula
         // (only margin, no W/H offset) to match Asymptote's axis-label perpendicular
         // shift. Mirror that here so viewBox padding aligns with actual rendering.
+        // Only the genuinely rotated/reflected case uses the local-frame,
+        // W-capped offset formula below — match the renderer, which gates that
+        // branch on `Math.abs(angle) > 0.1 || hasReflection` (line ~28330) and
+        // otherwise (pure scale, e.g. scale(.9)*"$78+99i$") uses the simple
+        // `ax_n*effW + ax*margin` offset. effW already folds in the labelTransform
+        // scale, so the simple branch is correct for pure-scale labels. The old
+        // code took the rotated branch for ANY labelTransform, applying the
+        // 2×H width cap to wide unrotated coordinate labels — that under-offset
+        // diagonal (NE/NW/SW) labels, shrinking padL/padR so they clipped at the
+        // viewBox edge (07413's complex-plane circle labels).
+        const _ltForGate = dc.labelTransform;
+        const _ltAngForGate = _ltForGate
+          ? Math.atan2(_ltForGate.e, _ltForGate.b) * 180 / Math.PI : 0;
+        const _ltReflForGate = _ltForGate
+          ? (_ltForGate.b * _ltForGate.f - _ltForGate.c * _ltForGate.e) < -0.01 : false;
+        const _ltRotatedOrReflected = !!_ltForGate &&
+          (Math.abs(_ltAngForGate) > 0.1 || _ltReflForGate);
         if (dc._axisLabelMidRotated) {
           dx = ax * margin;
           dy = -(ay * margin);
-        } else if (dc.labelTransform) {
+        } else if (_ltRotatedOrReflected) {
           // For rotated labels, match the rendering code (line ~24168): compute
           // offset in local (unrotated) coordinates using original W/H (capped),
           // then rotate to world coords. This fixes bbox mismatch for labels like
@@ -27156,10 +27190,25 @@ function renderSVG(result, opts) {
         // figures with one dominant label that overshoots a single axis far more
         // than the other (ratio ~0.78 → expand, not clamp; e.g. 04746/03756).
         const _symmetric = _osMin >= _symThr && (_osMin / _osMax) >= _balThr;
-        if (_symmetric) {
-          // Symmetric overshoot: fit the full label-inclusive picture into the
-          // defaultSize box (uniform clamp), matching TeXeR's bound-everything
-          // sizing for compact figures with labels on all sides.
+        // Bidirectional surround on the dominant overshoot axis: labels extend
+        // off BOTH sides of whichever axis overshoots most (padL≈padR, or
+        // padT≈padB). This is the geometry-is-surrounded case (e.g. 07413: wide
+        // coordinate labels left+right of a complex-plane circle, padL=16.99 /
+        // padR=18.30), NOT a one-sided caption hanging off one edge. TeXeR fits
+        // the whole label-inclusive picture into defaultSize (uniform shrink),
+        // same as the fully-symmetric case — so route it through the fit clamp
+        // even when the OTHER axis didn't overshoot (osH≈1.0), which keeps it
+        // below the _symmetric _osMin floor. The balance test (≥0.5) excludes
+        // one-sided captions, which expand the canvas instead (03928).
+        const _hBidir = padL > 0.5 && padR > 0.5 &&
+          Math.min(padL, padR) / Math.max(padL, padR) >= 0.5;
+        const _vBidir = padT > 0.5 && padB > 0.5 &&
+          Math.min(padT, padB) / Math.max(padT, padB) >= 0.5;
+        const _domBidir = (overshootScaleW >= overshootScaleH) ? _hBidir : _vBidir;
+        if (_symmetric || _domBidir) {
+          // Fit the full label-inclusive picture into the defaultSize box
+          // (uniform clamp), matching TeXeR's bound-everything sizing for
+          // compact figures whose labels surround the geometry.
           const geomRefMax = Math.max(svgW, svgH);
           const liW = svgW * overshootScaleW, liH = svgH * overshootScaleH;
           const fit = Math.min(1, geomRefMax / Math.max(liW, liH, 1e-9));
@@ -27172,8 +27221,15 @@ function renderSVG(result, opts) {
           // canvas to hold the label rather than shrinking the whole picture.
           svgW *= overshootScaleW; svgH *= overshootScaleH;
           intrinsicW *= overshootScaleW; intrinsicH *= overshootScaleH;
+        } else if ((_osMin / _osMax) < 0.95) {
+          // Small but ASYMMETRIC one-sided overshoot below the 1.18 per-axis
+          // threshold: one axis grew for labels while the other did not. Expand
+          // intrinsic per-axis to match the already-expanded viewBox so the
+          // viewBox→canvas mapping stays uniform (aspect preserved, no squish).
+          svgW *= overshootScaleW; svgH *= overshootScaleH;
+          intrinsicW *= overshootScaleW; intrinsicH *= overshootScaleH;
         }
-        // else: small overshoot, no scaling (prior skip behavior)
+        // else: small symmetric overshoot, no scaling (prior skip behavior)
       } else {
         svgW *= overshootScaleW;
         svgH *= overshootScaleH;
