@@ -25439,7 +25439,14 @@ function renderSVG(result, opts) {
     // diagrams like 07413 (a 105×125 complex-plane plot, aspect 1.19, with long
     // coordinate labels "$18+83i$") whose reference DOES want small labels
     // relative to geometry — those must stay floored/shrunk.
-    const _isLargeSquareRadial = minDim > 70 && (maxDim / minDim) < 1.1;
+    //
+    // minDim > 50 (not 70) so the smaller-radius members of the same dihedral
+    // Cayley family are also caught: 04386 (c289_L7_script_10) has only the
+    // inner r=30 ring (no outer r2=50 ring), giving a ~59×57bp near-square
+    // pentagon (aspect 1.04). Without lowering the bound it fell to the label-
+    // density floor (5 labels / ~3300bp² > 3e-4) which forced pxPerUnit 2.6→7
+    // and rendered it ~2.7× too large vs TeXeR's natural defaultSize=150 fit.
+    const _isLargeSquareRadial = minDim > 50 && (maxDim / minDim) < 1.1;
     let _autoFloorApplied = false;
     // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
     // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
