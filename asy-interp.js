@@ -24176,6 +24176,41 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Stroke-only extent (drawn paths + dots; excludes label/image/marker anchor
+  // points). Used to detect flat-banner geometry such as number lines, whose
+  // label anchors hang far below the drawn strokes (e.g. 05929: ticks at
+  // y∈[-1,1] but labels anchored at y=-4) and would otherwise inflate the
+  // label-inclusive minDim past the banner-exclusion threshold in the
+  // auto-scale floor below.
+  let strokeMinX = Infinity, strokeMinY = Infinity, strokeMaxX = -Infinity, strokeMaxY = -Infinity;
+  for (const dc of drawCommands) {
+    if (dc.cmd === 'dot') {
+      if (dc.pos.x < strokeMinX) strokeMinX = dc.pos.x;
+      if (dc.pos.x > strokeMaxX) strokeMaxX = dc.pos.x;
+      if (dc.pos.y < strokeMinY) strokeMinY = dc.pos.y;
+      if (dc.pos.y > strokeMaxY) strokeMaxY = dc.pos.y;
+      continue;
+    }
+    if (!dc.path) continue;
+    if (dc.cmd === 'fill' && dc.pen && dc.pen.r >= 0.99 && dc.pen.g >= 0.99 && dc.pen.b >= 0.99) continue;
+    if (dc._isTickMark || dc._extendedLine || (dc.path && dc.path._infiniteLine)) continue;
+    if (dc.path._singlePoint) {
+      const p = dc.path._singlePoint;
+      if (p.x < strokeMinX) strokeMinX = p.x;
+      if (p.x > strokeMaxX) strokeMaxX = p.x;
+      if (p.y < strokeMinY) strokeMinY = p.y;
+      if (p.y > strokeMaxY) strokeMaxY = p.y;
+    }
+    for (const seg of dc.path.segs) {
+      for (const p of [seg.p0, seg.p3]) {
+        if (p.x < strokeMinX) strokeMinX = p.x;
+        if (p.x > strokeMaxX) strokeMaxX = p.x;
+        if (p.y < strokeMinY) strokeMinY = p.y;
+        if (p.y > strokeMaxY) strokeMaxY = p.y;
+      }
+    }
+  }
+
   // Constrain bbox to clip region (Asymptote clip() restricts the bounding box)
   if (hasClip) {
     minX = Math.max(minX, clipMinX);
@@ -25412,7 +25447,18 @@ function renderSVG(result, opts) {
     // For these the natural scale already keeps labels visibly large relative
     // to the slender figure, matching TeXeR — so skip the floor entirely.
     const _floorTallNarrow = scaleRefH2 >= 2 * scaleRefW2;
-    if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7 && !_floorTallNarrow) {
+    // Flat-banner exclusion using stroke-only geometry: number lines and similar
+    // wide-short figures have label anchors hanging far from the drawn strokes,
+    // which inflate the label-inclusive minDim past the `minDim < 5` banner test
+    // (e.g. 05929: strokes span y∈[-1,1] but labels anchored at y=-4 push minDim
+    // to 5.25). For these TeXeR renders at the natural defaultSize fit, so the
+    // 7bp/unit floor would oversize the banner ~2.4×. Detect by the STROKE bbox
+    // being a thin wide banner.
+    const _strokeH = strokeMaxY - strokeMinY;
+    const _strokeW = strokeMaxX - strokeMinX;
+    const _isFlatBanner = isFinite(_strokeH) && _strokeW > 0 &&
+      _strokeH < 5 && (_strokeH / _strokeW) < 0.15;
+    if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7 && !_floorTallNarrow && !_isFlatBanner) {
       // Gate by label density: the floor exists to keep labels proportional to
       // small geometric features (e.g. 06387: 4 labels in ~112×59 area,
       // density ≈ 6e-4). When labels are sparse relative to bbox area (e.g.
@@ -26620,17 +26666,34 @@ function renderSVG(result, opts) {
             asty === 'BeginArcArrow' || asty === 'ArcArrows';
           // ArcArrow perpendicular extent ≈ sin(55°) ≈ 0.82, plus bow factor 0.45
           const arrowR = arrowLen * (isArc ? 0.9 : 0.4); // perpendicular extent
-          for (const seg of [dc.path.segs[0], dc.path.segs[dc.path.segs.length - 1]]) {
+          // The arrowhead spreads ±arrowR PERPENDICULAR to the path and sits on
+          // the inward side of the tip (the tip is at the path endpoint). So the
+          // overshoot beyond the viewBox is perpendicular, not isotropic: for a
+          // horizontal number line the heads only extend vertically. Decompose
+          // arrowR by the path tangent so axis-aligned arrows don't pad the
+          // along-path edges (which inflates the canvas and tanks sizeScore).
+          // A small along-axis allowance covers tip stroke/render variance.
+          const alongR = arrowLen * 0.3;
+          const _segArr = [dc.path.segs[0], dc.path.segs[dc.path.segs.length - 1]];
+          for (const seg of _segArr) {
             for (const p of [seg.p0, seg.p3]) {
               const sx = (p.x - minX) * pxPerUnitX;
               const sy = (maxY - p.y) * pxPerUnitY;
+              // Outward tangent at this endpoint in screen coords (Y flipped).
+              const other = (p === seg.p0) ? seg.p3 : seg.p0;
+              let tx = (p.x - other.x), ty = (other.y - p.y); // screen-space
+              const tlen = Math.hypot(tx, ty) || 1;
+              tx /= tlen; ty /= tlen;
+              // Extent of the arrowhead bbox projected onto X and Y.
+              const extX = arrowR * Math.abs(ty) + alongR * Math.abs(tx);
+              const extY = arrowR * Math.abs(tx) + alongR * Math.abs(ty);
               // Skip points far outside the viewport
-              if (sx < -arrowR || sx > viewW + arrowR ||
-                  sy < -arrowR || sy > viewH + arrowR) continue;
-              padL = Math.max(padL, arrowR - sx);
-              padR = Math.max(padR, (sx + arrowR) - viewW);
-              padT = Math.max(padT, arrowR - sy);
-              padB = Math.max(padB, (sy + arrowR) - viewH);
+              if (sx < -extX || sx > viewW + extX ||
+                  sy < -extY || sy > viewH + extY) continue;
+              padL = Math.max(padL, extX - sx);
+              padR = Math.max(padR, (sx + extX) - viewW);
+              padT = Math.max(padT, extY - sy);
+              padB = Math.max(padB, (sy + extY) - viewH);
             }
           }
         }
@@ -28855,7 +28918,13 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     baseSize = 2.1 * lw * _boost;
   } else if (!dc.arrow.sizeExplicit) {
     const lw = (dc.pen && dc.pen.linewidth) || 0.5;
-    baseSize = 15 * lw * _boost;
+    // SimpleHead is an unfilled open chevron drawn by TeXeR at its natural
+    // Asymptote size (arrowsize = 15*linewidth). The auto-scale stroke boost
+    // (applied to keep default-pen strokes visible after SSIM compression)
+    // over-lengthens the open chevron, so size SimpleHead unboosted while the
+    // chevron's stroke WIDTH still tracks the boosted pen weight.
+    const headBoost = (dc.arrow.headKind === 'SimpleHead') ? 1.0 : _boost;
+    baseSize = 15 * lw * headBoost;
   } else {
     // Explicit arrow size (e.g. Arrow(2mm)). Only boost for narrow 1D diagrams
     // where the entire diagram is scaled up — using a tuned factor.
@@ -28886,6 +28955,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
   const isArcStyle = style === 'ArcArrow' || style === 'EndArcArrow' ||
     style === 'BeginArcArrow' || style === 'ArcArrows';
   const isTexHead = !!dc.arrow.texHead;
+  // SimpleHead is an UNFILLED arrowhead: two straight strokes meeting at the
+  // tip (open "<"/">" chevron), per Asymptote's plain_arrows.asy. It applies
+  // regardless of Arrow vs ArcArrow style and overrides the filled head shape.
+  const isSimpleHead = dc.arrow.headKind === 'SimpleHead';
   // ArcArrow uses filled curved arrowhead (bowed-out shape); regular Arrow uses filled triangle.
   // TeXHead uses a thin stroked chevron (not filled), matching LaTeX arrow glyph shape.
   const filled = style !== 'Bar' && style !== 'Bars' && !isTexHead;
@@ -28937,6 +29010,16 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     // Arrow head in screen coordinates (Y is already flipped)
     const screenAngle = -tangentAngle; // flip Y for screen coords
     const s = arrowLen;
+
+    if (isSimpleHead) {
+      // Two unfilled strokes from the rear corners to the tip (open chevron).
+      const headAngle = 20 * Math.PI / 180;
+      const lx = tipX - s*Math.cos(screenAngle - headAngle);
+      const ly = tipY - s*Math.sin(screenAngle - headAngle);
+      const rx = tipX - s*Math.cos(screenAngle + headAngle);
+      const ry = tipY - s*Math.sin(screenAngle + headAngle);
+      return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled: false};
+    }
 
     if (isArcStyle && isTexHead) {
       // HookHead used as an arc arrowhead (ArcArrow(HookHead)/ArcArrows(HookHead)):
