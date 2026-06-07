@@ -29026,9 +29026,14 @@ function linestyleToDasharray(style, strokeWidth) {
   //   dashdotted = linetype({8, 8, 0, 8})
   //   longdashdotted = linetype({24, 8, 0, 8})
   // SVG stroke-dasharray with round linecap: "0.01 X" produces round dots.
+  // For `dotted` use a real on-length (1*w): the Blink/Chromium rasterizer
+  // (now the default) renders a near-zero "0.01" dash far too thin, which
+  // dropped heavily-dotted diagrams (e.g. 12203) by ~0.14 SSIM vs TeXeR.
+  // A 1*w on-length with round cap renders a robust dot under both Blink and
+  // librsvg and matches TeXeR's dotted weight.
   switch(style) {
     case 'dashed': return `${8*w} ${8*w}`;
-    case 'dotted': return `0.01 ${4*w}`;
+    case 'dotted': return `${1*w} ${3*w}`;
     case 'longdashed': return `${24*w} ${8*w}`;
     case 'dashdotted': return `${8*w} ${8*w} 0.01 ${8*w}`;
     case 'longdashdotted': return `${24*w} ${8*w} 0.01 ${8*w}`;
