@@ -4226,7 +4226,16 @@ function createInterpreter() {
         return null;
       }
       if (method === 'erase') { obj.commands.length = 0; return null; }
-      if (method === 'size') return null; // ignore per-picture size for now
+      if (method === 'size') {
+        // pic.size(w[, h]) — record per-picture fit size so a later
+        // add(pic[.fit()], pos, align) normalizes this picture independently
+        // (matches Asymptote pic.size()). Mirrors the global size() builtin.
+        const numArgs = args.filter(a => typeof a === 'number');
+        if (numArgs.length >= 1) obj._sizeW = numArgs[0];
+        if (numArgs.length >= 2) obj._sizeH = numArgs[1];
+        else if (numArgs.length === 1) obj._sizeH = obj._sizeW;
+        return null;
+      }
     }
 
     // CAD package: sCAD.Create() factory.
@@ -11351,17 +11360,69 @@ function createInterpreter() {
     // bounding box specification for shipout(). Draws a rounded rectangle frame
     // around the diagram content with the specified margin and pens.
     env.set('bbox', (...args) => {
-      let xmargin = 0, ymargin = null, pen = null, fillpen = null;
+      let pic = null, pen = null, fillpen = null;
+      const nums = [];
       for (const a of args) {
-        if (typeof a === 'number') {
-          if (xmargin === 0) xmargin = a;
-          else if (ymargin === null) ymargin = a;
-        } else if (isPen(a)) {
+        if (a && a._tag === 'picture') pic = a;
+        else if (typeof a === 'number') nums.push(a);
+        else if (isPen(a)) {
           if (pen === null) pen = a;
           else fillpen = a;
         }
       }
-      if (ymargin === null) ymargin = xmargin;
+      let xmargin = nums.length >= 1 ? nums[0] : 0;
+      let ymargin = nums.length >= 2 ? nums[1] : xmargin;
+
+      // Picture form: bbox(picture pic, real xmargin=0, real ymargin=xmargin,
+      // pen p=currentpen, ...) returns a NEW picture = pic's content plus a
+      // rectangle border drawn around the picture's geometry bbox (expanded by
+      // the margins). Used by the add(bbox(pic),(x,y),align) layout idiom.
+      if (pic) {
+        const gb = getGeoBbox(pic.commands);
+        // bp→user scale (Asymptote fits each size(w) picture independently).
+        const geoW = (gb.maxX - gb.minX) || 1;
+        const sc = (pic._sizeW && pic._sizeW > 0) ? (pic._sizeW / geoW) : 1;
+        // Asymptote's bbox encloses the picture's FULL bbox, labels included.
+        // Expand the geometry bbox by each label's estimated extent (in user
+        // coords) so the border surrounds the text rather than clipping it.
+        let bMinX = gb.minX, bMaxX = gb.maxX, bMinY = gb.minY, bMaxY = gb.maxY;
+        for (const dc of pic.commands) {
+          if (!dc || dc.cmd !== 'label' || !dc.pos) continue;
+          const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
+          const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+          const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+          const twBp = _estimateTextWidth(cleanTxt || 'x', fs);
+          const thBp = fs;
+          const ax = (dc.align && dc.align.x != null) ? dc.align.x : 0;
+          const ay = (dc.align && dc.align.y != null) ? dc.align.y : 0;
+          const cx = dc.pos.x + (ax * (0.5 * twBp + 0.4 * fs)) / sc;
+          const cy = dc.pos.y + (ay * (0.5 * thBp + 0.4 * fs)) / sc;
+          const halfW = twBp / (2 * sc), halfH = thBp / (2 * sc);
+          if (cx - halfW < bMinX) bMinX = cx - halfW;
+          if (cx + halfW > bMaxX) bMaxX = cx + halfW;
+          if (cy - halfH < bMinY) bMinY = cy - halfH;
+          if (cy + halfH > bMaxY) bMaxY = cy + halfH;
+        }
+        // Margins are bp; convert to user coords via the picture's size scale.
+        const mxU = sc > 0 ? xmargin / sc : xmargin;
+        const myU = sc > 0 ? ymargin / sc : ymargin;
+        const x0 = bMinX - mxU, x1 = bMaxX + mxU;
+        const y0 = bMinY - myU, y1 = bMaxY + myU;
+        const boxPath = makePath([
+          lineSegment(makePair(x0, y0), makePair(x1, y0)),
+          lineSegment(makePair(x1, y0), makePair(x1, y1)),
+          lineSegment(makePair(x1, y1), makePair(x0, y1)),
+          lineSegment(makePair(x0, y1), makePair(x0, y0)),
+        ], true);
+        const cmds = pic.commands.slice();
+        cmds.push({cmd:'draw', path: boxPath, pen: clonePen(pen || defaultPen), arrow:null, line:0});
+        return {_tag:'picture', commands: cmds,
+                _sizeW: pic._sizeW, _sizeH: pic._sizeH,
+                _sizeAniso: pic._sizeAniso, _fitShift: pic._fitShift,
+                _unitScaleX: pic._unitScaleX, _unitScaleY: pic._unitScaleY,
+                _picLimits: pic._picLimits};
+      }
+
       return {_tag:'bbox', xmargin, ymargin, pen: pen || defaultPen, fillpen: fillpen || makePen({r:1,g:1,b:1})};
     });
 
