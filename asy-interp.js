@@ -10313,13 +10313,12 @@ function createInterpreter() {
     });
 
     // inside(path, pair) — returns true if pair is inside the closed path (2D)
-    // Uses ray-crossing algorithm: cast a horizontal ray from the point and count crossings
-    env.set('inside', (path, pt) => {
-      if (!isPath(path) || !path.segs || path.segs.length === 0) return false;
-      const p = toPair(pt);
-      const px = p.x, py = p.y;
+    // Uses ray-crossing algorithm: cast a horizontal ray from the point and count crossings.
+    // inside(path g, path p) — Asymptote overload: returns 1 if p is inside g,
+    //   -1 if g is inside p, and 0 otherwise (used by 02434 to pixel-fill the
+    //   moon region: `if (inside(cursquare, P) == -1) fill(cursquare, green)`).
+    const _pointInPath = (path, px, py) => {
       let crossings = 0;
-      // Sample each segment and test ray crossings
       for (const seg of path.segs) {
         const N = seg._linear ? 2 : 16;
         let prevY = seg.p0.y, prevX = seg.p0.x;
@@ -10337,6 +10336,30 @@ function createInterpreter() {
         }
       }
       return (crossings % 2) === 1;
+    };
+    // True if every sampled point of `inner` lies inside `outer`.
+    const _pathAllInside = (outer, inner) => {
+      for (const seg of inner.segs) {
+        const N = seg._linear ? 2 : 16;
+        for (let i = 0; i <= N; i++) {
+          const t = i / N, u = 1 - t;
+          const x = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
+          const y = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
+          if (!_pointInPath(outer, x, y)) return false;
+        }
+      }
+      return true;
+    };
+    env.set('inside', (path, arg) => {
+      if (!isPath(path) || !path.segs || path.segs.length === 0) return false;
+      if (isPath(arg) && arg.segs && arg.segs.length > 0) {
+        // path-path overload: 1 if arg inside path, -1 if path inside arg, 0 otherwise
+        if (_pathAllInside(path, arg)) return 1;
+        if (_pathAllInside(arg, path)) return -1;
+        return 0;
+      }
+      const p = toPair(arg);
+      return _pointInPath(path, p.x, p.y);
     });
 
     // CR(center, r) — cse5 shorthand for "Circle with Radius": returns a circle path.
