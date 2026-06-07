@@ -32,7 +32,11 @@ const RASTER_DPI  = 144;
 // use. Set RASTER_ENGINE=librsvg to fall back to the old sharp/librsvg @144 path.
 const USE_BLINK = process.env.RASTER_ENGINE !== 'librsvg';
 
-const args = process.argv.slice(2);
+const os = require('os');
+const rawArgs = process.argv.slice(2);
+const _concIdx = rawArgs.indexOf('--concurrency');
+const CONCURRENCY = _concIdx >= 0 ? parseInt(rawArgs[_concIdx + 1], 10) : os.cpus().length;
+const args = _concIdx >= 0 ? rawArgs.filter((_, i) => i !== _concIdx && i !== _concIdx + 1) : rawArgs;
 // render-asy is intentionally excluded from defaults: SSIM compares against
 // the cached texer_pngs/ references, so re-running real Asymptote is unneeded
 // for normal pipeline runs. Pass it explicitly (e.g. `node ssim-pipeline.js
@@ -194,6 +198,19 @@ function embedFontsInSVG(svgStr, fontCSS) {
   }
   // Insert a <style> right after the opening <svg ...> tag
   return svgStr.replace(/(^<svg[^>]*>)/, '$1<style>' + fontCSS + '</style>');
+}
+
+async function withConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 // ── Main ────────────────────────────────────────────────────────
@@ -459,14 +476,14 @@ async function main() {
     const svgFiles = fs.readdirSync(SVG_DIR).filter(f => f.endsWith('.svg')).sort();
     let ok = 0, fail = 0;
 
-    for (const sf of svgFiles) {
+    await withConcurrency(svgFiles, CONCURRENCY, async sf => {
       const id = sf.replace('.svg', '');
       const outPng = path.join(HTX_DIR, id + '.png');
       if (fs.existsSync(outPng)) {
         // Skip only if PNG is newer than SVG (i.e. SVG hasn't changed since last rasterize)
         const svgMtime = fs.statSync(path.join(SVG_DIR, sf)).mtimeMs;
         const pngMtime = fs.statSync(outPng).mtimeMs;
-        if (pngMtime >= svgMtime) { ok++; continue; }
+        if (pngMtime >= svgMtime) { ok++; return; }
       }
 
       try {
@@ -494,7 +511,7 @@ async function main() {
 
       if ((ok + fail) % 200 === 0)
         console.log(`  ${ok + fail}/${svgFiles.length}  ok=${ok} fail=${fail}`);
-    }
+    });
     if (blink) await blink.closeBrowser();
     console.log(`  Done: ok=${ok} fail=${fail}\n`);
   }
@@ -509,8 +526,6 @@ async function main() {
     const pairs = [...refPngs].filter(id => htxPngs.has(id)).sort();
     console.log(`  ${pairs.length} pairs to compare`);
 
-    const results = [];
-
     function rgbToRgba(buf, width, height) {
       const rgba = new Uint8ClampedArray(width * height * 4);
       for (let i = 0; i < width * height; i++) {
@@ -522,11 +537,11 @@ async function main() {
       return rgba;
     }
 
-    for (let pi = 0; pi < pairs.length; pi++) {
-      const id = pairs[pi];
+    let ssimDone = 0;
+    const results = (await withConcurrency(pairs, CONCURRENCY, async (id) => {
       const idx = parseInt(id, 10) - 1;
       const corpusFile = allFiles[idx] || id;
-
+      let row;
       try {
         // Get native dimensions of both images
         const refMeta = await sharp(path.join(TEXER_DIR, id + '.png')).metadata();
@@ -538,108 +553,107 @@ async function main() {
         // Skip images that are too small (likely failed renders)
         const MIN_DIM = 8;
         if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
-          results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: 'Image too small',
-            wRatio: hw / aw, hRatio: hh / ah, refDims: [aw, ah], htxDims: [hw, hh] });
-          continue;
-        }
-
-        // ── Dimension ratios & size score ──
-        // Use the dominant (max) dimension to avoid padding artifacts on thin diagrams.
-        // For tiny images (both dims < 100px), skip size penalty entirely.
-        const wRatio = hw / aw;
-        const hRatio = hh / ah;
-        const SIGMA = 0.15;
-        let sizeScore;
-        if (aw < 100 && ah < 100) {
-          sizeScore = 1.0;
+          row = { id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: 'Image too small',
+            wRatio: hw / aw, hRatio: hh / ah, refDims: [aw, ah], htxDims: [hw, hh] };
         } else {
-          const refMax = Math.max(aw, ah);
-          const htxMax = Math.max(hw, hh);
-          const maxRatio = htxMax / refMax;
-          sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
+          // ── Dimension ratios & size score ──
+          // Use the dominant (max) dimension to avoid padding artifacts on thin diagrams.
+          // For tiny images (both dims < 100px), skip size penalty entirely.
+          const wRatio = hw / aw;
+          const hRatio = hh / ah;
+          const SIGMA = 0.15;
+          let sizeScore;
+          if (aw < 100 && ah < 100) {
+            sizeScore = 1.0;
+          } else {
+            const refMax = Math.max(aw, ah);
+            const htxMax = Math.max(hw, hh);
+            const maxRatio = htxMax / refMax;
+            sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
+          }
+
+          // ── Content SSIM: trim white borders, resize both to same dimensions ──
+          // Trimming removes bounding box padding so SSIM compares only drawn content.
+          // Both images are resized to the same target size (no padding) so that
+          // content aligns pixel-for-pixel. Size difference is already captured by sizeScore.
+          const MAX = 400;
+          const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
+            .flatten({ background: { r: 255, g: 255, b: 255 } })
+            .trim({ threshold: 20 })
+            .toBuffer({ resolveWithObject: true });
+          const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
+            .flatten({ background: { r: 255, g: 255, b: 255 } })
+            .trim({ threshold: 20 })
+            .toBuffer({ resolveWithObject: true });
+
+          const tw1 = trimRef.info.width, th1 = trimRef.info.height;
+          const tw2 = trimHtx.info.width, th2 = trimHtx.info.height;
+          const maxW = Math.max(tw1, tw2);
+          const maxH = Math.max(th1, th2);
+          const scale = Math.min(MAX / maxW, MAX / maxH, 1);
+          const targetW = Math.max(Math.round(maxW * scale), 11);
+          const targetH = Math.max(Math.round(maxH * scale), 11);
+
+          const refBuf = await sharp(trimRef.data)
+            .resize(targetW, targetH, { fit: 'fill' })
+            .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+
+          let htxBuf = await sharp(trimHtx.data)
+            .resize(targetW, targetH, { fit: 'fill' })
+            .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+
+          // Guard: sharp may produce off-by-one dimensions; re-resize to match
+          const w = refBuf.info.width, h = refBuf.info.height;
+          if (htxBuf.info.width !== w || htxBuf.info.height !== h) {
+            htxBuf = await sharp(htxBuf.data, { raw: { width: htxBuf.info.width, height: htxBuf.info.height, channels: 3 } })
+              .resize(w, h, { fit: 'fill' })
+              .raw().toBuffer({ resolveWithObject: true });
+          }
+
+          const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
+          const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
+
+          const { mssim: rawSsim } = computeSSIM(refImg, htxImg);
+
+          // Soft SSIM: blur both images before comparing. Pixel-wise SSIM is not
+          // shift-invariant, and for thin strokes a small misalignment can produce
+          // anti-correlated windows (negative SSIM) even when the diagrams are
+          // nearly identical. A Gaussian blur widens strokes enough that minor
+          // shifts still overlap. We compute SSIM at two blur levels and take the
+          // max with the raw score, so a truly different diagram (which fails at
+          // every level) still scores low, but thin-strip misalignment is forgiven.
+          // Scale both sigmas with image size so the same fractional blur is applied
+          // regardless of resolution; clamp so small images still get ≥1.5 px blur.
+          const minDim = Math.min(w, h);
+          const softSigmaA = Math.min(Math.max(minDim * 0.025, 1.5), 4);
+          const softSigmaB = Math.min(Math.max(minDim * 0.08, 3), 10);
+          async function ssimBlurred(sigma) {
+            const refS = await sharp(refBuf.data, { raw: { width: w, height: h, channels: 3 } })
+              .blur(sigma).raw().toBuffer();
+            const htxS = await sharp(htxBuf.data, { raw: { width: w, height: h, channels: 3 } })
+              .blur(sigma).raw().toBuffer();
+            return computeSSIM(
+              { data: rgbToRgba(refS, w, h), width: w, height: h },
+              { data: rgbToRgba(htxS, w, h), width: w, height: h }
+            ).mssim;
+          }
+          const softSsimA = await ssimBlurred(softSigmaA);
+          const softSsimB = await ssimBlurred(softSigmaB);
+          const softSsim = Math.max(softSsimA, softSsimB);
+
+          const mssim = Math.max(rawSsim, softSsim);
+          const combined = mssim * sizeScore;
+
+          row = { id, idx, corpusFile, ssim: mssim, rawSsim, softSsim, sizeScore, combined,
+            wRatio, hRatio, refDims: [aw, ah], htxDims: [hw, hh] };
         }
-
-        // ── Content SSIM: trim white borders, resize both to same dimensions ──
-        // Trimming removes bounding box padding so SSIM compares only drawn content.
-        // Both images are resized to the same target size (no padding) so that
-        // content aligns pixel-for-pixel. Size difference is already captured by sizeScore.
-        const MAX = 400;
-        const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } })
-          .trim({ threshold: 20 })
-          .toBuffer({ resolveWithObject: true });
-        const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } })
-          .trim({ threshold: 20 })
-          .toBuffer({ resolveWithObject: true });
-
-        const tw1 = trimRef.info.width, th1 = trimRef.info.height;
-        const tw2 = trimHtx.info.width, th2 = trimHtx.info.height;
-        const maxW = Math.max(tw1, tw2);
-        const maxH = Math.max(th1, th2);
-        const scale = Math.min(MAX / maxW, MAX / maxH, 1);
-        const targetW = Math.max(Math.round(maxW * scale), 11);
-        const targetH = Math.max(Math.round(maxH * scale), 11);
-
-        const refBuf = await sharp(trimRef.data)
-          .resize(targetW, targetH, { fit: 'fill' })
-          .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
-        let htxBuf = await sharp(trimHtx.data)
-          .resize(targetW, targetH, { fit: 'fill' })
-          .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
-        // Guard: sharp may produce off-by-one dimensions; re-resize to match
-        const w = refBuf.info.width, h = refBuf.info.height;
-        if (htxBuf.info.width !== w || htxBuf.info.height !== h) {
-          htxBuf = await sharp(htxBuf.data, { raw: { width: htxBuf.info.width, height: htxBuf.info.height, channels: 3 } })
-            .resize(w, h, { fit: 'fill' })
-            .raw().toBuffer({ resolveWithObject: true });
-        }
-
-        const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
-        const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
-
-        const { mssim: rawSsim } = computeSSIM(refImg, htxImg);
-
-        // Soft SSIM: blur both images before comparing. Pixel-wise SSIM is not
-        // shift-invariant, and for thin strokes a small misalignment can produce
-        // anti-correlated windows (negative SSIM) even when the diagrams are
-        // nearly identical. A Gaussian blur widens strokes enough that minor
-        // shifts still overlap. We compute SSIM at two blur levels and take the
-        // max with the raw score, so a truly different diagram (which fails at
-        // every level) still scores low, but thin-strip misalignment is forgiven.
-        // Scale both sigmas with image size so the same fractional blur is applied
-        // regardless of resolution; clamp so small images still get ≥1.5 px blur.
-        const minDim = Math.min(w, h);
-        const softSigmaA = Math.min(Math.max(minDim * 0.025, 1.5), 4);
-        const softSigmaB = Math.min(Math.max(minDim * 0.08, 3), 10);
-        async function ssimBlurred(sigma) {
-          const refS = await sharp(refBuf.data, { raw: { width: w, height: h, channels: 3 } })
-            .blur(sigma).raw().toBuffer();
-          const htxS = await sharp(htxBuf.data, { raw: { width: w, height: h, channels: 3 } })
-            .blur(sigma).raw().toBuffer();
-          return computeSSIM(
-            { data: rgbToRgba(refS, w, h), width: w, height: h },
-            { data: rgbToRgba(htxS, w, h), width: w, height: h }
-          ).mssim;
-        }
-        const softSsimA = await ssimBlurred(softSigmaA);
-        const softSsimB = await ssimBlurred(softSigmaB);
-        const softSsim = Math.max(softSsimA, softSsimB);
-
-        const mssim = Math.max(rawSsim, softSsim);
-        const combined = mssim * sizeScore;
-
-        results.push({ id, idx, corpusFile, ssim: mssim, rawSsim, softSsim, sizeScore, combined,
-          wRatio, hRatio, refDims: [aw, ah], htxDims: [hw, hh] });
       } catch (e) {
-        results.push({ id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message });
+        row = { id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message };
       }
-
-      if ((pi + 1) % 100 === 0)
-        console.log(`  ${pi + 1}/${pairs.length}`);
-    }
+      ssimDone++;
+      if (ssimDone % 100 === 0) console.log(`  ${ssimDone}/${pairs.length}`);
+      return row;
+    })).filter(Boolean);
 
     results.sort((a, b) => a.combined - b.combined);
     fs.writeFileSync(path.join(OUT_DIR, 'ssim-results.json'), JSON.stringify(results, null, 2));

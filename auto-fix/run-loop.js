@@ -127,7 +127,8 @@ function runFullPipeline() {
 
   console.log('[run-loop] running full pipeline: render-htx rasterize ssim ...');
   const t0 = Date.now();
-  const r1 = cp.spawnSync('node', ['ssim-pipeline.js', 'render-htx', 'rasterize', 'ssim'], {
+  const r1 = cp.spawnSync('node', ['ssim-pipeline.js', 'render-htx', 'rasterize', 'ssim',
+    '--concurrency', String(require('os').cpus().length)], {
     cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32', windowsHide: true,
   });
   if (r1.status !== 0) {
