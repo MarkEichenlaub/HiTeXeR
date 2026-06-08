@@ -529,6 +529,8 @@ function saveAfterSnapshot(targetId, commitHash) {
   const dst = path.join(FIX_SNAPSHOTS_DIR, commitHash + '-after.png');
   if (fs.existsSync(src)) {
     try { fs.copyFileSync(src, dst); } catch (e) { console.error('[run-loop] after-snapshot failed:', e.message); }
+  } else {
+    console.warn('[run-loop] after-snapshot skipped: source PNG missing:', src);
   }
   // Make the after-snapshot DURABLE across clones. Snapshots live in the
   // *.png-ignored fix-snapshots/ dir, so an untracked PNG saved here only ever
@@ -583,6 +585,8 @@ function saveBeforeSnapshot(targetId, description) {
   if (fs.existsSync(src)) {
     try { fs.copyFileSync(src, path.join(FIX_SNAPSHOTS_DIR, enqueueId + '-before.png')); }
     catch (e) { console.error('[run-loop] before-snapshot copy failed:', e.message); }
+  } else {
+    console.warn('[run-loop] before-snapshot skipped: source PNG missing:', src);
   }
   return enqueueId;
 }
