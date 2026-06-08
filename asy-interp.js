@@ -8641,7 +8641,7 @@ function createInterpreter() {
       return applyTransformPath(t, circ);
     });
 
-    env.set('box', (p1, p2) => {
+    const _boxFn = (p1, p2) => {
       const a = toPair(p1), b = toPair(p2);
       return makePath([
         lineSegment(a, {x:b.x,y:a.y}),
@@ -8649,7 +8649,11 @@ function createInterpreter() {
         lineSegment(b, {x:a.x,y:b.y}),
         lineSegment({x:a.x,y:b.y}, a),
       ], true);
-    });
+    };
+    // Tagged so that `draw(Label, box, Fill(...))` can detect a bare `box`
+    // passed as an envelope (frame-border routine) rather than a path.
+    _boxFn._isEnvelope = true;
+    env.set('box', _boxFn);
 
     env.set('polygon', (n) => {
       const sides = Math.floor(toNumber(n));
@@ -20127,6 +20131,41 @@ function createInterpreter() {
       // transform). The frame will be emitted to a picture by shipout(frame) or add().
       frameTarget = args[0];
       args = args.slice(1);
+    }
+    // draw(Label L, box, filltype) — boxed label at the Label's own pair
+    // position. Here `box` is the envelope (frame-border routine), not a path;
+    // with Fill(grey) it renders a filled grey rectangle behind the label text
+    // (pure Fill = no border). Used by the complex-plane "2", "2\omega^k"
+    // boxed radial labels in c186_L13 (01545). The Label constructor stores a
+    // lone pair argument as `align`, so treat that pair as the position.
+    {
+      let boxLbl = null, hasEnvelope = false, drawFilltype = null;
+      for (const a of args) {
+        if (a && typeof a === 'object' && a._tag === 'label' && a.text) boxLbl = a;
+        else if (typeof a === 'function' && a._isEnvelope) hasEnvelope = true;
+        else if (a && typeof a === 'object' && a._tag === 'filltype') drawFilltype = a;
+        else if (a && typeof a === 'object' && a._named && 'filltype' in a &&
+                 a.filltype && a.filltype._tag === 'filltype') drawFilltype = a.filltype;
+      }
+      if (boxLbl && hasEnvelope) {
+        let lpos = null;
+        if (isPair(boxLbl.position)) lpos = boxLbl.position;
+        else if (isPair(boxLbl.align)) lpos = boxLbl.align;
+        if (lpos) {
+          target.commands.push({
+            cmd: 'label',
+            text: boxLbl.text,
+            pos: makePair(lpos.x, lpos.y),
+            align: null,
+            pen: boxLbl.pen || clonePen(defaultPen),
+            labelTransform: boxLbl.transform || null,
+            filltype: drawFilltype || boxLbl.filltype || null,
+            line: args._line || 0,
+            _boxedLabel: true,
+          });
+          return;
+        }
+      }
     }
     // Handle L=Label(...) named arg: place a label along the drawn path
     // at the Label's position (0=begin, 1=end, fractional=along) with the
