@@ -10972,6 +10972,17 @@ function createInterpreter() {
         }
       }
       let s = textArg;
+      // Horizontal alignment. A LaTeX minipage typesets its content as a normal
+      // (left/justified) paragraph by default; \centering centers it and
+      // \flushright/\flushleft force a side. Detect BEFORE stripping the directive,
+      // then carry the choice to the multi-line label renderer via a leading
+      // \x06<c|l|r> marker (stripped again in renderSVG). Without this every
+      // minipage was centered, so non-\centering prose (e.g. 00572's explanatory
+      // paragraph) rendered centered instead of left-aligned like TeXeR.
+      let _mpAlign = 'l';
+      if (/^\s*\\centering\b/.test(s) || /^\s*\\center\s*\{/.test(s)) _mpAlign = 'c';
+      else if (/^\s*\\flushright\s*\{/.test(s)) _mpAlign = 'r';
+      else if (/^\s*\\flushleft\s*\{/.test(s)) _mpAlign = 'l';
       // Strip alignment directives so wrapping operates on raw words.
       s = s.replace(/^\\centering\s*/, '');
       s = s.replace(/^\\(?:center|flushright|flushleft)\{([\s\S]*)\}$/, '$1');
@@ -10989,9 +11000,9 @@ function createInterpreter() {
       // wrap to "Winnie's / left hand / (reflection)" — only achievable with
       // font-size-aware wrapping at label time.
       if (widthBp != null && widthBp > 0) {
-        return '\\begin{minipage}{' + widthBp.toFixed(2) + 'pt}' + s + '\\end{minipage}';
+        return '\x06' + _mpAlign + '\\begin{minipage}{' + widthBp.toFixed(2) + 'pt}' + s + '\\end{minipage}';
       }
-      return s;
+      return '\x06' + _mpAlign + s;
     });
 
     // Array functions
@@ -28390,6 +28401,18 @@ function renderSVG(result, opts) {
   // Pass 2: labels on top (text always above graphics)
   for (const {ci, dc, css} of deferredLabels) {
     if (dc.cmd === 'label') {
+      // Horizontal-alignment marker (\x06 c|l|r) prepended by minipage(): strip it
+      // from the text up front (before any width/placement computation reads dc.text)
+      // and remember the choice for the multi-line renderer. No marker ⇒ _mlAlign
+      // stays null ⇒ centered, preserving behavior for every non-minipage label.
+      let _mlAlign = null;
+      if (typeof dc.text === 'string') {
+        const _am = dc.text.match(/^\x06([clr])/);
+        if (_am) {
+          _mlAlign = _am[1] === 'l' ? 'start' : (_am[1] === 'r' ? 'end' : 'middle');
+          dc.text = dc.text.slice(2);
+        }
+      }
       // Skip empty labels
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
@@ -28786,12 +28809,20 @@ function renderSVG(result, opts) {
         const totalOffset = (lines.length - 1) * lineHeight;
         const ff = 'KaTeX_Main, serif';
         const op = css.opacity != null && css.opacity < 1 ? ` opacity="${css.opacity}"` : '';
+        // Horizontal alignment within the block. dx places the block CENTER at
+        // sx+dx (the align formula offsets by ±W/2), so for left/right alignment
+        // shift the per-line x to the block's left/right edge and switch anchor.
+        const mlAnchor = _mlAlign || 'middle';
+        const blockW = _labelWidthMeasured || (effectiveFontSize * 0.52);
+        let lineX = sx + dx;
+        if (mlAnchor === 'start') lineX = sx + dx - blockW / 2;
+        else if (mlAnchor === 'end') lineX = sx + dx + blockW / 2;
         let tspans = '';
         lines.forEach((line, i) => {
           const lineDy = i === 0 ? -totalOffset / 2 : lineHeight;
-          tspans += `<tspan x="${fmt(sx+dx)}" dy="${fmt(lineDy)}">${escSvg(stripLaTeX(line.trim()))}</tspan>`;
+          tspans += `<tspan x="${fmt(lineX)}" dy="${fmt(lineDy)}">${_inlineMathSvg(line.trim())}</tspan>`;
         });
-        const mlLabel = `<text x="${fmt(sx+dx)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="middle" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
+        const mlLabel = `<text x="${fmt(lineX)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="${mlAnchor}" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
         elements.push(labelTransformAttr ? `<g${labelTransformAttr}>${mlLabel}</g>` : mlLabel);
         commandMap.push({cmdIdx: ci, elementIdx: elements.length-1, line: dc.line});
         continue;
@@ -31006,14 +31037,41 @@ function _mathTextSvgSpaced(text, fontSize) {
 // width, which is ~7% wider and left a band of empty right-padding for
 // \frac/\sqrt labels — e.g. "$BU \cos \frac{u}{2}$" in 00125). Keep this in
 // sync with the rendering loop below; both consume the returned `parts`.
+// Render a fraction numerator/denominator: trig/log operators (\sin, \cos, …)
+// stay upright (LaTeX renders \mathop names in roman, not math-italic) and gain
+// a thin space when butted directly against an adjacent atom, matching TeX
+// operator spacing — e.g. "EF\sin F" → "EF sin F", "2\sin E" → "2 sin E".
+// Operators are wrapped in upright sentinels (\x01..\x02) BEFORE stripLaTeX so
+// its plain "\sin"→"sin" (italic) mapping never fires; stripLaTeX still does the
+// rest (scripts→Unicode, brace removal) and leaves the sentinels/thin-spaces
+// untouched. mathTextSvg renders \x01..\x02 content non-italic.
+const _FRAC_OPS = ['arcsin','arccos','arctan','sinh','cosh','tanh','sin','cos',
+  'tan','sec','csc','cot','log','ln','exp','min','max','det','dim','gcd','deg','arg'];
+function _fracOperandText(raw) {
+  if (!raw) return '';
+  let s = String(raw);
+  for (const op of _FRAC_OPS) s = s.split('\\' + op).join('\x01' + op + '\x02');
+  s = stripLaTeX(s);
+  // Thin space between an operator and an adjacent atom. Use U+2009 (THIN SPACE),
+  // not an ASCII space: mathTextSvg emits the inter-letter space in its own
+  // <tspan>, and the SVG rasterizer unreliably collapses standalone ASCII-space
+  // tspans (so "EF\\sin F" rendered jammed). U+2009 is preserved. A pre-existing
+  // ASCII space already adjacent to the operator is normalized to the thin space
+  // so "DE \\sin D" and "EF\\sin F" space identically.
+  const ATOM = '[0-9A-Za-z\\u0370-\\u03FF]';
+  s = s.replace(new RegExp('(' + ATOM + ') ?\x01', 'g'), '$1\u2009\x01');
+  s = s.replace(new RegExp('\x02 ?(' + ATOM + ')', 'g'), '\x02\u2009$1');
+  return s;
+}
+
 function _buildLaTeXSVGParts(rawText, fontSize) {
   const segments = parseLaTeXSegments(rawText);
   const parts = []; // {type, svgStr, width, height}
   let totalWidth = 0;
   for (const seg of segments) {
     if (seg.type === 'frac') {
-      const numText = stripLaTeX(seg.num);
-      const denText = stripLaTeX(seg.den);
+      const numText = _fracOperandText(seg.num);
+      const denText = _fracOperandText(seg.den);
       const fracFontSize = fontSize * 0.75;
       const numW = _estimateTextWidth(numText, fracFontSize);
       const denW = _estimateTextWidth(denText, fracFontSize);
@@ -31395,6 +31453,40 @@ function extractTexArg(s) {
 function fmt(n) { return Number(n.toFixed(4)); }
 function opacityAttr(o) { return (o !== undefined && o !== 1) ? ` opacity="${fmt(o)}"` : ''; }
 function escSvg(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Render a prose line that may contain inline $...$ math. Text outside the
+// math stays upright; math letter-runs are italicized via mathTextSvg so
+// variables like "$RDUA$" in a sentence render italic the way LaTeX does.
+// Returns SVG inner content (tspans). Falls back to plain escaped text when
+// the line has no math, so non-math lines are byte-identical to before.
+function _inlineMathSvg(line) {
+  if (!line) return '';
+  if (line.indexOf('$') === -1) return escSvg(stripLaTeX(line));
+  let result = '';
+  let last = 0;
+  const re = /\$([^$]*)\$/g;
+  let m;
+  // stripLaTeX trims each fragment, which would drop the word-spaces that sit
+  // between prose and inline math ("rectangle $RDUA$ has" → "rectangleRDUAhas").
+  // Re-insert a single leading/trailing gap as U+00A0 (NO-BREAK SPACE): unlike
+  // ASCII space it survives XML/SVG whitespace collapsing, and unlike U+2009 it
+  // has normal interword width.
+  const NBSP = ' ';
+  const emit = (raw) => {
+    const lead = /^\s/.test(raw) ? NBSP : '';
+    const trail = /\s$/.test(raw) ? NBSP : '';
+    const body = escSvg(stripLaTeX(raw));
+    if (!body) return lead || trail;
+    return lead + body + trail;
+  };
+  while ((m = re.exec(line)) !== null) {
+    if (m.index > last) result += emit(line.slice(last, m.index));
+    if (m[1]) result += mathTextSvg(stripLaTeX(m[1]));
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) result += emit(line.slice(last));
+  return result;
+}
 
 // Render math text with proper italic for letters, upright for digits/operators.
 // Returns SVG inner content (tspans) suitable for embedding in a <text> element.
