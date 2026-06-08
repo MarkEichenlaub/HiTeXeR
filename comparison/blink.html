@@ -1811,7 +1811,12 @@
   document.getElementById('blink-search').addEventListener('input', () => {
     const val = document.getElementById('blink-search').value.trim();
     if (/^\d{5}$/.test(val)) {
-      const idx = filtered.findIndex(d => d.id === val);
+      let idx = filtered.findIndex(d => d.id === val);
+      if (idx < 0 && manifest && manifest.diagrams.some(d => d.id === val)) {
+        document.getElementById('search-input').value = val;
+        applyFilters(true);
+        idx = filtered.findIndex(d => d.id === val);
+      }
       if (idx >= 0) {
         document.getElementById('blink-search').value = '';
         enterBlink(idx);

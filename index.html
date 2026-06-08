@@ -283,6 +283,18 @@ body {
 .md-submenu::after { content: '\25B6'; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 9px; color: #888; }
 .md-submenu > .menu-dropdown { left: 100%; top: -4px; }
 .md-submenu:hover > .menu-dropdown { display: block; }
+#screenshot-overlay {
+  position: fixed; cursor: crosshair; z-index: 10000; user-select: none;
+}
+#screenshot-overlay .ss-hint {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.7); color: #fff; font-size: 12px;
+  padding: 3px 10px; border-radius: 4px; pointer-events: none; white-space: nowrap;
+}
+#screenshot-overlay .ss-selection {
+  position: absolute; border: 2px dashed #fff;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.35); pointer-events: none;
+}
 
 /* Chat panel styles */
 #chat-panel {
@@ -577,7 +589,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.84</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.86</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -628,6 +640,9 @@ body {
         <div class="md-item" id="md-coords" title="Show the diagram coordinate value under the cursor when hovering over the rendered image">Cursor Coords</div>
         <div class="md-separator"></div>
         <div class="md-item" id="md-texer-import" title="Fetch Asymptote source from AoPS TeXeR by problem URL or image ID">Import from TeXeR...</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-screenshot-png" title="Select a region of the diagram and save it as a PNG with embedded source code">Screenshot (PNG)...</div>
+        <div class="md-item" id="md-screenshot-jpg" title="Select a region of the diagram and save it as a JPG with embedded source code">Screenshot (JPG)...</div>
       </div>
     </div>
   </div>
@@ -4614,6 +4629,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-texer-import').addEventListener('click', () => doTexerImport());
   document.getElementById('md-real-asy').addEventListener('click', () => toggleRealAsy());
   document.getElementById('md-coords').addEventListener('click', () => toggleCursorCoords());
+  document.getElementById('md-screenshot-png').addEventListener('click', () => startScreenshot('png'));
+  document.getElementById('md-screenshot-jpg').addEventListener('click', () => startScreenshot('jpg'));
   // Toolbar Slide button
   document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
   // Toolbar Labels button
@@ -7762,6 +7779,118 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(err) {
       console.error('PDF export failed:', err);
     }
+  }
+
+  // ============================================================
+  // Screenshot tool
+  // ============================================================
+  let _ssEscHandler = null;
+
+  function startScreenshot(format) {
+    const svg = document.querySelector('#preview-container svg:not([data-perm])');
+    if (!svg) { setStatus('No diagram rendered — nothing to screenshot.'); return; }
+    // Remove any leftover overlay
+    cancelScreenshot();
+    const svgRect = svg.getBoundingClientRect();
+    const overlay = document.createElement('div');
+    overlay.id = 'screenshot-overlay';
+    overlay.style.left   = svgRect.left + 'px';
+    overlay.style.top    = svgRect.top  + 'px';
+    overlay.style.width  = svgRect.width  + 'px';
+    overlay.style.height = svgRect.height + 'px';
+    const hint = document.createElement('div');
+    hint.className = 'ss-hint';
+    hint.textContent = 'Drag to select region — ESC to cancel';
+    overlay.appendChild(hint);
+    _ssEscHandler = (e) => { if (e.key === 'Escape') cancelScreenshot(); };
+    document.addEventListener('keydown', _ssEscHandler);
+    overlay.addEventListener('mousedown', (e) => _ssStartDrag(e, svgRect, format, overlay));
+    document.body.appendChild(overlay);
+  }
+
+  function cancelScreenshot() {
+    const overlay = document.getElementById('screenshot-overlay');
+    if (overlay) overlay.remove();
+    if (_ssEscHandler) {
+      document.removeEventListener('keydown', _ssEscHandler);
+      _ssEscHandler = null;
+    }
+  }
+
+  function _ssStartDrag(e, svgRect, format, overlay) {
+    e.preventDefault();
+    const ox = e.clientX - svgRect.left;
+    const oy = e.clientY - svgRect.top;
+    const selDiv = document.createElement('div');
+    selDiv.className = 'ss-selection';
+    overlay.appendChild(selDiv);
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function updateSel(cx, cy) {
+      const x1 = clamp(ox, 0, svgRect.width);
+      const y1 = clamp(oy, 0, svgRect.height);
+      const x2 = clamp(cx - svgRect.left, 0, svgRect.width);
+      const y2 = clamp(cy - svgRect.top,  0, svgRect.height);
+      selDiv.style.left   = Math.min(x1, x2) + 'px';
+      selDiv.style.top    = Math.min(y1, y2) + 'px';
+      selDiv.style.width  = Math.abs(x2 - x1) + 'px';
+      selDiv.style.height = Math.abs(y2 - y1) + 'px';
+      return { x: Math.min(x1,x2), y: Math.min(y1,y2), w: Math.abs(x2-x1), h: Math.abs(y2-y1) };
+    }
+
+    let finalRect = updateSel(e.clientX, e.clientY);
+
+    function onMove(ev) { finalRect = updateSel(ev.clientX, ev.clientY); }
+    function onUp() {
+      overlay.removeEventListener('mousemove', onMove);
+      overlay.removeEventListener('mouseup', onUp);
+      cancelScreenshot();
+      if (finalRect.w * finalRect.h > 25) _ssFinish(finalRect, svgRect, format);
+    }
+    overlay.addEventListener('mousemove', onMove);
+    overlay.addEventListener('mouseup', onUp);
+  }
+
+  async function _ssFinish(selRect, svgRect, format) {
+    const clone = cloneSvgForExport();
+    if (!clone) return;
+    // Use displayed dimensions as the render target so canvas coords = screen CSS px * dpr
+    clone.setAttribute('width',  svgRect.width);
+    clone.setAttribute('height', svgRect.height);
+    const dpr = window.devicePixelRatio || 1;
+    let canvas;
+    try {
+      canvas = await svgToCanvas(clone, dpr);
+    } catch(err) {
+      console.error('Screenshot render failed:', err);
+      setStatus('Screenshot failed — could not render diagram.');
+      return;
+    }
+    // Map CSS-pixel selection to physical canvas pixels
+    const cx = Math.round(selRect.x * dpr);
+    const cy = Math.round(selRect.y * dpr);
+    const cw = Math.max(1, Math.round(selRect.w * dpr));
+    const ch = Math.max(1, Math.round(selRect.h * dpr));
+    const crop = document.createElement('canvas');
+    crop.width = cw; crop.height = ch;
+    crop.getContext('2d').drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
+    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    const quality  = format === 'jpg' ? 0.95 : undefined;
+    crop.toBlob(async (rawBlob) => {
+      let finalBlob;
+      const code = extractAsyCode();
+      if (format === 'png') {
+        finalBlob = await pngAddTextChunk(rawBlob, 'Source', code);
+      } else {
+        finalBlob = await jpgAddComment(rawBlob, code);
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(finalBlob);
+      a.download = 'screenshot.' + (format === 'jpg' ? 'jpg' : 'png');
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, mimeType, quality);
   }
 
   // ============================================================
