@@ -13455,6 +13455,7 @@ function createInterpreter() {
       let label = '', labelAlign = null, labelPosition = null, labelTransform = null, labelPen = null, ymin = null, ymax = null, pen = null, ticks = null, arrow = null;
       let extent = null;
       let above = false;
+      let _axesRotatedEnd = false;
       const rawArgs = args;
       let startIdx = 0;
       if (rawArgs.length > 0 && rawArgs[0] && rawArgs[0]._tag === 'picture') {
@@ -13494,7 +13495,7 @@ function createInterpreter() {
           if ('ymax' in a && typeof a.ymax === 'number') ymax = a.ymax;
           continue;
         }
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; if (a.pen) labelPen = a.pen; }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.transform) labelTransform = a.transform; if (a.pen) labelPen = a.pen; if (a._axesEndpointRotated) _axesRotatedEnd = true; }
         else if (a && a._tag === 'axisshift' && a.axis === 'y') { axisShiftX = a.value; axisShiftXExplicit = true; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
@@ -13838,7 +13839,7 @@ function createInterpreter() {
         const _fullGraphAxis = yminExplicit && ymaxExplicit && !!ticks;
         const plainEndpointDefault = !arrow && !extent && !axisShiftXExplicit
           && labelPosition == null && labelAlign == null
-          && !_fullGraphAxis;
+          && !_fullGraphAxis && !_axesRotatedEnd;
         // Axisshift yaxis (axis=XZero/YZero) with ticks but no extent and
         // no explicit position/align: texer renders label at TOP endpoint,
         // rotated CCW, aligned west (e.g. diagram 3900). Different from
@@ -13846,7 +13847,17 @@ function createInterpreter() {
         // (along the axis) rather than upright.
         const axisshiftRotatedEndpoint = !arrow && !!ticks && !extent
           && axisShiftXExplicit && labelPosition == null && labelAlign == null;
-        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint;
+        // axes("x","y") y-label: rotated 90° CCW. When the plotted content spans
+        // a real y-range (the data reaches the top of the axis, e.g. 04155's
+        // slanted line, 12710's hyperbola) TeXeR pins the title to the TOP
+        // endpoint. But when the content is a single horizontal line (degenerate
+        // y-height, e.g. 04156 f(x)=4) the axis is mostly headroom and TeXeR
+        // centres the title on the axis instead. Branch on that so both render
+        // like the reference.
+        const _axesYDegenerate = _axesRotatedEnd && isFinite(_contentYmin) && isFinite(_contentYmax)
+          && Math.abs(_contentYmax - _contentYmin) < 1e-9;
+        const _axesTopAnchor = _axesRotatedEnd && !_axesYDegenerate;
+        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor;
         // "uprightEndpoint" means the label is rendered upright (no rotation,
         // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
         // upright behavior to match prior conventions.
@@ -14161,11 +14172,12 @@ function createInterpreter() {
       }
       const xArgs = []; const yArgs = [];
       if (xlabel) xArgs.push(xlabel);
-      // For y-axis labels from axes(), wrap in a Label with position=0.5 to
-      // get the traditional middle-of-axis rotated placement (matching real
-      // Asymptote's graph.asy behavior), instead of the plain-string
-      // endpoint-default placement used by standalone yaxis("string") calls.
-      if (ylabel) yArgs.push({_tag:'label', text: ylabel, position: 0.5});
+      // For y-axis labels from axes(), TeXeR places the label rotated 90° CCW
+      // at the TOP endpoint of the y-axis (read bottom-to-top), aligned west —
+      // NOT centered, and NOT the upright-endpoint placement used by standalone
+      // yaxis("string") calls. Flag it so yaxis selects the rotated-endpoint
+      // path. (04155, 04156, 12710.)
+      if (ylabel) yArgs.push({_tag:'label', text: ylabel, _axesEndpointRotated: true});
       if (pen) { xArgs.push(pen); yArgs.push(pen); }
       if (arrow) { xArgs.push(arrow); yArgs.push(arrow); }
       invokeFunc(env.get('xaxis'), xArgs);
