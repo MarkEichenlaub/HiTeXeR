@@ -149,6 +149,47 @@ body {
 .cm-highlight-selected { background-color: rgba(59, 130, 246, 0.4) !important; outline: 1px solid rgba(59, 130, 246, 0.6); }
 .cm-line-hidden { display: none !important; }
 
+/* Variable trace bar */
+#trace-bar {
+  background: #1a1a2e;
+  border-bottom: 1px solid #2a2a3e;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #ccc;
+  flex-shrink: 0;
+}
+#trace-bar .tb-label { color: #888; white-space: nowrap; }
+#trace-bar .tb-varname { color: #e9c46a; font-weight: 600; font-family: monospace; margin-right: 4px; }
+#trace-bar .tb-rename-input {
+  background: #0d1117;
+  border: 1px solid #444;
+  color: #ccc;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  width: 130px;
+}
+#trace-bar .tb-rename-input:focus { outline: none; border-color: #e94560; }
+#trace-bar .tb-btn {
+  background: #0f3460;
+  border: 1px solid #1a5276;
+  color: #ccc;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#trace-bar .tb-btn:hover { background: #1a5276; }
+#trace-bar .tb-dismiss { background: transparent; border-color: #444; margin-left: auto; }
+#trace-bar .tb-dismiss:hover { background: #2a2a3e; }
+#trace-bar .tb-error { color: #e94560; font-size: 12px; }
+.cm-var-trace-highlight { background: rgba(233, 196, 106, 0.45) !important; border-radius: 2px; }
+
 /* Resizer */
 #resizer { width: 4px; background: #0f3460; cursor: col-resize; flex-shrink: 0; }
 #resizer:hover { background: #e94560; }
@@ -589,7 +630,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.87</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.89</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -725,6 +766,14 @@ body {
         <button class="srch-btn" id="replace-btn" title="Replace current (Enter)">Replace</button>
         <button class="srch-btn" id="replace-all-btn" title="Replace all">All</button>
       </div>
+    </div>
+    <div id="trace-bar" style="display:none;">
+      <span class="tb-label">Tracing:</span>
+      <span class="tb-varname" id="tb-varname"></span>
+      <input class="tb-rename-input" id="tb-rename-input" type="text" placeholder="new name…" spellcheck="false" autocomplete="off">
+      <button class="tb-btn" id="tb-rename-btn">Rename</button>
+      <span class="tb-error" id="tb-error" style="display:none;"></span>
+      <button class="tb-btn tb-dismiss" id="tb-dismiss">&#x2715;</button>
     </div>
     <textarea id="code-editor">[asy]
 import geometry;
@@ -2215,6 +2264,7 @@ function initEditor() {
   editor.getWrapperElement().addEventListener('click', (e) => {
     if (StyleMenu.visible) return;
     if (!e.ctrlKey && !e.metaKey) return; // only toggle on Ctrl/Meta click
+    if (varTraceState) clearVarTrace();
     const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
     const lineText = editor.getLine(pos.line);
     if (/^\s*(draw|fill|filldraw|label|dot)\s*\(/.test(lineText.trim())) {
@@ -2230,6 +2280,31 @@ function initEditor() {
       }
       renderMultiSelection(true);
     }
+  });
+
+  // Plain left-click: activate variable trace
+  editor.getWrapperElement().addEventListener('click', (e) => {
+    if (StyleMenu.visible) return;
+    if (e.ctrlKey || e.metaKey) return;
+    if (e.button !== 0) return;
+    const pos = editor.coordsChar({ left: e.clientX, top: e.clientY }, 'page');
+    const lineText = editor.getLine(pos.line) || '';
+    // Extract word around click position using character search (more reliable than getTokenAt)
+    let ch = pos.ch;
+    let start = ch, end = ch;
+    while (start > 0 && /\w/.test(lineText[start - 1])) start--;
+    while (end < lineText.length && /\w/.test(lineText[end])) end++;
+    if (start >= end) return;
+    const word = lineText.slice(start, end);
+    if (!word || /^\d/.test(word)) return;
+    const parsed = AsyParser.parse(editor.getValue());
+    if (!parsed.userVarNames.has(word)) return;
+    activateVarTrace(word, pos.line);
+  });
+
+  // Escape key: dismiss var trace
+  editor.on('keydown', (_cm, e) => {
+    if (e.key === 'Escape' && varTraceState) { clearVarTrace(); e.preventDefault(); }
   });
 }
 
@@ -2888,7 +2963,7 @@ function applyGridOverlay() {
   const visMinYmath = fromPxY(contH);
 
   // Adaptive step — finer spacing when zoomed in, coarser when zoomed out.
-  const targetLines = 8;
+  const targetLines = 16;
   const stepX = niceGridStep(visMaxX - visMinX, targetLines);
   const stepY = niceGridStep(visMaxYmath - visMinYmath, targetLines);
 
@@ -2951,34 +3026,34 @@ function applyGridOverlay() {
     lbl.setAttribute('x', x);
     lbl.setAttribute('y', y);
     lbl.setAttribute('fill', labelColor);
-    lbl.setAttribute('font-size', '10');
+    lbl.setAttribute('font-size', '20');
     lbl.setAttribute('font-family', 'sans-serif');
     lbl.setAttribute('text-anchor', anchor);
     lbl.setAttribute('stroke', labelHalo);
-    lbl.setAttribute('stroke-width', '3');
+    lbl.setAttribute('stroke-width', '5');
     lbl.setAttribute('paint-order', 'stroke');
     lbl.textContent = text;
     return lbl;
   };
 
   // X labels pinned to bottom of container — thin by count for readability.
-  const maxXLabels = Math.max(3, Math.floor(contW / 60));
+  const maxXLabels = Math.max(3, Math.floor(contW / 100));
   const xStride = Math.max(1, Math.ceil(xVals.length / maxXLabels));
   xVals.forEach((x, i) => {
     if (i % xStride !== 0) return;
     const px = toPxX(x);
     if (px < 2 || px > contW - 2) return;
-    overlay.appendChild(makeLabel(formatGridLabel(x, stepX), px + 2, contH - 4, 'start'));
+    overlay.appendChild(makeLabel(formatGridLabel(x, stepX), px + 2, contH - 6, 'start'));
   });
 
   // Y labels pinned to left of container
-  const maxYLabels = Math.max(3, Math.floor(contH / 30));
+  const maxYLabels = Math.max(3, Math.floor(contH / 50));
   const yStride = Math.max(1, Math.ceil(yVals.length / maxYLabels));
   yVals.forEach((y, i) => {
     if (i % yStride !== 0) return;
     const py = toPxY(y);
-    if (py < 10 || py > contH - 2) return;
-    overlay.appendChild(makeLabel(formatGridLabel(y, stepY), 2, py - 3, 'start'));
+    if (py < 16 || py > contH - 2) return;
+    overlay.appendChild(makeLabel(formatGridLabel(y, stepY), 2, py - 5, 'start'));
   });
 
   container.appendChild(overlay);
@@ -3157,6 +3232,8 @@ let svgHighlightOverlays = [];
 let multiSelected = new Set(); // line indices of multi-selected commands
 let multiSelectedInterp = new Set(); // interpreter cmdIdx values — per-draw granularity for SVG highlight
 let frozenVisibleLines = null; // When non-null, code filter is frozen to these line indices (Set)
+let varTraceState = null; // { varName, clickedLine } — active variable trace
+let varTraceMarks = []; // CodeMirror text marks highlighting traced variable
 let interpCmdToElements = new Map(); // interpCmdIdx → SVGElement[]
 let interpCmdToLineIdx = new Map();  // interpCmdIdx → source lineIdx (0-based)
 let elementToInterpCmd = new Map();  // SVGElement → interpCmdIdx
@@ -3166,6 +3243,12 @@ clearSelBtn.addEventListener('click', () => {
   multiSelected.clear(); multiSelectedInterp.clear();
   frozenVisibleLines = null;
   renderMultiSelection();
+});
+document.getElementById('tb-dismiss').addEventListener('click', clearVarTrace);
+document.getElementById('tb-rename-btn').addEventListener('click', doRenameVar);
+document.getElementById('tb-rename-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doRenameVar();
+  if (e.key === 'Escape') clearVarTrace();
 });
 let probeReady = Promise.resolve(); // resolves when color probe mapping completes
 
@@ -3288,6 +3371,104 @@ function renderMultiSelection(userDriven) {
     }
   }
   updateCodeFilter(userDriven);
+}
+
+function activateVarTrace(varName, clickedLine) {
+  // Clear existing trace marks
+  for (const m of varTraceMarks) m.clear();
+  varTraceMarks = [];
+  // Mutually exclusive with multi-select
+  if (multiSelected.size > 0) {
+    multiSelected.clear(); multiSelectedInterp.clear(); frozenVisibleLines = null;
+    clearHighlights(); clearSvgHighlights(); clearSelBtn.style.display = 'none';
+  }
+  const code = editor.getValue();
+  const parsed = AsyParser.parse(code);
+  const lines = parsed.lines;
+  const total = editor.lineCount();
+  const esc = varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('\\b' + esc + '\\b');
+
+  // Lines containing this variable
+  const varLines = new Set();
+  for (let i = 0; i < lines.length; i++) { if (re.test(lines[i])) varLines.add(i); }
+
+  // Transitive definition lines via assignment BFS
+  const depLines = new Set();
+  const visited = new Set();
+  const queue = [varName];
+  while (queue.length) {
+    const v = queue.shift();
+    if (visited.has(v)) continue;
+    visited.add(v);
+    for (const a of parsed.assignments) {
+      if (a.varName !== v) continue;
+      depLines.add(a.lineIndex);
+      const rhs = a.lineText.includes('=') ? a.lineText.split('=').slice(1).join('=') : a.lineText;
+      const ids = rhs.match(/[a-zA-Z_]\w*/g) || [];
+      for (const id of ids) { if (parsed.userVarNames.has(id) && !visited.has(id)) queue.push(id); }
+    }
+  }
+
+  const visible = new Set([...varLines, ...depLines]);
+  for (let i = 0; i < total; i++) {
+    if (visible.has(i)) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+    else editor.addLineClass(i, 'wrap', 'cm-line-hidden');
+  }
+
+  // Highlight all occurrences
+  const hlRe = new RegExp('\\b' + esc + '\\b', 'g');
+  for (let i = 0; i < total; i++) {
+    const lt = lines[i] || '';
+    let m; hlRe.lastIndex = 0;
+    while ((m = hlRe.exec(lt)) !== null) {
+      varTraceMarks.push(editor.markText({line:i,ch:m.index},{line:i,ch:m.index+varName.length},{className:'cm-var-trace-highlight'}));
+    }
+  }
+
+  varTraceState = { varName, clickedLine };
+  document.getElementById('tb-varname').textContent = varName;
+  document.getElementById('tb-rename-input').value = varName;
+  document.getElementById('tb-error').style.display = 'none';
+  document.getElementById('trace-bar').style.display = 'flex';
+  editor.scrollIntoView({line: clickedLine, ch: 0}, 50);
+}
+
+function clearVarTrace() {
+  for (const m of varTraceMarks) m.clear();
+  varTraceMarks = [];
+  varTraceState = null;
+  const total = editor.lineCount();
+  for (let i = 0; i < total; i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  document.getElementById('trace-bar').style.display = 'none';
+  document.getElementById('tb-error').style.display = 'none';
+}
+
+function doRenameVar() {
+  if (!varTraceState) return;
+  const newName = document.getElementById('tb-rename-input').value.trim();
+  const errorEl = document.getElementById('tb-error');
+  if (!newName || newName === varTraceState.varName) { clearVarTrace(); return; }
+  if (!/^[a-zA-Z_]\w*$/.test(newName)) {
+    errorEl.textContent = 'Invalid identifier'; errorEl.style.display = 'inline'; return;
+  }
+  const code = editor.getValue();
+  const parsed = AsyParser.parse(code);
+  if (parsed.userVarNames.has(newName)) {
+    errorEl.textContent = '"' + newName + '" already in use'; errorEl.style.display = 'inline'; return;
+  }
+  const oldName = varTraceState.varName;
+  const clickedLine = varTraceState.clickedLine;
+  const re = new RegExp('\\b' + oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+  const newCode = code.replace(re, newName);
+  // Reset trace state without triggering clearVarTrace line-visibility reset (setValue will trigger a refresh)
+  for (const m of varTraceMarks) m.clear();
+  varTraceMarks = []; varTraceState = null;
+  document.getElementById('trace-bar').style.display = 'none';
+  const total = editor.lineCount();
+  for (let i = 0; i < total; i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
+  editor.setValue(newCode);
+  activateVarTrace(newName, clickedLine);
 }
 
 function clearSvgHighlights() {
@@ -3537,6 +3718,7 @@ function setupSvgInteractivity(code) {
     else if (lineIdx < editor.lineCount()) multiSelected.add(lineIdx); // keep selection through edits
   }
   if (multiSelected.size > 0) renderMultiSelection();
+  else if (varTraceState) activateVarTrace(varTraceState.varName, varTraceState.clickedLine);
   else {
     frozenVisibleLines = null;
     for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
@@ -3799,6 +3981,7 @@ function setupSvgInteractivityDirect(code, commandMap) {
     }
   }
   if (multiSelected.size > 0) renderMultiSelection();
+  else if (varTraceState) activateVarTrace(varTraceState.varName, varTraceState.clickedLine);
   else {
     frozenVisibleLines = null;
     for (let i = 0; i < editor.lineCount(); i++) editor.removeLineClass(i, 'wrap', 'cm-line-hidden');
