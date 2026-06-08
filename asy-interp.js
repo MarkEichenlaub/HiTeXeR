@@ -25268,7 +25268,13 @@ function renderSVG(result, opts) {
          : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
            ? 300
            : (unitScale >= 20 && !hasAnyLabels)
-             ? 22
+             // Honor literal cm-scale unitsize (like the [10,20) tier below),
+             // with a 22bp floor so genuinely tiny geometry still grows enough
+             // to be visible. A flat 22 here SHRANK diagrams whose geometry is
+             // naturally larger than 22bp (e.g. the 07175 lattice at 0.75cm,
+             // ~37bp tall), collapsing sizeScore; TeXeR renders these at the
+             // literal scale, matching HTX's 144dpi raster.
+             ? Math.max(22, cmNoLabelNat)
              : (unitScale >= 10 && !hasAnyLabels)
                ? cmNoLabelNat
                : _cmLabelModestTgt
