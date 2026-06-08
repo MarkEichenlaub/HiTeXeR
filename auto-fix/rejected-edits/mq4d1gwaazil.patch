@@ -1,0 +1,128 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 29f9c3ab..35bb810d 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -25678,7 +25678,15 @@ function renderSVG(result, opts) {
+     // estOvershoot<=1.25 guard still protects label-dominated layouts.
+     const _maxLblW = labelInfoBp.reduce((m, li) => Math.max(m, li.widthBp || 0), 0);
+     const _existingFitGate = maxDim > 40 && minDim >= 5;
+-    const _shortLabelFit = !_existingFitGate && maxDim > 5 && _maxLblW <= 40;
++    // Skip the geometry-only-bbox short-label shrink for 3D projected diagrams.
++    // A 3D solid with vertex tags surrounding it (e.g. 10243/00871/00872/00900:
++    // cube with A–H corner labels) gets fit-to-defaultSize once here via the
++    // bp label-extent ESTIMATE, then AGAIN by the downstream viewBox-pad overshoot
++    // clamp (line ~27259, via _domBidir) using MathJax-MEASURED label widths.
++    // The two compound into a ~0.81× double-shrink, rendering the cube ~12% too
++    // small. The measured-label clamp is the accurate authority for these
++    // label-surrounded compact projections, so let it size them alone.
++    const _shortLabelFit = !_existingFitGate && !_is3D && maxDim > 5 && _maxLblW <= 40;
+     // Skip this (geometry-only-bbox) shrink for the wide-label medium/large-2D
+     // case: the bp label-extent re-estimate in estOvershoot over-pads wide math
+     // labels (e.g. 07413's "$18+83i$" coordinate tags, _maxLblW≈45) by ~30%,
+@@ -27262,7 +27270,22 @@ function renderSVG(result, opts) {
+           // compact figures whose labels surround the geometry.
+           const geomRefMax = Math.max(svgW, svgH);
+           const liW = svgW * overshootScaleW, liH = svgH * overshootScaleH;
+-          const fit = Math.min(1, geomRefMax / Math.max(liW, liH, 1e-9));
++          let fit = Math.min(1, geomRefMax / Math.max(liW, liH, 1e-9));
++          // 3D projected diagrams with single-char corner tags (cube ABCDEFGH in
++          // 10243) fit the whole label-inclusive picture to geomRefMax =
++          // defaultSize here; TeXeR binds these ~4% tighter, so HTX renders them
++          // ~3% oversized (sizeScore 0.976, capping combined at ~0.89). Bind 0.96
++          // to match — but ONLY when the label overshoot is ASYMMETRIC: one axis
++          // carries the corner-tag overshoot (>=1.12) while the OTHER stays modest
++          // (<1.15), leaving room to shrink without the fixed-size (truesize)
++          // labels colliding. Balanced high-overshoot layouts (labels tight on all
++          // sides, e.g. 00871/00900 with osW~osH~1.2) are EXCLUDED — shrinking
++          // them pulls truesize tags into the geometry and tanks ssim ~0.05.
++          // Controls (03335/04373/04611) never reach this clamp at all.
++          if (_is3D && Math.max(overshootScaleW, overshootScaleH) >= 1.12 &&
++              Math.min(overshootScaleW, overshootScaleH) < 1.15) {
++            fit *= 0.96;
++          }
+           const fW = overshootScaleW * fit, fH = overshootScaleH * fit;
+           svgW *= fW; svgH *= fH;
+           intrinsicW *= fW; intrinsicH *= fH;
+diff --git a/auto-fix/fix-snapshots/5047715b-after.png b/auto-fix/fix-snapshots/5047715b-after.png
+new file mode 100644
+index 00000000..97f860ea
+Binary files /dev/null and b/auto-fix/fix-snapshots/5047715b-after.png differ
+diff --git a/auto-fix/fix-snapshots/a2a33dfc-after.png b/auto-fix/fix-snapshots/a2a33dfc-after.png
+new file mode 100644
+index 00000000..97f860ea
+Binary files /dev/null and b/auto-fix/fix-snapshots/a2a33dfc-after.png differ
+diff --git a/auto-fix/fix-snapshots/a36efdf8-after.png b/auto-fix/fix-snapshots/a36efdf8-after.png
+new file mode 100644
+index 00000000..97f860ea
+Binary files /dev/null and b/auto-fix/fix-snapshots/a36efdf8-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 8804a1ec..899e3bfc 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -7319,6 +7319,26 @@
+       666
+     ]
+   },
++  {
++    "id": "10243",
++    "idx": 10242,
++    "corpusFile": "c57_L17_script_12.asy",
++    "ssim": 0.9145050438370237,
++    "rawSsim": 0.6423845762802324,
++    "softSsim": 0.9145050438370237,
++    "sizeScore": 0.9984833436089342,
++    "combined": 0.9131180539176263,
++    "wRatio": 0.975609756097561,
++    "hRatio": 0.9917355371900827,
++    "refDims": [
++      410,
++      484
++    ],
++    "htxDims": [
++      400,
++      480
++    ]
++  },
+   {
+     "id": "04965",
+     "idx": 4964,
+@@ -9379,26 +9399,6 @@
+       476
+     ]
+   },
+-  {
+-    "id": "10243",
+-    "idx": 10242,
+-    "corpusFile": "c57_L17_script_12.asy",
+-    "ssim": 0.9273992471655426,
+-    "rawSsim": 0.6457138918275324,
+-    "softSsim": 0.9040400746876519,
+-    "sizeScore": 0.8322230966367538,
+-    "combined": 0.771803073294702,
+-    "wRatio": 1.224390243902439,
+-    "hRatio": 1.243801652892562,
+-    "refDims": [
+-      410,
+-      484
+-    ],
+-    "htxDims": [
+-      502,
+-      602
+-    ]
+-  },
+   {
+     "id": "02573",
+     "idx": 2572,
+diff --git a/index.html b/index.html
+index 50e70cd7..cab880e9 100644
+--- a/index.html
++++ b/index.html
+@@ -577,7 +577,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.55</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.56</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>
