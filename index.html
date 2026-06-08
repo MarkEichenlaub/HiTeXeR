@@ -195,7 +195,7 @@ body {
 #style-menu .opt-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
 #style-menu .opt-row label { flex: 0 0 72px; font-size: 12px; color: #aaa; }
 #style-menu .opt-row > :last-child { flex: 1; }
-#style-menu select, #style-menu input[type="number"] {
+#style-menu select, #style-menu input[type="number"], #style-menu input[type="text"] {
   background: #2a2a3e; color: #eee; border: 1px solid #444; border-radius: 4px;
   padding: 4px 8px; font-size: 13px; width: 100%;
 }
@@ -577,7 +577,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.80</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.82</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -1430,6 +1430,15 @@ const PenParser = {
     if (!info) return code;
     const lines = code.split('\n');
 
+    if (property === 'labelText') {
+      // Update args[0] of the label command
+      const newArgs = [...info.cmdParts.args];
+      const escaped = value.replace(/"/g, '\\"');
+      newArgs[0] = `"${escaped}"`;
+      lines[lineIdx] = `${info.cmdParts.indent}${info.cmdParts.cmd}(${newArgs.join(', ')})${info.cmdParts.suffix}`;
+      return lines.join('\n');
+    }
+
     if (property === 'arrow') {
       // Arrow is a separate argument, not part of pen
       return this._setArrow(info, value, lines);
@@ -1691,6 +1700,18 @@ const StyleMenu = {
       html += `</div>`;
     }
 
+    // ---- Label Text ----
+    if (isLabel) {
+      const textArg = (info.cmdParts.args[0] || '').trim();
+      const isLiteralString = /^"(?:[^"\\]|\\.)*"$/.test(textArg) || /^'(?:[^'\\]|\\.)*'$/.test(textArg);
+      html += `<div class="sm-heading">Label Text</div>`;
+      if (isLiteralString) {
+        html += `<div class="opt-row"><label>Text</label><input type="text" id="sm-label-text" style="flex:1;min-width:0"></div>`;
+      } else {
+        html += `<div style="color:#e94560;font-size:0.85em;padding:2px 6px">Label text is computed</div>`;
+      }
+    }
+
     // ---- Font size (labels only) ----
     if (isLabel) {
       html += `<div class="sm-heading">Font Size</div>`;
@@ -1734,6 +1755,17 @@ const StyleMenu = {
 
   _bindEvents() {
     const info = this.info;
+
+    // Label text editing — works regardless of pen complexity
+    const ltInput = this.el.querySelector('#sm-label-text');
+    if (ltInput) {
+      const textArg = (info.cmdParts.args[0] || '').trim();
+      if (/^"(?:[^"\\]|\\.)*"$/.test(textArg) || /^'(?:[^'\\]|\\.)*'$/.test(textArg)) {
+        ltInput.value = textArg.slice(1, -1);
+      }
+      ltInput.addEventListener('change', () => this._change('labelText', ltInput.value));
+    }
+
     if (info.isComplex) return; // No editing for complex pens
 
     // Color swatches
@@ -3302,18 +3334,43 @@ function highlightSvgElement(el, intensity, overrideColor) {
   const strokeW = (intensity === 'strong' || isSelect) ? 5 : 3;
   const filterId = isSelect ? 'hitexer-blur-select'
                  : intensity === 'strong' ? 'hitexer-blur-strong' : 'hitexer-blur-soft';
-  // Create a blurred, colored clone BEHIND the original element for glow effect
-  const clone = el.cloneNode(false);
-  clone.setAttribute('stroke', color);
-  clone.setAttribute('stroke-opacity', opacity);
-  clone.setAttribute('stroke-width', String(strokeW));
-  clone.setAttribute('fill', 'none');
-  clone.setAttribute('filter', `url(#${filterId})`);
-  clone.style.pointerEvents = 'none';
-  clone.removeAttribute('stroke-dasharray');
-  // Insert clone BEFORE the original so glow appears behind
-  el.parentNode.insertBefore(clone, el);
-  svgHighlightOverlays.push(clone);
+  // Create a blurred, colored overlay BEHIND the original element for glow effect
+  let glowEl;
+  if (el.tagName === 'text') {
+    // Deep clone so tspan children are included; use fill+stroke for visible text glow
+    glowEl = el.cloneNode(true);
+    glowEl.setAttribute('stroke', color);
+    glowEl.setAttribute('stroke-width', String(strokeW));
+    glowEl.setAttribute('stroke-opacity', opacity);
+    glowEl.setAttribute('fill', color);
+    glowEl.setAttribute('fill-opacity', opacity);
+    glowEl.setAttribute('filter', `url(#${filterId})`);
+    glowEl.style.pointerEvents = 'none';
+  } else if (el.tagName === 'foreignObject') {
+    // Blurred rect glow since foreignObject HTML content can't be styled via SVG fill/stroke
+    const bbox = el.getBBox();
+    glowEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    glowEl.setAttribute('x', String(bbox.x));
+    glowEl.setAttribute('y', String(bbox.y));
+    glowEl.setAttribute('width', String(bbox.width));
+    glowEl.setAttribute('height', String(bbox.height));
+    glowEl.setAttribute('fill', color);
+    glowEl.setAttribute('opacity', opacity);
+    glowEl.setAttribute('filter', `url(#${filterId})`);
+    glowEl.style.pointerEvents = 'none';
+  } else {
+    glowEl = el.cloneNode(false);
+    glowEl.setAttribute('stroke', color);
+    glowEl.setAttribute('stroke-opacity', opacity);
+    glowEl.setAttribute('stroke-width', String(strokeW));
+    glowEl.setAttribute('fill', 'none');
+    glowEl.setAttribute('filter', `url(#${filterId})`);
+    glowEl.style.pointerEvents = 'none';
+    glowEl.removeAttribute('stroke-dasharray');
+  }
+  // Insert BEFORE the original so glow appears behind
+  el.parentNode.insertBefore(glowEl, el);
+  svgHighlightOverlays.push(glowEl);
 }
 
 /**
@@ -3406,7 +3463,7 @@ async function buildColorProbeMapping(code, mapping, parsed) {
     const probeDoc = parser.parseFromString(data.svg, 'image/svg+xml');
     const probeSvg = probeDoc.querySelector('svg');
     if (!probeSvg) return null;
-    const probeEls = [...probeSvg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, use')]
+    const probeEls = [...probeSvg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, foreignObject, use')]
       .filter(el => !el.closest('defs'));
 
     // Build mapping: for each probe element, read its stroke/fill color to determine ci
@@ -3475,8 +3532,8 @@ function setupSvgInteractivity(code) {
     }
   }
 
-  // Get ALL SVG graphical elements in document order
-  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, use')]
+  // Get ALL SVG graphical elements in document order (text/foreignObject for labels)
+  const svgElements = [...svg.querySelectorAll('path, circle, ellipse, line, polyline, polygon, rect, text, foreignObject, use')]
     .filter(el => !el.closest('defs'));
   const elementToCommand = new Map();
 
@@ -3962,6 +4019,62 @@ function applyCanvasTransform() {
     svg.style.transform = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasZoom}) rotate(${canvasRotate}deg)`;
   }
   if (gridActive) applyGridOverlay();
+  // Defer to next frame so getBoundingClientRect() reflects the transform we
+  // just applied, then enforce a minimum on-screen size for dotted/dashed lines.
+  requestAnimationFrame(ensureDashVisibility);
+}
+
+// ------------------------------------------------------------
+// Dotted/dashed lines disappear on screen when the effective display scale is
+// small (a large diagram fit-to-container, or zoomed out): each dot/dash
+// on-segment and the stroke width are ~ the pen width in viewBox units, so they
+// go sub-pixel and the browser's antialiasing renders them with near-zero
+// alpha. This pass bumps dotted/dashed stroke-width and dash on-segments up to a
+// fixed on-screen floor so they stay visible at every zoom level. Display-only:
+// originals are stashed in data-orig-* and restored before any export/copy
+// (restoreDashOriginals); the SSIM PNG pipeline renders at intrinsic scale and
+// is untouched.
+const DASH_MIN_CSS_PX = 1.2; // on-screen floor for a dot/dash on-segment & stroke
+function ensureDashVisibility() {
+  const svg = document.querySelector('#preview-container svg:not([data-perm])');
+  if (!svg) return;
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  if (!vb || !vb.width) return;
+  const rect = svg.getBoundingClientRect(); // includes the CSS zoom/pan transform
+  if (!rect.width) return;
+  const s = rect.width / vb.width;           // CSS px per viewBox unit (covers fit + zoom)
+  if (!isFinite(s) || s <= 0) return;
+  const floorU = DASH_MIN_CSS_PX / s;        // floor expressed in viewBox units
+  for (const p of svg.querySelectorAll('path[stroke-dasharray]')) {
+    if (p.getAttribute('data-orig-dash') === null) {
+      p.setAttribute('data-orig-dash', p.getAttribute('stroke-dasharray') || '');
+      p.setAttribute('data-orig-sw', p.getAttribute('stroke-width') || '');
+    }
+    const origDash = p.getAttribute('data-orig-dash');
+    const origSw = parseFloat(p.getAttribute('data-orig-sw')) || 0;
+    const nums = origDash.trim().split(/\s+/).map(Number);
+    if (!nums.length || nums.some(isNaN)) continue;
+    const onSeg = nums[0] || 0; // first drawn segment
+    // Scale the whole pattern uniformly so the dot:gap ratio is preserved.
+    const f = onSeg > 0 ? Math.max(1, floorU / onSeg) : 1;
+    p.setAttribute('stroke-dasharray', f === 1 ? origDash : nums.map(n => n * f).join(' '));
+    p.setAttribute('stroke-width', String(Math.max(origSw, floorU)));
+  }
+}
+
+// Undo ensureDashVisibility's overrides on an export/copy clone so saved images
+// carry the original source dash/stroke values (exports rasterise at intrinsic
+// size where sub-pixel disappearance never happens).
+function restoreDashOriginals(rootSvg) {
+  if (!rootSvg) return;
+  for (const p of rootSvg.querySelectorAll('path[data-orig-dash]')) {
+    const od = p.getAttribute('data-orig-dash');
+    const ow = p.getAttribute('data-orig-sw');
+    if (od) p.setAttribute('stroke-dasharray', od); else p.removeAttribute('stroke-dasharray');
+    if (ow) p.setAttribute('stroke-width', ow);
+    p.removeAttribute('data-orig-dash');
+    p.removeAttribute('data-orig-sw');
+  }
 }
 
 function updateZoomLabel() {
@@ -4273,6 +4386,7 @@ async function copyCanvasImage(format) {
     // Clone SVG and strip overlays and canvas pan/zoom/rotate transform
     const svgClone = svg.cloneNode(true);
     svgClone.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+    restoreDashOriginals(svgClone); // undo display-only dotted/dashed visibility floor
     svgClone.style.transform = '';
     svgClone.style.transformOrigin = '';
     if (format === 'svg') {
@@ -7480,6 +7594,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const clone = svg.cloneNode(true);
     // Remove overlays
     clone.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
+    restoreDashOriginals(clone); // undo display-only dotted/dashed visibility floor
     // Embed Asymptote code as metadata
     const ns = 'http://www.w3.org/2000/svg';
     const meta = document.createElementNS(ns, 'metadata');
