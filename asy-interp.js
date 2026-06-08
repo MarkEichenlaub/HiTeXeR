@@ -11332,7 +11332,20 @@ function createInterpreter() {
       return {_tag:'filltype', style:'Draw', pen};
     });
     env.set('NoFill', {_tag:'filltype', style:'NoFill', pen:null});
-    env.set('UnFill', {_tag:'filltype', style:'UnFill', pen:makePen({r:1,g:1,b:1})});
+    // UnFill is overloaded in Asymptote: both a bare `filltype UnFill` value
+    // and a function `UnFill(real xmargin=0, real ymargin=xmargin)`. Represent
+    // it as a callable that also carries the filltype tag, so `UnFill` used
+    // bare still matches `a._tag === 'filltype'` while `UnFill(0.1mm)` returns
+    // a proper filltype (with optional background margin).
+    const _unfillFn = (...args) => {
+      const xm = typeof args[0] === 'number' ? args[0] : 0;
+      const ym = typeof args[1] === 'number' ? args[1] : xm;
+      return {_tag:'filltype', style:'UnFill', pen:makePen({r:1,g:1,b:1}), xmargin:xm, ymargin:ym};
+    };
+    _unfillFn._tag = 'filltype';
+    _unfillFn.style = 'UnFill';
+    _unfillFn.pen = makePen({r:1,g:1,b:1});
+    env.set('UnFill', _unfillFn);
 
     // Margin types — return a tagged object so evalDraw can apply the
     // additional path shortening. Asymptote's Margin(b, e) shortens the
