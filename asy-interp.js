@@ -14253,6 +14253,18 @@ function createInterpreter() {
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('format' in a && typeof a.format === 'string') { t.format = a.format; t.labels = true; }
+          else if ('format' in a && a.format && a.format._tag === 'label') {
+            // format = Label(...) named arg. The blank-label idiom Label(" ")
+            // (used by the AoPS axis template when axisNumbers=false) shows no
+            // numeric text but STILL reserves a tick-label line, which pushes
+            // the axis labels ("t"/"x'") away from the axis. Keep it as a
+            // space-only format so that spacing is preserved (don't suppress).
+            const lt = a.format.text;
+            t.labels = true; t.explicitLabelArg = true;
+            if (lt !== undefined && lt !== null) t.format = lt;
+            if (a.format.pen) t.labelPen = a.format.pen;
+            if (a.format.align) t.labelAlign = a.format.align;
+          }
           if ('Step' in a) t.step = a.Step;
           if ('step' in a) t.subStep = a.step;
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
