@@ -12772,14 +12772,17 @@ function createInterpreter() {
           majorPositions.push(Math.round(v * 1e10) / 1e10);
         }
       }
-      // begin=false / end=false (Ticks) suppress the tick at the axis min/max
-      // endpoint (e.g. broken-axis number lines that draw their own origin).
-      if (ticks.begin === false && majorPositions.length) {
-        majorPositions = majorPositions.filter(v => v > min + 1e-9);
-      }
-      if (ticks.end === false && majorPositions.length) {
-        majorPositions = majorPositions.filter(v => v < max - 1e-9);
-      }
+      // begin=false / end=false (Ticks) suppress the TICK MARK and extended
+      // gridline at the axis min/max endpoint — but NOT the numeric label.
+      // Per Asymptote, label visibility at the endpoints is governed
+      // separately by beginlabel/endlabel (default true), so the endpoint
+      // number still renders. e.g. 03322/03321/03333/03344
+      // (RightTicks(Step=1, begin=false, end=false, extend=true)) draw no
+      // gridline at y=±1 / x=0,10 but keep the "1"/"-1"/"0"/"10" labels.
+      // For "%"-format number lines (00401, 00448) the label is suppressed by
+      // the format anyway, so this only removes the endpoint tick/gridline.
+      const suppressBeginTick = ticks.begin === false;
+      const suppressEndTick = ticks.end === false;
 
       // Compute sub-tick positions (minor ticks between major ticks)
       let minorPositions = [];
@@ -12814,6 +12817,10 @@ function createInterpreter() {
       function drawTick(v, sz) {
         if (noZero && Math.abs(v) < 1e-10) return;
         if (v < min - 1e-10 || v > max + 1e-10) return;
+        // begin=false / end=false: no tick mark or gridline at the endpoint
+        // (the label for it is still emitted by the label loop below).
+        if (suppressBeginTick && Math.abs(v - min) < 1e-9) return;
+        if (suppressEndTick && Math.abs(v - max) < 1e-9) return;
         // extend=true on Ticks() draws full gridlines across the plot area
         // (from crossMin to crossMax), rendered below plot content by default.
         // Used by the xaxis(..., invisible, Ticks(..., extend=true, gray))
