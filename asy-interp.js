@@ -16650,8 +16650,10 @@ function createInterpreter() {
         const out = {_tag:'arrow', style:styleName, size: sz, sizeExplicit};
         if (headKind === 'TeXHead') out.texHead = true;
         else if (headKind === 'HookHead') {
-          out.texHead = true;
-          if (!sizeExplicit) { out.size = 5; out.sizeExplicit = true; }
+          // HookHead3 is Asymptote's DEFAULT filled 3D arrowhead. TeXeR renders
+          // it as a solid filled arrowhead (e.g. 01297 axis arrows), NOT the thin
+          // TeX chevron. Leave it as the plain filled Arrow glyph (no texHead).
+          if (!sizeExplicit) { out.size = 6; out.sizeExplicit = true; }
         } else if (headKind) out.headKind = headKind;
         return out;
       };
