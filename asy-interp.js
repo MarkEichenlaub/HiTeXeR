@@ -12833,6 +12833,18 @@ function createInterpreter() {
               }
             }
           }
+          // Asymptote autominor for auto-computed major steps: when the user
+          // gave no explicit minor sub-step, default Ticks subdivides each
+          // major interval per the step's leading digit (1->5, 2->4, 5->5),
+          // matching Asymptote/TeXeR's default minor-tick density. e.g. 00401
+          // (sign chart, xlimits(-4,4) -> auto step 2) shows minor ticks every
+          // 0.5. Only fires for AUTO steps (ticks.step<=0) so an explicit major
+          // Step without n is left bare, as Asymptote does.
+          if (denseMinorN <= 1 && ticks.subStep <= 0 && step > 0 && isFinite(step)) {
+            const magS = Math.pow(10, Math.floor(Math.log10(step) + 1e-9));
+            const leadS = Math.round(step / magS);
+            denseMinorN = (leadS === 2 ? 4 : 5);
+          }
         }
         if (step <= 0) step = 1;
         majorPositions = [];
