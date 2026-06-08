@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const sharp = require('sharp');
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 
 // ── Config ──────────────────────────────────────────────────────
 const ROOT        = __dirname;
@@ -48,9 +49,130 @@ for (const d of [OUT_DIR, ASY_DIR, HTX_DIR, SVG_DIR, ASY_SRC_DIR, ASY_TMP, TEXER
 }
 
 const allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort();
-console.log(`Corpus: ${allFiles.length} .asy files\n`);
+if (isMainThread) console.log(`Corpus: ${allFiles.length} .asy files\n`);
 
 function numId(i) { return String(i + 1).padStart(5, '0'); }
+
+// ── Worker entry point ───────────────────────────────────────────
+// Workers run this same file; isMainThread=false routes them here.
+if (!isMainThread) { _runWorker(); }
+
+async function _runWorker() {
+  const { task } = workerData;
+  if (task === 'ssim') await _ssimWorker();
+  else if (task === 'render-htx') await _htxWorker();
+}
+
+async function _ssimWorker() {
+  const { ssim: computeSSIM } = require('ssim.js');
+  const { pairs: batch } = workerData;
+
+  function rgbToRgba(buf, width, height) {
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i++) {
+      rgba[i * 4]     = buf[i * 3];
+      rgba[i * 4 + 1] = buf[i * 3 + 1];
+      rgba[i * 4 + 2] = buf[i * 3 + 2];
+      rgba[i * 4 + 3] = 255;
+    }
+    return rgba;
+  }
+
+  const results = [];
+  for (const id of batch) {
+    const idx = parseInt(id, 10) - 1;
+    const corpusFile = allFiles[idx] || id;
+    let row;
+    try {
+      const refMeta = await sharp(path.join(TEXER_DIR, id + '.png')).metadata();
+      const htxMeta = await sharp(path.join(HTX_DIR, id + '.png')).metadata();
+      const aw = refMeta.width || 1, ah = refMeta.height || 1;
+      const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
+      const MIN_DIM = 8;
+      if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
+        row = { id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: 'Image too small',
+          wRatio: hw / aw, hRatio: hh / ah, refDims: [aw, ah], htxDims: [hw, hh] };
+      } else {
+        const wRatio = hw / aw, hRatio = hh / ah;
+        const SIGMA = 0.15;
+        let sizeScore;
+        if (aw < 100 && ah < 100) {
+          sizeScore = 1.0;
+        } else {
+          const maxRatio = Math.max(hw, hh) / Math.max(aw, ah);
+          sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
+        }
+        const MAX = 400;
+        const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
+          .flatten({ background: { r: 255, g: 255, b: 255 } }).trim({ threshold: 20 })
+          .toBuffer({ resolveWithObject: true });
+        const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
+          .flatten({ background: { r: 255, g: 255, b: 255 } }).trim({ threshold: 20 })
+          .toBuffer({ resolveWithObject: true });
+        const maxW = Math.max(trimRef.info.width, trimHtx.info.width);
+        const maxH = Math.max(trimRef.info.height, trimHtx.info.height);
+        const scale = Math.min(MAX / maxW, MAX / maxH, 1);
+        const targetW = Math.max(Math.round(maxW * scale), 11);
+        const targetH = Math.max(Math.round(maxH * scale), 11);
+        const refBuf = await sharp(trimRef.data)
+          .resize(targetW, targetH, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+        let htxBuf = await sharp(trimHtx.data)
+          .resize(targetW, targetH, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+        const w = refBuf.info.width, h = refBuf.info.height;
+        if (htxBuf.info.width !== w || htxBuf.info.height !== h) {
+          htxBuf = await sharp(htxBuf.data, { raw: { width: htxBuf.info.width, height: htxBuf.info.height, channels: 3 } })
+            .resize(w, h, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true });
+        }
+        const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
+        const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
+        const { mssim: rawSsim } = computeSSIM(refImg, htxImg);
+        const minDim = Math.min(w, h);
+        const softSigmaA = Math.min(Math.max(minDim * 0.025, 1.5), 4);
+        const softSigmaB = Math.min(Math.max(minDim * 0.08, 3), 10);
+        async function ssimBlurred(sigma) {
+          const refS = await sharp(refBuf.data, { raw: { width: w, height: h, channels: 3 } }).blur(sigma).raw().toBuffer();
+          const htxS = await sharp(htxBuf.data, { raw: { width: w, height: h, channels: 3 } }).blur(sigma).raw().toBuffer();
+          return computeSSIM({ data: rgbToRgba(refS, w, h), width: w, height: h },
+            { data: rgbToRgba(htxS, w, h), width: w, height: h }).mssim;
+        }
+        const softSsim = Math.max(await ssimBlurred(softSigmaA), await ssimBlurred(softSigmaB));
+        const mssim = Math.max(rawSsim, softSsim);
+        row = { id, idx, corpusFile, ssim: mssim, rawSsim, softSsim, sizeScore, combined: mssim * sizeScore,
+          wRatio, hRatio, refDims: [aw, ah], htxDims: [hw, hh] };
+      }
+    } catch (e) {
+      row = { id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message };
+    }
+    results.push(row);
+  }
+  parentPort.postMessage(results);
+}
+
+async function _htxWorker() {
+  global.window = global.window || {};
+  global.katex = require('katex');
+  require('./asy-interp.js');
+  const A = window.AsyInterp;
+  let epsCache = null;
+  try { epsCache = require('./eps-cache'); } catch(e) {}
+  const HANG_SKIP = new Set(['gallery_2Dgraphs_electromagnetic.asy']);
+  const { files } = workerData;
+  let ok = 0, skip = 0, fail = 0;
+  for (const { f, id } of files) {
+    if (HANG_SKIP.has(f)) { skip++; continue; }
+    const raw = fs.readFileSync(path.join(CORPUS_DIR, f), 'utf8');
+    const code = '[asy]\n' + raw + '\n[/asy]';
+    if (!A.canInterpret(code)) { skip++; continue; }
+    let imageCache = {};
+    if (epsCache) { try { imageCache = epsCache.getImageCache(raw); } catch(e) {} }
+    try {
+      const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
+      fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), r.svg);
+      ok++;
+    } catch(e) { fail++; }
+  }
+  parentPort.postMessage({ ok, skip, fail });
+}
 
 // Run an executable with args and a timeout.
 // On Windows, child processes (latex, dvips) survive when the parent asy.exe is killed.
@@ -213,6 +335,22 @@ async function withConcurrency(items, limit, fn) {
   return results;
 }
 
+async function _spawnWorkers(numWorkers, items, taskName, makeData) {
+  const n = Math.min(numWorkers, items.length);
+  const chunkSize = Math.ceil(items.length / n);
+  const promises = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    promises.push(new Promise((resolve, reject) => {
+      const w = new Worker(__filename, { workerData: { task: taskName, ...makeData(chunk) } });
+      w.on('message', resolve);
+      w.on('error', reject);
+      w.on('exit', code => { if (code !== 0) reject(new Error(`Worker exited ${code}`)); });
+    }));
+  }
+  return Promise.all(promises);
+}
+
 // ── Main ────────────────────────────────────────────────────────
 async function main() {
 
@@ -235,37 +373,12 @@ async function main() {
       'gallery_2Dgraphs_electromagnetic.asy',
     ]);
 
-    global.window = global.window || {};
-    global.katex = require('katex');
-    require('./asy-interp.js');
-    const A = window.AsyInterp;
-    let epsCache = null;
-    try { epsCache = require('./eps-cache'); } catch (e) {}
-
+    const htxItems = allFiles.map((f, i) => ({ f, id: numId(i) }));
+    console.log(`  Using ${CONCURRENCY} worker threads for rendering...`);
+    const htxResults = await _spawnWorkers(CONCURRENCY, htxItems, 'render-htx',
+      chunk => ({ files: chunk }));
     let ok = 0, skip = 0, fail = 0;
-    for (let i = 0; i < allFiles.length; i++) {
-      const f = allFiles[i];
-      const id = numId(i);
-      if (HANG_SKIP.has(f)) { skip++; continue; }
-      const raw = fs.readFileSync(path.join(CORPUS_DIR, f), 'utf8');
-      const code = '[asy]\n' + raw + '\n[/asy]';
-
-      if (!A.canInterpret(code)) { skip++; continue; }
-
-      let imageCache = {};
-      if (epsCache) {
-        try { imageCache = epsCache.getImageCache(raw); } catch (e) {}
-      }
-
-      try {
-        const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
-        fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), r.svg);
-        ok++;
-      } catch (e) { fail++; }
-
-      if ((i + 1) % 500 === 0)
-        console.log(`  ${i + 1}/${allFiles.length}  ok=${ok} skip=${skip} fail=${fail}`);
-    }
+    for (const r of htxResults) { ok += r.ok; skip += r.skip; fail += r.fail; }
     console.log(`  Done: ok=${ok} skip=${skip} fail=${fail}\n`);
   }
 
@@ -526,134 +639,10 @@ async function main() {
     const pairs = [...refPngs].filter(id => htxPngs.has(id)).sort();
     console.log(`  ${pairs.length} pairs to compare`);
 
-    function rgbToRgba(buf, width, height) {
-      const rgba = new Uint8ClampedArray(width * height * 4);
-      for (let i = 0; i < width * height; i++) {
-        rgba[i * 4]     = buf[i * 3];
-        rgba[i * 4 + 1] = buf[i * 3 + 1];
-        rgba[i * 4 + 2] = buf[i * 3 + 2];
-        rgba[i * 4 + 3] = 255;
-      }
-      return rgba;
-    }
-
-    let ssimDone = 0;
-    const results = (await withConcurrency(pairs, CONCURRENCY, async (id) => {
-      const idx = parseInt(id, 10) - 1;
-      const corpusFile = allFiles[idx] || id;
-      let row;
-      try {
-        // Get native dimensions of both images
-        const refMeta = await sharp(path.join(TEXER_DIR, id + '.png')).metadata();
-        const htxMeta = await sharp(path.join(HTX_DIR, id + '.png')).metadata();
-
-        const aw = refMeta.width || 1, ah = refMeta.height || 1;
-        const hw = htxMeta.width || 1, hh = htxMeta.height || 1;
-
-        // Skip images that are too small (likely failed renders)
-        const MIN_DIM = 8;
-        if (aw < MIN_DIM || ah < MIN_DIM || hw < MIN_DIM || hh < MIN_DIM) {
-          row = { id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: 'Image too small',
-            wRatio: hw / aw, hRatio: hh / ah, refDims: [aw, ah], htxDims: [hw, hh] };
-        } else {
-          // ── Dimension ratios & size score ──
-          // Use the dominant (max) dimension to avoid padding artifacts on thin diagrams.
-          // For tiny images (both dims < 100px), skip size penalty entirely.
-          const wRatio = hw / aw;
-          const hRatio = hh / ah;
-          const SIGMA = 0.15;
-          let sizeScore;
-          if (aw < 100 && ah < 100) {
-            sizeScore = 1.0;
-          } else {
-            const refMax = Math.max(aw, ah);
-            const htxMax = Math.max(hw, hh);
-            const maxRatio = htxMax / refMax;
-            sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
-          }
-
-          // ── Content SSIM: trim white borders, resize both to same dimensions ──
-          // Trimming removes bounding box padding so SSIM compares only drawn content.
-          // Both images are resized to the same target size (no padding) so that
-          // content aligns pixel-for-pixel. Size difference is already captured by sizeScore.
-          const MAX = 400;
-          const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
-            .flatten({ background: { r: 255, g: 255, b: 255 } })
-            .trim({ threshold: 20 })
-            .toBuffer({ resolveWithObject: true });
-          const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
-            .flatten({ background: { r: 255, g: 255, b: 255 } })
-            .trim({ threshold: 20 })
-            .toBuffer({ resolveWithObject: true });
-
-          const tw1 = trimRef.info.width, th1 = trimRef.info.height;
-          const tw2 = trimHtx.info.width, th2 = trimHtx.info.height;
-          const maxW = Math.max(tw1, tw2);
-          const maxH = Math.max(th1, th2);
-          const scale = Math.min(MAX / maxW, MAX / maxH, 1);
-          const targetW = Math.max(Math.round(maxW * scale), 11);
-          const targetH = Math.max(Math.round(maxH * scale), 11);
-
-          const refBuf = await sharp(trimRef.data)
-            .resize(targetW, targetH, { fit: 'fill' })
-            .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
-          let htxBuf = await sharp(trimHtx.data)
-            .resize(targetW, targetH, { fit: 'fill' })
-            .removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
-          // Guard: sharp may produce off-by-one dimensions; re-resize to match
-          const w = refBuf.info.width, h = refBuf.info.height;
-          if (htxBuf.info.width !== w || htxBuf.info.height !== h) {
-            htxBuf = await sharp(htxBuf.data, { raw: { width: htxBuf.info.width, height: htxBuf.info.height, channels: 3 } })
-              .resize(w, h, { fit: 'fill' })
-              .raw().toBuffer({ resolveWithObject: true });
-          }
-
-          const refImg = { data: rgbToRgba(refBuf.data, w, h), width: w, height: h };
-          const htxImg = { data: rgbToRgba(htxBuf.data, w, h), width: w, height: h };
-
-          const { mssim: rawSsim } = computeSSIM(refImg, htxImg);
-
-          // Soft SSIM: blur both images before comparing. Pixel-wise SSIM is not
-          // shift-invariant, and for thin strokes a small misalignment can produce
-          // anti-correlated windows (negative SSIM) even when the diagrams are
-          // nearly identical. A Gaussian blur widens strokes enough that minor
-          // shifts still overlap. We compute SSIM at two blur levels and take the
-          // max with the raw score, so a truly different diagram (which fails at
-          // every level) still scores low, but thin-strip misalignment is forgiven.
-          // Scale both sigmas with image size so the same fractional blur is applied
-          // regardless of resolution; clamp so small images still get ≥1.5 px blur.
-          const minDim = Math.min(w, h);
-          const softSigmaA = Math.min(Math.max(minDim * 0.025, 1.5), 4);
-          const softSigmaB = Math.min(Math.max(minDim * 0.08, 3), 10);
-          async function ssimBlurred(sigma) {
-            const refS = await sharp(refBuf.data, { raw: { width: w, height: h, channels: 3 } })
-              .blur(sigma).raw().toBuffer();
-            const htxS = await sharp(htxBuf.data, { raw: { width: w, height: h, channels: 3 } })
-              .blur(sigma).raw().toBuffer();
-            return computeSSIM(
-              { data: rgbToRgba(refS, w, h), width: w, height: h },
-              { data: rgbToRgba(htxS, w, h), width: w, height: h }
-            ).mssim;
-          }
-          const softSsimA = await ssimBlurred(softSigmaA);
-          const softSsimB = await ssimBlurred(softSigmaB);
-          const softSsim = Math.max(softSsimA, softSsimB);
-
-          const mssim = Math.max(rawSsim, softSsim);
-          const combined = mssim * sizeScore;
-
-          row = { id, idx, corpusFile, ssim: mssim, rawSsim, softSsim, sizeScore, combined,
-            wRatio, hRatio, refDims: [aw, ah], htxDims: [hw, hh] };
-        }
-      } catch (e) {
-        row = { id, idx, corpusFile, ssim: -1, sizeScore: -1, combined: -1, error: e.message };
-      }
-      ssimDone++;
-      if (ssimDone % 100 === 0) console.log(`  ${ssimDone}/${pairs.length}`);
-      return row;
-    })).filter(Boolean);
+    console.log(`  Using ${CONCURRENCY} worker threads for scoring...`);
+    const ssimChunks = await _spawnWorkers(CONCURRENCY, pairs, 'ssim',
+      chunk => ({ pairs: chunk }));
+    const results = ssimChunks.flat().filter(Boolean);
 
     results.sort((a, b) => a.combined - b.combined);
     fs.writeFileSync(path.join(OUT_DIR, 'ssim-results.json'), JSON.stringify(results, null, 2));
@@ -943,4 +932,6 @@ document.querySelectorAll('.htx-svg[data-svg]').forEach(el=>{
 
 // sharp's worker thread pool keeps Node alive after all work is done.
 // Force-exit so spawnSync in run-loop.js is not blocked indefinitely.
-main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+if (isMainThread) {
+  main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+}
