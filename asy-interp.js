@@ -26965,6 +26965,24 @@ function renderSVG(result, opts) {
       const H = (numLines > 1
         ? fontSizeSVG * ((numLines - 1) * 1.2 + _hFactorVB)
         : fontSizeSVG * _hFactorVB) + subscriptDepth;
+      // Labels containing \frac, \sqrt, or \*brace are drawn by renderLaTeXSVG
+      // (the dispatch routes them there before the MathJax branch), NOT by
+      // MathJax. Reserve exactly renderLaTeXSVG's advance width so the viewBox
+      // doesn't leave a band of empty right-padding (00125's
+      // "$BU \cos \frac{u}{2}$" reserved the ~7%-wider MathJax width, inflating
+      // canvas width by ~30px and dropping sizeScore). effectiveFontSize ==
+      // fontSizeSVG for untransformed labels; the labelTransform scale is
+      // applied to W later, so measure at the unscaled fontSizeSVG.
+      const _usesInlineColorVB = /\\color\s*\{/.test(_rawVB);
+      const _usesLaTeXSVGRenderVB = !_usesInlineColorVB &&
+        /\\(?:frac|underbrace|overbrace|sqrt)\b/.test(_rawVB);
+      if (opts && opts.labelOutput === 'svg-native' && _usesLaTeXSVGRenderVB &&
+          typeof _measureLaTeXSVGWidth === 'function' && numLines <= 1) {
+        try {
+          const wMeasured = _measureLaTeXSVGWidth(dc.text, fontSizeSVG);
+          if (wMeasured > 0) W = wMeasured;
+        } catch (e) { /* fall back to heuristic W */ }
+      } else
       // In svg-native mode the actual label is rendered through MathJax which
       // gives precise widths.  The character-count heuristic above (charWFactor
       // 0.62 for math) over-estimates by ~50% for digit/symbol-heavy labels
@@ -30498,11 +30516,14 @@ function stripLaTeXPreserveScripts(text) {
     '\\leftrightarrow':'\u2194','\\triangle':'\u25B3','\\angle':'\u2220','\\perp':'\u22A5',
     '\\parallel':'∥','\\circ':'∘','\\bullet':'•','\\star':'★','\\dagger':'†',
     '\\ell':'ℓ','\\prime':'′',
-    '\\cos':'cos','\\sin':'sin','\\tan':'tan','\\log':'log','\\ln':'ln',
-    '\\sec':'sec','\\csc':'csc','\\cot':'cot',
-    '\\arcsin':'arcsin','\\arccos':'arccos','\\arctan':'arctan',
-    '\\sinh':'sinh','\\cosh':'cosh','\\tanh':'tanh',
-    '\\exp':'exp','\\min':'min','\\max':'max',
+    // Operator names (\cos, \sin, …) are upright in LaTeX, not math-italic.
+    // Wrap in upright sentinels (\x01..\x02) so mathTextSvg renders the letters
+    // non-italic — without this, "BU \cos \frac{u}{2}" rendered "cos" italic.
+    '\\cos':'\x01cos\x02','\\sin':'\x01sin\x02','\\tan':'\x01tan\x02','\\log':'\x01log\x02','\\ln':'\x01ln\x02',
+    '\\sec':'\x01sec\x02','\\csc':'\x01csc\x02','\\cot':'\x01cot\x02',
+    '\\arcsin':'\x01arcsin\x02','\\arccos':'\x01arccos\x02','\\arctan':'\x01arctan\x02',
+    '\\sinh':'\x01sinh\x02','\\cosh':'\x01cosh\x02','\\tanh':'\x01tanh\x02',
+    '\\exp':'\x01exp\x02','\\min':'\x01min\x02','\\max':'\x01max\x02',
     '\\left':'','\\right':'',
     '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
   };
@@ -30758,6 +30779,12 @@ function _estimateTextWidth(text, fontSize) {
     else if ('mwMW'.includes(ch)) w += 0.85;
     else if ('=+'.includes(ch)) w += 0.78;
     else if ('-/*'.includes(ch)) w += 0.55;
+    // Capital letters (serif uppercase ≈ 0.72em, except narrow I/J).
+    // The old default of 0.5 under-counted caps, so a fraction following
+    // capitalized text (e.g. "BU cos \frac{u}{2}") was placed too far left
+    // and overlapped the preceding letters.
+    else if (ch === 'I' || ch === 'J') w += 0.42;
+    else if (ch >= 'A' && ch <= 'Z') w += 0.72;
     // Unicode sub/superscript digits and signs (U+2070-U+209F): visually narrower
     else if (code >= 0x2070 && code <= 0x209F) w += 0.45;
     // Other Greek/special Unicode (π, ∞, α, etc.): roughly normal width
@@ -30805,13 +30832,14 @@ function _mathTextSvgSpaced(text, fontSize) {
   return out;
 }
 
-// Render LaTeX labels with fractions/underbraces as SVG elements
-function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
-  x = parseFloat(x); y = parseFloat(y);
-  const opAttr = (opacity !== undefined && opacity !== 1) ? ` opacity="${opacity}"` : '';
-  // Parse the LaTeX text into segments: plain text, fractions, underbraces
+// Build the left-to-right layout parts (and total advance width) for a LaTeX
+// label rendered by renderLaTeXSVG. Factored out so the viewBox-extent pass can
+// measure the EXACT width renderLaTeXSVG will draw (instead of the MathJax
+// width, which is ~7% wider and left a band of empty right-padding for
+// \frac/\sqrt labels — e.g. "$BU \cos \frac{u}{2}$" in 00125). Keep this in
+// sync with the rendering loop below; both consume the returned `parts`.
+function _buildLaTeXSVGParts(rawText, fontSize) {
   const segments = parseLaTeXSegments(rawText);
-  // Layout segments left-to-right
   const parts = []; // {type, svgStr, width, height}
   let totalWidth = 0;
   for (const seg of segments) {
@@ -30823,8 +30851,11 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       const denW = _estimateTextWidth(denText, fracFontSize);
       const fracW = Math.max(numW, denW) + fracFontSize * 0.3;
       const fracH = fontSize * 2;
-      parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, width: fracW});
-      totalWidth += fracW;
+      // Thin gap when the fraction directly follows text (e.g. "\cos \frac{u}{2}"),
+      // since stripLaTeXPreserveScripts trims the trailing inter-word space.
+      const leftPad = (parts.length > 0 && parts[parts.length-1].type === 'text') ? fontSize * 0.16 : 0;
+      parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, leftPad, width: fracW + leftPad});
+      totalWidth += fracW + leftPad;
     } else if (seg.type === 'sqrt') {
       // Detect a leading \frac as first child → stacked fraction under radical
       // Also handle mixed content: \sqrt{\frac13 + x^2} → frac + trailing text
@@ -30887,6 +30918,21 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       totalWidth += w;
     }
   }
+  return { parts, totalWidth };
+}
+
+// Total advance width renderLaTeXSVG will draw for `rawText` at `fontSize`.
+// Used by the viewBox-extent pass so the reserved padding matches the actual
+// renderer for \frac/\sqrt/\underbrace labels.
+function _measureLaTeXSVGWidth(rawText, fontSize) {
+  return _buildLaTeXSVGParts(rawText, fontSize).totalWidth;
+}
+
+// Render LaTeX labels with fractions/underbraces as SVG elements
+function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
+  x = parseFloat(x); y = parseFloat(y);
+  const opAttr = (opacity !== undefined && opacity !== 1) ? ` opacity="${opacity}"` : '';
+  const { parts, totalWidth } = _buildLaTeXSVGParts(rawText, fontSize);
   // Compute starting X based on anchor
   let startX = x;
   if (anchor === 'middle') startX = x - totalWidth / 2;
@@ -30895,7 +30941,8 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
   const els = [];
   for (const p of parts) {
     if (p.type === 'frac') {
-      const cx = curX + p.width / 2;
+      const fx = curX + (p.leftPad || 0); // left edge of the fraction box (after any gap)
+      const cx = fx + p.fracW / 2;
       // Numerator above line. With font-size = 0.75*fontSize and dominant-baseline=
       // "central", the numerator text extends ~0.375*fontSize above and below its
       // y-coord. Bar is at y - 0.05*fontSize. Use 0.45 offset so the numerator
@@ -30903,7 +30950,7 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // Use mathTextSvg to render variables in italic (math mode).
       els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.numText)}</text>`);
       // Fraction line
-      els.push(`<line x1="${fmt(curX + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(curX + p.width - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
+      els.push(`<line x1="${fmt(fx + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(fx + p.fracW - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line. Mirrors the numerator: at y + 0.45*fs, denominator
       // top (y + 0.45*fs - 0.375*fs = y + 0.075*fs) sits just below the bar.
       els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.denText)}</text>`);
