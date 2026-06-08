@@ -8262,7 +8262,7 @@ function createInterpreter() {
         const u = toTriple(a), v = toTriple(b);
         return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
       }
-      if (isPair(a) || isPair(b)) {
+      if (isPair(a) || isPair(b) || isPoint(a) || isPoint(b) || isGeoVector(a) || isGeoVector(b)) {
         const u = toPair(a), v = toPair(b);
         return makePair(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac);
       }
