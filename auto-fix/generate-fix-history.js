@@ -516,7 +516,14 @@ function openModal(item, idx){
   notesEl.textContent = rawNotes;
 
   const fixBtn = document.getElementById('modal-fixbtn');
-  fixBtn.disabled = false; fixBtn.textContent = 'Fix Again';
+  fixBtn.disabled = false;
+  if (item.queued && !item.isProcessing) {
+    fixBtn.textContent = 'Dequeue';
+    fixBtn.onclick = modalDequeue;
+  } else {
+    fixBtn.textContent = 'Fix Again';
+    fixBtn.onclick = modalFixAgain;
+  }
   document.getElementById('modal').classList.add('open');
 }
 
@@ -543,6 +550,13 @@ document.addEventListener('keydown', e=>{
 async function modalFixAgain(){
   if(!_modalItem) return;
   await fixAgain(_modalItem, document.getElementById('modal-fixbtn'));
+}
+
+async function modalDequeue(){
+  if(!_modalItem) return;
+  const fixBtn = document.getElementById('modal-fixbtn');
+  await dequeueItem(_modalItem, fixBtn);
+  if(!_modalItem.queued) setTimeout(closeModal, 400);
 }
 
 async function fixAgain(item, btn){
