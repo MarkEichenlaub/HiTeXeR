@@ -15429,9 +15429,13 @@ function createInterpreter() {
         const mx = C1.x+a*dx/d, my = C1.y+a*dy/d;
         const cs = env.get('currentcoordsys') || defaultCS;
         const results = [];
-        results.push(makePoint(cs, cs.defaultToRelative(makePair(mx+h*dy/d, my-h*dx/d)), 1));
+        // Order matches Asymptote's geometry module: the point reached by
+        // rotating the C1->C2 direction by +90deg comes first. For two circles
+        // on a horizontal center line (P left, Q right) this is the TOP
+        // intersection, so abs[0]=top, abs[1]=bottom (see diagram 11891).
+        results.push(makePoint(cs, cs.defaultToRelative(makePair(mx-h*dy/d, my+h*dx/d)), 1));
         if (h > 1e-12) {
-          results.push(makePoint(cs, cs.defaultToRelative(makePair(mx-h*dy/d, my+h*dx/d)), 1));
+          results.push(makePoint(cs, cs.defaultToRelative(makePair(mx+h*dy/d, my-h*dx/d)), 1));
         }
         return results;
       }
