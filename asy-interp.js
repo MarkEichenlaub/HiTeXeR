@@ -25398,6 +25398,40 @@ function renderSVG(result, opts) {
       }
     }
     pxPerUnit = Math.min(targetW / scaleRefW, targetH / scaleRefH);
+    // Truesize brace labels — \underbrace{\hspace{Npt}} / \overbrace{...} — carry
+    // a fixed bp width the stripLaTeX-based label expansion can't see (the brace
+    // content strips to empty), so fullW/fullH above ignore them. In real
+    // Asymptote these braces are truesize: a brace WIDER than the requested
+    // size() can't be shrunk to fit, so the width axis saturates and size()
+    // binds on height instead — the geometry scales up until it fills the brace
+    // width. Without this, the geometry stays width-bound on the (narrower)
+    // triangle, the brace overflows, and the diagram renders too small/squat
+    // (e.g. 02807: size(180) with a 200pt underbrace under the triangle base).
+    if (!_isIgnoreAspect && isFinite(targetW)) {
+      let _maxBraceWBp = 0;
+      for (const dc of drawCommands) {
+        if (dc.cmd !== 'label') continue;
+        const _bt = dc.text || dc.label || '';
+        if (typeof _bt !== 'string') continue;
+        const _bm = _bt.match(/\\(?:underbrace|overbrace)\s*\{[\s\S]*?\\hspace\s*\{([^}]*)\}/);
+        if (!_bm) continue;
+        const _vm = _bm[1].match(/([\d.]+)\s*(pt|em|cm|mm|in)?/);
+        if (!_vm) continue;
+        const _v = parseFloat(_vm[1]);
+        const _u = _vm[2] || 'cm';
+        const _wbp = _u === 'pt' ? _v : _u === 'cm' ? _v * 28.35
+          : _u === 'mm' ? _v * 2.835 : _u === 'in' ? _v * 72
+          : _u === 'em' ? _v * 12 : _v * 28.35;
+        if (_wbp > _maxBraceWBp) _maxBraceWBp = _wbp;
+      }
+      if (_maxBraceWBp > targetW && _geoRefW > 0) {
+        // Width saturated by the over-wide brace: bind on height, but never let
+        // the geometry exceed the scale at which its width fills the brace.
+        const _hBind = isFinite(targetH) ? targetH / scaleRefH : Infinity;
+        const _braceFill = _maxBraceWBp / _geoRefW;
+        pxPerUnit = Math.min(_hBind, _braceFill);
+      }
+    }
     if (_isIgnoreAspect) {
       // IgnoreAspect: scale geometry to fill size(), labels extend outside
       pxPerUnitX = sizeW / _geoRefW;
@@ -27367,7 +27401,26 @@ function renderSVG(result, opts) {
         // keeping all content visible. Excludes unitsize() (hasUnitScale), where
         // the user fixed the scale and labels legitimately enlarge the output.
         if (keepAspect && !hasUnitScale && sizeW > 0) {
-          const _sizeTargetDisp = Math.max(sizeW, sizeH || sizeW) * bpToCSSPx;
+          // A truesize \underbrace{\hspace{Nbp}} / \overbrace label cannot shrink:
+          // when its width exceeds the size() box, real Asymptote/TeXeR grows the
+          // output to hold it rather than clamping back to size() (e.g. 02807's
+          // 200bp brace under a size(180) triangle → ~211bp output, not 180bp).
+          // Raise the clamp target to the truesize-brace floor so we don't pin
+          // the picture below the non-scalable content's width.
+          let _braceFloorBp = 0;
+          for (const dc of drawCommands) {
+            if (dc.cmd !== 'label') continue;
+            const _bt = dc.text || dc.label || '';
+            if (typeof _bt !== 'string') continue;
+            const _bm = _bt.match(/\\(?:underbrace|overbrace)\s*\{[\s\S]*?\\hspace\s*\{([^}]*)\}/);
+            if (!_bm) continue;
+            const _vm = _bm[1].match(/([\d.]+)\s*(pt|em|cm|mm|in)?/);
+            if (!_vm) continue;
+            const _v = parseFloat(_vm[1]); const _u = _vm[2] || 'cm';
+            const _wbp = _u === 'pt' ? _v : _u === 'cm' ? _v * 28.35 : _u === 'mm' ? _v * 2.835 : _u === 'in' ? _v * 72 : _u === 'em' ? _v * 12 : _v * 28.35;
+            if (_wbp > _braceFloorBp) _braceFloorBp = _wbp;
+          }
+          const _sizeTargetDisp = Math.max(sizeW, sizeH || sizeW, _braceFloorBp) * bpToCSSPx;
           const _maxDisp = Math.max(svgW, svgH);
           if (_sizeTargetDisp > 0 && _maxDisp > _sizeTargetDisp * 1.005) {
             const _clamp = _sizeTargetDisp / _maxDisp;
@@ -31125,8 +31178,16 @@ function parseLaTeXSegments(text) {
       let width = 0;
       const hspaceMatch = content.content.match(/\\hspace\s*\{([^}]*)\}/);
       if (hspaceMatch) {
-        const valMatch = hspaceMatch[1].match(/([\d.]+)/);
-        if (valMatch) width = parseFloat(valMatch[1]) * 28.35; // cm to pt
+        const valMatch = hspaceMatch[1].match(/([\d.]+)\s*(pt|em|cm|mm|in)?/);
+        if (valMatch) {
+          const v = parseFloat(valMatch[1]);
+          const u = valMatch[2] || 'cm'; // bare number defaults to cm (legacy behavior)
+          if (u === 'pt') width = v;
+          else if (u === 'cm') width = v * 28.35;
+          else if (u === 'mm') width = v * 2.835;
+          else if (u === 'in') width = v * 72;
+          else if (u === 'em') width = v * 12; // approximate
+        }
       } else {
         // \hskip <num>pt or \hskip <num>em (em ≈ fontSize)
         const hskipMatch = content.content.match(/\\hskip\s*([\d.]+)\s*(pt|em|cm|mm|in)?/);
