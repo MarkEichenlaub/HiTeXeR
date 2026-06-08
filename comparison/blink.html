@@ -183,7 +183,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v14</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v15</span></h1>
 
   <div class="filter-group">
     <label>Collections:</label>
@@ -1000,14 +1000,15 @@
       });
     } else {
       const img = document.createElement('img');
+      img.style.visibility = 'hidden';
       img.onload = () => {
-        // Apply display scale by constraining max dimensions
         if (desc.scale && desc.scale !== 1) {
           const w = img.naturalWidth * desc.scale;
           const h = img.naturalHeight * desc.scale;
           img.style.maxWidth = w + 'px';
           img.style.maxHeight = h + 'px';
         }
+        img.style.visibility = '';
       };
       img.onerror = () => { container.innerHTML = '<div class="no-img">render failed</div>'; };
       img.src = desc.src;
@@ -1150,7 +1151,11 @@
         svgDiv.style.display = 'none';
         svgDiv.innerHTML = '';
         img.style.display = '';
-        img.onload = () => fitImage(img, img.naturalWidth * desc.scale, img.naturalHeight * desc.scale);
+        img.style.visibility = 'hidden';
+        img.onload = () => {
+          fitImage(img, img.naturalWidth * desc.scale, img.naturalHeight * desc.scale);
+          img.style.visibility = '';
+        };
         img.src = desc.src;
       }
     }
