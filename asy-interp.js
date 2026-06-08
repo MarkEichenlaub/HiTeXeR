@@ -30673,6 +30673,13 @@ function expandMinipageText(text, pen) {
   );
 }
 
+// Render an nth-root index (the [n] in \sqrt[n]{...}) as Unicode superscript
+// characters so it nestles before the radical like TeX renders it (³√x).
+const _SUPERSCRIPT_MAP = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','+':'⁺','-':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ'};
+function _superscriptIndex(idx) {
+  return String(idx == null ? '' : idx).split('').map(c => _SUPERSCRIPT_MAP[c] || c).join('');
+}
+
 // Like stripLaTeX but preserves ^{...} and _{...} syntax for later tspan rendering.
 // Used by renderLaTeXSVG's text segments so superscripts/subscripts can be rendered
 // properly with dy offsets instead of Unicode characters.
@@ -30694,6 +30701,7 @@ function stripLaTeXPreserveScripts(text) {
   s = s.replace(/\\(?:underbrace|overbrace)\s*\{[^}]*\}/g, '');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
   s = s.replace(/\\vspace\s*\{[^}]*\}/g, '');
+  s = s.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^}]*)\}/g, (_m, idx, rad) => _superscriptIndex(idx) + '√' + rad);
   s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode
   const texMap = {
@@ -30804,6 +30812,10 @@ function stripLaTeX(text) {
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
   // Handle \vspace{...} → remove entirely (vertical spacing)
   s = s.replace(/\\vspace\s*\{[^}]*\}/g, '');
+  // Handle \sqrt[n]{a} → nth root (³√a). Must precede the plain \sqrt{a} rule —
+  // the optional [n] blocks that regex, so otherwise \sqrt is stripped as a bare
+  // command and the index leaks through as a literal "[n]a".
+  s = s.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^}]*)\}/g, (_m, idx, rad) => _superscriptIndex(idx) + '√' + rad);
   // Handle \sqrt{a} → √a
   s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode
