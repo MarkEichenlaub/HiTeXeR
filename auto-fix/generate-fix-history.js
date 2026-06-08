@@ -257,6 +257,7 @@ let currentFilter = 'all';
 let currentPage   = 1;
 let currentSort   = 'newest';  // 'newest' | 'oldest'
 let _modalItem    = null;
+let _modalIdx     = -1;  // index into filteredData() for Up/Down keyboard nav
 
 function toggleSort(){
   currentSort = currentSort === 'newest' ? 'oldest' : 'newest';
@@ -359,11 +360,12 @@ function renderList(){
     return;
   }
 
-  slice.forEach(item => {
+  slice.forEach((item, sliceI) => {
+    const fdIdx = (currentPage-1)*PAGE_SIZE + sliceI;
     const si = statusInfo(item);
     const row = document.createElement('div');
     row.className = 'row' + (item.isProcessing?' processing':'');
-    row.onclick = e => { if(e.target.classList.contains('fix-btn')) return; openModal(item); };
+    row.onclick = e => { if(e.target.classList.contains('fix-btn')) return; openModal(item, fdIdx); };
 
     const dot = document.createElement('div');
     dot.className = 'dot '+si.dotCls;
@@ -446,13 +448,16 @@ function renderPagination(page, total){
   pg.appendChild(next);
 }
 
-function openModal(item){
+function openModal(item, idx){
   _modalItem = item;
+  _modalIdx  = (idx !== undefined) ? idx : filteredData().findIndex(it => it === item);
   const a = item.attempt;
   const si = statusInfo(item);
+  const fd = filteredData();
 
   document.getElementById('modal-title').textContent =
-    '#'+pad(item.id) + (item.description ? ' - '+item.description : '');
+    '#'+pad(item.id) + (item.description ? ' - '+item.description : '') +
+    (_modalIdx >= 0 ? '  ['+(_modalIdx+1)+'/'+fd.length+']' : '');
 
   // 4 image columns: TeXeR ref | before | after (commit) | current
   const imgs = document.getElementById('modal-imgs');
@@ -522,7 +527,18 @@ function closeModal(){
 document.getElementById('modal').addEventListener('click', e=>{
   if(e.target===document.getElementById('modal')) closeModal();
 });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeModal(); });
+document.addEventListener('keydown', e=>{
+  if(!document.getElementById('modal').classList.contains('open')) return;
+  if(e.key==='Escape'){ closeModal(); return; }
+  if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+    e.preventDefault();
+    const fd = filteredData();
+    if(!fd.length) return;
+    const delta = e.key==='ArrowDown' ? 1 : -1;
+    const newIdx = Math.max(0, Math.min(fd.length-1, _modalIdx + delta));
+    if(newIdx !== _modalIdx) openModal(fd[newIdx], newIdx);
+  }
+});
 
 async function modalFixAgain(){
   if(!_modalItem) return;

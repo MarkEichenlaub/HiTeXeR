@@ -495,7 +495,6 @@ const server = http.createServer((req, res) => {
         }
         fs.writeFileSync(queuePath, JSON.stringify(queue, null, 2));
         try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
-        if (!isRunLoopRunning()) launchRunLoop();
         console.log(`[fix-server] Bulk-enqueued ${ids.length} ids (queue length: ${queue.length})`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, count: ids.length, queueLength: queue.length }));
@@ -543,10 +542,7 @@ const server = http.createServer((req, res) => {
         // Regenerate static fix-history page so it's always up to date.
         try { generateFixHistory(); } catch (e) { console.error('[fix-server] fix-history gen failed:', e.message); }
 
-        // Auto-launch the run-loop if it's not already running.
-        if (!isRunLoopRunning()) {
-          launchRunLoop();
-        } else {
+        if (isRunLoopRunning()) {
           console.log('[fix-server] run-loop already running; item added to queue');
         }
 
@@ -986,16 +982,5 @@ server.listen(PORT, '127.0.0.1', () => {
     console.error('[fix-server] startup fix-history regeneration failed:', e.message);
   }
 
-  // If there are already queued items (e.g. left over from a previous session),
-  // auto-start the run-loop immediately rather than waiting for the next enqueue.
-  try {
-    const queuePath = path.join(ROOT, 'auto-fix', 'queue.json');
-    const queue = fs.existsSync(queuePath) ? JSON.parse(fs.readFileSync(queuePath, 'utf8')) : [];
-    if (Array.isArray(queue) && queue.length > 0 && !isRunLoopRunning()) {
-      console.log(`[fix-server] found ${queue.length} item(s) in queue — auto-starting run-loop (5s delay)`);
-      setTimeout(launchRunLoop, 5000);
-    }
-  } catch (e) {
-    console.error('[fix-server] startup queue check failed:', e.message);
-  }
+  // Auto-start disabled: user must click the green dot in the comparator to start the loop.
 });

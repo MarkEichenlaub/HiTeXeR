@@ -157,6 +157,17 @@
 
   /* ── Blink header flex line-break ───────────────────── */
   .blink-header-break { flex-basis: 100%; height: 0; }
+
+  /* ── Paste-list panel ───────────────────────────────── */
+  #paste-list-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 300; display: none; align-items: center; justify-content: center; }
+  #paste-list-overlay.open { display: flex; }
+  #paste-list-box { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 20px; width: 420px; display: flex; flex-direction: column; gap: 10px; }
+  #paste-list-box h3 { font-size: 13px; color: #e94560; }
+  #paste-list-box p { font-size: 11px; opacity: 0.6; }
+  #paste-list-ta { width: 100%; height: 140px; background: #0d1117; border: 1px solid #0f3460; border-radius: 4px; color: #e0e0e0; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; padding: 8px; resize: vertical; }
+  #paste-list-ta:focus { outline: none; border-color: #e94560; }
+  .paste-list-btns { display: flex; gap: 8px; }
+  #btn-paste-list-active { border-color: #e94560 !important; color: #e94560 !important; }
 </style>
 </head>
 <body>
@@ -172,7 +183,7 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v13</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v14</span></h1>
 
   <div class="filter-group">
     <label>Collections:</label>
@@ -208,8 +219,11 @@
 
   <div class="filter-group">
     <label>Search:</label>
-    <input type="text" id="search-input" placeholder="ID or filename..." style="width:140px">
+    <input type="text" id="search-input" placeholder="ID or filename…" style="width:140px" maxlength="40">
   </div>
+
+  <button id="btn-paste-list" title="Show only a custom list of diagram IDs">Paste List</button>
+  <button id="btn-copy-visible" title="Copy all visible diagram IDs to clipboard">Copy Visible (<span id="visible-count">0</span>)</button>
 
   <div class="filter-group">
     <div class="bulk-dropdown" id="bulk-dropdown">
@@ -272,6 +286,7 @@
     <button id="btn-dequeue" class="action-btn" title="Remove from fix queue (D)" style="display:none;background:#1a3a5f;border-color:#3b82f6;color:#93c5fd">Dequeue</button>
     <button id="btn-exclude" class="action-btn" title="Exclude from comparator (X)" style="background:#3b1a5f;border-color:#7c3aed;color:#c4b5fd">Exclude</button>
     <button id="btn-refetch" class="action-btn" title="Re-fetch TeXeR PNG (cache-bust) (R)" style="background:#5f1e5f;border-color:#c025c0;color:#efac86">Re-fetch</button>
+    <input type="text" id="blink-search" placeholder="Jump to ID…" maxlength="5" title="Type a 5-digit ID to jump there" style="width:90px;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid #0f3460;background:#1a1a2e;color:#e0e0e0">
     <div class="help">L/R: swap sides | Up/Down: prev/next | Space: blink | S: side view | H: re-render | C: code | F: fix | D: dequeue | X: exclude | R: re-fetch | Esc: grid</div>
   </div>
   <div class="blink-body">
@@ -296,6 +311,20 @@
         <button id="btn-copy-code">Copy</button>
       </div>
       <div class="code-content" id="code-content"><span class="loading">Select a diagram to view source...</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Paste-list overlay ─────────────────────────────── -->
+<div id="paste-list-overlay">
+  <div id="paste-list-box">
+    <h3>Custom ID List</h3>
+    <p>Paste diagram IDs separated by commas, newlines, or tabs. Only those diagrams will be shown.</p>
+    <textarea id="paste-list-ta" placeholder="03281, 04567&#10;05890&#10;12345"></textarea>
+    <div class="paste-list-btns">
+      <button class="coll-btn" id="btn-paste-list-apply" style="background:#e94560;border-color:#e94560;color:#fff;font-weight:600">Apply Filter</button>
+      <button class="coll-btn" id="btn-paste-list-clear">Clear Filter</button>
+      <button class="coll-btn" id="btn-paste-list-cancel" style="margin-left:auto">Cancel</button>
     </div>
   </div>
 </div>
@@ -363,6 +392,9 @@
 
   // IDs excluded from the main comparator (populated from manifest.droppedIds).
   let droppedSet = new Set();
+
+  // Custom list filter — when set, only these IDs are shown in the grid.
+  let customListIds = null;  // null = no custom filter; Set<string> when active
 
   // IDs whose .asy uses the RNG — SSIM is not meaningful (HiTeXeR can't match
   // Asymptote's random sequence). Used to show a warning in the blink header.
@@ -553,6 +585,8 @@
       );
     }
 
+    if (customListIds) list = list.filter(d => customListIds.has(d.id));
+
     list = [...list];
     switch (sort) {
       case 'ssim-asc':
@@ -591,6 +625,8 @@
 
     document.getElementById('stats').textContent =
       `${filtered.length} diagrams | Page ${page + 1} of ${Math.ceil(filtered.length / PER_PAGE) || 1}`;
+    const vc = document.getElementById('visible-count');
+    if (vc) vc.textContent = filtered.length;
 
     if (slice.length === 0) {
       grid.innerHTML = '<p style="padding:20px;opacity:0.5">No diagrams match the current filters.</p>';
@@ -1509,7 +1545,18 @@
   document.getElementById('filter-both').addEventListener('change', applyFilters);
   document.getElementById('filter-htx-only').addEventListener('change', applyFilters);
   document.getElementById('filter-texer-only').addEventListener('change', applyFilters);
-  document.getElementById('search-input').addEventListener('input', applyFilters);
+  let _searchTimer = null;
+  document.getElementById('search-input').addEventListener('input', () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => {
+      applyFilters();
+      const search = document.getElementById('search-input').value.trim();
+      if (/^\d{5}$/.test(search)) {
+        const idx = filtered.findIndex(d => d.id === search);
+        if (idx >= 0) enterBlink(idx);
+      }
+    }, 300);
+  });
 
   document.getElementById('blink-back').addEventListener('click', exitBlink);
   document.getElementById('blink-auto').addEventListener('click', toggleAutoBlink);
@@ -1563,6 +1610,11 @@
     }
 
     if (blinkActive) {
+      // Don't steal keys when the blink jump-to-ID input is focused
+      if (e.target === document.getElementById('blink-search')) {
+        if (e.key === 'Escape') { e.preventDefault(); exitBlink(); }
+        return;
+      }
       switch (e.key) {
         case 'ArrowLeft':
         case 'ArrowRight':
@@ -1749,6 +1801,78 @@
 
   setInterval(pollAutoFixStatus, 3000);
   setTimeout(pollAutoFixStatus, 1500); // delay first poll so images load first
+
+  // ── Blink jump-to-ID input ────────────────────────────
+  document.getElementById('blink-search').addEventListener('input', () => {
+    const val = document.getElementById('blink-search').value.trim();
+    if (/^\d{5}$/.test(val)) {
+      const idx = filtered.findIndex(d => d.id === val);
+      if (idx >= 0) {
+        document.getElementById('blink-search').value = '';
+        enterBlink(idx);
+      }
+    }
+  });
+
+  // ── Copy visible IDs ──────────────────────────────────
+  document.getElementById('btn-copy-visible').addEventListener('click', () => {
+    if (!filtered.length) return;
+    const text = filtered.map(d => d.id).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('btn-copy-visible');
+      const orig = btn.innerHTML;
+      btn.textContent = 'Copied ' + filtered.length + '!';
+      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    });
+  });
+
+  // ── Paste-list filter ─────────────────────────────────
+  function openPasteList() {
+    document.getElementById('paste-list-overlay').classList.add('open');
+    document.getElementById('paste-list-ta').focus();
+    if (customListIds) {
+      document.getElementById('paste-list-ta').value = [...customListIds].join('\n');
+    }
+  }
+  function closePasteList() {
+    document.getElementById('paste-list-overlay').classList.remove('open');
+  }
+  function applyPasteList() {
+    const raw = document.getElementById('paste-list-ta').value;
+    const ids = raw.split(/[\s,\t]+/).map(s => s.trim()).filter(s => /^\d{5}$/.test(s));
+    if (!ids.length) { clearPasteList(); closePasteList(); return; }
+    customListIds = new Set(ids);
+    document.getElementById('btn-paste-list').textContent = 'List (' + customListIds.size + ') ✕';
+    document.getElementById('btn-paste-list').id === 'btn-paste-list' &&
+      document.getElementById('btn-paste-list').classList.add('coll-btn');
+    document.getElementById('btn-paste-list').style.borderColor = '#e94560';
+    document.getElementById('btn-paste-list').style.color = '#e94560';
+    applyFilters();
+    closePasteList();
+  }
+  function clearPasteList() {
+    customListIds = null;
+    document.getElementById('paste-list-ta').value = '';
+    document.getElementById('btn-paste-list').textContent = 'Paste List';
+    document.getElementById('btn-paste-list').style.borderColor = '';
+    document.getElementById('btn-paste-list').style.color = '';
+    applyFilters();
+  }
+
+  document.getElementById('btn-paste-list').addEventListener('click', () => {
+    if (customListIds) { clearPasteList(); }
+    else { openPasteList(); }
+  });
+  document.getElementById('btn-paste-list-apply').addEventListener('click', applyPasteList);
+  document.getElementById('btn-paste-list-clear').addEventListener('click', () => { clearPasteList(); closePasteList(); });
+  document.getElementById('btn-paste-list-cancel').addEventListener('click', closePasteList);
+  document.getElementById('paste-list-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('paste-list-overlay')) closePasteList();
+  });
+  document.getElementById('paste-list-ta').addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePasteList();
+    if (e.key === 'Enter' && e.ctrlKey) applyPasteList();
+  });
 
 })();
 </script>
