@@ -11259,7 +11259,7 @@ function createInterpreter() {
     // Arrow style markers (stored as values for detection)
     const arrowNames = ['Arrow','MidArrow','EndArrow','BeginArrow','Arrows',
       'ArcArrow','EndArcArrow','BeginArcArrow','ArcArrows','Bar','Bars',
-      'Bar3','Bars3','None'];
+      'BeginBar','EndBar','Bar3','Bars3','None'];
     for (const name of arrowNames) {
       env.set(name, (...args) => {
         // Arrow(arrowhead, real size) — first arg may be a null arrowhead
@@ -21685,7 +21685,7 @@ function createInterpreter() {
             try { av = av(); } catch(e) { av = null; }
           }
           if (av && av._tag === 'arrow') {
-            if (av.style === 'Bar' || av.style === 'Bars') { barsStyle = av.style; if (typeof av.size === 'number') barsSize = av.size; }
+            if (av.style === 'Bar' || av.style === 'Bars' || av.style === 'BeginBar' || av.style === 'EndBar') { barsStyle = av.style; if (typeof av.size === 'number') barsSize = av.size; }
             else arrow = av;
           }
         }
@@ -21715,15 +21715,15 @@ function createInterpreter() {
         else { pen = pen ? mergePens(pen, a) : a; }
       }
       else if (a && a._tag === 'arrow') {
-        if (a.style === 'Bar' || a.style === 'Bars') { barsStyle = a.style; if (typeof a.size === 'number') barsSize = a.size; }
+        if (a.style === 'Bar' || a.style === 'Bars' || a.style === 'BeginBar' || a.style === 'EndBar') { barsStyle = a.style; if (typeof a.size === 'number') barsSize = a.size; }
         else arrow = a;
       }
-      else if (typeof a === 'function' && !arrow) {
+      else if (typeof a === 'function') {
         try {
           const r = a();
           if (r && r._tag === 'arrow') {
-            if (r.style === 'Bar' || r.style === 'Bars') { barsStyle = r.style; if (typeof r.size === 'number') barsSize = r.size; }
-            else arrow = r;
+            if (r.style === 'Bar' || r.style === 'Bars' || r.style === 'BeginBar' || r.style === 'EndBar') { barsStyle = r.style; if (typeof r.size === 'number') barsSize = r.size; }
+            else if (!arrow) arrow = r;
           }
         } catch(e) {}
       }
@@ -21954,7 +21954,8 @@ function createInterpreter() {
           const b = makePair(p.x - nx*halfLen, p.y - ny*halfLen);
           return makePath([lineSegment(a, b)], false);
         };
-        // End bar (style 'Bar' and 'Bars' both put a bar at the end)
+        // Bar/Bars/EndBar put a bar at the end; Bars/BeginBar put one at the
+        // start. 'Bar' aliases 'EndBar' (end), 'Bars' is both ends.
         // Bars should be solid even if the path pen is dashed/dotted.
         const barPen = clonePen(pen);
         delete barPen.linestyle;
@@ -21962,14 +21963,15 @@ function createInterpreter() {
         // so a later 2D transform (shift(...)*currentpicture) leaves them on the
         // dimension line rather than displacing them (e.g. 03281 Bars3 markers).
         const _barFrom3d = !!pathArg._fromProjection;
-        {
+        const _emitEndBar = (barsStyle === 'Bar' || barsStyle === 'Bars' || barsStyle === 'EndBar');
+        const _emitBeginBar = (barsStyle === 'Bars' || barsStyle === 'BeginBar');
+        if (_emitEndBar) {
           const sL = pathArg.segs[pathArg.segs.length - 1];
           const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
           const barPath = makeBarAt(sL.p3, tdx, tdy);
           target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
         }
-        // Begin bar only for 'Bars'
-        if (barsStyle === 'Bars') {
+        if (_emitBeginBar) {
           const s0 = pathArg.segs[0];
           const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
           const barPath = makeBarAt(s0.p0, tdx, tdy);
@@ -25741,7 +25743,17 @@ function renderSVG(result, opts) {
         }
         return Math.max(bpMaxX - bpMinX, bpMaxY - bpMinY) / defaultSize;
       };
-      if (estOvershoot() <= 1.25) {
+      // Label-grid skip: when SHORT labels are the dominant content — a dense
+      // grid/table of many small labels with geometry interspersed between them
+      // (e.g. 04331: 24 two-digit numbers in 4 columns joined by short arrows) —
+      // TeXeR keeps the geometry at defaultSize and lets the surrounding labels
+      // hang outside, rather than shrinking the whole picture to fit them. The
+      // _shortLabelFit shrink (fit-everything-to-150) makes these ~10% smaller
+      // than TeXeR. Gate on a high label count so the well-calibrated few-label
+      // cases (00259/00260 slope fields with x/y axis tags, 03668 one-sided
+      // "$4I_0$") keep shrinking exactly as before.
+      const _labelGridSkip = _shortLabelFit && labelInfoBp.length >= 12;
+      if (estOvershoot() <= 1.25 && !_labelGridSkip) {
         for (let iter = 0; iter < 6; iter++) {
           const overshoot = estOvershoot();
           if (overshoot <= 1.005) break;
