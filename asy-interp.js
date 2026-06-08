@@ -10431,9 +10431,11 @@ function createInterpreter() {
         else if (isPen(a)) pen = a;
       }
       if (!pos) return makePair(0, 0);
-      // Draw the dot using pointpen (or given pen)
-      const dotPen = pen || env.get('pointpen') || clonePen(defaultPen);
-      evalDot([pos, dotPen]);
+      // cse5's MP is label-only: it places the label and returns the pair so it
+      // can be chained inline inside a path expression, e.g.
+      //   draw(MP("A",A,W)--MP("B",B,E)--cycle);
+      // It does NOT draw a dot — dots are emitted separately via dot()/D().
+      // (Drawing one here put spurious black dots at every labeled vertex.)
       // Draw the label if provided. MP wraps text in $...$ (math mode) by convention,
       // so labels should render as math italic like Asymptote/cse5 does.
       if (text) {
