@@ -1167,12 +1167,14 @@ async function runIteration(args, iter) {
 
     if (subResult.timedOut) {
       console.error('[run-loop] sub-agent timed out in round ' + round + ', reverting to ' + preCommit);
+      if (iterEnqueueId) saveRejectSnapshot(target.id, iterEnqueueId);
       resetHard(preCommit);
       return 'fail';
     }
 
     // Revert any disallowed tracked-file changes the sub-agent may have left.
     if (!verifyDiffOrRevert(preChanges)) {
+      if (iterEnqueueId) saveRejectSnapshot(target.id, iterEnqueueId);
       resetHard(preCommit);
       return 'fail';
     }
@@ -1182,6 +1184,7 @@ async function runIteration(args, iter) {
 
     if (anyCommit && !verifyVersionBumped(preVersion)) {
       console.error('[run-loop] commit landed but index.html version did not bump; resetting HEAD to ' + preCommit);
+      if (iterEnqueueId) saveRejectSnapshot(target.id, iterEnqueueId);
       resetHard(preCommit);
       return 'fail';
     }
@@ -1381,7 +1384,13 @@ async function runIteration(args, iter) {
     }
   }  // end round loop
 
-  // Reached here only if every round produced no commit.
+  // Reached here only if every round produced no commit (sub-agent gave up without
+  // committing). The sub-agent may have rendered htx_pngs/{id}.png during Phase 2
+  // even though it never committed — save that render as the reject-after snapshot
+  // so the fix-history "after" column isn't blank for attempted-no-improve entries.
+  // (Also covers the MAX_VERIFIER_ROUNDS exhaustion path, where saveRejectSnapshot
+  // was already called before resetHard — calling it again is idempotent.)
+  if (iterEnqueueId) saveRejectSnapshot(target.id, iterEnqueueId);
   console.log('[run-loop] no commit from any round');
   return 'skipped';
 }
