@@ -8127,6 +8127,15 @@ function createInterpreter() {
     env.set('round', _broadcast1(Math.round));
     env.set('sgn', _broadcast1(Math.sign));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
+    env.set('remainder', (x,y) => {
+      // C/Asymptote remainder: x - n*y where n = round-half-to-even(x/y).
+      x = toNumber(x); y = toNumber(y);
+      if (y === 0) return NaN;
+      const q = x / y;
+      let n = Math.round(q);
+      if (Math.abs(q - Math.trunc(q)) === 0.5 && (n % 2 !== 0)) n -= Math.sign(q);
+      return x - n * y;
+    });
     env.set('degrees', (x) => {
       // Asymptote's degrees(pair) is documented to return [0, 360) per the
       // Built-in Functions reference. 09087 author writes
