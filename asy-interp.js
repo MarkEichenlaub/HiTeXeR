@@ -23954,12 +23954,15 @@ function renderSVG(result, opts) {
           }
           hi = target;
         }
-        // Bare `yaxis("string")` idiom: extend by ~6% past content on each
-        // auto'd side (see x-axis comment above).
+        // Bare `yaxis("string")` idiom: unlike the x-axis, TeXeR sizes a bare
+        // y-axis to the data extent with NO flat extension. A vertical poke
+        // past the data inflates the content bbox in the (often dominant) tall
+        // dimension and shifts the whole figure under SSIM trim+resize — on the
+        // aspect-extreme quad 00287 a 6% y-poke dropped combined 0.98 -> 0.91.
+        // The axis still reaches up to a body label that pokes above the data
+        // (label-inclusive lcMaxY), matching Asymptote's userMax sizing.
         if (c._bareIdiom && hi > lo) {
-          const _ext = (hi - lo) * 0.06;
-          if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _ext;
-          if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _ext;
+          if (c._autoYmax && !c._yMaxFromUserLimits && isFinite(lcMaxY) && lcMaxY > hi) hi = lcMaxY;
         }
         // Arrow-bearing axis with explicit Step ticks (see x-axis above):
         // extend the arrow (max) side by ~one arrow length in user units.
