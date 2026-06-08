@@ -11462,6 +11462,7 @@ function createInterpreter() {
       let pen = null;
       let arrow = null;
       let marker = null;
+      let filltype = null;
       const pairs = [];
 
       for (const a of args) {
@@ -11471,9 +11472,11 @@ function createInterpreter() {
           if ('n' in a) n = Math.round(toNumber(a.n));
           if ('arrow' in a) arrow = a.arrow;
           if ('marker' in a) marker = a.marker;
+          if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
           continue;
         }
         if (isPair(a)) { pairs.push(toPair(a)); continue; }
+        if (a && a._tag === 'filltype') { filltype = a; continue; }
         if (isPen(a)) { pen = a; continue; }
         if (isString(a)) { label = a; continue; }
         if (a && a._tag === 'label') { label = a.text; if (a.pen) pen = a.pen; continue; }
@@ -11548,8 +11551,31 @@ function createInterpreter() {
       // when a marker is present, apply its markroutine to the same arc
       // path on top, mirroring Asymptote's draw(arc, marker=marker) call
       // inside markangle.
+      // Fill(red)/FillDraw(...) fills the angular sector (a wedge from the
+      // vertex out to the arc). Pure Fill suppresses the black arc stroke;
+      // FillDraw fills and strokes.
+      const wantFill = filltype && (filltype.style === 'Fill' || filltype.style === 'FillDraw');
+      const wantStroke = !filltype || filltype.style !== 'Fill';
+      if (wantFill && filltype.pen) {
+        // Fill out to the OUTERMOST arc so all n concentric arcs sit on the
+        // colored sector (matches Asymptote's markangle fill behavior).
+        const rFill = radius + (n - 1) * (radius * 0.15);
+        const arc = makeArcPath(B, rFill, a1, a2);
+        const wedgeSegs = [];
+        if (arc.segs.length) {
+          const arcStart = arc.segs[0].p0;
+          const arcEnd = arc.segs[arc.segs.length - 1].p3;
+          wedgeSegs.push(makeSeg(B, B, arcStart, arcStart));
+          for (const s of arc.segs) wedgeSegs.push(s);
+          wedgeSegs.push(makeSeg(arcEnd, arcEnd, B, B));
+        }
+        const _bpRFill = _bpRadius + (n - 1) * (_bpRadius * 0.15);
+        currentPic.commands.push({cmd:'fill', path: makePath(wedgeSegs, true), pen: clonePen(filltype.pen), line:0,
+          _markangleBpR: _bpRFill, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2, _markangleWedge: true});
+      }
+
       const gap = radius * 0.15;
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < n && wantStroke; i++) {
         const r = radius + i * gap;
         const arcPath = makeArcPath(B, r, a1, a2);
         // Tag with bp-truesize info so the renderer can rebuild the arc
@@ -26462,7 +26488,18 @@ function renderSVG(result, opts) {
       if (dc && typeof dc._markangleBpR === 'number' && dc._markangleVertex) {
         const B = dc._markangleVertex;
         const rUser = dc._markangleBpR / pxPerUnit;
-        if (dc.cmd === 'draw' && typeof dc._markangleA1 === 'number') {
+        if (dc.cmd === 'fill' && dc._markangleWedge && typeof dc._markangleA1 === 'number') {
+          const arc = _rebuildArcPath(B, rUser, dc._markangleA1, dc._markangleA2);
+          const wedgeSegs = [];
+          if (arc.segs.length) {
+            const arcStart = arc.segs[0].p0;
+            const arcEnd = arc.segs[arc.segs.length - 1].p3;
+            wedgeSegs.push(makeSeg(B, B, arcStart, arcStart));
+            for (const s of arc.segs) wedgeSegs.push(s);
+            wedgeSegs.push(makeSeg(arcEnd, arcEnd, B, B));
+          }
+          dc.path = makePath(wedgeSegs, true);
+        } else if (dc.cmd === 'draw' && typeof dc._markangleA1 === 'number') {
           dc.path = _rebuildArcPath(B, rUser, dc._markangleA1, dc._markangleA2);
         } else if (dc.cmd === 'label' && typeof dc._markangleMidAngle === 'number') {
           dc.pos = makePair(
