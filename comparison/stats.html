@@ -48,16 +48,30 @@
   .commits { font-size: 12px; line-height: 1.7; max-height: 320px; overflow: auto; background: #11111f; border: 1px solid #0f3460; border-radius: 6px; padding: 8px 12px; }
   .commits code { color: #fbbf24; }
   .empty { opacity: 0.55; font-style: italic; font-size: 13px; }
+
+  /* checkpoint block separators */
+  .checkpoint-block { border-top: 2px solid #0f3460; padding-top: 18px; margin-top: 32px; scroll-margin-top: 60px; }
+  .checkpoint-block:first-child { border-top: none; margin-top: 0; }
+  .checkpoint-label { font-size: 13px; color: #6b7280; margin-bottom: 14px; }
+  .checkpoint-label strong { color: #a78bfa; font-size: 15px; }
+
+  /* copy button */
+  .copy-ids-btn {
+    font-size: 11px; padding: 3px 8px; border-radius: 3px;
+    border: 1px solid #0f3460; background: #1a1a2e; color: #93c5fd;
+    cursor: pointer; margin-left: 10px; vertical-align: middle;
+  }
+  .copy-ids-btn:hover { border-color: #93c5fd; }
+  .copy-ids-btn.copied { color: #4ade80; border-color: #4ade80; }
 </style>
 </head>
 <body>
 <div class="header">
   <h1>SSIM Stats</h1>
   <button onclick="window.location.href='blink.html'">&larr; Comparator</button>
-  <label class="sub">Checkpoint:
+  <label class="sub">Jump to checkpoint:
     <select id="checkpoint-select"></select>
   </label>
-  <span class="sub" id="checkpoint-meta"></span>
 </div>
 
 <div class="wrap" id="content"></div>
@@ -83,17 +97,31 @@ async function load() {
     document.getElementById('content').innerHTML = '<p class="empty">Stats history is empty.</p>';
     return;
   }
+
   const sel = document.getElementById('checkpoint-select');
-  history.forEach((c, i) => {
+  // Populate dropdown newest-first for convenient jump navigation
+  for (let i = history.length - 1; i >= 0; i--) {
+    const c = history[i];
     const opt = document.createElement('option');
     const d = new Date(c.timestamp);
     opt.value = i;
     opt.textContent = '#' + (i + 1) + '  ' + d.toLocaleString() + '  (' + c.commit + ')';
     sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    const block = document.getElementById('checkpoint-' + sel.value);
+    if (block) block.scrollIntoView({ behavior: 'smooth' });
   });
-  sel.value = history.length - 1;
-  sel.addEventListener('change', () => render(+sel.value));
-  render(history.length - 1);
+
+  // Render all checkpoints from newest to oldest
+  const content = document.getElementById('content');
+  for (let i = history.length - 1; i >= 0; i--) {
+    const div = document.createElement('div');
+    div.className = 'checkpoint-block';
+    div.id = 'checkpoint-' + i;
+    div.innerHTML = renderCheckpoint(history[i], i);
+    content.appendChild(div);
+  }
 }
 
 function statCard(label, value) {
@@ -114,12 +142,22 @@ function moverRows(list) {
   }).join('');
 }
 
-function render(idx) {
-  const c = history[idx];
-  const meta = document.getElementById('checkpoint-meta');
-  meta.textContent = c.count.toLocaleString() + ' diagrams · ' + new Date(c.timestamp).toLocaleString() + ' · commit ' + c.commit;
+let _copyBtnCounter = 0;
+function copyIdsBtn(list) {
+  if (!list || list.length === 0) return '';
+  const ids = list.map(m => m.id).join('\n');
+  const btnId = 'copy-btn-' + (_copyBtnCounter++);
+  // Use a data attribute to pass IDs safely; the onclick reads it
+  return '<button class="copy-ids-btn" id="' + btnId + '" ' +
+    'data-ids="' + escapeAttr(ids) + '" ' +
+    'onclick="copyIds(this)" title="Copy all IDs to clipboard for Paste List">Copy IDs</button>';
+}
 
-  let html = '';
+function renderCheckpoint(c, idx) {
+  const d = new Date(c.timestamp);
+  let html = '<div class="checkpoint-label"><strong>Checkpoint #' + (idx + 1) + '</strong> &nbsp;·&nbsp; ' +
+    d.toLocaleString() + ' &nbsp;·&nbsp; commit <code style="color:#fbbf24">' + c.commit + '</code> &nbsp;·&nbsp; ' +
+    c.count.toLocaleString() + ' diagrams</div>';
 
   // ── Summary cards ──
   html += '<section><h2>Summary</h2><div class="cards">';
@@ -142,8 +180,6 @@ function render(idx) {
   // ── Histogram ──
   const hist = c.histogram || [];
   const maxCount = Math.max(1, ...hist.map(b => b.count));
-  // Derive bin size, range, and axis labels from the data so the page stays
-  // correct no matter how the bins are configured in compute-ssim-stats.js.
   const binSize = hist.length ? (hist[0].hi - hist[0].lo) : 0;
   const histLo = hist.length ? hist[0].lo : 0;
   const histHi = hist.length ? hist[hist.length - 1].hi : 1;
@@ -175,7 +211,7 @@ function render(idx) {
       '<tr><th class="id">id</th><th>from</th><th>to</th><th>Δ</th></tr>' +
       moverRows(v.topIncreases) + '</table></div>';
 
-    html += '<div><h2>Top 20 decreases</h2><table>' +
+    html += '<div><h2>Top 20 decreases' + copyIdsBtn(v.topDecreases) + '</h2><table>' +
       '<tr><th class="id">id</th><th>from</th><th>to</th><th>Δ</th></tr>' +
       moverRows(v.topDecreases) + '</table>';
     if (typeof v.decreasedActualCount === 'number' && v.decreasedActualCount < 20) {
@@ -198,11 +234,43 @@ function render(idx) {
       '<p class="empty">This is the first checkpoint — no previous data to compare against.</p></section>';
   }
 
-  document.getElementById('content').innerHTML = html;
+  return html;
+}
+
+function copyIds(btn) {
+  const ids = btn.getAttribute('data-ids');
+  navigator.clipboard.writeText(ids).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy IDs';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    // Fallback: select a temporary textarea
+    const ta = document.createElement('textarea');
+    ta.value = ids;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy IDs';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
 }
 
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
 }
 
 load();
