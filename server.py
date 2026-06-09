@@ -1219,14 +1219,46 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(500, {"ok": False, "error": str(e)})
 
     def handle_send_to_gif_editor(self):
-        """Save GIF bytes to a temp file and return the path for the browser to use."""
+        """Save GIF bytes to a temp file, ensure gif_editor.py is running, return path."""
         content_length = int(self.headers["Content-Length"])
         gif_bytes = self.rfile.read(content_length)
         try:
             tmp = tempfile.NamedTemporaryFile(suffix='.gif', delete=False)
             tmp.write(gif_bytes)
             tmp.close()
-            self.send_json(200, {"ok": True, "path": tmp.name})
+            tmp_path = tmp.name
+
+            # Check if the GIF editor server is already up on port 8847.
+            editor_running = False
+            try:
+                urllib.request.urlopen("http://127.0.0.1:8847/api/info", timeout=1)
+                editor_running = True
+            except Exception:
+                editor_running = False
+
+            if not editor_running:
+                # Launch gif_editor.py in the background with --no-browser so it
+                # doesn't open its own tab (the caller's pre-opened tab handles that).
+                # server.py is at ~/github/HiTeXeR/server.py; gif_editor.py is at
+                # ~/github/ShareX/Scripts/gif_editor.py.
+                gif_editor = Path(__file__).parent.parent / "ShareX" / "Scripts" / "gif_editor.py"
+                if gif_editor.exists():
+                    import sys as _sys
+                    subprocess.Popen(
+                        [_sys.executable, str(gif_editor), "--no-browser", tmp_path],
+                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+                    )
+                    # Wait up to 8 seconds for the server to start
+                    import time as _time
+                    for _ in range(40):
+                        _time.sleep(0.2)
+                        try:
+                            urllib.request.urlopen("http://127.0.0.1:8847/api/info", timeout=0.5)
+                            break
+                        except Exception:
+                            pass
+
+            self.send_json(200, {"ok": True, "path": tmp_path})
         except Exception as e:
             self.send_json(500, {"error": str(e)})
 
