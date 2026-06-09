@@ -630,7 +630,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.90</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.91</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -6743,6 +6743,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // Pre-open a blank window now (synchronous with the click) so the popup blocker
+    // won't kill it when we navigate it after the async GIF render completes.
+    const editorWin = (action === 'editor') ? window.open('about:blank', '_blank') : null;
+
     // Fetch and cache the gif.js worker script as a blob URL to avoid CORS issues
     if (!gifWorkerBlobUrl) {
       try {
@@ -7063,12 +7067,18 @@ document.addEventListener('DOMContentLoaded', () => {
           if (data.ok) {
             let editorUrl = 'http://127.0.0.1:8847/?path=' + encodeURIComponent(data.path);
             if (eigennodeName) editorUrl += '&name=' + encodeURIComponent(eigennodeName);
-            window.open(editorUrl, '_blank');
+            if (editorWin) {
+              editorWin.location.href = editorUrl;
+            } else {
+              window.open(editorUrl, '_blank');
+            }
             progressEl.textContent = 'Sent to editor!';
           } else {
+            if (editorWin) editorWin.close();
             progressEl.textContent = 'Editor error: ' + (data.error || 'unknown');
           }
         } catch(editorErr) {
+          if (editorWin) editorWin.close();
           progressEl.textContent = 'Editor not reachable: ' + editorErr.message;
         }
       } else {
