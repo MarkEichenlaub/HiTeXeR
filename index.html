@@ -630,7 +630,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.92</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.93</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -6852,6 +6852,13 @@ document.addEventListener('DOMContentLoaded', () => {
               fMaxX = result.minX + (bbox.x + bbox.width) / ppuX;
               fMaxY = result.maxY - bbox.y / ppuY;
               fMinY = result.maxY - (bbox.y + bbox.height) / ppuY;
+              // getBBox() ignores SVG clip-path, so clipped geometry (e.g. large
+              // wavefront circles) can report extents beyond the clip region.
+              // Clamp to computed bounds so we never expand past the clip rect.
+              fMinX = Math.max(result.minX, fMinX);
+              fMinY = Math.max(result.minY, fMinY);
+              fMaxX = Math.min(result.maxX, fMaxX);
+              fMaxY = Math.min(result.maxY, fMaxY);
             }
 
             if (fMinX < uMinX) uMinX = fMinX;
