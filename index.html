@@ -6743,6 +6743,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // Pre-open a blank window now (synchronous with the click) so the popup blocker
+    // won't kill it when we navigate it after the async GIF render completes.
+    const editorWin = (action === 'editor') ? window.open('about:blank', '_blank') : null;
+
     // Fetch and cache the gif.js worker script as a blob URL to avoid CORS issues
     if (!gifWorkerBlobUrl) {
       try {
@@ -6848,6 +6852,13 @@ document.addEventListener('DOMContentLoaded', () => {
               fMaxX = result.minX + (bbox.x + bbox.width) / ppuX;
               fMaxY = result.maxY - bbox.y / ppuY;
               fMinY = result.maxY - (bbox.y + bbox.height) / ppuY;
+              // getBBox() ignores SVG clip-path, so clipped geometry (e.g. large
+              // wavefront circles) can report extents beyond the clip region.
+              // Clamp to computed bounds so we never expand past the clip rect.
+              fMinX = Math.max(result.minX, fMinX);
+              fMinY = Math.max(result.minY, fMinY);
+              fMaxX = Math.min(result.maxX, fMaxX);
+              fMaxY = Math.min(result.maxY, fMaxY);
             }
 
             if (fMinX < uMinX) uMinX = fMinX;
@@ -7063,12 +7074,18 @@ document.addEventListener('DOMContentLoaded', () => {
           if (data.ok) {
             let editorUrl = 'http://127.0.0.1:8847/?path=' + encodeURIComponent(data.path);
             if (eigennodeName) editorUrl += '&name=' + encodeURIComponent(eigennodeName);
-            window.open(editorUrl, '_blank');
+            if (editorWin) {
+              editorWin.location.href = editorUrl;
+            } else {
+              window.open(editorUrl, '_blank');
+            }
             progressEl.textContent = 'Sent to editor!';
           } else {
+            if (editorWin) editorWin.close();
             progressEl.textContent = 'Editor error: ' + (data.error || 'unknown');
           }
         } catch(editorErr) {
+          if (editorWin) editorWin.close();
           progressEl.textContent = 'Editor not reachable: ' + editorErr.message;
         }
       } else {
