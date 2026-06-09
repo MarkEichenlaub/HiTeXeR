@@ -12609,10 +12609,17 @@ function createInterpreter() {
         if (_axisLimits.ymax !== null && _axisLimits.ymin !== null) {
           perpAxisRange = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
         } else {
-          // y limits not yet set (yaxis() not called yet); use picture's data y-range
+          // y limits not yet set (yaxis() not called yet); use picture's data
+          // y-range, falling back to currentPic when the axis is in a sub-picture
+          // (fg) whose own geometry has no y-extent yet (see _gbExt note below).
           const _gb = getGeoBbox(pic.commands);
-          const gbYR = (_gb && isFinite(_gb.maxY) && isFinite(_gb.minY) && _gb.maxY > _gb.minY)
+          let gbYR = (_gb && isFinite(_gb.maxY) && isFinite(_gb.minY) && _gb.maxY > _gb.minY)
             ? Math.abs(_gb.maxY - _gb.minY) : 0;
+          if (gbYR === 0 && pic !== currentPic) {
+            const _gbR = getGeoBbox(currentPic.commands);
+            if (_gbR && isFinite(_gbR.maxY) && isFinite(_gbR.minY) && _gbR.maxY > _gbR.minY)
+              gbYR = Math.abs(_gbR.maxY - _gbR.minY);
+          }
           perpAxisRange = gbYR > 0 ? gbYR : Math.abs(max - min);
         }
       } else {
@@ -12620,10 +12627,16 @@ function createInterpreter() {
         if (_axisLimits.xmax !== null && _axisLimits.xmin !== null) {
           perpAxisRange = Math.abs(_axisLimits.xmax - _axisLimits.xmin);
         } else {
-          // x limits not yet set; use picture's data x-range
+          // x limits not yet set; use picture's data x-range, falling back to
+          // currentPic for the sub-picture (fg) axes idiom (see note above).
           const _gb = getGeoBbox(pic.commands);
-          const gbXR = (_gb && isFinite(_gb.maxX) && isFinite(_gb.minX) && _gb.maxX > _gb.minX)
+          let gbXR = (_gb && isFinite(_gb.maxX) && isFinite(_gb.minX) && _gb.maxX > _gb.minX)
             ? Math.abs(_gb.maxX - _gb.minX) : 0;
+          if (gbXR === 0 && pic !== currentPic) {
+            const _gbR = getGeoBbox(currentPic.commands);
+            if (_gbR && isFinite(_gbR.maxX) && isFinite(_gbR.minX) && _gbR.maxX > _gbR.minX)
+              gbXR = Math.abs(_gbR.maxX - _gbR.minX);
+          }
           perpAxisRange = gbXR > 0 ? gbXR : Math.abs(max - min);
         }
       }
@@ -12719,8 +12732,20 @@ function createInterpreter() {
         // limits(...,Crop) — ticks must stay ~2bp, not span the window).
         const _alXR = (_axisLimits.xmax !== null && _axisLimits.xmin !== null) ? Math.abs(_axisLimits.xmax - _axisLimits.xmin) : 0;
         const _alYR = (_axisLimits.ymax !== null && _axisLimits.ymin !== null) ? Math.abs(_axisLimits.ymax - _axisLimits.ymin) : 0;
-        const rX2 = _alXR > 0 ? _alXR : ((_gb2 && isFinite(_gb2.maxX - _gb2.minX)) ? Math.abs(_gb2.maxX - _gb2.minX) : (Math.abs(max - min) || 1));
-        const rY2 = _alYR > 0 ? _alYR : ((_gb2 && isFinite(_gb2.maxY - _gb2.minY)) ? Math.abs(_gb2.maxY - _gb2.minY) : perpAxisRange);
+        // When the axis is drawn into a sub-picture (the foreground-axes idiom
+        // `picture fg; xaxis(fg,...)`), the perpendicular data extent lives in
+        // currentPic (e.g. 09149's `dot((xmin,ymin)); dot((xmax,ymax))` bound
+        // markers), not in fg — and the other axis's limits may not be set yet
+        // because yaxis() runs after xaxis(). Merge in currentPic's bbox so the
+        // perpendicular range isn't 0 (which would zero out _ticksBpPerUnit and
+        // collapse the explicit Size= tick to the broken perpAxisRange fallback).
+        const _gbExt = (pic !== currentPic) ? getGeoBbox(currentPic.commands) : null;
+        const _gbX = (_gb2 && isFinite(_gb2.maxX - _gb2.minX) && _gb2.maxX > _gb2.minX) ? Math.abs(_gb2.maxX - _gb2.minX)
+          : (_gbExt && isFinite(_gbExt.maxX - _gbExt.minX) && _gbExt.maxX > _gbExt.minX) ? Math.abs(_gbExt.maxX - _gbExt.minX) : 0;
+        const _gbY = (_gb2 && isFinite(_gb2.maxY - _gb2.minY) && _gb2.maxY > _gb2.minY) ? Math.abs(_gb2.maxY - _gb2.minY)
+          : (_gbExt && isFinite(_gbExt.maxY - _gbExt.minY) && _gbExt.maxY > _gbExt.minY) ? Math.abs(_gbExt.maxY - _gbExt.minY) : 0;
+        const rX2 = _alXR > 0 ? _alXR : (_gbX > 0 ? _gbX : (Math.abs(max - min) || 1));
+        const rY2 = _alYR > 0 ? _alYR : (_gbY > 0 ? _gbY : perpAxisRange);
         // When one dimension is 0 (auto), compute proportional size based on
         // data aspect ratio. size(w,0) preserves aspect so height = w*(rY/rX).
         let sw2, sh2;
@@ -13116,21 +13141,34 @@ function createInterpreter() {
               else txt = String(txt);
             } catch(e) { txt = fmtDefault(); }
           } else if (ticks.format && ticks.format !== '%') {
-            txt = ticks.format.replace(/%[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
-              // Simple printf-style: %d→int, %f→fixed, %e→scientific, %g→general
+            txt = ticks.format.replace(/%#?[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
+              // Simple printf-style: %d→int, %f→fixed, %e→scientific, %g→general.
+              // Asymptote's format() strips trailing zeros (and a bare trailing
+              // decimal point) UNLESS the '#' flag is given (e.g. "%#.2f" keeps
+              // "0.10", "%.2f" trims to "0.1"). 09149 uses trailingZeros=false →
+              // "%.2f" and TeXeR shows 0, 0.05, 0.1, 0.15, 0.2 (not 0.00…0.20).
+              const hasHash = spec.indexOf('#') !== -1;
+              const stripZeros = (s) => {
+                if (hasHash || s.indexOf('.') === -1) return s;
+                s = s.replace(/0+$/, '').replace(/\.$/, '');
+                return (s === '-0') ? '0' : s;
+              };
               if (spec.endsWith('d')) return String(Math.round(v));
               if (spec.endsWith('f')) {
                 const m = spec.match(/\.(\d+)/);
-                return v.toFixed(m ? parseInt(m[1]) : 6);
+                return stripZeros(v.toFixed(m ? parseInt(m[1]) : 6));
               }
               if (spec.endsWith('e')) {
                 const m = spec.match(/\.(\d+)/);
-                return v.toExponential(m ? parseInt(m[1]) : 6);
+                const s = v.toExponential(m ? parseInt(m[1]) : 6);
+                const ei = s.indexOf('e');
+                return stripZeros(s.slice(0, ei)) + s.slice(ei);
               }
               if (spec.endsWith('g')) {
                 const m = spec.match(/\.(\d+)/);
                 const prec = m ? parseInt(m[1]) : 6;
-                return v.toPrecision(prec).replace(/\.?0+$/, '');
+                const r = v.toPrecision(prec);
+                return hasHash ? r : r.replace(/\.?0+$/, '');
               }
               // %s — string
               return fmtDefault();
@@ -13140,7 +13178,7 @@ function createInterpreter() {
           }
           const labelPen = clonePen(ticks.labelPen || tickPen);
           labelPen.fontsize = labelPen.fontsize || 8;
-          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, line:0, _isTickLabel: true});
+          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, _isTickLabel: true});
         }
       }
     }
@@ -13172,7 +13210,7 @@ function createInterpreter() {
     // xaxis and yaxis
     env.set('xaxis', (...args) => {
       let pic = currentPic;
-      let label = '', labelAlign = null, labelPosition = null, labelPen = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
+      let label = '', labelAlign = null, labelPosition = null, labelPen = null, labelFill = null, xmin = null, xmax = null, pen = null, ticks = null, arrow = null;
       let extent = null; // BottomTop, etc.
       let above = false;
       const rawArgs = args;
@@ -13207,14 +13245,14 @@ function createInterpreter() {
           }
           if ('L' in a) {
             const lv = a.L;
-            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.pen) labelPen = lv.pen; }
+            if (lv && lv._tag === 'label') { label = lv.text; labelAlign = lv.align; if (lv.position != null) labelPosition = lv.position; if (lv.pen) labelPen = lv.pen; if (lv.filltype) labelFill = lv.filltype; }
             else if (isString(lv)) label = lv;
           }
           if ('xmin' in a && typeof a.xmin === 'number') xmin = a.xmin;
           if ('xmax' in a && typeof a.xmax === 'number') xmax = a.xmax;
           continue;
         }
-        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.pen) labelPen = a.pen; }
+        if (a && a._tag === 'label') { label = a.text; labelAlign = a.align; if (a.position != null) labelPosition = a.position; if (a.pen) labelPen = a.pen; if (a.filltype) labelFill = a.filltype; }
         else if (a && a._tag === 'axisshift' && a.axis === 'x') { axisShiftY = a.value; axisShiftYExplicit = true; }
         else if (isString(a) && !label) label = a;
         else if (typeof a === 'number') {
@@ -13520,7 +13558,7 @@ function createInterpreter() {
         // the label below/above the axis — this is the Asymptote graph.asy
         // convention for `xaxis(axis=Bottom, L=...)` and the typical scientific
         // plot style.
-        let lAlign, labelX;
+        let lAlign, labelX, _xLabelExtraDx = 0;
         const xIsExplicitAxis = xIsBottomTop || extent === 'Bottom' || extent === 'Top';
         const xIsAboveAxis = xIsTopPrimary || extent === 'Top';
         if (xIsExplicitAxis && labelAlign == null) {
@@ -13556,6 +13594,28 @@ function createInterpreter() {
           lAlign = labelAlign || {x:-1, y:-1};
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+          // An EXPLICIT diagonal align (e.g. align=NE on the AoPS graph
+          // template's x-title `Label("Time (s)", position=1, align=NE)`) is
+          // centered horizontally over the axis endpoint in TeXeR, then nudged
+          // slightly in the align direction — NOT corner-anchored. Anchoring the
+          // text's left edge at the endpoint (align.x=+1) pushes the whole title
+          // past the arrow tip (09149: "Time (s)" started AT the tip instead of
+          // ~0.5*labelmargin left of it). Center horizontally and fold align.x
+          // into a small screen nudge so the diagonal offset survives without
+          // half-width corner-anchoring. Only for an explicitly-supplied align —
+          // the default {x:-1,y:-1} (plain `xaxis("x")`) keeps corner-anchoring
+          // so "x" still sits just past the last tick (00115).
+          // Gate on ticks: a *ticked* plot axis with a multi-word title
+          // (09149 "Time (s)", position=1, align=NE) centers the title over the
+          // endpoint. A *bare* arrow axis with no ticks (00259 "$x$" align=SE,
+          // "$y$" align=NW) keeps the standard math corner-label convention —
+          // the single letter sits diagonally just past the arrow tip — so do
+          // NOT recenter those.
+          if (ticks && !ticks.none && labelAlign != null && Math.abs(lAlign.x) > 0.01 && Math.abs(lAlign.y) > 0.01) {
+            const _lfs = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
+            _xLabelExtraDx = Math.sign(lAlign.x) * _lfs * 0.1;
+            lAlign = {x: 0, y: lAlign.y};
+          }
         }
         // Asymptote's graph.asy autoshifts the axis label past tick labels so they
         // don't overlap. For an x-axis with a label below, push the label down by
@@ -13584,7 +13644,7 @@ function createInterpreter() {
         // Below axis: positive screenDy (down). Above axis: negative.
         const sDy = lAlign.y < 0 ? tickLabelClearance : (lAlign.y > 0 ? -tickLabelClearance : 0);
         const _xAxisLabelPen = labelPen || pen;
-        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen: _xAxisLabelPen, line:0, screenDy: sDy, _isAxisLabel: true});
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen: _xAxisLabelPen, filltype: labelFill || null, line:0, screenDy: sDy, screenDx: _xLabelExtraDx, _isAxisLabel: true});
         // If the label is below the axis (lAlign.y < 0), record that on the axis draw
         // command so yaxis() can extend its lower bound to include the label extent.
         if (_xaxisDrawCmd && lAlign.y < 0) {
@@ -14387,7 +14447,7 @@ function createInterpreter() {
         else if (isPen(a)) t.pen = a;
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
-        else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; if (a.align) t.labelAlign = a.align; }
+        else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; if (a.align) t.labelAlign = a.align; if (a.filltype) t.labelFill = a.filltype; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('format' in a && typeof a.format === 'string') { t.format = a.format; t.labels = true; }
@@ -14402,6 +14462,7 @@ function createInterpreter() {
             if (lt !== undefined && lt !== null) t.format = lt;
             if (a.format.pen) t.labelPen = a.format.pen;
             if (a.format.align) t.labelAlign = a.format.align;
+            if (a.format.filltype) t.labelFill = a.format.filltype;
           }
           if ('Step' in a) t.step = a.Step;
           if ('step' in a) t.subStep = a.step;
@@ -25491,7 +25552,14 @@ function renderSVG(result, opts) {
         ? _graphIdiomTgt
         : Math.max(baseTgt, crowdedTgt, _overlapTgt);
       // Scale up while maintaining aspect ratio
-      const boostScale = Math.min(tgtSize / naturalW, tgtSize / naturalH);
+      // This block only ever ENLARGES small unitsize geometry toward a visible
+      // target — never shrinks. boostScale < 1 means the chosen target (often a
+      // crowd target sized off the SHORT/label axis) is smaller than the
+      // geometry's natural long side; applying it via the aspect-preserving
+      // min() would punch a taller-than-wide diagram down (e.g. 00415:
+      // unitsize(4cm), a 1×1.5-unit figure whose y=0 label row drives
+      // crowdedTgt≈127bp < natH≈171bp ⇒ 0.738× shrink). Clamp to ≥1.
+      const boostScale = Math.max(1, Math.min(tgtSize / naturalW, tgtSize / naturalH));
       pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
       // Remember the boost so absolute-size elements (dots, strokes, arrows)
       // can be scaled with the geometry when there are no truesize labels
@@ -26449,6 +26517,7 @@ function renderSVG(result, opts) {
             if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
               console.error(`[tick-clear] minPxX=${minPxX.toFixed(4)} minPxY=${minPxY.toExponential(3)} curX=${pxPerUnitX.toFixed(4)} curY=${pxPerUnitY.toExponential(3)} xStep=${xStepBp} yStep=${yStepBp.toExponential(2)}`);
             }
+            const _iaOrigPxX = pxPerUnitX, _iaOrigPxY = pxPerUnitY;
             if (minPxX > pxPerUnitX) {
               pxPerUnitX = minPxX;
             }
@@ -26456,6 +26525,51 @@ function renderSVG(result, opts) {
               pxPerUnitY = minPxY;
             }
             pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+            // Grow-to-fill (sparse-label box-fill regime only): size(W,H,
+            // IgnoreAspect) makes the geometry+truesize-labels bbox fill EXACTLY
+            // W×H on each axis. The shrink solver above only shrinks an
+            // overfilling axis to fit labels; it never grows an axis that the
+            // labels leave SHORT of the box. When tick labels are sparse, the
+            // geometry then underfills and renders squished — 09149's
+            // displacement axis fills only 216.7/226.8bp ⇒ ~722px vs TeXeR's
+            // 757. Grow the underfilling axis to fill, matching TeXeR.
+            //
+            // Restrict to true grid plots (a regular tick series on BOTH axes,
+            // i.e. the axes define a coordinate box TeXeR scales to fill).
+            // Bar charts (06507/06508 — value labels at distinct heights, one
+            // series) and other single-series layouts do NOT fill their
+            // IgnoreAspect box in TeXeR (06507's 8cm box renders 730px, not the
+            // 755px the box implies), so growing them to fill overshoots and
+            // regresses the size match. Also skip when tick-label clearance or
+            // square-cell coupling already set the scale (minPx bound an axis).
+            const _clearanceBound = minPxX > _iaOrigPxX || minPxY > _iaOrigPxY;
+            if (_iaGridPlot && !_clearanceBound) {
+              for (let g = 0; g < 6; g++) {
+                let bMinX = geoMinX * pxPerUnitX, bMaxX = geoMaxX * pxPerUnitX;
+                let bMinY = geoMinY * pxPerUnitY, bMaxY = geoMaxY * pxPerUnitY;
+                for (const li of labelInfoBp) {
+                  const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+                  const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+                  bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                  bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                }
+                const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+                const uW = (tgtW < Infinity && tW > 0) ? tgtW / tW : 1;
+                const uH = (tgtH < Infinity && tH > 0) ? tgtH / tH : 1;
+                // Only correct a SIGNIFICANT underfill (>2% short). A sub-2%
+                // shortfall is within label-metric noise; growing it to "fill"
+                // shifts features for a negligible size gain and slightly hurts
+                // SSIM on already-good graph plots (08817-08820, ~1% short).
+                // A genuine squish (09149: 4.6%, 06577: 2.3%) clears the bar.
+                let grew = false;
+                if (uW > 1.02) { pxPerUnitX *= uW; grew = true; }
+                if (uH > 1.02) { pxPerUnitY *= uH; grew = true; }
+                if (!grew) break;
+              }
+              pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+            }
           } else {
             // keepAspect (size(N) only): re-iterate the geometry-shrink solver
             // with the now-measured label widths so geometry shrinks just
@@ -29230,6 +29344,18 @@ function renderSVG(result, opts) {
       }
 
       let labelEl;
+      // Mirror the MathJax path's vertical-centering correction (see
+      // renderLabelMathJaxSVG: fy += ayN*(hEst - svgH)) for the browser SVG-<text>
+      // renderers below, which place text with dominant-baseline at sy+dy using a
+      // height H = fontSize. Real glyph boxes are shorter, so without this short
+      // vertically-aligned labels (NW "kx", SW "x") sit too high / too low. The
+      // svg-native (rasterization) path uses MathJax, which applies its own
+      // correction, so this is browser-only.
+      let _swsY = sy + dy;
+      if (_labelAyN && _labelHEst && !dc.labelTransform && !(opts && opts.labelOutput === 'svg-native')) {
+        const _estH = _estLabelGlyphHeightFactor(stripLaTeX(dc.text || '')) * _labelHEst;
+        _swsY = sy + dy + _labelAyN * (_labelHEst - _estH);
+      }
       // Check for \mathbf-only or \textbf-only labels first: render as bold upright SVG text.
       // This works in all rendering contexts (sharp, <img>, <object>) without needing KaTeX CSS.
       // Must be checked before the italic math path to avoid wrong font-style.
@@ -29238,15 +29364,15 @@ function renderSVG(result, opts) {
         // In math mode, spaces between \mathbf{X} \mathbf{Y} are ignored — concatenate directly.
         let boldContent = '';
         strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, (_, g) => { boldContent += g; });
-        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
       } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
-        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
+        labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
       } else if (hasMath && /^(\s*\\(?:mathrm|textrm|text)\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         // \mathrm, \textrm, \text labels → upright roman (not math italic)
         let rmContent = '';
         strippedDollar.replace(/\\(?:mathrm|textrm|text)\s*\{([^}]*)\}/g, (_, g) => { rmContent += g; });
-        labelEl = renderLabelWithScripts(rmContent, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'normal', 'normal');
+        labelEl = renderLabelWithScripts(rmContent, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'normal', 'normal');
       } else if (hasLaTeX) {
         // Render complex LaTeX as SVG group with fractions/braces
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
@@ -29295,9 +29421,9 @@ function renderSVG(result, opts) {
         // upright in LaTeX math.
         const penFF = dc.pen && dc.pen.fontFamily;
         if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic');
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic');
         } else {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined);
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined);
         }
       }
       if (labelTransformAttr) {
@@ -29944,6 +30070,25 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
   return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
+// Estimate a label's actual rendered glyph-box height as a fraction of the
+// font size, classifying by whether the (cleaned) text contains ascenders /
+// capitals / digits and/or descenders. Used to mirror the MathJax path's
+// vertical-centering correction in the browser SVG-<text> path, where the
+// dy offset was computed with H = fontSize (1em) — far taller than a label
+// like "x" (x-height only) or "kx" (ascender, no descender) actually renders.
+function _estLabelGlyphHeightFactor(s) {
+  const t = (s || '').replace(/\s+/g, '');
+  if (!t) return 1.0;
+  // Tall delimiters span the full box (ascender + descender) in math.
+  if (/[(){}\[\]\/|]/.test(t)) return 0.92;
+  const hasDesc = /[gjpqy,;]/.test(t);
+  const hasAsc = /[A-Z0-9bdfhiklt]/.test(t) || /'/.test(t);
+  if (hasDesc && hasAsc) return 0.92;
+  if (hasDesc) return 0.66;
+  if (hasAsc) return 0.66;
+  return 0.46; // x-height-only lowercase (a c e m n o r s u v w x z, Greek)
+}
+
 // Render label text with superscript/subscript support as SVG
 function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontFamily, fontWeight, fontStyle) {
   // First apply LaTeX-to-Unicode mapping (same as stripLaTeX but preserving ^/_)
@@ -30030,6 +30175,10 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
+  // In math-italic mode, an ASCII hyphen-minus is a binary/unary minus operator;
+  // render it as U+2212 MINUS SIGN (longer, matches TeX) rather than the short
+  // hyphen glyph. Only in italic (math) mode so plain-text hyphens are untouched.
+  if (fontStyle === 'italic') s = s.replace(/-/g, '−');
   // NOTE: Do NOT strip braces here — the subscript/superscript parser below
   // needs them to detect multi-character groups like _{k-1}.  Stray braces
   // are cleaned up after parsing (see below).
@@ -30047,22 +30196,23 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     const ff = fontFamily || 'KaTeX_Main, serif';
     const fwAttr = fontWeight && fontWeight !== 'normal' ? ` font-weight="${fontWeight}"` : '';
     const fsAttr = fontStyle && fontStyle !== 'normal' ? ` font-style="${fontStyle}"` : '';
+    if (fontStyle === 'italic') {
+      // Math-italic mode: only letters should be italic; digits, parentheses,
+      // operators, and the minus sign stay upright (as in real LaTeX math).
+      // mathTextSvg splits letter runs (italic KaTeX_Math) from the rest
+      // (upright KaTeX_Main) AND handles the \x01..\x02 upright sentinels, so
+      // each glyph gets its own font-style via tspans and nothing inherits the
+      // parent's italic. (Omit fsAttr from the parent for that reason.)
+      const mixed = mathTextSvg(s);
+      return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${op}>${mixed}</text>`;
+    }
     if (needsUprightOps && s.includes(UPRIGHT_OPEN)) {
-      // Build mixed italic + upright content: operator names get upright tspan elements
-      let mixed;
-      if (fontStyle === 'italic') {
-        // In math-italic mode only letters should be italic; parens/digits/spaces
-        // stay upright. mathTextSvg splits letter runs vs the rest AND handles the
-        // \x01..\x02 sentinels, so the non-sentinel content (e.g. "m (" and ")"
-        // around \mathrm{kg}) no longer inherits the parent text's italic style.
-        mixed = mathTextSvg(s);
-      } else {
-        const segs = s.split(/\x01([^\x02]*)\x02/);
-        mixed = '';
-        for (let si = 0; si < segs.length; si++) {
-          if (si % 2 === 0) { mixed += escSvg(segs[si]); }
-          else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
-        }
+      // Build mixed upright/bold content: operator names get upright tspan elements
+      const segs = s.split(/\x01([^\x02]*)\x02/);
+      let mixed = '';
+      for (let si = 0; si < segs.length; si++) {
+        if (si % 2 === 0) { mixed += escSvg(segs[si]); }
+        else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
       }
       return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${mixed}</text>`;
     }
@@ -30129,18 +30279,15 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
       cursorDy = subDy;
     } else {
       let partContent;
-      if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
-        // Mixed italic + upright in base text
-        if (fontStyle === 'italic') {
-          // Only letters italic; parens/digits/spaces upright (see no-scripts branch).
-          partContent = mathTextSvg(p.text);
-        } else {
-          const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
-          partContent = '';
-          for (let si = 0; si < segs2.length; si++) {
-            if (si % 2 === 0) { partContent += escSvg(segs2[si]); }
-            else { partContent += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
-          }
+      if (fontStyle === 'italic') {
+        // Only letters italic; parens/digits/operators/minus upright (see no-scripts branch).
+        partContent = mathTextSvg(p.text);
+      } else if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
+        const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
+        partContent = '';
+        for (let si = 0; si < segs2.length; si++) {
+          if (si % 2 === 0) { partContent += escSvg(segs2[si]); }
+          else { partContent += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
         }
       } else {
         partContent = escSvg(p.text);
