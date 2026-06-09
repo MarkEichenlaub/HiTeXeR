@@ -630,7 +630,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.89</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v7.90</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3021,7 +3021,7 @@ function applyGridOverlay() {
     overlay.appendChild(line);
   }
 
-  const makeLabel = (text, x, y, anchor) => {
+  const makeLabel = (text, x, y, anchor, baseline) => {
     const lbl = document.createElementNS(ns, 'text');
     lbl.setAttribute('x', x);
     lbl.setAttribute('y', y);
@@ -3029,6 +3029,7 @@ function applyGridOverlay() {
     lbl.setAttribute('font-size', '20');
     lbl.setAttribute('font-family', 'sans-serif');
     lbl.setAttribute('text-anchor', anchor);
+    if (baseline) lbl.setAttribute('dominant-baseline', baseline);
     lbl.setAttribute('stroke', labelHalo);
     lbl.setAttribute('stroke-width', '5');
     lbl.setAttribute('paint-order', 'stroke');
@@ -3036,24 +3037,24 @@ function applyGridOverlay() {
     return lbl;
   };
 
-  // X labels pinned to bottom of container — thin by count for readability.
+  // X labels pinned to bottom of container — centered on each vertical line.
   const maxXLabels = Math.max(3, Math.floor(contW / 100));
   const xStride = Math.max(1, Math.ceil(xVals.length / maxXLabels));
   xVals.forEach((x, i) => {
     if (i % xStride !== 0) return;
     const px = toPxX(x);
     if (px < 2 || px > contW - 2) return;
-    overlay.appendChild(makeLabel(formatGridLabel(x, stepX), px + 2, contH - 6, 'start'));
+    overlay.appendChild(makeLabel(formatGridLabel(x, stepX), px, contH - 6, 'middle'));
   });
 
-  // Y labels pinned to left of container
+  // Y labels pinned to left of container — centered on each horizontal line.
   const maxYLabels = Math.max(3, Math.floor(contH / 50));
   const yStride = Math.max(1, Math.ceil(yVals.length / maxYLabels));
   yVals.forEach((y, i) => {
     if (i % yStride !== 0) return;
     const py = toPxY(y);
-    if (py < 16 || py > contH - 2) return;
-    overlay.appendChild(makeLabel(formatGridLabel(y, stepY), 2, py - 5, 'start'));
+    if (py < 2 || py > contH - 2) return;
+    overlay.appendChild(makeLabel(formatGridLabel(y, stepY), 2, py, 'start', 'central'));
   });
 
   container.appendChild(overlay);

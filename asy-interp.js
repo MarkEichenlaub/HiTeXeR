@@ -25504,7 +25504,7 @@ function renderSVG(result, opts) {
     // uniform-scaled output. For IgnoreAspect, always use geometry-only bounds.
     const _isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
     _labelDominatesSize = !_isIgnoreAspect &&
-                          ((_fullRefW / _geoRefW >= 1.05) || (_fullRefH / _geoRefH >= 1.05));
+                          ((_fullRefW / _geoRefW >= 1.5) || (_fullRefH / _geoRefH >= 1.5));
     let scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
     let scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
     // Mixed 3D+2D: if a 2D overlay extends the combined geometry bbox well
@@ -26369,6 +26369,30 @@ function renderSVG(result, opts) {
               _ke = e;
               if (e <= 1.005) break;
               pxPerUnit = pxPerUnitX = pxPerUnitY = pxPerUnit / e;
+            }
+            // Label-dominated guard: if making the measured labels "fit" required
+            // shrinking geometry far below the geometry-only size() fit (preSolver),
+            // this is a truesize side-caption layout — e.g. 04702's 3.5cm minipage
+            // plus the wide red "Each combination…" caption, which together can be
+            // squeezed inside size() only by collapsing the probability tree to a
+            // few bp. TeXeR does NOT shrink for these: it keeps geometry at size()
+            // and lets the captions overflow. (A modest overhang like 12131's ~11%
+            // stays under the cap and still shrinks.) The divide-by-e iteration can
+            // also overshoot here because truesize labels make the bbox nonlinear in
+            // pxPerUnit, landing the geometry even smaller than size() requires.
+            // Force the escape hatch below so geometry returns to preSolver scale.
+            // This matters in browser/KaTeX measurement (which sizes the caption
+            // narrower than the size() target, so the loop "converges"); node/MathJax
+            // measures it wider, never converges, and already escapes.
+            if (preSolverPxPerUnit > 0 && pxPerUnit < preSolverPxPerUnit / 1.5) {
+              _ke = Math.max(_ke, 1.01);
+              // This is genuinely a label-dominated layout: mark it so the
+              // overlap-clearing boost below is skipped. TeXeR renders 04702 with
+              // geometry exactly filling size() and the captions overflowing (no
+              // boost); the browser's KaTeX label metrics otherwise read a false
+              // overlap among the dense tree labels and boost geometry to the 1.5×
+              // cap, bloating the diagram ~1.4× past TeXeR's reference scale.
+              _labelDominatesSize = true;
             }
             finalExceed = _ke;
           }
@@ -28855,6 +28879,11 @@ function renderSVG(result, opts) {
         '\\dotsb': '⋯', '\\dotsc': '…', '\\dotsm': '⋯', '\\dotso': '…', '\\dotsi': '⋯',
       };
       let displayText = rawText;
+      // LaTeX inline-math delimiters \( ... \) behave like $ ... $; normalize so
+      // the math-detection and KaTeX/MathJax routing below treat them as math.
+      if (displayText.indexOf('\\(') !== -1 || displayText.indexOf('\\)') !== -1) {
+        displayText = displayText.replace(/\\\(/g, '$').replace(/\\\)/g, '$');
+      }
 
       // Detect and strip LaTeX font-size commands (\small, \tiny, \large, etc.)
       // These are text-mode commands that should scale the font, not route through KaTeX math.
@@ -30071,6 +30100,16 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
       pos = m.index + m[0].length;
     }
     if (pos < math.length) segments.push({type: 'text', content: math.slice(pos)});
+    if (_mixedSegsUnbalanced(segments)) {
+      // A \cmd{...} wrapper (e.g. \underline{Values for $a$}) spans the inline
+      // math; render the reconstructed single TeX string instead of per-segment.
+      const recon = _reconstructMixedLabel(math);
+      try {
+        html = katex.renderToString(recon, {throwOnError: false, displayMode: false, output: 'html'});
+      } catch(e) {
+        return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
+      }
+    } else {
     html = '';
     for (const seg of segments) {
       if (seg.type === 'math') {
@@ -30090,6 +30129,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
         // (valid in XML/SVG; plain &nbsp; is only an HTML entity and breaks svg->png).
         html += txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&#160;');
       }
+    }
     }
   } else {
     try {
@@ -30337,21 +30377,7 @@ function _mjxMeasureBp(rawText, fontSize) {
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
-    const segments = [];
-    let pos = 0;
-    const reSegment = /\$([^$]+)\$/g;
-    let m;
-    while ((m = reSegment.exec(math)) !== null) {
-      if (m.index > pos) segments.push({type:'text', content: math.slice(pos, m.index)});
-      segments.push({type:'math', content: m[1]});
-      pos = m.index + m[0].length;
-    }
-    if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
-    math = segments.map(seg => {
-      if (seg.type === 'math') return seg.content;
-      const esc = seg.content.replace(/([\\{}$&#^_%~])/g, '\\$1');
-      return '\\text{' + esc + '}';
-    }).join('');
+    math = _reconstructMixedLabel(math);
   }
 
   let parsed = _mjxCache.get(math);
@@ -30427,6 +30453,9 @@ function _katexMeasureBp(rawText, fontSize) {
           pos = m.index + m[0].length;
         }
         if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
+        if (_mixedSegsUnbalanced(segments)) {
+          html = katex.renderToString(_reconstructMixedLabel(math), {throwOnError:false, displayMode:false, output:'html'});
+        } else {
         html = '';
         for (const seg of segments) {
           if (seg.type === 'math') {
@@ -30434,6 +30463,7 @@ function _katexMeasureBp(rawText, fontSize) {
           } else {
             html += seg.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/ /g,'&nbsp;');
           }
+        }
         }
       } else {
         html = katex.renderToString(math, {throwOnError:false, displayMode:false, output:'html'});
@@ -30461,6 +30491,84 @@ function _katexMeasureBp(rawText, fontSize) {
   return { wBp: unitDims.wPerPx * fontSize, hBp: unitDims.hPerPx * fontSize };
 }
 
+// True if any text segment of a split mixed label has unmatched braces — i.e.
+// a \command{...} wrapper whose group spans an inline $math$ segment. Such
+// labels must be reconstructed and rendered as one TeX string (via
+// _reconstructMixedLabel), not segment-by-segment. Escaped braces (\{ \}) don't
+// count toward the balance.
+function _mixedSegsUnbalanced(segments) {
+  for (const seg of segments) {
+    if (seg.type !== 'text') continue;
+    let d = 0;
+    for (let i = 0; i < seg.content.length; i++) {
+      const c = seg.content[i];
+      if (c === '\\') { i++; continue; }
+      else if (c === '{') d++;
+      else if (c === '}') d--;
+    }
+    if (d !== 0) return true;
+  }
+  return false;
+}
+
+// Mode-aware reconstruction of a mixed text+math label into ONE TeX string for
+// MathJax/KaTeX *math*-mode rendering. Supersedes the per-segment
+// _mjxWrapTextSegment join: it tracks whether we are inside a text-mode-argument
+// command (\textbf, \text, …) and emits accordingly, so the inline $math$ keeps
+// its $-delimiters there (e.g. \textbf{Adult ($150$)}) instead of being illegally
+// \text-wrapped — which MathJax rejects with "\text is only supported in math
+// mode". For balanced labels and \underline-style (math-arg) wrappers it produces
+// byte-identical output to the old join, so only the previously-broken text-arg
+// cases change.
+const _texArgCmds = new Set(['text','textbf','textit','textrm','textsf','texttt',
+  'textnormal','textsc','textmd','textup','textsl','emph','mbox','hbox']);
+function _reconstructMixedLabel(src) {
+  const stack = ['M'];           // group-context modes: 'M' math, 'T' text. Outer = math (MathJax default).
+  let out = '', buf = '', i = 0;
+  let inDollar = false;          // inside $...$ from the source
+  let pendingArgMode = null;     // mode to assign to the next '{'
+  const ctx = () => (inDollar ? 'M' : stack[stack.length - 1]);
+  const flush = () => {
+    if (!buf) return;
+    if (!inDollar && stack[stack.length - 1] === 'M') out += '\\text{' + buf + '}';
+    else out += buf;
+    buf = '';
+  };
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\\') {
+      const nx = src[i + 1];
+      if (nx !== undefined && ' ,;:!~{}$%&#'.indexOf(nx) !== -1) {
+        if (inDollar) { out += (nx === '~' ? ' ' : c + nx); i += 2; continue; }
+        if (nx === '~') { buf += ' '; i += 2; continue; }
+        buf += c + nx; i += 2; continue;
+      }
+      flush();
+      let j = i + 1, cmd = '\\', name = '';
+      if (j < src.length && /[a-zA-Z]/.test(src[j])) { while (j < src.length && /[a-zA-Z]/.test(src[j])) { name += src[j]; cmd += src[j]; j++; } }
+      else if (j < src.length) { cmd += src[j]; j++; }
+      out += cmd;
+      let k = j; while (k < src.length && src[k] === ' ') k++;
+      pendingArgMode = (src[k] === '{') ? (_texArgCmds.has(name) ? 'T' : 'M') : null;
+      i = j; continue;
+    }
+    if (c === '{') { flush(); out += '{'; stack.push(pendingArgMode != null ? pendingArgMode : ctx()); pendingArgMode = null; i++; continue; }
+    if (c === '}') { flush(); out += '}'; if (stack.length > 1) stack.pop(); i++; continue; }
+    if (c === '$') {
+      flush();
+      if (stack[stack.length - 1] === 'T') out += '$';   // keep delimiter only in a text context
+      inDollar = !inDollar;
+      i++; continue;
+    }
+    if (inDollar) { out += c; i++; continue; }
+    if (c === '~') { buf += ' '; i++; continue; }
+    if ('^_%&#'.indexOf(c) !== -1 && stack[stack.length - 1] === 'M') { buf += '\\' + c; i++; continue; }
+    buf += c; i++;
+  }
+  flush();
+  return out;
+}
+
 function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS, hEst, ayN) {
   const state = _ensureMathJax();
   if (!state) return renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS);
@@ -30477,43 +30585,8 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   math = preprocessLatexForKatex(math);
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
-    // Reconstruct using \text{...} for non-math segments so MathJax lays it out as one box.
-    const segments = [];
-    let pos = 0;
-    const reSegment = /\$([^$]+)\$/g;
-    let m;
-    while ((m = reSegment.exec(math)) !== null) {
-      if (m.index > pos) segments.push({type:'text', content: math.slice(pos, m.index)});
-      segments.push({type:'math', content: m[1]});
-      pos = m.index + m[0].length;
-    }
-    if (pos < math.length) segments.push({type:'text', content: math.slice(pos)});
-    math = segments.map(seg => {
-      if (seg.type === 'math') return seg.content;
-      // Escape TeX-special characters inside \text{...}, but preserve TeX
-      // spacing commands (\, \; \: \! \<space> \~) which are valid in text
-      // mode too.  Tokenize so a literal backslash followed by a spacing
-      // char passes through unchanged, while bare \ is escaped to \\.
-      // Bare `~` is Asymptote/LaTeX's non-breaking space — emit a literal
-      // Unicode NBSP rather than escaping to `\~`, which is a TeX accent
-      // requiring an argument and would error out in MathJax.
-      let esc = '';
-      const src = seg.content;
-      for (let i = 0; i < src.length; i++) {
-        const c = src[i];
-        if (c === '\\' && i + 1 < src.length && ' ,;:!~'.indexOf(src[i+1]) !== -1) {
-          esc += c + src[i+1];
-          i++;
-        } else if (c === '~') {
-          esc += '\u00A0';
-        } else if ('\\{}$&#^_%'.indexOf(c) !== -1) {
-          esc += '\\' + c;
-        } else {
-          esc += c;
-        }
-      }
-      return '\\text{' + esc + '}';
-    }).join('');
+    // Reconstruct as one mode-aware TeX string so MathJax lays it out as a single box.
+    math = _reconstructMixedLabel(math);
   }
 
   let parsed = _mjxCache.get(math);
@@ -30649,7 +30722,15 @@ function expandMinipageText(text, pen) {
         const unit = (m[2] || 'pt').toLowerCase();
         const toPt = { cm: 28.346, mm: 2.8346, pt: 1, in: 72, em: 10, ex: 4.5, bp: 1.00374 };
         const widthPt = val * (toPt[unit] || 1);
-        const maxChars = Math.max(4, Math.round(widthPt / ptPerChar));
+        // A font-size selector inside the minipage content (e.g. \scriptsize)
+        // shrinks the glyphs, so more characters fit per line. Scale the per-char
+        // budget accordingly — matches TeXeR, where 04702's 3.5cm \scriptsize
+        // paragraph wraps ~26 chars/line, not the ~18 a 10pt budget would give.
+        const _mpFsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
+        const _mpFsRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
+        let _mpSizeScale = 1, _mpFsM;
+        while ((_mpFsM = _mpFsRe.exec(inner)) !== null) _mpSizeScale = _mpFsSizes[_mpFsM[0]] || 1;
+        const maxChars = Math.max(4, Math.round(widthPt / (ptPerChar * _mpSizeScale)));
         // Word-wrap each individual line (handles both no-break and
         // explicit-break forms).  Single words longer than the budget stay
         // on their own line — matches LaTeX which doesn't hyphenate
@@ -31493,6 +31574,13 @@ function escSvg(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 // the line has no math, so non-math lines are byte-identical to before.
 function _inlineMathSvg(line) {
   if (!line) return '';
+  // LaTeX inline-math delimiters \( ... \) are equivalent to $ ... $ — normalize
+  // so prose lines (e.g. a minipage paragraph "result is \(4\times3=12\) ...")
+  // route the enclosed expression through the math path instead of rendering the
+  // literal backslash-paren delimiters.
+  if (line.indexOf('\\(') !== -1 || line.indexOf('\\)') !== -1) {
+    line = line.replace(/\\\(/g, '$').replace(/\\\)/g, '$');
+  }
   if (line.indexOf('$') === -1) return escSvg(stripLaTeX(line));
   let result = '';
   let last = 0;
