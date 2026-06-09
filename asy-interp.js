@@ -12371,6 +12371,62 @@ function createInterpreter() {
           } catch(e) { allPts.push(null); }
         }
 
+        // Adaptive densification near steep spikes / poles (plain y=f(x) only).
+        // graph() may run BEFORE limits() (00091 draws the curve, then crops),
+        // so no crop y-range is known here. Fixed-step sampling then lands only
+        // a lone steep point at the pole (y≈±1000 at x→333) that the jump-split
+        // drops, leaving the curve ending at the last gentle sample (~±3) far
+        // short of the crop edge — whereas TeXeR's adaptive sampling climbs to
+        // huge |y| and fills the window after cropping. Densify any interval
+        // whose y-jump is large relative to the curve's own bulk y-scale,
+        // recursively inserting finite midpoints so a near-pole branch climbs
+        // smoothly to large |y|. Smooth curves never trip the big-jump gate, so
+        // nothing is added for them (zero change to non-pole graphs).
+        const _canRefine = !isTwoFuncParametric && !isPairFunc && !samplingFunc;
+        if (_canRefine && allPts.length > 2) {
+          const ys = [];
+          for (const p of allPts) if (p) ys.push(p.y);
+          if (ys.length >= 3) {
+            const sorted = ys.slice().sort((u, v) => u - v);
+            const q = (f) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(f * (sorted.length - 1))))];
+            let yScale = q(0.9) - q(0.1);
+            if (!(yScale > 0)) yScale = (sorted[sorted.length - 1] - sorted[0]) || 1;
+            const bigJump = 4 * yScale;       // interval steep enough to be a pole approach
+            const contThresh = 0.5 * yScale;  // keep subdividing while sub-jump exceeds this
+            const _evalP = (t) => {
+              let yv;
+              try { yv = toNumber(callFunc(funcArg, t)); } catch (e) { return null; }
+              if (!isFinite(yv) || !isFinite(t)) return null; // pole / domain gap
+              return { x: _xT(t), y: _yT(yv) };
+            };
+            let _added = 0; const _MAXADD = 4000;
+            const _eps = Math.abs(b - a) * 1e-7;
+            const _subdiv = (t0, p0, t1, p1, depth, acc) => {
+              if (_added >= _MAXADD || depth >= 26 || Math.abs(t1 - t0) < _eps) return;
+              const tm = (t0 + t1) / 2;
+              const pm = _evalP(tm);
+              if (!pm) return; // hit the pole itself; existing split handles it
+              if (Math.abs(pm.y - p0.y) > contThresh) _subdiv(t0, p0, tm, pm, depth + 1, acc);
+              acc.push(pm); _added++;
+              if (Math.abs(p1.y - pm.y) > contThresh) _subdiv(tm, pm, t1, p1, depth + 1, acc);
+            };
+            const out = [];
+            for (let i = 0; i < allPts.length; i++) {
+              const cur = allPts[i];
+              out.push(cur);
+              const nxt = (i + 1 < allPts.length) ? allPts[i + 1] : undefined;
+              if (cur && nxt && Math.abs(nxt.y - cur.y) > bigJump) {
+                const t0 = a + (b - a) * i / n, t1 = a + (b - a) * (i + 1) / n;
+                const acc = [];
+                _subdiv(t0, cur, t1, nxt, 0, acc);
+                for (const p of acc) out.push(p);
+              }
+            }
+            allPts.length = 0;
+            for (const p of out) allPts.push(p);
+          }
+        }
+
         // Split into segments at null markers and large jumps
         const segments = [];
         let curSeg = [];
@@ -13428,6 +13484,7 @@ function createInterpreter() {
                         _xMaxFromUserLimits: _xmaxFromUserLimits,
                         _explicitStepTicks: !!(ticks && ticks.step > 0),
                         _bareIdiom: _xaxisBareIdiom,
+                        _hasEndpointLabel: !!label && (labelPosition === 1 || labelPosition === 0),
                         _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
                         _extentDeferred: _xExtentDeferred};
         pic.commands.push(_xaxisDrawCmd);
@@ -13859,6 +13916,7 @@ function createInterpreter() {
                            _yMaxFromUserLimits: _ymaxFromUserLimits,
                            _explicitStepTicks: !!(ticks && ticks.step > 0),
                            _bareIdiom: _yaxisBareIdiom,
+                           _hasEndpointLabel: !!label && (labelPosition === 1 || labelPosition === 0),
                            _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
                            _extentDeferred: _yExtentDeferred});
         if (yIsLeftRight) {
@@ -23934,6 +23992,40 @@ function renderSVG(result, opts) {
           const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
           if (isFinite(_bpu) && _bpu > 0) hi = hi + _arrowBp / _bpu;
         }
+        // Arrow-bearing axis carrying an EndPoint label (e.g. 00101's
+        // xaxis(Label("$x$",position=EndPoint),Arrow)) but no axis Ticks: TeXeR
+        // sizes the user window to include the EndPoint glyph + arrowhead, which
+        // pokes the axis a little past the data on each auto'd side (a small
+        // negative poke past the origin and past the data-max). Extend both
+        // auto'd ends by ~one arrow length in user units. Gated on the EndPoint
+        // label so bare arrow axes (cardioid/polar 00200/00202/00247 — no axis
+        // label) are untouched.
+        // Auto'd ends always get the EndPoint poke. A *user-limited* end gets it
+        // only in a fully-framed window — one that also pins the y-range with
+        // ylimits() (e.g. 00101: size(7cm), xlimits(1,10), ylimits(-1,2)). TeXeR
+        // pokes past such a deliberately-framed window to seat the arrowhead and
+        // the EndPoint glyph, but leaves a singly-limited plot (00156: xlimits
+        // only, y auto) tight to its xlimits — poking it there misaligns the
+        // whole figure under SSIM (-0.06). The tight gating (arrow + EndPoint
+        // label, no bare idiom, no Step ticks, no slopefield) already excludes
+        // plain arrow axes.
+        if (c.arrow && c._hasEndpointLabel && !c._bareIdiom && !c._explicitStepTicks && hi > lo
+            && !drawCommands.some(dc => dc && dc._slopefield)) {
+          const _framed = drawCommands.some(dc => dc && dc._isAxisLine === 'y'
+            && (dc._yMaxFromUserLimits || dc._yMinFromUserLimits));
+          const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
+          const _bpu = hasUnitScale ? unitScale
+            : (sizeW > 0 || sizeH > 0)
+              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
+              : Math.min(150 / _gW, 150 / _gH);
+          const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
+          const _f = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_AXEXT_X) || '1');
+          if (isFinite(_bpu) && _bpu > 0) {
+            const _e = (_arrowBp / _bpu) * _f;
+            if ((c._autoXmin && !c._xMinFromUserLimits) || (c._xMinFromUserLimits && _framed)) lo = lo - _e;
+            if ((c._autoXmax && !c._xMaxFromUserLimits) || (c._xMaxFromUserLimits && _framed)) hi = hi + _e;
+          }
+        }
         // Arrow-bearing axis over add()-imported slopefield geometry: TeXeR
         // extends the axis past the slope-field box (the non-arrow tail pokes
         // out and the arrowhead sits beyond the field). Without this the slope-
@@ -24116,6 +24208,26 @@ function renderSVG(result, opts) {
               : Math.min(150 / _gW, 150 / _gH);
           const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
           if (isFinite(_bpu) && _bpu > 0) hi = hi + _arrowBp / _bpu;
+        }
+        // Arrow-bearing y-axis carrying an EndPoint label (e.g. 00101's
+        // yaxis(Label("$y$",position=EndPoint),Arrow)): like the x-axis EndPoint
+        // block, TeXeR pokes the TOP past the user window to seat the arrowhead +
+        // EndPoint glyph. Gated strictly on _yMaxFromUserLimits — only an
+        // explicitly ylimits()-framed top pokes (00101). Auto y-tops are left
+        // alone: extending them regressed the auto-y plots 00059 (-0.014) and
+        // 00156 (-0.05), whose tops are already data-tight to TeXeR. Only the
+        // TOP moves; the bottom stays at the user/data floor.
+        if (c.arrow && c._hasEndpointLabel && c._yMaxFromUserLimits
+            && !c._bareIdiom && !c._explicitStepTicks && hi > lo
+            && !drawCommands.some(dc => dc && dc._slopefield)) {
+          const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
+          const _bpu = hasUnitScale ? unitScale
+            : (sizeW > 0 || sizeH > 0)
+              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
+              : Math.min(150 / _gW, 150 / _gH);
+          const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
+          const _f = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_AXEXT_Y) || '1');
+          if (isFinite(_bpu) && _bpu > 0) hi = hi + (_arrowBp / _bpu) * _f;
         }
         // Arrow-bearing axis over add()-imported slopefield geometry (see
         // x-axis above). The bottom tail pokes out deeper than the top arrow.
@@ -24404,15 +24516,23 @@ function renderSVG(result, opts) {
     maxY = Math.min(maxY, clipMaxY);
   }
 
-  // When Crop is enabled, constrain geometry bbox to axis limits.
-  // Label expansion (below) will add margin for labels outside the crop region.
+  // When Crop is enabled, the window is EXACTLY the limits box: geometry that
+  // overshoots it is clipped, and geometry that under-fills it does NOT shrink
+  // the window (Asymptote's limits(...,Crop) sets the user bounds to the box).
+  // Most AoPS graph-paper diagrams draw both x- and y-axis spanning the box, so
+  // the axis lines already fill it and clamp vs. assign are identical. But when
+  // only one axis is drawn (00091: xaxis only, a 1/(x-333) curve that — under
+  // fixed-step sampling — reaches only y≈±3.7 near the asymptote), a Math.max/
+  // Math.min clamp collapses the y-window onto the curve, squashing the diagram
+  // to a sliver. TeXeR keeps the full y=[-10,10] window. Assign directly so the
+  // window fills the box regardless of whether geometry reaches its edges.
   if (axisLimits && axisLimits.crop &&
       axisLimits.xmin !== null && axisLimits.xmax !== null &&
       axisLimits.ymin !== null && axisLimits.ymax !== null) {
-    minX = Math.max(minX, axisLimits.xmin);
-    maxX = Math.min(maxX, axisLimits.xmax);
-    minY = Math.max(minY, axisLimits.ymin);
-    maxY = Math.min(maxY, axisLimits.ymax);
+    minX = axisLimits.xmin;
+    maxX = axisLimits.xmax;
+    minY = axisLimits.ymin;
+    maxY = axisLimits.ymax;
   }
 
   // Add padding for stroke overshoot
@@ -28158,6 +28278,13 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     const css = penToCSS(dc.pen);
     css.strokeWidth *= bpCSSPixel;
+    // Nominal (pre-boost) stroke width in viewBox/bp units. Asymptote scales a
+    // pen's dash pattern (e.g. dashed = {8,8}) by the *nominal* linewidth, not
+    // by HiTeXeR's visual stroke boosts (auto-scale / explicit-size / gridline),
+    // which are a rendering-weight compensation rather than a real linewidth
+    // change. Using the boosted width inflated dash lengths ~1.5× and dropped a
+    // segment vs TeXeR (e.g. 00101's x=1 dashed line: 2 dashes instead of 3).
+    const _nominalStrokeWidth = css.strokeWidth;
     // Gridlines (extend=true tick marks, above:-1) should not get the
     // explicit-size stroke boost — they already have a dedicated 1.4×
     // boost below and combining both makes them too thick (03901).
@@ -28188,7 +28315,7 @@ function renderSVG(result, opts) {
       }
       css.strokeWidth *= gridBoost;
     }
-    const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth);
+    const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth);
 
     const elsBefore = elements.length;
     if (dc.cmd === 'label') {
@@ -29344,9 +29471,16 @@ function isLinear(seg) {
   return true;
 }
 
-function linestyleToDasharray(style, strokeWidth) {
+function linestyleToDasharray(style, strokeWidth, nominalWidth) {
   if (!style || style === 'solid') return null;
   const w = strokeWidth || 0.5;
+  // Dash/gap LENGTHS scale with the nominal (pre-boost) Asymptote linewidth, the
+  // way Asymptote scales a linetype's pattern. The `dotted` on-length (1*w),
+  // however, stays on the rendered/boosted width: it's a HiTeXeR robustness hack
+  // (Asymptote's dotted is a 0-length dot) tuned so round-capped dots stay
+  // visible under the Blink rasterizer — shrinking it to nominal made dotted 3D
+  // axes (03875) render too faint. So: dashes use dw, dots keep w.
+  const dw = (nominalWidth || strokeWidth) || 0.5;
   // Asymptote dash patterns from plain_pens.asy (in linewidth units when scale=true):
   //   dotted = linetype({0, 4})  — dot, 4× gap
   //   dashed = linetype({8, 8})
@@ -29360,11 +29494,11 @@ function linestyleToDasharray(style, strokeWidth) {
   // A 1*w on-length with round cap renders a robust dot under both Blink and
   // librsvg and matches TeXeR's dotted weight.
   switch(style) {
-    case 'dashed': return `${8*w} ${8*w}`;
+    case 'dashed': return `${8*dw} ${8*dw}`;
     case 'dotted': return `${1*w} ${3*w}`;
-    case 'longdashed': return `${24*w} ${8*w}`;
-    case 'dashdotted': return `${8*w} ${8*w} 0.01 ${8*w}`;
-    case 'longdashdotted': return `${24*w} ${8*w} 0.01 ${8*w}`;
+    case 'longdashed': return `${24*dw} ${8*dw}`;
+    case 'dashdotted': return `${8*dw} ${8*dw} 0.01 ${8*dw}`;
+    case 'longdashdotted': return `${24*dw} ${8*dw} 0.01 ${8*dw}`;
     default:
       // Custom dash pattern from linetype("a b c ...") — space-separated numbers
       if (/^[\d.\s]+$/.test(style)) {
@@ -31177,23 +31311,89 @@ function _fracOperandText(raw) {
   return s;
 }
 
+// Detect a \frac operand that is EXACTLY a radical: \sqrt[idx]{rad},
+// \sqrt{rad}, or \sqrt<single-token>. Returns {index, radicand} (plain-text-
+// ready) or null. Only whole-operand radicals are handled, so every non-radical
+// frac operand keeps rendering through the unchanged flat-text path. This lets a
+// fraction like \frac1{\sqrt[3]{x}} draw a true surd + vinculum with the index
+// nestled in the crook instead of the cheap "³√x" stripLaTeX fallback.
+function _fracSqrtOperand(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (!s.startsWith('\\sqrt')) return null;
+  s = s.substring(5);
+  let index = '';
+  const idxMatch = s.match(/^\s*\[([^\]]*)\]/);
+  if (idxMatch) { index = idxMatch[1]; s = s.substring(idxMatch[0].length); }
+  s = s.replace(/^\s+/, '');
+  let radicand = '';
+  if (s[0] === '{') {
+    const b = extractBraced(s);
+    radicand = b.content; s = s.substring(b.consumed);
+  } else if (s[0] === '\\') {
+    const m = s.match(/^\\[a-zA-Z]+/);
+    if (m) { radicand = m[0]; s = s.substring(m[0].length); }
+    else { radicand = s[0]; s = s.substring(1); }
+  } else if (s.length > 0) {
+    radicand = s[0]; s = s.substring(1);
+  }
+  if (s.trim().length > 0) return null; // trailing content ⇒ not a pure radical
+  return { index: stripLaTeX(index), radicand: stripLaTeX(radicand) };
+}
+
+// Advance width of a radical frac-operand drawn at font size fs.
+function _radicalOperandWidth(op, fs) {
+  const radicandW = _estimateTextWidth(op.radicand, fs);
+  const radicalW = fs * 0.55;
+  const idxW = op.index ? _estimateTextWidth(op.index, fs * 0.5) : 0;
+  const leadIdx = Math.max(0, idxW - radicalW * 0.45);
+  return leadIdx + radicalW + radicandW + fs * 0.18;
+}
+
+// Draw a radical frac-operand: surd hook + diagonal + vinculum over the radicand,
+// with the optional index seated in the crook. yc is the vertical center
+// (dominant-baseline central); x is the operand's left edge.
+function _radicalOperandSvg(x, yc, op, fs, fill, opAttr) {
+  const radicandW = _estimateTextWidth(op.radicand, fs);
+  const radicalW = fs * 0.55;
+  const idxW = op.index ? _estimateTextWidth(op.index, fs * 0.5) : 0;
+  const leadIdx = Math.max(0, idxW - radicalW * 0.45);
+  const x0 = x + leadIdx;
+  const overlineY = yc - fs * 0.5;
+  const botY = yc + fs * 0.35;
+  const startY = yc + fs * 0.02;
+  const vX = x0 + radicalW * 0.4;
+  const topX = x0 + radicalW;
+  const overEnd = topX + radicandW + fs * 0.12;
+  const sw = Math.max(0.5, fs * 0.05);
+  const els = [];
+  els.push(`<path d="M${fmt(x0)},${fmt(startY)} L${fmt(vX)},${fmt(botY)} L${fmt(topX)},${fmt(overlineY)} L${fmt(overEnd)},${fmt(overlineY)}" fill="none" stroke="${fill}" stroke-width="${fmt(sw)}" stroke-linecap="round" stroke-linejoin="round"${opAttr}/>`);
+  els.push(`<text x="${fmt(topX + fs * 0.06)}" y="${fmt(yc)}" fill="${fill}" font-size="${fmt(fs)}" text-anchor="start" dominant-baseline="central"${opAttr}>${mathTextSvg(op.radicand)}</text>`);
+  if (op.index) {
+    els.push(`<text x="${fmt(x0 + radicalW * 0.32)}" y="${fmt(yc - fs * 0.18)}" fill="${fill}" font-size="${fmt(fs * 0.5)}" text-anchor="middle" dominant-baseline="central" font-family="KaTeX_Main, serif"${opAttr}>${escSvg(op.index)}</text>`);
+  }
+  return els.join('');
+}
+
 function _buildLaTeXSVGParts(rawText, fontSize) {
   const segments = parseLaTeXSegments(rawText);
   const parts = []; // {type, svgStr, width, height}
   let totalWidth = 0;
   for (const seg of segments) {
     if (seg.type === 'frac') {
+      const numSqrt = _fracSqrtOperand(seg.num);
+      const denSqrt = _fracSqrtOperand(seg.den);
       const numText = _fracOperandText(seg.num);
       const denText = _fracOperandText(seg.den);
       const fracFontSize = fontSize * 0.75;
-      const numW = _estimateTextWidth(numText, fracFontSize);
-      const denW = _estimateTextWidth(denText, fracFontSize);
+      const numW = numSqrt ? _radicalOperandWidth(numSqrt, fracFontSize) : _estimateTextWidth(numText, fracFontSize);
+      const denW = denSqrt ? _radicalOperandWidth(denSqrt, fracFontSize) : _estimateTextWidth(denText, fracFontSize);
       const fracW = Math.max(numW, denW) + fracFontSize * 0.3;
       const fracH = fontSize * 2;
       // Thin gap when the fraction directly follows text (e.g. "\cos \frac{u}{2}"),
       // since stripLaTeXPreserveScripts trims the trailing inter-word space.
       const leftPad = (parts.length > 0 && parts[parts.length-1].type === 'text') ? fontSize * 0.16 : 0;
-      parts.push({type:'frac', numText, denText, fracFontSize, fracW, fracH, leftPad, width: fracW + leftPad});
+      parts.push({type:'frac', numText, denText, numSqrt, denSqrt, fracFontSize, fracW, fracH, leftPad, width: fracW + leftPad});
       totalWidth += fracW + leftPad;
     } else if (seg.type === 'sqrt') {
       // Detect a leading \frac as first child → stacked fraction under radical
@@ -31287,12 +31487,22 @@ function renderLaTeXSVG(rawText, x, y, fontSize, fill, anchor, opacity) {
       // y-coord. Bar is at y - 0.05*fontSize. Use 0.45 offset so the numerator
       // bottom (y - 0.45*fs + 0.375*fs = y - 0.075*fs) sits just above the bar.
       // Use mathTextSvg to render variables in italic (math mode).
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.numText)}</text>`);
+      if (p.numSqrt) {
+        const w = _radicalOperandWidth(p.numSqrt, p.fracFontSize);
+        els.push(_radicalOperandSvg(cx - w / 2, y - fontSize * 0.45, p.numSqrt, p.fracFontSize, fill, opAttr));
+      } else {
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y - fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.numText)}</text>`);
+      }
       // Fraction line
       els.push(`<line x1="${fmt(fx + fontSize*0.1)}" y1="${fmt(y - fontSize*0.05)}" x2="${fmt(fx + p.fracW - fontSize*0.1)}" y2="${fmt(y - fontSize*0.05)}" stroke="${fill}" stroke-width="0.7"${opAttr}/>`);
       // Denominator below line. Mirrors the numerator: at y + 0.45*fs, denominator
       // top (y + 0.45*fs - 0.375*fs = y + 0.075*fs) sits just below the bar.
-      els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.denText)}</text>`);
+      if (p.denSqrt) {
+        const w = _radicalOperandWidth(p.denSqrt, p.fracFontSize);
+        els.push(_radicalOperandSvg(cx - w / 2, y + fontSize * 0.45, p.denSqrt, p.fracFontSize, fill, opAttr));
+      } else {
+        els.push(`<text x="${fmt(cx)}" y="${fmt(y + fontSize*0.45)}" fill="${fill}" font-size="${fmt(p.fracFontSize)}" text-anchor="middle" dominant-baseline="central"${opAttr}>${mathTextSvg(p.denText)}</text>`);
+      }
     } else if (p.type === 'sqrt') {
       // Stacked fraction under the radical: extend the radical taller to cover both num and den
       const isFrac = p.isFrac;

@@ -1316,11 +1316,24 @@
   }
 
   function openInHitexer() {
-    const code = getCurrentCode();
-    if (!code) return;
-    // HiTeXeR on localhost — set the code via URL hash
-    const url = '/index.html#code=' + encodeURIComponent('[asy]\n' + code + '\n[/asy]');
-    window.open(url, '_blank');
+    // Always resolve the source from the CURRENTLY displayed diagram's id and
+    // fetch it fresh, rather than trusting getCurrentCode()/codeCache, which can
+    // be empty (fast click before the async load finishes) or stale. Either of
+    // those previously let the button open the editor with the wrong diagram.
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    // Open the tab synchronously inside the click gesture so popup blockers
+    // don't kill it; fill its location once we have the right source.
+    const w = window.open('about:blank', '_blank');
+    const finish = (code) => {
+      if (!code) { if (w) w.close(); return; }
+      const url = '/index.html#code=' + encodeURIComponent('[asy]\n' + code + '\n[/asy]');
+      if (w) w.location = url; else window.open(url, '_blank');
+    };
+    fetch(`asy_src/${d.id}.asy`)
+      .then(r => r.ok ? r.text() : Promise.reject())
+      .then(code => { codeCache[d.id] = code; finish(code); })
+      .catch(() => finish(codeCache[d.id]));
   }
 
   // ── Exclude diagram from comparator ──────────────────
