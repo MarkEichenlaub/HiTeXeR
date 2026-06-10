@@ -247,6 +247,11 @@ function buildFontFaceCSS() {
  * Browsers honour overflow:visible, but librsvg/sharp clip to the viewBox.
  */
 function expandViewBox(svgStr) {
+  // clip()-bounded pictures: the svg wraps content in <g clip-path=url(#user-clip)>
+  // and elements beyond the window (e.g. 08856's ray labels at x~3400) are
+  // invisible — expanding the viewBox to cover them inflates the canvas ~10x
+  // and poisons the size score. The viewBox already equals the clip window.
+  if (svgStr.indexOf('clip-path="url(#user-clip)"') !== -1) return svgStr;
   const vbMatch = svgStr.match(/viewBox="([^"]+)"/);
   if (!vbMatch) return svgStr;
   let [vx, vy, vw, vh] = vbMatch[1].split(/\s+/).map(Number);

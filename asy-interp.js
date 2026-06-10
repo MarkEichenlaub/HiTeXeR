@@ -25129,6 +25129,10 @@ function renderSVG(result, opts) {
   // of the geometry-only reference — the LP already bounded labels inside the
   // target, so clamping to geometry would double-fit (08733).
   let _lpFitTargetBp = 0;
+  // set when the size() LP produced the scale — the legacy iterative solver
+  // must not re-shrink on top of it (it uses cruder label boxes; 08856-class
+  // collapsed 8x when both ran)
+  let _sizeLpApplied = false;
   // Mixed 3D+2D scene: a 2D overlay (axes/graphs) extends the combined geometry
   // bbox well beyond the dominant 3D figure. When set, size() is fit to the
   // 3D-only bbox and the label-shrink solver is skipped so the 2D overlay
@@ -25252,6 +25256,17 @@ function renderSVG(result, opts) {
   // coords are (user, truesize-lo..hi) per axis over geometry corners (with
   // stroke margin), truesize label boxes, dot disks, and invisible labels.
   const _buildLpCoords = () => {
+    // Asymptote clip() semantics (plain_scaling coord.clip): every coord's
+    // user value is clamped into the clip window and its truesize is ZEROED —
+    // a clipped picture is size()-fit by the window extent alone (the 08856
+    // flashlight-ray family: rays span thousands of units but TeXeR fits the
+    // clip window to size(12cm)).
+    if (hasClip && isFinite(clipMinX) && isFinite(clipMaxX)) {
+      const xs = [{ u: clipMinX, lo: 0, hi: 0 }, { u: clipMaxX, lo: 0, hi: 0 }];
+      const ys = [{ u: isFinite(clipMinY) ? clipMinY : geoMinY, lo: 0, hi: 0 },
+                  { u: isFinite(clipMaxY) ? clipMaxY : geoMaxY, lo: 0, hi: 0 }];
+      return { xs, ys };
+    }
     const lwPad = 0.25;
     const xs = [{ u: geoMinX, lo: -lwPad, hi: lwPad }, { u: geoMaxX, lo: -lwPad, hi: lwPad }];
     const ys = [{ u: geoMinY, lo: -lwPad, hi: lwPad }, { u: geoMaxY, lo: -lwPad, hi: lwPad }];
@@ -25296,6 +25311,10 @@ function renderSVG(result, opts) {
   // (geometry bbox + truesize label boxes + dot disks) in bp at a candidate
   // geometry scale. Mirrors Asymptote's frame measurement in fit2.
   const _spanAtScaleBp = (sx, sy) => {
+    if (hasClip && isFinite(clipMinX) && isFinite(clipMaxX)) {
+      return { w: (clipMaxX - clipMinX) * sx,
+               h: ((isFinite(clipMaxY) ? clipMaxY : geoMaxY) - (isFinite(clipMinY) ? clipMinY : geoMinY)) * sy };
+    }
     let gb = null;
     if (_hasMarkangleDc) gb = _dcGeoBounds(true);
     const g0x = gb ? gb.minX : geoMinX, g1x = gb ? gb.maxX : geoMaxX;
@@ -25654,6 +25673,7 @@ function renderSVG(result, opts) {
         if (_syS === 0) _syS = _sxS;
         if (_sxS > 0 && _syS > 0) {
           pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+          _sizeLpApplied = true;
         }
       }
       }
@@ -25768,7 +25788,7 @@ function renderSVG(result, opts) {
   // size(p,W) already fixed the fitted frame's scale. Skipping the solver here
   // mirrors the _trueSizeFrame guard on the size()-rescale block above; without
   // it an outer size(8cm) crushes a 12cm-fitted frame down to 8cm (03401).
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D) {
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D && !_sizeLpApplied) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
