@@ -25615,6 +25615,19 @@ function renderSVG(result, opts) {
     // overridden only when the LP yields a usable positive scale; the
     // iterative shrink-solver below then finds exceed≈1 and no-ops.
     if (keepAspect && !_isIgnoreAspect && !_is3D && !_mixed3D2D && !_trueSizeFrame) {
+      // Gate: only take the LP when the LEGACY result visibly overflows the
+      // ORIGINAL size() (>20% on the binding axis — label overhang like
+      // 00418 hR 1.27, or floor inflation like 00160's size(75)→150).
+      // Well-calibrated size() diagrams (the vast majority: legacy span ≈
+      // size) keep their tuned scale — at corpus scale the LP's measured
+      // label boxes are a few % off TeX's and re-fitting them shifted ~120
+      // previously-matching diagrams (02215/02169/09484-class ssim drops).
+      const _spLeg = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
+      const _exW = _sizeW > 0 && _spLeg.w > 0 ? _spLeg.w / _sizeW : 0;
+      const _exH = _sizeH > 0 && _spLeg.h > 0 ? _spLeg.h / _sizeH : 0;
+      const _legacyOverflow = Math.max(_exW, _exH) > 1.20;
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
+      if (_legacyOverflow) {
       const { xs: _xsS, ys: _ysS } = _buildLpCoords();
       if (_maxBraceWBp > 0) {
         // truesize underbrace (hspace) — width not in labelInfoBp
@@ -25642,6 +25655,7 @@ function renderSVG(result, opts) {
         if (_sxS > 0 && _syS > 0) {
           pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
         }
+      }
       }
     }
   } else {
