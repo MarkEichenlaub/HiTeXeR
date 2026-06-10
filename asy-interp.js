@@ -25248,6 +25248,50 @@ function renderSVG(result, opts) {
   const _fitW = li => (li._fitWBp !== undefined ? li._fitWBp : li.widthBp);
   const _fitOffX = li => (li._fitOffXBp !== undefined ? li._fitOffXBp : li.alignOffsetXBp);
   const _fitOffY = li => (li._fitOffYBp !== undefined ? li._fitOffYBp : li.alignOffsetYBp);
+  // Shared pass-1 LP machinery (Asymptote plain_scaling.asy calculateScaling):
+  // coords are (user, truesize-lo..hi) per axis over geometry corners (with
+  // stroke margin), truesize label boxes, dot disks, and invisible labels.
+  const _buildLpCoords = () => {
+    const lwPad = 0.25;
+    const xs = [{ u: geoMinX, lo: -lwPad, hi: lwPad }, { u: geoMaxX, lo: -lwPad, hi: lwPad }];
+    const ys = [{ u: geoMinY, lo: -lwPad, hi: lwPad }, { u: geoMaxY, lo: -lwPad, hi: lwPad }];
+    for (const li of labelInfoBp) {
+      if (typeof li.posX !== 'number' || typeof li.posY !== 'number') continue;
+      const w = _fitW(li), ox = _fitOffX(li);
+      const h = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp), oy = _fitOffY(li);
+      xs.push({ u: li.posX, lo: ox - w / 2, hi: ox + w / 2 });
+      ys.push({ u: li.posY, lo: oy - h / 2, hi: oy + h / 2 });
+    }
+    for (const il of _invisLabels) {
+      xs.push({ u: il.x, lo: il.offX - il.w / 2, hi: il.offX + il.w / 2 });
+      ys.push({ u: il.y, lo: il.offY - il.h / 2, hi: il.offY + il.h / 2 });
+    }
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
+      const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
+      const direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+      const dR = (direct ? 0.5 : dotfactor / 2) * dotLw;
+      xs.push({ u: dc.pos.x, lo: -dR, hi: dR });
+      ys.push({ u: dc.pos.y, lo: -dR, hi: dR });
+    }
+    return { xs, ys };
+  };
+  // max a s.t. forall i,j: a*(u_j - u_i) + (hi_j - lo_i) <= D.
+  // 0 = unbounded (no x-extent), -1 = infeasible (truesize alone exceeds D).
+  const _lpAxisSolve = (cs, D) => {
+    let best = Infinity;
+    for (const ci of cs) {
+      for (const cj of cs) {
+        const du = cj.u - ci.u;
+        const dt = cj.hi - ci.lo;
+        if (du > 1e-12) { const c = (D - dt) / du; if (c < best) best = c; }
+        else if (du > -1e-12 && dt > D) return -1;
+      }
+    }
+    if (best === Infinity) return 0;
+    return best > 0 ? best : -1;
+  };
+
   // Helper shared by the pass-2 refits below: measure the full frame span
   // (geometry bbox + truesize label boxes + dot disks) in bp at a candidate
   // geometry scale. Mirrors Asymptote's frame measurement in fit2.
@@ -25439,8 +25483,9 @@ function renderSVG(result, opts) {
     // width. Without this, the geometry stays width-bound on the (narrower)
     // triangle, the brace overflows, and the diagram renders too small/squat
     // (e.g. 02807: size(180) with a 200pt underbrace under the triangle base).
+    let _maxBraceWBp = 0;
     if (!_isIgnoreAspect && isFinite(targetW)) {
-      let _maxBraceWBp = 0;
+      _maxBraceWBp = 0;
       for (const dc of drawCommands) {
         if (dc.cmd !== 'label') continue;
         const _bt = dc.text || dc.label || '';
@@ -25561,6 +25606,44 @@ function renderSVG(result, opts) {
       if (sizeW > 0) sizeW = scaleRefW * pxPerUnit;
       if (sizeH > 0) sizeH = scaleRefH * pxPerUnit;
     }
+    // TRUE Asymptote pass-1 LP for size() pictures (keepAspect, 2D): solve
+    // max scale s.t. geometry + truesize boxes fit per axis — labels are
+    // bounded INSIDE size(), as real Asymptote/TeXeR does (oracle-verified:
+    // 00418/06401/06502/08899 refs equal the LP result, while the legacy
+    // geometry-fit lets labels overhang by 5-27%). Per-axis sqrt(2)
+    // expansion mirrors asy's cannot-fit loop. The legacy floors above are
+    // overridden only when the LP yields a usable positive scale; the
+    // iterative shrink-solver below then finds exceed≈1 and no-ops.
+    if (keepAspect && !_isIgnoreAspect && !_is3D && !_mixed3D2D && !_trueSizeFrame) {
+      const { xs: _xsS, ys: _ysS } = _buildLpCoords();
+      if (_maxBraceWBp > 0) {
+        // truesize underbrace (hspace) — width not in labelInfoBp
+        const bu = (geoMinX + geoMaxX) / 2;
+        _xsS.push({ u: bu, lo: -_maxBraceWBp / 2, hi: _maxBraceWBp / 2 });
+      }
+      const _solveAxis = (cs, D0) => {
+        if (!(D0 > 0)) return 0;
+        let D = D0;
+        for (let t = 0; t < 12; t++) {
+          const s = _lpAxisSolve(cs, D);
+          if (s !== -1) return s;
+          D *= Math.SQRT2;
+        }
+        return -1;
+      };
+      // Solve against the ORIGINAL size() — the legacy floors above mutate
+      // the local sizeW/sizeH (00160: size(75) became 150 via the secondary
+      // floor, and the LP then fit the inflated box).
+      let _sxS = _solveAxis(_xsS, _sizeW > 0 ? _sizeW : 0);
+      let _syS = _solveAxis(_ysS, _sizeH > 0 ? _sizeH : 0);
+      if (_sxS !== -1 && _syS !== -1) {
+        if (_sxS === 0) _sxS = _syS;
+        if (_syS === 0) _syS = _sxS;
+        if (_sxS > 0 && _syS > 0) {
+          pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+        }
+      }
+    }
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior.
     // TeXeR's wrapper prepends size(400,400) and appends size(150,150) after
@@ -25595,43 +25678,9 @@ function renderSVG(result, opts) {
     // they all approximated.
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
     const scaleRefH2 = (geoMaxY - geoMinY) || 1;
-    const _lwPad = 0.25; // default-pen stroke margin (lw 0.5 / 2)
-    const _xsLp = [{ u: geoMinX, lo: -_lwPad, hi: _lwPad }, { u: geoMaxX, lo: -_lwPad, hi: _lwPad }];
-    const _ysLp = [{ u: geoMinY, lo: -_lwPad, hi: _lwPad }, { u: geoMaxY, lo: -_lwPad, hi: _lwPad }];
-    for (const li of labelInfoBp) {
-      if (typeof li.posX !== 'number' || typeof li.posY !== 'number') continue;
-      const wCal = _fitW(li);
-      const oxCal = _fitOffX(li);
-      _xsLp.push({ u: li.posX, lo: oxCal - wCal / 2, hi: oxCal + wCal / 2 });
-      const hhLp = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
-      const oyLp = _fitOffY(li);
-      _ysLp.push({ u: li.posY, lo: oyLp - hhLp / 2, hi: oyLp + hhLp / 2 });
-    }
-    for (const il of _invisLabels) {
-      _xsLp.push({ u: il.x, lo: il.offX - il.w / 2, hi: il.offX + il.w / 2 });
-      _ysLp.push({ u: il.y, lo: il.offY - il.h / 2, hi: il.offY + il.h / 2 });
-    }
-    for (const dc of drawCommands) {
-      if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
-      const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-      const _direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
-      const dR = (_direct ? 0.5 : dotfactor / 2) * dotLw;
-      _xsLp.push({ u: dc.pos.x, lo: -dR, hi: dR });
-      _ysLp.push({ u: dc.pos.y, lo: -dR, hi: dR });
-    }
-    const _lpAxis = (cs, D) => {
-      let best = Infinity;
-      for (const ci of cs) {
-        for (const cj of cs) {
-          const du = cj.u - ci.u;
-          const dt = cj.hi - ci.lo;
-          if (du > 1e-12) { const c = (D - dt) / du; if (c < best) best = c; }
-          else if (du > -1e-12 && dt > D) return -1; // scale-independent overflow
-        }
-      }
-      if (best === Infinity) return 0; // unbounded (no extent on this axis)
-      return best > 0 ? best : -1;
-    };
+    const { xs: _xsLp, ys: _ysLp } = _buildLpCoords();
+    const _lpAxis = _lpAxisSolve;
+
     let _Dfit = defaultSize;
     let _sxLp = 0, _syLp = 0;
     for (let tries = 0; tries < 12; tries++) {
