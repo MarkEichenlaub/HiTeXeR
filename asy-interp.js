@@ -22595,7 +22595,13 @@ function createInterpreter() {
     // Deferred default-align for label-on-path: if a path was provided but no
     // explicit align was given anywhere in the args, compute the perpendicular
     // direction (right side of the path, looking in path direction).
+    let _labelOnPathNoAlign = false;
     if (!align && pathForDefaultAlign) {
+      // Asymptote semantics: a path label with no align arg has RELATIVE
+      // alignment, which is added with exact=false (plain_Label.asy
+      // out(picture,path)) — the same fit2 pass-2 trigger as the draw("x",
+      // path) form. 03418/03429 use label("$\vec v$", (0,0)--plane).
+      _labelOnPathNoAlign = true;
       const midSeg = pathForDefaultAlign;
       const dx = midSeg.p3.x - midSeg.p0.x;
       const dy = midSeg.p3.y - midSeg.p0.y;
@@ -22743,7 +22749,7 @@ function createInterpreter() {
         target.commands.push({cmd:'label', text: arrayRows[i], pos: rPos, align, pen, filltype, line: args._line || 0});
       }
     } else {
-      const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0};
+      const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0, _fromPathLabel: !!pathForDefaultAlign, _fromPathLabelNoAlign: _labelOnPathNoAlign};
       if (pos3D) labelCmd._pos3D = pos3D;
       if (labelTransform) labelCmd.labelTransform = labelTransform;
       // A label positioned from a projected 3D path/triple belongs to the 3D
@@ -25203,6 +25209,33 @@ function renderSVG(result, opts) {
     return { minX: mnx, maxX: mxx, minY: mny, maxY: mxy };
   };
   const _hasMarkangleDc = drawCommands.some(dc => dc && typeof dc._markangleBpR === 'number');
+  // Invisible-pen labels are excluded from labelInfoBp (they must not drive
+  // the legacy bbox/clamp paths) but real Asymptote DOES count them as
+  // truesize bounds — authors use label("...", pos, invisible) precisely to
+  // control sizing (07706's checkerboard). Collect them for the fit engine.
+  const _invisLabels = [];
+  for (const dc of drawCommands) {
+    if (!dc || dc.cmd !== 'label' || !dc.pen || dc.pen.opacity !== 0) continue;
+    const pos = dc.pos || dc;
+    if (!pos || typeof pos.x !== 'number') continue;
+    const t = String(dc.text || dc.label || '');
+    if (!t.trim()) continue;
+    const fs2 = (dc.pen && dc.pen.fontsize) || 10;
+    let w = 0, h = fs2 * 1.2;
+    try {
+      if (typeof _mjxMeasureBp === 'function') {
+        const m = _mjxMeasureBp(t, fs2);
+        if (m && m.wBp > 0) { w = m.wBp; if (m.hBp > 0) h = m.hBp; }
+      }
+    } catch (e) {}
+    if (!(w > 0)) w = Math.max(6, t.replace(/[${}]/g, '').length * fs2 * 0.5);
+    const ax = dc.align ? dc.align.x : 0, ay = dc.align ? dc.align.y : 0;
+    const aInf = Math.max(Math.abs(ax), Math.abs(ay));
+    const offX = aInf > 0 ? (ax * 0.5 / aInf) * w + ax * 0.4 * fs2 : 0;
+    const offY = aInf > 0 ? (ay * 0.5 / aInf) * h + ay * 0.4 * fs2 : 0;
+    _invisLabels.push({ x: pos.x, y: pos.y, w, h, offX, offY });
+  }
+
   const _fitW = li => (li._fitWBp !== undefined ? li._fitWBp : li.widthBp);
   const _fitOffX = li => (li._fitOffXBp !== undefined ? li._fitOffXBp : li.alignOffsetXBp);
   // Helper shared by the pass-2 refits below: measure the full frame span
@@ -25223,6 +25256,13 @@ function renderSVG(result, opts) {
       if (cx + hw > bMaxX) bMaxX = cx + hw;
       if (cy - li.heightBp / 2 < bMinY) bMinY = cy - li.heightBp / 2;
       if (cy + li.heightBp / 2 > bMaxY) bMaxY = cy + li.heightBp / 2;
+    }
+    for (const il of _invisLabels) {
+      const cx = il.x * sx + il.offX, cy = il.y * sy + il.offY;
+      if (cx - il.w / 2 < bMinX) bMinX = cx - il.w / 2;
+      if (cx + il.w / 2 > bMaxX) bMaxX = cx + il.w / 2;
+      if (cy - il.h / 2 < bMinY) bMinY = cy - il.h / 2;
+      if (cy + il.h / 2 > bMaxY) bMaxY = cy + il.h / 2;
     }
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot' && dc.pos && typeof dc.pos.x === 'number') {
@@ -25553,6 +25593,10 @@ function renderSVG(result, opts) {
       const oxCal = _fitOffX(li);
       _xsLp.push({ u: li.posX, lo: oxCal - wCal / 2, hi: oxCal + wCal / 2 });
       _ysLp.push({ u: li.posY, lo: li.alignOffsetYBp - li.heightBp / 2, hi: li.alignOffsetYBp + li.heightBp / 2 });
+    }
+    for (const il of _invisLabels) {
+      _xsLp.push({ u: il.x, lo: il.offX - il.w / 2, hi: il.offX + il.w / 2 });
+      _ysLp.push({ u: il.y, lo: il.offY - il.h / 2, hi: il.offY + il.h / 2 });
     }
     for (const dc of drawCommands) {
       if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
