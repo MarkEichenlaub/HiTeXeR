@@ -13386,6 +13386,7 @@ function createInterpreter() {
       // tick and the full plot box are shown (e.g. 00115: x[-4,4] -> [-5,5],
       // which fills the square IgnoreAspect box and renders the "5" label).
       if (ticks && !ticks.positions && !(ticks.step > 0) && !_axisLimits.crop
+          && !(ticks.format === '%' && !ticks.labelFunc)
           && !xminExplicit && !xmaxExplicit
           && xmin !== null && xmax !== null && xmax > xmin) {
         const _dstep = _denseAxisStep(xmin, xmax, 'x', pic);
@@ -23775,6 +23776,20 @@ function createInterpreter() {
       _pageOrientation: currentPic._pageOrientation,
       _usedPictureComposite,
       _usedCurrentpictureReassign,
+      // TeXeR's server-side default-size selection (verified by live
+      // introspection probes 2026-06-10): the [asy] wrapper prepends
+      // size(400,400) and then appends size(150,150) AFTER the user code
+      // unless the raw source text — comments INCLUDED, strings included —
+      // contains a size-ish token whose argument/RHS starts with a NUMBER:
+      // /size\w*\s*[(=]\s*[\d.]/. Live-probed: `fontsize(6`, `real asize=1`,
+      // `int size = 4`, `real size = 1/pi`, `Arrow(size=2mm`, and a
+      // commented-out `//unitsize(2cm);` all select the 400bp default, while
+      // `int size = p.length` (non-numeric RHS, the 00785/00795 family),
+      // `// size` (no paren/equals), and size-free sources select 150bp.
+      // For pictures with no user size()/unitsize() this picks the LP fit
+      // target; for unitsize pictures the regex always matches ("unitsize(N")
+      // so the pass-2 refit target is 400.
+      _texerSizeTextMatch: /size\w*\s*[(=]\s*[\d.]/.test(code),
     };
   }
 
@@ -23848,7 +23863,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedCurrentpictureReassign } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedCurrentpictureReassign, _texerSizeTextMatch } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -23996,6 +24011,28 @@ function renderSVG(result, opts) {
         }
       }
     }
+    // Estimate the FINAL bp-per-unit for truesize axis pokes (arrowheads,
+    // EndPoint label clearance). An axis makes bounds inexact, so on TeXeR a
+    // unitsize picture gets fit2's pass-2 rescale toward the 400bp wrapper
+    // default — the poke must be sized in FINAL bp, not literal unitScale
+    // (00026: a 6bp poke at unitScale 14.17 became 31bp of dead axis after
+    // the x5.25 refit). Geometry-only span: slight g overestimate, so the
+    // poke errs a touch small — better than 5x too big.
+    const _pokeFinalBpu = (gW, gH) => {
+      const _w = gW || 1, _h = gH || 1;
+      if (sizeW > 0 || sizeH > 0)
+        return Math.min((sizeW > 0 ? sizeW : Infinity) / _w, (sizeH > 0 ? sizeH : Infinity) / _h);
+      if (hasUnitScale) {
+        const lit = Math.max(_w * unitScale, _h * unitScale);
+        if (lit > 0) {
+          const g = 400 / lit;
+          return unitScale * Math.max(0.05, Math.min(50, g));
+        }
+        return unitScale;
+      }
+      const _D = _texerSizeTextMatch ? 400 : 150;
+      return Math.min(_D / _w, _D / _h);
+    };
     // Second pass: REPLACE each auto-ranged axis line's auto'd endpoints
     // with the content extent (clamped so we don't shrink past the axis
     // crossing point of the orthogonal axis).  Also reposition any
@@ -24046,10 +24083,7 @@ function renderSVG(result, opts) {
         // the cardioid/polar closed-curve diagrams (bare/auto-tick axes) out.
         if (c.arrow && c._explicitStepTicks && !c._bareIdiom && c._autoXmax && !c._xMaxFromUserLimits && hi > lo) {
           const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
-          const _bpu = hasUnitScale ? unitScale
-            : (sizeW > 0 || sizeH > 0)
-              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
-              : Math.min(150 / _gW, 150 / _gH);
+          const _bpu = _pokeFinalBpu(_gW, _gH);
           const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
           if (isFinite(_bpu) && _bpu > 0) hi = hi + _arrowBp / _bpu;
         }
@@ -24075,10 +24109,7 @@ function renderSVG(result, opts) {
           const _framed = drawCommands.some(dc => dc && dc._isAxisLine === 'y'
             && (dc._yMaxFromUserLimits || dc._yMinFromUserLimits));
           const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
-          const _bpu = hasUnitScale ? unitScale
-            : (sizeW > 0 || sizeH > 0)
-              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
-              : Math.min(150 / _gW, 150 / _gH);
+          const _bpu = _pokeFinalBpu(_gW, _gH);
           const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
           const _f = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_AXEXT_X) || '1');
           if (isFinite(_bpu) && _bpu > 0) {
@@ -24263,10 +24294,7 @@ function renderSVG(result, opts) {
         // extend the arrow (max) side by ~one arrow length in user units.
         if (c.arrow && c._explicitStepTicks && !c._bareIdiom && c._autoYmax && !c._yMaxFromUserLimits && hi > lo) {
           const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
-          const _bpu = hasUnitScale ? unitScale
-            : (sizeW > 0 || sizeH > 0)
-              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
-              : Math.min(150 / _gW, 150 / _gH);
+          const _bpu = _pokeFinalBpu(_gW, _gH);
           const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
           if (isFinite(_bpu) && _bpu > 0) hi = hi + _arrowBp / _bpu;
         }
@@ -24282,10 +24310,7 @@ function renderSVG(result, opts) {
             && !c._bareIdiom && !c._explicitStepTicks && hi > lo
             && !drawCommands.some(dc => dc && dc._slopefield)) {
           const _gW = (cMaxX - cMinX) || 1, _gH = (cMaxY - cMinY) || 1;
-          const _bpu = hasUnitScale ? unitScale
-            : (sizeW > 0 || sizeH > 0)
-              ? Math.min((sizeW > 0 ? sizeW : Infinity) / _gW, (sizeH > 0 ? sizeH : Infinity) / _gH)
-              : Math.min(150 / _gW, 150 / _gH);
+          const _bpu = _pokeFinalBpu(_gW, _gH);
           const _arrowBp = (typeof c.arrow.size === 'number' && c.arrow.size > 0) ? c.arrow.size : 6;
           const _f = parseFloat((typeof process !== 'undefined' && process.env && process.env.HTX_AXEXT_Y) || '1');
           if (isFinite(_bpu) && _bpu > 0) hi = hi + (_arrowBp / _bpu) * _f;
@@ -25093,13 +25118,180 @@ function renderSVG(result, opts) {
   let pxPerUnit, pxPerUnitX, pxPerUnitY;
   let unitsizeBoostScale = 1;
   let _labelDominatesSize = false;  // set true when labels expand bbox ≥1.5× beyond geometry
+  // The bare-branch LP fit target (150/400 bp, possibly √2-expanded). When set,
+  // the auto-scaled symmetric label clamp downstream retargets to THIS instead
+  // of the geometry-only reference — the LP already bounded labels inside the
+  // target, so clamping to geometry would double-fit (08733).
+  let _lpFitTargetBp = 0;
   // Mixed 3D+2D scene: a 2D overlay (axes/graphs) extends the combined geometry
   // bbox well beyond the dominant 3D figure. When set, size() is fit to the
   // 3D-only bbox and the label-shrink solver is skipped so the 2D overlay
   // spills outside size() (matching Asymptote semantics; 03281).
   let _mixed3D2D = false;
+  // ─── True TeXeR sizing (Asymptote fit2 semantics) ────────────────────────
+  // TeXeR's Computer Modern labels render ~7% wider than HTX's math fonts
+  // (memory: project_font_metric_scale_gap). When PREDICTING TeXeR's frame —
+  // which is what the pass-2 refit and the bare-branch LP do — calibrate
+  // MEASURED label widths up so the predicted scale matches TeXeR's.
+  // Rendering itself is unaffected.
+  const _TEXER_LBL_W_CAL = (typeof process !== 'undefined' && process.env && process.env.HTX_LBL_CAL) ? +process.env.HTX_LBL_CAL : 1.07;
+  // Fit-engine label widths: the heuristic widthBp over-estimates long text
+  // by 30-50% (e.g. 03928's caption: 288 est vs ~200 real), which poisons the
+  // LP/pass-2 scales. Measure real widths (MathJax in svg-native mode, KaTeX
+  // in the browser) into a separate field consumed ONLY by the fit engine —
+  // legacy viewBox/pad consumers keep widthBp so their tuned behavior is
+  // unchanged. Single-line labels only; measured widths get the CM gap cal.
+  {
+    let _fitMeasure = null;
+    if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function') {
+      _fitMeasure = _mjxMeasureBp;
+    } else if (typeof document !== 'undefined' && typeof katex !== 'undefined'
+               && typeof _katexMeasureBp === 'function') {
+      _fitMeasure = _katexMeasureBp;
+    }
+    if (_fitMeasure) {
+      for (const li of labelInfoBp) {
+        if (li._fitWBp !== undefined) continue;
+        const t = li._text;
+        if (typeof t !== 'string' || !t.trim() || t.indexOf('\n') !== -1) continue;
+        try {
+          const m = _fitMeasure(t, li._fontSize || 12);
+          if (m && m.wBp > 0) {
+            let w = m.wBp * _TEXER_LBL_W_CAL;
+            // rotate the measured box like the heuristic path does
+            if (Math.abs(li._ltAngle || 0) > 0.5) {
+              const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
+              const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
+              const hh = (m.hBp > 0 ? m.hBp : li.heightBp);
+              w = w * cosA + hh * sinA;
+            }
+            li._fitWBp = w;
+            // The stored alignOffsetXBp was derived from the HEURISTIC width
+            // (axN·widthBp + ax·0.4·fontSize). Recompute it from the measured
+            // width so an E/W-aligned label's box sits at the right offset.
+            const aInf = Math.max(Math.abs(li._axAl || 0), Math.abs(li._ayAl || 0));
+            const axN = aInf > 0 ? (li._axAl * 0.5 / aInf) : 0;
+            li._fitOffXBp = axN * w + (li._axAl || 0) * 0.40 * (li._fontSize || 12)
+              + (li._screenDx || 0);
+          }
+        } catch (e) { /* keep heuristic */ }
+      }
+    }
+  }
+  // Current geometry bounds straight from the dc paths. excludeMarkangle:
+  // markangle arcs are emitted at the LITERAL scale and only rebuilt to the
+  // final scale after pass-2, so the span model uses the truesize vertex±r
+  // term instead of their stale paths (12972/00210). With
+  // excludeMarkangle=false (after the rebuild) the real paths are correct.
+  const _dcGeoBounds = (excludeMarkangle) => {
+    let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+    for (const dc of drawCommands) {
+      if (!dc || !dc.path || !dc.path.segs) continue;
+      if (dc.cmd === 'clip') continue;
+      if (dc.above === -1) continue;
+      if (dc._paletteLegend) continue;
+      if (excludeMarkangle && typeof dc._markangleBpR === 'number') continue;
+      for (const seg of dc.path.segs) {
+        for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+          if (!p) continue;
+          if (isFinite(p.x)) { if (p.x < mnx) mnx = p.x; if (p.x > mxx) mxx = p.x; }
+          if (isFinite(p.y)) { if (p.y < mny) mny = p.y; if (p.y > mxy) mxy = p.y; }
+        }
+      }
+    }
+    if (!isFinite(mnx) || !isFinite(mny)) return null;
+    return { minX: mnx, maxX: mxx, minY: mny, maxY: mxy };
+  };
+  const _hasMarkangleDc = drawCommands.some(dc => dc && typeof dc._markangleBpR === 'number');
+  const _fitW = li => (li._fitWBp !== undefined ? li._fitWBp : li.widthBp);
+  const _fitOffX = li => (li._fitOffXBp !== undefined ? li._fitOffXBp : li.alignOffsetXBp);
+  // Helper shared by the pass-2 refits below: measure the full frame span
+  // (geometry bbox + truesize label boxes + dot disks) in bp at a candidate
+  // geometry scale. Mirrors Asymptote's frame measurement in fit2.
+  const _spanAtScaleBp = (sx, sy) => {
+    let gb = null;
+    if (_hasMarkangleDc) gb = _dcGeoBounds(true);
+    const g0x = gb ? gb.minX : geoMinX, g1x = gb ? gb.maxX : geoMaxX;
+    const g0y = gb ? gb.minY : geoMinY, g1y = gb ? gb.maxY : geoMaxY;
+    let bMinX = g0x * sx, bMaxX = g1x * sx;
+    let bMinY = g0y * sy, bMaxY = g1y * sy;
+    for (const li of labelInfoBp) {
+      const cx = li.posX * sx + _fitOffX(li);
+      const cy = li.posY * sy + li.alignOffsetYBp;
+      const hw = _fitW(li) / 2;
+      if (cx - hw < bMinX) bMinX = cx - hw;
+      if (cx + hw > bMaxX) bMaxX = cx + hw;
+      if (cy - li.heightBp / 2 < bMinY) bMinY = cy - li.heightBp / 2;
+      if (cy + li.heightBp / 2 > bMaxY) bMaxY = cy + li.heightBp / 2;
+    }
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'dot' && dc.pos && typeof dc.pos.x === 'number') {
+        const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
+        const _direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+        const dR = (_direct ? 0.5 : dotfactor / 2) * dotLw;
+        const dx = dc.pos.x * sx, dy = dc.pos.y * sy;
+        if (dx - dR < bMinX) bMinX = dx - dR;
+        if (dx + dR > bMaxX) bMaxX = dx + dR;
+        if (dy - dR < bMinY) bMinY = dy - dR;
+        if (dy + dR > bMaxY) bMaxY = dy + dR;
+      } else if (typeof dc._markangleBpR === 'number' && dc._markangleVertex
+                 && dc.cmd !== 'label') {
+        // markangle ARCS have a truesize bp radius around their vertex —
+        // bound the swept sector only (the label dc is covered by
+        // labelInfoBp; a full ±r box over-padded the span by ~r on the
+        // un-swept sides, shrinking 12972/00210 by ~15%).
+        const vx = dc._markangleVertex.x * sx, vy = dc._markangleVertex.y * sy;
+        const r = dc._markangleBpR;
+        let a1 = dc._markangleA1, a2 = dc._markangleA2;
+        if (typeof a1 === 'number' && typeof a2 === 'number') {
+          if (a2 < a1) { const t = a1; a1 = a2; a2 = t; }
+          const pts = [a1, a2];
+          for (let k = Math.ceil(a1 / 90) * 90; k <= a2; k += 90) pts.push(k);
+          for (const ang of pts) {
+            const px = vx + r * Math.cos(ang * Math.PI / 180);
+            const py = vy + r * Math.sin(ang * Math.PI / 180);
+            if (px < bMinX) bMinX = px;
+            if (px > bMaxX) bMaxX = px;
+            if (py < bMinY) bMinY = py;
+            if (py > bMaxY) bMaxY = py;
+          }
+          if (vx < bMinX) bMinX = vx;
+          if (vx > bMaxX) bMaxX = vx;
+          if (vy < bMinY) bMinY = vy;
+          if (vy > bMaxY) bMaxY = vy;
+        } else {
+          if (vx - r < bMinX) bMinX = vx - r;
+          if (vx + r > bMaxX) bMaxX = vx + r;
+          if (vy - r < bMinY) bMinY = vy - r;
+          if (vy + r > bMaxY) bMaxY = vy + r;
+        }
+      }
+    }
+    return { w: bMaxX - bMinX, h: bMaxY - bMinY };
+  };
+  // Inexact-bounds detection, mirroring Asymptote's bounds.exact=false: any
+  // deferred drawer added with exact=false flips the picture into fit2's
+  // pass-2 corrective rescale at shipout. The 2D triggers (read from the
+  // Asymptote 3.05 sources, verified against live TeXeR 2026-06-10):
+  //   • a path label with RELATIVE alignment — draw("$x$", path) with no
+  //     align arg (plain_Label.asy out(picture,path): exact = !alignrelative)
+  //   • graph.asy axes — xaxis/yaxis/axis add drawerBounds with default
+  //     exact=false (auto AND fixed ranges)
+  //   • currentpicture = transform*currentpicture (picture.transformed sets
+  //     bounds.exact=false; plain add(picture) does NOT propagate inexact,
+  //     which is also why path labels living inside an add()ed sub-picture
+  //     do NOT trigger — approximated here by the _usedPictureComposite
+  //     exemption, e.g. 06064 stays literal)
+  // Plain draws/fills/dots/point-labels/arrows are exact.
+  const _boundsInexact =
+    (!_usedPictureComposite && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign))
+    || drawCommands.some(dc => dc && dc._isAxisLine)
+    || _usedCurrentpictureReassign;
   if (hasUnitScale) {
-    // unitsize() was called: user coords → bp directly (labels just expand output)
+    // unitsize(): the pass-1 scaling is the literal unit scale — real
+    // Asymptote honors it exactly (no boost, no floor, no cap) whenever the
+    // picture's bounds are exact (bounds.scaling: sx = xunitsize). The former
+    // boost tower fired on exact unitsize pictures and is gone deliberately.
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
     // When size() is also explicitly set, use it to govern the geometry scale.
     // Real Asymptote/TeXeR scales 3D diagrams (and others with both set) to the
@@ -25113,555 +25305,33 @@ function renderSVG(result, opts) {
       const _gW = (geoMaxX - geoMinX) || 1;
       const _gH = (geoMaxY - geoMinY) || 1;
       pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
-    }
-    // When unitsize() makes cells much smaller than the default label font size
-    // (10bp), labels overwhelm the geometry.  Real Asymptote/TeXeR keeps labels
-    // at truesize (fixed bp) while the geometry scales to fit the output — so
-    // small unitsize diagrams get their geometry boosted to a reasonable size.
-    // We mimic this by ensuring pxPerUnit is at least large enough to fit the
-    // geometry within the default output size (200bp, same as the no-unitsize
-    // fallback).  This uses the geometry-only bbox (before label expansion) so
-    // labels remain truesize via bpCSSPixel.
-    // However, when labels expand the bbox significantly beyond the geometry
-    // (i.e. the label-expanded bbox is already large enough), skip the boost
-    // to match real Asymptote behaviour where unitsize is the exact scale.
-    const geoW = (geoMaxX - geoMinX) || 1;
-    const geoH = (geoMaxY - geoMinY) || 1;
-    const fullW = (maxX - minX) || 1;
-    const fullH = (maxY - minY) || 1;
-    const defaultSize = 200;  // match no-unitsize default
-    // When boosting unitsize, preserve the natural aspect ratio
-    const naturalW = geoW * unitScale;
-    const naturalH = geoH * unitScale;
-    // Use label-expanded bbox to decide whether boost is needed: if the full
-    // bbox (with labels) already yields a reasonable output size at the natural
-    // unitsize, don't boost — the labels already provide adequate visual content.
-    const fullNatW = fullW * unitScale;
-    const fullNatH = fullH * unitScale;
-    // Three tiers, based on the per-unit bp density:
-    //   - unitScale < 10  (tiny cm-based sizes like .1cm): boost until fullNat ≥ 100bp
-    //   - unitScale < 20  (e.g. .5cm = 14.17): boost until fullNat ≥ 55bp — these
-    //     often correspond to AoPS-TeXeR diagrams that render large despite their
-    //     tiny per-unit scale. Threshold kept below a 4-unit span at 0.5cm
-    //     (≈56.7bp) so that literal cm-based unitsize is honored exactly.
-    //   - unitScale ≥ 20  (raw-bp unitsize like unitsize(40)): only boost when
-    //     truly invisible (< 50bp); such diagrams are usually self-scaling.
-    const minReasonable = unitScale < 10 ? 100 : (unitScale < 20 ? 55 : 50);
-    // Suppress the boost when the geometry is effectively 1D (one axis
-    // collapses to a near-zero span relative to the other, e.g. a path graph
-    // on the x-axis with naturalH ≈ 0).  In that case fullNatH is driven
-    // entirely by label truesize height (typically ~10bp << minReasonable),
-    // which pushes max(fullNat) below the threshold and triggers a boost that
-    // — via boostScale = min(tgt/naturalW, tgt/naturalH) — scales off the
-    // non-zero axis alone and over-expands the image (2–3× larger than the
-    // TeXeR reference, which honors literal unitsize in that case).  Use an
-    // aspect-ratio test: one axis must be ≥ 5× smaller than the other.  This
-    // keeps the boost active for uniformly-small diagrams (e.g. a 3x3 grid
-    // at unitsize(0.2mm)) where both dims are small and the boost is needed.
-    const _natMin = Math.min(naturalW, naturalH);
-    const _natMax = Math.max(naturalW, naturalH);
-    // Only skip the boost when the small axis is truly tiny (< ~2bp, basically a
-    // bare 1D path) — a 5× aspect alone isn't enough, since legitimate wide
-    // diagrams (e.g. a vector diagram with one short and one long arrow at
-    // unitsize=0.2cm) have ratios in that range and DO need the boost to
-    // reach TeXeR's expected scale.
-    const is1DDegenerate = (_natMax > 0) && (_natMin * 5 < _natMax) && (_natMin < 2);
-    // Pre-compute horizontal label crowding: if ≥4 labels share a y-row with
-    // small x-spacing AND the labels would visibly crowd at literal unitsize,
-    // the diagram needs a larger boost even when the label-expanded bbox
-    // already exceeds minReasonable.  Without this, the boost is skipped and
-    // labels overlap horizontally (e.g. Riemann-sum x_1 … x_5 tick labels).
-    //
-    // Crowd test must factor in actual label widths: a row of narrow glyphs
-    // (e.g. bigstar markers ~10bp wide) at 1-unit spacing on unitsize(0.5cm)
-    // is NOT crowded — there's still ~4bp clearance.  Boosting in that case
-    // inflates the diagram ~1.7× larger than the TeXeR reference.  Only flag
-    // crowding when the clearance between adjacent labels (at literal
-    // unitsize) is < ~4bp.
-    let _crowdMinSpan = Infinity;
-    let _crowdNeeded = false;
-    {
-      // Index labelInfoBp entries by (yKey) so we can pair adjacent labels
-      // and use their measured widths for the clearance check.
-      // Bin in bp-space (~5bp = roughly half a label height) instead of
-      // user-space, so the binning works across all unitsize magnitudes.
-      // A fixed user-space precision (e.g. 0.05) bunches labels at distinct
-      // bp-space rows together when unitsize is large (e.g. unitsize(80cm)
-      // ⇒ 2268 bp/unit makes 0.05 user = 113 bp, far more than a label
-      // height — top-row N-anchored labels at y=0 and bottom-row W-anchored
-      // labels at y=-0.005 user get falsely co-binned, triggering a 3.95×
-      // bogus boost on 04928).
-      const _yBinBp = 5;
-      const _byY = new Map();
-      for (const li of labelInfoBp) {
-        if (!li._text || !String(li._text).trim()) continue;
-        if (typeof li.posX !== 'number' || typeof li.posY !== 'number') continue;
-        const yKey = Math.round(li.posY * unitScale / _yBinBp);
-        if (!_byY.has(yKey)) _byY.set(yKey, []);
-        _byY.get(yKey).push(li);
+    } else if (!_trueSizeFrame && !_is3D && _boundsInexact) {
+      // TRUE TeXeR pass-2 (fit2's corrective rescale, one step): re-measure
+      // the literal frame (geometry + truesize labels) and rescale the
+      // GEOMETRY by min(400/W, 400/H) — grow or shrink — then truesize
+      // content re-adds itself downstream. The effective target is the TeXeR
+      // wrapper's prepended size(400,400); a user size() is handled in the
+      // branch above, and the 150bp appended default never applies because
+      // "unitsize(" always matches the server's size-text regex. This single
+      // step IS the empirically observed "saturating fit toward ~400bp":
+      // label-heavy pictures land well below 400 because the truesize boxes
+      // re-expand the frame after the grow. Replaces the former boost tower
+      // and the saturating path-label / currentpicture-reassign fits
+      // (memory: project_texer_pathlabel_sizing).
+      const FIT2_TARGET_BP = 400;
+      const _sp = _spanAtScaleBp(unitScale, unitScale);
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_FIT_DBG) {
+        try { process.stderr.write('[fit2] spanW=' + _sp.w.toFixed(1) + ' spanH=' + _sp.h.toFixed(1) + ' unitScale=' + unitScale.toFixed(2) + ' geoW=' + ((geoMaxX-geoMinX)*unitScale).toFixed(1) + ' geoH=' + ((geoMaxY-geoMinY)*unitScale).toFixed(1) + String.fromCharCode(10)); } catch (e) {}
       }
-      for (const [, lis] of _byY) {
-        if (lis.length < 4) continue;
-        lis.sort((a, b) => a.posX - b.posX);
-        for (let i = 1; i < lis.length; i++) {
-          const a = lis[i-1], b = lis[i];
-          const dx = b.posX - a.posX;
-          if (!(dx > 0)) continue;
-          if (dx < _crowdMinSpan) _crowdMinSpan = dx;
-          // Clearance in bp at literal unitsize between adjacent labels in
-          // the same row.  Negative = overlap; small positive = visually
-          // cramped.  3bp matches roughly one space-width at 10–12pt.
-          const gapBp = dx * unitScale - (a.widthBp + b.widthBp) / 2;
-          if (gapBp < 3) _crowdNeeded = true;
+      const _grows = [];
+      if (_sp.w > 1e-9) _grows.push(FIT2_TARGET_BP / _sp.w);
+      if (_sp.h > 1e-9) _grows.push(FIT2_TARGET_BP / _sp.h);
+      if (_grows.length) {
+        const g = Math.min(..._grows);
+        if (isFinite(g) && g > 0 && Math.abs(g - 1) > 0.002) {
+          pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * g;
+          unitsizeBoostScale = g;
         }
-      }
-    }
-    // bpPerGap we want at the final scale (≥20bp keeps KaTeX subscripts clear).
-    const _crowdRequiresBoost = _crowdNeeded && isFinite(_crowdMinSpan) &&
-      (_crowdMinSpan * unitScale) < 20;
-    // Skip the boost when the geometry is tiny but labels already expand the
-    // bbox far beyond it (e.g. unitsize(15) drawing a 1×1 unit vector with a
-    // single label).  Real Asymptote/TeXeR honours the literal unitsize in
-    // that case — boosting produces an absurdly large vector compared to its
-    // label.  Guard:
-    //   - unitScale ≥ 10 (deliberate cm-style or raw-bp scale, not 1bp/unit)
-    //   - naturalMax ≤ 20bp (geometry alone would be ~tiny reference glyph)
-    //   - labelExpansion ≥ 1.25× (labels meaningfully dominate the bbox)
-    const _natMaxSkip = Math.max(naturalW, naturalH);
-    const _fullNatMaxSkip = Math.max(fullNatW, fullNatH);
-    const _labelDominatesTiny = unitScale >= 10
-      && _natMaxSkip > 0 && _natMaxSkip <= 20
-      && _fullNatMaxSkip >= 1.25 * _natMaxSkip;
-    // When size() is also explicitly set, the size() override above already
-    // computed the authoritative pxPerUnit (geometry scaled to fit size()).
-    // Skip the unitsize-only boost in that case — otherwise we overwrite the
-    // size()-driven scale with a unitScale-based one and the diagram renders
-    // at ~unitScale bp/unit instead of ~size()/geoBbox bp/unit (e.g. a 3D cube
-    // with size(7cm)+unitsize(1cm) ends up ~37px wide instead of ~660px).
-    const _sizeExplicit = sizeW > 0 || sizeH > 0;
-    // Graph-package axis idiom: when xaxis()/yaxis() are used with a small
-    // cm-based unitsize and no explicit size(), real Asymptote/AoPS-TeXeR
-    // applies the graph package's default size (~150bp) so the resulting
-    // image isn't dominated by truesize labels (e.g. a 5×4 unit Riemann sum
-    // at unitsize(0.5cm) renders as ~280bp wide on TeXeR, not the literal
-    // ~71bp).  Detect this and boost.  Gated to unitScale [10,20) so we
-    // don't disturb mm-scale or larger cm-scale diagrams.
-    const _hasGraphAxis = drawCommands.some(dc => dc._isAxisLine);
-    const _graphAxisBoostNeeded = _hasGraphAxis
-      && unitScale >= 10 && unitScale < 20
-      && Math.max(fullNatW, fullNatH) < 100;
-    // Cm-scale graph-axis idiom: xaxis()/yaxis() with cm-based unitsize and a
-    // small geometry (e.g. r=1 polar diagram at unitsize(1cm) → naturalMax ≈ 28bp).
-    // Real Asymptote/AoPS-TeXeR boosts geometry to ~150–200bp so the label-vs-
-    // geometry visual ratio matches truesize text.  Without this, a wide
-    // truesize dot label (e.g. "$(\sqrt{x^2+y^2}, ...)$") expands fullNat above
-    // minReasonable and the boost is skipped, leaving geometry ~28bp wide
-    // inside a ~100bp+ canvas.  Gate by graph-axis presence (signals deliberate
-    // axis-anchored layout, not a freeform diagram where literal cm sizing is
-    // intended) and by geometry-vs-fullNat ratio (≥ 1.5× expansion = labels
-    // dominate, not just slightly overflow).
-    const _natMaxCmAxis = Math.max(naturalW, naturalH);
-    const _fullNatMaxCmAxis = Math.max(fullNatW, fullNatH);
-    const _graphAxisCmBoostNeeded = _hasGraphAxis
-      && unitScale >= 20 && unitScale < 60
-      && _natMaxCmAxis > 0 && _natMaxCmAxis < 50
-      && _fullNatMaxCmAxis >= 1.5 * _natMaxCmAxis;
-    // For mid-range unitscales (10..20, e.g. 0.5cm or unitsize(15)), if the
-    // geometry-only natural size is already ≥ 45bp on at least one axis, the
-    // diagram is large enough to be visible at literal unitsize and TeXeR
-    // honors that scale (e.g. 01700: simple vector at unitsize(15) with one
-    // small label, fullNat ~54bp barely below the 55bp boost threshold).
-    // Skip the boost in that case so the rendered output matches TeXeR's
-    // literal-unitsize sizing instead of being inflated to ~200bp.
-    // Also extend to smaller naturalMax (≥ 25bp) for "simple-vector" idioms
-    // where labels don't significantly expand the bbox (fullNatMax/natMax < 1.5):
-    // e.g. 01716 / 01805 have U=(1,2) at unitsize(15) ⇒ natMax=30bp, single
-    // small "u" label, fullNat ~38bp. natMax > 20 disqualifies them from
-    // _labelDominatesTiny, but TeXeR still renders at literal scale (~21bp
-    // tall), so without this skip the boost inflates to ~200bp (5–7× too big).
-    const _midRangeNatMax = Math.max(naturalW, naturalH);
-    const _midRangeFullNatMax = Math.max(fullNatW, fullNatH);
-    const _midRangeSimpleVector = _midRangeNatMax >= 25 && _midRangeNatMax < 45
-      && _midRangeFullNatMax > 0
-      && _midRangeFullNatMax < 1.5 * _midRangeNatMax;
-    const _midRangeSkipBoost = unitScale >= 10 && unitScale < 20
-      && (_midRangeNatMax >= 45 || _midRangeSimpleVector)
-      && !_crowdRequiresBoost && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded;
-    // Graph-axis idioms (xaxis/yaxis with small unitsize) signal a deliberate
-    // graph-package layout where TeXeR boosts the geometry to ~150bp regardless
-    // of label dominance — so let those flags override _labelDominatesTiny.
-    const _graphAxisOverridesLabelTiny = _graphAxisBoostNeeded || _graphAxisCmBoostNeeded;
-    // Small-cm unitsize (3 ≤ unitScale < 10, e.g. unitsize(0.2cm)=5.67) where
-    // a wide label inflates fullNat past minReasonable but the geometry alone
-    // is still well below it.  Without this trigger, the boost is skipped
-    // because the label-expanded bbox looks "big enough", leaving the
-    // geometry tiny — but TeXeR still boosts these so the geometry remains
-    // visible alongside the wide label.  E.g. 02158: unit-circle diagram via
-    // rr_cartesian_axes at unitsize(0.2cm) (10×10 user units = 56.7×56.7bp
-    // geometry), with a wide "Terminal point of $\theta$" label inflating
-    // fullNat past 100bp.  TeXeR renders the geometry at ~150bp.
-    const _smallCmNatMax = Math.max(naturalW, naturalH);
-    const _smallCmFullNatMax = Math.max(fullNatW, fullNatH);
-    const _smallCmLabelDominated = unitScale >= 3 && unitScale < 10
-      && _smallCmNatMax > 0 && _smallCmNatMax < 80
-      && _smallCmFullNatMax >= minReasonable;
-    // Physics force-vector diagrams: cm-scale unitsize (≥20 bp/unit, e.g.
-    // unitsize(1cm)=28.3) with multiple arrow draws (≥3) and multiple labels
-    // (≥4) typically represent free-body diagrams where labels are scattered
-    // across the scene (not packed in rows). These labels expand fullNat above
-    // minReasonable, causing the boost block to be skipped — but the geometry
-    // remains tiny (~25bp) and unreadable. TeXeR renders these at ~200bp so the
-    // force vectors and labels are clearly visible. E.g. 06175: inclined plane
-    // with mg/N/Ff force vectors has fullNat ~80bp but geometry only ~25bp.
-    const _arrowDrawCountPre = drawCommands.filter(dc =>
-      dc.cmd === 'draw' && dc.arrow && (dc.arrow._tag === 'arrow' || dc.arrow.style)).length;
-    const _physicsForceVectorBoost = unitScale >= 20
-      && labelInfoBp.length >= 4
-      && _arrowDrawCountPre >= 3
-      && Math.max(naturalW, naturalH) < 60;
-    // Small-cm unitsize (3 ≤ unitScale < 10, e.g. 0.3cm = 8.5bp/unit) where the
-    // geometry is already substantial at literal scale (naturalMax ≥ 45bp).
-    // Real Asymptote/AoPS-TeXeR honors the literal cm-based unitsize in this
-    // case rather than boosting to ~200bp — verified against the c57_L13 arc
-    // family, where wide multi-panel variants (naturalW > defaultSize, boost
-    // skipped) render at literal scale and match TeXeR, while the single-panel
-    // 8×8 versions were boosted ~2.4× too large.  Mirrors _midRangeSkipBoost
-    // for the next tier up [10,20).  Excludes graph-axis / crowded / label-
-    // dominated layouts (e.g. 02158 rr_cartesian_axes) that genuinely need it.
-    const _smallCmNatMaxSkip = Math.max(naturalW, naturalH);
-    // Wide-aspect vector diagrams at small cm-unitsize (e.g. the c190_L2
-    // wind/plane vector families 03418/03428/03429: unitsize(0.2cm) with a
-    // single ~10-unit-long arrow at a shallow angle, geoW/geoH ≈ 3+).  TeXeR
-    // magnifies these tiny pictures up to roughly the same visual size as the
-    // unitsize(1cm) sibling (03430) — i.e. it does NOT honor the literal cm
-    // scale here.  Without this exception _smallCmSkipBoost suppresses the
-    // boost and the diagram renders ~3× too small (sizeScore ≈ 0).
-    const _smallCmAspect = (geoW > 0 && geoH > 0)
-      ? Math.max(geoW / geoH, geoH / geoW) : 1;
-    const _smallCmWideVector = _smallCmAspect >= 2.5 && _arrowDrawCountPre >= 2;
-    const _smallCmSkipBoost = unitScale >= 3 && unitScale < 10
-      && _smallCmNatMaxSkip >= 45
-      && !_hasGraphAxis
-      && !_crowdRequiresBoost
-      && !_smallCmLabelDominated
-      && !_physicsForceVectorBoost
-      && !_smallCmWideVector;
-    // Node-link graph idiom (AoPS drawGraph family, e.g. c647_L14): a small
-    // cm-based unitsize diagram with many arrow edges (≥3) and several
-    // vertex/edge labels (≥4) drawn on tiny geometry.  Real AoPS-TeXeR scales
-    // the GEOMETRY up to a large canvas (≈1000–1300px) while keeping the
-    // edge/vertex labels at ~truesize, so nodes and arrows dominate and the
-    // weight labels read small.  HTX otherwise skips the boost here because the
-    // truesize labels expand the label-bbox past minReasonable, leaving the
-    // graph rendered at literal unitsize (e.g. 12287 at unitsize(0.5cm) came
-    // out 166px wide vs TeXeR's 1250px).  Gate by small geometry-only natural
-    // size (< 80bp) so already-large graphs at unitsize(1cm) with multi-unit
-    // spans (12272/12279) keep their literal scale, and by unitScale < 20 so
-    // cm-scale physics free-body diagrams (handled by _physicsForceVectorBoost)
-    // are unaffected.  Boost the geometry to a larger target than defaultSize
-    // (200bp) since these graphs render at ~360bp on TeXeR.
-    const _graphIdiomBoost = unitScale < 20
-      && !(sizeW > 0 || sizeH > 0)
-      && _arrowDrawCountPre >= 3
-      && labelInfoBp.length >= 4
-      && Math.max(naturalW, naturalH) < 80;
-    const _graphIdiomTgt = 360;
-    if (!geoIsDegenerate
-        && !is1DDegenerate
-        && (!_labelDominatesTiny || _graphAxisOverridesLabelTiny || _physicsForceVectorBoost || _graphIdiomBoost)
-        && !_sizeExplicit
-        && (!_midRangeSkipBoost || _graphIdiomBoost)
-        && (!_smallCmSkipBoost || _graphIdiomBoost)
-        && naturalW < defaultSize && naturalH < defaultSize
-        && (Math.max(fullNatW, fullNatH) < minReasonable || _crowdRequiresBoost || _graphAxisBoostNeeded || _graphAxisCmBoostNeeded || _smallCmLabelDominated || _physicsForceVectorBoost || _graphIdiomBoost)) {
-      // For very small unitsize with wide-aspect geometry (e.g. multiple
-      // horizontally-shifted subgraphs), use a larger target size so dense
-      // labels at edge midpoints don't crowd each other.  Only applies when
-      // the diagram is clearly wider than tall AND unitsize is small but
-      // not minuscule (< 1bp, which usually indicates a very different
-      // layout style like fine-grained mm units).
-      const aspectRatio = geoW / geoH;
-      // When there are no labels anchoring the natural bp scale, the literal
-      // cm-based unitsize should be honoured closely — TeXeR renders e.g. a
-      // smiley face at `unitsize(1cm)` as a compact ~80–90 px image, not a
-      // large 200bp-boosted one. Boosting to 200bp here makes strokes/dots
-      // disappear relative to the geometry (1.5bp stroke in 200bp geometry
-      // ≈ 0.75% width, vs TeXeR's ~2.5%). For cm-scale (unitScale ≥ 20,
-      // i.e. ≥ ~0.7cm/unit) with no labels, use a much smaller target so
-      // the stroke/dot-to-geometry ratio stays close to the TeXeR reference.
-      const hasAnyLabels = drawCommands.some(dc => dc.cmd === 'label');
-      // Desired per-gap bp for crowded horizontal labels. TeXeR's reference
-      // renders ~18–22bp between adjacent "$x_i$" subscripts at 10pt.
-      const crowdMinBp = 20;
-      const crowdedTgt = isFinite(_crowdMinSpan)
-        ? crowdMinBp * (geoW || 1) / _crowdMinSpan
-        : 0;
-      // Very small unitsize (< 1bp/unit, i.e. 0.1–0.3mm): TeXeR tends to
-      // render these compactly (~150–360 px wide = 45–108bp native =
-      // ~90–216bp HTX target). Using defaultSize=200 for these overshoots
-      // by 2–4×; target ~100bp instead so sizeScore doesn't collapse.
-      // For cm-scale unitsize (≥ ~0.35cm/unit ⇒ unitScale ≥ 10) with no
-       // labels, honor the literal unitsize closely — TeXeR renders these
-       // compactly at natural scale (e.g. unitsize(0.5cm) dot grid at ~45bp).
-       // Boosting to 200bp here makes the image 4× too large.
-       const cmNoLabelNat = Math.max(naturalW, naturalH);
-       // Cm-scale unitsize (≥ 20bp/unit, e.g. 0.75cm) with labels but no
-       // graph axis: TeXeR honors the literal cm scale closely, only
-       // modestly expanding to ensure visibility (~80–90bp wide for a
-       // small triangle Dyck-path style diagram). Boosting to defaultSize
-       // 200 here makes the image ~4× too large vs the TeXeR reference.
-       // Use a moderate target (~75bp) similar to the cm-scale graph-axis
-       // case so geometry + labels land near the TeXeR reference width.
-       const _cmLabelModestTgt = (unitScale >= 20 && hasAnyLabels
-         && !_graphAxisBoostNeeded && !_graphAxisCmBoostNeeded);
-       // Very small unitsize (< 1bp/unit, mm-scale): TeXeR boosts these tiny
-       // pictures so they're legible, using a minimum-size FLOOR plus a
-       // per-unit scale — i.e. an affine function of the natural (geometry×
-       // unitScale) size, NOT a pure multiplier and NOT a fixed total size.
-       // Empirically (c463_L13 Go-board family, unitsize(0.2mm)): a 3×3 board
-       // renders at 210px (~63bp), a 6×6 at 364px (~109bp), a 2×2 at 150px —
-       // a line through these is naturalTgt ≈ 15.6 + 27.2×naturalSizePre (bp).
-       // The additive floor makes small grids render proportionally larger
-       // (3×3 wants ~20.5bp/unit, 6×6 ~18bp/unit); a pure multiplier can match
-       // only one grid size, a fixed total size matches neither.
-       // TeXeR's boost scales with the literal unitsize, and the resulting
-       // per-unit scale s (bp/unit) falls off slightly as the grid grows:
-       // empirically s = unitScale × (C1 − C2×geoUnits), fit across the
-       // c463_L13 family (0.15mm & 0.2mm boards, 2–7 units wide) to within 1%
-       // of every reference. Hence naturalTgt = naturalSizePre × (C1 − C2×geo)
-       // where geo = naturalSizePre/unitScale (the geometry size in source
-       // units). The (C1 − C2×geo) factor is clamped ≥ 6 so very wide grids
-       // can't drive the target to zero/negative.
-       const _mmC1 = (typeof process !== 'undefined' && process.env && process.env.HTX_MA)
-         ? +process.env.HTX_MA : 41.25;
-       const _mmC2 = (typeof process !== 'undefined' && process.env && process.env.HTX_MB)
-         ? +process.env.HTX_MB : 1.565;
-       const _mmNatPre = Math.max(naturalW, naturalH);
-       const _mmGeoUnits = unitScale > 0 ? _mmNatPre / unitScale : _mmNatPre;
-       const _mmPerUnitG = Math.max(6, _mmC1 - _mmC2 * _mmGeoUnits);
-       const baseTgt = _graphIdiomBoost
-         ? _graphIdiomTgt
-         : (unitScale < 1)
-         ? (aspectRatio >= 2.5 ? 200 : (_mmNatPre * _mmPerUnitG))
-         : _smallCmWideVector
-           // Wide-aspect vector diagram at small cm-unitsize (c190_L2 family):
-           // a target of ~267bp puts the boosted geometry width at TeXeR's
-           // reference (~970px); the generic 300 branch overshoots ~12%.
-           ? 267
-         : (unitScale < 10 && unitScale >= 3 && aspectRatio >= 2.5)
-           ? 300
-           : (unitScale >= 20 && !hasAnyLabels)
-             // Honor literal cm-scale unitsize (like the [10,20) tier below),
-             // with a 22bp floor so genuinely tiny geometry still grows enough
-             // to be visible. A flat 22 here SHRANK diagrams whose geometry is
-             // naturally larger than 22bp (e.g. the 07175 lattice at 0.75cm,
-             // ~37bp tall), collapsing sizeScore; TeXeR renders these at the
-             // literal scale, matching HTX's 144dpi raster.
-             ? Math.max(22, cmNoLabelNat)
-             : (unitScale >= 10 && !hasAnyLabels)
-               ? cmNoLabelNat
-               : _cmLabelModestTgt
-                 ? 50
-                 : (_labelDominatesTiny && _graphAxisCmBoostNeeded && !_graphAxisBoostNeeded)
-                   // Graph-axis idiom with very tiny geometry (natMax ≤ 20bp,
-                   // labels dominate bbox): TeXeR boosts the picture so the
-                   // curve/axes are visible alongside the labels
-                   // (e.g. 04021: unitsize(30) on a .2-unit-wide graph).
-                   ? 125
-                   : (_graphAxisCmBoostNeeded && !_graphAxisBoostNeeded
-                       && Math.max(fullNatW, fullNatH) >= minReasonable)
-                     // Cm-scale graph-axis with label-dominated bbox: target a
-                     // modest geometry size (~75bp) so total bbox (geometry +
-                     // labels) lands near TeXeR's reference width without inflating.
-                     ? 75
-                     : _smallCmLabelDominated
-                       // Small-cm unitsize (e.g. 0.2cm) with wide label inflating
-                       // fullNat past minReasonable: TeXeR renders the geometry
-                       // at ~150bp so it remains visible alongside the label
-                       // (e.g. 02158 unit-circle ≈ 151bp tall).
-                       ? 150
-                       : defaultSize;
-      // Clustered-label detection: when many label anchors are packed within
-      // ~1 label-width of each other (e.g. physics free-body diagrams where
-      // mg, mg_x, mg_y, F_f, N are all anchored near a single box), the modest
-      // baseTgt (≈50bp for cm-label diagrams) leaves the geometry visually
-      // dwarfed by the labels even when the strict bbox-overlap test passes
-      // (because N/S/E/W align modifiers separate the bp-space bboxes).
-      // Discriminate from regularly-spaced grids by counting pairs of label
-      // anchors that fall within ~1 avg-label-width of each other in source
-      // units. Grid diagrams (label per unit cell) have 0 such pairs; clustered
-      // diagrams have many (≥5 for physics scenes with 5+ co-located labels).
-      // Threshold of 5 excludes generic geometry diagrams (e.g. 08032 has 4
-      // pairs from incenter/excenter constructions, but is fine at its
-      // natural ~201bp size and shouldn't be bumped).
-      let _overlapTgt = 0;
-      if (_cmLabelModestTgt && labelInfoBp.length >= 4 && labelInfoBp.length <= 50) {
-        const _avgLabelW = labelInfoBp.reduce((s, l) => s + (l.widthBp || 0), 0) / labelInfoBp.length;
-        const _clusterThreshSrc = (_avgLabelW || 12) / Math.max(unitScale, 1);
-        let _clusteredPairs = 0;
-        for (let i = 0; i < labelInfoBp.length; i++) {
-          const a = labelInfoBp[i];
-          if (!a._text || !String(a._text).trim()) continue;
-          if (typeof a.posX !== 'number' || typeof a.posY !== 'number') continue;
-          for (let j = i + 1; j < labelInfoBp.length; j++) {
-            const b = labelInfoBp[j];
-            if (!b._text || !String(b._text).trim()) continue;
-            if (typeof b.posX !== 'number' || typeof b.posY !== 'number') continue;
-            const d = Math.hypot(a.posX - b.posX, a.posY - b.posY);
-            if (d < _clusterThreshSrc) _clusteredPairs++;
-          }
-        }
-        if (typeof process !== 'undefined' && process.env && process.env.HTX_DEBUG_OVERLAP) {
-          process.stderr.write(`cluster-debug: labels=${labelInfoBp.length} avgLabelW=${_avgLabelW.toFixed(2)} threshSrc=${_clusterThreshSrc.toFixed(3)} clusteredPairs=${_clusteredPairs}\n`);
-        }
-        // ≥5 clustered pairs → free-body / dense-anchor diagram. Boost to
-        // defaultSize (200bp) so the geometry has visual room around the
-        // cluster, matching the TeXeR reference scale for these diagrams.
-        if (_clusteredPairs >= 5) {
-          _overlapTgt = defaultSize;
-        } else if (_clusteredPairs >= 3) {
-          // Mid-cluster + arrow-draws → physics free-body diagram
-          // (e.g. 06174: inclined plane + box with mg/N/F_f force vectors,
-          // 6 labels but only 3 clustered pairs).  Generic geometry diagrams
-          // (e.g. 08032 with 4 pairs) don't have arrow-style draws, so the
-          // arrow-draw guard discriminates physics from geometry.
-          const _hasArrowDraws = drawCommands.some(dc =>
-            dc.cmd === 'draw' && dc.arrow && (dc.arrow._tag === 'arrow' || dc.arrow.style));
-          if (_hasArrowDraws) _overlapTgt = defaultSize;
-        }
-      }
-      // Physics force-vector diagrams: cm-scale unitsize with multiple arrow
-      // draws (≥3) suggests a free-body/force diagram where arrows represent
-      // physical vectors (mg, N, F_f, a_x, etc.).  These diagrams often have
-      // labels spread across the scene (not clustered), so the cluster test
-      // above may not trigger.  TeXeR renders these at a larger scale so the
-      // arrows and labels are clearly visible.  E.g. 06177: inclined plane
-      // with acceleration arrows has only 1 clustered pair but 5 arrow draws.
-      if (_overlapTgt === 0 && _cmLabelModestTgt && labelInfoBp.length >= 4) {
-        const _arrowDrawCount = drawCommands.filter(dc =>
-          dc.cmd === 'draw' && dc.arrow && (dc.arrow._tag === 'arrow' || dc.arrow.style)).length;
-        if (_arrowDrawCount >= 3) {
-          _overlapTgt = defaultSize;
-        }
-      }
-      // For the node-link graph idiom, honor the fixed geometry target and do
-      // NOT fold in crowdedTgt/_overlapTgt: the many edge-weight labels on a
-      // dense graph (e.g. 12275's 12 edges) otherwise drive crowdedTgt to a
-      // huge value and inflate the canvas to several thousand px.
-      const tgtSize = _graphIdiomBoost
-        ? _graphIdiomTgt
-        : Math.max(baseTgt, crowdedTgt, _overlapTgt);
-      // Scale up while maintaining aspect ratio
-      // This block only ever ENLARGES small unitsize geometry toward a visible
-      // target — never shrinks. boostScale < 1 means the chosen target (often a
-      // crowd target sized off the SHORT/label axis) is smaller than the
-      // geometry's natural long side; applying it via the aspect-preserving
-      // min() would punch a taller-than-wide diagram down (e.g. 00415:
-      // unitsize(4cm), a 1×1.5-unit figure whose y=0 label row drives
-      // crowdedTgt≈127bp < natH≈171bp ⇒ 0.738× shrink). Clamp to ≥1.
-      const boostScale = Math.max(1, Math.min(tgtSize / naturalW, tgtSize / naturalH));
-      pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * boostScale;
-      // Remember the boost so absolute-size elements (dots, strokes, arrows)
-      // can be scaled with the geometry when there are no truesize labels
-      // anchoring the natural bp scale.  Without this, e.g. a smiley face
-      // with `unitsize(1cm)` renders correctly-sized geometry but with
-      // pinpoint dots that should be ~3bp diameter relative to the boosted
-      // (~200bp) circle.  Applied later (after labelInfoBp is finalized).
-      unitsizeBoostScale = boostScale;
-    }
-    // Path-label size-fit. Verified live against the TeXeR service (see memory
-    // project_texer_pathlabel_sizing). The TRIGGER is a path label with NO
-    // explicit alignment arg: draw("$x$", path) fits the picture toward a
-    // ~400bp longest side; draw("$x$", path, dir(..)/N/S/E/W) stays literal, as
-    // do plain point labels label("$x$", pos). Once triggered, the fit is a
-    // SATURATING enlarge-toward-400, not a hard clamp: measured TeXeR longest
-    // side vs unitsize on a physics-incline test diagram (B0) is
-    //   {0.3cm->111, 0.8->219, 1.5->303, 3->387, 6->401},
-    // well modelled by target = 400*(1-exp(-literalLongBp/27.7)) where
-    // literalLongBp is the geometry-only long side at the literal unitsize.
-    // This reproduces 03724 (literal ~119 -> ~394, TeXeR 399), the 0.8cm
-    // physics family 06173/06174 (literal ~23 -> ~224, TeXeR 235), and the
-    // shrink case 05150 (literal ~727 -> 400). It deliberately UNDER-fits the
-    // fast-saturating clean-triangle shapes (orientation-dependent rate we don't
-    // model) — under-fitting moves toward 1.0 without overshooting, so the
-    // mandate's "never punch another diagram down" holds. Large-geometry
-    // composites that TeXeR keeps near literal (06064: unitcircle @4cm, literal
-    // ~226 -> TeXeR 267, NOT 400) are protected by only ENLARGING when the
-    // literal long side is small (< PL_ENLARGE_MAX); larger literals are left
-    // exactly as before (and only shrunk if they exceed the cap).
-    // Skipped when size() is explicit (size() is the author's binding request).
-    if (!(sizeW > 0 || sizeH > 0)
-        && !_usedPictureComposite
-        && !_trueSizeFrame
-        && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign)) {
-      const PL_FIT_BP = 400;        // AoPS default ~400bp longest side
-      const PL_TAU = 27.7;          // saturation constant (fit to TeXeR B0 curve)
-      const PL_ENLARGE_MAX = 400;   // enlarge any sub-cap literal geometry
-      const PL_LABEL_DOM = 1.4;     // skip geo-enlarge when labels dominate the bbox
-      const PL_LD_RATIO_MAX = 2.0;  // upper bound on label domination for the LP fit
-      const PL_LD_TAU = 53;         // saturation constant for the label-dominated LP fit
-      const geoLongBp = Math.max(naturalW, naturalH);    // geometry only, literal
-      const totalLongBp = Math.max(fullNatW, fullNatH);  // incl truesize labels
-      if (geoLongBp > 0) {
-        if (geoLongBp > PL_FIT_BP) {
-          // Already larger than the fit size: shrink to the cap.
-          const k = PL_FIT_BP / geoLongBp;
-          pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * k;
-        } else if (geoLongBp < PL_ENLARGE_MAX
-                   && totalLongBp <= PL_LABEL_DOM * geoLongBp) {
-          // Sub-cap literal geometry whose labels don't dominate the bbox:
-          // saturating enlarge toward ~400bp. Label-dominated diagrams (e.g.
-          // 06065: unitcircle + many dot/arc labels) are handled by the LP-fit
-          // branch below. Picture/add composites that TeXeR keeps near literal
-          // (06064: unitcircle @4cm) are skipped earlier via _usedPictureComposite.
-          const targetBp = PL_FIT_BP * (1 - Math.exp(-geoLongBp / PL_TAU));
-          const fitScale = targetBp / geoLongBp;
-          if (fitScale > 1) {
-            pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * fitScale;
-          }
-        } else if (totalLongBp < PL_LD_RATIO_MAX * geoLongBp
-                   && pxPerUnit === unitScale) {
-          // Moderately label-dominated (1.4 < total/geo < 2.0) AND no earlier
-          // boost heuristic claimed this diagram (pxPerUnit still literal). TeXeR
-          // fits the FULL bbox (geometry + the label-extended margin) toward a
-          // saturating ~400bp longest side. Scale the whole literal bbox
-          // uniformly so its long side reaches the saturating target. This is
-          // the 06065 unitcircle (geo 58bp / total 92bp → TeXeR 275bp) and the
-          // 12972 case; the more-than-2× label-dominated graph-axis group
-          // (00210/00233/00247/00248: TeXeR 137–201bp) is a different fit
-          // mechanism and is excluded by the ratio cap. Boost-tower-sized
-          // siblings (06173–06177 etc.) are excluded by the pxPerUnit gate so
-          // their existing sizing is preserved.
-          const targetTotal = PL_FIT_BP * (1 - Math.exp(-geoLongBp / PL_LD_TAU));
-          if (targetTotal > totalLongBp) {
-            // The renderer scales the WHOLE literal bbox (scaled geometry plus
-            // the label-extended margin) by pxPerUnit, so the final longest side
-            // tracks totalLongBp*s (not naturalW*s). Scale uniformly so the full
-            // literal long side reaches the saturating target. (An earlier
-            // pad-decomposition LP divided by naturalW alone and overshot ~1.4×.)
-            const s = targetTotal / totalLongBp;
-            if (s > 1) pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * s;
-          }
-        }
-      }
-    }
-    // Multi-panel composite size-fit. `currentpicture = transform*currentpicture`
-    // (the shift-three-panels idiom, e.g. 12008/11370) flips the picture into
-    // deferred-size mode; TeXeR fits it toward a ~400bp longest side instead of
-    // honoring the literal unitsize. Measured across all 195 corpus diagrams
-    // using this idiom: every TeXeR longest side is ≤ ~455bp (192 of 195 ≤ 420bp),
-    // whereas HiTeXeR otherwise renders them at literal (12008: 918bp geometry →
-    // 3158px PNG vs TeXeR's 1390px). SHRINK-ONLY (geoLong > 400) so small-geometry
-    // panels are untouched (no punch-down) and only oversized composites are
-    // capped. Skipped when size() is explicit (the author's binding request).
-    if (!(sizeW > 0 || sizeH > 0)
-        && _usedCurrentpictureReassign
-        && !_trueSizeFrame) {
-      const CP_FIT_BP = 400;
-      const geoLongBp = Math.max(naturalW, naturalH);
-      if (geoLongBp > CP_FIT_BP) {
-        const k = CP_FIT_BP / geoLongBp;
-        pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale * k;
       }
     }
   } else if (sizeW > 0 || sizeH > 0) {
@@ -25842,288 +25512,115 @@ function renderSVG(result, opts) {
     }
   } else {
     // No unitsize/size: mimic AoPS TeXeR behavior.
-    // TeXeR's Asymptote default (no size command) is equivalent to size(150),
-    // measured empirically: all no-size diagrams produce 504 natural px wide
-    // (= 252 CSS px = 150 bp × 240 DPI / 72 / 2).
-    const defaultSize = 150;
-    const targetW = defaultSize;
-    const targetH = defaultSize;
+    // TeXeR's wrapper prepends size(400,400) and appends size(150,150) after
+    // the user code UNLESS the raw source text matches /size\w*\s*[(=]/ —
+    // so a size-free source fits to 150bp (the dominant corpus pin: 504 px),
+    // while sources that merely CONTAIN size-ish text (fontsize(, `real
+    // asize=`, a commented-out //unitsize(2cm);) keep the prepended 400bp
+    // default (the 1337 px pin: 04423, 00992, 06387 et al). Verified by live
+    // TeXeR probes 2026-06-10 (see _texerSizeTextMatch in execute()).
+    const defaultSize = _texerSizeTextMatch ? 400 : 150;
+    if (_trueSizeFrame) {
+      // add(frame): frame contents are truesize (1 user unit = 1 bp). A
+      // pure-truesize picture cannot be scaled by size() — Asymptote's LP is
+      // unbounded there and falls back to the identity transform, so TeXeR
+      // renders these multi-panel frame composites literally (12713).
+      pxPerUnit = pxPerUnitX = pxPerUnitY = 1.0;
+      sizeW = ((geoMaxX - geoMinX) || 1);
+      sizeH = ((geoMaxY - geoMinY) || 1);
+    } else {
+    // TRUE Asymptote pass-1 LP (plain_scaling.asy calculateScaling): maximize
+    // the geometry scale a such that every ordered pair of picture coords —
+    // geometry bbox corners (± stroke margin), truesize label boxes anchored
+    // at user points, and dot disks — spans ≤ D per axis:
+    //   ∀ i,j:  a·(u_j − u_i) + (hi_j − lo_i) ≤ D.
+    // keepAspect ⇒ min(sx, sy). Unbounded axes (all coords at one u, e.g.
+    // label-only pictures) return 0 and fall back to the other axis, or to
+    // natural scale 1 when both are unbounded — matching asy's behavior.
+    // Infeasible (truesize content alone exceeds D) ⇒ retry at D×√2,
+    // mirroring asy's "cannot fit ... enlarging" loop. This replaces the
+    // former per-family floors/density gates (06387, 01153, 04777, 07413,
+    // 00999, 04031, 04747, 11404-06, 03668, 04331 ...) with the single rule
+    // they all approximated.
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
     const scaleRefH2 = (geoMaxY - geoMinY) || 1;
-    // Scale to fit the larger dimension to defaultSize, maintaining aspect ratio
-    const maxDim = Math.max(scaleRefW2, scaleRefH2);
-    const minDim = Math.min(scaleRefW2, scaleRefH2);
-    pxPerUnit = defaultSize / maxDim;
-    // Large, near-square radial layouts (the c289_L7 dihedral Cayley diagrams
-    // 04388/04389: a ~100×96 bp pentagon ringed by $R^i$/$R^iT$ labels with
-    // long radial arrows) are rendered by TeXeR at the natural defaultSize=150bp
-    // geometry fit, with the fixed-bp labels hanging just outside — NOT at the
-    // 7 bp/unit label-proportionality floor, and NOT shrunk to bound the labels.
-    // Their geometric features are large relative to the bbox, so labels sit
-    // large but non-overlapping (the reference look). This flag gates them out
-    // of both the floor and the label-inclusive shrink below.
-    //
-    // The aspect bound is tight (< 1.1, i.e. within 10% of square): 04388/04389
-    // are 1.04. A looser bound (< 1.3) wrongly catches taller axes+circle
-    // diagrams like 07413 (a 105×125 complex-plane plot, aspect 1.19, with long
-    // coordinate labels "$18+83i$") whose reference DOES want small labels
-    // relative to geometry — those must stay floored/shrunk.
-    //
-    // minDim > 50 (not 70) so the smaller-radius members of the same dihedral
-    // Cayley family are also caught: 04386 (c289_L7_script_10) has only the
-    // inner r=30 ring (no outer r2=50 ring), giving a ~59×57bp near-square
-    // pentagon (aspect 1.04). Without lowering the bound it fell to the label-
-    // density floor (5 labels / ~3300bp² > 3e-4) which forced pxPerUnit 2.6→7
-    // and rendered it ~2.7× too large vs TeXeR's natural defaultSize=150 fit.
-    const _isLargeSquareRadial = minDim > 50 && (maxDim / minDim) < 1.1;
-    let _autoFloorApplied = false;
-    // Multi-picture composite true-bp floor: a no-size diagram that composes
-    // sub-pictures via add(picture) (e.g. 08867: add(p1); add(shift(250,0)*p2))
-    // carries its own fixed scale — Asymptote/TeXeR render the composite at TRUE
-    // bp size (1 user unit = 1 bp), NOT scaled down to the defaultSize=150 cap.
-    // The single-picture defaultSize fit (pxPerUnit = 150/maxDim) shrinks these
-    // large composites ~3× too small (08867: geo 472bp → 150bp ⇒ 500px vs TeXeR's
-    // 1570px). Floor pxPerUnit at 1.0 (true bp) so the natural extent is kept.
-    // Only engages when 150/maxDim < 1 (geometry already > 150 units); smaller
-    // composites still scale up toward defaultSize. Gated on the composite flag
-    // so single-picture large diagrams (e.g. 12649: 524-unit ellipse, capped to
-    // 150bp by TeXeR) are unaffected.
+    const _lwPad = 0.25; // default-pen stroke margin (lw 0.5 / 2)
+    const _xsLp = [{ u: geoMinX, lo: -_lwPad, hi: _lwPad }, { u: geoMaxX, lo: -_lwPad, hi: _lwPad }];
+    const _ysLp = [{ u: geoMinY, lo: -_lwPad, hi: _lwPad }, { u: geoMaxY, lo: -_lwPad, hi: _lwPad }];
+    for (const li of labelInfoBp) {
+      if (typeof li.posX !== 'number' || typeof li.posY !== 'number') continue;
+      const wCal = _fitW(li);
+      const oxCal = _fitOffX(li);
+      _xsLp.push({ u: li.posX, lo: oxCal - wCal / 2, hi: oxCal + wCal / 2 });
+      _ysLp.push({ u: li.posY, lo: li.alignOffsetYBp - li.heightBp / 2, hi: li.alignOffsetYBp + li.heightBp / 2 });
+    }
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
+      const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
+      const _direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+      const dR = (_direct ? 0.5 : dotfactor / 2) * dotLw;
+      _xsLp.push({ u: dc.pos.x, lo: -dR, hi: dR });
+      _ysLp.push({ u: dc.pos.y, lo: -dR, hi: dR });
+    }
+    const _lpAxis = (cs, D) => {
+      let best = Infinity;
+      for (const ci of cs) {
+        for (const cj of cs) {
+          const du = cj.u - ci.u;
+          const dt = cj.hi - ci.lo;
+          if (du > 1e-12) { const c = (D - dt) / du; if (c < best) best = c; }
+          else if (du > -1e-12 && dt > D) return -1; // scale-independent overflow
+        }
+      }
+      if (best === Infinity) return 0; // unbounded (no extent on this axis)
+      return best > 0 ? best : -1;
+    };
+    let _Dfit = defaultSize;
+    let _sxLp = 0, _syLp = 0;
+    for (let tries = 0; tries < 12; tries++) {
+      _sxLp = _lpAxis(_xsLp, _Dfit);
+      _syLp = _lpAxis(_ysLp, _Dfit);
+      if (_sxLp === -1 || _syLp === -1) { _Dfit *= Math.SQRT2; continue; }
+      break;
+    }
+    if (typeof process !== 'undefined' && process.env && process.env.HTX_LP_DBG) {
+      try {
+        process.stderr.write('[bareLP] D=' + _Dfit + ' sx=' + _sxLp + ' sy=' + _syLp + '\n');
+        const dump = (cs, n) => process.stderr.write('[bareLP] ' + n + ': ' + cs.map(c => '(' + c.u.toFixed(2) + ',' + c.lo.toFixed(1) + '..' + c.hi.toFixed(1) + ')').join(' ') + '\n');
+        dump(_xsLp.slice(0, 12), 'x'); dump(_ysLp.slice(0, 12), 'y');
+      } catch (e) {}
+    }
+    if (_sxLp === -1 || _syLp === -1) { _sxLp = _syLp = 1; }
+    if (_sxLp === 0 && _syLp === 0) { _sxLp = _syLp = 1; } // pure-truesize: natural
+    else if (_sxLp === 0) _sxLp = _syLp;
+    else if (_syLp === 0) _syLp = _sxLp;
+    pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxLp, _syLp);
+    _lpFitTargetBp = _Dfit;
+    // Multi-picture composite true-bp floor (kept from the legacy pile): the
+    // stored refs render no-size add(picture) composites at TRUE bp scale
+    // (08867: 472bp geometry stays literal). NOTE: today's live TeXeR + local
+    // oracle disagree (they fit it to 150) — stored-ref-compatible until those
+    // refs are refetched.
     if (_usedPictureComposite && pxPerUnit < 1.0) {
-      pxPerUnit = 1.0;
-      _autoFloorApplied = true;
+      pxPerUnit = pxPerUnitX = pxPerUnitY = 1.0;
     }
-    // Minimum pxPerUnit floor: when geometry is naturally large (maxDim > 50
-    // user units), the 150bp cap forces pxPerUnit < 3, which makes labels
-    // (rendered in absolute bp at fontSize) physically large compared to
-    // geometry features and overlap nearby strokes. TeXeR's empirical default
-    // for such diagrams matches roughly unitsize(0.25cm) = ~7 bp/unit, so
-    // labels remain proportional. Apply this floor only when the natural
-    // 150bp default would compress the geometry below ~3 bp/unit, leaving
-    // small-geometry diagrams (≤ 50 user units) untouched.
-    //
-    // Skip the floor for flat-banner diagrams (very thin: minDim < 5), e.g.
-    // number lines (100 wide × 2 tall). For those, TeXeR renders at the
-    // natural defaultSize=150bp/maxDim, NOT the 7bp/unit floor, so applying
-    // the floor would oversize the banner ~2-5×. Detect by minDim < 5.
-    // Tall-narrow large-geometry diagrams (height ≥ 2× width, e.g. the
-    // c4_L11 triangle+incircle problems 08517/08518 with a ~50×145 bbox) are
-    // rendered by TeXeR at the natural defaultSize=150bp fit (pxPerUnit ≈
-    // 150/maxDim ≈ 1), NOT at the 7 bp/unit label-proportionality floor. The
-    // floor would over-scale them ~7× (1173×3387 vs the 204×504 reference).
-    // For these the natural scale already keeps labels visibly large relative
-    // to the slender figure, matching TeXeR — so skip the floor entirely.
-    const _floorTallNarrow = scaleRefH2 >= 2 * scaleRefW2;
-    // Flat-banner exclusion using stroke-only geometry: number lines and similar
-    // wide-short figures have label anchors hanging far from the drawn strokes,
-    // which inflate the label-inclusive minDim past the `minDim < 5` banner test
-    // (e.g. 05929: strokes span y∈[-1,1] but labels anchored at y=-4 push minDim
-    // to 5.25). For these TeXeR renders at the natural defaultSize fit, so the
-    // 7bp/unit floor would oversize the banner ~2.4×. Detect by the STROKE bbox
-    // being a thin wide banner.
-    const _strokeH = strokeMaxY - strokeMinY;
-    const _strokeW = strokeMaxX - strokeMinX;
-    const _isFlatBanner = isFinite(_strokeH) && _strokeW > 0 &&
-      _strokeH < 5 && (_strokeH / _strokeW) < 0.15;
-    if (maxDim > 50 && minDim >= 5 && pxPerUnit < 7 && !_floorTallNarrow && !_isFlatBanner) {
-      // Gate by label density: the floor exists to keep labels proportional to
-      // small geometric features (e.g. 06387: 4 labels in ~112×59 area,
-      // density ≈ 6e-4). When labels are sparse relative to bbox area (e.g.
-      // 12649: 4 R_i tags in a 525×510 ellipse-and-axes diagram, density
-      // ~1.5e-5; or 04777: 4 corner tags on a 180×180 right-triangle,
-      // density ~1.2e-4), the natural defaultSize=150bp/maxDim already
-      // produces a well-proportioned figure and the floor over-scales the
-      // canvas (e.g. 04777 → ~4× too large vs TeXeR's 504×457). Threshold
-      // 3e-4 keeps the dense 06387-style figures while letting medium-sparse
-      // 04777-style figures scale naturally.
-      let labelCount = 0;
-      for (const dc of drawCommands) {
-        if (dc.cmd === 'label') labelCount++;
-      }
-      const bboxArea = scaleRefW2 * scaleRefH2;
-      const labelDensity = labelCount / Math.max(bboxArea, 1);
-      // Require >=3 labels: the floor targets *label-dense* figures. A figure
-      // with only 1-2 labels (e.g. 04747/04746: a 60×30 grid with corner
-      // endpoint markers $A$,$B$) is not label-dense regardless of how small
-      // its bbox makes the density value look — its small area inflates
-      // density (2/1800 ≈ 1.1e-3) above the 06387 threshold even though the
-      // natural defaultSize=150bp scale (pxPerUnit=2.5 → 504px) already matches
-      // TeXeR. Flooring such grids to 7bp/unit over-scales them ~2.8×.
-      // Threshold 5e-4 keeps the dense 06387-style figures (4 labels in a
-      // 112×59 force diagram, density ≈ 6.05e-4) while excluding the c462_L3
-      // complex-plane circle cluster (07412/07413/07421/07422: a ~105×125
-      // axes+circumcircle plot with 4–5 long coordinate labels like
-      // "$18+83i$", density 3.0–3.8e-4). For that cluster TeXeR renders at the
-      // natural defaultSize=150 fit (pxPerUnit≈1.2) with the labels small
-      // relative to the big circle — the 7bp/unit floor oversized them ~5.8×.
-      if (labelCount >= 3 && labelDensity > 5e-4 && !_isLargeSquareRadial) {
-        pxPerUnit = 7;
-        _autoFloorApplied = true;
+    // TRUE pass-2 (only when bounds are inexact): one corrective rescale of
+    // the geometry so the frame (geometry + truesize) lands ON D.
+    if (_boundsInexact && !_is3D && !_trueSizeFrame && !_usedPictureComposite) {
+      const _spB = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
+      const _gB = [];
+      if (_spB.w > 1e-9) _gB.push(_Dfit / _spB.w);
+      if (_spB.h > 1e-9) _gB.push(_Dfit / _spB.h);
+      if (_gB.length) {
+        const g = Math.min(..._gB);
+        if (isFinite(g) && g > 0 && Math.abs(g - 1) > 0.002) {
+          pxPerUnit *= g;
+          pxPerUnitX = pxPerUnitY = pxPerUnit;
+        }
       }
     }
-    // Extended floor: when maxDim is in the 15–50 user-unit range AND the
-    // diagram is label-dense (many labels packed near small geometric
-    // features, e.g. a grid of binary-tree subfigures with circle nodes),
-    // the natural defaultSize=150 still compresses geometry below the point
-    // where fontSize-sized labels fit comfortably inside small primitives
-    // (e.g. circles with radius=0.3 user units). Detect this case by counting
-    // labels and comparing to bbox area: when label density is high, boost
-    // pxPerUnit so labels remain proportional to features.
-    if (maxDim > 15 && maxDim <= 50 && pxPerUnit < 13) {
-      let labelCount = 0;
-      for (const dc of drawCommands) {
-        if (dc.cmd === 'label') labelCount++;
-      }
-      const bboxArea = scaleRefW2 * scaleRefH2;
-      const labelDensity = labelCount / Math.max(bboxArea, 1);
-      // Threshold tuned for label-dense subfigure layouts: e.g. 50 labels
-      // over a 16×22 bbox = density ~0.14. Sparse diagrams (a few labels
-      // over a similar bbox) stay below this threshold and aren't boosted.
-      if (labelDensity > 0.05) {
-        pxPerUnit = 13;
-        _autoFloorApplied = true;
-      }
-    }
-    // High aspect ratio floor: for small geometry with high aspect ratio (e.g.
-    // 00999: 0.64×4.01, aspect=6.27), the default scaling produces pxPerUnit~37
-    // which makes the output too small compared to TeXeR. TeXeR appears to use
-    // a higher pxPerUnit (~100) for such diagrams, producing roughly 2.5× larger
-    // output. Apply a floor of 100 bp/unit when:
-    // - Geometry is small (maxDim < 10 user units)
-    // - Aspect ratio is very high (maxDim/minDim >= 6) — excludes moderate aspect
-    //   ratios like 06292's balance beam (4×1.1, aspect 3.6) or 04039's force
-    //   diagram (1.07×6, aspect 5.6) which render fine at the default scale
-    // - minDim is non-degenerate (> 0.1 user units) — excludes flat-banner 1D
-    //   diagrams like 09210 (row of dots at y=0) where minDim≈0
-    // - Diagram is tall-narrow (height > width), not wide-short — wide-short
-    //   diagrams like 01121 (row of circles: 7×1) render correctly at default
-    //   scale; the boost was only designed for tall-narrow diagrams
-    // This ensures tall-narrow diagrams with small geometry get adequate scale
-    // to match TeXeR's output dimensions, without affecting degenerate cases.
-    const aspectRatio = maxDim / (minDim || 0.001);
-    const isTallNarrow = scaleRefH2 > scaleRefW2;
-    if (maxDim < 10 && minDim > 0.1 && aspectRatio >= 6 && pxPerUnit < 100 && isTallNarrow) {
-      pxPerUnit = 100;
-      _autoFloorApplied = true;
-    }
-    // Tick-label floor: for small diagrams (maxDim < 15) with many tick labels
-    // (>=10), the default scaling compresses tick text below legibility. TeXeR
-    // uses a higher pxPerUnit (~57) for axis-heavy diagrams like 04031 where
-    // axes are drawn before late content extends the geometry bbox.
-    if (maxDim < 15 && pxPerUnit < 60) {
-      let tickLabelCount = 0;
-      for (const dc of drawCommands) {
-        if (dc._isTickLabel) tickLabelCount++;
-      }
-      if (tickLabelCount >= 10) {
-        pxPerUnit = 57;
-        _autoFloorApplied = true;
-      }
-    }
-    pxPerUnitX = pxPerUnitY = pxPerUnit;
-    // For auto-scaled diagrams, the larger dimension equals defaultSize (150bp)
-    // and the smaller dimension scales proportionally to preserve aspect ratio.
-    // Do NOT force both dimensions to be >= defaultSize — that destroys the
-    // aspect ratio for tall/narrow or wide/short diagrams (e.g. 00999 sine-wave
-    // diagram with ~4:1 height:width ratio).
     sizeW = scaleRefW2 * pxPerUnit;
     sizeH = scaleRefH2 * pxPerUnit;
-    // Fit geometry+labels (not geometry alone) to defaultSize, matching TeXeR's
-    // size(150) which bounds the WHOLE picture including truesize labels. Without
-    // this, corner labels at the geometry extremes (e.g. 04747/04746's $A$/$B$ at
-    // the grid corners) push the rendered bbox ~13% past defaultSize, oversizing
-    // the output and tanking the size score even when the structure matches.
-    // Labels are fixed bp, so shrinking geometry doesn't shrink them
-    // proportionally — iterate to convergence.
-    //
-    // Scoped to the medium/large-2D regime (maxDim > 40, minDim >= 5) for safety:
-    // that is where geometry genuinely fills defaultSize and a few short corner
-    // labels cause real, render-confirmed overshoot. The c57_L7 triangle+bisector
-    // diagrams (11404/11405/11406: ~41×21 bbox, single-letter vertex labels X/Y/Z/K/L
-    // hanging just past the geometry) sit at maxDim≈41 and were oversized ~7% by the
-    // geometry-only fit until the threshold was lowered from 50 to 40; all three
-    // converge to the TeXeR size with no canary/family regression.
-    // Thin/1D figures (number lines like
-    // 05976, minDim=2), tiny figures (04219, maxDim=1), and text-dominated figures
-    // (03928, maxDim~6 with long "Situation 1…" labels) are excluded: for those
-    // TeXeR keeps geometry at defaultSize and lets labels hang outside, and the
-    // bp-space label-extent estimate overshoots (esp. fractions/long text),
-    // which would over-shrink and regress them. Also skipped when a floor branch
-    // above intentionally oversized the diagram for label legibility (06387 etc.),
-    // and when the estimated overshoot is large (> 1.25) — a large overshoot means
-    // labels dominate the bbox, the TeXeR-bounds-everything assumption breaks, and
-    // the fixed-bp estimate is least reliable.
-    // Thin/small no-size diagrams whose geometry fills defaultSize on the long
-    // axis but a short label at a geometry extreme pushes the bbox past
-    // defaultSize (e.g. 03668: 1+cos(x) plot, x-axis ~150bp wide, "$4I_0$"
-    // hanging west of the y-axis adds ~24bp ⇒ 174bp total vs TeXeR's ~150bp
-    // full-bbox fit). The existing fit below is scoped to the medium/large-2D
-    // regime (maxDim>40 && minDim>=5) and excludes these thin (minDim<5) and
-    // small (maxDim<40) cases. Extend the fit to them, but ONLY when labels are
-    // short: the bp label-extent estimate is unreliable for wide/long-text
-    // labels (it overshoots on fractions/multi-word text, e.g. 03928 maxLblW
-    // 288), so gate on the widest label being a small fraction of defaultSize.
-    // maxDim>5 excludes the near-1D tiny case (04219 maxDim≈1). The shared
-    // estOvershoot<=1.25 guard still protects label-dominated layouts.
-    const _maxLblW = labelInfoBp.reduce((m, li) => Math.max(m, li.widthBp || 0), 0);
-    const _existingFitGate = maxDim > 40 && minDim >= 5;
-    const _shortLabelFit = !_existingFitGate && maxDim > 5 && _maxLblW <= 40;
-    // Skip this (geometry-only-bbox) shrink for the wide-label medium/large-2D
-    // case: the bp label-extent re-estimate in estOvershoot over-pads wide math
-    // labels (e.g. 07413's "$18+83i$" coordinate tags, _maxLblW≈45) by ~30%,
-    // over-shrinking the diagram. For those the downstream viewBox-pad symmetric
-    // clamp (which uses MathJax-measured label widths) fits the whole label-
-    // inclusive picture to defaultSize correctly — running both here compounds
-    // into a ~0.77× double-shrink. Narrow-label cases (single-letter vertex tags
-    // like 11404-11406) keep this shrink.
-    const _wideLabelAutoFit = _existingFitGate && _maxLblW > 40;
-    if (!_autoFloorApplied && !_isLargeSquareRadial && !_wideLabelAutoFit &&
-        labelInfoBp.length > 0 &&
-        (_existingFitGate || _shortLabelFit)) {
-      // estOvershoot returns the predicted longest-side / defaultSize ratio.
-      // - Existing medium/large-2D regime: the bp label-extent estimate
-      //   (recomputed below) is well-tuned and stays as-is.
-      // - New thin/small regime (_shortLabelFit): use the ACTUAL label-expanded
-      //   bbox (maxX/maxY were already grown for labels by the iterative pass
-      //   above). Since the rendered viewBox is naturalW = (maxX-minX)*pxPerUnit,
-      //   fitting THIS to defaultSize lands the output exactly at defaultSize —
-      //   the recomputed estimate over-pads ~5% (it double-counts the alignment
-      //   margin + centered-label half-widths), which over-shrinks the output.
-      const estOvershoot = () => {
-        if (_shortLabelFit) {
-          return Math.max(maxX - minX, maxY - minY) * pxPerUnit / defaultSize;
-        }
-        let bpMinX = geoMinX * pxPerUnit, bpMaxX = geoMaxX * pxPerUnit;
-        let bpMinY = geoMinY * pxPerUnit, bpMaxY = geoMaxY * pxPerUnit;
-        for (const li of labelInfoBp) {
-          const cx = li.posX * pxPerUnit + li.alignOffsetXBp;
-          const cy = li.posY * pxPerUnit + li.alignOffsetYBp;
-          bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
-          bpMaxX = Math.max(bpMaxX, cx + li.widthBp / 2);
-          bpMinY = Math.min(bpMinY, cy - li.heightBp / 2);
-          bpMaxY = Math.max(bpMaxY, cy + li.heightBp / 2);
-        }
-        return Math.max(bpMaxX - bpMinX, bpMaxY - bpMinY) / defaultSize;
-      };
-      // Label-grid skip: when SHORT labels are the dominant content — a dense
-      // grid/table of many small labels with geometry interspersed between them
-      // (e.g. 04331: 24 two-digit numbers in 4 columns joined by short arrows) —
-      // TeXeR keeps the geometry at defaultSize and lets the surrounding labels
-      // hang outside, rather than shrinking the whole picture to fit them. The
-      // _shortLabelFit shrink (fit-everything-to-150) makes these ~10% smaller
-      // than TeXeR. Gate on a high label count so the well-calibrated few-label
-      // cases (00259/00260 slope fields with x/y axis tags, 03668 one-sided
-      // "$4I_0$") keep shrinking exactly as before.
-      const _labelGridSkip = _shortLabelFit && labelInfoBp.length >= 12;
-      if (estOvershoot() <= 1.25 && !_labelGridSkip) {
-        for (let iter = 0; iter < 6; iter++) {
-          const overshoot = estOvershoot();
-          if (overshoot <= 1.005) break;
-          pxPerUnit *= 1 / overshoot;
-        }
-        pxPerUnitX = pxPerUnitY = pxPerUnit;
-        sizeW = scaleRefW2 * pxPerUnit;
-        sizeH = scaleRefH2 * pxPerUnit;
-      }
     }
     warnings.push('auto-scaled');
   }
@@ -26803,6 +26300,31 @@ function renderSVG(result, opts) {
     }
   }
 
+  // TRUE TeXeR pass-2 for size()-constrained pictures (Asymptote fit2): when
+  // the picture has inexact bounds (axes / no-align path labels / transformed
+  // currentpicture), real Asymptote re-measures the rendered frame and applies
+  // ONE corrective rescale of the geometry by min(sizeW/W, sizeH/H) — grow or
+  // shrink — so the frame (geometry + truesize labels) lands ON size() rather
+  // than merely within it. Exact-bounds pictures keep the LP/solver result
+  // above. IgnoreAspect plots are excluded (the dedicated grow-to-fill pass
+  // covers grid plots); 3D and truesize-frame pictures keep their semantics.
+  if (_boundsInexact && !_is3D && !_trueSizeFrame && !_mixed3D2D && keepAspect
+      && !isAutoScaled && (sizeW > 0 || sizeH > 0)) {
+    const _sp2 = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
+    const _g2 = [];
+    if (sizeW > 0 && _sp2.w > 1e-9) _g2.push(sizeW / _sp2.w);
+    if (sizeH > 0 && _sp2.h > 1e-9) _g2.push(sizeH / _sp2.h);
+    if (_g2.length) {
+      const g = Math.min(..._g2);
+      if (isFinite(g) && g > 0 && Math.abs(g - 1) > 0.002) {
+        pxPerUnit *= g;
+        pxPerUnitX *= g;
+        pxPerUnitY *= g;
+        if (hasUnitScale) unitsizeBoostScale = pxPerUnit / unitScale;
+      }
+    }
+  }
+
   // Recompute label-expanded bbox at final scale so naturalW/H is correct.
   // For autoScaled (no size/unitsize) diagrams, skip: the scale is set by the
   // geometry only, and labels are allowed to overflow (matching real Asymptote).
@@ -26813,7 +26335,10 @@ function renderSVG(result, opts) {
   // the pre-boost label expansion (large in user units) and the canvas
   // becomes much wider/taller than the label needs, producing a 2:1 aspect
   // for what should be a near-square diagram (e.g. 00129 r/R=1/2 plot).
-  const _unitsizeBoosted = hasUnitScale && unitsizeBoostScale > 1.001;
+  // True for any pass-2 rescale of a unitsize picture — grow OR shrink — so
+  // markangle bp-radii and the label-expanded bbox are rebuilt at the final
+  // scale in both directions.
+  const _unitsizeBoosted = hasUnitScale && Math.abs(unitsizeBoostScale - 1) > 0.001;
   // Rebuild markangle arcs (and their labels) using the final pxPerUnit so the
   // bp-truesize radius (e.g. radius=15bp) doesn't survive the boost as a
   // user-unit value computed against the pre-boost unitScale (which would
@@ -26868,6 +26393,13 @@ function renderSVG(result, opts) {
   if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0) || _unitsizeBoosted) && labelInfoBp.length > 0) {
     minX = geoMinX; maxX = geoMaxX;
     minY = geoMinY; maxY = geoMaxY;
+    // markangle arcs were rebuilt to the final scale above — the stale
+    // literal-scale extents baked into the geo consts would over-pad the
+    // canvas after a pass-2 rescale (12972/00210). Re-derive from paths.
+    if (_unitsizeBoosted && _hasMarkangleDc) {
+      const _gb2 = _dcGeoBounds(false);
+      if (_gb2) { minX = _gb2.minX; maxX = _gb2.maxX; minY = _gb2.minY; maxY = _gb2.maxY; }
+    }
     for (const li of labelInfoBp) {
       const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
       const cy = li.posY + li.alignOffsetYBp / pxPerUnitY;
@@ -27757,7 +27289,11 @@ function renderSVG(result, opts) {
           // Fit the full label-inclusive picture into the defaultSize box
           // (uniform clamp), matching TeXeR's bound-everything sizing for
           // compact figures whose labels surround the geometry.
-          const geomRefMax = Math.max(svgW, svgH);
+          // Reference in svgW units: scale the bp target by the same factor
+          // that converted naturalW (bp) into svgW.
+          const geomRefMax = (_lpFitTargetBp > 0 && naturalW > 0 && naturalH > 0)
+            ? _lpFitTargetBp * Math.max(svgW / naturalW, svgH / naturalH)
+            : Math.max(svgW, svgH);
           const liW = svgW * overshootScaleW, liH = svgH * overshootScaleH;
           const fit = Math.min(1, geomRefMax / Math.max(liW, liH, 1e-9));
           const fW = overshootScaleW * fit, fH = overshootScaleH * fit;
