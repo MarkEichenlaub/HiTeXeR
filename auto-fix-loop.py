@@ -57,7 +57,7 @@ try:
 except ImportError:
     HAS_SELENIUM = False
 
-CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-opus-4-8')
+CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-fable-5')
 
 # ── Paths ────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent
