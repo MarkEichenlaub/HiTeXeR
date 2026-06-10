@@ -30,7 +30,7 @@ except ImportError:
 PORT = 8080
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
 DVISVGM = "dvisvgm"
-CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-opus-4-8')
+CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-fable-5')
 
 # In-memory store for the most recently "Copy GIF"-ed blob.
 # GET /clipboard.gif serves it so EigenNode can fetch the full animated GIF
