@@ -16561,10 +16561,10 @@ function createInterpreter() {
       const axArrow = {_tag:'arrow', style:'Arrows', size: axisarrowsize, sizeExplicit: true};
       // Vertical axis (x=0)
       const vPath = makePath([lineSegment({x:0,y:ybottom},{x:0,y:ytop})], false);
-      pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+      pic.commands.push({cmd:'draw', path:vPath, pen:clonePen(axisPen), arrow:axArrow, line:0, _isAxisLine:'y'});
       // Horizontal axis (y=0)
       const hPath = makePath([lineSegment({x:xleft,y:0},{x:xright,y:0})], false);
-      pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0});
+      pic.commands.push({cmd:'draw', path:hPath, pen:clonePen(axisPen), arrow:axArrow, line:0, _isAxisLine:'x'});
 
       // Tick marks (no numeric labels — labels are added by user code)
       if (useticks) {
@@ -25168,8 +25168,13 @@ function renderSVG(result, opts) {
             if (Math.abs(li._ltAngle || 0) > 0.5) {
               const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
               const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
-              const hh = (m.hBp > 0 ? m.hBp : li.heightBp);
-              w = w * cosA + hh * sinA;
+              const hh = Math.max(m.hBp > 0 ? m.hBp : 0, (li._fontSize || 12) * 0.75);
+              const wIn = w;
+              w = wIn * cosA + hh * sinA;
+              // The heuristic heightBp rotated the OVER-estimated width into
+              // the height (00140's 60°-rotated sqrt label claimed ~160bp tall
+              // and made the bare LP infeasible). Use the measured width here.
+              li._fitHBp = wIn * sinA + hh * cosA;
             }
             li._fitWBp = w;
             // The stored alignOffsetXBp was derived from the HEURISTIC width
@@ -25179,6 +25184,10 @@ function renderSVG(result, opts) {
             const axN = aInf > 0 ? (li._axAl * 0.5 / aInf) : 0;
             li._fitOffXBp = axN * w + (li._axAl || 0) * 0.40 * (li._fontSize || 12)
               + (li._screenDx || 0);
+            const ayN = aInf > 0 ? (li._ayAl * 0.5 / aInf) : 0;
+            const hForOff = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
+            li._fitOffYBp = ayN * hForOff + (li._ayAl || 0) * 0.40 * (li._fontSize || 12)
+              - (li._screenDy || 0);
           }
         } catch (e) { /* keep heuristic */ }
       }
@@ -25238,6 +25247,7 @@ function renderSVG(result, opts) {
 
   const _fitW = li => (li._fitWBp !== undefined ? li._fitWBp : li.widthBp);
   const _fitOffX = li => (li._fitOffXBp !== undefined ? li._fitOffXBp : li.alignOffsetXBp);
+  const _fitOffY = li => (li._fitOffYBp !== undefined ? li._fitOffYBp : li.alignOffsetYBp);
   // Helper shared by the pass-2 refits below: measure the full frame span
   // (geometry bbox + truesize label boxes + dot disks) in bp at a candidate
   // geometry scale. Mirrors Asymptote's frame measurement in fit2.
@@ -25250,12 +25260,13 @@ function renderSVG(result, opts) {
     let bMinY = g0y * sy, bMaxY = g1y * sy;
     for (const li of labelInfoBp) {
       const cx = li.posX * sx + _fitOffX(li);
-      const cy = li.posY * sy + li.alignOffsetYBp;
+      const cy = li.posY * sy + _fitOffY(li);
       const hw = _fitW(li) / 2;
+      const hh2 = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
       if (cx - hw < bMinX) bMinX = cx - hw;
       if (cx + hw > bMaxX) bMaxX = cx + hw;
-      if (cy - li.heightBp / 2 < bMinY) bMinY = cy - li.heightBp / 2;
-      if (cy + li.heightBp / 2 > bMaxY) bMaxY = cy + li.heightBp / 2;
+      if (cy - hh2 / 2 < bMinY) bMinY = cy - hh2 / 2;
+      if (cy + hh2 / 2 > bMaxY) bMaxY = cy + hh2 / 2;
     }
     for (const il of _invisLabels) {
       const cx = il.x * sx + il.offX, cy = il.y * sy + il.offY;
@@ -25592,7 +25603,9 @@ function renderSVG(result, opts) {
       const wCal = _fitW(li);
       const oxCal = _fitOffX(li);
       _xsLp.push({ u: li.posX, lo: oxCal - wCal / 2, hi: oxCal + wCal / 2 });
-      _ysLp.push({ u: li.posY, lo: li.alignOffsetYBp - li.heightBp / 2, hi: li.alignOffsetYBp + li.heightBp / 2 });
+      const hhLp = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
+      const oyLp = _fitOffY(li);
+      _ysLp.push({ u: li.posY, lo: oyLp - hhLp / 2, hi: oyLp + hhLp / 2 });
     }
     for (const il of _invisLabels) {
       _xsLp.push({ u: il.x, lo: il.offX - il.w / 2, hi: il.offX + il.w / 2 });
