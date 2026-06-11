@@ -12091,6 +12091,16 @@ function createInterpreter() {
   // Shared axis limit state (accessible from both installGraphPackage and execute)
   let _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
 
+  // Deferred axis jobs: Asymptote draws default (YZero/XZero/XEquals/YEquals)
+  // axes with extend=true via DEFERRED drawing — the axis line and its ticks
+  // span the final picture frame, not the data extent at call time. Each
+  // auto-ranged xaxis/yaxis call registers a job closure here; execute()
+  // runs them (twice, for convergence) after program evaluation, when the
+  // picture's full content is known. Each job re-estimates the frame bounds,
+  // removes the axis's previously-emitted commands, and re-emits the axis
+  // line + ticks + labels across the extended range.
+  let _deferredAxisJobs = [];
+
   function installGraphPackage(env) {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
@@ -12689,6 +12699,63 @@ function createInterpreter() {
       }
       const maxDim = Math.max(rX, rY);
       return maxDim > 0 ? ded(150) / maxDim : 0;
+    }
+
+    // Estimate the picture's FRAME bounds in user units: geometry bbox plus
+    // each label's glyph extent (converted bp→user via the fitted-scale
+    // model). This approximates Asymptote's min(t)/max(t) frame bounds that
+    // deferred extend=true axes span (graph.asy xaxisAt: tinv*(lb.x,...)).
+    function _estimateFrameBoundsU(pic, excludeLabels) {
+      let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+      for (const dc of pic.commands) {
+        if (dc.cmd === 'clip') continue;
+        if (dc._paletteLegend) continue;
+        if (dc.path && dc.path.segs) {
+          for (const seg of dc.path.segs) {
+            for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+              if (isFinite(p.x)) { if (p.x < mnX) mnX = p.x; if (p.x > mxX) mxX = p.x; }
+              if (isFinite(p.y)) { if (p.y < mnY) mnY = p.y; if (p.y > mxY) mxY = p.y; }
+            }
+          }
+        }
+        if (dc.pos) {
+          if (isFinite(dc.pos.x)) { if (dc.pos.x < mnX) mnX = dc.pos.x; if (dc.pos.x > mxX) mxX = dc.pos.x; }
+          if (isFinite(dc.pos.y)) { if (dc.pos.y < mnY) mnY = dc.pos.y; if (dc.pos.y > mxY) mxY = dc.pos.y; }
+        }
+      }
+      if (!isFinite(mnX) || !isFinite(mnY)) return null;
+      const sX = _alongAxisBpPerUnit('x', pic, mnX, mxX, 0);
+      const sY = _alongAxisBpPerUnit('y', pic, mnY, mxY, 0);
+      for (const dc of pic.commands) {
+        if (dc.cmd !== 'label' || !dc.pos || !isFinite(dc.pos.x) || !isFinite(dc.pos.y)) continue;
+        if (dc.pen && dc.pen.opacity === 0) continue;
+        // The extending axis's own endpoint title rides the new endpoint —
+        // including it makes the extension diverge (one title-height per
+        // pass). The caller excludes it; everything else contributes.
+        if (excludeLabels && excludeLabels.has(dc)) continue;
+        const t = dc.text || '';
+        const clean = stripLaTeX(typeof t === 'string' ? t : '');
+        if (!clean) continue;
+        const fs = (dc.pen && dc.pen.fontsize) || 12;
+        const wU = sX > 0 ? _estimateMathRunWidth(clean, fs) / sX : 0;
+        const hU = sY > 0 ? fs / sY : 0;
+        const mgU = sX > 0 ? (0.28 * fs) / sX : 0;
+        const mgVU = sY > 0 ? (0.28 * fs) / sY : 0;
+        const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
+        const ay = (dc.align && typeof dc.align.y === 'number') ? dc.align.y : 0;
+        let px = dc.pos.x, py = dc.pos.y;
+        if (dc.screenDx && sX > 0) px += dc.screenDx / sX;
+        if (dc.screenDy && sY > 0) py -= dc.screenDy / sY;
+        const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wU + mgU * ax : px - wU / 2;
+        const rx = ax > 0.1 ? px + wU + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wU / 2;
+        const by = ay > 0.1 ? py + mgVU * ay : ay < -0.1 ? py - hU + mgVU * ay : py - hU / 2;
+        const ty = ay > 0.1 ? py + hU + mgVU * ay : ay < -0.1 ? py + mgVU * ay : py + hU / 2;
+        if (lx < mnX) mnX = lx;
+        if (rx > mxX) mxX = rx;
+        if (by < mnY) mnY = by;
+        if (ty > mxY) mxY = ty;
+      }
+      return { minX: mnX, maxX: mxX, minY: mnY, maxY: mxY };
     }
 
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
@@ -13659,6 +13726,12 @@ function createInterpreter() {
         ((xIsBottomSide || extent === 'BottomTop') && crossMinDefaulted) ||
         ((xIsTopSide || extent === 'TopBottom') && crossMaxDefaulted)
       ) ? extent : null;
+      // Emit the axis line + ticks + axis label for the range [xlo, xhi].
+      // Wrapped in a closure so the deferred frame-extension job can remove
+      // and re-emit the whole axis across the final extended range
+      // (Asymptote's extend=true deferred drawing).
+      const _emitXAxis = (xlo, xhi) => {
+      const xmin = xlo, xmax = xhi;
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
@@ -13801,6 +13874,47 @@ function createInterpreter() {
           _xaxisDrawCmd._axisLabelBelowAy = lAlign.y;
           _xaxisDrawCmd._axisLabelFontSize = (_xAxisLabelPen && _xAxisLabelPen.fontsize) || 10;
         }
+      }
+      }; // end _emitXAxis
+      // Default-axis (YZero/YEquals) calls with an auto side extend to the
+      // final picture frame (graph.asy: extend=true → deferred xaxisAt spans
+      // tinv*(lb..rt)). Register a job to re-emit across the final frame.
+      const _xJobEligible = !extent && !_axisLimits.crop && !(xminExplicit && xmaxExplicit)
+        && pic === currentPic && isFinite(xmin) && isFinite(xmax) && xmax > xmin
+        && !(ticks && ticks.positions && isArray(ticks.positions)) && !xIsLog;
+      const _xJobStart = pic.commands.length;
+      _emitXAxis(xmin, xmax);
+      if (_xJobEligible) {
+        let myCmds = pic.commands.slice(_xJobStart);
+        for (const c of myCmds) c._jobManaged = true;
+        let curLo = xmin, curHi = xmax;
+        _deferredAxisJobs.push(() => {
+          const _selfTitles = new Set(myCmds.filter(c => c && c._isAxisLabel));
+          const fb = _estimateFrameBoundsU(pic, _selfTitles);
+          if (!fb) return;
+          let lo = xminExplicit ? curLo : Math.min(fb.minX, curLo);
+          let hi = xmaxExplicit ? curHi : Math.max(fb.maxX, curHi);
+          if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
+          if (Math.abs(lo - curLo) < 1e-9 && Math.abs(hi - curHi) < 1e-9) return;
+          if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
+            try { process.stderr.write('[xjob] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
+          }
+          const mySet = new Set(myCmds);
+          let insertAt = -1;
+          for (let i = 0; i < pic.commands.length; i++) {
+            if (mySet.has(pic.commands[i])) { insertAt = i; break; }
+          }
+          for (let i = pic.commands.length - 1; i >= 0; i--) {
+            if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
+          }
+          const s0 = pic.commands.length;
+          _emitXAxis(lo, hi);
+          myCmds = pic.commands.splice(s0);
+          for (const c of myCmds) c._jobManaged = true;
+          if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
+          pic.commands.splice(insertAt, 0, ...myCmds);
+          curLo = lo; curHi = hi;
+        });
       }
     });
 
@@ -14027,7 +14141,13 @@ function createInterpreter() {
           // and sizeH=200). This breaks tick spacing for plots like 08635 where
           // the y-axis should stay at 0..10000, not extend to -300..10000.
           const _skipLabelExtY = (typeof keepAspect !== 'undefined') && !keepAspect;
-          if (!_hasImageCellsLB && !isInvisible && !yminExplicit && !_skipLabelExtY && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
+          // When this y-axis will be frame-extended by a deferred job, the
+          // x-axis title's below-axis glyph is already accounted for by the
+          // frame estimator — the legacy extension here would double-count
+          // it (00263: ymin dove to -0.46 in a ~1.2-unit plot).
+          const _yWillJobManage = !extent && !_axisLimits.crop && !(yminExplicit && ymaxExplicit)
+            && pic === currentPic && !(ticks && ticks.positions && isArray(ticks.positions));
+          if (!_yWillJobManage && !_hasImageCellsLB && !isInvisible && !yminExplicit && !_skipLabelExtY && c._axisLabelBelowAy && c._axisLabelBelowAy < 0) {
             const ay = c._axisLabelBelowAy;
             const fs = c._axisLabelFontSize || 10;
             const ignoreAspect = (typeof keepAspect !== 'undefined') && !keepAspect;
@@ -14117,6 +14237,9 @@ function createInterpreter() {
         ((yIsLeftSide || extent === 'LeftRight') && crossMinDefaulted) ||
         ((yIsRightSide || extent === 'RightLeft') && crossMaxDefaulted)
       ) ? extent : null;
+      // Emit closure for deferred frame-extension (see _emitXAxis in xaxis).
+      const _emitYAxis = (ylo, yhi) => {
+      const ymin = ylo, ymax = yhi;
       let _yaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
@@ -14272,6 +14395,44 @@ function createInterpreter() {
         const _endRotated = !uprightEndpoint && lt && (effPos >= 0.999 || effPos <= 0.001);
         const _axisLabelEndShift = _endRotated ? (effPos >= 0.999 ? 1 : -1) : 0;
         pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
+      }
+      }; // end _emitYAxis
+      const _yJobEligible = !extent && !_axisLimits.crop && !(yminExplicit && ymaxExplicit)
+        && pic === currentPic && isFinite(ymin) && isFinite(ymax) && ymax > ymin
+        && !(ticks && ticks.positions && isArray(ticks.positions)) && !yIsLog;
+      const _yJobStart = pic.commands.length;
+      _emitYAxis(ymin, ymax);
+      if (_yJobEligible) {
+        let myCmds = pic.commands.slice(_yJobStart);
+        for (const c of myCmds) c._jobManaged = true;
+        let curLo = ymin, curHi = ymax;
+        _deferredAxisJobs.push(() => {
+          const _selfTitles = new Set(myCmds.filter(c => c && c._isAxisLabel));
+          const fb = _estimateFrameBoundsU(pic, _selfTitles);
+          if (!fb) return;
+          let lo = yminExplicit ? curLo : Math.min(fb.minY, curLo);
+          let hi = ymaxExplicit ? curHi : Math.max(fb.maxY, curHi);
+          if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
+          if (Math.abs(lo - curLo) < 1e-9 && Math.abs(hi - curHi) < 1e-9) return;
+          if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
+            try { process.stderr.write('[yjob] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
+          }
+          const mySet = new Set(myCmds);
+          let insertAt = -1;
+          for (let i = 0; i < pic.commands.length; i++) {
+            if (mySet.has(pic.commands[i])) { insertAt = i; break; }
+          }
+          for (let i = pic.commands.length - 1; i >= 0; i--) {
+            if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
+          }
+          const s0 = pic.commands.length;
+          _emitYAxis(lo, hi);
+          myCmds = pic.commands.splice(s0);
+          for (const c of myCmds) c._jobManaged = true;
+          if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
+          pic.commands.splice(insertAt, 0, ...myCmds);
+          curLo = lo; curHi = hi;
+        });
       }
     });
 
@@ -23820,6 +23981,7 @@ function createInterpreter() {
     defaultPen = makePen({});
     _defaultpenLwSet = false;
     _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+    _deferredAxisJobs = [];
 
     // Restore any built-in functions that were shadowed by user variables in a
     // previous execution (e.g. `real scale = 0.02;` overwrote `scale` function).
@@ -23840,6 +24002,17 @@ function createInterpreter() {
     patchDrawLines(ast, globalEnv);
 
     evalNode(ast, globalEnv);
+
+    // Run deferred axis-extension jobs (Asymptote's extend=true deferred
+    // drawing): two passes so axes that extend to include each other's new
+    // tick labels converge, mirroring graph.asy's queued bounds() recalcs.
+    if (_deferredAxisJobs.length > 0) {
+      for (let _pass = 0; _pass < 4; _pass++) {
+        for (const job of _deferredAxisJobs) {
+          try { job(_pass); } catch (e) {}
+        }
+      }
+    }
 
     // If projection has center=true, compute 3D bbox centroid of all tracked
     // triples, set projection target to centroid, and re-project every tracked
@@ -24202,6 +24375,10 @@ function renderSVG(result, opts) {
     // EndPoint axis labels that were placed at the now-stale endpoint.
     for (const c of drawCommands) {
       if (!c._isAxisLine || !c.path || !c.path.segs || c.path.segs.length === 0) continue;
+      // Axes managed by the deferred frame-extension jobs (graph.asy's
+      // extend=true semantics, run at end-of-eval) are already final —
+      // the legacy content-extent override below would SHRINK them back.
+      if (c._jobManaged) continue;
       const seg = c.path.segs[0];
       if (c._isAxisLine === 'x') {
         let x0 = seg.p0.x, x1 = seg.p3.x;
