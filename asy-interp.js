@@ -11903,8 +11903,9 @@ function createInterpreter() {
       const _sfRegion = a.x + ',' + a.y + ',' + b.x + ',' + b.y;
       const dx = (b.x - a.x) / n;
       const dy = (b.y - a.y) / n;
-      // Length of each slope segment (half the cell diagonal, scaled)
-      const segLen = Math.min(Math.abs(dx), Math.abs(dy)) * 0.45;
+      // Half-length of each slope segment: slopefield.asy uses
+      // step = 0.5*tickfactor*min(dx,dy) with tickfactor=0.5 → 0.25*cell.
+      const segLen = Math.min(Math.abs(dx), Math.abs(dy)) * 0.25;
 
       for (let i = 0; i <= n; i++) {
         for (let j = 0; j <= n; j++) {
@@ -29812,8 +29813,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     const dx = (s.p3.x - s.p0.x) * scaleX, dy = (s.p3.y - s.p0.y) * scaleY;
     totalLen += Math.sqrt(dx*dx + dy*dy);
   }
-  // Don't let arrowhead exceed 70% of path length
-  if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
+  // Asymptote clamps arrowheads at arrowsizelimit=0.5 of the path length
+  // (plain_arrows.asy) — on short paths like slopefield segments this is
+  // what keeps TeXeR's field arrowheads small (~3bp on a 6bp segment).
+  if (arrowLen > totalLen * 0.5) arrowLen = totalLen * 0.5;
 
   const arrowParts = [];
   const isArcStyle = style === 'ArcArrow' || style === 'EndArcArrow' ||
@@ -30193,7 +30196,12 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
   const isFilled = arrowParts[0].filled;
   const fillAttr = isFilled ? css.stroke : 'none';
   if (isFilled) {
-    return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
+    // Asymptote draws filled heads with FillDraw: filled AND stroked with
+    // the pen (verified in stock-asy EPS output: each head triangle is
+    // emitted twice, `fill` then `stroke`). The stroke outline adds ~lw/2
+    // of visual weight all around — without it HTX heads read thinner
+    // than TeXeR's at equal nominal size.
+    return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linejoin="miter"/>`;
   }
   return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
