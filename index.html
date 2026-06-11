@@ -10,6 +10,17 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script>
+// Prime the KaTeX faces used by the label renderer's canvas ink measurer
+// (asy-interp _labelFontsReady): @font-face fonts load lazily, and until they
+// do, label placement falls back to char-count heuristics on first render.
+window.addEventListener('load', function () {
+  if (document.fonts) {
+    ['12px KaTeX_Main', 'bold 12px KaTeX_Main', 'italic 12px KaTeX_Main', 'italic 12px KaTeX_Math']
+      .forEach(function (f) { try { document.fonts.load(f); } catch (e) {} });
+  }
+});
+</script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -630,7 +641,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.08</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.09</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>

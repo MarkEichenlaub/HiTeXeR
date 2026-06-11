@@ -29043,6 +29043,28 @@ function renderSVG(result, opts) {
               W = _m.wBp * bpCSSPixel;
             }
           } catch (e) { /* ignore — fall back to heuristic */ }
+        } else if (typeof document !== 'undefined' && (dc.text || '').indexOf('\n') === -1) {
+          // Browser counterpart of the svg-native MathJax measurement above:
+          // without it, E/W-aligned labels use the 0.52*charCount heuristic and
+          // shift content-dependently (probe: "$M$" with align E sat 2.6bp too
+          // close, align W 3.8bp too far — visible on every E/W label pair).
+          // Math-ish labels are measured through KaTeX layout (matches both the
+          // foreignObject path and, after the TeX-spacing fix, the SVG-text
+          // path); plain text through canvas CM advance widths.
+          try {
+            let _wM = null;
+            if (/[\\$]/.test(dc.text || '')) {
+              if (typeof katex !== 'undefined' && typeof _katexMeasureBp === 'function') {
+                const _m = _katexMeasureBp(dc.text, fontSizeSVG);
+                if (_m && _m.wBp > 0) _wM = _m.wBp * bpCSSPixel;
+              }
+            } else {
+              const _mk = _canvasInkForRaw(dc.text, fontSizeSVG,
+                (dc.pen && dc.pen.fontWeight) || 'normal', 'normal', false);
+              if (_mk && _mk.w > 0) _wM = _mk.w;
+            }
+            if (_wM) W = _wM;
+          } catch (e) { /* ignore — fall back to heuristic */ }
         }
         // A labelTransform scale (e.g. scale(0.75)*"...") is folded into the font
         // size LATER (effectiveFontSize below), so the rendered glyph width is
@@ -29327,7 +29349,7 @@ function renderSVG(result, opts) {
         let tspans = '';
         lines.forEach((line, i) => {
           const lineDy = i === 0 ? -totalOffset / 2 : lineHeight;
-          tspans += `<tspan x="${fmt(lineX)}" dy="${fmt(lineDy)}">${_inlineMathSvg(line.trim())}</tspan>`;
+          tspans += `<tspan x="${fmt(lineX)}" dy="${fmt(lineDy)}">${_inlineMathSvg(line.trim(), effectiveFontSize)}</tspan>`;
         });
         const mlLabel = `<text x="${fmt(lineX)}" y="${fmt(sy+dy)}" fill="${css.fill}" font-size="${fmt(effectiveFontSize)}" text-anchor="${mlAnchor}" dominant-baseline="central" font-family="${ff}"${op}>${tspans}</text>`;
         elements.push(labelTransformAttr ? `<g${labelTransformAttr}>${mlLabel}</g>` : mlLabel);
@@ -29575,33 +29597,57 @@ function renderSVG(result, opts) {
       // correction, so this is browser-only.
       let _swsY = sy + dy;
       if (_labelAyN && _labelHEst && !dc.labelTransform && !(opts && opts.labelOutput === 'svg-native')) {
-        const _estH = _estLabelGlyphHeightFactor(stripLaTeX(dc.text || '')) * _labelHEst;
+        let _estH = _estLabelGlyphHeightFactor(stripLaTeX(dc.text || '')) * _labelHEst;
+        // Browser: replace the coarse ascender/descender bucket estimate with
+        // the real canvas-measured ink height of the label (same KaTeX faces
+        // the SVG-text renderer paints with). The renderer also ink-centers on
+        // _swsY, so together N/S-aligned labels sit at the exact TeX box edge.
+        if (typeof document !== 'undefined' && (dc.text || '').indexOf('\n') === -1) {
+          const _mkH = _canvasInkForRaw(dc.text, effectiveFontSize || fontSizeSVG,
+            'normal', 'normal', /[\\$]/.test(dc.text || ''));
+          if (_mkH && _mkH.h > 0 && _mkH.h < _labelHEst * 2) _estH = _mkH.h;
+        }
         _swsY = sy + dy + _labelAyN * (_labelHEst - _estH);
       }
       // Check for \mathbf-only or \textbf-only labels first: render as bold upright SVG text.
       // This works in all rendering contexts (sharp, <img>, <object>) without needing KaTeX CSS.
       // Must be checked before the italic math path to avoid wrong font-style.
+      // In svg-native (rasterization) mode these branches are SKIPPED so the label
+      // routes through MathJax below: real CM glyph paths center correctly on the
+      // baseline, whereas dominant-baseline="central" SVG text sits ~0.12em low
+      // (probe: $\mathrm{m}$ / $\mathbf{v}$ rendered 1.3–1.5bp below the TeXeR
+      // reference). Browser mode keeps the SVG-text branches (no KaTeX CSS needed).
       const strippedDollar = displayText.replace(/^\$+|\$+$/g, '').trim();
-      if (hasMath && /^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+      if (!svgNativeMode && hasMath && /^(\s*\\mathbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         // In math mode, spaces between \mathbf{X} \mathbf{Y} are ignored — concatenate directly.
         let boldContent = '';
         strippedDollar.replace(/\\mathbf\s*\{([^}]*)\}/g, (_, g) => { boldContent += g; });
         labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-      } else if (hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+      } else if (!svgNativeMode && hasMath && /^(\s*\\textbf\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         const boldContent = strippedDollar.replace(/\\textbf\s*\{([^}]*)\}/g, '$1').trim();
         labelEl = renderLabelWithScripts(boldContent, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'bold', 'normal');
-      } else if (hasMath && /^(\s*\\(?:mathrm|textrm|text)\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
+      } else if (!svgNativeMode && hasMath && /^(\s*\\(?:mathrm|textrm|text)\s*\{[^}]*\}\s*)+$/.test(strippedDollar)) {
         // \mathrm, \textrm, \text labels → upright roman (not math italic)
         let rmContent = '';
         strippedDollar.replace(/\\(?:mathrm|textrm|text)\s*\{([^}]*)\}/g, (_, g) => { rmContent += g; });
         labelEl = renderLabelWithScripts(rmContent, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, 'KaTeX_Main, serif', 'normal', 'normal');
-      } else if (hasLaTeX) {
-        // Render complex LaTeX as SVG group with fractions/braces
+      } else if (hasLaTeX && !svgNativeMode && typeof katex === 'undefined') {
+        // Render complex LaTeX as SVG group with fractions/braces — LAST-RESORT
+        // fallback only, when neither MathJax (svg-native routes \frac/\sqrt
+        // through it below) nor KaTeX (browser foreignObject) is available.
+        // The hand-rolled renderer measured 2.7bp narrow on $\sqrt{2}$ and
+        // 2.5bp tall on $\frac{1}{2}$ vs the TeXeR reference; KaTeX/MathJax
+        // match the TeX radical/fraction metrics.
         labelEl = renderLaTeXSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, css.opacity);
         if (/\\(?:bf|bfseries|mathbf|textbf|boldsymbol)(?![a-zA-Z])/.test(displayText)) {
           labelEl = `<g font-weight="bold" stroke="${css.fill}" stroke-width="${fmt(effectiveFontSize*0.04)}">${labelEl}</g>`;
         }
-      } else if (typeof katex !== 'undefined' && hasMath && !unicodeSafe) {
+      } else if ((typeof katex !== 'undefined' || svgNativeMode) && hasMath && !unicodeSafe) {
+        // NOTE: the `|| svgNativeMode` matters — in node `katex` is undefined, so
+        // without it every mixed text+math label ("$W-1$ cells"), accent command
+        // ($\vec{F}$, $\hat{x}$), \frac, and \sqrt silently fell through to the
+        // plain SVG-text fallback in the rasterization pipeline: upright letters
+        // that should be math-italic, hyphens for minus signs, no TeX spacing.
         // Use KaTeX for math rendering via foreignObject.  When rendering for
         // rasterization (labelOutput === 'svg-native'), go through MathJax
         // instead, which emits real <path> glyphs that librsvg can rasterize.
@@ -29642,10 +29688,13 @@ function renderSVG(result, opts) {
         // (e.g. coordinates like $(-6,4)$) stays upright — digits and punctuation are
         // upright in LaTeX math.
         const penFF = dc.pen && dc.pen.fontFamily;
+        const _isMathLbl = !!(wasStrippedMath || unicodeSafe) && !penFF;
         if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic');
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic', _isMathLbl);
         } else {
-          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined);
+          // isMath turns on TeX math conventions (U+2212 minus, operator
+          // spacing) for digits/operator-only math like "$-5$" or "$(3,-4)$".
+          labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined, undefined, undefined, _isMathLbl);
         }
       }
       if (labelTransformAttr) {
@@ -30333,33 +30382,298 @@ function _estLabelGlyphHeightFactor(s) {
   return 0.46; // x-height-only lowercase (a c e m n o r s u v w x z, Greek)
 }
 
+// ---- TeX-style math spacing for the SVG-<text> label path -------------------
+// TeXeR's labels are typeset by real TeX: binary operators (+ − ×) get
+// \medmuskip (2/9 em) on each side, relations (= < >) get \thickmuskip
+// (5/18 em), punctuation commas get \thinmuskip (1/6 em) after, and operator
+// names (\sin) get \thinmuskip against their arguments — while literal source
+// spaces are IGNORED in math mode. The plain SVG-text path used to abut
+// glyphs with whatever spaces survived the source string, which made labels
+// like "$3-1$" ~40% narrower than the reference. _mathTokenize implements the
+// inline-math (textstyle) spacing rules over the cleaned label string; both
+// the tspan emitter (mathAtomsSvg) and the canvas ink measurer
+// (_canvasInkMetrics) consume it so rendering and placement agree.
+// Sentinels: \x01..\x02 upright text (from \mathrm/\text), \x06..\x02 upright
+// operator name (from \sin/\cos/\operatorname), \x03/\x04/\x05 explicit
+// \,/\:/\; spacing, \x07 explicit word space (\  or ~).
+const MATH_BIN_CHARS = '+−±∓×·∗÷⊕⊗∧∨∪∩';
+const MATH_REL_CHARS = '=<>≤≥≠≈≡∈∉⊂⊃⊥∥→←⇒⇐↔';
+const MATH_THIN = 1 / 6, MATH_MED = 2 / 9, MATH_THICK = 5 / 18;
+// Characters after which a +/− is unary (no binary spacing).
+const MATH_UNARY_PREV = '([{,;:' + MATH_BIN_CHARS + MATH_REL_CHARS;
+function _mathTokenize(s, spacing) {
+  const atoms = []; // {kind:'run'|'upright'|'opname', text, dxEm}
+  let i = 0, run = '', pendingDx = 0;
+  const pushRun = () => {
+    if (run) { atoms.push({ kind: 'run', text: run, dxEm: pendingDx }); pendingDx = 0; run = ''; }
+  };
+  const prevChar = () => {
+    if (run) return run[run.length - 1];
+    for (let k = atoms.length - 1; k >= 0; k--) {
+      const t = atoms[k].text;
+      if (t) return t[t.length - 1];
+    }
+    return null;
+  };
+  const nextVisible = (from) => {
+    for (let k = from; k < s.length; k++) {
+      const c = s[k];
+      if (c === ' ' || c === '\x03' || c === '\x04' || c === '\x05' || c === '\x07' ||
+          c === '\x01' || c === '\x02' || c === '\x06') continue;
+      return c;
+    }
+    return null;
+  };
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '\x01' || c === '\x06') {
+      const close = s.indexOf('\x02', i + 1);
+      const inner = close === -1 ? s.slice(i + 1) : s.slice(i + 1, close);
+      const isOp = c === '\x06';
+      const p = prevChar();
+      pushRun();
+      if (spacing && isOp && p && MATH_UNARY_PREV.indexOf(p) === -1) pendingDx += MATH_THIN;
+      atoms.push({ kind: isOp ? 'opname' : 'upright', text: inner, dxEm: pendingDx });
+      pendingDx = 0;
+      i = close === -1 ? s.length : close + 1;
+      if (spacing && isOp) {
+        const nx = nextVisible(i);
+        if (nx && ')]},;'.indexOf(nx) === -1) pendingDx += MATH_THIN;
+      }
+      continue;
+    }
+    if (c === '\x03') { if (spacing) pendingDx += MATH_THIN; else run += ' '; i++; continue; }
+    if (c === '\x04') { if (spacing) pendingDx += MATH_MED; else run += ' '; i++; continue; }
+    if (c === '\x05') { if (spacing) pendingDx += MATH_THICK; else run += ' '; i++; continue; }
+    if (c === '\x07') { run += ' '; i++; continue; }
+    if (c === ' ') { if (spacing) { i++; continue; } run += c; i++; continue; }
+    if (spacing && MATH_BIN_CHARS.indexOf(c) !== -1) {
+      const p = prevChar();
+      // Unary (no spacing) at start or after an operator/open bracket/punct;
+      // also treat a trailing operator (nothing follows) as ord.
+      const unary = !p || MATH_UNARY_PREV.indexOf(p) !== -1 || nextVisible(i + 1) === null;
+      pushRun();
+      const sp = unary ? 0 : MATH_MED;
+      atoms.push({ kind: 'run', text: c, dxEm: pendingDx + sp });
+      pendingDx = sp;
+      i++; continue;
+    }
+    if (spacing && MATH_REL_CHARS.indexOf(c) !== -1) {
+      const atStart = !prevChar();
+      pushRun();
+      const sp = atStart ? 0 : MATH_THICK;
+      atoms.push({ kind: 'run', text: c, dxEm: pendingDx + sp });
+      pendingDx = nextVisible(i + 1) === null ? 0 : MATH_THICK;
+      i++; continue;
+    }
+    if (spacing && (c === ',' || c === ';')) {
+      run += c; pushRun(); pendingDx += MATH_THIN; i++; continue;
+    }
+    run += c; i++;
+  }
+  pushRun();
+  return atoms;
+}
+
+// Split a math run into italic letter runs (KaTeX_Math) and upright rest
+// (KaTeX_Main) — the per-glyph version of what real TeX does in math mode.
+function _italicRunsSvg(text) {
+  const letterRe = /[a-zA-Zα-ωΑ-Ω]+/g;
+  let out = '', last = 0, m;
+  while ((m = letterRe.exec(text)) !== null) {
+    if (m.index > last) out += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(text.slice(last, m.index))}</tspan>`;
+    out += `<tspan font-family="KaTeX_Math, serif" font-style="italic">${escSvg(m[0])}</tspan>`;
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(text.slice(last))}</tspan>`;
+  return out;
+}
+
+// Emit tspans for a cleaned math string with TeX spacing (dx) applied.
+function mathAtomsSvg(s, fontSize, italicLetters, spacing) {
+  const atoms = _mathTokenize(s, spacing);
+  let out = '';
+  for (const a of atoms) {
+    let inner;
+    if (a.kind === 'upright' || a.kind === 'opname') {
+      inner = `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(a.text)}</tspan>`;
+    } else if (italicLetters) {
+      inner = _italicRunsSvg(a.text);
+    } else {
+      inner = escSvg(a.text);
+    }
+    if (a.dxEm > 0 && inner) {
+      const dx = fmt(a.dxEm * fontSize);
+      if (inner.startsWith('<tspan')) inner = `<tspan dx="${dx}"` + inner.slice(6);
+      else inner = `<tspan dx="${dx}">${inner}</tspan>`;
+    }
+    out += inner;
+  }
+  return out;
+}
+
+// ---- Canvas ink measurement (browser only) ----------------------------------
+// Measures the REAL ink box of an SVG-<text> label using the same KaTeX faces
+// the browser will paint with (canvas measureText actualBoundingBox*). Used to
+// (a) center label ink exactly on the target point — dominant-baseline:central
+// centers the FONT box, which sits up to ~0.15em away from the ink center
+// depending on ascenders/descenders — and (b) get true advance widths for
+// E/W alignment offsets. Returns null when unavailable (node, fonts not yet
+// loaded) so callers keep their heuristic fallbacks.
+let _inkCtx = null;
+const _inkCache = new Map();
+let _fontLoadKicked = false;
+function _labelFontsReady() {
+  if (typeof document === 'undefined' || !document.fonts) return false;
+  try {
+    if (document.fonts.check('12px KaTeX_Main') && document.fonts.check('italic 12px KaTeX_Math')) return true;
+    // Faces declared but not yet fetched: kick the loads so subsequent renders
+    // (the editor re-renders on every keystroke) get real metrics.
+    if (!_fontLoadKicked) {
+      _fontLoadKicked = true;
+      try {
+        document.fonts.load('12px KaTeX_Main');
+        document.fonts.load('bold 12px KaTeX_Main');
+        document.fonts.load('italic 12px KaTeX_Main');
+        document.fonts.load('italic 12px KaTeX_Math');
+      } catch (e) {}
+    }
+    return false;
+  } catch (e) { return false; }
+}
+function _canvasInkMetrics(s, fontSize, fontWeight, fontStyle, mathMode) {
+  if (typeof document === 'undefined') return null;
+  if (!_labelFontsReady()) return null;
+  const key = s + '|' + fontSize + '|' + (fontWeight || '') + '|' + (fontStyle || '') + '|' + (mathMode ? 1 : 0);
+  if (_inkCache.has(key)) return _inkCache.get(key);
+  if (!_inkCtx) {
+    try { _inkCtx = document.createElement('canvas').getContext('2d'); } catch (e) { return null; }
+    if (!_inkCtx) return null;
+  }
+  const ctx = _inkCtx;
+  const bold = fontWeight === 'bold' ? 'bold ' : '';
+  const measureSeg = (text, italic, size) => {
+    ctx.font = (italic ? 'italic ' : '') + bold + size + 'px ' + (italic ? 'KaTeX_Math' : 'KaTeX_Main') + ', serif';
+    const m = ctx.measureText(text);
+    return {
+      w: m.width,
+      asc: (m.actualBoundingBoxAscent != null ? m.actualBoundingBoxAscent : size * 0.7),
+      desc: (m.actualBoundingBoxDescent != null ? m.actualBoundingBoxDescent : size * 0.2),
+    };
+  };
+  // Parse ^/_ scripts the same way the renderer does.
+  const parts = [];
+  {
+    let i = 0, cur = '', mode = 'normal';
+    while (i < s.length) {
+      if (s[i] === '^' || s[i] === '_') {
+        if (cur) parts.push({ text: cur, mode });
+        mode = s[i] === '^' ? 'sup' : 'sub';
+        i++;
+        cur = '';
+        if (i < s.length && s[i] === '{') {
+          i++; let depth = 1;
+          while (i < s.length && depth > 0) {
+            if (s[i] === '{') depth++;
+            else if (s[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+            cur += s[i]; i++;
+          }
+        } else if (i < s.length) { cur = s[i]; i++; }
+        parts.push({ text: cur, mode });
+        cur = ''; mode = 'normal';
+      } else { cur += s[i]; i++; }
+    }
+    if (cur) parts.push({ text: cur, mode });
+  }
+  const italicLetters = fontStyle === 'italic';
+  const letterRe = /[a-zA-Zα-ωΑ-Ω]+/g;
+  let w = 0, asc = 0, desc = 0, any = false;
+  for (const p of parts) {
+    const isScript = p.mode !== 'normal';
+    const size = isScript ? fontSize * 0.7 : fontSize;
+    const offY = p.mode === 'sup' ? -fontSize * 0.35 : (p.mode === 'sub' ? fontSize * 0.25 : 0);
+    const text = p.text.replace(/[{}]/g, '');
+    const atoms = _mathTokenize(text, mathMode && !isScript);
+    for (const a of atoms) {
+      if (a.dxEm > 0) w += a.dxEm * size;
+      if (!a.text) continue;
+      const segs = [];
+      if (a.kind === 'upright' || a.kind === 'opname' || !italicLetters) {
+        segs.push({ t: a.text, it: false });
+      } else {
+        let last = 0, m;
+        letterRe.lastIndex = 0;
+        while ((m = letterRe.exec(a.text)) !== null) {
+          if (m.index > last) segs.push({ t: a.text.slice(last, m.index), it: false });
+          segs.push({ t: m[0], it: true });
+          last = m.index + m[0].length;
+        }
+        if (last < a.text.length) segs.push({ t: a.text.slice(last), it: false });
+      }
+      for (const sg of segs) {
+        if (!sg.t) continue;
+        const mm = measureSeg(sg.t, sg.it, size);
+        w += mm.w;
+        if (/\S/.test(sg.t)) {
+          asc = Math.max(asc, mm.asc - offY);
+          desc = Math.max(desc, mm.desc + offY);
+          any = true;
+        }
+      }
+    }
+  }
+  const out = any ? { w, asc, desc, h: asc + desc } : null;
+  _inkCache.set(key, out);
+  return out;
+}
+
+// Measure a RAW label string (as stored in the draw command) by running it
+// through the same cleanup renderLabelWithScripts applies, then measuring with
+// _canvasInkMetrics. Used by the placement code (alignment offsets, vertical
+// centering) so the offsets agree with what actually gets painted.
+function _canvasInkForRaw(rawText, fontSize, fontWeight, fontStyle, mathMode) {
+  if (typeof document === 'undefined' || !_labelFontsReady()) return null;
+  try {
+    const c = _cleanLabelText(rawText, fontWeight, fontStyle, mathMode);
+    return _canvasInkMetrics(c.s, fontSize, c.fontWeight, c.fontStyle, mathMode || c.fontStyle === 'italic');
+  } catch (e) { return null; }
+}
+
 // Render label text with superscript/subscript support as SVG
-function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontFamily, fontWeight, fontStyle) {
-  // First apply LaTeX-to-Unicode mapping (same as stripLaTeX but preserving ^/_)
+// Shared label-string cleanup for the SVG-<text> path: LaTeX → Unicode,
+// upright sentinels, accents, spacing macros. Returns the cleaned string plus
+// resolved font flags. `mathMode` activates TeX math conventions: hyphen →
+// U+2212 minus, literal spaces ignored (the tokenizer re-inserts proper
+// operator spacing), explicit \, \: \; kept as spacing markers.
+function _cleanLabelText(rawText, fontWeight, fontStyle, isMath) {
   let s = rawText || '';
   s = s.replace(/\$/g, '');
   // Detect \textbf / \mathbf → bold; \textit / \mathit → italic (whole-label heuristic)
   if ((!fontWeight || fontWeight === 'normal') && /\\(?:textbf|mathbf)\s*\{/.test(s)) fontWeight = 'bold';
   if ((!fontStyle  || fontStyle  === 'normal') && /\\(?:textit|mathit)\s*\{/.test(s)) fontStyle  = 'italic';
-  // Use private-use sentinel chars \x01…\x02 as open/close markers for upright spans.
+  const mathMode = !!isMath || fontStyle === 'italic';
+  // Use private-use sentinel chars \x01…\x02 as open/close markers for upright spans,
+  // \x06…\x02 for upright OPERATOR NAMES (which get TeX thin-space against their args).
   const UPRIGHT_OPEN = '\x01';
   const UPRIGHT_CLOSE = '\x02';
-  // Handle \mathrm / \textrm / \text / \operatorname — wrap contents in upright sentinels
-  // so they render non-italic even when the surrounding label is in math-italic mode.
-  s = s.replace(/\\(?:mathrm|textrm|text|operatorname)\s*\{([^}]*)\}/g,
+  const OPNAME_OPEN = '\x06';
+  // \operatorname is an operator (thin-spaced); \mathrm/\textrm/\text are plain upright.
+  s = s.replace(/\\operatorname\s*\{([^}]*)\}/g,
+    (_m, inner) => OPNAME_OPEN + inner + UPRIGHT_CLOSE);
+  s = s.replace(/\\(?:mathrm|textrm|text)\s*\{([^}]*)\}/g,
     (_m, inner) => UPRIGHT_OPEN + inner + UPRIGHT_CLOSE);
   // Strip other styling commands (bold/italic/sf/tt already handled via fontWeight/Style detection).
   s = s.replace(/\\(?:mathbf|mathit|mathsf|mathtt|textbf|textit)\s*\{([^}]*)\}/g, '$1');
   s = s.replace(/\\hspace\s*\{[^}]*\}/g, ' ');
-  // In math-italic mode, mark operator names so they render upright (as in real LaTeX).
+  // In math mode, mark operator names so they render upright (as in real LaTeX).
   // Must happen before texMap converts \cos → 'cos', so we can distinguish operator text
   // from ordinary italic variables.
-  if (fontStyle === 'italic') {
+  if (mathMode) {
     s = s.replace(/\\(arcsin|arccos|arctan|sin|cos|tan|sec|csc|cot|log|ln|exp|lim|inf|sup|gcd|det|ker|dim|deg|hom|arg)(?![a-zA-Z])/g,
-      (_m, op) => UPRIGHT_OPEN + op + UPRIGHT_CLOSE);
+      (_m, op) => OPNAME_OPEN + op + UPRIGHT_CLOSE);
   }
   // Trigger mixed upright/italic rendering when any upright sentinels are present.
-  const needsUprightOps = s.includes(UPRIGHT_OPEN);
+  const needsUprightOps = s.includes(UPRIGHT_OPEN) || s.includes(OPNAME_OPEN);
   // Common LaTeX → Unicode
   const texMap = {
     '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\varepsilon':'ε','\\epsilon':'ϵ',
@@ -30396,10 +30710,19 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   };
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
   for (const [cmd, uni] of sortedEntries) s = s.split(cmd).join(uni);
-  // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
-  s = s.replace(/\\[ ~;,:!]/g, ' ');
-  // Bare ~ is TeX non-breaking space (tie) — convert to space
-  s = s.replace(/~/g, ' ');
+  if (mathMode) {
+    // Math mode: explicit TeX spacing macros become spacing markers consumed by
+    // _mathTokenize (\, thin, \: med, \; thick, \! dropped); \<space> and ~ are
+    // real word spaces (\x07 survives the space-ignoring tokenizer).
+    s = s.replace(/\\,/g, '\x03').replace(/\\:/g, '\x04').replace(/\\;/g, '\x05').replace(/\\!/g, '');
+    s = s.replace(/\\[ ~]/g, '\x07');
+    s = s.replace(/~/g, '\x07');
+  } else {
+    // Handle \<space> (TeX inter-word space), \~ (non-breaking space), \; \, \: (thin/medium space), \! (negative thin space) → space
+    s = s.replace(/\\[ ~;,:!]/g, ' ');
+    // Bare ~ is TeX non-breaking space (tie) — convert to space
+    s = s.replace(/~/g, ' ');
+  }
   // Strip \definecolor{name}{model}{values} declarations (no visible output)
   s = s.replace(/\\definecolor\s*\{[^}]*\}\s*\{[^}]*\}\s*\{[^}]*\}/g, '');
   // Strip \color[model]{values} (xcolor optional-arg form) and \color{name}, keeping surrounding text
@@ -30419,14 +30742,40 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   s = s.replace(/\\overrightarrow\s*\{([^}]*)\}/g, '$1\u20D7');
   // Remove remaining \commands
   s = s.replace(/\\[a-zA-Z]+/g, '');
-  // In math-italic mode, an ASCII hyphen-minus is a binary/unary minus operator;
+  // In math mode, an ASCII hyphen-minus is a binary/unary minus operator;
   // render it as U+2212 MINUS SIGN (longer, matches TeX) rather than the short
-  // hyphen glyph. Only in italic (math) mode so plain-text hyphens are untouched.
-  if (fontStyle === 'italic') s = s.replace(/-/g, '−');
+  // hyphen glyph. Math mode only, so plain-text hyphens are untouched.
+  if (mathMode) s = s.replace(/-/g, '−');
   // NOTE: Do NOT strip braces here — the subscript/superscript parser below
   // needs them to detect multi-character groups like _{k-1}.  Stray braces
   // are cleaned up after parsing (see below).
   s = s.replace(/\s+/g, ' ').trim();
+  return { s, fontWeight, fontStyle, needsUprightOps, mathMode };
+}
+
+// Render label text with superscript/subscript support as SVG
+function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontFamily, fontWeight, fontStyle, isMath) {
+  const _cleaned = _cleanLabelText(rawText, fontWeight, fontStyle, isMath);
+  let s = _cleaned.s;
+  fontWeight = _cleaned.fontWeight;
+  fontStyle = _cleaned.fontStyle;
+  const needsUprightOps = _cleaned.needsUprightOps;
+  const mathMode = _cleaned.mathMode;
+  const UPRIGHT_OPEN = '\x01';
+
+  // Browser-only: place the label's INK center exactly at the requested y.
+  // dominant-baseline="central" centers the FONT box, which for an x-height
+  // glyph like "m" or a descender like "y" sits up to ~0.15em away from the
+  // ink center (probe: $\mathrm{m}$ 1.3bp low, $y$ 1.6bp low vs TeXeR).
+  // Compute the ink box with canvas metrics for the same KaTeX faces and
+  // anchor the baseline explicitly instead.
+  if (baseline === 'central') {
+    const _ink = _canvasInkMetrics(s, fontSize, fontWeight || 'normal', fontStyle || 'normal', mathMode);
+    if (_ink && _ink.h > 0) {
+      y = fmt(parseFloat(y) + (_ink.asc - _ink.desc) / 2);
+      baseline = 'alphabetic';
+    }
+  }
 
   // Check for super/subscripts
   const hasSS = /[_^]/.test(s);
@@ -30443,21 +30792,17 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
     if (fontStyle === 'italic') {
       // Math-italic mode: only letters should be italic; digits, parentheses,
       // operators, and the minus sign stay upright (as in real LaTeX math).
-      // mathTextSvg splits letter runs (italic KaTeX_Math) from the rest
-      // (upright KaTeX_Main) AND handles the \x01..\x02 upright sentinels, so
-      // each glyph gets its own font-style via tspans and nothing inherits the
-      // parent's italic. (Omit fsAttr from the parent for that reason.)
-      const mixed = mathTextSvg(s);
+      // mathAtomsSvg splits letter runs (italic KaTeX_Math) from the rest
+      // (upright KaTeX_Main), handles the upright sentinels, AND applies TeX
+      // operator spacing, so each glyph gets its own font-style via tspans and
+      // nothing inherits the parent's italic. (Omit fsAttr from the parent.)
+      const mixed = mathAtomsSvg(s, fontSize, true, mathMode);
       return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${op}>${mixed}</text>`;
     }
-    if (needsUprightOps && s.includes(UPRIGHT_OPEN)) {
-      // Build mixed upright/bold content: operator names get upright tspan elements
-      const segs = s.split(/\x01([^\x02]*)\x02/);
-      let mixed = '';
-      for (let si = 0; si < segs.length; si++) {
-        if (si % 2 === 0) { mixed += escSvg(segs[si]); }
-        else { mixed += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs[si])}</tspan>`; }
-      }
+    if (mathMode || needsUprightOps) {
+      // Upright math (digits/operators-only like "$-5$", "$(3,-4)$") still gets
+      // TeX minus glyphs + operator spacing; sentinel regions render upright.
+      const mixed = mathAtomsSvg(s, fontSize, false, mathMode);
       return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${mixed}</text>`;
     }
     return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fmt(fontSize)}" text-anchor="${anchor}" dominant-baseline="${baseline}" font-family="${ff}"${fwAttr}${fsAttr}${op}>${escSvg(s)}</text>`;
@@ -30510,29 +30855,26 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   };
   let inner = '';
   let cursorDy = 0;
+  // Scripts render at 0.7× with no TeX operator spacing (TeX scriptstyle sets
+  // bin/rel muskips to zero) — strip the sentinel and spacing markers.
+  const _scriptText = (t) => t.replace(/[\x01\x02\x06]/g, '').replace(/[\x03\x04\x05]/g, '').replace(/\x07/g, ' ');
   for (const p of parts) {
     if (p.mode === 'sup') {
-      const supText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
-      const supUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
+      const supText = _scriptText(p.text);
+      const supUpright = /[\x01\x06]/.test(p.text) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
       inner += `<tspan dy="${fmt(supDy - cursorDy)}" font-size="${fmt(fontSize * 0.7)}"${supUpright}>${escSvg(supText)}</tspan>`;
       cursorDy = supDy;
     } else if (p.mode === 'sub') {
-      const subText = needsUprightOps ? p.text.replace(/\x01|\x02/g, '') : p.text;
-      const subUpright = needsUprightOps && p.text.includes(UPRIGHT_OPEN) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
+      const subText = _scriptText(p.text);
+      const subUpright = /[\x01\x06]/.test(p.text) ? ' font-family="KaTeX_Main, serif" font-style="normal"' : '';
       inner += `<tspan dy="${fmt(subDy - cursorDy)}" font-size="${fmt(fontSize * 0.7)}"${subUpright}>${escSvg(subText)}</tspan>`;
       cursorDy = subDy;
     } else {
       let partContent;
-      if (fontStyle === 'italic') {
-        // Only letters italic; parens/digits/operators/minus upright (see no-scripts branch).
-        partContent = mathTextSvg(p.text);
-      } else if (needsUprightOps && p.text.includes(UPRIGHT_OPEN)) {
-        const segs2 = p.text.split(/\x01([^\x02]*)\x02/);
-        partContent = '';
-        for (let si = 0; si < segs2.length; si++) {
-          if (si % 2 === 0) { partContent += escSvg(segs2[si]); }
-          else { partContent += `<tspan font-family="KaTeX_Main, serif" font-style="normal">${escSvg(segs2[si])}</tspan>`; }
-        }
+      if (fontStyle === 'italic' || mathMode || /[\x01\x06]/.test(p.text)) {
+        // Math content / sentinel-bearing text: letter-run italics, upright
+        // sentinel regions, TeX operator spacing (mathMode only).
+        partContent = mathAtomsSvg(p.text, fontSize, fontStyle === 'italic', mathMode);
       } else {
         partContent = escSvg(p.text);
       }
@@ -30552,7 +30894,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
 // equivalents.  amssymb's \bigstar, \blacksquare, etc. are not in KaTeX's
 // default command set; use Unicode characters wrapped in \text{} so they
 // render reliably.
-function preprocessLatexForKatex(src) {
+function preprocessLatexForKatex(src, forMathJax) {
   if (typeof src !== 'string') return src;
   // Normalize embedded TAB/CR/LF inside the math source to a single space.
   // Some corpus .asy files contain literal TAB bytes where `\theta` was meant
@@ -30564,11 +30906,16 @@ function preprocessLatexForKatex(src) {
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
   // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
-  // MathJax/KaTeX renders ^\circ with extra spacing around the ring operator.
+  // KaTeX renders ^\circ with extra spacing around the ring operator.
   // Use ^{°} (superscript unicode degree) for tight spacing matching TeXeR.
   // Use \mkern-3.5mu for tighter kerning matching TeXeR reference.
-  src = src.replace(/\^\s*\{\\circ\}/g, '\\mkern-3.5mu^{°}');
-  src = src.replace(/\^\s*\\circ\b/g, '\\mkern-3.5mu^{°}');
+  // MathJax is NOT given this substitution: its native ^\circ matches the
+  // TeXeR reference (probe $45^\circ$: native 15.9bp × 8.4 vs oracle 15.0 × 8.3;
+  // the unicode-° hack rendered 12.9 × 10.2 — too narrow and too tall).
+  if (!forMathJax) {
+    src = src.replace(/\^\s*\{\\circ\}/g, '\\mkern-3.5mu^{°}');
+    src = src.replace(/\^\s*\\circ\b/g, '\\mkern-3.5mu^{°}');
+  }
   const replacements = [
     [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
     [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
@@ -30635,6 +30982,7 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
         return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
       }
     } else {
+    try {
     html = '';
     for (const seg of segments) {
       if (seg.type === 'math') {
@@ -30652,8 +31000,18 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
         // Preserve spaces: HTML collapses leading/trailing whitespace in text nodes
         // adjacent to inline elements (KaTeX output).  Use numeric char ref &#160;
         // (valid in XML/SVG; plain &nbsp; is only an HTML entity and breaks svg->png).
-        html += txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&#160;');
+        // Wrap in font-size:1.21em — the containing div uses fontSize/1.21 so the
+        // KaTeX content (which multiplies by 1.21 internally) comes out at the
+        // label size; bare text segments would otherwise render 17% smaller than
+        // the math beside them ("$W-1$ cells" probe: "cells" 17.4bp vs TeX 21).
+        html += '<span style="font-size:1.21em">' +
+          txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&#160;') +
+          '</span>';
       }
+    }
+    } catch(e) {
+      // katex unavailable (node fallback after a MathJax error) or render failure
+      return renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline, opacity);
     }
     }
   } else {
@@ -30684,7 +31042,11 @@ function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opaci
   // KaTeX CSS applies .katex { font-size: 1.21em } internally, so divide by 1.21
   // to get the correct effective size matching Asymptote/LaTeX output.
   const katexCSS = fontSizeCSS / 1.21;
-  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(katexCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
+  // KaTeX_Main leads the text-segment font stack: it is the one Computer
+  // Modern face guaranteed present (loaded by katex.min.css), so mixed-label
+  // prose ("$W-1$ cells") renders in CM like TeXeR instead of falling back to
+  // Times New Roman (~7% narrower, visibly different shapes).
+  return `<foreignObject x="${fmt(fx)}" y="${fmt(fy)}" width="${fmt(estW)}" height="${fmt(estH)}" overflow="visible"${op}><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'KaTeX_Main','Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;font-size:${fmt(katexCSS)}px;${colorStyle}${reflectStyle}display:flex;align-items:center;justify-content:${anchor === 'end' ? 'flex-end' : anchor === 'start' ? 'flex-start' : 'center'};height:100%;overflow:visible;">${html}</div></foreignObject>`;
 }
 
 // --- MathJax SVG rendering (Node-only, for rasterization pipeline) ---
@@ -30708,6 +31070,57 @@ function _ensureMathJax() {
     RegisterHTMLHandler(adaptor);
     const tex = new TeX({ packages: AllPackages });
     const svg = new SVG({ fontCache: 'local' });
+    // MathJax (3.2.1) draws the \frac RULE 0.1em wider than the content on
+    // EACH side (the local `d = .1` in SVGmfrac.makeFraction and the matching
+    // `+ .2` in getFractionBBox). Real TeX's rule is exactly
+    // max(numerator, denominator) wide — dvisvgm references show tight bars
+    // (probe: \frac{1}{2} ink 4.5bp in TeXeR vs 6.9 with the overhang; the
+    // long bars cost visible fidelity on fraction-tick number lines like
+    // 05979/05980). Patch the pinned wrapper to drop the overhang. The
+    // nulldelimiterspace padding is left alone: TeX includes it as real
+    // (invisible) space around \frac, so removing it would mis-space
+    // expressions like $x=\frac{1}{2}$.
+    try {
+      const { SVGmfrac } = require('mathjax-full/js/output/svg/Wrappers/mfrac.js');
+      SVGmfrac.prototype.makeFraction = function (display, t) {
+        const svgEl = this.element;
+        const lists = this.node.attributes.getList('numalign', 'denomalign');
+        const numalign = lists.numalign, denomalign = lists.denomalign;
+        const num = this.childNodes[0], den = this.childNodes[1];
+        const nbox = num.getOuterBBox();
+        const dbox = den.getOuterBBox();
+        const texp = this.font.params;
+        const a = texp.axis_height;
+        const d = 0; // stock MathJax: .1em rule overhang each side
+        const pad = (this.node.getProperty('withDelims') ? 0 : texp.nulldelimiterspace);
+        const W = Math.max((nbox.L + nbox.w + nbox.R) * nbox.rscale,
+                           (dbox.L + dbox.w + dbox.R) * dbox.rscale);
+        const nx = this.getAlignX(W, nbox, numalign) + d + pad;
+        const dxp = this.getAlignX(W, dbox, denomalign) + d + pad;
+        const tuv = this.getTUV(display, t);
+        num.toSVG(svgEl);
+        num.place(nx, a + tuv.T + Math.max(nbox.d * nbox.rscale, tuv.u));
+        den.toSVG(svgEl);
+        den.place(dxp, a - tuv.T - Math.max(dbox.h * dbox.rscale, tuv.v));
+        this.adaptor.append(svgEl, this.svg('rect', {
+          width: this.fixed(W + 2 * d), height: this.fixed(t),
+          x: this.fixed(pad), y: this.fixed(a - t / 2),
+        }));
+      };
+      SVGmfrac.prototype.getFractionBBox = function (bbox, display, t) {
+        const nbox = this.childNodes[0].getOuterBBox();
+        const dbox = this.childNodes[1].getOuterBBox();
+        const a = this.font.params.axis_height;
+        const tuv = this.getTUV(display, t);
+        bbox.combine(nbox, 0, a + tuv.T + Math.max(nbox.d * nbox.rscale, tuv.u));
+        bbox.combine(dbox, 0, a - tuv.T - Math.max(dbox.h * dbox.rscale, tuv.v));
+        bbox.w += 2 * this.pad; // stock MathJax adds + .2 here too
+      };
+      SVGmfrac.prototype.getWrapWidth = function (i) {
+        if (this.node.attributes.get('bevelled')) return this.childNodes[i].getOuterBBox().w;
+        return this.getBBox().w - 2 * this.pad;
+      };
+    } catch (e) { /* tolerate MathJax internals changing */ }
     const doc = mathjax.document('', { InputJax: tex, OutputJax: svg });
     _mjxState = { doc, adaptor };
     return _mjxState;
@@ -30726,7 +31139,7 @@ function _texpathViaMathJax(rawText) {
   let math = (rawText || '').trim();
   if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
   if (math.startsWith('$') && math.endsWith('$')) math = math.slice(1, -1);
-  math = preprocessLatexForKatex(math);
+  math = preprocessLatexForKatex(math, true);
   if (!math) return null;
   let html;
   try {
@@ -30861,16 +31274,19 @@ function _texCapFontSize(n) {
 // heuristic under-estimates wide sans-serif/bold text (e.g. \textsf{NOON})
 // by 2×+, which prevents the solver from detecting label-dominated layouts
 // that exceed size() and require uniform downscaling.
-// MathJax's bundled Computer-Modern-clone glyphs have advance widths ~7%
-// narrower than the real Computer Modern that TeXeR/dvisvgm ships, while their
-// vertical metrics match. Left uncorrected, every math label renders ~7% too
-// narrow, so label-width-dominated diagrams (e.g. 02422's Sarrus grid + the
-// "-ary-bpz-cqx" expansion) lose sizeScore even when structurally perfect.
-// Apply a horizontal-only stretch to bring advance widths in line with CM.
+// MathJax's em-to-bp chain (em = fontSize/1.21, ex = 0.5em) renders labels ~7%
+// smaller than the real Computer Modern that TeXeR/dvisvgm ships at the same
+// nominal fontsize. Historically this was compensated with a horizontal-ONLY
+// stretch (_MJX_HSTRETCH), which fixed advance widths but left every label
+// ~6% too short (oracle probe: digits 8.3bp tall vs 7.8 rendered, "Mass (kg)"
+// 12.0 vs 11.4) and distorted glyphs (horizontally fattened strokes).
+// The correction is now applied UNIFORMLY to both axes: widths are unchanged
+// from the stretched values the corpus is calibrated against, heights grow to
+// match the reference (probe after: digits 8.4 vs oracle 8.3), and glyph
+// shapes are no longer distorted.
 // Must be applied identically in _mjxMeasureBp (so the bbox/viewBox grows to
-// fit the wider label) and renderLabelMathJaxSVG (the actual emitted glyphs,
-// via preserveAspectRatio="none" on the nested <svg>).
-const _MJX_HSTRETCH = 1.072;
+// fit the label) and renderLabelMathJaxSVG (the actual emitted glyphs).
+const _MJX_SCALE = 1.072;
 
 function _mjxMeasureBp(rawText, fontSize) {
   const state = _ensureMathJax();
@@ -30900,6 +31316,9 @@ function _mjxMeasureBp(rawText, fontSize) {
   const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
   if (isDollar) math = math.slice(1, -1);
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+  // Mirror renderLabelMathJaxSVG exactly (incl. preprocessing) so the measured
+  // string equals the rendered string and the _mjxCache entry is shared.
+  math = preprocessLatexForKatex(math, true);
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
     math = _reconstructMixedLabel(math);
@@ -30929,7 +31348,7 @@ function _mjxMeasureBp(rawText, fontSize) {
   // Match renderLabelMathJaxSVG: em = fontSize/1.21, exRatio = 0.5.
   const em = fontSize / 1.21;
   const exRatio = 0.5;
-  return { wBp: parsed.wEx * exRatio * em * _MJX_HSTRETCH, hBp: parsed.hEx * exRatio * em };
+  return { wBp: parsed.wEx * exRatio * em * _MJX_SCALE, hBp: parsed.hEx * exRatio * em * _MJX_SCALE };
 }
 
 // Browser-only counterpart to _mjxMeasureBp.  Renders the label through KaTeX
@@ -30986,7 +31405,10 @@ function _katexMeasureBp(rawText, fontSize) {
           if (seg.type === 'math') {
             html += katex.renderToString(seg.content, {throwOnError:false, displayMode:false, output:'html'});
           } else {
-            html += seg.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/ /g,'&nbsp;');
+            // Mirror renderLabelKaTeX: text segments at 1.21em (see note there).
+            html += '<span style="font-size:1.21em">' +
+              seg.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/ /g,'&nbsp;') +
+              '</span>';
           }
         }
         }
@@ -30999,7 +31421,7 @@ function _katexMeasureBp(rawText, fontSize) {
     // renderLabelKaTeX sets the foreignObject div to font-size:fontSizeCSS/1.21 with
     // the serif font stack; mirror that so measurements match render layout.
     wrap.style.cssText = 'display:inline-block;font-size:' + (probeSize / 1.21) + 'px;' +
-      "font-family:'Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;" +
+      "font-family:'KaTeX_Main','Computer Modern Serif','Latin Modern Roman','CMU Serif','STIX Two Text','Times New Roman',serif;" +
       'line-height:normal;';
     wrap.innerHTML = html;
     try {
@@ -31007,8 +31429,16 @@ function _katexMeasureBp(rawText, fontSize) {
       const rect = wrap.getBoundingClientRect();
       _katexMeasureHost.removeChild(wrap);
       if (!(rect.width > 0)) { _katexMeasureCache.set(cacheKey, {error:true}); return null; }
-      // Browser CSS px -> bp:  1 bp = 1/72 in = 96/72 CSS px = 4/3 px; so bp = px * 0.75.
-      unitDims = { wPerPx: (rect.width * 0.75) / probeSize, hPerPx: (rect.height * 0.75) / probeSize };
+      // The wrap span's font-size is probeSize/1.21 and KaTeX's .katex CSS
+      // multiplies by 1.21, so the effective em is exactly probeSize px:
+      // rect.width/probeSize = advance in em, and width in bp for a label of
+      // TeX fontsize N (whose em is N bp) is em * N. The old `* 0.75` here
+      // (a CSS-px→bp screen conversion) didn't belong in this semantic and
+      // made _katexMeasureBp read 25% narrower than its MathJax counterpart
+      // _mjxMeasureBp — visible as E/W-aligned math labels placed ~2bp off
+      // in the browser ($M$ E/W probe), and as a browser/pipeline divergence
+      // in the scale solver's label-width checks.
+      unitDims = { wPerPx: rect.width / probeSize, hPerPx: rect.height / probeSize };
       _katexMeasureCache.set(cacheKey, unitDims);
     } catch (e) { _katexMeasureCache.set(cacheKey, {error:true}); return null; }
   }
@@ -31107,7 +31537,7 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
   if (isDollar) math = math.slice(1, -1);
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
-  math = preprocessLatexForKatex(math);
+  math = preprocessLatexForKatex(math, true);
   const hasMixedContent = !isDollar && /\$[^$]+\$/.test(math);
   if (hasMixedContent) {
     // Reconstruct as one mode-aware TeX string so MathJax lays it out as a single box.
@@ -31160,9 +31590,9 @@ function renderLabelMathJaxSVG(rawText, x, y, fontSize, fill, anchor, baseline, 
   // equals what the renderer actually emits.
   const em = fontSizeCSS / 1.21;
   const exRatio = 0.5;
-  // Horizontal-only CM advance-width correction (see _MJX_HSTRETCH note).
-  const svgW = parsed.wEx * exRatio * em * _MJX_HSTRETCH;
-  const svgH = parsed.hEx * exRatio * em;
+  // Uniform CM size correction (see _MJX_SCALE note).
+  const svgW = parsed.wEx * exRatio * em * _MJX_SCALE;
+  const svgH = parsed.hEx * exRatio * em * _MJX_SCALE;
 
   let fx = parseFloat(x), fy = parseFloat(y);
   if (anchor === 'middle') fx -= svgW / 2;
@@ -32173,7 +32603,7 @@ function escSvg(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 // variables like "$RDUA$" in a sentence render italic the way LaTeX does.
 // Returns SVG inner content (tspans). Falls back to plain escaped text when
 // the line has no math, so non-math lines are byte-identical to before.
-function _inlineMathSvg(line) {
+function _inlineMathSvg(line, fontSize) {
   if (!line) return '';
   // LaTeX inline-math delimiters \( ... \) are equivalent to $ ... $ — normalize
   // so prose lines (e.g. a minipage paragraph "result is \(4\times3=12\) ...")
@@ -32202,7 +32632,13 @@ function _inlineMathSvg(line) {
   };
   while ((m = re.exec(line)) !== null) {
     if (m.index > last) result += emit(line.slice(last, m.index));
-    if (m[1]) result += mathTextSvg(stripLaTeX(m[1]));
+    if (m[1]) {
+      // Math segment: italic letter runs + U+2212 minus + TeX operator spacing
+      // (when the caller provides fontSize for the dx values).
+      const mathContent = stripLaTeX(m[1]).replace(/-/g, '−');
+      result += fontSize ? mathAtomsSvg(mathContent, fontSize, true, true)
+                         : mathTextSvg(mathContent);
+    }
     last = m.index + m[0].length;
   }
   if (last < line.length) result += emit(line.slice(last));
