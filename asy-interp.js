@@ -11303,6 +11303,16 @@ function createInterpreter() {
             headKind = a.kind; break;
           }
         }
+        // No explicit head argument: honor a user reassignment of the
+        // DefaultHead variable (03351's `DefaultHead = TeXHead;` makes all
+        // subsequent default arrows render the thin TeX glyph).
+        if (headKind === null) {
+          try {
+            const _dh = env.get('DefaultHead');
+            if (_dh && typeof _dh === 'object' && _dh._tag === 'arrowhead' &&
+                _dh.kind && _dh.kind !== 'DefaultHead') headKind = _dh.kind;
+          } catch (e) {}
+        }
         // Regular Arrow default: 6bp. TeXHead default is computed at draw time
         // from the pen linewidth: size = 2.1 * arrowtexfactor * linewidth(p),
         // matching Asymptote's plain_arrows.asy TeXHead.size definition.
@@ -12708,10 +12718,15 @@ function createInterpreter() {
         // (unitsize(1cm), ~1.2-unit geometry) ships at ~145bp/unit, not
         // 28.35. Mirror _pokeFinalBpu's clamped formula. (The size-regex
         // always matches "unitsize(N", so the 400 target always applies.)
+        // Gain capped at 5: the true fit shares the 400bp budget with the
+        // truesize labels, so small-geometry pictures with big labels land
+        // at g≈4-5, not 400/geoInk (measured: 00247 g=5.1, 00245 g=3.9 —
+        // the raw formula gave ~12, shrinking label boxes 2.4x and cutting
+        // the frame-extended axes short).
         const lit = Math.max(rX, rY) * unitScale;
         if (lit > 0) {
           const g = 400 / lit;
-          return unitScale * Math.max(0.05, Math.min(50, g));
+          return unitScale * Math.max(0.05, Math.min(5, g));
         }
         return unitScale;
       }
@@ -12917,7 +12932,13 @@ function createInterpreter() {
           // for both axes, so y-axis ticks (extending in x) became ~10% of the
           // x range — visually enormous. Use the perpendicular-direction factor
           // for each axis to keep ticks at consistent screen length (~1mm).
-          if (_isXAxis) {
+          // Aspect-PRESERVING size(w,h) is a uniform fit: both directions use
+          // min(sw/rX, sh/rY) (12301: size(200) over 10x4 units → 20 bp/unit
+          // for both axes, not 50 for the x-axis ticks).
+          if (sizeW > 0 && sizeH > 0 && keepAspect) {
+            const _u = Math.min(rX > 0 ? sw / rX : Infinity, rY > 0 ? sh / rY : Infinity);
+            if (isFinite(_u)) bpPerUnit = _u;
+          } else if (_isXAxis) {
             if (rY > 0) bpPerUnit = sh / rY;
           } else {
             if (rX > 0) bpPerUnit = sw / rX;
@@ -12998,8 +13019,12 @@ function createInterpreter() {
           sw2 = (rX2 > 0 && rY2 > 0) ? sizeH * (rX2 / rY2) : sizeH;
         }
         // Tick extends perpendicular to the axis: y-axis ticks extend in x,
-        // x-axis ticks extend in y.
-        if (_isXAxis) {
+        // x-axis ticks extend in y. Aspect-preserving size(w,h) is a uniform
+        // fit — use min() for both axes (see defaultTickSize block).
+        if (sizeW > 0 && sizeH > 0 && keepAspect) {
+          const _u2 = Math.min(rX2 > 0 ? sw2 / rX2 : Infinity, rY2 > 0 ? sh2 / rY2 : Infinity);
+          if (isFinite(_u2)) _ticksBpPerUnit = _u2;
+        } else if (_isXAxis) {
           if (rY2 > 0) _ticksBpPerUnit = sh2 / rY2;
         } else {
           if (rX2 > 0) _ticksBpPerUnit = sw2 / rX2;
@@ -13104,7 +13129,13 @@ function createInterpreter() {
           const _autoRange = ticks._axisAutoRange !== false;
           let N = 1, minorN = 0, chosenStep = len > 0 ? len : 1;
           if (divisor.length > 0 && len > 0 && bR > aR) {
-            const h = 0.5 * (bR - aR);
+            // graph.asy subdivides when Step > half the axis range. That
+            // boundary is razor-thin under frame extension (00115: real asy
+            // ships hi=6.0247, surviving Step=5 vs h=5.012 by 0.5%); our
+            // estimated extension can land just short and flip to a junk
+            // 2.5/3.75 step with labels like "-1.25". Tolerate Steps within
+            // 15% of h so borderline cases keep the nice sparse step.
+            const h = 0.5 * (bR - aR) * 1.15;
             for (let d = divisor.length - 1; d >= 0; d--) {
               let N0 = divisor[d];
               let Step = len / N0;
@@ -13134,6 +13165,11 @@ function createInterpreter() {
           }
           step = chosenStep;
           if (!(step > 0)) step = 1;
+          // graph.asy computes the explicit minor substep AFTER the divisor
+          // loop (n=ceil(Step/step)), so a user-given minor step applies even
+          // when every coverage check failed and the N=2 fallback fired —
+          // 00066's x-axis keeps its minors at 1 and 3.
+          if (minorN === 0 && ticks.subStep > 0) minorN = Math.ceil(step / ticks.subStep);
           denseMinorN = minorN;
           majorPositions = [];
           const bfuzz = bR + 1e-9 * norm, afuzz = aR - 1e-9 * norm;
@@ -13346,8 +13382,11 @@ function createInterpreter() {
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
           const align = ticks.labelAlign || defaultAlign;
           // Tick direction vs label side → offset (screen coords: +y down).
+          // Applies even when the tick marks themselves are invisible
+          // (05072's labelTicks-on-invisible-axis rows still reserve the
+          // tick Size gap, per graph.asy labeltick's shift=align*Size).
           let _sDx = 0, _sDy = 0;
-          if (!skipTickMarks && !tickMarksInvisible && !(ticks.extend === true && isExtend)) {
+          if (!(ticks.extend === true && isExtend)) {
             if (isX && align.y < 0) _sDy = (!tickSide || tickSide === 'right') ? _szBp : _margin25;
             else if (isX && align.y > 0) _sDy = -((!tickSide || tickSide === 'left') ? _szBp : _margin25);
             else if (!isX && align.x < 0) _sDx = -((!tickSide || tickSide === 'left') ? _szBp : _margin25);
@@ -13423,9 +13462,11 @@ function createInterpreter() {
           // Default-format tick labels are math-mode in Asymptote
           // (defaultformat = "$%.4g$"), giving the long math minus sign.
           // Custom format strings (e.g. "%4g") stay text-mode, as in TeX.
+          // Use U+2212 explicitly: the svg-native text path renders the
+          // ASCII hyphen as a short dash otherwise (03568's "-2").
           if (!ticks.labelFunc && !(ticks.format && ticks.format !== '%') &&
               txt && txt.indexOf('$') === -1) {
-            txt = '$' + txt + '$';
+            txt = '$' + ((typeof process !== 'undefined' && process.env && process.env.HTX_NO_U2212) ? txt : txt.replace(/-/g, '−')) + '$';
           }
           const labelPen = clonePen(ticks.labelPen || tickPen);
           labelPen.fontsize = labelPen.fontsize || 12;
@@ -13825,7 +13866,7 @@ function createInterpreter() {
         // the label below/above the axis — this is the Asymptote graph.asy
         // convention for `xaxis(axis=Bottom, L=...)` and the typical scientific
         // plot style.
-        let lAlign, labelX, _xLabelExtraDx = 0;
+        let lAlign, labelX, _xLabelExtraDx = 0, _xTitleOverflow = false;
         const xIsExplicitAxis = xIsBottomTop || extent === 'Bottom' || extent === 'Top';
         const xIsAboveAxis = xIsTopPrimary || extent === 'Top';
         if (xIsExplicitAxis && labelAlign == null) {
@@ -13861,6 +13902,20 @@ function createInterpreter() {
           lAlign = labelAlign || {x:-1, y:-1};
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
+          // Default-align endpoint title on a TICKED plot axis (00115's
+          // xaxis("$x$", RightTicks)): graph.asy labelaxis() centers the
+          // glyph below the endpoint and shifts it 1.5 half-widths PAST the
+          // end (s *= -axislabelfactor) — TeXeR's "x" sits to the right of
+          // the last tick label, not corner-anchored inside the axis.
+          if (labelAlign == null && labelPosition == null && ticks && !ticks.none) {
+            const _lfs0 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
+            const _wBp0 = _estimateMathRunWidth(stripLaTeX(label || ''), _lfs0);
+            lAlign = {x: 0, y: -1};
+            // Net shift calibrated against TeXeR refs (04454/00115): the
+            // glyph's right edge lands ~0.75 widths past the axis end.
+            _xLabelExtraDx = 0.25 * _wBp0;
+            _xTitleOverflow = true;
+          }
           // An EXPLICIT diagonal align (e.g. align=NE on the AoPS graph
           // template's x-title `Label("Time (s)", position=1, align=NE)`) is
           // centered horizontally over the axis endpoint in TeXeR, then nudged
@@ -13882,15 +13937,18 @@ function createInterpreter() {
             const _lfs = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
             _xLabelExtraDx = Math.sign(lAlign.x) * _lfs * 0.1;
             lAlign = {x: 0, y: lAlign.y};
-          } else if ((!ticks || ticks.none) && labelAlign != null && labelPosition != null
-                     && (labelPosition >= 0.999 || labelPosition <= 0.001)) {
+          } else if (labelAlign != null
+                     && (labelPosition == null || labelPosition >= 0.999 || labelPosition <= 0.001)) {
             // graph.asy labelaxis(): an explicit-align endpoint title is
             // shifted half its width BACK along the axis (d=shift(-s)*d), so
             // "$x$" at EndPoint+SE straddles the arrow tip instead of sitting
-            // wholly past it (00260/00263 right margin, 00059).
+            // wholly past it (00260/00263 right margin, 00059). The default
+            // position for a non-extent axis is the endpoint, so a null
+            // position counts too (03568's Label("Time (s)", align=dir(90))
+            // must END at the axis end, not extend half-width past it).
             const _lfs2 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
             const _wBp = _estimateMathRunWidth(stripLaTeX(label || ''), _lfs2);
-            _xLabelExtraDx = (labelPosition >= 0.999 ? -0.5 : 0.5) * _wBp;
+            _xLabelExtraDx = ((labelPosition != null && labelPosition <= 0.001) ? 0.5 : -0.5) * _wBp;
           }
         }
         // Asymptote's graph.asy autoshifts the axis label past tick labels so they
@@ -13920,7 +13978,7 @@ function createInterpreter() {
         // Below axis: positive screenDy (down). Above axis: negative.
         const sDy = lAlign.y < 0 ? tickLabelClearance : (lAlign.y > 0 ? -tickLabelClearance : 0);
         const _xAxisLabelPen = labelPen || pen;
-        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen: _xAxisLabelPen, filltype: labelFill || null, line:0, screenDy: sDy, screenDx: _xLabelExtraDx, _isAxisLabel: true});
+        pic.commands.push({cmd:'label', text: label, pos:{x:labelX, y:axisShiftY}, align:lAlign, pen: _xAxisLabelPen, filltype: labelFill || null, line:0, screenDy: sDy, screenDx: _xLabelExtraDx, _isAxisLabel: true, _axisTitleOverflow: _xTitleOverflow});
         // If the label is below the axis (lAlign.y < 0), record that on the axis draw
         // command so yaxis() can extend its lower bound to include the label extent.
         if (_xaxisDrawCmd && lAlign.y < 0) {
@@ -14467,6 +14525,20 @@ function createInterpreter() {
             }
           }
         }
+        // Upright endpoint "y" titles aligned W also clear the tick labels:
+        // graph.asy labelaxis() pushes the title along alignperp past the
+        // tick-label frame extent (00115/04454: TeXeR's "y" sits to the LEFT
+        // of the "5"/"-4" tick labels, not hugging the axis line).
+        if (uprightEndpoint && lAlign.x < -0.01) {
+          for (const c of pic.commands) {
+            if (c._isTickLabel && c.pos && Math.abs(c.pos.x - axisShiftX) < 1e-6) {
+              const txt = stripLaTeX(c.text || '');
+              const fs = (c.pen && c.pen.fontsize) || 12;
+              const w = _estimateMathRunWidth(txt, fs) + (c.screenDx ? Math.abs(c.screenDx) : 0);
+              if (w > tickLabelClearance) tickLabelClearance = w;
+            }
+          }
+        }
         // Asymptote graph.asy at the middle of an axis applies ONLY a
         // perpendicular shift (`realmult(width, I*dir(g,t)) * axislabelfactor`)
         // — no shift along the axis direction. For rotated labels (90° CCW)
@@ -14761,8 +14833,8 @@ function createInterpreter() {
         if (z === null) return;
         // Default tick direction = N (pair(0,1)) — same as Asymptote
         if (!dirVec) dirVec = makePair(0, 1);
-        // Default size = 1mm in bp
-        if (sizeBp === null) sizeBp = 2.834645669;
+        // Default size = Ticksize = 2mm in bp (graph.asy xtick signature)
+        if (sizeBp === null) sizeBp = 5.669291339;
         if (!pen) pen = clonePen(defaultPen);
         // Convert bp size to user units
         let bpPerUnit = 0;
@@ -14781,9 +14853,10 @@ function createInterpreter() {
         const dLen = Math.hypot(dirVec.x, dirVec.y) || 1;
         const dx = dirVec.x / dLen;
         const dy = dirVec.y / dLen;
-        // Asymptote's tick() draws (z-size*dir)--(z+size*dir) — centered on z,
-        // total length 2*size.
-        const p0 = makePair(z.x - dx * tickLenUser, z.y - dy * tickLenUser);
+        // Asymptote's tick() draws z--z+unit(dir)*size — ONE-SIDED from z in
+        // the dir direction (03351's xtick(dir=dir(-90)) ticks hang below
+        // the axis; they do not straddle it).
+        const p0 = makePair(z.x, z.y);
         const p1 = makePair(z.x + dx * tickLenUser, z.y + dy * tickLenUser);
         const path = makePath([lineSegment(p0, p1)], false);
         pic.commands.push({cmd:'draw', path, pen, arrow:null, line:0, above: 0, _isTickMark: true});
@@ -24499,6 +24572,15 @@ function renderSVG(result, opts) {
       // the legacy content-extent override below would SHRINK them back.
       if (c._jobManaged) continue;
       const seg = c.path.segs[0];
+      // Sub-picture axes transformed by add(pic.fit(), pos, align) carry
+      // STALE _axisShift* markers: rebuilding the line at the marker
+      // coordinate would teleport the axis away from its (transformed)
+      // ticks and labels (00444). Skip axes whose actual path no longer
+      // sits at the recorded shift.
+      if (c._isAxisLine === 'x' && typeof c._axisShiftY === 'number' &&
+          Math.abs(seg.p0.y - c._axisShiftY) > 1e-6) continue;
+      if (c._isAxisLine === 'y' && typeof c._axisShiftX === 'number' &&
+          Math.abs(seg.p0.x - c._axisShiftX) > 1e-6) continue;
       if (c._isAxisLine === 'x') {
         let x0 = seg.p0.x, x1 = seg.p3.x;
         const oldLo = Math.min(x0, x1), oldHi = Math.max(x0, x1);
@@ -25504,7 +25586,8 @@ function renderSVG(result, opts) {
               _screenDx: dc.screenDx || 0,
               _screenDy: dc.screenDy || 0,
               _isTickLabel: dc._isTickLabel === true,
-              _isAxisLabel: dc._isAxisLabel === true
+              _isAxisLabel: dc._isAxisLabel === true,
+              _axisTitleOverflow: dc._axisTitleOverflow === true
             });
           }
         }
@@ -25775,6 +25858,7 @@ function renderSVG(result, opts) {
     let bMinX = g0x * sx, bMaxX = g1x * sx;
     let bMinY = g0y * sy, bMaxY = g1y * sy;
     for (const li of labelInfoBp) {
+      if (li._axisTitleOverflow) continue; // overflows size() in real asy
       const cx = li.posX * sx + _fitOffX(li);
       const cy = li.posY * sy + _fitOffY(li);
       const hw = _fitW(li) / 2;
@@ -26258,6 +26342,11 @@ function renderSVG(result, opts) {
       let bpMaxY = geoMaxY * pxPerUnitY;
 
       for (const li of labelInfoBp) {
+        // Endpoint axis titles pushed past the axis end (graph.asy's
+        // axislabelfactor shift) OVERFLOW the size() budget in real
+        // Asymptote — they ride the deferred axis and never shrink the
+        // geometry fit (04454: counting "x" shrank the grid 3%).
+        if (li._axisTitleOverflow) continue;
         const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
         const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
         bpMinX = Math.min(bpMinX, cx - li.widthBp / 2);
@@ -26324,6 +26413,7 @@ function renderSVG(result, opts) {
       let bpMaxY = geoMaxY * pxPerUnitY;
       let anyMeasured = false;
       for (const li of labelInfoBp) {
+        if (li._axisTitleOverflow) continue; // overflows size() in real asy
         let wBp = li.widthBp, hBp = li.heightBp;
         // Multi-line labels (e.g. expanded minipage) cannot be measured by MJX
         // which flattens \n into a single horizontal line — the resulting width
@@ -26909,6 +26999,7 @@ function renderSVG(result, opts) {
     if (sizeH > 0 && _sp2.h > 1e-9) _g2.push(sizeH / _sp2.h);
     if (_g2.length) {
       const g = Math.min(..._g2);
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) { try { console.error('[pass2] w=' + _sp2.w.toFixed(2) + ' h=' + _sp2.h.toFixed(2) + ' g=' + g.toFixed(4)); } catch (e) {} }
       if (isFinite(g) && g > 0 && Math.abs(g - 1) > 0.002) {
         pxPerUnit *= g;
         pxPerUnitX *= g;
@@ -27198,17 +27289,21 @@ function renderSVG(result, opts) {
   const _imgDedupe = new Map(); // png_b64 -> {id, w, h}
   let _imgDedupeIdSeq = 0;
 
-  // Crop clipping: if limits() was called with Crop, add SVG clipPath
+  // Crop clipping: if limits() was called with Crop, add SVG clipPath.
+  // The rect's px coordinates are computed LAZILY at assembly time: minX/
+  // maxY/pxPerUnit can still be adjusted after this point (arrowhead and
+  // label overhang padding), and a rect computed against the early values
+  // lands ~0.1 user units off — visibly clipping a Crop'd curve short of
+  // the window edge (04454's parabola exited at f(5.4) instead of f(5.5)).
   let cropClipId = null;
+  const _deferredClipDefs = [];
   if (axisLimits && axisLimits.crop &&
       axisLimits.xmin !== null && axisLimits.xmax !== null &&
       axisLimits.ymin !== null && axisLimits.ymax !== null) {
     cropClipId = 'crop-clip';
-    const cx1 = (axisLimits.xmin - minX) * pxPerUnitX;
-    const cy1 = (maxY - axisLimits.ymax) * pxPerUnitY;
-    const cw = (axisLimits.xmax - axisLimits.xmin) * pxPerUnitX;
-    const ch = (axisLimits.ymax - axisLimits.ymin) * pxPerUnitY;
-    elements.push(`<defs><clipPath id="${cropClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
+    elements.push('');
+    _deferredClipDefs.push({ idx: elements.length - 1, id: cropClipId,
+      xmin: axisLimits.xmin, xmax: axisLimits.xmax, ymin: axisLimits.ymin, ymax: axisLimits.ymax });
   }
 
   // Per-subpicture crop clips: collect unique clip IDs from draw commands
@@ -27235,11 +27330,9 @@ function renderSVG(result, opts) {
         dc._subpicClipRect && !dc._subpicClipPathDefs) {
       subpicClipIdsEmitted.add(dc._subpicClipId);
       const r = dc._subpicClipRect;
-      const cx1 = (r.xmin - minX) * pxPerUnitX;
-      const cy1 = (maxY - r.ymax) * pxPerUnitY;
-      const cw  = (r.xmax - r.xmin) * pxPerUnitX;
-      const ch  = (r.ymax - r.ymin) * pxPerUnitY;
-      elements.push(`<defs><clipPath id="${dc._subpicClipId}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`);
+      elements.push('');
+      _deferredClipDefs.push({ idx: elements.length - 1, id: dc._subpicClipId,
+        xmin: r.xmin, xmax: r.xmax, ymin: r.ymin, ymax: r.ymax });
     }
   }
   // Helper to wrap an SVG element string in nested <g clip-path> groups
@@ -29568,6 +29661,18 @@ function renderSVG(result, opts) {
   // If user clip (Asymptote clip()) is active, wrap ALL elements (including labels) in <g clip-path>
   let innerContent;
 
+  // Materialize deferred clipPath rects with the FINAL layout values
+  // (minX/maxY/pxPerUnit may have shifted since the defs were queued —
+  // a rect computed early lands ~0.1 user units off, clipping a Crop'd
+  // curve short of the window edge, 04454).
+  for (const cd of _deferredClipDefs) {
+    const cx1 = (cd.xmin - minX) * pxPerUnitX;
+    const cy1 = (maxY - cd.ymax) * pxPerUnitY;
+    const cw = (cd.xmax - cd.xmin) * pxPerUnitX;
+    const ch = (cd.ymax - cd.ymin) * pxPerUnitY;
+    elements[cd.idx] = `<defs><clipPath id="${cd.id}"><rect x="${fmt(cx1)}" y="${fmt(cy1)}" width="${fmt(cw)}" height="${fmt(ch)}"/></clipPath></defs>`;
+  }
+
   // Separate <defs> elements from content elements
   const defsEls = [];
   const contentEls = [];
@@ -30200,7 +30305,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     // the pen (verified in stock-asy EPS output: each head triangle is
     // emitted twice, `fill` then `stroke`). The stroke outline adds ~lw/2
     // of visual weight all around — without it HTX heads read thinner
-    // than TeXeR's at equal nominal size.
+    // than TeXeR's at equal nominal size. EXCEPTION: TeXHead's
+    // defaultfilltype is Fill only (plain_arrows.asy:162) — stroking the
+    // thin TeX glyph turns it into a solid blob (03351).
+    if (isTexHead) return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
     return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linejoin="miter"/>`;
   }
   return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
@@ -30254,7 +30362,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   const needsUprightOps = s.includes(UPRIGHT_OPEN);
   // Common LaTeX → Unicode
   const texMap = {
-    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\varepsilon':'ε','\\epsilon':'ϵ',
     '\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ',
     '\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π',
     '\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ',
@@ -31223,7 +31331,7 @@ function stripLaTeXPreserveScripts(text) {
   s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode
   const texMap = {
-    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\varepsilon':'ε','\\epsilon':'ϵ',
     '\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ',
     '\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π',
     '\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ',
@@ -31338,7 +31446,7 @@ function stripLaTeX(text) {
   s = s.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
   // Common LaTeX commands → Unicode
   const texMap = {
-    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\epsilon':'ε',
+    '\\alpha':'α','\\beta':'β','\\gamma':'γ','\\delta':'δ','\\varepsilon':'ε','\\epsilon':'ϵ',
     '\\zeta':'ζ','\\eta':'η','\\theta':'θ','\\iota':'ι','\\kappa':'κ',
     '\\lambda':'λ','\\mu':'μ','\\nu':'ν','\\xi':'ξ','\\pi':'π',
     '\\rho':'ρ','\\sigma':'σ','\\tau':'τ','\\upsilon':'υ','\\phi':'φ',
