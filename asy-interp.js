@@ -12670,7 +12670,7 @@ function createInterpreter() {
     // titles, arrow pokes) that the real fit shares the size() budget with:
     // instrumented stock-asy runs show e.g. 00066's 150bp fit gives only
     // ~10.1bp/unit over 11.7 units (≈(150-32)/11.7), not 150/11.7.
-    function _alongAxisBpPerUnit(axisDir, pic, min, max, overheadBp) {
+    function _alongAxisBpPerUnit(axisDir, pic, min, max, overheadBp, spanOverride) {
       const oh = overheadBp || 0;
       const range = Math.abs(max - min) || 1;
       const _gb = getGeoBbox(pic.commands);
@@ -12681,6 +12681,12 @@ function createInterpreter() {
       if (_axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin)
         rY = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
       if (axisDir === 'x') rX = Math.max(rX, range); else rY = Math.max(rY, range);
+      // Frame-estimation passes a placeholder-free span (an axis drawn
+      // before content leaves a ±5 line in the geometry bbox AND in
+      // _axisLimits, which would poison the unitsize refit gain — 00247).
+      // Applied LAST so the polluted _axisLimits can't override it.
+      if (spanOverride && spanOverride.rX > 0) rX = spanOverride.rX;
+      if (spanOverride && spanOverride.rY > 0) rY = spanOverride.rY;
       const ded = (s) => Math.max(s - oh, s * 0.5);
       if (sizeW > 0 || sizeH > 0) {
         // Aspect-preserving size(w,h): the fit is uniform, min of the two
@@ -12695,6 +12701,17 @@ function createInterpreter() {
         else { sh = sizeH; sw = (rX > 0 && rY > 0) ? sizeH * (rX / rY) : sizeH; }
         return axisDir === 'x' ? (rX > 0 ? ded(sw) / rX : 0) : (rY > 0 ? ded(sh) / rY : 0);
       } else if (hasUnitScale) {
+        // TeXeR's fit2 pass-2 rescales unitsize pictures toward the 400bp
+        // wrapper target (the size-regex always matches "unitsize(N"), so
+        // the FINAL bp-per-unit is unitScale × the refit gain — e.g. 00247
+        // (unitsize(1cm), ~1.2-unit geometry) ships at ~145bp/unit, not
+        // 28.35. Mirror _pokeFinalBpu's clamped formula. (The size-regex
+        // always matches "unitsize(N", so the 400 target always applies.)
+        const lit = Math.max(rX, rY) * unitScale;
+        if (lit > 0) {
+          const g = 400 / lit;
+          return unitScale * Math.max(0.05, Math.min(50, g));
+        }
         return unitScale;
       }
       const maxDim = Math.max(rX, rY);
@@ -12725,8 +12742,12 @@ function createInterpreter() {
         }
       }
       if (!isFinite(mnX) || !isFinite(mnY)) return null;
-      const sX = _alongAxisBpPerUnit('x', pic, mnX, mxX, 0);
-      const sY = _alongAxisBpPerUnit('y', pic, mnY, mxY, 0);
+      const _spanOv = { rX: mxX - mnX, rY: mxY - mnY };
+      const sX = _alongAxisBpPerUnit('x', pic, mnX, mxX, 0, _spanOv);
+      const sY = _alongAxisBpPerUnit('y', pic, mnY, mxY, 0, _spanOv);
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
+        try { process.stderr.write('  [fb] geo=' + mnX.toFixed(3) + '..' + mxX.toFixed(3) + ' / ' + mnY.toFixed(3) + '..' + mxY.toFixed(3) + ' sX=' + sX.toFixed(1) + ' sY=' + sY.toFixed(1) + String.fromCharCode(10)); } catch (e) {}
+      }
       // Dot marks contribute their truesize radius to the frame (00111's
       // frame top is the dot edge at y=1+r, per Asymptote's pen bounds).
       for (const dc of pic.commands) {
@@ -12744,34 +12765,39 @@ function createInterpreter() {
         if (dc.cmd !== 'label' || !dc.pos || !isFinite(dc.pos.x) || !isFinite(dc.pos.y)) continue;
         if (dc.pen && dc.pen.opacity === 0) continue;
         // The extending axis's own endpoint title rides the new endpoint —
-        // including it makes the extension diverge (one title-height per
-        // pass). The caller excludes it; everything else contributes.
+        // the caller excludes it and adds its protrusion separately.
         if (excludeCmds && excludeCmds.has(dc)) continue;
-        const t = dc.text || '';
-        const clean = stripLaTeX(typeof t === 'string' ? t : '');
-        if (!clean) continue;
-        const fs = (dc.pen && dc.pen.fontsize) || 12;
-        const wU = sX > 0 ? _estimateMathRunWidth(clean, fs) / sX : 0;
-        // Typical glyph box height ≈ 0.75em (calibrated: 00111's "n" SE
-        // label puts TeXeR's frame bottom at -(0.75em+labelmargin)).
-        const hU = sY > 0 ? (fs * 0.75) / sY : 0;
-        const mgU = sX > 0 ? (0.28 * fs) / sX : 0;
-        const mgVU = sY > 0 ? (0.28 * fs) / sY : 0;
-        const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
-        const ay = (dc.align && typeof dc.align.y === 'number') ? dc.align.y : 0;
-        let px = dc.pos.x, py = dc.pos.y;
-        if (dc.screenDx && sX > 0) px += dc.screenDx / sX;
-        if (dc.screenDy && sY > 0) py -= dc.screenDy / sY;
-        const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wU + mgU * ax : px - wU / 2;
-        const rx = ax > 0.1 ? px + wU + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wU / 2;
-        const by = ay > 0.1 ? py + mgVU * ay : ay < -0.1 ? py - hU + mgVU * ay : py - hU / 2;
-        const ty = ay > 0.1 ? py + hU + mgVU * ay : ay < -0.1 ? py + mgVU * ay : py + hU / 2;
-        if (lx < mnX) mnX = lx;
-        if (rx > mxX) mxX = rx;
-        if (by < mnY) mnY = by;
-        if (ty > mxY) mxY = ty;
+        const box = _labelBoxU(dc, sX, sY);
+        if (!box) continue;
+        if (box.lx < mnX) mnX = box.lx;
+        if (box.rx > mxX) mxX = box.rx;
+        if (box.by < mnY) mnY = box.by;
+        if (box.ty > mxY) mxY = box.ty;
       }
-      return { minX: mnX, maxX: mxX, minY: mnY, maxY: mxY };
+      return { minX: mnX, maxX: mxX, minY: mnY, maxY: mxY, sX, sY };
+    }
+    // Estimated glyph box of a label command in user units (sX/sY = bp per
+    // user unit). Width via CM advance widths; height ≈ 0.75em (calibrated:
+    // 00111's "n" SE label puts TeXeR's frame bottom at -(0.75em+margin)).
+    function _labelBoxU(dc, sX, sY) {
+      const t = dc.text || '';
+      const clean = stripLaTeX(typeof t === 'string' ? t : '');
+      if (!clean) return null;
+      const fs = (dc.pen && dc.pen.fontsize) || 12;
+      const wU = sX > 0 ? _estimateMathRunWidth(clean, fs) / sX : 0;
+      const hU = sY > 0 ? (fs * 0.75) / sY : 0;
+      const mgU = sX > 0 ? (0.28 * fs) / sX : 0;
+      const mgVU = sY > 0 ? (0.28 * fs) / sY : 0;
+      const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
+      const ay = (dc.align && typeof dc.align.y === 'number') ? dc.align.y : 0;
+      let px = dc.pos.x, py = dc.pos.y;
+      if (dc.screenDx && sX > 0) px += dc.screenDx / sX;
+      if (dc.screenDy && sY > 0) py -= dc.screenDy / sY;
+      const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wU + mgU * ax : px - wU / 2;
+      const rx = ax > 0.1 ? px + wU + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wU / 2;
+      const by = ay > 0.1 ? py + mgVU * ay : ay < -0.1 ? py - hU + mgVU * ay : py - hU / 2;
+      const ty = ay > 0.1 ? py + hU + mgVU * ay : ay < -0.1 ? py + mgVU * ay : py + hU / 2;
+      return { lx, rx, by, ty };
     }
 
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
@@ -13915,30 +13941,39 @@ function createInterpreter() {
         let myCmds = pic.commands.slice(_xJobStart);
         for (const c of myCmds) c._jobManaged = true;
         let curLo = xmin, curHi = xmax;
+        let _xRideLo = 0, _xRideHi = 0;
         _deferredAxisJobs.push((_pass) => {
           // Exclude this axis's own LINE (a placeholder range when the axis
-          // was drawn before content — it must be able to SHRINK, 00247).
-          // The axis TITLE rides the moving endpoint: Asymptote's repeated
-          // bounds() recalcs let it push the frame out about twice before
-          // shipping, so include it for the first two passes only (00115's
-          // "x" title walks the axis out to ~6; unbounded riding diverges).
-          const _selfExclude = new Set(myCmds.filter(c => c && (c._isAxisLine || (_pass >= 1 && c._isAxisLabel))));
-          const fb = _estimateFrameBoundsU(pic, _selfExclude);
+          // was drawn before content — it must be able to SHRINK, 00247)
+          // and its own TITLE from the frame estimate. The title rides the
+          // moving endpoint, so its push is measured ONCE (pass 0: frame
+          // with title minus frame without) and added as a fixed allowance
+          // on every pass — one net ride, like Asymptote's bounds() recalcs,
+          // while the rest of the frame stays freely re-assignable.
+          const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
+          const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
-          // Passes 0-1: exact frame assignment (placeholder ranges shrink,
-          // titles ride). Passes 2-3: extend-only, so the locked-in title
-          // ride isn't undone by its own exclusion from the estimate.
-          // The frame always contains the user box: xlimits()-driven sides
-          // floor the assignment so framed plots (00101) never shrink inside
-          // their declared window.
-          let lo = xminExplicit ? curLo : (_pass >= 1 ? Math.min(fb.minX, curLo) : fb.minX);
-          let hi = xmaxExplicit ? curHi : (_pass >= 1 ? Math.max(fb.maxX, curHi) : fb.maxX);
+          // Title ride: the endpoint title moves with the axis end, so the
+          // shipped axis extends ONE title-protrusion past the rest of the
+          // frame. Protrusion is measured from the title's own anchor
+          // (position-independent, so it converges across passes).
+          _xRideLo = 0; _xRideHi = 0;
+          for (const tc of myCmds) {
+            if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
+            const box = _labelBoxU(tc, fb.sX, fb.sY);
+            if (!box) continue;
+            if (tc.pos.x >= (curLo + curHi) / 2) _xRideHi = Math.max(_xRideHi, Math.max(0, box.rx - tc.pos.x));
+            else _xRideLo = Math.max(_xRideLo, Math.max(0, tc.pos.x - box.lx));
+          }
+          // Exact frame assignment each pass; xlimits()-driven sides floor
+          // it so framed plots (00101) never shrink inside their window.
+          let lo = xminExplicit ? curLo : fb.minX - _xRideLo;
+          let hi = xmaxExplicit ? curHi : fb.maxX + _xRideHi;
           if (!xminExplicit && _xUserLo != null) lo = Math.min(lo, _xUserLo);
           if (!xmaxExplicit && _xUserHi != null) hi = Math.max(hi, _xUserHi);
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
-          if (Math.abs(lo - curLo) < 1e-9 && Math.abs(hi - curHi) < 1e-9) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
-            try { process.stderr.write('[xjob] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
+            try { process.stderr.write('[xjob p' + _pass + '] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
           }
           const mySet = new Set(myCmds);
           let insertAt = -1;
@@ -14459,18 +14494,26 @@ function createInterpreter() {
         let myCmds = pic.commands.slice(_yJobStart);
         for (const c of myCmds) c._jobManaged = true;
         let curLo = ymin, curHi = ymax;
+        let _yRideLo = 0, _yRideHi = 0;
         _deferredAxisJobs.push((_pass) => {
-          const _selfExclude = new Set(myCmds.filter(c => c && (c._isAxisLine || (_pass >= 1 && c._isAxisLabel))));
-          const fb = _estimateFrameBoundsU(pic, _selfExclude);
+          const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
+          const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
-          let lo = yminExplicit ? curLo : (_pass >= 1 ? Math.min(fb.minY, curLo) : fb.minY);
-          let hi = ymaxExplicit ? curHi : (_pass >= 1 ? Math.max(fb.maxY, curHi) : fb.maxY);
+          _yRideLo = 0; _yRideHi = 0;
+          for (const tc of myCmds) {
+            if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
+            const box = _labelBoxU(tc, fb.sX, fb.sY);
+            if (!box) continue;
+            if (tc.pos.y >= (curLo + curHi) / 2) _yRideHi = Math.max(_yRideHi, Math.max(0, box.ty - tc.pos.y));
+            else _yRideLo = Math.max(_yRideLo, Math.max(0, tc.pos.y - box.by));
+          }
+          let lo = yminExplicit ? curLo : fb.minY - _yRideLo;
+          let hi = ymaxExplicit ? curHi : fb.maxY + _yRideHi;
           if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
-          if (Math.abs(lo - curLo) < 1e-9 && Math.abs(hi - curHi) < 1e-9) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
-            try { process.stderr.write('[yjob] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
+            try { process.stderr.write('[yjob p' + _pass + '] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
           }
           const mySet = new Set(myCmds);
           let insertAt = -1;
