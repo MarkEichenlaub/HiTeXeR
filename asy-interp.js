@@ -12568,20 +12568,146 @@ function createInterpreter() {
       return (fN <= 1 ? 1 : fN <= 2 ? 2 : fN <= 5 ? 5 : 10) * magN;
     }
 
+    // ---- Faithful port of Asymptote's autoscale()/divisors() (graph.asy) ----
+    // Returns {min, max, divisor[]} where min/max are the rounded tick bounds
+    // (tickMin/tickMax) and divisor lists candidate major-interval counts.
+    function _asyDivisors(a, b) {
+      const dlist = [1];
+      const n = b - a;
+      if (n === 1) { dlist.push(10, 100); return dlist; }
+      if (n === 2) { dlist.push(2); return dlist; }
+      const sqrtn = Math.floor(Math.sqrt(n));
+      for (let d = 2; d <= sqrtn; d++)
+        if (n % d === 0 && (a * b >= 0 || b % (n / d) === 0)) dlist.push(d);
+      for (let d = sqrtn; d >= 1; d--)
+        if (n % d === 0 && (a * b >= 0 || b % d === 0)) dlist.push(Math.trunc(n / d));
+      return dlist;
+    }
+    function _asyUpscale(b, a) {
+      if (b <= 5) b = 5;
+      else if (b > 10 && a >= 0 && b <= 12) b = 12;
+      else if (b > 10 && (a >= 0 || 15 % -a === 0) && b <= 15) b = 15;
+      else b = Math.ceil(b / 10) * 10;
+      return b;
+    }
+    function _asyAutoscale(Min, Max) {
+      const m = { min: Min, max: Max, divisor: [] };
+      if (!isFinite(Min) || !isFinite(Max)) return m;
+      if (Min > Max) { const t = Min; Min = Max; Max = t; }
+      if (Min === Max) {
+        if (Min === 0) { m.max = 1; return m; }
+        if (Min > 0) { Min = 0; Max *= 2; }
+        else { Min *= 2; Max = 0; }
+      }
+      let sign;
+      if (Min < 0 && Max <= 0) { const t = -Min; Min = -Max; Max = t; sign = -1; }
+      else sign = 1;
+      const sci = (x) => {
+        const s = { sign: Math.sign(x) };
+        x = Math.abs(x);
+        if (x === 0) return { sign: 0, mantissa: 0, exponent: -Infinity };
+        s.exponent = Math.floor(Math.log10(x));
+        s.mantissa = x / Math.pow(10, s.exponent);
+        return s;
+      };
+      const sa = sci(Min), sb = sci(Max);
+      let exp = Math.max(sa.exponent, sb.exponent);
+      if (!isFinite(exp)) exp = 0;
+      const sfloor = (s, x, e) => s.sign === 0 ? 0 : Math.floor(s.sign * Math.abs(x) * Math.pow(10, -e));
+      const sceil  = (s, x, e) => s.sign === 0 ? 0 : Math.ceil(s.sign * Math.abs(x) * Math.pow(10, -e));
+      let a = sfloor(sa, Min, exp);
+      let b = sceil(sb, Max, exp);
+      const zoom = () => { --exp; a = sfloor(sa, Min, exp); b = sceil(sb, Max, exp); };
+      if (sb.mantissa <= 1.5) zoom();
+      let guard = 0;
+      while ((b - a) * Math.pow(10, exp) > 10 * (Max - Min) && guard++ < 60) zoom();
+      const bsave = b;
+      if (b - a > (a >= 0 ? 8 : 6)) {
+        b = _asyUpscale(b, a);
+        if (a >= 0) { if (a <= 5) a = 0; else a = Math.floor(a / 10) * 10; }
+        else a = -_asyUpscale(-a, -1);
+      }
+      if (bsave - a > (a >= 0 ? 8 : 6)) b = _asyUpscale(bsave, a);
+      if (sign === -1) { const t = -a; a = -b; b = t; }
+      const Scale = Math.pow(10, exp);
+      m.min = Math.min(a * Scale, b * Scale);
+      m.max = Math.max(a * Scale, b * Scale);
+      m.divisor = _asyDivisors(Math.round(a), Math.round(b));
+      return m;
+    }
+    // Tick-label extent model for the axiscoverage() check, calibrated against
+    // instrumented stock-asy runs: the measured frame extent is the glyph
+    // dimension plus ~1mm (2.845bp). Width uses Computer Modern advance widths
+    // (digit=0.5em, math minus=0.778em, period=0.278em); height is dominated
+    // by the "$10^4$" baseline template (~12.47bp at 12pt), value-independent.
+    function _tickLabelExtentBp(text, fontsize, horizontal) {
+      if (!text) return 0;
+      const fs = fontsize || 12;
+      if (!horizontal) return 12.466 * (fs / 12);
+      let em = 0;
+      for (const ch of String(text)) {
+        if (ch >= '0' && ch <= '9') em += 0.5;
+        else if (ch === '-') em += 0.778;
+        else if (ch === '.') em += 0.278;
+        else if (ch === '$' || ch === ' ') em += 0;
+        else em += 0.5;
+      }
+      return em * fs + 2.845;
+    }
+    // Along-axis bp-per-user-unit estimate (final fitted scale), shared by the
+    // coverage check. Mirrors the sizing model used elsewhere in _drawTicks.
+    // `overheadBp` deducts the fixed-size frame content (tick-label rows, axis
+    // titles, arrow pokes) that the real fit shares the size() budget with:
+    // instrumented stock-asy runs show e.g. 00066's 150bp fit gives only
+    // ~10.1bp/unit over 11.7 units (≈(150-32)/11.7), not 150/11.7.
+    function _alongAxisBpPerUnit(axisDir, pic, min, max, overheadBp) {
+      const oh = overheadBp || 0;
+      const range = Math.abs(max - min) || 1;
+      const _gb = getGeoBbox(pic.commands);
+      let rX = (_gb && isFinite(_gb.maxX - _gb.minX) && _gb.maxX > _gb.minX) ? Math.abs(_gb.maxX - _gb.minX) : range;
+      let rY = (_gb && isFinite(_gb.maxY - _gb.minY) && _gb.maxY > _gb.minY) ? Math.abs(_gb.maxY - _gb.minY) : range;
+      if (_axisLimits.xmin !== null && _axisLimits.xmax !== null && _axisLimits.xmax > _axisLimits.xmin)
+        rX = Math.abs(_axisLimits.xmax - _axisLimits.xmin);
+      if (_axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin)
+        rY = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
+      if (axisDir === 'x') rX = Math.max(rX, range); else rY = Math.max(rY, range);
+      const ded = (s) => Math.max(s - oh, s * 0.5);
+      if (sizeW > 0 || sizeH > 0) {
+        // Aspect-preserving size(w,h): the fit is uniform, min of the two
+        // ratios. IgnoreAspect (keepAspect=false): per-direction ratio.
+        if (sizeW > 0 && sizeH > 0 && keepAspect) {
+          const s = Math.min(rX > 0 ? ded(sizeW) / rX : Infinity, rY > 0 ? ded(sizeH) / rY : Infinity);
+          return isFinite(s) ? s : 0;
+        }
+        let sw, sh;
+        if (sizeW > 0 && sizeH > 0) { sw = sizeW; sh = sizeH; }
+        else if (sizeW > 0) { sw = sizeW; sh = (rX > 0 && rY > 0) ? sizeW * (rY / rX) : sizeW; }
+        else { sh = sizeH; sw = (rX > 0 && rY > 0) ? sizeH * (rX / rY) : sizeH; }
+        return axisDir === 'x' ? (rX > 0 ? ded(sw) / rX : 0) : (rY > 0 ? ded(sh) / rY : 0);
+      } else if (hasUnitScale) {
+        return unitScale;
+      }
+      const maxDim = Math.max(rX, rY);
+      return maxDim > 0 ? ded(150) / maxDim : 0;
+    }
+
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       // NoTicks: draw the axis line/arrow only, no tick marks at all.
       if (ticks.none) return;
       if (!pic) pic = currentPic;
-      // Tick pen: prefer ticks.pen (e.g. pTick=gray), then fall back to the axis
-      // pen. But if the axis pen is invisible (the labeled-offset-axis idiom
-      // xaxis(YEquals(c), a, b, ticks=..., p=invisible)) and no explicit
-      // ticks.pen was given, fall back to the default pen so tick marks remain
-      // visible. Asymptote's Ticks() use currentpen by default for tick marks
-      // independent of the axis line pen.
+      // Tick pen: prefer ticks.pen (e.g. pTick=gray), else the axis pen.
+      // Per graph.asy, pTick defaults to the AXIS pen — so an invisible-pen
+      // axis (xaxis(YEquals(c), a, b, ticks=labelTicks, p=invisible), 05072)
+      // draws NO visible tick marks; only labels carrying their own explicit
+      // pen (Label("%4g", black)) show. The old fallback to defaultpen
+      // wrongly drew black ticks on top of those label rows.
       let tickPen = ticks.pen || pen;
-      if (!ticks.pen && pen && pen.opacity === 0) {
+      const tickMarksInvisible = !ticks.pen && pen && pen.opacity === 0;
+      if (tickMarksInvisible) {
+        // Keep a visible pen object for label fallbacks below, but suppress
+        // the tick marks themselves.
         tickPen = clonePen(defaultPen);
       }
       const noZero = ticks.noZero || false;
@@ -12704,13 +12830,15 @@ function createInterpreter() {
           if (maxDim > 0) bpPerUnit = 150 / maxDim;
         }
         if (bpPerUnit > 0) {
-          // 1mm = 2.834645669 bp (Asymptote's default Ticksize)
-          defaultTickSize = 2.834645669 / bpPerUnit;
-          // Safety cap: never exceed 10% of the perpendicular range
-          const cap = perpAxisRange * 0.10;
+          // Asymptote's default MAJOR tick size is Ticksize = 2mm = 5.669bp
+          // (graph_settings.asy: ticksize=1mm; Ticksize=2*ticksize). The
+          // minor size is ticksize = 1mm, applied as exactly half below.
+          defaultTickSize = 5.669291339 / bpPerUnit;
+          // Safety cap: never exceed 12% of the perpendicular range
+          const cap = perpAxisRange * 0.12;
           if (defaultTickSize > cap) defaultTickSize = cap;
         } else {
-          defaultTickSize = perpAxisRange * 0.015;
+          defaultTickSize = perpAxisRange * 0.03;
         }
       }
       // Asymptote's Size= and size= are in PostScript points (bp). Convert to
@@ -12785,7 +12913,11 @@ function createInterpreter() {
         return (bp / 6) * perpAxisRange * 0.015;
       }
       let majorSize = ticks.sizeExplicit ? _bpToUnit(ticks.size) : defaultTickSize;
-      let minorSize = ticks.subSizeExplicit ? _bpToUnit(ticks.subSize) : majorSize * 0.8;
+      // Default minor = ticksize = Ticksize/2 (1mm). When the major Size was
+      // given explicitly but the minor size wasn't, Asymptote still uses the
+      // 1mm default minor (not a ratio of the explicit major).
+      let minorSize = ticks.subSizeExplicit ? _bpToUnit(ticks.subSize)
+        : (ticks.sizeExplicit ? _bpToUnit(2.834645669) : majorSize * 0.5);
       // If size was explicitly set extremely small (e.g. Size = 0.1pt), the user is
       // suppressing visible tick marks — skip drawing tick lines entirely.
       const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
@@ -12794,6 +12926,8 @@ function createInterpreter() {
       let majorPositions;
       let step;
       let denseMinorN = 0; // autominor subdivision count when dense-override fires
+      let minorAnchored = null;  // tickmin-anchored minors from the real algorithm
+      let _tickGenInfo = null;   // {anchor, step, N, minorN} for finalize-time extension
       if (ticks.positions && isArray(ticks.positions)) {
         majorPositions = ticks.positions.map(v => toNumber(v));
         step = majorPositions.length > 1 ? Math.abs(majorPositions[1] - majorPositions[0]) : 1;
@@ -12807,130 +12941,120 @@ function createInterpreter() {
         const _axScaleT = (axisDir === 'x') ? (pic && pic._xScale) : (pic && pic._yScale);
         if (step <= 0 && _axScaleT && _axScaleT.broken) step = 1;
         if (step <= 0) {
-          // Auto-compute step using Asymptote's divisors algorithm
-          const range = max - min;
-          const a = Math.ceil(min);
-          const b = Math.floor(max);
-          if (b > a) {
-            const divs = _tickDivisors(a, b);
-            // Pick divisor count closest to 5 (targeting 5-6 major ticks like
-            // TeXeR reference renders). Previously picked the largest N in
-            // [2,10] which gave too many ticks for large ranges (08635: N=10
-            // instead of N=5).
-            step = (b - a);
-            let stepFound = false;
-            let bestN = 0, bestDist = Infinity;
-            for (const N of divs) {
-              if (N >= 3 && N <= 8) {
-                const dist = Math.abs(N - 5);
-                if (dist < bestDist) { bestDist = dist; bestN = N; }
+          // Faithful port of Asymptote's generateticks() auto path:
+          // autoscale(min,max) gives rounded tick bounds (tickmin/tickmax)
+          // and a divisor-candidate list; walk divisors from most ticks to
+          // fewest and accept the first whose labels each fit within
+          // axiscoverage(0.8)*axisLength/count (graph.asy axiscoverage()).
+          // Major ticks anchor at tickmin (which may lie OUTSIDE [min,max]
+          // — only in-range values are drawn, so e.g. range [3,7] at Step=2
+          // ticks 3,5,7, not 4,6).
+          const aR = Math.min(min, max), bR = Math.max(min, max);
+          const norm = Math.max(Math.abs(aR), Math.abs(bR)) || 1;
+          const auto = _asyAutoscale(aR, bR);
+          const tickMinA = auto.min, tickMaxA = auto.max;
+          const divisor = auto.divisor;
+          const len = tickMaxA - tickMinA;
+          const labelsSuppressed = (ticks.format === '%' && !ticks.labelFunc) || !ticks.labels;
+          // Fixed-size frame overhead shared with the data: tick-label rows
+          // and axis titles when this axis is labeled, arrows etc. (~28bp).
+          const _ohBp = labelsSuppressed ? 10 : 28;
+          const alongBpu = _alongAxisBpPerUnit(axisDir, pic, min, max, _ohBp);
+          const limitBp = alongBpu > 0 ? 0.8 * (bR - aR) * alongBpu : 0;
+          const _covFs = (ticks.labelPen && ticks.labelPen.fontsize) || (tickPen && tickPen.fontsize) || 12;
+          const _covText = (val) => {
+            if (labelsSuppressed) return '';
+            if (Math.abs(val) < 1e-10 * norm) {
+              if (ticks.noZeroLabel || ticks.noZero) return '';
+              val = 0;
+            }
+            return String(parseFloat(val.toPrecision(4)));
+          };
+          const coverageOK = (N0, Step) => {
+            if (!(limitBp > 0)) return true;
+            if (labelsSuppressed) return true;
+            let count = 0;
+            for (let i = 0; i <= N0; i++) {
+              const val = tickMinA + i * Step;
+              if (val >= aR - 1e-9 * norm && val <= bR + 1e-9 * norm) count++;
+            }
+            if (count === 0) return true;
+            const lim = limitBp / count;
+            for (let i = 0; i <= N0; i++) {
+              const val = tickMinA + i * Step;
+              if (val < aR - 1e-9 * norm || val > bR + 1e-9 * norm) continue;
+              const ext = _tickLabelExtentBp(_covText(val), _covFs, _isXAxis);
+              if (ext > lim) return false;
+            }
+            return true;
+          };
+          // automin/automax: false when the range came from explicit axis
+          // args or xlimits/ylimits (caller passes via ticks._axisAutoRange).
+          const _autoRange = ticks._axisAutoRange !== false;
+          let N = 1, minorN = 0, chosenStep = len > 0 ? len : 1;
+          if (divisor.length > 0 && len > 0 && bR > aR) {
+            const h = 0.5 * (bR - aR);
+            for (let d = divisor.length - 1; d >= 0; d--) {
+              let N0 = divisor[d];
+              let Step = len / N0;
+              const N1 = N0;
+              let m = 2;
+              while (Step > h) { N0 = m * N1; Step = len / N0; m *= 2; }
+              if (coverageOK(N0, Step)) {
+                N = N0; chosenStep = Step;
+                if (N0 === 1 && !_autoRange && d < divisor.length - 1) {
+                  // Try using 2 ticks (graph.asy's N0==1 retry path)
+                  const div = divisor[d + 1];
+                  const Step2 = Math.trunc(div / 2) * len / div;
+                  if (coverageOK(2, Step2)) { N = 2; chosenStep = Step2; }
+                  else chosenStep = len;
+                }
+                // Minor subdivision count (graph.asy subtick divisor rule)
+                if (ticks.subStep > 0) minorN = Math.ceil(chosenStep / ticks.subStep);
+                else {
+                  minorN = Math.trunc(divisor[divisor.length - 1] / N);
+                  if (N === 1) minorN = (aR * bR >= 0) ? 2 : 1;
+                  if (minorN === 1) minorN = 2;
+                }
+                break;
               }
             }
-            if (bestN > 0) { step = (b - a) / bestN; stepFound = true; }
-            // Fallback: when (b-a) has no divisor giving 2..10 major ticks
-            // (e.g. b-a is a large prime like 11 or 13), don't degenerate to
-            // step=range (one tick at each end). Use the same nice-step
-            // (1/2/5 × 10^k) algorithm Asymptote falls back to so we get a
-            // sensible 4-8 ticks across the visible range.
-            if (!stepFound && range > 0) {
-              const rough = range / 5;
-              const mag = Math.pow(10, Math.floor(Math.log10(rough)));
-              const f = rough / mag;
-              step = (f <= 1.5 ? 1 : f <= 3.5 ? 2 : f <= 7.5 ? 5 : 10) * mag;
-            }
-            // When the user explicitly provided a minor sub-step (e.g.
-            // Ticks(NoZeroFormat, step=1)) and the auto-picked major step
-            // equals that minor sub-step, every minor position becomes a
-            // labeled major. Asymptote's behavior in this idiom is to make
-            // the major step a multiple of the minor step that yields ~5
-            // major ticks across the visible range. Pick the smallest
-            // multiplier (from 1/2/5/10 × subStep) that gives <= ~5 majors.
-            if (ticks.subStep > 0 && Math.abs(step - ticks.subStep) < 1e-9) {
-              const subS = ticks.subStep;
-              for (const mult of [2, 5, 10]) {
-                const cand = mult * subS;
-                const nMaj = Math.floor((max - min) / cand) + 1;
-                if (nMaj <= 5) { step = cand; break; }
-              }
-            }
-          } else if (range > 0) {
-            // Sub-integer range (e.g. 0..0.4): pick a "nice" step using
-            // 1/2/5 × 10^k that yields ~4-8 ticks across the range.
-            const rough = range / 5;
-            const mag = Math.pow(10, Math.floor(Math.log10(rough)));
-            const f = rough / mag;
-            step = (f <= 1.5 ? 1 : f <= 3.5 ? 2 : f <= 7.5 ? 5 : 10) * mag;
-          } else {
-            step = 1;
+            if (N === 1) { N = 2; chosenStep = len / 2; }
           }
-          // Dense-data sparsity: when the axis packs many data units into a
-          // physically small picture (low bp-per-unit along the axis), the
-          // integer-divisor step above yields too many crowded major ticks
-          // vs Asymptote, which targets roughly one major label per ~0.5in.
-          // Override with a "nice" (1/2/5)x10^k step sized to ~55bp spacing.
-          // Only triggers for genuinely dense plots (e.g. 00115: size(5cm)
-          // over x[-4,4], y[-4,8] -> ~12-18 bp/unit -> step 5); ordinary
-          // plots (bpPerUnit >= 22, e.g. family 00118/00119 at ~28-57)
-          // keep the divisor step so the rest of the corpus is unaffected.
-          {
-            let alongBpPerUnit = 0;
-            // Only a REAL physical size constraint (size()/unitsize()) makes the
-            // override meaningful. With no size()/unitsize(), the pipeline draws
-            // at a 150/maxDim auto-default, but TeXeR renders the same unsized
-            // picture at that same small scale and STILL uses the divisor/nice
-            // step (00066: 0..11.7 at ~12.5 bp/unit -> step 2, not 5). Firing the
-            // override off the 150/maxDim proxy wrongly sparsified those plots.
-            let bpFromRealSize = false;
-            const _gbA = getGeoBbox(pic.commands);
-            const rXA = (_gbA && isFinite(_gbA.maxX - _gbA.minX)) ? Math.abs(_gbA.maxX - _gbA.minX) : (Math.abs(max - min) || 1);
-            const rYA = (_gbA && isFinite(_gbA.maxY - _gbA.minY)) ? Math.abs(_gbA.maxY - _gbA.minY) : (Math.abs(max - min) || 1);
-            if (sizeW > 0 || sizeH > 0) {
-              let swA, shA;
-              if (sizeW > 0 && sizeH > 0) { swA = sizeW; shA = sizeH; }
-              else if (sizeW > 0) { swA = sizeW; shA = (rXA > 0 && rYA > 0) ? sizeW * (rYA / rXA) : sizeW; }
-              else { shA = sizeH; swA = (rXA > 0 && rYA > 0) ? sizeH * (rXA / rYA) : sizeH; }
-              if (_isXAxis) { if (rXA > 0) alongBpPerUnit = swA / rXA; }
-              else { if (rYA > 0) alongBpPerUnit = shA / rYA; }
-              bpFromRealSize = true;
-            } else if (hasUnitScale) {
-              alongBpPerUnit = unitScale;
-              bpFromRealSize = true;
-            } else {
-              const maxDimA = Math.max(rXA, rYA);
-              if (maxDimA > 0) alongBpPerUnit = 150 / maxDimA;
-            }
-            if (bpFromRealSize && alongBpPerUnit > 0 && alongBpPerUnit < 22) {
-              const roughUnit = 55 / alongBpPerUnit;
-              const magN = Math.pow(10, Math.floor(Math.log10(roughUnit)));
-              const fN = roughUnit / magN;
-              const niceStepDense = (fN <= 1 ? 1 : fN <= 2 ? 2 : fN <= 5 ? 5 : 10) * magN;
-              if (niceStepDense > step) {
-                step = niceStepDense;
-                // Asymptote autominor: a "5" major step subdivides into 5
-                // (minor every 1 unit, matching the 00115 reference); a "2"
-                // step into 4; a "1" step into 5.
-                const lead = niceStepDense / magN;
-                denseMinorN = (lead === 2 ? 4 : 5);
+          step = chosenStep;
+          if (!(step > 0)) step = 1;
+          denseMinorN = minorN;
+          majorPositions = [];
+          const bfuzz = bR + 1e-9 * norm, afuzz = aR - 1e-9 * norm;
+          for (let i = 0; i <= N; i++) {
+            const val = tickMinA + i * step;
+            if (val >= afuzz && val <= bfuzz) majorPositions.push(Math.round(val * 1e10) / 1e10);
+          }
+          // Minor ticks per graph.asy: j=1..n-1 inside each major interval,
+          // anchored at tickmin, clipped to the axis range.
+          minorAnchored = [];
+          if (minorN >= 2) {
+            const sub = step / minorN;
+            for (let i = 0; i <= N; i++) {
+              const iStep = i * step;
+              const jstop = sub > 0 ? (len - iStep) / sub : 0;
+              for (let j = 1; j < minorN && j <= jstop + 1e-9; j++) {
+                const val = tickMinA + iStep + j * sub;
+                if (val >= afuzz && val <= bfuzz) minorAnchored.push(Math.round(val * 1e10) / 1e10);
               }
             }
           }
-          // Asymptote autominor for auto-computed major steps: when the user
-          // gave no explicit minor sub-step, default Ticks subdivides each
-          // major interval per the step's leading digit (1->5, 2->4, 5->5),
-          // matching Asymptote/TeXeR's default minor-tick density. e.g. 00401
-          // (sign chart, xlimits(-4,4) -> auto step 2) shows minor ticks every
-          // 0.5. Only fires for AUTO steps (ticks.step<=0) so an explicit major
-          // Step without n is left bare, as Asymptote does.
-          if (denseMinorN <= 1 && ticks.subStep <= 0 && step > 0 && isFinite(step)) {
-            const magS = Math.pow(10, Math.floor(Math.log10(step) + 1e-9));
-            const leadS = Math.round(step / magS);
-            denseMinorN = (leadS === 2 ? 4 : 5);
-          }
+          _tickGenInfo = { anchor: tickMinA, step, N, minorN };
         }
         if (step <= 0) step = 1;
-        majorPositions = [];
-        for (let v = Math.ceil(min / step) * step; v <= max + 1e-10; v += step) {
-          majorPositions.push(Math.round(v * 1e10) / 1e10);
+        if (majorPositions === undefined) {
+          // Explicit Step: anchored at floor(min/Step)*Step (graph.asy floors
+          // tickmin to a Step multiple), equivalent in-range to ceil-walking.
+          majorPositions = [];
+          for (let v = Math.ceil(min / step - 1e-9) * step; v <= max + 1e-10; v += step) {
+            majorPositions.push(Math.round(v * 1e10) / 1e10);
+          }
+          _tickGenInfo = { anchor: Math.ceil(min / step - 1e-9) * step, step, N: majorPositions.length, minorN: ticks.subStep > 0 ? Math.ceil(step / ticks.subStep) : 0 };
         }
       }
       // begin=false / end=false (Ticks) suppress the TICK MARK and extended
@@ -12948,24 +13072,28 @@ function createInterpreter() {
       // Compute sub-tick positions (minor ticks between major ticks)
       let minorPositions = [];
       if (!isExtend) {
-        // Asymptote's autominor: when both major Step and minor step are
-        // 0 (auto), it auto-picks sub-divisions per major interval. Mirror
-        // this only for "nice" auto-picked major steps so we don't introduce
-        // minor ticks where users gave an explicit non-multiple major step.
-        const effSubStep = ticks.subStep;
-        let subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
-        if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
-        if (subN > 1) {
-          const subStep = step / subN;
-          for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
-            const rounded = Math.round(v * 1e10) / 1e10;
-            // Skip if it's already a major tick position
-            const isMajor = majorPositions.some(m => Math.abs(m - rounded) < 1e-8);
-            if (!isMajor) minorPositions.push(rounded);
+        if (minorAnchored) {
+          // Real-algorithm minors (already anchored at tickmin and clipped).
+          minorPositions = minorAnchored;
+        } else {
+          const effSubStep = ticks.subStep;
+          let subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
+          if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
+          if (subN > 1) {
+            const subStep = step / subN;
+            for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
+              const rounded = Math.round(v * 1e10) / 1e10;
+              // Skip if it's already a major tick position
+              const isMajor = majorPositions.some(m => Math.abs(m - rounded) < 1e-8);
+              if (!isMajor) minorPositions.push(rounded);
+            }
           }
         }
       }
 
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_TICK_DBG) {
+        try { process.stderr.write('[ticks ' + axisDir + '] min=' + min + ' max=' + max + ' step=' + step + ' majors=' + JSON.stringify(majorPositions) + ' minors=' + JSON.stringify(minorPositions) + ' gen=' + JSON.stringify(_tickGenInfo) + '\n'); } catch (e) {}
+      }
       const isX = (axisDir === 'x');
 
       // Tick side: 'left'/'right' for y-axis ticks (LeftTicks/RightTicks)
@@ -13024,28 +13152,13 @@ function createInterpreter() {
                              pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
           return;
         }
-        // Asymptote convention: when an axisshift axis (XZero/YZero/XEquals/
-        // YEquals) coincides with a data boundary (xmin/xmax/ymin/ymax),
-        // ticks point INTO the plot regardless of LeftTicks/RightTicks. e.g.
-        // 3900 uses xaxis(axis=YZero, LeftTicks(...)) but ymin=0 so the x-axis
-        // sits at the bottom edge — ticks should go UP into the plot, not DOWN
-        // outside it. axisextent (Bottom/Left/etc.) follows L/RTicks normally.
-        // Detected by extent === null (axisshift case).
-        let actualSide = tickSide;
-        if (!extent && tickSide && crossMin !== undefined && crossMax !== undefined) {
-          const _span = Math.abs(crossMax - crossMin) || 1;
-          const _eps = _span * 1e-6;
-          // Axis at or BELOW content → ticks must point INTO plot (toward
-          // content), regardless of LeftTicks/RightTicks. Same for above.
-          // The side that points "into the plot" differs by axis orientation:
-          // for the x-axis, into-plot at the bottom edge is UP ('left' under the
-          // perpendicular convention below); for the y-axis, into-plot at the
-          // left edge is RIGHT ('right'). Keep these isX-aware so interior axes
-          // (e.g. 00115: x-axis at y=0 with ylimits(-4,8)) fall through to the
-          // literal LeftTicks/RightTicks direction.
-          if (axisOffset <= crossMin + _eps) actualSide = isX ? 'left' : 'right';
-          else if (axisOffset >= crossMax - _eps) actualSide = isX ? 'right' : 'left';
-        }
+        // Asymptote semantics: LeftTicks/RightTicks name the hand side of the
+        // path walked in its positive direction — unconditionally. (An earlier
+        // build flipped ticks "into the plot" when the axis sat at a data
+        // boundary; stock Asymptote does no such flip — e.g. 03568's
+        // yaxis(..., LeftTicks) at the left edge keeps its ticks pointing
+        // WEST, outside the plot, matching TeXeR.)
+        const actualSide = tickSide;
         // Perpendicular tick direction. Walking the axis in its positive
         // direction, "left"/"right" name the hand sides:
         //   x-axis (+x, east):  left → UP (+y),    right → DOWN (-y)
@@ -13067,8 +13180,10 @@ function createInterpreter() {
         pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
       }
 
-      // Draw major ticks (skip when size was explicitly set to near-zero)
-      if (!skipTickMarks || isExtend) {
+      // Draw major ticks (skip when size was explicitly set to near-zero, or
+      // when the tick pen is the invisible axis pen — gridline/label idioms
+      // still draw their extended gridlines via explicit pTick pens).
+      if ((!skipTickMarks || isExtend) && !tickMarksInvisible) {
         for (const v of majorPositions) drawTick(v, majorSize);
         // Draw minor ticks
         for (const v of minorPositions) drawTick(v, minorSize);
@@ -13084,13 +13199,10 @@ function createInterpreter() {
       // Asymptote convention: format "%" suppresses labels entirely (used as a
       // placeholder when the caller wants tick marks without numeric labels).
       const suppressByFormat = ticks.format === '%' && !ticks.labelFunc;
-      // Only suppress labels for invisible-pen axes when the ticks are gridline-
-      // extending (Ticks(extend=true,...)), which is the standard
-      // xaxis(..., invisible, Ticks(..., extend=true, gray)) gridline idiom.
-      // The other invisible-pen idiom — xaxis(YEquals(c), a, b, ticks=labelTicks,
-      // p=invisible) — is used to draw labeled tick marks at an offset position
-      // without redrawing the axis line, and DOES want labels.
-      const suppressByInvisible = axisInvisible && ticks.extend === true;
+      // Per graph.asy, the tick-label pen inherits the AXIS pen (F.p(p)):
+      // when the axis pen is invisible, labels show only if they carry their
+      // own explicit pen (05072's Ticks(Label("%4g",black),...) idiom).
+      const suppressByInvisible = axisInvisible && !ticks.labelPen;
       const showLabels = ticks.labels &&
                          !(ticks.sizeExplicit && ticks.size < 1.5 && !ticks.explicitLabelArg) &&
                          !suppressByInvisible &&
@@ -13098,17 +13210,38 @@ function createInterpreter() {
       if (showLabels) {
         const beginlabel = ticks.beginlabel !== false;
         const endlabel = ticks.endlabel !== false;
+        // Label side follows the AXIS spec (graph.asy axisT.side), not the
+        // tick side: YZero/Bottom/BottomTop → below; Top/TopBottom → above;
+        // XZero/Left/LeftRight → left; Right/RightLeft → right. An explicit
+        // Label(...,align=...) on the Ticks overrides.
+        const _aboveSide = isX && (extent === 'Top' || extent === 'TopBottom');
+        const _rightSide = !isX && (extent === 'Right' || extent === 'RightLeft');
+        const defaultAlign = isX ? {x:0, y:_aboveSide ? 1 : -1} : {x:_rightSide ? 1 : -1, y:0};
+        // graph.asy labeltick(): when a tick mark extends toward the label
+        // side, the label is pushed out past it by the tick Size; otherwise
+        // it sits at ticklabelshift = 0.25*labelmargin from the axis.
+        const _szBp = ticks.sizeExplicit ? ticks.size : 5.669291339;
+        const _lfs0 = ((ticks.labelPen && ticks.labelPen.fontsize) || (tickPen && tickPen.fontsize) || 12);
+        const _margin25 = 0.25 * (0.28 * _lfs0 + 0.5 * ((tickPen && tickPen.linewidth) || 0.5));
         for (let i = 0; i < majorPositions.length; i++) {
           const v = majorPositions[i];
           if (noZero && Math.abs(v) < 1e-10) continue;
+          if (ticks.noZeroLabel && Math.abs(v) < 1e-10) continue;
           if (v < min - 1e-10 || v > max + 1e-10) continue;
           // Skip first tick label if beginlabel=false
           if (!beginlabel && i === 0) continue;
           // Skip last tick label if endlabel=false
           if (!endlabel && i === majorPositions.length - 1) continue;
           const pos = isX ? {x:v, y:axisOffset} : {x:axisOffset, y:v};
-          const defaultAlign = isX ? {x:0, y:-1} : {x:-1, y:0};
           const align = ticks.labelAlign || defaultAlign;
+          // Tick direction vs label side → offset (screen coords: +y down).
+          let _sDx = 0, _sDy = 0;
+          if (!skipTickMarks && !tickMarksInvisible && !(ticks.extend === true && isExtend)) {
+            if (isX && align.y < 0) _sDy = (!tickSide || tickSide === 'right') ? _szBp : _margin25;
+            else if (isX && align.y > 0) _sDy = -((!tickSide || tickSide === 'left') ? _szBp : _margin25);
+            else if (!isX && align.x < 0) _sDx = -((!tickSide || tickSide === 'left') ? _szBp : _margin25);
+            else if (!isX && align.x > 0) _sDx = (!tickSide || tickSide === 'right') ? _szBp : _margin25;
+          }
           let txt;
           // Default format: Asymptote uses "%.4g" rendered via TeX.
           // toPrecision(4) matches %.4g semantics.
@@ -13176,11 +13309,25 @@ function createInterpreter() {
           } else {
             txt = fmtDefault();
           }
+          // Default-format tick labels are math-mode in Asymptote
+          // (defaultformat = "$%.4g$"), giving the long math minus sign.
+          // Custom format strings (e.g. "%4g") stay text-mode, as in TeX.
+          if (!ticks.labelFunc && !(ticks.format && ticks.format !== '%') &&
+              txt && txt.indexOf('$') === -1) {
+            txt = '$' + txt + '$';
+          }
           const labelPen = clonePen(ticks.labelPen || tickPen);
-          labelPen.fontsize = labelPen.fontsize || 8;
-          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, _isTickLabel: true});
+          labelPen.fontsize = labelPen.fontsize || 12;
+          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, screenDx: _sDx, screenDy: _sDy, _isTickLabel: true});
         }
       }
+      if (_tickGenInfo) {
+        _tickGenInfo.majorSizeU = majorSize;
+        _tickGenInfo.minorSizeU = minorSize;
+        _tickGenInfo.side = tickSide;
+        _tickGenInfo.skipMarks = skipTickMarks || tickMarksInvisible || (ticks.extend === true && isExtend);
+      }
+      return _tickGenInfo;
     }
 
     // Axis extent specifiers — return marker objects that xaxis/yaxis can check
@@ -13552,7 +13699,9 @@ function createInterpreter() {
           try { process.stderr.write('[xaxis-log] xmin='+xmin+' xmax='+xmax+' positions='+JSON.stringify(positions)+'\n'); } catch(e){}
         }
       }
-      _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
+      if (xTicks) xTicks = Object.assign({}, xTicks, {_axisAutoRange: !(xminExplicit || xmaxExplicit || _xminFromUserLimits || _xmaxFromUserLimits)});
+      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
+      if (_xaxisDrawCmd && _xTickGen) _xaxisDrawCmd._tickGen = _xTickGen;
       if (label && !isInvisible) {
         // Default: right-aligned at xmax, pushed below tick labels (W+S combined).
         // For an explicit axis extent (Bottom/Top/BottomTop/TopBottom): center
@@ -13968,9 +14117,10 @@ function createInterpreter() {
         ((yIsLeftSide || extent === 'LeftRight') && crossMinDefaulted) ||
         ((yIsRightSide || extent === 'RightLeft') && crossMaxDefaulted)
       ) ? extent : null;
+      let _yaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
-        pic.commands.push({cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
+        _yaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
                            _isAxisLine: 'y', _axisShiftX: axisShiftX,
                            _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit,
                            _yMinFromUserLimits: _yminFromUserLimits,
@@ -13979,7 +14129,8 @@ function createInterpreter() {
                            _bareIdiom: _yaxisBareIdiom,
                            _hasEndpointLabel: !!label && (labelPosition === 1 || labelPosition === 0),
                            _explicitTicks: !!(ticks && ticks.positions && isArray(ticks.positions)),
-                           _extentDeferred: _yExtentDeferred});
+                           _extentDeferred: _yExtentDeferred};
+        pic.commands.push(_yaxisDrawCmd);
         if (yIsLeftRight) {
           const mirrorX = yIsRightPrimary ? crossMin : crossMax;
           const mPath = makePath([lineSegment({x:mirrorX,y:ymin},{x:mirrorX,y:ymax})], false);
@@ -14001,7 +14152,9 @@ function createInterpreter() {
           step: 1,
         });
       }
-      _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
+      if (yTicks) yTicks = Object.assign({}, yTicks, {_axisAutoRange: !(yminExplicit || ymaxExplicit || _yminFromUserLimits || _ymaxFromUserLimits)});
+      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
+      if (_yaxisDrawCmd && _yTickGen) _yaxisDrawCmd._tickGen = _yTickGen;
       if (label && !isInvisible) {
         // In Asymptote's graph.asy, the default position for a y-axis label is at the
         // MIDDLE of the axis (position 0.5), aligned west (left), rotated 90° CCW.
@@ -14449,7 +14602,7 @@ function createInterpreter() {
         else if (isArray(a)) t.positions = a;
         else if (a === true || a === false) t.extend = a;
         else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; if (a.align) t.labelAlign = a.align; if (a.filltype) t.labelFill = a.filltype; }
-        else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; }
+        else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; if (a.noZeroLabel) t.noZeroLabel = true; }
         else if (a && typeof a === 'object' && a._named) {
           if ('format' in a && typeof a.format === 'string') { t.format = a.format; t.labels = true; }
           else if ('format' in a && a.format && a.format._tag === 'label') {
@@ -14485,7 +14638,11 @@ function createInterpreter() {
     env.set('RightTicks', (...args) => { const t = _makeTicks(args, {}); t.side = 'right'; return t; });
     env.set('NoTicks', {_tag:'ticks', step:0, size:0, labels:false, noZero:false, positions:null, pen:null, none:true});
     env.set('NoZero', {_tag:'tickmod', noZero:true});
-    env.set('NoZeroFormat', {_tag:'tickmod', noZero:true});
+    // NoZeroFormat is a ticklabel (OmitFormat(0)), not a tickmodifier: it
+    // suppresses only the LABEL at 0 — the tick mark itself still draws
+    // (and, with plain Ticks()'s sign=0, straddles the axis at the origin,
+    // producing TeXeR's slightly-negative axis-start look on 00066).
+    env.set('NoZeroFormat', {_tag:'tickmod', noZeroLabel:true});
     // Break: the small zig-zag glyph drawn on a broken axis (placed via
     // label(Break, pos) / label(rotate(90)*Break, pos)). See evalLabel.
     env.set('Break', {_tag:'breaksym', tf:null});
