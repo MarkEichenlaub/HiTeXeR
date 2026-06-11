@@ -12748,6 +12748,7 @@ function createInterpreter() {
       if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
         try { process.stderr.write('  [fb] geo=' + mnX.toFixed(3) + '..' + mxX.toFixed(3) + ' / ' + mnY.toFixed(3) + '..' + mxY.toFixed(3) + ' sX=' + sX.toFixed(1) + ' sY=' + sY.toFixed(1) + String.fromCharCode(10)); } catch (e) {}
       }
+      const geoMinX = mnX, geoMaxX = mxX, geoMinY = mnY, geoMaxY = mxY;
       // Dot marks contribute their truesize radius to the frame (00111's
       // frame top is the dot edge at y=1+r, per Asymptote's pen bounds).
       for (const dc of pic.commands) {
@@ -12774,7 +12775,7 @@ function createInterpreter() {
         if (box.by < mnY) mnY = box.by;
         if (box.ty > mxY) mxY = box.ty;
       }
-      return { minX: mnX, maxX: mxX, minY: mnY, maxY: mxY, sX, sY };
+      return { minX: mnX, maxX: mxX, minY: mnY, maxY: mxY, sX, sY, geoMinX, geoMaxX, geoMinY, geoMaxY };
     }
     // Estimated glyph box of a label command in user units (sX/sY = bp per
     // user unit). Width via CM advance widths; height ≈ 0.75em (calibrated:
@@ -13958,7 +13959,20 @@ function createInterpreter() {
           // frame. Protrusion is measured from the title's own anchor
           // (position-independent, so it converges across passes).
           _xRideLo = 0; _xRideHi = 0;
-          for (const tc of myCmds) {
+          // Two-half slopefield diagrams (e.g. 00269: two add(slopefield)
+          // regions with a central gap): TeXeR extends the axes past the
+          // field box edges. Keep the SSIM-tuned pokes from the legacy
+          // finalize pass (deeper on the tail side) instead of the title
+          // ride.
+          const _xTwoHalfSF = new Set(pic.commands.filter(dc => dc && dc._slopefield).map(dc => dc._sfRegion)).size >= 2;
+          if (_xTwoHalfSF) {
+            // Emulate the legacy SSIM-tuned behavior exactly: content
+            // extents + poke, ignoring label glyph boxes.
+            const _rng = fb.geoMaxX - fb.geoMinX;
+            fb.minX = fb.geoMinX; fb.maxX = fb.geoMaxX;
+            _xRideLo = _rng * 0.07;
+            _xRideHi = _rng * 0.035;
+          } else for (const tc of myCmds) {
             if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
             const box = _labelBoxU(tc, fb.sX, fb.sY);
             if (!box) continue;
@@ -14500,7 +14514,13 @@ function createInterpreter() {
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
           _yRideLo = 0; _yRideHi = 0;
-          for (const tc of myCmds) {
+          const _yTwoHalfSF = new Set(pic.commands.filter(dc => dc && dc._slopefield).map(dc => dc._sfRegion)).size >= 2;
+          if (_yTwoHalfSF) {
+            const _rng = fb.geoMaxY - fb.geoMinY;
+            fb.minY = fb.geoMinY; fb.maxY = fb.geoMaxY;
+            _yRideLo = _rng * 0.07;
+            _yRideHi = _rng * 0.035;
+          } else for (const tc of myCmds) {
             if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
             const box = _labelBoxU(tc, fb.sX, fb.sY);
             if (!box) continue;
