@@ -12705,11 +12705,12 @@ function createInterpreter() {
     // each label's glyph extent (converted bp→user via the fitted-scale
     // model). This approximates Asymptote's min(t)/max(t) frame bounds that
     // deferred extend=true axes span (graph.asy xaxisAt: tinv*(lb.x,...)).
-    function _estimateFrameBoundsU(pic, excludeLabels) {
+    function _estimateFrameBoundsU(pic, excludeCmds) {
       let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
       for (const dc of pic.commands) {
         if (dc.cmd === 'clip') continue;
         if (dc._paletteLegend) continue;
+        if (excludeCmds && excludeCmds.has(dc)) continue;
         if (dc.path && dc.path.segs) {
           for (const seg of dc.path.segs) {
             for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -12726,19 +12727,34 @@ function createInterpreter() {
       if (!isFinite(mnX) || !isFinite(mnY)) return null;
       const sX = _alongAxisBpPerUnit('x', pic, mnX, mxX, 0);
       const sY = _alongAxisBpPerUnit('y', pic, mnY, mxY, 0);
+      // Dot marks contribute their truesize radius to the frame (00111's
+      // frame top is the dot edge at y=1+r, per Asymptote's pen bounds).
+      for (const dc of pic.commands) {
+        if (dc.cmd !== 'dot' || !dc.pos || !isFinite(dc.pos.x) || !isFinite(dc.pos.y)) continue;
+        if (excludeCmds && excludeCmds.has(dc)) continue;
+        const lw = (dc.pen && dc.pen.linewidth) || 0.5;
+        const rBp = lw >= 1 ? lw / 2 : 3 * lw;
+        const rxU = sX > 0 ? rBp / sX : 0, ryU = sY > 0 ? rBp / sY : 0;
+        if (dc.pos.x - rxU < mnX) mnX = dc.pos.x - rxU;
+        if (dc.pos.x + rxU > mxX) mxX = dc.pos.x + rxU;
+        if (dc.pos.y - ryU < mnY) mnY = dc.pos.y - ryU;
+        if (dc.pos.y + ryU > mxY) mxY = dc.pos.y + ryU;
+      }
       for (const dc of pic.commands) {
         if (dc.cmd !== 'label' || !dc.pos || !isFinite(dc.pos.x) || !isFinite(dc.pos.y)) continue;
         if (dc.pen && dc.pen.opacity === 0) continue;
         // The extending axis's own endpoint title rides the new endpoint —
         // including it makes the extension diverge (one title-height per
         // pass). The caller excludes it; everything else contributes.
-        if (excludeLabels && excludeLabels.has(dc)) continue;
+        if (excludeCmds && excludeCmds.has(dc)) continue;
         const t = dc.text || '';
         const clean = stripLaTeX(typeof t === 'string' ? t : '');
         if (!clean) continue;
         const fs = (dc.pen && dc.pen.fontsize) || 12;
         const wU = sX > 0 ? _estimateMathRunWidth(clean, fs) / sX : 0;
-        const hU = sY > 0 ? fs / sY : 0;
+        // Typical glyph box height ≈ 0.75em (calibrated: 00111's "n" SE
+        // label puts TeXeR's frame bottom at -(0.75em+labelmargin)).
+        const hU = sY > 0 ? (fs * 0.75) / sY : 0;
         const mgU = sX > 0 ? (0.28 * fs) / sX : 0;
         const mgVU = sY > 0 ? (0.28 * fs) / sY : 0;
         const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
@@ -13838,6 +13854,15 @@ function createInterpreter() {
             const _lfs = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
             _xLabelExtraDx = Math.sign(lAlign.x) * _lfs * 0.1;
             lAlign = {x: 0, y: lAlign.y};
+          } else if ((!ticks || ticks.none) && labelAlign != null && labelPosition != null
+                     && (labelPosition >= 0.999 || labelPosition <= 0.001)) {
+            // graph.asy labelaxis(): an explicit-align endpoint title is
+            // shifted half its width BACK along the axis (d=shift(-s)*d), so
+            // "$x$" at EndPoint+SE straddles the arrow tip instead of sitting
+            // wholly past it (00260/00263 right margin, 00059).
+            const _lfs2 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
+            const _wBp = _estimateMathRunWidth(stripLaTeX(label || ''), _lfs2);
+            _xLabelExtraDx = (labelPosition >= 0.999 ? -0.5 : 0.5) * _wBp;
           }
         }
         // Asymptote's graph.asy autoshifts the axis label past tick labels so they
@@ -13885,15 +13910,31 @@ function createInterpreter() {
       const _xJobStart = pic.commands.length;
       _emitXAxis(xmin, xmax);
       if (_xJobEligible) {
+        const _xUserLo = _xminFromUserLimits ? xmin : null;
+        const _xUserHi = _xmaxFromUserLimits ? xmax : null;
         let myCmds = pic.commands.slice(_xJobStart);
         for (const c of myCmds) c._jobManaged = true;
         let curLo = xmin, curHi = xmax;
-        _deferredAxisJobs.push(() => {
-          const _selfTitles = new Set(myCmds.filter(c => c && c._isAxisLabel));
-          const fb = _estimateFrameBoundsU(pic, _selfTitles);
+        _deferredAxisJobs.push((_pass) => {
+          // Exclude this axis's own LINE (a placeholder range when the axis
+          // was drawn before content — it must be able to SHRINK, 00247).
+          // The axis TITLE rides the moving endpoint: Asymptote's repeated
+          // bounds() recalcs let it push the frame out about twice before
+          // shipping, so include it for the first two passes only (00115's
+          // "x" title walks the axis out to ~6; unbounded riding diverges).
+          const _selfExclude = new Set(myCmds.filter(c => c && (c._isAxisLine || (_pass >= 1 && c._isAxisLabel))));
+          const fb = _estimateFrameBoundsU(pic, _selfExclude);
           if (!fb) return;
-          let lo = xminExplicit ? curLo : Math.min(fb.minX, curLo);
-          let hi = xmaxExplicit ? curHi : Math.max(fb.maxX, curHi);
+          // Passes 0-1: exact frame assignment (placeholder ranges shrink,
+          // titles ride). Passes 2-3: extend-only, so the locked-in title
+          // ride isn't undone by its own exclusion from the estimate.
+          // The frame always contains the user box: xlimits()-driven sides
+          // floor the assignment so framed plots (00101) never shrink inside
+          // their declared window.
+          let lo = xminExplicit ? curLo : (_pass >= 1 ? Math.min(fb.minX, curLo) : fb.minX);
+          let hi = xmaxExplicit ? curHi : (_pass >= 1 ? Math.max(fb.maxX, curHi) : fb.maxX);
+          if (!xminExplicit && _xUserLo != null) lo = Math.min(lo, _xUserLo);
+          if (!xmaxExplicit && _xUserHi != null) hi = Math.max(hi, _xUserHi);
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (Math.abs(lo - curLo) < 1e-9 && Math.abs(hi - curHi) < 1e-9) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
@@ -14394,7 +14435,17 @@ function createInterpreter() {
         // endpoint); -1 ⇒ shift up into the axis (bottom endpoint).
         const _endRotated = !uprightEndpoint && lt && (effPos >= 0.999 || effPos <= 0.001);
         const _axisLabelEndShift = _endRotated ? (effPos >= 0.999 ? 1 : -1) : 0;
-        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
+        // graph.asy labelaxis(): an explicit-align endpoint title is shifted
+        // half its height BACK along the (vertical) axis, so "$y$" at
+        // EndPoint+NW straddles the arrow tip instead of sitting wholly
+        // above it (00260/00263 top margin).
+        let _yLabelExtraDy = 0;
+        if (labelAlign != null && labelPosition != null
+            && (labelPosition >= 0.999 || labelPosition <= 0.001) && !lt) {
+          const _lfs3 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
+          _yLabelExtraDy = (labelPosition >= 0.999 ? 1 : -1) * 0.5 * (_lfs3 * 0.75);
+        }
+        pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, screenDy: _yLabelExtraDy, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
       }
       }; // end _emitYAxis
       const _yJobEligible = !extent && !_axisLimits.crop && !(yminExplicit && ymaxExplicit)
@@ -14403,15 +14454,19 @@ function createInterpreter() {
       const _yJobStart = pic.commands.length;
       _emitYAxis(ymin, ymax);
       if (_yJobEligible) {
+        const _yUserLo = _yminFromUserLimits ? ymin : null;
+        const _yUserHi = _ymaxFromUserLimits ? ymax : null;
         let myCmds = pic.commands.slice(_yJobStart);
         for (const c of myCmds) c._jobManaged = true;
         let curLo = ymin, curHi = ymax;
-        _deferredAxisJobs.push(() => {
-          const _selfTitles = new Set(myCmds.filter(c => c && c._isAxisLabel));
-          const fb = _estimateFrameBoundsU(pic, _selfTitles);
+        _deferredAxisJobs.push((_pass) => {
+          const _selfExclude = new Set(myCmds.filter(c => c && (c._isAxisLine || (_pass >= 1 && c._isAxisLabel))));
+          const fb = _estimateFrameBoundsU(pic, _selfExclude);
           if (!fb) return;
-          let lo = yminExplicit ? curLo : Math.min(fb.minY, curLo);
-          let hi = ymaxExplicit ? curHi : Math.max(fb.maxY, curHi);
+          let lo = yminExplicit ? curLo : (_pass >= 1 ? Math.min(fb.minY, curLo) : fb.minY);
+          let hi = ymaxExplicit ? curHi : (_pass >= 1 ? Math.max(fb.maxY, curHi) : fb.maxY);
+          if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
+          if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (Math.abs(lo - curLo) < 1e-9 && Math.abs(hi - curHi) < 1e-9) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
