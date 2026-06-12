@@ -3214,7 +3214,14 @@ function createInterpreter() {
               if (diff > 1e-9) segs.push(lineSegment(lend, rstart));
             }
             segs.push(...right.segs);
-            return makePath(segs, !!right.closed);
+            // Asymptote's join operators DESTROY cyclicity: `g--unitcircle`
+            // is an OPEN path that traverses the circle's segments (including
+            // its wrap-around segment, already present in right.segs) and ends
+            // at the circle's start point. Inheriting right.closed made the
+            // renderer emit a Z from the path END back to the path START —
+            // 05132's stick figure grew a spurious line from the head's neck
+            // joint back to its left foot.
+            return makePath(segs, false);
           }
         }
         return toBool(left) && toBool(right);
@@ -4780,6 +4787,31 @@ function createInterpreter() {
     return Math.atan2(vy, vx);
   }
 
+  // True when a path-expression element's AST contains a literal `cycle`
+  // keyword (an INLINE guide like `(B--C--cycle)`). Asymptote distinguishes:
+  // an inline guide's cycle closes back to the start of the OUTER guide it is
+  // spliced into, whereas a concrete cyclic path VALUE (unitcircle, a path
+  // variable, a function result) joined with -- contributes its full segment
+  // list — wrap-around segment included — and the result is OPEN (joins
+  // destroy cyclicity). Oracle-verified: `(0,1)--unitcircle` draws the whole
+  // circle with no closure; `(0,1)--((2,0)--(3,0)--(3,1)--cycle)` closes back
+  // to (0,1). Conflating the two gave 05132's stick figure a spurious line
+  // from the head's neck joint to the left foot (and ate the head's last
+  // quarter-circle).
+  function _astHasInlineCycle(ast) {
+    if (!ast || typeof ast !== 'object') return false;
+    if (ast.type === 'PathExpr' && Array.isArray(ast.nodes)) {
+      for (const nn of ast.nodes) {
+        if (nn.isCycle) return true;
+        if (_astHasInlineCycle(nn.point)) return true;
+      }
+      return false;
+    }
+    if (ast.expr) return _astHasInlineCycle(ast.expr);
+    if (ast.expression) return _astHasInlineCycle(ast.expression);
+    return false;
+  }
+
   function evalPathExpr(node, env) {
     // First pass: evaluate all nodes, collecting pairs and inline paths
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
@@ -4801,7 +4833,7 @@ function createInterpreter() {
       const eControlsOut = n.controlsOut ? toPair(evalNode(n.controlsOut, env)) : null;
       const eControlsIn = n.controlsIn ? toPair(evalNode(n.controlsIn, env)) : null;
       if (isPath(val) && val.segs.length > 0) {
-        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn, _origPath: val});
+        elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn, _origPath: val, _inlineCycle: _astHasInlineCycle(n.point)});
       } else if (isPath(val) && val.segs.length === 0) {
         // Empty path/guide — check if it has a _singlePoint marker (single-point path)
         if (val._singlePoint) {
@@ -4962,8 +4994,10 @@ function createInterpreter() {
           // closed quad A--B--C--D--A, NOT A--B--C--D--B with A as a dangling
           // spur. Drop the nested self-closing segment and let the outer
           // cycle-close (below) close back to this subpath's start (A).
-          if (hadPreceding && el._origPath && el._origPath.closed
+          if (hadPreceding && el._inlineCycle && el._origPath && el._origPath.closed
               && el.segs.length >= 2 && i === elements.length - 1) {
+            // Inline `(...--cycle)` guide: its cycle re-resolves against the
+            // OUTER path's start (see _astHasInlineCycle note).
             allSegs.push(...el.segs.slice(0, -1));
             hasCycle = true;
           } else {
@@ -10575,12 +10609,17 @@ function createInterpreter() {
           _markangleBpR: r * bpPerUnit, _markangleVertex: V, _markangleA1: a1 * Math.PI / 180, _markangleA2: a2 * Math.PI / 180});
       }
 
-      // Label at the arc midpoint
+      // Label ON the outermost arc midpoint, aligned radially outward —
+      // markers.asy: label(point(lpth, 0.5), align = unit(point(lpth, 0.5)))
+      // — the standard labelmargin + box-offset machinery provides the
+      // clearance. The old center-at-1.6×radius placement ignored the label's
+      // own box, so taller labels ($150^\circ$ in 02915) collided with the arc.
       if (label) {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
-        const labelR = radius + (n - 1) * gap + radius * 0.6;
+        const labelR = radius + (n - 1) * gap;
         const pos = makePair(V.x + labelR * Math.cos(midAngle), V.y + labelR * Math.sin(midAngle));
-        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0,
+        const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
+        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0,
           _markangleBpR: labelR * bpPerUnit, _markangleVertex: V, _markangleMidAngle: midAngle});
       }
 
@@ -11661,16 +11700,18 @@ function createInterpreter() {
         }
       }
 
-      // Label at the arc midpoint
+      // Label ON the outermost arc midpoint, aligned radially outward
+      // (markers.asy semantics — see the other markangle variant's note).
       if (label) {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
-        const labelR = radius + (n - 1) * gap + radius * 0.4;
+        const labelR = radius + (n - 1) * gap;
         const pos = makePair(B.x + labelR * Math.cos(midAngle), B.y + labelR * Math.sin(midAngle));
         // Tag the label with bp-truesize positioning info so it can be
         // re-positioned post-boost (label position is computed from the
         // pre-boost radius; needs to scale with the corrected arc radius).
-        const _bpLabelR = _bpRadius + (n - 1) * (_bpRadius * 0.15) + _bpRadius * 0.4;
-        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0,
+        const _bpLabelR = _bpRadius + (n - 1) * (_bpRadius * 0.15);
+        const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
+        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0,
           _markangleBpR: _bpLabelR, _markangleVertex: B, _markangleMidAngle: midAngle});
       }
       return null;
@@ -11725,12 +11766,13 @@ function createInterpreter() {
       const arcPath = makeArcPath(B, radius, a1, a2);
       currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0});
 
-      // Label at the arc midpoint
+      // Label ON the arc midpoint, aligned radially outward (markers.asy
+      // semantics — see the markangle variants' notes).
       if (label) {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
-        const labelR = radius * 1.4;
-        const pos = makePair(B.x + labelR * Math.cos(midAngle), B.y + labelR * Math.sin(midAngle));
-        currentPic.commands.push({cmd:'label', text: stripLaTeX(label), pos, align:{x:0,y:0}, pen:clonePen(pen), line:0});
+        const pos = makePair(B.x + radius * Math.cos(midAngle), B.y + radius * Math.sin(midAngle));
+        const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
+        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0});
       }
       return null;
     });
@@ -14938,7 +14980,7 @@ function createInterpreter() {
       if (!text && hasX) text = '$' + _formatAxisNum(x) + '$';
       if (!pen) pen = clonePen(defaultPen);
       if (!align) align = {x:0, y:-1};
-      pic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x,y:0}, align, pen, line:0});
+      pic.commands.push({cmd:'label', text: text, pos:{x,y:0}, align, pen, line:0});
     });
     env.set('labely', (...args) => {
       let pic = currentPic, startIdx = 0;
@@ -14954,7 +14996,7 @@ function createInterpreter() {
       if (!text && hasY) text = '$' + _formatAxisNum(y) + '$';
       if (!pen) pen = clonePen(defaultPen);
       if (!align) align = {x:-1, y:0};
-      pic.commands.push({cmd:'label', text: stripLaTeX(text), pos:{x:0,y}, align, pen, line:0});
+      pic.commands.push({cmd:'label', text: text, pos:{x:0,y}, align, pen, line:0});
     });
 
     // Ticks constructors — accept format string, positions array, Step, pen, Size, etc.
@@ -32804,6 +32846,21 @@ function _inlineMathSvg(line, fontSize) {
   // literal backslash-paren delimiters.
   if (line.indexOf('\\(') !== -1 || line.indexOf('\\)') !== -1) {
     line = line.replace(/\\\(/g, '$').replace(/\\\)/g, '$');
+  }
+  // Bold runs: \textbf{...} (one brace-nesting level, so \textbf{{\tiny 2:??}}
+  // works) render as font-weight:bold tspans. stripLaTeX used to silently
+  // drop the command, losing the bold entirely (12383's minipage "1:5/2:??/
+  // 3:??" ratio labels are bold in the TeXeR reference).
+  if (line.indexOf('\\textbf') !== -1) {
+    const reB = /\\textbf\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g;
+    let out = '', lastB = 0, mB;
+    while ((mB = reB.exec(line)) !== null) {
+      if (mB.index > lastB) out += _inlineMathSvg(line.slice(lastB, mB.index), fontSize);
+      out += `<tspan font-weight="bold">${_inlineMathSvg(mB[1], fontSize)}</tspan>`;
+      lastB = mB.index + mB[0].length;
+    }
+    if (lastB < line.length) out += _inlineMathSvg(line.slice(lastB), fontSize);
+    return out;
   }
   if (line.indexOf('$') === -1) return escSvg(stripLaTeX(line));
   let result = '';
