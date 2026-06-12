@@ -25416,6 +25416,7 @@ function renderSVG(result, opts) {
         // 05537 -0.074, 02582 -0.019).
         const _ltHasScale = !!dc.labelTransform && Math.abs(ltScale - 1) > 0.01;
         let _mjxMeasured = false;
+        let _mjxHBp = null;
         if ((hasFrac || _ltHasScale) && opts && opts.labelOutput === 'svg-native'
             && typeof _mjxMeasureBp === 'function'
             && typeof text === 'string' && text.indexOf('\n') === -1) {
@@ -25423,6 +25424,11 @@ function renderSVG(result, opts) {
             const _mm = _mjxMeasureBp(text, fontSize);
             if (_mm && _mm.wBp > 0) {
               textWidthBpBase = _mm.wBp;
+              // Real rendered height too: \frac{b}{\sqrt{3}} and \dfrac run
+              // ~1.4–1.9em, far past the 0.65*1.5 heuristic — the solver's
+              // bbox missed the numerator, so it was CLIPPED at the canvas
+              // edge for size()-constrained figures (02915, 04965).
+              if (_mm.hBp > 0) _mjxHBp = _mm.hBp;
               // Reserve a side-bearing margin so an SE/E-anchored scaled caption gets
               // edge clearance instead of sitting flush against the viewBox and
               // clipping (04456's scale(0.75) "y = -2x + 24"). Let the measured width
@@ -25473,14 +25479,16 @@ function renderSVG(result, opts) {
         const _heightBpRaw = numLines === 1
           ? fontSize * heightFactor
           : fontSize * (heightFactor + 1.2 * (numLines - 1));
-        let textHeightUser = (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw) / roughPxPerUnitY;
+        let textHeightUser = (_mjxHBp != null ? _mjxHBp
+          : (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw)) / roughPxPerUnitY;
 
         // For rotated labels, compute the axis-aligned bounding box of the rotated text.
         // Use the exact formula for any angle rather than just swapping at 90°.
         if (Math.abs(ltAngle) > 0.5) {
           // Original dimensions in bp (before dividing by axis scale)
           const textWidthBp = textWidthBpBase;
-          const textHeightBp = hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw;
+          const textHeightBp = _mjxHBp != null ? _mjxHBp
+            : (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw);
           const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
           const sinA = Math.abs(Math.sin(ltAngle * Math.PI / 180));
           // Rotated bbox: visual x-extent and y-extent
@@ -27602,7 +27610,13 @@ function renderSVG(result, opts) {
       // below is self-limiting (adds 0 when the label fits), so it is safe to
       // run the full extent check for any strongly vertically-aligned label.
       const extendsVert = dc.align && Math.abs(dc.align.y) > 0.5 && Math.abs(dc.align.x) < 0.5;
-      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert) continue;
+      // Tall math (\frac/\dfrac/\sqrt/\overset…) runs 1.4–1.9em — far past the
+      // ~0.65em line box the solver budgets — so a diagonal NW/NE align (which
+      // fails the extendsVert |ax|<0.5 test) still overhangs the canvas and
+      // was clipped (02915's NW "$\frac{b}{\sqrt{3}}$" lost its numerator).
+      const _tallMathSkip = dc.align && Math.abs(dc.align.y) > 0.01 &&
+        /\\(?:frac|dfrac|tfrac|cfrac|sqrt|overset|underset|stackrel|substack|atop|binom)\b/.test(dc.text || '');
+      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert && !_tallMathSkip) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
@@ -27638,33 +27652,18 @@ function renderSVG(result, opts) {
       const _hFactorVB = _hasFracVB ? 1.45 : 1.0;
       // Match the multi-line height formula from rendering (line ~24661): account for
       // 1.2× line spacing between lines instead of multiplying _hFactor by numLines.
-      const H = (numLines > 1
+      let H = (numLines > 1
         ? fontSizeSVG * ((numLines - 1) * 1.2 + _hFactorVB)
         : fontSizeSVG * _hFactorVB) + subscriptDepth;
-      // Labels containing \frac, \sqrt, or \*brace are drawn by renderLaTeXSVG
-      // (the dispatch routes them there before the MathJax branch), NOT by
-      // MathJax. Reserve exactly renderLaTeXSVG's advance width so the viewBox
-      // doesn't leave a band of empty right-padding (00125's
-      // "$BU \cos \frac{u}{2}$" reserved the ~7%-wider MathJax width, inflating
-      // canvas width by ~30px and dropping sizeScore). effectiveFontSize ==
-      // fontSizeSVG for untransformed labels; the labelTransform scale is
-      // applied to W later, so measure at the unscaled fontSizeSVG.
-      const _usesInlineColorVB = /\\color\s*\{/.test(_rawVB);
-      const _usesLaTeXSVGRenderVB = !_usesInlineColorVB &&
-        /\\(?:frac|underbrace|overbrace|sqrt)\b/.test(_rawVB);
-      if (opts && opts.labelOutput === 'svg-native' && _usesLaTeXSVGRenderVB &&
-          typeof _measureLaTeXSVGWidth === 'function' && numLines <= 1) {
-        try {
-          const wMeasured = _measureLaTeXSVGWidth(dc.text, fontSizeSVG);
-          if (wMeasured > 0) W = wMeasured;
-        } catch (e) { /* fall back to heuristic W */ }
-      } else
       // In svg-native mode the actual label is rendered through MathJax which
       // gives precise widths.  The character-count heuristic above (charWFactor
       // 0.62 for math) over-estimates by ~50% for digit/symbol-heavy labels
       // (e.g. "··· 0 0 0 1 2 ··· $" where most glyphs are upright digits, not
       // italic letters).  When the heuristic disagrees with the measured width,
       // trust the measurement — the viewBox should match the rendered extent.
+      // (\frac/\sqrt labels also route through MathJax in svg-native since the
+      // v8.09 routing fix, so the old renderLaTeXSVG width measurement here
+      // was measuring a renderer these labels no longer use.)
       if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function') {
         try {
           const m = _mjxMeasureBp(dc.text, fontSize);
@@ -27678,6 +27677,11 @@ function renderSVG(result, opts) {
               // (02422) render with a canvas that hugs the ink, losing sizeScore
               // vs TeXeR's padded PNG.
               W = measuredW * 1.06;
+              // Height: the 1.45×fontSize frac factor under-estimates \dfrac
+              // (~1.9em) and nested \frac{..}{\sqrt{..}} — their numerators
+              // were CLIPPED at the figure edge (04965's top "b/2", 02915's
+              // "b/√3"). The measured MathJax height is the rendered truth.
+              if (m.hBp > 0) H = Math.max(H, m.hBp * bpCSSPixel);
             } else {
               // Multi-line: _mjxMeasureBp measures the concatenated single line
               // (MathJax ignores embedded \n), grossly over-wide, so keep the
@@ -27896,18 +27900,21 @@ function renderSVG(result, opts) {
         const hActual = _ltRotated ? effH : fontSizeSVG * (1 + 1.2 * (numLines - 1));
         let topActual = cy - hActual / 2;
         let bottomActual = cy + hActual / 2;
-        // Vertically-overhanging MathJax labels (e.g. \overset stacks like
-        // 03348's blue dimension label) are far taller than one tspan line, so
-        // the hActual heuristic under-counts the glyph box and the overhang
-        // gets clipped. Replicate renderLabelMathJaxSVG's exact vertical
-        // placement using the measured height so the viewBox covers it.
-        if (extendsVert && opts && opts.labelOutput === 'svg-native'
+        // Vertically-overhanging MathJax labels (\overset stacks like 03348's
+        // blue dimension label, but ALSO \frac/\dfrac/\sqrt — 02915's
+        // "$\frac{b}{\sqrt{3}}$" and 04965's "$\dfrac{b}{2}$" had their
+        // numerators CLIPPED at the figure edge) are far taller than one
+        // tspan line, so the hActual heuristic under-counts the glyph box and
+        // the overhang gets clipped. Replicate renderLabelMathJaxSVG's exact
+        // vertical placement using the measured height so the viewBox covers it.
+        const _tallMathVB = /\\(?:frac|dfrac|tfrac|cfrac|sqrt|overset|underset|stackrel|substack|atop|binom)\b/.test(dc.text || '');
+        if ((extendsVert || _tallMathVB) && opts && opts.labelOutput === 'svg-native'
             && typeof _mjxMeasureBp === 'function') {
           try {
             const _mh = _mjxMeasureBp(dc.text, fontSize);
             if (_mh && _mh.hBp > 0) {
               const _svgH = _mh.hBp * bpCSSPixel;
-              const _ax = dc.align.x, _ay = dc.align.y;
+              const _ax = dc.align ? dc.align.x : 0, _ay = dc.align ? dc.align.y : 0;
               const _aInf = Math.max(Math.abs(_ax), Math.abs(_ay));
               const _ayN = _aInf > 0 ? (_ay * 0.5 / _aInf) : 0;
               const _hEst = fontSizeSVG * (/\\frac\b/.test(dc.text || '') ? 1.45 : 1.0);
