@@ -3984,7 +3984,10 @@ function createInterpreter() {
         // sub-pictures by one slot (_sizeW bp) per user-unit offset, matching
         // the picture-form branch's per-slot layout (03398 c190_L1 panel grid).
         if (obj._sizeW) { frame._sizeW = obj._sizeW; frame._sizeH = obj._sizeH; }
-        if (process.env.HTX_DEBUG_FIT) console.error('FIT explicit',explicitSize,'targetW',targetW,'userW',userW.toFixed(1),'sx',sx.toFixed(3),'fitW',(userW*sx).toFixed(1));
+        // typeof guard: bare `process` throws ReferenceError in the browser,
+        // killing the whole render for any diagram that reaches this path
+        // (12713's size(pic,100,100,...) did).
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_DEBUG_FIT) console.error('FIT explicit',explicitSize,'targetW',targetW,'userW',userW.toFixed(1),'sx',sx.toFixed(3),'fitW',(userW*sx).toFixed(1));
         return frame;
       }
       if (method === 'fit3') {
@@ -29396,14 +29399,17 @@ function renderSVG(result, opts) {
           const innerStripped = inner2.replace(/^\{(.*)\}$/, '$1').trim();
           // If no remaining LaTeX math commands or ^/_ scripts, decide whether to keep math mode
           if (!/\\[a-zA-Z]/.test(innerStripped) && !/[\^_]/.test(innerStripped)) {
-            if (/^[a-zA-Z]$/.test(innerStripped)) {
-              // Single bare letter → preserve math mode for italic rendering
-              // (e.g. ${\huge d}$ should render d as italic math, not Roman text — 06139).
-              displayText = '$' + innerStripped + '$';
-            } else {
-              // Multi-word text or non-letter content → render as plain text
+            if (/[a-zA-Z]\s+\S*[a-zA-Z]/.test(innerStripped)) {
+              // Multi-word prose → render as plain text
               // (e.g. "$\small Outgoing light$" → "Outgoing light")
               displayText = innerStripped;
+            } else {
+              // Letters/digits/operators without prose spacing → preserve math
+              // mode: ${\huge d}$ renders d as italic math (06139), and
+              // "\footnotesize $-1$" keeps the U+2212 minus + TeX spacing
+              // (05980's number line rendered a short hyphen when this
+              // unwrapped to plain text).
+              displayText = '$' + innerStripped + '$';
             }
           }
         }
