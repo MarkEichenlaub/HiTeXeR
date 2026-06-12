@@ -28607,6 +28607,7 @@ function renderSVG(result, opts) {
   // their sizing didn't change (still ~7 bp/unit floor or larger), and the
   // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
+  let _autoStrokeFloorBoost = 1.0;
   // Track narrow-span 1D horizontal diagrams so dot boost can be reduced
   // (stroke boost needs to be high for lines/arrows, but dots are already
   // prominent and don't need the same multiplier).
@@ -28664,6 +28665,11 @@ function renderSVG(result, opts) {
     } else {
       // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
       _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
+      // STROKE-only floor: TeXeR's 240-DPI rasterization renders default
+      // 0.5bp strokes ~1.8× heavier than our nominal (measured 3px vs
+      // 1.67px on 07413's axes). Dots and arrowheads are truesize and
+      // already match — they keep the unfloored ramp value.
+      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, 1.5);
     }
   }
   // The auto-scaled boost compensates default-pen STROKES for SSIM trim+resize
@@ -28707,8 +28713,8 @@ function renderSVG(result, opts) {
     // explicit-size stroke boost — they already have a dedicated 1.4×
     // boost below and combining both makes them too thick (03901).
     const isGridline = dc._isTickMark && dc.above === -1;
-    if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-      css.strokeWidth *= _autoScaledStrokeBoost;
+    if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+      css.strokeWidth *= Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
     } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet && !isGridline) {
       css.strokeWidth *= _explicitSizeStrokeBoost;
     }
@@ -28903,7 +28909,7 @@ function renderSVG(result, opts) {
       // 3D diagrams already skip this via the !_is3D check for stroke boost.
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (_autoScaledStrokeBoost > 1 && (geoIs1D || _hasBoostedStroke)) {
+        if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke)) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
           // For 2D diagrams with no boosted stroke (all geometry uses explicit
@@ -28911,7 +28917,10 @@ function renderSVG(result, opts) {
           // proportional to the unboosted lines. 1D dot diagrams (09210/09212)
           // have no strokes at all but still need the boost to survive SSIM
           // trim+resize, so they always keep it.
-          _dotBoost = _isNarrowFewDots1D ? 3.425 : _autoScaledStrokeBoost;
+          // Default-pen dots are stroke-rendered in TeXeR's EPS pipeline,
+          // so they carry the same DPI weight as lines (07413's dots
+          // measured visibly heavier than native 3bp) — share the floor.
+          _dotBoost = _isNarrowFewDots1D ? 3.425 : Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
         }
         // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
         // no longer boost dots — native bp sizing matches TeXeR better.
