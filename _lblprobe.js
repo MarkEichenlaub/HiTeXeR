@@ -59,6 +59,10 @@ const SPECIMENS = [
   { id: 'al_E',      body: 'dot((0,0),linewidth(2));label("$M$",(0,0),E);', alignDot: true },
   { id: 'al_W',      body: 'dot((0,0),linewidth(2));label("$M$",(0,0),W);', alignDot: true },
   { id: 'al_NE',     body: 'dot((0,0),linewidth(2));label("$M$",(0,0),NE);', alignDot: true },
+  { id: 'al_NW',     body: 'dot((0,0),linewidth(2));label("$M$",(0,0),NW);', alignDot: true },
+  { id: 'al_SE',     body: 'dot((0,0),linewidth(2));label("$M$",(0,0),SE);', alignDot: true },
+  { id: 'al_SW',     body: 'dot((0,0),linewidth(2));label("$M$",(0,0),SW);', alignDot: true },
+  { id: 'al_2NE',    body: 'dot((0,0),linewidth(2));label("$M$",(0,0),2NE);', alignDot: true },
   { id: 'al_E_text', body: 'dot((0,0),linewidth(2));label("Mass (kg)",(0,0),E);', alignDot: true },
   { id: 'al_W_text', body: 'dot((0,0),linewidth(2));label("Mass (kg)",(0,0),W);', alignDot: true },
 ];

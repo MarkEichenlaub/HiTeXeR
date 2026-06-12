@@ -6872,6 +6872,23 @@ function createInterpreter() {
   // Standard Library Installation
   // ============================================================
 
+  // Axis-label subsystem calibration shim. The xaxis/yaxis label machinery
+  // (endpoint fast paths, deferred frame-extension jobs, viewBox padding
+  // mirrors) was empirically tuned against TeXeR references back when the
+  // diagonal constants NE/NW/SE/SW evaluated to (±1,±1). Those constants are
+  // now the correct plain_constants.asy unit vectors (±0.7071, ±0.7071) —
+  // required so PLAIN diagonal labels get the right labelmargin push (probe:
+  // $M$ at NE sat 1.2bp too far out) and diagonal geometry is true to
+  // Asymptote. Axis labels aligned with one of the tagged diagonal CONSTANTS
+  // are scaled back by sqrt(2) here so the calibrated axis behavior stays
+  // byte-identical (00145's square figure regressed to 0.979 aspect without
+  // this). User-written pairs (align=(1,1)) and derived pairs (2NE) are not
+  // tagged and keep real-Asymptote semantics.
+  function _axisAlignShim(a) {
+    if (a && a._diag45) return { x: a.x * Math.SQRT2, y: a.y * Math.SQRT2 };
+    return a;
+  }
+
   function installStdlib(env) {
     // Direction constants
     const dirs = {
@@ -6888,6 +6905,12 @@ function createInterpreter() {
       WSW:makePair(-Math.cos(Math.PI/8),-Math.sin(Math.PI/8)),
       up:makePair(0,1), down:makePair(0,-1), right:makePair(1,0), left:makePair(-1,0),
     };
+    // Tag the four 45° diagonal CONSTANTS for the axis-label calibration shim
+    // (_axisAlignShim): the xaxis/yaxis label machinery was tuned against
+    // TeXeR references when these evaluated to (±1,±1). Arithmetic on pairs
+    // (2NE, NE+E, …) produces fresh untagged pairs, so only direct uses of
+    // the constants are shimmed.
+    for (const k of ['NE','NW','SE','SW']) dirs[k]._diag45 = true;
     for (const [k,v] of Object.entries(dirs)) env.set(k, v);
     _BUILTIN_DIR_VALUES = dirs;
 
@@ -6984,19 +7007,13 @@ function createInterpreter() {
     env.set('realMin', Number.MIN_VALUE);
     env.set('I', makePair(0,1));
     env.set('origin', makePair(0,0));
-    // Cardinal direction constants
-    env.set('N', makePair(0,1));
-    env.set('S', makePair(0,-1));
-    env.set('E', makePair(1,0));
-    env.set('W', makePair(-1,0));
-    env.set('NE', makePair(1,1));
-    env.set('NW', makePair(-1,1));
-    env.set('SE', makePair(1,-1));
-    env.set('SW', makePair(-1,-1));
-    env.set('up', makePair(0,1));
-    env.set('down', makePair(0,-1));
-    env.set('right', makePair(1,0));
-    env.set('left', makePair(-1,0));
+    // Direction constants are set ONCE at the top of installStdlib (the
+    // `dirs` table, which matches plain_constants.asy: NE = unit(N+E) =
+    // (0.7071, 0.7071), NOT (1,1)). A duplicate block here used to overwrite
+    // the diagonals with (1,1), which pushed every NE/NW/SE/SW-aligned label
+    // sqrt(2) labelmargins from its anchor instead of one (probe: $M$ at NE
+    // sat 1.2bp too far out in both render paths) and disagreed with
+    // _BUILTIN_DIR_VALUES. Do not re-add cardinal sets here.
     env.set('CCW', true);
     env.set('CW', false);
     env.set('Aspect', true);
@@ -13902,7 +13919,7 @@ function createInterpreter() {
           // tick labels, so an additional y:-3 alignment double-pushes the title
           // far below the axis (00115 "x" sat ~2.4fs down vs TeXeR's ~1.8fs,
           // just past the "5" tick label).
-          lAlign = labelAlign || {x:-1, y:-1};
+          lAlign = _axisAlignShim(labelAlign) || {x:-1, y:-1};
           labelX = xmax;
           if (labelPosition != null) labelX = xmin + (xmax - xmin) * labelPosition;
           // Default-align endpoint title on a TICKED plot axis (00115's
@@ -14499,7 +14516,7 @@ function createInterpreter() {
         const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault;
         const atEndpoint = uprightEndpoint;
         const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
-        const lAlign = labelAlign || (
+        const lAlign = _axisAlignShim(labelAlign) || (
           arrowEndpointDefault ? {x:-1, y:0} :
           plainEndpointDefault ? {x:-1, y:0} :
           (uprightEndpoint ? {x:0, y:1} : {x:-1, y:0})
@@ -27800,6 +27817,24 @@ function renderSVG(result, opts) {
             dx = _dxRender;
           }
         }
+        // Mirror the renderer's axis-label fast path (text-anchor=start/end,
+        // dx = axLinf*margin): the label box spans [margin, margin+W] from
+        // the anchor, i.e. a centered-box offset of axLinf*(margin+effW/2),
+        // and the dy margin push uses L∞ components. With |ax|=1 diagonals
+        // the centered formula above coincidentally produced the same
+        // extents; now that NE/SE/... are unit vectors (plain_constants.asy)
+        // the mirror is needed or EndPoint SE/NW axis labels lose
+        // (1-0.7071)*margin of padding per side (00145's square figure
+        // shrank 3bp and its x-label overflowed the viewBox).
+        {
+          const _aInfM = Math.max(Math.abs(ax), Math.abs(ay));
+          const _axL = _aInfM > 0 ? ax / _aInfM : 0;
+          const _ayL = _aInfM > 0 ? ay / _aInfM : 0;
+          if (dc._isAxisLabel && !dc.labelTransform && Math.abs(_axL) > 0.99) {
+            dx = _axL * (margin + effW / 2);
+            dy = -(ay_n * effH + _ayL * margin);
+          }
+        }
       }
       // Apply per-command screen-space offsets (axis label autoshift). These are in
       // bp; convert to SVG user units via bpCSSPixel to match effW/effH scaling.
@@ -29133,16 +29168,23 @@ function renderSVG(result, opts) {
         _labelHEst = H;   // pass estimated height to MathJax renderer for correction
         _labelAyN = ay_n;
         anchor = 'middle';
-        // For axis labels with strong horizontal alignment (ax = ±1), use SVG's
-        // native text-anchor="end"/"start" so the right/left edge of the rendered
-        // text lands precisely at the labelmargin offset from the position,
-        // regardless of font-width estimation accuracy. Without this, axis
-        // labels like "Mass (kg)" placed at xmax with align W can extend past
-        // the viewBox right edge when the heuristic char-width factor (0.52)
-        // under-estimates the actual rendered width.
-        if (dc._isAxisLabel && Math.abs(ax) > 0.99 && !dc.labelTransform) {
+        // For axis labels with a dominant horizontal alignment component, use
+        // SVG's native text-anchor="end"/"start" so the right/left edge of the
+        // rendered text lands precisely at the labelmargin offset from the
+        // position, regardless of font-width estimation accuracy. Without
+        // this, axis labels like "Mass (kg)" placed at xmax with align W can
+        // extend past the viewBox right edge when the heuristic char-width
+        // factor (0.52) under-estimates the actual rendered width.
+        // The test uses the L∞-NORMALIZED component (and the margin push uses
+        // L∞ components too) so diagonal aligns behave as they did when
+        // NE/SE/... were (±1,±1): with the constants now unit vectors
+        // (plain_constants.asy), a raw-component test would silently drop
+        // EndPoint SE/NW axis labels out of this branch and shrink the
+        // figure bounds (00145 went from the ref's square aspect to 0.979).
+        if (dc._isAxisLabel && Math.abs(axLinf) > 0.99 && !dc.labelTransform) {
           anchor = ax < 0 ? 'end' : 'start';
-          dx = ax * margin + axUnit * dotPush;
+          dx = axLinf * margin + axUnit * dotPush;
+          dy = -(ay_n * H + ayLinf * margin + ayUnit * dotPush);
         }
       }
       let rawText = dc.text || '';
