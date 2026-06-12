@@ -239,6 +239,7 @@
         <div class="bulk-busy" id="bulk-busy" style="display:none"></div>
       </div>
     </div>
+    <button id="btn-select-all-visible" title="Select all currently visible diagrams (matching current filters)">Select All (<span id="select-all-count">0</span>)</button>
     <button id="btn-clear-selected" title="Clear selection">Clear</button>
   </div>
 
@@ -627,6 +628,8 @@
       `${filtered.length} diagrams | Page ${page + 1} of ${Math.ceil(filtered.length / PER_PAGE) || 1}`;
     const vc = document.getElementById('visible-count');
     if (vc) vc.textContent = filtered.length;
+    const sac = document.getElementById('select-all-count');
+    if (sac) sac.textContent = filtered.length;
 
     if (slice.length === 0) {
       grid.innerHTML = '<p style="padding:20px;opacity:0.5">No diagrams match the current filters.</p>';
@@ -718,6 +721,16 @@
     selected.clear();
     document.querySelectorAll('.thumb.selected').forEach(el => el.classList.remove('selected'));
     document.querySelectorAll('.thumb-check').forEach(cb => { cb.checked = false; });
+    updateSelectedCount();
+  }
+
+  function selectAllVisible() {
+    for (const d of filtered) selected.add(d.id);
+    document.querySelectorAll('.thumb').forEach(el => {
+      el.classList.add('selected');
+      const cb = el.querySelector('.thumb-check');
+      if (cb) cb.checked = true;
+    });
     updateSelectedCount();
   }
 
@@ -1606,6 +1619,7 @@
     }
   });
   document.getElementById('btn-clear-selected').addEventListener('click', clearSelected);
+  document.getElementById('btn-select-all-visible').addEventListener('click', selectAllVisible);
   document.getElementById('btn-copy-queue').addEventListener('click', copyQueue);
   document.getElementById('btn-hide-queued').addEventListener('click', () => {
     hideQueued = !hideQueued;
