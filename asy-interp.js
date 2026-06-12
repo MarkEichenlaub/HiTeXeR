@@ -27203,8 +27203,15 @@ function renderSVG(result, opts) {
     maxY = Math.min(maxY, clipMaxY + padY);
   }
 
-  // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
-  if (opts.forcedPxPerUnit) {
+  // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames.
+  // For IgnoreAspect diagrams, forcedPxPerUnitX/Y may be set independently to preserve the
+  // distinct x and y scales (a scalar forcedPxPerUnit would collapse both to the same tiny value).
+  if (opts.forcedPxPerUnitX !== undefined || opts.forcedPxPerUnitY !== undefined) {
+    if (opts.forcedPxPerUnitX !== undefined) pxPerUnitX = opts.forcedPxPerUnitX;
+    if (opts.forcedPxPerUnitY !== undefined) pxPerUnitY = opts.forcedPxPerUnitY;
+    pxPerUnit = opts.forcedPxPerUnit !== undefined ? opts.forcedPxPerUnit
+                                                   : Math.min(pxPerUnitX, pxPerUnitY);
+  } else if (opts.forcedPxPerUnit) {
     pxPerUnit = pxPerUnitX = pxPerUnitY = opts.forcedPxPerUnit;
   }
 

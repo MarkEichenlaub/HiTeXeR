@@ -648,7 +648,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.12</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.13</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -6600,6 +6600,18 @@ document.addEventListener('DOMContentLoaded', () => {
     return 3000; // default
   }
 
+  // Round a GIF frame value to eliminate floating-point noise from linear interpolation.
+  // Uses the step size to determine how many decimal places are meaningful, so that
+  // values like 0.003700005 become 0.0037 when the step is 0.0001.
+  function gifSnapValue(val, startVal, endVal, numSteps) {
+    if (!isFinite(val) || numSteps <= 1) return val;
+    const step = Math.abs(endVal - startVal) / (numSteps - 1);
+    if (step === 0) return val;
+    const mag = Math.floor(Math.log10(step));
+    const decimals = Math.max(0, -mag + 1);
+    return parseFloat(val.toFixed(Math.min(15, decimals)));
+  }
+
   // Pre-compute stable bounds by sampling the variable range
   function gifComputePreviewBounds() {
     gifPreviewBounds = null;
@@ -6611,10 +6623,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Sample several values to find the full extent of the drawing
     const samples = 10;
     let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
-    let minPpu = Infinity;
+    let minPpu = Infinity, minPpuX = Infinity, minPpuY = Infinity;
     for (let i = 0; i <= samples; i++) {
       const t = i / samples;
-      const val = startVal + (endVal - startVal) * t;
+      const val = gifSnapValue(startVal + (endVal - startVal) * t, startVal, endVal, samples + 1);
       const framelines = code.split('\n');
       const re = new RegExp('(\\b' + gifSelectedVar.varName + '\\s*=\\s*)[-\\d.eE+]+', '');
       framelines[lineIdx] = framelines[lineIdx].replace(re, `$1${val}`);
@@ -6628,10 +6640,13 @@ document.addEventListener('DOMContentLoaded', () => {
         bMaxX = Math.max(bMaxX, result.maxX);
         bMaxY = Math.max(bMaxY, result.maxY);
         minPpu = Math.min(minPpu, result.pxPerUnit);
+        minPpuX = Math.min(minPpuX, result.pxPerUnitX || result.pxPerUnit);
+        minPpuY = Math.min(minPpuY, result.pxPerUnitY || result.pxPerUnit);
       } catch(e) { /* skip */ }
     }
     if (isFinite(minPpu) && isFinite(bMinX)) {
-      gifPreviewBounds = { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY, ppu: minPpu };
+      gifPreviewBounds = { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY,
+                           ppu: minPpu, ppuX: minPpuX, ppuY: minPpuY };
     }
   }
 
@@ -6660,7 +6675,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const t = totalFrames === 1 ? 0 : frameInCycle / (totalFrames - 1);
       const startVal = parseFloat(document.getElementById('gif-start').value) || 0;
       const endVal = parseFloat(document.getElementById('gif-end').value) || 1;
-      const value = startVal + (endVal - startVal) * t;
+      const value = gifSnapValue(startVal + (endVal - startVal) * t, startVal, endVal, totalFrames);
       gifUpdateVariable(value);
       frameIndex++;
       let nextDelay = frameDelay;
@@ -6703,6 +6718,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (gifPreviewBounds) {
           renderOpts.forcedBounds = { minX: gifPreviewBounds.minX, minY: gifPreviewBounds.minY, maxX: gifPreviewBounds.maxX, maxY: gifPreviewBounds.maxY };
           renderOpts.forcedPxPerUnit = gifPreviewBounds.ppu;
+          renderOpts.forcedPxPerUnitX = gifPreviewBounds.ppuX;
+          renderOpts.forcedPxPerUnitY = gifPreviewBounds.ppuY;
         }
         const result = AsyInterp.render(newCode, renderOpts);
         const oldSvg = previewEl.querySelector('svg:not([data-perm])');
@@ -6827,7 +6844,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const stabilize = document.getElementById('gif-stabilize').checked;
 
-      let uMinX, uMinY, uMaxX, uMaxY, minPpu;
+      let uMinX, uMinY, uMaxX, uMaxY, minPpu, minPpuX, minPpuY;
 
       if (stabilize) {
         // Pass 1: render every frame, measure the ACTUAL rendered SVG content
@@ -6841,13 +6858,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(_) {}
 
         uMinX = Infinity; uMinY = Infinity; uMaxX = -Infinity; uMaxY = -Infinity;
-        minPpu = Infinity;
+        minPpu = Infinity; minPpuX = Infinity; minPpuY = Infinity;
         let measuredFrames = 0;
 
         try {
           for (let i = 0; i < totalFrames; i++) {
             const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
-            const value = startVal + (endVal - startVal) * t;
+            const value = gifSnapValue(startVal + (endVal - startVal) * t, startVal, endVal, totalFrames);
             const result = renderFrame(value);
             if (!result) continue;
 
@@ -6884,6 +6901,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fMaxX > uMaxX) uMaxX = fMaxX;
             if (fMaxY > uMaxY) uMaxY = fMaxY;
             if (result.pxPerUnit < minPpu) minPpu = result.pxPerUnit;
+            const _ppuX = result.pxPerUnitX || result.pxPerUnit;
+            const _ppuY = result.pxPerUnitY || result.pxPerUnit;
+            if (_ppuX < minPpuX) minPpuX = _ppuX;
+            if (_ppuY < minPpuY) minPpuY = _ppuY;
             measuredFrames++;
 
             if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
@@ -6911,14 +6932,18 @@ document.addEventListener('DOMContentLoaded', () => {
         uMinX = firstResult.minX; uMinY = firstResult.minY;
         uMaxX = firstResult.maxX; uMaxY = firstResult.maxY;
         minPpu = firstResult.pxPerUnit;
+        minPpuX = firstResult.pxPerUnitX || firstResult.pxPerUnit;
+        minPpuY = firstResult.pxPerUnitY || firstResult.pxPerUnit;
       }
 
       const ppu = minPpu;
+      const ppuX = isFinite(minPpuX) ? minPpuX : ppu;
+      const ppuY = isFinite(minPpuY) ? minPpuY : ppu;
       const forcedBounds = stabilize ? { minX: uMinX, minY: uMinY, maxX: uMaxX, maxY: uMaxY } : undefined;
 
-      // Union viewBox dimensions (in SVG/pixel units)
-      const natW = (uMaxX - uMinX) * ppu;
-      const natH = (uMaxY - uMinY) * ppu;
+      // Union viewBox dimensions (in SVG/pixel units); use per-axis scale for IgnoreAspect diagrams
+      const natW = (uMaxX - uMinX) * ppuX;
+      const natH = (uMaxY - uMinY) * ppuY;
 
       // Compute actual output dimensions
       let outW, outH;
@@ -6953,8 +6978,10 @@ document.addEventListener('DOMContentLoaded', () => {
       let framesAdded = 0;
       for (let i = 0; i < totalFrames; i++) {
         const t = totalFrames === 1 ? 0 : i / (totalFrames - 1);
-        const value = startVal + (endVal - startVal) * t;
-        const frameOpts = stabilize ? { forcedBounds, forcedPxPerUnit: ppu } : {};
+        const value = gifSnapValue(startVal + (endVal - startVal) * t, startVal, endVal, totalFrames);
+        const frameOpts = stabilize
+          ? { forcedBounds, forcedPxPerUnit: ppu, forcedPxPerUnitX: ppuX, forcedPxPerUnitY: ppuY }
+          : {};
         const result = renderFrame(value, frameOpts);
         if (!result) continue;
 
