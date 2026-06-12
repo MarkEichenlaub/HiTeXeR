@@ -10993,21 +10993,24 @@ function createInterpreter() {
     env.set('format', (fmt, ...vals) => {
       let s = String(fmt);
       let vi = 0;
-      s = s.replace(/%-?[0-9]*\.?[0-9]*[dfegs]/g, (spec) => {
+      // Match optional flags (-, +, 0, #, space), optional width, optional .prec, then type
+      s = s.replace(/%[-+0# ]*[0-9]*\.?[0-9]*[dfegs]/g, (spec) => {
         if (vi >= vals.length) return spec;
         const v = vals[vi++];
         const type = spec[spec.length - 1];
         if (type === 's') return String(v);
         const n = toNumber(v);
-        const m = spec.match(/^%-?[0-9]*\.?([0-9]*)([dfegs])$/);
+        const m = spec.match(/^%[-+0# ]*[0-9]*\.?([0-9]*)([dfegs])$/);
         const prec = m && m[1] !== '' ? parseInt(m[1]) : undefined;
+        const altForm = spec.includes('#');
         if (type === 'f') return n.toFixed(prec !== undefined ? prec : 6);
         if (type === 'e') return n.toExponential(prec !== undefined ? prec : 6);
         if (type === 'd') return String(Math.trunc(n));
         if (type === 'g') {
           const p = prec !== undefined ? (prec === 0 ? 1 : prec) : 6;
           let r = n.toPrecision(p);
-          if (r.includes('.') && !r.includes('e') && !r.includes('E'))
+          // %#g keeps trailing zeros; plain %g strips them
+          if (!altForm && r.includes('.') && !r.includes('e') && !r.includes('E'))
             r = r.replace(/\.?0+$/, '');
           return r;
         }
@@ -11603,7 +11606,9 @@ function createInterpreter() {
 
       // radius is in bp (PostScript points).  Convert to user coordinates.
       if (radius === null) {
-        radius = 8; // default 8bp
+        // markers.asy: markangleradius(p) = 8mm + 8*sqrt(linewidth(p))
+        const _malw = (pen && pen.linewidth) || 0.5;
+        radius = 22.67716535 + 8 * Math.sqrt(_malw);
       }
       // Capture original bp radius so the renderer can rebuild the arc path
       // after the unitsize boost (otherwise a 15bp radius converted via the
@@ -12879,7 +12884,25 @@ function createInterpreter() {
       return { lx, rx, by, ty };
     }
 
+    // Per-picture size override: axes drawn into a sub-picture with its own
+    // size(pic, w, h[, IgnoreAspect]) must size their ticks against THAT
+    // fit, not the (often unset) global size — 00444's size(pic1,200,140,
+    // IgnoreAspect) rendered y-ticks ~2.5× long because the global no-size
+    // 150/maxDim estimate ignored the anisotropic 200×140 fit.
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+      if (pic && (pic._sizeW > 0 || pic._sizeH > 0) && (pic._sizeW !== sizeW || pic._sizeH !== sizeH)) {
+        const _oW = sizeW, _oH = sizeH, _oA = keepAspect;
+        sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0;
+        if (pic._sizeAniso) keepAspect = false;
+        try {
+          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+        } finally {
+          sizeW = _oW; sizeH = _oH; keepAspect = _oA;
+        }
+      }
+      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+    }
+    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       // NoTicks: draw the axis line/arrow only, no tick marks at all.
@@ -13353,12 +13376,12 @@ function createInterpreter() {
           const pp0 = isX ? {x:v, y:primaryOffset} : {x:primaryOffset, y:v};
           const pp1 = isX ? {x:v, y:primaryOffset + inward*sz} : {x:primaryOffset + inward*sz, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(pp0, pp1)], false),
-                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true});
           // Mirror axis tick (pointing inward, opposite direction)
           const mp0 = isX ? {x:v, y:mirrorOffset} : {x:mirrorOffset, y:v};
           const mp1 = isX ? {x:v, y:mirrorOffset - inward*sz} : {x:mirrorOffset - inward*sz, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(mp0, mp1)], false),
-                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true});
           return;
         }
         // Asymptote semantics: LeftTicks/RightTicks name the hand side of the
@@ -13386,7 +13409,7 @@ function createInterpreter() {
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _isTickMark: true});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true});
       }
 
       // Draw major ticks (skip when size was explicitly set to near-zero, or
@@ -13883,7 +13906,7 @@ function createInterpreter() {
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:xmin,y:axisShiftY},{x:xmax,y:axisShiftY})], false);
-        _xaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
+        _xaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0, _axisPrepend: !above,
                         _isAxisLine: 'x', _axisShiftY: axisShiftY,
                         _autoXmin: !xminExplicit, _autoXmax: !xmaxExplicit,
                         _xMinFromUserLimits: _xminFromUserLimits,
@@ -13898,7 +13921,7 @@ function createInterpreter() {
         if (xIsBottomTop) {
           const mirrorY = xIsTopPrimary ? crossMin : crossMax;
           const mPath = makePath([lineSegment({x:xmin,y:mirrorY},{x:xmax,y:mirrorY})], false);
-          pic.commands.push({cmd:'draw', path: mPath, pen, arrow: null, line: 0, above: above ? 1 : 0,
+          pic.commands.push({cmd:'draw', path: mPath, pen, arrow: null, line: 0, above: above ? 1 : 0, _axisPrepend: !above,
                              _isAxisLine: 'x', _axisShiftY: mirrorY, _isMirror: true});
         }
       }
@@ -14454,7 +14477,7 @@ function createInterpreter() {
       let _yaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
-        _yaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0,
+        _yaxisDrawCmd = {cmd:'draw', path, pen, arrow, line: 0, above: above ? 1 : 0, _axisPrepend: !above,
                            _isAxisLine: 'y', _axisShiftX: axisShiftX,
                            _autoYmin: !yminExplicit, _autoYmax: !ymaxExplicit,
                            _yMinFromUserLimits: _yminFromUserLimits,
@@ -14468,7 +14491,7 @@ function createInterpreter() {
         if (yIsLeftRight) {
           const mirrorX = yIsRightPrimary ? crossMin : crossMax;
           const mPath = makePath([lineSegment({x:mirrorX,y:ymin},{x:mirrorX,y:ymax})], false);
-          pic.commands.push({cmd:'draw', path: mPath, pen, arrow: null, line: 0, above: above ? 1 : 0,
+          pic.commands.push({cmd:'draw', path: mPath, pen, arrow: null, line: 0, above: above ? 1 : 0, _axisPrepend: !above,
                              _isAxisLine: 'y', _axisShiftX: mirrorX, _isMirror: true});
         }
       }
@@ -14582,7 +14605,11 @@ function createInterpreter() {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.x - axisShiftX) < 1e-6) {
               const txt = stripLaTeX(c.text || '');
               const fs = (c.pen && c.pen.fontsize) || 8;
-              const w = txt.length * fs * 0.52 + 0.5 * fs;
+              // Full column the title must clear: the tick-Size offset the
+              // labels carry (screenDx), the glyph width, and a labelmargin
+              // on each side (03568's "Angular Velocity" needs daylight
+              // between it and the −2/0/2/4 column).
+              const w = _estimateMathRunWidth(txt, fs) + (c.screenDx ? Math.abs(c.screenDx) : 0) + 0.56 * fs;
               if (w > tickLabelClearance) tickLabelClearance = w;
             }
           }
@@ -14734,7 +14761,7 @@ function createInterpreter() {
       if (ymax === null) ymax = 5;
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x,y:ymin},{x,y:ymax})], false);
-      pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
+      pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0, _axisPrepend: !above});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         // ticks.size is in bp (PostScript points). xequals ticks extend in the x
@@ -14758,7 +14785,7 @@ function createInterpreter() {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           if (!skipTickMarks) {
             const tp = makePath([lineSegment({x:x-tickSize,y:v},{x:x+tickSize,y:v})], false);
-            pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+            pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above});
           }
           if (showTickLabels) {
             pic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x,y:v}, align:{x:-1,y:0}, pen:tickPen, line:0});
@@ -14815,7 +14842,7 @@ function createInterpreter() {
       }
       if (!pen) pen = clonePen(defaultPen);
       const path = makePath([lineSegment({x:xmin,y},{x:xmax,y})], false);
-      pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0});
+      pic.commands.push({cmd:'draw', path, pen, arrow, line:0, above: above ? 1 : 0, _axisPrepend: !above});
       if (ticks) {
         const tickPen = ticks.pen || pen;
         // ticks.size is in bp. yequals ticks extend in the y direction, so convert
@@ -14837,7 +14864,7 @@ function createInterpreter() {
           if (ticks.noZero && Math.abs(v) < 1e-10) continue;
           if (!skipTickMarks) {
             const tp = makePath([lineSegment({x:v,y:y-tickSize},{x:v,y:y+tickSize})], false);
-            pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0});
+            pic.commands.push({cmd:'draw', path:tp, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above});
           }
           if (showTickLabels) {
             pic.commands.push({cmd:'label', text:String(Math.round(v*1000)/1000), pos:{x:v,y}, align:{x:0,y:-1}, pen:tickPen, line:0});
@@ -14922,10 +14949,27 @@ function createInterpreter() {
         const p1 = makePair(z.x + dx * tickLenUser, z.y + dy * tickLenUser);
         const path = makePath([lineSegment(p0, p1)], false);
         pic.commands.push({cmd:'draw', path, pen, arrow:null, line:0, above: 0, _isTickMark: true});
-        // Emit label if provided.
+        // Emit label if provided. graph.asy tick(): when the label's align
+        // points the same way as the tick (dot(dir, align) > 0), the label
+        // is shifted by dir*size so it clears the tick mark (03351's
+        // xtick(Label("$L$", align=dir(-90)), dir=dir(-90), ..., 3) hangs
+        // the label a full tick length below the axis); otherwise only the
+        // small ticklabelshift applies.
         if (labelText) {
           let align = labelObj && labelObj.align ? labelObj.align : dirVec;
-          pic.commands.push({cmd:'label', text: labelText, pos: {x:z.x, y:z.y}, align, pen: clonePen(pen), line:0, _isTickLabel: true});
+          const _fsT = (pen && pen.fontsize) || 12;
+          const _aLen = Math.hypot(align.x || 0, align.y || 0) || 1;
+          const _adx = (align.x || 0) / _aLen, _ady = (align.y || 0) / _aLen;
+          let _sdxBp, _sdyBp;
+          if (_adx * dx + _ady * dy > 0) {
+            _sdxBp = dx * sizeBp;
+            _sdyBp = -dy * sizeBp; // screen y is inverted
+          } else {
+            const _m = 0.25 * (0.28 * _fsT + 0.5 * ((pen && pen.linewidth) || 0.5));
+            _sdxBp = _adx * _m;
+            _sdyBp = -_ady * _m;
+          }
+          pic.commands.push({cmd:'label', text: labelText, pos: {x:z.x, y:z.y}, align, pen: clonePen(pen), line:0, screenDx: _sdxBp, screenDy: _sdyBp, _isTickLabel: true});
         }
       };
     }
@@ -27096,8 +27140,11 @@ function renderSVG(result, opts) {
   // Rebuild markangle arcs (and their labels) using the final pxPerUnit so the
   // bp-truesize radius (e.g. radius=15bp) doesn't survive the boost as a
   // user-unit value computed against the pre-boost unitScale (which would
-  // render boost× too large).
-  if (_unitsizeBoosted) {
+  // render boost× too large). Applies to ALL markangle pictures, not just
+  // boosted-unitsize ones: sized pictures (00246, size(5cm)) estimated the
+  // radius at call time against the partial content bbox, rendering the
+  // angle arc ~30% small; the final pxPerUnit is the true scale.
+  if (_unitsizeBoosted || _hasMarkangleDc) {
     const _rebuildArcPath = (center, r, startDeg, endDeg) => {
       const startRad = startDeg * Math.PI / 180;
       const endRad = endDeg * Math.PI / 180;
@@ -27150,7 +27197,7 @@ function renderSVG(result, opts) {
     // markangle arcs were rebuilt to the final scale above — the stale
     // literal-scale extents baked into the geo consts would over-pad the
     // canvas after a pass-2 rescale (12972/00210). Re-derive from paths.
-    if (_unitsizeBoosted && _hasMarkangleDc) {
+    if (_hasMarkangleDc) {
       const _gb2 = _dcGeoBounds(false);
       if (_gb2) { minX = _gb2.minX; maxX = _gb2.maxX; minY = _gb2.minY; maxY = _gb2.maxY; }
     }
@@ -27198,8 +27245,15 @@ function renderSVG(result, opts) {
     maxY = Math.min(maxY, clipMaxY + padY);
   }
 
-  // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames
-  if (opts.forcedPxPerUnit) {
+  // GIF mode: override pxPerUnit with a fixed value so scale is consistent across all frames.
+  // For IgnoreAspect diagrams, forcedPxPerUnitX/Y may be set independently to preserve the
+  // distinct x and y scales (a scalar forcedPxPerUnit would collapse both to the same tiny value).
+  if (opts.forcedPxPerUnitX !== undefined || opts.forcedPxPerUnitY !== undefined) {
+    if (opts.forcedPxPerUnitX !== undefined) pxPerUnitX = opts.forcedPxPerUnitX;
+    if (opts.forcedPxPerUnitY !== undefined) pxPerUnitY = opts.forcedPxPerUnitY;
+    pxPerUnit = opts.forcedPxPerUnit !== undefined ? opts.forcedPxPerUnit
+                                                   : Math.min(pxPerUnitX, pxPerUnitY);
+  } else if (opts.forcedPxPerUnit) {
     pxPerUnit = pxPerUnitX = pxPerUnitY = opts.forcedPxPerUnit;
   }
 
@@ -28535,8 +28589,15 @@ function renderSVG(result, opts) {
   for (let ci = 0; ci < drawCommands.length; ci++) {
     if (drawCommands[ci].above === -1) renderOrder.push(ci);
   }
+  // Axis lines/ticks drawn with above=false are PREPENDED in Asymptote
+  // (graph.asy: (above ? add : prepend)(f, ...)) — they render UNDER
+  // program content even when the axis call comes last (12301's ticks
+  // sit beneath the colored rectangles in TeXeR).
   for (let ci = 0; ci < drawCommands.length; ci++) {
-    if ((drawCommands[ci].above || 0) === 0) renderOrder.push(ci);
+    if ((drawCommands[ci].above || 0) === 0 && drawCommands[ci]._axisPrepend) renderOrder.push(ci);
+  }
+  for (let ci = 0; ci < drawCommands.length; ci++) {
+    if ((drawCommands[ci].above || 0) === 0 && !drawCommands[ci]._axisPrepend) renderOrder.push(ci);
   }
   for (let ci = 0; ci < drawCommands.length; ci++) {
     if (drawCommands[ci].above === 1) renderOrder.push(ci);
@@ -28616,6 +28677,7 @@ function renderSVG(result, opts) {
   // their sizing didn't change (still ~7 bp/unit floor or larger), and the
   // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
+  let _autoStrokeFloorBoost = 1.0;
   // Track narrow-span 1D horizontal diagrams so dot boost can be reduced
   // (stroke boost needs to be high for lines/arrows, but dots are already
   // prominent and don't need the same multiplier).
@@ -28673,6 +28735,11 @@ function renderSVG(result, opts) {
     } else {
       // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
       _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
+      // STROKE-only floor: TeXeR's 240-DPI rasterization renders default
+      // 0.5bp strokes ~1.8× heavier than our nominal (measured 3px vs
+      // 1.67px on 07413's axes). Dots and arrowheads are truesize and
+      // already match — they keep the unfloored ramp value.
+      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, 1.5);
     }
   }
   // The auto-scaled boost compensates default-pen STROKES for SSIM trim+resize
@@ -28716,8 +28783,8 @@ function renderSVG(result, opts) {
     // explicit-size stroke boost — they already have a dedicated 1.4×
     // boost below and combining both makes them too thick (03901).
     const isGridline = dc._isTickMark && dc.above === -1;
-    if (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-      css.strokeWidth *= _autoScaledStrokeBoost;
+    if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+      css.strokeWidth *= Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
     } else if (_explicitSizeStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet && !isGridline) {
       css.strokeWidth *= _explicitSizeStrokeBoost;
     }
@@ -28912,7 +28979,7 @@ function renderSVG(result, opts) {
       // 3D diagrams already skip this via the !_is3D check for stroke boost.
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (_autoScaledStrokeBoost > 1 && (geoIs1D || _hasBoostedStroke)) {
+        if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke)) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
           // For 2D diagrams with no boosted stroke (all geometry uses explicit
@@ -28920,7 +28987,10 @@ function renderSVG(result, opts) {
           // proportional to the unboosted lines. 1D dot diagrams (09210/09212)
           // have no strokes at all but still need the boost to survive SSIM
           // trim+resize, so they always keep it.
-          _dotBoost = _isNarrowFewDots1D ? 3.425 : _autoScaledStrokeBoost;
+          // Default-pen dots are stroke-rendered in TeXeR's EPS pipeline,
+          // so they carry the same DPI weight as lines (07413's dots
+          // measured visibly heavier than native 3bp) — share the floor.
+          _dotBoost = _isNarrowFewDots1D ? 3.425 : Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
         }
         // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
         // no longer boost dots — native bp sizing matches TeXeR better.
