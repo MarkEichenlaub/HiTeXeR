@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="katex-svg.js"></script>
 <script>
 // Prime the KaTeX faces used by the label renderer's canvas ink measurer
 // (asy-interp _labelFontsReady): @font-face fonts load lazily, and until they
@@ -19,6 +20,12 @@ window.addEventListener('load', function () {
     ['12px KaTeX_Main', 'bold 12px KaTeX_Main', 'italic 12px KaTeX_Main', 'italic 12px KaTeX_Math']
       .forEach(function (f) { try { document.fonts.load(f); } catch (e) {} });
   }
+  // Load the glyph outline table for the KaTeX SVG emitter (katex-svg.js).
+  // Until it arrives, labels render via the foreignObject fallback; the next
+  // re-render after load picks up the emitter automatically.
+  fetch('katex-glyphs.json').then(function (r) { return r.json(); })
+    .then(function (d) { if (window.katexSvg) window.katexSvg.init(d); })
+    .catch(function () { /* emitter stays unavailable; fallback rendering */ });
 });
 </script>
 <style>
@@ -641,7 +648,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.10</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.11</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>

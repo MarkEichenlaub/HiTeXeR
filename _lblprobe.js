@@ -190,11 +190,15 @@ async function getBrowserPage() {
   });
   const katexJs = fs.readFileSync(path.join(katexDir, 'katex.min.js'), 'utf8');
   const interpJs = fs.readFileSync(path.join(ROOT, 'asy-interp.js'), 'utf8');
+  const katexSvgJs = fs.readFileSync(path.join(ROOT, 'katex-svg.js'), 'utf8');
+  const glyphJson = fs.readFileSync(path.join(ROOT, 'katex-glyphs.json'), 'utf8');
   const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + css +
     '*{margin:0;padding:0}html,body{background:#fff}#stage{display:inline-block;background:#fff}#stage svg{display:block}' +
     '</style></head><body><div id="stage"></div></body></html>';
   await page.setContent(html, { waitUntil: 'load' });
   await page.addScriptTag({ content: katexJs });
+  await page.addScriptTag({ content: katexSvgJs });
+  await page.addScriptTag({ content: 'window.katexSvg.init(' + glyphJson + ');' });
   await page.addScriptTag({ content: interpJs });
   // Force the KaTeX faces to load so canvas measureText sees real metrics.
   await page.evaluate(async () => {

@@ -22,10 +22,14 @@ const IDS = process.argv.slice(2).length ? process.argv.slice(2)
   });
   const katexJs = fs.readFileSync(path.join(katexDir, 'katex.min.js'), 'utf8');
   const interpJs = fs.readFileSync(path.join(ROOT, 'asy-interp.js'), 'utf8');
+  const katexSvgJs = fs.readFileSync(path.join(ROOT, 'katex-svg.js'), 'utf8');
+  const glyphJson = fs.readFileSync(path.join(ROOT, 'katex-glyphs.json'), 'utf8');
   await page.setContent('<!DOCTYPE html><html><head><style>' + css +
     '#stage{display:inline-block;background:#fff}</style></head><body><div id="stage"></div></body></html>',
     { waitUntil: 'load' });
   await page.addScriptTag({ content: katexJs });
+  await page.addScriptTag({ content: katexSvgJs });
+  await page.addScriptTag({ content: 'window.katexSvg.init(' + glyphJson + ');' });
   await page.addScriptTag({ content: interpJs });
   await page.evaluate(async () => {
     await Promise.all([

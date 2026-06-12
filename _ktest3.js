@@ -1,0 +1,11 @@
+'use strict';
+const fs = require('fs');
+const katexSvg = require('./katex-svg.js');
+katexSvg.init(JSON.parse(fs.readFileSync('katex-glyphs.json', 'utf8')));
+const tex = '\\text{Mass (kg)}';
+const r = katexSvg.render(tex, { emPx: 12 });
+const m = katexSvg.measure(tex);
+console.log('render widthEm', r.widthEm.toFixed(3), '=', (r.widthEm * 12).toFixed(1) + 'bp; measure', m.widthEm.toFixed(3));
+console.log('oracle ink 49.1bp; foreignObject-era browser ink 49.8bp');
+const xs = [...r.svg.matchAll(/translate\(([-\d.]+),/g)].map(x => +x[1]);
+console.log('positions:', xs.map(x => x.toFixed(1)).join(','));

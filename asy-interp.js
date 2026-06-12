@@ -27664,9 +27664,12 @@ function renderSVG(result, opts) {
       // (\frac/\sqrt labels also route through MathJax in svg-native since the
       // v8.09 routing fix, so the old renderLaTeXSVG width measurement here
       // was measuring a renderer these labels no longer use.)
-      if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function') {
+      const _measLblFn = (opts && opts.labelOutput === 'svg-native')
+        ? (typeof _mjxMeasureBp === 'function' ? _mjxMeasureBp : null)
+        : (typeof document !== 'undefined' && typeof _katexMeasureBp === 'function' ? _katexMeasureBp : null);
+      if (_measLblFn) {
         try {
-          const m = _mjxMeasureBp(dc.text, fontSize);
+          const m = _measLblFn(dc.text, fontSize);
           if (m && m.wBp > 0) {
             const measuredW = m.wBp * bpCSSPixel;
             if (numLines <= 1) {
@@ -27908,10 +27911,9 @@ function renderSVG(result, opts) {
         // the overhang gets clipped. Replicate renderLabelMathJaxSVG's exact
         // vertical placement using the measured height so the viewBox covers it.
         const _tallMathVB = /\\(?:frac|dfrac|tfrac|cfrac|sqrt|overset|underset|stackrel|substack|atop|binom)\b/.test(dc.text || '');
-        if ((extendsVert || _tallMathVB) && opts && opts.labelOutput === 'svg-native'
-            && typeof _mjxMeasureBp === 'function') {
+        if ((extendsVert || _tallMathVB) && _measLblFn) {
           try {
-            const _mh = _mjxMeasureBp(dc.text, fontSize);
+            const _mh = _measLblFn(dc.text, fontSize);
             if (_mh && _mh.hBp > 0) {
               const _svgH = _mh.hBp * bpCSSPixel;
               const _ax = dc.align ? dc.align.x : 0, _ay = dc.align ? dc.align.y : 0;
@@ -29755,7 +29757,10 @@ function renderSVG(result, opts) {
         if (opts && opts.labelOutput === 'svg-native') {
           labelEl = renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
         } else {
-          labelEl = renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
+          // KaTeX SVG emitter first (real glyph paths, exact box); HTML
+          // foreignObject only as fallback when the emitter is unavailable.
+          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+            || renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
         }
       } else if (opts && opts.labelOutput === 'svg-native' && (wasStrippedMath || (hasMath && unicodeSafe)) && !(dc.pen && dc.pen.fontFamily)) {
         // Simple math labels ($m$, $M$, $\theta$, etc.) — in rasterization mode,
@@ -29790,7 +29795,31 @@ function renderSVG(result, opts) {
         // upright in LaTeX math.
         const penFF = dc.pen && dc.pen.fontFamily;
         const _isMathLbl = !!(wasStrippedMath || unicodeSafe) && !penFF;
-        if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
+        // Browser: prefer the KaTeX SVG emitter for math and plain-CM text —
+        // one engine for every label, with TeX kerning/italic correction the
+        // tspan path approximates. SVG-text remains the fallback (emitter not
+        // loaded, pen fontFamily, multiline).
+        let _ksEl = null;
+        if (!svgNativeMode && !penFF && typeof katexSvg !== 'undefined' && katexSvg.ready()
+            && displayText && displayText.indexOf('\n') === -1) {
+          if (_isMathLbl) {
+            const _esc = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
+            const _input = wasStrippedMath ? '$' + _esc + '$' : _esc;
+            _ksEl = renderLabelKatexSvg(_input, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+          } else if (!hasMath && !hasLaTeX && /[A-Za-z]/.test(displayText) && !/[_^]/.test(displayText)) {
+            let _esc2 = '';
+            for (let i = 0; i < displayText.length; i++) {
+              const c = displayText[i];
+              if (c === '~') _esc2 += ' ';
+              else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc2 += '\\' + c;
+              else _esc2 += c;
+            }
+            _ksEl = renderLabelKatexSvg('\\text{' + _esc2 + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+          }
+        }
+        if (_ksEl) {
+          labelEl = _ksEl;
+        } else if ((wasStrippedMath || unicodeSafe) && /[a-zA-Z]/.test(displayText.replace(/\\[a-zA-Z]+/g, ''))) {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || 'KaTeX_Math, serif', 'normal', penFF ? 'normal' : 'italic', _isMathLbl);
         } else {
           // isMath turns on TeX math conventions (U+2212 minus, operator
@@ -31035,6 +31064,49 @@ function preprocessLatexForKatex(src, forMathJax) {
   return src;
 }
 
+// Browser label rendering via the KaTeX SVG emitter (katex-svg.js): KaTeX's
+// exact layout realized as real <path> glyph outlines instead of a
+// foreignObject HTML island. Self-contained (no katex.min.css dependency),
+// rasterizable by any SVG consumer, and exactly positioned: the box metrics
+// come from the emitter itself, so no estW/flex-centering guesswork.
+// Returns null when the emitter or its glyph table isn't available (or KaTeX
+// errors on the input) — callers fall back to renderLabelKaTeX/foreignObject.
+function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS, hEst, ayN) {
+  if (typeof katexSvg === 'undefined' || !katexSvg.ready()) return null;
+  if (fontSizeCSS === undefined) fontSizeCSS = fontSize;
+  let math = (rawText || '').trim();
+  let reflectX = false;
+  const reflectMatch = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+  if (reflectMatch) { reflectX = true; math = reflectMatch[1].trim(); }
+  const isDollar = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
+  if (isDollar) math = math.slice(1, -1);
+  if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+  // forMathJax=true: like MathJax, the emitter realizes KaTeX's exact layout,
+  // so ^\circ stays native (the unicode-° kern hack is foreignObject-only;
+  // through the emitter it rendered $45^\circ$ 3bp narrow).
+  math = preprocessLatexForKatex(math, true);
+  if (!isDollar && /\$[^$]+\$/.test(math)) {
+    // mixed text+math: one mode-aware TeX string (same as the MathJax path)
+    math = _reconstructMixedLabel(math);
+  }
+  let r = null;
+  try { r = katexSvg.render(math, { emPx: fontSizeCSS, color: fill || '#000000' }); } catch (e) { return null; }
+  if (!r || !(r.widthEm > 0)) return null;
+  const svgW = r.widthEm * fontSizeCSS;
+  const hPx = r.heightEm * fontSizeCSS;
+  const dPx = r.depthEm * fontSizeCSS;
+  const svgH = hPx + dPx;
+  let fx = parseFloat(x), fy = parseFloat(y);
+  if (anchor === 'middle') fx -= svgW / 2;
+  else if (anchor === 'end') fx -= svgW;
+  fy -= svgH / 2; // center the box vertically on y (mirrors the MathJax path)
+  if (hEst) fy += ayN * (hEst - svgH);
+  const baselineY = fy + hPx;
+  const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
+  const flip = reflectX ? `translate(${fmt(2 * (fx + svgW / 2))},0) scale(-1,1) ` : '';
+  return `<g transform="${flip}translate(${fmt(fx)},${fmt(baselineY)})"${op}>${r.svg}</g>`;
+}
+
 function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
   // fontSize: SVG user units (for foreignObject width/height dimensions)
   // fontSizeCSS: CSS pixels for the HTML font-size inside the foreignObject (default = fontSize)
@@ -31463,6 +31535,25 @@ const _katexMeasureCache = new Map();
 let _katexMeasureHost = null;
 function _katexMeasureBp(rawText, fontSize) {
   if (typeof document === 'undefined' || typeof katex === 'undefined') return null;
+  // Fast path: the KaTeX SVG emitter measures from the DomTree directly (no
+  // DOM layout round-trip) with the same box the emitter renders, so
+  // placement and ink agree exactly.
+  if (typeof katexSvg !== 'undefined' && katexSvg.ready()) {
+    try {
+      let math = (rawText || '').trim();
+      const rm = math.match(/^\\reflectbox\{([\s\S]*)\}$/);
+      if (rm) math = rm[1].trim();
+      const isD = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
+      if (isD) math = math.slice(1, -1);
+      if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
+      math = preprocessLatexForKatex(math, true);
+      if (!isD && /\$[^$]+\$/.test(math)) math = _reconstructMixedLabel(math);
+      const r = katexSvg.measure(math);
+      if (r && r.widthEm > 0) {
+        return { wBp: r.widthEm * fontSize, hBp: (r.heightEm + r.depthEm) * fontSize };
+      }
+    } catch (e) { /* fall through to the DOM measurer */ }
+  }
   const cacheKey = String(rawText);
   const cached = _katexMeasureCache.get(cacheKey);
   if (cached && cached.error) return null;
