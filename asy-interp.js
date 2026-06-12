@@ -10954,21 +10954,24 @@ function createInterpreter() {
     env.set('format', (fmt, ...vals) => {
       let s = String(fmt);
       let vi = 0;
-      s = s.replace(/%-?[0-9]*\.?[0-9]*[dfegs]/g, (spec) => {
+      // Match optional flags (-, +, 0, #, space), optional width, optional .prec, then type
+      s = s.replace(/%[-+0# ]*[0-9]*\.?[0-9]*[dfegs]/g, (spec) => {
         if (vi >= vals.length) return spec;
         const v = vals[vi++];
         const type = spec[spec.length - 1];
         if (type === 's') return String(v);
         const n = toNumber(v);
-        const m = spec.match(/^%-?[0-9]*\.?([0-9]*)([dfegs])$/);
+        const m = spec.match(/^%[-+0# ]*[0-9]*\.?([0-9]*)([dfegs])$/);
         const prec = m && m[1] !== '' ? parseInt(m[1]) : undefined;
+        const altForm = spec.includes('#');
         if (type === 'f') return n.toFixed(prec !== undefined ? prec : 6);
         if (type === 'e') return n.toExponential(prec !== undefined ? prec : 6);
         if (type === 'd') return String(Math.trunc(n));
         if (type === 'g') {
           const p = prec !== undefined ? (prec === 0 ? 1 : prec) : 6;
           let r = n.toPrecision(p);
-          if (r.includes('.') && !r.includes('e') && !r.includes('E'))
+          // %#g keeps trailing zeros; plain %g strips them
+          if (!altForm && r.includes('.') && !r.includes('e') && !r.includes('E'))
             r = r.replace(/\.?0+$/, '');
           return r;
         }
