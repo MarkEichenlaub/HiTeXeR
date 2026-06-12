@@ -12839,7 +12839,25 @@ function createInterpreter() {
       return { lx, rx, by, ty };
     }
 
+    // Per-picture size override: axes drawn into a sub-picture with its own
+    // size(pic, w, h[, IgnoreAspect]) must size their ticks against THAT
+    // fit, not the (often unset) global size — 00444's size(pic1,200,140,
+    // IgnoreAspect) rendered y-ticks ~2.5× long because the global no-size
+    // 150/maxDim estimate ignored the anisotropic 200×140 fit.
     function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+      if (pic && (pic._sizeW > 0 || pic._sizeH > 0) && (pic._sizeW !== sizeW || pic._sizeH !== sizeH)) {
+        const _oW = sizeW, _oH = sizeH, _oA = keepAspect;
+        sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0;
+        if (pic._sizeAniso) keepAspect = false;
+        try {
+          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+        } finally {
+          sizeW = _oW; sizeH = _oH; keepAspect = _oA;
+        }
+      }
+      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+    }
+    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       // NoTicks: draw the axis line/arrow only, no tick marks at all.
