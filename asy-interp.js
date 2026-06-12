@@ -27755,45 +27755,47 @@ function renderSVG(result, opts) {
           dx = ax * margin;
           dy = -(ay * margin);
         } else if (_ltRotatedOrReflected) {
-          // For rotated labels, match the rendering code (line ~24168): compute
-          // offset in local (unrotated) coordinates using original W/H (capped),
-          // then rotate to world coords. This fixes bbox mismatch for labels like
-          // label(rotate(45)*"text", pos, SW) where the offset direction depends
-          // on the rotation angle.
+          // For rotated labels, match the rendering code: Asymptote's
+          // anchor-corner rule (plain_picture.asy align()) for pure rotations,
+          // legacy capped local-frame formula for reflections.
           const lt = dc.labelTransform;
           const ltAngle = Math.atan2(lt.e, lt.b) * 180 / Math.PI;
           const ltScale = Math.sqrt(lt.b * lt.b + lt.e * lt.e);
           // Use scaled but unrotated dimensions (matching W2, H2 in renderer)
           const localW = W * (ltScale > 0 ? ltScale : 1);
           const localH = H * (ltScale > 0 ? ltScale : 1);
-          // Cap width at 2×H to match renderer's W2capped logic
-          const localWCapped = Math.min(localW, localH * 2);
-          const offLocalX = ax_n * localWCapped;
-          const offLocalY = ay_n * localH;
           const angleRad = ltAngle * Math.PI / 180;
           const cosT = Math.cos(angleRad);
           const sinT = Math.sin(angleRad);
-          const offWorldX = cosT * offLocalX - sinT * offLocalY;
-          const offWorldY = sinT * offLocalX + cosT * offLocalY;
-          dx = offWorldX + ax * margin;
-          dy = -(offWorldY + ay * margin);
+          if (!_ltReflForGate) {
+            // back-rotate −align into the label's local frame, pick the box
+            // anchor fraction, rotate back (see renderer for derivation).
+            const bxL = cosT * (-ax) + sinT * (-ay);
+            const byL = -sinT * (-ax) + cosT * (-ay);
+            const scL = Math.max(Math.abs(bxL), Math.abs(byL));
+            const cOffX = (scL > 0 ? bxL * 0.5 / scL : 0) * localW;
+            const cOffY = (scL > 0 ? byL * 0.5 / scL : 0) * localH;
+            const aWx = cosT * cOffX - sinT * cOffY;
+            const aWy = sinT * cOffX + cosT * cOffY;
+            dx = ax * margin - aWx;
+            dy = -(ay * margin - aWy);
+          } else {
+            // Cap width at 2×H to match renderer's reflection-branch logic
+            const localWCapped = Math.min(localW, localH * 2);
+            const offLocalX = ax_n * localWCapped;
+            const offLocalY = ay_n * localH;
+            const offWorldX = cosT * offLocalX - sinT * offLocalY;
+            const offWorldY = sinT * offLocalX + cosT * offLocalY;
+            dx = offWorldX + ax * margin;
+            dy = -(offWorldY + ay * margin);
+          }
         } else {
           dx = ax_n * effW + ax * margin;
           dy = -(ay_n * effH + ay * margin);
         }
-        // For labels from dot(), the renderer adds dotPush (dot radius) to the offset.
-        // Match that here so viewBox padding covers the actual label position.
-        if (dc._fromDot && dc.pos) {
-          const _dkey = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
-          const _dotPush = _dotRadiusForOvershoot.get(_dkey) || 0;
-          if (_dotPush > 0) {
-            const aMag = Math.hypot(ax, ay);
-            const axUnit = aMag > 0 ? ax / aMag : 0;
-            const ayUnit = aMag > 0 ? ay / aMag : 0;
-            dx += axUnit * _dotPush;
-            dy -= ayUnit * _dotPush;  // negate: SVG y-axis is inverted
-          }
-        }
+        // dot(Label) labels get NO extra dot-radius push (oracle-verified —
+        // see the renderer's dotPush note). The old radius mirror here is
+        // gone with it so padding stays aligned with rendering.
         // For horizontally-aligned labels (E/W with non-zero ax), the renderer
         // (line ~18185) uses a wider W formula (cleanLen × fontSizeSVG × 0.52,
         // even for math labels — pad uses 0.62) and a larger margin
@@ -29009,6 +29011,7 @@ function renderSVG(result, opts) {
       // Pre-compute label width (used for both alignment and UnFill background)
       // This uses MathJax measurement when available, falling back to heuristic.
       let _labelWidthMeasured = null;
+      let _labelHeightMeasured = null;
       {
         const _rawForMeas = (dc.text || '');
         const _rawLines = _rawForMeas.split('\n');
@@ -29024,8 +29027,19 @@ function renderSVG(result, opts) {
             if (_m && _m.wBp > 0) {
               // Add small padding to measured width (like Asymptote's label background)
               _labelWidthMeasured = _m.wBp * bpCSSPixel + fontSizeSVG * 0.1;
+              if (_m.hBp > 0) _labelHeightMeasured = _m.hBp * bpCSSPixel;
             }
           } catch (e) { /* ignore — fall back to heuristic */ }
+        } else if (typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
+          // Browser: canvas ink metrics give the real box for UnFill rects.
+          try {
+            const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
+              /[\\$]/.test(_rawForMeas));
+            if (_mk && _mk.w > 0) {
+              _labelWidthMeasured = _mk.w + fontSizeSVG * 0.1;
+              _labelHeightMeasured = _mk.h;
+            }
+          } catch (e) { /* keep heuristic */ }
         }
       }
 
@@ -29139,17 +29153,13 @@ function renderSVG(result, opts) {
         // nearby graphics (notably dots at the same anchor position).
         const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
         const margin = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
-        // If there's a dot at the same anchor position, push the label outward by
-        // the dot radius along the (normalized) align direction. Matches Asymptote's
-        // dotmargin = labelmargin + dotfactor*linewidth/2 behavior used by dot(..., Label).
-        let dotPush = 0;
-        // Only apply dot-radius push for labels generated by dot(Label, ...) — Asymptote
-        // uses dotmargin = labelmargin + dotfactor*linewidth/2 only for that form.
-        // User labels called separately from dot use just labelmargin, even at same position.
-        if (dc.pos && dc._fromDot) {
-          const dkey = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
-          dotPush = dotRadiusAtPos.get(dkey) || 0;
-        }
+        // dot(Label, z) labels get NO extra dot-radius push. Verified against
+        // the local-asy oracle (dot("$K$",(0,0),dir(75)) at linewidth 0.5/2/5):
+        // the label offset is exactly labelmargin(dotpen) = 0.28*fs + 0.5*lw —
+        // the 0.5*lw term in the margin above (with the dot pen's linewidth)
+        // is the only linewidth dependence. The old dotfactor*lw/2 radius push
+        // sat every dot(Label) 1.5bp+ too far out (probe al_dotlbl/lw2/lw5).
+        const dotPush = 0;
         const aMag = Math.hypot(ax, ay);
         const axUnit = aMag > 0 ? ax / aMag : 0;
         const ayUnit = aMag > 0 ? ay / aMag : 0;
@@ -29197,18 +29207,23 @@ function renderSVG(result, opts) {
           const h = Math.round(Math.max(0,Math.min(255,c*255))).toString(16);
           return h.length<2?'0'+h:h;
         }).join('');
-        // Use pre-measured label width (MathJax or heuristic) for background
+        // Use pre-measured label width (MathJax or heuristic) for background.
+        // HEIGHT uses the measured label box when available: Asymptote's
+        // UnFill erases the TIGHT TeX bbox (default xmargin=0), so a
+        // full-fontSize-tall rect blanks geometry passing just above/below
+        // short labels — 08865's "$x$" UnFill cut visible chunks out of the
+        // bracket bar and dotted rays that TeXeR keeps.
         const estW = _labelWidthMeasured;
-        const estH = fontSizeSVG * 1.0;
+        const estH = _labelHeightMeasured || fontSizeSVG * 0.72;
         let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
         // Adjust rectangle position based on anchor
         let rectX = rx - estW / 2;
         if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
         else if (anchor === 'end') rectX = rx - estW + fontSizeSVG * 0.05;
         const rectY = ry - estH / 2;
-        // Padding for UnFill background - tighter than labelmargin but enough to
-        // cover the text cleanly. Asymptote's fill background is quite tight.
-        const pad = fontSizeSVG * 0.12;
+        // Padding for UnFill background — Asymptote's erase box is the exact
+        // TeX bbox; a hairline of padding covers raster antialiasing only.
+        const pad = fontSizeSVG * 0.05;
         elements.push(`<rect x="${fmt(rectX - pad)}" y="${fmt(rectY - pad)}" width="${fmt(estW + 2*pad)}" height="${fmt(estH + 2*pad)}" fill="${bgHex}" stroke="none"/>`);
       }
 
@@ -29247,7 +29262,17 @@ function renderSVG(result, opts) {
           if (dc.align) {
             const ax2 = dc.align.x, ay2 = dc.align.y;
             const cleanLen2 = (stripLaTeX(dc.text || '').length) || 1;
-            const W2 = cleanLen2 * effectiveFontSize * 0.52;
+            let W2 = cleanLen2 * effectiveFontSize * 0.52;
+            // Measured width when available — the anchor-corner rule below
+            // offsets by W2/2, so the heuristic's error lands directly in the
+            // rotated label's position.
+            if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function'
+                && (dc.text || '').indexOf('\n') === -1) {
+              try {
+                const _m2 = _mjxMeasureBp(dc.text, effectiveFontSize);
+                if (_m2 && _m2.wBp > 0) W2 = _m2.wBp * bpCSSPixel;
+              } catch (e) { /* keep heuristic */ }
+            }
             const H2 = effectiveFontSize;
             // Match Asymptote's labelmargin(p) = 0.28*fontsize + 0.5*linewidth
             const _labelLw2 = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
@@ -29296,16 +29321,37 @@ function renderSVG(result, opts) {
                 if (dc._axisLabelEndShift) {
                   dy += dc._axisLabelEndShift * (W2 / 2);
                 }
+              } else if (!hasReflection) {
+                // Asymptote's actual rotated-label rule (plain_picture.asy
+                // align()): the anchor is the point of the UNROTATED label box
+                // at fraction rectify(inverse(rotation)·(−align)); that
+                // anchor, rotated with the text, lands at
+                // position + align·labelmargin. Verified against the local-asy
+                // oracle (rot45 SW "Home~" 05918, rot−60 SE bar ticks 05426).
+                // The previous heuristic (L∞ box offset with W capped at 2H)
+                // left long rotated labels nearly centered ON the anchor.
+                const angleRad = angle * Math.PI / 180;
+                const cosT = Math.cos(angleRad);
+                const sinT = Math.sin(angleRad);
+                // back-rotate −align into the label's local frame: R(−θ)·(−align)
+                const bxL = cosT * (-ax2) + sinT * (-ay2);
+                const byL = -sinT * (-ax2) + cosT * (-ay2);
+                const scL = Math.max(Math.abs(bxL), Math.abs(byL));
+                // anchor offset from box center in the local frame (box W2 × H2)
+                const cOffX = (scL > 0 ? bxL * 0.5 / scL : 0) * W2;
+                const cOffY = (scL > 0 ? byL * 0.5 / scL : 0) * H2;
+                // rotate the anchor offset into world frame
+                const aWx = cosT * cOffX - sinT * cOffY;
+                const aWy = sinT * cOffX + cosT * cOffY;
+                dx = ax2 * margin2 - aWx;
+                dy = -(ay2 * margin2 - aWy);
               } else {
-                // v4.51: For rotated labels, cap the W/H ratio used in the rotation
-                // formula. Long text (W >> H) rotated by 45° causes offWorldY to be
-                // strongly negative, pushing labels DOWN when they should go UP for
-                // NW alignment. Capping W reduces this effect. This improves diagram
-                // 06617 where rotated labels were positioned too close to the lines.
+                // Reflection (with or without rotation): keep the legacy
+                // capped local-frame formula — the corpus' reflectbox labels
+                // are calibrated against it.
                 const aInfMax2 = Math.max(Math.abs(ax2), Math.abs(ay2));
                 const ax_n2 = aInfMax2 > 0 ? (ax2 * 0.5 / aInfMax2) : 0;
                 const ay_n2 = aInfMax2 > 0 ? (ay2 * 0.5 / aInfMax2) : 0;
-                // Cap W at 2×H for the rotation formula to prevent extreme Y offsets
                 const W2capped = Math.min(W2, H2 * 2);
                 const offLocalX = ax_n2 * W2capped;
                 const offLocalY = ay_n2 * H2;
@@ -31299,21 +31345,22 @@ function _texpathViaMathJax(rawText) {
 const _mjxCache = new Map();
 
 // Real Asymptote/MikTeX caps the effective fontsize through TeX's font
-// substitution: the largest Computer Modern math font tops out around 25pt,
-// so requested fontsize(N) for N > 25 is silently substituted to ~25pt with
-// a small linear bbox growth (roughly +0.2 bp per extra pt above the cap).
-// Empirical pdfinfo Page-size measurements:
-//   fontsize(25) → 121.96 × 24.88 bp
-//   fontsize(30) → 122.96 × 25.88 bp
-//   fontsize(60) → 128.96 × 31.88 bp
-//   fontsize(100) → 136.96 × 39.88 bp
+// substitution: the largest Computer Modern math font tops out at 24.88pt
+// (LaTeX \Huge), so requested fontsize(N) for N > 25 is silently substituted.
+// Empirical pdfinfo PAGE sizes grow slightly with N (+0.2bp/pt — leading and
+// margins), but the GLYPHS themselves stay at the substituted ~24.88pt:
+// 08899's fontsize(80pt) "NOON" renders at the same glyph size as
+// fontsize(25) in the TeXeR reference, and 04086's fontsize(60) formula
+// likewise. The old `25 + 0.2*(n-25)` formula (tuned to the page growth)
+// rendered fontsize(80) glyphs at 36pt — 1.44× too big, overflowing the
+// canvas. Cap flat at the substitution size.
 // MathJax has no such cap and renders at the literal requested size, which
 // makes label-only diagrams (e.g. unitsize(1cm) + fontsize(60) physics
 // equations) come out 2–3× wider than the TeXeR reference.  Apply the same
 // cap before using fontsize for measurement / SVG rendering / bbox math.
 function _texCapFontSize(n) {
   if (typeof n !== 'number' || !isFinite(n) || n <= 25) return n;
-  return 25 + 0.2 * (n - 25);
+  return 24.88;
 }
 
 // Pre-render a label through MathJax (if available) to get its actual pixel

@@ -63,6 +63,12 @@ const SPECIMENS = [
   { id: 'al_SE',     body: 'dot((0,0),linewidth(2));label("$M$",(0,0),SE);', alignDot: true },
   { id: 'al_SW',     body: 'dot((0,0),linewidth(2));label("$M$",(0,0),SW);', alignDot: true },
   { id: 'al_2NE',    body: 'dot((0,0),linewidth(2));label("$M$",(0,0),2NE);', alignDot: true },
+  { id: 'al_dir75',  body: 'dot((0,0),linewidth(2));label("$K$",(0,0),dir(75));', alignDot: true },
+  { id: 'al_dir30',  body: 'dot((0,0),linewidth(2));label("$K$",(0,0),dir(30));', alignDot: true },
+  { id: 'al_dir255', body: 'dot((0,0),linewidth(2));label("$D$",(0,0),dir(255));', alignDot: true },
+  { id: 'al_dotlbl', body: 'dot("$K$",(0,0),dir(75));', alignDot: true },
+  { id: 'al_dotlw2', body: 'dot("$K$",(0,0),dir(75),linewidth(2));', alignDot: true },
+  { id: 'al_dotlw5', body: 'dot("$K$",(0,0),dir(75),linewidth(5));', alignDot: true },
   { id: 'al_E_text', body: 'dot((0,0),linewidth(2));label("Mass (kg)",(0,0),E);', alignDot: true },
   { id: 'al_W_text', body: 'dot((0,0),linewidth(2));label("Mass (kg)",(0,0),W);', alignDot: true },
 ];
