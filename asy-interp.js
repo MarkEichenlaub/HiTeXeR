@@ -10499,9 +10499,16 @@ function createInterpreter() {
       if (text) {
         const labelPen = pen || clonePen(defaultPen);
         const mathText = (text.startsWith('$') || text.includes('$')) ? text : '$' + text + '$';
-        const labelArgs = [mathText, pos];
-        if (align) labelArgs.push(align);
-        labelArgs.push(labelPen);
+        // cse5's MP applies a default label direction when the caller omits one;
+        // it does NOT center the label on the point (plain Asymptote's default).
+        // Empirically TeXeR places undirected MP labels to the SOUTH of the point
+        // (08517/08518 vertex labels A/B/P sit below the base, while C/Q/R carry
+        // explicit N/NW/NE overrides precisely because S would be wrong for them).
+        // Without this default, undirected labels straddle the geometry (e.g. "P"
+        // centered on the base+dot) and the figure's vertical label padding is too
+        // small, throwing off the SSIM trim+resize registration.
+        const labelAlign = align || makePair(0, -1); // default S
+        const labelArgs = [mathText, pos, labelAlign, labelPen];
         evalLabel(labelArgs);
       }
       return pos;
@@ -10510,6 +10517,35 @@ function createInterpreter() {
     // D() — cse5/olympiad shorthand for draw that returns its path
     // In AoPS/cse5 convention, D() uses blue pen by default (unlike draw() which uses black)
     env.set('D', (...args) => {
+      // cse5 overloads D(): a lone pair/point draws a DOT with `pointpen`
+      //     D(pair A, pen p=pointpen) { dot(A,p); }
+      // while a path draws with `pathpen`
+      //     D(path g, pen p=pathpen) { draw(g,p); return g; }
+      // Detect the dot form: exactly one coordinate (pair/triple/point) arg and
+      // no path. Without this, D(MP("P",pt)) fell through to draw() as a
+      // zero-length stroke (radius lw/2 ≈ 0.3bp — an almost-invisible speck);
+      // routing to dot() gives the proper dotfactor-sized mark TeXeR shows.
+      // (Tangent points P/Q/R in 08518 are dotted exactly this way.)
+      {
+        let hasPath = false, coordCount = 0;
+        for (const a of args) {
+          if (isPath(a)) hasPath = true;
+          else if (isPair(a) || isTriple(a) || isPoint(a)) coordCount++;
+        }
+        if (!hasPath && coordCount === 1) {
+          let hasPenDot = false;
+          for (const a of args) { if (isPen(a)) { hasPenDot = true; break; } }
+          let dotArgs = args;
+          if (!hasPenDot) {
+            const ptp = env.get('pointpen');
+            dotArgs = [...args, (isPen(ptp) ? ptp : clonePen(defaultPen))];
+          }
+          dotArgs._line = args._line;
+          evalDot(dotArgs);
+          for (const a of args) { if (isPair(a) || isTriple(a) || isPoint(a)) return a; }
+          return makePair(0, 0);
+        }
+      }
       // cse5's D() draws with `pathpen` when no pen is supplied. pathpen
       // defaults to blue (AoPS TeXeR default) but diagrams routinely reassign
       // it, e.g. `pathpen = black + linewidth(0.65)`, and we must honor that.
@@ -29059,6 +29095,11 @@ function renderSVG(result, opts) {
         }
         // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
         // no longer boost dots — native bp sizing matches TeXeR better.
+        // Auto-scaled 2D diagrams with all-explicit strokes (e.g. 08517/08518
+        // cse5 `pathpen=...+linewidth(0.65)`) also keep dots at native size:
+        // a 1.67× DPI boost makes the dots visually closer to TeXeR's fat dots
+        // but consistently LOWERS SSIM (sub-pixel center offsets create more
+        // mismatched rim pixels for the larger disc), so don't apply it.
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
