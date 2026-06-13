@@ -1315,6 +1315,7 @@ function mergePens(a,b) {
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
   if (b._lwExplicit) r._lwExplicit = true;
   if (b._lwDirect) r._lwDirect = true;
+  if (b._thick) r._thick = true;
   if (b.linestyle) r.linestyle = b.linestyle;
   // fontsize: copy if explicitly set OR if differs from the base 12
   if (b._fzExplicit || b.fontsize !== 12) r.fontsize = b.fontsize;
@@ -9688,11 +9689,14 @@ function createInterpreter() {
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
-    // Asymptote thick()/Thick() return 1.5x linewidth. For mesh lines, the code
-    // forces 0.16bp when _lwExplicit is false, so thick() here is a no-op pen
-    // that preserves the default mesh line behavior (which matches TeXeR).
-    env.set('thick', () => makePen({}));
-    env.set('Thick', () => makePen({}));
+    // Asymptote thick()/Thick() thicken the stroke. For ordinary draws we still
+    // treat them as a no-op (the corpus matched TeXeR with the default width),
+    // but we tag the pen with `_thick` so a surface meshpen built from
+    // `black+thick()` (e.g. 03290's Gaussian bump) renders a bold wireframe
+    // instead of being crushed to the 0.2bp thin-mesh default. The marker is
+    // propagated by mergePens and consumed in the surface mesh-line block.
+    env.set('thick', () => makePen({_thick: true}));
+    env.set('Thick', () => makePen({_thick: true}));
     env.set('thin', () => makePen({}));
     env.set('makepen', (pathArg) => {
       if (!isPath(pathArg)) return makePen({});
@@ -20229,6 +20233,14 @@ function createInterpreter() {
       // Store original data bounds before snapping for tick filtering
       const origMinX = b.minX, origMaxX = b.maxX;
       const origMinY = b.minY, origMaxY = b.maxY;
+      // Also capture the un-snapped z extent. The block below extends b.maxZ
+      // out to the next nice tick (e.g. a surface peak at z=1.5 → 1.6) for the
+      // Bounds-style boxed axis. A bare XYZero z-axis (drawSimpleAxis) must NOT
+      // follow that: its tip should sit at the true data max so a `zaxis3(...,
+      // Arrow3)` through a surface (03290's Gaussian bump) terminates at the
+      // peak — occluded by the surface — instead of poking a tick-height above
+      // it and inflating the size-fit bbox (which skewed the aspect ratio).
+      const origMinZ = b.minZ, origMaxZ = b.maxZ;
 
       // Snap bounds to the innermost tick positions for cleaner axis visualization
       // This matches Asymptote's Bounds style where the box aligns with tick marks
@@ -20489,11 +20501,14 @@ function createInterpreter() {
           p1 = makeTriple(x0, yEnd, z0);
           labelPos3 = makeTriple(x0, yEnd + extraOut * (yEnd - yStart), z0);
         } else {
-          // z-axis: XYZero-style line through (0,0) from minZ to maxZ
+          // z-axis: XYZero-style line through (0,0) from minZ to maxZ. Use the
+          // un-snapped data extent (origMinZ/origMaxZ) so the axis tip lands at
+          // the real geometry max rather than the tick-extended box max — this
+          // keeps a surface-piercing z-axis (03290) terminating at the surface.
           const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
           const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
-          let zEnd = (typeof ub.zmax === 'number') ? ub.zmax : b.maxZ;
-          let zStart = (typeof ub.zmin === 'number') ? ub.zmin : b.minZ;
+          let zEnd = (typeof ub.zmax === 'number') ? ub.zmax : origMaxZ;
+          let zStart = (typeof ub.zmin === 'number') ? ub.zmin : origMinZ;
           p0 = makeTriple(x0, y0, zStart);
           p1 = makeTriple(x0, y0, zEnd);
           labelPos3 = makeTriple(x0, y0, zEnd + extraOut * (zEnd - zStart));
@@ -22300,6 +22315,31 @@ function createInterpreter() {
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
                   _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius, _revolutionSurf: mesh._revolutionSurf, _flatPlanar: mesh._flatPlanar};
         }
+        // A nolight parametric (`_grid`) surface drawn WITH a mesh-wireframe
+        // overlay and a LIGHT achromatic surfacepen renders in TeXeR as a
+        // white-faced wireframe: the gray surfacepen produces no visible gray
+        // fill, only the black mesh grid reads (03290 `draw(surface(f,...),
+        // lightgray, meshpen=black+thick(), nolight)` — its texer PNG faces are
+        // pure white #fff). This is the curved-surface analogue of the
+        // `_flatPlanar` achromatic-gray skip in renderMeshToPicture. Fill the
+        // faces WHITE but keep them OPAQUE so the surface still occludes
+        // geometry behind it (the z-axis through the Gaussian bump).
+        let _meshOverlayPresent = meshPenPositional !== null;
+        if (!_meshOverlayPresent) {
+          for (const a of args) {
+            if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) { _meshOverlayPresent = true; break; }
+          }
+        }
+        if (_nolight && _meshOverlayPresent && surfForColors && surfForColors._grid && isPen(meshPen)) {
+          const _pr = meshPen.r || 0, _pg = meshPen.g || 0, _pb = meshPen.b || 0;
+          const _pop = (typeof meshPen.opacity === 'number') ? meshPen.opacity : 1;
+          const _achroLight = Math.abs(_pr - _pg) < 0.04 && Math.abs(_pg - _pb) < 0.04 &&
+                              Math.abs(_pr - _pb) < 0.04 && _pr > 0.5 && _pop >= 0.99;
+          if (_achroLight) {
+            meshPen = clonePen(meshPen);
+            meshPen.r = 1; meshPen.g = 1; meshPen.b = 1;
+          }
+        }
         // Render mesh faces. material() calls attach _emissivePen but we still
         // render using the diffuse color — TeXeR's 2D fallback mode does render
         // surfaces specified with material() (e.g. unitcube with material(gray(0.5),...)).
@@ -22317,10 +22357,13 @@ function createInterpreter() {
         }
         // Asymptote's surface mesh lines are thinner than the default pen.
         // When no explicit linewidth is set on the meshpen, reduce it to
-        // match the visual weight seen in TeXeR's PRC output.
+        // match the visual weight seen in TeXeR's PRC output. A meshpen built
+        // with `thick()` (carries `_thick`) is a deliberately BOLD wireframe
+        // (e.g. 03290 `meshpen=black+thick()`) — TeXeR renders those grid lines
+        // as solid ~3px strokes, so use a much heavier width there.
         if (meshLinePen && !meshLinePen._lwExplicit) {
           meshLinePen = clonePen(meshLinePen);
-          meshLinePen.linewidth = 0.2; // thin mesh lines (0.2 matches TeXeR better)
+          meshLinePen.linewidth = meshLinePen._thick ? 0.9 : 0.2;
           meshLinePen._lwExplicit = true;
         }
         if (meshLinePen && surfForColors && surfForColors._grid) {
