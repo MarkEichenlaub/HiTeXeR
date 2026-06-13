@@ -9658,6 +9658,10 @@ function createInterpreter() {
       );
     });
     env.set('slant', (s) => makeTransform(0,1,toNumber(s),0,0,1));
+    // identity() — the 2D identity transform. Without this, `transform t = identity();`
+    // leaves t undefined and `t*pair` collapses to (0,0), silently dropping non-rotated
+    // geometry (e.g. 04422 drawHexAndTriangle with rotated=false). See attempt history.
+    env.set('identity', () => makeTransform(0,1,0,0,0,1));
 
     // Pen constructors
     env.set('rgb', (...args) => {
