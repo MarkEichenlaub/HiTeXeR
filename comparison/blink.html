@@ -11,6 +11,7 @@
      what you see here is identical to the live tool (not the svg-native render
      used for SSIM rasterization). -->
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="../katex-svg.js"></script>
 <script src="../asy-interp.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -415,6 +416,21 @@
   const liveSvgCache = new Map();
   let _graphicCache = {};
   let thumbObserver = null;  // lazily renders HiTeXeR thumbnails on scroll-in
+
+  // Load KaTeX SVG glyph table. Without it, katexSvg.ready() is false and all
+  // live renders fall back to SVG-text, which renders Greek Unicode (π, θ, etc.)
+  // in the wrong font. Fetch early so it's ready before the user opens a diagram.
+  // After init, clear liveSvgCache (any cached SVGs used the fallback) and
+  // re-render the current blink view if one is already displayed.
+  fetch('../katex-glyphs.json').then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (window.katexSvg) {
+        window.katexSvg.init(d);
+        liveSvgCache.clear();
+        if (blinkActive) updateBlinkImage({});
+      }
+    })
+    .catch(function() {});
 
   function fetchSourceCode(id) {
     if (codeCache[id] !== undefined) return Promise.resolve(codeCache[id]);
