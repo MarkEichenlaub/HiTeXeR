@@ -12868,10 +12868,40 @@ function createInterpreter() {
       const clean = stripLaTeX(typeof t === 'string' ? t : '');
       if (!clean) return null;
       const fs = (dc.pen && dc.pen.fontsize) || 12;
-      const wU = sX > 0 ? _estimateMathRunWidth(clean, fs) / sX : 0;
-      const hU = sY > 0 ? (fs * 0.75) / sY : 0;
+      // Prefer the exact (cached) MathJax measurement — the heuristic
+      // character-width table is the dominant error source in axis frame
+      // extents. Fall back to the heuristic when MathJax is unavailable
+      // (browser path) or for multi-line labels (MJX flattens \n and
+      // grossly over-measures them; see the solver's identical guard).
+      let _wBp = null, _hBp = null;
+      if (typeof _mjxMeasureBp === 'function' &&
+          !(typeof t === 'string' && t.indexOf('\n') !== -1)) {
+        try {
+          const _m = _mjxMeasureBp(t, fs);
+          if (_m && _m.wBp > 0) { _wBp = _m.wBp; _hBp = _m.hBp; }
+        } catch (e) {}
+      }
+      // Tick labels are typeset with the "$10^4$" baseline strut in
+      // graph.asy (baseline(s, baselinetemplate) in labeltick/tick/labelx),
+      // so their frame box is the full strut height (≈1.039em) even for a
+      // bare digit. Axis TITLES go through labelaxis() with their natural
+      // TeX box — no strut (strutting "y" over-rides the axis end, 00084).
+      let _strutted = false;
+      if (_hBp !== null && dc._isTickLabel) {
+        _hBp = Math.max(_hBp, 1.0389 * fs);
+        _strutted = true;
+      }
+      // TeXeR's Computer Modern runs ~7% wider than MathJax's metrics
+      // (font-metric gap memory; 00115 legend: TeX 70.8bp vs MJX 66.6bp).
+      // Calibrate measured widths up so frame/extension estimates match the
+      // TeX-rendered refs. Rendering is unaffected.
+      const wU = sX > 0 ? (_wBp !== null ? _wBp * 1.07 : _estimateMathRunWidth(clean, fs)) / sX : 0;
+      const hU = sY > 0 ? (_hBp !== null ? _hBp : fs * 0.75) / sY : 0;
       const mgU = sX > 0 ? (0.28 * fs) / sX : 0;
-      const mgVU = sY > 0 ? (0.28 * fs) / sY : 0;
+      // The strut already spans the full ascent+descent line box; adding the
+      // vertical label margin on top double-counts (00111's title box truth
+      // is the bare 1.039em strut: −1.0035, not −1.24).
+      const mgVU = (!_strutted && sY > 0) ? (0.28 * fs) / sY : 0;
       const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
       const ay = (dc.align && typeof dc.align.y === 'number') ? dc.align.y : 0;
       let px = dc.pos.x, py = dc.pos.y;
@@ -14086,22 +14116,17 @@ function createInterpreter() {
         let myCmds = pic.commands.slice(_xJobStart);
         for (const c of myCmds) c._jobManaged = true;
         let curLo = xmin, curHi = xmax;
+        const _xPrefixSet = new Set(pic.commands.slice(0, _xJobStart));
+        const _xInitLo = xmin, _xInitHi = xmax;
         let _xRideLo = 0, _xRideHi = 0;
         _deferredAxisJobs.push((_pass) => {
           // Exclude this axis's own LINE (a placeholder range when the axis
           // was drawn before content — it must be able to SHRINK, 00247)
-          // and its own TITLE from the frame estimate. The title rides the
-          // moving endpoint, so its push is measured ONCE (pass 0: frame
-          // with title minus frame without) and added as a fixed allowance
-          // on every pass — one net ride, like Asymptote's bounds() recalcs,
-          // while the rest of the frame stays freely re-assignable.
+          // and its own TITLE from the frame estimate; the title contributes
+          // separately, anchored at its first placement (see below).
           const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
-          // Title ride: the endpoint title moves with the axis end, so the
-          // shipped axis extends ONE title-protrusion past the rest of the
-          // frame. Protrusion is measured from the title's own anchor
-          // (position-independent, so it converges across passes).
           _xRideLo = 0; _xRideHi = 0;
           // Two-half slopefield diagrams (e.g. 00269: two add(slopefield)
           // regions with a central gap): TeXeR extends the axes past the
@@ -14116,17 +14141,40 @@ function createInterpreter() {
             fb.minX = fb.geoMinX; fb.maxX = fb.geoMaxX;
             _xRideLo = _rng * 0.07;
             _xRideHi = _rng * 0.035;
-          } else for (const tc of myCmds) {
-            if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
-            const box = _labelBoxU(tc, fb.sX, fb.sY);
-            if (!box) continue;
-            if (tc.pos.x >= (curLo + curHi) / 2) _xRideHi = Math.max(_xRideHi, Math.max(0, box.rx - tc.pos.x));
-            else _xRideLo = Math.max(_xRideLo, Math.max(0, tc.pos.x - box.lx));
+          }
+          // Self-title model (instrumented asy: 00101/00026/00115 labelaxis
+          // probes): asy rebuilds the frame iteratively, so the endpoint
+          // title's bounds contribution is anchored at the frame edge OF THE
+          // CONTENT DRAWN BEFORE THE AXIS CALL (its first placement). Axes
+          // called early (00101: xaxis right after the graph) anchor at the
+          // bare geometry edge — content drawn later never pushes the title
+          // out, so the final extension is just the static frame. Axes
+          // called last (00026) anchor at the full static edge — the title
+          // protrudes past everything (the old additive "ride").
+          let _xTitleLo = Infinity, _xTitleHi = -Infinity;
+          if (!_xTwoHalfSF) {
+            const _afterSet = new Set(pic.commands.filter(c => !_xPrefixSet.has(c)));
+            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
+            // The title's first placement is at the axis end as FIRST drawn:
+            // the prefix frame edge, or a USER-set limit (xlimits pins the
+            // end even with nothing drawn there — 00115/00101). Autoscale
+            // initial ranges are content-derived and do NOT anchor (00026).
+            let _aLo = Math.min(afb ? afb.minX : Infinity, _xUserLo != null ? _xUserLo : Infinity);
+            let _aHi = Math.max(afb ? afb.maxX : -Infinity, _xUserHi != null ? _xUserHi : -Infinity);
+            if (!isFinite(_aLo)) _aLo = _xInitLo;
+            if (!isFinite(_aHi)) _aHi = _xInitHi;
+            for (const tc of myCmds) {
+              if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
+              const box = _labelBoxU(tc, fb.sX, fb.sY);
+              if (!box) continue;
+              if (tc.pos.x >= (curLo + curHi) / 2) _xTitleHi = Math.max(_xTitleHi, _aHi + Math.max(0, box.rx - tc.pos.x));
+              else _xTitleLo = Math.min(_xTitleLo, _aLo - Math.max(0, tc.pos.x - box.lx));
+            }
           }
           // Exact frame assignment each pass; xlimits()-driven sides floor
           // it so framed plots (00101) never shrink inside their window.
-          let lo = xminExplicit ? curLo : fb.minX - _xRideLo;
-          let hi = xmaxExplicit ? curHi : fb.maxX + _xRideHi;
+          let lo = xminExplicit ? curLo : Math.min(fb.minX - _xRideLo, _xTitleLo);
+          let hi = xmaxExplicit ? curHi : Math.max(fb.maxX + _xRideHi, _xTitleHi);
           if (!xminExplicit && _xUserLo != null) lo = Math.min(lo, _xUserLo);
           if (!xmaxExplicit && _xUserHi != null) hi = Math.max(hi, _xUserHi);
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
@@ -14670,6 +14718,8 @@ function createInterpreter() {
         let myCmds = pic.commands.slice(_yJobStart);
         for (const c of myCmds) c._jobManaged = true;
         let curLo = ymin, curHi = ymax;
+        const _yPrefixSet = new Set(pic.commands.slice(0, _yJobStart));
+        const _yInitLo = ymin, _yInitHi = ymax;
         let _yRideLo = 0, _yRideHi = 0;
         _deferredAxisJobs.push((_pass) => {
           const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
@@ -14682,15 +14732,26 @@ function createInterpreter() {
             fb.minY = fb.geoMinY; fb.maxY = fb.geoMaxY;
             _yRideLo = _rng * 0.07;
             _yRideHi = _rng * 0.035;
-          } else for (const tc of myCmds) {
-            if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
-            const box = _labelBoxU(tc, fb.sX, fb.sY);
-            if (!box) continue;
-            if (tc.pos.y >= (curLo + curHi) / 2) _yRideHi = Math.max(_yRideHi, Math.max(0, box.ty - tc.pos.y));
-            else _yRideLo = Math.max(_yRideLo, Math.max(0, tc.pos.y - box.by));
           }
-          let lo = yminExplicit ? curLo : fb.minY - _yRideLo;
-          let hi = ymaxExplicit ? curHi : fb.maxY + _yRideHi;
+          // Self-title anchored at the prefix frame edge — see x-job note.
+          let _yTitleLo = Infinity, _yTitleHi = -Infinity;
+          if (!_yTwoHalfSF) {
+            const _afterSet = new Set(pic.commands.filter(c => !_yPrefixSet.has(c)));
+            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
+            let _aLo = Math.min(afb ? afb.minY : Infinity, _yUserLo != null ? _yUserLo : Infinity);
+            let _aHi = Math.max(afb ? afb.maxY : -Infinity, _yUserHi != null ? _yUserHi : -Infinity);
+            if (!isFinite(_aLo)) _aLo = _yInitLo;
+            if (!isFinite(_aHi)) _aHi = _yInitHi;
+            for (const tc of myCmds) {
+              if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
+              const box = _labelBoxU(tc, fb.sX, fb.sY);
+              if (!box) continue;
+              if (tc.pos.y >= (curLo + curHi) / 2) _yTitleHi = Math.max(_yTitleHi, _aHi + Math.max(0, box.ty - tc.pos.y));
+              else _yTitleLo = Math.min(_yTitleLo, _aLo - Math.max(0, tc.pos.y - box.by));
+            }
+          }
+          let lo = yminExplicit ? curLo : Math.min(fb.minY - _yRideLo, _yTitleLo);
+          let hi = ymaxExplicit ? curHi : Math.max(fb.maxY + _yRideHi, _yTitleHi);
           if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
