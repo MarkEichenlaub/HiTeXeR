@@ -22,10 +22,11 @@ const ROOT         = path.resolve(__dirname, '..');
 const STOP_FILE    = path.join(__dirname, 'STOP');
 const PROMPT_PATH  = path.join(__dirname, 'prompt.md');
 const SELECT_PATH  = path.join(__dirname, 'select-target.js');
-const DEFAULT_MODEL = 'claude-fable-5';
+const DEFAULT_MODEL = 'claude-opus-4-8';
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000; // 60 min per iteration
 const DEFAULT_MAX_TURNS  = 250;  // was 150; raised to give novel-primitive diagnoses more headroom
 const DEFAULT_VERIFIER_MODEL = 'claude-sonnet-4-6';
+const FAST_FAIL_THRESHOLD_MS = 30000; // sub-agent exits in < 30s with no result → infra error (bad model, auth, network)
 const SSIM_FLOOR = 0.90;          // combined (ssim×sizeScore) threshold: above this, accept even if verifier is unhappy
 const CANARY_THRESHOLD = 0.03;    // max allowed canary drop per commit (enforced independently of sub-agent)
 const SSIM_REGRESS_MARGIN = 0.02; // a fix whose post-SSIM is this far BELOW the target's pre-fix SSIM is a regression — never accept it on the verifier's say-so alone
@@ -1136,7 +1137,8 @@ async function runIteration(args, iter) {
     const prompt = renderPrompt(target, verifierFeedback, userDescription);
     const start = Date.now();
     const subResult = await runSubAgent(args, prompt);
-    const dur = ((Date.now() - start) / 1000).toFixed(1);
+    const subDurMs = Date.now() - start;
+    const dur = (subDurMs / 1000).toFixed(1);
     console.log('\n[run-loop] sub-agent exited code=' + subResult.code +
                 ' signal=' + subResult.signal + ' in ' + dur + 's (round ' + round + ')');
 
@@ -1163,6 +1165,17 @@ async function runIteration(args, iter) {
         outcome: 'no-result', durationMs: Date.now() - start,
         code: subResult.code, signal: subResult.signal,
       }) + '\n');
+    }
+
+    // Detect fast infrastructure errors: sub-agent exits quickly with non-zero code and
+    // no session result. These indicate a model/auth/network problem, NOT a diagram issue.
+    // Return 'fast-error' so the caller can halt the loop and preserve the queue rather than
+    // silently dequeuing every item until the queue is empty.
+    if (!subResult.finalResult && subResult.code !== 0 && !subResult.timedOut &&
+        subDurMs < FAST_FAIL_THRESHOLD_MS) {
+      console.error('[run-loop] fast-error: sub-agent exited code=' + subResult.code +
+                    ' in ' + dur + 's — likely model/auth/network error; halting to preserve queue');
+      return 'fast-error';
     }
 
     if (subResult.timedOut) {
@@ -1455,6 +1468,36 @@ async function main() {
         i--;  // don't advance the iteration counter during an idle sleep
         continue;
       }
+      break;
+    }
+    // Fast infrastructure error: sub-agent exited immediately without a real session.
+    // Re-prepend the dequeued item to the queue so it isn't lost, write a notification,
+    // and halt — do NOT continue draining the queue while the infra is broken.
+    if (outcome === 'fast-error') {
+      if (fs.existsSync(RECOVERY_FILE)) {
+        try {
+          const recovered = JSON.parse(fs.readFileSync(RECOVERY_FILE, 'utf8'));
+          let queue = [];
+          try { queue = JSON.parse(fs.readFileSync(QUEUE_PATH, 'utf8')); } catch {}
+          if (!Array.isArray(queue)) queue = [];
+          if (queue.length === 0 || queue[0].id !== recovered.id) {
+            queue.unshift(recovered);
+            fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue, null, 2));
+            console.log('[run-loop] fast-error: re-prepended ' + recovered.id + ' to queue (queue preserved)');
+          }
+          clearRecovery();
+        } catch (e) {
+          console.error('[run-loop] fast-error queue-preservation failed:', e.message);
+          clearRecovery();
+        }
+      } else {
+        clearRecovery();
+      }
+      fail++;
+      writeStatus({ currentId: null, phase: 'halted', reason: 'fast-error', haltedAt: new Date().toISOString() });
+      console.error('\n[run-loop] *** HALTED: sub-agent fast-error (bad model/auth/network) ***');
+      console.error('[run-loop] Queue has been preserved. Fix the error and re-run the loop.');
+      console.error('[run-loop] Tip: test with: claude -p --model ' + args.model + ' "say hi"\n');
       break;
     }
     if (outcome === 'committed') {
