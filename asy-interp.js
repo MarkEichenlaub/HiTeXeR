@@ -6636,14 +6636,13 @@ function createInterpreter() {
     function _dotframeImpl(args) {
       const a = _parseFrameArgs(args);
       const lw = _penLW(a.pen);
-      // Mirror the `dot()` AoPS-idiom convention: when the user explicitly
-      // sets a linewidth >= 1 on the dot pen (e.g. `dotframe(red+linewidth(4bp))`
-      // or `dotframe(6bp+red)`), interpret the linewidth as the dot
-      // *diameter* rather than the stroke width to feed into the
-      // `dotsize = 0.5 + lw*dotfactor` formula. Without this, 12899 line 5
-      // (pen=linewidth(4bp), dotframe(red+pn)) renders as 25 bp = full-line
-      // height red blobs instead of the small reference dots.
-      const useDirectDiameter = a.pen && a.pen._lwExplicit && lw >= 1;
+      // Mirror real asy's `dotsize(p) = linewidth(dotpen + p)`: when the pen
+      // explicitly sets a linewidth (any magnitude), the dot *diameter* is
+      // exactly that linewidth (the dotfactor multiplier is overridden by the
+      // explicit width). Only a pen with NO explicit linewidth falls back to
+      // dotfactor*linewidth. So `dotframe(red+linewidth(4bp))` => 4 bp dot,
+      // `dotframe(red+linewidth(0.8bp))` => 0.8 bp dot — both direct.
+      const useDirectDiameter = a.pen && a.pen._lwExplicit;
       const r = useDirectDiameter ? lw / 2 : (1 + lw * 6) / 2;
       const f = _newFrame();
       const N = 24;
@@ -27765,7 +27764,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit;
         // Add 0.5 bp safety margin to ensure dots at viewBox edges aren't clipped
         // due to floating-point rounding or the _autoScaledStrokeBoost applied at render time.
         const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel + 0.5 * bpCSSPixel;
@@ -28912,7 +28911,7 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     if (dc.cmd !== 'dot' || !dc.pos) continue;
     const dotLw = dc.pen.linewidth;
-    const _useDirectDiameter_lpush = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+    const _useDirectDiameter_lpush = dc.pen && dc.pen._lwExplicit;
     const dR = (_useDirectDiameter_lpush ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
     const key = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
     const prev = dotRadiusAtPos.get(key) || 0;
@@ -29210,19 +29209,18 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: real Asymptote always uses radius = dotfactor*linewidth/2.
-      // However many AoPS-authored diagrams use the "n+pen" idiom expecting
-      // direct dot diameters (e.g. dot(z, 10+black) for a 10bp dot, not 60bp).
-      // Compromise: for explicitly-set linewidths >= 1bp, treat the linewidth
-      // as the dot diameter directly (matches AoPS TeXeR rendering of the
-      // common `dot(z, color+N)` idiom where N is a small integer 1..10
-      // intended as the dot diameter in bp -- e.g. 08663 `dot(z,3+black)`,
-      // 08733 `dot(z,black+2bp)`, 08750 `linewidth(1.2)`, 09162 `dot(z,black+3)`).
-      // For small explicit linewidths (lw < 1, e.g. dp=black+0.75 in 05895),
-      // keep the dotfactor multiplier so a stroke pen reused for dots renders
-      // a normal-sized visible mark instead of a sub-bp invisible dot.
+      // Dot radius matches real asy's `dotsize(p) = linewidth(dotpen + p)`:
+      // pen addition lets an EXPLICIT linewidth on p override dotpen's
+      // dotfactor*linewidth, so the dot *diameter* equals the explicit
+      // linewidth directly (any magnitude). Only pens with no explicit
+      // linewidth fall back to dotfactor*linewidth (~3bp for the default pen).
+      // Examples: 08663 `dot(z,3+black)`=>3bp, 09162 `dot(z,black+3)`=>3bp,
+      // 06256 `red+6`=>6bp, AND the small-width cases this corrects:
+      // 04938 `linewidth(0.8bp)`=>0.8bp, 05895 `black+0.75`=>0.75bp — all
+      // direct. (Verified against local asy 3.05: dot(z,linewidth(w)) renders
+      // a w-bp dot for w=0.75,0.8,2,3; bare dot()/color-only pens give 3bp.)
       const dotLw = dc.pen.linewidth;
-      const useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+      const useDirectDiameter = dc.pen && dc.pen._lwExplicit;
       // Apply the auto-scaled stroke boost to dot radius too, but only for
       // non-explicit pens (matching the stroke-boost criterion at L18542):
       // explicit dot diameters/linewidths should keep their literal size.
