@@ -28030,7 +28030,22 @@ function renderSVG(result, opts) {
               // (~1.9em) and nested \frac{..}{\sqrt{..}} — their numerators
               // were CLIPPED at the figure edge (04965's top "b/2", 02915's
               // "b/√3"). The measured MathJax height is the rendered truth.
-              if (m.hBp > 0) H = Math.max(H, m.hBp * bpCSSPixel);
+              if (m.hBp > 0) {
+                if (_hasSSVB && !_hasFracVB) {
+                  // Sub/superscript labels: the base H above already added
+                  // subscriptDepth (0.35·fontSize) on TOP of the line box, but
+                  // the measured ink height ALREADY includes the script's
+                  // descender/ascender — so max(H, measured) over-reserves the
+                  // viewBox vertically (04280's $\mathbb F_{81}$: heuristic
+                  // 16.2bp vs measured 10.2bp ⇒ ~6bp of empty top/bottom pad,
+                  // ~3% too tall). Trust the exact measured box (with the same
+                  // 1.06 side-bearing margin as width). No \frac here, so no
+                  // tall-numerator clipping risk.
+                  H = m.hBp * bpCSSPixel * 1.06;
+                } else {
+                  H = Math.max(H, m.hBp * bpCSSPixel);
+                }
+              }
             } else {
               // Multi-line: _mjxMeasureBp measures the concatenated single line
               // (MathJax ignores embedded \n), grossly over-wide, so keep the
