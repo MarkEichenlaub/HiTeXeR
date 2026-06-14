@@ -8448,11 +8448,17 @@ function createInterpreter() {
       // cross(int n) — marker path
       if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
         const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        // plain_markers.asy cross(n): n spokes radiating from the origin at
+        // 2*pi/n spacing (radius 1), each traced origin->rim->origin — NOT n
+        // diameters through the origin. Diameters double the arm count, so
+        // cross(6) rendered as a 12-armed starburst instead of the correct
+        // 6-armed asterisk (05147/05148 red mark). Mirrors the crossframe fix.
         const segs = [];
         for (let i = 0; i < n; i++) {
-          const angle = i * Math.PI / n;
-          const dx = Math.cos(angle), dy = Math.sin(angle);
-          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+          const angle = i * 2 * Math.PI / n;
+          const rim = makePair(Math.cos(angle), Math.sin(angle));
+          segs.push(lineSegment(makePair(0, 0), rim));
+          segs.push(lineSegment(rim, makePair(0, 0)));
         }
         return makePath(segs, false);
       }
@@ -17797,11 +17803,17 @@ function createInterpreter() {
       // cross(int n) — marker path: n-pointed asterisk (from plain_markers.asy)
       if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
         const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        // plain_markers.asy cross(n): n spokes radiating from the origin at
+        // 2*pi/n spacing (radius 1), each traced origin->rim->origin — NOT n
+        // diameters through the origin. Diameters double the arm count, so
+        // cross(6) rendered as a 12-armed starburst instead of the correct
+        // 6-armed asterisk (05147/05148 red mark). Mirrors the crossframe fix.
         const segs = [];
         for (let i = 0; i < n; i++) {
-          const angle = i * Math.PI / n;
-          const dx = Math.cos(angle), dy = Math.sin(angle);
-          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+          const angle = i * 2 * Math.PI / n;
+          const rim = makePair(Math.cos(angle), Math.sin(angle));
+          segs.push(lineSegment(makePair(0, 0), rim));
+          segs.push(lineSegment(rim, makePair(0, 0)));
         }
         return makePath(segs, false);
       }
