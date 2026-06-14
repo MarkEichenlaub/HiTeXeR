@@ -14413,8 +14413,14 @@ function createInterpreter() {
             // initial ranges are content-derived and do NOT anchor (00026).
             let _aLo = Math.min(afb ? afb.minX : Infinity, _xUserLo != null ? _xUserLo : Infinity);
             let _aHi = Math.max(afb ? afb.maxX : -Infinity, _xUserHi != null ? _xUserHi : -Infinity);
-            if (!isFinite(_aLo)) _aLo = _xInitLo;
-            if (!isFinite(_aHi)) _aHi = _xInitHi;
+            // No prefix content (afb null — axis declared before any draw, or its
+            // prefix was re-emitted by the orthogonal axis's job) and no user
+            // limit: anchor the endpoint title to the LIVE content frame, not the
+            // axis's stale initial range. _xInitHi is the autoscale value captured
+            // at axis-call time, which for an early axis is the ±5 no-content
+            // fallback — riding a title on that blows the axis out (00062).
+            if (!isFinite(_aLo)) _aLo = isFinite(fb.minX) ? fb.minX : _xInitLo;
+            if (!isFinite(_aHi)) _aHi = isFinite(fb.maxX) ? fb.maxX : _xInitHi;
             for (const tc of myCmds) {
               if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
               const box = _labelBoxU(tc, fb.sX, fb.sY);
@@ -14992,8 +14998,11 @@ function createInterpreter() {
             const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
             let _aLo = Math.min(afb ? afb.minY : Infinity, _yUserLo != null ? _yUserLo : Infinity);
             let _aHi = Math.max(afb ? afb.maxY : -Infinity, _yUserHi != null ? _yUserHi : -Infinity);
-            if (!isFinite(_aLo)) _aLo = _yInitLo;
-            if (!isFinite(_aHi)) _aHi = _yInitHi;
+            // See x-job: anchor an early/no-prefix endpoint title to the live
+            // content frame fb, never the axis's stale ±5 no-content fallback
+            // (00062's y-axis blew out to ~5.1 riding the title on _yInitHi=5).
+            if (!isFinite(_aLo)) _aLo = isFinite(fb.minY) ? fb.minY : _yInitLo;
+            if (!isFinite(_aHi)) _aHi = isFinite(fb.maxY) ? fb.maxY : _yInitHi;
             for (const tc of myCmds) {
               if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
               const box = _labelBoxU(tc, fb.sX, fb.sY);
