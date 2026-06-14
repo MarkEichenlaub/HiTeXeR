@@ -29505,7 +29505,17 @@ function renderSVG(result, opts) {
         // bracket bar and dotted rays that TeXeR keeps.
         const estW = _labelWidthMeasured;
         const estH = _labelHeightMeasured || fontSizeSVG * 0.72;
-        let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
+        // screenDx/screenDy (axis-label autoshift past tick labels) are folded
+        // into dx/dy only LATER (the rotated branch ~29661 and the non-rotated
+        // branch ~29692). The fill rect must include them here too, or the
+        // erase/fill box stays at the un-shifted position while the glyphs move
+        // — e.g. 08739's "Distance (m)" white Fill box sat at tick-number height
+        // and blanked the "6"/"7"/"8" x-axis numbers while the text rendered
+        // correctly below them.
+        const _sbpx = bpCSSPixel;
+        const _fillSDx = dc.screenDx ? dc.screenDx * _sbpx : 0;
+        const _fillSDy = dc.screenDy ? dc.screenDy * _sbpx : 0;
+        let rx = parseFloat(fmt(sx + dx + _fillSDx)), ry = parseFloat(fmt(sy + dy + _fillSDy));
         // Adjust rectangle position based on anchor
         let rectX = rx - estW / 2;
         if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
