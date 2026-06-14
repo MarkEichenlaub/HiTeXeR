@@ -10967,7 +10967,13 @@ function createInterpreter() {
         if (isString(a)) text = a;
         else if (isTransform(a)) labelTransform = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
-        else if (a && typeof a === 'object' && a._tag === 'filltype') labelFilltype = a;
+        // UnFill/Fill/FillDraw used BARE (not called) are filltype-tagged
+        // *functions* (the overloaded UnFill(xmargin,ymargin) callable carries
+        // _tag/style/pen as properties), so `typeof a === 'object'` misses them
+        // and Label("...", align, UnFill) silently drops the erase box — the
+        // measurement line then shows through the text (03348's l/lcosθ/L+l).
+        // Accept either an object or a function carrying _tag === 'filltype'.
+        else if (a && (typeof a === 'object' || typeof a === 'function') && a._tag === 'filltype') labelFilltype = a;
         // 03606: Label(tr*"text", ...) — first arg is a pre-built label
         // (from `transform*string` op). Adopt its text/transform/etc.
         else if (a && typeof a === 'object' && a._tag === 'label') {
