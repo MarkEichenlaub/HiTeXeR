@@ -29188,6 +29188,38 @@ function renderSVG(result, opts) {
     }
     _isDotOnlyAutoScaled = _hasDot && !_hasStrokeGeom;
   }
+  // Auto-scaled diagrams whose stroked geometry ALL carries explicit linewidths
+  // (cse5 `pathpen = ... + linewidth(0.65)`, e.g. 08517/08518) leave
+  // _hasBoostedStroke = false, so neither their lines nor their (default-pen)
+  // dots get boosted and the whole diagram renders thinner than TeXeR. That is
+  // fine for square-ish shapes, but for high-aspect (tall-narrow) geometry the
+  // SSIM trim+resize squashes the minor axis and TeXeR's heavier EPS rendering
+  // of the same dots no longer matches. Capture the aspect ramp boost that
+  // WOULD have applied here so the (default-pen) dots can take a fraction of it
+  // and survive the compression like TeXeR's heavier dots.
+  let _explicitStrokeAutoBoost = 1.0;
+  if (isAutoScaled && !_hasBoostedStroke && !_defaultpenLwSet &&
+      Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1) {
+    let _hasExplicitStrokeGeom = false;
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'draw' && dc.cmd !== 'filldraw') continue;
+      if (dc.pen && dc.pen._lwExplicit) { _hasExplicitStrokeGeom = true; break; }
+    }
+    if (_hasExplicitStrokeGeom) {
+      _explicitStrokeAutoBoost = Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
+    }
+  }
+  // Empirically calibrated: only the DOTS benefit from the boost (~0.85 of the
+  // aspect ramp ≈ 1.7× for these aspect-2.9 triangles, matching TeXeR's ~1.67×
+  // heavier EPS dots). Boosting the explicit STROKES too was net-negative — it
+  // barely helped 08517/08518 (~+0.0005) while thickening unrelated explicit-
+  // pen arrows on other high-aspect diagrams (e.g. 12945's gray+1bp arrows,
+  // −0.011), so strokes are left at their literal width. The dot finding
+  // supersedes the older note below that a 1.67× dot boost "lowers SSIM": that
+  // predated the dot-centering fixes; with current centering the larger disc
+  // now matches. Diagrams whose marks are fill(circle()) rather than dot()
+  // (e.g. 12945's chips) are untouched — only dot() commands take this boost.
+  const _explicitDotBoostApplied = 1 + (_explicitStrokeAutoBoost - 1) * 0.85;
   // For diagrams with explicit unitsize/size (!isAutoScaled), the auto-scaled
   // stroke boost above is bypassed, so default-pen strokes (axes, default-
   // color line plots, e.g. the red function-plot in 04531) render at the
@@ -29409,7 +29441,13 @@ function renderSVG(result, opts) {
       // 3D diagrams already skip this via the !_is3D check for stroke boost.
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke || _isDotOnlyAutoScaled)) {
+        if (_explicitDotBoostApplied > 1) {
+          // Tall-narrow auto-scaled diagram with all-explicit strokes
+          // (08517/08518): boost the (default-pen) dots in step with the
+          // explicit strokes so they survive SSIM trim+resize like TeXeR's
+          // heavier dots, instead of staying at native 3bp.
+          _dotBoost = _explicitDotBoostApplied;
+        } else if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke || _isDotOnlyAutoScaled)) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
           // For 2D diagrams with no boosted stroke (all geometry uses explicit
