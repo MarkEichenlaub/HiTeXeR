@@ -11614,9 +11614,21 @@ function createInterpreter() {
         let sz = 6;
         let sizeExplicit = false;
         // Detect Arrow(Relative(t)) — position along the path, not a size.
-        let relativePos = undefined;
+        let relativePos = undefined;   // fraction of arc length (relative=true)
+        let absolutePos = undefined;   // absolute path time (real cast, relative=false)
         for (const a of args) {
           if (a && typeof a === 'object' && a._tag === 'relative') { relativePos = a.t; break; }
+        }
+        // Arrow(position=...) named arg. A bare real is an absolute path time
+        // (Asymptote's `position operator cast(real)` sets relative=false); a
+        // Relative() object is a fractional arc-length position.
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named && 'position' in a) {
+            const pv = a.position;
+            if (pv && typeof pv === 'object' && pv._tag === 'relative') relativePos = pv.t;
+            else if (typeof pv === 'number') absolutePos = pv;
+            break;
+          }
         }
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
@@ -11632,7 +11644,8 @@ function createInterpreter() {
         if (name === 'Bars3') outStyle = 'Bars';
         else if (name === 'Bar3') outStyle = 'Bar';
         const out = {_tag:'arrow', style:outStyle, size: sz, sizeExplicit};
-        if (relativePos !== undefined) out.position = relativePos;
+        if (relativePos !== undefined) { out.position = relativePos; out.positionRelative = true; }
+        else if (absolutePos !== undefined) { out.position = absolutePos; out.positionRelative = false; }
         if (headKind === 'TeXHead') out.texHead = true;
         else if (headKind === 'HookHead') {
           // HookHead: render the TeX-style chevron glyph, but at a normal
@@ -30847,25 +30860,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
 
   // Shared helper: arrowhead at fractional arc-length position `frac` (0=begin, 1=end).
   // Uses chord-length approximation per segment.
-  function arrowAtFraction(frac, halfAngleDeg) {
-    const segLengths = segs.map(sg => {
-      const dx = (sg.p3.x - sg.p0.x) * scaleX, dy = (sg.p3.y - sg.p0.y) * scaleY;
-      return Math.sqrt(dx*dx + dy*dy);
-    });
-    const pathLen = segLengths.reduce((a, b) => a + b, 0);
-    const targetLen = pathLen * Math.max(0, Math.min(1, frac));
-
-    let accum = 0, segIdx = segs.length - 1, tInSeg = 1;
-    for (let i = 0; i < segs.length; i++) {
-      if (accum + segLengths[i] >= targetLen || i === segs.length - 1) {
-        segIdx = i;
-        tInSeg = segLengths[i] > 1e-12 ? (targetLen - accum) / segLengths[i] : 0;
-        tInSeg = Math.max(0, Math.min(1, tInSeg));
-        break;
-      }
-      accum += segLengths[i];
-    }
-
+  // Build an arrowhead glyph at a given (segment index, in-segment Bézier
+  // parameter). Shared by the relative-fraction and absolute-path-time
+  // placement helpers below.
+  function _arrowHeadAtSeg(segIdx, tInSeg, halfAngleDeg) {
     const sg = segs[segIdx];
     const t = tInSeg;
     const t2 = t * t, t3 = t2 * t;
@@ -30906,9 +30904,49 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled: true};
   }
 
+  // Arrow(Relative(t)) — t is a fraction of total arc length (0=begin, 1=end).
+  function arrowAtFraction(frac, halfAngleDeg) {
+    const segLengths = segs.map(sg => {
+      const dx = (sg.p3.x - sg.p0.x) * scaleX, dy = (sg.p3.y - sg.p0.y) * scaleY;
+      return Math.sqrt(dx*dx + dy*dy);
+    });
+    const pathLen = segLengths.reduce((a, b) => a + b, 0);
+    const targetLen = pathLen * Math.max(0, Math.min(1, frac));
+
+    let accum = 0, segIdx = segs.length - 1, tInSeg = 1;
+    for (let i = 0; i < segs.length; i++) {
+      if (accum + segLengths[i] >= targetLen || i === segs.length - 1) {
+        segIdx = i;
+        tInSeg = segLengths[i] > 1e-12 ? (targetLen - accum) / segLengths[i] : 0;
+        tInSeg = Math.max(0, Math.min(1, tInSeg));
+        break;
+      }
+      accum += segLengths[i];
+    }
+    return _arrowHeadAtSeg(segIdx, tInSeg, halfAngleDeg);
+  }
+
+  // Arrow(position=<real>) — Asymptote's `position operator cast(real)` sets
+  // relative=false, so the value is an ABSOLUTE path time, not an arc-length
+  // fraction. point(g,t)/dir(g,t): integer part selects the segment, fractional
+  // part is the Bézier parameter within it. e.g. position=0.5 on a polyline is
+  // the midpoint of the FIRST segment (04324 hexagon/triangle mid-edge arrows).
+  function arrowAtPathTime(pathT, halfAngleDeg) {
+    let segIdx = Math.floor(pathT);
+    let tInSeg = pathT - segIdx;
+    if (segIdx >= segs.length) { segIdx = segs.length - 1; tInSeg = 1; }
+    if (segIdx < 0) { segIdx = 0; tInSeg = 0; }
+    return _arrowHeadAtSeg(segIdx, tInSeg, halfAngleDeg);
+  }
+
   if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow' || style === 'EndArcArrow') {
     const pos = dc.arrow.position;
-    if (pos !== undefined && pos < 1.0) {
+    if (pos !== undefined && dc.arrow.positionRelative === false) {
+      // Arrow(position=<real>) — absolute path time. End of an N-segment path
+      // is path time N; anything short of that is a mid-path arrowhead.
+      if (pos < segs.length - 1e-9) arrowParts.push(arrowAtPathTime(pos, 15));
+      else arrowParts.push(arrowAt(segs[segs.length-1], true));
+    } else if (pos !== undefined && pos < 1.0) {
       // Arrow(Relative(t)) — arrowhead at fractional arc-length position
       arrowParts.push(arrowAtFraction(pos, 15));
     } else {
