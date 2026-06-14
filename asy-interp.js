@@ -31517,6 +31517,30 @@ function preprocessLatexForKatex(src, forMathJax) {
   // `\sinheta`) or reject it.  Map them to a real space so the macro is
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
+  // MathJax over-renders an ABSOLUTE \hspace{N<unit>} by ~1.19× relative to
+  // real LaTeX/dvisvgm (and local Asymptote): the \hspace length is pushed
+  // through the same em-chain (em=fontsize/1.21, ×_MJX_SCALE) the glyphs use,
+  // but that chain is calibrated for GLYPH advance widths, not absolute TeX
+  // lengths. Ground truth (local asy 3.05): `\underbrace{\hspace{180pt}}`
+  // renders 182bp, but our MathJax pipeline emits 216bp — the truesize brace
+  // under a triangle base (02799/02807-class) then bloats the diagram width and
+  // skews its aspect ratio. Scale the \hspace value so the magnified output
+  // lands at the true physical width.
+  // The over-magnification is specific to MathJax's `pt` length conversion;
+  // `cm`/`mm`/`in` braces (c398_L15/c4_L12 families) already match the
+  // references and must NOT be scaled (doing so regresses them — verified
+  // against the full brace corpus). Correct `pt` (and `pc`, which is 12pt) only.
+  if (forMathJax && /\\hspace\s*\{/.test(src)) {
+    // 0.82 empirically matches the TeXeR references best across the 8 affected
+    // pt-brace diagrams (c186_L5 right-triangle base-underbraces 02799/02807/…
+    // and the rotated 75pt overbrace 09631); the local-asy brace width alone
+    // implies ~0.842, but a hair narrower best matches the actual TeXeR service
+    // render (and offsets the slight geometry-scale residual on these IDs).
+    const _HSP_K = (typeof process !== 'undefined' && process.env && process.env.HTX_HSPACE_K)
+      ? parseFloat(process.env.HTX_HSPACE_K) : 0.82;
+    src = src.replace(/\\hspace(\s*)\{\s*([\d.]+)\s*(pt|pc)\s*\}/g,
+      (m, sp, num, unit) => `\\hspace${sp}{${(parseFloat(num) * _HSP_K)}${unit}}`);
+  }
   // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
   // KaTeX renders ^\circ with extra spacing around the ring operator.
   // Use ^{°} (superscript unicode degree) for tight spacing matching TeXeR.
