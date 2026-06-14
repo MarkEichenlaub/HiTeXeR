@@ -29008,7 +29008,16 @@ function renderSVG(result, opts) {
   // large relative to the unboosted lines. Detect "no boosted stroke" so the dot
   // boost can be suppressed and dots render at their natural TeXeR-matching size.
   let _hasBoostedStroke = false;
-  if (_autoScaledStrokeBoost > 1 && !_defaultpenLwSet) {
+  // Gate on the ACTUAL boost applied to strokes — Math.max(ramp, floor) — not
+  // the ramp alone. For a square-bbox auto-scaled diagram (aspect exactly 1.0,
+  // e.g. 00214's 3×3 bbox) the linear ramp computes to exactly 1.0 while the
+  // STROKE floor is 1.5, so default-pen strokes ARE boosted (to 0.75bp at
+  // L29044) even though ramp==1. Gating on ramp>1 missed this, leaving such
+  // diagrams' default-pen DOTS at native 3bp while their axes were boosted —
+  // a discontinuity at aspect==1 (an aspect-1.1 diagram already boosted its
+  // dots to 1.5×). Using the same max(ramp,floor) the stroke boost uses keeps
+  // dots and strokes consistent: dots share the stroke floor (see L29246).
+  if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && !_defaultpenLwSet) {
     for (const dc of drawCommands) {
       if (dc.cmd !== 'draw' && dc.cmd !== 'filldraw') continue;
       if (dc.pen && !dc.pen._lwExplicit) { _hasBoostedStroke = true; break; }
