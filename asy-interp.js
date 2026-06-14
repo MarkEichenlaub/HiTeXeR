@@ -10085,7 +10085,17 @@ function createInterpreter() {
           if (ghead === 'TeXHead') arr.texHead = true;
           else if (ghead === 'HookHead') { arr.texHead = true; if (!gsizeExplicit) { arr.size = 5; arr.sizeExplicit = true; } }
           else if (ghead) arr.headKind = ghead;
-          target.commands.push({cmd:'draw', path: gpath, pen: clonePen(gpen), arrow: arr, line: args._line || 0, _arrowOnly: true});
+          // When an explicit arrowhead sentinel (TeXHead/HookHead/…) is given,
+          // this is the add(arrow(TeXHead, p, pen, Relative(t))) idiom (00953)
+          // where the caller already draws path p separately — emit only the
+          // arrowhead. When NO sentinel is given, this is the bare
+          // add(arrow(path, size, Relative(t))) congruence-mark idiom (11148,
+          // 07553, 08438, 10505 …): Asymptote's picture-returning arrow() draws
+          // the path itself, so we must stroke the line too — the side may be
+          // drawn ONLY via arrow() (e.g. 11148's A--D / B--C rectangle edges,
+          // which otherwise vanish, leaving an open "Z" shape).
+          const arrowOnly = (ghead != null);
+          target.commands.push({cmd:'draw', path: gpath, pen: clonePen(gpen), arrow: arr, line: args._line || 0, _arrowOnly: arrowOnly});
         }
         return;
       }
@@ -10969,7 +10979,16 @@ function createInterpreter() {
     // Right angle mark: draws a small square at vertex B
     env.set('rightanglemark', (A, B, C, ...rest) => {
       const a = toPair(A), b = toPair(B), c = toPair(C);
-      const rawS = rest.length > 0 ? toNumber(rest[0]) : 8;
+      // olympiad.asy: rightanglemark(B,A,C, real s=5, pen p=currentpen).
+      // `s` (the mark size in bp) may arrive positionally or as a named arg.
+      let rawS = 8;
+      for (const r of rest) {
+        if (r && typeof r === 'object' && r._named) {
+          if ('s' in r) rawS = toNumber(r.s);
+        } else if (typeof r === 'number') {
+          rawS = r;
+        }
+      }
       const msf = env.get('markscalefactor') || 0.03;
       const s = rawS * msf;
       // Normalize BA and BC directions
