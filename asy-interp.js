@@ -1487,7 +1487,11 @@ function applyTransform3Mesh(t, mesh) {
     nf.normal = faceNormal(nf); // recompute normal after transform
     return nf;
   });
-  return makeMesh(newFaces);
+  const out = makeMesh(newFaces);
+  // Preserve the box marker so a transformed unitcube (e.g.
+  // cube_positioning*unitcube) still gets the bright box-shading path.
+  if (mesh._isBox) out._isBox = true;
+  return out;
 }
 
 // ---- Mesh builders for primitive solids ----
@@ -1510,7 +1514,7 @@ function _buildCubeMesh() {
   // unitcube: 6 faces, [0,1]^3 in Asymptote convention
   const a = {x:0,y:0,z:0}, b = {x:1,y:0,z:0}, c = {x:1,y:1,z:0}, d = {x:0,y:1,z:0};
   const e = {x:0,y:0,z:1}, f = {x:1,y:0,z:1}, g = {x:1,y:1,z:1}, h = {x:0,y:1,z:1};
-  return {_tag:'mesh', faces: [
+  return {_tag:'mesh', _isBox: true, faces: [
     _mkFace([a,b,c,d]),   // bottom  (normal -Z)
     _mkFace([e,h,g,f]),   // top     (normal +Z)
     _mkFace([a,e,f,b]),   // front   (normal -Y)
@@ -24138,6 +24142,16 @@ function createInterpreter() {
       }
       if (!(mesh && mesh._closed)) ambientFloor = Math.max(ambientFloor, _openMeshMinFloor);
       let intensity = nolight ? 1.0 : (ambientFloor + (1 - ambientFloor) * dot);
+      // Box (unitcube/box) shading: TeXeR's PRC raster renders a material()
+      // cube — e.g. material(gray(0.5),black,gray(0.2)) in 03698 — much brighter
+      // than a plain Lambert. Faces read ~0.78–0.85 grey, lit fairly uniformly
+      // with the most up-facing face brightest. Use an over-bright intensity
+      // (allowed to exceed 1; clamped after the emissive add) plus full emissive.
+      if (!nolight && mesh && mesh._isBox) {
+        const A = (typeof process !== 'undefined' && process.env && process.env.HTX_BOXA) ? +process.env.HTX_BOXA : 1.09;
+        const B = (typeof process !== 'undefined' && process.env && process.env.HTX_BOXB) ? +process.env.HTX_BOXB : 0.22;
+        intensity = A + B * dot;
+      }
       let specular = 0;
       // Phong-style specular highlight for sphere meshes (mesh has
       // _sphereCenter/_sphereRadius). Use the face centroid → sphere-center
@@ -24261,7 +24275,11 @@ function createInterpreter() {
       // diffuse in TeXeR — near white with a faint mesh, not the dark-to-light
       // gradient of a revolution bowl. Honor emissive at near full strength for
       // those too, but keep revolution bowls (03592) and closed meshes attenuated.
-      const emScale = (mesh && (mesh._flatPlanar ||
+      // Box meshes honor emissive at full strength (the gray(0.2) emissive in
+      // 03698's material lifts the cube to TeXeR's ~0.8 grey); other open/flat
+      // meshes attenuate to 0.70, curved/closed meshes to 0.10.
+      const emScale = (mesh && mesh._isBox) ? 1.0 :
+                      (mesh && (mesh._flatPlanar ||
                        (!mesh._closed && !mesh._revolutionSurf))) ? 0.70 : 0.1;
       const emR = em ? (em.r || 0) * emScale : 0;
       const emG = em ? (em.g || 0) * emScale : 0;
