@@ -27840,10 +27840,17 @@ function renderSVG(result, opts) {
       // past the geometry bbox (e.g. 05918 rotated SW-aligned labels).
       // Also exception: labels with E/W alignment at the edge of the geometry
       // (e.g. 08635: label at x=xmax with E alignment) extend past the viewBox.
-      const extendsHoriz = dc.align && (
-        (dc.align.x > 0 && sx > viewW * 0.9) ||  // E-aligned near right edge
-        (dc.align.x < 0 && sx < viewW * 0.1)      // W-aligned near left edge
-      );
+      // A horizontally-aligned (E/W) single-line label can overhang the viewBox
+      // even when its anchor is NOT near the edge: a WIDE label (e.g. 12131's
+      // "$f(N)=\log_2(N)$" at x=xmax, NE) pushes the solver-reserved viewBox out
+      // by most of its own width, so the anchor lands well inside viewW (sx≈0.77·viewW)
+      // while the label's right edge still extends past viewW. The old
+      // `sx > viewW*0.9` test only caught labels whose anchor sat at the very edge,
+      // so wide E/W labels were skipped and clipped. Process any horizontally-
+      // aligned label and let the self-limiting padL/padR (max(pad, edge−viewW),
+      // which adds 0 when the label already fits) decide — the solver's reservation
+      // is respected for labels that fit; only genuinely-overhanging ones get padded.
+      const extendsHoriz = dc.align && Math.abs(dc.align.x) > 0.3;
       // Strongly S/N-aligned labels sitting at the bottom/top edge of the
       // geometry push the glyph box outside the size()-solved bbox (the solver
       // shrinks geometry to fit the size() box but never sets the content
