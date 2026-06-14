@@ -29047,6 +29047,22 @@ function renderSVG(result, opts) {
       if (dc.pen && !dc.pen._lwExplicit) { _hasBoostedStroke = true; break; }
     }
   }
+  // Dot-only auto-scaled diagram: the dots ARE the geometry (no stroked paths,
+  // fills, or markers at all), like the 1D dot scatters 09210/09212 but spread
+  // across BOTH axes (e.g. 04241's rand() blue/red scatter). With no strokes to
+  // anchor to, _hasBoostedStroke stays false and the dot boost above is skipped,
+  // leaving default-pen dots at native 3bp while TeXeR's 240-DPI EPS pipeline
+  // renders them ~1.67× heavier (~5bp measured). geoIs1D covers the collinear
+  // case; this covers the genuinely 2D dot-only case it misses.
+  let _isDotOnlyAutoScaled = false;
+  if (isAutoScaled && !geoIs1D && !_defaultpenLwSet) {
+    let _hasStrokeGeom = false, _hasDot = false;
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'dot') { _hasDot = true; continue; }
+      if (dc.cmd === 'draw' || dc.cmd === 'filldraw' || dc.cmd === 'marker' || dc.path) { _hasStrokeGeom = true; break; }
+    }
+    _isDotOnlyAutoScaled = _hasDot && !_hasStrokeGeom;
+  }
   // For diagrams with explicit unitsize/size (!isAutoScaled), the auto-scaled
   // stroke boost above is bypassed, so default-pen strokes (axes, default-
   // color line plots, e.g. the red function-plot in 04531) render at the
@@ -29268,14 +29284,20 @@ function renderSVG(result, opts) {
       // 3D diagrams already skip this via the !_is3D check for stroke boost.
       let _dotBoost = 1.0;
       if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke)) {
+        if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke || _isDotOnlyAutoScaled)) {
           // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
           // higher boost than strokes to match TeXeR's dot size.
           // For 2D diagrams with no boosted stroke (all geometry uses explicit
           // linewidths, e.g. 08517), skip the dot boost so dots stay
           // proportional to the unboosted lines. 1D dot diagrams (09210/09212)
           // have no strokes at all but still need the boost to survive SSIM
-          // trim+resize, so they always keep it.
+          // trim+resize, so they always keep it. 2D dot-only auto-scaled
+          // scatters (_isDotOnlyAutoScaled, e.g. 04241's rand() dots) are the
+          // 2D analog: the dots ARE the geometry, so they take the SAME
+          // max(ramp, floor) boost a stroke-containing diagram of equal aspect
+          // would apply to its dots (~1.5× for a square-ish bbox) — matching
+          // TeXeR's heavier EPS dot rendering without the rim-mismatch overshoot
+          // a full DPI boost would add on dense regular lattices (04240).
           // Default-pen dots are stroke-rendered in TeXeR's EPS pipeline,
           // so they carry the same DPI weight as lines (07413's dots
           // measured visibly heavier than native 3bp) — share the floor.
