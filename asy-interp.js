@@ -1643,6 +1643,26 @@ function hobbySpline(knots, closed, directions) {
     return [hobbyTwoPointSegment(knots[0], knots[1], dOut, dIn)];
   }
 
+  // Decouple at interior cusp knots — a knot that specifies BOTH an in- and an
+  // out-direction that differ. Asymptote treats this as a corner: the segments
+  // on either side are independent splines. Solving across it with one
+  // tridiagonal system mishandles the arrival/departure tangents (it reversed
+  // the headlight crescent in 12956:
+  //   (794,168){1,.2}..{-1,0}(785,228){1,-5}..{0,-1}(794,168) ).
+  // Each split side is solved independently (recursion handles multiple cusps),
+  // routing 2-knot sides through the verified hobbyTwoPointSegment. Restricted
+  // to open splines; closed seams are handled elsewhere.
+  if (!closed && directions) {
+    for (let i = 1; i < n - 1; i++) {
+      const dir = directions[i];
+      if (dir && dir.dirIn != null && dir.dirOut != null && dir.dirIn !== dir.dirOut) {
+        const left = hobbySpline(knots.slice(0, i + 1), false, directions.slice(0, i + 1));
+        const right = hobbySpline(knots.slice(i), false, directions.slice(i));
+        return left.concat(right);
+      }
+    }
+  }
+
   // Compute chord distances and turning angles
   const m = closed ? n : n - 1;
   const d = []; // chord lengths
@@ -1803,8 +1823,22 @@ function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const d = Math.sqrt(dx*dx + dy*dy);
   const chordAngle = Math.atan2(dy, dx);
-  const angleA = (dirOut != null) ? dirOut : chordAngle;
-  const angleB = (dirIn != null) ? dirIn : chordAngle;
+  // When exactly one tangent is specified, the FREE end uses Hobby's default
+  // curl=1 boundary condition. For a single segment this reflects the specified
+  // tangent across the chord — it is NOT the chord direction itself. Using the
+  // chord angle for the free end underbulges the curve (collapses domes toward
+  // the chord; e.g. 12956's window tops). Verified against Asymptote 3.05:
+  //   (347,481){1,0}..(567,343)  ->  controls (440.73,481) and (526.20,427.39).
+  let angleA, angleB;
+  if (dirOut != null && dirIn != null) {
+    angleA = dirOut; angleB = dirIn;
+  } else if (dirOut != null) {
+    angleA = dirOut; angleB = 2*chordAngle - dirOut;
+  } else if (dirIn != null) {
+    angleB = dirIn; angleA = 2*chordAngle - dirIn;
+  } else {
+    angleA = chordAngle; angleB = chordAngle;
+  }
   // Compute theta/phi offsets from chord for Hobby's rho function.
   // Hobby's convention: forward tangent at A makes angle (chord+theta) with x-axis,
   // forward tangent at B makes angle (chord-phi). Hence:
