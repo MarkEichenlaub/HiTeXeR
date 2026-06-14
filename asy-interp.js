@@ -28653,16 +28653,23 @@ function renderSVG(result, opts) {
     } else if (dc.cmd === 'filldraw') {
       // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
       fill = (css.opacity === 0) ? 'none' : css.fill;
-      if (dc.drawPen) {
-        const drawCSS = penToCSS(dc.drawPen);
-        drawCSS.strokeWidth *= bpCSSPixel;
-        stroke = drawCSS.stroke;
-        strokeW = drawCSS.strokeWidth;
-      } else {
-        // When filldraw has only one pen: fill with that pen, stroke with default pen (black)
-        const defaultCSS = penToCSS(defaultPen);
-        stroke = defaultCSS.stroke;
-        strokeW = defaultCSS.strokeWidth * bpCSSPixel;
+      // The filldraw OUTLINE is stroked with the draw pen (drawPen, or the
+      // default pen when only a fill pen was supplied). penToCSS gives its
+      // nominal width; we then apply the SAME auto-scaled / explicit-size
+      // stroke boost that `draw` commands receive in Pass 1 (see line ~28930).
+      // Without this, a default-pen filldraw outline rendered at half the
+      // weight of an equivalent draw() stroke — e.g. 05547's reservoir box
+      // border came out ~1.5px vs TeXeR's ~3px. The boost only applies when
+      // the draw pen carries no explicit linewidth (and defaultpen() wasn't
+      // given one); an explicit-width outline renders at literal size.
+      const _strokePen = dc.drawPen || defaultPen;
+      const drawCSS = penToCSS(_strokePen);
+      stroke = drawCSS.stroke;
+      strokeW = drawCSS.strokeWidth * bpCSSPixel;
+      if (!_strokePen._lwExplicit && !_defaultpenLwSet) {
+        const _fdBoost = Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
+        if (_fdBoost > 1) strokeW *= _fdBoost;
+        else if (_explicitSizeStrokeBoost > 1) strokeW *= _explicitSizeStrokeBoost;
       }
     } else if (dc.cmd === 'clip') {
       return; // clip is handled via SVG <clipPath> defs
