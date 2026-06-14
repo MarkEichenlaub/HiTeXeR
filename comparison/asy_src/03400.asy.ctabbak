@@ -1,0 +1,60 @@
+//TeXeR source: https://artofproblemsolving.com/texer/grbuvtty
+
+import graph;
+import math;
+
+real pi = 4 * atan(1);
+real eps = 0.1;
+real xmax = 1 + eps, ymax = xmax;
+
+picture[] picarray;
+for(int i = 0; i < 5; ++i){
+    picture p = new picture;
+    size(p, 2.5cm);
+    draw(p, (0, .5)--(xmax, .5), EndArrow(TeXHead));
+    draw(p, (0, 0)--(0, ymax), EndArrow(TeXHead));
+    label(p, "$t$", (xmax, .5), dir(0));
+    label(p, "$v$", (0, ymax), dir(180));
+    label(p, "$0$",(0,.5),dir(180));
+    picarray.push(p);
+}
+
+draw(picarray[0], graph(
+    new real(real t){ return .8; },
+    0, 1));
+
+draw(picarray[1], graph(
+    new real(real t){ return exp(-4t)/2 + .5; },
+    0, 1));
+
+draw(picarray[2], graph(
+    new real(real t){ return .9 - .8*t; },
+    0, 1));
+
+real v(real t){
+\treal alpha = 3.0;
+    real g = 1.0225; //found numerically
+    real v0 = 1.0;
+    real t_peak = atan(v0*alpha)/(g*alpha);
+
+\tif(t < t_peak){
+    \treturn 1.0/alpha * tan(-g*alpha*t + atan(v0*alpha)) ;
+        } else{
+        return -1.0/alpha *tanh(g*alpha*(t - t_peak) );
+    }
+}
+
+draw(picarray[3], shift(0,.5)*yscale(.5)*graph(
+    v,
+    0, 1));
+
+draw(picarray[4], (0,.9)--(.2,.6){2,-3}..{1,0}(.4,.4){1,0}..(.6,.45)..(.8,.5)--(1,.5));
+
+label(picarray[0], "(A)", (eps, ymax + 0.3));
+label(picarray[1], "(B)", (eps, ymax + 0.3));
+label(picarray[2], "(C)", (eps, ymax + 0.3));
+label(picarray[3], "(D)", (eps, ymax + 0.3));
+label(picarray[4], "(E)", (eps, ymax + 0.3));
+
+for(int i = 0; i < 5; ++i)
+     add(picarray[i].fit(), (i*1.2, 0));

@@ -1,0 +1,87 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 852befc4..26ffbd60 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -14981,8 +14981,11 @@ function createInterpreter() {
+           z = axisName === 'x' ? makePair(zScalar, 0) : makePair(0, zScalar);
+         }
+         if (z === null) return;
+-        // Default tick direction = N (pair(0,1)) — same as Asymptote
+-        if (!dirVec) dirVec = makePair(0, 1);
++        // Default tick direction: x-axis ticks point N (up) into the plot;
++        // y-axis ticks point E (right) into the plot — matching the AoPS cse5
++        // xtick/ytick convention. A y-tick defaulting to N would draw parallel
++        // to (on top of) the y-axis and be invisible.
++        if (!dirVec) dirVec = axisName === 'x' ? makePair(0, 1) : makePair(1, 0);
+         // Default size = Ticksize = 2mm in bp (graph.asy xtick signature)
+         if (sizeBp === null) sizeBp = 5.669291339;
+         if (!pen) pen = clonePen(defaultPen);
+@@ -15017,7 +15020,11 @@ function createInterpreter() {
+         // the label a full tick length below the axis); otherwise only the
+         // small ticklabelshift applies.
+         if (labelText) {
+-          let align = labelObj && labelObj.align ? labelObj.align : dirVec;
++          // With no explicit Label align, place the label on the OUTSIDE of the
++          // axis (opposite the tick direction): below the x-axis (S) for an N
++          // tick, left of the y-axis (W) for an E tick — the AoPS cse5 default.
++          // An explicit Label align (e.g. 03351's align=dir(-90)) overrides this.
++          let align = (labelObj && labelObj.align) ? labelObj.align : makePair(-dirVec.x, -dirVec.y);
+           const _fsT = (pen && pen.fontsize) || 12;
+           const _aLen = Math.hypot(align.x || 0, align.y || 0) || 1;
+           const _adx = (align.x || 0) / _aLen, _ady = (align.y || 0) / _aLen;
+diff --git a/auto-fix/fix-snapshots/63cc556b-after.png b/auto-fix/fix-snapshots/63cc556b-after.png
+new file mode 100644
+index 00000000..60a87042
+Binary files /dev/null and b/auto-fix/fix-snapshots/63cc556b-after.png differ
+diff --git a/auto-fix/fix-snapshots/ba436411-after.png b/auto-fix/fix-snapshots/ba436411-after.png
+new file mode 100644
+index 00000000..60a87042
+Binary files /dev/null and b/auto-fix/fix-snapshots/ba436411-after.png differ
+diff --git a/auto-fix/fix-snapshots/dbb98705-after.png b/auto-fix/fix-snapshots/dbb98705-after.png
+new file mode 100644
+index 00000000..f918075e
+Binary files /dev/null and b/auto-fix/fix-snapshots/dbb98705-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 587ff659..8f0d1c10 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -13306,7 +13306,7 @@
+     "id": "00291",
+     "idx": 290,
+     "corpusFile": "c10_L25_script_2.asy",
+-    "ssim": 0.8907451563097267,
++    "ssim": 0.9904355371806437,
+     "rawSsim": 0.5186470222858823,
+     "softSsim": 0.8907451563097267,
+     "sizeScore": 0.9996473341140296,
+@@ -76223,7 +76223,7 @@
+     "id": "00290",
+     "idx": 289,
+     "corpusFile": "c10_L25_script_1.asy",
+-    "ssim": 0.9736004108593856,
++    "ssim": 0.9910455969652172,
+     "rawSsim": 0.822459600200628,
+     "softSsim": 0.9730936379032779,
+     "sizeScore": 0.9997984106704029,
+@@ -107132,7 +107132,7 @@
+     "id": "00289",
+     "idx": 288,
+     "corpusFile": "c10_L25_script_0.asy",
+-    "ssim": 0.9805942313508905,
++    "ssim": 0.9883521368478396,
+     "rawSsim": 0.8176263217481194,
+     "softSsim": 0.9723300789249513,
+     "sizeScore": 0.9997984106704029,
+diff --git a/index.html b/index.html
+index 2d2e6a8b..7c4c9618 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.18</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.19</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

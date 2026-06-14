@@ -1,0 +1,20 @@
+//TeXeR source: https://artofproblemsolving.com/texer/zwmthdtf
+
+size(5cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+fill(box((-0.1, -1/2), (0, 1/2)), gray(0.7));
+draw((0, 1/2)--(0, -1/2));
+
+draw("$k$", spring((0, 0), (1, 0), zigs = 14), dir(-90));
+draw("$k$", spring((1, 0), (2, 0), zigs = 14), dir(-90));
+dot((1, 0));
+draw(shift(2, -1/2)*unitsquare);

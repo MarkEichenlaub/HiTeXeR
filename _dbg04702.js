@@ -1,0 +1,12 @@
+const fs=require('fs');const path=require('path');
+global.window=global.window||{};
+global.katex=require('katex');
+require('./asy-interp.js');
+const A=global.window.AsyInterp;
+const raw=fs.readFileSync('comparison/asy_src/04702.asy','utf8');
+const code='[asy]\n'+raw+'\n[/asy]';
+const r=A.render(code,{containerW:800,containerH:600,labelOutput:'svg-native'});
+const m=r.svg.match(/width="([^"]+)" height="([^"]+)" viewBox="0 0 ([^ ]+) ([^"]+)"[^>]*data-intrinsic-w="([^"]+)" data-intrinsic-h="([^"]+)"/);
+console.log('svgW,svgH,viewW,viewH,intrW,intrH=',m&&m.slice(1));
+console.log('pxPerUnit=',r.pxPerUnit,'minX,maxX,minY,maxY=',r.minX,r.maxX,r.minY,r.maxY);
+console.log('bbox bp w,h=',(r.maxX-r.minX),(r.maxY-r.minY));

@@ -1,0 +1,203 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 852befc4..070ab2ea 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -8830,6 +8830,11 @@ function createInterpreter() {
+         if (pic._picLimits && pic._picLimits.ymin != null) {
+           minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
+         }
++        if ((minX === undefined || minY === undefined) && pic._attachAxisLimits) {
++          const al = pic._attachAxisLimits;
++          if (minX === undefined) { minX = al.xmin; maxX = al.xmax; }
++          if (minY === undefined) { minY = al.ymin; maxY = al.ymax; }
++        }
+         if (minX === undefined || minY === undefined) {
+           const gb = getGeoBbox(pic.commands);
+           if (minX === undefined) { minX = gb.minX; maxX = gb.maxX; }
+@@ -8862,6 +8867,11 @@ function createInterpreter() {
+       if (pic._picLimits && pic._picLimits.ymin != null) {
+         minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
+       }
++      if ((minX === undefined || minY === undefined) && pic._attachAxisLimits) {
++        const al = pic._attachAxisLimits;
++        if (minX === undefined) { minX = al.xmin; maxX = al.xmax; }
++        if (minY === undefined) { minY = al.ymin; maxY = al.ymax; }
++      }
+       if (minX === undefined || minY === undefined) {
+         const gb = getGeoBbox(pic.commands);
+         if (minX === undefined) { minX = gb.minX; maxX = gb.maxX; }
+@@ -15357,6 +15367,17 @@ function createInterpreter() {
+       if (pairs.length >= 2) {
+         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
+         _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
++        // Expose the (possibly cropped) axis window to truepoint()/point() so an
++        // attach()ed legend is positioned against the visible axis box, not the
++        // uncropped data bbox. limits() without a picture arg writes _axisLimits
++        // (global) rather than currentPic._picLimits, which truepoint reads; mirror
++        // it onto the current picture so legend placement uses the cropped bottom
++        // edge (04452: f(2)=-9 made the uncropped bottom float the legend ~5 units
++        // too low, ballooning the canvas height).
++        if (currentPic) {
++          currentPic._attachAxisLimits = {
++            xmin: pairs[0].x, ymin: pairs[0].y, xmax: pairs[1].x, ymax: pairs[1].y };
++        }
+       }
+       if (hasCrop) _axisLimits.crop = true;
+     });
+@@ -21020,8 +21041,22 @@ function createInterpreter() {
+       // (e.g. 12287's "12"/"6"/"4" capacities).
+       let lblFromPositional = false;
+       if (!lblObj) {
+-        for (const a of args) {
+-          if (a && typeof a === 'object' && a._tag === 'label' && a.text) { lblObj = a; lblFromPositional = true; break; }
++        // Only the LABEL-FIRST form `draw(Label, path, ...)` anchors a label
++        // inline at the path midpoint here.  A Label appearing AFTER a path
++        // (`draw(graph(...), pen, Label("$f$"))`) is a LEGEND entry — the main
++        // draw loop registers it via _legendEntries and must NOT also inline
++        // it here, or the curve label is duplicated (once inline, once in the
++        // legend box). 04452: two graph curves each get a Label legend entry.
++        let firstPathIdx = -1;
++        for (let i = 0; i < args.length; i++) {
++          if (isPath(args[i]) && args[i].segs && args[i].segs.length > 0) { firstPathIdx = i; break; }
++        }
++        for (let i = 0; i < args.length; i++) {
++          const a = args[i];
++          if (a && typeof a === 'object' && a._tag === 'label' && a.text) {
++            if (firstPathIdx === -1 || i < firstPathIdx) { lblObj = a; lblFromPositional = true; }
++            break;
++          }
+         }
+       }
+       // A positional label with an explicit, non-center Relative() position
+@@ -25206,8 +25241,33 @@ function renderSVG(result, opts) {
+     }
+   }
+ 
++  // Legend extent (commands flagged _fromLegend) is collected separately and
++  // EXCLUDED from the size()-normalization bbox below.  In real Asymptote a
++  // legend is attach()ed at an absolute frame position AFTER the picture is
++  // scaled to size(), so it must not shrink the graph: including it here makes
++  // size(175) fit graph+legend, squishing the graph (04452).  The legend
++  // extent is re-added to the canvas bbox after pxPerUnit is finalized.
++  let legMinX = Infinity, legMinY = Infinity, legMaxX = -Infinity, legMaxY = -Infinity;
++  let hasLegendExtent = false;
++  function expandLegend(x, y) {
++    if (!isFinite(x) || !isFinite(y)) return;
++    hasLegendExtent = true;
++    if (x < legMinX) legMinX = x;
++    if (x > legMaxX) legMaxX = x;
++    if (y < legMinY) legMinY = y;
++    if (y > legMaxY) legMaxY = y;
++  }
++
+   // Compute bounding box from all draw commands
+   for (const dc of drawCommands) {
++    if (dc._fromLegend) {
++      if (dc.path && dc.path.segs) {
++        for (const seg of dc.path.segs) for (const p of [seg.p0, seg.p3]) expandLegend(p.x, p.y);
++      } else if (dc.pos) {
++        expandLegend(dc.pos.x, dc.pos.y);
++      }
++      continue;
++    }
+     if (dc.cmd === 'dot') {
+       expandBBox(dc.pos.x, dc.pos.y);
+     } else if (dc.cmd === 'label') {
+@@ -25487,6 +25547,10 @@ function renderSVG(result, opts) {
+       if (dc.cmd === 'label') {
+         const pos = dc.pos || dc;
+         if (!pos || pos.x === undefined) continue;
++        // Attached-legend labels are excluded from the size()-normalization
++        // bbox/solver (they sit below the graph and would shrink it); the
++        // legend extent is re-added to the canvas after pxPerUnit is final. 04452.
++        if (dc._fromLegend) continue;
+         // Skip invisible labels (opacity 0) from bbox expansion
+         if (dc.pen && dc.pen.opacity === 0) continue;
+         // Apply TeX font-size cap so bbox math matches what TeXeR/Asy ships
+@@ -27371,6 +27435,23 @@ function renderSVG(result, opts) {
+     }
+   }
+ 
++  // Re-add the attached legend to the canvas bbox now that pxPerUnit is final.
++  // The legend was excluded from the size()-normalization bbox above (so it
++  // doesn't squish the graph), but it must still appear on the canvas, placed
++  // below the graph at the scaled-graph's unit scale (matching real Asymptote's
++  // attach() of the legend frame after size()-scaling). 04452.
++  // Graph-only bbox (legend excluded), captured before the legend is merged in.
++  // The size()-clamp below must measure only the size-constrained graph, since
++  // the attached legend deliberately overflows size() (04452).
++  const _graphOnlyW = (maxX - minX) * pxPerUnitX;
++  const _graphOnlyH = (maxY - minY) * pxPerUnitY;
++  if (hasLegendExtent) {
++    if (legMinX < minX) minX = legMinX;
++    if (legMaxX > maxX) maxX = legMaxX;
++    if (legMinY < minY) minY = legMinY;
++    if (legMaxY > maxY) maxY = legMaxY;
++  }
++
+   // For IgnoreAspect, geometry is scaled to fill exactly size(W, H); labels extend
+   // outside and don't change the base display aspect ratio. Use geometry-only bbox for
+   // naturalW/H calculation. For keepAspect or no-size, use the label-expanded bbox.
+@@ -27389,6 +27470,11 @@ function renderSVG(result, opts) {
+   const naturalH = _isIgnoreAspect2
+     ? Math.max((maxY - minY) * pxPerUnitY, (geoMaxY - geoMinY) * pxPerUnitY)
+     : (maxY - minY) * pxPerUnitY;
++  // Fraction of the natural canvas occupied by the size-constrained graph
++  // (legend excluded). Used by the size()-clamp so an attached legend that
++  // overflows size() does not trigger a shrink of the graph (04452).
++  const _graphFracW = (hasLegendExtent && naturalW > 0) ? Math.min(1, _graphOnlyW / naturalW) : 1;
++  const _graphFracH = (hasLegendExtent && naturalH > 0) ? Math.min(1, _graphOnlyH / naturalH) : 1;
+   if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
+     try { process.stderr.write('[naturalWH] _isIgnoreAspect2=' + _isIgnoreAspect2 + ' geoW=' + (geoMaxX-geoMinX).toFixed(2) + ' geoH=' + (geoMaxY-geoMinY).toFixed(2) + ' pxPerUnitX=' + pxPerUnitX.toFixed(4) + ' pxPerUnitY=' + pxPerUnitY.toFixed(4) + ' naturalW=' + naturalW.toFixed(2) + ' naturalH=' + naturalH.toFixed(2) + '\n'); } catch(e){}
+   }
+@@ -28241,7 +28327,11 @@ function renderSVG(result, opts) {
+             if (_wbp > _braceFloorBp) _braceFloorBp = _wbp;
+           }
+           const _sizeTargetDisp = Math.max(sizeW, sizeH || sizeW, _braceFloorBp) * bpToCSSPx;
+-          const _maxDisp = Math.max(svgW, svgH);
++          // Measure only the size-constrained graph: an attach()ed legend
++          // deliberately overflows size() (placed below the graph at absolute
++          // scale), so its height must NOT trigger a clamp that shrinks the
++          // graph below size() (04452). _graphFracW/H are 1 when no legend.
++          const _maxDisp = Math.max(svgW * _graphFracW, svgH * _graphFracH);
+           if (_sizeTargetDisp > 0 && _maxDisp > _sizeTargetDisp * 1.005) {
+             const _clamp = _sizeTargetDisp / _maxDisp;
+             svgW *= _clamp; svgH *= _clamp;
+diff --git a/auto-fix/fix-snapshots/0aace071-after.png b/auto-fix/fix-snapshots/0aace071-after.png
+new file mode 100644
+index 00000000..aaf48bb2
+Binary files /dev/null and b/auto-fix/fix-snapshots/0aace071-after.png differ
+diff --git a/auto-fix/fix-snapshots/88bdbca3-after.png b/auto-fix/fix-snapshots/88bdbca3-after.png
+new file mode 100644
+index 00000000..680935b6
+Binary files /dev/null and b/auto-fix/fix-snapshots/88bdbca3-after.png differ
+diff --git a/auto-fix/fix-snapshots/9dd83350-after.png b/auto-fix/fix-snapshots/9dd83350-after.png
+new file mode 100644
+index 00000000..aaf48bb2
+Binary files /dev/null and b/auto-fix/fix-snapshots/9dd83350-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 587ff659..d7beea33 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -2031,7 +2031,7 @@
+     "id": "04452",
+     "idx": 4451,
+     "corpusFile": "c321_L100_script_5.asy",
+-    "ssim": 0.8799933816724943,
++    "ssim": 0.9628583126163797,
+     "rawSsim": 0.2737373670639457,
+     "softSsim": 0.8815296367509764,
+     "sizeScore": 0.2734388272154719,
+diff --git a/index.html b/index.html
+index 2d2e6a8b..7c4c9618 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.18</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.19</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

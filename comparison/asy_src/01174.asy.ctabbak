@@ -1,0 +1,34 @@
+void labeled_coil( pair start , pair end , Label text , pen draw_pen ){
+\tpair coil( real t ){ return (cos(t)/5+t/20,sin(t)/2) ; }
+\treal left = -pi ;
+\treal right = 6pi ;
+
+\tpair desired_displacement = end-start ;
+    pair displacement = coil(right)-coil(left) ;
+    real angle = (
+    \tdesired_displacement.x == 0 ?
+        ( end.x>start.x ? 90 : -90 ) :
+\t\tdegrees(atan(desired_displacement.y/desired_displacement.x))
+\t) ; ;
+    path drawn_coil = shift(start-coil(left))* scale(length(desired_displacement)/length(displacement))* rotate(angle,coil(left))* graph( coil , left , right ) ;
+    draw( start--drawn_coil--end , draw_pen ) ;
+
+    label( text , (start+end)/2 , filltype=UnFill ) ;
+}
+
+pair spring_start = (0,0);
+//pair spring_start = (relpoint(left_arm,0) + relpoint(right_arm,0))/2;
+pair spring_end = (2,0);
+
+labeled_coil( spring_start , spring_end , "" , gray ) ;
+
+pair spring_start = (3,0);
+//pair spring_start = (relpoint(left_arm,0) + relpoint(right_arm,0))/2;
+pair spring_end = (5,0);
+
+labeled_coil( spring_start , spring_end , "" , gray ) ;
+
+fill((2,-.5)--(3,-.5)--(3,.5)--(2,.5)--cycle,gray);
+
+draw((2.5,0)--(2.5,-.9),arrow = Arrow(6));
+draw((2.5,0)--(2.5,.9),arrow = Arrow(6));

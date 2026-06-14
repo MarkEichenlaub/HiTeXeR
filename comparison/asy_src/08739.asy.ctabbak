@@ -1,0 +1,175 @@
+//https://artofproblemsolving.com/texer/fyhrzoyo
+//------ DATA -----------------
+bool plotPoints = false;
+bool plotCurve = true; 
+real[] xdata = {}; 
+real x_transform(real x){ 
+return x; 
+}
+real[] ydata = {}; 
+real y_transform(real y){
+return y;
+}
+real curve1(real t){
+return cos((4*pi/7)*(t - 2.5));
+}
+real curve2(real t){
+return 0.5*sin(100*pi*t);
+}
+real curve3(real t){
+return curve1(t)+curve2(t);
+}
+
+//style of graph lines
+pen graphpen1 = blue+linewidth(2.0 pt);
+pen graphpen2 = magenta+linewidth(1.0 pt);
+pen graphpen3 = darkgreen+linewidth(2.0 pt);
+
+//style of dots
+dotfactor = 10; 
+pen dotpen = blue; 
+filltype dotfill = Fill; 
+//-------ESSENTIAL OPTIONS------------
+string xAxisLabel = "Distance (m)"; 
+string yAxisLabel = "Displacement (mm)";
+real xmin = 0; 
+real xmax = 8;
+real ymin = -1.1;
+real ymax = 1.1;
+real xTickSpacing = 1; 
+real xSubtickSpacing = .5; 
+real yTickSpacing = 0.5;
+real ySubtickSpacing = 0.1;
+//-------------ENTIRE IMAGE------------
+real xsize = 12; //in cm
+real ysize = 8; 
+//next line only used if you also set "equalAxisRatio" to "true" in the "AXES" section
+real overallSize = 30;
+//----------- LABEL OPTIONS ---------------
+real xlabel_loc = 1; 
+real ylabel_loc = 0.5;
+real labelSize = 14; 
+//------------ AXES ----------
+bool equalAxisRatio = false; 
+bool fourSides = true; 
+bool xAxisRightArrow = true; 
+bool xAxisLeftArrow = false;
+bool yAxisUpArrow = true;
+bool yAxisDownArrow = true;
+bool forcexAxisAtZero = true; 
+bool forceyAxisAtZero = true;
+//-----------  TICK MARKS ----------------
+bool showTicks = true;
+bool ticksGoThroughAxes = false;
+real tickSize = 6;
+real subtickSize = 3;
+// -----------  NUMBERING ON AXES -----------
+bool axisNumbers = true;
+real numberSize = 12;
+bool controlDecimals = true; 
+bool trailingZeros = false;
+int numDecimalPoints = 2; 
+//------------ GRID -------------------
+bool bigGrid = true; 
+bool smallGrid = true; 
+if(equalAxisRatio){
+unitsize(overallSize);
+}
+else{
+size(xsize*72/2.54, ysize*72/2.54, IgnoreAspect);
+}
+import graph; 
+arrowbar xarrow = None;
+if(xAxisRightArrow && xAxisLeftArrow){
+xarrow = Arrows;
+}
+else{
+\tif(xAxisRightArrow){
+\t\txarrow = EndArrow;
+        }
+    if(xAxisLeftArrow){
+\t\txarrow = BeginArrow;
+\t}
+}
+arrowbar yarrow = None;
+if(yAxisUpArrow && yAxisDownArrow){
+yarrow = Arrows;
+}
+else{
+\tif(yAxisUpArrow){
+\t\tyarrow = EndArrow;
+\t}
+    if(yAxisDownArrow){
+\t\tyarrow = BeginArrow;
+    }
+}
+Label xLabel = Label(s = xAxisLabel, position = xlabel_loc, p = fontsize(labelSize), filltype = Fill(p = white) );
+Label yLabel = Label(s = yAxisLabel, position = ylabel_loc, p = fontsize(labelSize),filltype = Fill(p = white) );
+real killZero = 9805675997679076690980969.000123;
+axis xAxisType = Bottom;
+axis yAxisType = Left;
+if(fourSides){
+xAxisType = BottomTop;
+yAxisType = LeftRight;
+}
+if(forcexAxisAtZero){
+xAxisType = YZero;
+}
+if(forceyAxisAtZero){
+yAxisType = XZero;
+killZero = 0;
+}
+Label tickFormat = Label(" ");
+string decimalString = "";
+if(controlDecimals){
+\tif(trailingZeros){
+\t\tdecimalString = "%#." + string(numDecimalPoints) + "f";
+        }
+    else{
+    \tdecimalString = "%." + string(numDecimalPoints) + "f";
+        }
+}
+if(axisNumbers){
+tickFormat = Label(decimalString, filltype = Fill(p = white), p = fontsize(numberSize) );
+}
+if(!showTicks){
+subtickSize = -1;
+tickSize = -1;
+}
+ticks xticks = LeftTicks(format = tickFormat, Step = xTickSpacing, step = xSubtickSpacing, size = subtickSize, Size = tickSize);
+ticks yticks = RightTicks(format = tickFormat, Step = yTickSpacing, step = ySubtickSpacing, size = subtickSize, Size = tickSize );
+if(ticksGoThroughAxes){
+xticks = Ticks(format = tickFormat, xTickSpacing, xSubtickSpacing, size = subtickSize, Size = tickSize);
+yticks = Ticks(format = tickFormat, yTickSpacing, ySubtickSpacing, size = subtickSize, Size = tickSize);
+}
+dot((xmin,ymin), black+0);// so the graph package knows where to place the top and bottom x axes
+dot((xmax,ymax),black+0);
+
+//----------------DO THE DRAWING----------------
+xaxis(xmin = xmin, xmax = xmax, L = xLabel, axis = xAxisType, arrow = xarrow, ticks = xticks);
+yaxis(ymin = ymin, ymax = ymax, L = yLabel, axis = yAxisType, arrow = yarrow, ticks = yticks);
+if(bigGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xTickSpacing, extend = true, gray) );
+yaxis(BottomTop, invisible, Ticks(Step = yTickSpacing, extend = true, gray) );
+}
+if(smallGrid){
+xaxis(LeftRight, invisible, Ticks(Step = xSubtickSpacing, extend = true, lightgray) );
+yaxis(BottomTop, invisible, Ticks(Step = ySubtickSpacing, extend = true, lightgray) );
+}
+real[] x_to_plot = map(x_transform, xdata);
+real[] y_to_plot = map(y_transform, ydata);
+if(plotPoints){
+for(int i = 0; i< xdata.length; ++i){
+dot((x_to_plot[i], y_to_plot[i]), filltype = dotfill, p = dotpen);
+}}
+if(plotCurve){
+draw(graph(curve1, xmin, xmax, n=100), p = graphpen1);
+
+}
+//draw(graph(curve2, xmin, xmax, n=250), p = graphpen2);
+//draw(graph(curve3, xmin, xmax, n=500), p = graphpen3);
+
+draw((2.5,1)--(2.5,-1),lightblue+dashed+linewidth(1.5));
+draw((6,1)--(6,-1),magenta+dashed+linewidth(1.5));
+label("Mic 1",(2.5,-1),S,lightblue+fontsize(14));
+label("Mic 2",(6,-1),S,magenta+fontsize(14));

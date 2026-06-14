@@ -1,0 +1,36 @@
+size(6cm);
+defaultpen(fontsize(10pt));
+
+dot((0, 0));
+real rod_eps = 0.1, ell = 3;
+draw(box((rod_eps, rod_eps), (-rod_eps, -ell)));
+draw(Label("$\ell$", align=(0, 0), UnFill(1.5)),
+\tshift(4*rod_eps, 0)*((0, rod_eps)--(0, -ell)),
+\tBars(size=5));
+label("$M$", (-rod_eps, -ell/2), dir(180));
+
+real mass_start = 1;
+dot((-mass_start, -ell));
+draw("$v_0$", (-mass_start, -ell)--((-rod_eps, -ell)), Arrow(TeXHead), Margin(2, 2));
+
+// NEXT PICTURE
+currentpicture = shift(-2.5, 0)*currentpicture;
+// NEXT PICTURE
+
+dot((0, 0));
+real rod_eps = 0.1, ell = 3;
+draw(rotate(90)*box((rod_eps, rod_eps), (-rod_eps, -ell)));
+
+pen dotted = linetype("1 9");
+draw(arc((0, 0), ell, -90, 0), dotted, MidArrow(TeXHead, size=1.5));
+draw((0, -ell)--(ell/2, -ell), dotted);
+
+pair traj(real t){ return (t, (1 - (t + 1)^2)/3); }
+real dt = 0.001,
+\tdtrajdt0 = (traj(dt).y - traj(0).y)/dt,
+\ttheta = aTan(dtrajdt0);
+
+draw(shift(0, -ell)*graph(traj, 0, 1), dotted);
+dot(shift(0, -ell)*traj(1));
+draw(shift(0, -ell)*((0, 0)--1.5*dir(theta)), Arrow(TeXHead));
+draw("$\theta$", shift(0, -ell)*arc((0, 0), 0.5, theta, 0));

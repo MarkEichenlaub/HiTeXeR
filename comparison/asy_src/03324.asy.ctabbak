@@ -1,0 +1,41 @@
+//TeXeR source: https://artofproblemsolving.com/texer/tppgnzyc
+
+size(5cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real eps = 0.02;
+real box_w = 0.7, x = 1;
+
+fill(box((-0.1, 0), (0, 1)), gray(0.7));
+draw((0, 1)--(0, 0));
+
+draw(box((x, eps), (x + box_w, 1)));
+draw("$k_1$", spring((0, 2/3), (x, 2/3), zigs=12), dir(90));
+draw("$k_2$", spring((0, 1/3), (x, 1/3), zigs=16), 4*dir(-90));
+draw((0, 1)--(0, 0)^^(-0.1, 0)--(1.5 + box_w, 0));
+
+real sh = 1.3;
+currentpicture = shift(0, sh)*currentpicture;
+
+fill(box((-0.1, 0), (0, 1)), gray(0.7));
+draw((0, 1)--(0, 0));
+
+real dx = 0.5;
+x += dx;
+draw(box((x, eps), (x + box_w, 1)));
+draw(spring((0, 2/3), (x, 2/3), zigs=12, width=1-dx/x));
+draw(spring((0, 1/3), (x, 1/3), zigs=16, width=1-dx/x));
+
+real bar_h = -0.15;
+draw((x - dx, bar_h)--(x - dx, sh), gray(0.7)+dashed);
+draw("$x$", (x - dx, bar_h)--(x, bar_h), Bars(5));
+
+draw((0, 1)--(0, 0)^^(-0.1, 0)--(1.5 + box_w, 0));

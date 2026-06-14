@@ -1,0 +1,209 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 852befc4..e3d45b70 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -10495,9 +10495,16 @@ function createInterpreter() {
+       if (text) {
+         const labelPen = pen || clonePen(defaultPen);
+         const mathText = (text.startsWith('$') || text.includes('$')) ? text : '$' + text + '$';
+-        const labelArgs = [mathText, pos];
+-        if (align) labelArgs.push(align);
+-        labelArgs.push(labelPen);
++        // cse5's MP applies a default label direction when the caller omits one;
++        // it does NOT center the label on the point (plain Asymptote's default).
++        // Empirically TeXeR places undirected MP labels to the SOUTH of the point
++        // (08517/08518 vertex labels A/B/P sit below the base, while C/Q/R carry
++        // explicit N/NW/NE overrides precisely because S would be wrong for them).
++        // Without this default, undirected labels straddle the geometry (e.g. "P"
++        // centered on the base+dot) and the figure's vertical label padding is too
++        // small, throwing off the SSIM trim+resize registration.
++        const labelAlign = align || makePair(0, -1); // default S
++        const labelArgs = [mathText, pos, labelAlign, labelPen];
+         evalLabel(labelArgs);
+       }
+       return pos;
+@@ -10506,6 +10513,35 @@ function createInterpreter() {
+     // D() — cse5/olympiad shorthand for draw that returns its path
+     // In AoPS/cse5 convention, D() uses blue pen by default (unlike draw() which uses black)
+     env.set('D', (...args) => {
++      // cse5 overloads D(): a lone pair/point draws a DOT with `pointpen`
++      //     D(pair A, pen p=pointpen) { dot(A,p); }
++      // while a path draws with `pathpen`
++      //     D(path g, pen p=pathpen) { draw(g,p); return g; }
++      // Detect the dot form: exactly one coordinate (pair/triple/point) arg and
++      // no path. Without this, D(MP("P",pt)) fell through to draw() as a
++      // zero-length stroke (radius lw/2 ≈ 0.3bp — an almost-invisible speck);
++      // routing to dot() gives the proper dotfactor-sized mark TeXeR shows.
++      // (Tangent points P/Q/R in 08518 are dotted exactly this way.)
++      {
++        let hasPath = false, coordCount = 0;
++        for (const a of args) {
++          if (isPath(a)) hasPath = true;
++          else if (isPair(a) || isTriple(a) || isPoint(a)) coordCount++;
++        }
++        if (!hasPath && coordCount === 1) {
++          let hasPenDot = false;
++          for (const a of args) { if (isPen(a)) { hasPenDot = true; break; } }
++          let dotArgs = args;
++          if (!hasPenDot) {
++            const ptp = env.get('pointpen');
++            dotArgs = [...args, (isPen(ptp) ? ptp : clonePen(defaultPen))];
++          }
++          dotArgs._line = args._line;
++          evalDot(dotArgs);
++          for (const a of args) { if (isPair(a) || isTriple(a) || isPoint(a)) return a; }
++          return makePair(0, 0);
++        }
++      }
+       // cse5's D() draws with `pathpen` when no pen is supplied. pathpen
+       // defaults to blue (AoPS TeXeR default) but diagrams routinely reassign
+       // it, e.g. `pathpen = black + linewidth(0.65)`, and we must honor that.
+@@ -29055,6 +29091,11 @@ function renderSVG(result, opts) {
+         }
+         // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
+         // no longer boost dots — native bp sizing matches TeXeR better.
++        // Auto-scaled 2D diagrams with all-explicit strokes (e.g. 08517/08518
++        // cse5 `pathpen=...+linewidth(0.65)`) also keep dots at native size:
++        // a 1.67× DPI boost makes the dots visually closer to TeXeR's fat dots
++        // but consistently LOWERS SSIM (sub-pixel center offsets create more
++        // mismatched rim pixels for the larger disc), so don't apply it.
+       }
+       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
+       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
+diff --git a/auto-fix/fix-snapshots/23eb45cd-after.png b/auto-fix/fix-snapshots/23eb45cd-after.png
+new file mode 100644
+index 00000000..cffe468f
+Binary files /dev/null and b/auto-fix/fix-snapshots/23eb45cd-after.png differ
+diff --git a/auto-fix/fix-snapshots/9c9c0f40-after.png b/auto-fix/fix-snapshots/9c9c0f40-after.png
+new file mode 100644
+index 00000000..cffe468f
+Binary files /dev/null and b/auto-fix/fix-snapshots/9c9c0f40-after.png differ
+diff --git a/auto-fix/fix-snapshots/a09a9c18-after.png b/auto-fix/fix-snapshots/a09a9c18-after.png
+new file mode 100644
+index 00000000..cffe468f
+Binary files /dev/null and b/auto-fix/fix-snapshots/a09a9c18-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 587ff659..11c5789c 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -13802,26 +13802,6 @@
+       420
+     ]
+   },
+-  {
+-    "id": "08518",
+-    "idx": 8517,
+-    "corpusFile": "c4_L11_script_11.asy",
+-    "ssim": 0.8936135751405382,
+-    "rawSsim": 0.6820311612389429,
+-    "softSsim": 0.8958296021302452,
+-    "sizeScore": 0.998601242325236,
+-    "combined": 0.892363626294037,
+-    "wRatio": 0.9029535864978903,
+-    "hRatio": 0.8809523809523809,
+-    "refDims": [
+-      237,
+-      504
+-    ],
+-    "htxDims": [
+-      214,
+-      444
+-    ]
+-  },
+   {
+     "id": "04859",
+     "idx": 4858,
+@@ -14483,6 +14463,26 @@
+       770
+     ]
+   },
++  {
++    "id": "08518",
++    "idx": 8517,
++    "corpusFile": "c4_L11_script_11.asy",
++    "ssim": 0.967242676806789,
++    "rawSsim": 0.6820311612389429,
++    "softSsim": 0.8958296021302452,
++    "sizeScore": 0.998601242325236,
++    "combined": 0.8955815358604905,
++    "wRatio": 0.9029535864978903,
++    "hRatio": 0.8809523809523809,
++    "refDims": [
++      237,
++      504
++    ],
++    "htxDims": [
++      214,
++      444
++    ]
++  },
+   {
+     "id": "05016",
+     "idx": 5015,
+@@ -16043,7 +16043,7 @@
+     "id": "08517",
+     "idx": 8516,
+     "corpusFile": "c4_L11_script_10.asy",
+-    "ssim": 0.9052560970780076,
++    "ssim": 0.9707027058835105,
+     "rawSsim": 0.6569044391716352,
+     "softSsim": 0.9092308900554419,
+     "sizeScore": 0.998601242325236,
+@@ -36714,7 +36714,7 @@
+     "id": "08506",
+     "idx": 8505,
+     "corpusFile": "c4_L11_p3314_problem_text_0.asy",
+-    "ssim": 0.9738105834198486,
++    "ssim": 0.9889819870355868,
+     "rawSsim": 0.854423202767641,
+     "softSsim": 0.966018108563674,
+     "sizeScore": 0.9782644754195962,
+@@ -71444,7 +71444,7 @@
+     "id": "08512",
+     "idx": 8511,
+     "corpusFile": "c4_L11_p3942_problem_text_0.asy",
+-    "ssim": 0.9796637248637732,
++    "ssim": 0.987828558552885,
+     "rawSsim": 0.8000712255859458,
+     "softSsim": 0.9796637248637732,
+     "sizeScore": 0.9921201307659316,
+@@ -92268,7 +92268,7 @@
+     "id": "08513",
+     "idx": 8512,
+     "corpusFile": "c4_L11_p3942_solution_text_0.asy",
+-    "ssim": 0.9811231098852422,
++    "ssim": 0.9946220572831181,
+     "rawSsim": 0.6989893468607165,
+     "softSsim": 0.9811231098852422,
+     "sizeScore": 0.9962310940579199,
+@@ -93429,7 +93429,7 @@
+     "id": "08502",
+     "idx": 8501,
+     "corpusFile": "c4_L11_p3311_solution_text_0.asy",
+-    "ssim": 0.9897893648428758,
++    "ssim": 0.9950628485392811,
+     "rawSsim": 0.8874257926186955,
+     "softSsim": 0.9897893648428758,
+     "sizeScore": 0.9877533265512245,
+@@ -135746,7 +135746,7 @@
+     "id": "08531",
+     "idx": 8530,
+     "corpusFile": "c4_L11_script_9.asy",
+-    "ssim": 0.9866333196153656,
++    "ssim": 0.9951762327761118,
+     "rawSsim": 0.8063366692347878,
+     "softSsim": 0.9866333196153656,
+     "sizeScore": 0.998601242325236,
+diff --git a/index.html b/index.html
+index 2d2e6a8b..7c4c9618 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.18</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.19</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

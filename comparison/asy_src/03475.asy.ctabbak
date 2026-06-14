@@ -1,0 +1,37 @@
+import graph;
+import patterns;
+size(6cm);
+defaultpen(fontsize(10pt));
+
+pen n_orange = rgb(1.0, 0.4, 0.1),
+\tn_blue = rgb(0.0, 0.6, 1.0);
+
+add("orangehatch", hatch(H=2mm, n_orange));
+add("bluehatch", shift(1.414mm, 0)*hatch(H=2mm, n_blue));
+
+real L = 1, eps = L/10;
+// using x^2.7 because its hard to look at the area of x^3 from [0, 1/2]
+// sorry for the misleading name :P
+real cubed(real x){ return 2*(x/2)^2.7; }
+
+fill(graph(cubed, 0, L)--(L, 0)--cycle, pattern("bluehatch"));
+fill(graph(new real(real x){ return cubed(x/2); }, 0, 2*L)--(2*L, 0)--cycle, pattern("orangehatch"));
+label("$R$", (2*L, 0), 2*dir(135), n_orange, UnFill(-0.1mm));
+
+draw((0, cubed(L))--(2*L, cubed(L)), gray(0.7));
+draw((L, cubed(L))--(L, 0), gray(0.7));
+draw(graph(cubed, 0, 2*L));
+draw(graph(new real(real x){ return cubed(x/2); }, 0, 2*L));
+label("$F(x)$", (2*L, cubed(2*L)), dir(0));
+label("$F(x/2)$", (2*L, cubed(L)), dir(0));
+
+draw((0, 0)--(2*L + eps, 0), Arrow(TeXHead));
+draw((0, 0)--(0, 2*L + eps), Arrow(TeXHead));
+label("$x$", (2*L + eps, 0), dir(0));
+label("$F$", (0, 2*L + eps), dir(90));
+
+real tickeps = L/20;
+draw((L, -tickeps)--(L, tickeps));
+draw((2*L, -tickeps)--(2L, tickeps));
+label("$l$", (L, -tickeps), dir(-90));
+label("$2l$", (2*L, -tickeps), dir(-90));

@@ -1,0 +1,43 @@
+//TeXeR source: https://artofproblemsolving.com/texer/ryytigjb
+
+size(5cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+real d = 1, s = 0.5;
+draw(spring((-d/2, 0), (d/2, 0), zigs=16));
+label("$k$", (0, 0), 1.5*dir(90));
+
+draw(box((-d/2 - s, -s/2), (-d/2, s/2)));
+draw(box((d/2 + s, -s/2), (d/2, s/2)));
+label("$m$", (-d/2 - s/2, 0));
+label("$m$", (d/2 + s/2, 0));
+
+// NEXT PIC
+real sh = 0.8;
+currentpicture = shift(0, sh)*currentpicture;
+// NEXT PIC
+
+real x = 1.2;
+d += x;
+
+draw(spring((-d/2, 0), (d/2, 0), zigs=20, width=(d - x)/d));
+label("$k$", (0, 0), 1.5*dir(90));
+
+draw(box((-d/2 - s, -s/2), (-d/2, s/2)));
+draw(box((d/2 + s, -s/2), (d/2, s/2)));
+label("$m$", (-d/2 - s/2, 0));
+label("$m$", (d/2 + s/2, 0));
+
+real bar_h = -0.5;
+draw(((d - x)/2, bar_h)--((d - x)/2, sh - s/2), gray(0.7)+dashed);
+draw("$x$", ((d - x)/2, bar_h)--(d/2, bar_h), Bars(5));
+draw((-(d - x)/2, sh - s/2)--(-(d - x)/2, bar_h), gray(0.7)+dashed);
+draw("$x$", (-d/2, bar_h)--(-(d - x)/2, bar_h), Bars(5));

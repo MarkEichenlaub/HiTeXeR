@@ -1,0 +1,39 @@
+//TeXeR source: https://artofproblemsolving.com/texer/wzeoejsj
+
+size(6cm);
+defaultpen(fontsize(10pt));
+
+path spring(pair start=(0, 0), pair end=(1, 0), real buf=0.05, int zigs=10, real width=1){
+\tpath spr = (0, 0)--(buf, 0);
+\tfor(int i = 1; i < zigs; ++i)
+\t\tspr = spr--(buf + (1-2*buf)*i/zigs, width*(-1)^i/zigs);
+\tspr = spr--(1 - buf, 0)--(1, 0);
+\treturn shift(start)*scale(length(end - start))*rotate(degrees(end - start))*spr;
+}
+
+// origin at the left end of rod
+real ell = 2, rod_thickness = 0.1, L = 0.8, eps = 0.05;
+draw(box((-eps, -eps), (ell + eps, eps)));
+filldraw(scale(eps)*unitcircle, gray(0.8));
+label("Pivot", (0, -eps), dir(-90));
+
+real length_label_dist = 0.2;
+draw(Label("$l$", align=(0, 0), UnFill), shift(0, length_label_dist)*((ell + eps, 0)--(0, 0)), Bars(5));
+
+// origin at right end of rod
+currentpicture = shift(-ell, 0)*currentpicture;
+
+draw(spring((0, 0), (0, -L), zigs=15));
+draw(Label("$L$", Relative(0.4), align=(0, 0), UnFill(1.2)), shift(length_label_dist, 0)*((0, 0)--(0, -L)), Bars(5));
+
+real r = 0.05;
+unfill(circle((0, -L), r)); draw(circle((0, -L), r));
+label("Post", (-r, -L), dir(180));
+
+real cut = -0.5, cut_L = -0.2, cut_R = 0.35, cut_h = 0.035;
+
+unfill(box((cut_L, cut - cut_h), (cut_R, cut + cut_h)));
+draw((cut_L, cut - cut_h)--(cut_R, cut - cut_h), dotted);
+draw((cut_L, cut + cut_h)--(cut_R, cut + cut_h), dotted);
+
+label("Not to scale!", (cut_L, cut), dir(180));

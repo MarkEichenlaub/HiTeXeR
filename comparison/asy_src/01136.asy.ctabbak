@@ -1,0 +1,74 @@
+//TeXeR source: https://artofproblemsolving.com/texer/hknnmccl
+
+unitsize(1cm);
+
+//incline
+real incline_angle_rad = 10*pi/180;
+real incline_angle_deg = incline_angle_rad*180/pi;
+
+real track_width = 10;
+real track_height = track_width*sin(incline_angle_rad);
+
+draw((0,2)--(track_width,2-track_height),dashed);
+
+//fill( (0,0)--(0,2)--(track_width,2-track_height)--(track_width,0)--cycle, gray);
+
+//cart
+path cart = box((0,0),(2,1));
+real incline_fraction = .4;
+pair cart_bottom_left = shift(0,2)*((track_width, -track_height)*incline_fraction);
+
+draw(shift(cart_bottom_left)*rotate(-incline_angle_deg)*cart);
+
+//cup
+path left_arm = shift(rotate(-incline_angle_deg)*(.75,1))*shift(cart_bottom_left)*rotate(-incline_angle_deg)*((0,0)--(0,1));
+path right_arm = shift(rotate(-incline_angle_deg)*(.5,0))*left_arm;
+
+//draw(left_arm);
+//draw(right_arm);
+
+void labeled_coil( pair start , pair end , Label text , pen draw_pen ){
+\tpair coil( real t ){ return (cos(t)/5+t/20,sin(t)/2) ; }
+\treal left = -pi ;
+\treal right = 6pi ;
+
+\tpair desired_displacement = end-start ;
+    pair displacement = coil(right)-coil(left) ;
+    real angle = (
+    \tdesired_displacement.x == 0 ?
+        ( end.x>start.x ? 90 : -90 ) :
+\t\tdegrees(atan(desired_displacement.y/desired_displacement.x))
+\t) ; ;
+    path drawn_coil = shift(start-coil(left))* scale(length(desired_displacement)/length(displacement))* rotate(angle,coil(left))* graph( coil , left , right ) ;
+    draw( start--drawn_coil--end , draw_pen ) ;
+
+    label( text , (start+end)/2 , filltype=UnFill ) ;
+}
+
+pair spring_start = relpoint(left_arm,0);
+//pair spring_start = (relpoint(left_arm,0) + relpoint(right_arm,0))/2;
+
+pair spring_end = spring_start + rotate(-incline_angle_deg)*(0,.5);
+
+//labeled_coil( spring_start , spring_end , "" , gray ) ;
+
+pair cup_center = (relpoint(left_arm,.72) + relpoint(right_arm,.72))/2;
+path cup = arc(cup_center,.2,-incline_angle_deg,-incline_angle_deg - 180);
+//draw(cup);
+
+//marble
+pair marble_position = (relpoint(left_arm,1) + relpoint(right_arm,1))/2 + rotate(-incline_angle_deg)*(0,.3);
+draw(shift(marble_position)*scale(.25)*unitcircle);
+
+//vectors
+pair cart_center_right = cart_bottom_left + rotate(-incline_angle_deg)*(2,.5);
+
+real g_length = 3;
+
+pair cart_accel_end = (cart_center_right + (cos(incline_angle_rad),-sin(incline_angle_rad))*g_length*sin(incline_angle_rad));
+
+draw(marble_position--(marble_position - (0,g_length)), arrow = Arrow(6),red);
+draw(cart_center_right--cart_accel_end, arrow = Arrow(6),green+linewidth(2));
+
+draw(cart_center_right--(cart_center_right - (0,g_length)),arrow = Arrow(6),red);
+draw((cart_center_right - (0,g_length))--cart_accel_end,arrow = Arrow(6),purple);

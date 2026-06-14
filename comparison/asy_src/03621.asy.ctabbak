@@ -1,0 +1,49 @@
+//TeXeR source: https://artofproblemsolving.com/texer/eztcsmfn
+
+size(7cm);
+defaultpen(fontsize(10pt));
+
+pen ropepen = linewidth(1.4);
+
+real r = 1, Ay = 1.5, By = 3.8, Cy = 5.5;
+pair OA = (2*r, -Ay),
+\tOB = (3*r, -By),
+\tOC = (1*r, -Cy);
+
+draw(circle(OA, r));
+draw(circle(OB, r));
+draw(circle(OC, r));
+label("$A$", OA + r*dir(50), dir(50));
+label("$B$", OB + r*dir(50), dir(50));
+label("$C$", OC + r*dir(200), dir(200));
+
+fill(box((-0.6, 0), (4.5*r, 0.3)), gray(0.85));
+draw((-0.6, 0)--(4.5*r, 0));
+
+pair end1 = OB + r*E + 3*S;
+pair end2 = OC + 1.6*S;
+
+draw((0, 0)--(OC + r*W)
+\t--arc(OC, r, 180, 360)
+\t--(OC + r*E)
+\t--(OB + r*W)
+\t--arc(OB, r, 180, 0)
+\t--(OB + r*E)
+\t--end1, ropepen);
+draw(end2--(OA + r*W)
+\t--arc(OA, r, 180, 0)
+\t--(OA + r*E)
+\t--OB, ropepen);
+
+draw((OA.x, 0)--OA, ropepen);
+
+dot(OA, linewidth(4));
+dot(OB, linewidth(4));
+dot(OC, linewidth(4));
+
+real sidelength = 1.4;
+draw(shift(end2)*scale(sidelength)*shift(-1/2, -1)*unitsquare);
+label("$M$", end2 + sidelength/2 * S);
+
+label("$T_1$", end1--(OB + r*E), dir(0));
+label("$T_2$", OC--(OA + r*W), dir(0));

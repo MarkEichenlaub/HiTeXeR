@@ -1,0 +1,57 @@
+//TeXeR source: https://artofproblemsolving.com/texer/zmpdumse
+
+import trembling;
+
+int resistor(pair start, pair end){
+\tpath resist = start--start+(end-start)/3;
+ int zigs = 12;
+
+ real direction = angle(end-start);
+
+ pair zig_end = start + (end-start)/3;
+ pair zig_start = zig_end;
+
+ for (int i = 1; i <= zigs; ++i){
+ int pm = -1;
+ if(quotient(i,2) % 2 == 0){
+ \tpm = 1;
+ }
+ real zig_length = length(end-start)/18;
+ zig_end = zig_start + zig_length*(cos(direction+pm*pi/3),sin(direction+pm*pi/3));
+ resist = resist--zig_end;
+ zig_start = zig_end;
+ }
+ resist = resist--end;
+draw(resist);
+ return 0;
+}
+
+resistor((0,1),(1,1));
+label("$R_1$",(.5,1.05),N);
+
+resistor((1,1),(2,1));
+label("$R_2$",(1.5,1.05),N);
+
+draw((1,1)--(1,2));
+
+pen n_purple = rgb(0.7, 0.4, 1.0),
+\tn_blue = rgb(0.0, 0.6, 1.0),
+\tn_green = rgb(0.0, 0.4, 0.0),
+\tn_orange = rgb(1.0, 0.4, 0.1),
+\tn_red = rgb(1.0, 0.2, 0.4);
+
+tremble tr = tremble(angle=10, random=3);
+
+path red_p = tr.deform((0, 1)--(1, 1));
+draw(red_p, n_red + linewidth(1), Arrow(TeXHead, Relative(0.9)));
+label("$I$", (0.9, 1), dir(-90), n_red);
+
+path green_p = tr.deform((1, 1)--(2, 1));
+draw(green_p, n_green + linewidth(1), Arrow(TeXHead, Relative(0.25)));
+label("$I_2$", (1.2, 1), dir(-90), n_green);
+
+path blue_p = tr.deform((1, 1)--(1, 2));
+draw(blue_p, n_blue + linewidth(1), Arrow(TeXHead, Relative(0.3)));
+label("$I_3$", (1, 1.3), dir(0), n_blue);
+
+clip(box((0.4, 0.7), (1.6, 1.4)));

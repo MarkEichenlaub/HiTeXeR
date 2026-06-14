@@ -1,0 +1,36 @@
+//TeXeR source: https://artofproblemsolving.com/texer/xaexnlfl
+
+void labeled_coil( pair start , pair end , Label text , pen draw_pen ){
+\tpair coil( real t ){ return (cos(t)/5+t/20,sin(t)/2) ; }
+\treal left = -pi ;
+\treal right = 6pi ;
+
+\tpair desired_displacement = end-start ;
+    pair displacement = coil(right)-coil(left) ;
+    real angle = (
+    \tdesired_displacement.x == 0 ?
+        ( end.x>start.x ? 90 : -90 ) :
+\t\tdegrees(atan(desired_displacement.y/desired_displacement.x))
+\t) ; ;
+    path drawn_coil = shift(start-coil(left))* scale(length(desired_displacement)/length(displacement))* rotate(angle,coil(left))* graph( coil , left , right ) ;
+    draw( start--drawn_coil--end , draw_pen ) ;
+
+    label( text , (start+end)/2 , filltype=UnFill ) ;
+}
+
+pair spring_start = (.5,3);
+//pair spring_start = (relpoint(left_arm,0) + relpoint(right_arm,0))/2;
+pair spring_end = (.5,1);
+
+labeled_coil( spring_start , spring_end , "" , gray ) ;
+labeled_coil( spring_start+(2,0) , spring_end+(2,0) , "" , gray ) ;
+
+fill((0,0)--(1,0)--(1,1)--(0,1)--cycle, gray);
+draw((.5,.5)--(.5,2),arrow = Arrow(6),green);
+label("$-k\Delta l$",(.5,1.3),E,green);
+
+fill(shift(2,0)*((0,0)--(1,0)--(1,1)--(0,1)--cycle), gray);
+draw(shift(2,0)*((.5,.5)--(.5,2)),arrow = Arrow(6),green);
+label("$-k\Delta l$",(2.5,1.3),E,green);
+draw((2.5,.5)--(2.5,-.5),arrow = Arrow(6), blue);
+label("$mg$",(2.5,-.25),E,blue);

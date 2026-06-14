@@ -1,0 +1,47 @@
+draw((0,0)--(0,1),linewidth(2pt));
+draw((0,0)--(4,0),linewidth(2pt));
+
+fill((1,0)--(3,0)--(3,.5)--(1,.5)--cycle,gray);
+draw((1,0)--(3,0)--(3,.5)--(1,.5)--cycle);
+fill((2.5,.5)--(3,.5)--(3,1)--(2.5,1)--cycle,gray);
+draw((2.5,.5)--(3,.5)--(3,1)--(2.5,1)--cycle);
+
+path spring(pair start, pair end){
+    path resist = start--start;
+    int zigs = 24;
+
+    real direction = angle(end-start);
+
+    pair zig_end = start;
+    pair zig_start = zig_end;
+
+    for (int i = 1; i <= zigs; ++i){
+        int pm = -1;
+        if(quotient(i,2) % 2 == 0){
+        \tpm = 1;
+            }
+        real zig_length = length(end-start)/12;
+        zig_end = zig_start + zig_length*(cos(direction+pm*pi/3),sin(direction+pm*pi/3));
+        resist = resist--zig_end;
+        zig_start = zig_end;
+    }
+    resist = resist--end;
+    return resist;
+}
+
+draw(spring((0,.75),(2.5,.75)));
+
+draw(shift(4.5,0)*scale(.25)*unitcircle);
+draw((3,.25)--(4.5,.25));
+draw((4.75,0)--(4.75,-1));
+
+draw((4.5,-1)--(5,-1)--(5,-1.5)--(4.5,-1.5)--cycle);
+fill((4.5,-1)--(5,-1)--(5,-1.5)--(4.5,-1.5)--cycle,gray);
+
+draw((4,0)--(4,-2),linewidth(2pt));
+draw((4,0)--(4.5,0));
+
+label("$m_1$",(2,.25));
+label("$m_2$",(2.75,1),N);
+label("$k$",(1.5,1),N);
+label("$M$",(4.75,-1),E);

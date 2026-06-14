@@ -1,0 +1,11 @@
+const fs=require('fs'),path=require('path');
+global.window=global.window||{};
+global.katex=require('katex');
+require('./asy-interp.js');
+const A=global.window.AsyInterp;
+const id=process.argv[2]||'03586';
+const raw=fs.readFileSync(path.join('comparison','asy_src',id+'.asy'),'utf8');
+const code='[asy]\n'+raw+'\n[/asy]';
+const r=A.render(code,{containerW:800,containerH:600,labelOutput:'svg-native'});
+const vb=r.svg.match(/viewBox="([^"]+)"/);
+process.stderr.write('FINAL viewBox='+(vb&&vb[1])+'\n');

@@ -1,0 +1,29 @@
+//TeXeR source: https://artofproblemsolving.com/texer/bpvqasyq
+
+import graph;
+
+real a = -0.2;
+
+real hill(real x) {
+\treturn x*x + a*(x + 0.2)^3;
+}
+
+real d_hill(real x) {
+\treturn 2*x + 3*a*(x + 0.2)^2;
+}
+
+pair perp_hill(real x){
+\treal theta_tan = aTan(d_hill(x));
+    pair tan_vec = rotate(theta_tan) * (1, 0);
+    return rotate(90) * tan_vec;
+}
+
+draw(graph(hill, -1, 1));
+
+real x = 0.5;
+pair P = (x,hill(x));
+
+// Create the perpendicular vector at point P
+pair displacement = 0.1 * perp_hill(x);
+
+draw(shift(P + displacement) * scale(0.1) * unitcircle);

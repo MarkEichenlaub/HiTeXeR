@@ -1,0 +1,26 @@
+//TeXeR source: https://artofproblemsolving.com/texer/cesgodjs
+
+import trembling;
+size(5cm);
+defaultpen(fontsize(10pt));
+
+real ceil_contact = 0.7, ceil_buf = 0.5;
+real tank_y = -1, tank_h = 0.8, tank_w = 2.5;
+
+draw(shift(-tank_w/2, tank_y)*((0, tank_h)--(0, 0)--(tank_w, 0)--(tank_w, tank_h)));
+draw((ceil_contact - ceil_buf, 0)--(ceil_contact + ceil_buf, 0));
+dot((ceil_contact, 0));
+
+real theta = 24, stick_l = 1.8, water_h = tank_h - 0.2;
+tremble tr = tremble(angle=3, frequency=0.5);
+path water = shift(-tank_w/2, tank_y)*((0, water_h)--(tank_w, water_h)),
+\tstick = shift(ceil_contact, 0)*((0, 0)--stick_l*dir(180 + theta));
+draw(tr.deform(water));
+draw(stick);
+
+pair inters = extension(point(water, 0), point(water, 1), point(stick, 0), point(stick, 1));
+real eps = 0.1;
+draw(Label("$\alpha \ell$", UnFill), shift(eps*dir(theta - 90))*(inters--point(stick, 0)), Bar(4));
+draw(Label("$\ell(1 - \alpha)$", UnFill), shift(eps*dir(theta - 90))*(point(stick, 1)--inters), Bars(4));
+
+draw("$\theta$", arc((ceil_contact, 0), 0.4, 180, 180 + theta));

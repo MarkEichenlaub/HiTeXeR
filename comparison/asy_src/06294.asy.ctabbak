@@ -1,0 +1,44 @@
+//TeXeR source: https://artofproblemsolving.com/texer/bwbatokw
+
+unitsize(2cm);
+
+//"weight" is between zero and 1 and how many rotations around the red needle should point
+//top center of scale is (0,0); bottom center is (0,-1)
+picture scales(real weight){
+\tpicture sc;
+\tpen scpen = linewidth(2pt);
+
+    draw(sc,unitcircle,scpen);
+
+\tint ticks = 8;
+\tfor(int i = 0; i<ticks; ++i){
+\t\treal theta = 360*i/ticks;
+\t\tdraw(sc,.8*dir(theta)--dir(theta),scpen);
+\t}
+
+    draw(sc,scale(.6)*((0,0)--dir(90-weight*360)), red+linewidth(2pt));
+
+    real cut_theta = 15;
+    draw(sc,(-1.7,-1.4)--(1.7,-1.4)--(1.7,0)--arc((0,0),1.7,0,90-cut_theta)--arc((0,0),1.7,90+cut_theta,180)--cycle,scpen);
+
+\tpair top_right = 1.7*dir(90-cut_theta);
+    pair top_left = 1.7*dir(90+cut_theta);
+
+\treal neck_height = 0.3;
+
+    draw(sc,shift(top_right)*((0,0)--(0,neck_height)), linewidth(2pt));
+    draw(sc,shift(top_left)*((0,0)--(0,neck_height)), linewidth(2pt));
+
+    real pan_bot = neck_height + top_right.y;
+    real pan_height = 0.4;
+
+    draw(sc, (-1.6,pan_bot)--(1.6,pan_bot)--arc((1.6,pan_bot+pan_height),pan_height,-90,0)--arc((-1.6,pan_bot+pan_height),pan_height,180,270),scpen);
+
+real tot_height = (1.4+pan_bot+pan_height);
+return shift(0,-(pan_bot+pan_height)/tot_height)*scale(1/tot_height)*sc;
+}
+
+filldraw(box((0,0),(3,2)),lightgray+linewidth(2pt));
+
+add(shift(.6)*scales(.4));
+add(shift(2.4,0)*scales(.4));

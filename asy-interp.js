@@ -8452,16 +8452,42 @@ function createInterpreter() {
       // Extract named 'direction' arg (e.g. arc(..., direction=CW)) and strip
       // any other named-arg wrappers so positional indexing below works.
       let _namedDir = undefined;
+      // Capture the 2D-form named params arc(c, r, angle1, angle2) so callers
+      // that pass them by name — e.g. arc((2,0.7), r=3, angle1=-12, angle2=12)
+      // (12980's sound-wave arcs) — don't get silently dropped, which would
+      // otherwise leave args=[center] and return an empty path.
+      let _namedC, _namedR, _namedA1, _namedA2;
       {
         const filtered = [];
         for (const a of args) {
           if (a && typeof a === 'object' && a._named) {
             if ('direction' in a) _namedDir = a.direction;
+            if ('c' in a) _namedC = a.c;
+            if ('center' in a) _namedC = a.center;
+            if ('r' in a) _namedR = a.r;
+            if ('radius' in a) _namedR = a.radius;
+            if ('angle1' in a) _namedA1 = a.angle1;
+            if ('angle2' in a) _namedA2 = a.angle2;
           } else {
             filtered.push(a);
           }
         }
         args = filtered;
+      }
+      // Fold any named 2D-form params back into positional slots, in the
+      // signature order (c, r, angle1, angle2). Positional args fill the
+      // remaining (undefined) slots left-to-right, matching Asymptote's rule
+      // that positional args bind the earliest unnamed parameters.
+      if (_namedC !== undefined || _namedR !== undefined
+          || _namedA1 !== undefined || _namedA2 !== undefined) {
+        const sig = [_namedC, _namedR, _namedA1, _namedA2];
+        let pi = 0;
+        for (let k = 0; k < sig.length; k++) {
+          if (sig[k] === undefined && pi < args.length) sig[k] = args[pi++];
+        }
+        const rebuilt = sig.filter(v => v !== undefined);
+        while (pi < args.length) rebuilt.push(args[pi++]);
+        args = rebuilt;
       }
       // 3D spherical form: arc(triple center, real radius, real theta1, real phi1,
       //                       real theta2, real phi2[, triple polar=Z, triple azimuth=X])

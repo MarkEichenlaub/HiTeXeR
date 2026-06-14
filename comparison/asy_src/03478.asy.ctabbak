@@ -1,0 +1,26 @@
+import graph;
+size(5cm);
+defaultpen(fontsize(10pt));
+
+real pi = radians(180);
+real raillength = 10, railangle = 25;
+real beaddist = 7;
+pair bead = beaddist/cos(radians(railangle))*dir(-railangle);
+
+draw((0, 0)--raillength*dir(0));
+draw((0, 0)--10/beaddist * bead);
+
+real spring_r = 0.2, coils = 6;
+draw(graph(new pair(real t){
+\treturn shift(beaddist, t*bead.y)*(spring_r*(cos(2*pi*coils*t) - 1, -sin(2*pi*coils*t)));
+}, 0, 1));
+
+dot(bead);
+dot((bead.x, 0));
+
+label("$k$", (bead.x, bead.y/2), dir(0));
+label("$m$", bead, dir(30));
+label("$\theta$", (0, 0), 10*dir(-railangle/2));
+
+label("frictionless rail", (raillength/2, 0), 2*dir(90));
+label(rotate(-railangle)*"friction $\mu$", raillength/beaddist*bead/2, 2*dir(-90 - railangle));

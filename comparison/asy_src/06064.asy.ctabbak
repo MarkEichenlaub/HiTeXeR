@@ -1,0 +1,36 @@
+picture pic;
+unitsize(4cm);
+
+real theta = 60;
+
+picture drawpic(pen p){
+\tpicture pic_temp;
+\tcurrentpicture = pic_temp;
+    unitsize(4cm);
+
+    draw(unitcircle,p);
+\tdraw((0,-1)--(0,1),p);
+\tdraw((-1,0)--(1,0),p);
+
+\tdot((-1,0),6+p);
+\tlabel("$m$",(-1,0),W,p);
+\tdot((1,0),6+p);
+\tlabel("$2M$",(1,0),E,p);
+
+\tdot(dir(180-theta),6+p);
+\tlabel("$M$",dir(180-theta),NW,p);
+
+\tdraw("$r$", (0,0)--dir(180-theta), dotted+p);
+\treturn pic_temp;
+}
+
+real dtheta = 10;
+picture p1 = drawpic(black);
+
+add(shift((0,0))*p1);
+
+draw(arc((0,0),.33,180,180-theta));
+label("$\theta$",dir(180-theta/2)*.39);
+
+dot((dir(180-theta).x, 0));
+draw("$h_1$", dir(180-theta)--(dir(180-theta).x, 0), dashed);

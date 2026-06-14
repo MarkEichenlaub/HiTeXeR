@@ -1,0 +1,28 @@
+unitsize(1cm);
+defaultpen(fontsize(10pt));
+
+real theta = 25;
+real incline_length = 10;
+
+picture incl;
+draw(incl, scale(incline_length)*((0, 0)--(-1, 0)--(-1, Tan(theta))--cycle));
+draw(incl, rotate(-theta)*shift(-7, 1)*unitcircle);
+
+picture fbd;
+pen n_purple = rgb(0.7, 0.4, 1),
+\tn_blue = rgb(0, 0.6, 1),
+\tn_green = rgb(0, 0.4, 0);
+real mgscale = 2.5;
+
+draw(fbd, unitcircle);
+draw(fbd, dir(-90 - theta)--(mgscale*Cos(theta) - 1)*dir(90 - theta), n_purple, Arrow(TeXHead));
+label(fbd, "$2Mg \cos\theta$", (mgscale*Cos(theta) - 1)*dir(90 - theta), dir(180), n_purple);
+draw(fbd, (0, 0)--mgscale*dir(-90), n_blue, Arrow(TeXHead));
+label(fbd, "$2Mg$", mgscale*dir(-90), dir(-90), n_blue);
+draw(fbd, shift(dir(-90 - theta))*((0, 0)--dir(180 - theta)), n_green, Arrow(TeXHead));
+label(fbd, "$F$", sqrt(2)*dir(-135 - theta), dir(90), n_green);
+dot(fbd, (0, 0));
+dot(fbd, dir(-90 - theta));
+
+add(incl.scale(4cm, 4cm));
+add(fbd.scale(4cm, 4cm), (2, 2));

@@ -1,0 +1,19 @@
+//TeXeR source: https://artofproblemsolving.com/texer/vufzyvlk
+
+import three;
+size(6cm);
+currentprojection = orthographic(2, -6, 1.5);
+
+// shift of (0, 0, -1) is required because picture always includes the origin
+
+real R = 1, dx = 0.05, theta = 30;
+draw(arc((0, 0, -1), R, theta/2, 0, theta/2, 180));
+draw(arc((0, dx, -1), R, theta/2, 0, theta/2, 180));
+draw(arc((0, 0, -1), R-dx, theta/2, 0, theta/2, 180));
+
+draw(shift(0, 0, -1)*(R*dir(theta/2, 0) --
+\t(R*dir(theta/2, 0) + (0, dx, 0) --
+\t((R - dx)*dir(theta/2, 0) + (0, dx, 0)) --
+\t(R - dx)*dir(theta/2, 0)--cycle)));
+
+draw(shift(0, 0, -1)*((R - dx)*dir(theta/2, 180) -- R*dir(theta/2, 180) -- (R*dir(theta/2, 180) + (0, dx, 0))));
