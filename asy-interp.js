@@ -3147,6 +3147,45 @@ function createInterpreter() {
       if (op === T.NEQ) return !eq;
     }
 
+    // Vectorized array operations (Asymptote applies operators element-wise to
+    // arrays). e.g. `int[] == int` → `bool[]`, `real[] + real[]` → `real[]`.
+    // Only numeric scalars/arrays participate; arrays of pairs/objects fall
+    // through so existing behavior is unchanged.
+    if (Array.isArray(left) || Array.isArray(right)) {
+      const isCmp = (op===T.EQ||op===T.NEQ||op===T.LT||op===T.GT||op===T.LE||op===T.GE);
+      const isArith = (op===T.PLUS||op===T.MINUS||op===T.STAR||op===T.SLASH||op===T.PERCENT||op===T.CARET);
+      if (isCmp || isArith) {
+        const la = Array.isArray(left), ra = Array.isArray(right);
+        const isNumArr = v => v.every(x => typeof x === 'number');
+        const lOk = la ? isNumArr(left) : typeof left === 'number';
+        const rOk = ra ? isNumArr(right) : typeof right === 'number';
+        // For array op array, both must be the same length (Asymptote requires it).
+        const lenOk = !(la && ra) || left.length === right.length;
+        if (lOk && rOk && lenOk) {
+          const n = la ? left.length : right.length;
+          const scalarOp = (a, b) => {
+            switch(op) {
+              case T.PLUS: return a+b;
+              case T.MINUS: return a-b;
+              case T.STAR: return a*b;
+              case T.SLASH: return b!==0?a/b:0;
+              case T.PERCENT: return b!==0?((a%b)+b)%b:0;
+              case T.CARET: return Math.pow(a,b);
+              case T.EQ: return a===b;
+              case T.NEQ: return a!==b;
+              case T.LT: return a<b;
+              case T.GT: return a>b;
+              case T.LE: return a<=b;
+              case T.GE: return a>=b;
+            }
+          };
+          const out = [];
+          for (let i = 0; i < n; i++) out.push(scalarOp(la ? left[i] : left, ra ? right[i] : right));
+          return out;
+        }
+      }
+    }
+
     // Number ops
     const l = toNumber(left), r = toNumber(right);
     switch(op) {
@@ -11069,7 +11108,28 @@ function createInterpreter() {
       return s;
     });
     env.set('substr', (s, start, len) => String(s).substr(toNumber(start), len !== undefined ? toNumber(len) : undefined));
-    env.set('find', (s, sub) => String(s).indexOf(String(sub)));
+    env.set('find', (s, sub) => {
+      // find(bool[] a, int n=1): index of the nth true value (n<0 counts from
+      // the end), or -1 if there are fewer than |n| true values. Distinct from
+      // the string overload find(string, string) → indexOf.
+      if (Array.isArray(s)) {
+        let n = (typeof sub === 'number' && Number.isFinite(sub)) ? Math.trunc(sub) : 1;
+        if (n === 0) return -1;
+        if (n > 0) {
+          let count = 0;
+          for (let i = 0; i < s.length; i++) {
+            if (toBool(s[i]) && ++count === n) return i;
+          }
+        } else {
+          let count = 0;
+          for (let i = s.length - 1; i >= 0; i--) {
+            if (toBool(s[i]) && --count === n) return i;
+          }
+        }
+        return -1;
+      }
+      return String(s).indexOf(String(sub));
+    });
     env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
     env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
     env.set('minipage', (...args) => {
