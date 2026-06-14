@@ -10401,7 +10401,16 @@ function createInterpreter() {
             // second path, Asymptote keeps the seam at time 0 (first) — so
             // skip the remap there (e.g. 00752, where a segment starts at the
             // circle's (1,0) seam).
-            if (p1.closed && p1.segs.length > 0) {
+            // Exception 2: this remap is only correct for non-circular closed
+            // paths (e.g. the rotated `ellipse` in 12640, whose seam crossing
+            // Asymptote genuinely reports at time==length). For a true CIRCLE
+            // path (Circle(c,r), tagged `_circle`) Asymptote reports the seam
+            // crossing at time ~0 (FIRST) regardless of node count or whether
+            // the second path is open/closed — verified against local asy 3.05
+            // for Circle×Circle and Circle×line. Applying the remap to circles
+            // wrongly swaps the two intersection points (10827: B and E, where
+            // the O1×O3 crossing lands exactly on O1's (1,0) seam).
+            if (p1.closed && p1.segs.length > 0 && !p1._circle) {
               const sn = p1.segs[0].p0;
               const ndist = Math.hypot(ip.x - sn.x, ip.y - sn.y);
               const ntol = 1e-3 * Math.max(1, Math.hypot(sn.x, sn.y));
