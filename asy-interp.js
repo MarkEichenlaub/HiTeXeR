@@ -3339,6 +3339,31 @@ function createInterpreter() {
         return _stringify(left) + _stringify(right);
       }
     }
+    // Triple ops — mirror evalBinary so compound assignment (+=, -=, *=, /=) and
+    // ++/-- on triple variables stay triples. Without these, `centroid += v` /
+    // `centroid /= n` (the c582_L14 polyhedron helpers' face-orientation code)
+    // fell through to the toNumber() fallback below, collapsing the triple to its
+    // magnitude and corrupting every back-face-culling decision.
+    if (isTriple(left) || isTriple(right)) {
+      if (isTriple(left) && isTriple(right)) {
+        if (op===T.PLUS)  return makeTriple(left.x+right.x, left.y+right.y, left.z+right.z);
+        if (op===T.MINUS) return makeTriple(left.x-right.x, left.y-right.y, left.z-right.z);
+      }
+      if (isNumber(left) && isTriple(right) && op===T.STAR)
+        return makeTriple(left*right.x, left*right.y, left*right.z);
+      if (isTriple(left) && isNumber(right)) {
+        if (op===T.STAR)  return makeTriple(left.x*right, left.y*right, left.z*right);
+        if (op===T.SLASH) return right ? makeTriple(left.x/right, left.y/right, left.z/right) : makeTriple(0,0,0);
+      }
+    }
+    // transform3 composition / application (e.g. `T *= rotate(...)`, `p *= T`).
+    if (op===T.STAR) {
+      if (isTransform3(left) && isTransform3(right)) return composeTransform3(left, right);
+      if (isTransform3(left) && isTriple(right))     return applyTransform3Triple(left, right);
+    }
+    // pair *= pair → complex multiply (parity with evalBinary's pair*pair).
+    if (isPair(left) && isPair(right) && op===T.STAR)
+      return makePair(left.x*right.x - left.y*right.y, left.x*right.y + left.y*right.x);
     const l=toNumber(left),r=toNumber(right);
     if (op===T.PLUS) return l+r;
     if (op===T.MINUS) return l-r;
@@ -4765,6 +4790,13 @@ function createInterpreter() {
       if (m === 'camera') return makeTriple(obj.cx || 0, obj.cy || 0, obj.cz || 0);
       if (m === 'target') return makeTriple(obj.tx || 0, obj.ty || 0, obj.tz || 0);
       if (m === 'up')     return makeTriple(obj.ux || 0, obj.uy || 0, obj.uz || 1);
+      // `infinity` is true for parallel (orthographic) projections, false for
+      // perspective — matches Asymptote's projection struct. User-defined
+      // back-face cullers (c582_L14 polyhedron helpers) read this to decide
+      // whether viewDir is the constant camera-target direction (orthographic)
+      // or the per-point camera-pt direction (perspective). Without it the
+      // flag reads null⇒false and orthographic visibility inverts.
+      if (m === 'infinity') return obj.type === 'orthographic';
     }
     // CAD module struct: cad.pVisibleEdge / cad.pFreehand / cad.pMeasure
     if (obj && obj._tag === 'sCAD') {
@@ -17597,6 +17629,11 @@ function createInterpreter() {
     env.set('Y', makeTriple(0,1,0));
     env.set('Z', makeTriple(0,0,1));
     env.set('O', makeTriple(0,0,0));
+    // 4x4 identity transform3 — Asymptote's `transform3 identity4=identity(4)`.
+    // Used as the default `transform3 offset=identity4` parameter in user-defined
+    // polyhedron helpers (c582_L14 family). Without it `identity4` is null and
+    // `offset*V` collapses every vertex to 0, erasing all edges.
+    env.set('identity4', identityT3());
     // Floating-point epsilon constants used by 3D/graph modules
     env.set('realEpsilon', 2.22044604925031e-16);
     env.set('sqrtEpsilon', 1.4901161193847656e-8);
