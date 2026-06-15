@@ -87,6 +87,12 @@ def main():
         )
     else:
         files = sorted(glob.glob(os.path.join(src_dir, '*.asy')))
+        # Also repair the corpus ROOT (asy_corpus). It is the copy SOURCE for
+        # comparison/asy_src (repopulate-asy-src.js / ssim-pipeline.js); if it
+        # stays corrupted, the next copy re-introduces the \t into asy_src. The
+        # copy steps now also run clean-code-tabs.js as a safety net, but fixing
+        # the root keeps every consumer of asy_corpus correct too.
+        files += sorted(glob.glob(os.path.join(root, 'asy_corpus', '*.asy')))
 
     changed = total_t = total_n = 0
     for fpath in files:

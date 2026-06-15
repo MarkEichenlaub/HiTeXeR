@@ -13,6 +13,9 @@ const ASY_DIR     = path.join(OUT_DIR, 'asy_pngs');
 const HTX_DIR     = path.join(OUT_DIR, 'htx_pngs');
 const SVG_DIR     = path.join(OUT_DIR, 'htx_svgs');
 const ASY_SRC_DIR = path.join(OUT_DIR, 'asy_src');
+// Strip the historical \t-corruption when copying corpus -> render source so a
+// corrupted asy_corpus file can never re-corrupt asy_src. See clean-code-tabs.js.
+const { cleanCodeTabs } = require('./comparison/clean-code-tabs');
 const ASY_EXE     = 'C:\\Program Files\\Asymptote\\asy.exe';
 // dvips (used by Asymptote for EPS with labels) cannot handle spaces in paths.
 // Use a short temp directory without spaces for EPS rendering.
@@ -363,7 +366,7 @@ async function main() {
   if (STEPS.has('render-htx')) {
     console.log('Saving .asy source files...');
     for (let i = 0; i < allFiles.length; i++) {
-      const src = fs.readFileSync(path.join(CORPUS_DIR, allFiles[i]), 'utf8');
+      const src = cleanCodeTabs(fs.readFileSync(path.join(CORPUS_DIR, allFiles[i]), 'utf8'));
       fs.writeFileSync(path.join(ASY_SRC_DIR, numId(i) + '.asy'), src);
     }
     console.log(`  Saved ${allFiles.length} .asy files`);

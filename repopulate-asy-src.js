@@ -5,6 +5,9 @@
 
 const fs   = require('fs');
 const path = require('path');
+// Strip the historical \t-corruption when copying corpus -> render source so a
+// corrupted asy_corpus file can never re-corrupt asy_src. See clean-code-tabs.js.
+const { cleanCodeTabs } = require('./comparison/clean-code-tabs');
 
 const ROOT       = __dirname;
 const CORPUS_DIR = path.join(ROOT, 'asy_corpus');
@@ -23,7 +26,7 @@ const numId = i => String(i + 1).padStart(5, '0');
 
 let written = 0, skipped = 0;
 for (let i = 0; i < allFiles.length; i++) {
-  const src = fs.readFileSync(path.join(CORPUS_DIR, allFiles[i]), 'utf8');
+  const src = cleanCodeTabs(fs.readFileSync(path.join(CORPUS_DIR, allFiles[i]), 'utf8'));
   const out = path.join(ASY_SRC, numId(i) + '.asy');
   // Only write if missing or changed (cheap mtime guard for re-runs).
   let needWrite = true;
