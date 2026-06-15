@@ -8627,7 +8627,23 @@ function createInterpreter() {
         // in-plane unit vector perpendicular to d1, toward d2
         let e2x = d2.x - cosA*d1.x, e2y = d2.y - cosA*d1.y, e2z = d2.z - cosA*d1.z;
         let e2l = Math.hypot(e2x, e2y, e2z);
-        if (e2l < 1e-9) { e2x = vHat.x; e2y = vHat.y; e2z = vHat.z; e2l = 1; }
+        if (e2l < 1e-9) {
+          // Antipodal endpoints (cosA == -1): d2 == -d1, so the "toward d2"
+          // perpendicular vanishes and infinitely many great circles connect
+          // them. Pick the one whose plane is perpendicular to the polar axis
+          // (wHat) — the latitude circle the (theta1==theta2) endpoints lie on —
+          // via the in-plane perpendicular wHat × d1. The old fallback used vHat,
+          // which is generally NOT perpendicular to d1, so p(a)=cos·d1+sin·e2
+          // stopped tracing a circle and collapsed the half-equator into a
+          // near-flat sliver (03640's sphere equators rendered aspect ~0.02).
+          // wHat × d1 also flips sign with the polar axis, so polar=Z vs -Z
+          // correctly select the front (camera-side) and back half-equators.
+          e2x = wHat.y*d1.z - wHat.z*d1.y;
+          e2y = wHat.z*d1.x - wHat.x*d1.z;
+          e2z = wHat.x*d1.y - wHat.y*d1.x;
+          e2l = Math.hypot(e2x, e2y, e2z);
+          if (e2l < 1e-9) { e2x = vHat.x; e2y = vHat.y; e2z = vHat.z; e2l = 1; }
+        }
         e2x /= e2l; e2y /= e2l; e2z /= e2l;
         // direction=false (CW) selects the complementary long arc on the same circle
         const longArc = (_namedDir !== undefined) ? !_namedDir : false;
