@@ -6702,7 +6702,7 @@ function createInterpreter() {
       // explicit width). Only a pen with NO explicit linewidth falls back to
       // dotfactor*linewidth. So `dotframe(red+linewidth(4bp))` => 4 bp dot,
       // `dotframe(red+linewidth(0.8bp))` => 0.8 bp dot — both direct.
-      const useDirectDiameter = a.pen && a.pen._lwExplicit;
+      const useDirectDiameter = a.pen && (a.pen._lwDirect || (a.pen._lwExplicit && lw >= 1));
       const r = useDirectDiameter ? lw / 2 : (1 + lw * 6) / 2;
       const f = _newFrame();
       const N = 24;
@@ -26537,7 +26537,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
       const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-      const direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+      const direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
       const dR = (direct ? 0.5 : dotfactor / 2) * dotLw;
       xs.push({ u: dc.pos.x, lo: -dR, hi: dR });
       ys.push({ u: dc.pos.y, lo: -dR, hi: dR });
@@ -26595,7 +26595,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot' && dc.pos && typeof dc.pos.x === 'number') {
         const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-        const _direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+        const _direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
         const dR = (_direct ? 0.5 : dotfactor / 2) * dotLw;
         const dx = dc.pos.x * sx, dy = dc.pos.y * sy;
         if (dx - dR < bMinX) bMinX = dx - dR;
@@ -28157,7 +28157,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit;
+        const _useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
         // Add 0.5 bp safety margin to ensure dots at viewBox edges aren't clipped
         // due to floating-point rounding or the _autoScaledStrokeBoost applied at render time.
         const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel + 0.5 * bpCSSPixel;
@@ -29079,7 +29079,9 @@ function renderSVG(result, opts) {
       // When the auto-scaled stroke boost is active for default pens, scale the
       // arrow size by the same factor — TeXeR's reference renders behave as if
       // the effective default linewidth is the boosted one (e.g. 04315).
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      // Flat-banner number lines are the exception: their heads are native-size
+      // in TeXeR (see _flatBanner note), so don't boost them.
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       let baseSize;
       if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
@@ -29273,7 +29275,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost, _isNarrowFewDots1D);
       if (arrowEl) {
@@ -29362,7 +29364,7 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     if (dc.cmd !== 'dot' || !dc.pos) continue;
     const dotLw = dc.pen.linewidth;
-    const _useDirectDiameter_lpush = dc.pen && dc.pen._lwExplicit;
+    const _useDirectDiameter_lpush = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
     const dR = (_useDirectDiameter_lpush ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
     const key = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
     const prev = dotRadiusAtPos.get(key) || 0;
@@ -29386,6 +29388,13 @@ function renderSVG(result, opts) {
   // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
   let _autoStrokeFloorBoost = 1.0;
+  // Flat-banner number lines (minDim<5, maxDim>50, e.g. 05883/05891) get a 2×
+  // STROKE boost to survive SSIM trim+resize, but their ArcArrows/Arrows heads
+  // are truesize filled glyphs that TeXeR renders at NATIVE size (measured: REF
+  // arrowhead ~7.5bp = unboosted 15×0.5, not the 2× boosted 15bp). Boosting the
+  // head makes it 2× too large, ballooning the diagram's height and wrecking the
+  // aspect ratio after SSIM resize. Suppress the arrow boost for flat banners.
+  let _flatBanner = false;
   // Track narrow-span 1D horizontal diagrams so dot boost can be reduced
   // (stroke boost needs to be high for lines/arrows, but dots are already
   // prominent and don't need the same multiplier).
@@ -29460,6 +29469,7 @@ function renderSVG(result, opts) {
       }
     } else if (_isFlatBanner) {
       _autoScaledStrokeBoost = 2.0;
+      _flatBanner = true;
     } else if (_aspect > 6 && _renderedMinDim >= 10) {
       _autoScaledStrokeBoost = 1.67;
     } else {
@@ -29754,7 +29764,14 @@ function renderSVG(result, opts) {
       // direct. (Verified against local asy 3.05: dot(z,linewidth(w)) renders
       // a w-bp dot for w=0.75,0.8,2,3; bare dot()/color-only pens give 3bp.)
       const dotLw = dc.pen.linewidth;
-      const useDirectDiameter = dc.pen && dc.pen._lwExplicit;
+      // TeXeR's dot-diameter rule (empirical, NOT real-asy's dotsize override):
+      //   - linewidth(w) pens (_lwDirect) => diameter = w directly, any magnitude
+      //     (04938 `linewidth(0.8bp)` ellipsis dots are tiny; 08750 `linewidth(1.2)`).
+      //   - `pen + real` width pens (_lwExplicit, NOT _lwDirect) => direct ONLY when
+      //     w >= 1 (08663 `3+black`, 09162 `black+3`, 06256 `red+6`); when w < 1 the
+      //     dotfactor*w/2 branch applies so the mark stays visible — 05891/05895
+      //     `dp=black+0.75` render a ~4.5bp dot in TeXeR (measured), not 0.75bp.
+      const useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
       // Apply the auto-scaled stroke boost to dot radius too, but only for
       // non-explicit pens (matching the stroke-boost criterion at L18542):
       // explicit dot diameters/linewidths should keep their literal size.
