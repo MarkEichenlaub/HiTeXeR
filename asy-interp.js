@@ -32090,6 +32090,10 @@ function preprocessLatexForKatex(src, forMathJax) {
     [/\\circledast\b/g,   '\\text{\u229B}'],       // ⊛
     [/\\circledcirc\b/g,  '\\text{\u229A}'],       // ⊚
     [/\\complement\b/g,   '\\text{\u2201}'],       // ∁
+    // \textdollar is a text-mode command; in KaTeX math mode it is undefined,
+    // so the label rendered as the raw red "\textdollar". Map it to a text-mode
+    // escaped dollar so it renders as an upright "$" glyph (09482/09484).
+    [/\\textdollar\b/g,   '\\text{\\$}'],
   ];
   for (const [re, to] of replacements) src = src.replace(re, to);
   return src;
