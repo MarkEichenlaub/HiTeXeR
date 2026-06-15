@@ -31864,12 +31864,22 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // ink center (probe: $\mathrm{m}$ 1.3bp low, $y$ 1.6bp low vs TeXeR).
   // Compute the ink box with canvas metrics for the same KaTeX faces and
   // anchor the baseline explicitly instead.
-  if (baseline === 'central') {
+  // Real TeX \vdots hangs BELOW its label centering point, but the KaTeX_Main
+  // glyph ⋮ (U+22EE) with dominant-baseline="central" places its ink ~0.12em
+  // ABOVE the anchor. In lattice diagrams that use \vdots as a top/bottom edge
+  // label (e.g. 04240), this off-by-~0.2-unit gap is what defines the trimmed
+  // bounding box, so the whole dot grid shifts down relative to the reference.
+  // Nudge ⋮ down (keeping the central baseline so node/Blink and browser agree)
+  // so its ink center lands where TeXeR's \vdots does (~0.13 unit below anchor).
+  const _isVdotsGlyph = /^⋮+$/.test((s || '').trim());
+  if (baseline === 'central' && !_isVdotsGlyph) {
     const _ink = _canvasInkMetrics(s, fontSize, fontWeight || 'normal', fontStyle || 'normal', mathMode);
     if (_ink && _ink.h > 0) {
       y = fmt(parseFloat(y) + (_ink.asc - _ink.desc) / 2);
       baseline = 'alphabetic';
     }
+  } else if (baseline === 'central' && _isVdotsGlyph) {
+    y = fmt(parseFloat(y) + fontSize * 0.37);
   }
 
   // Check for super/subscripts
