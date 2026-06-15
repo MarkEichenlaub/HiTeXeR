@@ -3974,6 +3974,24 @@ function createInterpreter() {
           // labels pad OUTSIDE, inflating the frame (00444: x/y axis labels and
           // "1" tick labels pushed the frame to 213×158 instead of ~200×140).
           // Shrink each axis independently so geometry+labels fit.
+          // Axis arrowhead reservation: a `xaxis(...,Arrow)`/`yaxis(...,Arrow)`
+          // extends the drawn axis past the geometry endpoint by the arrowhead
+          // length (bp), and graph.asy seats the EndPoint axis *title* ("$x$",
+          // "$y$") just past that arrow tip with a labelmargin gap. Asymptote's
+          // size(W,H,IgnoreAspect) fits this whole decorated bbox, so the
+          // geometry must shrink to make room. Reserving only the label's text
+          // half-width (below) under-counts the right/top margin (00444: REF
+          // seats "$x$" ~16bp past x=2 — arrow + margin + glyph — but HTX
+          // reserved only ~4bp, leaving geometry ~7% too wide and the origin
+          // pushed right/up). Detect the arrowed-axis allowance and apply it to
+          // EndPoint axis-title labels in their align direction.
+          let _axisArrowLenBp = 0;
+          for (const dc of obj.commands) {
+            if (dc && dc.cmd === 'draw' && dc.arrow && dc.arrow.style && dc.arrow.style !== 'None') {
+              const sz = (typeof dc.arrow.size === 'number' && dc.arrow.size > 0) ? dc.arrow.size : 6;
+              if (sz > _axisArrowLenBp) _axisArrowLenBp = sz;
+            }
+          }
           const labelExt = [];
           for (const dc of obj.commands) {
             if (dc.cmd !== 'label' || !dc.pos) continue;
@@ -3984,15 +4002,21 @@ function createInterpreter() {
             const aMag = dc.align ? Math.max(Math.abs(dc.align.x), Math.abs(dc.align.y)) : 0;
             const ux = aMag > 0 ? dc.align.x / aMag : 0;
             const uy = aMag > 0 ? dc.align.y / aMag : 0;
-            labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy });
+            // EndPoint axis titles ride past the arrow tip: allow arrow length
+            // plus one labelmargin (~0.3*fs) of clearance in the align direction.
+            const outBp = dc._isAxisLabel ? (_axisArrowLenBp + 0.3 * fs) : 0;
+            labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy, outBp });
           }
           if (labelExt.length > 0 && isFinite(sx) && sx > 0 && isFinite(sy) && sy > 0) {
             for (let it = 0; it < 6; it++) {
               let fMinX = gb.minX, fMaxX = gb.maxX, fMinY = gb.minY, fMaxY = gb.maxY;
               for (const L of labelExt) {
                 const twU = L.tw / sx, thU = L.th / sy;
-                const cx = L.x + L.ux * 0.5 * twU;
-                const cy = L.y + L.uy * 0.5 * thU;
+                const oxU = (L.outBp * Math.abs(L.ux)) / sx;
+                const oyU = (L.outBp * Math.abs(L.uy)) / sy;
+                // Anchor pushed out (past the arrow tip) before the glyph extent.
+                const cx = L.x + L.ux * (oxU + 0.5 * twU);
+                const cy = L.y + L.uy * (oyU + 0.5 * thU);
                 if (cx - 0.5 * twU < fMinX) fMinX = cx - 0.5 * twU;
                 if (cx + 0.5 * twU > fMaxX) fMaxX = cx + 0.5 * twU;
                 if (cy - 0.5 * thU < fMinY) fMinY = cy - 0.5 * thU;
@@ -14313,8 +14337,14 @@ function createInterpreter() {
           // endpoint. A *bare* arrow axis with no ticks (00259 "$x$" align=SE,
           // "$y$" align=NW) keeps the standard math corner-label convention —
           // the single letter sits diagonally just past the arrow tip — so do
-          // NOT recenter those.
-          if (ticks && !ticks.none && labelAlign != null && Math.abs(lAlign.x) > 0.01 && Math.abs(lAlign.y) > 0.01) {
+          // NOT recenter those. Ticks whose LABELS are suppressed (Ticks("%"),
+          // the AoPS math-plot idiom in 00444/00445/00430) behave like a bare
+          // axis for title placement — there are no tick numbers to clear — so
+          // the diagonal "$x$" stays corner-anchored past the arrow tip (which
+          // also lets the IgnoreAspect fit reserve that right margin and shrink
+          // the geometry to TeXeR's scale instead of leaving it ~7% too wide).
+          const _xTickLabelsShown = !!ticks && !((ticks.format === '%' && !ticks.labelFunc) || ticks.labels === false);
+          if (ticks && !ticks.none && _xTickLabelsShown && labelAlign != null && Math.abs(lAlign.x) > 0.01 && Math.abs(lAlign.y) > 0.01) {
             const _lfs = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
             _xLabelExtraDx = Math.sign(lAlign.x) * _lfs * 0.1;
             lAlign = {x: 0, y: lAlign.y};
