@@ -21371,20 +21371,41 @@ function createInterpreter() {
         if (anchorPath) {
           const segs = anchorPath.segs;
           const tFrac = (typeof lblObj.position === 'number') ? lblObj.position : 0.5;
-          // Pick an endpoint: 0 = p0 of first seg, 1 = p3 of last seg, else
-          // approximate by parameter index along segment list.
-          let lpos;
-          if (tFrac <= 0) {
-            lpos = makePair(segs[0].p0.x, segs[0].p0.y);
-          } else if (tFrac >= 1) {
-            const last = segs[segs.length - 1];
-            lpos = makePair(last.p3.x, last.p3.y);
-          } else {
-            const idx = Math.min(segs.length - 1, Math.floor(tFrac * segs.length));
-            const s = segs[idx];
-            lpos = makePair((s.p0.x + s.p3.x) / 2, (s.p0.y + s.p3.y) / 2);
+          // Evaluate the label position (and tangent) at parameter tFrac via
+          // de Casteljau on the containing sub-segment — the SAME math as the
+          // string-first path-label branch below (~23280). This makes
+          // draw(Label("x"), g) place identically to draw("x", g).
+          const totalSegs = segs.length;
+          const segParam = tFrac * totalSegs;
+          const segIdx = Math.max(0, Math.min(Math.floor(segParam), totalSegs - 1));
+          const localT = Math.max(0, Math.min(1, segParam - segIdx));
+          const s = segs[segIdx];
+          const bb = 1 - localT;
+          const lpx = bb*bb*bb*s.p0.x + 3*bb*bb*localT*s.cp1.x + 3*bb*localT*localT*s.cp2.x + localT*localT*localT*s.p3.x;
+          const lpy = bb*bb*bb*s.p0.y + 3*bb*bb*localT*s.cp1.y + 3*bb*localT*localT*s.cp2.y + localT*localT*localT*s.p3.y;
+          const lpos = makePair(lpx, lpy);
+          // Asymptote's default align for a path label with NO explicit align is
+          // the RELATIVE perpendicular (right side of the path tangent), not
+          // centered on the line. Without this, draw(Label("$\alpha\ell$",
+          // UnFill), inters--p, Bar(4)) sat the dimension labels centered on the
+          // line; TeXeR offsets them off the line (03294 αℓ / ℓ(1-α)). Match the
+          // string-first inline branch (~23292) exactly.
+          const hadExplicitAlign = !!lblObj.align;
+          let lblAlign = lblObj.align || null;
+          if (!lblAlign) {
+            const tdx = 3*bb*bb*(s.cp1.x - s.p0.x) + 6*bb*localT*(s.cp2.x - s.cp1.x) + 3*localT*localT*(s.p3.x - s.cp2.x);
+            const tdy = 3*bb*bb*(s.cp1.y - s.p0.y) + 6*bb*localT*(s.cp2.y - s.cp1.y) + 3*localT*localT*(s.p3.y - s.cp2.y);
+            let tl = Math.sqrt(tdx*tdx + tdy*tdy), ux, uy;
+            if (tl < 1e-9) {
+              const ddx = s.p3.x - s.p0.x, ddy = s.p3.y - s.p0.y;
+              tl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+              ux = ddx/tl; uy = ddy/tl;
+            } else { ux = tdx/tl; uy = tdy/tl; }
+            const EPS_POS = 1e-6;
+            if (tFrac >= 1 - EPS_POS) lblAlign = makePair(ux, uy);
+            else if (tFrac <= EPS_POS) lblAlign = makePair(-ux, -uy);
+            else lblAlign = makePair(uy, -ux);
           }
-          const lblAlign = lblObj.align || null;
           const lblPen = lblObj.pen || clonePen(defaultPen);
           target.commands.push({
             cmd: 'label',
@@ -21396,7 +21417,7 @@ function createInterpreter() {
             filltype: lblObj.filltype || null,
             line: args._line || 0,
             _fromPathLabel: true,
-            _fromPathLabelNoAlign: !lblAlign,
+            _fromPathLabelNoAlign: !hadExplicitAlign,
           });
         }
       }
