@@ -29996,15 +29996,40 @@ function renderSVG(result, opts) {
             }
           } catch (e) { /* ignore — fall back to heuristic */ }
         } else if (typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
-          // Browser: canvas ink metrics give the real box for UnFill rects.
-          try {
-            const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
-              /[\\$]/.test(_rawForMeas));
-            if (_mk && _mk.w > 0) {
-              _labelWidthMeasured = _mk.w + fontSizeSVG * 0.1;
-              _labelHeightMeasured = _mk.h;
-            }
-          } catch (e) { /* keep heuristic */ }
+          // Browser: prefer the KaTeX SVG emitter's own metrics — the SAME
+          // source the glyph renderer (renderLabelKatexSvg) uses for svgW/svgH.
+          // _katexMeasureBp(text, fontSizeCSS).wBp == widthEm*fontSizeCSS == the
+          // rendered glyph width, so the Fill/UnFill background box and W/E
+          // alignment track the actual glyph (mirroring how the svg-native path
+          // uses MathJax for both box and glyph). The old canvas-ink path
+          // under-measured math layout (\frac, \sqrt) — e.g. "$2R/\sqrt3$" came
+          // out ~22u wide vs KaTeX's ~31u — so the gray box was far too narrow
+          // and the glyphs hung off both sides, and the comparator (MathJax)
+          // box no longer predicted what the live KaTeX app would draw.
+          let _measured = false;
+          if (typeof _katexMeasureBp === 'function' && typeof katexSvg !== 'undefined'
+              && katexSvg.ready && katexSvg.ready()) {
+            try {
+              const _km = _katexMeasureBp(_rawForMeas, fontSizeCSS);
+              if (_km && _km.wBp > 0) {
+                _labelWidthMeasured = _km.wBp + fontSizeSVG * 0.1;
+                if (_km.hBp > 0) _labelHeightMeasured = _km.hBp;
+                _measured = true;
+              }
+            } catch (e) { /* fall through to canvas ink */ }
+          }
+          // Fallback: canvas ink metrics (used when the SVG emitter isn't ready,
+          // e.g. foreignObject/plain-text labels).
+          if (!_measured) {
+            try {
+              const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
+                /[\\$]/.test(_rawForMeas));
+              if (_mk && _mk.w > 0) {
+                _labelWidthMeasured = _mk.w + fontSizeSVG * 0.1;
+                _labelHeightMeasured = _mk.h;
+              }
+            } catch (e) { /* keep heuristic */ }
+          }
         }
       }
 
