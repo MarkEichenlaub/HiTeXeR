@@ -32624,11 +32624,17 @@ function expandMinipageText(text, pen) {
   // Font size determines the bp/char budget.  Default 10pt if no pen.
   const fontPt = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0)
     ? pen.fontsize : 10;
-  // ~5.5 pt per char at 10pt proportional font — empirical value that
-  // matches TeX minipage wrapping for short English phrases (e.g.
-  // "Highest point" in a {2cm} minipage at 10pt wraps to "Highest / point").
-  // Scale linearly with font size: at fontsize(7) the budget is 5.5*0.7 = 3.85.
-  const ptPerChar = 5.5 * (fontPt / 10);
+  // ~5.1 pt per char at 10pt proportional font — empirical value that
+  // matches TeX minipage wrapping. Two calibration anchors:
+  //   - short ragged phrase: "Highest point" in a {2cm} minipage at 10pt
+  //     still wraps to "Highest / point" (budget 56.7/5.1 = 11 chars < 13).
+  //   - long justified prose: 00572/00565/00571's "Here the rectangle ...
+  //     along its sides." (54 units) fills an {8cm} minipage at fontsize(8)
+  //     on one line, matching TeXeR's justified break (budget 226.8/4.08 =
+  //     56 chars >= 54, while adding "We" at 57 overflows). The previous
+  //     5.5 over-estimated char width and broke that line two words early.
+  // Scale linearly with font size: at fontsize(7) the budget is 5.1*0.7 = 3.57.
+  const ptPerChar = 5.1 * (fontPt / 10);
   // Match \begin{minipage}[pos]{width}CONTENT\end{minipage} (non-greedy).
   return text.replace(
     /\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}([\s\S]*?)\\end\{minipage\}/g,
