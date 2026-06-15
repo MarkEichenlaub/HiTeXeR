@@ -656,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.57</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.59</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -1278,6 +1278,12 @@ const AsyParser = {
           const ids = (parsed.lines[li] || '').match(/[a-zA-Z_]\w*/g) || [];
           for (const id of ids) { if (funcByName.has(id)) funcQueue.push(id); }
         }
+        // Also seed from user functions the draw command calls DIRECTLY on its
+        // own line (e.g. draw(graph(actual_rock_func, 0.9, 2)) references
+        // actual_rock_func — a function defined earlier, with no intervening
+        // assignment, so it never lands in depLines and would otherwise be
+        // dropped from the dependency set entirely).
+        for (const v of cmd.vars) { if (funcByName.has(v)) funcQueue.push(v); }
         while (funcQueue.length) {
           const fname = funcQueue.shift();
           if (tracedFuncs.has(fname)) continue;

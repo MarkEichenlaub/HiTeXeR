@@ -135,6 +135,9 @@
   .bulk-panel button:disabled { color: #5b6478; cursor: default; }
   .bulk-panel .bulk-sep { border-top: 1px solid #2a3550; margin: 4px 0; }
   .bulk-busy { font-size: 11px; opacity: 0.75; padding: 4px 14px 2px; color: #fbbf24; }
+  .bulk-status { font-size: 11px; color: #fbbf24; margin-left: 6px; white-space: nowrap; align-self: center; }
+  .bulk-toast { position: fixed; bottom: 16px; right: 16px; background: #0f3460; color: #e0e0e0; border: 1px solid #475569; border-radius: 6px; padding: 8px 14px; font-size: 12px; z-index: 500; opacity: 0; transition: opacity 0.2s; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+  .bulk-toast.show { opacity: 1; }
   .coll-item { display: flex; align-items: center; gap: 7px; padding: 4px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
   .coll-item:hover { background: #1e3a5f; }
   .coll-item input[type=checkbox] { cursor: pointer; accent-color: #e94560; flex-shrink: 0; }
@@ -207,6 +210,8 @@
       <option value="ssim-desc">SSIM (best first)</option>
       <option value="combined-asc">Combined (worst first)</option>
       <option value="combined-desc">Combined (best first)</option>
+      <option value="size-asc">Size score (worst first)</option>
+      <option value="size-desc">Size score (best first)</option>
       <option value="id-asc">ID (ascending)</option>
       <option value="id-desc">ID (descending)</option>
     </select>
@@ -240,6 +245,7 @@
         <div class="bulk-busy" id="bulk-busy" style="display:none"></div>
       </div>
     </div>
+    <span id="bulk-status" class="bulk-status" style="display:none"></span>
     <button id="btn-select-all-visible" title="Select all currently visible diagrams (matching current filters)">Select All (<span id="select-all-count">0</span>)</button>
     <button id="btn-clear-selected" title="Clear selection">Clear</button>
   </div>
@@ -350,6 +356,8 @@
     <div class="close-hint">Press any key to close</div>
   </div>
 </div>
+
+<div id="bulk-toast" class="bulk-toast"></div>
 
 <script>
 (function() {
@@ -618,6 +626,12 @@
       case 'combined-desc':
         list.sort((a, b) => (b.combined ?? -2) - (a.combined ?? -2));
         break;
+      case 'size-asc':
+        list.sort((a, b) => (a.sizeScore ?? 2) - (b.sizeScore ?? 2));
+        break;
+      case 'size-desc':
+        list.sort((a, b) => (b.sizeScore ?? -2) - (a.sizeScore ?? -2));
+        break;
       case 'id-asc':
         list.sort((a, b) => a.id.localeCompare(b.id));
         break;
@@ -662,7 +676,8 @@
         ? `<div class="half-svg" data-htx-id="${d.id}"></div>`
         : '<div class="no-img">no HTX</div>';
       const sortMode = document.getElementById('sort-mode').value;
-      const badge = ssimBadge(sortMode.startsWith('combined') ? (d.combined ?? d.ssim) : d.ssim);
+      const badge = ssimBadge(sortMode.startsWith('combined') ? (d.combined ?? d.ssim)
+        : sortMode.startsWith('size') ? (d.sizeScore ?? d.ssim) : d.ssim);
       const isSel = selected.has(d.id);
       const isQueued = queuedIds.has(d.id);
       return `<div class="thumb${isSel ? ' selected' : ''}${isQueued ? ' queued' : ''}" data-idx="${start + i}" data-id="${d.id}" title="${d.source}">
@@ -728,8 +743,7 @@
     const ids = [...selected].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
     const text = ids.join('\n');
     navigator.clipboard.writeText(text).then(() => {
-      bulkBusy('Copied ' + ids.length + ' IDs');
-      setTimeout(() => bulkBusy(''), 1500);
+      flashBulkToast('Copied ' + ids.length + ' IDs');
     });
   }
 
@@ -785,63 +799,143 @@
     document.querySelectorAll('.thumb img').forEach(img => { img.src = img.src.split('?')[0] + '?t=' + ts; });
   }
 
-  async function handleBulkAction(action) {
+  // ── Bulk-action dispatch ────────────────────────────────────────────────
+  // Instant ops (copy / enqueue / exclude) run IMMEDIATELY and in parallel —
+  // they never wait on a long refetch. Slow ops (refetch / rerender) go through
+  // a single-worker queue so we never run more than one batch at once (one batch
+  // already spawns a headless browser per diagram). Refetch jobs take priority
+  // over rerender jobs, so "re-render + recompute SSIM" naturally queues behind
+  // any pending refetches.
+
+  const bulkQueue = [];      // [{action:'refetch'|'rerender', ids:[]}]
+  let bulkRunning = false;
+  let bulkCurrent = null;    // the in-flight job, or null
+
+  // transient confirmation toast for instant ops (so they don't clobber the
+  // persistent slow-queue status)
+  let bulkToastTimer = null;
+  function flashBulkToast(msg) {
+    const t = document.getElementById('bulk-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(bulkToastTimer);
+    bulkToastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  function bulkStatusText() {
+    const parts = [];
+    if (bulkCurrent) {
+      const verb = bulkCurrent.action === 'refetch' ? 'Refetching + re-scoring' : 'Re-rendering + scoring';
+      parts.push(verb + ' ' + bulkCurrent.ids.length + '…');
+    }
+    const qF = bulkQueue.filter(j => j.action === 'refetch').reduce((s, j) => s + j.ids.length, 0);
+    const qR = bulkQueue.filter(j => j.action === 'rerender').reduce((s, j) => s + j.ids.length, 0);
+    const q = [];
+    if (qF) q.push(qF + ' to refetch');
+    if (qR) q.push(qR + ' to re-render');
+    if (q.length) parts.push('queued: ' + q.join(', '));
+    return parts.join('   ·   ');
+  }
+
+  function renderBulkStatus(overrideMsg) {
+    const txt = overrideMsg != null ? overrideMsg : bulkStatusText();
+    bulkBusy(txt);                                   // detail inside the panel
+    const chip = document.getElementById('bulk-status');
+    if (chip) { chip.textContent = txt; chip.style.display = txt ? '' : 'none'; }
+  }
+
+  function queueBulkJob(action, ids) {
+    bulkQueue.push({ action, ids });
+    renderBulkStatus();
+    runBulkQueue();
+  }
+
+  async function runBulkQueue() {
+    if (bulkRunning) return;
+    bulkRunning = true;
+    while (bulkQueue.length) {
+      // priority: drain all refetch jobs before any rerender job
+      let idx = bulkQueue.findIndex(j => j.action === 'refetch');
+      if (idx < 0) idx = 0;
+      const job = bulkQueue.splice(idx, 1)[0];
+      bulkCurrent = job;
+      renderBulkStatus();
+      const endpoint = job.action === 'refetch' ? '/refetch-batch' : '/rerender-batch';
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: job.ids })
+        });
+        const res = await r.json();
+        if (res.ok) {
+          applyBulkScores(res, job.action === 'refetch');
+          const okCount = res.okCount != null ? res.okCount : job.ids.length;
+          flashBulkToast((job.action === 'refetch' ? 'Refetched ' : 'Re-rendered ') + okCount + '/' + job.ids.length);
+        } else {
+          flashBulkToast('Batch error: ' + (res.error || 'failed'));
+        }
+      } catch (e) {
+        console.error('bulk job failed:', e);
+        flashBulkToast('Server not running');
+      }
+      bulkCurrent = null;
+    }
+    bulkRunning = false;
+    renderBulkStatus('');
+  }
+
+  function handleBulkAction(action) {
     const ids = selectedIdsOrdered();
     document.getElementById('bulk-panel').classList.remove('open');
     if (!ids.length) return;
 
+    // ---- instant ops: run right away, in parallel, never blocked ----
     if (action === 'copy') { copySelectedIds(); return; }
 
-    let endpoint, body = { ids };
-    if (action === 'refetch')  endpoint = '/refetch-batch';
-    else if (action === 'rerender') endpoint = '/rerender-batch';
-    else if (action === 'enqueue') {
+    if (action === 'enqueue') {
       const description = prompt('Describe what to fix (optional) — applied to all ' + ids.length + ' diagrams:', '');
       if (description === null) return;
-      endpoint = '/enqueue-batch'; body = { ids, description };
-    } else if (action === 'exclude') {
-      if (!confirm('Exclude ' + ids.length + ' diagram(s) from the comparator?')) return;
-      endpoint = '/exclude-batch';
-    } else return;
-
-    setBulkDisabled(true);
-    const verb = action === 'refetch' ? 'Refetching + re-scoring'
-               : action === 'rerender' ? 'Re-rendering + scoring'
-               : action === 'enqueue' ? 'Enqueuing'
-               : 'Excluding';
-    bulkBusy(verb + ' ' + ids.length + ' diagram(s)…');
-    try {
-      const r = await fetch(endpoint, {
+      fetch('/enqueue-batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const res = await r.json();
-      if (!res.ok) { bulkBusy('Error: ' + (res.error || 'failed')); return; }
+        body: JSON.stringify({ ids, description })
+      }).then(r => r.json()).then(res => {
+        if (res.ok) {
+          ids.forEach(id => queuedIds.add(String(id)));
+          updateQueueIndicators();
+          flashBulkToast('Enqueued ' + ids.length + ' (queue ' + res.queueLength + ')');
+        } else flashBulkToast('Enqueue error: ' + (res.error || 'failed'));
+      }).catch(() => flashBulkToast('Server not running'));
+      return;
+    }
 
-      if (action === 'refetch' || action === 'rerender') {
-        applyBulkScores(res, action === 'refetch');
-        const okCount = res.okCount != null ? res.okCount : ids.length;
-        bulkBusy('Done: ' + okCount + '/' + ids.length + ' scored');
-      } else if (action === 'enqueue') {
-        ids.forEach(id => queuedIds.add(String(id)));
-        updateQueueIndicators();
-        bulkBusy('Enqueued ' + ids.length + ' (queue ' + res.queueLength + ')');
-      } else if (action === 'exclude') {
-        ids.forEach(id => {
-          droppedSet.add(id);
-          if (manifest.droppedIds && !manifest.droppedIds.includes(id)) manifest.droppedIds.push(id);
-          selected.delete(id);
-        });
-        applyFilters(true);
-        updateSelectedCount();
-        bulkBusy('Excluded ' + ids.length);
-      }
-    } catch (e) {
-      bulkBusy('Server not running');
-      console.error('bulk action error:', e);
-    } finally {
-      setBulkDisabled(false);
-      setTimeout(() => bulkBusy(''), 4000);
+    if (action === 'exclude') {
+      if (!confirm('Exclude ' + ids.length + ' diagram(s) from the comparator?')) return;
+      fetch('/exclude-batch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      }).then(r => r.json()).then(res => {
+        if (res.ok) {
+          ids.forEach(id => {
+            droppedSet.add(id);
+            if (manifest.droppedIds && !manifest.droppedIds.includes(id)) manifest.droppedIds.push(id);
+            selected.delete(id);
+          });
+          applyFilters(true);
+          updateSelectedCount();
+          flashBulkToast('Excluded ' + ids.length);
+        } else flashBulkToast('Exclude error: ' + (res.error || 'failed'));
+      }).catch(() => flashBulkToast('Server not running'));
+      return;
+    }
+
+    // ---- slow ops: enqueue onto the single-worker job queue ----
+    if (action === 'refetch' || action === 'rerender') {
+      queueBulkJob(action, ids);
+      flashBulkToast('Queued ' + ids.length + ' to ' + (action === 'refetch' ? 'refetch' : 're-render'));
+      // Clear the selection so the user can immediately build the next batch
+      // ("send 10, find 5 more, click refetch") without re-including these.
+      clearSelected();
     }
   }
 
