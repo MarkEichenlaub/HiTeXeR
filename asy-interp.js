@@ -25889,7 +25889,7 @@ function renderSVG(result, opts) {
         const _ltHasScale = !!dc.labelTransform && Math.abs(ltScale - 1) > 0.01;
         let _mjxMeasured = false;
         let _mjxHBp = null;
-        if ((hasFrac || _ltHasScale) && opts && opts.labelOutput === 'svg-native'
+        if ((hasFrac || _ltHasScale || hasUnitScale) && opts && opts.labelOutput === 'svg-native'
             && typeof _mjxMeasureBp === 'function'
             && typeof text === 'string' && text.indexOf('\n') === -1) {
           try {
@@ -25906,6 +25906,15 @@ function renderSVG(result, opts) {
               // clipping (04456's scale(0.75) "y = -2x + 24"). Let the measured width
               // stand instead of the floors so it isn't re-inflated and width-bound.
               if (_ltHasScale) { textWidthBpBase = _mm.wBp + fontSize * 0.25; _mjxMeasured = true; }
+              // unitsize() diagrams: pxPerUnit is FIXED (no size() scale solver),
+              // so this label-expanded bbox sets only the canvas extent, never the
+              // geometry scale. The 0.52-em/char heuristic floor over-estimates
+              // wide labels by 30-50% and inflated the viewBox far past the rendered
+              // ink (04086's "F=-kΔx" + caption canvas was ~30% too wide, sizeScore
+              // 0.12). Trust the exact MathJax width with the same 1.06 side-bearing
+              // margin the label-overshoot pass applies, so the canvas hugs the real
+              // glyph extent. Frac labels keep their measured-width branch above.
+              else if (hasUnitScale && !hasFrac) { textWidthBpBase = _mm.wBp * 1.06; _mjxMeasured = true; }
             }
           } catch (e) { /* fall back to heuristic */ }
         }
