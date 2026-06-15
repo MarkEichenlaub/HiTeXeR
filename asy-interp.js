@@ -8582,44 +8582,29 @@ function createInterpreter() {
         const ph1 = toNumber(args[3]) * Math.PI / 180;
         const th2 = toNumber(args[4]) * Math.PI / 180;
         const ph2 = toNumber(args[5]) * Math.PI / 180;
-        // Optional polar/azimuth axes (default Z, X). Build orthonormal frame
-        // (uHat, vHat, wHat) where wHat = polar, uHat = azimuth-projected onto plane perp to wHat.
-        let polar = (args.length >= 7 && isTriple(args[6])) ? args[6] : makeTriple(0,0,1);
-        let azim  = (args.length >= 8 && isTriple(args[7])) ? args[7] : makeTriple(1,0,0);
-        const wlen = Math.hypot(polar.x, polar.y, polar.z) || 1;
-        const wHat = {x: polar.x/wlen, y: polar.y/wlen, z: polar.z/wlen};
-        // uHat = normalize(azim - (azim·wHat)*wHat)
-        let dotAW = azim.x*wHat.x + azim.y*wHat.y + azim.z*wHat.z;
-        let ux = azim.x - dotAW*wHat.x, uy = azim.y - dotAW*wHat.y, uz = azim.z - dotAW*wHat.z;
-        let ulen = Math.hypot(ux, uy, uz);
-        if (ulen < 1e-9) {
-          // degenerate: pick fallback perpendicular to wHat
-          const fb = Math.abs(wHat.x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:1,z:0};
-          dotAW = fb.x*wHat.x + fb.y*wHat.y + fb.z*wHat.z;
-          ux = fb.x - dotAW*wHat.x; uy = fb.y - dotAW*wHat.y; uz = fb.z - dotAW*wHat.z;
-          ulen = Math.hypot(ux, uy, uz);
-        }
-        const uHat = {x: ux/ulen, y: uy/ulen, z: uz/ulen};
-        // vHat = wHat × uHat
-        const vHat = {
-          x: wHat.y*uHat.z - wHat.z*uHat.y,
-          y: wHat.z*uHat.x - wHat.x*uHat.z,
-          z: wHat.x*uHat.y - wHat.y*uHat.x
-        };
-        // Asymptote's arc(c,r,theta1,phi1,theta2,phi2) draws the GREAT-CIRCLE arc
-        // on the sphere from c+r*dir(theta1,phi1) to c+r*dir(theta2,phi2) — i.e. the
-        // geodesic between the two endpoints, NOT a constant-theta small circle.
-        // (When theta1==theta2==90 the geodesic IS the equator, so equatorial arcs
-        // are unaffected; only oblique spans like 03714's theta=15 phi 0->180 — which
-        // arcs over the pole, not around the latitude — depend on this.)
+        // 7th arg is the arc-plane NORMAL (Asymptote three.asy:
+        //   arc(c, r, theta1, phi1, theta2, phi2, triple normal=O, bool direction=CCW))
+        // NOT a polar coordinate axis. The endpoints are ALWAYS evaluated in the
+        // global frame via dir(theta,phi) = (sin θ cos φ, sin θ sin φ, cos θ); the
+        // normal only orients the arc (it disambiguates which great circle joins
+        // antipodal endpoints, and selects CCW/CW). Default normal = +Z.
+        //
+        // Treating the 7th arg as a polar axis (the old behaviour) reflected the
+        // endpoint frame for normal = -Z, so dir(90, φ) moved to the mirror point;
+        // combined with the antipodal sweep `normal × d1` this made BOTH the Z and
+        // -Z half-equators trace the SAME (front) semicircle, so the dashed back
+        // arcs in the sphere-packing diagrams (03635/03636/03640) were painted over
+        // by the solid front arcs and vanished. With global endpoints, normal = +Z
+        // selects the front half-equator and -Z the back, as TeXeR draws them.
+        const normalArg = (args.length >= 7 && isTriple(args[6])) ? args[6] : makeTriple(0,0,1);
+        const wlen = Math.hypot(normalArg.x, normalArg.y, normalArg.z) || 1;
+        const wHat = {x: normalArg.x/wlen, y: normalArg.y/wlen, z: normalArg.z/wlen};
+        // Endpoint directions in the GLOBAL frame. (When theta1==theta2==90 the
+        // geodesic IS the equator; oblique spans like 03714's theta=15 phi 0->180
+        // arc over the pole. Both are frame-independent.)
         const dirVec = (th, ph) => {
           const st = Math.sin(th), ct = Math.cos(th);
-          const lu = st * Math.cos(ph), lv = st * Math.sin(ph), lw = ct;
-          return {
-            x: lu*uHat.x + lv*vHat.x + lw*wHat.x,
-            y: lu*uHat.y + lv*vHat.y + lw*wHat.y,
-            z: lu*uHat.z + lv*vHat.z + lw*wHat.z
-          };
+          return { x: st * Math.cos(ph), y: st * Math.sin(ph), z: ct };
         };
         const d1 = dirVec(th1, ph1), d2 = dirVec(th2, ph2);
         const cosA = Math.max(-1, Math.min(1, d1.x*d2.x + d1.y*d2.y + d1.z*d2.z));
@@ -23364,7 +23349,15 @@ function createInterpreter() {
       }
       // If draw call has a label, handle it: either register for legend or place inline
       if (labelText && pathArg.segs && pathArg.segs.length > 0) {
-        const labelEffectivePen = labelPen || pen;
+        // Resolve the label pen the way Asymptote does: an explicit label/draw
+        // pen (e.g. Label(s, blue)) only overrides the attributes it actually
+        // sets (here, colour), while unset attributes — crucially fontsize —
+        // fall back to defaultpen. Without layering over defaultPen, a bare
+        // colour pen carried the base 12pt and ignored `defaultpen(fontsize(10pt))`,
+        // so labels on a path (e.g. the 3D dimension labels in 03640/03635/03636)
+        // rendered ~1.2× too large. The plain label() form already merges
+        // defaultPen; this brings draw(Label, path, pen) into line with it.
+        const labelEffectivePen = mergePens(clonePen(defaultPen), labelPen || pen);
 
         // Determine if this label is for legend or inline:
         // - Label objects (from draw(graph(...), pen, Label(...))) → register for legend, don't inline
@@ -30188,7 +30181,18 @@ function renderSVG(result, opts) {
         let rectX = rx - estW / 2;
         if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
         else if (anchor === 'end') rectX = rx - estW + fontSizeSVG * 0.05;
-        const rectY = ry - estH / 2;
+        // Vertical tracking: the glyph renderer shifts the text by
+        // ayN*(hEst - svgH) (renderLabelMathJaxSVG line ~32810) because dy was
+        // computed from the estimated height hEst, not the measured height. The
+        // box's rectY uses the same un-corrected dy, so for vertically-aligned
+        // labels (ayN != 0) the box drifted off the glyph and descenders poked
+        // out the bottom (e.g. 03640's "$2R/\sqrt3$" gray Fill box). Apply the
+        // same shift so the box stays centred on the glyph. estH == svgH for the
+        // measured math path, so this matches the glyph's correction; for
+        // centred labels (_labelAyN == 0) it is a no-op, leaving the calibrated
+        // UnFill/Fill boxes for non-aligned labels untouched.
+        const _fillVTrack = _labelAyN ? _labelAyN * (_labelHEst - estH) : 0;
+        const rectY = ry - estH / 2 + _fillVTrack;
         // Padding for UnFill background — Asymptote's erase box is the exact
         // TeX bbox; a hairline of padding covers raster antialiasing only.
         const pad = fontSizeSVG * 0.05;
