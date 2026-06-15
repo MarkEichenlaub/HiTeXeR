@@ -13438,9 +13438,20 @@ function createInterpreter() {
           // (graph_settings.asy: ticksize=1mm; Ticksize=2*ticksize). The
           // minor size is ticksize = 1mm, applied as exactly half below.
           defaultTickSize = 5.669291339 / bpPerUnit;
-          // Safety cap: never exceed 12% of the perpendicular range
-          const cap = perpAxisRange * 0.12;
-          if (defaultTickSize > cap) defaultTickSize = cap;
+          // Safety cap: never exceed 12% of the perpendicular range. This guards
+          // against unreliable scale estimates ballooning ticks, but it only
+          // applies when bpPerUnit is an AUTO-FIT estimate (no size()/unitsize()).
+          // For an explicit size()/unitsize() the 5.669bp tick is a TRUE physical
+          // 2mm length and must NOT be shrunk by an incidentally-tiny perpendicular
+          // data range: 00401's number line has a y-extent of only 0.4 (the ±0.2
+          // marks at 0,2), so the 0.12*0.4=0.048 cap crushed 2mm ticks to ~0.5mm,
+          // far shorter than TeXeR's. With a physical scale the 2mm tick is exactly
+          // what Asymptote draws regardless of data range.
+          const scaleIsPhysical = (sizeW > 0 || sizeH > 0 || hasUnitScale);
+          if (!scaleIsPhysical) {
+            const cap = perpAxisRange * 0.12;
+            if (defaultTickSize > cap) defaultTickSize = cap;
+          }
         } else {
           defaultTickSize = perpAxisRange * 0.03;
         }
