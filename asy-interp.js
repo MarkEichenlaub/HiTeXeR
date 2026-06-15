@@ -26301,30 +26301,52 @@ function renderSVG(result, opts) {
           const m = _fitMeasure(t, li._fontSize || 12);
           if (m && m.wBp > 0) {
             let w = m.wBp * _TEXER_LBL_W_CAL;
-            // rotate the measured box like the heuristic path does
             if (Math.abs(li._ltAngle || 0) > 0.5) {
-              const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
-              const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
+              // ── ROTATED label (e.g. a Rotate()'d path label) ──
+              const phi = li._ltAngle * Math.PI / 180;
+              const cosA = Math.abs(Math.cos(phi));
+              const sinA = Math.abs(Math.sin(phi));
               const hh = Math.max(m.hBp > 0 ? m.hBp : 0, (li._fontSize || 12) * 0.75);
               const wIn = w;
+              // Axis-aligned bbox of the rotated text box.
               w = wIn * cosA + hh * sinA;
-              // The heuristic heightBp rotated the OVER-estimated width into
-              // the height (00140's 60°-rotated sqrt label claimed ~160bp tall
-              // and made the bare LP infeasible). Use the measured width here.
               li._fitHBp = wIn * sinA + hh * cosA;
+              li._fitWBp = w;
+              // Alignment offset of a ROTATED label. The anchor does NOT sit at
+              // the edge of the full rotated bbox — that reserves half the
+              // rotated extent on the align side (00140's 60° sqrt label then
+              // claimed +106bp above the hypotenuse midpoint, crushing the bare
+              // LP to ~0.46× scale). Asymptote shifts the anchor to the box edge
+              // in the label's LOCAL (un-rotated) frame, per axis, then rotates:
+              //   off = R(phi)·(aLocal.x·wIn/2, aLocal.y·hh/2) + margin·a,
+              //   aLocal = R(-phi)·a   (a = align unit vector).
+              // Validated vs local asy 3.05: 00140 sqrt label box
+              // x[-38.2,30.3] y[-30.3,67.0], center offset (-4.0,+18.4); the LP
+              // then yields the oracle scale a≈76 (was ~35).
+              const aux = li._axAl || 0, auy = li._ayAl || 0;
+              const cphi = Math.cos(phi), sphi = Math.sin(phi);
+              const aLocX = aux * cphi + auy * sphi;   // R(-phi)·a
+              const aLocY = -aux * sphi + auy * cphi;
+              const oLocX = aLocX * (wIn / 2);
+              const oLocY = aLocY * (hh / 2);
+              const margin = 0.40 * (li._fontSize || 12);
+              li._fitOffXBp = (oLocX * cphi - oLocY * sphi) + aux * margin + (li._screenDx || 0);
+              li._fitOffYBp = (oLocX * sphi + oLocY * cphi) + auy * margin - (li._screenDy || 0);
+            } else {
+              // ── Un-rotated label ── anchor at the box edge in the align
+              // direction (axN·width). The stored alignOffsetXBp was derived
+              // from the HEURISTIC width; recompute from the measured width so
+              // an E/W-aligned label's box sits at the right offset.
+              li._fitWBp = w;
+              const aInf = Math.max(Math.abs(li._axAl || 0), Math.abs(li._ayAl || 0));
+              const axN = aInf > 0 ? (li._axAl * 0.5 / aInf) : 0;
+              li._fitOffXBp = axN * w + (li._axAl || 0) * 0.40 * (li._fontSize || 12)
+                + (li._screenDx || 0);
+              const ayN = aInf > 0 ? (li._ayAl * 0.5 / aInf) : 0;
+              const hForOff = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
+              li._fitOffYBp = ayN * hForOff + (li._ayAl || 0) * 0.40 * (li._fontSize || 12)
+                - (li._screenDy || 0);
             }
-            li._fitWBp = w;
-            // The stored alignOffsetXBp was derived from the HEURISTIC width
-            // (axN·widthBp + ax·0.4·fontSize). Recompute it from the measured
-            // width so an E/W-aligned label's box sits at the right offset.
-            const aInf = Math.max(Math.abs(li._axAl || 0), Math.abs(li._ayAl || 0));
-            const axN = aInf > 0 ? (li._axAl * 0.5 / aInf) : 0;
-            li._fitOffXBp = axN * w + (li._axAl || 0) * 0.40 * (li._fontSize || 12)
-              + (li._screenDx || 0);
-            const ayN = aInf > 0 ? (li._ayAl * 0.5 / aInf) : 0;
-            const hForOff = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
-            li._fitOffYBp = ayN * hForOff + (li._ayAl || 0) * 0.40 * (li._fontSize || 12)
-              - (li._screenDy || 0);
           }
         } catch (e) { /* keep heuristic */ }
       }
