@@ -1660,8 +1660,22 @@ function hobbySpline(knots, closed, directions) {
     for (let i = 1; i < n - 1; i++) {
       const dir = directions[i];
       if (dir && dir.dirIn != null && dir.dirOut != null && dir.dirIn !== dir.dirOut) {
-        const left = hobbySpline(knots.slice(0, i + 1), false, directions.slice(0, i + 1));
-        const right = hobbySpline(knots.slice(i), false, directions.slice(i));
+        // The cusp knot is a corner. On the LEFT spline it is the TERMINAL knot,
+        // where only its incoming direction (dirIn) applies; on the RIGHT spline
+        // it is the INITIAL knot, where only its outgoing direction (dirOut)
+        // applies. Pass each side just the relevant single-direction constraint
+        // so the verified dirIn-only / dirOut-only endpoint handling is used.
+        // Carrying BOTH directions into a sub-spline left the terminal knot with
+        // dirOut set, which routed through the phi-override branch and REVERSED
+        // the arrival tangent (12956 roof: (500,468)..{1,-1.3}(597,367) pointed
+        // up-left instead of down-right, flattening the roof and kinking the
+        // windshield/door join).
+        const leftDirs = directions.slice(0, i + 1);
+        leftDirs[i] = { dirIn: dir.dirIn };
+        const rightDirs = directions.slice(i);
+        rightDirs[0] = { dirOut: dir.dirOut };
+        const left = hobbySpline(knots.slice(0, i + 1), false, leftDirs);
+        const right = hobbySpline(knots.slice(i), false, rightDirs);
         return left.concat(right);
       }
     }
