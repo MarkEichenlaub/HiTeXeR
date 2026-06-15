@@ -25899,6 +25899,16 @@ function renderSVG(result, opts) {
         const cleanLines = rawLines.map(l => stripLaTeX(l));
         const cleanText = cleanLines.join(' ');
 
+        // An empty-text label produces a zero-size frame in Asymptote and must
+        // not expand the picture bbox. The width already computes to 0, but the
+        // height heuristic below uses fontSize*heightFactor regardless of text,
+        // so a blank label still reserved ~one font-size of space. The AoPS
+        // "blank axes" template emits `label("", (xmax/2,ymax), N, fontsize(20))`
+        // for an absent title; that reserved ~21bp above the plot, shrinking the
+        // graph box during the size() fit (09104: top margin 86px vs TeXeR 23px,
+        // box height 549px vs 615px). Skip it entirely.
+        if (cleanText.trim() === '') continue;
+
         // Account for label transform (scale/rotate) in bbox estimation
         let ltScale = 1, ltAngle = 0;
         if (dc.labelTransform) {
@@ -26068,6 +26078,19 @@ function renderSVG(result, opts) {
             if (_isAxis90) {
               dx = ax * (H_bp / 2 / roughPxPerUnitX + marginX);
               dy = 0;
+              // Endpoint-pinned rotated axis label (position=0/1): the render
+              // pass shifts the label ±half its rotated length INTO the axis
+              // span (line ~30061) so it doesn't overhang past the endpoint.
+              // The bbox must mirror that, otherwise it expands ~half a label-
+              // height past the endpoint into empty space, inflating the size()
+              // fit and leaving a phantom margin there. For a top endpoint
+              // (_axisLabelEndShift=+1) the render shifts down (toward axis
+              // interior = lower user-y), so the bbox center moves down by
+              // textHeightUser/2, pinning the bbox edge at the endpoint
+              // (09104 y-label "T (s)": removed ~14.7pt phantom top margin).
+              if (dc._axisLabelEndShift) {
+                dy = -dc._axisLabelEndShift * (textHeightUser / 2);
+              }
             } else {
               // Rotated label: Asymptote drawlabel.cc applies the alignment in the
               // LOCAL (un-rotated) text frame, then rotates the offset to world coords.
@@ -28148,6 +28171,12 @@ function renderSVG(result, opts) {
       // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
       const rawLabelLines = (dc.text || '').split('\n');
       const cleanLabelLines = rawLabelLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
+      // An empty-text label produces a zero-size frame in Asymptote, so it
+      // overshoots the viewBox by nothing. The AoPS "blank axes" template emits
+      // `label("", (xmax/2,ymax), N, fontsize(20))` for an absent title; with
+      // fontsize(20) + N alignment this pass otherwise reserved ~20pt of empty
+      // space above the plot (09104 phantom top margin). Skip it.
+      if (dc.cmd === 'label' && cleanLabelLines.length === 0) continue;
       const cleanLen = (cleanLabelLines.length > 0 ? Math.max(...cleanLabelLines.map(l => l.length)) : 1) || 1;
       const numLines = cleanLabelLines.length || 1;
 
@@ -28373,6 +28402,18 @@ function renderSVG(result, opts) {
             const aWy = sinT * cOffX + cosT * cOffY;
             dx = ax * margin - aWx;
             dy = -(ay * margin - aWy);
+            // Endpoint-pinned rotated axis label (position=0/1): the renderer
+            // shifts it ±half its rotated length INTO the axis span (line ~30061)
+            // so it doesn't overhang past the endpoint. Mirror that here, else
+            // this pass pads the viewBox by ~half a label-height of empty space
+            // past the endpoint. For a top y-endpoint the anchor sits at the
+            // geometry-bbox top (sy≈0), so without this the label's bbox lands
+            // wholly ABOVE the box, inflating the canvas top (09104 y-label
+            // "T (s)": ~14.7pt phantom top margin; effH==localW here, so the
+            // +localW/2 center shift pins the top edge exactly at the endpoint).
+            if (dc._axisLabelEndShift) {
+              dy += dc._axisLabelEndShift * (localW / 2);
+            }
           } else {
             // Cap width at 2×H to match renderer's reflection-branch logic
             const localWCapped = Math.min(localW, localH * 2);
