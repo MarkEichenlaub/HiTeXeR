@@ -150,7 +150,7 @@ function main() {
   const renderResult = cp.spawnSync(
     process.execPath,
     [path.join(__dirname, 'render-and-score.js'), '--ids', selectedIds.join(',')],
-    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10 * 60 * 1000 }
+    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10 * 60 * 1000, windowsHide: true }
   );
   const liveScores = new Map();
   for (const line of (renderResult.stdout || '').split('\n')) {
@@ -211,7 +211,7 @@ function runUpdate() {
   const renderResult = cp.spawnSync(
     process.execPath,
     [path.join(__dirname, 'render-and-score.js'), '--ids', ids.join(',')],
-    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10 * 60 * 1000 }
+    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10 * 60 * 1000, windowsHide: true }
   );
   const liveScores = new Map();
   for (const line of (renderResult.stdout || '').split('\n')) {
