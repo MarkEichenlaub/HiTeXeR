@@ -28648,7 +28648,20 @@ function renderSVG(result, opts) {
         const _vBidir = padT > 0.5 && padB > 0.5 &&
           Math.min(padT, padB) / Math.max(padT, padB) >= 0.5;
         const _domBidir = (overshootScaleW >= overshootScaleH) ? _hBidir : _vBidir;
-        if (_symmetric || _domBidir) {
+        // Balanced symmetric overshoot BELOW the _symThr=1.12 floor: the two axes
+        // overshoot by a near-equal factor (osW≈osH, ratio ≥ _balThr) but each
+        // axis's label sits on ONE side (e.g. an EndPoint "$x$" hanging off the
+        // right tip, "$y$" off the top tip — slope fields 00260/00259/00261/
+        // 00269-00273). That is still the "geometry surrounded by labels" case
+        // TeXeR fits into the default-size box, but it was missed: _symmetric
+        // needs osMin≥1.12 and _domBidir needs bidirectional padding on a single
+        // axis (padL≈padR). With neither matching, intrinsicW/H were left at the
+        // geometry-only size while the viewBox expanded, rendering ~7% too small
+        // (every such slope field, sizeScore 0.87-0.90). The _balThr balance test
+        // still excludes genuine one-sided captions (osW≫osH, e.g. 03928), which
+        // must expand the canvas rather than clamp.
+        const _balancedSym = _osMin >= 1.05 && (_osMin / _osMax) >= _balThr;
+        if (_symmetric || _domBidir || _balancedSym) {
           // Fit the full label-inclusive picture into the defaultSize box
           // (uniform clamp), matching TeXeR's bound-everything sizing for
           // compact figures whose labels surround the geometry.
@@ -28937,15 +28950,27 @@ function renderSVG(result, opts) {
         baseSize = (dc.arrow.size || 6) * explicitBoost;
       }
       let arrowLen = baseSize * bpCSSPixel;
-      // Clamp arrow length to 70% of total path length (same as generateArrowHead)
+      // Mirror generateArrowHead's sizing EXACTLY so the stroke shortening and
+      // the drawn arrowhead agree on where the head base sits. They previously
+      // diverged — this block clamped the shorten amount at 0.7*totalLen while
+      // generateArrowHead clamps the head at 0.5*totalLen — so on SHORT paths
+      // like slopefield segments the tail was shortened ~0.2*len MORE than the
+      // head was long, leaving a visible GAP between tail and arrowhead (00260).
+      // Apply the same <3 floor and 0.5*totalLen clamp as generateArrowHead.
+      if (!dc.arrow.texHead && arrowLen < 3) arrowLen = 3;
       let totalLen = 0;
       for (const s of dc.path.segs) {
         const dx = (s.p3.x - s.p0.x) * pxPerUnitX, dy = (s.p3.y - s.p0.y) * pxPerUnitY;
         totalLen += Math.sqrt(dx*dx + dy*dy);
       }
-      if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
+      if (arrowLen > totalLen * 0.5) arrowLen = totalLen * 0.5;
 
-      const shortenLen = arrowLen;
+      // A FILLED arrowhead (solid triangle) is opaque and overlaps the stroke,
+      // so tuck the tail slightly UNDER the base (0.9x) to guarantee no sub-pixel
+      // seam. Open heads (TeXHead / SimpleHead) shorten by the full head length
+      // so the stroke doesn't show through the open chevron.
+      const _isOpenHead = !!dc.arrow.texHead || dc.arrow.headKind === 'SimpleHead';
+      const shortenLen = _isOpenHead ? arrowLen : arrowLen * 0.9;
 
       // Arrow(Relative(t)) places the head mid-path; don't shorten path endpoints.
       const _hasRelPos = dc.arrow.position !== undefined;
