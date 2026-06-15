@@ -25624,11 +25624,14 @@ function renderSVG(result, opts) {
       // clip commands don't contribute to bbox — they constrain it (handled below)
       continue;
     } else if (dc.path) {
-      // Skip white fills for bbox: fill(box(...), white) is a background erase
-      // that shouldn't define the bounding box (matches Asymptote behavior)
-      if (dc.cmd === 'fill' && dc.pen && dc.pen.r >= 0.99 && dc.pen.g >= 0.99 && dc.pen.b >= 0.99) {
-        continue;
-      }
+      // White fills DO expand the bounding box in real Asymptote — a white
+      // fill is an ordinary drawing primitive, not a no-op. Diagrams such as
+      // 00418 (pacman: fill(unitcircle,green) then fill((0,0)--A--(A+B)--B--
+      // cycle,white) carving the mouth) rely on the white quad's rightward
+      // extent (x≈1.573) defining a LANDSCAPE viewBox, exactly as TeXeR/stock
+      // asy produce. `unfill` already contributes here; white `fill` must too.
+      // (Background-erase rects that merely cover existing content don't change
+      // the bbox anyway, since their extent lies within the colored geometry.)
       // Tick marks have fixed physical size — they should not inflate the geometry bbox.
       // In real Asymptote, tick sizes are in bp (physical points), not user coordinates.
       if (dc._isTickMark) continue;
