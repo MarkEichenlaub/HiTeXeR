@@ -29681,6 +29681,7 @@ function renderSVG(result, opts) {
       // correct. Single-line text handles this again via fontSizeCmdRe further below
       // (which strips the command and re-scales effectiveFontSize), but we must apply it
       // here first so fontSizeSVG is correct for W/H/margin computation.
+      let _preFsApplied = false;
       {
         const _preFsCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
         const _preFsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
@@ -29698,6 +29699,7 @@ function renderSVG(result, opts) {
           const _baseFs = Math.min(fontSize, 12);
           fontSizeSVG = _baseFs * _pfsScale * bpCSSPixel;
           fontSizeCSS = _baseFs * _pfsScale * labelShrinkFactor;
+          _preFsApplied = true;
         }
       }
       let dx = 0, dy = 0;
@@ -30212,9 +30214,18 @@ function renderSVG(result, opts) {
         // — see longer comment above the matching pre-scale block. Without this,
         // fontsize(24pt)+\huge in 06139 renders the bare "d" at 49.78pt instead
         // of the expected ~24.88pt.
-        const _absRatio = Math.min(fontSize, 12) * fontSizeScale / fontSize;
-        effectiveFontSize *= _absRatio;
-        effectiveFontSizeCSS *= _absRatio;
+        // The _preFs block (~29684) already folded this selector's scale into
+        // fontSizeSVG/fontSizeCSS, and effectiveFontSize/CSS are initialized from
+        // those (~29938). Re-applying it here double-counts the selector — e.g.
+        // \footnotesize rendered at 0.8×0.8=0.64 instead of 0.8, so 00115's legend
+        // came out ~24% too small (oracle footnotesize/normalsize ratio ≈0.855,
+        // htx was ≈0.642). Only apply when _preFs did NOT (defensive: both blocks
+        // match the same selectors, so _preFsApplied is true whenever we reach here).
+        if (!_preFsApplied) {
+          const _absRatio = Math.min(fontSize, 12) * fontSizeScale / fontSize;
+          effectiveFontSize *= _absRatio;
+          effectiveFontSizeCSS *= _absRatio;
+        }
       }
 
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
