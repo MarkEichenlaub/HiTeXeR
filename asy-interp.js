@@ -24240,41 +24240,74 @@ function createInterpreter() {
         const d = Math.sqrt((p.x-ccx)*(p.x-ccx) + (p.y-ccy)*(p.y-ccy));
         if (d > radius) radius = d;
       }
-      // Highlight position: project the surface point that faces the light.
-      // For perspective projections of off-axis spheres, this projected
-      // point can land slightly outside the silhouette circle (because
-      // my silhouette is sampled along the great circle perpendicular to
-      // the *parallel* view axis rather than the eye-to-center line).
-      // SVG <radialGradient> renders mostly as the outermost stop color
-      // when fx,fy is outside the (cx,cy,r) circle, which produces a
-      // nearly-black sphere.  Clamp the focal toward center so it stays
-      // safely inside (≤ 0.92r from center).
-      let hp = projectTriple(makeTriple(sc.x + sr*slx, sc.y + sr*sly, sc.z + sr*slz));
+      const br = basePen.r || 0, bg = basePen.g || 0, bb = basePen.b || 0;
+      const _cl01 = v => Math.max(0, Math.min(1, v));
+      // A material(...) with an explicit emissivepen (e.g. 03640's
+      // material(gray(0.7), black, gray(0.35))) shades very differently from a
+      // bare-pen surface: the emissive term is a lighting-independent floor, so
+      // the shadow side never goes to near-black, and the visible bright spot
+      // is the SPECULAR highlight at the half-vector H=normalize(L+V) — TeXeR's
+      // PRC raster puts 03640's brightest pixel ~0.46r up-right of centre, which
+      // is the half-vector, not the diffuse peak at the light direction (~0.87r).
+      // Bare-pen spheres (the bulk of the corpus: 03360, 06xxx, 00475/76, …) are
+      // diffuse-dominated and peak at the light direction, so they keep the
+      // original focal + stops untouched (no regression). Detect the emissive
+      // case via the pen the material() stub tagged with _emissivePen.
+      const _emPen = basePen._emissivePen;
+      const _useEmissiveModel = !!_emPen;
+
+      // Highlight position: bare-pen spheres face the LIGHT (diffuse peak);
+      // emissive/specular materials face the half-vector (specular peak). The
+      // projected focal can land outside the silhouette for off-axis spheres,
+      // and an SVG <radialGradient> with the focal outside (cx,cy,r) renders
+      // mostly as the outermost stop (a near-black ball), so clamp to ≤0.92r.
+      let _fx = slx, _fy = sly, _fz = slz;
+      if (_useEmissiveModel) {
+        let hx = slx + vx, hy = sly + vy, hz = slz + vz;
+        const hl = Math.sqrt(hx*hx + hy*hy + hz*hz) || 1;
+        _fx = hx/hl; _fy = hy/hl; _fz = hz/hl;
+      }
+      let hp = projectTriple(makeTriple(sc.x + sr*_fx, sc.y + sr*_fy, sc.z + sr*_fz));
       const focDx = hp.x - ccx, focDy = hp.y - ccy;
       const focD = Math.sqrt(focDx*focDx + focDy*focDy);
       if (focD > 0.92 * radius) {
         const k = (0.92 * radius) / focD;
         hp = { x: ccx + focDx * k, y: ccy + focDy * k };
       }
-      // Colors: gradient stops empirically matched to TeXeR pixel samples
-      // on 03361 (lightblue × intensity, with specular at the focal point).
-      // Brightest at focal: base * 0.97 + specular (peak).
-      // Mid: base * 0.68 (ambient + half diffuse).
-      // Edge (silhouette terminator/shadow): base * 0.25 (deep shadow).
-      // Specular intensity 0.40 pushes the highlight toward pure white for
-      // gray base colors (e.g. 03633 material(gray(0.7),...)).
-      const br = basePen.r || 0, bg = basePen.g || 0, bb = basePen.b || 0;
-      const lit = {
-        r: Math.max(0, Math.min(1, br*0.97 + 0.45)),
-        g: Math.max(0, Math.min(1, bg*0.97 + 0.45)),
-        b: Math.max(0, Math.min(1, bb*0.97 + 0.45)),
-      };
-      // Intermediate stop between lit and mid for smoother highlight falloff
-      // Higher value keeps the bright area larger before falling off to mid
-      // litMid extends the bright highlight area
-      const litMid = { r: br*0.97, g: bg*0.97, b: bb*0.97 };
-      const mid = { r: br*0.70, g: bg*0.70, b: bb*0.70 };
-      const dark = { r: br*0.18, g: bg*0.18, b: bb*0.18 };
+
+      let sphereStops;
+      if (_useEmissiveModel) {
+        // Phong with an emissive floor: I = emissive + diffuse·shade, where
+        // shade is the Lambert/specular falloff from the focal. Calibrated to
+        // TeXeR's measured 03640 radial profile (intensity fraction at focal→far:
+        // 0.95, 0.82, 0.66, 0.53, 0.41, 0.21), so the bright highlight is broad
+        // and the shadow side floors near the emissive level instead of the old
+        // diffuse·0.18 near-black — fixing the low contrast behind the 2R/2R√2
+        // labels. shade values back out as (I−E)/D for E=0.35, D=0.70.
+        const eR = _emPen.r || 0, eG = _emPen.g || 0, eB = _emPen.b || 0;
+        const _e = sh => ({ r:_cl01(eR + br*sh), g:_cl01(eG + bg*sh), b:_cl01(eB + bb*sh) });
+        sphereStops = [
+          { off: 0,   c: _e(0.86) },
+          { off: 15,  c: _e(0.64) },
+          { off: 35,  c: _e(0.41) },
+          { off: 55,  c: _e(0.23) },
+          { off: 78,  c: _e(0.07) },
+          { off: 100, c: _e(-0.26) },
+        ];
+      } else {
+        // Original bare-pen profile (calibrated to 03361 etc.): sharp specular
+        // dot over a diffuse falloff to a near-black terminator.
+        const _mkStop = (df, sp) => ({ r:_cl01(br*df+sp), g:_cl01(bg*df+sp), b:_cl01(bb*df+sp) });
+        sphereStops = [
+          { off: 0,   c: _mkStop(0.97, 0.45) },
+          { off: 4,   c: _mkStop(0.97, 0.00) },
+          { off: 45,  c: _mkStop(0.70, 0.00) },
+          { off: 100, c: _mkStop(0.18, 0.00) },
+        ];
+      }
+      const lit = sphereStops[0].c;
+      const mid = sphereStops[Math.floor(sphereStops.length/2)].c;
+      const dark = sphereStops[sphereStops.length-1].c;
       // Build path along projected silhouette
       const sphSegs = [];
       for (let i = 0; i < N_SIL; i++) {
@@ -24294,7 +24327,7 @@ function createInterpreter() {
         _faceDepth: 1e9,
         _sphereGradient: {
           cx: ccx, cy: ccy, r: radius, fx: hp.x, fy: hp.y,
-          lit, litMid, mid, dark,
+          stops: sphereStops,
         },
       });
       return;
@@ -29217,12 +29250,15 @@ function renderSVG(result, opts) {
           globalThis._sphereGradCounter += 1;
         }
         const gid = `_sg${(typeof window !== 'undefined' ? window._sphereGradCounter : globalThis._sphereGradCounter)}`;
+        const _stopEls = (sg.stops && sg.stops.length)
+          ? sg.stops.map(s => `<stop offset="${s.off}%" stop-color="${_rgb(s.c)}"/>`).join('')
+          : `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
+            `<stop offset="4%" stop-color="${_rgb(sg.litMid)}"/>` +
+            `<stop offset="45%" stop-color="${_rgb(sg.mid)}"/>` +
+            `<stop offset="100%" stop-color="${_rgb(sg.dark)}"/>`;
         elements.push(
           `<defs><radialGradient id="${gid}" cx="${fmt(cxPx)}" cy="${fmt(cyPx)}" r="${fmt(rPx)}" fx="${fmt(fxPx)}" fy="${fmt(fyPx)}" gradientUnits="userSpaceOnUse">` +
-          `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
-          `<stop offset="4%" stop-color="${_rgb(sg.litMid)}"/>` +
-          `<stop offset="45%" stop-color="${_rgb(sg.mid)}"/>` +
-          `<stop offset="100%" stop-color="${_rgb(sg.dark)}"/>` +
+          _stopEls +
           `</radialGradient></defs>`
         );
         fill = `url(#${gid})`;
