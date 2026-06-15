@@ -13117,6 +13117,14 @@ function createInterpreter() {
         if (dc.cmd === 'clip') continue;
         if (dc._paletteLegend) continue;
         if (excludeCmds && excludeCmds.has(dc)) continue;
+        // markangle arcs/wedges/labels are emitted at the LITERAL unitScale here
+        // and only rebuilt to the final (post-fit) truesize radius much later.
+        // Their stale literal radius (e.g. radius=15bp / unitScale 28.35 ≈ 0.53
+        // user units) over-stretches the frame and hence the deferred auto-axis
+        // range (00247: pi/theta markangles pushed the x-axis left arm to -0.53
+        // vs the real geometry min P.x=-0.3). Skip them here; the truesize block
+        // below re-adds each arc's correct final-scale extent around its vertex.
+        if (typeof dc._markangleBpR === 'number') continue;
         if (dc.path && dc.path.segs) {
           for (const seg of dc.path.segs) {
             for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -13151,9 +13159,52 @@ function createInterpreter() {
         if (dc.pos.y - ryU < mnY) mnY = dc.pos.y - ryU;
         if (dc.pos.y + ryU > mxY) mxY = dc.pos.y + ryU;
       }
+      // markangle arcs/wedges/labels contribute their truesize bp radius to the
+      // frame (mirrors the dot-mark block above). The arc is emitted at the stale
+      // literal scale here, so size it in FINAL bp (rBp/sX) around the vertex.
+      // Bound only the SWEPT sector (the actual angular extent), not a full ±r
+      // circle: a full circle pokes past the vertex on the un-swept sides, which
+      // for a corner vertex (00244: theta arc at the origin sweeping 0..35°)
+      // wrongly extends the axis range left/below the origin. Mirrors the
+      // swept-sector logic in _spanAtScaleBp.
+      for (const dc of pic.commands) {
+        if (typeof dc._markangleBpR !== 'number' || !dc._markangleVertex) continue;
+        if (excludeCmds && excludeCmds.has(dc)) continue;
+        const V = dc._markangleVertex;
+        if (!isFinite(V.x) || !isFinite(V.y)) continue;
+        const rxU = sX > 0 ? dc._markangleBpR / sX : 0;
+        const ryU = sY > 0 ? dc._markangleBpR / sY : 0;
+        const _expand = (px, py) => {
+          if (px < mnX) mnX = px; if (px > mxX) mxX = px;
+          if (py < mnY) mnY = py; if (py > mxY) mxY = py;
+        };
+        let a1 = dc._markangleA1, a2 = dc._markangleA2;
+        if (dc.cmd === 'label' && typeof dc._markangleMidAngle === 'number') {
+          // label sits at the arc midpoint, radius rBp out along the mid-angle
+          _expand(V.x + rxU * Math.cos(dc._markangleMidAngle),
+                  V.y + ryU * Math.sin(dc._markangleMidAngle));
+        } else if (typeof a1 === 'number' && typeof a2 === 'number') {
+          if (a2 < a1) { const t = a1; a1 = a2; a2 = t; }
+          const angs = [a1, a2];
+          for (let k = Math.ceil(a1 / 90) * 90; k <= a2; k += 90) angs.push(k);
+          for (const ang of angs) {
+            _expand(V.x + rxU * Math.cos(ang * Math.PI / 180),
+                    V.y + ryU * Math.sin(ang * Math.PI / 180));
+          }
+          _expand(V.x, V.y);
+        } else {
+          // unknown sweep: fall back to the full circle (no angle info)
+          _expand(V.x - rxU, V.y - ryU);
+          _expand(V.x + rxU, V.y + ryU);
+        }
+      }
       for (const dc of pic.commands) {
         if (dc.cmd !== 'label' || !dc.pos || !isFinite(dc.pos.x) || !isFinite(dc.pos.y)) continue;
         if (dc.pen && dc.pen.opacity === 0) continue;
+        // markangle labels were handled by the truesize block above using their
+        // vertex+radius; their stored dc.pos is at the stale literal scale, so
+        // skip them here to avoid double-counting at the wrong position.
+        if (typeof dc._markangleBpR === 'number') continue;
         // The extending axis's own endpoint title rides the new endpoint —
         // the caller excludes it and adds its protrusion separately.
         if (excludeCmds && excludeCmds.has(dc)) continue;
@@ -24995,6 +25046,16 @@ function renderSVG(result, opts) {
       if (dc._paletteLegend) continue;
       if (dc.above === -1) continue;
       if (dc.cmd === 'clip') continue;
+      // markangle arcs/labels/wedges are emitted at the LITERAL scale here and
+      // only rebuilt to the final (post-fit) scale much later. Their stale
+      // literal radius (e.g. radius=15bp / unitScale 28.35 = 0.53 user units)
+      // is far larger than the final truesize arc, so feeding it into the axis
+      // content extent over-stretches the axis (00247: pi/theta markangles
+      // pushed the x-axis left arm to -0.53 vs the real geometry min P.x=-0.3).
+      // Exclude them, mirroring _dcGeoBounds(excludeMarkangle); the arc is a
+      // small truesize decoration around its vertex, which is already part of
+      // the geometry bounds.
+      if (typeof dc._markangleBpR === 'number') continue;
       if (dc.path && dc.path.segs) {
         for (const seg of dc.path.segs) {
           for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -25614,6 +25675,16 @@ function renderSVG(result, opts) {
 
   // Compute bounding box from all draw commands
   for (const dc of drawCommands) {
+    // markangle arcs/wedges/labels are still at the LITERAL unitScale here
+    // (radius=15bp / unitScale 28.35 ≈ 0.53 user units) and only get rebuilt to
+    // their final truesize radius after pass-2. Folding the stale literal extent
+    // into geoMinX/maxX here inflates the viewBox (00247: a dead 0.26-unit left
+    // margin from the pi/theta arcs, landscape canvas vs TeXeR's portrait). The
+    // scale (_spanAtScaleBp) already uses _dcGeoBounds(true)+swept-sector, not
+    // geoMinX, so excluding them here doesn't perturb the fit; the final-scale
+    // extent is folded back into the viewBox after the rebuild (search
+    // "markangle arcs/labels were rebuilt").
+    if (typeof dc._markangleBpR === 'number') continue;
     if (dc.cmd === 'dot') {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
@@ -25896,6 +25967,14 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'label') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
+        // markangle labels (pi/theta angle marks) are still at the LITERAL
+        // unitScale position here — their stale radius (≈0.53 user units) puts
+        // them far outside the real geometry, inflating the viewBox (00247's
+        // literal pi label at x≈-0.46 vs its final ≈-0.12). They get rebuilt to
+        // the final position before SVG assembly, so expandViewBox reserves
+        // room for any that genuinely overflow. Skip them in this pre-rebuild
+        // width pass.
+        if (typeof dc._markangleBpR === 'number') continue;
         // Skip invisible labels (opacity 0) from bbox expansion
         if (dc.pen && dc.pen.opacity === 0) continue;
         // Apply TeX font-size cap so bbox math matches what TeXeR/Asy ships
@@ -27769,6 +27848,30 @@ function renderSVG(result, opts) {
     }
   }
 
+  // markangle arcs/labels were rebuilt to their final truesize scale above; the
+  // early geometry-bbox pass excluded their stale literal-scale extent, so fold
+  // the correct final-scale extent back into the viewBox now. The labelInfoBp
+  // re-derivation block does this via _dcGeoBounds(false) when it runs, but that
+  // block is skipped when labelInfoBp is empty (svg-native label widths are
+  // handled later by expandViewBox) — without this, the canvas would simply
+  // lose the (small) final arc on a markangle-only-edge diagram. Idempotent
+  // when the block already ran (final arc lies inside the derived bounds).
+  if (_hasMarkangleDc) {
+    for (const dc of drawCommands) {
+      if (typeof dc._markangleBpR !== 'number') continue;
+      if (dc.path && dc.path.segs) {
+        for (const seg of dc.path.segs) {
+          for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+            if (isFinite(p.x)) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; }
+            if (isFinite(p.y)) { if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+          }
+        }
+      } else if (dc.cmd === 'label' && dc.pos && isFinite(dc.pos.x) && isFinite(dc.pos.y)) {
+        if (dc.pos.x < minX) minX = dc.pos.x; if (dc.pos.x > maxX) maxX = dc.pos.x;
+        if (dc.pos.y < minY) minY = dc.pos.y; if (dc.pos.y > maxY) maxY = dc.pos.y;
+      }
+    }
+  }
   // Re-constrain bbox after label re-expansion: clip() bounds must not be exceeded
   // (labelInfoBp already excludes out-of-clip items, but re-apply as a safety net)
   if (hasClip) {
