@@ -8044,7 +8044,21 @@ function createInterpreter() {
     env.set('acot', _broadcast1((x) => Math.PI / 2 - Math.atan(x)));
     env.set('asec', _broadcast1((x) => Math.acos(1 / x)));
     env.set('acsc', _broadcast1((x) => Math.asin(1 / x)));
-    env.set('sqrt', _broadcast1(Math.sqrt));
+    // sqrt(pair) is the COMPLEX principal square root (not component-wise).
+    // AoPS angle-bisector idiom: sqrt(dir(a)*dir(b)) = e^{i(α+β)/2}, the unit
+    // bisector of the two directions (00817's dashed double-arrow + reflection
+    // axis). Component-wise Math.sqrt collapses this to a near-horizontal
+    // scalar, breaking the arrow and every reflect(R0,R1) downstream.
+    env.set('sqrt', (x) => {
+      if (Array.isArray(x)) return x.map(v => env.get('sqrt')(v));
+      if (isPair(x)) {
+        const r = Math.sqrt(x.x*x.x + x.y*x.y);
+        const theta = Math.atan2(x.y, x.x);
+        const s = Math.sqrt(r);
+        return makePair(s * Math.cos(theta/2), s * Math.sin(theta/2));
+      }
+      return Math.sqrt(toNumber(x));
+    });
     env.set('cbrt', _broadcast1(Math.cbrt));
     env.set('sinh', _broadcast1(Math.sinh));
     env.set('cosh', _broadcast1(Math.cosh));
@@ -26690,8 +26704,17 @@ function renderSVG(result, opts) {
       const _spLeg = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
       const _exW = _sizeW > 0 && _spLeg.w > 0 ? _spLeg.w / _sizeW : 0;
       const _exH = _sizeH > 0 && _spLeg.h > 0 ? _spLeg.h / _sizeH : 0;
-      const _legacyOverflow = Math.max(_exW, _exH) > 1.20;
-      if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
+      // Label-dominated underfill: the legacy _labelDominatesSize path scales
+      // by the HEURISTIC label-expanded bbox (_fullRef), which over-estimates
+      // long-text widths and shrinks the geometry so the picture underfills
+      // size() on the binding axis (02719: width 0.93×, height 0.71× of
+      // size(115)). The measured-box LP is oracle-faithful here (local asy
+      // 3.05 renders 02719 at 115×115 square), so fire it when a
+      // label-dominated picture underfills the measured span on BOTH axes.
+      const _legacyUnderfill = _labelDominatesSize && _exW > 0 && _exH > 0 &&
+                               Math.max(_exW, _exH) < 0.95;
+      const _legacyOverflow = _legacyUnderfill || Math.max(_exW, _exH) > 1.20;
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' underfill=' + _legacyUnderfill + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
       if (_legacyOverflow) {
       const { xs: _xsS, ys: _ysS } = _buildLpCoords();
       if (_maxBraceWBp > 0) {
@@ -29120,6 +29143,28 @@ function renderSVG(result, opts) {
     // 240 DPI / HTX 144 DPI) so default strokes match TeXeR's rendered
     // weight without dominating the diagram.
     const _renderedMinDim = _minDim * pxPerUnit;
+    // "Pure stroke art": the diagram's marks are ALL default-pen stroked paths
+    // — no dot() markers, no arrowheads, and no text labels. TeXeR's 600-DPI
+    // device-pixel-snapped default strokes render ~2× HTX's nominal weight
+    // (measured 4px vs 2px on 12970's candle/lens/eye/arrow outlines), but the
+    // ordinary stroke floor is held at 1.5× because three things SHARE it:
+    //   • dots and arrowheads bloat if it rises (04201 lattice, 00269/00271
+    //     slopefields), and
+    //   • text labels anchor the SSIM trim+resize, so a heavier stroke floor
+    //     becomes a net regression on labeled line art (measured −0.018 on
+    //     05854's fraction-labeled triangle, −0.008 on 00069's dx/dy triangle).
+    // When there are NO dots, arrowheads, or labels, none of those constraints
+    // apply, so the stroke floor can be raised toward TeXeR's heavier weight for
+    // genuinely line-only diagrams (12970's optical-elements symbols).
+    let _pureStrokeArt = false;
+    {
+      let _disq = false, _hasBoostableStroke = false;
+      for (const dc of drawCommands) {
+        if (dc.cmd === 'dot' || dc.arrow || dc.cmd === 'label') { _disq = true; break; }
+        if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.pen && !dc.pen._lwExplicit) _hasBoostableStroke = true;
+      }
+      _pureStrokeArt = !_defaultpenLwSet && _hasBoostableStroke && !_disq;
+    }
     if (geoIs1D) {
       // 1D-degenerate geometry (all points collinear).
       // Horizontal cases (y-range = 0, e.g. 09210/09212): the SSIM
@@ -29163,7 +29208,11 @@ function renderSVG(result, opts) {
       // 0.5bp strokes ~1.8× heavier than our nominal (measured 3px vs
       // 1.67px on 07413's axes). Dots and arrowheads are truesize and
       // already match — they keep the unfloored ramp value.
-      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, 1.5);
+      // Pure-stroke-art diagrams (no dots/arrows/labels) get a heavier 2.0×
+      // floor toward TeXeR's device-snapped default-stroke weight; this is the
+      // SSIM-optimal value for 12970 and is canary-clean (the only diagrams that
+      // regressed at 2.0 were labeled, and labels are now excluded above).
+      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, _pureStrokeArt ? 2.0 : 1.5);
     }
   }
   // The auto-scaled boost compensates default-pen STROKES for SSIM trim+resize
