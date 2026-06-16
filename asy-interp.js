@@ -4079,6 +4079,13 @@ function createInterpreter() {
             }
           }
         }
+        // Sub-picture extend axes (00444: axes drawn into `pic1`, later
+        // add(pic1.fit())): run their deferred frame-extension jobs NOW — after
+        // the fit scale (sx/sy) is fixed from the geometry+label bbox, but
+        // BEFORE the frame is built — so the re-emitted axes span pic's frame
+        // (endpoint-title ride + minor ticks past xlimits/ylimits) without the
+        // newly-extended axis line growing the fit scale. See _runSubpicAxisJobs.
+        _runSubpicAxisJobs(obj);
         // Helper to sample a cubic bezier segment into line points
         const sampleBezier = (seg, nSamples) => {
           const pts = [];
@@ -12517,6 +12524,27 @@ function createInterpreter() {
   // line + ticks + labels across the extended range.
   let _deferredAxisJobs = [];
 
+  // Run a sub-picture's deferred axis-extension jobs (registered by xaxis/yaxis
+  // when pic !== currentPic, e.g. 00444's axes drawn into pic1). Called from the
+  // pic.fit() method AFTER the fit scale is fixed but BEFORE the frame is built,
+  // so the re-emitted axes span pic's own frame (endpoint-title ride + minor
+  // ticks past xlimits/ylimits). MUST live in the render scope (not inside fit)
+  // so it writes the GLOBAL sizeW/sizeH/keepAspect/_axisLimits that _drawTicks /
+  // _alongAxisBpPerUnit / _estimateFrameBoundsU read — fit() has its own LOCAL
+  // keepAspect that would otherwise shadow the global and mis-scale the ticks.
+  function _runSubpicAxisJobs(pic) {
+    if (!pic || !pic._axisJobs || !pic._axisJobs.length || pic._axisJobsRun) return;
+    pic._axisJobsRun = true;
+    const _sw = sizeW, _sh = sizeH, _ka = keepAspect, _al = _axisLimits;
+    sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0; keepAspect = !pic._sizeAniso;
+    _axisLimits = pic._picLimits
+      ? { xmin: pic._picLimits.xmin, xmax: pic._picLimits.xmax, ymin: pic._picLimits.ymin, ymax: pic._picLimits.ymax, crop: !!pic._picLimits.crop }
+      : { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+    try {
+      for (let _p = 0; _p < 4; _p++) for (const _j of pic._axisJobs) { try { _j(_p); } catch (e) {} }
+    } finally { sizeW = _sw; sizeH = _sh; keepAspect = _ka; _axisLimits = _al; }
+  }
+
   function installGraphPackage(env) {
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
@@ -13983,7 +14011,16 @@ function createInterpreter() {
               txt && txt.indexOf('$') === -1) {
             txt = '$' + ((typeof process !== 'undefined' && process.env && process.env.HTX_NO_U2212) ? txt : txt.replace(/-/g, '−')) + '$';
           }
-          const labelPen = clonePen(ticks.labelPen || tickPen);
+          // Tick labels use the AXIS pen (graph.asy labeltick: F.p(p)), NOT the
+          // tick/grid pen pTick. When extend=true ticks carry a gridpen (gray),
+          // that pen colors the gridlines/tick marks only — the numbers stay the
+          // axis-pen color (03321: gray gridlines, black numbers). An explicit
+          // format-Label pen (ticks.labelPen, e.g. Label("%4g",black)) still
+          // wins. If the axis pen is invisible, fall back to a visible default so
+          // the labels still show (05072).
+          let _lblBasePen = pen;
+          if (!_lblBasePen || _lblBasePen.opacity === 0) _lblBasePen = clonePen(defaultPen);
+          const labelPen = clonePen(ticks.labelPen || _lblBasePen);
           labelPen.fontsize = labelPen.fontsize || 12;
           pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, screenDx: _sDx, screenDy: _sDy, _isTickLabel: true});
         }
@@ -14476,7 +14513,13 @@ function createInterpreter() {
         // don't overlap. For an x-axis with a label below, push the label down by
         // the maximum tick-label height (screenDy positive = down in SVG).
         let tickLabelClearance = 0;
-        if (labelAlign === null && lAlign.y !== 0) {
+        // Only clear THIS axis's own tick labels (graph.asy labelaxis sees only
+        // the frame of the ticks it just drew). Tick numbers added by SEPARATE
+        // xtick()/labelx() calls are independent objects and do NOT push the
+        // axis title out — so a bare `xaxis("$t$")` (no ticks arg) whose numbers
+        // come from xtick() keeps its endpoint title right next to the axis
+        // instead of being shoved a full tick-label height below it (00291).
+        if (labelAlign === null && lAlign.y !== 0 && ticks && !ticks.none) {
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.y - axisShiftY) < 1e-6) {
               const fs = (c.pen && c.pen.fontsize) || 8;
@@ -14511,8 +14554,14 @@ function createInterpreter() {
       // Default-axis (YZero/YEquals) calls with an auto side extend to the
       // final picture frame (graph.asy: extend=true → deferred xaxisAt spans
       // tinv*(lb..rt)). Register a job to re-emit across the final frame.
-      const _xJobEligible = !extent && !_axisLimits.crop && !(xminExplicit && xmaxExplicit)
-        && pic === currentPic && isFinite(xmin) && isFinite(xmax) && xmax > xmin
+      // currentPic jobs run after evalNode; SUB-PICTURE jobs (axes drawn into a
+      // `picture pic1` that is later `add(pic1.fit())`'d, e.g. 00444) run at
+      // fit() time against pic1's own frame (see the fit method). Without that
+      // the sub-picture axes stopped at the data limits — no endpoint-title
+      // ride past xlimits/ylimits, no minor ticks beyond the limit.
+      const _xSubpicJob = pic !== currentPic;
+      const _xJobEligible = !extent && !(_xSubpicJob ? (pic._picLimits && pic._picLimits.crop) : _axisLimits.crop) && !(xminExplicit && xmaxExplicit)
+        && isFinite(xmin) && isFinite(xmax) && xmax > xmin
         && !(ticks && ticks.positions && isArray(ticks.positions)) && !xIsLog;
       const _xJobStart = pic.commands.length;
       _emitXAxis(xmin, xmax);
@@ -14520,12 +14569,19 @@ function createInterpreter() {
         const _xUserLo = _xminFromUserLimits ? xmin : null;
         const _xUserHi = _xmaxFromUserLimits ? xmax : null;
         let myCmds = pic.commands.slice(_xJobStart);
-        for (const c of myCmds) c._jobManaged = true;
+        // Mark _jobManaged at REGISTRATION only for currentPic jobs (which always
+        // run post-evalNode). A sub-picture job runs only if pic is later
+        // .fit()'d; if it is added un-fitted (add(p1), e.g. 03321/03322) the job
+        // never runs, so pre-marking would wrongly make the finalize pass skip
+        // the legacy content-extent override for these never-extended axes. The
+        // in-job re-emission below marks its own commands when it does run.
+        if (!_xSubpicJob) for (const c of myCmds) c._jobManaged = true;
         let curLo = xmin, curHi = xmax;
         const _xPrefixSet = new Set(pic.commands.slice(0, _xJobStart));
         const _xInitLo = xmin, _xInitHi = xmax;
         let _xRideLo = 0, _xRideHi = 0;
-        _deferredAxisJobs.push((_pass) => {
+        if (_xSubpicJob) { pic._axisJobs = pic._axisJobs || []; }
+        (_xSubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
           // Exclude this axis's own LINE (a placeholder range when the axis
           // was drawn before content — it must be able to SHRINK, 00247)
           // and its own TITLE from the frame estimate; the title contributes
@@ -15119,8 +15175,9 @@ function createInterpreter() {
         pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, screenDy: _yLabelExtraDy, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
       }
       }; // end _emitYAxis
-      const _yJobEligible = !extent && !_axisLimits.crop && !(yminExplicit && ymaxExplicit)
-        && pic === currentPic && isFinite(ymin) && isFinite(ymax) && ymax > ymin
+      const _ySubpicJob = pic !== currentPic;
+      const _yJobEligible = !extent && !(_ySubpicJob ? (pic._picLimits && pic._picLimits.crop) : _axisLimits.crop) && !(yminExplicit && ymaxExplicit)
+        && isFinite(ymin) && isFinite(ymax) && ymax > ymin
         && !(ticks && ticks.positions && isArray(ticks.positions)) && !yIsLog;
       const _yJobStart = pic.commands.length;
       _emitYAxis(ymin, ymax);
@@ -15128,12 +15185,14 @@ function createInterpreter() {
         const _yUserLo = _yminFromUserLimits ? ymin : null;
         const _yUserHi = _ymaxFromUserLimits ? ymax : null;
         let myCmds = pic.commands.slice(_yJobStart);
-        for (const c of myCmds) c._jobManaged = true;
+        // See the xaxis note: pre-mark _jobManaged only for currentPic jobs.
+        if (!_ySubpicJob) for (const c of myCmds) c._jobManaged = true;
         let curLo = ymin, curHi = ymax;
         const _yPrefixSet = new Set(pic.commands.slice(0, _yJobStart));
         const _yInitLo = ymin, _yInitHi = ymax;
         let _yRideLo = 0, _yRideHi = 0;
-        _deferredAxisJobs.push((_pass) => {
+        if (_ySubpicJob) { pic._axisJobs = pic._axisJobs || []; }
+        (_ySubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
           const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
@@ -15396,8 +15455,11 @@ function createInterpreter() {
           z = axisName === 'x' ? makePair(zScalar, 0) : makePair(0, zScalar);
         }
         if (z === null) return;
-        // Default tick direction = N (pair(0,1)) — same as Asymptote
-        if (!dirVec) dirVec = makePair(0, 1);
+        // Default tick direction: xtick → N (0,1), ytick → E (1,0), matching
+        // graph.asy's `pair dir=N` (xtick) / `pair dir=E` (ytick) signatures.
+        // Using N for ytick made the tick mark run straight up the y-axis
+        // (invisible) and pushed the number onto the axis instead of left (00291).
+        if (!dirVec) dirVec = axisName === 'x' ? makePair(0, 1) : makePair(1, 0);
         // Default size = Ticksize = 2mm in bp (graph.asy xtick signature)
         if (sizeBp === null) sizeBp = 5.669291339;
         if (!pen) pen = clonePen(defaultPen);
@@ -15432,7 +15494,12 @@ function createInterpreter() {
         // the label a full tick length below the axis); otherwise only the
         // small ticklabelshift applies.
         if (labelText) {
-          let align = labelObj && labelObj.align ? labelObj.align : dirVec;
+          // graph.asy tick(): L.align(L.align, -dir) — when the label carries no
+          // explicit align, its default is the NEGATED tick direction, so the
+          // number sits on the opposite side of the axis from the tick mark
+          // (xtick dir=N ⇒ label S/below; ytick dir=E ⇒ label W/left). The old
+          // default of +dir put x-numbers above the axis and y-numbers on it (00291).
+          let align = labelObj && labelObj.align ? labelObj.align : makePair(-dx, -dy);
           const _fsT = (pen && pen.fontsize) || 12;
           const _aLen = Math.hypot(align.x || 0, align.y || 0) || 1;
           const _adx = (align.x || 0) / _aLen, _ady = (align.y || 0) / _aLen;

@@ -370,7 +370,10 @@
 
     // generic inline span. op-limits / accent / centered matrix columns center
     // their immediate child vlist-t (see katex.css ".op-limits > .vlist-t").
-    const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c');
+    // Fractions also center numerator/denominator within the column
+    // (katex.css ".mfrac>span>span{text-align:center}") — without this a
+    // narrow denominator like "2" under "1-\mu" hugs the left edge (06517).
+    const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c') || has(n, 'mfrac');
     let x = ctx.x + marginL + padL;
     for (const c of (n.children || [])) {
       x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color, centerCols: childCenter });
