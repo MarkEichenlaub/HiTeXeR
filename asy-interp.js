@@ -23353,11 +23353,16 @@ function createInterpreter() {
       }
       // Emit Bar/Bars marks as short perpendicular segments at endpoint(s).
       if (barsStyle && pathArg.segs && pathArg.segs.length > 0) {
-        // Default Bar size in Asymptote is barsize(pen) ≈ 0 but with fallback
-        // to ~3bp; when the user supplies Bars(size), size is in bp. Convert
-        // to user units via current size()/unitsize() context. Falls back to
-        // the previous 0.05-user-unit default when no scale is available.
-        const barSizeBp = (barsSize != null) ? barsSize : 3;
+        // Asymptote's Bar/Bars draws a perpendicular segment of TOTAL length
+        // `size`, where size defaults to barsize(pen) = barfactor*linewidth(p) =
+        // 15*linewidth (plain_arrows.asy). bar() draws Draw(-0.5d--0.5d) with
+        // |d|=size, so the FULL bar length is `size` (not 2*size). HiTeXeR used a
+        // fixed 3bp half-length (=> 6bp total) for the default and 2*size for an
+        // explicit size — both wrong: 04331's default BeginBar came out too short,
+        // 03348's Bars(5) came out 10bp instead of 5bp (too long). Use the exact
+        // asy total and halve it for the ± half-extent.
+        const _barLw = (pen && typeof pen.linewidth === 'number') ? pen.linewidth : 0.5;
+        const totalBp = (barsSize != null) ? barsSize : 15 * _barLw;
         let bpPerUnit = 0;
         const _gb = getGeoBbox(target.commands);
         const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? (Math.abs(_gb.maxX - _gb.minX) || 1) : 1;
@@ -23370,14 +23375,31 @@ function createInterpreter() {
           bpPerUnit = unitScale;
         } else {
           // Auto-scaled diagram (no size()/unitsize()): the bar is an absolute-bp
-          // mark (like an arrowhead), so derive bp-per-unit from the default 150bp
-          // fit — the SAME formula the arrow renderer uses. Without this branch
-          // bpPerUnit stayed 0 and the bar fell back to a fixed 0.05 user units,
-          // which on a multi-unit auto-scaled diagram renders as a near-invisible
-          // speck (04331's BeginBar tail ticks).
-          bpPerUnit = 150 / Math.max(rX, rY);
+          // mark. getGeoBbox EXCLUDES labels and only sees geometry drawn SO FAR,
+          // so on a label-framed diagram whose strokes are added incrementally
+          // (04331: 24 labels first, then the arrows one at a time) the early bars
+          // saw a near-empty bbox -> huge bpPerUnit -> tiny bars, and the bars
+          // grew as more arrows accumulated (top blue bar << bottom). Use a
+          // label-INCLUSIVE, order-independent bbox over all commands so every bar
+          // gets the same (full-diagram) scale, matching the arrow renderer's
+          // 150/max(range) fit.
+          let ax0 = Infinity, ay0 = Infinity, ax1 = -Infinity, ay1 = -Infinity;
+          for (const c of target.commands) {
+            if (c.pos && typeof c.pos.x === 'number') {
+              if (c.pos.x < ax0) ax0 = c.pos.x; if (c.pos.x > ax1) ax1 = c.pos.x;
+              if (c.pos.y < ay0) ay0 = c.pos.y; if (c.pos.y > ay1) ay1 = c.pos.y;
+            }
+            if (c.path && c.path.segs) for (const s of c.path.segs) for (const p of [s.p0, s.p3]) {
+              if (!p) continue;
+              if (p.x < ax0) ax0 = p.x; if (p.x > ax1) ax1 = p.x;
+              if (p.y < ay0) ay0 = p.y; if (p.y > ay1) ay1 = p.y;
+            }
+          }
+          const arX = isFinite(ax1 - ax0) ? Math.max(ax1 - ax0, 1e-9) : rX;
+          const arY = isFinite(ay1 - ay0) ? Math.max(ay1 - ay0, 1e-9) : rY;
+          bpPerUnit = 150 / Math.max(arX, arY);
         }
-        const halfLen = (bpPerUnit > 0) ? (barSizeBp / bpPerUnit) : 0.05;
+        const halfLen = (bpPerUnit > 0) ? ((totalBp / 2) / bpPerUnit) : 0.05;
         const makeBarAt = (p, tdx, tdy) => {
           const l = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
           const nx = -tdy / l, ny = tdx / l;
