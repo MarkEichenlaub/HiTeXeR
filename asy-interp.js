@@ -32187,6 +32187,13 @@ function preprocessLatexForKatex(src, forMathJax) {
   // `\sinheta`) or reject it.  Map them to a real space so the macro is
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
+  // TeX's `\hskip <dimen>` is the primitive form of `\hspace{<dimen>}`. Nothing
+  // downstream handles `\hskip` (the truesize-brace sizing and the pt fix below
+  // only match `\hspace{...}`), and KaTeX renders a bare `\hskip 33pt` grossly
+  // over-wide, so `\underbrace{\hskip 33pt}_b` braces ran away (05355). Normalize
+  // it to `\hspace{}` so it renders at its true dimension and the fixes apply.
+  src = src.replace(/\\hskip\s*([\d.]+)\s*(pt|bp|cm|mm|in|pc|em|ex|mu)/g,
+    (m, num, unit) => `\\hspace{${num}${unit}}`);
   // MathJax over-renders an ABSOLUTE \hspace{N<unit>} by ~1.19× relative to
   // real LaTeX/dvisvgm (and local Asymptote): the \hspace length is pushed
   // through the same em-chain (em=fontsize/1.21, ×_MJX_SCALE) the glyphs use,

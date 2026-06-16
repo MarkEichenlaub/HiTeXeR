@@ -321,9 +321,32 @@
           if (svgKid) emitSvgNode(svgKid, { ...ctx, x: ctx.x + marginL, color }, colW, rowBaseY);
           continue;
         }
-        emitNode(content, { ...ctx, x: ctx.x + marginL, y: rowBaseY, s: ctx.s, face, color });
+        emitNode(content, { ...ctx, x: ctx.x + marginL, y: rowBaseY, s: ctx.s, face, color, colW });
       }
       return marginL + colW + marginR;
+    }
+
+    // Stretchy horizontal extensible (\overbrace/\underbrace, \xrightarrow, ...):
+    // KaTeX lays the parts out absolutely as CSS fractions of the column width
+    // (the .stretchy span is width:100%); each child svg's width="400em" is a
+    // 400000-unit slice canvas, NOT its rendered width. Render each part clipped
+    // to its CSS fraction of the column (ctx.colW), preserving the per-part
+    // preserveAspectRatio (xMin/xMid/xMax slice) so the slices tile into a brace.
+    if (has(n, 'stretchy') && ctx.colW) {
+      const W = Math.max(ctx.colW, em(style.minWidth) * ctx.s);
+      const x0 = ctx.x + marginL;
+      for (const part of (n.children || [])) {
+        const svgKid = isSvgNode(part) ? part : (part.children || []).find(isSvgNode);
+        if (!svgKid) continue;
+        let frac = 1, off = 0;
+        if (has(part, 'brace-left')) { frac = 0.251; off = 0; }
+        else if (has(part, 'brace-center')) { frac = 0.5; off = 0.25; }
+        else if (has(part, 'brace-right')) { frac = 0.251; off = 0.749; }
+        else if (has(part, 'halfarrow-left')) { frac = 0.502; off = 0; }
+        else if (has(part, 'halfarrow-right')) { frac = 0.502; off = 0.498; }
+        emitSvgNode(svgKid, { ...ctx, x: x0 + off * W, color }, frac * W, ctx.y);
+      }
+      return marginL + W + marginR;
     }
 
     if (has(n, 'llap') || has(n, 'rlap') || has(n, 'clap')) {
