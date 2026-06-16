@@ -23405,7 +23405,9 @@ function createInterpreter() {
           const nx = -tdy / l, ny = tdx / l;
           const a = makePair(p.x + nx*halfLen, p.y + ny*halfLen);
           const b = makePair(p.x - nx*halfLen, p.y - ny*halfLen);
-          return makePath([lineSegment(a, b)], false);
+          // path = draw-time estimate (drives the viewBox); cx/cy/nx/ny + totalBp
+          // let the renderer rebuild the bar at the EXACT final scale.
+          return { path: makePath([lineSegment(a, b)], false), cx: p.x, cy: p.y, nx, ny };
         };
         // Bar/Bars/EndBar put a bar at the end; Bars/BeginBar put one at the
         // start. 'Bar' aliases 'EndBar' (end), 'Bars' is both ends.
@@ -23421,14 +23423,14 @@ function createInterpreter() {
         if (_emitEndBar) {
           const sL = pathArg.segs[pathArg.segs.length - 1];
           const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
-          const barPath = makeBarAt(sL.p3, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
+          const _b = makeBarAt(sL.p3, tdx, tdy);
+          target.commands.push({cmd:'draw', path: _b.path, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d, _barTruesize: {cx:_b.cx, cy:_b.cy, nx:_b.nx, ny:_b.ny, totalBp}});
         }
         if (_emitBeginBar) {
           const s0 = pathArg.segs[0];
           const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
-          const barPath = makeBarAt(s0.p0, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
+          const _b = makeBarAt(s0.p0, tdx, tdy);
+          target.commands.push({cmd:'draw', path: _b.path, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d, _barTruesize: {cx:_b.cx, cy:_b.cy, nx:_b.nx, ny:_b.ny, totalBp}});
         }
       }
       // If draw call has a label, handle it: either register for legend or place inline
@@ -28263,6 +28265,26 @@ function renderSVG(result, opts) {
   // real Asymptote, where the unitsize boost rescales only the geometry while
   // linewidth/dot/fontsize remain in absolute bp.
   const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor;
+
+  // ── Resolve truesize Bar/Bars marks at the FINAL scale ──
+  // A bar is an absolute-bp perpendicular tick of length barsize(pen)=15*linewidth
+  // (or an explicit Bar(size)); on auto-scaled diagrams it is DPI-boosted like
+  // dots/strokes (TeXeR's 600-DPI EPS pipeline renders it ~1.67x heavier). The
+  // draw-time path was only a geo-bbox ESTIMATE (it underestimated the size and
+  // varied with draw order — 04331). Rebuild every bar here, where pxPerUnit and
+  // bpCSSPixel are final, so its length is exact and identical across the figure.
+  {
+    const _barBoost = isAutoScaled ? 1.67 : 1;
+    const _ppu = pxPerUnitX || pxPerUnit || 1;
+    for (const dc of drawCommands) {
+      if (!dc || !dc._barTruesize || !dc.path) continue;
+      const bt = dc._barTruesize;
+      const halfUser = (bt.totalBp / 2) * _barBoost * bpCSSPixel / _ppu;
+      const a = makePair(bt.cx + bt.nx * halfUser, bt.cy + bt.ny * halfUser);
+      const b = makePair(bt.cx - bt.nx * halfUser, bt.cy - bt.ny * halfUser);
+      dc.path = makePath([lineSegment(a, b)], false);
+    }
+  }
 
   // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
   // Now that bpCSSPixel is known, compute how far each element extends
