@@ -23359,17 +23359,23 @@ function createInterpreter() {
         // the previous 0.05-user-unit default when no scale is available.
         const barSizeBp = (barsSize != null) ? barsSize : 3;
         let bpPerUnit = 0;
+        const _gb = getGeoBbox(target.commands);
+        const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? (Math.abs(_gb.maxX - _gb.minX) || 1) : 1;
+        const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? (Math.abs(_gb.maxY - _gb.minY) || 1) : 1;
         if (sizeW > 0 || sizeH > 0) {
-          const _gb = getGeoBbox(target.commands);
-          if (_gb && isFinite(_gb.maxX - _gb.minX) && isFinite(_gb.maxY - _gb.minY)) {
-            const rX = Math.abs(_gb.maxX - _gb.minX) || 1;
-            const rY = Math.abs(_gb.maxY - _gb.minY) || 1;
-            const sw = sizeW > 0 ? sizeW : sizeH;
-            const sh = sizeH > 0 ? sizeH : sizeW;
-            if (rX > 0 && rY > 0) bpPerUnit = Math.min(sw / rX, sh / rY);
-          }
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          bpPerUnit = Math.min(sw / rX, sh / rY);
         } else if (hasUnitScale) {
           bpPerUnit = unitScale;
+        } else {
+          // Auto-scaled diagram (no size()/unitsize()): the bar is an absolute-bp
+          // mark (like an arrowhead), so derive bp-per-unit from the default 150bp
+          // fit — the SAME formula the arrow renderer uses. Without this branch
+          // bpPerUnit stayed 0 and the bar fell back to a fixed 0.05 user units,
+          // which on a multi-unit auto-scaled diagram renders as a near-invisible
+          // speck (04331's BeginBar tail ticks).
+          bpPerUnit = 150 / Math.max(rX, rY);
         }
         const halfLen = (bpPerUnit > 0) ? (barSizeBp / bpPerUnit) : 0.05;
         const makeBarAt = (p, tdx, tdy) => {
