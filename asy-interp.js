@@ -29874,52 +29874,26 @@ function renderSVG(result, opts) {
       //     dotfactor*w/2 branch applies so the mark stays visible — 05891/05895
       //     `dp=black+0.75` render a ~4.5bp dot in TeXeR (measured), not 0.75bp.
       const useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
-      // Apply the auto-scaled stroke boost to dot radius too, but only for
-      // non-explicit pens (matching the stroke-boost criterion at L18542):
-      // explicit dot diameters/linewidths should keep their literal size.
-      // Also skip boost when defaultpen() set a linewidth — the author's
-      // explicit global pen sizing should be respected (e.g. defaultpen(.5)
-      // in 04025 should produce small dots, not boosted large ones).
-      // For auto-scaled diagrams, apply the auto-scaled stroke boost to dots.
-      // For explicit-size diagrams (!isAutoScaled), skip the boost for 2D dots:
-      // the 1.5× stroke boost compensates for DPI differences in stroke rendering,
-      // but dots at their native bp size already match TeXeR well — boosting them
-      // makes them appear too large relative to the geometry (e.g. 03491).
-      // 3D diagrams already skip this via the !_is3D check for stroke boost.
+      // Dot size on AUTO-SCALED diagrams: TeXeR's 600-DPI EPS pipeline renders
+      // default-pen dots ~1.67x their nominal bp. Measured against the texer
+      // references, auto-scaled dots are CONSISTENTLY ~1.7x native (09210 and
+      // 01019 dots both 5.1bp = 1.7 * the native 3bp), independent of how many
+      // dots there are or the bbox aspect. So apply that DPI ratio UNIFORMLY to
+      // default-pen dots on auto-scaled diagrams.
+      //
+      // The previous heuristic varied the boost by geometry and was inconsistent:
+      // 3.425x for narrow few-dot diagrams made 01019/01108 ~2x too big; the
+      // stroke-ramp branch and the (geoIs1D||hasBoostedStroke||dotOnly) gate left
+      // 2D dots over a contour image (04202) un-boosted and too small. A single
+      // ratio fixes all three classes at once.
+      //
+      // Guards: explicit dot linewidths keep their literal size (!_lwExplicit);
+      // an author defaultpen(width) is respected (!_defaultpenLwSet); and
+      // size()/unitsize() diagrams keep native bp — they already match TeXeR
+      // (06212/03491/06925/03636), where dots are NOT DPI-enlarged.
       let _dotBoost = 1.0;
-      if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (_explicitDotBoostApplied > 1) {
-          // Tall-narrow auto-scaled diagram with all-explicit strokes
-          // (08517/08518): boost the (default-pen) dots in step with the
-          // explicit strokes so they survive SSIM trim+resize like TeXeR's
-          // heavier dots, instead of staying at native 3bp.
-          _dotBoost = _explicitDotBoostApplied;
-        } else if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke || _isDotOnlyAutoScaled)) {
-          // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
-          // higher boost than strokes to match TeXeR's dot size.
-          // For 2D diagrams with no boosted stroke (all geometry uses explicit
-          // linewidths, e.g. 08517), skip the dot boost so dots stay
-          // proportional to the unboosted lines. 1D dot diagrams (09210/09212)
-          // have no strokes at all but still need the boost to survive SSIM
-          // trim+resize, so they always keep it. 2D dot-only auto-scaled
-          // scatters (_isDotOnlyAutoScaled, e.g. 04241's rand() dots) are the
-          // 2D analog: the dots ARE the geometry, so they take the SAME
-          // max(ramp, floor) boost a stroke-containing diagram of equal aspect
-          // would apply to its dots (~1.5× for a square-ish bbox) — matching
-          // TeXeR's heavier EPS dot rendering without the rim-mismatch overshoot
-          // a full DPI boost would add on dense regular lattices (04240).
-          // Default-pen dots are stroke-rendered in TeXeR's EPS pipeline,
-          // so they carry the same DPI weight as lines (07413's dots
-          // measured visibly heavier than native 3bp) — share the floor.
-          _dotBoost = _isNarrowFewDots1D ? 3.425 : Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
-        }
-        // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
-        // no longer boost dots — native bp sizing matches TeXeR better.
-        // Auto-scaled 2D diagrams with all-explicit strokes (e.g. 08517/08518
-        // cse5 `pathpen=...+linewidth(0.65)`) also keep dots at native size:
-        // a 1.67× DPI boost makes the dots visually closer to TeXeR's fat dots
-        // but consistently LOWERS SSIM (sub-pixel center offsets create more
-        // mismatched rim pixels for the larger disc), so don't apply it.
+      if (isAutoScaled && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+        _dotBoost = 1.67;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
