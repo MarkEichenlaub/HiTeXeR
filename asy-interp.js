@@ -21508,7 +21508,16 @@ function createInterpreter() {
             else if (tFrac <= EPS_POS) lblAlign = makePair(-ux, -uy);
             else lblAlign = makePair(uy, -ux);
           }
-          const lblPen = lblObj.pen || clonePen(defaultPen);
+          // The label inherits the DRAW pen's colour when the Label itself was
+          // given no pen — draw(Label("..."), g, p, arrow) colours the label
+          // with p, just like Asymptote (03348's blue l(1-cos θ) label, whose
+          // pen rgb(0,0.4,0.8) is a positional draw arg, not inside Label()).
+          let _drawPen = null;
+          for (const a of args) {
+            if (isPen(a)) _drawPen = _drawPen ? mergePens(_drawPen, a) : a;
+            else if (a && a._named && 'p' in a && isPen(a.p)) _drawPen = _drawPen ? mergePens(_drawPen, a.p) : a.p;
+          }
+          const lblPen = lblObj.pen || _drawPen || clonePen(defaultPen);
           target.commands.push({
             cmd: 'label',
             text: lblObj.text,
