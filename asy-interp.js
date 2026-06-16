@@ -2414,6 +2414,17 @@ function createInterpreter() {
             } else {
               const rotOnly = makeTransform(0, cosT, -sinT, 0, sinT, cosT);
               tc.labelTransform = origLT ? composeTransforms(rotOnly, origLT) : rotOnly;
+              // A picture rotation rotates the label's ALIGNMENT too — Asymptote
+              // rotates the whole label (anchor, glyphs, and offset direction),
+              // not just the glyphs. Without this, aligned labels in a rotated
+              // picture offset toward the UNrotated side (06212: ℓ/m/T/F sat on
+              // the wrong side; θ looked right only because it has no align). The
+              // render-time anchor-corner rule then places the rotated box against
+              // this rotated align correctly.
+              if (tc.align && (tc.align.x !== 0 || tc.align.y !== 0)) {
+                const _ax = tc.align.x, _ay = tc.align.y;
+                tc.align = makePair(cosT * _ax - sinT * _ay, sinT * _ax + cosT * _ay);
+              }
             }
           }
           return tc;
