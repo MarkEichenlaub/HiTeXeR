@@ -305,9 +305,14 @@
       const rows = vlistRows(n);
       let colW = 0;
       for (const r of rows) colW = Math.max(colW, r.contentW * ctx.s);
+      // op-limits / accent / centered matrix columns center each row within the
+      // column (katex.css: ".op-limits > .vlist-t{text-align:center}"); plain
+      // vlists (fractions, sub/sup stacks) left-align.
+      const center = !!ctx.centerCols;
       for (const r of rows) {
         const shiftUpEm = -(r.topEm + r.pstrut) - r.contentDepth;
         const rowBaseY = ctx.y - shiftUpEm * ctx.s;
+        const cx = ctx.x + marginL + (center ? (colW - r.contentW * ctx.s) / 2 : 0);
         const content = r.content;
         const cstyle = content.style || {};
         if (cstyle.borderBottomWidth !== undefined && em(cstyle.borderBottomWidth) > 0) {
@@ -318,10 +323,10 @@
         }
         if (has(content, 'hide-tail')) {
           const svgKid = (content.children || []).find(isSvgNode);
-          if (svgKid) emitSvgNode(svgKid, { ...ctx, x: ctx.x + marginL, color }, colW, rowBaseY);
+          if (svgKid) emitSvgNode(svgKid, { ...ctx, x: cx, color }, colW, rowBaseY);
           continue;
         }
-        emitNode(content, { ...ctx, x: ctx.x + marginL, y: rowBaseY, s: ctx.s, face, color, colW });
+        emitNode(content, { ...ctx, x: cx, y: rowBaseY, s: ctx.s, face, color, colW, centerCols: false });
       }
       return marginL + colW + marginR;
     }
@@ -363,10 +368,12 @@
       return 0;
     }
 
-    // generic inline span
+    // generic inline span. op-limits / accent / centered matrix columns center
+    // their immediate child vlist-t (see katex.css ".op-limits > .vlist-t").
+    const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c');
     let x = ctx.x + marginL + padL;
     for (const c of (n.children || [])) {
-      x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color });
+      x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color, centerCols: childCenter });
     }
     let advance = (x - ctx.x) + marginR;
     if (style.width !== undefined) {

@@ -21525,7 +21525,11 @@ function createInterpreter() {
             if (isPen(a)) _drawPen = _drawPen ? mergePens(_drawPen, a) : a;
             else if (a && a._named && 'p' in a && isPen(a.p)) _drawPen = _drawPen ? mergePens(_drawPen, a.p) : a.p;
           }
-          const lblPen = lblObj.pen || _drawPen || clonePen(defaultPen);
+          // Merge the draw pen ONTO defaultPen so attributes it leaves unset
+          // (notably fontsize) fall back to defaultpen instead of a bare pen's
+          // 12pt default: rgb(0,0.4,0.8) sets only colour, so 03348's blue
+          // l(1-cosθ) label must keep defaultpen's fontsize(10pt), not 12pt.
+          const lblPen = lblObj.pen || (_drawPen ? mergePens(clonePen(defaultPen), _drawPen) : clonePen(defaultPen));
           target.commands.push({
             cmd: 'label',
             text: lblObj.text,
