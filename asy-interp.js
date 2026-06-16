@@ -3,6 +3,31 @@
 'use strict';
 (function() {
 
+// Node/headless bootstrap for the KaTeX SVG emitter. The live in-browser app
+// renders labels through katex-svg.js (loaded via <script> + katex-glyphs.json
+// fetch in index.html); the comparator pipeline runs in node, where those
+// aren't auto-loaded. Load them from disk here so the comparator renders labels
+// through the SAME engine as the live app — the two then produce identical
+// label glyphs (best-effort: if katex-svg.js / katex-glyphs.json / katex are
+// unavailable, label rendering falls back to the MathJax svg-native path).
+if (typeof document === 'undefined' && typeof require === 'function'
+    && typeof katexSvg === 'undefined') {
+  try {
+    // katex-svg.js attaches to `window` if a (possibly stubbed) window exists,
+    // but asy-interp reads the bare `katexSvg` (→ globalThis), so bind the
+    // module export onto globalThis explicitly.
+    const _ks = require('./katex-svg.js');
+    if (_ks && typeof globalThis !== 'undefined' && typeof globalThis.katexSvg === 'undefined') {
+      globalThis.katexSvg = _ks;
+    }
+    if (typeof katexSvg !== 'undefined' && katexSvg.init && !katexSvg.ready()) {
+      const _fs = require('fs'), _path = require('path');
+      katexSvg.init(JSON.parse(_fs.readFileSync(
+        _path.join(__dirname, 'katex-glyphs.json'), 'utf8')));
+    }
+  } catch (e) { /* emitter unavailable in node — MathJax svg-native fallback */ }
+}
+
 // ============================================================
 // Token Types
 // ============================================================
@@ -30020,52 +30045,48 @@ function renderSVG(result, opts) {
         const _cleanLen = (_cleanLines.length > 0 ? Math.max(..._cleanLines.map(l => l.length)) : 1) || 1;
         // Heuristic width estimate
         _labelWidthMeasured = _cleanLen * fontSizeSVG * 0.52 + fontSizeSVG * 0.1;
-        // Try MathJax measurement if available (single-line only)
-        if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function'
-            && _rawForMeas.indexOf('\n') === -1) {
+        // Measure the label with the SAME engine that will render its glyphs,
+        // so the Fill/UnFill background box and W/E alignment track the rendered
+        // glyph exactly. The comparator (svg-native) and the live in-browser app
+        // both render through the KaTeX SVG emitter when it is ready (node loads
+        // it via the bootstrap at the top of this file), so both measure with
+        // _katexMeasureBp(fontSizeCSS) — widthEm*fontSizeCSS == renderLabelKatexSvg's
+        // svgW — keeping the two pixel-identical. MathJax svg-native measurement
+        // is the fallback when the emitter is unavailable in node; canvas-ink is
+        // the last resort in the browser.
+        let _measured = false;
+        if (_rawForMeas.indexOf('\n') === -1 && typeof _katexMeasureBp === 'function'
+            && typeof katexSvg !== 'undefined' && katexSvg.ready && katexSvg.ready()) {
+          try {
+            const _km = _katexMeasureBp(_rawForMeas, fontSizeCSS);
+            if (_km && _km.wBp > 0) {
+              _labelWidthMeasured = _km.wBp + fontSizeSVG * 0.1;
+              if (_km.hBp > 0) _labelHeightMeasured = _km.hBp;
+              _measured = true;
+            }
+          } catch (e) { /* fall through to engine-specific fallback */ }
+        }
+        if (!_measured && opts && opts.labelOutput === 'svg-native'
+            && typeof _mjxMeasureBp === 'function' && _rawForMeas.indexOf('\n') === -1) {
           try {
             const _m = _mjxMeasureBp(_rawForMeas, fontSizeSVG);
             if (_m && _m.wBp > 0) {
-              // Add small padding to measured width (like Asymptote's label background)
               _labelWidthMeasured = _m.wBp * bpCSSPixel + fontSizeSVG * 0.1;
               if (_m.hBp > 0) _labelHeightMeasured = _m.hBp * bpCSSPixel;
+              _measured = true;
             }
-          } catch (e) { /* ignore — fall back to heuristic */ }
-        } else if (typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
-          // Browser: prefer the KaTeX SVG emitter's own metrics — the SAME
-          // source the glyph renderer (renderLabelKatexSvg) uses for svgW/svgH.
-          // _katexMeasureBp(text, fontSizeCSS).wBp == widthEm*fontSizeCSS == the
-          // rendered glyph width, so the Fill/UnFill background box and W/E
-          // alignment track the actual glyph (mirroring how the svg-native path
-          // uses MathJax for both box and glyph). The old canvas-ink path
-          // under-measured math layout (\frac, \sqrt) — e.g. "$2R/\sqrt3$" came
-          // out ~22u wide vs KaTeX's ~31u — so the gray box was far too narrow
-          // and the glyphs hung off both sides, and the comparator (MathJax)
-          // box no longer predicted what the live KaTeX app would draw.
-          let _measured = false;
-          if (typeof _katexMeasureBp === 'function' && typeof katexSvg !== 'undefined'
-              && katexSvg.ready && katexSvg.ready()) {
-            try {
-              const _km = _katexMeasureBp(_rawForMeas, fontSizeCSS);
-              if (_km && _km.wBp > 0) {
-                _labelWidthMeasured = _km.wBp + fontSizeSVG * 0.1;
-                if (_km.hBp > 0) _labelHeightMeasured = _km.hBp;
-                _measured = true;
-              }
-            } catch (e) { /* fall through to canvas ink */ }
-          }
-          // Fallback: canvas ink metrics (used when the SVG emitter isn't ready,
-          // e.g. foreignObject/plain-text labels).
-          if (!_measured) {
-            try {
-              const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
-                /[\\$]/.test(_rawForMeas));
-              if (_mk && _mk.w > 0) {
-                _labelWidthMeasured = _mk.w + fontSizeSVG * 0.1;
-                _labelHeightMeasured = _mk.h;
-              }
-            } catch (e) { /* keep heuristic */ }
-          }
+          } catch (e) { /* fall back to heuristic */ }
+        }
+        if (!_measured && typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
+          // Browser last resort: canvas ink metrics (emitter not ready yet).
+          try {
+            const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
+              /[\\$]/.test(_rawForMeas));
+            if (_mk && _mk.w > 0) {
+              _labelWidthMeasured = _mk.w + fontSizeSVG * 0.1;
+              _labelHeightMeasured = _mk.h;
+            }
+          } catch (e) { /* keep heuristic */ }
         }
       }
 
@@ -30799,10 +30820,14 @@ function renderSVG(result, opts) {
         // plain SVG-text fallback in the rasterization pipeline: upright letters
         // that should be math-italic, hyphens for minus signs, no TeX spacing.
         // Use KaTeX for math rendering via foreignObject.  When rendering for
-        // rasterization (labelOutput === 'svg-native'), go through MathJax
-        // instead, which emits real <path> glyphs that librsvg can rasterize.
+        // rasterization (labelOutput === 'svg-native'), emit real <path> glyphs:
+        // prefer the KaTeX SVG emitter (the SAME engine the live in-browser app
+        // uses, so the comparator renders identically) and fall back to MathJax
+        // — also <path>, also librsvg-rasterizable — when the emitter can't
+        // render the input or its glyphs aren't loaded.
         if (opts && opts.labelOutput === 'svg-native') {
-          labelEl = renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+            || renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
         } else {
           // KaTeX SVG emitter first (real glyph paths, exact box); HTML
           // foreignObject only as fallback when the emitter is unavailable.
@@ -30818,7 +30843,9 @@ function renderSVG(result, opts) {
         // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
         const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
         const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
-        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        // KaTeX emitter first (matches the live app), MathJax fallback.
+        labelEl = renderLabelKatexSvg(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          || renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else if (opts && opts.labelOutput === 'svg-native' && !hasMath && !hasLaTeX && !wasStrippedMath && !(dc.pen && dc.pen.fontFamily) && displayText && /[A-Za-z]/.test(displayText) && !/[_^]/.test(displayText)) {
         // Plain text label (e.g. "Pivot", "Post") in rasterization mode.
         // librsvg has no KaTeX_Main font installed, so a <text font-family="KaTeX_Main,
@@ -30833,7 +30860,9 @@ function renderSVG(result, opts) {
           else if ('\\{}$&#^_%'.indexOf(c) !== -1) esc += '\\' + c;
           else esc += c;
         }
-        labelEl = renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        // KaTeX emitter first (matches the live app), MathJax fallback.
+        labelEl = renderLabelKatexSvg('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          || renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -32644,10 +32673,11 @@ function _mjxMeasureBp(rawText, fontSize) {
 const _katexMeasureCache = new Map();
 let _katexMeasureHost = null;
 function _katexMeasureBp(rawText, fontSize) {
-  if (typeof document === 'undefined' || typeof katex === 'undefined') return null;
-  // Fast path: the KaTeX SVG emitter measures from the DomTree directly (no
-  // DOM layout round-trip) with the same box the emitter renders, so
-  // placement and ink agree exactly.
+  // Fast path: the KaTeX SVG emitter measures from the DomTree directly (no DOM
+  // layout round-trip) with the same box the emitter renders, so placement and
+  // ink agree exactly. This works in node too (the emitter uses
+  // katex.__renderToDomTree, no DOM), so the comparator measures labels with
+  // the same engine it renders them — keeping it identical to the live app.
   if (typeof katexSvg !== 'undefined' && katexSvg.ready()) {
     try {
       let math = (rawText || '').trim();
@@ -32664,6 +32694,8 @@ function _katexMeasureBp(rawText, fontSize) {
       }
     } catch (e) { /* fall through to the DOM measurer */ }
   }
+  // DOM-measurer fallback (browser only — needs document + global katex).
+  if (typeof document === 'undefined' || typeof katex === 'undefined') return null;
   const cacheKey = String(rawText);
   const cached = _katexMeasureCache.get(cacheKey);
   if (cached && cached.error) return null;
