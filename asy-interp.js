@@ -8157,53 +8157,50 @@ function createInterpreter() {
       }
       if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
       if (!a || !b) return makePath([], false);
+      // Reproduce Asymptote's plain_paths.asy brace() exactly: a Hobby spline
+      // through shoulder/tip knots with fixed tangent directions at each knot.
+      // The 70° endpoint tangent (braceouterangle) is what curls the tips toward
+      // the amplitude side so they end nearly horizontal/perpendicular to the
+      // axis — HiTeXeR's old hand-built beziers left the ends tangent to the axis
+      // (vertical), so the tips never hooked (05547). bracemidangle=0 (shoulders
+      // run along the axis), braceinnerangle=60 (the central nib cusp).
+      const bracedefaultratio = 0.14;
       const dx = b.x - a.x, dy = b.y - a.y;
       const L = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (amplitude === null) amplitude = 0.14 * L;
-      const ux = dx/L, uy = dy/L;        // unit tangent along brace axis
-      const nx = -uy, ny = ux;            // unit normal (left of direction = outward tip)
-      const amp = amplitude;
-      // Key waypoints along the brace
-      const sh1 = makePair(a.x + ux*(L*0.25) + nx*(amp*0.5), a.y + uy*(L*0.25) + ny*(amp*0.5));
-      const tip = makePair(a.x + ux*(L*0.5)  + nx*amp,       a.y + uy*(L*0.5)  + ny*amp);
-      const sh2 = makePair(a.x + ux*(L*0.75) + nx*(amp*0.5), a.y + uy*(L*0.75) + ny*(amp*0.5));
-      const cd = L * 0.12; // control-point distance for smooth segments
-      // Segment 1: A → sh1 (tangent along +u at both ends: produces a smooth curve up to shoulder)
-      const c1a = makePair(a.x + ux*cd,        a.y + uy*cd);
-      const c1b = makePair(sh1.x - ux*cd,      sh1.y - uy*cd);
-      // Segment 2: sh1 → tip (start tangent +u, end tangent +u+n direction = cusp approach)
-      const c2a = makePair(sh1.x + ux*cd,      sh1.y + uy*cd);
-      const tipInX = (ux + nx) * (cd * 0.707), tipInY = (uy + ny) * (cd * 0.707);
-      const c2b = makePair(tip.x - tipInX,     tip.y - tipInY);
-      // Segment 3: tip → sh2 (start tangent +u-n direction = leaving cusp, end tangent +u)
-      const tipOutX = (ux - nx) * (cd * 0.707), tipOutY = (uy - ny) * (cd * 0.707);
-      const c3a = makePair(tip.x + tipOutX,    tip.y + tipOutY);
-      const c3b = makePair(sh2.x - ux*cd,      sh2.y - uy*cd);
-      // Segment 4: sh2 → B
-      const c4a = makePair(sh2.x + ux*cd,      sh2.y + uy*cd);
-      const c4b = makePair(b.x - ux*cd,        b.y - uy*cd);
-      function sampleBezier(p0, p1, p2, p3, n, includeStart) {
-        const pts = [];
-        const start = includeStart ? 0 : 1;
-        for (let i = start; i <= n; i++) {
-          const t = i/n, mt = 1-t;
-          pts.push(makePair(
-            mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x,
-            mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y
-          ));
-        }
-        return pts;
+      if (amplitude === null) amplitude = bracedefaultratio * L;
+      const sign = amplitude < 0 ? -1 : 1;
+      const hamp = 0.5 * amplitude;            // signed half (shoulder) amplitude
+      const ux = dx/L, uy = dy/L;              // axis unit
+      const nx = -uy, ny = ux;                 // local +y (rotate90 of axis) = amplitude side
+      const aA = Math.atan2(uy, ux);           // axis angle
+      const A70 = 70*Math.PI/180, A60 = 60*Math.PI/180;
+      // local (lx along axis, ly along amplitude) -> world
+      const P = (lx, ly) => makePair(a.x + ux*lx + nx*ly, a.y + uy*lx + ny*ly);
+      let knots, dirs;
+      if (Math.abs(amplitude) < bracedefaultratio * L) {
+        const slope = 2 * bracedefaultratio;
+        const cd = Math.abs(hamp) / slope;
+        knots = [P(0,0), P(cd,hamp), P(0.5*L-cd,hamp), P(0.5*L,amplitude), P(0.5*L+cd,hamp), P(L-cd,hamp), P(L,0)];
+        dirs = [
+          {dirOut: aA + sign*A70},
+          {dirIn: aA},
+          {dirIn: aA},
+          {dirIn: aA + sign*A60, dirOut: aA - sign*A60},
+          {dirIn: aA},
+          {dirIn: aA},
+          {dirIn: aA - sign*A70},
+        ];
+      } else {
+        knots = [P(0,0), P(0.25*L,hamp), P(0.5*L,amplitude), P(0.75*L,hamp), P(L,0)];
+        dirs = [
+          {dirOut: aA + sign*A70},
+          {dirIn: aA},
+          {dirIn: aA + sign*A60, dirOut: aA - sign*A60},
+          {dirIn: aA},
+          {dirIn: aA - sign*A70},
+        ];
       }
-      const n = 12;
-      const points = [];
-      points.push(...sampleBezier(a,   c1a, c1b, sh1, n, true));
-      points.push(...sampleBezier(sh1, c2a, c2b, tip, n, false));
-      points.push(...sampleBezier(tip, c3a, c3b, sh2, n, false));
-      points.push(...sampleBezier(sh2, c4a, c4b, b,   n, false));
-      const segs = [];
-      for (let i = 0; i < points.length - 1; i++) {
-        segs.push(lineSegment(points[i], points[i+1]));
-      }
+      const segs = hobbySpline(knots, false, dirs);
       return makePath(segs, false);
     });
     env.set('log', _broadcast1(Math.log));
