@@ -14642,7 +14642,14 @@ function createInterpreter() {
           // was drawn before content — it must be able to SHRINK, 00247)
           // and its own TITLE from the frame estimate; the title contributes
           // separately, anchored at its first placement (see below).
-          const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
+          // Exclude ALL of THIS axis's own commands (line, TICK MARKS, tick
+          // labels, title) from the frame estimate — they are CONSEQUENCES of the
+          // extent, not inputs. Counting the axis's own tick marks (at integer
+          // positions ALONG the axis) fed a divergence: each pass added a tick
+          // that pushed geoMax further, which drew the next tick, etc. (00115
+          // crept 5→6→7→8 over passes after the render unification). The title's
+          // contribution is re-added separately by the ride logic below.
+          const _selfNoLineNoTitle = new Set(myCmds);
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
           _xRideLo = 0; _xRideHi = 0;
@@ -15262,7 +15269,14 @@ function createInterpreter() {
         let _yRideLo = 0, _yRideHi = 0;
         if (_ySubpicJob) { pic._axisJobs = pic._axisJobs || []; }
         (_ySubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
-          const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
+          // Exclude ALL of THIS axis's own commands (line, TICK MARKS, tick
+          // labels, title) from the frame estimate — they are CONSEQUENCES of the
+          // extent, not inputs. Counting the axis's own tick marks (at integer
+          // positions ALONG the axis) fed a divergence: each pass added a tick
+          // that pushed geoMax further, which drew the next tick, etc. (00115
+          // crept 5→6→7→8 over passes after the render unification). The title's
+          // contribution is re-added separately by the ride logic below.
+          const _selfNoLineNoTitle = new Set(myCmds);
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
           _yRideLo = 0; _yRideHi = 0;
