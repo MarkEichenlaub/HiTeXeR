@@ -163,7 +163,11 @@
   function widthOfInner(n) {
     if (isSym(n)) {
       let w = symAdvanceEm(n, faceForClasses(n.classes, 'KaTeX_Main-Regular'));
-      if (n.style) w += em(n.style.marginLeft) + em(n.style.marginRight);
+      // padding shifts/advances inline content too (sqrt radicand carries
+      // paddingLeft = surd advanceWidth so the vlist column — and the surd
+      // overline stretched to it — clears the radicand).
+      if (n.style) w += em(n.style.marginLeft) + em(n.style.marginRight)
+                      + em(n.style.paddingLeft) + em(n.style.paddingRight);
       return w;
     }
     if (isSvgNode(n)) {
@@ -235,7 +239,7 @@
   function emitSym(n, ctx) {
     const face = faceForClasses(n.classes, ctx.face);
     const style = n.style || {};
-    let x = ctx.x + em(style.marginLeft) * ctx.s;
+    let x = ctx.x + (em(style.marginLeft) + em(style.paddingLeft)) * ctx.s;
     const color = style.color || ctx.color;
     const text = n.text || '';
     const table = GLYPHS[face] || GLYPHS['KaTeX_Main-Regular'] || {};
@@ -261,7 +265,8 @@
     // Advance: KaTeX's metric width for single glyphs (authoritative);
     // glyph-advance sum for merged multi-char text runs (see symAdvanceEm).
     const w = symAdvanceEm(n, face) || consumedW;
-    return (em(style.marginLeft) + w + em(style.marginRight)) * ctx.s;
+    return (em(style.marginLeft) + em(style.paddingLeft) + w
+            + em(style.marginRight) + em(style.paddingRight)) * ctx.s;
   }
 
   function emitSvgNode(n, ctx, colWpx, baseYpx) {
