@@ -27397,27 +27397,41 @@ function renderSVG(result, opts) {
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
     const scaleRefH2 = (geoMaxY - geoMinY) || 1;
     const { xs: _xsLp, ys: _ysLp } = _buildLpCoords();
-    const _lpAxis = _lpAxisSolve;
 
-    let _Dfit = defaultSize;
-    let _sxLp = 0, _syLp = 0;
-    for (let tries = 0; tries < 12; tries++) {
-      _sxLp = _lpAxis(_xsLp, _Dfit);
-      _syLp = _lpAxis(_ysLp, _Dfit);
-      if (_sxLp === -1 || _syLp === -1) { _Dfit *= Math.SQRT2; continue; }
-      break;
-    }
+    // Solve each axis INDEPENDENTLY, mirroring asy's per-axis calculateScaling
+    // (plain_scaling.asy bounds.scaling): on infeasibility an axis enlarges its
+    // OWN size by √2 (expansionfactor) and retries; the OTHER axis is untouched.
+    // keepAspect's min() below then lets the feasible (smaller-scale) axis
+    // govern. The prior SHARED-D loop enlarged BOTH axes whenever EITHER one
+    // overflowed, doubling label-overflow pictures: 03424's wide caption forces
+    // the x-axis to enlarge to ~300bp, but the y-axis fits the 150 box exactly —
+    // shared-D wrongly re-solved y at 300 too, scaling the geometry ~2×.
+    const _lpAxisSolveD = (cs, D0) => {
+      let D = D0, s = _lpAxisSolve(cs, D);
+      for (let tries = 0; s === -1 && tries < 12; tries++) { D *= Math.SQRT2; s = _lpAxisSolve(cs, D); }
+      return { s, D };
+    };
+    const _rxLp = _lpAxisSolveD(_xsLp, defaultSize);
+    const _ryLp = _lpAxisSolveD(_ysLp, defaultSize);
+    const _origSx = _rxLp.s, _origSy = _ryLp.s;
+    let _sxLp = _origSx, _syLp = _origSy;
     if (typeof process !== 'undefined' && process.env && process.env.HTX_LP_DBG) {
       try {
-        process.stderr.write('[bareLP] D=' + _Dfit + ' sx=' + _sxLp + ' sy=' + _syLp + '\n');
+        process.stderr.write('[bareLP] Dx=' + _rxLp.D + ' Dy=' + _ryLp.D + ' sx=' + _sxLp + ' sy=' + _syLp + '\n');
         const dump = (cs, n) => process.stderr.write('[bareLP] ' + n + ': ' + cs.map(c => '(' + c.u.toFixed(2) + ',' + c.lo.toFixed(1) + '..' + c.hi.toFixed(1) + ')').join(' ') + '\n');
         dump(_xsLp.slice(0, 12), 'x'); dump(_ysLp.slice(0, 12), 'y');
       } catch (e) {}
     }
-    if (_sxLp === -1 || _syLp === -1) { _sxLp = _syLp = 1; }
-    if (_sxLp === 0 && _syLp === 0) { _sxLp = _syLp = 1; } // pure-truesize: natural
-    else if (_sxLp === 0) _sxLp = _syLp;
-    else if (_syLp === 0) _syLp = _sxLp;
+    // _Dfit = the size the BINDING axis (the one winning keepAspect's min) was
+    // solved at — its enlargement, if any, is what the downstream symmetric
+    // clamp and inexact pass-2 must target. Falls back to defaultSize when an
+    // axis is the infeasible→natural-scale (1) fallback or both are unbounded.
+    let _Dfit;
+    if (_origSx === -1 || _origSy === -1) { _sxLp = _syLp = 1; _Dfit = defaultSize; }
+    else if (_origSx === 0 && _origSy === 0) { _sxLp = _syLp = 1; _Dfit = defaultSize; } // pure-truesize: natural
+    else if (_origSx === 0) { _sxLp = _syLp; _Dfit = _ryLp.D; } // x unbounded ⇒ y binds
+    else if (_origSy === 0) { _syLp = _sxLp; _Dfit = _rxLp.D; } // y unbounded ⇒ x binds
+    else _Dfit = (_origSx <= _origSy) ? _rxLp.D : _ryLp.D;       // smaller scale binds
     pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxLp, _syLp);
     _lpFitTargetBp = _Dfit;
     // Multi-picture composite true-bp floor (kept from the legacy pile): the
