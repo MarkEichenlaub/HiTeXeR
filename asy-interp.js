@@ -9229,9 +9229,20 @@ function createInterpreter() {
       // General subpicture attach (non-legend) - not implemented yet
     });
 
+    // Path-time span for arclength-fraction APIs (relpoint/waypoint/reltime):
+    // a `_circle`-tagged path is parameterized by a virtual node count `n`
+    // (default 400) inside _pointOnPath, so its full traversal is time∈[0,n],
+    // NOT time∈[0,segs.length] (=4 for the Bezier representation). Using
+    // segs.length here collapsed relpoint(circle,t∈[0,1]) to ~2% of the circle
+    // (broke the transformed-circle blob in 02378).
+    function _pathTimeSpan(p) {
+      if (p && p._circle) return p._circle.n || 400;
+      return p.segs.length;
+    }
+
     env.set('relpoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
-      const time = toNumber(t) * p.segs.length;
+      const time = toNumber(t) * _pathTimeSpan(p);
       return _pointOnPath(p, time);
     });
 
@@ -9313,14 +9324,14 @@ function createInterpreter() {
     // sufficient for typical usage like waypoint(A--B, 0.5).
     env.set('waypoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
-      const time = toNumber(t) * p.segs.length;
+      const time = toNumber(t) * _pathTimeSpan(p);
       return _pointOnPath(p, time);
     });
 
     // reltime(path, frac): convert arclength fraction [0,1] to path time [0,N]
     env.set('reltime', (p, t) => {
       if (!isPath(p) || p.segs.length === 0) return 0;
-      return toNumber(t) * p.segs.length;
+      return toNumber(t) * _pathTimeSpan(p);
     });
 
     // length(path): number of segments (for path time parameterization)
