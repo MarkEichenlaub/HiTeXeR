@@ -7109,7 +7109,12 @@ function createInterpreter() {
       pen(0xE6/255, 0xCC/255, 0xEA/255), // 5: light purple
     ];
     env.set('spFills', spFills);
-    env.set('spGray', pen(0.4,0.4,0.4));
+    // AoPS styles' spGray is a FAINT gray (used for auxiliary/secondary arcs and
+    // dashed back-edges). Measured from the references (11730/11731/11732/11796/
+    // 11797), its thin strokes render to a ~0.66 gray; pen ~0.6 reproduces that.
+    // The old 0.4 drew the arc-through-fill much too dark (11731 big-circle arc in
+    // the spPurpleFill region read solid instead of "very faint").
+    env.set('spGray', pen(0.6,0.6,0.6));
     // Named fill pen used by 11731's filldraw; without it filldraw falls back to
     // a black pen and renders the segment solid black. Aliases the palette purple.
     env.set('spPurpleFill', spFills[5]);
