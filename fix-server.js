@@ -922,7 +922,20 @@ const server = http.createServer((req, res) => {
       }
       const ext = path.extname(filePath).toLowerCase();
       const mime = MIME[ext] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': mime });
+      // Never cache the interpreter/app code or data (asy-interp.js, katex-svg.js,
+      // the HTML pages, manifests/results, glyph table). The browser otherwise
+      // serves a stale asy-interp.js after edits — so a fix passes node renders
+      // but is invisible in the comparator/editor (the bug that masked the whole
+      // 00133 session). `no-store` forces a fresh fetch every load; this removes
+      // the need for ?v= cache-busters in the HTML. Large static corpus images
+      // (.png/.jpg) keep the default heuristic cache so the comparator stays fast.
+      const headers = { 'Content-Type': mime };
+      if (ext === '.js' || ext === '.html' || ext === '.json' || ext === '.css') {
+        headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
+        headers['Pragma'] = 'no-cache';
+        headers['Expires'] = '0';
+      }
+      res.writeHead(200, headers);
       const rs = fs.createReadStream(filePath);
       rs.on('error', err => { console.error('[fix-server] Read error:', err.message); res.destroy(); });
       res.on('error', () => { rs.destroy(); });

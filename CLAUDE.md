@@ -4,17 +4,33 @@
 
 Every time you edit HiTeXeR, bump the version number in `index.html` (search for the `v` string in the `<h1>` header, around line 340) so the user can confirm they're seeing the latest changes.
 
-## Cache-busters (CRITICAL — or browser won't load your changes)
+## Cache-busting (handled by fix-server — no manual ?v= bumping)
 
-`index.html` loads `asy-interp.js` and `katex-svg.js` with a `?v=...` query-string
-cache-buster (e.g. `<script src="asy-interp.js?v=8.80">`). The browser caches by
-the full URL, so if the `?v=` string is unchanged it serves the OLD file even
-after you edit it — your fixes silently never reach the browser (the `<h1>`
-version updates because index.html itself reloads, masking the problem).
-**Whenever you edit `asy-interp.js` or `katex-svg.js`, bump BOTH `?v=` strings
-to the new HiTeXeR version** (keep them in sync with the `<h1>` version). Node
-renders (`_render_one.js` etc.) read the file directly and are unaffected, so a
-fix can pass node verification yet be invisible in the browser — always bump.
+`fix-server.js` (the :7842 dev server) sends `Cache-Control: no-store` for
+`.js`/`.html`/`.json`/`.css`, so the browser ALWAYS fetches the latest
+interpreter on every load — across index.html, the comparator (blink.html), and
+all generated page-*.html, with no per-file cache-buster. **If you edit
+`asy-interp.js` / `katex-svg.js` and the change doesn't appear in the browser,
+restart fix-server.js** (the no-cache headers only apply to a server started
+after this was added). The `?v=...` query strings still in the HTML are now
+redundant belt-and-suspenders; you do NOT need to bump them. (Node renders —
+`_render_one.js`, render-and-score, ssim-pipeline — `require()` the file directly
+and are always current.)
+
+## One render engine everywhere (KaTeX, not MathJax)
+
+Labels are rendered AND measured via the KaTeX SVG emitter (`katex-svg.js`) on
+every surface: the live browser app loads it via `<script>`, and node loads it
+via the bootstrap at the top of `asy-interp.js` (require + `katex-glyphs.json`).
+`_mjxMeasureBp` delegates to katexSvg when available, so frame/fit/label-box
+estimates use the SAME engine that draws the glyphs — node renders === browser
+renders. MathJax remains only as a fallback when the emitter can't load. Do NOT
+reintroduce a measure-with-MathJax / render-with-KaTeX split: it made the canary
+(node) disagree with the comparator/editor (browser), so fixes passed the canary
+yet were wrong on screen. After changing label measurement, refresh the canary
+baselines (`auto-fix/canary.json`) and regenerate `comparison/ssim-results.json`
+(via `node ssim-pipeline.js render-htx rasterize ssim html`) so both reflect the
+unified render.
 
 ## Do NOT delete corpus or rendered images
 

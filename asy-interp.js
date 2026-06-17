@@ -32823,6 +32823,21 @@ function _texCapFontSize(n) {
 const _MJX_SCALE = 1.072;
 
 function _mjxMeasureBp(rawText, fontSize) {
+  // UNIFY on the KaTeX SVG emitter. Labels are RENDERED by katexSvg
+  // (renderLabelKatexSvg) in both the node comparator (loaded via the bootstrap
+  // at the top of this file) and the live browser app, so MEASURE with the same
+  // engine — otherwise frames/fits are estimated with MathJax (node) or the
+  // heuristic (browser, where MathJax is absent) while glyphs are drawn by
+  // KaTeX. That "MathJax here, KaTeX there" split made the canary/ssim-pipeline
+  // (node) disagree with the comparator/editor (browser) — a fix could pass the
+  // canary yet be wrong on screen (00133). Now every surface measures via
+  // katexSvg; MathJax remains only as the fallback when the emitter is absent.
+  if (!(typeof process !== 'undefined' && process.env && process.env.HTX_NO_KATEX_MEASURE)
+      && typeof katexSvg !== 'undefined' && katexSvg.ready && katexSvg.ready()
+      && typeof _katexMeasureBp === 'function') {
+    const _k = _katexMeasureBp(rawText, fontSize);
+    if (_k && _k.wBp > 0) return _k;
+  }
   const state = _ensureMathJax();
   if (!state) return null;
   fontSize = _texCapFontSize(fontSize);
