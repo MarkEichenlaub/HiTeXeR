@@ -21524,8 +21524,21 @@ function createInterpreter() {
       // (e.g. 12287's "12"/"6"/"4" capacities).
       let lblFromPositional = false;
       if (!lblObj) {
-        for (const a of args) {
-          if (a && typeof a === 'object' && a._tag === 'label' && a.text) { lblObj = a; lblFromPositional = true; break; }
+        // Asymptote distinguishes by ARGUMENT ORDER: draw(Label L, path) anchors
+        // L as an inline PATH LABEL (Label BEFORE the path), while
+        // draw(path, pen, Label) makes Label a LEGEND entry (Label AFTER the
+        // path — collected by the main loop below). Only the Label-FIRST form
+        // anchors an inline label here; otherwise 04452's
+        // draw(graph(g), blue, Label("$2^x$")) renders ON the curve AND in the
+        // legend box (the equation appeared duplicated, overlapping the grid).
+        let _firstPathIdx = -1, _firstLblIdx = -1;
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (_firstPathIdx < 0 && isPath(a) && a.segs && a.segs.length > 0) _firstPathIdx = i;
+          if (_firstLblIdx < 0 && a && typeof a === 'object' && a._tag === 'label' && a.text) _firstLblIdx = i;
+        }
+        if (_firstLblIdx >= 0 && _firstPathIdx >= 0 && _firstLblIdx < _firstPathIdx) {
+          lblObj = args[_firstLblIdx]; lblFromPositional = true;
         }
       }
       // A positional label with an explicit, non-center Relative() position
