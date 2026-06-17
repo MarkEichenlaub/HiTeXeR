@@ -23057,6 +23057,13 @@ function createInterpreter() {
             if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) { _meshOverlayPresent = true; break; }
           }
         }
+        // Flag: the surface is filled with OPAQUE WHITE faces that must occlude
+        // the mesh-wireframe grid lines behind them (proper hidden-line removal,
+        // as in 03290's TeXeR PNG — only the front-facing grid reads). When set,
+        // the meshline emitter below depth-interleaves the grid node lines with
+        // the white face fills (back-face culling the far slope) instead of
+        // painting every grid edge on top of the surface.
+        let _whiteFacedOccluding = false;
         if (_nolight && _meshOverlayPresent && surfForColors && surfForColors._grid && isPen(meshPen)) {
           const _pr = meshPen.r || 0, _pg = meshPen.g || 0, _pb = meshPen.b || 0;
           const _pop = (typeof meshPen.opacity === 'number') ? meshPen.opacity : 1;
@@ -23065,6 +23072,7 @@ function createInterpreter() {
           if (_achroLight) {
             meshPen = clonePen(meshPen);
             meshPen.r = 1; meshPen.g = 1; meshPen.b = 1;
+            _whiteFacedOccluding = true;
           }
         }
         // Render mesh faces. material() calls attach _emissivePen but we still
@@ -23120,6 +23128,75 @@ function createInterpreter() {
           //  (b) PREPEND the mesh-line commands before any existing _from3d
           //      commands so prior opaque fills end up painting on top.
           const fillIsInvisible = surfacePenArg && typeof surfacePenArg.opacity === 'number' && surfacePenArg.opacity === 0;
+          // OPAQUE-WHITE-FACED surfaces (03290 `draw(surface(f,...), lightgray,
+          // meshpen=black+thick(), nolight)`): TeXeR removes hidden lines — only
+          // the camera-facing grid reads; the far slope is occluded by the white
+          // faces. Append-on-top (the default below) instead paints EVERY grid
+          // edge over the surface, so back lines bleed through as a tangle.
+          // Here we (a) back-face cull the grid quads, then (b) depth-interleave
+          // the surviving node-line edges with the white face fills that
+          // renderMeshToPicture just pushed (back-to-front), so a nearer face
+          // paints over a farther edge — the painter's-algorithm hidden-line
+          // result. Only the original grid quads (not the subdivided shading
+          // faces) emit edges, keeping the wireframe at PRC node density.
+          if (_whiteFacedOccluding && !fillIsInvisible && projection) {
+            const camX = projection.cx, camY = projection.cy, camZ = projection.cz;
+            let nvx, nvy, nvz;
+            {
+              const tx = projection.tx || 0, ty = projection.ty || 0, tz = projection.tz || 0;
+              const vx = camX - tx, vy = camY - ty, vz = camZ - tz;
+              const vl = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+              nvx = vx / vl; nvy = vy / vl; nvz = vz / vl;
+            }
+            const ek = (a, b) => {
+              const q = (v) => Math.round(v * 1e4) / 1e4;
+              const ka = q(a.x) + ',' + q(a.y) + ',' + q(a.z);
+              const kb = q(b.x) + ',' + q(b.y) + ',' + q(b.z);
+              return ka < kb ? ka + '|' + kb : kb + '|' + ka;
+            };
+            const edgeMap = new Map();
+            for (let i = 0; i < rows - 1; i++) {
+              for (let j = 0; j < cols - 1; j++) {
+                const jn = cyc ? (j + 1) % (cols - 1) : j + 1;
+                if (!cyc && jn >= cols) continue;
+                if (!(isActive(i, j) && isActive(i + 1, j) && isActive(i + 1, jn) && isActive(i, jn))) continue;
+                const v00 = grid[i][j], v10 = grid[i + 1][j], v11 = grid[i + 1][jn], v01 = grid[i][jn];
+                const fn = faceNormal({vertices: [v00, v10, v11, v01]});
+                const dotN = fn.x * nvx + fn.y * nvy + fn.z * nvz;
+                if (dotN <= 0.001) continue; // back-face cull the far slope
+                const fcx = (v00.x + v10.x + v11.x + v01.x) / 4;
+                const fcy = (v00.y + v10.y + v11.y + v01.y) / 4;
+                const fcz = (v00.z + v10.z + v11.z + v01.z) / 4;
+                const depth = Math.sqrt((camX - fcx) * (camX - fcx) + (camY - fcy) * (camY - fcy) + (camZ - fcz) * (camZ - fcz));
+                const addEdge = (a, b) => {
+                  const key = ek(a, b);
+                  const ex = edgeMap.get(key);
+                  if (!ex || depth < ex.depth) edgeMap.set(key, {a, b, depth});
+                };
+                // Only emit edges that lie on PRC node lines (constant-i rows /
+                // constant-j cols). For 03290 every line is primary, so all four
+                // quad edges qualify; rowPrim/colPrim gate sparser surfaces.
+                if (isPrimaryRow(i)) addEdge(v00, v01);
+                if (isPrimaryRow(i + 1)) addEdge(v10, v11);
+                if (isPrimaryCol(j)) addEdge(v00, v10);
+                if (isPrimaryCol(jn)) addEdge(v01, v11);
+              }
+            }
+            // The Gaussian bump is convex: after back-face culling, no surviving
+            // (front-facing) edge is occluded by another front face, so the
+            // visible wireframe is simply the surviving edges drawn ON TOP of
+            // the white fills already in target.commands. (Depth-interleaving
+            // the whole-quad edges against the subdivided sub-face fills caused
+            // a slightly-nearer sub-face to clip an edge mid-span, breaking the
+            // grid lines into dashes — TeXeR's lines are continuous.) Back-face
+            // culling alone removes the far-slope tangle; the silhouette edges,
+            // shared with a front face, are retained.
+            for (const e of edgeMap.values()) {
+              const a2 = projectTriple(e.a), b2 = projectTriple(e.b);
+              target.commands.push({cmd: 'draw', path: makePath([lineSegment(a2, b2)], false), pen: meshLinePen, line: args._line || 0, _from3d: true});
+            }
+            return;
+          }
           // Front-face cull mask for invisible-fill surfaces: mark grid
           // vertices that lie on a camera-facing side of the (notionally
           // opaque) hull, so their mesh edges are suppressed. The dashed
