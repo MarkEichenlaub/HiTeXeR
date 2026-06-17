@@ -31617,6 +31617,26 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Display-size / viewBox reconciliation. The intrinsic (display) size must
+  // never be SMALLER than the viewBox content — that downscales the drawing
+  // below its own coordinate extent. Normal keepAspect diagrams carry
+  // intrinsic = viewBox*(5/3) (the 240-DPI-half-res factor), comfortably larger
+  // than the viewBox. It only inverts in a mixed 3D+2D scene whose size() was
+  // fit to the small 3D-figure bbox while the viewBox spans the wider 2D layout
+  // (e.g. 03582's Disk/Hoop/Sphere panels under size(1.6cm)): the geometry was
+  // drawn at the correct scale (viewBox ≈ the TeXeR's), but the SVG declared a
+  // ~3x-too-small display size, so the raster came out ~3x too small. Re-derive
+  // the display size from the viewBox at the standard factor, preserving the
+  // viewBox aspect. IgnoreAspect intentionally keeps a geometry-only intrinsic
+  // smaller than its label-expanded viewBox, so it is excluded.
+  if (!_isIgnoreAspect2 && (outIntrinsicW < outViewW || outIntrinsicH < outViewH)) {
+    const _bp2css = 5 / 3;
+    outIntrinsicW = outViewW * _bp2css;
+    outIntrinsicH = outViewH * _bp2css;
+    outSvgW = outIntrinsicW;
+    outSvgH = outIntrinsicH;
+  }
+
   const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(outSvgW)}" height="${fmt(outSvgH)}" viewBox="0 0 ${fmt(outViewW)} ${fmt(outViewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(outIntrinsicW)}" data-intrinsic-h="${fmt(outIntrinsicH)}">\n${svgStyle}${rootOpen}${bgRect}${bboxEl}${innerContent}\n${rootClose}</svg>`;
 
   return { svg: svgContent, commandMap, pxPerUnit, pxPerUnitX, pxPerUnitY, minX, minY, maxX, maxY, warnings, displayPercent };
