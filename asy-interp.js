@@ -13330,6 +13330,62 @@ function createInterpreter() {
       const ty = ay > 0.1 ? py + hU + mgVU * ay : ay < -0.1 ? py + mgVU * ay : py + hU / 2;
       return { lx, rx, by, ty };
     }
+    // Arrowhead-clearance for the deferred axis range. An end-arrow head is
+    // drawn INWARD from the axis end: it occupies [end - rLen, end]. If the
+    // geometry (which the arrow points away from) reaches up to/past (end - rLen)
+    // the arrowhead overlaps the drawing — e.g. 00133's unit-circle apex sits on
+    // the y-axis exactly under the up-arrow, and TeXeR clearly leaves a gap.
+    // Real Asymptote's frame includes the arrowhead drawn at the data endpoint,
+    // so the deferred line ends ~one arrowlength + a margin past the geometry.
+    // We replicate that ONLY when the head would actually overlap, so the
+    // calibrated majority of arrow axes (whose head already clears) are
+    // untouched. Returns the minimum axis-end coordinate that clears, or null.
+    // arrow.size is the bp head length; the rendered head runs ~1.15x longer, and
+    // TeXeR leaves ~half a head of daylight beyond the geometry.
+    function _arrowClearEnd(arrow, scale, geomEdge, end, sign) {
+      if (!arrow || !scale || scale <= 0 || !isFinite(geomEdge)) return null;
+      const st = arrow.style;
+      const isEnd = (st === 'Arrow' || st === 'EndArrow' || st === 'ArcArrow' || st === 'EndArcArrow' || st === 'Arrows');
+      const isBegin = (st === 'BeginArrow' || st === 'BeginArcArrow' || st === 'Arrows');
+      if (sign > 0 ? !isEnd : !isBegin) return null;
+      const bp = (typeof arrow.size === 'number' && arrow.size > 0) ? arrow.size : 6;
+      const aLen = bp / scale;
+      // Return the axis-end coordinate at which the inward-drawn head clears the
+      // geometry. This is an UNCONDITIONAL floor (the caller takes max/min): no
+      // "already overlaps?" pre-check, because that check would use the
+      // deferred-job's ESTIMATED scale, which differs from the final fit scale
+      // — and differs again between the node/MathJax path and the browser/KaTeX
+      // path — so it wrongly concluded "clears" in the browser and the head sat
+      // on the arc (00133). geomEdge + 2*aLen matches asy/TeXeR's ~half-head gap
+      // (browser-verified: K=2.0 → ~3.9px gap vs asy ~3.7px). When the title ride
+      // already exceeds this the max()/min() makes it a no-op.
+      return geomEdge + sign * (2.0 * aLen);
+    }
+    // Geometry extent NEAR the axis position, in the direction the arrowhead
+    // points: only this matters for arrowhead clearance, because the head is a
+    // small mark at the axis line, not across the whole plot. For a y-axis
+    // (isX=false) at cross-x = axisCross, return the extreme y among geometry
+    // points with |x-axisCross| < band. (00133's arc apex sits at x=0 under the
+    // up-arrow → overlaps; 00391's graph is low at x=0 though its global max-y is
+    // high far to the right → the up-arrow does NOT overlap.)
+    function _geomReachNearAxis(pic, isX, axisCross, sign, band, excl) {
+      let ext = sign > 0 ? -Infinity : Infinity;
+      for (const dc of pic.commands) {
+        if (!dc || (excl && excl.has(dc))) continue;
+        if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel || dc._jobManaged || dc._fromLegend) continue;
+        const pts = [];
+        if (dc.path && dc.path.segs) for (const s of dc.path.segs) { if (s.p0) pts.push(s.p0); if (s.p3) pts.push(s.p3); if (s.cp1) pts.push(s.cp1); if (s.cp2) pts.push(s.cp2); }
+        if (dc.pos) pts.push(dc.pos);
+        for (const p of pts) {
+          if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+          const cross = isX ? p.y : p.x;   // perpendicular to the arrow direction
+          const val   = isX ? p.x : p.y;   // along the arrow direction
+          if (Math.abs(cross - axisCross) > band) continue;
+          if (sign > 0) { if (val > ext) ext = val; } else { if (val < ext) ext = val; }
+        }
+      }
+      return isFinite(ext) ? ext : null;
+    }
 
     // Per-picture size override: axes drawn into a sub-picture with its own
     // size(pic, w, h[, IgnoreAspect]) must size their ticks against THAT
@@ -14645,6 +14701,19 @@ function createInterpreter() {
           let hi = xmaxExplicit ? curHi : Math.max(fb.maxX + _xRideHi, _xTitleHi);
           if (!xminExplicit && _xUserLo != null) lo = Math.min(lo, _xUserLo);
           if (!xmaxExplicit && _xUserHi != null) hi = Math.max(hi, _xUserHi);
+          // Arrowhead clearance: extend so a left/right arrowhead doesn't overlap
+          // the geometry directly beside it (see y-job / 00133). Geometry near the
+          // x-axis only; ONLY for endpoint-title axes (bare arrow axes overlap in
+          // TeXeR too — 00131/00247); skip ALL slopefields (own pokes / 00259-72).
+          const _xHasEndTitle = !!label && (labelPosition == null ? !extent : (labelPosition <= 0.001 || labelPosition >= 0.999));
+          const _xSF = pic.commands.some(dc => dc && dc._slopefield);
+          if (arrow && _xHasEndTitle && !_xSF) {
+            const _bandX = 1.2 * ((typeof arrow.size === 'number' && arrow.size > 0 ? arrow.size : 6) / (fb.sY || fb.sX));
+            const _gHi = _geomReachNearAxis(pic, true, axisShiftY, 1, _bandX, _selfNoLineNoTitle);
+            if (_gHi != null && !xmaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sX, _gHi, hi, 1); if (_ch != null && _ch > hi) hi = _ch; }
+            const _gLo = _geomReachNearAxis(pic, true, axisShiftY, -1, _bandX, _selfNoLineNoTitle);
+            if (_gLo != null && !xminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sX, _gLo, lo, -1); if (_cl != null && _cl < lo) lo = _cl; }
+          }
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
             try { process.stderr.write('[xjob p' + _pass + '] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
@@ -15228,6 +15297,26 @@ function createInterpreter() {
           let hi = ymaxExplicit ? curHi : Math.max(fb.maxY + _yRideHi, _yTitleHi);
           if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
+          // Arrowhead clearance: extend so an up/down arrowhead doesn't overlap
+          // the geometry directly under it (00133's arc apex sits on the y-axis).
+          // Uses geometry NEAR the y-axis (not the global max), so a curve whose
+          // peak is off to the side doesn't trigger a spurious extension (00391).
+          // ONLY for axes with an endpoint TITLE: asy's frame is set by that
+          // title, leaving room for the head to clear; a BARE arrow axis draws
+          // the head right at the data extent (overlapping), so TeXeR overlaps
+          // too and we must NOT extend (00131/00129 polar curves, 00247).
+          // Skip ALL slopefields — their grid fills to the axis and TeXeR seats
+          // the head near it; the unconditional floor over-extends them (00259/
+          // 00260 single-region, 00269/00272 two-half which also have own pokes).
+          const _yHasEndTitle = !!label && (labelPosition == null ? !extent : (labelPosition <= 0.001 || labelPosition >= 0.999));
+          const _ySF = pic.commands.some(dc => dc && dc._slopefield);
+          if (arrow && _yHasEndTitle && !_ySF) {
+            const _bandY = 1.2 * ((typeof arrow.size === 'number' && arrow.size > 0 ? arrow.size : 6) / (fb.sX || fb.sY));
+            const _gHi = _geomReachNearAxis(pic, false, axisShiftX, 1, _bandY, _selfNoLineNoTitle);
+            if (_gHi != null && !ymaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sY, _gHi, hi, 1); if (_ch != null && _ch > hi) hi = _ch; }
+            const _gLo = _geomReachNearAxis(pic, false, axisShiftX, -1, _bandY, _selfNoLineNoTitle);
+            if (_gLo != null && !yminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sY, _gLo, lo, -1); if (_cl != null && _cl < lo) lo = _cl; }
+          }
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
             try { process.stderr.write('[yjob p' + _pass + '] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}

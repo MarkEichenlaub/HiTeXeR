@@ -4,6 +4,18 @@
 
 Every time you edit HiTeXeR, bump the version number in `index.html` (search for the `v` string in the `<h1>` header, around line 340) so the user can confirm they're seeing the latest changes.
 
+## Cache-busters (CRITICAL — or browser won't load your changes)
+
+`index.html` loads `asy-interp.js` and `katex-svg.js` with a `?v=...` query-string
+cache-buster (e.g. `<script src="asy-interp.js?v=8.80">`). The browser caches by
+the full URL, so if the `?v=` string is unchanged it serves the OLD file even
+after you edit it — your fixes silently never reach the browser (the `<h1>`
+version updates because index.html itself reloads, masking the problem).
+**Whenever you edit `asy-interp.js` or `katex-svg.js`, bump BOTH `?v=` strings
+to the new HiTeXeR version** (keep them in sync with the `<h1>` version). Node
+renders (`_render_one.js` etc.) read the file directly and are unaffected, so a
+fix can pass node verification yet be invisible in the browser — always bump.
+
 ## Do NOT delete corpus or rendered images
 
 The following directories contain hard-to-regenerate data and must NEVER be deleted,
