@@ -15257,6 +15257,16 @@ function createInterpreter() {
         // the bare `yaxis("$y$", lo, hi)` axis-name idiom (00291, 05995, 08736,
         // which pass no ticks) upright at the endpoint.
         const _fullGraphAxis = yminExplicit && ymaxExplicit && !!ticks;
+        // Real Asymptote (local asy 3.05, verified) anchors a DEFAULT rotated
+        // y-axis label of the full graph-axis form `yaxis(ymin, ymax, L=…,
+        // ticks=…)` to the TOP endpoint, extending DOWN into the axis — for
+        // both the energy bar-chart family (06504/06517, NoTicks) and generic
+        // value plots (`yaxis("v",0,N,RightTicks)`). It is NOT centred on the
+        // axis midpoint (the prior centring was a misread of these refs: every
+        // one of them puts the label top at/near the axis top). Treat it like
+        // the other rotated top-endpoint cases (axisshiftRotatedEndpoint).
+        const fullGraphAxisTopRotated = _fullGraphAxis && labelPosition == null && labelAlign == null
+          && !arrow && !extent && !axisShiftXExplicit && !_axesRotatedEnd;
         const plainEndpointDefault = !arrow && !extent && !axisShiftXExplicit
           && labelPosition == null && labelAlign == null
           && !_fullGraphAxis && !_axesRotatedEnd;
@@ -15277,7 +15287,7 @@ function createInterpreter() {
         const _axesYDegenerate = _axesRotatedEnd && isFinite(_contentYmin) && isFinite(_contentYmax)
           && Math.abs(_contentYmax - _contentYmin) < 1e-9;
         const _axesTopAnchor = _axesRotatedEnd && !_axesYDegenerate;
-        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor;
+        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor || fullGraphAxisTopRotated;
         // "uprightEndpoint" means the label is rendered upright (no rotation,
         // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
         // upright behavior to match prior conventions.
