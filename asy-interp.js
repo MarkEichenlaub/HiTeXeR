@@ -2296,6 +2296,23 @@ function createInterpreter() {
     const r = Object.assign({}, dc);
     if (r.path) r.path = applyTransformPath(t, r.path);
     if (r.pos) r.pos = applyTransformPair(t, r.pos);
+    // markangle arcs/labels/wedges carry a truesize bp radius around an
+    // anchor vertex; the renderer rebuilds their path from _markangleVertex at
+    // final scale. When the host picture is moved by add(shift(...)*pic) the
+    // vertex must move too, else the rebuilt arc snaps back to the un-shifted
+    // vertex (02911: detached 120-deg arc). Translate the vertex; rotate the
+    // stored sweep/label angles by the transform's rotation component (0 for a
+    // pure shift). bp radius stays in bp (truesize — unaffected by the move).
+    if (r._markangleVertex) {
+      r._markangleVertex = applyTransformPair(t, r._markangleVertex);
+      const rotRad = Math.atan2(t.e, t.b);
+      if (Math.abs(rotRad) > 1e-9) {
+        const rotDeg = rotRad * 180 / Math.PI;
+        if (typeof r._markangleA1 === 'number') r._markangleA1 += rotDeg;
+        if (typeof r._markangleA2 === 'number') r._markangleA2 += rotDeg;
+        if (typeof r._markangleMidAngle === 'number') r._markangleMidAngle += rotRad;
+      }
+    }
     // Note: align direction is NOT transformed here. For rotated pictures,
     // the labelTransform rotation is set and the rendering code handles
     // aligning the rotated label using its rotated bounding box (lines 24416-24472).
@@ -11945,6 +11962,7 @@ function createInterpreter() {
       let arrow = null;
       let marker = null;
       let filltype = null;
+      let target = currentPic;
       const pairs = [];
 
       for (const a of args) {
@@ -11957,6 +11975,11 @@ function createInterpreter() {
           if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
           continue;
         }
+        // markangle(picture pic=currentpicture, ...) — when called as
+        // markangle(pic2, ...) the arc/label must be drawn INTO pic2 so it
+        // travels with add(shift(...)*pic2); otherwise it lands at the
+        // un-shifted vertex (02911: detached 120-deg arc in the corner).
+        if (a && a._tag === 'picture') { target = a; continue; }
         if (isPair(a)) { pairs.push(toPair(a)); continue; }
         if (a && a._tag === 'filltype') { filltype = a; continue; }
         if (isPen(a)) { pen = a; continue; }
@@ -11987,7 +12010,7 @@ function createInterpreter() {
         // Include the current call's pairs (A, B, C) so the estimate is valid
         // even when markangle is called before any draw() command.
         let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
-        for (const c of currentPic.commands) {
+        for (const c of target.commands) {
           if (c.path) for (const s of c.path.segs) {
             for (const p of [s.p0, s.p3]) {
               if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
@@ -12054,7 +12077,7 @@ function createInterpreter() {
           wedgeSegs.push(makeSeg(arcEnd, arcEnd, B, B));
         }
         const _bpRFill = _bpRadius + (n - 1) * (_bpRadius * 0.15);
-        currentPic.commands.push({cmd:'fill', path: makePath(wedgeSegs, true), pen: clonePen(filltype.pen), line:0,
+        target.commands.push({cmd:'fill', path: makePath(wedgeSegs, true), pen: clonePen(filltype.pen), line:0,
           _markangleBpR: _bpRFill, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2, _markangleWedge: true});
       }
 
@@ -12066,10 +12089,10 @@ function createInterpreter() {
         // post-boost (radius is in bp; user-unit conversion uses the final
         // pxPerUnit, not the pre-boost unitScale).
         const _bpR = _bpRadius + i * (_bpRadius * 0.15);
-        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
+        target.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
           _markangleBpR: _bpR, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2});
         if (marker && marker._tag === 'marker') {
-          applyMarker(currentPic, marker, arcPath);
+          applyMarker(target, marker, arcPath);
         }
       }
 
@@ -12084,7 +12107,7 @@ function createInterpreter() {
         // pre-boost radius; needs to scale with the corrected arc radius).
         const _bpLabelR = _bpRadius + (n - 1) * (_bpRadius * 0.15);
         const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
-        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0,
+        target.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0,
           _markangleBpR: _bpLabelR, _markangleVertex: B, _markangleMidAngle: midAngle});
       }
       return null;
@@ -12102,6 +12125,7 @@ function createInterpreter() {
       let label = null;
       let pen = null;
       let radius = 0.3;
+      let target = currentPic;
       const pairs = [];
       let posNums = [];
 
@@ -12111,6 +12135,9 @@ function createInterpreter() {
           if ('r' in a) radius = toNumber(a.r);
           continue;
         }
+        // MarkAngle(picture pic=currentpicture, ...) — draw into the passed
+        // picture so the arc travels with add(shift(...)*pic) (see markangle).
+        if (a && a._tag === 'picture') { target = a; continue; }
         if (isPair(a)) { pairs.push(toPair(a)); continue; }
         if (isPen(a)) { pen = a; continue; }
         if (isString(a)) { label = a; continue; }
@@ -12137,7 +12164,7 @@ function createInterpreter() {
 
       // Draw the arc
       const arcPath = makeArcPath(B, radius, a1, a2);
-      currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0});
+      target.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0});
 
       // Label ON the arc midpoint, aligned radially outward (markers.asy
       // semantics — see the markangle variants' notes).
@@ -12145,7 +12172,7 @@ function createInterpreter() {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
         const pos = makePair(B.x + radius * Math.cos(midAngle), B.y + radius * Math.sin(midAngle));
         const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
-        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0});
+        target.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0});
       }
       return null;
     });
