@@ -33627,8 +33627,13 @@ function expandShortstackText(text) {
 function expandMinipageText(text, pen) {
   if (!text || typeof text !== 'string') return text;
   if (text.indexOf('\\begin{minipage}') === -1) return text;
-  // Font size determines the bp/char budget.  Default 10pt if no pen.
-  const fontPt = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0)
+  // Font size determines the bp/char budget. Use the pen's size only when it
+  // was EXPLICITLY set (fontsize(N)); otherwise the default 10pt document base.
+  // The default label pen carries fontsize 12, but a minipage's wrapping (and
+  // LaTeX size selectors like \scriptsize inside it) is relative to the 10pt
+  // document base, not the 12pt default pen — using 12 made \scriptsize prose
+  // wrap ~3 chars/line too narrow, breaking lines early (04702's 3.5cm caption).
+  const fontPt = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0 && pen._fzExplicit)
     ? pen.fontsize : 10;
   // ~5.1 pt per char at 10pt proportional font — empirical value that
   // matches TeX minipage wrapping. Two calibration anchors:
