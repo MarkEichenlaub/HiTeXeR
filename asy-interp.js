@@ -29767,7 +29767,7 @@ function renderSVG(result, opts) {
       // the effective default linewidth is the boosted one (e.g. 04315).
       // Flat-banner number lines are the exception: their heads are native-size
       // in TeXeR (see _flatBanner note), so don't boost them.
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       let baseSize;
       if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
@@ -29964,7 +29964,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost, _isNarrowFewDots1D);
       if (arrowEl) {
@@ -30496,7 +30496,12 @@ function renderSVG(result, opts) {
       // size()/unitsize() diagrams keep native bp — they already match TeXeR
       // (06212/03491/06925/03636), where dots are NOT DPI-enlarged.
       let _dotBoost = 1.0;
-      if (isAutoScaled && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+      // The 1.67x DPI boost is for diagrams TeXeR AUTO-scales to the 150bp
+      // default. When the source carries a numeric size-ish token
+      // (_texerSizeTextMatch — e.g. Arrow(size=2mm) in 04337), TeXeR sizes the
+      // picture to 400bp like an explicit size(), so its truesize dots render
+      // NATIVE — same as the size()/unitsize() exception below. Don't boost them.
+      if (isAutoScaled && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
         _dotBoost = 1.67;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
