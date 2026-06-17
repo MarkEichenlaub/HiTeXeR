@@ -11535,8 +11535,21 @@ function createInterpreter() {
     env.set('csv', (f) => f);
     env.set('eolmode', (f) => null);
     env.set('sequence', (f, n) => {
-      // sequence(n) or sequence(func, n)
+      // Asymptote overloads:
+      //   sequence(int n)           -> {0,1,...,n-1}
+      //   sequence(int a, int b)    -> {a,a+1,...,b}  (empty if a>b)
+      //   sequence(T f(int), int n) -> {f(0),...,f(n-1)}
       if (n === undefined) { n = f; f = null; }
+      // Integer-range form: both args plain numbers (not a function). Without
+      // this, sequence(5,9) fell through to the func-form and returned {0..8}
+      // instead of {5,6,7,8,9} (05548's "removed 60%" dashes spilled over the
+      // whole column).
+      if (isNumber(f) && isNumber(n)) {
+        const a = Math.floor(toNumber(f)), b = Math.floor(toNumber(n));
+        const out = [];
+        for (let i = a; i <= b; i++) out.push(i);
+        return out;
+      }
       const result = [];
       const count = Math.floor(toNumber(n));
       for (let i = 0; i < count; i++) {
