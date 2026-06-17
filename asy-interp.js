@@ -7327,6 +7327,14 @@ function createInterpreter() {
       if (frames.length === 1 && !args.some(a => a && a._tag === 'picture')) {
         const fr = frames[0];
         let offX = 0, offY = 0;
+        // Record per-panel placement for the multi-panel composite re-fit
+        // (search _fitPanelSlots near the drawCommands copy): the add(pic.fit(),
+        // (i,0)) sized-slot branch lays panels a fixed _sizeW apart, but real
+        // Asymptote scales the inter-panel user spacing so the whole row/column
+        // fits the TeXeR size(400,400) target. We capture the user anchor and
+        // the command range here so the slots can be rigidly re-spaced later.
+        const _slotCmdStart = currentPic.commands.length;
+        const _slotRec = { use: false, px: 0, py: 0 };
         // No-offset add(frame) inside a global-unitsize composite (e.g. 03555's
         // add(three_d.scale(...)) with no position): center the panel's content
         // at the origin so it lines up vertically with the offset-positioned
@@ -7346,6 +7354,7 @@ function createInterpreter() {
             if (!currentPic._sizedAddSteps) currentPic._sizedAddSteps = { x: 0, y: 0 };
             const steps = currentPic._sizedAddSteps;
             const px = framePairs[0].x, py = framePairs[0].y;
+            _slotRec.use = true; _slotRec.px = px; _slotRec.py = py;
             const absX = Math.abs(px), absY = Math.abs(py);
             if (absX > 0 && (steps.x === 0 || absX < steps.x)) steps.x = absX;
             if (absY > 0 && (steps.y === 0 || absY < steps.y)) steps.y = absY;
@@ -7435,6 +7444,10 @@ function createInterpreter() {
             if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
             currentPic.commands.push(tc);
           }
+          if (_slotRec.use) {
+            (currentPic._fitPanelSlots || (currentPic._fitPanelSlots = [])).push(
+              { px: _slotRec.px, py: _slotRec.py, start: _slotCmdStart, end: currentPic.commands.length });
+          }
           unitScale = 1;
           hasUnitScale = true;
           _trueSizeFrame = true;
@@ -7467,6 +7480,10 @@ function createInterpreter() {
         for (const D of (fr.dots || [])) {
           if (!D.pos) continue;
           currentPic.commands.push({cmd:'dot', pos: makePair(D.pos.x + offX, D.pos.y + offY), pen: clonePen(D.pen || defaultPen), filltype: D.filltype, text: D.text, line:0});
+        }
+        if (_slotRec.use) {
+          (currentPic._fitPanelSlots || (currentPic._fitPanelSlots = [])).push(
+            { px: _slotRec.px, py: _slotRec.py, start: _slotCmdStart, end: currentPic.commands.length });
         }
         // Frame coords are already in bp space; pin the picture to 1 bp per unit
         // so the SVG renderer reproduces the author's absolute dimensions instead
@@ -25255,6 +25272,65 @@ function createInterpreter() {
     const _finalize3DAxes = globalEnv.get('_finalize3DAxes');
     if (typeof _finalize3DAxes === 'function') {
       _finalize3DAxes(currentPic);
+    }
+
+    // Re-fit a multi-panel truesize composite (add(sizedPic.fit(), (i,0))) to
+    // the TeXeR wrapper's size(400,400) target. The sized-slot add branch lays
+    // panels a fixed _sizeW apart, which only matches real Asymptote when _sizeW
+    // happens to equal the LP-solved inter-panel spacing (03398's 3cm lands at
+    // ~414bp vs 401 ref) and is far too tight when it doesn't (03400's 2.5cm →
+    // 356bp vs 401 ref). Asymptote instead scales the user-coordinate anchor
+    // spacing so the whole row/column fits 400bp; we reproduce that by rigidly
+    // shifting each panel by px_i*(TARGET-W_cur)/pxSpan (frames keep their bp
+    // size, only the gaps grow/shrink). Only a single-axis row OR column is
+    // re-fit — a 2D grid would need an aspect-preserving fit and is left alone.
+    // Skipped when the user set an explicit currentpicture size() (handled by
+    // the size-scaling path in renderSVG).
+    if (currentPic._fitPanelSlots && currentPic._fitPanelSlots.length >= 2 && !(sizeW > 0 || sizeH > 0)) {
+      const slots = currentPic._fitPanelSlots;
+      let pxMin = Infinity, pxMax = -Infinity, pyMin = Infinity, pyMax = -Infinity;
+      for (const s of slots) {
+        if (s.px < pxMin) pxMin = s.px; if (s.px > pxMax) pxMax = s.px;
+        if (s.py < pyMin) pyMin = s.py; if (s.py > pyMax) pyMax = s.py;
+      }
+      const pxSpan = pxMax - pxMin, pySpan = pyMax - pyMin;
+      const horiz = pxSpan > 1e-6 && pySpan <= 1e-6;
+      const vert  = pySpan > 1e-6 && pxSpan <= 1e-6;
+      if (horiz || vert) {
+        const TARGET = 400; // TeXeR wrapper's prepended size(400,400)
+        // Current full extent (geometry + label ink) along the spread axis.
+        const gb = getGeoBbox(currentPic.commands);
+        let minX = gb.minX, maxX = gb.maxX, minY = gb.minY, maxY = gb.maxY;
+        for (const dc of currentPic.commands) {
+          if (!dc || dc.cmd !== 'label' || !dc.pos) continue;
+          const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
+          const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+          const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+          const tw = _estimateTextWidth(cleanTxt || 'x', fs);
+          const aMag = dc.align ? Math.max(Math.abs(dc.align.x), Math.abs(dc.align.y)) : 0;
+          const ux = aMag > 0 ? dc.align.x / aMag : 0, uy = aMag > 0 ? dc.align.y / aMag : 0;
+          const ccx = dc.pos.x + ux * 0.5 * tw, ccy = dc.pos.y + uy * 0.5 * fs;
+          if (ccx - 0.5 * tw < minX) minX = ccx - 0.5 * tw; if (ccx + 0.5 * tw > maxX) maxX = ccx + 0.5 * tw;
+          if (ccy - 0.5 * fs < minY) minY = ccy - 0.5 * fs; if (ccy + 0.5 * fs > maxY) maxY = ccy + 0.5 * fs;
+        }
+        const Wcur = horiz ? (maxX - minX) : (maxY - minY);
+        const span = horiz ? pxSpan : pySpan;
+        const ratio = Wcur > 1e-6 ? TARGET / Wcur : 1;
+        // Guard against pathological corrections; the multi-panel idiom lands
+        // within ~0.7..1.3 of target.
+        if (Wcur > 1e-6 && span > 1e-6 && ratio > 0.5 && ratio < 2.0) {
+          const k = (TARGET - Wcur) / span;
+          for (const s of slots) {
+            const d = (horiz ? s.px : s.py) * k;
+            if (Math.abs(d) < 1e-9) continue;
+            const T = horiz ? makeTransform(d, 1, 0, 0, 0, 1) : makeTransform(0, 1, 0, d, 0, 1);
+            const end = Math.min(s.end, currentPic.commands.length);
+            for (let i = s.start; i < end; i++) {
+              currentPic.commands[i] = transformDrawCmd(T, currentPic.commands[i]);
+            }
+          }
+        }
+      }
     }
 
     // Copy currentpicture's commands to drawCommands for rendering
