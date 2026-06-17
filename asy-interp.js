@@ -13407,20 +13407,27 @@ function createInterpreter() {
     // fit, not the (often unset) global size — 00444's size(pic1,200,140,
     // IgnoreAspect) rendered y-ticks ~2.5× long because the global no-size
     // 150/maxDim estimate ignored the anisotropic 200×140 fit.
-    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax) {
       if (pic && (pic._sizeW > 0 || pic._sizeH > 0) && (pic._sizeW !== sizeW || pic._sizeH !== sizeH)) {
         const _oW = sizeW, _oH = sizeH, _oA = keepAspect;
         sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0;
         if (pic._sizeAniso) keepAspect = false;
         try {
-          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax);
         } finally {
           sizeW = _oW; sizeH = _oH; keepAspect = _oA;
         }
       }
-      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax);
     }
-    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+    // suppMin/suppMax: the UN-extended data/limit range used for begin=false /
+    // end=false endpoint-tick suppression. min/max may be arrow- and title-
+    // extended past the data (the axis line rides out for the arrowhead), which
+    // would defeat the `Math.abs(v-max)` endpoint test; suppMin/suppMax pin the
+    // suppression to the real data endpoints. Default to min/max when omitted.
+    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax) {
+      const _suppMin = (suppMin !== undefined && isFinite(suppMin)) ? suppMin : min;
+      const _suppMax = (suppMax !== undefined && isFinite(suppMax)) ? suppMax : max;
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       // NoTicks: draw the axis line/arrow only, no tick marks at all.
@@ -13765,8 +13772,11 @@ function createInterpreter() {
                   if (coverageOK(2, Step2)) { N = 2; chosenStep = Step2; }
                   else chosenStep = len;
                 }
-                // Minor subdivision count (graph.asy subtick divisor rule)
-                if (ticks.subStep > 0) minorN = Math.ceil(chosenStep / ticks.subStep);
+                // Minor subdivision count (graph.asy subtick divisor rule).
+                // An explicit n= (ticks.subN) wins over the auto rule: n=1 means
+                // no minor ticks at all (the AoPS "%"+n=1 idiom, 00441).
+                if (ticks.subN !== undefined) minorN = ticks.subN;
+                else if (ticks.subStep > 0) minorN = Math.ceil(chosenStep / ticks.subStep);
                 else {
                   minorN = Math.trunc(divisor[divisor.length - 1] / N);
                   if (N === 1) minorN = (aR * bR >= 0) ? 2 : 1;
@@ -13838,8 +13848,12 @@ function createInterpreter() {
           minorPositions = minorAnchored;
         } else {
           const effSubStep = ticks.subStep;
-          let subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
-          if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
+          let subN;
+          if (ticks.subN !== undefined) subN = ticks.subN;
+          else {
+            subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
+            if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
+          }
           if (subN > 1) {
             const subStep = step / subN;
             for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
@@ -13869,8 +13883,13 @@ function createInterpreter() {
         if (v < min - 1e-10 || v > max + 1e-10) return;
         // begin=false / end=false: no tick mark or gridline at the endpoint
         // (the label for it is still emitted by the label loop below).
-        if (suppressBeginTick && Math.abs(v - min) < 1e-9) return;
-        if (suppressEndTick && Math.abs(v - max) < 1e-9) return;
+        // Compare against the un-extended DATA range (_suppMin/_suppMax), not the
+        // arrow/title-extended min/max, and tolerate a small fraction of the tick
+        // step so float fuzz / stroke padding on the data bound (e.g. y-min
+        // -1.0000027 vs the y=-1 tick in 00441) still counts as "at the endpoint".
+        const _endTol = Math.max(Math.abs(step) * 1e-3, 1e-9);
+        if (suppressBeginTick && Math.abs(v - _suppMin) < _endTol) return;
+        if (suppressEndTick && Math.abs(v - _suppMax) < _endTol) return;
         // extend=true on Ticks() draws full gridlines across the plot area
         // (from crossMin to crossMax), rendered below plot content by default.
         // Used by the xaxis(..., invisible, Ticks(..., extend=true, gray))
@@ -14438,8 +14457,11 @@ function createInterpreter() {
       // Wrapped in a closure so the deferred frame-extension job can remove
       // and re-emit the whole axis across the final extended range
       // (Asymptote's extend=true deferred drawing).
-      const _emitXAxis = (xlo, xhi) => {
+      const _emitXAxis = (xlo, xhi, sLo, sHi) => {
       const xmin = xlo, xmax = xhi;
+      // Un-extended data/limit range for endpoint-tick suppression (begin/end).
+      const _xSuppLo = (sLo !== undefined) ? sLo : xlo;
+      const _xSuppHi = (sHi !== undefined) ? sHi : xhi;
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
@@ -14481,7 +14503,7 @@ function createInterpreter() {
         }
       }
       if (xTicks) xTicks = Object.assign({}, xTicks, {_axisAutoRange: !(xminExplicit || xmaxExplicit || _xminFromUserLimits || _xmaxFromUserLimits)});
-      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
+      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above, _xSuppLo, _xSuppHi);
       if (_xaxisDrawCmd && _xTickGen) _xaxisDrawCmd._tickGen = _xTickGen;
       if (label && !isInvisible) {
         // Default: right-aligned at xmax, pushed below tick labels (W+S combined).
@@ -14749,7 +14771,11 @@ function createInterpreter() {
             if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
           }
           const s0 = pic.commands.length;
-          _emitXAxis(lo, hi);
+          // Endpoint-tick suppression range = data/limit extent only, WITHOUT
+          // the title ride or arrowhead clearance baked into lo/hi above.
+          const _xSuppLoJob = xminExplicit ? curLo : (_xUserLo != null ? _xUserLo : fb.minX);
+          const _xSuppHiJob = xmaxExplicit ? curHi : (_xUserHi != null ? _xUserHi : fb.maxX);
+          _emitXAxis(lo, hi, _xSuppLoJob, _xSuppHiJob);
           myCmds = pic.commands.splice(s0);
           for (const c of myCmds) c._jobManaged = true;
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
@@ -15079,8 +15105,11 @@ function createInterpreter() {
         ((yIsRightSide || extent === 'RightLeft') && crossMaxDefaulted)
       ) ? extent : null;
       // Emit closure for deferred frame-extension (see _emitXAxis in xaxis).
-      const _emitYAxis = (ylo, yhi) => {
+      const _emitYAxis = (ylo, yhi, sLo, sHi) => {
       const ymin = ylo, ymax = yhi;
+      // Un-extended data/limit range for endpoint-tick suppression (begin/end).
+      const _ySuppLo = (sLo !== undefined) ? sLo : ylo;
+      const _ySuppHi = (sHi !== undefined) ? sHi : yhi;
       let _yaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
@@ -15117,7 +15146,7 @@ function createInterpreter() {
         });
       }
       if (yTicks) yTicks = Object.assign({}, yTicks, {_axisAutoRange: !(yminExplicit || ymaxExplicit || _yminFromUserLimits || _ymaxFromUserLimits)});
-      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
+      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above, _ySuppLo, _ySuppHi);
       if (_yaxisDrawCmd && _yTickGen) _yaxisDrawCmd._tickGen = _yTickGen;
       if (label && !isInvisible) {
         // In Asymptote's graph.asy, the default position for a y-axis label is at the
@@ -15359,7 +15388,11 @@ function createInterpreter() {
             if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
           }
           const s0 = pic.commands.length;
-          _emitYAxis(lo, hi);
+          // Endpoint-tick suppression range = data/limit extent only, WITHOUT
+          // the title ride or arrowhead clearance baked into lo/hi above.
+          const _ySuppLoJob = yminExplicit ? curLo : (_yUserLo != null ? _yUserLo : fb.minY);
+          const _ySuppHiJob = ymaxExplicit ? curHi : (_yUserHi != null ? _yUserHi : fb.maxY);
+          _emitYAxis(lo, hi, _ySuppLoJob, _ySuppHiJob);
           myCmds = pic.commands.splice(s0);
           for (const c of myCmds) c._jobManaged = true;
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
@@ -15740,6 +15773,12 @@ function createInterpreter() {
           }
           if ('Step' in a) t.step = a.Step;
           if ('step' in a) t.subStep = a.step;
+          // n = number of minor SUBDIVISIONS per major interval (graph.asy:
+          // Ticks(..., int n=0, ...)). n=0 means auto-compute; n>=1 means use
+          // exactly n subdivisions, i.e. n-1 minor ticks (n=1 => NO minor
+          // ticks). Without this the auto-minor path drew spurious half-unit
+          // ticks for the AoPS `Ticks("%",Size=2,n=1,...)` idiom (00441 etc.).
+          if ('n' in a && typeof a.n === 'number') { const nv = Math.max(0, Math.round(a.n)); if (nv >= 1) t.subN = nv; }
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
           if ('size' in a) { t.subSize = a.size; t.subSizeExplicit = true; }
           if ('extend' in a) t.extend = a.extend;
