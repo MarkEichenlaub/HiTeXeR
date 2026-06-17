@@ -7942,7 +7942,14 @@ function createInterpreter() {
           }
         }
       }
-      for (const c of cmds) dest.commands.push(c);
+      // Plain add(picture) does NOT propagate the sub-picture's inexact bounds
+      // to the destination (Asymptote picture.add: only transform*currentpicture
+      // and direct inexact drawers flip bounds.exact=false). Tag the copied
+      // commands so an xaxis/yaxis or relative path-label that lived inside the
+      // added sub-picture does not wrongly trigger currentpicture's fit2 pass-2
+      // rescale (04531/04528: graf[] panels with xaxis/yaxis added under a
+      // global unitsize stay at literal unit scale, not the 400bp refit).
+      for (const c of cmds) { if (c) c._fromAddedPicture = true; dest.commands.push(c); }
     });
     // shipout(frame) — emit frame contents to currentpicture. In Asymptote,
     // shipout renders a frame (or picture) to file; here we emit to currentPic
@@ -27188,7 +27195,7 @@ function renderSVG(result, opts) {
   // Plain draws/fills/dots/point-labels/arrows are exact.
   const _boundsInexact =
     (!_usedPictureComposite && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign))
-    || drawCommands.some(dc => dc && dc._isAxisLine)
+    || drawCommands.some(dc => dc && dc._isAxisLine && !dc._fromAddedPicture)
     || _usedCurrentpictureReassign;
   if (hasUnitScale) {
     // unitsize(): the pass-1 scaling is the literal unit scale — real
