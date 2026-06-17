@@ -317,9 +317,15 @@
       for (const r of rows) {
         const shiftUpEm = -(r.topEm + r.pstrut) - r.contentDepth;
         const rowBaseY = ctx.y - shiftUpEm * ctx.s;
-        const cx = ctx.x + marginL + (center ? (colW - r.contentW * ctx.s) / 2 : 0);
         const content = r.content;
         const cstyle = content.style || {};
+        // A stretchy/svg-align/hide-tail row fills the column width (its measured
+        // contentW is 0 — the inner svg is a 400em repeating-tail canvas), so it
+        // must stay at the column origin even when the vlist centers. Otherwise a
+        // \underbrace's brace got "centered" as a zero-width item and slid to the
+        // right half of its box (04947).
+        const fillsCol = has(content, 'svg-align') || has(content, 'stretchy') || has(content, 'hide-tail');
+        const cx = ctx.x + marginL + ((center && !fillsCol) ? (colW - r.contentW * ctx.s) / 2 : 0);
         if (cstyle.borderBottomWidth !== undefined && em(cstyle.borderBottomWidth) > 0) {
           // rule: full column width, bottom edge at row baseline
           const t = em(cstyle.borderBottomWidth) * ctx.s;
@@ -378,7 +384,11 @@
     // Fractions also center numerator/denominator within the column
     // (katex.css ".mfrac>span>span{text-align:center}") — without this a
     // narrow denominator like "2" under "1-\mu" hugs the left edge (06517).
-    const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c') || has(n, 'mfrac');
+    // munder/mover: horizontal-brace and under/overset stacks center the
+    // script over the (full-column-width) base — e.g. \underbrace{...}_{2}
+    // centers "2" under the brace; without this it hugs the left edge (04947).
+    const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c') || has(n, 'mfrac')
+      || has(n, 'munder') || has(n, 'mover');
     let x = ctx.x + marginL + padL;
     for (const c of (n.children || [])) {
       x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color, centerCols: childCenter });

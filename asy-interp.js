@@ -32708,7 +32708,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
 // equivalents.  amssymb's \bigstar, \blacksquare, etc. are not in KaTeX's
 // default command set; use Unicode characters wrapped in \text{} so they
 // render reliably.
-function preprocessLatexForKatex(src, forMathJax) {
+function preprocessLatexForKatex(src, forMathJax, emForHspace) {
   if (typeof src !== 'string') return src;
   // Normalize embedded TAB/CR/LF inside the math source to a single space.
   // Some corpus .asy files contain literal TAB bytes where `\theta` was meant
@@ -32740,15 +32740,30 @@ function preprocessLatexForKatex(src, forMathJax) {
   // references and must NOT be scaled (doing so regresses them — verified
   // against the full brace corpus). Correct `pt` (and `pc`, which is 12pt) only.
   if (forMathJax && /\\hspace\s*\{/.test(src)) {
-    // 0.82 empirically matches the TeXeR references best across the 8 affected
-    // pt-brace diagrams (c186_L5 right-triangle base-underbraces 02799/02807/…
-    // and the rotated 75pt overbrace 09631); the local-asy brace width alone
-    // implies ~0.842, but a hair narrower best matches the actual TeXeR service
-    // render (and offsets the slight geometry-scale residual on these IDs).
-    const _HSP_K = (typeof process !== 'undefined' && process.env && process.env.HTX_HSPACE_K)
-      ? parseFloat(process.env.HTX_HSPACE_K) : 0.82;
-    src = src.replace(/\\hspace(\s*)\{\s*([\d.]+)\s*(pt|pc)\s*\}/g,
-      (m, sp, num, unit) => `\\hspace${sp}{${(parseFloat(num) * _HSP_K)}${unit}}`);
+    if (typeof emForHspace === 'number' && emForHspace > 0) {
+      // KaTeX SVG-emitter path. KaTeX converts an ABSOLUTE \hspace length to em
+      // using fontMetrics.ptPerEm = 10 (so 8cm → 226.8pt → 22.68em), then the
+      // emitter scales widthEm by the label's em size (≈ the bp font size). That
+      // over-magnifies the absolute length by em/10 — a brace meant to span an
+      // 8cm bar renders ~24% too wide (04943-04947) and the diagram bbox blows
+      // out, while the truesize-brace fit logic (which reads the raw hspace in
+      // bp) still expects the true width. Undo it with K = 9.9626/em so the
+      // brace lands at its true physical width. 9.9626 = (TeX-pt → bp factor,
+      // 72/72.27) × 10; it is unit-independent because KaTeX's ptPerUnit table
+      // is in TeX pt for every absolute unit. Applies to pt/pc/cm/mm/in/bp/dd/cc.
+      const _K = 9.9626 / emForHspace;
+      src = src.replace(/\\hspace(\s*)\{\s*([\d.]+)\s*(pt|pc|cm|mm|in|bp|dd|cc)\s*\}/g,
+        (m, sp, num, unit) => `\\hspace${sp}{${(parseFloat(num) * _K)}${unit}}`);
+    } else {
+      // MathJax fallback path (emitter unavailable). MathJax over-renders an
+      // absolute \hspace{N pt} by ~1.19×; 0.82 empirically matches the TeXeR
+      // references across the pt-brace diagrams (02799/02807/09631). cm/mm/in
+      // braces already match MathJax and must NOT be scaled on this path.
+      const _HSP_K = (typeof process !== 'undefined' && process.env && process.env.HTX_HSPACE_K)
+        ? parseFloat(process.env.HTX_HSPACE_K) : 0.82;
+      src = src.replace(/\\hspace(\s*)\{\s*([\d.]+)\s*(pt|pc)\s*\}/g,
+        (m, sp, num, unit) => `\\hspace${sp}{${(parseFloat(num) * _HSP_K)}${unit}}`);
+    }
   }
   // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
   // KaTeX renders ^\circ with extra spacing around the ring operator.
@@ -32802,8 +32817,10 @@ function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, op
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
   // forMathJax=true: like MathJax, the emitter realizes KaTeX's exact layout,
   // so ^\circ stays native (the unicode-° kern hack is foreignObject-only;
-  // through the emitter it rendered $45^\circ$ 3bp narrow).
-  math = preprocessLatexForKatex(math, true);
+  // through the emitter it rendered $45^\circ$ 3bp narrow). fontSizeCSS is the
+  // em the emitter scales widthEm by, so absolute \hspace lengths are corrected
+  // against it (see preprocessLatexForKatex).
+  math = preprocessLatexForKatex(math, true, fontSizeCSS);
   if (!isDollar && /\$[^$]+\$/.test(math)) {
     // mixed text+math: one mode-aware TeX string (same as the MathJax path)
     math = _reconstructMixedLabel(math);
@@ -33281,7 +33298,10 @@ function _katexMeasureBp(rawText, fontSize) {
       const isD = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
       if (isD) math = math.slice(1, -1);
       if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
-      math = preprocessLatexForKatex(math, true);
+      // emForHspace = fontSize: this path returns widthEm*fontSize, the same em
+      // the emitter renders at, so absolute \hspace braces measure at their true
+      // physical width (matching renderLabelKatexSvg's corrected render).
+      math = preprocessLatexForKatex(math, true, fontSize);
       if (!isD && /\$[^$]+\$/.test(math)) math = _reconstructMixedLabel(math);
       const r = katexSvg.measure(math);
       if (r && r.widthEm > 0) {
