@@ -12538,7 +12538,7 @@ function createInterpreter() {
     const _sw = sizeW, _sh = sizeH, _ka = keepAspect, _al = _axisLimits;
     sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0; keepAspect = !pic._sizeAniso;
     _axisLimits = pic._picLimits
-      ? { xmin: pic._picLimits.xmin, xmax: pic._picLimits.xmax, ymin: pic._picLimits.ymin, ymax: pic._picLimits.ymax, crop: !!pic._picLimits.crop }
+      ? { xmin: pic._picLimits.xmin, xmax: pic._picLimits.xmax, ymin: pic._picLimits.ymin, ymax: pic._picLimits.ymax, crop: !!pic._picLimits.crop, _xUser: !!pic._picLimits._xUser, _yUser: !!pic._picLimits._yUser }
       : { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
     try {
       for (let _p = 0; _p < 4; _p++) for (const _j of pic._axisJobs) { try { _j(_p); } catch (e) {} }
@@ -13131,6 +13131,21 @@ function createInterpreter() {
       // Applied LAST so the polluted _axisLimits can't override it.
       if (spanOverride && spanOverride.rX > 0) rX = spanOverride.rX;
       if (spanOverride && spanOverride.rY > 0) rY = spanOverride.rY;
+      // EXPLICIT user xlimits/ylimits define the scalable window: with NoCrop the
+      // fit sizes [min,max] to size() and geometry inside it does not shrink the
+      // window. The geometry-span override above (which undoes placeholder-axis
+      // pollution of _axisLimits — 00247, where _axisLimits is set by an axis
+      // DRAW, not a user call) must not shrink rX/rY below a USER-set limit
+      // range. Gated on _xUser/_yUser (set only by xlimits/ylimits/limits) so
+      // axis-draw pollution still gets corrected. Without this, 00115's
+      // size(5cm,IgnoreAspect)+xlimits(-4,4) over data x∈[-2,4] over-zoomed
+      // (sX=size/6 not size/8), dropping the x=6 tick the legend label extends
+      // the frame out to. Use max() so geometry overflowing NoCrop limits still
+      // sizes to the (larger) geometry rather than spilling outside the frame.
+      if (_axisLimits._xUser && _axisLimits.xmin !== null && _axisLimits.xmax !== null && _axisLimits.xmax > _axisLimits.xmin)
+        rX = Math.max(rX, Math.abs(_axisLimits.xmax - _axisLimits.xmin));
+      if (_axisLimits._yUser && _axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin)
+        rY = Math.max(rY, Math.abs(_axisLimits.ymax - _axisLimits.ymin));
       const ded = (s) => Math.max(s - oh, s * 0.5);
       if (sizeW > 0 || sizeH > 0) {
         // Aspect-preserving size(w,h): the fit is uniform, min of the two
@@ -15889,11 +15904,13 @@ function createInterpreter() {
         if (nums.length >= 1) pl.xmin = nums[0];
         if (nums.length >= 2) pl.xmax = nums[1];
         if (crop) pl.crop = true;
+        pl._xUser = true;
         return;
       }
       if (nums.length >= 1) _axisLimits.xmin = nums[0];
       if (nums.length >= 2) _axisLimits.xmax = nums[1];
       if (crop) _axisLimits.crop = true;
+      _axisLimits._xUser = true;
     });
     env.set('ylimits', (...args) => {
       let targetPic = null;
@@ -15910,11 +15927,13 @@ function createInterpreter() {
         if (nums.length >= 1) pl.ymin = nums[0];
         if (nums.length >= 2) pl.ymax = nums[1];
         if (crop) pl.crop = true;
+        pl._yUser = true;
         return;
       }
       if (nums.length >= 1) _axisLimits.ymin = nums[0];
       if (nums.length >= 2) _axisLimits.ymax = nums[1];
       if (crop) _axisLimits.crop = true;
+      _axisLimits._yUser = true;
     });
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
@@ -15935,6 +15954,7 @@ function createInterpreter() {
         if (pairs.length >= 2) {
           pl.xmin = pairs[0].x; pl.ymin = pairs[0].y;
           pl.xmax = pairs[1].x; pl.ymax = pairs[1].y;
+          pl._xUser = true; pl._yUser = true;
         }
         if (hasCrop) pl.crop = true;
         return;
@@ -15942,6 +15962,7 @@ function createInterpreter() {
       if (pairs.length >= 2) {
         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
         _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
+        _axisLimits._xUser = true; _axisLimits._yUser = true;
       }
       if (hasCrop) _axisLimits.crop = true;
     });
@@ -26117,6 +26138,23 @@ function renderSVG(result, opts) {
     maxX = axisLimits.xmax;
     minY = axisLimits.ymin;
     maxY = axisLimits.ymax;
+  }
+
+  // Non-crop xlimits/ylimits set the user-coordinate bounds the fit scales to.
+  // Asymptote's limits(min,max) (NoCrop) makes the SCALABLE range exactly
+  // [min,max]: geometry inside doesn't shrink the window, and an author who sets
+  // limits WIDER than the data (00115 xlimits(-4,4) over data x∈[-2,4]; 00444
+  // ylimits(-3,4) over data y∈[0,4]) intends that wider window to be fit to
+  // size(). The geometry-only bbox ignored this and over-zoomed the diagram
+  // (pxPerUnit = size/geoWidth instead of size/limitWidth), so truesize labels —
+  // and the axis ticks the frame extends out to reach them — fell off-frame
+  // (the missing x=6 tick in 00115). Union (expand-only) so geometry that
+  // overshoots NoCrop limits still draws beyond the window rather than clipping.
+  if (axisLimits && !axisLimits.crop) {
+    if (axisLimits.xmin !== null && !(axisLimits.xmin >= minX)) minX = axisLimits.xmin;
+    if (axisLimits.xmax !== null && !(axisLimits.xmax <= maxX)) maxX = axisLimits.xmax;
+    if (axisLimits.ymin !== null && !(axisLimits.ymin >= minY)) minY = axisLimits.ymin;
+    if (axisLimits.ymax !== null && !(axisLimits.ymax <= maxY)) maxY = axisLimits.ymax;
   }
 
   // Add padding for stroke overshoot
