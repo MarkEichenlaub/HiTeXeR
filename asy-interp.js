@@ -1723,14 +1723,20 @@ function hobbySpline(knots, closed, directions) {
   for (let i = 1; i < (closed ? n : n-1); i++) {
     const prev = (i - 1 + m) % m;
     psi[i] = delta[i % m] - delta[prev];
-    // Normalize to [-pi, pi]
+    // Normalize to (-pi, pi] — matching Asymptote's psi = angle(w[i]/w[i-1]),
+    // i.e. atan2 of the chord ratio, which returns +pi (not -pi) for an EXACT
+    // 180-degree chord reversal. Using -pi there mirror-flips the resulting
+    // loop: 06929's drawCWLoop self-loop `(p)..(p+r*dir(90))..(p)` came out
+    // reflected across its axis, putting the arrowhead on the wrong side
+    // (merged into the incoming straight edge instead of landing distinctly on
+    // the far side of the node). The `<=` pushes exact -pi up to +pi.
     while (psi[i] > Math.PI) psi[i] -= 2*Math.PI;
-    while (psi[i] < -Math.PI) psi[i] += 2*Math.PI;
+    while (psi[i] <= -Math.PI) psi[i] += 2*Math.PI;
   }
   if (closed) {
     psi[0] = delta[0] - delta[m-1];
     while (psi[0] > Math.PI) psi[0] -= 2*Math.PI;
-    while (psi[0] < -Math.PI) psi[0] += 2*Math.PI;
+    while (psi[0] <= -Math.PI) psi[0] += 2*Math.PI;
   }
 
   // Build clamped theta array from direction constraints.
@@ -30009,7 +30015,24 @@ function renderSVG(result, opts) {
   // pen strokes in this branch so axes and default-color graphs have visual
   // weight comparable to TeXeR. Explicit linewidths (_lwExplicit) are
   // untouched so user-specified pen widths render at literal size.
-  const _explicitSizeStrokeBoost = !isAutoScaled ? 1.5 : 1.0;
+  // High-aspect size-constrained diagrams (e.g. 06929's 7:1 graph-of-states
+  // banner under size(0,1.5cm)) are squashed along their major axis by SSIM's
+  // trim+resize step, thinning default strokes the same way the auto-scaled
+  // linear ramp compensates for. The flat 1.5× leaves them ~2px against TeXeR's
+  // ~3px device-snapped strokes; a modest 1.6× restores the weight. Normal-
+  // aspect size/unitsize diagrams keep the tuned 1.5× (raising them globally
+  // regressed labeled line art — see the auto-scaled floor notes above).
+  let _explicitSizeStrokeBoost = 1.0;
+  if (!isAutoScaled) {
+    const _wES = (maxX - minX) || 1, _hES = (maxY - minY) || 1;
+    const _aspectES = Math.max(_wES, _hES) / Math.min(_wES, _hES);
+    // The high-aspect bump only applies to keepAspect diagrams, whose RENDERED
+    // aspect equals the geometry aspect (so SSIM's trim+resize squashes the
+    // major axis and thins strokes). IgnoreAspect diagrams (e.g. 04155
+    // `size(150,IgnoreAspect)` — a 6.4:1 graph) scale each axis independently to
+    // a ~square box and are NOT squashed, so they keep the tuned flat 1.5×.
+    _explicitSizeStrokeBoost = (keepAspect && _aspectES > 4) ? 1.6 : 1.5;
+  }
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
     if (_skipGridCi.has(ci)) continue;
