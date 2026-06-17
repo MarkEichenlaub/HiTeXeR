@@ -26744,9 +26744,37 @@ function renderSVG(result, opts) {
         const t = li._text;
         if (typeof t !== 'string' || !t.trim() || t.indexOf('\n') !== -1) continue;
         try {
-          const m = _fitMeasure(t, li._fontSize || 12);
+          // Plain-text labels ("Laser", "Detector") are RENDERED via \text{...}
+          // (Computer Modern roman) by the svg-native label path; measure them
+          // the SAME way so the fit engine's truesize box equals the DRAWN
+          // glyph width. Passing the bare word to KaTeX measures it as MATH
+          // (italic, with inter-letter math spacing — ~25-35% wider for short
+          // words), which inflated the LP's binding label pair and mis-scaled
+          // label-dominated diagrams ~2× (08989: "Laser" 69bp math vs 52bp text,
+          // forcing size(80,0) to enlarge D to 226bp instead of 160bp).
+          let _measStr = t;
+          if (!/[$\\_^]/.test(t) && /[A-Za-z]/.test(t)) {
+            let _esc = '';
+            for (let i = 0; i < t.length; i++) {
+              const c = t[i];
+              if (c === '~') _esc += ' ';
+              else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc += '\\' + c;
+              else _esc += c;
+            }
+            _measStr = '\\text{' + _esc + '}';
+          }
+          const m = _fitMeasure(_measStr, li._fontSize || 12);
           if (m && m.wBp > 0) {
-            let w = m.wBp * _TEXER_LBL_W_CAL;
+            // \text{} (roman) measurement uses a DIFFERENT calibration than the
+            // 1.07 math-font gap: KaTeX's text face measures ~10% WIDER than
+            // TeXeR's Computer Modern roman, so text labels calibrate DOWN, not
+            // up. Using 1.07 here inflated text boxes ~21% and forced the fit2
+            // √2-enlargement past the right size bracket (08989).
+            const _isTextMeas = _measStr !== t;
+            const _wcal = _isTextMeas
+              ? ((typeof process !== 'undefined' && process.env && process.env.HTX_TXT_CAL) ? +process.env.HTX_TXT_CAL : 0.92)
+              : _TEXER_LBL_W_CAL;
+            let w = m.wBp * _wcal;
             if (Math.abs(li._ltAngle || 0) > 0.5) {
               // ── ROTATED label (e.g. a Rotate()'d path label) ──
               const phi = li._ltAngle * Math.PI / 180;
@@ -29216,7 +29244,12 @@ function renderSVG(result, opts) {
         // scale so the rasterized output matches TeXeR's absolute size while
         // keeping all content visible. Excludes unitsize() (hasUnitScale), where
         // the user fixed the scale and labels legitimately enlarge the output.
-        if (keepAspect && !hasUnitScale && sizeW > 0) {
+        // Also excludes _sizeLpApplied: the pass-1 LP already fit geometry +
+        // truesize labels optimally (and may have √2-enlarged size() because the
+        // truesize labels alone exceed it — e.g. 08989's fontsize(25) "Laser"/
+        // "Detector" force size(80) up to 160bp). Clamping back to size() there
+        // would re-crush the picture the LP deliberately grew.
+        if (keepAspect && !hasUnitScale && sizeW > 0 && !_sizeLpApplied) {
           // A truesize \underbrace{\hspace{Nbp}} / \overbrace label cannot shrink:
           // when its width exceeds the size() box, real Asymptote/TeXeR grows the
           // output to hold it rather than clamping back to size() (e.g. 02807's
