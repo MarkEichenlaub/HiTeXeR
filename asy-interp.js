@@ -13428,8 +13428,21 @@ function createInterpreter() {
       let px = dc.pos.x, py = dc.pos.y;
       if (dc.screenDx && sX > 0) px += dc.screenDx / sX;
       if (dc.screenDy && sY > 0) py -= dc.screenDy / sY;
-      const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wU + mgU * ax : px - wU / 2;
-      const rx = ax > 0.1 ? px + wU + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wU / 2;
+      // A label rotated ~±90° (e.g. the axes() y-title "Rotational Speed",
+      // rotate(90)*…) occupies its text HEIGHT horizontally, not its full text
+      // WIDTH. Using wU for lx/rx shoves the frame's left edge to −wU, pushing
+      // the y-axis from ~11% to ~40% of the canvas (04156). Mirror the render-
+      // side bbox swap (effW = H for 90°): use the text height in user-x units
+      // (hU·sY/sX = height_bp/sX) as the horizontal extent. Vertical extent is
+      // left untouched — expanding it to wU bloats top-anchored rotated titles.
+      let wUx = wU;
+      if (dc.labelTransform && sX > 0 && sY > 0) {
+        const _lt = dc.labelTransform;
+        const _ltAng = Math.atan2(_lt.e, _lt.b) * 180 / Math.PI;
+        if (Math.abs(Math.abs(_ltAng) - 90) < 1) wUx = hU * (sY / sX);
+      }
+      const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wUx + mgU * ax : px - wUx / 2;
+      const rx = ax > 0.1 ? px + wUx + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wUx / 2;
       const by = ay > 0.1 ? py + mgVU * ay : ay < -0.1 ? py - hU + mgVU * ay : py - hU / 2;
       const ty = ay > 0.1 ? py + hU + mgVU * ay : ay < -0.1 ? py + mgVU * ay : py + hU / 2;
       return { lx, rx, by, ty };
