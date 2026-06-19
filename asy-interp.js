@@ -9142,11 +9142,14 @@ function createInterpreter() {
       }
       if (!d) d = makePair(0, 0);
       let minX, maxX, minY, maxY;
-      if (pic._picLimits && pic._picLimits.xmin != null) {
-        minX = pic._picLimits.xmin; maxX = pic._picLimits.xmax;
-      }
-      if (pic._picLimits && pic._picLimits.ymin != null) {
-        minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
+      // Prefer explicit user limits (limits()/xlimits()) over the raw geometry
+      // bbox: a legend attached at truepoint(S) must reference the cropped box,
+      // not the uncropped curve extent (04452).
+      const _ulim = (pic._picLimits && pic._picLimits.xmin != null) ? pic._picLimits
+                  : (pic._truepointLimits && pic._truepointLimits.xmin != null) ? pic._truepointLimits : null;
+      if (_ulim) {
+        minX = _ulim.xmin; maxX = _ulim.xmax;
+        minY = _ulim.ymin; maxY = _ulim.ymax;
       }
       if (minX === undefined || minY === undefined) {
         const gb = getGeoBbox(pic.commands);
@@ -16098,6 +16101,16 @@ function createInterpreter() {
         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
         _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
         _axisLimits._xUser = true; _axisLimits._yUser = true;
+        // Record the user limits for truepoint(): otherwise truepoint(S) etc.
+        // fall back to the raw (uncropped) geometry bbox, so a legend attached at
+        // truepoint(S) lands far below the visible crop box (04452: legend ~250px
+        // below the grid instead of ~34px). Only the truepoint read consults this
+        // (the renderer still uses _axisLimits for the actual crop).
+        if (currentPic) {
+          if (!currentPic._truepointLimits) currentPic._truepointLimits = {};
+          const tl = currentPic._truepointLimits;
+          tl.xmin = pairs[0].x; tl.ymin = pairs[0].y; tl.xmax = pairs[1].x; tl.ymax = pairs[1].y;
+        }
       }
       if (hasCrop) _axisLimits.crop = true;
     });
@@ -26586,6 +26599,11 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'label') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
+        // Legend labels (attach(legend(),…)) belong to a TRUESIZE legend frame
+        // BELOW the graph, outside size(). Excluding them here keeps them out of
+        // the label-inclusive bbox AND labelInfoBp (the iterative size-solver),
+        // so the legend doesn't shrink the graph to fit (04452).
+        if (dc._fromLegend) continue;
         // markangle labels (pi/theta angle marks) are still at the LITERAL
         // unitScale position here — their stale radius (≈0.53 user units) puts
         // them far outside the real geometry, inflating the viewBox (00247's
@@ -29534,7 +29552,14 @@ function renderSVG(result, opts) {
         // truesize labels alone exceed it — e.g. 08989's fontsize(25) "Laser"/
         // "Detector" force size(80) up to 160bp). Clamping back to size() there
         // would re-crush the picture the LP deliberately grew.
-        if (keepAspect && !hasUnitScale && sizeW > 0 && !_sizeLpApplied) {
+        // attach(legend(),…) adds a TRUESIZE legend frame BELOW the graph,
+        // OUTSIDE size() (real Asymptote sizes the graph to size() and appends
+        // the legend). It extends the canvas height past size(), and the clamp
+        // below would then shrink the whole graph to fit (04452: grid 175→107bp).
+        // Skip the clamp when a legend is present so the graph keeps size() and
+        // the legend extends the canvas below it, as the TeXeR does.
+        const _hasLegend = drawCommands.some(dc => dc && dc._fromLegend);
+        if (keepAspect && !hasUnitScale && sizeW > 0 && !_sizeLpApplied && !_hasLegend) {
           // A truesize \underbrace{\hspace{Nbp}} / \overbrace label cannot shrink:
           // when its width exceeds the size() box, real Asymptote/TeXeR grows the
           // output to hold it rather than clamping back to size() (e.g. 02807's
