@@ -15131,13 +15131,18 @@ function createInterpreter() {
       const contentYspan = _contentYmax - _contentYmin;
       const contentWasHorizontalLine = isFinite(_contentYmin) && isFinite(_contentYmax)
         && contentYspan < 1e-6 && _contentYmax > 0;
+      // Headroom floor the deferred y-job must respect (see below): the extended
+      // ymax, carried separately because the job re-derives hi from the CONTENT
+      // frame (the flat line at y) and would otherwise discard this extension.
+      let _yHLineExtHi = null;
       if (contentWasHorizontalLine && !ymaxExplicit && ymin <= 0 && ymax > 0) {
-        // Content is at a single y-value (_contentYmax ≈ _contentYmin > 0).
-        // After extension, ymin is now at or below 0 (origin), and ymax is still
-        // at the content value. Extend ymax upward so the content line sits in
-        // the middle: y-axis from ymin to ymax + (ymax - ymin).
-        // E.g., content at y=4, axis from 0 to 4 → extend to 0 to 8.
-        ymax = ymax + (ymax - ymin);
+        // Content is at a single y-value (_contentYmax ≈ _contentYmin > 0). After
+        // extension ymin is at/below 0 (origin) and ymax is still at the content
+        // value. Extend ymax upward so the line sits ~70% up the axis, matching
+        // TeXeR for axes()+constant functions (04156 f(x)=4: TeXeR axis [0,5.71],
+        // line at 70%). Factor 0.43 = (5.71-4)/4; NOT 1.0 (that put it at 50%).
+        ymax = ymax + 0.43 * (ymax - ymin);
+        _yHLineExtHi = ymax;
       }
       // Cross range for gridlines — prefer per-picture xlimits if set; transform to log space if needed
       let crossMin, crossMax;
@@ -15454,6 +15459,10 @@ function createInterpreter() {
           let hi = ymaxExplicit ? curHi : Math.max(fb.maxY + _yRideHi, _yTitleHi);
           if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
+          // Horizontal-line headroom floor: the job re-derives hi from the content
+          // frame (the flat line), which would shrink the axis back to the line
+          // (04156 line at top). Floor at the ~70% extension computed above.
+          if (!ymaxExplicit && _yHLineExtHi != null) hi = Math.max(hi, _yHLineExtHi);
           // Arrowhead clearance: extend so an up/down arrowhead doesn't overlap
           // the geometry directly under it (00133's arc apex sits on the y-axis).
           // Uses geometry NEAR the y-axis (not the global max), so a curve whose
