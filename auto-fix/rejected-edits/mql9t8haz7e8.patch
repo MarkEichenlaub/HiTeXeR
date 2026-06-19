@@ -1,0 +1,213 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 515e6bc1..9ca020b1 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -26917,6 +26917,25 @@ function renderSVG(result, opts) {
+             }
+           } catch (e) { /* fall back to heuristic */ }
+         }
++        // Multi-line (minipage) labels: the char-count × fontSize × 0.52 floors
++        // below over-reserve the flush-side width (the wrapped prose renders via
++        // real KaTeX glyph paths, ~30% narrower), padding the viewBox with phantom
++        // whitespace. Measure the widest actually-rendered line with the glyph
++        // engine — the SAME value the multi-line render path uses for its block
++        // width — so the bbox hugs the ink. (04702: minipage est 129bp → ~91bp.)
++        // Apply ONLY as a REDUCTION below the char-count render floor: a bogus
++        // OVER-measurement (e.g. 12382's "\vspace{-0.2cm}" tokens rendered as
++        // literal glyphs by the fallback) must not inflate the box and force the
++        // size() solver to collapse the geometry.
++        if (!_mjxMeasured && opts && opts.labelOutput === 'svg-native'
++            && typeof text === 'string' && text.indexOf('\n') !== -1
++            && typeof _measureMultilineMaxBp === 'function') {
++          try {
++            const _mlFloor = _effLenBB * fontSize * 0.52;
++            const _mlw = _measureMultilineMaxBp(text, fontSize);
++            if (_mlw > _mlFloor * 0.4 && _mlw < _mlFloor) { textWidthBpBase = _mlw; _mjxMeasured = true; }
++          } catch (e) { /* keep heuristic */ }
++        }
+         // Guard against severe width under-estimation for size()-constrained labels:
+         // the flat 0.288-em ratio is tight for alpha glyphs but too narrow for digits
+         // and mixed text+units labels (e.g. "0.650 kg"). Use the per-glyph estimator
+@@ -27066,7 +27085,10 @@ function renderSVG(result, opts) {
+             // the actual rendering's _effLen so we don't over-expand for labels
+             // like "e^{2πi/5}" whose visual width is smaller than char count.
+             let lWidthBp = textWidthBpBase;
+-            if (!hasFrac) {
++            // Skip the char-count render-width floor when textWidthBpBase is a
++            // real glyph measurement (frac/scaled/multi-line) — the 0.52em floor
++            // would re-inflate it (multi-line minipage: measured ~91bp → 129bp).
++            if (!hasFrac && !_mjxMeasured) {
+               const _renderWidthBp = _effLenBB * fontSize * 0.52;
+               if (_renderWidthBp > lWidthBp) lWidthBp = _renderWidthBp;
+             }
+@@ -29374,11 +29396,24 @@ function renderSVG(result, opts) {
+                 }
+               }
+             } else {
+-              // Multi-line: _mjxMeasureBp measures the concatenated single line
+-              // (MathJax ignores embedded \n), grossly over-wide, so keep the
+-              // char-count heuristic as the cap (guards shortstack/minipage
+-              // blowups like 03881, 04702).
+-              W = Math.min(W, measuredW * 1.05);
++              // Multi-line: the whole-string _mjxMeasureBp(dc.text) is grossly
++              // over-wide (MathJax ignores embedded \n), and the char-count W above
++              // over-reserves wrapped prose ~30% (real KaTeX glyphs are narrower) —
++              // padding the viewBox with phantom whitespace on the minipage's flush
++              // side (04702's 3.5cm caption made the canvas ~15% too wide). Measure
++              // each rendered line with the glyph engine and use the widest, capped
++              // by the heuristic so a measurement failure can't blow up the canvas.
++              if (typeof _measureMultilineMaxBp === 'function') {
++                const _mlFloor = _effLenVB * fontSizeSVG * 0.52;
++                const _mlw = _measureMultilineMaxBp(dc.text, fontSize) * bpCSSPixel;
++                // Use the per-line measurement only when it's a sane reduction
++                // (04702); a bogus over/under-measurement falls back to the
++                // concatenated-width cap so the viewBox can't blow up or clip (12382).
++                W = (_mlw > _mlFloor * 0.4 && _mlw < _mlFloor) ? Math.min(W, _mlw * 1.05)
++                                                               : Math.min(W, measuredW * 1.05);
++              } else {
++                W = Math.min(W, measuredW * 1.05);
++              }
+             }
+           }
+         } catch (e) { /* ignore — fall back to heuristic */ }
+@@ -30959,6 +30994,21 @@ function renderSVG(result, opts) {
+             }
+           } catch (e) { /* fall back to heuristic */ }
+         }
++        // Multi-line (minipage) block width: measure the widest rendered line with
++        // the glyph engine (the SAME value the bbox + viewBox-overshoot passes use),
++        // so a flushleft block centers on its real ink instead of the over-wide
++        // char-count heuristic — keeping the rendered block, the bbox, and the
++        // viewBox in agreement (04702: no phantom right margin, no left shift).
++        // Reduction-only (vs the char-count floor _labelWidthMeasured above) so a
++        // bogus over-measurement can't shove a flushleft block off-canvas (12382).
++        if (!_measured && opts && opts.labelOutput === 'svg-native'
++            && typeof _measureMultilineMaxBp === 'function' && _rawForMeas.indexOf('\n') !== -1) {
++          try {
++            const _mlFloor = _cleanLen * fontSizeSVG * 0.52;
++            const _mlw = _measureMultilineMaxBp(_rawForMeas, fontSizeSVG) * bpCSSPixel;
++            if (_mlw > _mlFloor * 0.4 && _mlw < _mlFloor) { _labelWidthMeasured = _mlw + fontSizeSVG * 0.1; _measured = true; }
++          } catch (e) { /* keep heuristic */ }
++        }
+         if (!_measured && typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
+           // Browser last resort: canvas ink metrics (emitter not ready yet).
+           try {
+@@ -31129,7 +31179,27 @@ function renderSVG(result, opts) {
+         // (plain_constants.asy), a raw-component test would silently drop
+         // EndPoint SE/NW axis labels out of this branch and shrink the
+         // figure bounds (00145 went from the ref's square aspect to 0.979).
+-        if (dc._isAxisLabel && Math.abs(axLinf) > 0.99 && !dc.labelTransform) {
++        // Extend the SVG-native text-anchor fast path to PURELY HORIZONTAL
++        // (E/W, ay≈0) NON-axis labels too. For these the renderer otherwise uses
++        // anchor='middle' with dx = 0.5·W + margin, where W is the measured width.
++        // The emitter then re-centers on its OWN glyph width Wₖ, so the left edge
++        // lands at anchor.x + margin + 0.5·(W − Wₖ): correct only when W == Wₖ.
++        // For a \footnotesize/\textbf caption the measurement double-applies the
++        // size selector (the folded fontSize already carries it, and KaTeX applies
++        // it again — see _katexMeasureBp), so W ≈ 0.8·Wₖ and the box shifts left
++        // by ~0.1·Wₖ, flush-clipping the leading glyph at the canvas edge (04702's
++        // bottom-left "E"). text-anchor='start'/'end' pins the W/E edge at the
++        // labelmargin offset regardless of any width-estimate error — identical to
++        // the well-measured case (W==Wₖ ⇒ same edge), so it is a no-op for accurate
++        // labels and a fix for mis-measured ones. Gate on ay≈0 so DIAGONAL aligns
++        // (NE/SE/…, where the 'middle' vertical-offset formula differs) are left
++        // untouched; only the axis-label branch keeps its diagonal coverage.
++        // Restrict the new non-axis case to SINGLE-LINE labels (numLines<=1): a
++        // multi-line minipage with W/E alignment (12382's "{\tiny1:1}…" blocks)
++        // lays its lines out via the tspan/block path below, where flipping the
++        // anchor shifts the whole block off its measured center.
++        if (Math.abs(axLinf) > 0.99 && !dc.labelTransform
++            && (dc._isAxisLabel || (Math.abs(ay) < 0.01 && numLines <= 1))) {
+           anchor = ax < 0 ? 'end' : 'start';
+           dx = axLinf * margin + axUnit * dotPush;
+           dy = -(ay_n * H + ayLinf * margin + ayUnit * dotPush);
+@@ -33623,6 +33693,45 @@ function _mjxMeasureBp(rawText, fontSize) {
+   return { wBp: parsed.wEx * exRatio * em * _MJX_SCALE, hBp: parsed.hEx * exRatio * em * _MJX_SCALE };
+ }
+ 
++// Widest actually-rendered line of a multi-line (minipage) label, in bp, using
++// the SAME glyph engine that draws it (katexSvg via _mjxMeasureBp). The
++// char-count × fontSize × 0.52 heuristic used elsewhere over-reserves wrapped
++// prose by ~30%; for a flushleft minipage that pads the viewBox with phantom
++// whitespace on the right (04702's 3.5cm caption made the canvas ~15% too wide).
++// `foldedFontSize` must ALREADY include any \scriptsize-class scale — the
++// selector is stripped here so _mjxMeasureBp doesn't fold it a second time.
++function _measureMultilineMaxBp(rawText, foldedFontSize) {
++  if (typeof _mjxMeasureBp !== 'function' || typeof rawText !== 'string') return 0;
++  const fsRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
++  let maxW = 0;
++  for (let line of rawText.split('\n')) {
++    // Strip the \x06<c|l|r> minipage-align marker (line 0 only) and size selectors.
++    line = line.replace(/^\x06[clr]/, '').replace(fsRe, '');
++    // \( \) inline-math delimiters behave like $…$ (mirrors the render path).
++    line = line.replace(/\\\(/g, '$').replace(/\\\)/g, '$').trim();
++    if (!line) continue;
++    let measStr = line;
++    const hasMath = line.indexOf('$') !== -1 || /[\\^_]/.test(line);
++    if (!hasMath && /[A-Za-z0-9]/.test(line)) {
++      // Pure prose: measure as \text{…} (roman), not math — bare words measured
++      // as math come out ~25-35% too wide (italic + inter-letter math spacing).
++      let esc = '';
++      for (let i = 0; i < line.length; i++) {
++        const c = line[i];
++        if (c === '~') esc += ' ';
++        else if ('\\{}$&#^_%'.indexOf(c) !== -1) esc += '\\' + c;
++        else esc += c;
++      }
++      measStr = '\\text{' + esc + '}';
++    }
++    try {
++      const m = _mjxMeasureBp(measStr, foldedFontSize);
++      if (m && m.wBp > maxW) maxW = m.wBp;
++    } catch (e) { /* skip this line */ }
++  }
++  return maxW;
++}
++
+ // Browser-only counterpart to _mjxMeasureBp.  Renders the label through KaTeX
+ // into an off-screen DOM host at a probe font-size, reads the resulting
+ // getBoundingClientRect, and returns { wBp, hBp } scaled to the requested
+diff --git a/auto-fix/fix-snapshots/4779366a-after.png b/auto-fix/fix-snapshots/4779366a-after.png
+new file mode 100644
+index 00000000..ad0eff7c
+Binary files /dev/null and b/auto-fix/fix-snapshots/4779366a-after.png differ
+diff --git a/auto-fix/fix-snapshots/70efd1c4-after.png b/auto-fix/fix-snapshots/70efd1c4-after.png
+new file mode 100644
+index 00000000..c2cd60a0
+Binary files /dev/null and b/auto-fix/fix-snapshots/70efd1c4-after.png differ
+diff --git a/auto-fix/fix-snapshots/b62ccd58-after.png b/auto-fix/fix-snapshots/b62ccd58-after.png
+new file mode 100644
+index 00000000..ad0eff7c
+Binary files /dev/null and b/auto-fix/fix-snapshots/b62ccd58-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 41634f12..651fc425 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -5341,11 +5341,11 @@
+     "id": "04702",
+     "idx": 4701,
+     "corpusFile": "c36_L2_script_0.asy",
+-    "ssim": 0.883248680695527,
++    "ssim": 0.9678431589722227,
+     "rawSsim": 0.4026560705152186,
+     "softSsim": 0.883248680695527,
+-    "sizeScore": 0.8240037097874373,
+-    "combined": 0.7278001895579739,
++    "sizeScore": 0.9500886338026268,
++    "combined": 0.9008346199551771,
+     "wRatio": 1.0933333333333333,
+     "hRatio": 1.0035087719298246,
+     "refDims": [
+diff --git a/index.html b/index.html
+index 51b088d9..9c0c589d 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.13</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.15</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

@@ -1,0 +1,224 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 515e6bc1..132b3d7d 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -25829,6 +25829,14 @@ function renderSVG(result, opts) {
+   // rule doesn't help one shape while regressing the other (verified 3-session
+   // residual). Use the raw result targets (pre bbox-margin / pre-solver mutation).
+   const _igWideAspect = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.3;
++  // Pinning an endpoint-rotated y-title INTO the axis span (so it doesn't reserve
++  // ~half its rotated length as phantom top margin) applies to every NON-tall
++  // IgnoreAspect plot, not just wide ones: the render already pins it via
++  // _axisLabelEndShift regardless of aspect, so the bbox must mirror that or a
++  // square-ish plot like 08743 (AR 1.25, size(10cm,8cm)) leaves ~51bp empty above
++  // the box. Only genuinely TALL plots (06507 bar charts, AR<1) legitimately keep
++  // TeXeR's top space, so gate at AR >= 1.0 (a superset of _igWideAspect).
++  const _igNotTall = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.0;
+   const dotfactor = _dotfactor || 6;
+   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: (result.directionWarnings || []).slice() };
+ 
+@@ -28034,8 +28042,22 @@ function renderSVG(result, opts) {
+         const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+         bpMinX = Math.min(bpMinX, cx - wBp / 2);
+         bpMaxX = Math.max(bpMaxX, cx + wBp / 2);
+-        bpMinY = Math.min(bpMinY, cy - hBp / 2);
+-        bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
++        // Mirror the heuristic solver's narrow-Y treatment for 90°-rotated
++        // horizontally-aligned axis titles (the AoPS y-axis-label idiom, e.g.
++        // 08743 "Sound Pressure (mPa)", 08812 "Percentage of True Speed").
++        // These run ALONGSIDE the axis; their full rotated height (= original
++        // text WIDTH, ~110 bp) is not a perpendicular Y-extent. Using it here
++        // (the measured-recheck pass omitted this) re-inflated totalH and made
++        // the solver shrink pxPerUnitY, leaving a phantom top margin.
++        const _is90RotR = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
++        const _isHorizAlR = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
++        if (_is90RotR && _isHorizAlR && isIgnoreAspect) {
++          bpMinY = Math.min(bpMinY, cy - wBp / 2);
++          bpMaxY = Math.max(bpMaxY, cy + wBp / 2);
++        } else {
++          bpMinY = Math.min(bpMinY, cy - hBp / 2);
++          bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
++        }
+       }
+       if (anyMeasured) {
+         const totalW = bpMaxX - bpMinX;
+@@ -28122,8 +28144,17 @@ function renderSVG(result, opts) {
+                 const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+                 bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                 bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+-                bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+-                bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
++                // Narrow-Y for a 90°-rotated horizontally-aligned y-axis title
++                // (runs alongside the axis — see recheck pass above).
++                const _is90RotI = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
++                const _isHorizAlI = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
++                if (_is90RotI && _isHorizAlI && isIgnoreAspect) {
++                  bMinY = Math.min(bMinY, cy - li.widthBp / 2);
++                  bMaxY = Math.max(bMaxY, cy + li.widthBp / 2);
++                } else {
++                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
++                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
++                }
+               }
+               const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+               const eW = tgtW < Infinity ? tW / tgtW : 0;
+@@ -28327,8 +28358,20 @@ function renderSVG(result, opts) {
+                   const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
+                   bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                   bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+-                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+-                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
++                  // Narrow-Y for a 90°-rotated horizontally-aligned y-axis title
++                  // (runs alongside the axis): without this, the grow-to-fill loop
++                  // counts the title's full rotated length as Y-extent and thinks
++                  // the box is already filled, so it never grows the squished
++                  // geometry (08743's phantom top margin).
++                  const _is90RotG = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
++                  const _isHorizAlG = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
++                  if (_is90RotG && _isHorizAlG && isIgnoreAspect) {
++                    bMinY = Math.min(bMinY, cy - li.widthBp / 2);
++                    bMaxY = Math.max(bMaxY, cy + li.widthBp / 2);
++                  } else {
++                    bMinY = Math.min(bMinY, cy - li.heightBp / 2);
++                    bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
++                  }
+                 }
+                 const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+                 const uW = (tgtW < Infinity && tW > 0) ? tgtW / tW : 1;
+@@ -28724,7 +28767,7 @@ function renderSVG(result, opts) {
+       // ~26900) so the canvas doesn't reserve ~half its rotated length as phantom
+       // margin past the axis end (08812's y-title → ~42bp phantom top). Tall plots
+       // (06507) legitimately keep that space in TeXeR, so leave them untouched.
+-      const _esh = _igWideAspect ? (li._axisLabelEndShift || 0) : 0;
++      const _esh = _igNotTall ? (li._axisLabelEndShift || 0) : 0;
+       const cy = li.posY + li.alignOffsetYBp / pxPerUnitY - _esh * hh;
+       minX = Math.min(minX, cx - hw);
+       maxX = Math.max(maxX, cx + hw);
+@@ -30866,7 +30909,19 @@ function renderSVG(result, opts) {
+           dc.text = dc.text.slice(2);
+         }
+       }
+-      // Skip empty labels
++      // Skip empty labels: an empty/whitespace-only label draws no glyphs and
++      // must NOT emit a <text> node. The AoPS "blank axes" template emits
++      // `label("", (xmax/2,ymax), N, fontsize(20))` for an absent title; the SVG
++      // emitter otherwise wrote an empty <text font-size="20">, and
++      // render-and-score's expandViewBox pads every <text> by fontsize*0.6, so
++      // that stray node reserved ~half a fontsize of phantom top margin in the
++      // rasterised PNG (08743's box pushed ~78px down). Test the RAW text (only $
++      // delimiters + whitespace removed), NOT stripLaTeX — stripLaTeX collapses
++      // command-only labels that DO render a glyph (e.g. "\textdollar" → $, 09485)
++      // to empty, which would wrongly drop them.
++      if (typeof dc.text === 'string' && dc.text.replace(/\$/g, '').trim() === '') {
++        continue;
++      }
+       const sx = (dc.pos.x - minX) * pxPerUnitX;
+       const sy = (maxY - dc.pos.y) * pxPerUnitY;
+       // TeX caps very large requested fontsizes (font substitution at ~25pt)
+diff --git a/auto-fix/fix-snapshots/404a0ccf-after.png b/auto-fix/fix-snapshots/404a0ccf-after.png
+new file mode 100644
+index 00000000..fa4b38da
+Binary files /dev/null and b/auto-fix/fix-snapshots/404a0ccf-after.png differ
+diff --git a/auto-fix/fix-snapshots/66c7b6e7-after.png b/auto-fix/fix-snapshots/66c7b6e7-after.png
+new file mode 100644
+index 00000000..fa4b38da
+Binary files /dev/null and b/auto-fix/fix-snapshots/66c7b6e7-after.png differ
+diff --git a/auto-fix/fix-snapshots/b5e3ec8b-after.png b/auto-fix/fix-snapshots/b5e3ec8b-after.png
+new file mode 100644
+index 00000000..fa4b38da
+Binary files /dev/null and b/auto-fix/fix-snapshots/b5e3ec8b-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index 41634f12..19d27ede 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -2437,26 +2437,6 @@
+       506
+     ]
+   },
+-  {
+-    "id": "04452",
+-    "idx": 4451,
+-    "corpusFile": "c321_L100_script_5.asy",
+-    "ssim": 0.9809804299384477,
+-    "rawSsim": 0.30280725812322695,
+-    "softSsim": 0.8825902673961766,
+-    "sizeScore": 0.9994004908660793,
+-    "combined": 0.9803923232105022,
+-    "wRatio": 0.613013698630137,
+-    "hRatio": 0.7584415584415585,
+-    "refDims": [
+-      584,
+-      770
+-    ],
+-    "htxDims": [
+-      358,
+-      584
+-    ]
+-  },
+   {
+     "id": "12881",
+     "idx": 12880,
+@@ -11701,9 +11681,9 @@
+     "id": "08743",
+     "idx": 8742,
+     "corpusFile": "c539_L10_script_12.asy",
+-    "ssim": 0.919685296885913,
++    "ssim": 0.98255756572466,
+     "rawSsim": 0.3613360194457885,
+-    "softSsim": 0.919685296885913,
++    "softSsim": 0.98255756572466,
+     "sizeScore": 0.9917098922364517,
+     "combined": 0.9120610066661778,
+     "wRatio": 1.0193548387096774,
+@@ -15201,9 +15181,9 @@
+     "id": "08744",
+     "idx": 8743,
+     "corpusFile": "c539_L10_script_13.asy",
+-    "ssim": 0.9351873447207345,
++    "ssim": 0.9845254153466471,
+     "rawSsim": 0.20424408146246087,
+-    "softSsim": 0.9351873447207345,
++    "softSsim": 0.9845254153466471,
+     "sizeScore": 0.9997215866101146,
+     "combined": 0.9349269760419129,
+     "wRatio": 1.0035398230088495,
+@@ -63497,6 +63477,26 @@
+       220
+     ]
+   },
++  {
++    "id": "04452",
++    "idx": 4451,
++    "corpusFile": "c321_L100_script_5.asy",
++    "ssim": 0.9809804299384477,
++    "rawSsim": 0.30280725812322695,
++    "softSsim": 0.8825902673961766,
++    "sizeScore": 0.9994004908660793,
++    "combined": 0.9803923232105022,
++    "wRatio": 0.613013698630137,
++    "hRatio": 0.7584415584415585,
++    "refDims": [
++      584,
++      770
++    ],
++    "htxDims": [
++      358,
++      584
++    ]
++  },
+   {
+     "id": "01582",
+     "idx": 1581,
+diff --git a/index.html b/index.html
+index 51b088d9..916a862c 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.13</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.14</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

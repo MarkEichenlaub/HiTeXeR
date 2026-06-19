@@ -1,0 +1,113 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 80e54880..a959aa85 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -26881,7 +26881,14 @@ function renderSVG(result, opts) {
+         if (dc.align) {
+           const ax = dc.align.x, ay = dc.align.y;
+           const marginX = 0.40 * fontSize / roughPxPerUnitX;
+-          const marginY = 0.40 * fontSize / roughPxPerUnitY;
++          // Vertical margin matches the render's labelmargin (0.28*fontsize, the
++          // real Asymptote plain_pens.asy value used at the draw site ~30972).
++          // Horizontal keeps the 0.40 safety because the char-width heuristic
++          // under-estimates glyph advances; vertical height is measured (hBp),
++          // so the extra 0.12 was pure over-reservation — and for high-magnitude
++          // aligns like 3*S it is tripled, padding ~6.5bp of empty space below
++          // an S-anchored caption (05553's "5 meters" canvas ran ~27px too tall).
++          const marginY = 0.28 * fontSize / roughPxPerUnitY;
+           // Match Asymptote drawlabel.cc: Align *= 0.5 / max(|ax|,|ay|).
+           // The text-box offset is L-infinity normalised; magnitude only scales labelmargin.
+           const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
+@@ -26990,7 +26997,8 @@ function renderSVG(result, opts) {
+             const _axNAl = _aInfMaxAl > 0 ? (_axAl * 0.5 / _aInfMaxAl) : 0;
+             const _ayNAl = _aInfMaxAl > 0 ? (_ayAl * 0.5 / _aInfMaxAl) : 0;
+             let alignOffsetXBp = dc.align ? (_axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
+-            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.40 * fontSize) : 0;
++            // Vertical margin = render labelmargin (0.28); see marginY note above.
++            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.28 * fontSize) : 0;
+             // screenDx/screenDy (in bp) are applied on top of alignment-driven offset
+             if (dc.screenDx) alignOffsetXBp += dc.screenDx;
+             if (dc.screenDy) alignOffsetYBp -= dc.screenDy;  // SVG y-down → Asymptote y-up
+@@ -31478,6 +31486,26 @@ function renderSVG(result, opts) {
+       const hasLaTeX = !usesInlineColor && /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
+       const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
+ 
++      // Asymptote label strings with no $...$ are LaTeX LR (text) mode: upright
++      // glyphs, inter-word spaces preserved. A bare \color{...}/\textcolor wrapper
++      // does NOT switch to math mode — but \color matched \\[a-zA-Z] above, so
++      // hasMath is true and the label would route through KaTeX *math* mode
++      // (italic letters, collapsed spaces — e.g. "{\color{blue}5 meters}" in
++      // 05553 rendered "5meters" italic instead of upright "5 meters").
++      // Detect "text with color": no $, and once the color commands and grouping
++      // braces are removed, nothing but ordinary text/digits/punctuation remains
++      // (no other LaTeX command, no ^/_ scripts). Render those in text mode with
++      // the inline color preserved.
++      let isTextWithColor = false;
++      if (!/\$/.test(displayText) && /\\(?:color|textcolor)\b/.test(displayText)) {
++        const txtProbe = displayText
++          .replace(/\\textcolor\s*\{[^}]*\}/g, '')
++          .replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '')
++          .replace(/\\color\s*\{[^}]*\}/g, '')
++          .replace(/[{}]/g, '');
++        if (!/\\[a-zA-Z]/.test(txtProbe) && !/[\^_]/.test(txtProbe)) isTextWithColor = true;
++      }
++
+       // Check if math content uses only LaTeX commands with known Unicode equivalents
+       // (Greek letters, operators, etc.) plus simple ^/_ scripts.  Such labels render
+       // more reliably as SVG <text> (scales with the viewBox) than as KaTeX foreignObject
+@@ -31583,6 +31611,17 @@ function renderSVG(result, opts) {
+         if (/\\(?:bf|bfseries|mathbf|textbf|boldsymbol)(?![a-zA-Z])/.test(displayText)) {
+           labelEl = `<g font-weight="bold" stroke="${css.fill}" stroke-width="${fmt(effectiveFontSize*0.04)}">${labelEl}</g>`;
+         }
++      } else if (isTextWithColor && (typeof katex !== 'undefined' || svgNativeMode)) {
++        // Text-mode label carrying an inline \color/\textcolor (no $...$): wrap
++        // the whole string in \text{} so KaTeX renders upright glyphs with the
++        // inter-word space preserved, while the color command still applies
++        // inside text mode (verified: \text{{\color{blue}5 meters}} → upright,
++        // spaced, blue). Mirrors the math-mode KaTeX routing just below.
++        const _txtInput = '\\text{' + displayText + '}';
++        labelEl = renderLabelKatexSvg(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
++          || ((opts && opts.labelOutput === 'svg-native')
++                ? renderLabelMathJaxSVG(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
++                : renderLabelKaTeX(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS));
+       } else if ((typeof katex !== 'undefined' || svgNativeMode) && hasMath && !unicodeSafe) {
+         // NOTE: the `|| svgNativeMode` matters — in node `katex` is undefined, so
+         // without it every mixed text+math label ("$W-1$ cells"), accent command
+diff --git a/auto-fix/fix-snapshots/5d95fe2c-after.png b/auto-fix/fix-snapshots/5d95fe2c-after.png
+new file mode 100644
+index 00000000..fc32ee4f
+Binary files /dev/null and b/auto-fix/fix-snapshots/5d95fe2c-after.png differ
+diff --git a/auto-fix/fix-snapshots/b8a33c09-after.png b/auto-fix/fix-snapshots/b8a33c09-after.png
+new file mode 100644
+index 00000000..fc32ee4f
+Binary files /dev/null and b/auto-fix/fix-snapshots/b8a33c09-after.png differ
+diff --git a/auto-fix/fix-snapshots/e5d4a347-after.png b/auto-fix/fix-snapshots/e5d4a347-after.png
+new file mode 100644
+index 00000000..fc32ee4f
+Binary files /dev/null and b/auto-fix/fix-snapshots/e5d4a347-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index e5e2322e..c0f44c76 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -8161,7 +8161,7 @@
+     "id": "05553",
+     "idx": 5552,
+     "corpusFile": "c401_L3_script_1.asy",
+-    "ssim": 0.956985496561331,
++    "ssim": 0.9746918136404219,
+     "rawSsim": 0.9216835693329349,
+     "softSsim": 0.956985496561331,
+     "sizeScore": 0.9110450973963355,
+diff --git a/index.html b/index.html
+index 4e67e8a0..984a4be4 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.11</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.12</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

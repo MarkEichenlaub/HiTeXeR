@@ -1,0 +1,78 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 80e54880..f1a634ad 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -31338,6 +31338,26 @@ function renderSVG(result, opts) {
+               displayText = '$' + innerStripped + '$';
+             }
+           }
++        } else if (trimmed2.startsWith('{') && trimmed2.endsWith('}')) {
++          // Non-math text that was wrapped in the size command's grouping braces,
++          // e.g. "{\Large Anatomy of a Parabola}" → "Anatomy of a Parabola". The
++          // outer {...} is a TeX group scoping \Large; once the selector is
++          // stripped the braces are pure grouping and must NOT render as literal
++          // glyphs (this label routes to the plain-text SVG path, where { } draw).
++          // Only strip a single outer group that spans the whole string (depth
++          // returns to 0 solely at the final brace), so command-argument braces
++          // (the {Title} in \textbf{Title}) and multi-group labels ("{A} and
++          // {B}") are left intact. Escaped \{ \} (set-builder math) don't count.
++          let depth = 0, single = true;
++          for (let i = 0; i < trimmed2.length; i++) {
++            const c = trimmed2[i];
++            if (c === '{' && trimmed2[i - 1] !== '\\') depth++;
++            else if (c === '}' && trimmed2[i - 1] !== '\\') {
++              depth--;
++              if (depth === 0 && i !== trimmed2.length - 1) { single = false; break; }
++            }
++          }
++          if (single && depth === 0) displayText = trimmed2.slice(1, -1).trim();
+         }
+         // Apply LaTeX font-size selectors as absolute (capped at 12pt baseline)
+         // — see longer comment above the matching pre-scale block. Without this,
+diff --git a/auto-fix/fix-snapshots/501c7051-after.png b/auto-fix/fix-snapshots/501c7051-after.png
+new file mode 100644
+index 00000000..3ee4d99a
+Binary files /dev/null and b/auto-fix/fix-snapshots/501c7051-after.png differ
+diff --git a/auto-fix/fix-snapshots/78bff23e-after.png b/auto-fix/fix-snapshots/78bff23e-after.png
+new file mode 100644
+index 00000000..3ee4d99a
+Binary files /dev/null and b/auto-fix/fix-snapshots/78bff23e-after.png differ
+diff --git a/auto-fix/fix-snapshots/bdf27bbf-after.png b/auto-fix/fix-snapshots/bdf27bbf-after.png
+new file mode 100644
+index 00000000..3ee4d99a
+Binary files /dev/null and b/auto-fix/fix-snapshots/bdf27bbf-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index e5e2322e..fa45447c 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -14321,7 +14321,7 @@
+     "id": "05051",
+     "idx": 5050,
+     "corpusFile": "c398_L6_script_4.asy",
+-    "ssim": 0.9761289937249201,
++    "ssim": 0.9886958975203196,
+     "rawSsim": 0.6114138305446855,
+     "softSsim": 0.9761289937249201,
+     "sizeScore": 0.953164541048494,
+@@ -18121,7 +18121,7 @@
+     "id": "05050",
+     "idx": 5049,
+     "corpusFile": "c398_L6_script_3.asy",
+-    "ssim": 0.9812447734983659,
++    "ssim": 0.989082548041133,
+     "rawSsim": 0.7296863681774121,
+     "softSsim": 0.9812447734983659,
+     "sizeScore": 0.9618581700032282,
+diff --git a/index.html b/index.html
+index 4e67e8a0..984a4be4 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.11</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.12</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

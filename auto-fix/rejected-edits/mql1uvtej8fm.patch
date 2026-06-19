@@ -1,0 +1,87 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 80e54880..09fa08f1 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -10839,6 +10839,35 @@ function createInterpreter() {
+     // D() — cse5/olympiad shorthand for draw that returns its path
+     // In AoPS/cse5 convention, D() uses blue pen by default (unlike draw() which uses black)
+     env.set('D', (...args) => {
++      // cse5 marked-point form: D(Label L, pair A, pen fontpen, pair align).
++      // This draws a DOT at A (with `pointpen`), places the label L at A using
++      // the optional font pen + alignment, and RETURNS the pair A so the point
++      // chains inside a path expression. AoPS uses it to label+dot+connect every
++      // vertex in one expression, e.g.
++      //   draw(D("A",A,s,dir(90))--D("B",B,s,SW)--A--D("E",E,s,S)--C--...);
++      // Without this branch the call (a string + two pairs, no path) fell
++      // through to the path-draw form, which found no path and returned an
++      // EMPTY path — collapsing the whole chain to the few segments between the
++      // bare points and dropping every vertex dot (00600 drew only A--C).
++      {
++        let hasStrL = false, hasPathL = false, firstPairL = null;
++        for (const a of args) {
++          if (isString(a)) hasStrL = true;
++          else if (isPath(a)) hasPathL = true;
++          else if ((isPair(a) || isTriple(a) || isPoint(a)) && !firstPairL) firstPairL = a;
++        }
++        if (hasStrL && firstPairL && !hasPathL) {
++          // Place the label via MP (handles $...$ wrapping, align defaults).
++          const mp = env.get('MP');
++          const placed = (typeof mp === 'function') ? mp(...args) : firstPairL;
++          // Draw the vertex dot with pointpen (cse5's D draws the dot itself).
++          const ptp = env.get('pointpen');
++          const dotArgs = [firstPairL, (isPen(ptp) ? ptp : clonePen(defaultPen))];
++          dotArgs._line = args._line;
++          evalDot(dotArgs);
++          return placed || firstPairL;
++        }
++      }
+       // cse5 overloads D(): a lone pair/point draws a DOT with `pointpen`
+       //     D(pair A, pen p=pointpen) { dot(A,p); }
+       // while a path draws with `pathpen`
+diff --git a/auto-fix/fix-snapshots/35fb462e-after.png b/auto-fix/fix-snapshots/35fb462e-after.png
+new file mode 100644
+index 00000000..1c9b3738
+Binary files /dev/null and b/auto-fix/fix-snapshots/35fb462e-after.png differ
+diff --git a/auto-fix/fix-snapshots/72dbe1ca-after.png b/auto-fix/fix-snapshots/72dbe1ca-after.png
+new file mode 100644
+index 00000000..1c9b3738
+Binary files /dev/null and b/auto-fix/fix-snapshots/72dbe1ca-after.png differ
+diff --git a/auto-fix/fix-snapshots/7d77f2e7-after.png b/auto-fix/fix-snapshots/7d77f2e7-after.png
+new file mode 100644
+index 00000000..1c9b3738
+Binary files /dev/null and b/auto-fix/fix-snapshots/7d77f2e7-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index e5e2322e..c0d557a4 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -24761,7 +24761,7 @@
+     "id": "00600",
+     "idx": 599,
+     "corpusFile": "c134_L1_script_2.asy",
+-    "ssim": 0.9591827377373613,
++    "ssim": 0.9826726351386175,
+     "rawSsim": 0.798029132870339,
+     "softSsim": 0.9591827377373613,
+     "sizeScore": 0.9992082539939208,
+@@ -33541,7 +33541,7 @@
+     "id": "00607",
+     "idx": 606,
+     "corpusFile": "c134_L1_script_3.asy",
+-    "ssim": 0.9677257474643344,
++    "ssim": 0.9910597286551737,
+     "rawSsim": 0.7800945610166721,
+     "softSsim": 0.9677257474643344,
+     "sizeScore": 0.9997145585167292,
+diff --git a/index.html b/index.html
+index 4e67e8a0..984a4be4 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.11</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.12</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>
