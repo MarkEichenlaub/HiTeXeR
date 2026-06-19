@@ -656,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.07</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.08</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -5129,15 +5129,37 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bug-report-text').focus();
   }
 
-  function sendBugReport() {
+  async function sendBugReport() {
     const message = document.getElementById('bug-report-text').value.trim();
     if (!message) { document.getElementById('bug-report-text').focus(); return; }
     const shareUrl = _buildShareUrl();
     try { history.replaceState(null, '', '#code=' + encodeURIComponent(editor.getValue())); } catch(e) {}
-    const subject = encodeURIComponent('HiTeXeR Bug Report');
-    const body = encodeURIComponent(message + '\n\nDiagram link:\n' + shareUrl);
-    window.location.href = 'mailto:eichenlaub@artofproblemsolving.com?subject=' + subject + '&body=' + body;
-    document.getElementById('bug-report-overlay').style.display = 'none';
+    const sendBtn = document.getElementById('bug-report-send');
+    const cancelBtn = document.getElementById('bug-report-cancel');
+    sendBtn.textContent = 'Sending...';
+    sendBtn.disabled = true;
+    cancelBtn.disabled = true;
+    try {
+      const resp = await fetch('https://formspree.io/f/mjgdqqqr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ message, diagram_url: shareUrl })
+      });
+      if (resp.ok) {
+        sendBtn.textContent = 'Sent!';
+        setTimeout(() => { document.getElementById('bug-report-overlay').style.display = 'none'; }, 1000);
+      } else {
+        sendBtn.textContent = 'Send Report';
+        sendBtn.disabled = false;
+        cancelBtn.disabled = false;
+        alert('Failed to send report. Please try again.');
+      }
+    } catch(e) {
+      sendBtn.textContent = 'Send Report';
+      sendBtn.disabled = false;
+      cancelBtn.disabled = false;
+      alert('Failed to send report: ' + e.message);
+    }
   }
 
   function doClear() {
