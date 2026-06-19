@@ -23611,9 +23611,20 @@ function createInterpreter() {
     // Handle draw(string, position, [align], [pen]) without a path: emit label directly
     if (labelText && labelPosArg && (!pathArg || (pathArg && (!pathArg.segs || pathArg.segs.length === 0) && !pathArg._singlePoint))) {
       const effPen = labelPen || pen || clonePen(defaultPen);
+      // A \centering minipage centers its content within the DECLARED width;
+      // capture that width before expandMinipageText discards it so the renderer
+      // can center against it (00572's centered math equations otherwise hug the
+      // box's left edge). \x06c marks \centering; minipage() emits the width as 'pt'
+      // but it is already bp.
+      let _mpCW = 0;
+      if (typeof labelText === 'string') {
+        const _cm = labelText.match(/^\x06c[\s\S]*?\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{\s*([\d.]+)\s*pt\s*\}/);
+        if (_cm) _mpCW = parseFloat(_cm[1]);
+      }
       // Expand minipage LaTeX wrapper to multi-line text
       const expandedText = (typeof labelText === 'string') ? expandMinipageText(labelText, effPen) : labelText;
       const ldc = {cmd:'label', text:expandedText, pos:labelPosArg, align:labelAlign || makePair(0,0), pen: effPen, line: args._line || 0};
+      if (_mpCW > 0) ldc._mpCenterWidthBp = _mpCW;
       if (labelTransform) ldc.labelTransform = labelTransform;
       if (labelFilltype) ldc.filltype = labelFilltype;
       target.commands.push(ldc);
@@ -24285,6 +24296,17 @@ function createInterpreter() {
     // stacks them (KaTeX has no \shortstack support).
     if (typeof text === 'string') text = expandShortstackText(text);
 
+    // A \centering minipage centers its content within the DECLARED width.
+    // expandMinipageText discards that width (it only uses it for wrapping), so
+    // capture it here for the renderer to center against (00572's centered math
+    // equations otherwise left-align inside their 8cm boxes). The \x06c marker
+    // (prepended by minipage()) flags \centering; minipage() emits the width in
+    // bp as 'pt', so the captured number is already bp.
+    let _mpCenterWidthBp = 0;
+    if (typeof text === 'string') {
+      const _cm = text.match(/^\x06c[\s\S]*?\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{\s*([\d.]+)\s*pt\s*\}/);
+      if (_cm) _mpCenterWidthBp = parseFloat(_cm[1]);
+    }
     // LaTeX \begin{minipage}{width}...\end{minipage} environment in label
     // text: expand to the inner content with \\ → newline so downstream
     // multi-line label logic renders it as wrapped text.  Pen passed so
@@ -24393,6 +24415,7 @@ function createInterpreter() {
       }
     } else {
       const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0, _fromPathLabel: !!pathForDefaultAlign, _fromPathLabelNoAlign: _labelOnPathNoAlign};
+      if (_mpCenterWidthBp > 0) labelCmd._mpCenterWidthBp = _mpCenterWidthBp;
       if (pos3D) labelCmd._pos3D = pos3D;
       if (labelTransform) labelCmd.labelTransform = labelTransform;
       // A label positioned from a projected 3D path/triple belongs to the 3D
@@ -30795,6 +30818,15 @@ function renderSVG(result, opts) {
             }
             if (_wM) W = _wM;
           } catch (e) { /* ignore — fall back to heuristic */ }
+        }
+        // A \centering minipage centers its content within the DECLARED box
+        // width, not the content's own width. Use the box width for the
+        // alignment offset (dx = ax_n*W + …) so the content — rendered with
+        // anchor='middle' below — lands at the box CENTER instead of hugging
+        // its anchor edge (00572's centered math equations). max() guards the
+        // rare content-wider-than-box overflow.
+        if (dc._mpCenterWidthBp > 0) {
+          W = Math.max(W, dc._mpCenterWidthBp * bpCSSPixel);
         }
         // A labelTransform scale (e.g. scale(0.75)*"...") is folded into the font
         // size LATER (effectiveFontSize below), so the rendered glyph width is
