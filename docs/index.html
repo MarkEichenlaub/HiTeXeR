@@ -581,7 +581,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.18</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.19</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -4995,8 +4995,6 @@ document.addEventListener('DOMContentLoaded', () => {
   async function sendBugReport() {
     const message = document.getElementById('bug-report-text').value.trim();
     if (!message) { document.getElementById('bug-report-text').focus(); return; }
-    const shareUrl = _buildShareUrl();
-    try { history.replaceState(null, '', '#code=' + encodeURIComponent(editor.getValue())); } catch(e) {}
     const sendBtn = document.getElementById('bug-report-send');
     const cancelBtn = document.getElementById('bug-report-cancel');
     sendBtn.textContent = 'Sending...';
@@ -5006,7 +5004,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const resp = await fetch('https://formspree.io/f/mjgdqqqr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ message, diagram_url: shareUrl })
+        body: JSON.stringify({ message, code: editor.getValue() })
       });
       if (resp.ok) {
         sendBtn.textContent = 'Sent!';
