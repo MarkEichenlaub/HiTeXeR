@@ -23131,7 +23131,14 @@ function createInterpreter() {
         // the white face fills (back-face culling the far slope) instead of
         // painting every grid edge on top of the surface.
         let _whiteFacedOccluding = false;
-        if (_nolight && _meshOverlayPresent && surfForColors && surfForColors._grid && isPen(meshPen)) {
+        // TeXeR renders a meshpen'd parametric surface with a LIGHT achromatic
+        // surfacepen as a WHITE-faced wireframe whether or not `nolight` is set:
+        // 03290 (nolight, lightgray) AND 03281's lit curved face (M2=gray(0.8),
+        // meshpen=gray(0.8)) both measure pure white #fff with only the grid
+        // reading. The gate is the achromatic-LIGHT surfacepen + a meshpen
+        // overlay; `nolight` is not required. (Colored/palette surfaces — 12749
+        // Rainbow, 00080 palegreen — fail _achroLight and keep their fill.)
+        if (_meshOverlayPresent && surfForColors && surfForColors._grid && isPen(meshPen)) {
           const _pr = meshPen.r || 0, _pg = meshPen.g || 0, _pb = meshPen.b || 0;
           const _pop = (typeof meshPen.opacity === 'number') ? meshPen.opacity : 1;
           const _achroLight = Math.abs(_pr - _pg) < 0.04 && Math.abs(_pg - _pb) < 0.04 &&
@@ -23139,7 +23146,24 @@ function createInterpreter() {
           if (_achroLight) {
             meshPen = clonePen(meshPen);
             meshPen.r = 1; meshPen.g = 1; meshPen.b = 1;
-            _whiteFacedOccluding = true;
+            // Hidden-line removal (back-face cull + depth-interleave the grid
+            // edges with the white face fills) is needed for SELF-OCCLUDING
+            // surfaces: the torus 12814 (chromatic-blue grid) and the bold-black
+            // bumps/walls 03290/12752/12785 — there the far slope's grid would
+            // otherwise tangle through the front white faces. But that
+            // interleaving makes a co-planar grid edge fight its OWN white face
+            // in the depth test, which ERASES a thin grid: 03281's open wall
+            // (meshpen=gray(0.8), 0.2px) lost all but 4 of its grid lines. An
+            // open wall with a thin mid-gray grid does not self-occlude and TeXeR
+            // shows its full grid, so fill white but draw the grid ON TOP. Detect
+            // that case by the mesh-LINE pen: thin (not thick()) + achromatic
+            // mid-gray. Thick or chromatic mesh pens keep hidden-line removal.
+            let _mlp = meshPenPositional;
+            for (const a of args) { if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) { _mlp = a.meshpen; break; } }
+            const _mr = (_mlp && _mlp.r) || 0, _mg = (_mlp && _mlp.g) || 0, _mb = (_mlp && _mlp.b) || 0;
+            const _mGray = Math.abs(_mr - _mg) < 0.04 && Math.abs(_mg - _mb) < 0.04 && Math.abs(_mr - _mb) < 0.04;
+            const _mThinMidGray = _mlp && !_mlp._thick && _mGray && _mr > 0.3 && _mr < 0.95;
+            if (!_mThinMidGray) _whiteFacedOccluding = true;
           }
         }
         // Render mesh faces. material() calls attach _emissivePen but we still
