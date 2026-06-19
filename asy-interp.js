@@ -31686,7 +31686,16 @@ function renderSVG(result, opts) {
   // the display size from the viewBox at the standard factor, preserving the
   // viewBox aspect. IgnoreAspect intentionally keeps a geometry-only intrinsic
   // smaller than its label-expanded viewBox, so it is excluded.
-  if (!_isIgnoreAspect2 && (outIntrinsicW < outViewW || outIntrinsicH < outViewH)) {
+  //
+  // The strong 2D form is intrinsic < viewBox (03582, ratio 0.35). A milder form
+  // hits MIXED 3D+2D scenes whose intrinsic lands just ABOVE the viewBox yet far
+  // below the normal viewBox*(5/3): 03281 (size(5cm) 3D wall + 2D parabola) had
+  // intrinsic = viewBox*1.03, so the raster was ~0.6x — still 1:1-ish, not
+  // 5/3-up. For _is3D diagrams require intrinsic ≥ viewBox*1.5 (normal 3D is
+  // ~1.667; this won't false-fire) and reconcile otherwise.
+  const _displayUndersized = outIntrinsicW < outViewW || outIntrinsicH < outViewH ||
+    (_is3D && (outIntrinsicW < outViewW * 1.5 || outIntrinsicH < outViewH * 1.5));
+  if (!_isIgnoreAspect2 && _displayUndersized) {
     const _bp2css = 5 / 3;
     outIntrinsicW = outViewW * _bp2css;
     outIntrinsicH = outViewH * _bp2css;
