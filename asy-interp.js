@@ -25713,6 +25713,14 @@ function renderSVG(result, opts) {
     if (sizeH > 0) sizeH = Math.max(1, sizeH - 2 * _bboxSpec.ymargin);
   }
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
+  // WIDE IgnoreAspect plots (sizeW/sizeH >= 1.3, e.g. 08812 size(10cm,5cm)) need
+  // the rotated y-title pinned into the axis (no phantom top margin) AND the whole
+  // labelled figure compressed to size() — TeXeR squishes the y-tick labels to
+  // honour the box. TALL IgnoreAspect plots (06507 energy bar charts, AR<1) must
+  // NOT: TeXeR keeps their top space. Gate both refinements on aspect so the same
+  // rule doesn't help one shape while regressing the other (verified 3-session
+  // residual). Use the raw result targets (pre bbox-margin / pre-solver mutation).
+  const _igWideAspect = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.3;
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: (result.directionWarnings || []).slice() };
 
@@ -26992,7 +27000,8 @@ function renderSVG(result, opts) {
               _screenDy: dc.screenDy || 0,
               _isTickLabel: dc._isTickLabel === true,
               _isAxisLabel: dc._isAxisLabel === true,
-              _axisTitleOverflow: dc._axisTitleOverflow === true
+              _axisTitleOverflow: dc._axisTitleOverflow === true,
+              _axisLabelEndShift: dc._axisLabelEndShift || 0
             });
           }
         }
@@ -28228,6 +28237,39 @@ function renderSVG(result, opts) {
               }
               pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
             }
+            // WIDE IgnoreAspect fit-to-size: TeXeR fits the whole LABELLED figure
+            // (geometry + truesize axis labels/titles) into size(W,H), so a short-
+            // but-wide plot like 08812 has its 11 y-tick labels overlap rather than
+            // the figure growing past the box. The grow-only loop above never fires
+            // here (08812 is clearanceBound=true — the y-ticks bound the scale), and
+            // it only grows; this block also SHRINKS, and runs regardless of
+            // clearance because size() overrides tick-clearance for IgnoreAspect.
+            // The bbox uses the end-shift-corrected y-title center (so its overhang
+            // doesn't inflate the margin and over-flatten the plot — the failure of
+            // the earlier ungated attempt). Wide-only: tall plots (06507 energy bar
+            // charts, AR<1) keep TeXeR's top space and must NOT be compressed.
+            if (_igWideAspect && _iaGridPlot) {
+              for (let g = 0; g < 8; g++) {
+                let bMinX = geoMinX * pxPerUnitX, bMaxX = geoMaxX * pxPerUnitX;
+                let bMinY = geoMinY * pxPerUnitY, bMaxY = geoMaxY * pxPerUnitY;
+                for (const li of labelInfoBp) {
+                  const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+                  const cy = li.posY * pxPerUnitY + li.alignOffsetYBp - (li._axisLabelEndShift || 0) * (li.heightBp / 2);
+                  bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                  bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                }
+                const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+                const uW = (tgtW < Infinity && tW > 0) ? tgtW / tW : 1;
+                const uH = (tgtH < Infinity && tH > 0) ? tgtH / tH : 1;
+                let changed = false;
+                if (uW > 1.02 || uW < 0.98) { pxPerUnitX *= uW; changed = true; }
+                if (uH > 1.02 || uH < 0.98) { pxPerUnitY *= uH; changed = true; }
+                if (!changed) break;
+              }
+              pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+            }
           } else {
             // keepAspect (size(N) only): re-iterate the geometry-shrink solver
             // with the now-measured label widths so geometry shrinks just
@@ -28567,9 +28609,15 @@ function renderSVG(result, opts) {
     }
     for (const li of labelInfoBp) {
       const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
-      const cy = li.posY + li.alignOffsetYBp / pxPerUnitY;
       const hw = li.widthBp / (2 * pxPerUnitX);
       const hh = li.heightBp / (2 * pxPerUnitY);
+      // WIDE IgnoreAspect only: pin an endpoint-rotated axis title INTO the axis
+      // span (the render + initial bbox pass already do this via _axisLabelEndShift
+      // ~26900) so the canvas doesn't reserve ~half its rotated length as phantom
+      // margin past the axis end (08812's y-title → ~42bp phantom top). Tall plots
+      // (06507) legitimately keep that space in TeXeR, so leave them untouched.
+      const _esh = _igWideAspect ? (li._axisLabelEndShift || 0) : 0;
+      const cy = li.posY + li.alignOffsetYBp / pxPerUnitY - _esh * hh;
       minX = Math.min(minX, cx - hw);
       maxX = Math.max(maxX, cx + hw);
       minY = Math.min(minY, cy - hh);
