@@ -21841,7 +21841,23 @@ function createInterpreter() {
           const segParam = tFrac * totalSegs;
           const segIdx = Math.max(0, Math.min(Math.floor(segParam), totalSegs - 1));
           const localT = Math.max(0, Math.min(1, segParam - segIdx));
-          const s = segs[segIdx];
+          let s = segs[segIdx];
+          // A path built from triples (path3 wrapped as a path — e.g. 03281's
+          // shift(0,0,eps)*((0,0,h)--(2,0,h))) holds 3D control points here. The
+          // de Casteljau below reads .x/.y only, so without projecting first the
+          // label anchors at the RAW (x,y) (z dropped) instead of the projected
+          // screen position, and a later shift()*currentpicture then displaces it
+          // (03281's UnFill "$2\;m$" landed on the 2D x-axis). Project the segment
+          // and flag it _from3d so the 2D shift leaves it on the dimension line.
+          const _segIs3d = isTriple(s.p0);
+          if (_segIs3d) {
+            s = {
+              p0:  projectTriple(s.p0),
+              cp1: isTriple(s.cp1) ? projectTriple(s.cp1) : s.cp1,
+              cp2: isTriple(s.cp2) ? projectTriple(s.cp2) : s.cp2,
+              p3:  projectTriple(s.p3),
+            };
+          }
           const bb = 1 - localT;
           const lpx = bb*bb*bb*s.p0.x + 3*bb*bb*localT*s.cp1.x + 3*bb*localT*localT*s.cp2.x + localT*localT*localT*s.p3.x;
           const lpy = bb*bb*bb*s.p0.y + 3*bb*bb*localT*s.cp1.y + 3*bb*localT*localT*s.cp2.y + localT*localT*localT*s.p3.y;
@@ -21882,6 +21898,14 @@ function createInterpreter() {
           // 12pt default: rgb(0,0.4,0.8) sets only colour, so 03348's blue
           // l(1-cosθ) label must keep defaultpen's fontsize(10pt), not 12pt.
           const lblPen = lblObj.pen || (_drawPen ? mergePens(clonePen(defaultPen), _drawPen) : clonePen(defaultPen));
+          // A Label anchored on a projected 3D path belongs to the 3D layer:
+          // tag it _from3d/_projectedPath so a later 2D transform
+          // (shift(...)*currentpicture) leaves it on the dimension line instead
+          // of displacing it. Without this, 03281's UnFill "$2\;m$" label (drawn
+          // via draw(Label,path3,Bars3)) shifted onto the 2D x-axis and its
+          // white erase box punched a gap through the axis. Matches the later
+          // inline-label branch (~23943) which already does this.
+          const _lblFrom3d = _segIs3d || !!(anchorPath && anchorPath._fromProjection);
           target.commands.push({
             cmd: 'label',
             text: lblObj.text,
@@ -21893,6 +21917,8 @@ function createInterpreter() {
             line: args._line || 0,
             _fromPathLabel: true,
             _fromPathLabelNoAlign: !hadExplicitAlign,
+            _from3d: _lblFrom3d,
+            _projectedPath: _lblFrom3d,
           });
         }
       }
