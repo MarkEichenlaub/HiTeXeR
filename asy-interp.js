@@ -9200,19 +9200,105 @@ function createInterpreter() {
         const mainW = Math.max(1, mainBbox.maxX - mainBbox.minX);
         const mainCx = (mainBbox.minX + mainBbox.maxX) / 2;
 
-        // Legend layout in user units (scaled to main picture)
-        const lineLen = mainW * 0.11;      // sample line length
-        const rowHeight = mainW * 0.09;    // vertical spacing per entry
-        const margin = mainW * 0.035;      // padding inside box
-        const textGap = mainW * 0.015;     // gap between line sample and text
-        const textWidth = mainW * 0.28;    // estimated text width
+        // Legend layout. Asymptote sizes the legend in FIXED device units (bp):
+        // legendlinelength=50bp samples, legendmargin≈10bp, and the box width is
+        // set by the ACTUAL rendered label width. The original heuristic expressed
+        // every dimension as a fraction of the geometry width (mainW), so the bp
+        // dimensions scaled with the plot: the sample line came out ≈0.11×size bp
+        // (only ~19bp for size(175)) instead of Asymptote's fixed 50bp, and the
+        // estimated textWidth let the longest label overflow the right margin
+        // (04452: the "5" touched the box edge). For a keepAspect size() graph the
+        // user→bp scale is uniform (pxPerUnit≈size/geoSpan), so convert the fixed
+        // bp dims into user units here; the legend commands are scaled by that same
+        // final pxPerUnit at render, reproducing the true 50bp sample + padded box.
+        // Restricted to keepAspect+size() (04452): the IgnoreAspect / per-picture
+        // legends (12712/12718/12730/12731/12743) keep the old fraction heuristic —
+        // their x and y scales differ, so a single bp factor can't apply, and they
+        // are sized by a separate path.
+        let lineLen, rowHeight, textGap, textWidth;
+        const _crop = (currentPic._picLimits && currentPic._picLimits.xmin != null) ? currentPic._picLimits
+                    : (currentPic._truepointLimits && currentPic._truepointLimits.xmin != null) ? currentPic._truepointLimits : null;
+        const _geoW = _crop ? Math.abs(_crop.xmax - _crop.xmin) : mainW;
+        const _geoH = _crop ? Math.abs(_crop.ymax - _crop.ymin) : Math.max(1e-6, mainBbox.maxY - mainBbox.minY);
+        const _sW = sizeW > 0 ? sizeW : sizeH;
+        const _sH = sizeH > 0 ? sizeH : sizeW;
+        const _estPxPerUnit = (keepAspect && _sW > 0 && _geoW > 0 && _geoH > 0)
+          ? Math.min(_sW / _geoW, _sH / _geoH) : 0;
+        let marginX, marginY;
+        if (_estPxPerUnit > 0) {
+          const _u = 1 / _estPxPerUnit;             // user units per bp
+          lineLen = 50 * _u;                        // Asymptote legendlinelength
+          marginX = 12.5 * _u;                      // horizontal box padding (≈TeXeR)
+          marginY = 9.5 * _u;                       // vertical box padding (≈TeXeR)
+          textGap = 5 * _u;                         // gap between sample and text
+          // Row spacing matches TeXeR's ~15bp baseline skip for fontsize(10).
+          let _maxFs = 0;
+          for (const e of entries) _maxFs = Math.max(_maxFs, (e.pen && e.pen.fontsize) || 10);
+          rowHeight = Math.max(15, _maxFs * 1.5) * _u;
+          // Box width follows the widest ACTUALLY-rendered label, not a guess.
+          // _mjxMeasureBp returns the tight glyph bbox; the rendered label carries
+          // ~10% of side-bearing on top (the same 1.06–1.1 the viewBox label pass
+          // restores), so without the generosity the box right edge crowds the
+          // last glyph (04452: only 6bp right margin vs TeXeR's ~14bp).
+          let _maxTextBp = 0;
+          for (const e of entries) {
+            const _fs = (e.pen && e.pen.fontsize) || 10;
+            let _wbp = 0;
+            try { const _m = _mjxMeasureBp(e.text, _fs); if (_m && _m.wBp > 0) _wbp = _m.wBp; } catch (_e) {}
+            if (!_wbp) _wbp = stripLaTeX(typeof e.text === 'string' ? e.text : '').length * _fs * 0.5;
+            if (_wbp > _maxTextBp) _maxTextBp = _wbp;
+          }
+          textWidth = _maxTextBp * 1.12 * _u;
+        } else {
+          // Original fraction-of-geometry heuristic (IgnoreAspect / per-picture).
+          lineLen = mainW * 0.11;      // sample line length
+          rowHeight = mainW * 0.09;    // vertical spacing per entry
+          marginX = marginY = mainW * 0.035; // padding inside box
+          textGap = mainW * 0.015;     // gap between line sample and text
+          textWidth = mainW * 0.28;    // estimated text width
+        }
 
-        const boxW = margin + lineLen + textGap + textWidth + margin;
-        const boxH = margin + n * rowHeight + margin;
+        const boxW = marginX + lineLen + textGap + textWidth + marginX;
+        const boxH = marginY + n * rowHeight + marginY;
+
+        // Horizontal centre. attach() at truepoint(S) anchors on the picture's
+        // SOUTH point, and real Asymptote's picture bounds include each label's
+        // frame — so an E-aligned axis label like "$x$" at (xmax,0) pushes the
+        // bbox (and the legend) rightward. getGeoBbox only used label ANCHORS,
+        // which are symmetric here ⇒ centre 0, so the box sat ~15px left of TeXeR
+        // (its centre is grid-centre + half the x-label width). Fold the label
+        // extents into the centre for the keepAspect bp-legend path.
+        let legendCx = mainCx;
+        if (_estPxPerUnit > 0) {
+          let _lblMinX = mainBbox.minX, _lblMaxX = mainBbox.maxX;
+          for (const dc of currentPic.commands) {
+            if (!dc || dc.cmd !== 'label' || dc._fromLegend) continue;
+            if (!dc.pos || !isFinite(dc.pos.x)) continue;
+            const _lfs = (dc.pen && dc.pen.fontsize) || 10;
+            let _lwb = 0;
+            try { const _lm = _mjxMeasureBp(dc.text, _lfs); if (_lm && _lm.wBp > 0) _lwb = _lm.wBp; } catch (_e) {}
+            if (!_lwb) continue;
+            const _lwU = (_lwb * 1.12) / _estPxPerUnit;
+            const _lax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
+            const _llx = _lax > 0.1 ? dc.pos.x : _lax < -0.1 ? dc.pos.x - _lwU : dc.pos.x - _lwU / 2;
+            const _lrx = _lax > 0.1 ? dc.pos.x + _lwU : _lax < -0.1 ? dc.pos.x : dc.pos.x + _lwU / 2;
+            if (_llx < _lblMinX) _lblMinX = _llx;
+            if (_lrx > _lblMaxX) _lblMaxX = _lrx;
+          }
+          legendCx = (_lblMinX + _lblMaxX) / 2;
+        }
 
         // Position: centered horizontally, below the position by offset
-        const ox = mainCx - boxW / 2;
-        const oy = position.y + offsetDir.y * 0.15 - boxH;
+        const ox = legendCx - boxW / 2;
+        let oy = position.y + offsetDir.y * 0.15 - boxH;
+        if (_estPxPerUnit > 0) {
+          // The attach() offset (e.g. 10*S) is a TRUESIZE gap in bp, not a
+          // user-unit-scaled fraction. The ×0.15 heuristic put the box ~15bp too
+          // low for a size() graph, sliding it partly off-canvas (04452: box top
+          // 47px below TeXeR, bottom clipped). Treat the offset magnitude as bp:
+          // box top = south edge − |offset|bp.
+          oy = position.y + (offsetDir.y / _estPxPerUnit) - boxH;
+        }
 
         // Draw surrounding box (black outline)
         const boxPath = makePath([
@@ -9228,10 +9314,10 @@ function createInterpreter() {
         for (let i = 0; i < n; i++) {
           const e = entries[i];
           // y position: top entry is highest
-          const cy = oy + boxH - margin - (i + 0.5) * rowHeight;
+          const cy = oy + boxH - marginY - (i + 0.5) * rowHeight;
           // Draw sample line
-          const x1 = ox + margin;
-          const x2 = ox + margin + lineLen;
+          const x1 = ox + marginX;
+          const x2 = ox + marginX + lineLen;
           const linePath = makePath([lineSegment(makePair(x1, cy), makePair(x2, cy))], false);
           currentPic.commands.push({cmd:'draw', path: linePath, pen: clonePen(e.pen), line: 0, _fromLegend: true, above: 1});
           // Add text label after the line
@@ -29561,6 +29647,28 @@ function renderSVG(result, opts) {
         padR = Math.max(padR, right - viewW);
         padT = Math.max(padT, -top);
         padB = Math.max(padB, bottom - viewH);
+      }
+    }
+
+    // attach(legend(),…) draws the legend BOX outline and the per-entry sample
+    // LINES as draw paths (not labels), so the label-overhang loop above only
+    // reserves room down to the lowest entry label — the box's bottom margin and
+    // border edge fall outside the viewBox and get clipped (04452: box bottom at
+    // ~771px clipped to a 738px canvas). Extend the overhang pads to cover the
+    // full extent of every _fromLegend draw path. Self-limiting (max with 0), so
+    // it is a no-op on diagrams without a legend.
+    for (const dc of drawCommands) {
+      if (!dc || !dc._fromLegend || !dc.path || !dc.path.segs) continue;
+      for (const seg of dc.path.segs) {
+        for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+          if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+          const _lpx = (p.x - minX) * pxPerUnitX;
+          const _lpy = (maxY - p.y) * pxPerUnitY;
+          if (-_lpx > padL) padL = -_lpx;
+          if (_lpx - viewW > padR) padR = _lpx - viewW;
+          if (-_lpy > padT) padT = -_lpy;
+          if (_lpy - viewH > padB) padB = _lpy - viewH;
+        }
       }
     }
 
