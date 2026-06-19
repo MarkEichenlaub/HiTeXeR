@@ -656,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.06</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.07</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -674,6 +674,11 @@ body {
             <div class="md-item" id="md-export-jpg">JPG</div>
           </div>
         </div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-share-url" title="Encode the current code into a shareable link; anyone with the link can open and edit the diagram">Share via URL</div>
+        <div class="md-item" id="md-texer-import" title="Fetch Asymptote source from AoPS TeXeR by problem URL or image ID">Import from TeXeR...</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-bug-report" title="Report a bug — your current code will be included automatically">Report Bug...</div>
       </div>
     </div>
     <div class="menu-item" id="menu-edit">
@@ -684,8 +689,6 @@ body {
         <div class="md-separator"></div>
         <div class="md-item" id="md-clear" title="Delete all code in the editor and start fresh">Clear</div>
         <div class="md-item" id="md-add-element">+ Element</div>
-        <div class="md-separator"></div>
-        <div class="md-item" id="md-share-url" title="Encode the current code into a shareable link; anyone with the link can open and edit the diagram">Share via URL</div>
       </div>
     </div>
     <div class="menu-item" id="menu-view">
@@ -705,8 +708,6 @@ body {
         <div class="md-item checked" id="md-autocomplete" title="Show code-completion suggestions as you type Asymptote commands">Autocomplete</div>
         <div class="md-item" id="md-real-asy" title="Render using the server-side Asymptote compiler instead of the built-in JS interpreter (slower but handles edge cases)">Use Real Asymptote</div>
         <div class="md-item" id="md-coords" title="Show the diagram coordinate value under the cursor when hovering over the rendered image">Cursor Coords</div>
-        <div class="md-separator"></div>
-        <div class="md-item" id="md-texer-import" title="Fetch Asymptote source from AoPS TeXeR by problem URL or image ID">Import from TeXeR...</div>
         <div class="md-separator"></div>
         <div class="md-item" id="md-screenshot-png" title="Select a region of the diagram and save it as a PNG with embedded source code">Screenshot (PNG)...</div>
         <div class="md-item" id="md-screenshot-jpg" title="Select a region of the diagram and save it as a JPG with embedded source code">Screenshot (JPG)...</div>
@@ -954,6 +955,19 @@ label("$C$", C, N);
 </div>
 
 <div id="style-menu"></div>
+
+<!-- Bug Report Dialog -->
+<div id="bug-report-overlay" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;">
+  <div style="background:#16213e;border:2px solid #0f3460;border-radius:8px;padding:24px 28px;width:480px;max-width:calc(100vw - 40px);box-shadow:0 8px 32px rgba(0,0,0,0.6);color:#eee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <h3 style="margin:0 0 10px;font-size:16px;color:#e94560;letter-spacing:0.5px;">Report a Bug</h3>
+    <p style="margin:0 0 14px;font-size:13px;color:#aaa;line-height:1.5;">Describe what went wrong. Your report will automatically include a link to your current diagram so the developer can reproduce the issue.</p>
+    <textarea id="bug-report-text" placeholder="What happened? What did you expect to happen?" style="width:100%;box-sizing:border-box;height:120px;background:#0f3460;color:#eee;border:1px solid #1a1a5e;border-radius:4px;padding:8px 10px;font-size:13px;resize:vertical;font-family:inherit;"></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
+      <button id="bug-report-cancel" style="background:#2a2a3e;color:#eee;border:1px solid #444;padding:7px 18px;border-radius:4px;cursor:pointer;font-size:13px;">Cancel</button>
+      <button id="bug-report-send" style="background:#e94560;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;">Send Report</button>
+    </div>
+  </div>
+</div>
 
 <!-- AI Edit Bar (hidden by default) -->
 <div id="ai-edit-bar" style="display:none;background:#16213e;border-top:2px solid #0f3460;padding:8px 16px;position:fixed;bottom:0;left:0;right:0;z-index:9999;display:none;">
@@ -4848,6 +4862,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-coords').addEventListener('click', () => toggleCursorCoords());
   document.getElementById('md-screenshot-png').addEventListener('click', () => startScreenshot('png'));
   document.getElementById('md-screenshot-jpg').addEventListener('click', () => startScreenshot('jpg'));
+  document.getElementById('md-bug-report').addEventListener('click', () => doBugReport());
+  document.getElementById('bug-report-cancel').addEventListener('click', () => { document.getElementById('bug-report-overlay').style.display = 'none'; });
+  document.getElementById('bug-report-send').addEventListener('click', () => sendBugReport());
+  document.getElementById('bug-report-overlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.style.display = 'none'; });
   // Toolbar Slide button
   document.getElementById('btn-slide').addEventListener('click', () => toggleSlideMode());
   // Toolbar Labels button
@@ -5097,6 +5115,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // Also update the browser location so the URL is visible/live.
     try { history.replaceState(null, '', '#code=' + encodeURIComponent(code)); } catch(e) {}
+  }
+
+  function _buildShareUrl() {
+    const code = editor.getValue();
+    return location.origin + location.pathname + '#code=' + encodeURIComponent(code);
+  }
+
+  function doBugReport() {
+    document.getElementById('bug-report-text').value = '';
+    const overlay = document.getElementById('bug-report-overlay');
+    overlay.style.display = 'flex';
+    document.getElementById('bug-report-text').focus();
+  }
+
+  function sendBugReport() {
+    const message = document.getElementById('bug-report-text').value.trim();
+    if (!message) { document.getElementById('bug-report-text').focus(); return; }
+    const shareUrl = _buildShareUrl();
+    try { history.replaceState(null, '', '#code=' + encodeURIComponent(editor.getValue())); } catch(e) {}
+    const subject = encodeURIComponent('HiTeXeR Bug Report');
+    const body = encodeURIComponent(message + '\n\nDiagram link:\n' + shareUrl);
+    window.location.href = 'mailto:eichenlaub@artofproblemsolving.com?subject=' + subject + '&body=' + body;
+    document.getElementById('bug-report-overlay').style.display = 'none';
   }
 
   function doClear() {
