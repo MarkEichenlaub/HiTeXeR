@@ -315,7 +315,17 @@
       // vlists (fractions, sub/sup stacks) left-align.
       const center = !!ctx.centerCols;
       for (const r of rows) {
-        const shiftUpEm = -(r.topEm + r.pstrut) - r.contentDepth;
+        // KaTeX places each vlist row so its content BASELINE sits at
+        // (top + pstrutHeight) below the vlist top reference (= ctx.y here);
+        // this is independent of the content's own depth. The earlier
+        // `- r.contentDepth` term was a latent bug — harmless for every common
+        // vlist (fraction num/den, sup/sub, sqrt radicand all report row-content
+        // depth 0) but it pushed any depth-bearing row DOWN by its own depth.
+        // That mis-placed the nested munder inside \underbrace{...}_{n}: the
+        // brace (depth ~0.65em) dropped a full 0.65em, opening a big gap under
+        // the braced content and crashing the brace into the subscript label
+        // (04943-04947). Use the exact KaTeX baseline.
+        const shiftUpEm = -(r.topEm + r.pstrut);
         const rowBaseY = ctx.y - shiftUpEm * ctx.s;
         const content = r.content;
         const cstyle = content.style || {};

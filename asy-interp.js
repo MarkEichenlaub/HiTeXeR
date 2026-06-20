@@ -25829,6 +25829,14 @@ function renderSVG(result, opts) {
   // rule doesn't help one shape while regressing the other (verified 3-session
   // residual). Use the raw result targets (pre bbox-margin / pre-solver mutation).
   const _igWideAspect = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.3;
+  // Pinning an endpoint-rotated y-title INTO the axis span (so it doesn't reserve
+  // ~half its rotated length as phantom top margin) applies to every NON-tall
+  // IgnoreAspect plot, not just wide ones: the render already pins it via
+  // _axisLabelEndShift regardless of aspect, so the bbox must mirror that or a
+  // square-ish plot like 08743 (AR 1.25, size(10cm,8cm)) leaves ~51bp empty above
+  // the box. Only genuinely TALL plots (06507 bar charts, AR<1) legitimately keep
+  // TeXeR's top space, so gate at AR >= 1.0 (a superset of _igWideAspect).
+  const _igNotTall = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.0;
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: (result.directionWarnings || []).slice() };
 
@@ -26980,7 +26988,14 @@ function renderSVG(result, opts) {
         if (dc.align) {
           const ax = dc.align.x, ay = dc.align.y;
           const marginX = 0.40 * fontSize / roughPxPerUnitX;
-          const marginY = 0.40 * fontSize / roughPxPerUnitY;
+          // Vertical margin matches the render's labelmargin (0.28*fontsize, the
+          // real Asymptote plain_pens.asy value used at the draw site ~30972).
+          // Horizontal keeps the 0.40 safety because the char-width heuristic
+          // under-estimates glyph advances; vertical height is measured (hBp),
+          // so the extra 0.12 was pure over-reservation — and for high-magnitude
+          // aligns like 3*S it is tripled, padding ~6.5bp of empty space below
+          // an S-anchored caption (05553's "5 meters" canvas ran ~27px too tall).
+          const marginY = 0.28 * fontSize / roughPxPerUnitY;
           // Match Asymptote drawlabel.cc: Align *= 0.5 / max(|ax|,|ay|).
           // The text-box offset is L-infinity normalised; magnitude only scales labelmargin.
           const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
@@ -27089,7 +27104,8 @@ function renderSVG(result, opts) {
             const _axNAl = _aInfMaxAl > 0 ? (_axAl * 0.5 / _aInfMaxAl) : 0;
             const _ayNAl = _aInfMaxAl > 0 ? (_ayAl * 0.5 / _aInfMaxAl) : 0;
             let alignOffsetXBp = dc.align ? (_axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
-            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.40 * fontSize) : 0;
+            // Vertical margin = render labelmargin (0.28); see marginY note above.
+            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.28 * fontSize) : 0;
             // screenDx/screenDy (in bp) are applied on top of alignment-driven offset
             if (dc.screenDx) alignOffsetXBp += dc.screenDx;
             if (dc.screenDy) alignOffsetYBp -= dc.screenDy;  // SVG y-down → Asymptote y-up
@@ -28034,8 +28050,22 @@ function renderSVG(result, opts) {
         const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
         bpMinX = Math.min(bpMinX, cx - wBp / 2);
         bpMaxX = Math.max(bpMaxX, cx + wBp / 2);
-        bpMinY = Math.min(bpMinY, cy - hBp / 2);
-        bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
+        // Mirror the heuristic solver's narrow-Y treatment for 90°-rotated
+        // horizontally-aligned axis titles (the AoPS y-axis-label idiom, e.g.
+        // 08743 "Sound Pressure (mPa)", 08812 "Percentage of True Speed").
+        // These run ALONGSIDE the axis; their full rotated height (= original
+        // text WIDTH, ~110 bp) is not a perpendicular Y-extent. Using it here
+        // (the measured-recheck pass omitted this) re-inflated totalH and made
+        // the solver shrink pxPerUnitY, leaving a phantom top margin.
+        const _is90RotR = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+        const _isHorizAlR = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+        if (_is90RotR && _isHorizAlR && isIgnoreAspect) {
+          bpMinY = Math.min(bpMinY, cy - wBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + wBp / 2);
+        } else {
+          bpMinY = Math.min(bpMinY, cy - hBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
+        }
       }
       if (anyMeasured) {
         const totalW = bpMaxX - bpMinX;
@@ -28122,8 +28152,17 @@ function renderSVG(result, opts) {
                 const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
                 bMinX = Math.min(bMinX, cx - li.widthBp / 2);
                 bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
-                bMinY = Math.min(bMinY, cy - li.heightBp / 2);
-                bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                // Narrow-Y for a 90°-rotated horizontally-aligned y-axis title
+                // (runs alongside the axis — see recheck pass above).
+                const _is90RotI = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+                const _isHorizAlI = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+                if (_is90RotI && _isHorizAlI && isIgnoreAspect) {
+                  bMinY = Math.min(bMinY, cy - li.widthBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.widthBp / 2);
+                } else {
+                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                }
               }
               const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
               const eW = tgtW < Infinity ? tW / tgtW : 0;
@@ -28327,8 +28366,20 @@ function renderSVG(result, opts) {
                   const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
                   bMinX = Math.min(bMinX, cx - li.widthBp / 2);
                   bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
-                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
-                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                  // Narrow-Y for a 90°-rotated horizontally-aligned y-axis title
+                  // (runs alongside the axis): without this, the grow-to-fill loop
+                  // counts the title's full rotated length as Y-extent and thinks
+                  // the box is already filled, so it never grows the squished
+                  // geometry (08743's phantom top margin).
+                  const _is90RotG = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+                  const _isHorizAlG = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+                  if (_is90RotG && _isHorizAlG && isIgnoreAspect) {
+                    bMinY = Math.min(bMinY, cy - li.widthBp / 2);
+                    bMaxY = Math.max(bMaxY, cy + li.widthBp / 2);
+                  } else {
+                    bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                    bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                  }
                 }
                 const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
                 const uW = (tgtW < Infinity && tW > 0) ? tgtW / tW : 1;
@@ -28724,7 +28775,7 @@ function renderSVG(result, opts) {
       // ~26900) so the canvas doesn't reserve ~half its rotated length as phantom
       // margin past the axis end (08812's y-title → ~42bp phantom top). Tall plots
       // (06507) legitimately keep that space in TeXeR, so leave them untouched.
-      const _esh = _igWideAspect ? (li._axisLabelEndShift || 0) : 0;
+      const _esh = _igNotTall ? (li._axisLabelEndShift || 0) : 0;
       const cy = li.posY + li.alignOffsetYBp / pxPerUnitY - _esh * hh;
       minX = Math.min(minX, cx - hw);
       maxX = Math.max(maxX, cx + hw);
@@ -30866,7 +30917,19 @@ function renderSVG(result, opts) {
           dc.text = dc.text.slice(2);
         }
       }
-      // Skip empty labels
+      // Skip empty labels: an empty/whitespace-only label draws no glyphs and
+      // must NOT emit a <text> node. The AoPS "blank axes" template emits
+      // `label("", (xmax/2,ymax), N, fontsize(20))` for an absent title; the SVG
+      // emitter otherwise wrote an empty <text font-size="20">, and
+      // render-and-score's expandViewBox pads every <text> by fontsize*0.6, so
+      // that stray node reserved ~half a fontsize of phantom top margin in the
+      // rasterised PNG (08743's box pushed ~78px down). Test the RAW text (only $
+      // delimiters + whitespace removed), NOT stripLaTeX — stripLaTeX collapses
+      // command-only labels that DO render a glyph (e.g. "\textdollar" → $, 09485)
+      // to empty, which would wrongly drop them.
+      if (typeof dc.text === 'string' && dc.text.replace(/\$/g, '').trim() === '') {
+        continue;
+      }
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
       // TeX caps very large requested fontsizes (font substitution at ~25pt)
@@ -31129,7 +31192,27 @@ function renderSVG(result, opts) {
         // (plain_constants.asy), a raw-component test would silently drop
         // EndPoint SE/NW axis labels out of this branch and shrink the
         // figure bounds (00145 went from the ref's square aspect to 0.979).
-        if (dc._isAxisLabel && Math.abs(axLinf) > 0.99 && !dc.labelTransform) {
+        // Extend the SVG-native text-anchor fast path to PURELY HORIZONTAL
+        // (E/W, ay≈0) NON-axis labels too. For these the renderer otherwise uses
+        // anchor='middle' with dx = 0.5·W + margin, where W is the measured width.
+        // The emitter then re-centers on its OWN glyph width Wₖ, so the left edge
+        // lands at anchor.x + margin + 0.5·(W − Wₖ): correct only when W == Wₖ.
+        // For a \footnotesize/\textbf caption the measurement double-applies the
+        // size selector (the folded fontSize already carries it, and KaTeX applies
+        // it again — see _katexMeasureBp), so W ≈ 0.8·Wₖ and the box shifts left
+        // by ~0.1·Wₖ, flush-clipping the leading glyph at the canvas edge (04702's
+        // bottom-left "E"). text-anchor='start'/'end' pins the W/E edge at the
+        // labelmargin offset regardless of any width-estimate error — identical to
+        // the well-measured case (W==Wₖ ⇒ same edge), so it is a no-op for accurate
+        // labels and a fix for mis-measured ones. Gate on ay≈0 so DIAGONAL aligns
+        // (NE/SE/…, where the 'middle' vertical-offset formula differs) are left
+        // untouched; only the axis-label branch keeps its diagonal coverage.
+        // Restrict the new non-axis case to SINGLE-LINE labels (numLines<=1): a
+        // multi-line minipage with W/E alignment (12382's "{\tiny1:1}…" blocks)
+        // lays its lines out via the tspan/block path below, where flipping the
+        // anchor shifts the whole block off its measured center.
+        if (Math.abs(axLinf) > 0.99 && !dc.labelTransform
+            && (dc._isAxisLabel || (Math.abs(ay) < 0.01 && numLines <= 1))) {
           anchor = ax < 0 ? 'end' : 'start';
           dx = axLinf * margin + axUnit * dotPush;
           dy = -(ay_n * H + ayLinf * margin + ayUnit * dotPush);
@@ -31599,6 +31682,26 @@ function renderSVG(result, opts) {
       const hasLaTeX = !usesInlineColor && /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
       const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
 
+      // Asymptote label strings with no $...$ are LaTeX LR (text) mode: upright
+      // glyphs, inter-word spaces preserved. A bare \color{...}/\textcolor wrapper
+      // does NOT switch to math mode — but \color matched \\[a-zA-Z] above, so
+      // hasMath is true and the label would route through KaTeX *math* mode
+      // (italic letters, collapsed spaces — e.g. "{\color{blue}5 meters}" in
+      // 05553 rendered "5meters" italic instead of upright "5 meters").
+      // Detect "text with color": no $, and once the color commands and grouping
+      // braces are removed, nothing but ordinary text/digits/punctuation remains
+      // (no other LaTeX command, no ^/_ scripts). Render those in text mode with
+      // the inline color preserved.
+      let isTextWithColor = false;
+      if (!/\$/.test(displayText) && /\\(?:color|textcolor)\b/.test(displayText)) {
+        const txtProbe = displayText
+          .replace(/\\textcolor\s*\{[^}]*\}/g, '')
+          .replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '')
+          .replace(/\\color\s*\{[^}]*\}/g, '')
+          .replace(/[{}]/g, '');
+        if (!/\\[a-zA-Z]/.test(txtProbe) && !/[\^_]/.test(txtProbe)) isTextWithColor = true;
+      }
+
       // Check if math content uses only LaTeX commands with known Unicode equivalents
       // (Greek letters, operators, etc.) plus simple ^/_ scripts.  Such labels render
       // more reliably as SVG <text> (scales with the viewBox) than as KaTeX foreignObject
@@ -31704,6 +31807,17 @@ function renderSVG(result, opts) {
         if (/\\(?:bf|bfseries|mathbf|textbf|boldsymbol)(?![a-zA-Z])/.test(displayText)) {
           labelEl = `<g font-weight="bold" stroke="${css.fill}" stroke-width="${fmt(effectiveFontSize*0.04)}">${labelEl}</g>`;
         }
+      } else if (isTextWithColor && (typeof katex !== 'undefined' || svgNativeMode)) {
+        // Text-mode label carrying an inline \color/\textcolor (no $...$): wrap
+        // the whole string in \text{} so KaTeX renders upright glyphs with the
+        // inter-word space preserved, while the color command still applies
+        // inside text mode (verified: \text{{\color{blue}5 meters}} → upright,
+        // spaced, blue). Mirrors the math-mode KaTeX routing just below.
+        const _txtInput = '\\text{' + displayText + '}';
+        labelEl = renderLabelKatexSvg(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          || ((opts && opts.labelOutput === 'svg-native')
+                ? renderLabelMathJaxSVG(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+                : renderLabelKaTeX(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS));
       } else if ((typeof katex !== 'undefined' || svgNativeMode) && hasMath && !unicodeSafe) {
         // NOTE: the `|| svgNativeMode` matters — in node `katex` is undefined, so
         // without it every mixed text+math label ("$W-1$ cells"), accent command
