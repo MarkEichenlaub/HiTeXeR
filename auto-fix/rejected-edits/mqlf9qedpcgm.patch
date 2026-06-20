@@ -1,0 +1,55 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 515e6bc1..34ceae73 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -23297,7 +23297,24 @@ function createInterpreter() {
+         // as solid ~3px strokes, so use a much heavier width there.
+         if (meshLinePen && !meshLinePen._lwExplicit) {
+           meshLinePen = clonePen(meshLinePen);
+-          meshLinePen.linewidth = meshLinePen._thick ? 0.9 : 0.2;
++          // Base thin-mesh weight is 0.2 SVG-units (~0.67px raster). A LIGHT
++          // achromatic mesh pen (e.g. 03281 meshpen=gray(0.8)) all but VANISHES
++          // at that width: the sub-pixel stroke antialiases toward white and
++          // never reaches its true light-gray value, so the grid reads near
++          // white. TeXeR's PRC instead renders these grid lines ~1-2px wide AT
++          // their specified color (measured on the 03281 ref: mesh pixels sit
++          // at lum 204 = gray(0.8) exactly, ~19% face coverage vs 3% in HTX).
++          // Widen light/mid achromatic mesh pens so a full pixel is covered and
++          // the line reads at its specified gray. Dark mesh pens (black,
++          // darkgreen) and chromatic ones (the 12814 blue torus) survive
++          // sub-pixel rendering, so they keep 0.2.
++          let _thinMeshLw = 0.2;
++          if (!meshLinePen._thick) {
++            const _mr = meshLinePen.r || 0, _mg = meshLinePen.g || 0, _mb = meshLinePen.b || 0;
++            const _mAchro = Math.abs(_mr - _mg) < 0.04 && Math.abs(_mg - _mb) < 0.04 && Math.abs(_mr - _mb) < 0.04;
++            if (_mAchro && _mr >= 0.45) _thinMeshLw = 0.7;
++          }
++          meshLinePen.linewidth = meshLinePen._thick ? 0.9 : _thinMeshLw;
+           meshLinePen._lwExplicit = true;
+         }
+         if (meshLinePen && surfForColors && surfForColors._grid) {
+diff --git a/auto-fix/fix-snapshots/09e8087a-after.png b/auto-fix/fix-snapshots/09e8087a-after.png
+new file mode 100644
+index 00000000..d0d9cad2
+Binary files /dev/null and b/auto-fix/fix-snapshots/09e8087a-after.png differ
+diff --git a/auto-fix/fix-snapshots/286ac7d8-after.png b/auto-fix/fix-snapshots/286ac7d8-after.png
+new file mode 100644
+index 00000000..521dbf99
+Binary files /dev/null and b/auto-fix/fix-snapshots/286ac7d8-after.png differ
+diff --git a/auto-fix/fix-snapshots/f671d8f4-after.png b/auto-fix/fix-snapshots/f671d8f4-after.png
+new file mode 100644
+index 00000000..d0d9cad2
+Binary files /dev/null and b/auto-fix/fix-snapshots/f671d8f4-after.png differ
+diff --git a/index.html b/index.html
+index 51b088d9..9c0c589d 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.13</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.15</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

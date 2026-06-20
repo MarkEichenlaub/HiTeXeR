@@ -1,0 +1,89 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 515e6bc1..fa8d9175 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -14541,9 +14541,16 @@ function createInterpreter() {
+       if (!pen) pen = clonePen(defaultPen);
+       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
+       // When crop is enabled, don't expand the limits beyond what the user specified.
++      // Mirror the yaxis guard: never persist the no-content ±5 fallback (an early
++      // xaxis() declared before its data exists). The deferred axis job re-ranges
++      // the drawn line to the true extent, but the ±5 written here would survive
++      // into the fit-time bbox union and over-widen the canvas. Only persist
++      // limits that came from content/user/explicit.
++      const _xminReal = xminExplicit || _xminFromContent || _xminFromUserLimits;
++      const _xmaxReal = xmaxExplicit || _xmaxFromContent || _xmaxFromUserLimits;
+       if (xmin !== null && !_axisLimits.crop) {
+-        if (_axisLimits.xmin === null || xmin < _axisLimits.xmin) _axisLimits.xmin = xmin;
+-        if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
++        if (_xminReal && (_axisLimits.xmin === null || xmin < _axisLimits.xmin)) _axisLimits.xmin = xmin;
++        if (_xmaxReal && (_axisLimits.xmax === null || xmax > _axisLimits.xmax)) _axisLimits.xmax = xmax;
+       }
+       const isInvisible = pen.opacity === 0;
+       // Mirror yaxis logic: if a previously-drawn yaxis was auto-ranged and our
+@@ -15149,9 +15156,19 @@ function createInterpreter() {
+       if (!pen) pen = clonePen(defaultPen);
+       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
+       // When crop is enabled, don't expand the limits beyond what the user specified.
++      // Do NOT record the no-content ±5 fallback (set above when ymin/ymax were
++      // null with no geometry, user-limit, or explicit value yet): an early
++      // yaxis() declared before its data exists falls back to ±5, but a deferred
++      // axis job later re-ranges the drawn line to the true content extent. The
++      // ±5 written here is never overwritten by the job, and the non-crop bbox
++      // union at fit time then expands the canvas to ±5 — leaving the diagram a
++      // thin sliver in an over-tall frame (00062: data y∈[0,1.8] rendered into a
++      // 5cm-tall box). Only persist limits that came from content/user/explicit.
++      const _yminReal = yminExplicit || _yminFromContent || _yminFromUserLimits;
++      const _ymaxReal = ymaxExplicit || _ymaxFromContent || _ymaxFromUserLimits;
+       if (ymin !== null && !_axisLimits.crop) {
+-        if (_axisLimits.ymin === null || ymin < _axisLimits.ymin) _axisLimits.ymin = ymin;
+-        if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
++        if (_yminReal && (_axisLimits.ymin === null || ymin < _axisLimits.ymin)) _axisLimits.ymin = ymin;
++        if (_ymaxReal && (_axisLimits.ymax === null || ymax > _axisLimits.ymax)) _axisLimits.ymax = ymax;
+       }
+       const isInvisible = pen.opacity === 0;
+       // In Asymptote, when axes auto-range, they extend to include the crossing
+diff --git a/auto-fix/fix-snapshots/8b9a0602-after.png b/auto-fix/fix-snapshots/8b9a0602-after.png
+new file mode 100644
+index 00000000..c7c4e2a3
+Binary files /dev/null and b/auto-fix/fix-snapshots/8b9a0602-after.png differ
+diff --git a/auto-fix/fix-snapshots/9759af72-after.png b/auto-fix/fix-snapshots/9759af72-after.png
+new file mode 100644
+index 00000000..c7c4e2a3
+Binary files /dev/null and b/auto-fix/fix-snapshots/9759af72-after.png differ
+diff --git a/auto-fix/fix-snapshots/aeef3be8-after.png b/auto-fix/fix-snapshots/aeef3be8-after.png
+new file mode 100644
+index 00000000..c7c4e2a3
+Binary files /dev/null and b/auto-fix/fix-snapshots/aeef3be8-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index bf8bb982..84f686bd 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -3881,11 +3881,11 @@
+     "id": "00062",
+     "idx": 61,
+     "corpusFile": "c10_L14_p9616_problem_text_0.asy",
+-    "ssim": 0.6185402525690386,
++    "ssim": 0.9475400854440261,
+     "rawSsim": 0.5498112784166138,
+-    "softSsim": 0.6185402525690386,
++    "softSsim": 0.9475400854440261,
+     "sizeScore": 0.9975612873097992,
+-    "combined": 0.6170318106056984,
++    "combined": 0.9452293074131798,
+     "wRatio": 0.5604395604395604,
+     "hRatio": 0.989517819706499,
+     "refDims": [
+diff --git a/index.html b/index.html
+index 51b088d9..916a862c 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.13</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.14</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>
