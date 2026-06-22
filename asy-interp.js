@@ -24492,8 +24492,21 @@ function createInterpreter() {
       }
     }
     if (!pos) pos = makePair(0,0);
+    // Asymptote resolves a label's UNSET fontsize from the FINAL defaultpen at
+    // shipout — NOT the defaultpen in effect at the label() call. Verified with
+    // local asy: a color-only or no-pen label created while default=fontsize(6),
+    // with default later raised to fontsize(11), renders at 11 (the 6 is dead);
+    // this holds even across sub-picture fit()/add() (all labels are typeset in
+    // one final pass). So flag labels whose pen ARG carried no explicit fontsize;
+    // a post-pass after the program finishes rewrites them to the final
+    // defaultpen size. The merged pen below inherits defaultPen._fzExplicit, so
+    // we must decide from the pen arg here (before the merge), not afterwards.
+    // 04848: defaultpen(fontsize(6)) before the heavygreen/red angle labels is
+    // dead code — they must match the trailing defaultpen(fontsize(11)) A/B/C.
+    const _penArgHasFs = !!pen && (pen._fzExplicit || pen.fontsize !== 12);
     if (!pen) pen = clonePen(defaultPen);
     else pen = mergePens(clonePen(defaultPen), pen);
+    if (!_penArgHasFs) pen._fsFromDefault = true;
 
     // AoPS-corrupted \t escapes: labels with TAB before letters are the result
     // of "\t<letter>" being collapsed to a single TAB byte.  TeX treats the
@@ -25665,6 +25678,26 @@ function createInterpreter() {
       for (let _pass = 0; _pass < 4; _pass++) {
         for (const job of _deferredAxisJobs) {
           try { job(_pass); } catch (e) {}
+        }
+      }
+    }
+
+    // Resolve label fontsizes left UNSET by their pen arg to the FINAL defaultpen
+    // fontsize (Asymptote shipout semantics — see evalLabel). For the ~99% of
+    // diagrams that set defaultpen(fontsize) at most once (or only before any
+    // label), the final value equals each label's call-time value, so the
+    // value-differs guard makes this a byte-identical no-op. It changes ONLY the
+    // handful of diagrams that raise/lower defaultpen(fontsize) AFTER emitting
+    // labels (04848's dead fontsize(6); a few 129xx physics multi-panels).
+    // add(pic.fit()) has already flattened sub-picture label commands into
+    // currentPic.commands by this point, so a flat walk reaches them all.
+    {
+      const _finalDefaultFs = (defaultPen && typeof defaultPen.fontsize === 'number' && defaultPen.fontsize > 0) ? defaultPen.fontsize : 12;
+      for (const c of currentPic.commands) {
+        if (c && c.pen && c.pen._fsFromDefault &&
+            Math.abs((typeof c.pen.fontsize === 'number' ? c.pen.fontsize : 12) - _finalDefaultFs) > 1e-9) {
+          c.pen = clonePen(c.pen);
+          c.pen.fontsize = _finalDefaultFs;
         }
       }
     }
