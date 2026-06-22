@@ -8533,6 +8533,57 @@ function createInterpreter() {
       if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
       return toNumber(v);
     });
+    // cse5's Line(int k=0, pair A, pair B, real a=0.6, real b=a) -> PATH.
+    // AoPS's TeXeR preamble auto-imports cse5/olympiad (same as MP, markangle,
+    // rightanglemark above), so `Line(A,B,...)` is available with no explicit
+    // import — diagram 03643 draws its dotted baseline via
+    //   draw(Line(a_len*dir(A), b_len*dir(B), 0.2, 0.2), dotted);
+    // and nothing else in the corpus calls Line(...). This default returns a
+    // line SEGMENT extended past A and B; `import geometry` later overrides this
+    // binding in the import scope with its geoline form, so geometry diagrams
+    // are unaffected. cse5 L() forms (verified against local asy 3.05):
+    //   k=0 (default): (a*(A-B)+A)--(b*(B-A)+B)            fractional extend
+    //   k=1:           (a*unit(A-B)+A)--(b*unit(B-A)+B)    absolute-distance
+    //   k=2:           perpendicular through midpoint, fractional
+    //   k=3:           perpendicular through midpoint, absolute
+    env.set('Line', (...args) => {
+      const pairs = [], leadNums = [], trailNums = [];
+      for (const v of args) {
+        if (isPair(v)) pairs.push(toPair(v));
+        else if (isPoint && isPoint(v)) pairs.push(locatePoint(v));
+        else if (typeof v === 'number') {
+          if (pairs.length === 0) leadNums.push(v); else trailNums.push(v);
+        }
+      }
+      if (pairs.length < 2) return null;
+      const A = pairs[0], B = pairs[1];
+      const k = leadNums.length ? Math.round(leadNums[0]) : 0;
+      const a = trailNums.length >= 1 ? trailNums[0] : 0.6;
+      const b = trailNums.length >= 2 ? trailNums[1] : a;
+      const sub = (p, q) => makePair(p.x - q.x, p.y - q.y);
+      const add = (p, q) => makePair(p.x + q.x, p.y + q.y);
+      const scl = (s, p) => makePair(s * p.x, s * p.y);
+      const rot90 = (p) => makePair(-p.y, p.x);          // complex *(0,1)
+      const uni = (p) => { const L = Math.hypot(p.x, p.y) || 1; return makePair(p.x / L, p.y / L); };
+      const AmB = sub(A, B), BmA = sub(B, A);
+      let p0, p1;
+      if (k === 1) {
+        p0 = add(scl(a, uni(AmB)), A);
+        p1 = add(scl(b, uni(BmA)), B);
+      } else if (k === 2) {
+        const mid = scl(0.5, add(A, B));
+        p0 = add(rot90(scl(a, AmB)), mid);
+        p1 = add(rot90(scl(b, BmA)), mid);
+      } else if (k === 3) {
+        const mid = scl(0.5, add(A, B));
+        p0 = add(rot90(scl(a, uni(AmB))), mid);
+        p1 = add(rot90(scl(b, uni(BmA))), mid);
+      } else {
+        p0 = add(scl(a, AmB), A);
+        p1 = add(scl(b, BmA), B);
+      }
+      return makePath([lineSegment(p0, p1)], false);
+    });
     env.set('sum', (v) => {
       if (!Array.isArray(v) || v.length === 0) return 0;
       const first = v[0];
