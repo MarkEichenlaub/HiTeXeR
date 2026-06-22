@@ -26346,6 +26346,27 @@ function renderSVG(result, opts) {
           if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _rng * _eB;
           if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _rng * _eT;
         }
+        // Explicit-tick axes (yaxis(LeftTicks(.., real[]))) declared before any
+        // draw() fell back to the ±5 default range and drew every listed tick.
+        // Preserve ticks that fall within the label-inclusive content bound by
+        // extending the axis line out to the farthest such tick; the rest are
+        // removed as orphans below. (Mirror of the x-axis block above; fixes
+        // 12486's yaxis(LeftTicks(DefaultFormat,{-2,2,4})) drawing a y=-2 tick
+        // below the data y∈[0,4].)
+        const _yAxisX = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
+        if (c._explicitTicks) {
+          let tkLo = Infinity, tkHi = -Infinity;
+          for (const dc of drawCommands) {
+            if (!dc._isTickMark || !dc.path || !dc.path.segs || !dc.path.segs.length) continue;
+            const ts = dc.path.segs[0];
+            if (Math.abs((ts.p0.x + ts.p3.x) / 2 - _yAxisX) > 0.5) continue;
+            const ty = (ts.p0.y + ts.p3.y) / 2;
+            if (ty < tkLo) tkLo = ty;
+            if (ty > tkHi) tkHi = ty;
+          }
+          if (c._autoYmax && !c._yMaxFromUserLimits && isFinite(tkHi) && tkHi > hi && tkHi <= lcMaxY + 1e-9) hi = tkHi;
+          if (c._autoYmin && !c._yMinFromUserLimits && isFinite(tkLo) && tkLo < lo && tkLo >= lcMinY - 1e-9) lo = tkLo;
+        }
         if (lo !== oldLo || hi !== oldHi) {
           const x = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
           c.path = { segs: [{
@@ -26434,6 +26455,24 @@ function renderSVG(result, opts) {
                   drawCommands.push({ cmd: 'draw', path: { segs: [{ p0, cp1: p0, cp2: p1, p3: p1 }], closed: false }, pen: tickMarkPen, arrow: null, line: 0, above: 0, _isTickMark: true });
                 }
               }
+            }
+          }
+        }
+        // Remove explicit ticks that ended up outside the final [lo,hi] range.
+        // Tick marks use the midpoint along-axis coord so a crossing x-axis tick
+        // (whose endpoints straddle the axis at x≈_yAxisX) is judged by its
+        // centre, not an endpoint that dips below lo. (Mirror of the x-axis
+        // orphan removal above.)
+        if (c._explicitTicks) {
+          for (const dc of drawCommands) {
+            if (dc === c) continue;
+            if (dc._isTickMark && dc.path && dc.path.segs && dc.path.segs.length) {
+              const ts = dc.path.segs[0];
+              if (Math.abs((ts.p0.x + ts.p3.x) / 2 - _yAxisX) > 0.5) continue;
+              const ty = (ts.p0.y + ts.p3.y) / 2;
+              if (ty < lo - 1e-9 || ty > hi + 1e-9) _orphanTicks.add(dc);
+            } else if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.x - _yAxisX) < 1e-6) {
+              if (dc.pos.y < lo - 1e-9 || dc.pos.y > hi + 1e-9) _orphanTicks.add(dc);
             }
           }
         }
