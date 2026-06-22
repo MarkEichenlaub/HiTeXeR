@@ -15470,16 +15470,16 @@ function createInterpreter() {
         // (along the axis) rather than upright.
         const axisshiftRotatedEndpoint = !arrow && !!ticks && !extent
           && axisShiftXExplicit && labelPosition == null && labelAlign == null;
-        // axes("x","y") y-label: rotated 90° CCW. When the plotted content spans
-        // a real y-range (the data reaches the top of the axis, e.g. 04155's
-        // slanted line, 12710's hyperbola) TeXeR pins the title to the TOP
-        // endpoint. But when the content is a single horizontal line (degenerate
-        // y-height, e.g. 04156 f(x)=4) the axis is mostly headroom and TeXeR
-        // centres the title on the axis instead. Branch on that so both render
-        // like the reference.
-        const _axesYDegenerate = _axesRotatedEnd && isFinite(_contentYmin) && isFinite(_contentYmax)
-          && Math.abs(_contentYmax - _contentYmin) < 1e-9;
-        const _axesTopAnchor = _axesRotatedEnd && !_axesYDegenerate;
+        // axes("x","y") y-label: rotated 90° CCW, pinned to the TOP endpoint
+        // (extending DOWN into the axis span). This holds whether the content
+        // spans a real y-range (04155's slanted line, 12710's hyperbola) OR is a
+        // single horizontal line (04156 f(x)=4): TeXeR top-anchors the title in
+        // both cases — the line is at ~70% up the headroom-padded axis and the
+        // title's top sits at the axis top. (An earlier read centred the
+        // degenerate case on the axis midpoint; that is wrong against TeXeR's
+        // 04156 reference, which puts the title top at the axis top, exactly like
+        // the non-degenerate refs.)
+        const _axesTopAnchor = _axesRotatedEnd;
         const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor || fullGraphAxisTopRotated;
         // "uprightEndpoint" means the label is rendered upright (no rotation,
         // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
