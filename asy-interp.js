@@ -24960,6 +24960,17 @@ function createInterpreter() {
         const k = (0.92 * radius) / focD;
         hp = { x: ccx + focDx * k, y: ccy + focDy * k };
       }
+      // Bare-pen diffuse highlight sits closer to centre than the raw projected
+      // light direction. On 10297 TeXeR/PRC's focal measures ~0.30r off-centre,
+      // but the projected world-light lands ~0.55-0.60r out (orthographic(2,2,1)),
+      // pushing the bright cap toward the silhouette. Pull the focal ~halfway in
+      // so the broad highlight reads as a soft lit cap near the top. Emissive/
+      // specular materials keep the half-vector focal (they peak nearer the rim,
+      // matching 03640), and this is purely a 2D move of the gradient centre —
+      // it does not touch the world light used for per-face mesh shading.
+      if (!_useEmissiveModel) {
+        hp = { x: ccx + (hp.x - ccx) * 0.55, y: ccy + (hp.y - ccy) * 0.55 };
+      }
 
       let sphereStops;
       if (_useEmissiveModel) {
@@ -24981,14 +24992,37 @@ function createInterpreter() {
           { off: 100, c: _e(-0.26) },
         ];
       } else {
-        // Original bare-pen profile (calibrated to 03361 etc.): sharp specular
-        // dot over a diffuse falloff to a near-black terminator.
+        // Bare-pen profile. Color at each radius = base·df + white·sp, where df
+        // is the Lambert diffuse term and sp a broad white specular add. The old
+        // profile crammed sp=0.45 into a 4%-radius spike, producing a single
+        // SHARP point of light over a too-dark, too-saturated body — the opposite
+        // of TeXeR/PRC's broad, DIFFUSE reflection (see 10297/10291/10308 orange
+        // spheres, 00475/00476 gray). Recalibrated to TeXeR's measured radial
+        // profile on 10297: decomposing each annulus's mean rgb as base·df +
+        // white·sp (base = orange = (1,0.5,0)) reproduces every channel to ±1 and
+        // gives (dist-from-focal in sphere-radii → df, sp):
+        //   0.0r→(0.43,0.56)  0.2r→(0.68,0.23)  0.4r→(0.80,0.03)
+        //   0.6r→(0.72,0)     0.8r→(0.53,0)     edge→(~0.20,0)
+        // i.e. the specular is BROAD (tapers to 0 over ~0.4r, not 0.04r) and the
+        // diffuse PEAKS off-focal (~0.80 at 0.4r), so the highlight reads as a
+        // soft lit region, not a white dot. The model is color-agnostic, so the
+        // same stops shade the gray (00475/76) and translucent (03360/61) spheres.
+        // Radius→offset mapping is approximate (the SVG focal sits off-centre);
+        // tuned so the far terminator lands near offset 100.
+        // With the focal pulled to ~0.30r (above), annulus-radius ≈ gradient
+        // offset, so each stop's df is just TeXeR's measured df at that radius
+        // (offset ≈ radius·100). Mid stops nudged ~+0.02 over the raw measurement
+        // to offset the SVG radial-gradient's slight mid-darkening; the terminator
+        // sits at 0.28 (annulus-average, not the 0.17 of the deep-shadow axis) so
+        // the lower body stays brown rather than crushing to black.
         const _mkStop = (df, sp) => ({ r:_cl01(br*df+sp), g:_cl01(bg*df+sp), b:_cl01(bb*df+sp) });
         sphereStops = [
-          { off: 0,   c: _mkStop(0.97, 0.45) },
-          { off: 4,   c: _mkStop(0.97, 0.00) },
-          { off: 45,  c: _mkStop(0.70, 0.00) },
-          { off: 100, c: _mkStop(0.18, 0.00) },
+          { off: 0,   c: _mkStop(0.45, 0.56) },
+          { off: 20,  c: _mkStop(0.68, 0.23) },
+          { off: 40,  c: _mkStop(0.82, 0.03) },
+          { off: 60,  c: _mkStop(0.74, 0.00) },
+          { off: 80,  c: _mkStop(0.54, 0.00) },
+          { off: 100, c: _mkStop(0.28, 0.00) },
         ];
       }
       const lit = sphereStops[0].c;
