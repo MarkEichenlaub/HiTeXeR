@@ -14541,9 +14541,16 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
       // When crop is enabled, don't expand the limits beyond what the user specified.
+      // Mirror the yaxis guard: never persist the no-content ±5 fallback (an early
+      // xaxis() declared before its data exists). The deferred axis job re-ranges
+      // the drawn line to the true extent, but the ±5 written here would survive
+      // into the fit-time bbox union and over-widen the canvas. Only persist
+      // limits that came from content/user/explicit.
+      const _xminReal = xminExplicit || _xminFromContent || _xminFromUserLimits;
+      const _xmaxReal = xmaxExplicit || _xmaxFromContent || _xmaxFromUserLimits;
       if (xmin !== null && !_axisLimits.crop) {
-        if (_axisLimits.xmin === null || xmin < _axisLimits.xmin) _axisLimits.xmin = xmin;
-        if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
+        if (_xminReal && (_axisLimits.xmin === null || xmin < _axisLimits.xmin)) _axisLimits.xmin = xmin;
+        if (_xmaxReal && (_axisLimits.xmax === null || xmax > _axisLimits.xmax)) _axisLimits.xmax = xmax;
       }
       const isInvisible = pen.opacity === 0;
       // Mirror yaxis logic: if a previously-drawn yaxis was auto-ranged and our
@@ -15149,9 +15156,19 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
       // When crop is enabled, don't expand the limits beyond what the user specified.
+      // Do NOT record the no-content ±5 fallback (set above when ymin/ymax were
+      // null with no geometry, user-limit, or explicit value yet): an early
+      // yaxis() declared before its data exists falls back to ±5, but a deferred
+      // axis job later re-ranges the drawn line to the true content extent. The
+      // ±5 written here is never overwritten by the job, and the non-crop bbox
+      // union at fit time then expands the canvas to ±5 — leaving the diagram a
+      // thin sliver in an over-tall frame (00062: data y∈[0,1.8] rendered into a
+      // 5cm-tall box). Only persist limits that came from content/user/explicit.
+      const _yminReal = yminExplicit || _yminFromContent || _yminFromUserLimits;
+      const _ymaxReal = ymaxExplicit || _ymaxFromContent || _ymaxFromUserLimits;
       if (ymin !== null && !_axisLimits.crop) {
-        if (_axisLimits.ymin === null || ymin < _axisLimits.ymin) _axisLimits.ymin = ymin;
-        if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
+        if (_yminReal && (_axisLimits.ymin === null || ymin < _axisLimits.ymin)) _axisLimits.ymin = ymin;
+        if (_ymaxReal && (_axisLimits.ymax === null || ymax > _axisLimits.ymax)) _axisLimits.ymax = ymax;
       }
       const isInvisible = pen.opacity === 0;
       // In Asymptote, when axes auto-range, they extend to include the crossing
@@ -28839,7 +28856,20 @@ function renderSVG(result, opts) {
       const _gb2 = _dcGeoBounds(false);
       if (_gb2) { minX = _gb2.minX; maxX = _gb2.maxX; minY = _gb2.minY; maxY = _gb2.maxY; }
     }
+    // With limits(...,Crop) the window IS the crop box: Asymptote fits the cropped
+    // region to size() and the axis-title labels ("$x$" at the right end, "$y$" at
+    // the top in 04454) float OUTSIDE it, overhanging into the thin arrow margin
+    // rather than enlarging the canvas. Folding their width into the bbox here
+    // pushed maxX/maxY ~0.3u past the box, shrinking the grid to ~95% of the canvas
+    // and progressively misregistering every gridline against TeXeR (04454 rawSSIM
+    // 0.15 despite sizeScore 0.999). Skip the expansion under a full crop window so
+    // the canvas stays = crop box (+ stroke pad); the labels still render (crop
+    // clipping already excludes them, ~31946).
+    const _cropWindow = !!(axisLimits && axisLimits.crop &&
+      axisLimits.xmin !== null && axisLimits.xmax !== null &&
+      axisLimits.ymin !== null && axisLimits.ymax !== null);
     for (const li of labelInfoBp) {
+      if (_cropWindow) continue;
       const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
       const hw = li.widthBp / (2 * pxPerUnitX);
       const hh = li.heightBp / (2 * pxPerUnitY);
@@ -29413,6 +29443,11 @@ function renderSVG(result, opts) {
       // was clipped (02915's NW "$\frac{b}{\sqrt{3}}$" lost its numerator).
       const _tallMathSkip = dc.align && Math.abs(dc.align.y) > 0.01 &&
         /\\(?:frac|dfrac|tfrac|cfrac|sqrt|overset|underset|stackrel|substack|atop|binom)\b/.test(dc.text || '');
+      // Under a full crop window the canvas = crop box and axis TITLE labels float
+      // outside it (see the labelInfoBp clamp ~28786). Don't let the same titles
+      // re-expand the viewBox here either, or 04454's grid would re-shrink. Tick
+      // labels stay eligible (they sit inside the box; their pad is self-limiting).
+      if (axisLimits && axisLimits.crop && dc._isAxisLabel && !dc._isTickLabel) continue;
       if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert && !_tallMathSkip) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
@@ -33253,6 +33288,48 @@ function preprocessLatexForKatex(src, forMathJax, emForHspace) {
   // `\sinheta`) or reject it.  Map them to a real space so the macro is
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
+  // Mirror the render path's xcolor handling (renderSVG ~31614/~31651) so a label
+  // is MEASURED from the same glyphs the emitter draws. \definecolor{name}{RGB}{r,g,b}
+  // and \color[model]{values} emit no ink, but this build's KaTeX has no
+  // \definecolor command, so __renderToDomTree renders it as LITERAL text
+  // ("definecolor{Fcolor}{RGB}{20,20,255}…"). Measuring the raw string then ran
+  // ~20× over (04090's "F=-kΔx" at fontsize 60 measured 95em → canvas ~10× too
+  // wide, the content squished to a sliver). The render path converts both forms
+  // to \color{#hex} before drawing; do the same here so measure === render. By the
+  // time a render call reaches this function its text is already converted, so
+  // these passes are a no-op for it and only repair the measure path's raw input.
+  if (/\\color\s*\[/.test(src)) {
+    src = src.replace(/\\color\s*\[([A-Za-z]+)\]\s*\{([^}]*)\}/g, (_m, model, values) => {
+      const m = model.toLowerCase();
+      if (m === 'rgb') {
+        const parts = values.split(',').map(v => parseFloat(v.trim()));
+        if (parts.length === 3 && parts.every(v => Number.isFinite(v)))
+          return '\\color{#' + parts.map(c => Math.max(0, Math.min(255, Math.round(c * 255))).toString(16).padStart(2, '0')).join('') + '}';
+      } else if (m === 'rgb255') {
+        const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+        if (parts.length === 3 && parts.every(v => Number.isFinite(v)))
+          return '\\color{#' + parts.map(c => Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')).join('') + '}';
+      } else if (m === 'html') {
+        const hex = values.trim().replace(/^#/, '');
+        if (/^[0-9a-fA-F]{6}$/.test(hex)) return '\\color{#' + hex + '}';
+      } else if (m === 'gray') {
+        const v = parseFloat(values.trim());
+        if (Number.isFinite(v)) { const n = Math.max(0, Math.min(255, Math.round(v * 255))); const hh = n.toString(16).padStart(2, '0'); return '\\color{#' + hh + hh + hh + '}'; }
+      }
+      return _m;
+    });
+  }
+  if (/\\definecolor/.test(src)) {
+    const colorDefs = {};
+    src = src.replace(/\\definecolor\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/g, (_m, name, model, values) => {
+      if (model.toUpperCase() === 'RGB') {
+        const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+        if (parts.length === 3) colorDefs[name] = '#' + parts.map(c => Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')).join('');
+      }
+      return '';
+    });
+    src = src.replace(/\\color\s*\{([^}]*)\}/g, (_m, name) => colorDefs[name] ? '\\color{' + colorDefs[name] + '}' : _m);
+  }
   // TeX's `\hskip <dimen>` is the primitive form of `\hspace{<dimen>}`. Nothing
   // downstream handles `\hskip` (the truesize-brace sizing and the pt fix below
   // only match `\hspace{...}`), and KaTeX renders a bare `\hskip 33pt` grossly
