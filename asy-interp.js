@@ -30655,6 +30655,24 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Negative-vspace minipage labels (12380-89): TeXeR crops the overflow 3rd
+  // line only where it falls past the picture bbox — i.e. on the BOTTOM row,
+  // not on a label that sits over other geometry (a middle label's 3rd line
+  // stays visible). HTX's tighter line pitch keeps the 3rd line inside the
+  // annotated circle, so the bbox can't clip it; instead the multi-line
+  // renderer omits it, gated to the bottom row. Identify the bottom row as the
+  // lowest anchor-y among these labels (the corpus's only such diagrams, the
+  // 12380-89 family, always anchor the clipped labels on the bottom vertices).
+  let _mpBottomY = Infinity;
+  if (_mpVspaceClip.size) {
+    for (const dc of drawCommands) {
+      if (!dc || (dc.cmd !== 'label' && dc.cmd !== 'dot') || !dc.pos) continue;
+      if (typeof dc.text === 'string' && _mpVspaceClip.has(_mpClipKey(dc.text)) && dc.pos.y < _mpBottomY) {
+        _mpBottomY = dc.pos.y;
+      }
+    }
+  }
+
   // Build a map of dot positions → dot radius (in SVG user units) so that labels
   // placed at the same anchor point can be pushed outward by the dot radius
   // (matching Asymptote's dotmargin = labelmargin + dotfactor*linewidth/2 behavior).
@@ -31765,9 +31783,20 @@ function renderSVG(result, opts) {
       if (rawText.includes('\n')) {
         // Font-size commands (e.g. {\tiny...}) are already applied to fontSizeSVG above,
         // and effectiveFontSize = fontSizeSVG, so no additional scaling is needed here.
-        const lines = rawText.split('\n').filter(l => l.length > 0);
+        const allLines = rawText.split('\n').filter(l => l.length > 0);
+        // Negative inter-line \vspace minipage (12380-89): drop the clipped
+        // trailing line(s) — but only on the bottom row, where TeXeR's cropping
+        // removes them (a middle label keeps its 3rd line, covered by geometry
+        // below it; see _mpBottomY). Keep totalOffset on the FULL line count so
+        // the surviving "1:1"/"2:2" hold the exact positions of the 3-line block
+        // — re-centering on the reduced count would shift them up vs TeXeR.
+        const _mpClip = _mpVspaceClip.get(_mpClipKey(rawText)) || 0;
+        const _mpAtBottom = dc.pos && Math.abs(dc.pos.y - _mpBottomY) < 0.05;
+        const lines = (_mpClip > 0 && _mpAtBottom)
+          ? allLines.slice(0, Math.max(1, allLines.length - _mpClip))
+          : allLines;
         const lineHeight = effectiveFontSize * 1.2;
-        const totalOffset = (lines.length - 1) * lineHeight;
+        const totalOffset = (allLines.length - 1) * lineHeight;
         const ff = 'KaTeX_Main, serif';
         const op = css.opacity != null && css.opacity < 1 ? ` opacity="${css.opacity}"` : '';
         // Horizontal alignment within the block. dx places the block CENTER at
@@ -34398,6 +34427,26 @@ function expandShortstackText(text) {
 // sometimes pass raw LaTeX minipage markup as a dot/label string; without
 // this expansion MathJax emits an "Unknown environment" error block that
 // renders as a giant black rectangle.
+// Maps an expanded minipage label string → number of trailing lines that
+// Asymptote clips off the bottom because a negative inter-line \vspace shrank
+// the LaTeX box below the natural N-line ink height (12380-89's "{\tiny1:1}
+// \vspace{-0.2cm} \ {\tiny 2:2} ... 3:3"). TeXeR renders "1:1"/"2:2" and crops
+// "3:3" to a thin sliver at the box bottom; HTX otherwise drew the full "3:3"
+// (its tighter line pitch lands it over the circle, where it can't be clipped
+// by the geometry-bound viewBox). The multi-line label renderer consults this
+// count and simply does NOT emit those trailing lines (keeping the full block's
+// pitch/centering so "1:1"/"2:2" hold their positions) — but only for the
+// BOTTOM-row labels (see _mpBottomY), since TeXeR's crop keeps a 3rd line that
+// sits over other geometry (a middle label's "3:5"). Keyed by the full expanded
+// text; a missing entry means 0 (no clip) — so non-minipage and positive/zero-
+// vspace labels are entirely unaffected.
+const _mpVspaceClip = new Map();
+// Normalise the lookup key: minipage() prepends a \x06<c|l|r> horizontal-align
+// marker that the sizing passes still carry on dc.text but renderSVG strips
+// before rendering — strip it here so the set (label-creation time) and every
+// get (sizing + render) agree on the same key.
+const _mpClipKey = (s) => (typeof s === 'string' ? s.replace(/^\x06[clr]/, '') : s);
+
 function expandMinipageText(text, pen) {
   if (!text || typeof text !== 'string') return text;
   if (text.indexOf('\\begin{minipage}') === -1) return text;
@@ -34421,7 +34470,8 @@ function expandMinipageText(text, pen) {
   // Scale linearly with font size: at fontsize(7) the budget is 5.1*0.7 = 3.57.
   const ptPerChar = 5.1 * (fontPt / 10);
   // Match \begin{minipage}[pos]{width}CONTENT\end{minipage} (non-greedy).
-  return text.replace(
+  let _accumClip = 0;
+  const _result = text.replace(
     /\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}([\s\S]*?)\\end\{minipage\}/g,
     (_, widthSpec, inner) => {
       let s = inner;
@@ -34485,11 +34535,45 @@ function expandMinipageText(text, pen) {
         // Drop wrapped lines whose visible content (after stripLaTeX) is
         // empty — pure-command lines like "\vspace{-0.2cm}" should not
         // emit blank tspans in the multi-line label renderer.
-        return wrapped.filter(l => _visLen(l) > 0).join('\n');
+        const contentLines = wrapped.filter(l => _visLen(l) > 0);
+        // ── Negative inter-line \vspace → record trailing lines to clip ──
+        // A negative \vspace between the wrapped lines shrinks the LaTeX box
+        // below the natural N-line ink height; Asymptote crops the label to
+        // that box, so the trailing line(s) that overflow the box bottom are
+        // cropped away (the bottom-row "3:3" of 12380-89). Record how many
+        // bottom lines to drop — the renderer reads this via _mpVspaceClip and
+        // omits them while keeping the full block's pitch/centering so the
+        // surviving lines stay put. The governing baselineskip is the document
+        // value (~14.4bp for the 12pt label template) — constant regardless of
+        // the inner \tiny, and \vspace is absolute — so no label font size is
+        // needed. A single gap as negative as a full baselineskip instead pulls
+        // its line UP to overlap the previous one (12386/12388's -0.8cm top
+        // label), which is not a clip, so those are left alone.
+        if (contentLines.length >= 2) {
+          const _vsToBp = { cm: 28.3465, mm: 2.83465, pt: 1, in: 72.27, bp: 1, em: 10, ex: 4.3 };
+          const _vsRe = /\\vspace\s*\{\s*(-?[0-9.]+)\s*(cm|mm|pt|in|bp|em|ex)?\s*\}/g;
+          const _gaps = [];
+          let _vm;
+          while ((_vm = _vsRe.exec(inner)) !== null) {
+            _gaps.push(parseFloat(_vm[1]) * (_vsToBp[(_vm[2] || 'pt').toLowerCase()] || 1));
+          }
+          const _interGaps = _gaps.slice(0, contentLines.length - 1);
+          const _BLS = 14.4; // document baselineskip of the 12pt label template
+          const _hasNeg = _interGaps.some(v => v < 0);
+          const _hasOverlap = _interGaps.some(v => Math.abs(v) >= _BLS);
+          if (_hasNeg && !_hasOverlap) {
+            const _sumNeg = _interGaps.reduce((a, v) => a + (v < 0 ? v : 0), 0);
+            const _drop = Math.round(Math.abs(_sumNeg) / _BLS);
+            if (_drop > 0) _accumClip += Math.min(_drop, contentLines.length - 1);
+          }
+        }
+        return contentLines.join('\n');
       }
       return lines.join('\n');
     }
   );
+  if (_accumClip > 0) _mpVspaceClip.set(_mpClipKey(_result), _accumClip);
+  return _result;
 }
 
 // Render an nth-root index (the [n] in \sqrt[n]{...}) as Unicode superscript
