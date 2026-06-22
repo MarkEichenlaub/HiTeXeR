@@ -144,6 +144,15 @@
   }
   // Widths that KaTeX assigns via CSS CLASS rules (katex.css), not inline style.
   const CLASS_WIDTH = { nulldelimiter: 0.12 };
+  // Horizontal padding KaTeX adds via CSS CLASS (katex.css), not inline style.
+  // .boxpad{padding:0 0.3em} is the \fboxsep gap inside \fbox/\colorbox/\fcolorbox
+  // — without it the framed box would hug the glyphs with no breathing room.
+  const CLASS_HPAD = { boxpad: 0.3 };          // em PER SIDE
+  function classHPadEm(classes) {
+    let p = 0;
+    for (const c of (classes || [])) if (CLASS_HPAD[c] !== undefined) p += CLASS_HPAD[c];
+    return p; // per side
+  }
   // Advance width of a SymbolNode in em. KaTeX merges adjacent text-mode
   // symbols into one node (tryCombineChars) but the merged .width only
   // reflects the first character (" cells" reported 0.25em), so multi-char
@@ -200,7 +209,8 @@
       const sc = scaleForClasses(n.classes);
       for (const c of (n.children || [])) w += widthOf(c) * sc;
     }
-    w += em(style.marginLeft) + em(style.marginRight) + em(style.paddingLeft) + em(style.paddingRight);
+    w += em(style.marginLeft) + em(style.marginRight) + em(style.paddingLeft) + em(style.paddingRight)
+       + 2 * classHPadEm(n.classes);
     return w;
   }
 
@@ -304,7 +314,8 @@
     const color = style.color || ctx.color;
     const marginL = em(style.marginLeft) * ctx.s;
     const marginR = em(style.marginRight) * ctx.s;
-    const padL = em(style.paddingLeft) * ctx.s * sc;
+    const classHPad = classHPadEm(classes) * ctx.s * sc;   // .boxpad \fboxsep
+    const padL = em(style.paddingLeft) * ctx.s * sc + classHPad;
 
     if (has(n, 'vlist-t')) {
       const rows = vlistRows(n);
@@ -340,6 +351,30 @@
           // rule: full column width, bottom edge at row baseline
           const t = em(cstyle.borderBottomWidth) * ctx.s;
           ctx.out.push('<rect x="' + fmt(ctx.x + marginL) + '" y="' + fmt(rowBaseY - t) + '" width="' + fmt(colW) + '" height="' + fmt(t) + '" fill="' + color + '"/>');
+          continue;
+        }
+        // \fbox / \fcolorbox frame: KaTeX (enclose.ts) emits a `stretchy fbox`
+        // (or fcolorbox) span carrying borderStyle:solid + borderWidth, stretched
+        // to the full column width. Paint a 4-sided stroked rectangle. The span's
+        // style.height is the box's TOTAL height and its baseline (rowBaseY) sits
+        // at the box BOTTOM (depth 0); box-sizing:border-box ⇒ the border paints
+        // INSIDE the column box. Without this the digit rendered but the frame
+        // around it vanished (05938 binary-tree boxes, and every \fbox label).
+        if ((has(content, 'fbox') || has(content, 'fcolorbox')
+             || cstyle.borderStyle === 'solid') && has(content, 'stretchy')) {
+          const boxH = (em(cstyle.height)
+                        || (typeof content.height === 'number' ? content.height : 0)) * ctx.s;
+          const bw = (cstyle.borderWidth !== undefined ? em(cstyle.borderWidth) : 0.04) * ctx.s;
+          const bcolor = cstyle.borderColor || color;
+          const bx = ctx.x + marginL, byTop = rowBaseY - boxH;
+          if (boxH > 0 && colW > 0 && bw > 0) {
+            const R = (x0, y0, w0, h0) => ctx.out.push('<rect x="' + fmt(x0) + '" y="' + fmt(y0)
+              + '" width="' + fmt(w0) + '" height="' + fmt(h0) + '" fill="' + bcolor + '"/>');
+            R(bx, byTop, colW, bw);                 // top
+            R(bx, rowBaseY - bw, colW, bw);         // bottom
+            R(bx, byTop, bw, boxH);                 // left
+            R(bx + colW - bw, byTop, bw, boxH);     // right
+          }
           continue;
         }
         if (has(content, 'hide-tail')) {
@@ -403,7 +438,7 @@
     for (const c of (n.children || [])) {
       x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color, centerCols: childCenter });
     }
-    let advance = (x - ctx.x) + marginR;
+    let advance = (x - ctx.x) + marginR + classHPad;   // symmetric .boxpad right pad
     if (style.width !== undefined) {
       advance = em(style.width) * ctx.s + marginL + marginR;
     }
