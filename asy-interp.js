@@ -30312,8 +30312,8 @@ function renderSVG(result, opts) {
       // arrow size by the same factor — TeXeR's reference renders behave as if
       // the effective default linewidth is the boosted one (e.g. 04315).
       // Flat-banner number lines are the exception: their heads are native-size
-      // in TeXeR (see _flatBanner note), so don't boost them.
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      // in TeXeR (see _flatBanner / _geoFlatBanner notes), so don't boost them.
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       let baseSize;
       if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
@@ -30510,7 +30510,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost, _isNarrowFewDots1D);
       if (arrowEl) {
@@ -30630,6 +30630,16 @@ function renderSVG(result, opts) {
   // head makes it 2× too large, ballooning the diagram's height and wrecking the
   // aspect ratio after SSIM resize. Suppress the arrow boost for flat banners.
   let _flatBanner = false;
+  // Like _flatBanner, but derived from the GEOMETRY bbox rather than the
+  // label-padded render bbox. A number line whose tick labels / stacked
+  // fractions stick far above the axis (e.g. 05972's `2*N` $\frac{16}{8}$
+  // captions push the padded maxY to ~12 while the geometry is only ~2.4 tall)
+  // has a flat GEOMETRY but a tall padded bbox, so it escapes _flatBanner and
+  // lands in the aspect>6 branch — which then boosts its truesize ArcArrow
+  // heads ~1.67×, rendering them visibly too big. The arrowheads are truesize
+  // glyphs TeXeR draws at native size regardless of label height, so suppress
+  // the arrow boost (only) whenever the geometry itself is banner-flat.
+  let _geoFlatBanner = false;
   // Track narrow-span 1D horizontal diagrams so dot boost can be reduced
   // (stroke boost needs to be high for lines/arrows, but dots are already
   // prominent and don't need the same multiplier).
@@ -30640,6 +30650,12 @@ function renderSVG(result, opts) {
     const _aspect = Math.max(_w, _h) / Math.min(_w, _h);
     const _minDim = Math.min(_w, _h);
     const _isFlatBanner = _minDim < 5 && Math.max(_w, _h) > 50;
+    // Geometry-only flat-banner test (ignores label padding) — see _geoFlatBanner note.
+    {
+      const _gw = (geoMaxX - geoMinX) || 1;
+      const _gh = (geoMaxY - geoMinY) || 1;
+      _geoFlatBanner = Math.min(_gw, _gh) < 5 && Math.max(_gw, _gh) > 50;
+    }
     // Tall-thin diagrams whose user-coord minDim is small (e.g. 01153's
     // 0.3-unit width) but auto-scale to a rendered minDim that's already
     // adequately thick (>= 10 bp) don't benefit from the linear ramp's full
