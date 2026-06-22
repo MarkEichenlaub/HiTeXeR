@@ -34754,6 +34754,7 @@ function stripLaTeX(text) {
     '\\det':'det','\\dim':'dim','\\deg':'deg','\\arg':'arg',
     '\\left':'','\\right':'',
     '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
+    '\\textdollar':'$',
   };
   // Sort by key length descending so longer commands match first (e.g. \left before \le)
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);
