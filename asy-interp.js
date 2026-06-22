@@ -28431,14 +28431,18 @@ function renderSVG(result, opts) {
             if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
               console.error(`[tick-clear-pre] preMinX=${minPxX.toFixed(4)} preMinY=${minPxY.toExponential(3)} gapTrigX=${gapTriggeredX} gapTrigY=${gapTriggeredY}`);
             }
-            // Skip square-cell coupling when geometry has extreme aspect ratio
-            // (e.g., x: 0-100, y: 0-10000). In such cases, the axes are
-            // inherently anisotropic and forcing square cells would distort
-            // the intended IgnoreAspect output (08635).
+            // Whether to skip square-cell coupling is governed entirely by
+            // _iaSizeAspectConflict below (square-box-aspect vs size() aspect).
+            // A former guard keyed on the RAW data aspect (geoH/geoW > 5) was
+            // removed: raw user-unit aspect is meaningless under IgnoreAspect
+            // (x and y are scaled independently), and it wrongly blocked 03900
+            // — a sparse-scatter grid whose y is in units of 1e8 (geoAspect
+            // ~1.2e5) that TeXeR renders with SQUARE cells. 08635 and the other
+            // anisotropic graph plots it was meant to protect are already kept
+            // rectangular by _iaSizeAspectConflict, so the raw-aspect guard was
+            // redundant; corpus-wide, removing it newly couples ONLY 03900.
             const _geoW2 = (geoMaxX - geoMinX) || 1;
             const _geoH2 = (geoMaxY - geoMinY) || 1;
-            const _geoAspect = (_geoH2 / _geoW2);
-            const _skipSquareCells = _geoAspect > 5 || _geoAspect < 0.2;
             // Square-cell coupling forces (xStepBp*pxX)==(yStepBp*pxY), i.e.
             // it assumes TeXeR renders this plot with square grid cells. That
             // holds for label-dominated sparse-data scatter (3900), but NOT
@@ -28455,8 +28459,14 @@ function renderSVG(result, opts) {
               const _r = _squareBoxAspect / _sizeAspect;
               _iaSizeAspectConflict = _r > 1.6 || _r < 1 / 1.6;
             }
-            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_skipSquareCells && !_iaSizeAspectConflict) {
-              const targetXPx = Math.max(pxPerUnitX, minPxX);
+            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_iaSizeAspectConflict) {
+              // X is capped at box-fill below (size() pins the WIDTH), so the
+              // square cell must be sized from the box-fill X cell, not the
+              // crowd-clearance minPxX that the cap discards — otherwise Y is
+              // grown to match an over-wide cell and the plot over-shoots tall
+              // (03900: box-fill xCell 19.2bp ⇒ AR 1.07≈ref; clearance 24.6bp
+              // ⇒ AR 0.86).
+              const targetXPx = pxPerUnitX;
               const targetYPx = Math.max(pxPerUnitY, minPxY);
               const xCellBp = xStepBp * targetXPx;
               const yCellBp = yStepBp * targetYPx;
@@ -28473,8 +28483,25 @@ function renderSVG(result, opts) {
               console.error(`[tick-clear] minPxX=${minPxX.toFixed(4)} minPxY=${minPxY.toExponential(3)} curX=${pxPerUnitX.toFixed(4)} curY=${pxPerUnitY.toExponential(3)} xStep=${xStepBp} yStep=${yStepBp.toExponential(2)}`);
             }
             const _iaOrigPxX = pxPerUnitX, _iaOrigPxY = pxPerUnitY;
-            if (minPxX > pxPerUnitX) {
-              pxPerUnitX = minPxX;
+            // size(W,H,IgnoreAspect) pins the figure to the box on the WIDTH
+            // axis: real Asymptote/TeXeR let crowded x-tick labels overlap
+            // rather than grow the plot past size() width. The x-tick clearance
+            // boost (minPxX) above would inflate the width beyond the box-fill
+            // scale the solver already converged to — 03900's "0 100 … 1000"
+            // tick row (boosting it 0.192→0.246 ⇒ AR 1.48, far past ref 1.05)
+            // and 12856's Euler-method curve (AR 5.7 vs ref 2.65). Cap the X
+            // boost at box-fill so X stays within size(); only the X axis is
+            // capped because TeXeR DOES grow the figure HEIGHT for crowded
+            // labels (Y clearance is left free, e.g. 08635's y-tick row). For
+            // 03900 this leaves X at box-fill (xCell 19.2bp) and the square-cell
+            // coupling above grows Y to the SAME 19.2bp cell, reproducing
+            // TeXeR's square grid (final AR ~1.05); the figure HEIGHT then
+            // exceeds size() exactly as in the TeXeR reference.
+            // (12745/12939 stay wide for a SEPARATE reason — a wide off-plot
+            // minipage annotation inflates their viewBox, not this boost.)
+            const _minPxXBoxFill = Math.min(minPxX, _iaOrigPxX);
+            if (_minPxXBoxFill > pxPerUnitX) {
+              pxPerUnitX = _minPxXBoxFill;
             }
             if (minPxY > pxPerUnitY) {
               pxPerUnitY = minPxY;
