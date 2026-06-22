@@ -26890,6 +26890,58 @@ function renderSVG(result, opts) {
   if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
     try { process.stderr.write('[geo-only] geoMinX=' + geoMinX.toFixed(4) + ' geoMaxX=' + geoMaxX.toFixed(4) + ' geoMinY=' + geoMinY.toFixed(4) + ' geoMaxY=' + geoMaxY.toFixed(4) + ' geoW=' + ((geoMaxX-geoMinX)||1).toFixed(4) + ' geoH=' + ((geoMaxY-geoMinY)||1).toFixed(4) + '\n'); } catch(e){}
   }
+  // ── Interior-label box centering (Asymptote fit2 fidelity) ────────────────
+  // Asymptote sizes a label by its frame box placed at the anchor WITH the
+  // align shift, then unions it into the picture bounds. Verified against local
+  // asy 3.05: a label whose anchor sits INTERIOR to the geometry bbox barely
+  // extends the size() frame (its shifted box still lands inside the geometry),
+  // whereas the same label at a geometry corner/edge protrudes fully — a wide
+  // NE caption changes a square's frame <7% at its center but shrinks it ~40%
+  // at its corner. HTX shifts EVERY label's box fully to the align side, so
+  // interior wide captions (00162/02566/12987's "(cos θ,sin θ)" inside the
+  // ±1.5 axis box) wrongly poke past the geometry
+  // edge, forcing the keepAspect scale down and rendering the whole figure
+  // ~16% too short (width still fills size() from the label, height does not).
+  // For interior plain labels under a keepAspect size(), drop the half-box
+  // align shift (keep only the labelmargin push) so the box is centered on the
+  // anchor, matching asy. Tick/axis/rotated labels keep their separately
+  // calibrated full offset; corner/edge labels keep protruding as asy does.
+  const _icEnabled = !(typeof process !== 'undefined' && process.env && process.env.HTX_NO_IC)
+    && keepAspect && (sizeW > 0 || sizeH > 0)
+    && (geoMaxX - geoMinX) > 1e-9 && (geoMaxY - geoMinY) > 1e-9;
+  const _icMX = 0.05 * (geoMaxX - geoMinX);
+  const _icMY = 0.05 * (geoMaxY - geoMinY);
+  // Fraction of the full align box-shift kept for interior labels (0 = fully
+  // centered, 1 = unchanged). Local-asy fit2 behaves like a small shift
+  // (~0.2 of the half-box) — see the _lblInterior note. Env-overridable for
+  // tuning.
+  const _icK = (typeof process !== 'undefined' && process.env && process.env.HTX_IC_K != null)
+    ? +process.env.HTX_IC_K : 0.2;
+  function _lblInterior(px, py, dc) {
+    if (!_icEnabled || !dc) return false;
+    if (dc._isTickLabel || dc._isAxisLabel || dc.labelTransform) return false;
+    if (typeof px !== 'number' || typeof py !== 'number') return false;
+    return px > geoMinX + _icMX && px < geoMaxX - _icMX &&
+           py > geoMinY + _icMY && py < geoMaxY - _icMY;
+  }
+  // Whether a label's box should be (near-)centered for the fit. Requires the
+  // anchor interior AND the CENTERED box to fit inside the geometry bbox: a
+  // label too wide/tall to fit centered genuinely protrudes in asy too (01763's
+  // full-width caption spans ~87% of the geometry), so it keeps the full align
+  // shift and is allowed to extend the frame. wU/hU = label box size in user
+  // units at the current rough scale.
+  function _lblAbsorb(px, py, wU, hU, dc) {
+    if (!_lblInterior(px, py, dc)) return false;
+    const _gw = geoMaxX - geoMinX, _gh = geoMaxY - geoMinY;
+    // A caption spanning most of the figure (01763's "The projection of v onto
+    // u" ≈ 70% of the width) is not a point annotation — asy lets it protrude,
+    // so don't absorb it. Point labels (the trig cluster's "(cos θ,sin θ)" ≈
+    // 46%) are well under this.
+    if (wU > 0.6 * _gw || hU > 0.6 * _gh) return false;
+    const hwU = (wU > 0 ? wU : 0) / 2, hhU = (hU > 0 ? hU : 0) / 2;
+    return (px - hwU) >= geoMinX && (px + hwU) <= geoMaxX &&
+           (py - hhU) >= geoMinY && (py + hhU) <= geoMaxY;
+  }
   const labelInfoBp = [];  // Collect label bp-space info for iterative scale solver
   // Track previous-pass label-expanded bbox so we can detect convergence and
   // bail out of extra iterations when the bbox stops growing.
@@ -27222,6 +27274,11 @@ function renderSVG(result, opts) {
               dx = offWorldXbp / roughPxPerUnitX + ax * marginX;
               dy = offWorldYbp / roughPxPerUnitY + ay * marginY;  // Asymptote y-up, no inversion
             }
+          } else if (_lblAbsorb(pos.x, pos.y, textWidthUser, textHeightUser, dc)) {
+            // Interior plain label: nearly center the box on the anchor (asy
+            // fit2 keeps only a small fraction _icK of the align box-shift).
+            dx = _icK * ax_n * textWidthUser + ax * marginX;
+            dy = _icK * ay_n * textHeightUser + ay * marginY;
           } else {
             dx = ax_n * textWidthUser + ax * marginX;
             dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
@@ -27277,9 +27334,16 @@ function renderSVG(result, opts) {
             const _aInfMaxAl = Math.max(Math.abs(_axAl), Math.abs(_ayAl));
             const _axNAl = _aInfMaxAl > 0 ? (_axAl * 0.5 / _aInfMaxAl) : 0;
             const _ayNAl = _aInfMaxAl > 0 ? (_ayAl * 0.5 / _aInfMaxAl) : 0;
-            let alignOffsetXBp = dc.align ? (_axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
+            // Interior plain label: nearly center the box on the anchor for the
+            // fit (keep only fraction _icK of the half-box shift) — see the
+            // _lblAbsorb note above. roughPxPerUnitX/Y convert the bp box to
+            // user units for the centered-fit test.
+            const _icBox = _lblAbsorb(pos.x, pos.y,
+              roughPxPerUnitX > 0 ? lWidthBp / roughPxPerUnitX : 0,
+              roughPxPerUnitY > 0 ? lHeightBp / roughPxPerUnitY : 0, dc) ? _icK : 1;
+            let alignOffsetXBp = dc.align ? (_icBox * _axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
             // Vertical margin = render labelmargin (0.28); see marginY note above.
-            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.28 * fontSize) : 0;
+            let alignOffsetYBp = dc.align ? (_icBox * _ayNAl * lHeightBp + _ayAl * 0.28 * fontSize) : 0;
             // screenDx/screenDy (in bp) are applied on top of alignment-driven offset
             if (dc.screenDx) alignOffsetXBp += dc.screenDx;
             if (dc.screenDy) alignOffsetYBp -= dc.screenDy;  // SVG y-down → Asymptote y-up
