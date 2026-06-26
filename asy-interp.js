@@ -11978,7 +11978,12 @@ function createInterpreter() {
         else if (headKind === 'HookHead') {
           // HookHead: render the TeX-style chevron glyph, but at a normal
           // fixed size (~5bp) rather than the pen-derived 2.1*lw used for TeXHead.
+          // Mark it distinctly: HookHead and TeXHead BOTH set texHead=true, but
+          // ArcArrow(HookHead) renders a barbed-harpoon head (00301, 08682)
+          // whereas ArcArrow(TeXHead) renders the authentic thin texhead glyph
+          // (00165, 00167). The arc-arrowhead renderer keys off this flag.
           out.texHead = true;
+          out.hookHead = true;
           if (!sizeExplicit) { out.size = 5; out.sizeExplicit = true; }
         }
         else if (headKind) out.headKind = headKind;
@@ -32547,6 +32552,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
   // tip (open "<"/">" chevron), per Asymptote's plain_arrows.asy. It applies
   // regardless of Arrow vs ArcArrow style and overrides the filled head shape.
   const isSimpleHead = dc.arrow.headKind === 'SimpleHead';
+  // HookHead vs TeXHead disambiguation: both set texHead=true, but only
+  // ArcArrow(HookHead) gets the barbed-harpoon head; ArcArrow(TeXHead) gets
+  // the authentic thin texhead glyph (same as axis EndArrow(TeXHead)).
+  const isHook = !!dc.arrow.hookHead;
   // ArcArrow uses filled curved arrowhead (bowed-out shape); regular Arrow uses filled triangle.
   // TeXHead uses a thin stroked chevron (not filled), matching LaTeX arrow glyph shape.
   const filled = style !== 'Bar' && style !== 'Bars' && !isTexHead;
@@ -32609,7 +32618,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
       return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled: false};
     }
 
-    if (isArcStyle && isTexHead) {
+    if (isArcStyle && isTexHead && isHook) {
       // HookHead used as an arc arrowhead (ArcArrow(HookHead)/ArcArrows(HookHead)):
       // render a barbed harpoon — straight arms from the tip out to two rear
       // barb points, with the trailing edge notched inward (concave toward the
@@ -32633,7 +32642,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
       return {d, filled: true};
     }
 
-    if (isArcStyle) {
+    if (isArcStyle && !isTexHead) {
       // ArcArrow: filled closed arrowhead with two curved bezier arms meeting
       // at the tip. Asymptote's ArcArrow produces a filled head similar to a
       // regular Arrow but with the sides slightly bowed inward (concave arcs),
