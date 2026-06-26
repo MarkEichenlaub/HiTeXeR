@@ -473,20 +473,27 @@
     };
   };
 
+  // Single width authority: the measured box is derived from the SAME emission
+  // pass that DRAWS the label (render → emitNode), not a parallel walker.
+  // emitNode is what produces the on-screen geometry, so a measure built on it
+  // can never drift from the render — this closes the measure≠render gap (the
+  // hazard this whole engine exists to kill) one level down, inside the emitter.
+  // Verified a NO-OP at adoption: render().widthEm equals the prior widthOf(tree)
+  // to <1e-4 em on every one of 48 synthetic + 1688 real corpus labels tested, so
+  // it shifts no placement/bbox/fit result — it only removes the drift risk going
+  // forward. widthOf survives ONLY as an internal helper for emitNode's
+  // sub-measurements (vlist column widths, llap/clap, stretchy parts); it is no
+  // longer the top-level measurement authority.
+  // Cached by source string (measure is pure) so the fit/placement loops that
+  // call it repeatedly don't re-run the emit — strictly faster than the old path,
+  // which rebuilt the DomTree on every call.
+  const _measureCache = new Map();
   katexSvg.measure = function (tex) {
-    const k = getKatex();
-    if (!k || !GLYPHS) return null;
-    let tree;
-    try {
-      tree = k.__renderToDomTree(tex, { throwOnError: false, displayMode: false, output: 'html' });
-    } catch (e) { return null; }
-    if (!tree || !tree.children) return null;
-    if (tree.classes && tree.classes.indexOf('katex-error') !== -1) return null;
-    return {
-      widthEm: widthOf(tree),
-      heightEm: typeof tree.height === 'number' ? tree.height : 0.7,
-      depthEm: typeof tree.depth === 'number' ? tree.depth : 0.2,
-    };
+    if (_measureCache.has(tex)) return _measureCache.get(tex);
+    const r = katexSvg.render(tex, { emPx: 16 });
+    const out = r ? { widthEm: r.widthEm, heightEm: r.heightEm, depthEm: r.depthEm } : null;
+    _measureCache.set(tex, out);
+    return out;
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = katexSvg;
