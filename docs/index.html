@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="katex-svg.js"></script>
+<script defer src="katex-svg.js?v=8.84"></script>
 <script>
 // Prime the KaTeX faces used by the label renderer's canvas ink measurer
 // (asy-interp _labelFontsReady): @font-face fonts load lazily, and until they
@@ -21,10 +21,18 @@ window.addEventListener('load', function () {
       .forEach(function (f) { try { document.fonts.load(f); } catch (e) {} });
   }
   // Load the glyph outline table for the KaTeX SVG emitter (katex-svg.js).
-  // Until it arrives, labels render via the foreignObject fallback; the next
-  // re-render after load picks up the emitter automatically.
+  // Re-render after init: the initial render (from URL hash or auto-render on
+  // load) fires before this async fetch completes, so it uses the foreignObject
+  // fallback — which renders Greek Unicode (π, θ) in the wrong font because the
+  // fallback SVG-text path only applies KaTeX_Math to ASCII Latin letters.
+  // Calling doRender() here corrects the first render once glyphs are ready.
   fetch('katex-glyphs.json').then(function (r) { return r.json(); })
-    .then(function (d) { if (window.katexSvg) window.katexSvg.init(d); })
+    .then(function (d) {
+      if (window.katexSvg) {
+        window.katexSvg.init(d);
+        if (typeof doRender === 'function') doRender();
+      }
+    })
     .catch(function () { /* emitter stays unavailable; fallback rendering */ });
 });
 </script>
@@ -286,6 +294,9 @@ body {
 #toolbar button.active { background: #e9c46a; color: #1a1a2e; border-color: #e9c46a; }
 #toolbar button.active:hover { background: #d4a83a; }
 
+/* Spin animation for AI progress */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 /* Slide mode: golden glow + hit circles for free elements */
 .slide-free-glow {
   filter: url(#hitexer-slide-glow) !important;
@@ -351,6 +362,70 @@ body {
   position: absolute; border: 2px dashed #fff;
   box-shadow: 0 0 0 9999px rgba(0,0,0,0.35); pointer-events: none;
 }
+
+/* Chat panel styles */
+#chat-panel {
+  display: none; flex-direction: column; background: #16213e; border-left: 2px solid #0f3460;
+  width: 350px; flex-shrink: 0; position: relative;
+}
+#chat-panel.open { display: flex; }
+#chat-resizer { width: 4px; background: #0f3460; cursor: col-resize; flex-shrink: 0; display: none; }
+#chat-panel.open ~ #chat-resizer, #chat-resizer.active { display: block; }
+.chat-header {
+  padding: 10px 14px; border-bottom: 1px solid #0f3460; display: flex;
+  align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.chat-header h3 { font-size: 14px; color: #e9c46a; font-weight: 600; margin: 0; }
+.chat-header button {
+  background: none; border: none; color: #888; cursor: pointer; font-size: 18px; padding: 0 4px;
+}
+.chat-header button:hover { color: #eee; }
+.chat-options { padding: 8px 14px; border-bottom: 1px solid #0f3460; flex-shrink: 0; }
+.chat-options label {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: #aaa;
+  cursor: pointer; padding: 2px 0;
+}
+.chat-options label input { accent-color: #e9c46a; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.chat-msg { max-width: 90%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
+.chat-msg.user { background: #0f3460; color: #eee; align-self: flex-end; border-bottom-right-radius: 2px; }
+.chat-msg.assistant { background: #2a2a3e; color: #ccc; align-self: flex-start; border-bottom-left-radius: 2px; }
+.chat-msg pre { background: #111; padding: 6px 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 6px 0; }
+.chat-msg .chat-actions { display: flex; gap: 6px; margin-top: 6px; }
+.chat-msg .chat-actions button {
+  padding: 3px 10px; border-radius: 3px; border: none; cursor: pointer; font-size: 11px; font-weight: 500;
+}
+.chat-msg .chat-actions .btn-accept { background: #2ecc71; color: #fff; }
+.chat-msg .chat-actions .btn-revert { background: #e94560; color: #fff; }
+.chat-input-area {
+  padding: 10px 14px; border-top: 1px solid #0f3460; display: flex; gap: 6px; flex-shrink: 0; align-items: flex-start;
+}
+.chat-input-area textarea {
+  flex: 1; background: #0f3460; color: #eee; border: 1px solid #1a1a5e;
+  padding: 6px 10px; border-radius: 4px; font-size: 13px; resize: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word;
+}
+.chat-input-area button {
+  background: #e94560; color: #fff; border: none; padding: 6px 14px;
+  border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;
+}
+.chat-input-area button:hover { background: #c73e54; }
+#chat-image-preview { position: relative; width: fit-content; }
+#chat-image-preview img { max-width: 180px; max-height: 110px; border-radius: 4px; border: 1px solid #1a1a5e; display: block; }
+#chat-image-remove {
+  position: absolute; top: -6px; right: -6px; background: #e94560; color: #fff;
+  border: none; border-radius: 50%; width: 18px; height: 18px; cursor: pointer;
+  font-size: 12px; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+}
+#chat-attach-btn {
+  background: #0f3460; color: #ccc; border: 1px solid #1a1a5e; padding: 5px 9px;
+  border-radius: 4px; cursor: pointer; font-size: 15px;
+}
+#chat-attach-btn:hover { background: #1a2a60; color: #eee; }
+.chat-input-wrapper { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.chat-input-buttons { display: flex; flex-direction: column; gap: 6px; }
+.chat-msg img.chat-msg-image { max-width: 100%; border-radius: 4px; display: block; margin-bottom: 4px; }
 
 /* CodeMirror lint overrides */
 .CodeMirror-lint-tooltip { background: #1e1e2e !important; border: 1px solid #e94560 !important; color: #ccc !important; border-radius: 4px !important; font-size: 12px !important; }
@@ -581,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v8.19</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.33</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -881,7 +956,7 @@ label("$C$", C, N);
   <div id="slide-sliders"></div>
 </div>
 
-<script src="asy-interp.js?v=2.11"></script>
+<script src="asy-interp.js?v=8.84"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
@@ -1162,6 +1237,12 @@ const AsyParser = {
           const ids = (parsed.lines[li] || '').match(/[a-zA-Z_]\w*/g) || [];
           for (const id of ids) { if (funcByName.has(id)) funcQueue.push(id); }
         }
+        // Also seed from user functions the draw command calls DIRECTLY on its
+        // own line (e.g. draw(graph(actual_rock_func, 0.9, 2)) references
+        // actual_rock_func — a function defined earlier, with no intervening
+        // assignment, so it never lands in depLines and would otherwise be
+        // dropped from the dependency set entirely).
+        for (const v of cmd.vars) { if (funcByName.has(v)) funcQueue.push(v); }
         while (funcQueue.length) {
           const fname = funcQueue.shift();
           if (tracedFuncs.has(fname)) continue;
@@ -3167,41 +3248,63 @@ let probeReady = Promise.resolve(); // resolves when color probe mapping complet
  * Distance from screen-space mouse coordinates to the nearest point on an SVG element.
  * Returns distance in screen pixels for consistent thresholding.
  */
-function distToElementScreen(clientX, clientY, el) {
+// Perf: hover hit-testing used to call getTotalLength + up to 100 getPointAtLength
+// per element on EVERY mousemove (each forcing synchronous layout). For a labelled
+// diagram (~15 elements) that was ~1.2s per mouse move — the whole preview felt
+// laggy. We now sample each element's geometry ONCE into its own LOCAL coordinates
+// and cache that on the element; a mousemove just transforms the cached points to
+// screen space (cheap matrix arithmetic). Caches are auto-invalidated on re-render
+// because insertAdjacentHTML replaces the SVG with fresh element nodes.
+//
+// Local sample points are intrinsic (independent of zoom/pan/scroll) so the cache
+// survives canvas transforms; the per-move getScreenCTM() picks up the current zoom.
+// Distances stay in screen pixels, matching the original semantics and the screen-px
+// thresholds used by findNearest/findAllNear.
+function _htxElementLocalSamples(el) {
+  let s = el.__htxLocalSamples;
+  if (s) return s;
+  s = [];
   try {
-    // Get the element's screen CTM to transform local coords → screen coords
-    const screenCTM = el.getScreenCTM();
-    if (!screenCTM) return Infinity;
-
-    const bbox = el.getBBox();
-
-    // For paths/lines, use getPointAtLength for accuracy
     if (typeof el.getTotalLength === 'function') {
       const len = el.getTotalLength();
-      if (len === 0) return Infinity;
-      const steps = Math.min(Math.max(20, Math.ceil(len / 2)), 100);
-      let minD = Infinity;
-      for (let i = 0; i <= steps; i++) {
-        const p = el.getPointAtLength((i / steps) * len);
-        // Transform to screen coords
-        const sx = screenCTM.a * p.x + screenCTM.c * p.y + screenCTM.e;
-        const sy = screenCTM.b * p.x + screenCTM.d * p.y + screenCTM.f;
-        const d = Math.hypot(clientX - sx, clientY - sy);
-        if (d < minD) minD = d;
+      if (len > 0) {
+        // ~16-48 samples is plenty to decide "is the mouse near this stroke?".
+        const steps = Math.min(Math.max(16, Math.ceil(len / 6)), 48);
+        for (let i = 0; i <= steps; i++) {
+          const p = el.getPointAtLength((i / steps) * len);
+          s.push(p.x, p.y);
+        }
       }
-      return minD;
     }
+    if (s.length === 0) {
+      // Fallback for text/foreignObject/zero-length shapes: sample a grid over the
+      // bbox so hovering the interior still registers.
+      const b = el.getBBox();
+      const n = 5;
+      for (let ix = 0; ix <= n; ix++)
+        for (let iy = 0; iy <= n; iy++)
+          s.push(b.x + (b.width * ix) / n, b.y + (b.height * iy) / n);
+    }
+  } catch (e) { /* detached / no geometry */ }
+  el.__htxLocalSamples = s;
+  return s;
+}
 
-    // Fallback: clamp to bbox corners, transform to screen
-    const cx = Math.max(bbox.x, Math.min(
-      (screenCTM.inverse().a * clientX + screenCTM.inverse().c * clientY + screenCTM.inverse().e),
-      bbox.x + bbox.width));
-    const cy = Math.max(bbox.y, Math.min(
-      (screenCTM.inverse().b * clientX + screenCTM.inverse().d * clientY + screenCTM.inverse().f),
-      bbox.y + bbox.height));
-    const sx = screenCTM.a * cx + screenCTM.c * cy + screenCTM.e;
-    const sy = screenCTM.b * cx + screenCTM.d * cy + screenCTM.f;
-    return Math.hypot(clientX - sx, clientY - sy);
+function distToElementScreen(clientX, clientY, el) {
+  try {
+    const ctm = el.getScreenCTM(); // element-local → screen
+    if (!ctm) return Infinity;
+    const s = _htxElementLocalSamples(el);
+    if (s.length === 0) return Infinity;
+    let minSq = Infinity;
+    for (let i = 0; i < s.length; i += 2) {
+      const sx = ctm.a * s[i] + ctm.c * s[i + 1] + ctm.e;
+      const sy = ctm.b * s[i] + ctm.d * s[i + 1] + ctm.f;
+      const dx = clientX - sx, dy = clientY - sy;
+      const d = dx * dx + dy * dy;
+      if (d < minSq) minSq = d;
+    }
+    return Math.sqrt(minSq);
   } catch (e) {
     return Infinity;
   }
@@ -5468,10 +5571,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Clean up any previous overlay remnants
     svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
-    svg.querySelectorAll('.slide-free-glow').forEach(el => {
-      el.classList.remove('slide-free-glow');
-      el.removeAttribute('transform');
-    });
+    svg.querySelectorAll('.slide-free-glow').forEach(removeSlideGlow);
     slideFreePointData = [];
 
     ensureSlideGlowFilter(svg);
@@ -5530,7 +5630,7 @@ document.addEventListener('DOMContentLoaded', () => {
               svgCX = center.x;
               svgCY = center.y;
             }
-            el.classList.add('slide-free-glow');
+            addSlideGlow(el);
             glowEls.push(el);
           }
         }
@@ -5549,7 +5649,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!cmd) continue;
           if (cmd.primaryLine === fp.lineIdx) {
             for (const el of els) {
-              el.classList.add('slide-free-glow');
+              addSlideGlow(el);
               glowEls.push(el);
             }
           }
@@ -5688,10 +5788,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function deactivateSlideMode() {
     const svg = document.querySelector('#preview-container svg:not([data-perm])');
     if (svg) {
-      svg.querySelectorAll('.slide-free-glow').forEach(el => {
-        el.classList.remove('slide-free-glow');
-        el.removeAttribute('transform');
-      });
+      svg.querySelectorAll('.slide-free-glow').forEach(removeSlideGlow);
       svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
       svg.removeEventListener('mousedown', slideMouseDown);
       window.removeEventListener('mousemove', slideMouseMove);
@@ -5710,6 +5807,29 @@ document.addEventListener('DOMContentLoaded', () => {
       editor.setValue(cleaned.join('\n'));
       slideInjectedDots = [];
       doRender();
+    }
+  }
+
+  // Slide mode highlights free-point elements with the golden glow filter and,
+  // during a drag, nudges them with a `transform`. The elements that get tagged
+  // are often label glyph <path>s that ALREADY carry transform="...scale(0.012,...)"
+  // — so we must preserve and restore that original transform. Blindly calling
+  // removeAttribute('transform') on cleanup stripped the scale and rendered those
+  // glyphs at raw em-scale (~700 units in a ~250-unit viewBox) — the giant errant
+  // symbol that appeared after toggling slide mode off.
+  function addSlideGlow(el) {
+    if (!('slideOrigTransform' in el.dataset))
+      el.dataset.slideOrigTransform = el.getAttribute('transform') || '';
+    el.classList.add('slide-free-glow');
+  }
+  function removeSlideGlow(el) {
+    el.classList.remove('slide-free-glow');
+    if ('slideOrigTransform' in el.dataset) {
+      const t = el.dataset.slideOrigTransform;
+      if (t) el.setAttribute('transform', t); else el.removeAttribute('transform');
+      delete el.dataset.slideOrigTransform;
+    } else {
+      el.removeAttribute('transform');
     }
   }
 
@@ -5856,7 +5976,10 @@ document.addEventListener('DOMContentLoaded', () => {
       fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
     }
     for (const el of fp.glowEls) {
-      el.setAttribute('transform', `translate(${dSvgX},${dSvgY})`);
+      // Prepend the drag nudge to the element's ORIGINAL transform (e.g. a glyph's
+      // scale) so dragging doesn't strip the scale and balloon the element.
+      const base = (el.dataset.slideOrigTransform || '').trim();
+      el.setAttribute('transform', `translate(${dSvgX},${dSvgY})${base ? ' ' + base : ''}`);
     }
   }
 
@@ -7908,92 +8031,82 @@ document.addEventListener('DOMContentLoaded', () => {
     }, mimeType, quality);
   }
 
-  // Global paste handler: extract Asymptote source from pasted images.
-  // Handles two cases:
-  //  1. AoPS TeXeR images — clipboard HTML contains <img alt="[asy]...[/asy]">
-  //  2. HiTeXeR images — PNG with tEXt "Source" metadata chunk
-  document.addEventListener('paste', (e) => {
-    // Don't intercept pastes aimed at text inputs or the CodeMirror editor
-    const ae = document.activeElement;
-    if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' ||
-        ae.closest('.CodeMirror'))) return;
+  // ============================================================
+  // Error Underlining (Lint)
+  // ============================================================
+  let lintErrors = [];
 
-    const cd = e.clipboardData;
-    if (!cd) return;
-
-    // --- Case 1: TeXeR HTML with alt text containing [asy]...[/asy] ---
-    const html = cd.getData('text/html');
-    if (html) {
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const imgs = doc.querySelectorAll('img[alt]');
-      for (const img of imgs) {
-        const alt = img.getAttribute('alt');
-        const m = alt.match(/\[asy\]([\s\S]*?)\[\/asy\]/);
-        if (m) {
-          e.preventDefault();
-          let code = m[1].trim();
-          code = '[asy]\n' + code + '\n[/asy]';
-          editor.setValue(code);
-          doRender();
-          return;
+  function asyLintAsync(text, updateLinting) {
+    const code = text;
+    fetch(`${SERVER_URL}/ai`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'lint', code }),
+    }).then(r => r.json()).then(data => {
+      const annotations = [];
+      if (data.errors) {
+        lintErrors = data.errors;
+        // Compute line offset: count lines before actual code starts
+        const lines = code.split('\n');
+        let offset = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (/^\s*\[asy\]/.test(lines[i])) { offset = i + 1; break; }
+        }
+        for (const err of data.errors) {
+          const line = err.line - 1 + offset; // Convert 1-based to 0-based + offset
+          if (line < 0 || line >= lines.length) continue;
+          annotations.push({
+            from: { line, ch: 0 },
+            to: { line, ch: (lines[line] || '').length },
+            message: err.message,
+            severity: err.severity || 'error',
+          });
         }
       }
+      updateLinting(annotations);
+    }).catch(() => updateLinting([]));
+  }
+
+  // Gutter click for AI fix
+  editor.on('gutterClick', (cm, line, gutter) => {
+    // Find if there's a lint error on this line
+    const code = cm.getValue();
+    const lines = code.split('\n');
+    let offset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*\[asy\]/.test(lines[i])) { offset = i + 1; break; }
     }
+    const asyLine = line - offset + 1;
+    const err = lintErrors.find(e => e.line === asyLine);
+    if (!err) return;
 
-    // --- Case 2: HiTeXeR image with embedded source metadata ---
-    let imageItem = null;
-    for (const item of cd.items) {
-      if (item.type.startsWith('image/')) { imageItem = item; break; }
-    }
-    if (!imageItem) return;
-
-    const file = imageItem.getAsFile();
-    if (!file) return;
-    e.preventDefault();
-
-    file.arrayBuffer().then(buf => {
-      const { code, gifSettings } = extractSourceFromBytes(new Uint8Array(buf));
-      if (!code) return; // no source found — do nothing
-      loadExtractedSource(code, gifSettings);
-    }).catch(err => console.error('Paste image read failed:', err));
-  });
-
-  // Global drag-and-drop handler: open dropped image files and extract
-  // embedded Asymptote source, just like File > Open Image.
-  document.addEventListener('dragover', (e) => {
-    // Only accept drops with files
-    if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  });
-  document.addEventListener('drop', (e) => {
-    // Don't intercept drops aimed at file inputs
-    const ae = e.target;
-    if (ae && (ae.tagName === 'INPUT' && ae.type === 'file')) return;
-
-    const files = e.dataTransfer && e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-    e.preventDefault();
-
-    const file = files[0];
-    const imageExts = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'pdf'];
-    const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
-    if (imageExts.includes(ext)) {
-      openImageFile(file);
-    } else if (file.name && file.name.toLowerCase().endsWith('.asy')) {
-      // Also support dropping .asy files
-      file.text().then(text => {
-        if (!text.trim().startsWith('[asy]')) text = '[asy]\n' + text;
-        if (!text.trim().endsWith('[/asy]')) text = text + '\n[/asy]';
-        editor.setValue(text);
+    // Request AI fix
+    fetch(`${SERVER_URL}/ai`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'fix', code, line: asyLine, message: err.message }),
+    }).then(r => r.json()).then(data => {
+      if (!data.fixedLine) return;
+      // Show inline widget
+      const widget = document.createElement('div');
+      widget.style.cssText = 'background:#2a2a3e;border:1px solid #e9c46a;border-radius:4px;padding:6px 10px;margin:2px 0;font-size:12px;color:#ccc;';
+      widget.innerHTML = `<div style="color:#e9c46a;font-size:11px;margin-bottom:4px;">AI Fix Suggestion:</div>` +
+        `<code style="color:#2ecc71;">${escapeHtml(data.fixedLine)}</code>` +
+        `<div style="margin-top:6px;display:flex;gap:6px;">` +
+        `<button style="background:#2ecc71;color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" class="fix-accept">Accept</button>` +
+        `<button style="background:#555;color:#eee;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" class="fix-dismiss">Dismiss</button></div>`;
+      const lineWidget = cm.addLineWidget(line, widget, { coverGutter: false });
+      widget.querySelector('.fix-accept').addEventListener('click', () => {
+        const cursor = cm.getCursor();
+        cm.replaceRange(data.fixedLine, { line, ch: 0 }, { line, ch: cm.getLine(line).length });
+        cm.setCursor(cursor);
+        lineWidget.clear();
         doRender();
       });
-    }
+      widget.querySelector('.fix-dismiss').addEventListener('click', () => lineWidget.clear());
+    }).catch(() => {});
   });
 
   // ============================================================
-  // Autocomplete
+  // AI-Powered Autocomplete
   // ============================================================
   const ASY_COMPLETIONS = [
     // Types
@@ -8100,6 +8213,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return sig ? { text: name, displayText: sig } : { text: name, displayText: name };
   }
 
+  let acDebounceTimer = null;
+
   function asyHint(cm, callback) {
     const cur = cm.getCursor();
     const token = cm.getTokenAt(cur);
@@ -8128,7 +8243,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const allLocal = [...localMatches, ...userMatches].slice(0, 10);
 
-    callback({ list: allLocal, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } });
+    // Show locals immediately
+    const result = { list: allLocal, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } };
+    callback(result);
+
+    // Async AI suggestions (debounced)
+    clearTimeout(acDebounceTimer);
+    acDebounceTimer = setTimeout(() => {
+      fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'autocomplete', code, cursor: cm.indexFromPos(cur), prefix }),
+      }).then(r => r.json()).then(data => {
+        if (data.completions && data.completions.length > 0) {
+          const aiObjs = data.completions.map(makeCompletionObj);
+          const allTexts = new Set(allLocal.map(c => c.text));
+          const merged = [...allLocal, ...aiObjs.filter(o => !allTexts.has(o.text))].slice(0, 12);
+          cm.showHint({ hint: () => ({ list: merged, from: { line: cur.line, ch: start }, to: { line: cur.line, ch: end } }), completeSingle: false });
+        }
+      }).catch(() => {});
+    }, 300);
   }
   asyHint.async = true;
 
@@ -8218,7 +8351,11 @@ document.addEventListener('DOMContentLoaded', () => {
     'Esc': () => { if (SearchPanel.isOpen()) { SearchPanel.close(); } else { return CodeMirror.Pass; } },
   });
 
-  editor.setOption('gutters', ['CodeMirror-linenumbers']);
+  // ============================================================
+  // Update editor config for lint
+  // ============================================================
+  editor.setOption('gutters', ['CodeMirror-lint-markers', 'CodeMirror-linenumbers']);
+  editor.setOption('lint', { getAnnotations: asyLintAsync, async: true, delay: 500 });
 });
 
 // ============================================================

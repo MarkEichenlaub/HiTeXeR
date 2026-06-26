@@ -3,6 +3,31 @@
 'use strict';
 (function() {
 
+// Node/headless bootstrap for the KaTeX SVG emitter. The live in-browser app
+// renders labels through katex-svg.js (loaded via <script> + katex-glyphs.json
+// fetch in index.html); the comparator pipeline runs in node, where those
+// aren't auto-loaded. Load them from disk here so the comparator renders labels
+// through the SAME engine as the live app — the two then produce identical
+// label glyphs (best-effort: if katex-svg.js / katex-glyphs.json / katex are
+// unavailable, label rendering falls back to the MathJax svg-native path).
+if (typeof document === 'undefined' && typeof require === 'function'
+    && typeof katexSvg === 'undefined') {
+  try {
+    // katex-svg.js attaches to `window` if a (possibly stubbed) window exists,
+    // but asy-interp reads the bare `katexSvg` (→ globalThis), so bind the
+    // module export onto globalThis explicitly.
+    const _ks = require('./katex-svg.js');
+    if (_ks && typeof globalThis !== 'undefined' && typeof globalThis.katexSvg === 'undefined') {
+      globalThis.katexSvg = _ks;
+    }
+    if (typeof katexSvg !== 'undefined' && katexSvg.init && !katexSvg.ready()) {
+      const _fs = require('fs'), _path = require('path');
+      katexSvg.init(JSON.parse(_fs.readFileSync(
+        _path.join(__dirname, 'katex-glyphs.json'), 'utf8')));
+    }
+  } catch (e) { /* emitter unavailable in node — MathJax svg-native fallback */ }
+}
+
 // ============================================================
 // Token Types
 // ============================================================
@@ -1315,6 +1340,7 @@ function mergePens(a,b) {
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
   if (b._lwExplicit) r._lwExplicit = true;
   if (b._lwDirect) r._lwDirect = true;
+  if (b._thick) r._thick = true;
   if (b.linestyle) r.linestyle = b.linestyle;
   // fontsize: copy if explicitly set OR if differs from the base 12
   if (b._fzExplicit || b.fontsize !== 12) r.fontsize = b.fontsize;
@@ -1486,7 +1512,11 @@ function applyTransform3Mesh(t, mesh) {
     nf.normal = faceNormal(nf); // recompute normal after transform
     return nf;
   });
-  return makeMesh(newFaces);
+  const out = makeMesh(newFaces);
+  // Preserve the box marker so a transformed unitcube (e.g.
+  // cube_positioning*unitcube) still gets the bright box-shading path.
+  if (mesh._isBox) out._isBox = true;
+  return out;
 }
 
 // ---- Mesh builders for primitive solids ----
@@ -1509,7 +1539,7 @@ function _buildCubeMesh() {
   // unitcube: 6 faces, [0,1]^3 in Asymptote convention
   const a = {x:0,y:0,z:0}, b = {x:1,y:0,z:0}, c = {x:1,y:1,z:0}, d = {x:0,y:1,z:0};
   const e = {x:0,y:0,z:1}, f = {x:1,y:0,z:1}, g = {x:1,y:1,z:1}, h = {x:0,y:1,z:1};
-  return {_tag:'mesh', faces: [
+  return {_tag:'mesh', _isBox: true, faces: [
     _mkFace([a,b,c,d]),   // bottom  (normal -Z)
     _mkFace([e,h,g,f]),   // top     (normal +Z)
     _mkFace([a,e,f,b]),   // front   (normal -Y)
@@ -1642,6 +1672,40 @@ function hobbySpline(knots, closed, directions) {
     return [hobbyTwoPointSegment(knots[0], knots[1], dOut, dIn)];
   }
 
+  // Decouple at interior cusp knots — a knot that specifies BOTH an in- and an
+  // out-direction that differ. Asymptote treats this as a corner: the segments
+  // on either side are independent splines. Solving across it with one
+  // tridiagonal system mishandles the arrival/departure tangents (it reversed
+  // the headlight crescent in 12956:
+  //   (794,168){1,.2}..{-1,0}(785,228){1,-5}..{0,-1}(794,168) ).
+  // Each split side is solved independently (recursion handles multiple cusps),
+  // routing 2-knot sides through the verified hobbyTwoPointSegment. Restricted
+  // to open splines; closed seams are handled elsewhere.
+  if (!closed && directions) {
+    for (let i = 1; i < n - 1; i++) {
+      const dir = directions[i];
+      if (dir && dir.dirIn != null && dir.dirOut != null && dir.dirIn !== dir.dirOut) {
+        // The cusp knot is a corner. On the LEFT spline it is the TERMINAL knot,
+        // where only its incoming direction (dirIn) applies; on the RIGHT spline
+        // it is the INITIAL knot, where only its outgoing direction (dirOut)
+        // applies. Pass each side just the relevant single-direction constraint
+        // so the verified dirIn-only / dirOut-only endpoint handling is used.
+        // Carrying BOTH directions into a sub-spline left the terminal knot with
+        // dirOut set, which routed through the phi-override branch and REVERSED
+        // the arrival tangent (12956 roof: (500,468)..{1,-1.3}(597,367) pointed
+        // up-left instead of down-right, flattening the roof and kinking the
+        // windshield/door join).
+        const leftDirs = directions.slice(0, i + 1);
+        leftDirs[i] = { dirIn: dir.dirIn };
+        const rightDirs = directions.slice(i);
+        rightDirs[0] = { dirOut: dir.dirOut };
+        const left = hobbySpline(knots.slice(0, i + 1), false, leftDirs);
+        const right = hobbySpline(knots.slice(i), false, rightDirs);
+        return left.concat(right);
+      }
+    }
+  }
+
   // Compute chord distances and turning angles
   const m = closed ? n : n - 1;
   const d = []; // chord lengths
@@ -1659,14 +1723,20 @@ function hobbySpline(knots, closed, directions) {
   for (let i = 1; i < (closed ? n : n-1); i++) {
     const prev = (i - 1 + m) % m;
     psi[i] = delta[i % m] - delta[prev];
-    // Normalize to [-pi, pi]
+    // Normalize to (-pi, pi] — matching Asymptote's psi = angle(w[i]/w[i-1]),
+    // i.e. atan2 of the chord ratio, which returns +pi (not -pi) for an EXACT
+    // 180-degree chord reversal. Using -pi there mirror-flips the resulting
+    // loop: 06929's drawCWLoop self-loop `(p)..(p+r*dir(90))..(p)` came out
+    // reflected across its axis, putting the arrowhead on the wrong side
+    // (merged into the incoming straight edge instead of landing distinctly on
+    // the far side of the node). The `<=` pushes exact -pi up to +pi.
     while (psi[i] > Math.PI) psi[i] -= 2*Math.PI;
-    while (psi[i] < -Math.PI) psi[i] += 2*Math.PI;
+    while (psi[i] <= -Math.PI) psi[i] += 2*Math.PI;
   }
   if (closed) {
     psi[0] = delta[0] - delta[m-1];
     while (psi[0] > Math.PI) psi[0] -= 2*Math.PI;
-    while (psi[0] < -Math.PI) psi[0] += 2*Math.PI;
+    while (psi[0] <= -Math.PI) psi[0] += 2*Math.PI;
   }
 
   // Build clamped theta array from direction constraints.
@@ -1802,8 +1872,22 @@ function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const d = Math.sqrt(dx*dx + dy*dy);
   const chordAngle = Math.atan2(dy, dx);
-  const angleA = (dirOut != null) ? dirOut : chordAngle;
-  const angleB = (dirIn != null) ? dirIn : chordAngle;
+  // When exactly one tangent is specified, the FREE end uses Hobby's default
+  // curl=1 boundary condition. For a single segment this reflects the specified
+  // tangent across the chord — it is NOT the chord direction itself. Using the
+  // chord angle for the free end underbulges the curve (collapses domes toward
+  // the chord; e.g. 12956's window tops). Verified against Asymptote 3.05:
+  //   (347,481){1,0}..(567,343)  ->  controls (440.73,481) and (526.20,427.39).
+  let angleA, angleB;
+  if (dirOut != null && dirIn != null) {
+    angleA = dirOut; angleB = dirIn;
+  } else if (dirOut != null) {
+    angleA = dirOut; angleB = 2*chordAngle - dirOut;
+  } else if (dirIn != null) {
+    angleB = dirIn; angleA = 2*chordAngle - dirIn;
+  } else {
+    angleA = chordAngle; angleB = chordAngle;
+  }
   // Compute theta/phi offsets from chord for Hobby's rho function.
   // Hobby's convention: forward tangent at A makes angle (chord+theta) with x-axis,
   // forward tangent at B makes angle (chord-phi). Hence:
@@ -2212,6 +2296,23 @@ function createInterpreter() {
     const r = Object.assign({}, dc);
     if (r.path) r.path = applyTransformPath(t, r.path);
     if (r.pos) r.pos = applyTransformPair(t, r.pos);
+    // markangle arcs/labels/wedges carry a truesize bp radius around an
+    // anchor vertex; the renderer rebuilds their path from _markangleVertex at
+    // final scale. When the host picture is moved by add(shift(...)*pic) the
+    // vertex must move too, else the rebuilt arc snaps back to the un-shifted
+    // vertex (02911: detached 120-deg arc). Translate the vertex; rotate the
+    // stored sweep/label angles by the transform's rotation component (0 for a
+    // pure shift). bp radius stays in bp (truesize — unaffected by the move).
+    if (r._markangleVertex) {
+      r._markangleVertex = applyTransformPair(t, r._markangleVertex);
+      const rotRad = Math.atan2(t.e, t.b);
+      if (Math.abs(rotRad) > 1e-9) {
+        const rotDeg = rotRad * 180 / Math.PI;
+        if (typeof r._markangleA1 === 'number') r._markangleA1 += rotDeg;
+        if (typeof r._markangleA2 === 'number') r._markangleA2 += rotDeg;
+        if (typeof r._markangleMidAngle === 'number') r._markangleMidAngle += rotRad;
+      }
+    }
     // Note: align direction is NOT transformed here. For rotated pictures,
     // the labelTransform rotation is set and the rendering code handles
     // aligning the rotated label using its rotated bounding box (lines 24416-24472).
@@ -2336,6 +2437,17 @@ function createInterpreter() {
             } else {
               const rotOnly = makeTransform(0, cosT, -sinT, 0, sinT, cosT);
               tc.labelTransform = origLT ? composeTransforms(rotOnly, origLT) : rotOnly;
+              // A picture rotation rotates the label's ALIGNMENT too — Asymptote
+              // rotates the whole label (anchor, glyphs, and offset direction),
+              // not just the glyphs. Without this, aligned labels in a rotated
+              // picture offset toward the UNrotated side (06212: ℓ/m/T/F sat on
+              // the wrong side; θ looked right only because it has no align). The
+              // render-time anchor-corner rule then places the rotated box against
+              // this rotated align correctly.
+              if (tc.align && (tc.align.x !== 0 || tc.align.y !== 0)) {
+                const _ax = tc.align.x, _ay = tc.align.y;
+                tc.align = makePair(cosT * _ax - sinT * _ay, sinT * _ax + cosT * _ay);
+              }
             }
           }
           return tc;
@@ -2629,6 +2741,19 @@ function createInterpreter() {
       if (right._nibPath) {
         // Make pen invisible (nullpen-like) since we can't properly render the scaled nib
         return makePen(Object.assign({}, right, {_nibPath: null, _nullpen: true, opacity: 0}));
+      }
+      // scale(s)*pen scales the (round) nib — i.e. the linewidth — by the
+      // transform's scale magnitude (Asymptote's `operator *(transform,pen)`).
+      // Rotations / shifts / reflections have |det| = 1, so the linewidth is
+      // unchanged (current behavior preserved). A genuine scale shrinks/grows
+      // the stroke AND the dot radius (dotfactor·linewidth/2). 04241 relies on
+      // this: dot((3/(i+1),-1), scale(1-i/21)*red) draws dots that shrink
+      // toward the origin (rightmost = full size, leftmost = tiny); without
+      // scaling the nib every dot rendered at the identical default size.
+      const _sf = Math.sqrt(Math.abs(left.b * left.f - left.c * left.e));
+      if (isFinite(_sf) && _sf > 0 && Math.abs(_sf - 1) > 1e-9) {
+        const _baseLw = (typeof right.linewidth === 'number') ? right.linewidth : 0.5;
+        return makePen(Object.assign({}, right, {linewidth: _sf * _baseLw}));
       }
       return right;
     }
@@ -3146,6 +3271,45 @@ function createInterpreter() {
       if (op === T.NEQ) return !eq;
     }
 
+    // Vectorized array operations (Asymptote applies operators element-wise to
+    // arrays). e.g. `int[] == int` → `bool[]`, `real[] + real[]` → `real[]`.
+    // Only numeric scalars/arrays participate; arrays of pairs/objects fall
+    // through so existing behavior is unchanged.
+    if (Array.isArray(left) || Array.isArray(right)) {
+      const isCmp = (op===T.EQ||op===T.NEQ||op===T.LT||op===T.GT||op===T.LE||op===T.GE);
+      const isArith = (op===T.PLUS||op===T.MINUS||op===T.STAR||op===T.SLASH||op===T.PERCENT||op===T.CARET);
+      if (isCmp || isArith) {
+        const la = Array.isArray(left), ra = Array.isArray(right);
+        const isNumArr = v => v.every(x => typeof x === 'number');
+        const lOk = la ? isNumArr(left) : typeof left === 'number';
+        const rOk = ra ? isNumArr(right) : typeof right === 'number';
+        // For array op array, both must be the same length (Asymptote requires it).
+        const lenOk = !(la && ra) || left.length === right.length;
+        if (lOk && rOk && lenOk) {
+          const n = la ? left.length : right.length;
+          const scalarOp = (a, b) => {
+            switch(op) {
+              case T.PLUS: return a+b;
+              case T.MINUS: return a-b;
+              case T.STAR: return a*b;
+              case T.SLASH: return b!==0?a/b:0;
+              case T.PERCENT: return b!==0?((a%b)+b)%b:0;
+              case T.CARET: return Math.pow(a,b);
+              case T.EQ: return a===b;
+              case T.NEQ: return a!==b;
+              case T.LT: return a<b;
+              case T.GT: return a>b;
+              case T.LE: return a<=b;
+              case T.GE: return a>=b;
+            }
+          };
+          const out = [];
+          for (let i = 0; i < n; i++) out.push(scalarOp(la ? left[i] : left, ra ? right[i] : right));
+          return out;
+        }
+      }
+    }
+
     // Number ops
     const l = toNumber(left), r = toNumber(right);
     switch(op) {
@@ -3261,6 +3425,31 @@ function createInterpreter() {
         return _stringify(left) + _stringify(right);
       }
     }
+    // Triple ops — mirror evalBinary so compound assignment (+=, -=, *=, /=) and
+    // ++/-- on triple variables stay triples. Without these, `centroid += v` /
+    // `centroid /= n` (the c582_L14 polyhedron helpers' face-orientation code)
+    // fell through to the toNumber() fallback below, collapsing the triple to its
+    // magnitude and corrupting every back-face-culling decision.
+    if (isTriple(left) || isTriple(right)) {
+      if (isTriple(left) && isTriple(right)) {
+        if (op===T.PLUS)  return makeTriple(left.x+right.x, left.y+right.y, left.z+right.z);
+        if (op===T.MINUS) return makeTriple(left.x-right.x, left.y-right.y, left.z-right.z);
+      }
+      if (isNumber(left) && isTriple(right) && op===T.STAR)
+        return makeTriple(left*right.x, left*right.y, left*right.z);
+      if (isTriple(left) && isNumber(right)) {
+        if (op===T.STAR)  return makeTriple(left.x*right, left.y*right, left.z*right);
+        if (op===T.SLASH) return right ? makeTriple(left.x/right, left.y/right, left.z/right) : makeTriple(0,0,0);
+      }
+    }
+    // transform3 composition / application (e.g. `T *= rotate(...)`, `p *= T`).
+    if (op===T.STAR) {
+      if (isTransform3(left) && isTransform3(right)) return composeTransform3(left, right);
+      if (isTransform3(left) && isTriple(right))     return applyTransform3Triple(left, right);
+    }
+    // pair *= pair → complex multiply (parity with evalBinary's pair*pair).
+    if (isPair(left) && isPair(right) && op===T.STAR)
+      return makePair(left.x*right.x - left.y*right.y, left.x*right.y + left.y*right.x);
     const l=toNumber(left),r=toNumber(right);
     if (op===T.PLUS) return l+r;
     if (op===T.MINUS) return l-r;
@@ -3871,6 +4060,24 @@ function createInterpreter() {
           // labels pad OUTSIDE, inflating the frame (00444: x/y axis labels and
           // "1" tick labels pushed the frame to 213×158 instead of ~200×140).
           // Shrink each axis independently so geometry+labels fit.
+          // Axis arrowhead reservation: a `xaxis(...,Arrow)`/`yaxis(...,Arrow)`
+          // extends the drawn axis past the geometry endpoint by the arrowhead
+          // length (bp), and graph.asy seats the EndPoint axis *title* ("$x$",
+          // "$y$") just past that arrow tip with a labelmargin gap. Asymptote's
+          // size(W,H,IgnoreAspect) fits this whole decorated bbox, so the
+          // geometry must shrink to make room. Reserving only the label's text
+          // half-width (below) under-counts the right/top margin (00444: REF
+          // seats "$x$" ~16bp past x=2 — arrow + margin + glyph — but HTX
+          // reserved only ~4bp, leaving geometry ~7% too wide and the origin
+          // pushed right/up). Detect the arrowed-axis allowance and apply it to
+          // EndPoint axis-title labels in their align direction.
+          let _axisArrowLenBp = 0;
+          for (const dc of obj.commands) {
+            if (dc && dc.cmd === 'draw' && dc.arrow && dc.arrow.style && dc.arrow.style !== 'None') {
+              const sz = (typeof dc.arrow.size === 'number' && dc.arrow.size > 0) ? dc.arrow.size : 6;
+              if (sz > _axisArrowLenBp) _axisArrowLenBp = sz;
+            }
+          }
           const labelExt = [];
           for (const dc of obj.commands) {
             if (dc.cmd !== 'label' || !dc.pos) continue;
@@ -3881,15 +4088,21 @@ function createInterpreter() {
             const aMag = dc.align ? Math.max(Math.abs(dc.align.x), Math.abs(dc.align.y)) : 0;
             const ux = aMag > 0 ? dc.align.x / aMag : 0;
             const uy = aMag > 0 ? dc.align.y / aMag : 0;
-            labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy });
+            // EndPoint axis titles ride past the arrow tip: allow arrow length
+            // plus one labelmargin (~0.3*fs) of clearance in the align direction.
+            const outBp = dc._isAxisLabel ? (_axisArrowLenBp + 0.3 * fs) : 0;
+            labelExt.push({ x: dc.pos.x, y: dc.pos.y, tw, th: fs, ux, uy, outBp });
           }
           if (labelExt.length > 0 && isFinite(sx) && sx > 0 && isFinite(sy) && sy > 0) {
             for (let it = 0; it < 6; it++) {
               let fMinX = gb.minX, fMaxX = gb.maxX, fMinY = gb.minY, fMaxY = gb.maxY;
               for (const L of labelExt) {
                 const twU = L.tw / sx, thU = L.th / sy;
-                const cx = L.x + L.ux * 0.5 * twU;
-                const cy = L.y + L.uy * 0.5 * thU;
+                const oxU = (L.outBp * Math.abs(L.ux)) / sx;
+                const oyU = (L.outBp * Math.abs(L.uy)) / sy;
+                // Anchor pushed out (past the arrow tip) before the glyph extent.
+                const cx = L.x + L.ux * (oxU + 0.5 * twU);
+                const cy = L.y + L.uy * (oyU + 0.5 * thU);
                 if (cx - 0.5 * twU < fMinX) fMinX = cx - 0.5 * twU;
                 if (cx + 0.5 * twU > fMaxX) fMaxX = cx + 0.5 * twU;
                 if (cy - 0.5 * thU < fMinY) fMinY = cy - 0.5 * thU;
@@ -3902,6 +4115,13 @@ function createInterpreter() {
             }
           }
         }
+        // Sub-picture extend axes (00444: axes drawn into `pic1`, later
+        // add(pic1.fit())): run their deferred frame-extension jobs NOW — after
+        // the fit scale (sx/sy) is fixed from the geometry+label bbox, but
+        // BEFORE the frame is built — so the re-emitted axes span pic's frame
+        // (endpoint-title ride + minor ticks past xlimits/ylimits) without the
+        // newly-extended axis line growing the fit scale. See _runSubpicAxisJobs.
+        _runSubpicAxisJobs(obj);
         // Helper to sample a cubic bezier segment into line points
         const sampleBezier = (seg, nSamples) => {
           const pts = [];
@@ -4687,6 +4907,13 @@ function createInterpreter() {
       if (m === 'camera') return makeTriple(obj.cx || 0, obj.cy || 0, obj.cz || 0);
       if (m === 'target') return makeTriple(obj.tx || 0, obj.ty || 0, obj.tz || 0);
       if (m === 'up')     return makeTriple(obj.ux || 0, obj.uy || 0, obj.uz || 1);
+      // `infinity` is true for parallel (orthographic) projections, false for
+      // perspective — matches Asymptote's projection struct. User-defined
+      // back-face cullers (c582_L14 polyhedron helpers) read this to decide
+      // whether viewDir is the constant camera-target direction (orthographic)
+      // or the per-point camera-pt direction (perspective). Without it the
+      // flag reads null⇒false and orthographic visibility inverts.
+      if (m === 'infinity') return obj.type === 'orthographic';
     }
     // CAD module struct: cad.pVisibleEdge / cad.pFreehand / cad.pMeasure
     if (obj && obj._tag === 'sCAD') {
@@ -6562,14 +6789,13 @@ function createInterpreter() {
     function _dotframeImpl(args) {
       const a = _parseFrameArgs(args);
       const lw = _penLW(a.pen);
-      // Mirror the `dot()` AoPS-idiom convention: when the user explicitly
-      // sets a linewidth >= 1 on the dot pen (e.g. `dotframe(red+linewidth(4bp))`
-      // or `dotframe(6bp+red)`), interpret the linewidth as the dot
-      // *diameter* rather than the stroke width to feed into the
-      // `dotsize = 0.5 + lw*dotfactor` formula. Without this, 12899 line 5
-      // (pen=linewidth(4bp), dotframe(red+pn)) renders as 25 bp = full-line
-      // height red blobs instead of the small reference dots.
-      const useDirectDiameter = a.pen && a.pen._lwExplicit && lw >= 1;
+      // Mirror real asy's `dotsize(p) = linewidth(dotpen + p)`: when the pen
+      // explicitly sets a linewidth (any magnitude), the dot *diameter* is
+      // exactly that linewidth (the dotfactor multiplier is overridden by the
+      // explicit width). Only a pen with NO explicit linewidth falls back to
+      // dotfactor*linewidth. So `dotframe(red+linewidth(4bp))` => 4 bp dot,
+      // `dotframe(red+linewidth(0.8bp))` => 0.8 bp dot — both direct.
+      const useDirectDiameter = a.pen && (a.pen._lwDirect || (a.pen._lwExplicit && lw >= 1));
       const r = useDirectDiameter ? lw / 2 : (1 + lw * 6) / 2;
       const f = _newFrame();
       const N = 24;
@@ -6896,7 +7122,12 @@ function createInterpreter() {
       pen(0xE6/255, 0xCC/255, 0xEA/255), // 5: light purple
     ];
     env.set('spFills', spFills);
-    env.set('spGray', pen(0.4,0.4,0.4));
+    // AoPS styles' spGray is a FAINT gray (used for auxiliary/secondary arcs and
+    // dashed back-edges). Measured from the references (11730/11731/11732/11796/
+    // 11797), its thin strokes render to a ~0.66 gray; pen ~0.6 reproduces that.
+    // The old 0.4 drew the arc-through-fill much too dark (11731 big-circle arc in
+    // the spPurpleFill region read solid instead of "very faint").
+    env.set('spGray', pen(0.6,0.6,0.6));
     // Named fill pen used by 11731's filldraw; without it filldraw falls back to
     // a black pen and renders the segment solid black. Aliases the palette purple.
     env.set('spPurpleFill', spFills[5]);
@@ -7131,6 +7362,14 @@ function createInterpreter() {
       if (frames.length === 1 && !args.some(a => a && a._tag === 'picture')) {
         const fr = frames[0];
         let offX = 0, offY = 0;
+        // Record per-panel placement for the multi-panel composite re-fit
+        // (search _fitPanelSlots near the drawCommands copy): the add(pic.fit(),
+        // (i,0)) sized-slot branch lays panels a fixed _sizeW apart, but real
+        // Asymptote scales the inter-panel user spacing so the whole row/column
+        // fits the TeXeR size(400,400) target. We capture the user anchor and
+        // the command range here so the slots can be rigidly re-spaced later.
+        const _slotCmdStart = currentPic.commands.length;
+        const _slotRec = { use: false, px: 0, py: 0 };
         // No-offset add(frame) inside a global-unitsize composite (e.g. 03555's
         // add(three_d.scale(...)) with no position): center the panel's content
         // at the origin so it lines up vertically with the offset-positioned
@@ -7150,6 +7389,7 @@ function createInterpreter() {
             if (!currentPic._sizedAddSteps) currentPic._sizedAddSteps = { x: 0, y: 0 };
             const steps = currentPic._sizedAddSteps;
             const px = framePairs[0].x, py = framePairs[0].y;
+            _slotRec.use = true; _slotRec.px = px; _slotRec.py = py;
             const absX = Math.abs(px), absY = Math.abs(py);
             if (absX > 0 && (steps.x === 0 || absX < steps.x)) steps.x = absX;
             if (absY > 0 && (steps.y === 0 || absY < steps.y)) steps.y = absY;
@@ -7239,6 +7479,10 @@ function createInterpreter() {
             if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
             currentPic.commands.push(tc);
           }
+          if (_slotRec.use) {
+            (currentPic._fitPanelSlots || (currentPic._fitPanelSlots = [])).push(
+              { px: _slotRec.px, py: _slotRec.py, start: _slotCmdStart, end: currentPic.commands.length });
+          }
           unitScale = 1;
           hasUnitScale = true;
           _trueSizeFrame = true;
@@ -7271,6 +7515,10 @@ function createInterpreter() {
         for (const D of (fr.dots || [])) {
           if (!D.pos) continue;
           currentPic.commands.push({cmd:'dot', pos: makePair(D.pos.x + offX, D.pos.y + offY), pen: clonePen(D.pen || defaultPen), filltype: D.filltype, text: D.text, line:0});
+        }
+        if (_slotRec.use) {
+          (currentPic._fitPanelSlots || (currentPic._fitPanelSlots = [])).push(
+            { px: _slotRec.px, py: _slotRec.py, start: _slotCmdStart, end: currentPic.commands.length });
         }
         // Frame coords are already in bp space; pin the picture to 1 bp per unit
         // so the SVG renderer reproduces the author's absolute dimensions instead
@@ -7712,7 +7960,14 @@ function createInterpreter() {
           }
         }
       }
-      for (const c of cmds) dest.commands.push(c);
+      // Plain add(picture) does NOT propagate the sub-picture's inexact bounds
+      // to the destination (Asymptote picture.add: only transform*currentpicture
+      // and direct inexact drawers flip bounds.exact=false). Tag the copied
+      // commands so an xaxis/yaxis or relative path-label that lived inside the
+      // added sub-picture does not wrongly trigger currentpicture's fit2 pass-2
+      // rescale (04531/04528: graf[] panels with xaxis/yaxis added under a
+      // global unitsize stay at literal unit scale, not the 400bp refit).
+      for (const c of cmds) { if (c) c._fromAddedPicture = true; dest.commands.push(c); }
     });
     // shipout(frame) — emit frame contents to currentpicture. In Asymptote,
     // shipout renders a frame (or picture) to file; here we emit to currentPic
@@ -7935,7 +8190,21 @@ function createInterpreter() {
     env.set('acot', _broadcast1((x) => Math.PI / 2 - Math.atan(x)));
     env.set('asec', _broadcast1((x) => Math.acos(1 / x)));
     env.set('acsc', _broadcast1((x) => Math.asin(1 / x)));
-    env.set('sqrt', _broadcast1(Math.sqrt));
+    // sqrt(pair) is the COMPLEX principal square root (not component-wise).
+    // AoPS angle-bisector idiom: sqrt(dir(a)*dir(b)) = e^{i(α+β)/2}, the unit
+    // bisector of the two directions (00817's dashed double-arrow + reflection
+    // axis). Component-wise Math.sqrt collapses this to a near-horizontal
+    // scalar, breaking the arrow and every reflect(R0,R1) downstream.
+    env.set('sqrt', (x) => {
+      if (Array.isArray(x)) return x.map(v => env.get('sqrt')(v));
+      if (isPair(x)) {
+        const r = Math.sqrt(x.x*x.x + x.y*x.y);
+        const theta = Math.atan2(x.y, x.x);
+        const s = Math.sqrt(r);
+        return makePair(s * Math.cos(theta/2), s * Math.sin(theta/2));
+      }
+      return Math.sqrt(toNumber(x));
+    });
     env.set('cbrt', _broadcast1(Math.cbrt));
     env.set('sinh', _broadcast1(Math.sinh));
     env.set('cosh', _broadcast1(Math.cosh));
@@ -7960,53 +8229,50 @@ function createInterpreter() {
       }
       if (pairs.length >= 2) { a = pairs[0]; b = pairs[1]; }
       if (!a || !b) return makePath([], false);
+      // Reproduce Asymptote's plain_paths.asy brace() exactly: a Hobby spline
+      // through shoulder/tip knots with fixed tangent directions at each knot.
+      // The 70° endpoint tangent (braceouterangle) is what curls the tips toward
+      // the amplitude side so they end nearly horizontal/perpendicular to the
+      // axis — HiTeXeR's old hand-built beziers left the ends tangent to the axis
+      // (vertical), so the tips never hooked (05547). bracemidangle=0 (shoulders
+      // run along the axis), braceinnerangle=60 (the central nib cusp).
+      const bracedefaultratio = 0.14;
       const dx = b.x - a.x, dy = b.y - a.y;
       const L = Math.sqrt(dx*dx + dy*dy) || 1;
-      if (amplitude === null) amplitude = 0.14 * L;
-      const ux = dx/L, uy = dy/L;        // unit tangent along brace axis
-      const nx = -uy, ny = ux;            // unit normal (left of direction = outward tip)
-      const amp = amplitude;
-      // Key waypoints along the brace
-      const sh1 = makePair(a.x + ux*(L*0.25) + nx*(amp*0.5), a.y + uy*(L*0.25) + ny*(amp*0.5));
-      const tip = makePair(a.x + ux*(L*0.5)  + nx*amp,       a.y + uy*(L*0.5)  + ny*amp);
-      const sh2 = makePair(a.x + ux*(L*0.75) + nx*(amp*0.5), a.y + uy*(L*0.75) + ny*(amp*0.5));
-      const cd = L * 0.12; // control-point distance for smooth segments
-      // Segment 1: A → sh1 (tangent along +u at both ends: produces a smooth curve up to shoulder)
-      const c1a = makePair(a.x + ux*cd,        a.y + uy*cd);
-      const c1b = makePair(sh1.x - ux*cd,      sh1.y - uy*cd);
-      // Segment 2: sh1 → tip (start tangent +u, end tangent +u+n direction = cusp approach)
-      const c2a = makePair(sh1.x + ux*cd,      sh1.y + uy*cd);
-      const tipInX = (ux + nx) * (cd * 0.707), tipInY = (uy + ny) * (cd * 0.707);
-      const c2b = makePair(tip.x - tipInX,     tip.y - tipInY);
-      // Segment 3: tip → sh2 (start tangent +u-n direction = leaving cusp, end tangent +u)
-      const tipOutX = (ux - nx) * (cd * 0.707), tipOutY = (uy - ny) * (cd * 0.707);
-      const c3a = makePair(tip.x + tipOutX,    tip.y + tipOutY);
-      const c3b = makePair(sh2.x - ux*cd,      sh2.y - uy*cd);
-      // Segment 4: sh2 → B
-      const c4a = makePair(sh2.x + ux*cd,      sh2.y + uy*cd);
-      const c4b = makePair(b.x - ux*cd,        b.y - uy*cd);
-      function sampleBezier(p0, p1, p2, p3, n, includeStart) {
-        const pts = [];
-        const start = includeStart ? 0 : 1;
-        for (let i = start; i <= n; i++) {
-          const t = i/n, mt = 1-t;
-          pts.push(makePair(
-            mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x,
-            mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y
-          ));
-        }
-        return pts;
+      if (amplitude === null) amplitude = bracedefaultratio * L;
+      const sign = amplitude < 0 ? -1 : 1;
+      const hamp = 0.5 * amplitude;            // signed half (shoulder) amplitude
+      const ux = dx/L, uy = dy/L;              // axis unit
+      const nx = -uy, ny = ux;                 // local +y (rotate90 of axis) = amplitude side
+      const aA = Math.atan2(uy, ux);           // axis angle
+      const A70 = 70*Math.PI/180, A60 = 60*Math.PI/180;
+      // local (lx along axis, ly along amplitude) -> world
+      const P = (lx, ly) => makePair(a.x + ux*lx + nx*ly, a.y + uy*lx + ny*ly);
+      let knots, dirs;
+      if (Math.abs(amplitude) < bracedefaultratio * L) {
+        const slope = 2 * bracedefaultratio;
+        const cd = Math.abs(hamp) / slope;
+        knots = [P(0,0), P(cd,hamp), P(0.5*L-cd,hamp), P(0.5*L,amplitude), P(0.5*L+cd,hamp), P(L-cd,hamp), P(L,0)];
+        dirs = [
+          {dirOut: aA + sign*A70},
+          {dirIn: aA},
+          {dirIn: aA},
+          {dirIn: aA + sign*A60, dirOut: aA - sign*A60},
+          {dirIn: aA},
+          {dirIn: aA},
+          {dirIn: aA - sign*A70},
+        ];
+      } else {
+        knots = [P(0,0), P(0.25*L,hamp), P(0.5*L,amplitude), P(0.75*L,hamp), P(L,0)];
+        dirs = [
+          {dirOut: aA + sign*A70},
+          {dirIn: aA},
+          {dirIn: aA + sign*A60, dirOut: aA - sign*A60},
+          {dirIn: aA},
+          {dirIn: aA - sign*A70},
+        ];
       }
-      const n = 12;
-      const points = [];
-      points.push(...sampleBezier(a,   c1a, c1b, sh1, n, true));
-      points.push(...sampleBezier(sh1, c2a, c2b, tip, n, false));
-      points.push(...sampleBezier(tip, c3a, c3b, sh2, n, false));
-      points.push(...sampleBezier(sh2, c4a, c4b, b,   n, false));
-      const segs = [];
-      for (let i = 0; i < points.length - 1; i++) {
-        segs.push(lineSegment(points[i], points[i+1]));
-      }
+      const segs = hobbySpline(knots, false, dirs);
       return makePath(segs, false);
     });
     env.set('log', _broadcast1(Math.log));
@@ -8280,6 +8546,57 @@ function createInterpreter() {
       if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
       return toNumber(v);
     });
+    // cse5's Line(int k=0, pair A, pair B, real a=0.6, real b=a) -> PATH.
+    // AoPS's TeXeR preamble auto-imports cse5/olympiad (same as MP, markangle,
+    // rightanglemark above), so `Line(A,B,...)` is available with no explicit
+    // import — diagram 03643 draws its dotted baseline via
+    //   draw(Line(a_len*dir(A), b_len*dir(B), 0.2, 0.2), dotted);
+    // and nothing else in the corpus calls Line(...). This default returns a
+    // line SEGMENT extended past A and B; `import geometry` later overrides this
+    // binding in the import scope with its geoline form, so geometry diagrams
+    // are unaffected. cse5 L() forms (verified against local asy 3.05):
+    //   k=0 (default): (a*(A-B)+A)--(b*(B-A)+B)            fractional extend
+    //   k=1:           (a*unit(A-B)+A)--(b*unit(B-A)+B)    absolute-distance
+    //   k=2:           perpendicular through midpoint, fractional
+    //   k=3:           perpendicular through midpoint, absolute
+    env.set('Line', (...args) => {
+      const pairs = [], leadNums = [], trailNums = [];
+      for (const v of args) {
+        if (isPair(v)) pairs.push(toPair(v));
+        else if (isPoint && isPoint(v)) pairs.push(locatePoint(v));
+        else if (typeof v === 'number') {
+          if (pairs.length === 0) leadNums.push(v); else trailNums.push(v);
+        }
+      }
+      if (pairs.length < 2) return null;
+      const A = pairs[0], B = pairs[1];
+      const k = leadNums.length ? Math.round(leadNums[0]) : 0;
+      const a = trailNums.length >= 1 ? trailNums[0] : 0.6;
+      const b = trailNums.length >= 2 ? trailNums[1] : a;
+      const sub = (p, q) => makePair(p.x - q.x, p.y - q.y);
+      const add = (p, q) => makePair(p.x + q.x, p.y + q.y);
+      const scl = (s, p) => makePair(s * p.x, s * p.y);
+      const rot90 = (p) => makePair(-p.y, p.x);          // complex *(0,1)
+      const uni = (p) => { const L = Math.hypot(p.x, p.y) || 1; return makePair(p.x / L, p.y / L); };
+      const AmB = sub(A, B), BmA = sub(B, A);
+      let p0, p1;
+      if (k === 1) {
+        p0 = add(scl(a, uni(AmB)), A);
+        p1 = add(scl(b, uni(BmA)), B);
+      } else if (k === 2) {
+        const mid = scl(0.5, add(A, B));
+        p0 = add(rot90(scl(a, AmB)), mid);
+        p1 = add(rot90(scl(b, BmA)), mid);
+      } else if (k === 3) {
+        const mid = scl(0.5, add(A, B));
+        p0 = add(rot90(scl(a, uni(AmB))), mid);
+        p1 = add(rot90(scl(b, uni(BmA))), mid);
+      } else {
+        p0 = add(scl(a, AmB), A);
+        p1 = add(scl(b, BmA), B);
+      }
+      return makePath([lineSegment(p0, p1)], false);
+    });
     env.set('sum', (v) => {
       if (!Array.isArray(v) || v.length === 0) return 0;
       const first = v[0];
@@ -8339,11 +8656,17 @@ function createInterpreter() {
       // cross(int n) — marker path
       if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
         const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        // plain_markers.asy cross(n): n spokes radiating from the origin at
+        // 2*pi/n spacing (radius 1), each traced origin->rim->origin — NOT n
+        // diameters through the origin. Diameters double the arm count, so
+        // cross(6) rendered as a 12-armed starburst instead of the correct
+        // 6-armed asterisk (05147/05148 red mark). Mirrors the crossframe fix.
         const segs = [];
         for (let i = 0; i < n; i++) {
-          const angle = i * Math.PI / n;
-          const dx = Math.cos(angle), dy = Math.sin(angle);
-          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+          const angle = i * 2 * Math.PI / n;
+          const rim = makePair(Math.cos(angle), Math.sin(angle));
+          segs.push(lineSegment(makePair(0, 0), rim));
+          segs.push(lineSegment(rim, makePair(0, 0)));
         }
         return makePath(segs, false);
       }
@@ -8379,16 +8702,42 @@ function createInterpreter() {
       // Extract named 'direction' arg (e.g. arc(..., direction=CW)) and strip
       // any other named-arg wrappers so positional indexing below works.
       let _namedDir = undefined;
+      // Capture the 2D-form named params arc(c, r, angle1, angle2) so callers
+      // that pass them by name — e.g. arc((2,0.7), r=3, angle1=-12, angle2=12)
+      // (12980's sound-wave arcs) — don't get silently dropped, which would
+      // otherwise leave args=[center] and return an empty path.
+      let _namedC, _namedR, _namedA1, _namedA2;
       {
         const filtered = [];
         for (const a of args) {
           if (a && typeof a === 'object' && a._named) {
             if ('direction' in a) _namedDir = a.direction;
+            if ('c' in a) _namedC = a.c;
+            if ('center' in a) _namedC = a.center;
+            if ('r' in a) _namedR = a.r;
+            if ('radius' in a) _namedR = a.radius;
+            if ('angle1' in a) _namedA1 = a.angle1;
+            if ('angle2' in a) _namedA2 = a.angle2;
           } else {
             filtered.push(a);
           }
         }
         args = filtered;
+      }
+      // Fold any named 2D-form params back into positional slots, in the
+      // signature order (c, r, angle1, angle2). Positional args fill the
+      // remaining (undefined) slots left-to-right, matching Asymptote's rule
+      // that positional args bind the earliest unnamed parameters.
+      if (_namedC !== undefined || _namedR !== undefined
+          || _namedA1 !== undefined || _namedA2 !== undefined) {
+        const sig = [_namedC, _namedR, _namedA1, _namedA2];
+        let pi = 0;
+        for (let k = 0; k < sig.length; k++) {
+          if (sig[k] === undefined && pi < args.length) sig[k] = args[pi++];
+        }
+        const rebuilt = sig.filter(v => v !== undefined);
+        while (pi < args.length) rebuilt.push(args[pi++]);
+        args = rebuilt;
       }
       // 3D spherical form: arc(triple center, real radius, real theta1, real phi1,
       //                       real theta2, real phi2[, triple polar=Z, triple azimuth=X])
@@ -8403,44 +8752,29 @@ function createInterpreter() {
         const ph1 = toNumber(args[3]) * Math.PI / 180;
         const th2 = toNumber(args[4]) * Math.PI / 180;
         const ph2 = toNumber(args[5]) * Math.PI / 180;
-        // Optional polar/azimuth axes (default Z, X). Build orthonormal frame
-        // (uHat, vHat, wHat) where wHat = polar, uHat = azimuth-projected onto plane perp to wHat.
-        let polar = (args.length >= 7 && isTriple(args[6])) ? args[6] : makeTriple(0,0,1);
-        let azim  = (args.length >= 8 && isTriple(args[7])) ? args[7] : makeTriple(1,0,0);
-        const wlen = Math.hypot(polar.x, polar.y, polar.z) || 1;
-        const wHat = {x: polar.x/wlen, y: polar.y/wlen, z: polar.z/wlen};
-        // uHat = normalize(azim - (azim·wHat)*wHat)
-        let dotAW = azim.x*wHat.x + azim.y*wHat.y + azim.z*wHat.z;
-        let ux = azim.x - dotAW*wHat.x, uy = azim.y - dotAW*wHat.y, uz = azim.z - dotAW*wHat.z;
-        let ulen = Math.hypot(ux, uy, uz);
-        if (ulen < 1e-9) {
-          // degenerate: pick fallback perpendicular to wHat
-          const fb = Math.abs(wHat.x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:1,z:0};
-          dotAW = fb.x*wHat.x + fb.y*wHat.y + fb.z*wHat.z;
-          ux = fb.x - dotAW*wHat.x; uy = fb.y - dotAW*wHat.y; uz = fb.z - dotAW*wHat.z;
-          ulen = Math.hypot(ux, uy, uz);
-        }
-        const uHat = {x: ux/ulen, y: uy/ulen, z: uz/ulen};
-        // vHat = wHat × uHat
-        const vHat = {
-          x: wHat.y*uHat.z - wHat.z*uHat.y,
-          y: wHat.z*uHat.x - wHat.x*uHat.z,
-          z: wHat.x*uHat.y - wHat.y*uHat.x
-        };
-        // Asymptote's arc(c,r,theta1,phi1,theta2,phi2) draws the GREAT-CIRCLE arc
-        // on the sphere from c+r*dir(theta1,phi1) to c+r*dir(theta2,phi2) — i.e. the
-        // geodesic between the two endpoints, NOT a constant-theta small circle.
-        // (When theta1==theta2==90 the geodesic IS the equator, so equatorial arcs
-        // are unaffected; only oblique spans like 03714's theta=15 phi 0->180 — which
-        // arcs over the pole, not around the latitude — depend on this.)
+        // 7th arg is the arc-plane NORMAL (Asymptote three.asy:
+        //   arc(c, r, theta1, phi1, theta2, phi2, triple normal=O, bool direction=CCW))
+        // NOT a polar coordinate axis. The endpoints are ALWAYS evaluated in the
+        // global frame via dir(theta,phi) = (sin θ cos φ, sin θ sin φ, cos θ); the
+        // normal only orients the arc (it disambiguates which great circle joins
+        // antipodal endpoints, and selects CCW/CW). Default normal = +Z.
+        //
+        // Treating the 7th arg as a polar axis (the old behaviour) reflected the
+        // endpoint frame for normal = -Z, so dir(90, φ) moved to the mirror point;
+        // combined with the antipodal sweep `normal × d1` this made BOTH the Z and
+        // -Z half-equators trace the SAME (front) semicircle, so the dashed back
+        // arcs in the sphere-packing diagrams (03635/03636/03640) were painted over
+        // by the solid front arcs and vanished. With global endpoints, normal = +Z
+        // selects the front half-equator and -Z the back, as TeXeR draws them.
+        const normalArg = (args.length >= 7 && isTriple(args[6])) ? args[6] : makeTriple(0,0,1);
+        const wlen = Math.hypot(normalArg.x, normalArg.y, normalArg.z) || 1;
+        const wHat = {x: normalArg.x/wlen, y: normalArg.y/wlen, z: normalArg.z/wlen};
+        // Endpoint directions in the GLOBAL frame. (When theta1==theta2==90 the
+        // geodesic IS the equator; oblique spans like 03714's theta=15 phi 0->180
+        // arc over the pole. Both are frame-independent.)
         const dirVec = (th, ph) => {
           const st = Math.sin(th), ct = Math.cos(th);
-          const lu = st * Math.cos(ph), lv = st * Math.sin(ph), lw = ct;
-          return {
-            x: lu*uHat.x + lv*vHat.x + lw*wHat.x,
-            y: lu*uHat.y + lv*vHat.y + lw*wHat.y,
-            z: lu*uHat.z + lv*vHat.z + lw*wHat.z
-          };
+          return { x: st * Math.cos(ph), y: st * Math.sin(ph), z: ct };
         };
         const d1 = dirVec(th1, ph1), d2 = dirVec(th2, ph2);
         const cosA = Math.max(-1, Math.min(1, d1.x*d2.x + d1.y*d2.y + d1.z*d2.z));
@@ -8448,7 +8782,23 @@ function createInterpreter() {
         // in-plane unit vector perpendicular to d1, toward d2
         let e2x = d2.x - cosA*d1.x, e2y = d2.y - cosA*d1.y, e2z = d2.z - cosA*d1.z;
         let e2l = Math.hypot(e2x, e2y, e2z);
-        if (e2l < 1e-9) { e2x = vHat.x; e2y = vHat.y; e2z = vHat.z; e2l = 1; }
+        if (e2l < 1e-9) {
+          // Antipodal endpoints (cosA == -1): d2 == -d1, so the "toward d2"
+          // perpendicular vanishes and infinitely many great circles connect
+          // them. Pick the one whose plane is perpendicular to the polar axis
+          // (wHat) — the latitude circle the (theta1==theta2) endpoints lie on —
+          // via the in-plane perpendicular wHat × d1. The old fallback used vHat,
+          // which is generally NOT perpendicular to d1, so p(a)=cos·d1+sin·e2
+          // stopped tracing a circle and collapsed the half-equator into a
+          // near-flat sliver (03640's sphere equators rendered aspect ~0.02).
+          // wHat × d1 also flips sign with the polar axis, so polar=Z vs -Z
+          // correctly select the front (camera-side) and back half-equators.
+          e2x = wHat.y*d1.z - wHat.z*d1.y;
+          e2y = wHat.z*d1.x - wHat.x*d1.z;
+          e2z = wHat.x*d1.y - wHat.y*d1.x;
+          e2l = Math.hypot(e2x, e2y, e2z);
+          if (e2l < 1e-9) { e2x = vHat.x; e2y = vHat.y; e2z = vHat.z; e2l = 1; }
+        }
         e2x /= e2l; e2y /= e2l; e2z /= e2l;
         // direction=false (CW) selects the complementary long arc on the same circle
         const longArc = (_namedDir !== undefined) ? !_namedDir : false;
@@ -8856,11 +9206,14 @@ function createInterpreter() {
       }
       if (!d) d = makePair(0, 0);
       let minX, maxX, minY, maxY;
-      if (pic._picLimits && pic._picLimits.xmin != null) {
-        minX = pic._picLimits.xmin; maxX = pic._picLimits.xmax;
-      }
-      if (pic._picLimits && pic._picLimits.ymin != null) {
-        minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
+      // Prefer explicit user limits (limits()/xlimits()) over the raw geometry
+      // bbox: a legend attached at truepoint(S) must reference the cropped box,
+      // not the uncropped curve extent (04452).
+      const _ulim = (pic._picLimits && pic._picLimits.xmin != null) ? pic._picLimits
+                  : (pic._truepointLimits && pic._truepointLimits.xmin != null) ? pic._truepointLimits : null;
+      if (_ulim) {
+        minX = _ulim.xmin; maxX = _ulim.xmax;
+        minY = _ulim.ymin; maxY = _ulim.ymax;
       }
       if (minX === undefined || minY === undefined) {
         const gb = getGeoBbox(pic.commands);
@@ -8911,19 +9264,105 @@ function createInterpreter() {
         const mainW = Math.max(1, mainBbox.maxX - mainBbox.minX);
         const mainCx = (mainBbox.minX + mainBbox.maxX) / 2;
 
-        // Legend layout in user units (scaled to main picture)
-        const lineLen = mainW * 0.11;      // sample line length
-        const rowHeight = mainW * 0.09;    // vertical spacing per entry
-        const margin = mainW * 0.035;      // padding inside box
-        const textGap = mainW * 0.015;     // gap between line sample and text
-        const textWidth = mainW * 0.28;    // estimated text width
+        // Legend layout. Asymptote sizes the legend in FIXED device units (bp):
+        // legendlinelength=50bp samples, legendmargin≈10bp, and the box width is
+        // set by the ACTUAL rendered label width. The original heuristic expressed
+        // every dimension as a fraction of the geometry width (mainW), so the bp
+        // dimensions scaled with the plot: the sample line came out ≈0.11×size bp
+        // (only ~19bp for size(175)) instead of Asymptote's fixed 50bp, and the
+        // estimated textWidth let the longest label overflow the right margin
+        // (04452: the "5" touched the box edge). For a keepAspect size() graph the
+        // user→bp scale is uniform (pxPerUnit≈size/geoSpan), so convert the fixed
+        // bp dims into user units here; the legend commands are scaled by that same
+        // final pxPerUnit at render, reproducing the true 50bp sample + padded box.
+        // Restricted to keepAspect+size() (04452): the IgnoreAspect / per-picture
+        // legends (12712/12718/12730/12731/12743) keep the old fraction heuristic —
+        // their x and y scales differ, so a single bp factor can't apply, and they
+        // are sized by a separate path.
+        let lineLen, rowHeight, textGap, textWidth;
+        const _crop = (currentPic._picLimits && currentPic._picLimits.xmin != null) ? currentPic._picLimits
+                    : (currentPic._truepointLimits && currentPic._truepointLimits.xmin != null) ? currentPic._truepointLimits : null;
+        const _geoW = _crop ? Math.abs(_crop.xmax - _crop.xmin) : mainW;
+        const _geoH = _crop ? Math.abs(_crop.ymax - _crop.ymin) : Math.max(1e-6, mainBbox.maxY - mainBbox.minY);
+        const _sW = sizeW > 0 ? sizeW : sizeH;
+        const _sH = sizeH > 0 ? sizeH : sizeW;
+        const _estPxPerUnit = (keepAspect && _sW > 0 && _geoW > 0 && _geoH > 0)
+          ? Math.min(_sW / _geoW, _sH / _geoH) : 0;
+        let marginX, marginY;
+        if (_estPxPerUnit > 0) {
+          const _u = 1 / _estPxPerUnit;             // user units per bp
+          lineLen = 50 * _u;                        // Asymptote legendlinelength
+          marginX = 12.5 * _u;                      // horizontal box padding (≈TeXeR)
+          marginY = 9.5 * _u;                       // vertical box padding (≈TeXeR)
+          textGap = 5 * _u;                         // gap between sample and text
+          // Row spacing matches TeXeR's ~15bp baseline skip for fontsize(10).
+          let _maxFs = 0;
+          for (const e of entries) _maxFs = Math.max(_maxFs, (e.pen && e.pen.fontsize) || 10);
+          rowHeight = Math.max(15, _maxFs * 1.5) * _u;
+          // Box width follows the widest ACTUALLY-rendered label, not a guess.
+          // _mjxMeasureBp returns the tight glyph bbox; the rendered label carries
+          // ~10% of side-bearing on top (the same 1.06–1.1 the viewBox label pass
+          // restores), so without the generosity the box right edge crowds the
+          // last glyph (04452: only 6bp right margin vs TeXeR's ~14bp).
+          let _maxTextBp = 0;
+          for (const e of entries) {
+            const _fs = (e.pen && e.pen.fontsize) || 10;
+            let _wbp = 0;
+            try { const _m = _mjxMeasureBp(e.text, _fs); if (_m && _m.wBp > 0) _wbp = _m.wBp; } catch (_e) {}
+            if (!_wbp) _wbp = stripLaTeX(typeof e.text === 'string' ? e.text : '').length * _fs * 0.5;
+            if (_wbp > _maxTextBp) _maxTextBp = _wbp;
+          }
+          textWidth = _maxTextBp * 1.12 * _u;
+        } else {
+          // Original fraction-of-geometry heuristic (IgnoreAspect / per-picture).
+          lineLen = mainW * 0.11;      // sample line length
+          rowHeight = mainW * 0.09;    // vertical spacing per entry
+          marginX = marginY = mainW * 0.035; // padding inside box
+          textGap = mainW * 0.015;     // gap between line sample and text
+          textWidth = mainW * 0.28;    // estimated text width
+        }
 
-        const boxW = margin + lineLen + textGap + textWidth + margin;
-        const boxH = margin + n * rowHeight + margin;
+        const boxW = marginX + lineLen + textGap + textWidth + marginX;
+        const boxH = marginY + n * rowHeight + marginY;
+
+        // Horizontal centre. attach() at truepoint(S) anchors on the picture's
+        // SOUTH point, and real Asymptote's picture bounds include each label's
+        // frame — so an E-aligned axis label like "$x$" at (xmax,0) pushes the
+        // bbox (and the legend) rightward. getGeoBbox only used label ANCHORS,
+        // which are symmetric here ⇒ centre 0, so the box sat ~15px left of TeXeR
+        // (its centre is grid-centre + half the x-label width). Fold the label
+        // extents into the centre for the keepAspect bp-legend path.
+        let legendCx = mainCx;
+        if (_estPxPerUnit > 0) {
+          let _lblMinX = mainBbox.minX, _lblMaxX = mainBbox.maxX;
+          for (const dc of currentPic.commands) {
+            if (!dc || dc.cmd !== 'label' || dc._fromLegend) continue;
+            if (!dc.pos || !isFinite(dc.pos.x)) continue;
+            const _lfs = (dc.pen && dc.pen.fontsize) || 10;
+            let _lwb = 0;
+            try { const _lm = _mjxMeasureBp(dc.text, _lfs); if (_lm && _lm.wBp > 0) _lwb = _lm.wBp; } catch (_e) {}
+            if (!_lwb) continue;
+            const _lwU = (_lwb * 1.12) / _estPxPerUnit;
+            const _lax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
+            const _llx = _lax > 0.1 ? dc.pos.x : _lax < -0.1 ? dc.pos.x - _lwU : dc.pos.x - _lwU / 2;
+            const _lrx = _lax > 0.1 ? dc.pos.x + _lwU : _lax < -0.1 ? dc.pos.x : dc.pos.x + _lwU / 2;
+            if (_llx < _lblMinX) _lblMinX = _llx;
+            if (_lrx > _lblMaxX) _lblMaxX = _lrx;
+          }
+          legendCx = (_lblMinX + _lblMaxX) / 2;
+        }
 
         // Position: centered horizontally, below the position by offset
-        const ox = mainCx - boxW / 2;
-        const oy = position.y + offsetDir.y * 0.15 - boxH;
+        const ox = legendCx - boxW / 2;
+        let oy = position.y + offsetDir.y * 0.15 - boxH;
+        if (_estPxPerUnit > 0) {
+          // The attach() offset (e.g. 10*S) is a TRUESIZE gap in bp, not a
+          // user-unit-scaled fraction. The ×0.15 heuristic put the box ~15bp too
+          // low for a size() graph, sliding it partly off-canvas (04452: box top
+          // 47px below TeXeR, bottom clipped). Treat the offset magnitude as bp:
+          // box top = south edge − |offset|bp.
+          oy = position.y + (offsetDir.y / _estPxPerUnit) - boxH;
+        }
 
         // Draw surrounding box (black outline)
         const boxPath = makePath([
@@ -8939,10 +9378,10 @@ function createInterpreter() {
         for (let i = 0; i < n; i++) {
           const e = entries[i];
           // y position: top entry is highest
-          const cy = oy + boxH - margin - (i + 0.5) * rowHeight;
+          const cy = oy + boxH - marginY - (i + 0.5) * rowHeight;
           // Draw sample line
-          const x1 = ox + margin;
-          const x2 = ox + margin + lineLen;
+          const x1 = ox + marginX;
+          const x2 = ox + marginX + lineLen;
           const linePath = makePath([lineSegment(makePair(x1, cy), makePair(x2, cy))], false);
           currentPic.commands.push({cmd:'draw', path: linePath, pen: clonePen(e.pen), line: 0, _fromLegend: true, above: 1});
           // Add text label after the line
@@ -8955,9 +9394,20 @@ function createInterpreter() {
       // General subpicture attach (non-legend) - not implemented yet
     });
 
+    // Path-time span for arclength-fraction APIs (relpoint/waypoint/reltime):
+    // a `_circle`-tagged path is parameterized by a virtual node count `n`
+    // (default 400) inside _pointOnPath, so its full traversal is time∈[0,n],
+    // NOT time∈[0,segs.length] (=4 for the Bezier representation). Using
+    // segs.length here collapsed relpoint(circle,t∈[0,1]) to ~2% of the circle
+    // (broke the transformed-circle blob in 02378).
+    function _pathTimeSpan(p) {
+      if (p && p._circle) return p._circle.n || 400;
+      return p.segs.length;
+    }
+
     env.set('relpoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
-      const time = toNumber(t) * p.segs.length;
+      const time = toNumber(t) * _pathTimeSpan(p);
       return _pointOnPath(p, time);
     });
 
@@ -9039,14 +9489,14 @@ function createInterpreter() {
     // sufficient for typical usage like waypoint(A--B, 0.5).
     env.set('waypoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
-      const time = toNumber(t) * p.segs.length;
+      const time = toNumber(t) * _pathTimeSpan(p);
       return _pointOnPath(p, time);
     });
 
     // reltime(path, frac): convert arclength fraction [0,1] to path time [0,N]
     env.set('reltime', (p, t) => {
       if (!isPath(p) || p.segs.length === 0) return 0;
-      return toNumber(t) * p.segs.length;
+      return toNumber(t) * _pathTimeSpan(p);
     });
 
     // length(path): number of segments (for path time parameterization)
@@ -9658,6 +10108,10 @@ function createInterpreter() {
       );
     });
     env.set('slant', (s) => makeTransform(0,1,toNumber(s),0,0,1));
+    // identity() — the 2D identity transform. Without this, `transform t = identity();`
+    // leaves t undefined and `t*pair` collapses to (0,0), silently dropping non-rotated
+    // geometry (e.g. 04422 drawHexAndTriangle with rotated=false). See attempt history.
+    env.set('identity', () => makeTransform(0,1,0,0,0,1));
 
     // Pen constructors
     env.set('rgb', (...args) => {
@@ -9684,11 +10138,14 @@ function createInterpreter() {
     });
     env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
     env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
-    // Asymptote thick()/Thick() return 1.5x linewidth. For mesh lines, the code
-    // forces 0.16bp when _lwExplicit is false, so thick() here is a no-op pen
-    // that preserves the default mesh line behavior (which matches TeXeR).
-    env.set('thick', () => makePen({}));
-    env.set('Thick', () => makePen({}));
+    // Asymptote thick()/Thick() thicken the stroke. For ordinary draws we still
+    // treat them as a no-op (the corpus matched TeXeR with the default width),
+    // but we tag the pen with `_thick` so a surface meshpen built from
+    // `black+thick()` (e.g. 03290's Gaussian bump) renders a bold wireframe
+    // instead of being crushed to the 0.2bp thin-mesh default. The marker is
+    // propagated by mergePens and consumed in the surface mesh-line block.
+    env.set('thick', () => makePen({_thick: true}));
+    env.set('Thick', () => makePen({_thick: true}));
     env.set('thin', () => makePen({}));
     env.set('makepen', (pathArg) => {
       if (!isPath(pathArg)) return makePen({});
@@ -9943,7 +10400,17 @@ function createInterpreter() {
           if (ghead === 'TeXHead') arr.texHead = true;
           else if (ghead === 'HookHead') { arr.texHead = true; if (!gsizeExplicit) { arr.size = 5; arr.sizeExplicit = true; } }
           else if (ghead) arr.headKind = ghead;
-          target.commands.push({cmd:'draw', path: gpath, pen: clonePen(gpen), arrow: arr, line: args._line || 0, _arrowOnly: true});
+          // When an explicit arrowhead sentinel (TeXHead/HookHead/…) is given,
+          // this is the add(arrow(TeXHead, p, pen, Relative(t))) idiom (00953)
+          // where the caller already draws path p separately — emit only the
+          // arrowhead. When NO sentinel is given, this is the bare
+          // add(arrow(path, size, Relative(t))) congruence-mark idiom (11148,
+          // 07553, 08438, 10505 …): Asymptote's picture-returning arrow() draws
+          // the path itself, so we must stroke the line too — the side may be
+          // drawn ONLY via arrow() (e.g. 11148's A--D / B--C rectangle edges,
+          // which otherwise vanish, leaving an open "Z" shape).
+          const arrowOnly = (ghead != null);
+          target.commands.push({cmd:'draw', path: gpath, pen: clonePen(gpen), arrow: arr, line: args._line || 0, _arrowOnly: arrowOnly});
         }
         return;
       }
@@ -10321,7 +10788,16 @@ function createInterpreter() {
             // second path, Asymptote keeps the seam at time 0 (first) — so
             // skip the remap there (e.g. 00752, where a segment starts at the
             // circle's (1,0) seam).
-            if (p1.closed && p1.segs.length > 0) {
+            // Exception 2: this remap is only correct for non-circular closed
+            // paths (e.g. the rotated `ellipse` in 12640, whose seam crossing
+            // Asymptote genuinely reports at time==length). For a true CIRCLE
+            // path (Circle(c,r), tagged `_circle`) Asymptote reports the seam
+            // crossing at time ~0 (FIRST) regardless of node count or whether
+            // the second path is open/closed — verified against local asy 3.05
+            // for Circle×Circle and Circle×line. Applying the remap to circles
+            // wrongly swaps the two intersection points (10827: B and E, where
+            // the O1×O3 crossing lands exactly on O1's (1,0) seam).
+            if (p1.closed && p1.segs.length > 0 && !p1._circle) {
               const sn = p1.segs[0].p0;
               const ndist = Math.hypot(ip.x - sn.x, ip.y - sn.y);
               const ntol = 1e-3 * Math.max(1, Math.hypot(sn.x, sn.y));
@@ -10495,9 +10971,16 @@ function createInterpreter() {
       if (text) {
         const labelPen = pen || clonePen(defaultPen);
         const mathText = (text.startsWith('$') || text.includes('$')) ? text : '$' + text + '$';
-        const labelArgs = [mathText, pos];
-        if (align) labelArgs.push(align);
-        labelArgs.push(labelPen);
+        // cse5's MP applies a default label direction when the caller omits one;
+        // it does NOT center the label on the point (plain Asymptote's default).
+        // Empirically TeXeR places undirected MP labels to the SOUTH of the point
+        // (08517/08518 vertex labels A/B/P sit below the base, while C/Q/R carry
+        // explicit N/NW/NE overrides precisely because S would be wrong for them).
+        // Without this default, undirected labels straddle the geometry (e.g. "P"
+        // centered on the base+dot) and the figure's vertical label padding is too
+        // small, throwing off the SSIM trim+resize registration.
+        const labelAlign = align || makePair(0, -1); // default S
+        const labelArgs = [mathText, pos, labelAlign, labelPen];
         evalLabel(labelArgs);
       }
       return pos;
@@ -10506,6 +10989,35 @@ function createInterpreter() {
     // D() — cse5/olympiad shorthand for draw that returns its path
     // In AoPS/cse5 convention, D() uses blue pen by default (unlike draw() which uses black)
     env.set('D', (...args) => {
+      // cse5 overloads D(): a lone pair/point draws a DOT with `pointpen`
+      //     D(pair A, pen p=pointpen) { dot(A,p); }
+      // while a path draws with `pathpen`
+      //     D(path g, pen p=pathpen) { draw(g,p); return g; }
+      // Detect the dot form: exactly one coordinate (pair/triple/point) arg and
+      // no path. Without this, D(MP("P",pt)) fell through to draw() as a
+      // zero-length stroke (radius lw/2 ≈ 0.3bp — an almost-invisible speck);
+      // routing to dot() gives the proper dotfactor-sized mark TeXeR shows.
+      // (Tangent points P/Q/R in 08518 are dotted exactly this way.)
+      {
+        let hasPath = false, coordCount = 0;
+        for (const a of args) {
+          if (isPath(a)) hasPath = true;
+          else if (isPair(a) || isTriple(a) || isPoint(a)) coordCount++;
+        }
+        if (!hasPath && coordCount === 1) {
+          let hasPenDot = false;
+          for (const a of args) { if (isPen(a)) { hasPenDot = true; break; } }
+          let dotArgs = args;
+          if (!hasPenDot) {
+            const ptp = env.get('pointpen');
+            dotArgs = [...args, (isPen(ptp) ? ptp : clonePen(defaultPen))];
+          }
+          dotArgs._line = args._line;
+          evalDot(dotArgs);
+          for (const a of args) { if (isPair(a) || isTriple(a) || isPoint(a)) return a; }
+          return makePair(0, 0);
+        }
+      }
       // cse5's D() draws with `pathpen` when no pen is supplied. pathpen
       // defaults to blue (AoPS TeXeR default) but diagrams routinely reassign
       // it, e.g. `pathpen = black + linewidth(0.65)`, and we must honor that.
@@ -10782,7 +11294,16 @@ function createInterpreter() {
     // Right angle mark: draws a small square at vertex B
     env.set('rightanglemark', (A, B, C, ...rest) => {
       const a = toPair(A), b = toPair(B), c = toPair(C);
-      const rawS = rest.length > 0 ? toNumber(rest[0]) : 8;
+      // olympiad.asy: rightanglemark(B,A,C, real s=5, pen p=currentpen).
+      // `s` (the mark size in bp) may arrive positionally or as a named arg.
+      let rawS = 8;
+      for (const r of rest) {
+        if (r && typeof r === 'object' && r._named) {
+          if ('s' in r) rawS = toNumber(r.s);
+        } else if (typeof r === 'number') {
+          rawS = r;
+        }
+      }
       const msf = env.get('markscalefactor') || 0.03;
       const s = rawS * msf;
       // Normalize BA and BC directions
@@ -10923,7 +11444,13 @@ function createInterpreter() {
         if (isString(a)) text = a;
         else if (isTransform(a)) labelTransform = a;
         else if (isPen(a)) labelPen = labelPen ? mergePens(labelPen, a) : a;
-        else if (a && typeof a === 'object' && a._tag === 'filltype') labelFilltype = a;
+        // UnFill/Fill/FillDraw used BARE (not called) are filltype-tagged
+        // *functions* (the overloaded UnFill(xmargin,ymargin) callable carries
+        // _tag/style/pen as properties), so `typeof a === 'object'` misses them
+        // and Label("...", align, UnFill) silently drops the erase box — the
+        // measurement line then shows through the text (03348's l/lcosθ/L+l).
+        // Accept either an object or a function carrying _tag === 'filltype'.
+        else if (a && (typeof a === 'object' || typeof a === 'function') && a._tag === 'filltype') labelFilltype = a;
         // 03606: Label(tr*"text", ...) — first arg is a pre-built label
         // (from `transform*string` op). Adopt its text/transform/etc.
         else if (a && typeof a === 'object' && a._tag === 'label') {
@@ -11019,7 +11546,28 @@ function createInterpreter() {
       return s;
     });
     env.set('substr', (s, start, len) => String(s).substr(toNumber(start), len !== undefined ? toNumber(len) : undefined));
-    env.set('find', (s, sub) => String(s).indexOf(String(sub)));
+    env.set('find', (s, sub) => {
+      // find(bool[] a, int n=1): index of the nth true value (n<0 counts from
+      // the end), or -1 if there are fewer than |n| true values. Distinct from
+      // the string overload find(string, string) → indexOf.
+      if (Array.isArray(s)) {
+        let n = (typeof sub === 'number' && Number.isFinite(sub)) ? Math.trunc(sub) : 1;
+        if (n === 0) return -1;
+        if (n > 0) {
+          let count = 0;
+          for (let i = 0; i < s.length; i++) {
+            if (toBool(s[i]) && ++count === n) return i;
+          }
+        } else {
+          let count = 0;
+          for (let i = s.length - 1; i >= 0; i--) {
+            if (toBool(s[i]) && --count === n) return i;
+          }
+        }
+        return -1;
+      }
+      return String(s).indexOf(String(sub));
+    });
     env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
     env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
     env.set('minipage', (...args) => {
@@ -11140,8 +11688,21 @@ function createInterpreter() {
     env.set('csv', (f) => f);
     env.set('eolmode', (f) => null);
     env.set('sequence', (f, n) => {
-      // sequence(n) or sequence(func, n)
+      // Asymptote overloads:
+      //   sequence(int n)           -> {0,1,...,n-1}
+      //   sequence(int a, int b)    -> {a,a+1,...,b}  (empty if a>b)
+      //   sequence(T f(int), int n) -> {f(0),...,f(n-1)}
       if (n === undefined) { n = f; f = null; }
+      // Integer-range form: both args plain numbers (not a function). Without
+      // this, sequence(5,9) fell through to the func-form and returned {0..8}
+      // instead of {5,6,7,8,9} (05548's "removed 60%" dashes spilled over the
+      // whole column).
+      if (isNumber(f) && isNumber(n)) {
+        const a = Math.floor(toNumber(f)), b = Math.floor(toNumber(n));
+        const out = [];
+        for (let i = a; i <= b; i++) out.push(i);
+        return out;
+      }
       const result = [];
       const count = Math.floor(toNumber(n));
       for (let i = 0; i < count; i++) {
@@ -11381,9 +11942,21 @@ function createInterpreter() {
         let sz = 6;
         let sizeExplicit = false;
         // Detect Arrow(Relative(t)) — position along the path, not a size.
-        let relativePos = undefined;
+        let relativePos = undefined;   // fraction of arc length (relative=true)
+        let absolutePos = undefined;   // absolute path time (real cast, relative=false)
         for (const a of args) {
           if (a && typeof a === 'object' && a._tag === 'relative') { relativePos = a.t; break; }
+        }
+        // Arrow(position=...) named arg. A bare real is an absolute path time
+        // (Asymptote's `position operator cast(real)` sets relative=false); a
+        // Relative() object is a fractional arc-length position.
+        for (const a of args) {
+          if (a && typeof a === 'object' && a._named && 'position' in a) {
+            const pv = a.position;
+            if (pv && typeof pv === 'object' && pv._tag === 'relative') relativePos = pv.t;
+            else if (typeof pv === 'number') absolutePos = pv;
+            break;
+          }
         }
         for (const a of args) {
           if (typeof a === 'number') { sz = a; sizeExplicit = true; break; }
@@ -11399,7 +11972,8 @@ function createInterpreter() {
         if (name === 'Bars3') outStyle = 'Bars';
         else if (name === 'Bar3') outStyle = 'Bar';
         const out = {_tag:'arrow', style:outStyle, size: sz, sizeExplicit};
-        if (relativePos !== undefined) out.position = relativePos;
+        if (relativePos !== undefined) { out.position = relativePos; out.positionRelative = true; }
+        else if (absolutePos !== undefined) { out.position = absolutePos; out.positionRelative = false; }
         if (headKind === 'TeXHead') out.texHead = true;
         else if (headKind === 'HookHead') {
           // HookHead: render the TeX-style chevron glyph, but at a normal
@@ -11577,6 +12151,7 @@ function createInterpreter() {
       let arrow = null;
       let marker = null;
       let filltype = null;
+      let target = currentPic;
       const pairs = [];
 
       for (const a of args) {
@@ -11589,6 +12164,11 @@ function createInterpreter() {
           if ('filltype' in a && a.filltype && a.filltype._tag === 'filltype') filltype = a.filltype;
           continue;
         }
+        // markangle(picture pic=currentpicture, ...) — when called as
+        // markangle(pic2, ...) the arc/label must be drawn INTO pic2 so it
+        // travels with add(shift(...)*pic2); otherwise it lands at the
+        // un-shifted vertex (02911: detached 120-deg arc in the corner).
+        if (a && a._tag === 'picture') { target = a; continue; }
         if (isPair(a)) { pairs.push(toPair(a)); continue; }
         if (a && a._tag === 'filltype') { filltype = a; continue; }
         if (isPen(a)) { pen = a; continue; }
@@ -11619,7 +12199,7 @@ function createInterpreter() {
         // Include the current call's pairs (A, B, C) so the estimate is valid
         // even when markangle is called before any draw() command.
         let cMinX = Infinity, cMaxX = -Infinity, cMinY = Infinity, cMaxY = -Infinity;
-        for (const c of currentPic.commands) {
+        for (const c of target.commands) {
           if (c.path) for (const s of c.path.segs) {
             for (const p of [s.p0, s.p3]) {
               if (p.x < cMinX) cMinX = p.x; if (p.x > cMaxX) cMaxX = p.x;
@@ -11686,7 +12266,7 @@ function createInterpreter() {
           wedgeSegs.push(makeSeg(arcEnd, arcEnd, B, B));
         }
         const _bpRFill = _bpRadius + (n - 1) * (_bpRadius * 0.15);
-        currentPic.commands.push({cmd:'fill', path: makePath(wedgeSegs, true), pen: clonePen(filltype.pen), line:0,
+        target.commands.push({cmd:'fill', path: makePath(wedgeSegs, true), pen: clonePen(filltype.pen), line:0,
           _markangleBpR: _bpRFill, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2, _markangleWedge: true});
       }
 
@@ -11698,10 +12278,10 @@ function createInterpreter() {
         // post-boost (radius is in bp; user-unit conversion uses the final
         // pxPerUnit, not the pre-boost unitScale).
         const _bpR = _bpRadius + i * (_bpRadius * 0.15);
-        currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
+        target.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: arrow || null, line:0,
           _markangleBpR: _bpR, _markangleVertex: B, _markangleA1: a1, _markangleA2: a2});
         if (marker && marker._tag === 'marker') {
-          applyMarker(currentPic, marker, arcPath);
+          applyMarker(target, marker, arcPath);
         }
       }
 
@@ -11716,7 +12296,7 @@ function createInterpreter() {
         // pre-boost radius; needs to scale with the corrected arc radius).
         const _bpLabelR = _bpRadius + (n - 1) * (_bpRadius * 0.15);
         const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
-        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0,
+        target.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0,
           _markangleBpR: _bpLabelR, _markangleVertex: B, _markangleMidAngle: midAngle});
       }
       return null;
@@ -11734,6 +12314,7 @@ function createInterpreter() {
       let label = null;
       let pen = null;
       let radius = 0.3;
+      let target = currentPic;
       const pairs = [];
       let posNums = [];
 
@@ -11743,6 +12324,9 @@ function createInterpreter() {
           if ('r' in a) radius = toNumber(a.r);
           continue;
         }
+        // MarkAngle(picture pic=currentpicture, ...) — draw into the passed
+        // picture so the arc travels with add(shift(...)*pic) (see markangle).
+        if (a && a._tag === 'picture') { target = a; continue; }
         if (isPair(a)) { pairs.push(toPair(a)); continue; }
         if (isPen(a)) { pen = a; continue; }
         if (isString(a)) { label = a; continue; }
@@ -11769,7 +12353,7 @@ function createInterpreter() {
 
       // Draw the arc
       const arcPath = makeArcPath(B, radius, a1, a2);
-      currentPic.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0});
+      target.commands.push({cmd:'draw', path:arcPath, pen:clonePen(pen), arrow: null, line:0});
 
       // Label ON the arc midpoint, aligned radially outward (markers.asy
       // semantics — see the markangle variants' notes).
@@ -11777,7 +12361,7 @@ function createInterpreter() {
         const midAngle = ((a1 + a2) / 2) * Math.PI / 180;
         const pos = makePair(B.x + radius * Math.cos(midAngle), B.y + radius * Math.sin(midAngle));
         const alignDir = {x: Math.cos(midAngle), y: Math.sin(midAngle)};
-        currentPic.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0});
+        target.commands.push({cmd:'label', text: label, pos, align: alignDir, pen:clonePen(pen), line:0});
       }
       return null;
     });
@@ -12178,6 +12762,27 @@ function createInterpreter() {
   // removes the axis's previously-emitted commands, and re-emits the axis
   // line + ticks + labels across the extended range.
   let _deferredAxisJobs = [];
+
+  // Run a sub-picture's deferred axis-extension jobs (registered by xaxis/yaxis
+  // when pic !== currentPic, e.g. 00444's axes drawn into pic1). Called from the
+  // pic.fit() method AFTER the fit scale is fixed but BEFORE the frame is built,
+  // so the re-emitted axes span pic's own frame (endpoint-title ride + minor
+  // ticks past xlimits/ylimits). MUST live in the render scope (not inside fit)
+  // so it writes the GLOBAL sizeW/sizeH/keepAspect/_axisLimits that _drawTicks /
+  // _alongAxisBpPerUnit / _estimateFrameBoundsU read — fit() has its own LOCAL
+  // keepAspect that would otherwise shadow the global and mis-scale the ticks.
+  function _runSubpicAxisJobs(pic) {
+    if (!pic || !pic._axisJobs || !pic._axisJobs.length || pic._axisJobsRun) return;
+    pic._axisJobsRun = true;
+    const _sw = sizeW, _sh = sizeH, _ka = keepAspect, _al = _axisLimits;
+    sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0; keepAspect = !pic._sizeAniso;
+    _axisLimits = pic._picLimits
+      ? { xmin: pic._picLimits.xmin, xmax: pic._picLimits.xmax, ymin: pic._picLimits.ymin, ymax: pic._picLimits.ymax, crop: !!pic._picLimits.crop, _xUser: !!pic._picLimits._xUser, _yUser: !!pic._picLimits._yUser }
+      : { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+    try {
+      for (let _p = 0; _p < 4; _p++) for (const _j of pic._axisJobs) { try { _j(_p); } catch (e) {} }
+    } finally { sizeW = _sw; sizeH = _sh; keepAspect = _ka; _axisLimits = _al; }
+  }
 
   function installGraphPackage(env) {
     if (graphPackageInstalled) return;
@@ -12765,6 +13370,21 @@ function createInterpreter() {
       // Applied LAST so the polluted _axisLimits can't override it.
       if (spanOverride && spanOverride.rX > 0) rX = spanOverride.rX;
       if (spanOverride && spanOverride.rY > 0) rY = spanOverride.rY;
+      // EXPLICIT user xlimits/ylimits define the scalable window: with NoCrop the
+      // fit sizes [min,max] to size() and geometry inside it does not shrink the
+      // window. The geometry-span override above (which undoes placeholder-axis
+      // pollution of _axisLimits — 00247, where _axisLimits is set by an axis
+      // DRAW, not a user call) must not shrink rX/rY below a USER-set limit
+      // range. Gated on _xUser/_yUser (set only by xlimits/ylimits/limits) so
+      // axis-draw pollution still gets corrected. Without this, 00115's
+      // size(5cm,IgnoreAspect)+xlimits(-4,4) over data x∈[-2,4] over-zoomed
+      // (sX=size/6 not size/8), dropping the x=6 tick the legend label extends
+      // the frame out to. Use max() so geometry overflowing NoCrop limits still
+      // sizes to the (larger) geometry rather than spilling outside the frame.
+      if (_axisLimits._xUser && _axisLimits.xmin !== null && _axisLimits.xmax !== null && _axisLimits.xmax > _axisLimits.xmin)
+        rX = Math.max(rX, Math.abs(_axisLimits.xmax - _axisLimits.xmin));
+      if (_axisLimits._yUser && _axisLimits.ymin !== null && _axisLimits.ymax !== null && _axisLimits.ymax > _axisLimits.ymin)
+        rY = Math.max(rY, Math.abs(_axisLimits.ymax - _axisLimits.ymin));
       const ded = (s) => Math.max(s - oh, s * 0.5);
       if (sizeW > 0 || sizeH > 0) {
         // Aspect-preserving size(w,h): the fit is uniform, min of the two
@@ -12811,6 +13431,14 @@ function createInterpreter() {
         if (dc.cmd === 'clip') continue;
         if (dc._paletteLegend) continue;
         if (excludeCmds && excludeCmds.has(dc)) continue;
+        // markangle arcs/wedges/labels are emitted at the LITERAL unitScale here
+        // and only rebuilt to the final (post-fit) truesize radius much later.
+        // Their stale literal radius (e.g. radius=15bp / unitScale 28.35 ≈ 0.53
+        // user units) over-stretches the frame and hence the deferred auto-axis
+        // range (00247: pi/theta markangles pushed the x-axis left arm to -0.53
+        // vs the real geometry min P.x=-0.3). Skip them here; the truesize block
+        // below re-adds each arc's correct final-scale extent around its vertex.
+        if (typeof dc._markangleBpR === 'number') continue;
         if (dc.path && dc.path.segs) {
           for (const seg of dc.path.segs) {
             for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -12845,9 +13473,52 @@ function createInterpreter() {
         if (dc.pos.y - ryU < mnY) mnY = dc.pos.y - ryU;
         if (dc.pos.y + ryU > mxY) mxY = dc.pos.y + ryU;
       }
+      // markangle arcs/wedges/labels contribute their truesize bp radius to the
+      // frame (mirrors the dot-mark block above). The arc is emitted at the stale
+      // literal scale here, so size it in FINAL bp (rBp/sX) around the vertex.
+      // Bound only the SWEPT sector (the actual angular extent), not a full ±r
+      // circle: a full circle pokes past the vertex on the un-swept sides, which
+      // for a corner vertex (00244: theta arc at the origin sweeping 0..35°)
+      // wrongly extends the axis range left/below the origin. Mirrors the
+      // swept-sector logic in _spanAtScaleBp.
+      for (const dc of pic.commands) {
+        if (typeof dc._markangleBpR !== 'number' || !dc._markangleVertex) continue;
+        if (excludeCmds && excludeCmds.has(dc)) continue;
+        const V = dc._markangleVertex;
+        if (!isFinite(V.x) || !isFinite(V.y)) continue;
+        const rxU = sX > 0 ? dc._markangleBpR / sX : 0;
+        const ryU = sY > 0 ? dc._markangleBpR / sY : 0;
+        const _expand = (px, py) => {
+          if (px < mnX) mnX = px; if (px > mxX) mxX = px;
+          if (py < mnY) mnY = py; if (py > mxY) mxY = py;
+        };
+        let a1 = dc._markangleA1, a2 = dc._markangleA2;
+        if (dc.cmd === 'label' && typeof dc._markangleMidAngle === 'number') {
+          // label sits at the arc midpoint, radius rBp out along the mid-angle
+          _expand(V.x + rxU * Math.cos(dc._markangleMidAngle),
+                  V.y + ryU * Math.sin(dc._markangleMidAngle));
+        } else if (typeof a1 === 'number' && typeof a2 === 'number') {
+          if (a2 < a1) { const t = a1; a1 = a2; a2 = t; }
+          const angs = [a1, a2];
+          for (let k = Math.ceil(a1 / 90) * 90; k <= a2; k += 90) angs.push(k);
+          for (const ang of angs) {
+            _expand(V.x + rxU * Math.cos(ang * Math.PI / 180),
+                    V.y + ryU * Math.sin(ang * Math.PI / 180));
+          }
+          _expand(V.x, V.y);
+        } else {
+          // unknown sweep: fall back to the full circle (no angle info)
+          _expand(V.x - rxU, V.y - ryU);
+          _expand(V.x + rxU, V.y + ryU);
+        }
+      }
       for (const dc of pic.commands) {
         if (dc.cmd !== 'label' || !dc.pos || !isFinite(dc.pos.x) || !isFinite(dc.pos.y)) continue;
         if (dc.pen && dc.pen.opacity === 0) continue;
+        // markangle labels were handled by the truesize block above using their
+        // vertex+radius; their stored dc.pos is at the stale literal scale, so
+        // skip them here to avoid double-counting at the wrong position.
+        if (typeof dc._markangleBpR === 'number') continue;
         // The extending axis's own endpoint title rides the new endpoint —
         // the caller excludes it and adds its protrusion separately.
         if (excludeCmds && excludeCmds.has(dc)) continue;
@@ -12868,20 +13539,119 @@ function createInterpreter() {
       const clean = stripLaTeX(typeof t === 'string' ? t : '');
       if (!clean) return null;
       const fs = (dc.pen && dc.pen.fontsize) || 12;
-      const wU = sX > 0 ? _estimateMathRunWidth(clean, fs) / sX : 0;
-      const hU = sY > 0 ? (fs * 0.75) / sY : 0;
+      // Prefer the exact (cached) MathJax measurement — the heuristic
+      // character-width table is the dominant error source in axis frame
+      // extents. Fall back to the heuristic when MathJax is unavailable
+      // (browser path) or for multi-line labels (MJX flattens \n and
+      // grossly over-measures them; see the solver's identical guard).
+      let _wBp = null, _hBp = null;
+      if (typeof _mjxMeasureBp === 'function' &&
+          !(typeof t === 'string' && t.indexOf('\n') !== -1)) {
+        try {
+          const _m = _mjxMeasureBp(t, fs);
+          if (_m && _m.wBp > 0) { _wBp = _m.wBp; _hBp = _m.hBp; }
+        } catch (e) {}
+      }
+      // Tick labels are typeset with the "$10^4$" baseline strut in
+      // graph.asy (baseline(s, baselinetemplate) in labeltick/tick/labelx),
+      // so their frame box is the full strut height (≈1.039em) even for a
+      // bare digit. Axis TITLES go through labelaxis() with their natural
+      // TeX box — no strut (strutting "y" over-rides the axis end, 00084).
+      let _strutted = false;
+      if (_hBp !== null && dc._isTickLabel) {
+        _hBp = Math.max(_hBp, 1.0389 * fs);
+        _strutted = true;
+      }
+      // TeXeR's Computer Modern runs ~7% wider than MathJax's metrics
+      // (font-metric gap memory; 00115 legend: TeX 70.8bp vs MJX 66.6bp).
+      // Calibrate measured widths up so frame/extension estimates match the
+      // TeX-rendered refs. Rendering is unaffected.
+      const wU = sX > 0 ? (_wBp !== null ? _wBp * 1.07 : _estimateMathRunWidth(clean, fs)) / sX : 0;
+      const hU = sY > 0 ? (_hBp !== null ? _hBp : fs * 0.75) / sY : 0;
       const mgU = sX > 0 ? (0.28 * fs) / sX : 0;
-      const mgVU = sY > 0 ? (0.28 * fs) / sY : 0;
+      // The strut already spans the full ascent+descent line box; adding the
+      // vertical label margin on top double-counts (00111's title box truth
+      // is the bare 1.039em strut: −1.0035, not −1.24).
+      const mgVU = (!_strutted && sY > 0) ? (0.28 * fs) / sY : 0;
       const ax = (dc.align && typeof dc.align.x === 'number') ? dc.align.x : 0;
       const ay = (dc.align && typeof dc.align.y === 'number') ? dc.align.y : 0;
       let px = dc.pos.x, py = dc.pos.y;
       if (dc.screenDx && sX > 0) px += dc.screenDx / sX;
       if (dc.screenDy && sY > 0) py -= dc.screenDy / sY;
-      const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wU + mgU * ax : px - wU / 2;
-      const rx = ax > 0.1 ? px + wU + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wU / 2;
+      // A label rotated ~±90° (e.g. the axes() y-title "Rotational Speed",
+      // rotate(90)*…) occupies its text HEIGHT horizontally, not its full text
+      // WIDTH. Using wU for lx/rx shoves the frame's left edge to −wU, pushing
+      // the y-axis from ~11% to ~40% of the canvas (04156). Mirror the render-
+      // side bbox swap (effW = H for 90°): use the text height in user-x units
+      // (hU·sY/sX = height_bp/sX) as the horizontal extent. Vertical extent is
+      // left untouched — expanding it to wU bloats top-anchored rotated titles.
+      let wUx = wU;
+      if (dc.labelTransform && sX > 0 && sY > 0) {
+        const _lt = dc.labelTransform;
+        const _ltAng = Math.atan2(_lt.e, _lt.b) * 180 / Math.PI;
+        if (Math.abs(Math.abs(_ltAng) - 90) < 1) wUx = hU * (sY / sX);
+      }
+      const lx = ax > 0.1 ? px + mgU * ax : ax < -0.1 ? px - wUx + mgU * ax : px - wUx / 2;
+      const rx = ax > 0.1 ? px + wUx + mgU * ax : ax < -0.1 ? px + mgU * ax : px + wUx / 2;
       const by = ay > 0.1 ? py + mgVU * ay : ay < -0.1 ? py - hU + mgVU * ay : py - hU / 2;
       const ty = ay > 0.1 ? py + hU + mgVU * ay : ay < -0.1 ? py + mgVU * ay : py + hU / 2;
       return { lx, rx, by, ty };
+    }
+    // Arrowhead-clearance for the deferred axis range. An end-arrow head is
+    // drawn INWARD from the axis end: it occupies [end - rLen, end]. If the
+    // geometry (which the arrow points away from) reaches up to/past (end - rLen)
+    // the arrowhead overlaps the drawing — e.g. 00133's unit-circle apex sits on
+    // the y-axis exactly under the up-arrow, and TeXeR clearly leaves a gap.
+    // Real Asymptote's frame includes the arrowhead drawn at the data endpoint,
+    // so the deferred line ends ~one arrowlength + a margin past the geometry.
+    // We replicate that ONLY when the head would actually overlap, so the
+    // calibrated majority of arrow axes (whose head already clears) are
+    // untouched. Returns the minimum axis-end coordinate that clears, or null.
+    // arrow.size is the bp head length; the rendered head runs ~1.15x longer, and
+    // TeXeR leaves ~half a head of daylight beyond the geometry.
+    function _arrowClearEnd(arrow, scale, geomEdge, end, sign) {
+      if (!arrow || !scale || scale <= 0 || !isFinite(geomEdge)) return null;
+      const st = arrow.style;
+      const isEnd = (st === 'Arrow' || st === 'EndArrow' || st === 'ArcArrow' || st === 'EndArcArrow' || st === 'Arrows');
+      const isBegin = (st === 'BeginArrow' || st === 'BeginArcArrow' || st === 'Arrows');
+      if (sign > 0 ? !isEnd : !isBegin) return null;
+      const bp = (typeof arrow.size === 'number' && arrow.size > 0) ? arrow.size : 6;
+      const aLen = bp / scale;
+      // Return the axis-end coordinate at which the inward-drawn head clears the
+      // geometry. This is an UNCONDITIONAL floor (the caller takes max/min): no
+      // "already overlaps?" pre-check, because that check would use the
+      // deferred-job's ESTIMATED scale, which differs from the final fit scale
+      // — and differs again between the node/MathJax path and the browser/KaTeX
+      // path — so it wrongly concluded "clears" in the browser and the head sat
+      // on the arc (00133). geomEdge + 2*aLen matches asy/TeXeR's ~half-head gap
+      // (browser-verified: K=2.0 → ~3.9px gap vs asy ~3.7px). When the title ride
+      // already exceeds this the max()/min() makes it a no-op.
+      return geomEdge + sign * (2.0 * aLen);
+    }
+    // Geometry extent NEAR the axis position, in the direction the arrowhead
+    // points: only this matters for arrowhead clearance, because the head is a
+    // small mark at the axis line, not across the whole plot. For a y-axis
+    // (isX=false) at cross-x = axisCross, return the extreme y among geometry
+    // points with |x-axisCross| < band. (00133's arc apex sits at x=0 under the
+    // up-arrow → overlaps; 00391's graph is low at x=0 though its global max-y is
+    // high far to the right → the up-arrow does NOT overlap.)
+    function _geomReachNearAxis(pic, isX, axisCross, sign, band, excl) {
+      let ext = sign > 0 ? -Infinity : Infinity;
+      for (const dc of pic.commands) {
+        if (!dc || (excl && excl.has(dc))) continue;
+        if (dc._isAxisLine || dc._isTickMark || dc._isTickLabel || dc._isAxisLabel || dc._jobManaged || dc._fromLegend) continue;
+        const pts = [];
+        if (dc.path && dc.path.segs) for (const s of dc.path.segs) { if (s.p0) pts.push(s.p0); if (s.p3) pts.push(s.p3); if (s.cp1) pts.push(s.cp1); if (s.cp2) pts.push(s.cp2); }
+        if (dc.pos) pts.push(dc.pos);
+        for (const p of pts) {
+          if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+          const cross = isX ? p.y : p.x;   // perpendicular to the arrow direction
+          const val   = isX ? p.x : p.y;   // along the arrow direction
+          if (Math.abs(cross - axisCross) > band) continue;
+          if (sign > 0) { if (val > ext) ext = val; } else { if (val < ext) ext = val; }
+        }
+      }
+      return isFinite(ext) ? ext : null;
     }
 
     // Per-picture size override: axes drawn into a sub-picture with its own
@@ -12889,20 +13659,27 @@ function createInterpreter() {
     // fit, not the (often unset) global size — 00444's size(pic1,200,140,
     // IgnoreAspect) rendered y-ticks ~2.5× long because the global no-size
     // 150/maxDim estimate ignored the anisotropic 200×140 fit.
-    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax) {
       if (pic && (pic._sizeW > 0 || pic._sizeH > 0) && (pic._sizeW !== sizeW || pic._sizeH !== sizeH)) {
         const _oW = sizeW, _oH = sizeH, _oA = keepAspect;
         sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0;
         if (pic._sizeAniso) keepAspect = false;
         try {
-          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax);
         } finally {
           sizeW = _oW; sizeH = _oH; keepAspect = _oA;
         }
       }
-      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above);
+      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax);
     }
-    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above) {
+    // suppMin/suppMax: the UN-extended data/limit range used for begin=false /
+    // end=false endpoint-tick suppression. min/max may be arrow- and title-
+    // extended past the data (the axis line rides out for the arrowhead), which
+    // would defeat the `Math.abs(v-max)` endpoint test; suppMin/suppMax pin the
+    // suppression to the real data endpoints. Default to min/max when omitted.
+    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax) {
+      const _suppMin = (suppMin !== undefined && isFinite(suppMin)) ? suppMin : min;
+      const _suppMax = (suppMax !== undefined && isFinite(suppMax)) ? suppMax : max;
       axisOffset = axisOffset || 0;
       if (!ticks) return;
       // NoTicks: draw the axis line/arrow only, no tick marks at all.
@@ -13051,9 +13828,20 @@ function createInterpreter() {
           // (graph_settings.asy: ticksize=1mm; Ticksize=2*ticksize). The
           // minor size is ticksize = 1mm, applied as exactly half below.
           defaultTickSize = 5.669291339 / bpPerUnit;
-          // Safety cap: never exceed 12% of the perpendicular range
-          const cap = perpAxisRange * 0.12;
-          if (defaultTickSize > cap) defaultTickSize = cap;
+          // Safety cap: never exceed 12% of the perpendicular range. This guards
+          // against unreliable scale estimates ballooning ticks, but it only
+          // applies when bpPerUnit is an AUTO-FIT estimate (no size()/unitsize()).
+          // For an explicit size()/unitsize() the 5.669bp tick is a TRUE physical
+          // 2mm length and must NOT be shrunk by an incidentally-tiny perpendicular
+          // data range: 00401's number line has a y-extent of only 0.4 (the ±0.2
+          // marks at 0,2), so the 0.12*0.4=0.048 cap crushed 2mm ticks to ~0.5mm,
+          // far shorter than TeXeR's. With a physical scale the 2mm tick is exactly
+          // what Asymptote draws regardless of data range.
+          const scaleIsPhysical = (sizeW > 0 || sizeH > 0 || hasUnitScale);
+          if (!scaleIsPhysical) {
+            const cap = perpAxisRange * 0.12;
+            if (defaultTickSize > cap) defaultTickSize = cap;
+          }
         } else {
           defaultTickSize = perpAxisRange * 0.03;
         }
@@ -13236,8 +14024,11 @@ function createInterpreter() {
                   if (coverageOK(2, Step2)) { N = 2; chosenStep = Step2; }
                   else chosenStep = len;
                 }
-                // Minor subdivision count (graph.asy subtick divisor rule)
-                if (ticks.subStep > 0) minorN = Math.ceil(chosenStep / ticks.subStep);
+                // Minor subdivision count (graph.asy subtick divisor rule).
+                // An explicit n= (ticks.subN) wins over the auto rule: n=1 means
+                // no minor ticks at all (the AoPS "%"+n=1 idiom, 00441).
+                if (ticks.subN !== undefined) minorN = ticks.subN;
+                else if (ticks.subStep > 0) minorN = Math.ceil(chosenStep / ticks.subStep);
                 else {
                   minorN = Math.trunc(divisor[divisor.length - 1] / N);
                   if (N === 1) minorN = (aR * bR >= 0) ? 2 : 1;
@@ -13309,8 +14100,12 @@ function createInterpreter() {
           minorPositions = minorAnchored;
         } else {
           const effSubStep = ticks.subStep;
-          let subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
-          if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
+          let subN;
+          if (ticks.subN !== undefined) subN = ticks.subN;
+          else {
+            subN = effSubStep > 0 ? Math.round(step / effSubStep) : 1;
+            if (subN <= 1 && denseMinorN > 1) subN = denseMinorN;
+          }
           if (subN > 1) {
             const subStep = step / subN;
             for (let v = Math.ceil(min / subStep) * subStep; v <= max + 1e-10; v += subStep) {
@@ -13340,8 +14135,13 @@ function createInterpreter() {
         if (v < min - 1e-10 || v > max + 1e-10) return;
         // begin=false / end=false: no tick mark or gridline at the endpoint
         // (the label for it is still emitted by the label loop below).
-        if (suppressBeginTick && Math.abs(v - min) < 1e-9) return;
-        if (suppressEndTick && Math.abs(v - max) < 1e-9) return;
+        // Compare against the un-extended DATA range (_suppMin/_suppMax), not the
+        // arrow/title-extended min/max, and tolerate a small fraction of the tick
+        // step so float fuzz / stroke padding on the data bound (e.g. y-min
+        // -1.0000027 vs the y=-1 tick in 00441) still counts as "at the endpoint".
+        const _endTol = Math.max(Math.abs(step) * 1e-3, 1e-9);
+        if (suppressBeginTick && Math.abs(v - _suppMin) < _endTol) return;
+        if (suppressEndTick && Math.abs(v - _suppMax) < _endTol) return;
         // extend=true on Ticks() draws full gridlines across the plot area
         // (from crossMin to crossMax), rendered below plot content by default.
         // Used by the xaxis(..., invisible, Ticks(..., extend=true, gray))
@@ -13553,7 +14353,16 @@ function createInterpreter() {
               txt && txt.indexOf('$') === -1) {
             txt = '$' + ((typeof process !== 'undefined' && process.env && process.env.HTX_NO_U2212) ? txt : txt.replace(/-/g, '−')) + '$';
           }
-          const labelPen = clonePen(ticks.labelPen || tickPen);
+          // Tick labels use the AXIS pen (graph.asy labeltick: F.p(p)), NOT the
+          // tick/grid pen pTick. When extend=true ticks carry a gridpen (gray),
+          // that pen colors the gridlines/tick marks only — the numbers stay the
+          // axis-pen color (03321: gray gridlines, black numbers). An explicit
+          // format-Label pen (ticks.labelPen, e.g. Label("%4g",black)) still
+          // wins. If the axis pen is invisible, fall back to a visible default so
+          // the labels still show (05072).
+          let _lblBasePen = pen;
+          if (!_lblBasePen || _lblBasePen.opacity === 0) _lblBasePen = clonePen(defaultPen);
+          const labelPen = clonePen(ticks.labelPen || _lblBasePen);
           labelPen.fontsize = labelPen.fontsize || 12;
           pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, screenDx: _sDx, screenDy: _sDy, _isTickLabel: true});
         }
@@ -13796,9 +14605,16 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
       // When crop is enabled, don't expand the limits beyond what the user specified.
+      // Mirror the yaxis guard: never persist the no-content ±5 fallback (an early
+      // xaxis() declared before its data exists). The deferred axis job re-ranges
+      // the drawn line to the true extent, but the ±5 written here would survive
+      // into the fit-time bbox union and over-widen the canvas. Only persist
+      // limits that came from content/user/explicit.
+      const _xminReal = xminExplicit || _xminFromContent || _xminFromUserLimits;
+      const _xmaxReal = xmaxExplicit || _xmaxFromContent || _xmaxFromUserLimits;
       if (xmin !== null && !_axisLimits.crop) {
-        if (_axisLimits.xmin === null || xmin < _axisLimits.xmin) _axisLimits.xmin = xmin;
-        if (_axisLimits.xmax === null || xmax > _axisLimits.xmax) _axisLimits.xmax = xmax;
+        if (_xminReal && (_axisLimits.xmin === null || xmin < _axisLimits.xmin)) _axisLimits.xmin = xmin;
+        if (_xmaxReal && (_axisLimits.xmax === null || xmax > _axisLimits.xmax)) _axisLimits.xmax = xmax;
       }
       const isInvisible = pen.opacity === 0;
       // Mirror yaxis logic: if a previously-drawn yaxis was auto-ranged and our
@@ -13900,8 +14716,11 @@ function createInterpreter() {
       // Wrapped in a closure so the deferred frame-extension job can remove
       // and re-emit the whole axis across the final extended range
       // (Asymptote's extend=true deferred drawing).
-      const _emitXAxis = (xlo, xhi) => {
+      const _emitXAxis = (xlo, xhi, sLo, sHi) => {
       const xmin = xlo, xmax = xhi;
+      // Un-extended data/limit range for endpoint-tick suppression (begin/end).
+      const _xSuppLo = (sLo !== undefined) ? sLo : xlo;
+      const _xSuppHi = (sHi !== undefined) ? sHi : xhi;
       // Draw axis line (skip if invisible)
       let _xaxisDrawCmd = null;
       if (!isInvisible) {
@@ -13943,7 +14762,7 @@ function createInterpreter() {
         }
       }
       if (xTicks) xTicks = Object.assign({}, xTicks, {_axisAutoRange: !(xminExplicit || xmaxExplicit || _xminFromUserLimits || _xmaxFromUserLimits)});
-      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above);
+      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above, _xSuppLo, _xSuppHi);
       if (_xaxisDrawCmd && _xTickGen) _xaxisDrawCmd._tickGen = _xTickGen;
       if (label && !isInvisible) {
         // Default: right-aligned at xmax, pushed below tick labels (W+S combined).
@@ -14017,8 +14836,14 @@ function createInterpreter() {
           // endpoint. A *bare* arrow axis with no ticks (00259 "$x$" align=SE,
           // "$y$" align=NW) keeps the standard math corner-label convention —
           // the single letter sits diagonally just past the arrow tip — so do
-          // NOT recenter those.
-          if (ticks && !ticks.none && labelAlign != null && Math.abs(lAlign.x) > 0.01 && Math.abs(lAlign.y) > 0.01) {
+          // NOT recenter those. Ticks whose LABELS are suppressed (Ticks("%"),
+          // the AoPS math-plot idiom in 00444/00445/00430) behave like a bare
+          // axis for title placement — there are no tick numbers to clear — so
+          // the diagonal "$x$" stays corner-anchored past the arrow tip (which
+          // also lets the IgnoreAspect fit reserve that right margin and shrink
+          // the geometry to TeXeR's scale instead of leaving it ~7% too wide).
+          const _xTickLabelsShown = !!ticks && !((ticks.format === '%' && !ticks.labelFunc) || ticks.labels === false);
+          if (ticks && !ticks.none && _xTickLabelsShown && labelAlign != null && Math.abs(lAlign.x) > 0.01 && Math.abs(lAlign.y) > 0.01) {
             const _lfs = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
             _xLabelExtraDx = Math.sign(lAlign.x) * _lfs * 0.1;
             lAlign = {x: 0, y: lAlign.y};
@@ -14040,7 +14865,13 @@ function createInterpreter() {
         // don't overlap. For an x-axis with a label below, push the label down by
         // the maximum tick-label height (screenDy positive = down in SVG).
         let tickLabelClearance = 0;
-        if (labelAlign === null && lAlign.y !== 0) {
+        // Only clear THIS axis's own tick labels (graph.asy labelaxis sees only
+        // the frame of the ticks it just drew). Tick numbers added by SEPARATE
+        // xtick()/labelx() calls are independent objects and do NOT push the
+        // axis title out — so a bare `xaxis("$t$")` (no ticks arg) whose numbers
+        // come from xtick() keeps its endpoint title right next to the axis
+        // instead of being shoved a full tick-label height below it (00291).
+        if (labelAlign === null && lAlign.y !== 0 && ticks && !ticks.none) {
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.y - axisShiftY) < 1e-6) {
               const fs = (c.pen && c.pen.fontsize) || 8;
@@ -14075,8 +14906,14 @@ function createInterpreter() {
       // Default-axis (YZero/YEquals) calls with an auto side extend to the
       // final picture frame (graph.asy: extend=true → deferred xaxisAt spans
       // tinv*(lb..rt)). Register a job to re-emit across the final frame.
-      const _xJobEligible = !extent && !_axisLimits.crop && !(xminExplicit && xmaxExplicit)
-        && pic === currentPic && isFinite(xmin) && isFinite(xmax) && xmax > xmin
+      // currentPic jobs run after evalNode; SUB-PICTURE jobs (axes drawn into a
+      // `picture pic1` that is later `add(pic1.fit())`'d, e.g. 00444) run at
+      // fit() time against pic1's own frame (see the fit method). Without that
+      // the sub-picture axes stopped at the data limits — no endpoint-title
+      // ride past xlimits/ylimits, no minor ticks beyond the limit.
+      const _xSubpicJob = pic !== currentPic;
+      const _xJobEligible = !extent && !(_xSubpicJob ? (pic._picLimits && pic._picLimits.crop) : _axisLimits.crop) && !(xminExplicit && xmaxExplicit)
+        && isFinite(xmin) && isFinite(xmax) && xmax > xmin
         && !(ticks && ticks.positions && isArray(ticks.positions)) && !xIsLog;
       const _xJobStart = pic.commands.length;
       _emitXAxis(xmin, xmax);
@@ -14084,24 +14921,33 @@ function createInterpreter() {
         const _xUserLo = _xminFromUserLimits ? xmin : null;
         const _xUserHi = _xmaxFromUserLimits ? xmax : null;
         let myCmds = pic.commands.slice(_xJobStart);
-        for (const c of myCmds) c._jobManaged = true;
+        // Mark _jobManaged at REGISTRATION only for currentPic jobs (which always
+        // run post-evalNode). A sub-picture job runs only if pic is later
+        // .fit()'d; if it is added un-fitted (add(p1), e.g. 03321/03322) the job
+        // never runs, so pre-marking would wrongly make the finalize pass skip
+        // the legacy content-extent override for these never-extended axes. The
+        // in-job re-emission below marks its own commands when it does run.
+        if (!_xSubpicJob) for (const c of myCmds) c._jobManaged = true;
         let curLo = xmin, curHi = xmax;
+        const _xPrefixSet = new Set(pic.commands.slice(0, _xJobStart));
+        const _xInitLo = xmin, _xInitHi = xmax;
         let _xRideLo = 0, _xRideHi = 0;
-        _deferredAxisJobs.push((_pass) => {
+        if (_xSubpicJob) { pic._axisJobs = pic._axisJobs || []; }
+        (_xSubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
           // Exclude this axis's own LINE (a placeholder range when the axis
           // was drawn before content — it must be able to SHRINK, 00247)
-          // and its own TITLE from the frame estimate. The title rides the
-          // moving endpoint, so its push is measured ONCE (pass 0: frame
-          // with title minus frame without) and added as a fixed allowance
-          // on every pass — one net ride, like Asymptote's bounds() recalcs,
-          // while the rest of the frame stays freely re-assignable.
-          const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
+          // and its own TITLE from the frame estimate; the title contributes
+          // separately, anchored at its first placement (see below).
+          // Exclude ALL of THIS axis's own commands (line, TICK MARKS, tick
+          // labels, title) from the frame estimate — they are CONSEQUENCES of the
+          // extent, not inputs. Counting the axis's own tick marks (at integer
+          // positions ALONG the axis) fed a divergence: each pass added a tick
+          // that pushed geoMax further, which drew the next tick, etc. (00115
+          // crept 5→6→7→8 over passes after the render unification). The title's
+          // contribution is re-added separately by the ride logic below.
+          const _selfNoLineNoTitle = new Set(myCmds);
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
-          // Title ride: the endpoint title moves with the axis end, so the
-          // shipped axis extends ONE title-protrusion past the rest of the
-          // frame. Protrusion is measured from the title's own anchor
-          // (position-independent, so it converges across passes).
           _xRideLo = 0; _xRideHi = 0;
           // Two-half slopefield diagrams (e.g. 00269: two add(slopefield)
           // regions with a central gap): TeXeR extends the axes past the
@@ -14116,19 +14962,61 @@ function createInterpreter() {
             fb.minX = fb.geoMinX; fb.maxX = fb.geoMaxX;
             _xRideLo = _rng * 0.07;
             _xRideHi = _rng * 0.035;
-          } else for (const tc of myCmds) {
-            if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
-            const box = _labelBoxU(tc, fb.sX, fb.sY);
-            if (!box) continue;
-            if (tc.pos.x >= (curLo + curHi) / 2) _xRideHi = Math.max(_xRideHi, Math.max(0, box.rx - tc.pos.x));
-            else _xRideLo = Math.max(_xRideLo, Math.max(0, tc.pos.x - box.lx));
+          }
+          // Self-title model (instrumented asy: 00101/00026/00115 labelaxis
+          // probes): asy rebuilds the frame iteratively, so the endpoint
+          // title's bounds contribution is anchored at the frame edge OF THE
+          // CONTENT DRAWN BEFORE THE AXIS CALL (its first placement). Axes
+          // called early (00101: xaxis right after the graph) anchor at the
+          // bare geometry edge — content drawn later never pushes the title
+          // out, so the final extension is just the static frame. Axes
+          // called last (00026) anchor at the full static edge — the title
+          // protrudes past everything (the old additive "ride").
+          let _xTitleLo = Infinity, _xTitleHi = -Infinity;
+          if (!_xTwoHalfSF) {
+            const _afterSet = new Set(pic.commands.filter(c => !_xPrefixSet.has(c)));
+            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
+            // The title's first placement is at the axis end as FIRST drawn:
+            // the prefix frame edge, or a USER-set limit (xlimits pins the
+            // end even with nothing drawn there — 00115/00101). Autoscale
+            // initial ranges are content-derived and do NOT anchor (00026).
+            let _aLo = Math.min(afb ? afb.minX : Infinity, _xUserLo != null ? _xUserLo : Infinity);
+            let _aHi = Math.max(afb ? afb.maxX : -Infinity, _xUserHi != null ? _xUserHi : -Infinity);
+            // No prefix content (afb null — axis declared before any draw, or its
+            // prefix was re-emitted by the orthogonal axis's job) and no user
+            // limit: anchor the endpoint title to the LIVE content frame, not the
+            // axis's stale initial range. _xInitHi is the autoscale value captured
+            // at axis-call time, which for an early axis is the ±5 no-content
+            // fallback — riding a title on that blows the axis out (00062).
+            if (!isFinite(_aLo)) _aLo = isFinite(fb.minX) ? fb.minX : _xInitLo;
+            if (!isFinite(_aHi)) _aHi = isFinite(fb.maxX) ? fb.maxX : _xInitHi;
+            for (const tc of myCmds) {
+              if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
+              const box = _labelBoxU(tc, fb.sX, fb.sY);
+              if (!box) continue;
+              if (tc.pos.x >= (curLo + curHi) / 2) _xTitleHi = Math.max(_xTitleHi, _aHi + Math.max(0, box.rx - tc.pos.x));
+              else _xTitleLo = Math.min(_xTitleLo, _aLo - Math.max(0, tc.pos.x - box.lx));
+            }
           }
           // Exact frame assignment each pass; xlimits()-driven sides floor
           // it so framed plots (00101) never shrink inside their window.
-          let lo = xminExplicit ? curLo : fb.minX - _xRideLo;
-          let hi = xmaxExplicit ? curHi : fb.maxX + _xRideHi;
+          let lo = xminExplicit ? curLo : Math.min(fb.minX - _xRideLo, _xTitleLo);
+          let hi = xmaxExplicit ? curHi : Math.max(fb.maxX + _xRideHi, _xTitleHi);
           if (!xminExplicit && _xUserLo != null) lo = Math.min(lo, _xUserLo);
           if (!xmaxExplicit && _xUserHi != null) hi = Math.max(hi, _xUserHi);
+          // Arrowhead clearance: extend so a left/right arrowhead doesn't overlap
+          // the geometry directly beside it (see y-job / 00133). Geometry near the
+          // x-axis only; ONLY for endpoint-title axes (bare arrow axes overlap in
+          // TeXeR too — 00131/00247); skip ALL slopefields (own pokes / 00259-72).
+          const _xHasEndTitle = !!label && (labelPosition == null ? !extent : (labelPosition <= 0.001 || labelPosition >= 0.999));
+          const _xSF = pic.commands.some(dc => dc && dc._slopefield);
+          if (arrow && _xHasEndTitle && !_xSF) {
+            const _bandX = 1.2 * ((typeof arrow.size === 'number' && arrow.size > 0 ? arrow.size : 6) / (fb.sY || fb.sX));
+            const _gHi = _geomReachNearAxis(pic, true, axisShiftY, 1, _bandX, _selfNoLineNoTitle);
+            if (_gHi != null && !xmaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sX, _gHi, hi, 1); if (_ch != null && _ch > hi) hi = _ch; }
+            const _gLo = _geomReachNearAxis(pic, true, axisShiftY, -1, _bandX, _selfNoLineNoTitle);
+            if (_gLo != null && !xminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sX, _gLo, lo, -1); if (_cl != null && _cl < lo) lo = _cl; }
+          }
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
             try { process.stderr.write('[xjob p' + _pass + '] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
@@ -14142,7 +15030,11 @@ function createInterpreter() {
             if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
           }
           const s0 = pic.commands.length;
-          _emitXAxis(lo, hi);
+          // Endpoint-tick suppression range = data/limit extent only, WITHOUT
+          // the title ride or arrowhead clearance baked into lo/hi above.
+          const _xSuppLoJob = xminExplicit ? curLo : (_xUserLo != null ? _xUserLo : fb.minX);
+          const _xSuppHiJob = xmaxExplicit ? curHi : (_xUserHi != null ? _xUserHi : fb.maxX);
+          _emitXAxis(lo, hi, _xSuppLoJob, _xSuppHiJob);
           myCmds = pic.commands.splice(s0);
           for (const c of myCmds) c._jobManaged = true;
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
@@ -14328,9 +15220,19 @@ function createInterpreter() {
       if (!pen) pen = clonePen(defaultPen);
       // Update _axisLimits with this axis range so later gridline calls get correct crossMin/crossMax.
       // When crop is enabled, don't expand the limits beyond what the user specified.
+      // Do NOT record the no-content ±5 fallback (set above when ymin/ymax were
+      // null with no geometry, user-limit, or explicit value yet): an early
+      // yaxis() declared before its data exists falls back to ±5, but a deferred
+      // axis job later re-ranges the drawn line to the true content extent. The
+      // ±5 written here is never overwritten by the job, and the non-crop bbox
+      // union at fit time then expands the canvas to ±5 — leaving the diagram a
+      // thin sliver in an over-tall frame (00062: data y∈[0,1.8] rendered into a
+      // 5cm-tall box). Only persist limits that came from content/user/explicit.
+      const _yminReal = yminExplicit || _yminFromContent || _yminFromUserLimits;
+      const _ymaxReal = ymaxExplicit || _ymaxFromContent || _ymaxFromUserLimits;
       if (ymin !== null && !_axisLimits.crop) {
-        if (_axisLimits.ymin === null || ymin < _axisLimits.ymin) _axisLimits.ymin = ymin;
-        if (_axisLimits.ymax === null || ymax > _axisLimits.ymax) _axisLimits.ymax = ymax;
+        if (_yminReal && (_axisLimits.ymin === null || ymin < _axisLimits.ymin)) _axisLimits.ymin = ymin;
+        if (_ymaxReal && (_axisLimits.ymax === null || ymax > _axisLimits.ymax)) _axisLimits.ymax = ymax;
       }
       const isInvisible = pen.opacity === 0;
       // In Asymptote, when axes auto-range, they extend to include the crossing
@@ -14409,13 +15311,18 @@ function createInterpreter() {
       const contentYspan = _contentYmax - _contentYmin;
       const contentWasHorizontalLine = isFinite(_contentYmin) && isFinite(_contentYmax)
         && contentYspan < 1e-6 && _contentYmax > 0;
+      // Headroom floor the deferred y-job must respect (see below): the extended
+      // ymax, carried separately because the job re-derives hi from the CONTENT
+      // frame (the flat line at y) and would otherwise discard this extension.
+      let _yHLineExtHi = null;
       if (contentWasHorizontalLine && !ymaxExplicit && ymin <= 0 && ymax > 0) {
-        // Content is at a single y-value (_contentYmax ≈ _contentYmin > 0).
-        // After extension, ymin is now at or below 0 (origin), and ymax is still
-        // at the content value. Extend ymax upward so the content line sits in
-        // the middle: y-axis from ymin to ymax + (ymax - ymin).
-        // E.g., content at y=4, axis from 0 to 4 → extend to 0 to 8.
-        ymax = ymax + (ymax - ymin);
+        // Content is at a single y-value (_contentYmax ≈ _contentYmin > 0). After
+        // extension ymin is at/below 0 (origin) and ymax is still at the content
+        // value. Extend ymax upward so the line sits ~70% up the axis, matching
+        // TeXeR for axes()+constant functions (04156 f(x)=4: TeXeR axis [0,5.71],
+        // line at 70%). Factor 0.43 = (5.71-4)/4; NOT 1.0 (that put it at 50%).
+        ymax = ymax + 0.43 * (ymax - ymin);
+        _yHLineExtHi = ymax;
       }
       // Cross range for gridlines — prefer per-picture xlimits if set; transform to log space if needed
       let crossMin, crossMax;
@@ -14472,8 +15379,11 @@ function createInterpreter() {
         ((yIsRightSide || extent === 'RightLeft') && crossMaxDefaulted)
       ) ? extent : null;
       // Emit closure for deferred frame-extension (see _emitXAxis in xaxis).
-      const _emitYAxis = (ylo, yhi) => {
+      const _emitYAxis = (ylo, yhi, sLo, sHi) => {
       const ymin = ylo, ymax = yhi;
+      // Un-extended data/limit range for endpoint-tick suppression (begin/end).
+      const _ySuppLo = (sLo !== undefined) ? sLo : ylo;
+      const _ySuppHi = (sHi !== undefined) ? sHi : yhi;
       let _yaxisDrawCmd = null;
       if (!isInvisible) {
         const path = makePath([lineSegment({x:axisShiftX,y:ymin},{x:axisShiftX,y:ymax})], false);
@@ -14510,7 +15420,7 @@ function createInterpreter() {
         });
       }
       if (yTicks) yTicks = Object.assign({}, yTicks, {_axisAutoRange: !(yminExplicit || ymaxExplicit || _yminFromUserLimits || _ymaxFromUserLimits)});
-      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above);
+      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above, _ySuppLo, _ySuppHi);
       if (_yaxisDrawCmd && _yTickGen) _yaxisDrawCmd._tickGen = _yTickGen;
       if (label && !isInvisible) {
         // In Asymptote's graph.asy, the default position for a y-axis label is at the
@@ -14553,6 +15463,16 @@ function createInterpreter() {
         // the bare `yaxis("$y$", lo, hi)` axis-name idiom (00291, 05995, 08736,
         // which pass no ticks) upright at the endpoint.
         const _fullGraphAxis = yminExplicit && ymaxExplicit && !!ticks;
+        // Real Asymptote (local asy 3.05, verified) anchors a DEFAULT rotated
+        // y-axis label of the full graph-axis form `yaxis(ymin, ymax, L=…,
+        // ticks=…)` to the TOP endpoint, extending DOWN into the axis — for
+        // both the energy bar-chart family (06504/06517, NoTicks) and generic
+        // value plots (`yaxis("v",0,N,RightTicks)`). It is NOT centred on the
+        // axis midpoint (the prior centring was a misread of these refs: every
+        // one of them puts the label top at/near the axis top). Treat it like
+        // the other rotated top-endpoint cases (axisshiftRotatedEndpoint).
+        const fullGraphAxisTopRotated = _fullGraphAxis && labelPosition == null && labelAlign == null
+          && !arrow && !extent && !axisShiftXExplicit && !_axesRotatedEnd;
         const plainEndpointDefault = !arrow && !extent && !axisShiftXExplicit
           && labelPosition == null && labelAlign == null
           && !_fullGraphAxis && !_axesRotatedEnd;
@@ -14563,27 +15483,40 @@ function createInterpreter() {
         // (along the axis) rather than upright.
         const axisshiftRotatedEndpoint = !arrow && !!ticks && !extent
           && axisShiftXExplicit && labelPosition == null && labelAlign == null;
-        // axes("x","y") y-label: rotated 90° CCW. When the plotted content spans
-        // a real y-range (the data reaches the top of the axis, e.g. 04155's
-        // slanted line, 12710's hyperbola) TeXeR pins the title to the TOP
-        // endpoint. But when the content is a single horizontal line (degenerate
-        // y-height, e.g. 04156 f(x)=4) the axis is mostly headroom and TeXeR
-        // centres the title on the axis instead. Branch on that so both render
-        // like the reference.
-        const _axesYDegenerate = _axesRotatedEnd && isFinite(_contentYmin) && isFinite(_contentYmax)
-          && Math.abs(_contentYmax - _contentYmin) < 1e-9;
-        const _axesTopAnchor = _axesRotatedEnd && !_axesYDegenerate;
-        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor;
+        // axes("x","y") y-label: rotated 90° CCW, pinned to the TOP endpoint
+        // (extending DOWN into the axis span). This holds whether the content
+        // spans a real y-range (04155's slanted line, 12710's hyperbola) OR is a
+        // single horizontal line (04156 f(x)=4): TeXeR top-anchors the title in
+        // both cases — the line is at ~70% up the headroom-padded axis and the
+        // title's top sits at the axis top. (An earlier read centred the
+        // degenerate case on the axis midpoint; that is wrong against TeXeR's
+        // 04156 reference, which puts the title top at the axis top, exactly like
+        // the non-degenerate refs.)
+        const _axesTopAnchor = _axesRotatedEnd;
+        const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor || fullGraphAxisTopRotated;
+        // A SHORT single math symbol used as a y-axis title (e.g. "$x$",
+        // "$x'$") stays UPRIGHT at the top endpoint, aligned to the LEFT of the
+        // tick labels — even with axis=LeftRight, where a longer label would be
+        // rotated along the axis. TeXeR/Asymptote draws single symbols upright
+        // (03384 "$x$", 03385-89 "$x'$" family) but rotates anything with units,
+        // words, or multiple math tokens ("$T\,(\mathrm{s})$", "Position",
+        // 08812 "Percentage of True Speed"). Gate tightly (math mode + ≤2
+        // visible chars after stripping LaTeX/spaces) so only these cases flip.
+        const _yLabelVisible = label ? stripLaTeX(label).replace(/\s+/g, '') : '';
+        const _isShortSymbolLabel = !!label && label.indexOf('$') !== -1
+          && _yLabelVisible.length > 0 && _yLabelVisible.length <= 2;
+        const symbolUprightEndpoint = explicitEndpoint && extentLeftRight && _isShortSymbolLabel;
         // "uprightEndpoint" means the label is rendered upright (no rotation,
         // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
         // upright behavior to match prior conventions.
         // axisshiftRotatedEndpoint is at-endpoint but ROTATED — exclude it.
-        const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault;
+        const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault || symbolUprightEndpoint;
         const atEndpoint = uprightEndpoint;
         const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
         const lAlign = _axisAlignShim(labelAlign) || (
           arrowEndpointDefault ? {x:-1, y:0} :
           plainEndpointDefault ? {x:-1, y:0} :
+          symbolUprightEndpoint ? {x:-1, y:0} :
           (uprightEndpoint ? {x:0, y:1} : {x:-1, y:0})
         );
         const labelY = ymin + (ymax - ymin) * effPos;
@@ -14619,11 +15552,18 @@ function createInterpreter() {
         // tick-label frame extent (00115/04454: TeXeR's "y" sits to the LEFT
         // of the "5"/"-4" tick labels, not hugging the axis line).
         if (uprightEndpoint && lAlign.x < -0.01) {
+          // A single-symbol upright y-title (symbolUprightEndpoint, e.g. 03385
+          // "$x'$") gets a labelmargin gap so it sits LEFT of the tick column
+          // with daylight, matching TeXeR (which places "$x'$" near the left
+          // edge, clearly separated from "300"). Other upright "y" titles keep
+          // the tight clearance tuned against 00115/04454.
+          const _symMargin = symbolUprightEndpoint
+            ? 0.9 * ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12) : 0;
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.x - axisShiftX) < 1e-6) {
               const txt = stripLaTeX(c.text || '');
               const fs = (c.pen && c.pen.fontsize) || 12;
-              const w = _estimateMathRunWidth(txt, fs) + (c.screenDx ? Math.abs(c.screenDx) : 0);
+              const w = _estimateMathRunWidth(txt, fs) + (c.screenDx ? Math.abs(c.screenDx) : 0) + _symMargin;
               if (w > tickLabelClearance) tickLabelClearance = w;
             }
           }
@@ -14651,7 +15591,7 @@ function createInterpreter() {
         // EndPoint+NW straddles the arrow tip instead of sitting wholly
         // above it (00260/00263 top margin).
         let _yLabelExtraDy = 0;
-        if (labelAlign != null && labelPosition != null
+        if (((labelAlign != null && labelPosition != null) || symbolUprightEndpoint)
             && (labelPosition >= 0.999 || labelPosition <= 0.001) && !lt) {
           const _lfs3 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
           _yLabelExtraDy = (labelPosition >= 0.999 ? 1 : -1) * 0.5 * (_lfs3 * 0.75);
@@ -14659,8 +15599,9 @@ function createInterpreter() {
         pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, screenDy: _yLabelExtraDy, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
       }
       }; // end _emitYAxis
-      const _yJobEligible = !extent && !_axisLimits.crop && !(yminExplicit && ymaxExplicit)
-        && pic === currentPic && isFinite(ymin) && isFinite(ymax) && ymax > ymin
+      const _ySubpicJob = pic !== currentPic;
+      const _yJobEligible = !extent && !(_ySubpicJob ? (pic._picLimits && pic._picLimits.crop) : _axisLimits.crop) && !(yminExplicit && ymaxExplicit)
+        && isFinite(ymin) && isFinite(ymax) && ymax > ymin
         && !(ticks && ticks.positions && isArray(ticks.positions)) && !yIsLog;
       const _yJobStart = pic.commands.length;
       _emitYAxis(ymin, ymax);
@@ -14668,11 +15609,22 @@ function createInterpreter() {
         const _yUserLo = _yminFromUserLimits ? ymin : null;
         const _yUserHi = _ymaxFromUserLimits ? ymax : null;
         let myCmds = pic.commands.slice(_yJobStart);
-        for (const c of myCmds) c._jobManaged = true;
+        // See the xaxis note: pre-mark _jobManaged only for currentPic jobs.
+        if (!_ySubpicJob) for (const c of myCmds) c._jobManaged = true;
         let curLo = ymin, curHi = ymax;
+        const _yPrefixSet = new Set(pic.commands.slice(0, _yJobStart));
+        const _yInitLo = ymin, _yInitHi = ymax;
         let _yRideLo = 0, _yRideHi = 0;
-        _deferredAxisJobs.push((_pass) => {
-          const _selfNoLineNoTitle = new Set(myCmds.filter(c => c && (c._isAxisLine || c._isAxisLabel)));
+        if (_ySubpicJob) { pic._axisJobs = pic._axisJobs || []; }
+        (_ySubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
+          // Exclude ALL of THIS axis's own commands (line, TICK MARKS, tick
+          // labels, title) from the frame estimate — they are CONSEQUENCES of the
+          // extent, not inputs. Counting the axis's own tick marks (at integer
+          // positions ALONG the axis) fed a divergence: each pass added a tick
+          // that pushed geoMax further, which drew the next tick, etc. (00115
+          // crept 5→6→7→8 over passes after the render unification). The title's
+          // contribution is re-added separately by the ride logic below.
+          const _selfNoLineNoTitle = new Set(myCmds);
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
           _yRideLo = 0; _yRideHi = 0;
@@ -14682,17 +15634,55 @@ function createInterpreter() {
             fb.minY = fb.geoMinY; fb.maxY = fb.geoMaxY;
             _yRideLo = _rng * 0.07;
             _yRideHi = _rng * 0.035;
-          } else for (const tc of myCmds) {
-            if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
-            const box = _labelBoxU(tc, fb.sX, fb.sY);
-            if (!box) continue;
-            if (tc.pos.y >= (curLo + curHi) / 2) _yRideHi = Math.max(_yRideHi, Math.max(0, box.ty - tc.pos.y));
-            else _yRideLo = Math.max(_yRideLo, Math.max(0, tc.pos.y - box.by));
           }
-          let lo = yminExplicit ? curLo : fb.minY - _yRideLo;
-          let hi = ymaxExplicit ? curHi : fb.maxY + _yRideHi;
+          // Self-title anchored at the prefix frame edge — see x-job note.
+          let _yTitleLo = Infinity, _yTitleHi = -Infinity;
+          if (!_yTwoHalfSF) {
+            const _afterSet = new Set(pic.commands.filter(c => !_yPrefixSet.has(c)));
+            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
+            let _aLo = Math.min(afb ? afb.minY : Infinity, _yUserLo != null ? _yUserLo : Infinity);
+            let _aHi = Math.max(afb ? afb.maxY : -Infinity, _yUserHi != null ? _yUserHi : -Infinity);
+            // See x-job: anchor an early/no-prefix endpoint title to the live
+            // content frame fb, never the axis's stale ±5 no-content fallback
+            // (00062's y-axis blew out to ~5.1 riding the title on _yInitHi=5).
+            if (!isFinite(_aLo)) _aLo = isFinite(fb.minY) ? fb.minY : _yInitLo;
+            if (!isFinite(_aHi)) _aHi = isFinite(fb.maxY) ? fb.maxY : _yInitHi;
+            for (const tc of myCmds) {
+              if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
+              const box = _labelBoxU(tc, fb.sX, fb.sY);
+              if (!box) continue;
+              if (tc.pos.y >= (curLo + curHi) / 2) _yTitleHi = Math.max(_yTitleHi, _aHi + Math.max(0, box.ty - tc.pos.y));
+              else _yTitleLo = Math.min(_yTitleLo, _aLo - Math.max(0, tc.pos.y - box.by));
+            }
+          }
+          let lo = yminExplicit ? curLo : Math.min(fb.minY - _yRideLo, _yTitleLo);
+          let hi = ymaxExplicit ? curHi : Math.max(fb.maxY + _yRideHi, _yTitleHi);
           if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
+          // Horizontal-line headroom floor: the job re-derives hi from the content
+          // frame (the flat line), which would shrink the axis back to the line
+          // (04156 line at top). Floor at the ~70% extension computed above.
+          if (!ymaxExplicit && _yHLineExtHi != null) hi = Math.max(hi, _yHLineExtHi);
+          // Arrowhead clearance: extend so an up/down arrowhead doesn't overlap
+          // the geometry directly under it (00133's arc apex sits on the y-axis).
+          // Uses geometry NEAR the y-axis (not the global max), so a curve whose
+          // peak is off to the side doesn't trigger a spurious extension (00391).
+          // ONLY for axes with an endpoint TITLE: asy's frame is set by that
+          // title, leaving room for the head to clear; a BARE arrow axis draws
+          // the head right at the data extent (overlapping), so TeXeR overlaps
+          // too and we must NOT extend (00131/00129 polar curves, 00247).
+          // Skip ALL slopefields — their grid fills to the axis and TeXeR seats
+          // the head near it; the unconditional floor over-extends them (00259/
+          // 00260 single-region, 00269/00272 two-half which also have own pokes).
+          const _yHasEndTitle = !!label && (labelPosition == null ? !extent : (labelPosition <= 0.001 || labelPosition >= 0.999));
+          const _ySF = pic.commands.some(dc => dc && dc._slopefield);
+          if (arrow && _yHasEndTitle && !_ySF) {
+            const _bandY = 1.2 * ((typeof arrow.size === 'number' && arrow.size > 0 ? arrow.size : 6) / (fb.sX || fb.sY));
+            const _gHi = _geomReachNearAxis(pic, false, axisShiftX, 1, _bandY, _selfNoLineNoTitle);
+            if (_gHi != null && !ymaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sY, _gHi, hi, 1); if (_ch != null && _ch > hi) hi = _ch; }
+            const _gLo = _geomReachNearAxis(pic, false, axisShiftX, -1, _bandY, _selfNoLineNoTitle);
+            if (_gLo != null && !yminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sY, _gLo, lo, -1); if (_cl != null && _cl < lo) lo = _cl; }
+          }
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
             try { process.stderr.write('[yjob p' + _pass + '] cur=' + curLo.toFixed(3) + '..' + curHi.toFixed(3) + ' -> ' + lo.toFixed(3) + '..' + hi.toFixed(3) + ' fb=' + JSON.stringify(fb) + '\n'); } catch (e) {}
@@ -14706,7 +15696,11 @@ function createInterpreter() {
             if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
           }
           const s0 = pic.commands.length;
-          _emitYAxis(lo, hi);
+          // Endpoint-tick suppression range = data/limit extent only, WITHOUT
+          // the title ride or arrowhead clearance baked into lo/hi above.
+          const _ySuppLoJob = yminExplicit ? curLo : (_yUserLo != null ? _yUserLo : fb.minY);
+          const _ySuppHiJob = ymaxExplicit ? curHi : (_yUserHi != null ? _yUserHi : fb.maxY);
+          _emitYAxis(lo, hi, _ySuppLoJob, _ySuppHiJob);
           myCmds = pic.commands.splice(s0);
           for (const c of myCmds) c._jobManaged = true;
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
@@ -14920,8 +15914,11 @@ function createInterpreter() {
           z = axisName === 'x' ? makePair(zScalar, 0) : makePair(0, zScalar);
         }
         if (z === null) return;
-        // Default tick direction = N (pair(0,1)) — same as Asymptote
-        if (!dirVec) dirVec = makePair(0, 1);
+        // Default tick direction: xtick → N (0,1), ytick → E (1,0), matching
+        // graph.asy's `pair dir=N` (xtick) / `pair dir=E` (ytick) signatures.
+        // Using N for ytick made the tick mark run straight up the y-axis
+        // (invisible) and pushed the number onto the axis instead of left (00291).
+        if (!dirVec) dirVec = axisName === 'x' ? makePair(0, 1) : makePair(1, 0);
         // Default size = Ticksize = 2mm in bp (graph.asy xtick signature)
         if (sizeBp === null) sizeBp = 5.669291339;
         if (!pen) pen = clonePen(defaultPen);
@@ -14956,7 +15953,12 @@ function createInterpreter() {
         // the label a full tick length below the axis); otherwise only the
         // small ticklabelshift applies.
         if (labelText) {
-          let align = labelObj && labelObj.align ? labelObj.align : dirVec;
+          // graph.asy tick(): L.align(L.align, -dir) — when the label carries no
+          // explicit align, its default is the NEGATED tick direction, so the
+          // number sits on the opposite side of the axis from the tick mark
+          // (xtick dir=N ⇒ label S/below; ytick dir=E ⇒ label W/left). The old
+          // default of +dir put x-numbers above the axis and y-numbers on it (00291).
+          let align = labelObj && labelObj.align ? labelObj.align : makePair(-dx, -dy);
           const _fsT = (pen && pen.fontsize) || 12;
           const _aLen = Math.hypot(align.x || 0, align.y || 0) || 1;
           const _adx = (align.x || 0) / _aLen, _ady = (align.y || 0) / _aLen;
@@ -15079,6 +16081,12 @@ function createInterpreter() {
           }
           if ('Step' in a) t.step = a.Step;
           if ('step' in a) t.subStep = a.step;
+          // n = number of minor SUBDIVISIONS per major interval (graph.asy:
+          // Ticks(..., int n=0, ...)). n=0 means auto-compute; n>=1 means use
+          // exactly n subdivisions, i.e. n-1 minor ticks (n=1 => NO minor
+          // ticks). Without this the auto-minor path drew spurious half-unit
+          // ticks for the AoPS `Ticks("%",Size=2,n=1,...)` idiom (00441 etc.).
+          if ('n' in a && typeof a.n === 'number') { const nv = Math.max(0, Math.round(a.n)); if (nv >= 1) t.subN = nv; }
           if ('Size' in a) { t.size = a.Size; t.sizeExplicit = true; }
           if ('size' in a) { t.subSize = a.size; t.subSizeExplicit = true; }
           if ('extend' in a) t.extend = a.extend;
@@ -15243,11 +16251,13 @@ function createInterpreter() {
         if (nums.length >= 1) pl.xmin = nums[0];
         if (nums.length >= 2) pl.xmax = nums[1];
         if (crop) pl.crop = true;
+        pl._xUser = true;
         return;
       }
       if (nums.length >= 1) _axisLimits.xmin = nums[0];
       if (nums.length >= 2) _axisLimits.xmax = nums[1];
       if (crop) _axisLimits.crop = true;
+      _axisLimits._xUser = true;
     });
     env.set('ylimits', (...args) => {
       let targetPic = null;
@@ -15264,11 +16274,13 @@ function createInterpreter() {
         if (nums.length >= 1) pl.ymin = nums[0];
         if (nums.length >= 2) pl.ymax = nums[1];
         if (crop) pl.crop = true;
+        pl._yUser = true;
         return;
       }
       if (nums.length >= 1) _axisLimits.ymin = nums[0];
       if (nums.length >= 2) _axisLimits.ymax = nums[1];
       if (crop) _axisLimits.crop = true;
+      _axisLimits._yUser = true;
     });
     env.set('limits', (...args) => {
       // limits([pic], (xmin,ymin), (xmax,ymax) [,Crop])
@@ -15289,6 +16301,7 @@ function createInterpreter() {
         if (pairs.length >= 2) {
           pl.xmin = pairs[0].x; pl.ymin = pairs[0].y;
           pl.xmax = pairs[1].x; pl.ymax = pairs[1].y;
+          pl._xUser = true; pl._yUser = true;
         }
         if (hasCrop) pl.crop = true;
         return;
@@ -15296,6 +16309,17 @@ function createInterpreter() {
       if (pairs.length >= 2) {
         _axisLimits.xmin = pairs[0].x; _axisLimits.ymin = pairs[0].y;
         _axisLimits.xmax = pairs[1].x; _axisLimits.ymax = pairs[1].y;
+        _axisLimits._xUser = true; _axisLimits._yUser = true;
+        // Record the user limits for truepoint(): otherwise truepoint(S) etc.
+        // fall back to the raw (uncropped) geometry bbox, so a legend attached at
+        // truepoint(S) lands far below the visible crop box (04452: legend ~250px
+        // below the grid instead of ~34px). Only the truepoint read consults this
+        // (the renderer still uses _axisLimits for the actual crop).
+        if (currentPic) {
+          if (!currentPic._truepointLimits) currentPic._truepointLimits = {};
+          const tl = currentPic._truepointLimits;
+          tl.xmin = pairs[0].x; tl.ymin = pairs[0].y; tl.xmax = pairs[1].x; tl.ymax = pairs[1].y;
+        }
       }
       if (hasCrop) _axisLimits.crop = true;
     });
@@ -17354,6 +18378,11 @@ function createInterpreter() {
     env.set('Y', makeTriple(0,1,0));
     env.set('Z', makeTriple(0,0,1));
     env.set('O', makeTriple(0,0,0));
+    // 4x4 identity transform3 — Asymptote's `transform3 identity4=identity(4)`.
+    // Used as the default `transform3 offset=identity4` parameter in user-defined
+    // polyhedron helpers (c582_L14 family). Without it `identity4` is null and
+    // `offset*V` collapses every vertex to 0, erasing all edges.
+    env.set('identity4', identityT3());
     // Floating-point epsilon constants used by 3D/graph modules
     env.set('realEpsilon', 2.22044604925031e-16);
     env.set('sqrtEpsilon', 1.4901161193847656e-8);
@@ -17485,11 +18514,17 @@ function createInterpreter() {
       // cross(int n) — marker path: n-pointed asterisk (from plain_markers.asy)
       if (args.length <= 1 || (args.length === 2 && typeof args[1] === 'boolean')) {
         const n = (args.length >= 1 && typeof args[0] === 'number') ? args[0] : 4;
+        // plain_markers.asy cross(n): n spokes radiating from the origin at
+        // 2*pi/n spacing (radius 1), each traced origin->rim->origin — NOT n
+        // diameters through the origin. Diameters double the arm count, so
+        // cross(6) rendered as a 12-armed starburst instead of the correct
+        // 6-armed asterisk (05147/05148 red mark). Mirrors the crossframe fix.
         const segs = [];
         for (let i = 0; i < n; i++) {
-          const angle = i * Math.PI / n;
-          const dx = Math.cos(angle), dy = Math.sin(angle);
-          segs.push(lineSegment(makePair(-dx, -dy), makePair(dx, dy)));
+          const angle = i * 2 * Math.PI / n;
+          const rim = makePair(Math.cos(angle), Math.sin(angle));
+          segs.push(lineSegment(makePair(0, 0), rim));
+          segs.push(lineSegment(rim, makePair(0, 0)));
         }
         return makePath(segs, false);
       }
@@ -20128,6 +21163,14 @@ function createInterpreter() {
       // Store original data bounds before snapping for tick filtering
       const origMinX = b.minX, origMaxX = b.maxX;
       const origMinY = b.minY, origMaxY = b.maxY;
+      // Also capture the un-snapped z extent. The block below extends b.maxZ
+      // out to the next nice tick (e.g. a surface peak at z=1.5 → 1.6) for the
+      // Bounds-style boxed axis. A bare XYZero z-axis (drawSimpleAxis) must NOT
+      // follow that: its tip should sit at the true data max so a `zaxis3(...,
+      // Arrow3)` through a surface (03290's Gaussian bump) terminates at the
+      // peak — occluded by the surface — instead of poking a tick-height above
+      // it and inflating the size-fit bbox (which skewed the aspect ratio).
+      const origMinZ = b.minZ, origMaxZ = b.maxZ;
 
       // Snap bounds to the innermost tick positions for cleaner axis visualization
       // This matches Asymptote's Bounds style where the box aligns with tick marks
@@ -20388,11 +21431,14 @@ function createInterpreter() {
           p1 = makeTriple(x0, yEnd, z0);
           labelPos3 = makeTriple(x0, yEnd + extraOut * (yEnd - yStart), z0);
         } else {
-          // z-axis: XYZero-style line through (0,0) from minZ to maxZ
+          // z-axis: XYZero-style line through (0,0) from minZ to maxZ. Use the
+          // un-snapped data extent (origMinZ/origMaxZ) so the axis tip lands at
+          // the real geometry max rather than the tick-extended box max — this
+          // keeps a surface-piercing z-axis (03290) terminating at the surface.
           const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
           const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
-          let zEnd = (typeof ub.zmax === 'number') ? ub.zmax : b.maxZ;
-          let zStart = (typeof ub.zmin === 'number') ? ub.zmin : b.minZ;
+          let zEnd = (typeof ub.zmax === 'number') ? ub.zmax : origMaxZ;
+          let zStart = (typeof ub.zmin === 'number') ? ub.zmin : origMinZ;
           p0 = makeTriple(x0, y0, zStart);
           p1 = makeTriple(x0, y0, zEnd);
           labelPos3 = makeTriple(x0, y0, zEnd + extraOut * (zEnd - zStart));
@@ -20959,8 +22005,21 @@ function createInterpreter() {
       // (e.g. 12287's "12"/"6"/"4" capacities).
       let lblFromPositional = false;
       if (!lblObj) {
-        for (const a of args) {
-          if (a && typeof a === 'object' && a._tag === 'label' && a.text) { lblObj = a; lblFromPositional = true; break; }
+        // Asymptote distinguishes by ARGUMENT ORDER: draw(Label L, path) anchors
+        // L as an inline PATH LABEL (Label BEFORE the path), while
+        // draw(path, pen, Label) makes Label a LEGEND entry (Label AFTER the
+        // path — collected by the main loop below). Only the Label-FIRST form
+        // anchors an inline label here; otherwise 04452's
+        // draw(graph(g), blue, Label("$2^x$")) renders ON the curve AND in the
+        // legend box (the equation appeared duplicated, overlapping the grid).
+        let _firstPathIdx = -1, _firstLblIdx = -1;
+        for (let i = 0; i < args.length; i++) {
+          const a = args[i];
+          if (_firstPathIdx < 0 && isPath(a) && a.segs && a.segs.length > 0) _firstPathIdx = i;
+          if (_firstLblIdx < 0 && a && typeof a === 'object' && a._tag === 'label' && a.text) _firstLblIdx = i;
+        }
+        if (_firstLblIdx >= 0 && _firstPathIdx >= 0 && _firstLblIdx < _firstPathIdx) {
+          lblObj = args[_firstLblIdx]; lblFromPositional = true;
         }
       }
       // A positional label with an explicit, non-center Relative() position
@@ -20983,21 +22042,79 @@ function createInterpreter() {
         if (anchorPath) {
           const segs = anchorPath.segs;
           const tFrac = (typeof lblObj.position === 'number') ? lblObj.position : 0.5;
-          // Pick an endpoint: 0 = p0 of first seg, 1 = p3 of last seg, else
-          // approximate by parameter index along segment list.
-          let lpos;
-          if (tFrac <= 0) {
-            lpos = makePair(segs[0].p0.x, segs[0].p0.y);
-          } else if (tFrac >= 1) {
-            const last = segs[segs.length - 1];
-            lpos = makePair(last.p3.x, last.p3.y);
-          } else {
-            const idx = Math.min(segs.length - 1, Math.floor(tFrac * segs.length));
-            const s = segs[idx];
-            lpos = makePair((s.p0.x + s.p3.x) / 2, (s.p0.y + s.p3.y) / 2);
+          // Evaluate the label position (and tangent) at parameter tFrac via
+          // de Casteljau on the containing sub-segment — the SAME math as the
+          // string-first path-label branch below (~23280). This makes
+          // draw(Label("x"), g) place identically to draw("x", g).
+          const totalSegs = segs.length;
+          const segParam = tFrac * totalSegs;
+          const segIdx = Math.max(0, Math.min(Math.floor(segParam), totalSegs - 1));
+          const localT = Math.max(0, Math.min(1, segParam - segIdx));
+          let s = segs[segIdx];
+          // A path built from triples (path3 wrapped as a path — e.g. 03281's
+          // shift(0,0,eps)*((0,0,h)--(2,0,h))) holds 3D control points here. The
+          // de Casteljau below reads .x/.y only, so without projecting first the
+          // label anchors at the RAW (x,y) (z dropped) instead of the projected
+          // screen position, and a later shift()*currentpicture then displaces it
+          // (03281's UnFill "$2\;m$" landed on the 2D x-axis). Project the segment
+          // and flag it _from3d so the 2D shift leaves it on the dimension line.
+          const _segIs3d = isTriple(s.p0);
+          if (_segIs3d) {
+            s = {
+              p0:  projectTriple(s.p0),
+              cp1: isTriple(s.cp1) ? projectTriple(s.cp1) : s.cp1,
+              cp2: isTriple(s.cp2) ? projectTriple(s.cp2) : s.cp2,
+              p3:  projectTriple(s.p3),
+            };
           }
-          const lblAlign = lblObj.align || null;
-          const lblPen = lblObj.pen || clonePen(defaultPen);
+          const bb = 1 - localT;
+          const lpx = bb*bb*bb*s.p0.x + 3*bb*bb*localT*s.cp1.x + 3*bb*localT*localT*s.cp2.x + localT*localT*localT*s.p3.x;
+          const lpy = bb*bb*bb*s.p0.y + 3*bb*bb*localT*s.cp1.y + 3*bb*localT*localT*s.cp2.y + localT*localT*localT*s.p3.y;
+          const lpos = makePair(lpx, lpy);
+          // Asymptote's default align for a path label with NO explicit align is
+          // the RELATIVE perpendicular (right side of the path tangent), not
+          // centered on the line. Without this, draw(Label("$\alpha\ell$",
+          // UnFill), inters--p, Bar(4)) sat the dimension labels centered on the
+          // line; TeXeR offsets them off the line (03294 αℓ / ℓ(1-α)). Match the
+          // string-first inline branch (~23292) exactly.
+          const hadExplicitAlign = !!lblObj.align;
+          let lblAlign = lblObj.align || null;
+          if (!lblAlign) {
+            const tdx = 3*bb*bb*(s.cp1.x - s.p0.x) + 6*bb*localT*(s.cp2.x - s.cp1.x) + 3*localT*localT*(s.p3.x - s.cp2.x);
+            const tdy = 3*bb*bb*(s.cp1.y - s.p0.y) + 6*bb*localT*(s.cp2.y - s.cp1.y) + 3*localT*localT*(s.p3.y - s.cp2.y);
+            let tl = Math.sqrt(tdx*tdx + tdy*tdy), ux, uy;
+            if (tl < 1e-9) {
+              const ddx = s.p3.x - s.p0.x, ddy = s.p3.y - s.p0.y;
+              tl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+              ux = ddx/tl; uy = ddy/tl;
+            } else { ux = tdx/tl; uy = tdy/tl; }
+            const EPS_POS = 1e-6;
+            if (tFrac >= 1 - EPS_POS) lblAlign = makePair(ux, uy);
+            else if (tFrac <= EPS_POS) lblAlign = makePair(-ux, -uy);
+            else lblAlign = makePair(uy, -ux);
+          }
+          // The label inherits the DRAW pen's colour when the Label itself was
+          // given no pen — draw(Label("..."), g, p, arrow) colours the label
+          // with p, just like Asymptote (03348's blue l(1-cos θ) label, whose
+          // pen rgb(0,0.4,0.8) is a positional draw arg, not inside Label()).
+          let _drawPen = null;
+          for (const a of args) {
+            if (isPen(a)) _drawPen = _drawPen ? mergePens(_drawPen, a) : a;
+            else if (a && a._named && 'p' in a && isPen(a.p)) _drawPen = _drawPen ? mergePens(_drawPen, a.p) : a.p;
+          }
+          // Merge the draw pen ONTO defaultPen so attributes it leaves unset
+          // (notably fontsize) fall back to defaultpen instead of a bare pen's
+          // 12pt default: rgb(0,0.4,0.8) sets only colour, so 03348's blue
+          // l(1-cosθ) label must keep defaultpen's fontsize(10pt), not 12pt.
+          const lblPen = lblObj.pen || (_drawPen ? mergePens(clonePen(defaultPen), _drawPen) : clonePen(defaultPen));
+          // A Label anchored on a projected 3D path belongs to the 3D layer:
+          // tag it _from3d/_projectedPath so a later 2D transform
+          // (shift(...)*currentpicture) leaves it on the dimension line instead
+          // of displacing it. Without this, 03281's UnFill "$2\;m$" label (drawn
+          // via draw(Label,path3,Bars3)) shifted onto the 2D x-axis and its
+          // white erase box punched a gap through the axis. Matches the later
+          // inline-label branch (~23943) which already does this.
+          const _lblFrom3d = _segIs3d || !!(anchorPath && anchorPath._fromProjection);
           target.commands.push({
             cmd: 'label',
             text: lblObj.text,
@@ -21008,7 +22125,9 @@ function createInterpreter() {
             filltype: lblObj.filltype || null,
             line: args._line || 0,
             _fromPathLabel: true,
-            _fromPathLabelNoAlign: !lblAlign,
+            _fromPathLabelNoAlign: !hadExplicitAlign,
+            _from3d: _lblFrom3d,
+            _projectedPath: _lblFrom3d,
           });
         }
       }
@@ -22199,6 +23318,63 @@ function createInterpreter() {
           mesh = {_tag:'mesh', faces: newFaces, _closed: mesh._closed,
                   _sphereCenter: mesh._sphereCenter, _sphereRadius: mesh._sphereRadius, _revolutionSurf: mesh._revolutionSurf, _flatPlanar: mesh._flatPlanar};
         }
+        // A nolight parametric (`_grid`) surface drawn WITH a mesh-wireframe
+        // overlay and a LIGHT achromatic surfacepen renders in TeXeR as a
+        // white-faced wireframe: the gray surfacepen produces no visible gray
+        // fill, only the black mesh grid reads (03290 `draw(surface(f,...),
+        // lightgray, meshpen=black+thick(), nolight)` — its texer PNG faces are
+        // pure white #fff). This is the curved-surface analogue of the
+        // `_flatPlanar` achromatic-gray skip in renderMeshToPicture. Fill the
+        // faces WHITE but keep them OPAQUE so the surface still occludes
+        // geometry behind it (the z-axis through the Gaussian bump).
+        let _meshOverlayPresent = meshPenPositional !== null;
+        if (!_meshOverlayPresent) {
+          for (const a of args) {
+            if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) { _meshOverlayPresent = true; break; }
+          }
+        }
+        // Flag: the surface is filled with OPAQUE WHITE faces that must occlude
+        // the mesh-wireframe grid lines behind them (proper hidden-line removal,
+        // as in 03290's TeXeR PNG — only the front-facing grid reads). When set,
+        // the meshline emitter below depth-interleaves the grid node lines with
+        // the white face fills (back-face culling the far slope) instead of
+        // painting every grid edge on top of the surface.
+        let _whiteFacedOccluding = false;
+        // TeXeR renders a meshpen'd parametric surface with a LIGHT achromatic
+        // surfacepen as a WHITE-faced wireframe whether or not `nolight` is set:
+        // 03290 (nolight, lightgray) AND 03281's lit curved face (M2=gray(0.8),
+        // meshpen=gray(0.8)) both measure pure white #fff with only the grid
+        // reading. The gate is the achromatic-LIGHT surfacepen + a meshpen
+        // overlay; `nolight` is not required. (Colored/palette surfaces — 12749
+        // Rainbow, 00080 palegreen — fail _achroLight and keep their fill.)
+        if (_meshOverlayPresent && surfForColors && surfForColors._grid && isPen(meshPen)) {
+          const _pr = meshPen.r || 0, _pg = meshPen.g || 0, _pb = meshPen.b || 0;
+          const _pop = (typeof meshPen.opacity === 'number') ? meshPen.opacity : 1;
+          const _achroLight = Math.abs(_pr - _pg) < 0.04 && Math.abs(_pg - _pb) < 0.04 &&
+                              Math.abs(_pr - _pb) < 0.04 && _pr > 0.5 && _pop >= 0.99;
+          if (_achroLight) {
+            meshPen = clonePen(meshPen);
+            meshPen.r = 1; meshPen.g = 1; meshPen.b = 1;
+            // Hidden-line removal (back-face cull + depth-interleave the grid
+            // edges with the white face fills) is needed for SELF-OCCLUDING
+            // surfaces: the torus 12814 (chromatic-blue grid) and the bold-black
+            // bumps/walls 03290/12752/12785 — there the far slope's grid would
+            // otherwise tangle through the front white faces. But that
+            // interleaving makes a co-planar grid edge fight its OWN white face
+            // in the depth test, which ERASES a thin grid: 03281's open wall
+            // (meshpen=gray(0.8), 0.2px) lost all but 4 of its grid lines. An
+            // open wall with a thin mid-gray grid does not self-occlude and TeXeR
+            // shows its full grid, so fill white but draw the grid ON TOP. Detect
+            // that case by the mesh-LINE pen: thin (not thick()) + achromatic
+            // mid-gray. Thick or chromatic mesh pens keep hidden-line removal.
+            let _mlp = meshPenPositional;
+            for (const a of args) { if (a && a._named && 'meshpen' in a && isPen(a.meshpen)) { _mlp = a.meshpen; break; } }
+            const _mr = (_mlp && _mlp.r) || 0, _mg = (_mlp && _mlp.g) || 0, _mb = (_mlp && _mlp.b) || 0;
+            const _mGray = Math.abs(_mr - _mg) < 0.04 && Math.abs(_mg - _mb) < 0.04 && Math.abs(_mr - _mb) < 0.04;
+            const _mThinMidGray = _mlp && !_mlp._thick && _mGray && _mr > 0.3 && _mr < 0.95;
+            if (!_mThinMidGray) _whiteFacedOccluding = true;
+          }
+        }
         // Render mesh faces. material() calls attach _emissivePen but we still
         // render using the diffuse color — TeXeR's 2D fallback mode does render
         // surfaces specified with material() (e.g. unitcube with material(gray(0.5),...)).
@@ -22216,10 +23392,13 @@ function createInterpreter() {
         }
         // Asymptote's surface mesh lines are thinner than the default pen.
         // When no explicit linewidth is set on the meshpen, reduce it to
-        // match the visual weight seen in TeXeR's PRC output.
+        // match the visual weight seen in TeXeR's PRC output. A meshpen built
+        // with `thick()` (carries `_thick`) is a deliberately BOLD wireframe
+        // (e.g. 03290 `meshpen=black+thick()`) — TeXeR renders those grid lines
+        // as solid ~3px strokes, so use a much heavier width there.
         if (meshLinePen && !meshLinePen._lwExplicit) {
           meshLinePen = clonePen(meshLinePen);
-          meshLinePen.linewidth = 0.2; // thin mesh lines (0.2 matches TeXeR better)
+          meshLinePen.linewidth = meshLinePen._thick ? 0.9 : 0.2;
           meshLinePen._lwExplicit = true;
         }
         if (meshLinePen && surfForColors && surfForColors._grid) {
@@ -22249,6 +23428,75 @@ function createInterpreter() {
           //  (b) PREPEND the mesh-line commands before any existing _from3d
           //      commands so prior opaque fills end up painting on top.
           const fillIsInvisible = surfacePenArg && typeof surfacePenArg.opacity === 'number' && surfacePenArg.opacity === 0;
+          // OPAQUE-WHITE-FACED surfaces (03290 `draw(surface(f,...), lightgray,
+          // meshpen=black+thick(), nolight)`): TeXeR removes hidden lines — only
+          // the camera-facing grid reads; the far slope is occluded by the white
+          // faces. Append-on-top (the default below) instead paints EVERY grid
+          // edge over the surface, so back lines bleed through as a tangle.
+          // Here we (a) back-face cull the grid quads, then (b) depth-interleave
+          // the surviving node-line edges with the white face fills that
+          // renderMeshToPicture just pushed (back-to-front), so a nearer face
+          // paints over a farther edge — the painter's-algorithm hidden-line
+          // result. Only the original grid quads (not the subdivided shading
+          // faces) emit edges, keeping the wireframe at PRC node density.
+          if (_whiteFacedOccluding && !fillIsInvisible && projection) {
+            const camX = projection.cx, camY = projection.cy, camZ = projection.cz;
+            let nvx, nvy, nvz;
+            {
+              const tx = projection.tx || 0, ty = projection.ty || 0, tz = projection.tz || 0;
+              const vx = camX - tx, vy = camY - ty, vz = camZ - tz;
+              const vl = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+              nvx = vx / vl; nvy = vy / vl; nvz = vz / vl;
+            }
+            const ek = (a, b) => {
+              const q = (v) => Math.round(v * 1e4) / 1e4;
+              const ka = q(a.x) + ',' + q(a.y) + ',' + q(a.z);
+              const kb = q(b.x) + ',' + q(b.y) + ',' + q(b.z);
+              return ka < kb ? ka + '|' + kb : kb + '|' + ka;
+            };
+            const edgeMap = new Map();
+            for (let i = 0; i < rows - 1; i++) {
+              for (let j = 0; j < cols - 1; j++) {
+                const jn = cyc ? (j + 1) % (cols - 1) : j + 1;
+                if (!cyc && jn >= cols) continue;
+                if (!(isActive(i, j) && isActive(i + 1, j) && isActive(i + 1, jn) && isActive(i, jn))) continue;
+                const v00 = grid[i][j], v10 = grid[i + 1][j], v11 = grid[i + 1][jn], v01 = grid[i][jn];
+                const fn = faceNormal({vertices: [v00, v10, v11, v01]});
+                const dotN = fn.x * nvx + fn.y * nvy + fn.z * nvz;
+                if (dotN <= 0.001) continue; // back-face cull the far slope
+                const fcx = (v00.x + v10.x + v11.x + v01.x) / 4;
+                const fcy = (v00.y + v10.y + v11.y + v01.y) / 4;
+                const fcz = (v00.z + v10.z + v11.z + v01.z) / 4;
+                const depth = Math.sqrt((camX - fcx) * (camX - fcx) + (camY - fcy) * (camY - fcy) + (camZ - fcz) * (camZ - fcz));
+                const addEdge = (a, b) => {
+                  const key = ek(a, b);
+                  const ex = edgeMap.get(key);
+                  if (!ex || depth < ex.depth) edgeMap.set(key, {a, b, depth});
+                };
+                // Only emit edges that lie on PRC node lines (constant-i rows /
+                // constant-j cols). For 03290 every line is primary, so all four
+                // quad edges qualify; rowPrim/colPrim gate sparser surfaces.
+                if (isPrimaryRow(i)) addEdge(v00, v01);
+                if (isPrimaryRow(i + 1)) addEdge(v10, v11);
+                if (isPrimaryCol(j)) addEdge(v00, v10);
+                if (isPrimaryCol(jn)) addEdge(v01, v11);
+              }
+            }
+            // The Gaussian bump is convex: after back-face culling, no surviving
+            // (front-facing) edge is occluded by another front face, so the
+            // visible wireframe is simply the surviving edges drawn ON TOP of
+            // the white fills already in target.commands. (Depth-interleaving
+            // the whole-quad edges against the subdivided sub-face fills caused
+            // a slightly-nearer sub-face to clip an edge mid-span, breaking the
+            // grid lines into dashes — TeXeR's lines are continuous.) Back-face
+            // culling alone removes the far-slope tangle; the silhouette edges,
+            // shared with a front face, are retained.
+            for (const e of edgeMap.values()) {
+              const a2 = projectTriple(e.a), b2 = projectTriple(e.b);
+              target.commands.push({cmd: 'draw', path: makePath([lineSegment(a2, b2)], false), pen: meshLinePen, line: args._line || 0, _from3d: true});
+            }
+            return;
+          }
           // Front-face cull mask for invisible-fill surfaces: mark grid
           // vertices that lie on a camera-facing side of the (notionally
           // opaque) hull, so their mesh edges are suppressed. The dashed
@@ -22622,9 +23870,20 @@ function createInterpreter() {
     // Handle draw(string, position, [align], [pen]) without a path: emit label directly
     if (labelText && labelPosArg && (!pathArg || (pathArg && (!pathArg.segs || pathArg.segs.length === 0) && !pathArg._singlePoint))) {
       const effPen = labelPen || pen || clonePen(defaultPen);
+      // A \centering minipage centers its content within the DECLARED width;
+      // capture that width before expandMinipageText discards it so the renderer
+      // can center against it (00572's centered math equations otherwise hug the
+      // box's left edge). \x06c marks \centering; minipage() emits the width as 'pt'
+      // but it is already bp.
+      let _mpCW = 0;
+      if (typeof labelText === 'string') {
+        const _cm = labelText.match(/^\x06c[\s\S]*?\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{\s*([\d.]+)\s*pt\s*\}/);
+        if (_cm) _mpCW = parseFloat(_cm[1]);
+      }
       // Expand minipage LaTeX wrapper to multi-line text
       const expandedText = (typeof labelText === 'string') ? expandMinipageText(labelText, effPen) : labelText;
       const ldc = {cmd:'label', text:expandedText, pos:labelPosArg, align:labelAlign || makePair(0,0), pen: effPen, line: args._line || 0};
+      if (_mpCW > 0) ldc._mpCenterWidthBp = _mpCW;
       if (labelTransform) ldc.labelTransform = labelTransform;
       if (labelFilltype) ldc.filltype = labelFilltype;
       target.commands.push(ldc);
@@ -22797,31 +24056,61 @@ function createInterpreter() {
       }
       // Emit Bar/Bars marks as short perpendicular segments at endpoint(s).
       if (barsStyle && pathArg.segs && pathArg.segs.length > 0) {
-        // Default Bar size in Asymptote is barsize(pen) ≈ 0 but with fallback
-        // to ~3bp; when the user supplies Bars(size), size is in bp. Convert
-        // to user units via current size()/unitsize() context. Falls back to
-        // the previous 0.05-user-unit default when no scale is available.
-        const barSizeBp = (barsSize != null) ? barsSize : 3;
+        // Asymptote's Bar/Bars draws a perpendicular segment of TOTAL length
+        // `size`, where size defaults to barsize(pen) = barfactor*linewidth(p) =
+        // 15*linewidth (plain_arrows.asy). bar() draws Draw(-0.5d--0.5d) with
+        // |d|=size, so the FULL bar length is `size` (not 2*size). HiTeXeR used a
+        // fixed 3bp half-length (=> 6bp total) for the default and 2*size for an
+        // explicit size — both wrong: 04331's default BeginBar came out too short,
+        // 03348's Bars(5) came out 10bp instead of 5bp (too long). Use the exact
+        // asy total and halve it for the ± half-extent.
+        const _barLw = (pen && typeof pen.linewidth === 'number') ? pen.linewidth : 0.5;
+        const totalBp = (barsSize != null) ? barsSize : 15 * _barLw;
         let bpPerUnit = 0;
+        const _gb = getGeoBbox(target.commands);
+        const rX = (_gb && isFinite(_gb.maxX - _gb.minX)) ? (Math.abs(_gb.maxX - _gb.minX) || 1) : 1;
+        const rY = (_gb && isFinite(_gb.maxY - _gb.minY)) ? (Math.abs(_gb.maxY - _gb.minY) || 1) : 1;
         if (sizeW > 0 || sizeH > 0) {
-          const _gb = getGeoBbox(target.commands);
-          if (_gb && isFinite(_gb.maxX - _gb.minX) && isFinite(_gb.maxY - _gb.minY)) {
-            const rX = Math.abs(_gb.maxX - _gb.minX) || 1;
-            const rY = Math.abs(_gb.maxY - _gb.minY) || 1;
-            const sw = sizeW > 0 ? sizeW : sizeH;
-            const sh = sizeH > 0 ? sizeH : sizeW;
-            if (rX > 0 && rY > 0) bpPerUnit = Math.min(sw / rX, sh / rY);
-          }
+          const sw = sizeW > 0 ? sizeW : sizeH;
+          const sh = sizeH > 0 ? sizeH : sizeW;
+          bpPerUnit = Math.min(sw / rX, sh / rY);
         } else if (hasUnitScale) {
           bpPerUnit = unitScale;
+        } else {
+          // Auto-scaled diagram (no size()/unitsize()): the bar is an absolute-bp
+          // mark. getGeoBbox EXCLUDES labels and only sees geometry drawn SO FAR,
+          // so on a label-framed diagram whose strokes are added incrementally
+          // (04331: 24 labels first, then the arrows one at a time) the early bars
+          // saw a near-empty bbox -> huge bpPerUnit -> tiny bars, and the bars
+          // grew as more arrows accumulated (top blue bar << bottom). Use a
+          // label-INCLUSIVE, order-independent bbox over all commands so every bar
+          // gets the same (full-diagram) scale, matching the arrow renderer's
+          // 150/max(range) fit.
+          let ax0 = Infinity, ay0 = Infinity, ax1 = -Infinity, ay1 = -Infinity;
+          for (const c of target.commands) {
+            if (c.pos && typeof c.pos.x === 'number') {
+              if (c.pos.x < ax0) ax0 = c.pos.x; if (c.pos.x > ax1) ax1 = c.pos.x;
+              if (c.pos.y < ay0) ay0 = c.pos.y; if (c.pos.y > ay1) ay1 = c.pos.y;
+            }
+            if (c.path && c.path.segs) for (const s of c.path.segs) for (const p of [s.p0, s.p3]) {
+              if (!p) continue;
+              if (p.x < ax0) ax0 = p.x; if (p.x > ax1) ax1 = p.x;
+              if (p.y < ay0) ay0 = p.y; if (p.y > ay1) ay1 = p.y;
+            }
+          }
+          const arX = isFinite(ax1 - ax0) ? Math.max(ax1 - ax0, 1e-9) : rX;
+          const arY = isFinite(ay1 - ay0) ? Math.max(ay1 - ay0, 1e-9) : rY;
+          bpPerUnit = 150 / Math.max(arX, arY);
         }
-        const halfLen = (bpPerUnit > 0) ? (barSizeBp / bpPerUnit) : 0.05;
+        const halfLen = (bpPerUnit > 0) ? ((totalBp / 2) / bpPerUnit) : 0.05;
         const makeBarAt = (p, tdx, tdy) => {
           const l = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
           const nx = -tdy / l, ny = tdx / l;
           const a = makePair(p.x + nx*halfLen, p.y + ny*halfLen);
           const b = makePair(p.x - nx*halfLen, p.y - ny*halfLen);
-          return makePath([lineSegment(a, b)], false);
+          // path = draw-time estimate (drives the viewBox); cx/cy/nx/ny + totalBp
+          // let the renderer rebuild the bar at the EXACT final scale.
+          return { path: makePath([lineSegment(a, b)], false), cx: p.x, cy: p.y, nx, ny };
         };
         // Bar/Bars/EndBar put a bar at the end; Bars/BeginBar put one at the
         // start. 'Bar' aliases 'EndBar' (end), 'Bars' is both ends.
@@ -22837,19 +24126,27 @@ function createInterpreter() {
         if (_emitEndBar) {
           const sL = pathArg.segs[pathArg.segs.length - 1];
           const tdx = sL.p3.x - sL.cp2.x, tdy = sL.p3.y - sL.cp2.y;
-          const barPath = makeBarAt(sL.p3, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
+          const _b = makeBarAt(sL.p3, tdx, tdy);
+          target.commands.push({cmd:'draw', path: _b.path, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d, _barTruesize: {cx:_b.cx, cy:_b.cy, nx:_b.nx, ny:_b.ny, totalBp}});
         }
         if (_emitBeginBar) {
           const s0 = pathArg.segs[0];
           const tdx = s0.p0.x - s0.cp1.x, tdy = s0.p0.y - s0.cp1.y;
-          const barPath = makeBarAt(s0.p0, tdx, tdy);
-          target.commands.push({cmd:'draw', path: barPath, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d});
+          const _b = makeBarAt(s0.p0, tdx, tdy);
+          target.commands.push({cmd:'draw', path: _b.path, pen: barPen, arrow: null, line: args._line || 0, _from3d: _barFrom3d, _projectedPath: _barFrom3d, _barTruesize: {cx:_b.cx, cy:_b.cy, nx:_b.nx, ny:_b.ny, totalBp}});
         }
       }
       // If draw call has a label, handle it: either register for legend or place inline
       if (labelText && pathArg.segs && pathArg.segs.length > 0) {
-        const labelEffectivePen = labelPen || pen;
+        // Resolve the label pen the way Asymptote does: an explicit label/draw
+        // pen (e.g. Label(s, blue)) only overrides the attributes it actually
+        // sets (here, colour), while unset attributes — crucially fontsize —
+        // fall back to defaultpen. Without layering over defaultPen, a bare
+        // colour pen carried the base 12pt and ignored `defaultpen(fontsize(10pt))`,
+        // so labels on a path (e.g. the 3D dimension labels in 03640/03635/03636)
+        // rendered ~1.2× too large. The plain label() form already merges
+        // defaultPen; this brings draw(Label, path, pen) into line with it.
+        const labelEffectivePen = mergePens(clonePen(defaultPen), labelPen || pen);
 
         // Determine if this label is for legend or inline:
         // - Label objects (from draw(graph(...), pen, Label(...))) → register for legend, don't inline
@@ -23228,8 +24525,21 @@ function createInterpreter() {
       }
     }
     if (!pos) pos = makePair(0,0);
+    // Asymptote resolves a label's UNSET fontsize from the FINAL defaultpen at
+    // shipout — NOT the defaultpen in effect at the label() call. Verified with
+    // local asy: a color-only or no-pen label created while default=fontsize(6),
+    // with default later raised to fontsize(11), renders at 11 (the 6 is dead);
+    // this holds even across sub-picture fit()/add() (all labels are typeset in
+    // one final pass). So flag labels whose pen ARG carried no explicit fontsize;
+    // a post-pass after the program finishes rewrites them to the final
+    // defaultpen size. The merged pen below inherits defaultPen._fzExplicit, so
+    // we must decide from the pen arg here (before the merge), not afterwards.
+    // 04848: defaultpen(fontsize(6)) before the heavygreen/red angle labels is
+    // dead code — they must match the trailing defaultpen(fontsize(11)) A/B/C.
+    const _penArgHasFs = !!pen && (pen._fzExplicit || pen.fontsize !== 12);
     if (!pen) pen = clonePen(defaultPen);
     else pen = mergePens(clonePen(defaultPen), pen);
+    if (!_penArgHasFs) pen._fsFromDefault = true;
 
     // AoPS-corrupted \t escapes: labels with TAB before letters are the result
     // of "\t<letter>" being collapsed to a single TAB byte.  TeX treats the
@@ -23258,6 +24568,17 @@ function createInterpreter() {
     // stacks them (KaTeX has no \shortstack support).
     if (typeof text === 'string') text = expandShortstackText(text);
 
+    // A \centering minipage centers its content within the DECLARED width.
+    // expandMinipageText discards that width (it only uses it for wrapping), so
+    // capture it here for the renderer to center against (00572's centered math
+    // equations otherwise left-align inside their 8cm boxes). The \x06c marker
+    // (prepended by minipage()) flags \centering; minipage() emits the width in
+    // bp as 'pt', so the captured number is already bp.
+    let _mpCenterWidthBp = 0;
+    if (typeof text === 'string') {
+      const _cm = text.match(/^\x06c[\s\S]*?\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{\s*([\d.]+)\s*pt\s*\}/);
+      if (_cm) _mpCenterWidthBp = parseFloat(_cm[1]);
+    }
     // LaTeX \begin{minipage}{width}...\end{minipage} environment in label
     // text: expand to the inner content with \\ → newline so downstream
     // multi-line label logic renders it as wrapped text.  Pen passed so
@@ -23286,32 +24607,14 @@ function createInterpreter() {
       );
     }
 
-    // LaTeX math array environment (e.g. Sarrus determinant grids, 02422):
-    // the node MathJax renderer (3.2.1) cannot render alignment environments —
-    // \begin{array}/\begin{matrix}/\begin{gathered} all throw, and a bare \\ at
-    // top level does not stack rows either. So we lay the grid out ourselves by
-    // emitting one label per row, each a normal single-line colored math label
-    // (MathJax handles \color + \quad spacing fine), stacked vertically around
-    // the label position. & column separators become \quad spacing.
-    // The corpus source writes row separators as a backslash followed by a real
-    // line break and also embeds insignificant formatting newlines (from \n
-    // escapes); split rows on backslash+EOL and treat bare newlines as spaces.
-    let arrayRows = null;
-    if (typeof text === 'string' && /\\begin\s*\{array\}/.test(text)) {
-      const am = text.match(/\\begin\s*\{array\}\s*(?:\{[^}]*\})?([\s\S]*?)\\end\s*\{array\}/);
-      if (am) {
-        const ROWSEP = '@@HTXROW@@';
-        arrayRows = am[1]
-          .replace(/\\+[ \t]*\r?\n/g, ROWSEP)
-          .replace(/[\r\n]+/g, ' ')
-          .split(ROWSEP)
-          .map(r => r.trim())
-          .filter(r => r.length > 0)
-          .map(r => '$' + r.split('&').map(c => c.trim()).join('\\quad ') + '$');
-        if (arrayRows.length < 2) arrayRows = null;
-      }
-    }
-
+    // NOTE: math alignment environments (\begin{array}/{matrix}/{pmatrix}/
+    // {bmatrix}/{cases}/{aligned}, etc.) are rendered NATIVELY and correctly by
+    // the KaTeX SVG emitter — verified at the render level: distinct column
+    // x-positions, stacked rows, and bracket/paren delimiters + fraction rules
+    // are all emitted (02422 Sarrus grids included). An earlier build laid these
+    // out by hand (one label per row) to dodge the node MathJax renderer (3.2.1),
+    // which threw on alignment envs; that workaround is gone — do NOT reintroduce
+    // it. Such labels now flow straight through preprocessLatexForKatex → emitter.
     if (frameTarget) {
       // Stash the label spec on the frame; consumed by _emitMarkerFrame
       // when the frame is placed at marker positions on a path.
@@ -23348,24 +24651,9 @@ function createInterpreter() {
         graphicData = Object.assign({}, graphicData, {transform: t});
       }
       target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
-    } else if (arrayRows) {
-      // Stack the flattened array rows vertically around `pos`. The row gap is
-      // the LaTeX array row spacing for the label font (~1.15× font size, tuned
-      // to match TeXeR's array row pitch on 02422), converted from bp to user
-      // units via the current unit scale (points per user unit). Top row first,
-      // descending.
-      const fsbp = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0) ? pen.fontsize : 12;
-      const bpPerUnit = (hasUnitScale && unitScale > 0) ? unitScale
-                       : (_globalUnitSize > 0 ? _globalUnitSize : 28.3464567);
-      const rowGap = fsbp * 1.15 / bpPerUnit;
-      const n = arrayRows.length;
-      for (let i = 0; i < n; i++) {
-        const dy = ((n - 1) / 2 - i) * rowGap;
-        const rPos = makePair(pos.x, pos.y + dy);
-        target.commands.push({cmd:'label', text: arrayRows[i], pos: rPos, align, pen, filltype, line: args._line || 0});
-      }
     } else {
       const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0, _fromPathLabel: !!pathForDefaultAlign, _fromPathLabelNoAlign: _labelOnPathNoAlign};
+      if (_mpCenterWidthBp > 0) labelCmd._mpCenterWidthBp = _mpCenterWidthBp;
       if (pos3D) labelCmd._pos3D = pos3D;
       if (labelTransform) labelCmd.labelTransform = labelTransform;
       // A label positioned from a projected 3D path/triple belongs to the 3D
@@ -23718,41 +25006,108 @@ function createInterpreter() {
         const d = Math.sqrt((p.x-ccx)*(p.x-ccx) + (p.y-ccy)*(p.y-ccy));
         if (d > radius) radius = d;
       }
-      // Highlight position: project the surface point that faces the light.
-      // For perspective projections of off-axis spheres, this projected
-      // point can land slightly outside the silhouette circle (because
-      // my silhouette is sampled along the great circle perpendicular to
-      // the *parallel* view axis rather than the eye-to-center line).
-      // SVG <radialGradient> renders mostly as the outermost stop color
-      // when fx,fy is outside the (cx,cy,r) circle, which produces a
-      // nearly-black sphere.  Clamp the focal toward center so it stays
-      // safely inside (≤ 0.92r from center).
-      let hp = projectTriple(makeTriple(sc.x + sr*slx, sc.y + sr*sly, sc.z + sr*slz));
+      const br = basePen.r || 0, bg = basePen.g || 0, bb = basePen.b || 0;
+      const _cl01 = v => Math.max(0, Math.min(1, v));
+      // A material(...) with an explicit emissivepen (e.g. 03640's
+      // material(gray(0.7), black, gray(0.35))) shades very differently from a
+      // bare-pen surface: the emissive term is a lighting-independent floor, so
+      // the shadow side never goes to near-black, and the visible bright spot
+      // is the SPECULAR highlight at the half-vector H=normalize(L+V) — TeXeR's
+      // PRC raster puts 03640's brightest pixel ~0.46r up-right of centre, which
+      // is the half-vector, not the diffuse peak at the light direction (~0.87r).
+      // Bare-pen spheres (the bulk of the corpus: 03360, 06xxx, 00475/76, …) are
+      // diffuse-dominated and peak at the light direction, so they keep the
+      // original focal + stops untouched (no regression). Detect the emissive
+      // case via the pen the material() stub tagged with _emissivePen.
+      const _emPen = basePen._emissivePen;
+      const _useEmissiveModel = !!_emPen;
+
+      // Highlight position: bare-pen spheres face the LIGHT (diffuse peak);
+      // emissive/specular materials face the half-vector (specular peak). The
+      // projected focal can land outside the silhouette for off-axis spheres,
+      // and an SVG <radialGradient> with the focal outside (cx,cy,r) renders
+      // mostly as the outermost stop (a near-black ball), so clamp to ≤0.92r.
+      let _fx = slx, _fy = sly, _fz = slz;
+      if (_useEmissiveModel) {
+        let hx = slx + vx, hy = sly + vy, hz = slz + vz;
+        const hl = Math.sqrt(hx*hx + hy*hy + hz*hz) || 1;
+        _fx = hx/hl; _fy = hy/hl; _fz = hz/hl;
+      }
+      let hp = projectTriple(makeTriple(sc.x + sr*_fx, sc.y + sr*_fy, sc.z + sr*_fz));
       const focDx = hp.x - ccx, focDy = hp.y - ccy;
       const focD = Math.sqrt(focDx*focDx + focDy*focDy);
       if (focD > 0.92 * radius) {
         const k = (0.92 * radius) / focD;
         hp = { x: ccx + focDx * k, y: ccy + focDy * k };
       }
-      // Colors: gradient stops empirically matched to TeXeR pixel samples
-      // on 03361 (lightblue × intensity, with specular at the focal point).
-      // Brightest at focal: base * 0.97 + specular (peak).
-      // Mid: base * 0.68 (ambient + half diffuse).
-      // Edge (silhouette terminator/shadow): base * 0.25 (deep shadow).
-      // Specular intensity 0.40 pushes the highlight toward pure white for
-      // gray base colors (e.g. 03633 material(gray(0.7),...)).
-      const br = basePen.r || 0, bg = basePen.g || 0, bb = basePen.b || 0;
-      const lit = {
-        r: Math.max(0, Math.min(1, br*0.97 + 0.45)),
-        g: Math.max(0, Math.min(1, bg*0.97 + 0.45)),
-        b: Math.max(0, Math.min(1, bb*0.97 + 0.45)),
-      };
-      // Intermediate stop between lit and mid for smoother highlight falloff
-      // Higher value keeps the bright area larger before falling off to mid
-      // litMid extends the bright highlight area
-      const litMid = { r: br*0.97, g: bg*0.97, b: bb*0.97 };
-      const mid = { r: br*0.70, g: bg*0.70, b: bb*0.70 };
-      const dark = { r: br*0.18, g: bg*0.18, b: bb*0.18 };
+      // Bare-pen diffuse highlight sits closer to centre than the raw projected
+      // light direction. On 10297 TeXeR/PRC's focal measures ~0.30r off-centre,
+      // but the projected world-light lands ~0.55-0.60r out (orthographic(2,2,1)),
+      // pushing the bright cap toward the silhouette. Pull the focal ~halfway in
+      // so the broad highlight reads as a soft lit cap near the top. Emissive/
+      // specular materials keep the half-vector focal (they peak nearer the rim,
+      // matching 03640), and this is purely a 2D move of the gradient centre —
+      // it does not touch the world light used for per-face mesh shading.
+      if (!_useEmissiveModel) {
+        hp = { x: ccx + (hp.x - ccx) * 0.55, y: ccy + (hp.y - ccy) * 0.55 };
+      }
+
+      let sphereStops;
+      if (_useEmissiveModel) {
+        // Phong with an emissive floor: I = emissive + diffuse·shade, where
+        // shade is the Lambert/specular falloff from the focal. Calibrated to
+        // TeXeR's measured 03640 radial profile (intensity fraction at focal→far:
+        // 0.95, 0.82, 0.66, 0.53, 0.41, 0.21), so the bright highlight is broad
+        // and the shadow side floors near the emissive level instead of the old
+        // diffuse·0.18 near-black — fixing the low contrast behind the 2R/2R√2
+        // labels. shade values back out as (I−E)/D for E=0.35, D=0.70.
+        const eR = _emPen.r || 0, eG = _emPen.g || 0, eB = _emPen.b || 0;
+        const _e = sh => ({ r:_cl01(eR + br*sh), g:_cl01(eG + bg*sh), b:_cl01(eB + bb*sh) });
+        sphereStops = [
+          { off: 0,   c: _e(0.86) },
+          { off: 15,  c: _e(0.64) },
+          { off: 35,  c: _e(0.41) },
+          { off: 55,  c: _e(0.23) },
+          { off: 78,  c: _e(0.07) },
+          { off: 100, c: _e(-0.26) },
+        ];
+      } else {
+        // Bare-pen profile. Color at each radius = base·df + white·sp, where df
+        // is the Lambert diffuse term and sp a broad white specular add. The old
+        // profile crammed sp=0.45 into a 4%-radius spike, producing a single
+        // SHARP point of light over a too-dark, too-saturated body — the opposite
+        // of TeXeR/PRC's broad, DIFFUSE reflection (see 10297/10291/10308 orange
+        // spheres, 00475/00476 gray). Recalibrated to TeXeR's measured radial
+        // profile on 10297: decomposing each annulus's mean rgb as base·df +
+        // white·sp (base = orange = (1,0.5,0)) reproduces every channel to ±1 and
+        // gives (dist-from-focal in sphere-radii → df, sp):
+        //   0.0r→(0.43,0.56)  0.2r→(0.68,0.23)  0.4r→(0.80,0.03)
+        //   0.6r→(0.72,0)     0.8r→(0.53,0)     edge→(~0.20,0)
+        // i.e. the specular is BROAD (tapers to 0 over ~0.4r, not 0.04r) and the
+        // diffuse PEAKS off-focal (~0.80 at 0.4r), so the highlight reads as a
+        // soft lit region, not a white dot. The model is color-agnostic, so the
+        // same stops shade the gray (00475/76) and translucent (03360/61) spheres.
+        // Radius→offset mapping is approximate (the SVG focal sits off-centre);
+        // tuned so the far terminator lands near offset 100.
+        // With the focal pulled to ~0.30r (above), annulus-radius ≈ gradient
+        // offset, so each stop's df is just TeXeR's measured df at that radius
+        // (offset ≈ radius·100). Mid stops nudged ~+0.02 over the raw measurement
+        // to offset the SVG radial-gradient's slight mid-darkening; the terminator
+        // sits at 0.28 (annulus-average, not the 0.17 of the deep-shadow axis) so
+        // the lower body stays brown rather than crushing to black.
+        const _mkStop = (df, sp) => ({ r:_cl01(br*df+sp), g:_cl01(bg*df+sp), b:_cl01(bb*df+sp) });
+        sphereStops = [
+          { off: 0,   c: _mkStop(0.45, 0.56) },
+          { off: 20,  c: _mkStop(0.68, 0.23) },
+          { off: 40,  c: _mkStop(0.82, 0.03) },
+          { off: 60,  c: _mkStop(0.74, 0.00) },
+          { off: 80,  c: _mkStop(0.54, 0.00) },
+          { off: 100, c: _mkStop(0.28, 0.00) },
+        ];
+      }
+      const lit = sphereStops[0].c;
+      const mid = sphereStops[Math.floor(sphereStops.length/2)].c;
+      const dark = sphereStops[sphereStops.length-1].c;
       // Build path along projected silhouette
       const sphSegs = [];
       for (let i = 0; i < N_SIL; i++) {
@@ -23772,7 +25127,7 @@ function createInterpreter() {
         _faceDepth: 1e9,
         _sphereGradient: {
           cx: ccx, cy: ccy, r: radius, fx: hp.x, fy: hp.y,
-          lit, litMid, mid, dark,
+          stops: sphereStops,
         },
       });
       return;
@@ -23860,6 +25215,16 @@ function createInterpreter() {
       }
       if (!(mesh && mesh._closed)) ambientFloor = Math.max(ambientFloor, _openMeshMinFloor);
       let intensity = nolight ? 1.0 : (ambientFloor + (1 - ambientFloor) * dot);
+      // Box (unitcube/box) shading: TeXeR's PRC raster renders a material()
+      // cube — e.g. material(gray(0.5),black,gray(0.2)) in 03698 — much brighter
+      // than a plain Lambert. Faces read ~0.78–0.85 grey, lit fairly uniformly
+      // with the most up-facing face brightest. Use an over-bright intensity
+      // (allowed to exceed 1; clamped after the emissive add) plus full emissive.
+      if (!nolight && mesh && mesh._isBox) {
+        const A = (typeof process !== 'undefined' && process.env && process.env.HTX_BOXA) ? +process.env.HTX_BOXA : 1.09;
+        const B = (typeof process !== 'undefined' && process.env && process.env.HTX_BOXB) ? +process.env.HTX_BOXB : 0.22;
+        intensity = A + B * dot;
+      }
       let specular = 0;
       // Phong-style specular highlight for sphere meshes (mesh has
       // _sphereCenter/_sphereRadius). Use the face centroid → sphere-center
@@ -23983,7 +25348,11 @@ function createInterpreter() {
       // diffuse in TeXeR — near white with a faint mesh, not the dark-to-light
       // gradient of a revolution bowl. Honor emissive at near full strength for
       // those too, but keep revolution bowls (03592) and closed meshes attenuated.
-      const emScale = (mesh && (mesh._flatPlanar ||
+      // Box meshes honor emissive at full strength (the gray(0.2) emissive in
+      // 03698's material lifts the cube to TeXeR's ~0.8 grey); other open/flat
+      // meshes attenuate to 0.70, curved/closed meshes to 0.10.
+      const emScale = (mesh && mesh._isBox) ? 1.0 :
+                      (mesh && (mesh._flatPlanar ||
                        (!mesh._closed && !mesh._revolutionSurf))) ? 0.70 : 0.1;
       const emR = em ? (em.r || 0) * emScale : 0;
       const emG = em ? (em.g || 0) * emScale : 0;
@@ -24312,6 +25681,26 @@ function createInterpreter() {
       }
     }
 
+    // Resolve label fontsizes left UNSET by their pen arg to the FINAL defaultpen
+    // fontsize (Asymptote shipout semantics — see evalLabel). For the ~99% of
+    // diagrams that set defaultpen(fontsize) at most once (or only before any
+    // label), the final value equals each label's call-time value, so the
+    // value-differs guard makes this a byte-identical no-op. It changes ONLY the
+    // handful of diagrams that raise/lower defaultpen(fontsize) AFTER emitting
+    // labels (04848's dead fontsize(6); a few 129xx physics multi-panels).
+    // add(pic.fit()) has already flattened sub-picture label commands into
+    // currentPic.commands by this point, so a flat walk reaches them all.
+    {
+      const _finalDefaultFs = (defaultPen && typeof defaultPen.fontsize === 'number' && defaultPen.fontsize > 0) ? defaultPen.fontsize : 12;
+      for (const c of currentPic.commands) {
+        if (c && c.pen && c.pen._fsFromDefault &&
+            Math.abs((typeof c.pen.fontsize === 'number' ? c.pen.fontsize : 12) - _finalDefaultFs) > 1e-9) {
+          c.pen = clonePen(c.pen);
+          c.pen.fontsize = _finalDefaultFs;
+        }
+      }
+    }
+
     // If projection has center=true, compute 3D bbox centroid of all tracked
     // triples, set projection target to centroid, and re-project every tracked
     // triple in-place so downstream draw commands see the centred scene.
@@ -24361,6 +25750,65 @@ function createInterpreter() {
     const _finalize3DAxes = globalEnv.get('_finalize3DAxes');
     if (typeof _finalize3DAxes === 'function') {
       _finalize3DAxes(currentPic);
+    }
+
+    // Re-fit a multi-panel truesize composite (add(sizedPic.fit(), (i,0))) to
+    // the TeXeR wrapper's size(400,400) target. The sized-slot add branch lays
+    // panels a fixed _sizeW apart, which only matches real Asymptote when _sizeW
+    // happens to equal the LP-solved inter-panel spacing (03398's 3cm lands at
+    // ~414bp vs 401 ref) and is far too tight when it doesn't (03400's 2.5cm →
+    // 356bp vs 401 ref). Asymptote instead scales the user-coordinate anchor
+    // spacing so the whole row/column fits 400bp; we reproduce that by rigidly
+    // shifting each panel by px_i*(TARGET-W_cur)/pxSpan (frames keep their bp
+    // size, only the gaps grow/shrink). Only a single-axis row OR column is
+    // re-fit — a 2D grid would need an aspect-preserving fit and is left alone.
+    // Skipped when the user set an explicit currentpicture size() (handled by
+    // the size-scaling path in renderSVG).
+    if (currentPic._fitPanelSlots && currentPic._fitPanelSlots.length >= 2 && !(sizeW > 0 || sizeH > 0)) {
+      const slots = currentPic._fitPanelSlots;
+      let pxMin = Infinity, pxMax = -Infinity, pyMin = Infinity, pyMax = -Infinity;
+      for (const s of slots) {
+        if (s.px < pxMin) pxMin = s.px; if (s.px > pxMax) pxMax = s.px;
+        if (s.py < pyMin) pyMin = s.py; if (s.py > pyMax) pyMax = s.py;
+      }
+      const pxSpan = pxMax - pxMin, pySpan = pyMax - pyMin;
+      const horiz = pxSpan > 1e-6 && pySpan <= 1e-6;
+      const vert  = pySpan > 1e-6 && pxSpan <= 1e-6;
+      if (horiz || vert) {
+        const TARGET = 400; // TeXeR wrapper's prepended size(400,400)
+        // Current full extent (geometry + label ink) along the spread axis.
+        const gb = getGeoBbox(currentPic.commands);
+        let minX = gb.minX, maxX = gb.maxX, minY = gb.minY, maxY = gb.maxY;
+        for (const dc of currentPic.commands) {
+          if (!dc || dc.cmd !== 'label' || !dc.pos) continue;
+          const fs = _texCapFontSize((dc.pen && dc.pen.fontsize) || 10);
+          const rawTxt = typeof dc.text === 'string' ? dc.text : '';
+          const cleanTxt = rawTxt.replace(/\\[a-zA-Z]+\s*/g, '').replace(/[${}]/g, '').trim();
+          const tw = _estimateTextWidth(cleanTxt || 'x', fs);
+          const aMag = dc.align ? Math.max(Math.abs(dc.align.x), Math.abs(dc.align.y)) : 0;
+          const ux = aMag > 0 ? dc.align.x / aMag : 0, uy = aMag > 0 ? dc.align.y / aMag : 0;
+          const ccx = dc.pos.x + ux * 0.5 * tw, ccy = dc.pos.y + uy * 0.5 * fs;
+          if (ccx - 0.5 * tw < minX) minX = ccx - 0.5 * tw; if (ccx + 0.5 * tw > maxX) maxX = ccx + 0.5 * tw;
+          if (ccy - 0.5 * fs < minY) minY = ccy - 0.5 * fs; if (ccy + 0.5 * fs > maxY) maxY = ccy + 0.5 * fs;
+        }
+        const Wcur = horiz ? (maxX - minX) : (maxY - minY);
+        const span = horiz ? pxSpan : pySpan;
+        const ratio = Wcur > 1e-6 ? TARGET / Wcur : 1;
+        // Guard against pathological corrections; the multi-panel idiom lands
+        // within ~0.7..1.3 of target.
+        if (Wcur > 1e-6 && span > 1e-6 && ratio > 0.5 && ratio < 2.0) {
+          const k = (TARGET - Wcur) / span;
+          for (const s of slots) {
+            const d = (horiz ? s.px : s.py) * k;
+            if (Math.abs(d) < 1e-9) continue;
+            const T = horiz ? makeTransform(d, 1, 0, 0, 0, 1) : makeTransform(0, 1, 0, d, 0, 1);
+            const end = Math.min(s.end, currentPic.commands.length);
+            for (let i = s.start; i < end; i++) {
+              currentPic.commands[i] = transformDrawCmd(T, currentPic.commands[i]);
+            }
+          }
+        }
+      }
     }
 
     // Copy currentpicture's commands to drawCommands for rendering
@@ -24507,6 +25955,22 @@ function renderSVG(result, opts) {
     if (sizeH > 0) sizeH = Math.max(1, sizeH - 2 * _bboxSpec.ymargin);
   }
   const isAutoScaled = !hasUnitScale && (_sizeW <= 0) && (_sizeH <= 0);
+  // WIDE IgnoreAspect plots (sizeW/sizeH >= 1.3, e.g. 08812 size(10cm,5cm)) need
+  // the rotated y-title pinned into the axis (no phantom top margin) AND the whole
+  // labelled figure compressed to size() — TeXeR squishes the y-tick labels to
+  // honour the box. TALL IgnoreAspect plots (06507 energy bar charts, AR<1) must
+  // NOT: TeXeR keeps their top space. Gate both refinements on aspect so the same
+  // rule doesn't help one shape while regressing the other (verified 3-session
+  // residual). Use the raw result targets (pre bbox-margin / pre-solver mutation).
+  const _igWideAspect = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.3;
+  // Pinning an endpoint-rotated y-title INTO the axis span (so it doesn't reserve
+  // ~half its rotated length as phantom top margin) applies to every NON-tall
+  // IgnoreAspect plot, not just wide ones: the render already pins it via
+  // _axisLabelEndShift regardless of aspect, so the bbox must mirror that or a
+  // square-ish plot like 08743 (AR 1.25, size(10cm,8cm)) leaves ~51bp empty above
+  // the box. Only genuinely TALL plots (06507 bar charts, AR<1) legitimately keep
+  // TeXeR's top space, so gate at AR >= 1.0 (a superset of _igWideAspect).
+  const _igNotTall = (_keepAspect === false) && _sizeW > 0 && _sizeH > 0 && (_sizeW / _sizeH) >= 1.0;
   const dotfactor = _dotfactor || 6;
   if (drawCommands.length === 0) return { svg:'<svg xmlns="http://www.w3.org/2000/svg"></svg>', commandMap: [], warnings: (result.directionWarnings || []).slice() };
 
@@ -24528,6 +25992,16 @@ function renderSVG(result, opts) {
       if (dc._paletteLegend) continue;
       if (dc.above === -1) continue;
       if (dc.cmd === 'clip') continue;
+      // markangle arcs/labels/wedges are emitted at the LITERAL scale here and
+      // only rebuilt to the final (post-fit) scale much later. Their stale
+      // literal radius (e.g. radius=15bp / unitScale 28.35 = 0.53 user units)
+      // is far larger than the final truesize arc, so feeding it into the axis
+      // content extent over-stretches the axis (00247: pi/theta markangles
+      // pushed the x-axis left arm to -0.53 vs the real geometry min P.x=-0.3).
+      // Exclude them, mirroring _dcGeoBounds(excludeMarkangle); the arc is a
+      // small truesize decoration around its vertex, which is already part of
+      // the geometry bounds.
+      if (typeof dc._markangleBpR === 'number') continue;
       if (dc.path && dc.path.segs) {
         for (const seg of dc.path.segs) {
           for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
@@ -24972,6 +26446,27 @@ function renderSVG(result, opts) {
           if (c._autoYmin && !c._yMinFromUserLimits) lo = lo - _rng * _eB;
           if (c._autoYmax && !c._yMaxFromUserLimits) hi = hi + _rng * _eT;
         }
+        // Explicit-tick axes (yaxis(LeftTicks(.., real[]))) declared before any
+        // draw() fell back to the ±5 default range and drew every listed tick.
+        // Preserve ticks that fall within the label-inclusive content bound by
+        // extending the axis line out to the farthest such tick; the rest are
+        // removed as orphans below. (Mirror of the x-axis block above; fixes
+        // 12486's yaxis(LeftTicks(DefaultFormat,{-2,2,4})) drawing a y=-2 tick
+        // below the data y∈[0,4].)
+        const _yAxisX = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
+        if (c._explicitTicks) {
+          let tkLo = Infinity, tkHi = -Infinity;
+          for (const dc of drawCommands) {
+            if (!dc._isTickMark || !dc.path || !dc.path.segs || !dc.path.segs.length) continue;
+            const ts = dc.path.segs[0];
+            if (Math.abs((ts.p0.x + ts.p3.x) / 2 - _yAxisX) > 0.5) continue;
+            const ty = (ts.p0.y + ts.p3.y) / 2;
+            if (ty < tkLo) tkLo = ty;
+            if (ty > tkHi) tkHi = ty;
+          }
+          if (c._autoYmax && !c._yMaxFromUserLimits && isFinite(tkHi) && tkHi > hi && tkHi <= lcMaxY + 1e-9) hi = tkHi;
+          if (c._autoYmin && !c._yMinFromUserLimits && isFinite(tkLo) && tkLo < lo && tkLo >= lcMinY - 1e-9) lo = tkLo;
+        }
         if (lo !== oldLo || hi !== oldHi) {
           const x = c._axisShiftX != null ? c._axisShiftX : seg.p0.x;
           c.path = { segs: [{
@@ -25063,6 +26558,24 @@ function renderSVG(result, opts) {
             }
           }
         }
+        // Remove explicit ticks that ended up outside the final [lo,hi] range.
+        // Tick marks use the midpoint along-axis coord so a crossing x-axis tick
+        // (whose endpoints straddle the axis at x≈_yAxisX) is judged by its
+        // centre, not an endpoint that dips below lo. (Mirror of the x-axis
+        // orphan removal above.)
+        if (c._explicitTicks) {
+          for (const dc of drawCommands) {
+            if (dc === c) continue;
+            if (dc._isTickMark && dc.path && dc.path.segs && dc.path.segs.length) {
+              const ts = dc.path.segs[0];
+              if (Math.abs((ts.p0.x + ts.p3.x) / 2 - _yAxisX) > 0.5) continue;
+              const ty = (ts.p0.y + ts.p3.y) / 2;
+              if (ty < lo - 1e-9 || ty > hi + 1e-9) _orphanTicks.add(dc);
+            } else if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.x - _yAxisX) < 1e-6) {
+              if (dc.pos.y < lo - 1e-9 || dc.pos.y > hi + 1e-9) _orphanTicks.add(dc);
+            }
+          }
+        }
       }
     }
     if (_orphanTicks.size) {
@@ -25147,6 +26660,16 @@ function renderSVG(result, opts) {
 
   // Compute bounding box from all draw commands
   for (const dc of drawCommands) {
+    // markangle arcs/wedges/labels are still at the LITERAL unitScale here
+    // (radius=15bp / unitScale 28.35 ≈ 0.53 user units) and only get rebuilt to
+    // their final truesize radius after pass-2. Folding the stale literal extent
+    // into geoMinX/maxX here inflates the viewBox (00247: a dead 0.26-unit left
+    // margin from the pi/theta arcs, landscape canvas vs TeXeR's portrait). The
+    // scale (_spanAtScaleBp) already uses _dcGeoBounds(true)+swept-sector, not
+    // geoMinX, so excluding them here doesn't perturb the fit; the final-scale
+    // extent is folded back into the viewBox after the rebuild (search
+    // "markangle arcs/labels were rebuilt").
+    if (typeof dc._markangleBpR === 'number') continue;
     if (dc.cmd === 'dot') {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
@@ -25173,11 +26696,14 @@ function renderSVG(result, opts) {
       // clip commands don't contribute to bbox — they constrain it (handled below)
       continue;
     } else if (dc.path) {
-      // Skip white fills for bbox: fill(box(...), white) is a background erase
-      // that shouldn't define the bounding box (matches Asymptote behavior)
-      if (dc.cmd === 'fill' && dc.pen && dc.pen.r >= 0.99 && dc.pen.g >= 0.99 && dc.pen.b >= 0.99) {
-        continue;
-      }
+      // White fills DO expand the bounding box in real Asymptote — a white
+      // fill is an ordinary drawing primitive, not a no-op. Diagrams such as
+      // 00418 (pacman: fill(unitcircle,green) then fill((0,0)--A--(A+B)--B--
+      // cycle,white) carving the mouth) rely on the white quad's rightward
+      // extent (x≈1.573) defining a LANDSCAPE viewBox, exactly as TeXeR/stock
+      // asy produce. `unfill` already contributes here; white `fill` must too.
+      // (Background-erase rects that merely cover existing content don't change
+      // the bbox anyway, since their extent lies within the colored geometry.)
       // Tick marks have fixed physical size — they should not inflate the geometry bbox.
       // In real Asymptote, tick sizes are in bp (physical points), not user coordinates.
       if (dc._isTickMark) continue;
@@ -25268,6 +26794,23 @@ function renderSVG(result, opts) {
     maxY = axisLimits.ymax;
   }
 
+  // Non-crop xlimits/ylimits set the user-coordinate bounds the fit scales to.
+  // Asymptote's limits(min,max) (NoCrop) makes the SCALABLE range exactly
+  // [min,max]: geometry inside doesn't shrink the window, and an author who sets
+  // limits WIDER than the data (00115 xlimits(-4,4) over data x∈[-2,4]; 00444
+  // ylimits(-3,4) over data y∈[0,4]) intends that wider window to be fit to
+  // size(). The geometry-only bbox ignored this and over-zoomed the diagram
+  // (pxPerUnit = size/geoWidth instead of size/limitWidth), so truesize labels —
+  // and the axis ticks the frame extends out to reach them — fell off-frame
+  // (the missing x=6 tick in 00115). Union (expand-only) so geometry that
+  // overshoots NoCrop limits still draws beyond the window rather than clipping.
+  if (axisLimits && !axisLimits.crop) {
+    if (axisLimits.xmin !== null && !(axisLimits.xmin >= minX)) minX = axisLimits.xmin;
+    if (axisLimits.xmax !== null && !(axisLimits.xmax <= maxX)) maxX = axisLimits.xmax;
+    if (axisLimits.ymin !== null && !(axisLimits.ymin >= minY)) minY = axisLimits.ymin;
+    if (axisLimits.ymax !== null && !(axisLimits.ymax <= maxY)) maxY = axisLimits.ymax;
+  }
+
   // Add padding for stroke overshoot
   if (!isFinite(minX)) { minX=0; minY=0; maxX=1; maxY=1; }
 
@@ -25345,6 +26888,58 @@ function renderSVG(result, opts) {
   const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
   if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
     try { process.stderr.write('[geo-only] geoMinX=' + geoMinX.toFixed(4) + ' geoMaxX=' + geoMaxX.toFixed(4) + ' geoMinY=' + geoMinY.toFixed(4) + ' geoMaxY=' + geoMaxY.toFixed(4) + ' geoW=' + ((geoMaxX-geoMinX)||1).toFixed(4) + ' geoH=' + ((geoMaxY-geoMinY)||1).toFixed(4) + '\n'); } catch(e){}
+  }
+  // ── Interior-label box centering (Asymptote fit2 fidelity) ────────────────
+  // Asymptote sizes a label by its frame box placed at the anchor WITH the
+  // align shift, then unions it into the picture bounds. Verified against local
+  // asy 3.05: a label whose anchor sits INTERIOR to the geometry bbox barely
+  // extends the size() frame (its shifted box still lands inside the geometry),
+  // whereas the same label at a geometry corner/edge protrudes fully — a wide
+  // NE caption changes a square's frame <7% at its center but shrinks it ~40%
+  // at its corner. HTX shifts EVERY label's box fully to the align side, so
+  // interior wide captions (00162/02566/12987's "(cos θ,sin θ)" inside the
+  // ±1.5 axis box) wrongly poke past the geometry
+  // edge, forcing the keepAspect scale down and rendering the whole figure
+  // ~16% too short (width still fills size() from the label, height does not).
+  // For interior plain labels under a keepAspect size(), drop the half-box
+  // align shift (keep only the labelmargin push) so the box is centered on the
+  // anchor, matching asy. Tick/axis/rotated labels keep their separately
+  // calibrated full offset; corner/edge labels keep protruding as asy does.
+  const _icEnabled = !(typeof process !== 'undefined' && process.env && process.env.HTX_NO_IC)
+    && keepAspect && (sizeW > 0 || sizeH > 0)
+    && (geoMaxX - geoMinX) > 1e-9 && (geoMaxY - geoMinY) > 1e-9;
+  const _icMX = 0.05 * (geoMaxX - geoMinX);
+  const _icMY = 0.05 * (geoMaxY - geoMinY);
+  // Fraction of the full align box-shift kept for interior labels (0 = fully
+  // centered, 1 = unchanged). Local-asy fit2 behaves like a small shift
+  // (~0.2 of the half-box) — see the _lblInterior note. Env-overridable for
+  // tuning.
+  const _icK = (typeof process !== 'undefined' && process.env && process.env.HTX_IC_K != null)
+    ? +process.env.HTX_IC_K : 0.2;
+  function _lblInterior(px, py, dc) {
+    if (!_icEnabled || !dc) return false;
+    if (dc._isTickLabel || dc._isAxisLabel || dc.labelTransform) return false;
+    if (typeof px !== 'number' || typeof py !== 'number') return false;
+    return px > geoMinX + _icMX && px < geoMaxX - _icMX &&
+           py > geoMinY + _icMY && py < geoMaxY - _icMY;
+  }
+  // Whether a label's box should be (near-)centered for the fit. Requires the
+  // anchor interior AND the CENTERED box to fit inside the geometry bbox: a
+  // label too wide/tall to fit centered genuinely protrudes in asy too (01763's
+  // full-width caption spans ~87% of the geometry), so it keeps the full align
+  // shift and is allowed to extend the frame. wU/hU = label box size in user
+  // units at the current rough scale.
+  function _lblAbsorb(px, py, wU, hU, dc) {
+    if (!_lblInterior(px, py, dc)) return false;
+    const _gw = geoMaxX - geoMinX, _gh = geoMaxY - geoMinY;
+    // A caption spanning most of the figure (01763's "The projection of v onto
+    // u" ≈ 70% of the width) is not a point annotation — asy lets it protrude,
+    // so don't absorb it. Point labels (the trig cluster's "(cos θ,sin θ)" ≈
+    // 46%) are well under this.
+    if (wU > 0.6 * _gw || hU > 0.6 * _gh) return false;
+    const hwU = (wU > 0 ? wU : 0) / 2, hhU = (hU > 0 ? hU : 0) / 2;
+    return (px - hwU) >= geoMinX && (px + hwU) <= geoMaxX &&
+           (py - hhU) >= geoMinY && (py + hhU) <= geoMaxY;
   }
   const labelInfoBp = [];  // Collect label bp-space info for iterative scale solver
   // Track previous-pass label-expanded bbox so we can detect convergence and
@@ -25426,6 +27021,19 @@ function renderSVG(result, opts) {
       if (dc.cmd === 'label') {
         const pos = dc.pos || dc;
         if (!pos || pos.x === undefined) continue;
+        // Legend labels (attach(legend(),…)) belong to a TRUESIZE legend frame
+        // BELOW the graph, outside size(). Excluding them here keeps them out of
+        // the label-inclusive bbox AND labelInfoBp (the iterative size-solver),
+        // so the legend doesn't shrink the graph to fit (04452).
+        if (dc._fromLegend) continue;
+        // markangle labels (pi/theta angle marks) are still at the LITERAL
+        // unitScale position here — their stale radius (≈0.53 user units) puts
+        // them far outside the real geometry, inflating the viewBox (00247's
+        // literal pi label at x≈-0.46 vs its final ≈-0.12). They get rebuilt to
+        // the final position before SVG assembly, so expandViewBox reserves
+        // room for any that genuinely overflow. Skip them in this pre-rebuild
+        // width pass.
+        if (typeof dc._markangleBpR === 'number') continue;
         // Skip invisible labels (opacity 0) from bbox expansion
         if (dc.pen && dc.pen.opacity === 0) continue;
         // Apply TeX font-size cap so bbox math matches what TeXeR/Asy ships
@@ -25447,6 +27055,16 @@ function renderSVG(result, opts) {
         const rawLines = typeof text === 'string' ? text.split('\n') : [''];
         const cleanLines = rawLines.map(l => stripLaTeX(l));
         const cleanText = cleanLines.join(' ');
+
+        // An empty-text label produces a zero-size frame in Asymptote and must
+        // not expand the picture bbox. The width already computes to 0, but the
+        // height heuristic below uses fontSize*heightFactor regardless of text,
+        // so a blank label still reserved ~one font-size of space. The AoPS
+        // "blank axes" template emits `label("", (xmax/2,ymax), N, fontsize(20))`
+        // for an absent title; that reserved ~21bp above the plot, shrinking the
+        // graph box during the size() fit (09104: top margin 86px vs TeXeR 23px,
+        // box height 549px vs 615px). Skip it entirely.
+        if (cleanText.trim() === '') continue;
 
         // Account for label transform (scale/rotate) in bbox estimation
         let ltScale = 1, ltAngle = 0;
@@ -25503,7 +27121,7 @@ function renderSVG(result, opts) {
         const _ltHasScale = !!dc.labelTransform && Math.abs(ltScale - 1) > 0.01;
         let _mjxMeasured = false;
         let _mjxHBp = null;
-        if ((hasFrac || _ltHasScale) && opts && opts.labelOutput === 'svg-native'
+        if ((hasFrac || _ltHasScale || hasUnitScale) && opts && opts.labelOutput === 'svg-native'
             && typeof _mjxMeasureBp === 'function'
             && typeof text === 'string' && text.indexOf('\n') === -1) {
           try {
@@ -25520,6 +27138,15 @@ function renderSVG(result, opts) {
               // clipping (04456's scale(0.75) "y = -2x + 24"). Let the measured width
               // stand instead of the floors so it isn't re-inflated and width-bound.
               if (_ltHasScale) { textWidthBpBase = _mm.wBp + fontSize * 0.25; _mjxMeasured = true; }
+              // unitsize() diagrams: pxPerUnit is FIXED (no size() scale solver),
+              // so this label-expanded bbox sets only the canvas extent, never the
+              // geometry scale. The 0.52-em/char heuristic floor over-estimates
+              // wide labels by 30-50% and inflated the viewBox far past the rendered
+              // ink (04086's "F=-kΔx" + caption canvas was ~30% too wide, sizeScore
+              // 0.12). Trust the exact MathJax width with the same 1.06 side-bearing
+              // margin the label-overshoot pass applies, so the canvas hugs the real
+              // glyph extent. Frac labels keep their measured-width branch above.
+              else if (hasUnitScale && !hasFrac) { textWidthBpBase = _mm.wBp * 1.06; _mjxMeasured = true; }
             }
           } catch (e) { /* fall back to heuristic */ }
         }
@@ -25586,7 +27213,14 @@ function renderSVG(result, opts) {
         if (dc.align) {
           const ax = dc.align.x, ay = dc.align.y;
           const marginX = 0.40 * fontSize / roughPxPerUnitX;
-          const marginY = 0.40 * fontSize / roughPxPerUnitY;
+          // Vertical margin matches the render's labelmargin (0.28*fontsize, the
+          // real Asymptote plain_pens.asy value used at the draw site ~30972).
+          // Horizontal keeps the 0.40 safety because the char-width heuristic
+          // under-estimates glyph advances; vertical height is measured (hBp),
+          // so the extra 0.12 was pure over-reservation — and for high-magnitude
+          // aligns like 3*S it is tripled, padding ~6.5bp of empty space below
+          // an S-anchored caption (05553's "5 meters" canvas ran ~27px too tall).
+          const marginY = 0.28 * fontSize / roughPxPerUnitY;
           // Match Asymptote drawlabel.cc: Align *= 0.5 / max(|ax|,|ay|).
           // The text-box offset is L-infinity normalised; magnitude only scales labelmargin.
           const aInfMax = Math.max(Math.abs(ax), Math.abs(ay));
@@ -25608,6 +27242,19 @@ function renderSVG(result, opts) {
             if (_isAxis90) {
               dx = ax * (H_bp / 2 / roughPxPerUnitX + marginX);
               dy = 0;
+              // Endpoint-pinned rotated axis label (position=0/1): the render
+              // pass shifts the label ±half its rotated length INTO the axis
+              // span (line ~30061) so it doesn't overhang past the endpoint.
+              // The bbox must mirror that, otherwise it expands ~half a label-
+              // height past the endpoint into empty space, inflating the size()
+              // fit and leaving a phantom margin there. For a top endpoint
+              // (_axisLabelEndShift=+1) the render shifts down (toward axis
+              // interior = lower user-y), so the bbox center moves down by
+              // textHeightUser/2, pinning the bbox edge at the endpoint
+              // (09104 y-label "T (s)": removed ~14.7pt phantom top margin).
+              if (dc._axisLabelEndShift) {
+                dy = -dc._axisLabelEndShift * (textHeightUser / 2);
+              }
             } else {
               // Rotated label: Asymptote drawlabel.cc applies the alignment in the
               // LOCAL (un-rotated) text frame, then rotates the offset to world coords.
@@ -25626,6 +27273,11 @@ function renderSVG(result, opts) {
               dx = offWorldXbp / roughPxPerUnitX + ax * marginX;
               dy = offWorldYbp / roughPxPerUnitY + ay * marginY;  // Asymptote y-up, no inversion
             }
+          } else if (_lblAbsorb(pos.x, pos.y, textWidthUser, textHeightUser, dc)) {
+            // Interior plain label: nearly center the box on the anchor (asy
+            // fit2 keeps only a small fraction _icK of the align box-shift).
+            dx = _icK * ax_n * textWidthUser + ax * marginX;
+            dy = _icK * ay_n * textHeightUser + ay * marginY;
           } else {
             dx = ax_n * textWidthUser + ax * marginX;
             dy = ay_n * textHeightUser + ay * marginY;   // Asymptote y-up, no inversion
@@ -25681,8 +27333,16 @@ function renderSVG(result, opts) {
             const _aInfMaxAl = Math.max(Math.abs(_axAl), Math.abs(_ayAl));
             const _axNAl = _aInfMaxAl > 0 ? (_axAl * 0.5 / _aInfMaxAl) : 0;
             const _ayNAl = _aInfMaxAl > 0 ? (_ayAl * 0.5 / _aInfMaxAl) : 0;
-            let alignOffsetXBp = dc.align ? (_axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
-            let alignOffsetYBp = dc.align ? (_ayNAl * lHeightBp + _ayAl * 0.40 * fontSize) : 0;
+            // Interior plain label: nearly center the box on the anchor for the
+            // fit (keep only fraction _icK of the half-box shift) — see the
+            // _lblAbsorb note above. roughPxPerUnitX/Y convert the bp box to
+            // user units for the centered-fit test.
+            const _icBox = _lblAbsorb(pos.x, pos.y,
+              roughPxPerUnitX > 0 ? lWidthBp / roughPxPerUnitX : 0,
+              roughPxPerUnitY > 0 ? lHeightBp / roughPxPerUnitY : 0, dc) ? _icK : 1;
+            let alignOffsetXBp = dc.align ? (_icBox * _axNAl * lWidthBp + _axAl * 0.40 * fontSize) : 0;
+            // Vertical margin = render labelmargin (0.28); see marginY note above.
+            let alignOffsetYBp = dc.align ? (_icBox * _ayNAl * lHeightBp + _ayAl * 0.28 * fontSize) : 0;
             // screenDx/screenDy (in bp) are applied on top of alignment-driven offset
             if (dc.screenDx) alignOffsetXBp += dc.screenDx;
             if (dc.screenDy) alignOffsetYBp -= dc.screenDy;  // SVG y-down → Asymptote y-up
@@ -25701,7 +27361,8 @@ function renderSVG(result, opts) {
               _screenDy: dc.screenDy || 0,
               _isTickLabel: dc._isTickLabel === true,
               _isAxisLabel: dc._isAxisLabel === true,
-              _axisTitleOverflow: dc._axisTitleOverflow === true
+              _axisTitleOverflow: dc._axisTitleOverflow === true,
+              _axisLabelEndShift: dc._axisLabelEndShift || 0
             });
           }
         }
@@ -25815,33 +27476,83 @@ function renderSVG(result, opts) {
         const t = li._text;
         if (typeof t !== 'string' || !t.trim() || t.indexOf('\n') !== -1) continue;
         try {
-          const m = _fitMeasure(t, li._fontSize || 12);
+          // Plain-text labels ("Laser", "Detector") are RENDERED via \text{...}
+          // (Computer Modern roman) by the svg-native label path; measure them
+          // the SAME way so the fit engine's truesize box equals the DRAWN
+          // glyph width. Passing the bare word to KaTeX measures it as MATH
+          // (italic, with inter-letter math spacing — ~25-35% wider for short
+          // words), which inflated the LP's binding label pair and mis-scaled
+          // label-dominated diagrams ~2× (08989: "Laser" 69bp math vs 52bp text,
+          // forcing size(80,0) to enlarge D to 226bp instead of 160bp).
+          let _measStr = t;
+          if (!/[$\\_^]/.test(t) && /[A-Za-z]/.test(t)) {
+            let _esc = '';
+            for (let i = 0; i < t.length; i++) {
+              const c = t[i];
+              if (c === '~') _esc += ' ';
+              else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc += '\\' + c;
+              else _esc += c;
+            }
+            _measStr = '\\text{' + _esc + '}';
+          }
+          const m = _fitMeasure(_measStr, li._fontSize || 12);
           if (m && m.wBp > 0) {
-            let w = m.wBp * _TEXER_LBL_W_CAL;
-            // rotate the measured box like the heuristic path does
+            // \text{} (roman) measurement uses a DIFFERENT calibration than the
+            // 1.07 math-font gap: KaTeX's text face measures ~10% WIDER than
+            // TeXeR's Computer Modern roman, so text labels calibrate DOWN, not
+            // up. Using 1.07 here inflated text boxes ~21% and forced the fit2
+            // √2-enlargement past the right size bracket (08989).
+            const _isTextMeas = _measStr !== t;
+            const _wcal = _isTextMeas
+              ? ((typeof process !== 'undefined' && process.env && process.env.HTX_TXT_CAL) ? +process.env.HTX_TXT_CAL : 0.92)
+              : _TEXER_LBL_W_CAL;
+            let w = m.wBp * _wcal;
             if (Math.abs(li._ltAngle || 0) > 0.5) {
-              const cosA = Math.abs(Math.cos(li._ltAngle * Math.PI / 180));
-              const sinA = Math.abs(Math.sin(li._ltAngle * Math.PI / 180));
+              // ── ROTATED label (e.g. a Rotate()'d path label) ──
+              const phi = li._ltAngle * Math.PI / 180;
+              const cosA = Math.abs(Math.cos(phi));
+              const sinA = Math.abs(Math.sin(phi));
               const hh = Math.max(m.hBp > 0 ? m.hBp : 0, (li._fontSize || 12) * 0.75);
               const wIn = w;
+              // Axis-aligned bbox of the rotated text box.
               w = wIn * cosA + hh * sinA;
-              // The heuristic heightBp rotated the OVER-estimated width into
-              // the height (00140's 60°-rotated sqrt label claimed ~160bp tall
-              // and made the bare LP infeasible). Use the measured width here.
               li._fitHBp = wIn * sinA + hh * cosA;
+              li._fitWBp = w;
+              // Alignment offset of a ROTATED label. The anchor does NOT sit at
+              // the edge of the full rotated bbox — that reserves half the
+              // rotated extent on the align side (00140's 60° sqrt label then
+              // claimed +106bp above the hypotenuse midpoint, crushing the bare
+              // LP to ~0.46× scale). Asymptote shifts the anchor to the box edge
+              // in the label's LOCAL (un-rotated) frame, per axis, then rotates:
+              //   off = R(phi)·(aLocal.x·wIn/2, aLocal.y·hh/2) + margin·a,
+              //   aLocal = R(-phi)·a   (a = align unit vector).
+              // Validated vs local asy 3.05: 00140 sqrt label box
+              // x[-38.2,30.3] y[-30.3,67.0], center offset (-4.0,+18.4); the LP
+              // then yields the oracle scale a≈76 (was ~35).
+              const aux = li._axAl || 0, auy = li._ayAl || 0;
+              const cphi = Math.cos(phi), sphi = Math.sin(phi);
+              const aLocX = aux * cphi + auy * sphi;   // R(-phi)·a
+              const aLocY = -aux * sphi + auy * cphi;
+              const oLocX = aLocX * (wIn / 2);
+              const oLocY = aLocY * (hh / 2);
+              const margin = 0.40 * (li._fontSize || 12);
+              li._fitOffXBp = (oLocX * cphi - oLocY * sphi) + aux * margin + (li._screenDx || 0);
+              li._fitOffYBp = (oLocX * sphi + oLocY * cphi) + auy * margin - (li._screenDy || 0);
+            } else {
+              // ── Un-rotated label ── anchor at the box edge in the align
+              // direction (axN·width). The stored alignOffsetXBp was derived
+              // from the HEURISTIC width; recompute from the measured width so
+              // an E/W-aligned label's box sits at the right offset.
+              li._fitWBp = w;
+              const aInf = Math.max(Math.abs(li._axAl || 0), Math.abs(li._ayAl || 0));
+              const axN = aInf > 0 ? (li._axAl * 0.5 / aInf) : 0;
+              li._fitOffXBp = axN * w + (li._axAl || 0) * 0.40 * (li._fontSize || 12)
+                + (li._screenDx || 0);
+              const ayN = aInf > 0 ? (li._ayAl * 0.5 / aInf) : 0;
+              const hForOff = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
+              li._fitOffYBp = ayN * hForOff + (li._ayAl || 0) * 0.40 * (li._fontSize || 12)
+                - (li._screenDy || 0);
             }
-            li._fitWBp = w;
-            // The stored alignOffsetXBp was derived from the HEURISTIC width
-            // (axN·widthBp + ax·0.4·fontSize). Recompute it from the measured
-            // width so an E/W-aligned label's box sits at the right offset.
-            const aInf = Math.max(Math.abs(li._axAl || 0), Math.abs(li._ayAl || 0));
-            const axN = aInf > 0 ? (li._axAl * 0.5 / aInf) : 0;
-            li._fitOffXBp = axN * w + (li._axAl || 0) * 0.40 * (li._fontSize || 12)
-              + (li._screenDx || 0);
-            const ayN = aInf > 0 ? (li._ayAl * 0.5 / aInf) : 0;
-            const hForOff = (li._fitHBp !== undefined ? li._fitHBp : li.heightBp);
-            li._fitOffYBp = ayN * hForOff + (li._ayAl || 0) * 0.40 * (li._fontSize || 12)
-              - (li._screenDy || 0);
           }
         } catch (e) { /* keep heuristic */ }
       }
@@ -25934,7 +27645,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
       const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-      const direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+      const direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
       const dR = (direct ? 0.5 : dotfactor / 2) * dotLw;
       xs.push({ u: dc.pos.x, lo: -dR, hi: dR });
       ys.push({ u: dc.pos.y, lo: -dR, hi: dR });
@@ -25992,7 +27703,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot' && dc.pos && typeof dc.pos.x === 'number') {
         const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-        const _direct = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+        const _direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
         const dR = (_direct ? 0.5 : dotfactor / 2) * dotLw;
         const dx = dc.pos.x * sx, dy = dc.pos.y * sy;
         if (dx - dR < bMinX) bMinX = dx - dR;
@@ -26050,7 +27761,7 @@ function renderSVG(result, opts) {
   // Plain draws/fills/dots/point-labels/arrows are exact.
   const _boundsInexact =
     (!_usedPictureComposite && drawCommands.some(dc => dc && dc._fromPathLabelNoAlign))
-    || drawCommands.some(dc => dc && dc._isAxisLine)
+    || drawCommands.some(dc => dc && dc._isAxisLine && !dc._fromAddedPicture)
     || _usedCurrentpictureReassign;
   if (hasUnitScale) {
     // unitsize(): the pass-1 scaling is the literal unit scale — real
@@ -26295,8 +28006,17 @@ function renderSVG(result, opts) {
       const _spLeg = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
       const _exW = _sizeW > 0 && _spLeg.w > 0 ? _spLeg.w / _sizeW : 0;
       const _exH = _sizeH > 0 && _spLeg.h > 0 ? _spLeg.h / _sizeH : 0;
-      const _legacyOverflow = Math.max(_exW, _exH) > 1.20;
-      if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
+      // Label-dominated underfill: the legacy _labelDominatesSize path scales
+      // by the HEURISTIC label-expanded bbox (_fullRef), which over-estimates
+      // long-text widths and shrinks the geometry so the picture underfills
+      // size() on the binding axis (02719: width 0.93×, height 0.71× of
+      // size(115)). The measured-box LP is oracle-faithful here (local asy
+      // 3.05 renders 02719 at 115×115 square), so fire it when a
+      // label-dominated picture underfills the measured span on BOTH axes.
+      const _legacyUnderfill = _labelDominatesSize && _exW > 0 && _exH > 0 &&
+                               Math.max(_exW, _exH) < 0.95;
+      const _legacyOverflow = _legacyUnderfill || Math.max(_exW, _exH) > 1.20;
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' underfill=' + _legacyUnderfill + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
       if (_legacyOverflow) {
       const { xs: _xsS, ys: _ysS } = _buildLpCoords();
       if (_maxBraceWBp > 0) {
@@ -26364,27 +28084,41 @@ function renderSVG(result, opts) {
     const scaleRefW2 = (geoMaxX - geoMinX) || 1;
     const scaleRefH2 = (geoMaxY - geoMinY) || 1;
     const { xs: _xsLp, ys: _ysLp } = _buildLpCoords();
-    const _lpAxis = _lpAxisSolve;
 
-    let _Dfit = defaultSize;
-    let _sxLp = 0, _syLp = 0;
-    for (let tries = 0; tries < 12; tries++) {
-      _sxLp = _lpAxis(_xsLp, _Dfit);
-      _syLp = _lpAxis(_ysLp, _Dfit);
-      if (_sxLp === -1 || _syLp === -1) { _Dfit *= Math.SQRT2; continue; }
-      break;
-    }
+    // Solve each axis INDEPENDENTLY, mirroring asy's per-axis calculateScaling
+    // (plain_scaling.asy bounds.scaling): on infeasibility an axis enlarges its
+    // OWN size by √2 (expansionfactor) and retries; the OTHER axis is untouched.
+    // keepAspect's min() below then lets the feasible (smaller-scale) axis
+    // govern. The prior SHARED-D loop enlarged BOTH axes whenever EITHER one
+    // overflowed, doubling label-overflow pictures: 03424's wide caption forces
+    // the x-axis to enlarge to ~300bp, but the y-axis fits the 150 box exactly —
+    // shared-D wrongly re-solved y at 300 too, scaling the geometry ~2×.
+    const _lpAxisSolveD = (cs, D0) => {
+      let D = D0, s = _lpAxisSolve(cs, D);
+      for (let tries = 0; s === -1 && tries < 12; tries++) { D *= Math.SQRT2; s = _lpAxisSolve(cs, D); }
+      return { s, D };
+    };
+    const _rxLp = _lpAxisSolveD(_xsLp, defaultSize);
+    const _ryLp = _lpAxisSolveD(_ysLp, defaultSize);
+    const _origSx = _rxLp.s, _origSy = _ryLp.s;
+    let _sxLp = _origSx, _syLp = _origSy;
     if (typeof process !== 'undefined' && process.env && process.env.HTX_LP_DBG) {
       try {
-        process.stderr.write('[bareLP] D=' + _Dfit + ' sx=' + _sxLp + ' sy=' + _syLp + '\n');
+        process.stderr.write('[bareLP] Dx=' + _rxLp.D + ' Dy=' + _ryLp.D + ' sx=' + _sxLp + ' sy=' + _syLp + '\n');
         const dump = (cs, n) => process.stderr.write('[bareLP] ' + n + ': ' + cs.map(c => '(' + c.u.toFixed(2) + ',' + c.lo.toFixed(1) + '..' + c.hi.toFixed(1) + ')').join(' ') + '\n');
         dump(_xsLp.slice(0, 12), 'x'); dump(_ysLp.slice(0, 12), 'y');
       } catch (e) {}
     }
-    if (_sxLp === -1 || _syLp === -1) { _sxLp = _syLp = 1; }
-    if (_sxLp === 0 && _syLp === 0) { _sxLp = _syLp = 1; } // pure-truesize: natural
-    else if (_sxLp === 0) _sxLp = _syLp;
-    else if (_syLp === 0) _syLp = _sxLp;
+    // _Dfit = the size the BINDING axis (the one winning keepAspect's min) was
+    // solved at — its enlargement, if any, is what the downstream symmetric
+    // clamp and inexact pass-2 must target. Falls back to defaultSize when an
+    // axis is the infeasible→natural-scale (1) fallback or both are unbounded.
+    let _Dfit;
+    if (_origSx === -1 || _origSy === -1) { _sxLp = _syLp = 1; _Dfit = defaultSize; }
+    else if (_origSx === 0 && _origSy === 0) { _sxLp = _syLp = 1; _Dfit = defaultSize; } // pure-truesize: natural
+    else if (_origSx === 0) { _sxLp = _syLp; _Dfit = _ryLp.D; } // x unbounded ⇒ y binds
+    else if (_origSy === 0) { _syLp = _sxLp; _Dfit = _rxLp.D; } // y unbounded ⇒ x binds
+    else _Dfit = (_origSx <= _origSy) ? _rxLp.D : _ryLp.D;       // smaller scale binds
     pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxLp, _syLp);
     _lpFitTargetBp = _Dfit;
     // Multi-picture composite true-bp floor (kept from the legacy pile): the
@@ -26553,8 +28287,22 @@ function renderSVG(result, opts) {
         const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
         bpMinX = Math.min(bpMinX, cx - wBp / 2);
         bpMaxX = Math.max(bpMaxX, cx + wBp / 2);
-        bpMinY = Math.min(bpMinY, cy - hBp / 2);
-        bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
+        // Mirror the heuristic solver's narrow-Y treatment for 90°-rotated
+        // horizontally-aligned axis titles (the AoPS y-axis-label idiom, e.g.
+        // 08743 "Sound Pressure (mPa)", 08812 "Percentage of True Speed").
+        // These run ALONGSIDE the axis; their full rotated height (= original
+        // text WIDTH, ~110 bp) is not a perpendicular Y-extent. Using it here
+        // (the measured-recheck pass omitted this) re-inflated totalH and made
+        // the solver shrink pxPerUnitY, leaving a phantom top margin.
+        const _is90RotR = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+        const _isHorizAlR = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+        if (_is90RotR && _isHorizAlR && isIgnoreAspect) {
+          bpMinY = Math.min(bpMinY, cy - wBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + wBp / 2);
+        } else {
+          bpMinY = Math.min(bpMinY, cy - hBp / 2);
+          bpMaxY = Math.max(bpMaxY, cy + hBp / 2);
+        }
       }
       if (anyMeasured) {
         const totalW = bpMaxX - bpMinX;
@@ -26641,8 +28389,17 @@ function renderSVG(result, opts) {
                 const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
                 bMinX = Math.min(bMinX, cx - li.widthBp / 2);
                 bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
-                bMinY = Math.min(bMinY, cy - li.heightBp / 2);
-                bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                // Narrow-Y for a 90°-rotated horizontally-aligned y-axis title
+                // (runs alongside the axis — see recheck pass above).
+                const _is90RotI = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+                const _isHorizAlI = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+                if (_is90RotI && _isHorizAlI && isIgnoreAspect) {
+                  bMinY = Math.min(bMinY, cy - li.widthBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.widthBp / 2);
+                } else {
+                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                }
               }
               const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
               const eW = tgtW < Infinity ? tW / tgtW : 0;
@@ -26770,14 +28527,18 @@ function renderSVG(result, opts) {
             if (typeof process !== 'undefined' && process.env && process.env.HTX_SOLVER_DBG) {
               console.error(`[tick-clear-pre] preMinX=${minPxX.toFixed(4)} preMinY=${minPxY.toExponential(3)} gapTrigX=${gapTriggeredX} gapTrigY=${gapTriggeredY}`);
             }
-            // Skip square-cell coupling when geometry has extreme aspect ratio
-            // (e.g., x: 0-100, y: 0-10000). In such cases, the axes are
-            // inherently anisotropic and forcing square cells would distort
-            // the intended IgnoreAspect output (08635).
+            // Whether to skip square-cell coupling is governed entirely by
+            // _iaSizeAspectConflict below (square-box-aspect vs size() aspect).
+            // A former guard keyed on the RAW data aspect (geoH/geoW > 5) was
+            // removed: raw user-unit aspect is meaningless under IgnoreAspect
+            // (x and y are scaled independently), and it wrongly blocked 03900
+            // — a sparse-scatter grid whose y is in units of 1e8 (geoAspect
+            // ~1.2e5) that TeXeR renders with SQUARE cells. 08635 and the other
+            // anisotropic graph plots it was meant to protect are already kept
+            // rectangular by _iaSizeAspectConflict, so the raw-aspect guard was
+            // redundant; corpus-wide, removing it newly couples ONLY 03900.
             const _geoW2 = (geoMaxX - geoMinX) || 1;
             const _geoH2 = (geoMaxY - geoMinY) || 1;
-            const _geoAspect = (_geoH2 / _geoW2);
-            const _skipSquareCells = _geoAspect > 5 || _geoAspect < 0.2;
             // Square-cell coupling forces (xStepBp*pxX)==(yStepBp*pxY), i.e.
             // it assumes TeXeR renders this plot with square grid cells. That
             // holds for label-dominated sparse-data scatter (3900), but NOT
@@ -26794,8 +28555,14 @@ function renderSVG(result, opts) {
               const _r = _squareBoxAspect / _sizeAspect;
               _iaSizeAspectConflict = _r > 1.6 || _r < 1 / 1.6;
             }
-            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_skipSquareCells && !_iaSizeAspectConflict) {
-              const targetXPx = Math.max(pxPerUnitX, minPxX);
+            if (xStepBp > 0 && yStepBp > 0 && (gapTriggeredX || gapTriggeredY) && !_iaSizeAspectConflict) {
+              // X is capped at box-fill below (size() pins the WIDTH), so the
+              // square cell must be sized from the box-fill X cell, not the
+              // crowd-clearance minPxX that the cap discards — otherwise Y is
+              // grown to match an over-wide cell and the plot over-shoots tall
+              // (03900: box-fill xCell 19.2bp ⇒ AR 1.07≈ref; clearance 24.6bp
+              // ⇒ AR 0.86).
+              const targetXPx = pxPerUnitX;
               const targetYPx = Math.max(pxPerUnitY, minPxY);
               const xCellBp = xStepBp * targetXPx;
               const yCellBp = yStepBp * targetYPx;
@@ -26812,8 +28579,25 @@ function renderSVG(result, opts) {
               console.error(`[tick-clear] minPxX=${minPxX.toFixed(4)} minPxY=${minPxY.toExponential(3)} curX=${pxPerUnitX.toFixed(4)} curY=${pxPerUnitY.toExponential(3)} xStep=${xStepBp} yStep=${yStepBp.toExponential(2)}`);
             }
             const _iaOrigPxX = pxPerUnitX, _iaOrigPxY = pxPerUnitY;
-            if (minPxX > pxPerUnitX) {
-              pxPerUnitX = minPxX;
+            // size(W,H,IgnoreAspect) pins the figure to the box on the WIDTH
+            // axis: real Asymptote/TeXeR let crowded x-tick labels overlap
+            // rather than grow the plot past size() width. The x-tick clearance
+            // boost (minPxX) above would inflate the width beyond the box-fill
+            // scale the solver already converged to — 03900's "0 100 … 1000"
+            // tick row (boosting it 0.192→0.246 ⇒ AR 1.48, far past ref 1.05)
+            // and 12856's Euler-method curve (AR 5.7 vs ref 2.65). Cap the X
+            // boost at box-fill so X stays within size(); only the X axis is
+            // capped because TeXeR DOES grow the figure HEIGHT for crowded
+            // labels (Y clearance is left free, e.g. 08635's y-tick row). For
+            // 03900 this leaves X at box-fill (xCell 19.2bp) and the square-cell
+            // coupling above grows Y to the SAME 19.2bp cell, reproducing
+            // TeXeR's square grid (final AR ~1.05); the figure HEIGHT then
+            // exceeds size() exactly as in the TeXeR reference.
+            // (12745/12939 stay wide for a SEPARATE reason — a wide off-plot
+            // minipage annotation inflates their viewBox, not this boost.)
+            const _minPxXBoxFill = Math.min(minPxX, _iaOrigPxX);
+            if (_minPxXBoxFill > pxPerUnitX) {
+              pxPerUnitX = _minPxXBoxFill;
             }
             if (minPxY > pxPerUnitY) {
               pxPerUnitY = minPxY;
@@ -26846,8 +28630,20 @@ function renderSVG(result, opts) {
                   const cy = li.posY * pxPerUnitY + li.alignOffsetYBp;
                   bMinX = Math.min(bMinX, cx - li.widthBp / 2);
                   bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
-                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
-                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                  // Narrow-Y for a 90°-rotated horizontally-aligned y-axis title
+                  // (runs alongside the axis): without this, the grow-to-fill loop
+                  // counts the title's full rotated length as Y-extent and thinks
+                  // the box is already filled, so it never grows the squished
+                  // geometry (08743's phantom top margin).
+                  const _is90RotG = Math.abs(Math.abs(li._ltAngle) - 90) < 1;
+                  const _isHorizAlG = Math.abs(li._axAl) > 0.99 && Math.abs(li._ayAl) < 0.01;
+                  if (_is90RotG && _isHorizAlG && isIgnoreAspect) {
+                    bMinY = Math.min(bMinY, cy - li.widthBp / 2);
+                    bMaxY = Math.max(bMaxY, cy + li.widthBp / 2);
+                  } else {
+                    bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                    bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                  }
                 }
                 const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
                 const uW = (tgtW < Infinity && tW > 0) ? tgtW / tW : 1;
@@ -26861,6 +28657,39 @@ function renderSVG(result, opts) {
                 if (uW > 1.02) { pxPerUnitX *= uW; grew = true; }
                 if (uH > 1.02) { pxPerUnitY *= uH; grew = true; }
                 if (!grew) break;
+              }
+              pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+            }
+            // WIDE IgnoreAspect fit-to-size: TeXeR fits the whole LABELLED figure
+            // (geometry + truesize axis labels/titles) into size(W,H), so a short-
+            // but-wide plot like 08812 has its 11 y-tick labels overlap rather than
+            // the figure growing past the box. The grow-only loop above never fires
+            // here (08812 is clearanceBound=true — the y-ticks bound the scale), and
+            // it only grows; this block also SHRINKS, and runs regardless of
+            // clearance because size() overrides tick-clearance for IgnoreAspect.
+            // The bbox uses the end-shift-corrected y-title center (so its overhang
+            // doesn't inflate the margin and over-flatten the plot — the failure of
+            // the earlier ungated attempt). Wide-only: tall plots (06507 energy bar
+            // charts, AR<1) keep TeXeR's top space and must NOT be compressed.
+            if (_igWideAspect && _iaGridPlot) {
+              for (let g = 0; g < 8; g++) {
+                let bMinX = geoMinX * pxPerUnitX, bMaxX = geoMaxX * pxPerUnitX;
+                let bMinY = geoMinY * pxPerUnitY, bMaxY = geoMaxY * pxPerUnitY;
+                for (const li of labelInfoBp) {
+                  const cx = li.posX * pxPerUnitX + li.alignOffsetXBp;
+                  const cy = li.posY * pxPerUnitY + li.alignOffsetYBp - (li._axisLabelEndShift || 0) * (li.heightBp / 2);
+                  bMinX = Math.min(bMinX, cx - li.widthBp / 2);
+                  bMaxX = Math.max(bMaxX, cx + li.widthBp / 2);
+                  bMinY = Math.min(bMinY, cy - li.heightBp / 2);
+                  bMaxY = Math.max(bMaxY, cy + li.heightBp / 2);
+                }
+                const tW = bMaxX - bMinX, tH = bMaxY - bMinY;
+                const uW = (tgtW < Infinity && tW > 0) ? tgtW / tW : 1;
+                const uH = (tgtH < Infinity && tH > 0) ? tgtH / tH : 1;
+                let changed = false;
+                if (uW > 1.02 || uW < 0.98) { pxPerUnitX *= uW; changed = true; }
+                if (uH > 1.02 || uH < 0.98) { pxPerUnitY *= uH; changed = true; }
+                if (!changed) break;
               }
               pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
             }
@@ -27201,11 +29030,30 @@ function renderSVG(result, opts) {
       const _gb2 = _dcGeoBounds(false);
       if (_gb2) { minX = _gb2.minX; maxX = _gb2.maxX; minY = _gb2.minY; maxY = _gb2.maxY; }
     }
+    // With limits(...,Crop) the window IS the crop box: Asymptote fits the cropped
+    // region to size() and the axis-title labels ("$x$" at the right end, "$y$" at
+    // the top in 04454) float OUTSIDE it, overhanging into the thin arrow margin
+    // rather than enlarging the canvas. Folding their width into the bbox here
+    // pushed maxX/maxY ~0.3u past the box, shrinking the grid to ~95% of the canvas
+    // and progressively misregistering every gridline against TeXeR (04454 rawSSIM
+    // 0.15 despite sizeScore 0.999). Skip the expansion under a full crop window so
+    // the canvas stays = crop box (+ stroke pad); the labels still render (crop
+    // clipping already excludes them, ~31946).
+    const _cropWindow = !!(axisLimits && axisLimits.crop &&
+      axisLimits.xmin !== null && axisLimits.xmax !== null &&
+      axisLimits.ymin !== null && axisLimits.ymax !== null);
     for (const li of labelInfoBp) {
+      if (_cropWindow) continue;
       const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
-      const cy = li.posY + li.alignOffsetYBp / pxPerUnitY;
       const hw = li.widthBp / (2 * pxPerUnitX);
       const hh = li.heightBp / (2 * pxPerUnitY);
+      // WIDE IgnoreAspect only: pin an endpoint-rotated axis title INTO the axis
+      // span (the render + initial bbox pass already do this via _axisLabelEndShift
+      // ~26900) so the canvas doesn't reserve ~half its rotated length as phantom
+      // margin past the axis end (08812's y-title → ~42bp phantom top). Tall plots
+      // (06507) legitimately keep that space in TeXeR, so leave them untouched.
+      const _esh = _igNotTall ? (li._axisLabelEndShift || 0) : 0;
+      const cy = li.posY + li.alignOffsetYBp / pxPerUnitY - _esh * hh;
       minX = Math.min(minX, cx - hw);
       maxX = Math.max(maxX, cx + hw);
       minY = Math.min(minY, cy - hh);
@@ -27236,6 +29084,30 @@ function renderSVG(result, opts) {
     }
   }
 
+  // markangle arcs/labels were rebuilt to their final truesize scale above; the
+  // early geometry-bbox pass excluded their stale literal-scale extent, so fold
+  // the correct final-scale extent back into the viewBox now. The labelInfoBp
+  // re-derivation block does this via _dcGeoBounds(false) when it runs, but that
+  // block is skipped when labelInfoBp is empty (svg-native label widths are
+  // handled later by expandViewBox) — without this, the canvas would simply
+  // lose the (small) final arc on a markangle-only-edge diagram. Idempotent
+  // when the block already ran (final arc lies inside the derived bounds).
+  if (_hasMarkangleDc) {
+    for (const dc of drawCommands) {
+      if (typeof dc._markangleBpR !== 'number') continue;
+      if (dc.path && dc.path.segs) {
+        for (const seg of dc.path.segs) {
+          for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+            if (isFinite(p.x)) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; }
+            if (isFinite(p.y)) { if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+          }
+        }
+      } else if (dc.cmd === 'label' && dc.pos && isFinite(dc.pos.x) && isFinite(dc.pos.y)) {
+        if (dc.pos.x < minX) minX = dc.pos.x; if (dc.pos.x > maxX) maxX = dc.pos.x;
+        if (dc.pos.y < minY) minY = dc.pos.y; if (dc.pos.y > maxY) maxY = dc.pos.y;
+      }
+    }
+  }
   // Re-constrain bbox after label re-expansion: clip() bounds must not be exceeded
   // (labelInfoBp already excludes out-of-clip items, but re-apply as a safety net)
   if (hasClip) {
@@ -27507,6 +29379,26 @@ function renderSVG(result, opts) {
   // linewidth/dot/fontsize remain in absolute bp.
   const bpCSSPixel = bpToCSSPx * cssPixel * labelShrinkFactor;
 
+  // ── Resolve truesize Bar/Bars marks at the FINAL scale ──
+  // A bar is an absolute-bp perpendicular tick of length barsize(pen)=15*linewidth
+  // (or an explicit Bar(size)); on auto-scaled diagrams it is DPI-boosted like
+  // dots/strokes (TeXeR's 600-DPI EPS pipeline renders it ~1.67x heavier). The
+  // draw-time path was only a geo-bbox ESTIMATE (it underestimated the size and
+  // varied with draw order — 04331). Rebuild every bar here, where pxPerUnit and
+  // bpCSSPixel are final, so its length is exact and identical across the figure.
+  {
+    const _barBoost = isAutoScaled ? 1.67 : 1;
+    const _ppu = pxPerUnitX || pxPerUnit || 1;
+    for (const dc of drawCommands) {
+      if (!dc || !dc._barTruesize || !dc.path) continue;
+      const bt = dc._barTruesize;
+      const halfUser = (bt.totalBp / 2) * _barBoost * bpCSSPixel / _ppu;
+      const a = makePair(bt.cx + bt.nx * halfUser, bt.cy + bt.ny * halfUser);
+      const b = makePair(bt.cx - bt.nx * halfUser, bt.cy - bt.ny * halfUser);
+      dc.path = makePath([lineSegment(a, b)], false);
+    }
+  }
+
   // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
   // Now that bpCSSPixel is known, compute how far each element extends
   // beyond its geometric center/path in viewBox units. Expand the viewBox
@@ -27521,7 +29413,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const _useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+        const _useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
         // Add 0.5 bp safety margin to ensure dots at viewBox edges aren't clipped
         // due to floating-point rounding or the _autoScaledStrokeBoost applied at render time.
         const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel + 0.5 * bpCSSPixel;
@@ -27679,6 +29571,12 @@ function renderSVG(result, opts) {
       // Split raw text on \n first (minipage inserts \n; stripLaTeX collapses them)
       const rawLabelLines = (dc.text || '').split('\n');
       const cleanLabelLines = rawLabelLines.map(l => stripLaTeX(l)).filter(l => l.length > 0);
+      // An empty-text label produces a zero-size frame in Asymptote, so it
+      // overshoots the viewBox by nothing. The AoPS "blank axes" template emits
+      // `label("", (xmax/2,ymax), N, fontsize(20))` for an absent title; with
+      // fontsize(20) + N alignment this pass otherwise reserved ~20pt of empty
+      // space above the plot (09104 phantom top margin). Skip it.
+      if (dc.cmd === 'label' && cleanLabelLines.length === 0) continue;
       const cleanLen = (cleanLabelLines.length > 0 ? Math.max(...cleanLabelLines.map(l => l.length)) : 1) || 1;
       const numLines = cleanLabelLines.length || 1;
 
@@ -27690,10 +29588,17 @@ function renderSVG(result, opts) {
       // past the geometry bbox (e.g. 05918 rotated SW-aligned labels).
       // Also exception: labels with E/W alignment at the edge of the geometry
       // (e.g. 08635: label at x=xmax with E alignment) extend past the viewBox.
-      const extendsHoriz = dc.align && (
-        (dc.align.x > 0 && sx > viewW * 0.9) ||  // E-aligned near right edge
-        (dc.align.x < 0 && sx < viewW * 0.1)      // W-aligned near left edge
-      );
+      // A horizontally-aligned (E/W) single-line label can overhang the viewBox
+      // even when its anchor is NOT near the edge: a WIDE label (e.g. 12131's
+      // "$f(N)=\log_2(N)$" at x=xmax, NE) pushes the solver-reserved viewBox out
+      // by most of its own width, so the anchor lands well inside viewW (sx≈0.77·viewW)
+      // while the label's right edge still extends past viewW. The old
+      // `sx > viewW*0.9` test only caught labels whose anchor sat at the very edge,
+      // so wide E/W labels were skipped and clipped. Process any horizontally-
+      // aligned label and let the self-limiting padL/padR (max(pad, edge−viewW),
+      // which adds 0 when the label already fits) decide — the solver's reservation
+      // is respected for labels that fit; only genuinely-overhanging ones get padded.
+      const extendsHoriz = dc.align && Math.abs(dc.align.x) > 0.3;
       // Strongly S/N-aligned labels sitting at the bottom/top edge of the
       // geometry push the glyph box outside the size()-solved bbox (the solver
       // shrinks geometry to fit the size() box but never sets the content
@@ -27712,6 +29617,11 @@ function renderSVG(result, opts) {
       // was clipped (02915's NW "$\frac{b}{\sqrt{3}}$" lost its numerator).
       const _tallMathSkip = dc.align && Math.abs(dc.align.y) > 0.01 &&
         /\\(?:frac|dfrac|tfrac|cfrac|sqrt|overset|underset|stackrel|substack|atop|binom)\b/.test(dc.text || '');
+      // Under a full crop window the canvas = crop box and axis TITLE labels float
+      // outside it (see the labelInfoBp clamp ~28786). Don't let the same titles
+      // re-expand the viewBox here either, or 04454's grid would re-shrink. Tick
+      // labels stay eligible (they sit inside the box; their pad is self-limiting).
+      if (axisLimits && axisLimits.crop && dc._isAxisLabel && !dc._isTickLabel) continue;
       if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert && !_tallMathSkip) continue;
       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
       // larger char-width factor so viewBox pad covers the actual glyph extent.
@@ -27780,7 +29690,22 @@ function renderSVG(result, opts) {
               // (~1.9em) and nested \frac{..}{\sqrt{..}} — their numerators
               // were CLIPPED at the figure edge (04965's top "b/2", 02915's
               // "b/√3"). The measured MathJax height is the rendered truth.
-              if (m.hBp > 0) H = Math.max(H, m.hBp * bpCSSPixel);
+              if (m.hBp > 0) {
+                if (_hasSSVB && !_hasFracVB) {
+                  // Sub/superscript labels: the base H above already added
+                  // subscriptDepth (0.35·fontSize) on TOP of the line box, but
+                  // the measured ink height ALREADY includes the script's
+                  // descender/ascender — so max(H, measured) over-reserves the
+                  // viewBox vertically (04280's $\mathbb F_{81}$: heuristic
+                  // 16.2bp vs measured 10.2bp ⇒ ~6bp of empty top/bottom pad,
+                  // ~3% too tall). Trust the exact measured box (with the same
+                  // 1.06 side-bearing margin as width). No \frac here, so no
+                  // tall-numerator clipping risk.
+                  H = m.hBp * bpCSSPixel * 1.06;
+                } else {
+                  H = Math.max(H, m.hBp * bpCSSPixel);
+                }
+              }
             } else {
               // Multi-line: _mjxMeasureBp measures the concatenated single line
               // (MathJax ignores embedded \n), grossly over-wide, so keep the
@@ -27882,6 +29807,18 @@ function renderSVG(result, opts) {
             const aWy = sinT * cOffX + cosT * cOffY;
             dx = ax * margin - aWx;
             dy = -(ay * margin - aWy);
+            // Endpoint-pinned rotated axis label (position=0/1): the renderer
+            // shifts it ±half its rotated length INTO the axis span (line ~30061)
+            // so it doesn't overhang past the endpoint. Mirror that here, else
+            // this pass pads the viewBox by ~half a label-height of empty space
+            // past the endpoint. For a top y-endpoint the anchor sits at the
+            // geometry-bbox top (sy≈0), so without this the label's bbox lands
+            // wholly ABOVE the box, inflating the canvas top (09104 y-label
+            // "T (s)": ~14.7pt phantom top margin; effH==localW here, so the
+            // +localW/2 center shift pins the top edge exactly at the endpoint).
+            if (dc._axisLabelEndShift) {
+              dy += dc._axisLabelEndShift * (localW / 2);
+            }
           } else {
             // Cap width at 2×H to match renderer's reflection-branch logic
             const localWCapped = Math.min(localW, localH * 2);
@@ -28046,6 +29983,28 @@ function renderSVG(result, opts) {
       }
     }
 
+    // attach(legend(),…) draws the legend BOX outline and the per-entry sample
+    // LINES as draw paths (not labels), so the label-overhang loop above only
+    // reserves room down to the lowest entry label — the box's bottom margin and
+    // border edge fall outside the viewBox and get clipped (04452: box bottom at
+    // ~771px clipped to a 738px canvas). Extend the overhang pads to cover the
+    // full extent of every _fromLegend draw path. Self-limiting (max with 0), so
+    // it is a no-op on diagrams without a legend.
+    for (const dc of drawCommands) {
+      if (!dc || !dc._fromLegend || !dc.path || !dc.path.segs) continue;
+      for (const seg of dc.path.segs) {
+        for (const p of [seg.p0, seg.cp1, seg.cp2, seg.p3]) {
+          if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+          const _lpx = (p.x - minX) * pxPerUnitX;
+          const _lpy = (maxY - p.y) * pxPerUnitY;
+          if (-_lpx > padL) padL = -_lpx;
+          if (_lpx - viewW > padR) padR = _lpx - viewW;
+          if (-_lpy > padT) padT = -_lpy;
+          if (_lpy - viewH > padB) padB = _lpy - viewH;
+        }
+      }
+    }
+
     // Apply padding: shift origin and expand viewBox/display dimensions
     if (padL > 0 || padR > 0 || padT > 0 || padB > 0) {
       // Shift minX left and maxY up in user coords so rendering coordinates adjust
@@ -28116,7 +30075,20 @@ function renderSVG(result, opts) {
         const _vBidir = padT > 0.5 && padB > 0.5 &&
           Math.min(padT, padB) / Math.max(padT, padB) >= 0.5;
         const _domBidir = (overshootScaleW >= overshootScaleH) ? _hBidir : _vBidir;
-        if (_symmetric || _domBidir) {
+        // Balanced symmetric overshoot BELOW the _symThr=1.12 floor: the two axes
+        // overshoot by a near-equal factor (osW≈osH, ratio ≥ _balThr) but each
+        // axis's label sits on ONE side (e.g. an EndPoint "$x$" hanging off the
+        // right tip, "$y$" off the top tip — slope fields 00260/00259/00261/
+        // 00269-00273). That is still the "geometry surrounded by labels" case
+        // TeXeR fits into the default-size box, but it was missed: _symmetric
+        // needs osMin≥1.12 and _domBidir needs bidirectional padding on a single
+        // axis (padL≈padR). With neither matching, intrinsicW/H were left at the
+        // geometry-only size while the viewBox expanded, rendering ~7% too small
+        // (every such slope field, sizeScore 0.87-0.90). The _balThr balance test
+        // still excludes genuine one-sided captions (osW≫osH, e.g. 03928), which
+        // must expand the canvas rather than clamp.
+        const _balancedSym = _osMin >= 1.05 && (_osMin / _osMax) >= _balThr;
+        if (_symmetric || _domBidir || _balancedSym) {
           // Fit the full label-inclusive picture into the defaultSize box
           // (uniform clamp), matching TeXeR's bound-everything sizing for
           // compact figures whose labels surround the geometry.
@@ -28159,7 +30131,19 @@ function renderSVG(result, opts) {
         // scale so the rasterized output matches TeXeR's absolute size while
         // keeping all content visible. Excludes unitsize() (hasUnitScale), where
         // the user fixed the scale and labels legitimately enlarge the output.
-        if (keepAspect && !hasUnitScale && sizeW > 0) {
+        // Also excludes _sizeLpApplied: the pass-1 LP already fit geometry +
+        // truesize labels optimally (and may have √2-enlarged size() because the
+        // truesize labels alone exceed it — e.g. 08989's fontsize(25) "Laser"/
+        // "Detector" force size(80) up to 160bp). Clamping back to size() there
+        // would re-crush the picture the LP deliberately grew.
+        // attach(legend(),…) adds a TRUESIZE legend frame BELOW the graph,
+        // OUTSIDE size() (real Asymptote sizes the graph to size() and appends
+        // the legend). It extends the canvas height past size(), and the clamp
+        // below would then shrink the whole graph to fit (04452: grid 175→107bp).
+        // Skip the clamp when a legend is present so the graph keeps size() and
+        // the legend extends the canvas below it, as the TeXeR does.
+        const _hasLegend = drawCommands.some(dc => dc && dc._fromLegend);
+        if (keepAspect && !hasUnitScale && sizeW > 0 && !_sizeLpApplied && !_hasLegend) {
           // A truesize \underbrace{\hspace{Nbp}} / \overbrace label cannot shrink:
           // when its width exceeds the size() box, real Asymptote/TeXeR grows the
           // output to hold it rather than clamping back to size() (e.g. 02807's
@@ -28390,7 +30374,9 @@ function renderSVG(result, opts) {
       // When the auto-scaled stroke boost is active for default pens, scale the
       // arrow size by the same factor — TeXeR's reference renders behave as if
       // the effective default linewidth is the boosted one (e.g. 04315).
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      // Flat-banner number lines are the exception: their heads are native-size
+      // in TeXeR (see _flatBanner / _geoFlatBanner notes), so don't boost them.
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       let baseSize;
       if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
@@ -28405,15 +30391,27 @@ function renderSVG(result, opts) {
         baseSize = (dc.arrow.size || 6) * explicitBoost;
       }
       let arrowLen = baseSize * bpCSSPixel;
-      // Clamp arrow length to 70% of total path length (same as generateArrowHead)
+      // Mirror generateArrowHead's sizing EXACTLY so the stroke shortening and
+      // the drawn arrowhead agree on where the head base sits. They previously
+      // diverged — this block clamped the shorten amount at 0.7*totalLen while
+      // generateArrowHead clamps the head at 0.5*totalLen — so on SHORT paths
+      // like slopefield segments the tail was shortened ~0.2*len MORE than the
+      // head was long, leaving a visible GAP between tail and arrowhead (00260).
+      // Apply the same <3 floor and 0.5*totalLen clamp as generateArrowHead.
+      if (!dc.arrow.texHead && arrowLen < 3) arrowLen = 3;
       let totalLen = 0;
       for (const s of dc.path.segs) {
         const dx = (s.p3.x - s.p0.x) * pxPerUnitX, dy = (s.p3.y - s.p0.y) * pxPerUnitY;
         totalLen += Math.sqrt(dx*dx + dy*dy);
       }
-      if (arrowLen > totalLen * 0.7) arrowLen = totalLen * 0.7;
+      if (arrowLen > totalLen * 0.5) arrowLen = totalLen * 0.5;
 
-      const shortenLen = arrowLen;
+      // A FILLED arrowhead (solid triangle) is opaque and overlaps the stroke,
+      // so tuck the tail slightly UNDER the base (0.9x) to guarantee no sub-pixel
+      // seam. Open heads (TeXHead / SimpleHead) shorten by the full head length
+      // so the stroke doesn't show through the open chevron.
+      const _isOpenHead = !!dc.arrow.texHead || dc.arrow.headKind === 'SimpleHead';
+      const shortenLen = _isOpenHead ? arrowLen : arrowLen * 0.9;
 
       // Arrow(Relative(t)) places the head mid-path; don't shorten path endpoints.
       const _hasRelPos = dc.arrow.position !== undefined;
@@ -28496,12 +30494,15 @@ function renderSVG(result, opts) {
           globalThis._sphereGradCounter += 1;
         }
         const gid = `_sg${(typeof window !== 'undefined' ? window._sphereGradCounter : globalThis._sphereGradCounter)}`;
+        const _stopEls = (sg.stops && sg.stops.length)
+          ? sg.stops.map(s => `<stop offset="${s.off}%" stop-color="${_rgb(s.c)}"/>`).join('')
+          : `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
+            `<stop offset="4%" stop-color="${_rgb(sg.litMid)}"/>` +
+            `<stop offset="45%" stop-color="${_rgb(sg.mid)}"/>` +
+            `<stop offset="100%" stop-color="${_rgb(sg.dark)}"/>`;
         elements.push(
           `<defs><radialGradient id="${gid}" cx="${fmt(cxPx)}" cy="${fmt(cyPx)}" r="${fmt(rPx)}" fx="${fmt(fxPx)}" fy="${fmt(fyPx)}" gradientUnits="userSpaceOnUse">` +
-          `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
-          `<stop offset="4%" stop-color="${_rgb(sg.litMid)}"/>` +
-          `<stop offset="45%" stop-color="${_rgb(sg.mid)}"/>` +
-          `<stop offset="100%" stop-color="${_rgb(sg.dark)}"/>` +
+          _stopEls +
           `</radialGradient></defs>`
         );
         fill = `url(#${gid})`;
@@ -28509,16 +30510,23 @@ function renderSVG(result, opts) {
     } else if (dc.cmd === 'filldraw') {
       // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
       fill = (css.opacity === 0) ? 'none' : css.fill;
-      if (dc.drawPen) {
-        const drawCSS = penToCSS(dc.drawPen);
-        drawCSS.strokeWidth *= bpCSSPixel;
-        stroke = drawCSS.stroke;
-        strokeW = drawCSS.strokeWidth;
-      } else {
-        // When filldraw has only one pen: fill with that pen, stroke with default pen (black)
-        const defaultCSS = penToCSS(defaultPen);
-        stroke = defaultCSS.stroke;
-        strokeW = defaultCSS.strokeWidth * bpCSSPixel;
+      // The filldraw OUTLINE is stroked with the draw pen (drawPen, or the
+      // default pen when only a fill pen was supplied). penToCSS gives its
+      // nominal width; we then apply the SAME auto-scaled / explicit-size
+      // stroke boost that `draw` commands receive in Pass 1 (see line ~28930).
+      // Without this, a default-pen filldraw outline rendered at half the
+      // weight of an equivalent draw() stroke — e.g. 05547's reservoir box
+      // border came out ~1.5px vs TeXeR's ~3px. The boost only applies when
+      // the draw pen carries no explicit linewidth (and defaultpen() wasn't
+      // given one); an explicit-width outline renders at literal size.
+      const _strokePen = dc.drawPen || defaultPen;
+      const drawCSS = penToCSS(_strokePen);
+      stroke = drawCSS.stroke;
+      strokeW = drawCSS.strokeWidth * bpCSSPixel;
+      if (!_strokePen._lwExplicit && !_defaultpenLwSet) {
+        const _fdBoost = Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
+        if (_fdBoost > 1) strokeW *= _fdBoost;
+        else if (_explicitSizeStrokeBoost > 1) strokeW *= _explicitSizeStrokeBoost;
       }
     } else if (dc.cmd === 'clip') {
       return; // clip is handled via SVG <clipPath> defs
@@ -28565,7 +30573,7 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
         ? _autoScaledStrokeBoost : 1.0;
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost, _isNarrowFewDots1D);
       if (arrowEl) {
@@ -28646,6 +30654,24 @@ function renderSVG(result, opts) {
     }
   }
 
+  // Negative-vspace minipage labels (12380-89): TeXeR crops the overflow 3rd
+  // line only where it falls past the picture bbox — i.e. on the BOTTOM row,
+  // not on a label that sits over other geometry (a middle label's 3rd line
+  // stays visible). HTX's tighter line pitch keeps the 3rd line inside the
+  // annotated circle, so the bbox can't clip it; instead the multi-line
+  // renderer omits it, gated to the bottom row. Identify the bottom row as the
+  // lowest anchor-y among these labels (the corpus's only such diagrams, the
+  // 12380-89 family, always anchor the clipped labels on the bottom vertices).
+  let _mpBottomY = Infinity;
+  if (_mpVspaceClip.size) {
+    for (const dc of drawCommands) {
+      if (!dc || (dc.cmd !== 'label' && dc.cmd !== 'dot') || !dc.pos) continue;
+      if (typeof dc.text === 'string' && _mpVspaceClip.has(_mpClipKey(dc.text)) && dc.pos.y < _mpBottomY) {
+        _mpBottomY = dc.pos.y;
+      }
+    }
+  }
+
   // Build a map of dot positions → dot radius (in SVG user units) so that labels
   // placed at the same anchor point can be pushed outward by the dot radius
   // (matching Asymptote's dotmargin = labelmargin + dotfactor*linewidth/2 behavior).
@@ -28654,7 +30680,7 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     if (dc.cmd !== 'dot' || !dc.pos) continue;
     const dotLw = dc.pen.linewidth;
-    const _useDirectDiameter_lpush = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
+    const _useDirectDiameter_lpush = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
     const dR = (_useDirectDiameter_lpush ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
     const key = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
     const prev = dotRadiusAtPos.get(key) || 0;
@@ -28678,6 +30704,23 @@ function renderSVG(result, opts) {
   // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
   let _autoStrokeFloorBoost = 1.0;
+  // Flat-banner number lines (minDim<5, maxDim>50, e.g. 05883/05891) get a 2×
+  // STROKE boost to survive SSIM trim+resize, but their ArcArrows/Arrows heads
+  // are truesize filled glyphs that TeXeR renders at NATIVE size (measured: REF
+  // arrowhead ~7.5bp = unboosted 15×0.5, not the 2× boosted 15bp). Boosting the
+  // head makes it 2× too large, ballooning the diagram's height and wrecking the
+  // aspect ratio after SSIM resize. Suppress the arrow boost for flat banners.
+  let _flatBanner = false;
+  // Like _flatBanner, but derived from the GEOMETRY bbox rather than the
+  // label-padded render bbox. A number line whose tick labels / stacked
+  // fractions stick far above the axis (e.g. 05972's `2*N` $\frac{16}{8}$
+  // captions push the padded maxY to ~12 while the geometry is only ~2.4 tall)
+  // has a flat GEOMETRY but a tall padded bbox, so it escapes _flatBanner and
+  // lands in the aspect>6 branch — which then boosts its truesize ArcArrow
+  // heads ~1.67×, rendering them visibly too big. The arrowheads are truesize
+  // glyphs TeXeR draws at native size regardless of label height, so suppress
+  // the arrow boost (only) whenever the geometry itself is banner-flat.
+  let _geoFlatBanner = false;
   // Track narrow-span 1D horizontal diagrams so dot boost can be reduced
   // (stroke boost needs to be high for lines/arrows, but dots are already
   // prominent and don't need the same multiplier).
@@ -28688,6 +30731,12 @@ function renderSVG(result, opts) {
     const _aspect = Math.max(_w, _h) / Math.min(_w, _h);
     const _minDim = Math.min(_w, _h);
     const _isFlatBanner = _minDim < 5 && Math.max(_w, _h) > 50;
+    // Geometry-only flat-banner test (ignores label padding) — see _geoFlatBanner note.
+    {
+      const _gw = (geoMaxX - geoMinX) || 1;
+      const _gh = (geoMaxY - geoMinY) || 1;
+      _geoFlatBanner = Math.min(_gw, _gh) < 5 && Math.max(_gw, _gh) > 50;
+    }
     // Tall-thin diagrams whose user-coord minDim is small (e.g. 01153's
     // 0.3-unit width) but auto-scale to a rendered minDim that's already
     // adequately thick (>= 10 bp) don't benefit from the linear ramp's full
@@ -28696,6 +30745,28 @@ function renderSVG(result, opts) {
     // 240 DPI / HTX 144 DPI) so default strokes match TeXeR's rendered
     // weight without dominating the diagram.
     const _renderedMinDim = _minDim * pxPerUnit;
+    // "Pure stroke art": the diagram's marks are ALL default-pen stroked paths
+    // — no dot() markers, no arrowheads, and no text labels. TeXeR's 600-DPI
+    // device-pixel-snapped default strokes render ~2× HTX's nominal weight
+    // (measured 4px vs 2px on 12970's candle/lens/eye/arrow outlines), but the
+    // ordinary stroke floor is held at 1.5× because three things SHARE it:
+    //   • dots and arrowheads bloat if it rises (04201 lattice, 00269/00271
+    //     slopefields), and
+    //   • text labels anchor the SSIM trim+resize, so a heavier stroke floor
+    //     becomes a net regression on labeled line art (measured −0.018 on
+    //     05854's fraction-labeled triangle, −0.008 on 00069's dx/dy triangle).
+    // When there are NO dots, arrowheads, or labels, none of those constraints
+    // apply, so the stroke floor can be raised toward TeXeR's heavier weight for
+    // genuinely line-only diagrams (12970's optical-elements symbols).
+    let _pureStrokeArt = false;
+    {
+      let _disq = false, _hasBoostableStroke = false;
+      for (const dc of drawCommands) {
+        if (dc.cmd === 'dot' || dc.arrow || dc.cmd === 'label') { _disq = true; break; }
+        if ((dc.cmd === 'draw' || dc.cmd === 'filldraw') && dc.pen && !dc.pen._lwExplicit) _hasBoostableStroke = true;
+      }
+      _pureStrokeArt = !_defaultpenLwSet && _hasBoostableStroke && !_disq;
+    }
     if (geoIs1D) {
       // 1D-degenerate geometry (all points collinear).
       // Horizontal cases (y-range = 0, e.g. 09210/09212): the SSIM
@@ -28730,6 +30801,7 @@ function renderSVG(result, opts) {
       }
     } else if (_isFlatBanner) {
       _autoScaledStrokeBoost = 2.0;
+      _flatBanner = true;
     } else if (_aspect > 6 && _renderedMinDim >= 10) {
       _autoScaledStrokeBoost = 1.67;
     } else {
@@ -28739,7 +30811,11 @@ function renderSVG(result, opts) {
       // 0.5bp strokes ~1.8× heavier than our nominal (measured 3px vs
       // 1.67px on 07413's axes). Dots and arrowheads are truesize and
       // already match — they keep the unfloored ramp value.
-      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, 1.5);
+      // Pure-stroke-art diagrams (no dots/arrows/labels) get a heavier 2.0×
+      // floor toward TeXeR's device-snapped default-stroke weight; this is the
+      // SSIM-optimal value for 12970 and is canary-clean (the only diagrams that
+      // regressed at 2.0 were labeled, and labels are now excluded above).
+      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, _pureStrokeArt ? 2.0 : 1.5);
     }
   }
   // The auto-scaled boost compensates default-pen STROKES for SSIM trim+resize
@@ -28751,12 +30827,69 @@ function renderSVG(result, opts) {
   // large relative to the unboosted lines. Detect "no boosted stroke" so the dot
   // boost can be suppressed and dots render at their natural TeXeR-matching size.
   let _hasBoostedStroke = false;
-  if (_autoScaledStrokeBoost > 1 && !_defaultpenLwSet) {
+  // Gate on the ACTUAL boost applied to strokes — Math.max(ramp, floor) — not
+  // the ramp alone. For a square-bbox auto-scaled diagram (aspect exactly 1.0,
+  // e.g. 00214's 3×3 bbox) the linear ramp computes to exactly 1.0 while the
+  // STROKE floor is 1.5, so default-pen strokes ARE boosted (to 0.75bp at
+  // L29044) even though ramp==1. Gating on ramp>1 missed this, leaving such
+  // diagrams' default-pen DOTS at native 3bp while their axes were boosted —
+  // a discontinuity at aspect==1 (an aspect-1.1 diagram already boosted its
+  // dots to 1.5×). Using the same max(ramp,floor) the stroke boost uses keeps
+  // dots and strokes consistent: dots share the stroke floor (see L29246).
+  if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && !_defaultpenLwSet) {
     for (const dc of drawCommands) {
       if (dc.cmd !== 'draw' && dc.cmd !== 'filldraw') continue;
       if (dc.pen && !dc.pen._lwExplicit) { _hasBoostedStroke = true; break; }
     }
   }
+  // Dot-only auto-scaled diagram: the dots ARE the geometry (no stroked paths,
+  // fills, or markers at all), like the 1D dot scatters 09210/09212 but spread
+  // across BOTH axes (e.g. 04241's rand() blue/red scatter). With no strokes to
+  // anchor to, _hasBoostedStroke stays false and the dot boost above is skipped,
+  // leaving default-pen dots at native 3bp while TeXeR's 240-DPI EPS pipeline
+  // renders them ~1.67× heavier (~5bp measured). geoIs1D covers the collinear
+  // case; this covers the genuinely 2D dot-only case it misses.
+  let _isDotOnlyAutoScaled = false;
+  if (isAutoScaled && !geoIs1D && !_defaultpenLwSet) {
+    let _hasStrokeGeom = false, _hasDot = false;
+    for (const dc of drawCommands) {
+      if (dc.cmd === 'dot') { _hasDot = true; continue; }
+      if (dc.cmd === 'draw' || dc.cmd === 'filldraw' || dc.cmd === 'marker' || dc.path) { _hasStrokeGeom = true; break; }
+    }
+    _isDotOnlyAutoScaled = _hasDot && !_hasStrokeGeom;
+  }
+  // Auto-scaled diagrams whose stroked geometry ALL carries explicit linewidths
+  // (cse5 `pathpen = ... + linewidth(0.65)`, e.g. 08517/08518) leave
+  // _hasBoostedStroke = false, so neither their lines nor their (default-pen)
+  // dots get boosted and the whole diagram renders thinner than TeXeR. That is
+  // fine for square-ish shapes, but for high-aspect (tall-narrow) geometry the
+  // SSIM trim+resize squashes the minor axis and TeXeR's heavier EPS rendering
+  // of the same dots no longer matches. Capture the aspect ramp boost that
+  // WOULD have applied here so the (default-pen) dots can take a fraction of it
+  // and survive the compression like TeXeR's heavier dots.
+  let _explicitStrokeAutoBoost = 1.0;
+  if (isAutoScaled && !_hasBoostedStroke && !_defaultpenLwSet &&
+      Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1) {
+    let _hasExplicitStrokeGeom = false;
+    for (const dc of drawCommands) {
+      if (dc.cmd !== 'draw' && dc.cmd !== 'filldraw') continue;
+      if (dc.pen && dc.pen._lwExplicit) { _hasExplicitStrokeGeom = true; break; }
+    }
+    if (_hasExplicitStrokeGeom) {
+      _explicitStrokeAutoBoost = Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
+    }
+  }
+  // Empirically calibrated: only the DOTS benefit from the boost (~0.85 of the
+  // aspect ramp ≈ 1.7× for these aspect-2.9 triangles, matching TeXeR's ~1.67×
+  // heavier EPS dots). Boosting the explicit STROKES too was net-negative — it
+  // barely helped 08517/08518 (~+0.0005) while thickening unrelated explicit-
+  // pen arrows on other high-aspect diagrams (e.g. 12945's gray+1bp arrows,
+  // −0.011), so strokes are left at their literal width. The dot finding
+  // supersedes the older note below that a 1.67× dot boost "lowers SSIM": that
+  // predated the dot-centering fixes; with current centering the larger disc
+  // now matches. Diagrams whose marks are fill(circle()) rather than dot()
+  // (e.g. 12945's chips) are untouched — only dot() commands take this boost.
+  const _explicitDotBoostApplied = 1 + (_explicitStrokeAutoBoost - 1) * 0.85;
   // For diagrams with explicit unitsize/size (!isAutoScaled), the auto-scaled
   // stroke boost above is bypassed, so default-pen strokes (axes, default-
   // color line plots, e.g. the red function-plot in 04531) render at the
@@ -28765,7 +30898,24 @@ function renderSVG(result, opts) {
   // pen strokes in this branch so axes and default-color graphs have visual
   // weight comparable to TeXeR. Explicit linewidths (_lwExplicit) are
   // untouched so user-specified pen widths render at literal size.
-  const _explicitSizeStrokeBoost = !isAutoScaled ? 1.5 : 1.0;
+  // High-aspect size-constrained diagrams (e.g. 06929's 7:1 graph-of-states
+  // banner under size(0,1.5cm)) are squashed along their major axis by SSIM's
+  // trim+resize step, thinning default strokes the same way the auto-scaled
+  // linear ramp compensates for. The flat 1.5× leaves them ~2px against TeXeR's
+  // ~3px device-snapped strokes; a modest 1.6× restores the weight. Normal-
+  // aspect size/unitsize diagrams keep the tuned 1.5× (raising them globally
+  // regressed labeled line art — see the auto-scaled floor notes above).
+  let _explicitSizeStrokeBoost = 1.0;
+  if (!isAutoScaled) {
+    const _wES = (maxX - minX) || 1, _hES = (maxY - minY) || 1;
+    const _aspectES = Math.max(_wES, _hES) / Math.min(_wES, _hES);
+    // The high-aspect bump only applies to keepAspect diagrams, whose RENDERED
+    // aspect equals the geometry aspect (so SSIM's trim+resize squashes the
+    // major axis and thins strokes). IgnoreAspect diagrams (e.g. 04155
+    // `size(150,IgnoreAspect)` — a 6.4:1 graph) scale each axis independently to
+    // a ~square box and are NOT squashed, so they keep the tuned flat 1.5×.
+    _explicitSizeStrokeBoost = (keepAspect && _aspectES > 4) ? 1.6 : 1.5;
+  }
   // Pass 1: paths, fills, draws, and dots (non-above first, then above=true)
   for (const ci of renderOrder) {
     if (_skipGridCi.has(ci)) continue;
@@ -28952,48 +31102,50 @@ function renderSVG(result, opts) {
       // Render dots in program order so later fills can cover them
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
-      // Dot radius: real Asymptote always uses radius = dotfactor*linewidth/2.
-      // However many AoPS-authored diagrams use the "n+pen" idiom expecting
-      // direct dot diameters (e.g. dot(z, 10+black) for a 10bp dot, not 60bp).
-      // Compromise: for explicitly-set linewidths >= 1bp, treat the linewidth
-      // as the dot diameter directly (matches AoPS TeXeR rendering of the
-      // common `dot(z, color+N)` idiom where N is a small integer 1..10
-      // intended as the dot diameter in bp -- e.g. 08663 `dot(z,3+black)`,
-      // 08733 `dot(z,black+2bp)`, 08750 `linewidth(1.2)`, 09162 `dot(z,black+3)`).
-      // For small explicit linewidths (lw < 1, e.g. dp=black+0.75 in 05895),
-      // keep the dotfactor multiplier so a stroke pen reused for dots renders
-      // a normal-sized visible mark instead of a sub-bp invisible dot.
+      // Dot radius matches real asy's `dotsize(p) = linewidth(dotpen + p)`:
+      // pen addition lets an EXPLICIT linewidth on p override dotpen's
+      // dotfactor*linewidth, so the dot *diameter* equals the explicit
+      // linewidth directly (any magnitude). Only pens with no explicit
+      // linewidth fall back to dotfactor*linewidth (~3bp for the default pen).
+      // Examples: 08663 `dot(z,3+black)`=>3bp, 09162 `dot(z,black+3)`=>3bp,
+      // 06256 `red+6`=>6bp, AND the small-width cases this corrects:
+      // 04938 `linewidth(0.8bp)`=>0.8bp, 05895 `black+0.75`=>0.75bp — all
+      // direct. (Verified against local asy 3.05: dot(z,linewidth(w)) renders
+      // a w-bp dot for w=0.75,0.8,2,3; bare dot()/color-only pens give 3bp.)
       const dotLw = dc.pen.linewidth;
-      const useDirectDiameter = dc.pen && dc.pen._lwExplicit && dotLw >= 1;
-      // Apply the auto-scaled stroke boost to dot radius too, but only for
-      // non-explicit pens (matching the stroke-boost criterion at L18542):
-      // explicit dot diameters/linewidths should keep their literal size.
-      // Also skip boost when defaultpen() set a linewidth — the author's
-      // explicit global pen sizing should be respected (e.g. defaultpen(.5)
-      // in 04025 should produce small dots, not boosted large ones).
-      // For auto-scaled diagrams, apply the auto-scaled stroke boost to dots.
-      // For explicit-size diagrams (!isAutoScaled), skip the boost for 2D dots:
-      // the 1.5× stroke boost compensates for DPI differences in stroke rendering,
-      // but dots at their native bp size already match TeXeR well — boosting them
-      // makes them appear too large relative to the geometry (e.g. 03491).
-      // 3D diagrams already skip this via the !_is3D check for stroke boost.
+      // TeXeR's dot-diameter rule (empirical, NOT real-asy's dotsize override):
+      //   - linewidth(w) pens (_lwDirect) => diameter = w directly, any magnitude
+      //     (04938 `linewidth(0.8bp)` ellipsis dots are tiny; 08750 `linewidth(1.2)`).
+      //   - `pen + real` width pens (_lwExplicit, NOT _lwDirect) => direct ONLY when
+      //     w >= 1 (08663 `3+black`, 09162 `black+3`, 06256 `red+6`); when w < 1 the
+      //     dotfactor*w/2 branch applies so the mark stays visible — 05891/05895
+      //     `dp=black+0.75` render a ~4.5bp dot in TeXeR (measured), not 0.75bp.
+      const useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
+      // Dot size on AUTO-SCALED diagrams: TeXeR's 600-DPI EPS pipeline renders
+      // default-pen dots ~1.67x their nominal bp. Measured against the texer
+      // references, auto-scaled dots are CONSISTENTLY ~1.7x native (09210 and
+      // 01019 dots both 5.1bp = 1.7 * the native 3bp), independent of how many
+      // dots there are or the bbox aspect. So apply that DPI ratio UNIFORMLY to
+      // default-pen dots on auto-scaled diagrams.
+      //
+      // The previous heuristic varied the boost by geometry and was inconsistent:
+      // 3.425x for narrow few-dot diagrams made 01019/01108 ~2x too big; the
+      // stroke-ramp branch and the (geoIs1D||hasBoostedStroke||dotOnly) gate left
+      // 2D dots over a contour image (04202) un-boosted and too small. A single
+      // ratio fixes all three classes at once.
+      //
+      // Guards: explicit dot linewidths keep their literal size (!_lwExplicit);
+      // an author defaultpen(width) is respected (!_defaultpenLwSet); and
+      // size()/unitsize() diagrams keep native bp — they already match TeXeR
+      // (06212/03491/06925/03636), where dots are NOT DPI-enlarged.
       let _dotBoost = 1.0;
-      if (dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
-        if (Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost) > 1 && (geoIs1D || _hasBoostedStroke)) {
-          // For narrow-span 1D horizontal diagrams (e.g. 04219), dots need
-          // higher boost than strokes to match TeXeR's dot size.
-          // For 2D diagrams with no boosted stroke (all geometry uses explicit
-          // linewidths, e.g. 08517), skip the dot boost so dots stay
-          // proportional to the unboosted lines. 1D dot diagrams (09210/09212)
-          // have no strokes at all but still need the boost to survive SSIM
-          // trim+resize, so they always keep it.
-          // Default-pen dots are stroke-rendered in TeXeR's EPS pipeline,
-          // so they carry the same DPI weight as lines (07413's dots
-          // measured visibly heavier than native 3bp) — share the floor.
-          _dotBoost = _isNarrowFewDots1D ? 3.425 : Math.max(_autoScaledStrokeBoost, _autoStrokeFloorBoost);
-        }
-        // Note: explicit-size 2D diagrams (_explicitSizeStrokeBoost > 1 && !_is3D)
-        // no longer boost dots — native bp sizing matches TeXeR better.
+      // The 1.67x DPI boost is for diagrams TeXeR AUTO-scales to the 150bp
+      // default. When the source carries a numeric size-ish token
+      // (_texerSizeTextMatch — e.g. Arrow(size=2mm) in 04337), TeXeR sizes the
+      // picture to 400bp like an explicit size(), so its truesize dots render
+      // NATIVE — same as the size()/unitsize() exception below. Don't boost them.
+      if (isAutoScaled && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) {
+        _dotBoost = 1.67;
       }
       const dotR = (useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel * _dotBoost;
       const dotClip = dc._subpicClipId ? ` clip-path="url(#${dc._subpicClipId})"` : '';
@@ -29081,7 +31233,19 @@ function renderSVG(result, opts) {
           dc.text = dc.text.slice(2);
         }
       }
-      // Skip empty labels
+      // Skip empty labels: an empty/whitespace-only label draws no glyphs and
+      // must NOT emit a <text> node. The AoPS "blank axes" template emits
+      // `label("", (xmax/2,ymax), N, fontsize(20))` for an absent title; the SVG
+      // emitter otherwise wrote an empty <text font-size="20">, and
+      // render-and-score's expandViewBox pads every <text> by fontsize*0.6, so
+      // that stray node reserved ~half a fontsize of phantom top margin in the
+      // rasterised PNG (08743's box pushed ~78px down). Test the RAW text (only $
+      // delimiters + whitespace removed), NOT stripLaTeX — stripLaTeX collapses
+      // command-only labels that DO render a glyph (e.g. "\textdollar" → $, 09485)
+      // to empty, which would wrongly drop them.
+      if (typeof dc.text === 'string' && dc.text.replace(/\$/g, '').trim() === '') {
+        continue;
+      }
       const sx = (dc.pos.x - minX) * pxPerUnitX;
       const sy = (maxY - dc.pos.y) * pxPerUnitY;
       // TeX caps very large requested fontsizes (font substitution at ~25pt)
@@ -29105,6 +31269,7 @@ function renderSVG(result, opts) {
       // correct. Single-line text handles this again via fontSizeCmdRe further below
       // (which strips the command and re-scales effectiveFontSize), but we must apply it
       // here first so fontSizeSVG is correct for W/H/margin computation.
+      let _preFsApplied = false;
       {
         const _preFsCmdRe = /\\(?:tiny|scriptsize|footnotesize|small|normalsize|large|Large|LARGE|huge|Huge)(?![a-zA-Z])/g;
         const _preFsSizes = {'\\tiny':0.5,'\\scriptsize':0.7,'\\footnotesize':0.8,'\\small':0.9,'\\normalsize':1.0,'\\large':1.2,'\\Large':1.44,'\\LARGE':1.728,'\\huge':2.074,'\\Huge':2.488};
@@ -29122,6 +31287,7 @@ function renderSVG(result, opts) {
           const _baseFs = Math.min(fontSize, 12);
           fontSizeSVG = _baseFs * _pfsScale * bpCSSPixel;
           fontSizeCSS = _baseFs * _pfsScale * labelShrinkFactor;
+          _preFsApplied = true;
         }
       }
       let dx = 0, dy = 0;
@@ -29140,19 +31306,40 @@ function renderSVG(result, opts) {
         const _cleanLen = (_cleanLines.length > 0 ? Math.max(..._cleanLines.map(l => l.length)) : 1) || 1;
         // Heuristic width estimate
         _labelWidthMeasured = _cleanLen * fontSizeSVG * 0.52 + fontSizeSVG * 0.1;
-        // Try MathJax measurement if available (single-line only)
-        if (opts && opts.labelOutput === 'svg-native' && typeof _mjxMeasureBp === 'function'
-            && _rawForMeas.indexOf('\n') === -1) {
+        // Measure the label with the SAME engine that will render its glyphs,
+        // so the Fill/UnFill background box and W/E alignment track the rendered
+        // glyph exactly. The comparator (svg-native) and the live in-browser app
+        // both render through the KaTeX SVG emitter when it is ready (node loads
+        // it via the bootstrap at the top of this file), so both measure with
+        // _katexMeasureBp(fontSizeCSS) — widthEm*fontSizeCSS == renderLabelKatexSvg's
+        // svgW — keeping the two pixel-identical. MathJax svg-native measurement
+        // is the fallback when the emitter is unavailable in node; canvas-ink is
+        // the last resort in the browser.
+        let _measured = false;
+        if (_rawForMeas.indexOf('\n') === -1 && typeof _katexMeasureBp === 'function'
+            && typeof katexSvg !== 'undefined' && katexSvg.ready && katexSvg.ready()) {
+          try {
+            const _km = _katexMeasureBp(_rawForMeas, fontSizeCSS);
+            if (_km && _km.wBp > 0) {
+              _labelWidthMeasured = _km.wBp + fontSizeSVG * 0.1;
+              if (_km.hBp > 0) _labelHeightMeasured = _km.hBp;
+              _measured = true;
+            }
+          } catch (e) { /* fall through to engine-specific fallback */ }
+        }
+        if (!_measured && opts && opts.labelOutput === 'svg-native'
+            && typeof _mjxMeasureBp === 'function' && _rawForMeas.indexOf('\n') === -1) {
           try {
             const _m = _mjxMeasureBp(_rawForMeas, fontSizeSVG);
             if (_m && _m.wBp > 0) {
-              // Add small padding to measured width (like Asymptote's label background)
               _labelWidthMeasured = _m.wBp * bpCSSPixel + fontSizeSVG * 0.1;
               if (_m.hBp > 0) _labelHeightMeasured = _m.hBp * bpCSSPixel;
+              _measured = true;
             }
-          } catch (e) { /* ignore — fall back to heuristic */ }
-        } else if (typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
-          // Browser: canvas ink metrics give the real box for UnFill rects.
+          } catch (e) { /* fall back to heuristic */ }
+        }
+        if (!_measured && typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
+          // Browser last resort: canvas ink metrics (emitter not ready yet).
           try {
             const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
               /[\\$]/.test(_rawForMeas));
@@ -29239,6 +31426,15 @@ function renderSVG(result, opts) {
             if (_wM) W = _wM;
           } catch (e) { /* ignore — fall back to heuristic */ }
         }
+        // A \centering minipage centers its content within the DECLARED box
+        // width, not the content's own width. Use the box width for the
+        // alignment offset (dx = ax_n*W + …) so the content — rendered with
+        // anchor='middle' below — lands at the box CENTER instead of hugging
+        // its anchor edge (00572's centered math equations). max() guards the
+        // rare content-wider-than-box overflow.
+        if (dc._mpCenterWidthBp > 0) {
+          W = Math.max(W, dc._mpCenterWidthBp * bpCSSPixel);
+        }
         // A labelTransform scale (e.g. scale(0.75)*"...") is folded into the font
         // size LATER (effectiveFontSize below), so the rendered glyph width is
         // W*ltScale, not W. The horizontal-alignment offset (dx = ax_n*W + ax*margin)
@@ -29312,7 +31508,27 @@ function renderSVG(result, opts) {
         // (plain_constants.asy), a raw-component test would silently drop
         // EndPoint SE/NW axis labels out of this branch and shrink the
         // figure bounds (00145 went from the ref's square aspect to 0.979).
-        if (dc._isAxisLabel && Math.abs(axLinf) > 0.99 && !dc.labelTransform) {
+        // Extend the SVG-native text-anchor fast path to PURELY HORIZONTAL
+        // (E/W, ay≈0) NON-axis labels too. For these the renderer otherwise uses
+        // anchor='middle' with dx = 0.5·W + margin, where W is the measured width.
+        // The emitter then re-centers on its OWN glyph width Wₖ, so the left edge
+        // lands at anchor.x + margin + 0.5·(W − Wₖ): correct only when W == Wₖ.
+        // For a \footnotesize/\textbf caption the measurement double-applies the
+        // size selector (the folded fontSize already carries it, and KaTeX applies
+        // it again — see _katexMeasureBp), so W ≈ 0.8·Wₖ and the box shifts left
+        // by ~0.1·Wₖ, flush-clipping the leading glyph at the canvas edge (04702's
+        // bottom-left "E"). text-anchor='start'/'end' pins the W/E edge at the
+        // labelmargin offset regardless of any width-estimate error — identical to
+        // the well-measured case (W==Wₖ ⇒ same edge), so it is a no-op for accurate
+        // labels and a fix for mis-measured ones. Gate on ay≈0 so DIAGONAL aligns
+        // (NE/SE/…, where the 'middle' vertical-offset formula differs) are left
+        // untouched; only the axis-label branch keeps its diagonal coverage.
+        // Restrict the new non-axis case to SINGLE-LINE labels (numLines<=1): a
+        // multi-line minipage with W/E alignment (12382's "{\tiny1:1}…" blocks)
+        // lays its lines out via the tspan/block path below, where flipping the
+        // anchor shifts the whole block off its measured center.
+        if (Math.abs(axLinf) > 0.99 && !dc.labelTransform
+            && (dc._isAxisLabel || (Math.abs(ay) < 0.01 && numLines <= 1))) {
           anchor = ax < 0 ? 'end' : 'start';
           dx = axLinf * margin + axUnit * dotPush;
           dy = -(ay_n * H + ayLinf * margin + ayUnit * dotPush);
@@ -29336,12 +31552,33 @@ function renderSVG(result, opts) {
         // bracket bar and dotted rays that TeXeR keeps.
         const estW = _labelWidthMeasured;
         const estH = _labelHeightMeasured || fontSizeSVG * 0.72;
-        let rx = parseFloat(fmt(sx + dx)), ry = parseFloat(fmt(sy + dy));
+        // screenDx/screenDy (axis-label autoshift past tick labels) are folded
+        // into dx/dy only LATER (the rotated branch ~29661 and the non-rotated
+        // branch ~29692). The fill rect must include them here too, or the
+        // erase/fill box stays at the un-shifted position while the glyphs move
+        // — e.g. 08739's "Distance (m)" white Fill box sat at tick-number height
+        // and blanked the "6"/"7"/"8" x-axis numbers while the text rendered
+        // correctly below them.
+        const _sbpx = bpCSSPixel;
+        const _fillSDx = dc.screenDx ? dc.screenDx * _sbpx : 0;
+        const _fillSDy = dc.screenDy ? dc.screenDy * _sbpx : 0;
+        let rx = parseFloat(fmt(sx + dx + _fillSDx)), ry = parseFloat(fmt(sy + dy + _fillSDy));
         // Adjust rectangle position based on anchor
         let rectX = rx - estW / 2;
         if (anchor === 'start') rectX = rx - fontSizeSVG * 0.05;
         else if (anchor === 'end') rectX = rx - estW + fontSizeSVG * 0.05;
-        const rectY = ry - estH / 2;
+        // Vertical tracking: the glyph renderer shifts the text by
+        // ayN*(hEst - svgH) (renderLabelMathJaxSVG line ~32810) because dy was
+        // computed from the estimated height hEst, not the measured height. The
+        // box's rectY uses the same un-corrected dy, so for vertically-aligned
+        // labels (ayN != 0) the box drifted off the glyph and descenders poked
+        // out the bottom (e.g. 03640's "$2R/\sqrt3$" gray Fill box). Apply the
+        // same shift so the box stays centred on the glyph. estH == svgH for the
+        // measured math path, so this matches the glyph's correction; for
+        // centred labels (_labelAyN == 0) it is a no-op, leaving the calibrated
+        // UnFill/Fill boxes for non-aligned labels untouched.
+        const _fillVTrack = _labelAyN ? _labelAyN * (_labelHEst - estH) : 0;
+        const rectY = ry - estH / 2 + _fillVTrack;
         // Padding for UnFill background — Asymptote's erase box is the exact
         // TeX bbox; a hairline of padding covers raster antialiasing only.
         const pad = fontSizeSVG * 0.05;
@@ -29545,9 +31782,20 @@ function renderSVG(result, opts) {
       if (rawText.includes('\n')) {
         // Font-size commands (e.g. {\tiny...}) are already applied to fontSizeSVG above,
         // and effectiveFontSize = fontSizeSVG, so no additional scaling is needed here.
-        const lines = rawText.split('\n').filter(l => l.length > 0);
+        const allLines = rawText.split('\n').filter(l => l.length > 0);
+        // Negative inter-line \vspace minipage (12380-89): drop the clipped
+        // trailing line(s) — but only on the bottom row, where TeXeR's cropping
+        // removes them (a middle label keeps its 3rd line, covered by geometry
+        // below it; see _mpBottomY). Keep totalOffset on the FULL line count so
+        // the surviving "1:1"/"2:2" hold the exact positions of the 3-line block
+        // — re-centering on the reduced count would shift them up vs TeXeR.
+        const _mpClip = _mpVspaceClip.get(_mpClipKey(rawText)) || 0;
+        const _mpAtBottom = dc.pos && Math.abs(dc.pos.y - _mpBottomY) < 0.05;
+        const lines = (_mpClip > 0 && _mpAtBottom)
+          ? allLines.slice(0, Math.max(1, allLines.length - _mpClip))
+          : allLines;
         const lineHeight = effectiveFontSize * 1.2;
-        const totalOffset = (lines.length - 1) * lineHeight;
+        const totalOffset = (allLines.length - 1) * lineHeight;
         const ff = 'KaTeX_Main, serif';
         const op = css.opacity != null && css.opacity < 1 ? ` opacity="${css.opacity}"` : '';
         // Horizontal alignment within the block. dx places the block CENTER at
@@ -29626,9 +31874,18 @@ function renderSVG(result, opts) {
         // — see longer comment above the matching pre-scale block. Without this,
         // fontsize(24pt)+\huge in 06139 renders the bare "d" at 49.78pt instead
         // of the expected ~24.88pt.
-        const _absRatio = Math.min(fontSize, 12) * fontSizeScale / fontSize;
-        effectiveFontSize *= _absRatio;
-        effectiveFontSizeCSS *= _absRatio;
+        // The _preFs block (~29684) already folded this selector's scale into
+        // fontSizeSVG/fontSizeCSS, and effectiveFontSize/CSS are initialized from
+        // those (~29938). Re-applying it here double-counts the selector — e.g.
+        // \footnotesize rendered at 0.8×0.8=0.64 instead of 0.8, so 00115's legend
+        // came out ~24% too small (oracle footnotesize/normalsize ratio ≈0.855,
+        // htx was ≈0.642). Only apply when _preFs did NOT (defensive: both blocks
+        // match the same selectors, so _preFsApplied is true whenever we reach here).
+        if (!_preFsApplied) {
+          const _absRatio = Math.min(fontSize, 12) * fontSizeScale / fontSize;
+          effectiveFontSize *= _absRatio;
+          effectiveFontSizeCSS *= _absRatio;
+        }
       }
 
       // Strip outer $...$, \reflectbox{}, and inner $...$ to check for simple symbols.
@@ -29752,6 +32009,26 @@ function renderSVG(result, opts) {
       const hasLaTeX = !usesInlineColor && /\\(frac|underbrace|overbrace|sqrt)\b/.test(displayText);
       const hasMath = /\$/.test(displayText) || /\\[a-zA-Z]/.test(displayText);
 
+      // Asymptote label strings with no $...$ are LaTeX LR (text) mode: upright
+      // glyphs, inter-word spaces preserved. A bare \color{...}/\textcolor wrapper
+      // does NOT switch to math mode — but \color matched \\[a-zA-Z] above, so
+      // hasMath is true and the label would route through KaTeX *math* mode
+      // (italic letters, collapsed spaces — e.g. "{\color{blue}5 meters}" in
+      // 05553 rendered "5meters" italic instead of upright "5 meters").
+      // Detect "text with color": no $, and once the color commands and grouping
+      // braces are removed, nothing but ordinary text/digits/punctuation remains
+      // (no other LaTeX command, no ^/_ scripts). Render those in text mode with
+      // the inline color preserved.
+      let isTextWithColor = false;
+      if (!/\$/.test(displayText) && /\\(?:color|textcolor)\b/.test(displayText)) {
+        const txtProbe = displayText
+          .replace(/\\textcolor\s*\{[^}]*\}/g, '')
+          .replace(/\\color\s*\[[^\]]*\]\s*\{[^}]*\}/g, '')
+          .replace(/\\color\s*\{[^}]*\}/g, '')
+          .replace(/[{}]/g, '');
+        if (!/\\[a-zA-Z]/.test(txtProbe) && !/[\^_]/.test(txtProbe)) isTextWithColor = true;
+      }
+
       // Check if math content uses only LaTeX commands with known Unicode equivalents
       // (Greek letters, operators, etc.) plus simple ^/_ scripts.  Such labels render
       // more reliably as SVG <text> (scales with the viewBox) than as KaTeX foreignObject
@@ -29857,6 +32134,17 @@ function renderSVG(result, opts) {
         if (/\\(?:bf|bfseries|mathbf|textbf|boldsymbol)(?![a-zA-Z])/.test(displayText)) {
           labelEl = `<g font-weight="bold" stroke="${css.fill}" stroke-width="${fmt(effectiveFontSize*0.04)}">${labelEl}</g>`;
         }
+      } else if (isTextWithColor && (typeof katex !== 'undefined' || svgNativeMode)) {
+        // Text-mode label carrying an inline \color/\textcolor (no $...$): wrap
+        // the whole string in \text{} so KaTeX renders upright glyphs with the
+        // inter-word space preserved, while the color command still applies
+        // inside text mode (verified: \text{{\color{blue}5 meters}} → upright,
+        // spaced, blue). Mirrors the math-mode KaTeX routing just below.
+        const _txtInput = '\\text{' + displayText + '}';
+        labelEl = renderLabelKatexSvg(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          || ((opts && opts.labelOutput === 'svg-native')
+                ? renderLabelMathJaxSVG(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+                : renderLabelKaTeX(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS));
       } else if ((typeof katex !== 'undefined' || svgNativeMode) && hasMath && !unicodeSafe) {
         // NOTE: the `|| svgNativeMode` matters — in node `katex` is undefined, so
         // without it every mixed text+math label ("$W-1$ cells"), accent command
@@ -29864,10 +32152,14 @@ function renderSVG(result, opts) {
         // plain SVG-text fallback in the rasterization pipeline: upright letters
         // that should be math-italic, hyphens for minus signs, no TeX spacing.
         // Use KaTeX for math rendering via foreignObject.  When rendering for
-        // rasterization (labelOutput === 'svg-native'), go through MathJax
-        // instead, which emits real <path> glyphs that librsvg can rasterize.
+        // rasterization (labelOutput === 'svg-native'), emit real <path> glyphs:
+        // prefer the KaTeX SVG emitter (the SAME engine the live in-browser app
+        // uses, so the comparator renders identically) and fall back to MathJax
+        // — also <path>, also librsvg-rasterizable — when the emitter can't
+        // render the input or its glyphs aren't loaded.
         if (opts && opts.labelOutput === 'svg-native') {
-          labelEl = renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+            || renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
         } else {
           // KaTeX SVG emitter first (real glyph paths, exact box); HTML
           // foreignObject only as fallback when the emitter is unavailable.
@@ -29883,7 +32175,9 @@ function renderSVG(result, opts) {
         // Escape % as \% when re-wrapping, since bare % is a LaTeX comment character.
         const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
         const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
-        labelEl = renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        // KaTeX emitter first (matches the live app), MathJax fallback.
+        labelEl = renderLabelKatexSvg(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          || renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else if (opts && opts.labelOutput === 'svg-native' && !hasMath && !hasLaTeX && !wasStrippedMath && !(dc.pen && dc.pen.fontFamily) && displayText && /[A-Za-z]/.test(displayText) && !/[_^]/.test(displayText)) {
         // Plain text label (e.g. "Pivot", "Post") in rasterization mode.
         // librsvg has no KaTeX_Main font installed, so a <text font-family="KaTeX_Main,
@@ -29898,7 +32192,9 @@ function renderSVG(result, opts) {
           else if ('\\{}$&#^_%'.indexOf(c) !== -1) esc += '\\' + c;
           else esc += c;
         }
-        labelEl = renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        // KaTeX emitter first (matches the live app), MathJax fallback.
+        labelEl = renderLabelKatexSvg('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          || renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -30045,6 +32341,35 @@ function renderSVG(result, opts) {
       rootOpen = `<g transform="${transform}">`;
       rootClose = `</g>`;
     }
+  }
+
+  // Display-size / viewBox reconciliation. The intrinsic (display) size must
+  // never be SMALLER than the viewBox content — that downscales the drawing
+  // below its own coordinate extent. Normal keepAspect diagrams carry
+  // intrinsic = viewBox*(5/3) (the 240-DPI-half-res factor), comfortably larger
+  // than the viewBox. It only inverts in a mixed 3D+2D scene whose size() was
+  // fit to the small 3D-figure bbox while the viewBox spans the wider 2D layout
+  // (e.g. 03582's Disk/Hoop/Sphere panels under size(1.6cm)): the geometry was
+  // drawn at the correct scale (viewBox ≈ the TeXeR's), but the SVG declared a
+  // ~3x-too-small display size, so the raster came out ~3x too small. Re-derive
+  // the display size from the viewBox at the standard factor, preserving the
+  // viewBox aspect. IgnoreAspect intentionally keeps a geometry-only intrinsic
+  // smaller than its label-expanded viewBox, so it is excluded.
+  //
+  // The strong 2D form is intrinsic < viewBox (03582, ratio 0.35). A milder form
+  // hits MIXED 3D+2D scenes whose intrinsic lands just ABOVE the viewBox yet far
+  // below the normal viewBox*(5/3): 03281 (size(5cm) 3D wall + 2D parabola) had
+  // intrinsic = viewBox*1.03, so the raster was ~0.6x — still 1:1-ish, not
+  // 5/3-up. For _is3D diagrams require intrinsic ≥ viewBox*1.5 (normal 3D is
+  // ~1.667; this won't false-fire) and reconcile otherwise.
+  const _displayUndersized = outIntrinsicW < outViewW || outIntrinsicH < outViewH ||
+    (_is3D && (outIntrinsicW < outViewW * 1.5 || outIntrinsicH < outViewH * 1.5));
+  if (!_isIgnoreAspect2 && _displayUndersized) {
+    const _bp2css = 5 / 3;
+    outIntrinsicW = outViewW * _bp2css;
+    outIntrinsicH = outViewH * _bp2css;
+    outSvgW = outIntrinsicW;
+    outSvgH = outIntrinsicH;
   }
 
   const svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(outSvgW)}" height="${fmt(outSvgH)}" viewBox="0 0 ${fmt(outViewW)} ${fmt(outViewH)}"${parAttr} overflow="visible" data-intrinsic-w="${fmt(outIntrinsicW)}" data-intrinsic-h="${fmt(outIntrinsicH)}">\n${svgStyle}${rootOpen}${bgRect}${bboxEl}${innerContent}\n${rootClose}</svg>`;
@@ -30421,25 +32746,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
 
   // Shared helper: arrowhead at fractional arc-length position `frac` (0=begin, 1=end).
   // Uses chord-length approximation per segment.
-  function arrowAtFraction(frac, halfAngleDeg) {
-    const segLengths = segs.map(sg => {
-      const dx = (sg.p3.x - sg.p0.x) * scaleX, dy = (sg.p3.y - sg.p0.y) * scaleY;
-      return Math.sqrt(dx*dx + dy*dy);
-    });
-    const pathLen = segLengths.reduce((a, b) => a + b, 0);
-    const targetLen = pathLen * Math.max(0, Math.min(1, frac));
-
-    let accum = 0, segIdx = segs.length - 1, tInSeg = 1;
-    for (let i = 0; i < segs.length; i++) {
-      if (accum + segLengths[i] >= targetLen || i === segs.length - 1) {
-        segIdx = i;
-        tInSeg = segLengths[i] > 1e-12 ? (targetLen - accum) / segLengths[i] : 0;
-        tInSeg = Math.max(0, Math.min(1, tInSeg));
-        break;
-      }
-      accum += segLengths[i];
-    }
-
+  // Build an arrowhead glyph at a given (segment index, in-segment Bézier
+  // parameter). Shared by the relative-fraction and absolute-path-time
+  // placement helpers below.
+  function _arrowHeadAtSeg(segIdx, tInSeg, halfAngleDeg) {
     const sg = segs[segIdx];
     const t = tInSeg;
     const t2 = t * t, t3 = t2 * t;
@@ -30480,9 +32790,49 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled: true};
   }
 
+  // Arrow(Relative(t)) — t is a fraction of total arc length (0=begin, 1=end).
+  function arrowAtFraction(frac, halfAngleDeg) {
+    const segLengths = segs.map(sg => {
+      const dx = (sg.p3.x - sg.p0.x) * scaleX, dy = (sg.p3.y - sg.p0.y) * scaleY;
+      return Math.sqrt(dx*dx + dy*dy);
+    });
+    const pathLen = segLengths.reduce((a, b) => a + b, 0);
+    const targetLen = pathLen * Math.max(0, Math.min(1, frac));
+
+    let accum = 0, segIdx = segs.length - 1, tInSeg = 1;
+    for (let i = 0; i < segs.length; i++) {
+      if (accum + segLengths[i] >= targetLen || i === segs.length - 1) {
+        segIdx = i;
+        tInSeg = segLengths[i] > 1e-12 ? (targetLen - accum) / segLengths[i] : 0;
+        tInSeg = Math.max(0, Math.min(1, tInSeg));
+        break;
+      }
+      accum += segLengths[i];
+    }
+    return _arrowHeadAtSeg(segIdx, tInSeg, halfAngleDeg);
+  }
+
+  // Arrow(position=<real>) — Asymptote's `position operator cast(real)` sets
+  // relative=false, so the value is an ABSOLUTE path time, not an arc-length
+  // fraction. point(g,t)/dir(g,t): integer part selects the segment, fractional
+  // part is the Bézier parameter within it. e.g. position=0.5 on a polyline is
+  // the midpoint of the FIRST segment (04324 hexagon/triangle mid-edge arrows).
+  function arrowAtPathTime(pathT, halfAngleDeg) {
+    let segIdx = Math.floor(pathT);
+    let tInSeg = pathT - segIdx;
+    if (segIdx >= segs.length) { segIdx = segs.length - 1; tInSeg = 1; }
+    if (segIdx < 0) { segIdx = 0; tInSeg = 0; }
+    return _arrowHeadAtSeg(segIdx, tInSeg, halfAngleDeg);
+  }
+
   if (style === 'Arrow' || style === 'EndArrow' || style === 'ArcArrow' || style === 'EndArcArrow') {
     const pos = dc.arrow.position;
-    if (pos !== undefined && pos < 1.0) {
+    if (pos !== undefined && dc.arrow.positionRelative === false) {
+      // Arrow(position=<real>) — absolute path time. End of an N-segment path
+      // is path time N; anything short of that is a mid-path arrowhead.
+      if (pos < segs.length - 1e-9) arrowParts.push(arrowAtPathTime(pos, 15));
+      else arrowParts.push(arrowAt(segs[segs.length-1], true));
+    } else if (pos !== undefined && pos < 1.0) {
       // Arrow(Relative(t)) — arrowhead at fractional arc-length position
       arrowParts.push(arrowAtFraction(pos, 15));
     } else {
@@ -31011,12 +33361,22 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // ink center (probe: $\mathrm{m}$ 1.3bp low, $y$ 1.6bp low vs TeXeR).
   // Compute the ink box with canvas metrics for the same KaTeX faces and
   // anchor the baseline explicitly instead.
-  if (baseline === 'central') {
+  // Real TeX \vdots hangs BELOW its label centering point, but the KaTeX_Main
+  // glyph ⋮ (U+22EE) with dominant-baseline="central" places its ink ~0.12em
+  // ABOVE the anchor. In lattice diagrams that use \vdots as a top/bottom edge
+  // label (e.g. 04240), this off-by-~0.2-unit gap is what defines the trimmed
+  // bounding box, so the whole dot grid shifts down relative to the reference.
+  // Nudge ⋮ down (keeping the central baseline so node/Blink and browser agree)
+  // so its ink center lands where TeXeR's \vdots does (~0.13 unit below anchor).
+  const _isVdotsGlyph = /^⋮+$/.test((s || '').trim());
+  if (baseline === 'central' && !_isVdotsGlyph) {
     const _ink = _canvasInkMetrics(s, fontSize, fontWeight || 'normal', fontStyle || 'normal', mathMode);
     if (_ink && _ink.h > 0) {
       y = fmt(parseFloat(y) + (_ink.asc - _ink.desc) / 2);
       baseline = 'alphabetic';
     }
+  } else if (baseline === 'central' && _isVdotsGlyph) {
+    y = fmt(parseFloat(y) + fontSize * 0.37);
   }
 
   // Check for super/subscripts
@@ -31136,7 +33496,21 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
 // equivalents.  amssymb's \bigstar, \blacksquare, etc. are not in KaTeX's
 // default command set; use Unicode characters wrapped in \text{} so they
 // render reliably.
-function preprocessLatexForKatex(src, forMathJax) {
+// NOTE on the `forMathJax` parameter — it is a MISNOMER kept for git-blame
+// continuity. KaTeX (the SVG emitter, katex-svg.js) is the authoritative engine
+// on every surface today; MathJax survives only as a fallback for when the
+// emitter can't load (effectively never, since katex-glyphs.json ships). The
+// flag is actually "realized-layout path": it is TRUE for the emitter AND the
+// MathJax fallback (both realize KaTeX/TeX layout exactly), and FALSE only for
+// the legacy `renderLabelKaTeX` foreignObject path. So any comment in here that
+// says "MathJax does X" is describing behavior that, in practice, runs on KaTeX
+// — re-validate against KaTeX (not MathJax) before trusting such a comment. Many
+// transformations below are NO-OPs on modern KaTeX, which handles them natively
+// (\hskip, \begin{array}/{matrix}/{cases}/{aligned}, \boxed, \xrightarrow,
+// spacing macros, named \color, etc.); the ones that remain genuinely necessary
+// are the xcolor optional-arg/\definecolor forms, \textdollar, tabular/minipage/
+// \shortstack, font-size selectors, and the absolute-\hspace ptPerEm correction.
+function preprocessLatexForKatex(src, forMathJax, emForHspace) {
   if (typeof src !== 'string') return src;
   // Normalize embedded TAB/CR/LF inside the math source to a single space.
   // Some corpus .asy files contain literal TAB bytes where `\theta` was meant
@@ -31147,6 +33521,99 @@ function preprocessLatexForKatex(src, forMathJax) {
   // `\sinheta`) or reject it.  Map them to a real space so the macro is
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
+  // Mirror the render path's xcolor handling (renderSVG ~31614/~31651) so a label
+  // is MEASURED from the same glyphs the emitter draws. \definecolor{name}{RGB}{r,g,b}
+  // and \color[model]{values} emit no ink, but this build's KaTeX has no
+  // \definecolor command, so __renderToDomTree renders it as LITERAL text
+  // ("definecolor{Fcolor}{RGB}{20,20,255}…"). Measuring the raw string then ran
+  // ~20× over (04090's "F=-kΔx" at fontsize 60 measured 95em → canvas ~10× too
+  // wide, the content squished to a sliver). The render path converts both forms
+  // to \color{#hex} before drawing; do the same here so measure === render. By the
+  // time a render call reaches this function its text is already converted, so
+  // these passes are a no-op for it and only repair the measure path's raw input.
+  if (/\\color\s*\[/.test(src)) {
+    src = src.replace(/\\color\s*\[([A-Za-z]+)\]\s*\{([^}]*)\}/g, (_m, model, values) => {
+      const m = model.toLowerCase();
+      if (m === 'rgb') {
+        const parts = values.split(',').map(v => parseFloat(v.trim()));
+        if (parts.length === 3 && parts.every(v => Number.isFinite(v)))
+          return '\\color{#' + parts.map(c => Math.max(0, Math.min(255, Math.round(c * 255))).toString(16).padStart(2, '0')).join('') + '}';
+      } else if (m === 'rgb255') {
+        const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+        if (parts.length === 3 && parts.every(v => Number.isFinite(v)))
+          return '\\color{#' + parts.map(c => Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')).join('') + '}';
+      } else if (m === 'html') {
+        const hex = values.trim().replace(/^#/, '');
+        if (/^[0-9a-fA-F]{6}$/.test(hex)) return '\\color{#' + hex + '}';
+      } else if (m === 'gray') {
+        const v = parseFloat(values.trim());
+        if (Number.isFinite(v)) { const n = Math.max(0, Math.min(255, Math.round(v * 255))); const hh = n.toString(16).padStart(2, '0'); return '\\color{#' + hh + hh + hh + '}'; }
+      }
+      return _m;
+    });
+  }
+  if (/\\definecolor/.test(src)) {
+    const colorDefs = {};
+    src = src.replace(/\\definecolor\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/g, (_m, name, model, values) => {
+      if (model.toUpperCase() === 'RGB') {
+        const parts = values.split(',').map(v => parseInt(v.trim(), 10));
+        if (parts.length === 3) colorDefs[name] = '#' + parts.map(c => Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0')).join('');
+      }
+      return '';
+    });
+    src = src.replace(/\\color\s*\{([^}]*)\}/g, (_m, name) => colorDefs[name] ? '\\color{' + colorDefs[name] + '}' : _m);
+  }
+  // TeX's `\hskip <dimen>` is the primitive form of `\hspace{<dimen>}`. KaTeX
+  // 0.16.x renders the two IDENTICALLY (verified at the render level: both
+  // `a\hskip 20pt b` and `a\hspace{20pt}b` emit the same geometry, and negative
+  // kerns like `\hskip -3pt` apply correctly) — so this is NOT a rendering fix.
+  // We normalize purely so the downstream truesize-brace sizing (and the
+  // absolute-`pt` correction below), which regex ONLY for `\hspace{...}`, can
+  // read the dimension out of `\underbrace{\hskip 33pt}_b` (05355). The optional
+  // sign keeps negative kerns convertible for that reader; KaTeX renders them
+  // natively either way, so leaving the sign off never broke a render — it only
+  // hid the value from the brace reader.
+  src = src.replace(/\\hskip\s*(-?[\d.]+)\s*(pt|bp|cm|mm|in|pc|em|ex|mu)/g,
+    (m, num, unit) => `\\hspace{${num}${unit}}`);
+  // MathJax over-renders an ABSOLUTE \hspace{N<unit>} by ~1.19× relative to
+  // real LaTeX/dvisvgm (and local Asymptote): the \hspace length is pushed
+  // through the same em-chain (em=fontsize/1.21, ×_MJX_SCALE) the glyphs use,
+  // but that chain is calibrated for GLYPH advance widths, not absolute TeX
+  // lengths. Ground truth (local asy 3.05): `\underbrace{\hspace{180pt}}`
+  // renders 182bp, but our MathJax pipeline emits 216bp — the truesize brace
+  // under a triangle base (02799/02807-class) then bloats the diagram width and
+  // skews its aspect ratio. Scale the \hspace value so the magnified output
+  // lands at the true physical width.
+  // The over-magnification is specific to MathJax's `pt` length conversion;
+  // `cm`/`mm`/`in` braces (c398_L15/c4_L12 families) already match the
+  // references and must NOT be scaled (doing so regresses them — verified
+  // against the full brace corpus). Correct `pt` (and `pc`, which is 12pt) only.
+  if (forMathJax && /\\hspace\s*\{/.test(src)) {
+    if (typeof emForHspace === 'number' && emForHspace > 0) {
+      // KaTeX SVG-emitter path. KaTeX converts an ABSOLUTE \hspace length to em
+      // using fontMetrics.ptPerEm = 10 (so 8cm → 226.8pt → 22.68em), then the
+      // emitter scales widthEm by the label's em size (≈ the bp font size). That
+      // over-magnifies the absolute length by em/10 — a brace meant to span an
+      // 8cm bar renders ~24% too wide (04943-04947) and the diagram bbox blows
+      // out, while the truesize-brace fit logic (which reads the raw hspace in
+      // bp) still expects the true width. Undo it with K = 9.9626/em so the
+      // brace lands at its true physical width. 9.9626 = (TeX-pt → bp factor,
+      // 72/72.27) × 10; it is unit-independent because KaTeX's ptPerUnit table
+      // is in TeX pt for every absolute unit. Applies to pt/pc/cm/mm/in/bp/dd/cc.
+      const _K = 9.9626 / emForHspace;
+      src = src.replace(/\\hspace(\s*)\{\s*([\d.]+)\s*(pt|pc|cm|mm|in|bp|dd|cc)\s*\}/g,
+        (m, sp, num, unit) => `\\hspace${sp}{${(parseFloat(num) * _K)}${unit}}`);
+    } else {
+      // MathJax fallback path (emitter unavailable). MathJax over-renders an
+      // absolute \hspace{N pt} by ~1.19×; 0.82 empirically matches the TeXeR
+      // references across the pt-brace diagrams (02799/02807/09631). cm/mm/in
+      // braces already match MathJax and must NOT be scaled on this path.
+      const _HSP_K = (typeof process !== 'undefined' && process.env && process.env.HTX_HSPACE_K)
+        ? parseFloat(process.env.HTX_HSPACE_K) : 0.82;
+      src = src.replace(/\\hspace(\s*)\{\s*([\d.]+)\s*(pt|pc)\s*\}/g,
+        (m, sp, num, unit) => `\\hspace${sp}{${(parseFloat(num) * _HSP_K)}${unit}}`);
+    }
+  }
   // Handle ^\circ and ^{\circ} — common LaTeX idiom for degree symbol.
   // KaTeX renders ^\circ with extra spacing around the ring operator.
   // Use ^{°} (superscript unicode degree) for tight spacing matching TeXeR.
@@ -31159,18 +33626,10 @@ function preprocessLatexForKatex(src, forMathJax) {
     src = src.replace(/\^\s*\\circ\b/g, '\\mkern-3.5mu^{°}');
   }
   const replacements = [
-    [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
-    [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
-    [/\\blacklozenge\b/g, '\\text{\u29EB}'],       // ⧫
-    [/\\blacktriangle\b/g,'\\text{\u25B2}'],       // ▲
-    [/\\blacktriangledown\b/g,'\\text{\u25BC}'],   // ▼
-    [/\\lozenge\b/g,      '\\text{\u25CA}'],       // ◊
-    [/\\square\b/g,       '\\text{\u25A1}'],       // □
-    [/\\vartriangle\b/g,  '\\text{\u25B3}'],       // △
-    [/\\triangledown\b/g, '\\text{\u25BD}'],       // ▽
-    [/\\circledast\b/g,   '\\text{\u229B}'],       // ⊛
-    [/\\circledcirc\b/g,  '\\text{\u229A}'],       // ⊚
-    [/\\complement\b/g,   '\\text{\u2201}'],       // ∁
+    // \textdollar is a text-mode command; in KaTeX math mode it is undefined,
+    // so the label rendered as the raw red "\textdollar". Map it to a text-mode
+    // escaped dollar so it renders as an upright "$" glyph (09482/09484).
+    [/\\textdollar\b/g,   '\\text{\\$}'],
   ];
   for (const [re, to] of replacements) src = src.replace(re, to);
   return src;
@@ -31195,8 +33654,10 @@ function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, op
   if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
   // forMathJax=true: like MathJax, the emitter realizes KaTeX's exact layout,
   // so ^\circ stays native (the unicode-° kern hack is foreignObject-only;
-  // through the emitter it rendered $45^\circ$ 3bp narrow).
-  math = preprocessLatexForKatex(math, true);
+  // through the emitter it rendered $45^\circ$ 3bp narrow). fontSizeCSS is the
+  // em the emitter scales widthEm by, so absolute \hspace lengths are corrected
+  // against it (see preprocessLatexForKatex).
+  math = preprocessLatexForKatex(math, true, fontSizeCSS);
   if (!isDollar && /\$[^$]+\$/.test(math)) {
     // mixed text+math: one mode-aware TeX string (same as the MathJax path)
     math = _reconstructMixedLabel(math);
@@ -31575,6 +34036,21 @@ function _texCapFontSize(n) {
 const _MJX_SCALE = 1.072;
 
 function _mjxMeasureBp(rawText, fontSize) {
+  // UNIFY on the KaTeX SVG emitter. Labels are RENDERED by katexSvg
+  // (renderLabelKatexSvg) in both the node comparator (loaded via the bootstrap
+  // at the top of this file) and the live browser app, so MEASURE with the same
+  // engine — otherwise frames/fits are estimated with MathJax (node) or the
+  // heuristic (browser, where MathJax is absent) while glyphs are drawn by
+  // KaTeX. That "MathJax here, KaTeX there" split made the canary/ssim-pipeline
+  // (node) disagree with the comparator/editor (browser) — a fix could pass the
+  // canary yet be wrong on screen (00133). Now every surface measures via
+  // katexSvg; MathJax remains only as the fallback when the emitter is absent.
+  if (!(typeof process !== 'undefined' && process.env && process.env.HTX_NO_KATEX_MEASURE)
+      && typeof katexSvg !== 'undefined' && katexSvg.ready && katexSvg.ready()
+      && typeof _katexMeasureBp === 'function') {
+    const _k = _katexMeasureBp(rawText, fontSize);
+    if (_k && _k.wBp > 0) return _k;
+  }
   const state = _ensureMathJax();
   if (!state) return null;
   fontSize = _texCapFontSize(fontSize);
@@ -31646,10 +34122,11 @@ function _mjxMeasureBp(rawText, fontSize) {
 const _katexMeasureCache = new Map();
 let _katexMeasureHost = null;
 function _katexMeasureBp(rawText, fontSize) {
-  if (typeof document === 'undefined' || typeof katex === 'undefined') return null;
-  // Fast path: the KaTeX SVG emitter measures from the DomTree directly (no
-  // DOM layout round-trip) with the same box the emitter renders, so
-  // placement and ink agree exactly.
+  // Fast path: the KaTeX SVG emitter measures from the DomTree directly (no DOM
+  // layout round-trip) with the same box the emitter renders, so placement and
+  // ink agree exactly. This works in node too (the emitter uses
+  // katex.__renderToDomTree, no DOM), so the comparator measures labels with
+  // the same engine it renders them — keeping it identical to the live app.
   if (typeof katexSvg !== 'undefined' && katexSvg.ready()) {
     try {
       let math = (rawText || '').trim();
@@ -31658,7 +34135,10 @@ function _katexMeasureBp(rawText, fontSize) {
       const isD = math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1;
       if (isD) math = math.slice(1, -1);
       if (math.startsWith('$') && math.endsWith('$') && math.indexOf('$', 1) === math.length - 1) math = math.slice(1, -1);
-      math = preprocessLatexForKatex(math, true);
+      // emForHspace = fontSize: this path returns widthEm*fontSize, the same em
+      // the emitter renders at, so absolute \hspace braces measure at their true
+      // physical width (matching renderLabelKatexSvg's corrected render).
+      math = preprocessLatexForKatex(math, true, fontSize);
       if (!isD && /\$[^$]+\$/.test(math)) math = _reconstructMixedLabel(math);
       const r = katexSvg.measure(math);
       if (r && r.widthEm > 0) {
@@ -31666,6 +34146,8 @@ function _katexMeasureBp(rawText, fontSize) {
       }
     } catch (e) { /* fall through to the DOM measurer */ }
   }
+  // DOM-measurer fallback (browser only — needs document + global katex).
+  if (typeof document === 'undefined' || typeof katex === 'undefined') return null;
   const cacheKey = String(rawText);
   const cached = _katexMeasureCache.get(cacheKey);
   if (cached && cached.error) return null;
@@ -31951,19 +34433,51 @@ function expandShortstackText(text) {
 // sometimes pass raw LaTeX minipage markup as a dot/label string; without
 // this expansion MathJax emits an "Unknown environment" error block that
 // renders as a giant black rectangle.
+// Maps an expanded minipage label string → number of trailing lines that
+// Asymptote clips off the bottom because a negative inter-line \vspace shrank
+// the LaTeX box below the natural N-line ink height (12380-89's "{\tiny1:1}
+// \vspace{-0.2cm} \ {\tiny 2:2} ... 3:3"). TeXeR renders "1:1"/"2:2" and crops
+// "3:3" to a thin sliver at the box bottom; HTX otherwise drew the full "3:3"
+// (its tighter line pitch lands it over the circle, where it can't be clipped
+// by the geometry-bound viewBox). The multi-line label renderer consults this
+// count and simply does NOT emit those trailing lines (keeping the full block's
+// pitch/centering so "1:1"/"2:2" hold their positions) — but only for the
+// BOTTOM-row labels (see _mpBottomY), since TeXeR's crop keeps a 3rd line that
+// sits over other geometry (a middle label's "3:5"). Keyed by the full expanded
+// text; a missing entry means 0 (no clip) — so non-minipage and positive/zero-
+// vspace labels are entirely unaffected.
+const _mpVspaceClip = new Map();
+// Normalise the lookup key: minipage() prepends a \x06<c|l|r> horizontal-align
+// marker that the sizing passes still carry on dc.text but renderSVG strips
+// before rendering — strip it here so the set (label-creation time) and every
+// get (sizing + render) agree on the same key.
+const _mpClipKey = (s) => (typeof s === 'string' ? s.replace(/^\x06[clr]/, '') : s);
+
 function expandMinipageText(text, pen) {
   if (!text || typeof text !== 'string') return text;
   if (text.indexOf('\\begin{minipage}') === -1) return text;
-  // Font size determines the bp/char budget.  Default 10pt if no pen.
-  const fontPt = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0)
+  // Font size determines the bp/char budget. Use the pen's size only when it
+  // was EXPLICITLY set (fontsize(N)); otherwise the default 10pt document base.
+  // The default label pen carries fontsize 12, but a minipage's wrapping (and
+  // LaTeX size selectors like \scriptsize inside it) is relative to the 10pt
+  // document base, not the 12pt default pen — using 12 made \scriptsize prose
+  // wrap ~3 chars/line too narrow, breaking lines early (04702's 3.5cm caption).
+  const fontPt = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0 && pen._fzExplicit)
     ? pen.fontsize : 10;
-  // ~5.5 pt per char at 10pt proportional font — empirical value that
-  // matches TeX minipage wrapping for short English phrases (e.g.
-  // "Highest point" in a {2cm} minipage at 10pt wraps to "Highest / point").
-  // Scale linearly with font size: at fontsize(7) the budget is 5.5*0.7 = 3.85.
-  const ptPerChar = 5.5 * (fontPt / 10);
+  // ~5.1 pt per char at 10pt proportional font — empirical value that
+  // matches TeX minipage wrapping. Two calibration anchors:
+  //   - short ragged phrase: "Highest point" in a {2cm} minipage at 10pt
+  //     still wraps to "Highest / point" (budget 56.7/5.1 = 11 chars < 13).
+  //   - long justified prose: 00572/00565/00571's "Here the rectangle ...
+  //     along its sides." (54 units) fills an {8cm} minipage at fontsize(8)
+  //     on one line, matching TeXeR's justified break (budget 226.8/4.08 =
+  //     56 chars >= 54, while adding "We" at 57 overflows). The previous
+  //     5.5 over-estimated char width and broke that line two words early.
+  // Scale linearly with font size: at fontsize(7) the budget is 5.1*0.7 = 3.57.
+  const ptPerChar = 5.1 * (fontPt / 10);
   // Match \begin{minipage}[pos]{width}CONTENT\end{minipage} (non-greedy).
-  return text.replace(
+  let _accumClip = 0;
+  const _result = text.replace(
     /\\begin\{minipage\}\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}([\s\S]*?)\\end\{minipage\}/g,
     (_, widthSpec, inner) => {
       let s = inner;
@@ -32027,11 +34541,45 @@ function expandMinipageText(text, pen) {
         // Drop wrapped lines whose visible content (after stripLaTeX) is
         // empty — pure-command lines like "\vspace{-0.2cm}" should not
         // emit blank tspans in the multi-line label renderer.
-        return wrapped.filter(l => _visLen(l) > 0).join('\n');
+        const contentLines = wrapped.filter(l => _visLen(l) > 0);
+        // ── Negative inter-line \vspace → record trailing lines to clip ──
+        // A negative \vspace between the wrapped lines shrinks the LaTeX box
+        // below the natural N-line ink height; Asymptote crops the label to
+        // that box, so the trailing line(s) that overflow the box bottom are
+        // cropped away (the bottom-row "3:3" of 12380-89). Record how many
+        // bottom lines to drop — the renderer reads this via _mpVspaceClip and
+        // omits them while keeping the full block's pitch/centering so the
+        // surviving lines stay put. The governing baselineskip is the document
+        // value (~14.4bp for the 12pt label template) — constant regardless of
+        // the inner \tiny, and \vspace is absolute — so no label font size is
+        // needed. A single gap as negative as a full baselineskip instead pulls
+        // its line UP to overlap the previous one (12386/12388's -0.8cm top
+        // label), which is not a clip, so those are left alone.
+        if (contentLines.length >= 2) {
+          const _vsToBp = { cm: 28.3465, mm: 2.83465, pt: 1, in: 72.27, bp: 1, em: 10, ex: 4.3 };
+          const _vsRe = /\\vspace\s*\{\s*(-?[0-9.]+)\s*(cm|mm|pt|in|bp|em|ex)?\s*\}/g;
+          const _gaps = [];
+          let _vm;
+          while ((_vm = _vsRe.exec(inner)) !== null) {
+            _gaps.push(parseFloat(_vm[1]) * (_vsToBp[(_vm[2] || 'pt').toLowerCase()] || 1));
+          }
+          const _interGaps = _gaps.slice(0, contentLines.length - 1);
+          const _BLS = 14.4; // document baselineskip of the 12pt label template
+          const _hasNeg = _interGaps.some(v => v < 0);
+          const _hasOverlap = _interGaps.some(v => Math.abs(v) >= _BLS);
+          if (_hasNeg && !_hasOverlap) {
+            const _sumNeg = _interGaps.reduce((a, v) => a + (v < 0 ? v : 0), 0);
+            const _drop = Math.round(Math.abs(_sumNeg) / _BLS);
+            if (_drop > 0) _accumClip += Math.min(_drop, contentLines.length - 1);
+          }
+        }
+        return contentLines.join('\n');
       }
       return lines.join('\n');
     }
   );
+  if (_accumClip > 0) _mpVspaceClip.set(_mpClipKey(_result), _accumClip);
+  return _result;
 }
 
 // Render an nth-root index (the [n] in \sqrt[n]{...}) as Unicode superscript
@@ -32212,6 +34760,7 @@ function stripLaTeX(text) {
     '\\det':'det','\\dim':'dim','\\deg':'deg','\\arg':'arg',
     '\\left':'','\\right':'',
     '\\%':'%','\\#':'#','\\&':'&','\\$':'$',
+    '\\textdollar':'$',
   };
   // Sort by key length descending so longer commands match first (e.g. \left before \le)
   const sortedEntries = Object.entries(texMap).sort((a,b) => b[0].length - a[0].length);

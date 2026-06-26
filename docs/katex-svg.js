@@ -144,6 +144,15 @@
   }
   // Widths that KaTeX assigns via CSS CLASS rules (katex.css), not inline style.
   const CLASS_WIDTH = { nulldelimiter: 0.12 };
+  // Horizontal padding KaTeX adds via CSS CLASS (katex.css), not inline style.
+  // .boxpad{padding:0 0.3em} is the \fboxsep gap inside \fbox/\colorbox/\fcolorbox
+  // — without it the framed box would hug the glyphs with no breathing room.
+  const CLASS_HPAD = { boxpad: 0.3 };          // em PER SIDE
+  function classHPadEm(classes) {
+    let p = 0;
+    for (const c of (classes || [])) if (CLASS_HPAD[c] !== undefined) p += CLASS_HPAD[c];
+    return p; // per side
+  }
   // Advance width of a SymbolNode in em. KaTeX merges adjacent text-mode
   // symbols into one node (tryCombineChars) but the merged .width only
   // reflects the first character (" cells" reported 0.25em), so multi-char
@@ -163,7 +172,11 @@
   function widthOfInner(n) {
     if (isSym(n)) {
       let w = symAdvanceEm(n, faceForClasses(n.classes, 'KaTeX_Main-Regular'));
-      if (n.style) w += em(n.style.marginLeft) + em(n.style.marginRight);
+      // padding shifts/advances inline content too (sqrt radicand carries
+      // paddingLeft = surd advanceWidth so the vlist column — and the surd
+      // overline stretched to it — clears the radicand).
+      if (n.style) w += em(n.style.marginLeft) + em(n.style.marginRight)
+                      + em(n.style.paddingLeft) + em(n.style.paddingRight);
       return w;
     }
     if (isSvgNode(n)) {
@@ -196,7 +209,8 @@
       const sc = scaleForClasses(n.classes);
       for (const c of (n.children || [])) w += widthOf(c) * sc;
     }
-    w += em(style.marginLeft) + em(style.marginRight) + em(style.paddingLeft) + em(style.paddingRight);
+    w += em(style.marginLeft) + em(style.marginRight) + em(style.paddingLeft) + em(style.paddingRight)
+       + 2 * classHPadEm(n.classes);
     return w;
   }
 
@@ -235,7 +249,7 @@
   function emitSym(n, ctx) {
     const face = faceForClasses(n.classes, ctx.face);
     const style = n.style || {};
-    let x = ctx.x + em(style.marginLeft) * ctx.s;
+    let x = ctx.x + (em(style.marginLeft) + em(style.paddingLeft)) * ctx.s;
     const color = style.color || ctx.color;
     const text = n.text || '';
     const table = GLYPHS[face] || GLYPHS['KaTeX_Main-Regular'] || {};
@@ -261,7 +275,8 @@
     // Advance: KaTeX's metric width for single glyphs (authoritative);
     // glyph-advance sum for merged multi-char text runs (see symAdvanceEm).
     const w = symAdvanceEm(n, face) || consumedW;
-    return (em(style.marginLeft) + w + em(style.marginRight)) * ctx.s;
+    return (em(style.marginLeft) + em(style.paddingLeft) + w
+            + em(style.marginRight) + em(style.paddingRight)) * ctx.s;
   }
 
   function emitSvgNode(n, ctx, colWpx, baseYpx) {
@@ -299,31 +314,100 @@
     const color = style.color || ctx.color;
     const marginL = em(style.marginLeft) * ctx.s;
     const marginR = em(style.marginRight) * ctx.s;
-    const padL = em(style.paddingLeft) * ctx.s * sc;
+    const classHPad = classHPadEm(classes) * ctx.s * sc;   // .boxpad \fboxsep
+    const padL = em(style.paddingLeft) * ctx.s * sc + classHPad;
 
     if (has(n, 'vlist-t')) {
       const rows = vlistRows(n);
       let colW = 0;
       for (const r of rows) colW = Math.max(colW, r.contentW * ctx.s);
+      // op-limits / accent / centered matrix columns center each row within the
+      // column (katex.css: ".op-limits > .vlist-t{text-align:center}"); plain
+      // vlists (fractions, sub/sup stacks) left-align.
+      const center = !!ctx.centerCols;
       for (const r of rows) {
-        const shiftUpEm = -(r.topEm + r.pstrut) - r.contentDepth;
+        // KaTeX places each vlist row so its content BASELINE sits at
+        // (top + pstrutHeight) below the vlist top reference (= ctx.y here);
+        // this is independent of the content's own depth. The earlier
+        // `- r.contentDepth` term was a latent bug — harmless for every common
+        // vlist (fraction num/den, sup/sub, sqrt radicand all report row-content
+        // depth 0) but it pushed any depth-bearing row DOWN by its own depth.
+        // That mis-placed the nested munder inside \underbrace{...}_{n}: the
+        // brace (depth ~0.65em) dropped a full 0.65em, opening a big gap under
+        // the braced content and crashing the brace into the subscript label
+        // (04943-04947). Use the exact KaTeX baseline.
+        const shiftUpEm = -(r.topEm + r.pstrut);
         const rowBaseY = ctx.y - shiftUpEm * ctx.s;
         const content = r.content;
         const cstyle = content.style || {};
+        // A stretchy/svg-align/hide-tail row fills the column width (its measured
+        // contentW is 0 — the inner svg is a 400em repeating-tail canvas), so it
+        // must stay at the column origin even when the vlist centers. Otherwise a
+        // \underbrace's brace got "centered" as a zero-width item and slid to the
+        // right half of its box (04947).
+        const fillsCol = has(content, 'svg-align') || has(content, 'stretchy') || has(content, 'hide-tail');
+        const cx = ctx.x + marginL + ((center && !fillsCol) ? (colW - r.contentW * ctx.s) / 2 : 0);
         if (cstyle.borderBottomWidth !== undefined && em(cstyle.borderBottomWidth) > 0) {
           // rule: full column width, bottom edge at row baseline
           const t = em(cstyle.borderBottomWidth) * ctx.s;
           ctx.out.push('<rect x="' + fmt(ctx.x + marginL) + '" y="' + fmt(rowBaseY - t) + '" width="' + fmt(colW) + '" height="' + fmt(t) + '" fill="' + color + '"/>');
           continue;
         }
-        if (has(content, 'hide-tail')) {
-          const svgKid = (content.children || []).find(isSvgNode);
-          if (svgKid) emitSvgNode(svgKid, { ...ctx, x: ctx.x + marginL, color }, colW, rowBaseY);
+        // \fbox / \fcolorbox frame: KaTeX (enclose.ts) emits a `stretchy fbox`
+        // (or fcolorbox) span carrying borderStyle:solid + borderWidth, stretched
+        // to the full column width. Paint a 4-sided stroked rectangle. The span's
+        // style.height is the box's TOTAL height and its baseline (rowBaseY) sits
+        // at the box BOTTOM (depth 0); box-sizing:border-box ⇒ the border paints
+        // INSIDE the column box. Without this the digit rendered but the frame
+        // around it vanished (05938 binary-tree boxes, and every \fbox label).
+        if ((has(content, 'fbox') || has(content, 'fcolorbox')
+             || cstyle.borderStyle === 'solid') && has(content, 'stretchy')) {
+          const boxH = (em(cstyle.height)
+                        || (typeof content.height === 'number' ? content.height : 0)) * ctx.s;
+          const bw = (cstyle.borderWidth !== undefined ? em(cstyle.borderWidth) : 0.04) * ctx.s;
+          const bcolor = cstyle.borderColor || color;
+          const bx = ctx.x + marginL, byTop = rowBaseY - boxH;
+          if (boxH > 0 && colW > 0 && bw > 0) {
+            const R = (x0, y0, w0, h0) => ctx.out.push('<rect x="' + fmt(x0) + '" y="' + fmt(y0)
+              + '" width="' + fmt(w0) + '" height="' + fmt(h0) + '" fill="' + bcolor + '"/>');
+            R(bx, byTop, colW, bw);                 // top
+            R(bx, rowBaseY - bw, colW, bw);         // bottom
+            R(bx, byTop, bw, boxH);                 // left
+            R(bx + colW - bw, byTop, bw, boxH);     // right
+          }
           continue;
         }
-        emitNode(content, { ...ctx, x: ctx.x + marginL, y: rowBaseY, s: ctx.s, face, color });
+        if (has(content, 'hide-tail')) {
+          const svgKid = (content.children || []).find(isSvgNode);
+          if (svgKid) emitSvgNode(svgKid, { ...ctx, x: cx, color }, colW, rowBaseY);
+          continue;
+        }
+        emitNode(content, { ...ctx, x: cx, y: rowBaseY, s: ctx.s, face, color, colW, centerCols: false });
       }
       return marginL + colW + marginR;
+    }
+
+    // Stretchy horizontal extensible (\overbrace/\underbrace, \xrightarrow, ...):
+    // KaTeX lays the parts out absolutely as CSS fractions of the column width
+    // (the .stretchy span is width:100%); each child svg's width="400em" is a
+    // 400000-unit slice canvas, NOT its rendered width. Render each part clipped
+    // to its CSS fraction of the column (ctx.colW), preserving the per-part
+    // preserveAspectRatio (xMin/xMid/xMax slice) so the slices tile into a brace.
+    if (has(n, 'stretchy') && ctx.colW) {
+      const W = Math.max(ctx.colW, em(style.minWidth) * ctx.s);
+      const x0 = ctx.x + marginL;
+      for (const part of (n.children || [])) {
+        const svgKid = isSvgNode(part) ? part : (part.children || []).find(isSvgNode);
+        if (!svgKid) continue;
+        let frac = 1, off = 0;
+        if (has(part, 'brace-left')) { frac = 0.251; off = 0; }
+        else if (has(part, 'brace-center')) { frac = 0.5; off = 0.25; }
+        else if (has(part, 'brace-right')) { frac = 0.251; off = 0.749; }
+        else if (has(part, 'halfarrow-left')) { frac = 0.502; off = 0; }
+        else if (has(part, 'halfarrow-right')) { frac = 0.502; off = 0.498; }
+        emitSvgNode(svgKid, { ...ctx, x: x0 + off * W, color }, frac * W, ctx.y);
+      }
+      return marginL + W + marginR;
     }
 
     if (has(n, 'llap') || has(n, 'rlap') || has(n, 'clap')) {
@@ -340,12 +424,21 @@
       return 0;
     }
 
-    // generic inline span
+    // generic inline span. op-limits / accent / centered matrix columns center
+    // their immediate child vlist-t (see katex.css ".op-limits > .vlist-t").
+    // Fractions also center numerator/denominator within the column
+    // (katex.css ".mfrac>span>span{text-align:center}") — without this a
+    // narrow denominator like "2" under "1-\mu" hugs the left edge (06517).
+    // munder/mover: horizontal-brace and under/overset stacks center the
+    // script over the (full-column-width) base — e.g. \underbrace{...}_{2}
+    // centers "2" under the brace; without this it hugs the left edge (04947).
+    const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c') || has(n, 'mfrac')
+      || has(n, 'munder') || has(n, 'mover');
     let x = ctx.x + marginL + padL;
     for (const c of (n.children || [])) {
-      x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color });
+      x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color, centerCols: childCenter });
     }
-    let advance = (x - ctx.x) + marginR;
+    let advance = (x - ctx.x) + marginR + classHPad;   // symmetric .boxpad right pad
     if (style.width !== undefined) {
       advance = em(style.width) * ctx.s + marginL + marginR;
     }
@@ -380,20 +473,27 @@
     };
   };
 
+  // Single width authority: the measured box is derived from the SAME emission
+  // pass that DRAWS the label (render → emitNode), not a parallel walker.
+  // emitNode is what produces the on-screen geometry, so a measure built on it
+  // can never drift from the render — this closes the measure≠render gap (the
+  // hazard this whole engine exists to kill) one level down, inside the emitter.
+  // Verified a NO-OP at adoption: render().widthEm equals the prior widthOf(tree)
+  // to <1e-4 em on every one of 48 synthetic + 1688 real corpus labels tested, so
+  // it shifts no placement/bbox/fit result — it only removes the drift risk going
+  // forward. widthOf survives ONLY as an internal helper for emitNode's
+  // sub-measurements (vlist column widths, llap/clap, stretchy parts); it is no
+  // longer the top-level measurement authority.
+  // Cached by source string (measure is pure) so the fit/placement loops that
+  // call it repeatedly don't re-run the emit — strictly faster than the old path,
+  // which rebuilt the DomTree on every call.
+  const _measureCache = new Map();
   katexSvg.measure = function (tex) {
-    const k = getKatex();
-    if (!k || !GLYPHS) return null;
-    let tree;
-    try {
-      tree = k.__renderToDomTree(tex, { throwOnError: false, displayMode: false, output: 'html' });
-    } catch (e) { return null; }
-    if (!tree || !tree.children) return null;
-    if (tree.classes && tree.classes.indexOf('katex-error') !== -1) return null;
-    return {
-      widthEm: widthOf(tree),
-      heightEm: typeof tree.height === 'number' ? tree.height : 0.7,
-      depthEm: typeof tree.depth === 'number' ? tree.depth : 0.2,
-    };
+    if (_measureCache.has(tex)) return _measureCache.get(tex);
+    const r = katexSvg.render(tex, { emPx: 16 });
+    const out = r ? { widthEm: r.widthEm, heightEm: r.heightEm, depthEm: r.depthEm } : null;
+    _measureCache.set(tex, out);
+    return out;
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = katexSvg;
