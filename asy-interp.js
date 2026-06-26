@@ -29,6 +29,34 @@ if (typeof document === 'undefined' && typeof require === 'function'
 }
 
 // ============================================================
+// Instrumentation — surface features HiTeXeR met but could not fully handle.
+// Records named function calls that fail to resolve to any builtin/user function
+// (the "Unknown function → return null" path). Two consumers:
+//   • corpus scan (localized/feature audit) reads globalThis.__htxUnknown to
+//     rank under-implemented APIs that actually appear in real diagrams;
+//   • the live editor self-reports each missing feature once via console.warn,
+//     so new author/AI diagrams reveal gaps proactively.
+// Pure logging — it must NEVER change interpreter control flow or throw.
+// ============================================================
+const _htxUnknown = (typeof globalThis !== 'undefined')
+  ? (globalThis.__htxUnknown = globalThis.__htxUnknown ||
+       { calls: Object.create(null), recent: [], warned: Object.create(null) })
+  : { calls: Object.create(null), recent: [], warned: Object.create(null) };
+function recordUnknownCall(name, nargs) {
+  try {
+    if (!name || typeof name !== 'string') return;
+    nargs = nargs | 0;
+    _htxUnknown.calls[name] = (_htxUnknown.calls[name] || 0) + 1;
+    if (_htxUnknown.recent.length < 10000) _htxUnknown.recent.push(name + '/' + nargs);
+    if (typeof console !== 'undefined' && console.warn && !_htxUnknown.warned[name]) {
+      _htxUnknown.warned[name] = 1;
+      console.warn('[HTX-unknown-call] ' + name + '() with ' + nargs +
+        ' arg(s) did not resolve to a builtin or user function — possible unimplemented feature');
+    }
+  } catch (e) { /* instrumentation must never break a render */ }
+}
+
+// ============================================================
 // Token Types
 // ============================================================
 const T = {
@@ -3637,6 +3665,7 @@ function createInterpreter() {
     }
 
     // Unknown function - return null
+    recordUnknownCall(calleeName, node.args ? node.args.length : 0);
     return null;
   }
 
@@ -35790,6 +35819,7 @@ window.AsyInterp = {
   parse,
   _createInterpreter: createInterpreter,
   _renderSVG: renderSVG,
+  _unknown: _htxUnknown,   // instrumentation log of unresolved named calls
 };
 
 })();
