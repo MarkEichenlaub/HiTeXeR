@@ -656,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.31</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.32</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3303,41 +3303,63 @@ let probeReady = Promise.resolve(); // resolves when color probe mapping complet
  * Distance from screen-space mouse coordinates to the nearest point on an SVG element.
  * Returns distance in screen pixels for consistent thresholding.
  */
-function distToElementScreen(clientX, clientY, el) {
+// Perf: hover hit-testing used to call getTotalLength + up to 100 getPointAtLength
+// per element on EVERY mousemove (each forcing synchronous layout). For a labelled
+// diagram (~15 elements) that was ~1.2s per mouse move — the whole preview felt
+// laggy. We now sample each element's geometry ONCE into its own LOCAL coordinates
+// and cache that on the element; a mousemove just transforms the cached points to
+// screen space (cheap matrix arithmetic). Caches are auto-invalidated on re-render
+// because insertAdjacentHTML replaces the SVG with fresh element nodes.
+//
+// Local sample points are intrinsic (independent of zoom/pan/scroll) so the cache
+// survives canvas transforms; the per-move getScreenCTM() picks up the current zoom.
+// Distances stay in screen pixels, matching the original semantics and the screen-px
+// thresholds used by findNearest/findAllNear.
+function _htxElementLocalSamples(el) {
+  let s = el.__htxLocalSamples;
+  if (s) return s;
+  s = [];
   try {
-    // Get the element's screen CTM to transform local coords → screen coords
-    const screenCTM = el.getScreenCTM();
-    if (!screenCTM) return Infinity;
-
-    const bbox = el.getBBox();
-
-    // For paths/lines, use getPointAtLength for accuracy
     if (typeof el.getTotalLength === 'function') {
       const len = el.getTotalLength();
-      if (len === 0) return Infinity;
-      const steps = Math.min(Math.max(20, Math.ceil(len / 2)), 100);
-      let minD = Infinity;
-      for (let i = 0; i <= steps; i++) {
-        const p = el.getPointAtLength((i / steps) * len);
-        // Transform to screen coords
-        const sx = screenCTM.a * p.x + screenCTM.c * p.y + screenCTM.e;
-        const sy = screenCTM.b * p.x + screenCTM.d * p.y + screenCTM.f;
-        const d = Math.hypot(clientX - sx, clientY - sy);
-        if (d < minD) minD = d;
+      if (len > 0) {
+        // ~16-48 samples is plenty to decide "is the mouse near this stroke?".
+        const steps = Math.min(Math.max(16, Math.ceil(len / 6)), 48);
+        for (let i = 0; i <= steps; i++) {
+          const p = el.getPointAtLength((i / steps) * len);
+          s.push(p.x, p.y);
+        }
       }
-      return minD;
     }
+    if (s.length === 0) {
+      // Fallback for text/foreignObject/zero-length shapes: sample a grid over the
+      // bbox so hovering the interior still registers.
+      const b = el.getBBox();
+      const n = 5;
+      for (let ix = 0; ix <= n; ix++)
+        for (let iy = 0; iy <= n; iy++)
+          s.push(b.x + (b.width * ix) / n, b.y + (b.height * iy) / n);
+    }
+  } catch (e) { /* detached / no geometry */ }
+  el.__htxLocalSamples = s;
+  return s;
+}
 
-    // Fallback: clamp to bbox corners, transform to screen
-    const cx = Math.max(bbox.x, Math.min(
-      (screenCTM.inverse().a * clientX + screenCTM.inverse().c * clientY + screenCTM.inverse().e),
-      bbox.x + bbox.width));
-    const cy = Math.max(bbox.y, Math.min(
-      (screenCTM.inverse().b * clientX + screenCTM.inverse().d * clientY + screenCTM.inverse().f),
-      bbox.y + bbox.height));
-    const sx = screenCTM.a * cx + screenCTM.c * cy + screenCTM.e;
-    const sy = screenCTM.b * cx + screenCTM.d * cy + screenCTM.f;
-    return Math.hypot(clientX - sx, clientY - sy);
+function distToElementScreen(clientX, clientY, el) {
+  try {
+    const ctm = el.getScreenCTM(); // element-local → screen
+    if (!ctm) return Infinity;
+    const s = _htxElementLocalSamples(el);
+    if (s.length === 0) return Infinity;
+    let minSq = Infinity;
+    for (let i = 0; i < s.length; i += 2) {
+      const sx = ctm.a * s[i] + ctm.c * s[i + 1] + ctm.e;
+      const sy = ctm.b * s[i] + ctm.d * s[i + 1] + ctm.f;
+      const dx = clientX - sx, dy = clientY - sy;
+      const d = dx * dx + dy * dy;
+      if (d < minSq) minSq = d;
+    }
+    return Math.sqrt(minSq);
   } catch (e) {
     return Infinity;
   }
@@ -5605,10 +5627,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Clean up any previous overlay remnants
     svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
-    svg.querySelectorAll('.slide-free-glow').forEach(el => {
-      el.classList.remove('slide-free-glow');
-      el.removeAttribute('transform');
-    });
+    svg.querySelectorAll('.slide-free-glow').forEach(removeSlideGlow);
     slideFreePointData = [];
 
     ensureSlideGlowFilter(svg);
@@ -5667,7 +5686,7 @@ document.addEventListener('DOMContentLoaded', () => {
               svgCX = center.x;
               svgCY = center.y;
             }
-            el.classList.add('slide-free-glow');
+            addSlideGlow(el);
             glowEls.push(el);
           }
         }
@@ -5686,7 +5705,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!cmd) continue;
           if (cmd.primaryLine === fp.lineIdx) {
             for (const el of els) {
-              el.classList.add('slide-free-glow');
+              addSlideGlow(el);
               glowEls.push(el);
             }
           }
@@ -5825,10 +5844,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function deactivateSlideMode() {
     const svg = document.querySelector('#preview-container svg:not([data-perm])');
     if (svg) {
-      svg.querySelectorAll('.slide-free-glow').forEach(el => {
-        el.classList.remove('slide-free-glow');
-        el.removeAttribute('transform');
-      });
+      svg.querySelectorAll('.slide-free-glow').forEach(removeSlideGlow);
       svg.querySelectorAll('.slide-hit-circle').forEach(el => el.remove());
       svg.removeEventListener('mousedown', slideMouseDown);
       window.removeEventListener('mousemove', slideMouseMove);
@@ -5847,6 +5863,29 @@ document.addEventListener('DOMContentLoaded', () => {
       editor.setValue(cleaned.join('\n'));
       slideInjectedDots = [];
       doRender();
+    }
+  }
+
+  // Slide mode highlights free-point elements with the golden glow filter and,
+  // during a drag, nudges them with a `transform`. The elements that get tagged
+  // are often label glyph <path>s that ALREADY carry transform="...scale(0.012,...)"
+  // — so we must preserve and restore that original transform. Blindly calling
+  // removeAttribute('transform') on cleanup stripped the scale and rendered those
+  // glyphs at raw em-scale (~700 units in a ~250-unit viewBox) — the giant errant
+  // symbol that appeared after toggling slide mode off.
+  function addSlideGlow(el) {
+    if (!('slideOrigTransform' in el.dataset))
+      el.dataset.slideOrigTransform = el.getAttribute('transform') || '';
+    el.classList.add('slide-free-glow');
+  }
+  function removeSlideGlow(el) {
+    el.classList.remove('slide-free-glow');
+    if ('slideOrigTransform' in el.dataset) {
+      const t = el.dataset.slideOrigTransform;
+      if (t) el.setAttribute('transform', t); else el.removeAttribute('transform');
+      delete el.dataset.slideOrigTransform;
+    } else {
+      el.removeAttribute('transform');
     }
   }
 
@@ -5993,7 +6032,10 @@ document.addEventListener('DOMContentLoaded', () => {
       fp.hitCircle.setAttribute('cy', fp.svgCY + dSvgY);
     }
     for (const el of fp.glowEls) {
-      el.setAttribute('transform', `translate(${dSvgX},${dSvgY})`);
+      // Prepend the drag nudge to the element's ORIGINAL transform (e.g. a glyph's
+      // scale) so dragging doesn't strip the scale and balloon the element.
+      const base = (el.dataset.slideOrigTransform || '').trim();
+      el.setAttribute('transform', `translate(${dSvgX},${dSvgY})${base ? ' ' + base : ''}`);
     }
   }
 
