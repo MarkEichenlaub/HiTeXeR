@@ -5825,8 +5825,10 @@ function createInterpreter() {
     if (mod.includes('geometry')) {
       installGeometryPackage(env);
     }
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('palette')) {
-      // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('palette') || mod.includes('patterns')) {
+      // Gracefully ignored — stubs/features already in stdlib or not needed for
+      // 2D rendering. `patterns` (hatch/crosshatch/pattern/add-tile) lives in
+      // installStdlib, so no per-import install is needed.
     }
     if (mod.includes('markers')) {
       installMarkersPackage(env);
@@ -30371,6 +30373,41 @@ function renderSVG(result, opts) {
     ];
   }
 
+  // patterns module: emit an SVG <pattern> of parallel (or crossed) lines for a
+  // hatch/crosshatch fill spec and return the fill value (`url(#id)`), or 'none'
+  // when pattern(name) matched no registered tile. The tile background is
+  // transparent so overlapping hatch fills both remain visible (matches
+  // Asymptote's patterns). Shared by the `fill` and `filldraw` render branches
+  // so BOTH fill(g, pattern("h")) and filldraw(g, pattern("h")) tile correctly.
+  function emitHatchFill(spec) {
+    if (!spec) return 'none'; // pattern(name) found no registered tile
+    if (typeof globalThis._hatchPatCounter !== 'number') globalThis._hatchPatCounter = 0;
+    globalThis._hatchPatCounter += 1;
+    const pid = `_hpat${globalThis._hatchPatCounter}`;
+    const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
+    const lwPx = Math.max(0.4, ((spec.pen && spec.pen.linewidth) || 0.5) * bpCSSPixel);
+    const hp = spec.pen || {r:0,g:0,b:0};
+    const hcol = '#' + [hp.r,hp.g,hp.b].map(c => {
+      const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
+      return h.length<2?'0'+h:h;
+    }).join('');
+    const angDeg = ((spec.angle != null ? spec.angle : Math.PI/4) * 180 / Math.PI);
+    const sx = (spec.shift ? spec.shift.x : 0) * bpCSSPixel;
+    const sy = (spec.shift ? spec.shift.y : 0) * bpCSSPixel;
+    // Horizontal lines spaced d_px apart, rotated to the hatch angle.
+    // Screen y is down, so negate the math-coords angle.
+    let lines = `<line x1="0" y1="0" x2="${fmt(d_px)}" y2="0" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+    if (spec.kind === 'crosshatch') {
+      lines += `<line x1="0" y1="0" x2="0" y2="${fmt(d_px)}" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+    }
+    const ptrans = `translate(${fmt(sx)},${fmt(sy)}) rotate(${fmt(-angDeg)})`;
+    elements.push(
+      `<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(d_px)}" height="${fmt(d_px)}" patternTransform="${ptrans}">` +
+      lines + `</pattern></defs>`
+    );
+    return `url(#${pid})`;
+  }
+
   function renderPathCommand(ci, dc, css, dashArray) {
     if (dc.path._singlePoint) {
       const p = dc.path._singlePoint;
@@ -30480,41 +30517,9 @@ function renderSVG(result, opts) {
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
       fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
-      // patterns module: hatch/crosshatch fill. Emit an SVG <pattern> of
-      // parallel (or crossed) lines at the correct absolute spacing and set
-      // fill to url(#...). The tile background is transparent so overlapping
-      // hatch fills both remain visible (matches Asymptote's patterns).
+      // patterns module: hatch/crosshatch fill (see emitHatchFill).
       if (dc.cmd === 'fill' && dc.pen && dc.pen._fillPattern !== undefined) {
-        const spec = dc.pen._fillPattern;
-        if (!spec) {
-          fill = 'none'; // pattern(name) found no registered tile
-        } else {
-          if (typeof globalThis._hatchPatCounter !== 'number') globalThis._hatchPatCounter = 0;
-          globalThis._hatchPatCounter += 1;
-          const pid = `_hpat${globalThis._hatchPatCounter}`;
-          const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
-          const lwPx = Math.max(0.4, ((spec.pen && spec.pen.linewidth) || 0.5) * bpCSSPixel);
-          const hp = spec.pen || {r:0,g:0,b:0};
-          const hcol = '#' + [hp.r,hp.g,hp.b].map(c => {
-            const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
-            return h.length<2?'0'+h:h;
-          }).join('');
-          const angDeg = ((spec.angle != null ? spec.angle : Math.PI/4) * 180 / Math.PI);
-          const sx = (spec.shift ? spec.shift.x : 0) * bpCSSPixel;
-          const sy = (spec.shift ? spec.shift.y : 0) * bpCSSPixel;
-          // Horizontal lines spaced d_px apart, rotated to the hatch angle.
-          // Screen y is down, so negate the math-coords angle.
-          let lines = `<line x1="0" y1="0" x2="${fmt(d_px)}" y2="0" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
-          if (spec.kind === 'crosshatch') {
-            lines += `<line x1="0" y1="0" x2="0" y2="${fmt(d_px)}" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
-          }
-          const ptrans = `translate(${fmt(sx)},${fmt(sy)}) rotate(${fmt(-angDeg)})`;
-          elements.push(
-            `<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(d_px)}" height="${fmt(d_px)}" patternTransform="${ptrans}">` +
-            lines + `</pattern></defs>`
-          );
-          fill = `url(#${pid})`;
-        }
+        fill = emitHatchFill(dc.pen._fillPattern);
       }
       // Closed-sphere radial-gradient fill (see renderMeshToPicture
       // short-circuit). Replace flat fill with url(#...) and emit a
@@ -30551,6 +30556,13 @@ function renderSVG(result, opts) {
     } else if (dc.cmd === 'filldraw') {
       // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
       fill = (css.opacity === 0) ? 'none' : css.fill;
+      // patterns module: a filldraw whose FILL pen carries a hatch/crosshatch
+      // tile (e.g. filldraw(unitsquare, pattern("hatch"))) tiles the interior
+      // just like fill() does — the outline below is still stroked with the
+      // draw pen. Without this the interior rendered as a solid black fill.
+      if (dc.pen && dc.pen._fillPattern !== undefined) {
+        fill = emitHatchFill(dc.pen._fillPattern);
+      }
       // The filldraw OUTLINE is stroked with the draw pen (drawPen, or the
       // default pen when only a fill pen was supplied). penToCSS gives its
       // nominal width; we then apply the SAME auto-scaled / explicit-size
