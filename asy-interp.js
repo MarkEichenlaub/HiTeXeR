@@ -26937,11 +26937,18 @@ function renderSVG(result, opts) {
   function _lblAbsorb(px, py, wU, hU, dc) {
     if (!_lblInterior(px, py, dc)) return false;
     const _gw = geoMaxX - geoMinX, _gh = geoMaxY - geoMinY;
-    // A caption spanning most of the figure (01763's "The projection of v onto
-    // u" ≈ 70% of the width) is not a point annotation — asy lets it protrude,
-    // so don't absorb it. Point labels (the trig cluster's "(cos θ,sin θ)" ≈
-    // 46%) are well under this.
-    if (wU > 0.6 * _gw || hU > 0.6 * _gh) return false;
+    // A caption/coordinate label spanning a large fraction of the figure is not a
+    // point annotation — asy lets it protrude past the geometry, so don't absorb
+    // (centre) it for the fit. The wide nested-fraction coordinate labels
+    // "$\left(\cos\left(\frac{7\pi}{3}\right),\sin(\dots)\right)$" of the c10_L1
+    // unit-circle family run ~0.44–0.52 of the geometry width and DO protrude in
+    // TeXeR (00165/00164 NE, 00167) — absorbing them under-counted their reach in
+    // the size() LP, so the solver scaled the geometry up and the truesize label
+    // rendered ~0.7× too small (sizeScore fine, but trimmed aspect ratio off →
+    // SSIM ~0.92). The short single-line trig label "(cos θ,sin θ)" (00162) sits
+    // at ~0.385 and genuinely stays interior in TeXeR, so it must still absorb;
+    // the 0.42 width cut separates the two clusters. Height keeps the 0.6 cut.
+    if (wU > 0.42 * _gw || hU > 0.6 * _gh) return false;
     const hwU = (wU > 0 ? wU : 0) / 2, hhU = (hU > 0 ? hU : 0) / 2;
     return (px - hwU) >= geoMinX && (px + hwU) <= geoMaxX &&
            (py - hhU) >= geoMinY && (py + hhU) <= geoMaxY;
