@@ -24574,12 +24574,14 @@ function createInterpreter() {
       );
     }
 
-    // LaTeX math array environment (e.g. Sarrus determinant grids, 02422):
-    // the node MathJax renderer (3.2.1) cannot render alignment environments —
-    // \begin{array}/\begin{matrix}/\begin{gathered} all throw, and a bare \\ at
-    // top level does not stack rows either. So we lay the grid out ourselves by
-    // emitting one label per row, each a normal single-line colored math label
-    // (MathJax handles \color + \quad spacing fine), stacked vertically around
+    // NOTE: math alignment environments (\begin{array}/{matrix}/{pmatrix}/
+    // {bmatrix}/{cases}/{aligned}, etc.) are rendered NATIVELY and correctly by
+    // the KaTeX SVG emitter — verified at the render level: distinct column
+    // x-positions, stacked rows, and bracket/paren delimiters + fraction rules
+    // are all emitted (02422 Sarrus grids included). An earlier build laid these
+    // out by hand (one label per row) to dodge the node MathJax renderer (3.2.1),
+    // which threw on alignment envs; that workaround is gone — do NOT reintroduce
+    // it. Such labels now flow straight through preprocessLatexForKatex → emitter.
     if (frameTarget) {
       // Stash the label spec on the frame; consumed by _emitMarkerFrame
       // when the frame is placed at marker positions on a path.
@@ -33461,6 +33463,20 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
 // equivalents.  amssymb's \bigstar, \blacksquare, etc. are not in KaTeX's
 // default command set; use Unicode characters wrapped in \text{} so they
 // render reliably.
+// NOTE on the `forMathJax` parameter — it is a MISNOMER kept for git-blame
+// continuity. KaTeX (the SVG emitter, katex-svg.js) is the authoritative engine
+// on every surface today; MathJax survives only as a fallback for when the
+// emitter can't load (effectively never, since katex-glyphs.json ships). The
+// flag is actually "realized-layout path": it is TRUE for the emitter AND the
+// MathJax fallback (both realize KaTeX/TeX layout exactly), and FALSE only for
+// the legacy `renderLabelKaTeX` foreignObject path. So any comment in here that
+// says "MathJax does X" is describing behavior that, in practice, runs on KaTeX
+// — re-validate against KaTeX (not MathJax) before trusting such a comment. Many
+// transformations below are NO-OPs on modern KaTeX, which handles them natively
+// (\hskip, \begin{array}/{matrix}/{cases}/{aligned}, \boxed, \xrightarrow,
+// spacing macros, named \color, etc.); the ones that remain genuinely necessary
+// are the xcolor optional-arg/\definecolor forms, \textdollar, tabular/minipage/
+// \shortstack, font-size selectors, and the absolute-\hspace ptPerEm correction.
 function preprocessLatexForKatex(src, forMathJax, emForHspace) {
   if (typeof src !== 'string') return src;
   // Normalize embedded TAB/CR/LF inside the math source to a single space.
@@ -33514,12 +33530,17 @@ function preprocessLatexForKatex(src, forMathJax, emForHspace) {
     });
     src = src.replace(/\\color\s*\{([^}]*)\}/g, (_m, name) => colorDefs[name] ? '\\color{' + colorDefs[name] + '}' : _m);
   }
-  // TeX's `\hskip <dimen>` is the primitive form of `\hspace{<dimen>}`. Nothing
-  // downstream handles `\hskip` (the truesize-brace sizing and the pt fix below
-  // only match `\hspace{...}`), and KaTeX renders a bare `\hskip 33pt` grossly
-  // over-wide, so `\underbrace{\hskip 33pt}_b` braces ran away (05355). Normalize
-  // it to `\hspace{}` so it renders at its true dimension and the fixes apply.
-  src = src.replace(/\\hskip\s*([\d.]+)\s*(pt|bp|cm|mm|in|pc|em|ex|mu)/g,
+  // TeX's `\hskip <dimen>` is the primitive form of `\hspace{<dimen>}`. KaTeX
+  // 0.16.x renders the two IDENTICALLY (verified at the render level: both
+  // `a\hskip 20pt b` and `a\hspace{20pt}b` emit the same geometry, and negative
+  // kerns like `\hskip -3pt` apply correctly) — so this is NOT a rendering fix.
+  // We normalize purely so the downstream truesize-brace sizing (and the
+  // absolute-`pt` correction below), which regex ONLY for `\hspace{...}`, can
+  // read the dimension out of `\underbrace{\hskip 33pt}_b` (05355). The optional
+  // sign keeps negative kerns convertible for that reader; KaTeX renders them
+  // natively either way, so leaving the sign off never broke a render — it only
+  // hid the value from the brace reader.
+  src = src.replace(/\\hskip\s*(-?[\d.]+)\s*(pt|bp|cm|mm|in|pc|em|ex|mu)/g,
     (m, num, unit) => `\\hspace{${num}${unit}}`);
   // MathJax over-renders an ABSOLUTE \hspace{N<unit>} by ~1.19× relative to
   // real LaTeX/dvisvgm (and local Asymptote): the \hspace length is pushed
