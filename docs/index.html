@@ -656,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.33</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.35</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2736,25 +2736,34 @@ function clearHighlights() {
   highlightMarks = [];
 }
 
-function highlightLines(primaryLine, depLines) {
+function highlightLines(primaryLine, depLines, scroll = false) {
   clearHighlights();
   if (typeof highlightingEnabled !== 'undefined' && !highlightingEnabled) return;
   if (window.hitexerSlideActive) return;
   if (window.hitexerGifActive) return;
-  for (const lineIdx of depLines) {
-    if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
-    highlightMarks.push(editor.markText(
-      {line:lineIdx,ch:0}, {line:lineIdx,ch:editor.getLine(lineIdx).length},
-      {className:'cm-highlight-dependency'}
-    ));
+  // Batch the markText calls into one CodeMirror operation so it reflows/repaints
+  // once instead of per mark.
+  editor.operation(() => {
+    for (const lineIdx of depLines) {
+      if (lineIdx < 0 || lineIdx >= editor.lineCount()) continue;
+      highlightMarks.push(editor.markText(
+        {line:lineIdx,ch:0}, {line:lineIdx,ch:editor.getLine(lineIdx).length},
+        {className:'cm-highlight-dependency'}
+      ));
+    }
+    if (primaryLine >= 0 && primaryLine < editor.lineCount()) {
+      highlightMarks.push(editor.markText(
+        {line:primaryLine,ch:0}, {line:primaryLine,ch:editor.getLine(primaryLine).length},
+        {className:'cm-highlight-primary'}
+      ));
+    }
+  });
+  // Only scroll on explicit navigation (click/selection). On hover this was both
+  // the dominant cost (~18ms CodeMirror reflow per mouse-move) and jarring — the
+  // editor jumped around as the cursor swept across the diagram.
+  if (scroll && primaryLine >= 0 && primaryLine < editor.lineCount()) {
+    editor.scrollIntoView({line:primaryLine,ch:0}, 50);
   }
-  if (primaryLine >= 0 && primaryLine < editor.lineCount()) {
-    highlightMarks.push(editor.markText(
-      {line:primaryLine,ch:0}, {line:primaryLine,ch:editor.getLine(primaryLine).length},
-      {className:'cm-highlight-primary'}
-    ));
-  }
-  editor.scrollIntoView({line:primaryLine,ch:0}, 50);
 }
 
 // ============================================================
@@ -3265,7 +3274,16 @@ function _htxElementLocalSamples(el) {
   if (s) return s;
   s = [];
   try {
-    if (typeof el.getTotalLength === 'function') {
+    // getPointAtLength is the expensive call here — ~1ms each on a glyph outline
+    // (22-39ms to sample one label glyph), vs getBBox which is ~free. So only the
+    // OPEN STROKE paths (triangle sides, the incircle: fill="none") get path-sampled
+    // for accurate distance-to-curve. Filled shapes — every KaTeX glyph <path>, plus
+    // filled polygons — are sampled as a cheap bbox grid instead. That's also more
+    // correct for fills/labels: it detects the interior, where perimeter sampling
+    // would only fire near the outline.
+    const fill = el.getAttribute && el.getAttribute('fill');
+    const isStroke = (fill === 'none' || fill === null) && typeof el.getTotalLength === 'function';
+    if (isStroke) {
       const len = el.getTotalLength();
       if (len > 0) {
         // ~16-48 samples is plenty to decide "is the mouse near this stroke?".
@@ -3277,10 +3295,10 @@ function _htxElementLocalSamples(el) {
       }
     }
     if (s.length === 0) {
-      // Fallback for text/foreignObject/zero-length shapes: sample a grid over the
-      // bbox so hovering the interior still registers.
+      // Filled shapes, text/foreignObject, and zero-length paths: sample a grid over
+      // the bbox so hovering the interior registers. One cheap getBBox, no getPointAtLength.
       const b = el.getBBox();
-      const n = 5;
+      const n = 4;
       for (let ix = 0; ix <= n; ix++)
         for (let iy = 0; iy <= n; iy++)
           s.push(b.x + (b.width * ix) / n, b.y + (b.height * iy) / n);
@@ -3289,6 +3307,20 @@ function _htxElementLocalSamples(el) {
   el.__htxLocalSamples = s;
   return s;
 }
+
+// Pre-fill the hover sample cache off the interaction path. Sampling is cheap now
+// (bbox for glyphs/fills, getPointAtLength only for the few stroke curves), but doing
+// it the moment a render lands — in idle time — means the FIRST hover after an edit is
+// never the thing that pays for it. Fresh renders replace the SVG nodes, so the cache
+// is naturally cold each time; this warms it before the user's mouse arrives.
+document.addEventListener('hitexer-rendered', () => {
+  const svg = document.querySelector('#preview-container svg:not([data-perm])');
+  if (!svg) return;
+  const els = [...svg.querySelectorAll('path,circle,ellipse,line,polyline,polygon,rect,text')]
+    .filter(e => !e.closest('defs'));
+  const warm = () => { for (const el of els) _htxElementLocalSamples(el); };
+  (window.requestIdleCallback || window.requestAnimationFrame)(warm);
+});
 
 function distToElementScreen(clientX, clientY, el) {
   try {
@@ -3831,10 +3863,13 @@ function setupSvgInteractivity(code) {
   // Hover
   let lastHoveredCi = -1;
   let lastHoveredEl = null;
-  svg.addEventListener('mousemove', (e) => {
-    if (StyleMenu.visible) return;
-    const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
-
+  // rAF-throttle: mousemove can fire several times per frame, and each hover-change
+  // does a CodeMirror line-highlight (markText under lineWrapping ≈ 10ms). Coalescing
+  // to at most one update per animation frame keeps fast sweeps smooth.
+  let hoverRaf = 0, hoverX = 0, hoverY = 0;
+  function processHover() {
+    hoverRaf = 0;
+    const { ci: bestCi, el: bestEl } = findNearest(hoverX, hoverY, false);
     if (bestCi >= 0 && bestCi === lastHoveredCi) return;
     if (bestCi < 0 && bestEl === lastHoveredEl) return;
     lastHoveredCi = bestCi;
@@ -3850,10 +3885,16 @@ function setupSvgInteractivity(code) {
     } else if (bestEl) {
       highlightSvgElement(bestEl, 'strong');
     }
+  }
+  svg.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    hoverX = e.clientX; hoverY = e.clientY;
+    if (!hoverRaf) hoverRaf = requestAnimationFrame(processHover);
   });
 
   svg.addEventListener('mouseleave', () => {
     if (StyleMenu.visible) return;
+    if (hoverRaf) { cancelAnimationFrame(hoverRaf); hoverRaf = 0; }
     lastHoveredCi = -1; lastHoveredEl = null;
     clearHighlights(); clearSvgHighlights();
     if (multiSelected.size > 0) renderMultiSelection();
@@ -4046,9 +4087,12 @@ function setupSvgInteractivityDirect(code, commandMap) {
   }
 
   let lastHoveredCi = -1, lastHoveredEl = null;
-  svg.addEventListener('mousemove', (e) => {
-    if (StyleMenu.visible) return;
-    const { ci: bestCi, el: bestEl } = findNearest(e.clientX, e.clientY, false);
+  // rAF-throttle: coalesce rapid mousemoves to one hover update per frame so the
+  // CodeMirror line-highlight (markText under lineWrapping ≈ 10ms) can't pile up.
+  let hoverRaf = 0, hoverX = 0, hoverY = 0;
+  function processHover() {
+    hoverRaf = 0;
+    const { ci: bestCi, el: bestEl } = findNearest(hoverX, hoverY, false);
     // Re-render if either the element or the AsyParser command changed
     if (bestEl === lastHoveredEl && bestCi === lastHoveredCi) return;
     lastHoveredCi = bestCi; lastHoveredEl = bestEl;
@@ -4064,9 +4108,15 @@ function setupSvgInteractivityDirect(code, commandMap) {
     } else if (bestEl) {
       highlightSvgElement(bestEl, 'strong');
     }
+  }
+  svg.addEventListener('mousemove', (e) => {
+    if (StyleMenu.visible) return;
+    hoverX = e.clientX; hoverY = e.clientY;
+    if (!hoverRaf) hoverRaf = requestAnimationFrame(processHover);
   });
   svg.addEventListener('mouseleave', () => {
     if (StyleMenu.visible) return;
+    if (hoverRaf) { cancelAnimationFrame(hoverRaf); hoverRaf = 0; }
     lastHoveredCi = -1; lastHoveredEl = null;
     clearHighlights(); clearSvgHighlights();
     if (multiSelected.size > 0) renderMultiSelection();
