@@ -24580,26 +24580,6 @@ function createInterpreter() {
     // top level does not stack rows either. So we lay the grid out ourselves by
     // emitting one label per row, each a normal single-line colored math label
     // (MathJax handles \color + \quad spacing fine), stacked vertically around
-    // the label position. & column separators become \quad spacing.
-    // The corpus source writes row separators as a backslash followed by a real
-    // line break and also embeds insignificant formatting newlines (from \n
-    // escapes); split rows on backslash+EOL and treat bare newlines as spaces.
-    let arrayRows = null;
-    if (typeof text === 'string' && /\\begin\s*\{array\}/.test(text)) {
-      const am = text.match(/\\begin\s*\{array\}\s*(?:\{[^}]*\})?([\s\S]*?)\\end\s*\{array\}/);
-      if (am) {
-        const ROWSEP = '@@HTXROW@@';
-        arrayRows = am[1]
-          .replace(/\\+[ \t]*\r?\n/g, ROWSEP)
-          .replace(/[\r\n]+/g, ' ')
-          .split(ROWSEP)
-          .map(r => r.trim())
-          .filter(r => r.length > 0)
-          .map(r => '$' + r.split('&').map(c => c.trim()).join('\\quad ') + '$');
-        if (arrayRows.length < 2) arrayRows = null;
-      }
-    }
-
     if (frameTarget) {
       // Stash the label spec on the frame; consumed by _emitMarkerFrame
       // when the frame is placed at marker positions on a path.
@@ -24636,22 +24616,6 @@ function createInterpreter() {
         graphicData = Object.assign({}, graphicData, {transform: t});
       }
       target.commands.push({cmd:'image', graphic: graphicData, pos, align, pen, line: args._line || 0});
-    } else if (arrayRows) {
-      // Stack the flattened array rows vertically around `pos`. The row gap is
-      // the LaTeX array row spacing for the label font (~1.15× font size, tuned
-      // to match TeXeR's array row pitch on 02422), converted from bp to user
-      // units via the current unit scale (points per user unit). Top row first,
-      // descending.
-      const fsbp = (pen && typeof pen.fontsize === 'number' && pen.fontsize > 0) ? pen.fontsize : 12;
-      const bpPerUnit = (hasUnitScale && unitScale > 0) ? unitScale
-                       : (_globalUnitSize > 0 ? _globalUnitSize : 28.3464567);
-      const rowGap = fsbp * 1.15 / bpPerUnit;
-      const n = arrayRows.length;
-      for (let i = 0; i < n; i++) {
-        const dy = ((n - 1) / 2 - i) * rowGap;
-        const rPos = makePair(pos.x, pos.y + dy);
-        target.commands.push({cmd:'label', text: arrayRows[i], pos: rPos, align, pen, filltype, line: args._line || 0});
-      }
     } else {
       const labelCmd = {cmd:'label', text, pos, align, pen, filltype, line: args._line || 0, _fromPathLabel: !!pathForDefaultAlign, _fromPathLabelNoAlign: _labelOnPathNoAlign};
       if (_mpCenterWidthBp > 0) labelCmd._mpCenterWidthBp = _mpCenterWidthBp;
@@ -33608,18 +33572,6 @@ function preprocessLatexForKatex(src, forMathJax, emForHspace) {
     src = src.replace(/\^\s*\\circ\b/g, '\\mkern-3.5mu^{°}');
   }
   const replacements = [
-    [/\\bigstar\b/g,      '\\text{\u2605}'],       // ★
-    [/\\blacksquare\b/g,  '\\text{\u25A0}'],       // ■
-    [/\\blacklozenge\b/g, '\\text{\u29EB}'],       // ⧫
-    [/\\blacktriangle\b/g,'\\text{\u25B2}'],       // ▲
-    [/\\blacktriangledown\b/g,'\\text{\u25BC}'],   // ▼
-    [/\\lozenge\b/g,      '\\text{\u25CA}'],       // ◊
-    [/\\square\b/g,       '\\text{\u25A1}'],       // □
-    [/\\vartriangle\b/g,  '\\text{\u25B3}'],       // △
-    [/\\triangledown\b/g, '\\text{\u25BD}'],       // ▽
-    [/\\circledast\b/g,   '\\text{\u229B}'],       // ⊛
-    [/\\circledcirc\b/g,  '\\text{\u229A}'],       // ⊚
-    [/\\complement\b/g,   '\\text{\u2201}'],       // ∁
     // \textdollar is a text-mode command; in KaTeX math mode it is undefined,
     // so the label rendered as the raw red "\textdollar". Map it to a text-mode
     // escaped dollar so it renders as an upright "$" glyph (09482/09484).
