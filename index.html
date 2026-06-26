@@ -656,7 +656,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.33</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.34</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -5666,68 +5666,74 @@ document.addEventListener('DOMContentLoaded', () => {
       return { x: (mx - minX) * slidePxPerUnit, y: (maxY - my) * slidePxPerUnit };
     }
 
+    // Hit-circle geometry depends only on the viewBox, so compute it once.
+    const vbAttr = svg.getAttribute('viewBox');
+    let hitR = 18, hitStroke = 2.5, hitDash = '4 2';
+    if (vbAttr) {
+      const parts = vbAttr.split(/[\s,]+/).map(Number);
+      const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
+      // Target: ~2% of the viewBox diagonal
+      hitR = vbDiag * 0.02;
+      hitStroke = hitR * 0.14;
+      hitDash = `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`;
+    }
+    // A glyph counts as "this point's" only if it sits within a few hit-radii of
+    // the point. This rejects a label whose probe-mapped element is wrong (the
+    // bug below): an offset vertex label is ~1 radius away, but a mis-mapped
+    // label on the far side of the diagram is dozens.
+    const glowMaxDist = hitR * 3;
+
+    function elViewBoxCenter(el) {
+      const bbox = el.getBBox();
+      return localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+    }
+
     slideFreePointData = [];
     for (const fp of freePoints) {
+      // Position the grab target at the point's TRUE math coordinate. mathToSvg is
+      // the exact inverse of the render transform the drag handler uses, so it's
+      // deterministic and independent of label/command order. (The old code took
+      // the bbox of a label glyph found via the probe-derived command mapping;
+      // when labels were reordered that mapping shifted, clustering every hit
+      // circle onto one unrelated centered label.)
       let svgCX = null, svgCY = null;
+      const mapped = mathToSvg(fp.x, fp.y);
+      if (mapped) { svgCX = mapped.x; svgCY = mapped.y; }
       const glowEls = [];
 
-      if (fp.varName) {
-        // Named point: find SVG elements for dot/label commands that reference this var
-        for (const [cmdIdx, els] of svgElsByCommand) {
-          const cmd = currentMapping[cmdIdx];
-          if (!cmd) continue;
+      // Collect candidate label/dot glyphs to glow.
+      const glowCandidates = [];
+      for (const [cmdIdx, els] of svgElsByCommand) {
+        const cmd = currentMapping[cmdIdx];
+        if (!cmd) continue;
+        if (fp.varName) {
           const varRe = new RegExp('\\b' + fp.varName + '\\b');
           if (!varRe.test(cmd.commandText)) continue;
           if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
-          for (const el of els) {
-            if (svgCX === null) {
-              const bbox = el.getBBox();
-              const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-              svgCX = center.x;
-              svgCY = center.y;
-            }
-            addSlideGlow(el);
-            glowEls.push(el);
-          }
+        } else if (cmd.primaryLine !== fp.lineIdx) {
+          continue;
         }
+        for (const el of els) glowCandidates.push(el);
       }
 
-      // For inline points (or named points without a dot/label), use coordinate mapping
-      if (svgCX === null) {
-        const mapped = mathToSvg(fp.x, fp.y);
-        if (mapped) {
-          svgCX = mapped.x;
-          svgCY = mapped.y;
+      for (const el of glowCandidates) {
+        if (svgCX === null) {
+          // No math mapping (e.g. server-rendered, lastRenderInfo null): fall back
+          // to the first candidate's bbox center for positioning.
+          const c = elViewBoxCenter(el);
+          svgCX = c.x; svgCY = c.y;
+          addSlideGlow(el); glowEls.push(el);
+          continue;
         }
-        // Try to find and glow any SVG elements on the same source line
-        for (const [cmdIdx, els] of svgElsByCommand) {
-          const cmd = currentMapping[cmdIdx];
-          if (!cmd) continue;
-          if (cmd.primaryLine === fp.lineIdx) {
-            for (const el of els) {
-              addSlideGlow(el);
-              glowEls.push(el);
-            }
-          }
+        const c = elViewBoxCenter(el);
+        if (Math.hypot(c.x - svgCX, c.y - svgCY) <= glowMaxDist) {
+          addSlideGlow(el); glowEls.push(el);
         }
       }
 
       // Create a large visible hit circle at the point's position (in viewBox coords)
       let hitCircle = null;
       if (svgCX !== null) {
-        // Scale hit-circle radius relative to viewBox so it looks the same on any diagram
-        const vb = svg.getAttribute('viewBox');
-        let hitR = 18;
-        let hitStroke = 2.5;
-        let hitDash = '4 2';
-        if (vb) {
-          const parts = vb.split(/[\s,]+/).map(Number);
-          const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
-          // Target: ~2% of the viewBox diagonal
-          hitR = vbDiag * 0.02;
-          hitStroke = hitR * 0.14;
-          hitDash = `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`;
-        }
         hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         hitCircle.setAttribute('cx', svgCX);
         hitCircle.setAttribute('cy', svgCY);
