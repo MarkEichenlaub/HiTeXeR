@@ -19,14 +19,21 @@ if (!fs.existsSync(CORPUS_DIR)) {
 }
 if (!fs.existsSync(ASY_SRC)) fs.mkdirSync(ASY_SRC, { recursive: true });
 
-const allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort();
-console.log('Corpus: ' + allFiles.length + ' .asy files');
+// STABLE numbering: id = position in comparison/corpus-ids.json (matches
+// generate-manifest.js / ssim-pipeline.js). Never re-sort the directory for ids.
+const IDS_FILE = path.join(ROOT, 'comparison', 'corpus-ids.json');
+let allFiles;
+try { allFiles = JSON.parse(fs.readFileSync(IDS_FILE, 'utf8')); }
+catch { allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort(); }
+console.log('Corpus: ' + allFiles.length + ' numbered slots');
 
 const numId = i => String(i + 1).padStart(5, '0');
 
 let written = 0, skipped = 0;
 for (let i = 0; i < allFiles.length; i++) {
-  const src = cleanCodeTabs(fs.readFileSync(path.join(CORPUS_DIR, allFiles[i]), 'utf8'));
+  const cp = path.join(CORPUS_DIR, allFiles[i]);
+  if (!fs.existsSync(cp)) continue;   // reserved slot — file removed
+  const src = cleanCodeTabs(fs.readFileSync(cp, 'utf8'));
   const out = path.join(ASY_SRC, numId(i) + '.asy');
   // Only write if missing or changed (cheap mtime guard for re-runs).
   let needWrite = true;

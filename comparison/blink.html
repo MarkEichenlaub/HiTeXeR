@@ -172,6 +172,58 @@
   #paste-list-ta:focus { outline: none; border-color: #e94560; }
   .paste-list-btns { display: flex; gap: 8px; }
   #btn-paste-list-active { border-color: #e94560 !important; color: #e94560 !important; }
+
+  /* ── Header menubar (Visible / Actions / Links dropdowns) ────────────── */
+  .menu { position: relative; }
+  .menu-btn { font-size: 13px; padding: 5px 12px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; white-space: nowrap; font-family: inherit; }
+  .menu-btn:hover, .menu-btn.open { border-color: #e94560; }
+  .menu-btn .caret { opacity: 0.6; font-size: 10px; margin-left: 3px; }
+  .menu-panel { position: absolute; top: calc(100% + 5px); left: 0; background: #16213e; border: 1px solid #475569; border-radius: 6px; padding: 6px; min-width: 260px; max-height: min(78vh, 640px); overflow-y: auto; z-index: 250; display: none; box-shadow: 0 6px 22px rgba(0,0,0,0.55); }
+  .menu-panel.open { display: block; }
+  .menu-panel.right { left: auto; right: 0; }
+  .menu-panel .menu-sec-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: #64748b; padding: 6px 8px 3px; font-weight: 700; }
+  .menu-panel hr.menu-div { border: none; border-top: 1px solid #2a3550; margin: 5px 2px; }
+  .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: none; color: #e0e0e0; padding: 7px 10px; font-size: 12px; font-family: inherit; cursor: pointer; border-radius: 4px; }
+  .menu-item:hover { background: #0f3460; }
+  .menu-item:disabled { color: #5b6478; cursor: default; background: none; }
+  .menu-item .mi-count { margin-left: auto; opacity: 0.65; font-variant-numeric: tabular-nums; }
+  .menu-row { display: flex; align-items: center; gap: 10px; padding: 5px 10px; flex-wrap: wrap; }
+  .menu-row .filter-check { font-size: 12px; }
+  .menu-toggle-btn { width: 100%; text-align: left; }
+
+  /* Collection tree inside the Visible menu */
+  .coll-tree { padding: 2px; }
+  .coll-master { display: flex; align-items: center; gap: 7px; padding: 5px 8px; cursor: pointer; font-size: 12px; font-weight: 700; border-radius: 4px; }
+  .coll-master:hover { background: #1e3a5f; }
+  .coll-cat { margin: 1px 0; }
+  .coll-cat-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; font-size: 12px; border-radius: 4px; }
+  .coll-cat-head:hover { background: #1e3a5f; }
+  .coll-cat-twist { width: 12px; flex-shrink: 0; opacity: 0.7; font-size: 10px; transition: transform 0.12s; user-select: none; }
+  .coll-cat.collapsed .coll-cat-twist { transform: rotate(-90deg); }
+  .coll-cat-name { font-weight: 700; color: #cbd5e1; }
+  .coll-cat-meta { margin-left: auto; opacity: 0.5; font-size: 10px; font-variant-numeric: tabular-nums; }
+  .coll-cat-members { padding-left: 18px; }
+  .coll-cat.collapsed .coll-cat-members { display: none; }
+  .coll-item { display: flex; align-items: center; gap: 7px; padding: 3px 8px; cursor: pointer; font-size: 12px; white-space: nowrap; border-radius: 3px; }
+  .coll-item:hover { background: #1e3a5f; }
+  .coll-item input[type=checkbox], .coll-cat-head input[type=checkbox], .coll-master input[type=checkbox] { cursor: pointer; accent-color: #e94560; flex-shrink: 0; }
+  .coll-item .ci-num { color: #7dd3fc; font-variant-numeric: tabular-nums; font-size: 11px; min-width: 30px; }
+  .coll-item .ci-name { overflow: hidden; text-overflow: ellipsis; }
+  .coll-item .ci-count { margin-left: auto; opacity: 0.5; font-size: 10px; font-variant-numeric: tabular-nums; padding-left: 8px; }
+  .coll-item.special { font-weight: 600; }
+  .coll-item.special .ci-name { color: #fca5a5; }
+
+  /* ── Editable code panel (live HiTeXeR experiment) ──────────────────── */
+  .code-content.editable { white-space: pre; outline: none; cursor: text; }
+  .code-content.edited { background: #2a1f10; box-shadow: inset 3px 0 0 #f59e0b; }
+  .code-panel-header .edited-tag { display: none; font-size: 10px; color: #fbbf24; background: #3a2a10; border: 1px solid #b45309; border-radius: 3px; padding: 1px 5px; font-weight: 600; }
+  .code-panel.edited .code-panel-header .edited-tag { display: inline; }
+  #btn-revert-code { display: none; }
+  .code-panel.edited #btn-revert-code { display: inline-block; }
+
+  /* ── Open on AoPS link ──────────────────────────────────────────────── */
+  #btn-aops { background:#3a2410; border:1px solid #d97706; color:#fcd34d; text-decoration:none; display:none; }
+  #btn-aops:hover { background:#d97706; color:#1a1205; }
 </style>
 </head>
 <body>
@@ -187,19 +239,24 @@
 
 <!-- ── Header / Controls ──────────────────────────────── -->
 <div class="header">
-  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v15</span></h1>
+  <h1>Blink Comparator <span style="font-size:11px;opacity:0.5;font-weight:normal">v16</span></h1>
 
-  <div class="filter-group">
-    <label>Collections:</label>
-    <div class="coll-dropdown" id="coll-dropdown">
-      <button class="coll-btn" id="coll-btn">All collections</button>
-      <div class="coll-panel" id="coll-panel">
-        <label class="coll-item">
-          <input type="checkbox" id="coll-check-all" checked> <strong>Check / Uncheck All</strong>
-        </label>
-        <hr class="coll-divider">
-        <div id="coll-list"></div>
+  <!-- ── Visible menu: collection tree + existence filters + paste/hide ── -->
+  <div class="menu" id="visible-menu">
+    <button class="menu-btn" id="visible-btn" title="What's visible in the grid">Visible <span class="caret">▾</span></button>
+    <div class="menu-panel" id="visible-panel">
+      <div class="menu-sec-label">Collections</div>
+      <div class="coll-tree" id="coll-tree"></div>
+      <hr class="menu-div">
+      <div class="menu-sec-label">Show pairs</div>
+      <div class="menu-row">
+        <label class="filter-check"><input type="checkbox" id="filter-both" checked> Both exist</label>
+        <label class="filter-check"><input type="checkbox" id="filter-htx-only"> HTX only</label>
+        <label class="filter-check"><input type="checkbox" id="filter-texer-only"> TeXeR only</label>
       </div>
+      <hr class="menu-div">
+      <button class="menu-item menu-toggle-btn" id="btn-paste-list" title="Show only a custom list of diagram IDs">Paste List…</button>
+      <button class="menu-item menu-toggle-btn" id="btn-hide-queued" title="Hide diagrams already in the fix queue">Hide Queued</button>
     </div>
   </div>
 
@@ -218,45 +275,43 @@
   </div>
 
   <div class="filter-group">
-    <label class="filter-check"><input type="checkbox" id="filter-both" checked> Both exist</label>
-    <label class="filter-check"><input type="checkbox" id="filter-htx-only"> HTX only</label>
-    <label class="filter-check"><input type="checkbox" id="filter-texer-only"> TeXeR only</label>
-  </div>
-
-  <div class="filter-group">
     <label>Search:</label>
     <input type="text" id="search-input" placeholder="ID or filename…" style="width:140px" maxlength="40">
   </div>
 
-  <button id="btn-paste-list" title="Show only a custom list of diagram IDs">Paste List</button>
-  <button id="btn-copy-visible" title="Copy all visible diagram IDs to clipboard">Copy Visible (<span id="visible-count">0</span>)</button>
-
-  <div class="filter-group">
-    <div class="bulk-dropdown" id="bulk-dropdown">
-      <button class="coll-btn" id="bulk-btn" title="Actions on selected diagrams">Selected (<span id="selected-count">0</span>) &#9662;</button>
-      <div class="bulk-panel" id="bulk-panel">
-        <button data-action="copy">Copy IDs</button>
-        <div class="bulk-sep"></div>
-        <button data-action="refetch">Refetch + re-render + SSIM</button>
-        <button data-action="rerender">Re-render + recompute SSIM</button>
-        <button data-action="enqueue">Send to fix queue</button>
-        <div class="bulk-sep"></div>
-        <button data-action="exclude">Exclude from comparator</button>
-        <div class="bulk-busy" id="bulk-busy" style="display:none"></div>
-      </div>
+  <!-- ── Actions menu: copy visible/queue, selected-set ops, clear ────── -->
+  <div class="menu" id="actions-menu">
+    <button class="menu-btn" id="actions-btn" title="Copy / act on diagrams">Actions <span class="caret">▾</span></button>
+    <div class="menu-panel" id="actions-panel">
+      <button class="menu-item" id="btn-copy-visible" title="Copy all visible diagram IDs">Copy Visible <span class="mi-count" id="visible-count">0</span></button>
+      <button class="menu-item" id="btn-copy-queue" title="Copy queued diagram IDs (backup)">Copy Queue <span class="mi-count" id="queue-count">0</span></button>
+      <hr class="menu-div">
+      <div class="menu-sec-label">Selected (<span id="selected-count">0</span>)</div>
+      <button class="menu-item" data-action="copy">Copy IDs</button>
+      <button class="menu-item" data-action="refetch">Refetch + re-render + SSIM</button>
+      <button class="menu-item" data-action="rerender">Re-render + recompute SSIM</button>
+      <button class="menu-item" data-action="enqueue">Send to fix queue</button>
+      <button class="menu-item" data-action="exclude">Exclude from comparator</button>
+      <div class="bulk-busy" id="bulk-busy" style="display:none"></div>
+      <hr class="menu-div">
+      <button class="menu-item" id="btn-select-all-visible" title="Select all currently visible diagrams">Select All Visible <span class="mi-count" id="select-all-count">0</span></button>
+      <button class="menu-item" id="btn-clear-selected" title="Clear selection">Clear Selection</button>
     </div>
-    <span id="bulk-status" class="bulk-status" style="display:none"></span>
-    <button id="btn-select-all-visible" title="Select all currently visible diagrams (matching current filters)">Select All (<span id="select-all-count">0</span>)</button>
-    <button id="btn-clear-selected" title="Clear selection">Clear</button>
+  </div>
+  <span id="bulk-status" class="bulk-status" style="display:none"></span>
+
+  <!-- ── Links menu ──────────────────────────────────────────────────── -->
+  <div class="menu" id="links-menu">
+    <button class="menu-btn" id="links-btn" title="Auxiliary pages">Links <span class="caret">▾</span></button>
+    <div class="menu-panel" id="links-panel">
+      <button class="menu-item" onclick="window.open('fix-history.html','_blank')" title="View fix queue history">Fix History</button>
+      <button class="menu-item" onclick="window.open('excluded.html','_blank')" title="View excluded diagrams">Excluded</button>
+      <button class="menu-item" onclick="window.open('rejected-review.html','_blank')" title="Review edits the auto-fix loop tried and reverted">Rejected Edits</button>
+      <button class="menu-item" onclick="window.open('stats.html','_blank')" title="Corpus-wide SSIM statistics over checkpoints">Stats</button>
+    </div>
   </div>
 
-  <button id="help-btn" title="Keyboard shortcuts">? Help</button>
-  <button id="btn-copy-queue" title="Copy queued diagram IDs to clipboard (backup)">Copy Queue (<span id="queue-count">0</span>)</button>
-  <button id="btn-hide-queued" title="Hide diagrams that are already in the fix queue">Hide Queued</button>
-  <button onclick="window.open('fix-history.html','_blank')" title="View fix queue history" style="background:#2d1b4a;border:1px solid #7c3aed;color:#c4b5fd;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Fix History</button>
-  <button onclick="window.open('excluded.html','_blank')" title="View excluded diagrams" style="background:#1f1a3a;border:1px solid #4f46e5;color:#a5b4fc;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Excluded</button>
-  <button onclick="window.open('rejected-review.html','_blank')" title="Review edits the auto-fix loop tried and reverted" style="background:#3a2a1a;border:1px solid #b45309;color:#fcd34d;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Rejected Edits</button>
-  <button onclick="window.open('stats.html','_blank')" title="Corpus-wide SSIM statistics and progress over checkpoints" style="background:#1a2e22;border:1px solid #059669;color:#6ee7b7;padding:3px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit">Stats</button>
+  <button id="help-btn" class="menu-btn" title="Keyboard shortcuts">? Help</button>
 
   <div class="stats" id="stats"></div>
 </div>
@@ -287,6 +342,7 @@
     <button id="btn-copy" class="action-btn" title="Copy code to clipboard">Copy</button>
     <button id="btn-texer" class="action-btn" title="Open in AoPS TeXeR">Open in TeXeR</button>
     <button id="btn-hitexer" class="action-btn" title="Open in HiTeXeR">Open in HiTeXeR</button>
+    <a id="btn-aops" class="action-btn" target="_blank" rel="noopener" title="Open this diagram's lesson/script on Art of Problem Solving">Open on AoPS ↗</a>
     <button id="blink-code-toggle" title="Toggle code panel (C)">Hide Code</button>
     <div class="blink-header-break"></div>
     <button id="btn-rerender" class="action-btn" title="Re-render HiTeXeR and recompute SSIM for this diagram (H)" style="background:#1e3a5f;border-color:#60a5fa;color:#bfdbfe">Re-render</button>
@@ -315,10 +371,13 @@
     <div class="code-panel" id="code-panel">
       <div class="code-panel-header">
         <span>Source Code</span>
+        <span class="edited-tag" title="You've edited this code — the HiTeXeR side is now rendered from your edit, not the original. Edits are not saved.">edited</span>
         <div class="spacer"></div>
-        <button id="btn-copy-code">Copy</button>
+        <button id="btn-revert-code" title="Discard edits and restore the original source">Revert</button>
+        <button id="btn-copy-code" title="Copy code to clipboard">Copy</button>
+        <button id="btn-hide-code-panel" title="Hide the code panel (C)">Hide</button>
       </div>
-      <div class="code-content" id="code-content"><span class="loading">Select a diagram to view source...</span></div>
+      <div class="code-content editable" id="code-content" contenteditable="true" spellcheck="false"><span class="loading">Select a diagram to view source...</span></div>
     </div>
   </div>
 </div>
@@ -385,6 +444,13 @@
   let codePanelOpen = true;
   let codeCache = {};  // id -> source code
 
+  // Live code-editor experiment state. When the user edits the code box, the
+  // HiTeXeR side re-renders from `editedCode` (TeXeR is left alone). Not saved;
+  // cleared on navigation. `editedId` guards so only the edited diagram uses it.
+  let editedId = null;
+  let editedCode = null;
+  let _editTimer = null;
+
   // Side-by-side comparison mode (Feature 4)
   //   sideMode=true  → show both panels; sideSwapped flips which side is which
   //   sideMode=false → legacy single-image blinking (uses blinkSource)
@@ -414,6 +480,25 @@
     .then(ids => { randomSet = new Set((ids || []).map(String)); })
     .catch(() => {});
 
+  // id -> AoPS crypt URL (document/<coll>/<docId> for scripts, collection/<coll>/
+  // homework/<n> for homework). Built from Redshift by build-aops-links.js. When
+  // a diagram has no entry the "Open on AoPS" link is hidden.
+  let aopsLinks = {};
+  fetch('aops-links.json')
+    .then(r => r.ok ? r.json() : {})
+    .then(d => { aopsLinks = d || {}; if (blinkActive) updateAopsLink(filtered[blinkIdx]); })
+    .catch(() => {});
+
+  function updateAopsLink(d) {
+    const a = document.getElementById('btn-aops');
+    if (!a) return;
+    const url = d && aopsLinks[d.id];
+    // Explicit 'inline-block' (not '') — the base rule is display:none, so ''
+    // would fall back to hidden.
+    if (url) { a.href = url; a.style.display = 'inline-block'; }
+    else { a.removeAttribute('href'); a.style.display = 'none'; }
+  }
+
   // ── Live HiTeXeR rendering ───────────────────────────
   // The HiTeXeR side is rendered in-browser from the .asy source via the SAME
   // AsyInterp.render default options as index.html (no labelOutput), so the
@@ -424,6 +509,86 @@
   const liveSvgCache = new Map();
   let _graphicCache = {};
   let thumbObserver = null;  // lazily renders HiTeXeR thumbnails on scroll-in
+
+  // ── HiTeXeR render-worker pool ───────────────────────
+  // Offloads the (potentially heavy) AsyInterp.render off the main thread so the
+  // grid's bulk thumbnail rendering and the side-view render don't freeze menus
+  // or navigation. render(code, imageCache) resolves to:
+  //   • an SVG string  — a worker rendered it
+  //   • null           — a worker tried and produced nothing (don't retry)
+  //   • undefined      — pool not ready/dead → caller renders inline (main thread)
+  // During warm-up (importScripts of the interpreter) renders fall back to the
+  // main thread so first paint never stalls; once workers are ready they take
+  // over. If a worker errors or fails its self-test, the pool dies permanently
+  // and everything reverts to inline rendering — identical to the old behavior.
+  const renderPool = (function() {
+    const POOL_SIZE = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+    let workers = [];          // { worker, busy, ready }
+    let state = 'idle';        // idle | starting | ready | dead
+    let nextReqId = 1;
+    const pending = new Map(); // reqId -> resolve
+    const queue = [];          // { code, imageCache, reqId, resolve }
+
+    function markDead() {
+      state = 'dead';
+      for (const r of workers) { try { r.worker.terminate(); } catch (e) {} }
+      workers = [];
+      for (const [, resolve] of pending) resolve(undefined);
+      pending.clear();
+      for (const j of queue) j.resolve(undefined);
+      queue.length = 0;
+    }
+    function pump() {
+      if (state !== 'ready') return;
+      for (const rec of workers) {
+        if (rec.busy || !rec.ready) continue;
+        const job = queue.shift();
+        if (!job) break;
+        rec.busy = true;
+        pending.set(job.reqId, job.resolve);
+        rec.worker.postMessage({ type: 'render', reqId: job.reqId, code: job.code, imageCache: job.imageCache });
+      }
+    }
+    function onMsg(rec, msg) {
+      if (!msg) return;
+      if (msg.type === 'ready') {
+        rec.ready = true;
+        if (state !== 'dead' && workers.length && workers.every(r => r.ready)) state = 'ready';
+        pump();
+      } else if (msg.type === 'init-failed') {
+        console.warn('[render-pool] worker init failed, using main thread:', msg.error || '');
+        markDead();
+      } else if (msg.type === 'result') {
+        rec.busy = false;
+        const resolve = pending.get(msg.reqId);
+        if (resolve) { pending.delete(msg.reqId); resolve(msg.svg != null ? msg.svg : null); }
+        pump();
+      }
+    }
+    function spawn() {
+      state = 'starting';
+      try {
+        for (let i = 0; i < POOL_SIZE; i++) {
+          const w = new Worker('htx-worker.js');
+          const rec = { worker: w, busy: false, ready: false };
+          w.onmessage = (e) => onMsg(rec, e.data);
+          w.onerror = (e) => { console.warn('[render-pool] worker error, using main thread', e.message || ''); markDead(); };
+          workers.push(rec);
+          w.postMessage({ type: 'init' });
+        }
+        // Safety net: if no worker is ready within 12s, give up on the pool.
+        setTimeout(() => { if (state === 'starting') { console.warn('[render-pool] warm-up timed out, using main thread'); markDead(); } }, 12000);
+      } catch (e) { markDead(); }
+    }
+
+    return {
+      render(code, imageCache) {
+        if (state === 'idle') spawn();
+        if (state !== 'ready') return Promise.resolve(undefined);  // warming or dead → main thread
+        return new Promise(resolve => { queue.push({ code, imageCache, reqId: nextReqId++, resolve }); pump(); });
+      },
+    };
+  })();
 
   // Load KaTeX SVG glyph table. Without it, katexSvg.ready() is false and all
   // live renders fall back to SVG-text, which renders Greek Unicode (π, θ, etc.)
@@ -468,25 +633,40 @@
     return _graphicCache;
   }
 
+  // Render an arbitrary .asy SOURCE STRING to an SVG (no id cache) — used by the
+  // live code editor and as the inner step of liveHtxSvg. Routes through the
+  // render-worker pool when available (off the main thread), else renders inline.
+  async function renderCodeToSvg(code) {
+    if (!code || !(window.AsyInterp && AsyInterp.canInterpret(code))) return null;
+    try {
+      const imageCache = await prefetchGraphicImages(code);
+      const viaWorker = await renderPool.render(code, imageCache);
+      if (viaWorker !== undefined) return viaWorker;            // worker handled it (svg or null)
+      const result = AsyInterp.render(code, { containerW: 800, containerH: 600, imageCache });
+      return (result && result.svg) || null;
+    } catch (e) { return null; }
+  }
+
   async function liveHtxSvg(id) {
     if (liveSvgCache.has(id)) return liveSvgCache.get(id);
     let svg = null;
-    try {
-      const code = await fetchSourceCode(id);
-      if (code && window.AsyInterp && AsyInterp.canInterpret(code)) {
-        const imageCache = await prefetchGraphicImages(code);
-        const result = AsyInterp.render(code, { containerW: 800, containerH: 600, imageCache });
-        svg = (result && result.svg) || null;
-      }
-    } catch (e) { svg = null; }
+    try { svg = await renderCodeToSvg(await fetchSourceCode(id)); } catch (e) { svg = null; }
     liveSvgCache.set(id, svg);
     return svg;
+  }
+
+  // Resolve the HiTeXeR SVG for a given id, honoring the live-edit override: when
+  // the user is editing this diagram's code, render from the edited source
+  // (bypassing the id cache) so the HiTeXeR side reflects the experiment.
+  function liveHtxSvgFor(id) {
+    if (id === editedId && editedCode != null) return renderCodeToSvg(editedCode);
+    return liveHtxSvg(id);
   }
 
   // Inject a live-rendered SVG string into a container, sized to fit its box.
   // Returns true on success; false if the live render was unavailable.
   async function injectLiveHtx(container, id) {
-    const svg = await liveHtxSvg(id);
+    const svg = await liveHtxSvgFor(id);
     if (!svg) return false;
     container.innerHTML = svg;
     const svgEl = container.querySelector('svg');
@@ -512,30 +692,86 @@
       document.getElementById('grid').innerHTML = `<p style="color:#f87171;padding:20px">Failed to load blink-manifest.json: ${err.message}</p>`;
     });
 
-  // ── Collections multi-checkbox dropdown ──────────────
-  function initCollections() {
-    const list = document.getElementById('coll-list');
-    for (const c of manifest.collections) {
-      const name = (manifest.courseNames && manifest.courseNames[c]) || c;
-      // "eps" is a virtual cross-cutting collection keyed off the hasEps flag.
-      const count = c === 'eps'
-        ? manifest.diagrams.filter(d => d.hasEps).length
-        : manifest.diagrams.filter(d => d.collection === c).length;
-      const label = document.createElement('label');
-      label.className = 'coll-item';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = c;
-      // Off by default: the Asymptote gallery AND the ext:* external-source
-      // collections (manual/tutorials) — all stress-test sets the user opts into
-      // with a click, kept out of the default AoPS-corpus view.
-      cb.checked = !c.startsWith('gallery') && !c.startsWith('ext:');
-      cb.className = 'coll-cb';
-      cb.addEventListener('change', () => { syncCheckAll(); applyFilters(); });
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(` ${name} (${count})`));
-      list.appendChild(label);
+  // ── Collections category tree ────────────────────────
+  // Grouped per manifest.categories (Physics/CS/Chemistry/Math/ext/Gallery),
+  // with eps+unknown standalone and the norender special bucket pinned last.
+  // Each leaf shows the REAL AoPS collection number (parsed from the cN key) so
+  // it can't be confused with the file count.
+  let _collCounts = null;
+  function computeCollCounts() {
+    const counts = Object.create(null);
+    let eps = 0, norender = 0;
+    for (const d of manifest.diagrams) {
+      if (droppedSet.has(d.id)) continue;
+      counts[d.collection] = (counts[d.collection] || 0) + 1;
+      if (d.hasEps) eps++;
+      if (!d.hasHtx) norender++;
     }
+    counts.eps = eps; counts.norender = norender;
+    return counts;
+  }
+  function collNumber(c) { const m = /^c(\d+)$/.exec(c); return m ? m[1] : null; }
+  function collName(c) { return (manifest.courseNames && manifest.courseNames[c]) || c; }
+  // Default-on rule UNCHANGED from before, plus the new norender bucket defaults OFF
+  // (it doubles diagrams already shown in their home collection).
+  function collDefaultChecked(c) { return c !== 'norender' && !c.startsWith('gallery') && !c.startsWith('ext:'); }
+
+  function makeCollItem(c) {
+    const item = document.createElement('label');
+    item.className = 'coll-item' + (c === 'norender' ? ' special' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = c; cb.className = 'coll-cb';
+    cb.checked = collDefaultChecked(c);
+    cb.addEventListener('change', () => { updateCollUI(); applyFilters(); });
+    item.appendChild(cb);
+    const num = collNumber(c);
+    if (num) { const s = document.createElement('span'); s.className = 'ci-num'; s.textContent = num; item.appendChild(s); }
+    const nm = document.createElement('span'); nm.className = 'ci-name'; nm.textContent = collName(c); item.appendChild(nm);
+    const ct = document.createElement('span'); ct.className = 'ci-count'; ct.textContent = _collCounts[c] || 0; item.appendChild(ct);
+    return item;
+  }
+
+  function initCollections() {
+    _collCounts = computeCollCounts();
+    const tree = document.getElementById('coll-tree');
+    tree.innerHTML = '';
+
+    const master = document.createElement('label');
+    master.className = 'coll-master';
+    master.innerHTML = '<input type="checkbox" id="coll-check-all" checked> <span>Check / Uncheck All</span>';
+    tree.appendChild(master);
+
+    for (const cat of (manifest.categories || [])) {
+      if (!cat.cols.length) continue;
+      const wrap = document.createElement('div'); wrap.className = 'coll-cat'; wrap.dataset.cat = cat.name;
+      const head = document.createElement('div'); head.className = 'coll-cat-head';
+      const twist = document.createElement('span'); twist.className = 'coll-cat-twist'; twist.textContent = '▾';
+      const catCb = document.createElement('input'); catCb.type = 'checkbox'; catCb.className = 'coll-cat-cb';
+      const nm = document.createElement('span'); nm.className = 'coll-cat-name'; nm.textContent = cat.name;
+      const meta = document.createElement('span'); meta.className = 'coll-cat-meta'; meta.textContent = cat.cols.length + (cat.cols.length === 1 ? ' course' : ' courses');
+      head.append(twist, catCb, nm, meta);
+      const members = document.createElement('div'); members.className = 'coll-cat-members';
+      for (const c of cat.cols) members.appendChild(makeCollItem(c));
+      head.addEventListener('click', (e) => { if (e.target === catCb) return; wrap.classList.toggle('collapsed'); });
+      catCb.addEventListener('click', (e) => e.stopPropagation());
+      catCb.addEventListener('change', () => {
+        members.querySelectorAll('.coll-cb').forEach(cb => { cb.checked = catCb.checked; });
+        updateCollUI(); applyFilters();
+      });
+      wrap.append(head, members);
+      tree.appendChild(wrap);
+    }
+
+    const standalone = manifest.standaloneCols || [];
+    const special = manifest.specialCols || [];
+    if (standalone.length) { const hr = document.createElement('hr'); hr.className = 'menu-div'; tree.appendChild(hr); for (const c of standalone) tree.appendChild(makeCollItem(c)); }
+    if (special.length) { const hr = document.createElement('hr'); hr.className = 'menu-div'; tree.appendChild(hr); for (const c of special) tree.appendChild(makeCollItem(c)); }
+
+    document.getElementById('coll-check-all').addEventListener('change', function() {
+      document.querySelectorAll('.coll-cb').forEach(cb => { cb.checked = this.checked; });
+      this.indeterminate = false; updateCollUI(); applyFilters();
+    });
+    updateCollUI();
   }
 
   function restoreUrlState() {
@@ -562,23 +798,27 @@
     return [...document.querySelectorAll('.coll-cb:checked')].map(cb => cb.value);
   }
 
-  function syncCheckAll() {
+  // Refresh master + per-category tri-state checkboxes and the Visible button label.
+  function updateCollUI() {
     const all = document.querySelectorAll('.coll-cb');
-    const checked = document.querySelectorAll('.coll-cb:checked');
-    const ctrl = document.getElementById('coll-check-all');
-    ctrl.indeterminate = checked.length > 0 && checked.length < all.length;
-    ctrl.checked = checked.length === all.length;
-    updateCollBtn();
-  }
-
-  function updateCollBtn() {
-    const all = document.querySelectorAll('.coll-cb');
-    const checked = document.querySelectorAll('.coll-cb:checked');
-    const btn = document.getElementById('coll-btn');
-    if (!all.length) return;
-    btn.textContent = checked.length === all.length
-      ? 'All collections'
-      : `${checked.length} / ${all.length} collections`;
+    const checkedCount = document.querySelectorAll('.coll-cb:checked').length;
+    const master = document.getElementById('coll-check-all');
+    if (master) {
+      master.indeterminate = checkedCount > 0 && checkedCount < all.length;
+      master.checked = checkedCount === all.length;
+    }
+    document.querySelectorAll('.coll-cat').forEach(wrap => {
+      const cbs = wrap.querySelectorAll('.coll-cb');
+      const chk = wrap.querySelectorAll('.coll-cb:checked').length;
+      const catCb = wrap.querySelector('.coll-cat-cb');
+      if (catCb) { catCb.checked = chk === cbs.length && cbs.length > 0; catCb.indeterminate = chk > 0 && chk < cbs.length; }
+    });
+    const btn = document.getElementById('visible-btn');
+    if (btn && all.length) {
+      btn.innerHTML = (checkedCount === all.length)
+        ? 'Visible <span class="caret">▾</span>'
+        : `Visible · ${checkedCount}/${all.length} <span class="caret">▾</span>`;
+    }
   }
 
   // ── Filtering & sorting ──────────────────────────────
@@ -596,8 +836,9 @@
 
     if (!allChecked) {
       const collSet = new Set(checkedColls);
-      const epsWanted = collSet.has('eps');  // virtual collection — match hasEps
-      list = list.filter(d => collSet.has(d.collection) || (epsWanted && d.hasEps));
+      const epsWanted = collSet.has('eps');            // virtual — match hasEps
+      const norenderWanted = collSet.has('norender');  // virtual — match !hasHtx (blank on HTX side)
+      list = list.filter(d => collSet.has(d.collection) || (epsWanted && d.hasEps) || (norenderWanted && !d.hasHtx));
     }
     if (bothOnly) list = list.filter(d => d.hasTexer && d.hasHtx);
     if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasTexer);
@@ -781,7 +1022,7 @@
   }
 
   function setBulkDisabled(disabled) {
-    document.querySelectorAll('#bulk-panel button[data-action]').forEach(b => { b.disabled = disabled; });
+    document.querySelectorAll('#actions-panel button[data-action]').forEach(b => { b.disabled = disabled; });
   }
 
   // Patch in-memory diagram objects from a /refetch-batch or /rerender-batch
@@ -890,7 +1131,7 @@
 
   function handleBulkAction(action) {
     const ids = selectedIdsOrdered();
-    document.getElementById('bulk-panel').classList.remove('open');
+    closeAllMenus();
     if (!ids.length) return;
 
     // ---- instant ops: run right away, in parallel, never blocked ----
@@ -1008,6 +1249,7 @@
     blinkSource = 'htx';
     sideSwapped = false;
     blinkActive = true;
+    resetCodeEdit();
     const d = filtered[idx];
     if (d) pushUrl({ id: d.id });
     codePanelOpen = true;
@@ -1021,11 +1263,13 @@
     document.body.style.overflow = 'hidden';
     updateBlinkImage();
     loadCode();
+    updateAopsLink(d);
   }
 
   function exitBlink() {
     blinkActive = false;
     stopAutoBlink();
+    resetCodeEdit();
     document.getElementById('blink-view').classList.remove('active');
     document.body.style.overflow = '';
     pushUrl(page > 0 ? { p: page + 1 } : {});
@@ -1061,10 +1305,13 @@
     let ts = '';
     if (cacheBust) ts = '?t=' + Date.now();
     else if (kind === 'texer' && d._texerCacheBustTs) ts = '?t=' + d._texerCacheBustTs;
-    if (kind === 'htx' && d.hasHtx) {
+    // While experimenting in the code box, render the edited source even for a
+    // diagram that didn't originally render (so the "No HiTeXeR" set is editable).
+    const editingThis = (kind === 'htx' && d.id === editedId && editedCode != null);
+    if (kind === 'htx' && (d.hasHtx || editingThis)) {
       // Rendered live in-browser from .asy (same path as the live tool); falls
       // back to the precomputed PNG if interpretation isn't possible.
-      return { live: true, id: d.id, pngSrc: `htx_pngs/${d.id}.png${ts}`, label: 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
+      return { live: true, id: d.id, pngSrc: `htx_pngs/${d.id}.png${ts}`, label: editingThis ? 'HiTeXeR (edited)' : 'HiTeXeR', cls: 'htx', scale: 1, kind: 'htx' };
     }
     if (kind === 'texer' && d.hasTexer) {
       return { src: `texer_pngs/${d.id}.png${ts}`, label: 'TeXeR', cls: 'texer', scale: TEXER_DISPLAY_SCALE, kind: 'texer' };
@@ -1317,10 +1564,12 @@
       blinkIdx = newIdx;
       blinkSource = 'htx';
       sideSwapped = false;
+      resetCodeEdit();
       const d = filtered[blinkIdx];
       if (d) pushUrl({ id: d.id });
       updateBlinkImage();
       loadCode(); // always populate cache so "Open in HiTeXeR" works regardless of panel state
+      updateAopsLink(d);
     }
   }
 
@@ -1358,12 +1607,15 @@
     }
   }
 
-  function loadCode() {
+  function loadCode(force) {
     const d = filtered[blinkIdx];
     if (!d) return;
     const el = document.getElementById('code-content');
 
-    if (codeCache[d.id]) {
+    // Preserve an in-progress edit of THIS diagram across panel show/hide.
+    if (!force && editedId === d.id && editedCode != null) { el.textContent = editedCode; return; }
+
+    if (codeCache[d.id] != null) {
       el.textContent = codeCache[d.id];
       return;
     }
@@ -1388,7 +1640,51 @@
 
   function getCurrentCode() {
     const d = filtered[blinkIdx];
-    return d ? (codeCache[d.id] || '') : '';
+    if (!d) return '';
+    if (editedId === d.id && editedCode != null) return editedCode;
+    return codeCache[d.id] || '';
+  }
+
+  // ── Live code editing (experiment only — never persisted) ─────────────
+  function setCodeEditedUI(on) {
+    document.getElementById('code-panel').classList.toggle('edited', on);
+    document.getElementById('code-content').classList.toggle('edited', on);
+  }
+  function resetCodeEdit() {
+    editedId = null; editedCode = null;
+    clearTimeout(_editTimer);
+    setCodeEditedUI(false);
+  }
+  // Re-render ONLY the HiTeXeR side from the current (edited or original) source,
+  // leaving the TeXeR reference untouched. Used while typing in the code box.
+  function rerenderHtxLive() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    if (sideMode) {
+      const htxContainer = document.getElementById(sideSwapped ? 'blink-left-content' : 'blink-right-content');
+      const htxLabel = document.getElementById(sideSwapped ? 'blink-left-label' : 'blink-right-label');
+      renderInto(htxContainer, sourceDescriptor(d, 'htx'), htxLabel);
+    } else if (blinkSource === 'htx') {
+      updateBlinkImage();
+    }
+  }
+  function onCodeInput() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    const text = document.getElementById('code-content').innerText;
+    const orig = codeCache[d.id] != null ? codeCache[d.id] : '';
+    if (text === orig) { resetCodeEdit(); clearTimeout(_editTimer); _editTimer = setTimeout(rerenderHtxLive, 60); return; }
+    editedId = d.id; editedCode = text;
+    setCodeEditedUI(true);
+    clearTimeout(_editTimer);
+    _editTimer = setTimeout(rerenderHtxLive, 350);  // debounce re-render while typing
+  }
+  function revertCode() {
+    const d = filtered[blinkIdx];
+    if (!d) return;
+    resetCodeEdit();
+    loadCode(true);
+    rerenderHtxLive();
   }
 
   function copyCode() {
@@ -1670,21 +1966,32 @@
   }
 
   // ── Event listeners ──────────────────────────────────
-  document.getElementById('coll-check-all').addEventListener('change', function() {
-    document.querySelectorAll('.coll-cb').forEach(cb => { cb.checked = this.checked; });
-    this.indeterminate = false;
-    updateCollBtn();
-    applyFilters();
-  });
-  document.getElementById('coll-btn').addEventListener('click', function(e) {
-    e.stopPropagation();
-    document.getElementById('coll-panel').classList.toggle('open');
-  });
-  document.addEventListener('click', function(e) {
-    if (!document.getElementById('coll-dropdown').contains(e.target)) {
-      document.getElementById('coll-panel').classList.remove('open');
+  // Generic header menubar (Visible / Actions / Links): a button toggles its
+  // panel; opening one closes the others; a click anywhere outside .menu closes
+  // them all. Clicks INSIDE a panel (collection tree, filter checkboxes) keep it
+  // open so the user can multi-select without it collapsing.
+  const MENUS = ['visible', 'actions', 'links'];
+  function closeAllMenus(except) {
+    for (const m of MENUS) {
+      if (m === except) continue;
+      const p = document.getElementById(m + '-panel'); const b = document.getElementById(m + '-btn');
+      if (p) p.classList.remove('open'); if (b) b.classList.remove('open');
     }
+  }
+  MENUS.forEach(m => {
+    const btn = document.getElementById(m + '-btn');
+    const panel = document.getElementById(m + '-panel');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = !panel.classList.contains('open');
+      closeAllMenus(m);
+      panel.classList.toggle('open', willOpen);
+      btn.classList.toggle('open', willOpen);
+    });
   });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.menu')) closeAllMenus(); });
+
   document.getElementById('sort-mode').addEventListener('change', applyFilters);
   document.getElementById('filter-both').addEventListener('change', applyFilters);
   document.getElementById('filter-htx-only').addEventListener('change', applyFilters);
@@ -1705,6 +2012,9 @@
   document.getElementById('blink-back').addEventListener('click', exitBlink);
   document.getElementById('blink-auto').addEventListener('click', toggleAutoBlink);
   document.getElementById('blink-code-toggle').addEventListener('click', toggleCodePanel);
+  document.getElementById('btn-hide-code-panel').addEventListener('click', toggleCodePanel);
+  document.getElementById('btn-revert-code').addEventListener('click', revertCode);
+  document.getElementById('code-content').addEventListener('input', onCodeInput);
   document.getElementById('btn-copy-name').addEventListener('click', copyName);
   document.getElementById('btn-copy').addEventListener('click', copyCode);
   document.getElementById('btn-copy-code').addEventListener('click', copyCodePanel);
@@ -1719,17 +2029,9 @@
   document.getElementById('help-btn').addEventListener('click', () => {
     document.getElementById('hints-overlay').classList.toggle('active');
   });
-  document.getElementById('bulk-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    document.getElementById('bulk-panel').classList.toggle('open');
-  });
-  document.querySelectorAll('#bulk-panel button[data-action]').forEach(b => {
+  // Selected-set actions now live inside the Actions menu (#actions-panel).
+  document.querySelectorAll('#actions-panel button[data-action]').forEach(b => {
     b.addEventListener('click', (e) => { e.stopPropagation(); handleBulkAction(b.dataset.action); });
-  });
-  document.addEventListener('click', (e) => {
-    if (!document.getElementById('bulk-dropdown').contains(e.target)) {
-      document.getElementById('bulk-panel').classList.remove('open');
-    }
   });
   document.getElementById('btn-clear-selected').addEventListener('click', clearSelected);
   document.getElementById('btn-select-all-visible').addEventListener('click', selectAllVisible);
@@ -1758,6 +2060,12 @@
       // Don't steal keys when the blink jump-to-ID input is focused
       if (e.target === document.getElementById('blink-search')) {
         if (e.key === 'Escape') { e.preventDefault(); exitBlink(); }
+        return;
+      }
+      // Don't steal keys while editing the live code box — let the user type
+      // freely; Escape just blurs back to shortcut mode.
+      if (e.target && e.target.id === 'code-content') {
+        if (e.key === 'Escape') { e.preventDefault(); e.target.blur(); }
         return;
       }
       switch (e.key) {

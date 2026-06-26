@@ -48,8 +48,13 @@ const COURSE_NAMES = {
   c268: 'Introduction to Physics',
   c400: 'Physics Seminar: Relativity',
   c405: 'Physics 1: Mechanics',
+  c441: 'Relativity Camp',
+  c442: 'Physics 2',
   c539: 'Middle School Physics 1',
   c540: 'Middle School Physics 2',
+  // Expansion courses (re-scan 2026-06)
+  c227: 'Accelerated Counting & Probability',
+  c662: 'AMC 12 Problem Series',
   // Asymptote gallery
   gallery:           'Asymptote Gallery',
   gallery_2Dgraphs:  'Asymptote Gallery: 2Dgraphs',
@@ -59,9 +64,33 @@ const COURSE_NAMES = {
   gallery_animations: 'Asymptote Gallery: animations',
 };
 
-// Read corpus
-const allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort();
-console.log(`Corpus: ${allFiles.length} .asy files`);
+// ── Stable, append-only corpus numbering ──────────────────────────────────
+// Numeric ids (00001..) map to corpus files by their POSITION in the canonical
+// ordered list comparison/corpus-ids.json — NOT by re-sorting the directory on
+// every run. This is load-bearing: the expensive texer_pngs/asy_src/htx_pngs are
+// keyed by numeric id, so re-sorting (the old `readdirSync().sort()` scheme)
+// would renumber every id whenever a file is added and orphan all those PNGs.
+// New files are APPENDED at the end (new ids); existing ids never move; a file
+// removed from disk keeps its slot reserved (emits no diagram) so nothing shifts.
+const IDS_FILE = path.join(OUT_DIR, 'corpus-ids.json');
+const corpusOnDisk = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy'));
+const onDiskSet = new Set(corpusOnDisk);
+let corpusOrder = [];
+try { corpusOrder = JSON.parse(fs.readFileSync(IDS_FILE, 'utf-8')); } catch {}
+if (!corpusOrder.length) {
+  // Bootstrap from sorted order (reproduces the legacy positional ids exactly).
+  corpusOrder = [...corpusOnDisk].sort();
+  fs.writeFileSync(IDS_FILE, JSON.stringify(corpusOrder, null, 0));
+}
+const knownFiles = new Set(corpusOrder);
+const newFiles = corpusOnDisk.filter(f => !knownFiles.has(f)).sort();
+if (newFiles.length) {
+  const firstNew = corpusOrder.length;
+  corpusOrder = corpusOrder.concat(newFiles);
+  fs.writeFileSync(IDS_FILE, JSON.stringify(corpusOrder, null, 0));
+  console.log(`Appended ${newFiles.length} new corpus file(s) -> ids ${numId(firstNew)}..${numId(corpusOrder.length - 1)}`);
+}
+console.log(`Corpus: ${corpusOnDisk.length} .asy files on disk, ${corpusOrder.length} numbered slots`);
 
 // Read excluded (dropped) diagram IDs
 const DROPLIST_FILE = path.join(ROOT, 'auto-fix', 'droplist.json');
@@ -106,8 +135,9 @@ const collectionsSet = new Set();
 const diagrams = [];
 
 let epsCount = 0;
-for (let i = 0; i < allFiles.length; i++) {
-  const source = allFiles[i];
+for (let i = 0; i < corpusOrder.length; i++) {
+  const source = corpusOrder[i];
+  if (!onDiskSet.has(source)) continue;  // retired slot — keep id reserved, emit nothing
   const id = numId(i);
   const ssimEntry = ssimLookup[id];
   const collection = getCollection(source);
@@ -142,11 +172,13 @@ for (let i = 0; i < allFiles.length; i++) {
 // ids of asy_corpus — adding/removing them can never renumber the main corpus
 // or invalidate its texer_pngs. Collection = "ext:<source>" from the filename.
 const EXT_DIR = path.join(ROOT, 'asy_corpus_ext');
+// Display names with NO "ext:" prefix — these collections live under the "ext"
+// category in the comparator tree, so the category header already conveys it.
 const EXT_NAMES = {
-  manual:   'ext: Asymptote manual',
-  tutorial: 'ext: Asymptote Tutorial (official)',
-  staats:   'ext: Staats — An Asymptote Tutorial',
-  asytug:   'ext: Bowman — Asymptote (TUGboat)',
+  manual:   'Asymptote manual',
+  tutorial: 'Asymptote Tutorial (official)',
+  staats:   'Staats — An Asymptote Tutorial',
+  asytug:   'Bowman — Asymptote (TUGboat)',
 };
 if (fs.existsSync(EXT_DIR)) {
   const extFiles = fs.readdirSync(EXT_DIR).filter(f => f.endsWith('.asy')).sort();
@@ -188,6 +220,13 @@ const collections = [...collectionsSet].sort((a, b) => {
 // `hasEps` flag rather than `collection === 'eps'`.
 if (epsCount > 0) collections.push('eps');
 
+// Virtual "norender" collection: every diagram that produces NO HiTeXeR output
+// (no htx_png ⇒ blank on the HiTeXeR side of the comparator). One-off special
+// bucket the user opts into; members stay in their home collection too. Filtered
+// in blink.html via `!d.hasHtx`, like eps. Appended dead last.
+const norenderCount = diagrams.filter(d => !d.hasHtx).length;
+if (norenderCount > 0) collections.push('norender');
+
 // Build courseNames for collections that have names
 const courseNames = {};
 for (const c of collections) {
@@ -195,8 +234,32 @@ for (const c of collections) {
   else if (c.startsWith('ext:')) courseNames[c] = EXT_NAMES[c.slice(4)] || c;
 }
 if (epsCount > 0) courseNames['eps'] = 'EPS images';
+if (norenderCount > 0) courseNames['norender'] = 'No HiTeXeR';
 
-const manifest = { diagrams, collections, courseNames, droppedIds: [...droppedSet] };
+// ── Category grouping for the comparator's collection tree ─────────────────
+// Physics / CS / Chemistry are explicit course sets; every other cN collection
+// is Math; ext:* and gallery* group by prefix. eps + unknown stand alone
+// (miscellaneous); norender is the special one-off bucket pinned at the bottom.
+const PHYSICS_COLLS = new Set(['c175','c190','c191','c268','c400','c405','c441','c442','c539','c540']);
+const CS_COLLS      = new Set(['c510','c583','c647']);
+const CHEM_COLLS    = new Set(['c71']);
+function categoryOf(c) {
+  if (c.startsWith('ext:'))     return 'ext';
+  if (c.startsWith('gallery'))  return 'Gallery';
+  if (PHYSICS_COLLS.has(c))     return 'Physics';
+  if (CS_COLLS.has(c))          return 'CS';
+  if (CHEM_COLLS.has(c))        return 'Chemistry';
+  if (/^c\d+$/.test(c))         return 'Math';
+  return null;  // eps / unknown / norender — handled standalone
+}
+const CATEGORY_ORDER = ['Physics', 'CS', 'Chemistry', 'Math', 'ext', 'Gallery'];
+const categories = CATEGORY_ORDER
+  .map(name => ({ name, cols: collections.filter(c => categoryOf(c) === name) }))
+  .filter(g => g.cols.length);
+const standaloneCols = collections.filter(c => c === 'eps' || c === 'unknown');
+const specialCols    = collections.filter(c => c === 'norender');
+
+const manifest = { diagrams, collections, courseNames, categories, standaloneCols, specialCols, droppedIds: [...droppedSet] };
 fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2));
 console.log(`\nWrote ${MANIFEST}`);
 

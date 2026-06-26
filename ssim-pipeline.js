@@ -51,8 +51,17 @@ for (const d of [OUT_DIR, ASY_DIR, HTX_DIR, SVG_DIR, ASY_SRC_DIR, ASY_TMP, TEXER
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
-const allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort();
-if (isMainThread) console.log(`Corpus: ${allFiles.length} .asy files\n`);
+// Canonical STABLE numbering: id = position in comparison/corpus-ids.json (the
+// same source generate-manifest.js uses). NEVER derive ids from a re-sorted
+// directory listing — appending one corpus file would renumber every id and
+// orphan the expensive texer_pngs. New files are appended to corpus-ids.json by
+// generate-manifest.js; a slot whose file was deleted is kept (reserved) and
+// skipped on read.
+const IDS_FILE = path.join(OUT_DIR, 'corpus-ids.json');
+let allFiles;
+try { allFiles = JSON.parse(fs.readFileSync(IDS_FILE, 'utf8')); }
+catch { allFiles = fs.readdirSync(CORPUS_DIR).filter(f => f.endsWith('.asy')).sort(); }
+if (isMainThread) console.log(`Corpus: ${allFiles.length} numbered slots\n`);
 
 function numId(i) { return String(i + 1).padStart(5, '0'); }
 
@@ -365,11 +374,15 @@ async function main() {
   // ── Step 1: Save .asy sources + render with HiTeXeR ───────────
   if (STEPS.has('render-htx')) {
     console.log('Saving .asy source files...');
+    let _saved = 0;
     for (let i = 0; i < allFiles.length; i++) {
-      const src = cleanCodeTabs(fs.readFileSync(path.join(CORPUS_DIR, allFiles[i]), 'utf8'));
+      const cp = path.join(CORPUS_DIR, allFiles[i]);
+      if (!fs.existsSync(cp)) continue;   // reserved slot — file removed; id stays parked
+      const src = cleanCodeTabs(fs.readFileSync(cp, 'utf8'));
       fs.writeFileSync(path.join(ASY_SRC_DIR, numId(i) + '.asy'), src);
+      _saved++;
     }
-    console.log(`  Saved ${allFiles.length} .asy files`);
+    console.log(`  Saved ${_saved} .asy files`);
 
     console.log('Rendering with HiTeXeR JS interpreter...');
 
@@ -381,7 +394,8 @@ async function main() {
       'gallery_2Dgraphs_electromagnetic.asy',
     ]);
 
-    const htxItems = allFiles.map((f, i) => ({ f, id: numId(i) }));
+    const htxItems = allFiles.map((f, i) => ({ f, id: numId(i) }))
+      .filter(it => fs.existsSync(path.join(CORPUS_DIR, it.f)));   // skip reserved/removed slots
     console.log(`  Using ${CONCURRENCY} worker threads for rendering...`);
     const htxResults = await _spawnWorkers(CONCURRENCY, htxItems, 'render-htx',
       chunk => ({ files: chunk }));
