@@ -526,7 +526,10 @@
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.value = c;
-      cb.checked = !c.startsWith('gallery');
+      // Off by default: the Asymptote gallery AND the ext:* external-source
+      // collections (manual/tutorials) — all stress-test sets the user opts into
+      // with a click, kept out of the default AoPS-corpus view.
+      cb.checked = !c.startsWith('gallery') && !c.startsWith('ext:');
       cb.className = 'coll-cb';
       cb.addEventListener('change', () => { syncCheckAll(); applyFilters(); });
       label.appendChild(cb);

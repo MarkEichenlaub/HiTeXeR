@@ -136,7 +136,44 @@ for (let i = 0; i < allFiles.length; i++) {
   });
 }
 
-// Sort collections: cN numerically, then gallery_*, then anything else.
+// ── External-source collections (ext:*) ──────────────────────────────────
+// Append-only. These live in asy_corpus_ext/ with STRING ids (the filename
+// stem, e.g. ext_tutorial_intro), so they never perturb the positional numeric
+// ids of asy_corpus — adding/removing them can never renumber the main corpus
+// or invalidate its texer_pngs. Collection = "ext:<source>" from the filename.
+const EXT_DIR = path.join(ROOT, 'asy_corpus_ext');
+const EXT_NAMES = {
+  manual:   'ext: Asymptote manual',
+  tutorial: 'ext: Asymptote Tutorial (official)',
+  staats:   'ext: Staats — An Asymptote Tutorial',
+  asytug:   'ext: Bowman — Asymptote (TUGboat)',
+};
+if (fs.existsSync(EXT_DIR)) {
+  const extFiles = fs.readdirSync(EXT_DIR).filter(f => f.endsWith('.asy')).sort();
+  for (const source of extFiles) {
+    const id = source.replace(/\.asy$/, '');
+    const m = id.match(/^ext_([a-z0-9]+)_/);
+    const collection = m ? `ext:${m[1]}` : 'ext:other';
+    collectionsSet.add(collection);
+    let hasEps = false;
+    try { hasEps = /\.eps\b/i.test(fs.readFileSync(path.join(EXT_DIR, source), 'utf-8')); } catch {}
+    if (hasEps) epsCount++;
+    const ssimEntry = ssimLookup[id];
+    diagrams.push({
+      id, source, collection, hasEps,
+      hasAsy:  asySet.has(id),
+      hasHtx:  htxSet.has(id),
+      hasSvg:  svgSet.has(id),
+      hasTexer: texerSet.has(id),
+      ssim:     ssimEntry !== undefined ? ssimEntry.ssim     : null,
+      combined: ssimEntry !== undefined ? ssimEntry.combined : null,
+      sizeScore: ssimEntry !== undefined ? ssimEntry.sizeScore : null,
+    });
+  }
+  console.log(`Ext: ${extFiles.length} external-source diagram(s)`);
+}
+
+// Sort collections: cN numerically, then ext:* / gallery_* / other, then anything else.
 const collections = [...collectionsSet].sort((a, b) => {
   const aC = /^c\d+$/.test(a), bC = /^c\d+$/.test(b);
   if (aC && bC) return parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10);
@@ -155,6 +192,7 @@ if (epsCount > 0) collections.push('eps');
 const courseNames = {};
 for (const c of collections) {
   if (COURSE_NAMES[c]) courseNames[c] = COURSE_NAMES[c];
+  else if (c.startsWith('ext:')) courseNames[c] = EXT_NAMES[c.slice(4)] || c;
 }
 if (epsCount > 0) courseNames['eps'] = 'EPS images';
 
