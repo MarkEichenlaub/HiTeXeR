@@ -1,0 +1,257 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index ec139f72..a7e06119 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -29548,6 +29548,19 @@ function renderSVG(result, opts) {
+       const numLines = cleanLabelLines.length || 1;
+ 
+       const isSizeConstrained = !isAutoScaled && !hasUnitScale;
++      // A content label whose anchor sits OUTSIDE the crop box — e.g. 04561's
++      // caption "$f(t)=\frac{3t}{t-2}$" at (0, ymin-1), a full unit BELOW the
++      // box — is NOT reserved by the size() solver, which fits only the cropped
++      // geometry. Without expanding the viewBox for it the caption renders
++      // entirely below the canvas and is clipped (the figure comes out ~40px
++      // short, sizeScore ~0.90). This is distinct from axis TITLES (skipped at
++      // the crop guard below): those anchor ON the box edge and merely overhang
++      // into the thin arrow margin. Self-limiting — a label inside the box adds 0.
++      const _outsideCropBox = !!(axisLimits && axisLimits.crop &&
++        axisLimits.xmin !== null && axisLimits.xmax !== null &&
++        axisLimits.ymin !== null && axisLimits.ymax !== null && dc.pos &&
++        (dc.pos.y < axisLimits.ymin - 1e-6 || dc.pos.y > axisLimits.ymax + 1e-6 ||
++         dc.pos.x < axisLimits.xmin - 1e-6 || dc.pos.x > axisLimits.xmax + 1e-6));
+       // For size()-constrained single-line labels: skip entirely (solver handles it).
+       // Exception: tick labels, axis labels, dot labels, and rotated labels may
+       // extend beyond the solver-computed geometry, so we still need to pad the
+@@ -29589,7 +29602,7 @@ function renderSVG(result, opts) {
+       // re-expand the viewBox here either, or 04454's grid would re-shrink. Tick
+       // labels stay eligible (they sit inside the box; their pad is self-limiting).
+       if (axisLimits && axisLimits.crop && dc._isAxisLabel && !dc._isTickLabel) continue;
+-      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert && !_tallMathSkip) continue;
++      if (isSizeConstrained && numLines <= 1 && !dc._isTickLabel && !dc._isAxisLabel && !dc._fromDot && !dc.labelTransform && !extendsHoriz && !extendsVert && !_tallMathSkip && !_outsideCropBox) continue;
+       // Italic math labels (in KaTeX_Math) render wider than plain text; use a
+       // larger char-width factor so viewBox pad covers the actual glyph extent.
+       const hasMath = typeof dc.text === 'string' && /\$|\\/.test(dc.text);
+diff --git a/auto-fix/fix-snapshots/0e02c0d9-after.png b/auto-fix/fix-snapshots/0e02c0d9-after.png
+new file mode 100644
+index 00000000..060cef9c
+Binary files /dev/null and b/auto-fix/fix-snapshots/0e02c0d9-after.png differ
+diff --git a/auto-fix/fix-snapshots/40f341d6-after.png b/auto-fix/fix-snapshots/40f341d6-after.png
+new file mode 100644
+index 00000000..060cef9c
+Binary files /dev/null and b/auto-fix/fix-snapshots/40f341d6-after.png differ
+diff --git a/auto-fix/fix-snapshots/93db5d1a-after.png b/auto-fix/fix-snapshots/93db5d1a-after.png
+new file mode 100644
+index 00000000..060cef9c
+Binary files /dev/null and b/auto-fix/fix-snapshots/93db5d1a-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index c6888d6d..3fb16775 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -6182,11 +6182,11 @@
+     "id": "04530",
+     "idx": 4529,
+     "corpusFile": "c321_L12_script_13.asy",
+-    "ssim": 0.9053242895301441,
++    "ssim": 0.9929250209329368,
+     "rawSsim": 0.4396253399855015,
+     "softSsim": 0.9053242895301441,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8025689096051732,
++    "sizeScore": 1,
++    "combined": 0.9929250209329368,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6322,11 +6322,11 @@
+     "id": "04529",
+     "idx": 4528,
+     "corpusFile": "c321_L12_script_12.asy",
+-    "ssim": 0.9113227094472556,
++    "ssim": 0.9923300534523429,
+     "rawSsim": 0.27926169138918083,
+     "softSsim": 0.9113227094472556,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8078865017518819,
++    "sizeScore": 1,
++    "combined": 0.9923300534523429,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6362,11 +6362,11 @@
+     "id": "04525",
+     "idx": 4524,
+     "corpusFile": "c321_L12_script_0.asy",
+-    "ssim": 0.9133035673053582,
++    "ssim": 0.9929352573380004,
+     "rawSsim": 0.44234444600641026,
+     "softSsim": 0.9133035673053582,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8096425298952176,
++    "sizeScore": 1,
++    "combined": 0.9929352573380004,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6582,11 +6582,11 @@
+     "id": "04527",
+     "idx": 4526,
+     "corpusFile": "c321_L12_script_10.asy",
+-    "ssim": 0.925300479386479,
++    "ssim": 0.99230856533747,
+     "rawSsim": 0.29615148761060806,
+     "softSsim": 0.925300479386479,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8202777782354241,
++    "sizeScore": 1,
++    "combined": 0.99230856533747,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6602,11 +6602,11 @@
+     "id": "04564",
+     "idx": 4563,
+     "corpusFile": "c321_L12_script_7.asy",
+-    "ssim": 0.9253159894090751,
++    "ssim": 0.9927117574634736,
+     "rawSsim": 0.3002768236854473,
+     "softSsim": 0.9253159894090751,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8202915278520719,
++    "sizeScore": 1,
++    "combined": 0.9927117574634736,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6622,11 +6622,11 @@
+     "id": "04561",
+     "idx": 4560,
+     "corpusFile": "c321_L12_script_41.asy",
+-    "ssim": 0.9065135953433552,
++    "ssim": 0.9920656449945133,
+     "rawSsim": 0.2975692583863851,
+     "softSsim": 0.9065135953433552,
+-    "sizeScore": 0.9056485523885922,
+-    "combined": 0.8209827253432876,
++    "sizeScore": 1,
++    "combined": 0.9920656449945133,
+     "wRatio": 1.0038167938931297,
+     "hRatio": 0.9332191780821918,
+     "refDims": [
+@@ -6662,11 +6662,11 @@
+     "id": "04559",
+     "idx": 4558,
+     "corpusFile": "c321_L12_script_4.asy",
+-    "ssim": 0.9268646658283705,
++    "ssim": 0.9929075987316967,
+     "rawSsim": 0.29680355685889687,
+     "softSsim": 0.9268646658283705,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8216644276621612,
++    "sizeScore": 1,
++    "combined": 0.9929075987316967,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6802,11 +6802,11 @@
+     "id": "04548",
+     "idx": 4547,
+     "corpusFile": "c321_L12_script_3.asy",
+-    "ssim": 0.9328117229508144,
++    "ssim": 0.9942906050792735,
+     "rawSsim": 0.43230935912194607,
+     "softSsim": 0.9328117229508144,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8269364867522764,
++    "sizeScore": 1,
++    "combined": 0.9942906050792735,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6822,11 +6822,11 @@
+     "id": "04537",
+     "idx": 4536,
+     "corpusFile": "c321_L12_script_2.asy",
+-    "ssim": 0.9330442279327068,
++    "ssim": 0.9928454756978488,
+     "rawSsim": 0.29938831231230434,
+     "softSsim": 0.9330442279327068,
+-    "sizeScore": 0.8864988147194194,
+-    "combined": 0.8271426021431404,
++    "sizeScore": 1,
++    "combined": 0.9928454756978488,
+     "wRatio": 1.0057251908396947,
+     "hRatio": 0.9263698630136986,
+     "refDims": [
+@@ -6902,11 +6902,11 @@
+     "id": "04558",
+     "idx": 4557,
+     "corpusFile": "c321_L12_script_39.asy",
+-    "ssim": 0.9160223346466638,
++    "ssim": 0.992052833865195,
+     "rawSsim": 0.2975916770819306,
+     "softSsim": 0.9160223346466638,
+-    "sizeScore": 0.9056485523885922,
+-    "combined": 0.8295943013283696,
++    "sizeScore": 1,
++    "combined": 0.992052833865195,
+     "wRatio": 1.0038167938931297,
+     "hRatio": 0.9332191780821918,
+     "refDims": [
+@@ -6942,11 +6942,11 @@
+     "id": "04560",
+     "idx": 4559,
+     "corpusFile": "c321_L12_script_40.asy",
+-    "ssim": 0.9166592998996977,
++    "ssim": 0.992078999061982,
+     "rawSsim": 0.30101393553845496,
+     "softSsim": 0.9166592998996977,
+-    "sizeScore": 0.9056485523885922,
+-    "combined": 0.8301711679877016,
++    "sizeScore": 1,
++    "combined": 0.992078999061982,
+     "wRatio": 1.0038167938931297,
+     "hRatio": 0.9332191780821918,
+     "refDims": [
+@@ -7502,11 +7502,11 @@
+     "id": "04557",
+     "idx": 4556,
+     "corpusFile": "c321_L12_script_38.asy",
+-    "ssim": 0.9331020634526748,
++    "ssim": 0.9921559139504241,
+     "rawSsim": 0.3055126256574131,
+     "softSsim": 0.9331020634526748,
+-    "sizeScore": 0.9056485523885922,
+-    "combined": 0.8450625329967232,
++    "sizeScore": 1,
++    "combined": 0.9921559139504241,
+     "wRatio": 1.0038167938931297,
+     "hRatio": 0.9332191780821918,
+     "refDims": [
+@@ -10002,11 +10002,11 @@
+     "id": "04519",
+     "idx": 4518,
+     "corpusFile": "c321_L12_p42776_solution_text_0.asy",
+-    "ssim": 0.9406807532869054,
++    "ssim": 0.994574845183683,
+     "rawSsim": 0.2104915542665722,
+     "softSsim": 0.9406807532869054,
+-    "sizeScore": 0.9443803259836495,
+-    "combined": 0.8883603964356327,
++    "sizeScore": 0.9992082539939208,
++    "combined": 0.993787394522262,
+     "wRatio": 1.0097244732576987,
+     "hRatio": 0.9492537313432836,
+     "refDims": [
+diff --git a/index.html b/index.html
+index 23742ba2..d7aa51bc 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.32</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.33</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

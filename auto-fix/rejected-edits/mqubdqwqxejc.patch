@@ -1,0 +1,119 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 87736e19..e0c2b144 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -10304,6 +10304,56 @@ function createInterpreter() {
+     env.set('filldraw', (...args) => evalDraw('filldraw', args));
+     env.set('clip', (...args) => evalDraw('clip', args));
+     env.set('unfill', (...args) => evalDraw('unfill', args));
++    // axialshade(picture pic=currentpicture, path[] g, bool stroke=false,
++    //            pen pena, pair a, pen penb, pair b):
++    // Fill path g with an axial (linear) gradient running from color pena at
++    // world point a to color penb at world point b. Asymptote's PostScript
++    // `axial` shading pads to pena before a and penb after b. We emit one
++    // `fill` command carrying _axialGradient; the SVG emitter converts the two
++    // world endpoints to pixel space and emits a <linearGradient> with two
++    // stops (default spreadMethod="pad" matches the PS pad semantics).
++    // Common AoPS idiom: axialshade(circle(c,r), black,(x0,y0), palegray,(x1,y1))
++    // for a shaded sphere/ball (e.g. 12980's mallet head). Endpoints a/b are
++    // taken in the path's own (world) coordinate space, so this matches when g
++    // is an untransformed path; a shift()*path with literal a/b would not.
++    env.set('axialshade', (...args) => {
++      const pos = args.filter(a => !(a && a._named));
++      let target = currentPic;
++      let pathArg = null;
++      const pens = [];
++      const pairs = [];
++      for (const a of pos) {
++        if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
++        if (isPath(a) && !pathArg) { pathArg = a; continue; }
++        if (Array.isArray(a) && a.length > 0 && isPath(a[0]) && !pathArg) { pathArg = a[0]; continue; }
++        if (isPen(a)) { pens.push(a); continue; }
++        if (isPair(a)) { pairs.push(a); continue; }
++      }
++      for (const a of args) {
++        if (a && a._named) {
++          if ('pic' in a && a.pic && a.pic._tag === 'picture') target = a.pic;
++          if ('g' in a && isPath(a.g)) pathArg = a.g;
++          if ('pena' in a && isPen(a.pena)) pens[0] = a.pena;
++          if ('penb' in a && isPen(a.penb)) pens[1] = a.penb;
++          if ('a' in a && isPair(a.a)) pairs[0] = a.a;
++          if ('b' in a && isPair(a.b)) pairs[1] = a.b;
++        }
++      }
++      if (!pathArg || pens.length < 2 || pairs.length < 2) return;
++      const ca = {r: pens[0].r || 0, g: pens[0].g || 0, b: pens[0].b || 0};
++      const cb = {r: pens[1].r || 0, g: pens[1].g || 0, b: pens[1].b || 0};
++      const line = args._line || 0;
++      const fillPen = clonePen(pens[0]);
++      fillPen.opacity = 1;
++      target.commands.push({
++        cmd: 'fill', path: pathArg, pen: fillPen, line,
++        _axialGradient: {
++          ax: pairs[0].x, ay: pairs[0].y,
++          bx: pairs[1].x, by: pairs[1].y,
++          ca, cb,
++        },
++      });
++    });
+     env.set('label', (...args) => evalLabel(args));
+ 
+     // labelpath(string s, path g[, pen p, ...]) — from labelpath.asy. Lay text
+@@ -30472,6 +30522,32 @@ function renderSVG(result, opts) {
+         );
+         fill = `url(#${gid})`;
+       }
++      // Axial (linear) gradient fill from axialshade(). World endpoints in
++      // dc._axialGradient.{ax,ay}->{bx,by} convert to SVG pixel coords with the
++      // same transform as paths; emit an inline <linearGradient> (spreadMethod
++      // defaults to "pad", matching Asymptote's PS `axial` pad semantics).
++      if (dc._axialGradient) {
++        const ag = dc._axialGradient;
++        const ax = (ag.ax - minX) * pxPerUnitX;
++        const ay = (maxY - ag.ay) * pxPerUnitY;
++        const bx = (ag.bx - minX) * pxPerUnitX;
++        const by = (maxY - ag.by) * pxPerUnitY;
++        const _rgb = c => `rgb(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)})`;
++        if (typeof window !== 'undefined') {
++          window._axialGradCounter = (window._axialGradCounter || 0) + 1;
++        } else {
++          if (typeof globalThis._axialGradCounter !== 'number') globalThis._axialGradCounter = 0;
++          globalThis._axialGradCounter += 1;
++        }
++        const gid = `_ag${(typeof window !== 'undefined' ? window._axialGradCounter : globalThis._axialGradCounter)}`;
++        elements.push(
++          `<defs><linearGradient id="${gid}" x1="${fmt(ax)}" y1="${fmt(ay)}" x2="${fmt(bx)}" y2="${fmt(by)}" gradientUnits="userSpaceOnUse">` +
++          `<stop offset="0%" stop-color="${_rgb(ag.ca)}"/>` +
++          `<stop offset="100%" stop-color="${_rgb(ag.cb)}"/>` +
++          `</linearGradient></defs>`
++        );
++        fill = `url(#${gid})`;
++      }
+     } else if (dc.cmd === 'filldraw') {
+       // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
+       fill = (css.opacity === 0) ? 'none' : css.fill;
+diff --git a/auto-fix/fix-snapshots/820a2f74-after.png b/auto-fix/fix-snapshots/820a2f74-after.png
+new file mode 100644
+index 00000000..efa68640
+Binary files /dev/null and b/auto-fix/fix-snapshots/820a2f74-after.png differ
+diff --git a/auto-fix/fix-snapshots/93d817b2-after.png b/auto-fix/fix-snapshots/93d817b2-after.png
+new file mode 100644
+index 00000000..efa68640
+Binary files /dev/null and b/auto-fix/fix-snapshots/93d817b2-after.png differ
+diff --git a/auto-fix/fix-snapshots/f515cbd0-after.png b/auto-fix/fix-snapshots/f515cbd0-after.png
+new file mode 100644
+index 00000000..efa68640
+Binary files /dev/null and b/auto-fix/fix-snapshots/f515cbd0-after.png differ
+diff --git a/index.html b/index.html
+index 206dbdb0..bd57a22c 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.29</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.30</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

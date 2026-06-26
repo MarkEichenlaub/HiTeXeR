@@ -1,0 +1,183 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index ec139f72..e96e19eb 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -29010,7 +29010,19 @@ function renderSVG(result, opts) {
+       axisLimits.xmin !== null && axisLimits.xmax !== null &&
+       axisLimits.ymin !== null && axisLimits.ymax !== null);
+     for (const li of labelInfoBp) {
+-      if (_cropWindow) continue;
++      if (_cropWindow) {
++        // Axis-title labels ("$x$" at (xmax,0), "$y$" at (0,ymax)) are anchored
++        // ON the crop-box boundary; TeXeR overhangs them into the thin arrow
++        // margin rather than enlarging the canvas (04454). But CONTENT labels
++        // anchored well OUTSIDE the box (04896's "$f(x)=2^x$" / "$g(x)=(1/2)^x$"
++        // at y=-2.5, a full unit below ymin=-1.5) DO enlarge the canvas in
++        // TeXeR — fold those in. Discriminate by anchor membership in the box.
++        const _eps = 1e-6;
++        const _inBox =
++          li.posX >= axisLimits.xmin - _eps && li.posX <= axisLimits.xmax + _eps &&
++          li.posY >= axisLimits.ymin - _eps && li.posY <= axisLimits.ymax + _eps;
++        if (_inBox) continue;
++      }
+       const cx = li.posX + li.alignOffsetXBp / pxPerUnitX;
+       const hw = li.widthBp / (2 * pxPerUnitX);
+       const hh = li.heightBp / (2 * pxPerUnitY);
+diff --git a/auto-fix/fix-snapshots/5d2f53cd-after.png b/auto-fix/fix-snapshots/5d2f53cd-after.png
+new file mode 100644
+index 00000000..d333cbb5
+Binary files /dev/null and b/auto-fix/fix-snapshots/5d2f53cd-after.png differ
+diff --git a/auto-fix/fix-snapshots/9fd2f42a-after.png b/auto-fix/fix-snapshots/9fd2f42a-after.png
+new file mode 100644
+index 00000000..d333cbb5
+Binary files /dev/null and b/auto-fix/fix-snapshots/9fd2f42a-after.png differ
+diff --git a/auto-fix/fix-snapshots/d06ac5c8-after.png b/auto-fix/fix-snapshots/d06ac5c8-after.png
+new file mode 100644
+index 00000000..d333cbb5
+Binary files /dev/null and b/auto-fix/fix-snapshots/d06ac5c8-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index c6888d6d..46613037 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -4602,11 +4602,11 @@
+     "id": "04897",
+     "idx": 4896,
+     "corpusFile": "c398_L11_script_8.asy",
+-    "ssim": 0.8868691320738467,
++    "ssim": 0.9915059529001709,
+     "rawSsim": 0.45874543945458074,
+     "softSsim": 0.8868691320738467,
+-    "sizeScore": 0.8092111133406414,
+-    "combined": 0.7176643577529258,
++    "sizeScore": 1,
++    "combined": 0.9915059529001709,
+     "wRatio": 1.0058823529411764,
+     "hRatio": 0.9023972602739726,
+     "refDims": [
+@@ -4738,26 +4738,6 @@
+       178
+     ]
+   },
+-  {
+-    "id": "04896",
+-    "idx": 4895,
+-    "corpusFile": "c398_L11_script_7.asy",
+-    "ssim": 0.8709453422971776,
+-    "rawSsim": 0.24156368343370366,
+-    "softSsim": 0.8709453422971776,
+-    "sizeScore": 0.8327462433585799,
+-    "combined": 0.7252764619686272,
+-    "wRatio": 0.958974358974359,
+-    "hRatio": 0.9092465753424658,
+-    "refDims": [
+-      390,
+-      584
+-    ],
+-    "htxDims": [
+-      374,
+-      531
+-    ]
+-  },
+   {
+     "id": "12814",
+     "idx": 12813,
+@@ -4778,6 +4758,26 @@
+       476
+     ]
+   },
++  {
++    "id": "04896",
++    "idx": 4895,
++    "corpusFile": "c398_L11_script_7.asy",
++    "ssim": 0.9883996216233345,
++    "rawSsim": 0.24156368343370366,
++    "softSsim": 0.8709453422971776,
++    "sizeScore": 1,
++    "combined": 0.9883996216233345,
++    "wRatio": 0.958974358974359,
++    "hRatio": 0.9092465753424658,
++    "refDims": [
++      390,
++      584
++    ],
++    "htxDims": [
++      374,
++      531
++    ]
++  },
+   {
+     "id": "12832",
+     "idx": 12831,
+@@ -5302,11 +5302,11 @@
+     "id": "04895",
+     "idx": 4894,
+     "corpusFile": "c398_L11_script_6.asy",
+-    "ssim": 0.9164739924195975,
++    "ssim": 0.991961855612243,
+     "rawSsim": 0.5106638877886321,
+     "softSsim": 0.9164739924195975,
+-    "sizeScore": 0.8327462433585799,
+-    "combined": 0.7631902743232595,
++    "sizeScore": 1,
++    "combined": 0.991961855612243,
+     "wRatio": 1.0108108108108107,
+     "hRatio": 0.9092465753424658,
+     "refDims": [
+@@ -5422,11 +5422,11 @@
+     "id": "04886",
+     "idx": 4885,
+     "corpusFile": "c398_L11_script_10.asy",
+-    "ssim": 0.9114093569421572,
++    "ssim": 0.9918993436246397,
+     "rawSsim": 0.7414357911324693,
+     "softSsim": 0.9114093569421572,
+-    "sizeScore": 0.8441090092659502,
+-    "combined": 0.7693288493241611,
++    "sizeScore": 1,
++    "combined": 0.9918993436246397,
+     "wRatio": 0.9959183673469387,
+     "hRatio": 0.9126712328767124,
+     "refDims": [
+@@ -5622,11 +5622,11 @@
+     "id": "04892",
+     "idx": 4891,
+     "corpusFile": "c398_L11_script_3.asy",
+-    "ssim": 0.9212810746351278,
++    "ssim": 0.9905823145956354,
+     "rawSsim": 0.48182675829351246,
+     "softSsim": 0.9212810746351278,
+-    "sizeScore": 0.8441090092659502,
+-    "combined": 0.7776616551657276,
++    "sizeScore": 1,
++    "combined": 0.9905823145956354,
+     "wRatio": 1.0135135135135136,
+     "hRatio": 0.9126712328767124,
+     "refDims": [
+@@ -7622,11 +7622,11 @@
+     "id": "04898",
+     "idx": 4897,
+     "corpusFile": "c398_L11_script_9.asy",
+-    "ssim": 0.8490047578725507,
++    "ssim": 0.9911702909008457,
+     "rawSsim": 0.4443366923629638,
+     "softSsim": 0.8490047578725507,
+-    "sizeScore": 0.9992129579024067,
+-    "combined": 0.848336555387048,
++    "sizeScore": 0.9996501270074672,
++    "combined": 0.9908235071850587,
+     "wRatio": 0.9940476190476191,
+     "hRatio": 0.8487394957983193,
+     "refDims": [
+diff --git a/index.html b/index.html
+index bd57a22c..1a9bc7dc 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.30</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.31</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>

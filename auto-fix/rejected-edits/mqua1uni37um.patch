@@ -1,0 +1,103 @@
+diff --git a/asy-interp.js b/asy-interp.js
+index 3f17a4c1..1bca78a2 100644
+--- a/asy-interp.js
++++ b/asy-interp.js
+@@ -11471,7 +11471,14 @@ function createInterpreter() {
+     });
+     env.set('EndPoint', 1);
+     env.set('BeginPoint', 0);
+-    env.set('MidPoint', 0.5);
++    // Asymptote defines `position MidPoint=Relative(0.5)` (plain_arrows.asy),
++    // NOT a bare real. As a bare 0.5, `draw(..., Arrow(MidPoint))` was parsed
++    // by the Arrow constructor's numeric-arg scan as a 0.5bp arrow SIZE (an
++    // invisible head) instead of a relative arc-length POSITION, so MidPoint
++    // arrowheads vanished (05147 ship-frame V diagram). Make it a relative
++    // tagged object; valueOf() keeps numeric coercion working for any caller
++    // that uses MidPoint in label arithmetic.
++    { const _mp = {_tag:'relative', t:0.5}; _mp.valueOf = () => 0.5; env.set('MidPoint', _mp); }
+     // Relative(real r) — relative position along a path (0=begin, 1=end).
+     // Returns a tagged object so Arrow(Relative(t)) can distinguish a position
+     // from a size argument. valueOf() makes numeric coercion (label arithmetic) work.
+diff --git a/auto-fix/fix-snapshots/137f248c-after.png b/auto-fix/fix-snapshots/137f248c-after.png
+new file mode 100644
+index 00000000..feac218d
+Binary files /dev/null and b/auto-fix/fix-snapshots/137f248c-after.png differ
+diff --git a/auto-fix/fix-snapshots/347c98c2-after.png b/auto-fix/fix-snapshots/347c98c2-after.png
+new file mode 100644
+index 00000000..cfd06433
+Binary files /dev/null and b/auto-fix/fix-snapshots/347c98c2-after.png differ
+diff --git a/auto-fix/fix-snapshots/b6436e62-after.png b/auto-fix/fix-snapshots/b6436e62-after.png
+new file mode 100644
+index 00000000..f3420a67
+Binary files /dev/null and b/auto-fix/fix-snapshots/b6436e62-after.png differ
+diff --git a/comparison/ssim-results.json b/comparison/ssim-results.json
+index c6888d6d..04638d9d 100644
+--- a/comparison/ssim-results.json
++++ b/comparison/ssim-results.json
+@@ -118058,26 +118058,6 @@
+       403
+     ]
+   },
+-  {
+-    "id": "05147",
+-    "idx": 5146,
+-    "corpusFile": "c400_L1_script_22.asy",
+-    "ssim": 0.9894346664581877,
+-    "rawSsim": 0.6956451387143148,
+-    "softSsim": 0.9894346664581877,
+-    "sizeScore": 0.9996924879251944,
+-    "combined": 0.9891304033510205,
+-    "wRatio": 0.9962797619047619,
+-    "hRatio": 1.0424403183023874,
+-    "refDims": [
+-      1344,
+-      377
+-    ],
+-    "htxDims": [
+-      1339,
+-      393
+-    ]
+-  },
+   {
+     "id": "12967",
+     "idx": 12966,
+@@ -121318,6 +121298,26 @@
+       378
+     ]
+   },
++  {
++    "id": "05147",
++    "idx": 5146,
++    "corpusFile": "c400_L1_script_22.asy",
++    "ssim": 0.989683180235468,
++    "rawSsim": 0.6956451387143148,
++    "softSsim": 0.9894346664581877,
++    "sizeScore": 0.99980318137687,
++    "combined": 0.989488392154599,
++    "wRatio": 0.9962797619047619,
++    "hRatio": 1.0424403183023874,
++    "refDims": [
++      1344,
++      377
++    ],
++    "htxDims": [
++      1339,
++      393
++    ]
++  },
+   {
+     "id": "10956",
+     "idx": 10955,
+diff --git a/index.html b/index.html
+index b40c317d..206dbdb0 100644
+--- a/index.html
++++ b/index.html
+@@ -656,7 +656,7 @@ body {
+ <body>
+ 
+ <div id="toolbar">
+-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.28</span></h1>
++  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.29</span></h1>
+   <div class="menu-bar">
+     <div class="menu-item" id="menu-file">
+       <span>File</span>
