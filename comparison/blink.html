@@ -840,9 +840,17 @@
       const norenderWanted = collSet.has('norender');  // virtual — match !hasHtx (blank on HTX side)
       list = list.filter(d => collSet.has(d.collection) || (epsWanted && d.hasEps) || (norenderWanted && !d.hasHtx));
     }
-    if (bothOnly) list = list.filter(d => d.hasTexer && d.hasHtx);
-    if (htxOnly)  list = list.filter(d => d.hasHtx && !d.hasTexer);
-    if (texerOnly) list = list.filter(d => d.hasTexer && !d.hasHtx);
+    // The "No HiTeXeR" bucket is DEFINED by missing HTX, so its members must
+    // bypass the texer/htx existence checkboxes — otherwise the default "Both
+    // exist" filter would hide the entire bucket (its whole point is the blanks).
+    const norenderShown = !allChecked && new Set(checkedColls).has('norender');
+    list = list.filter(d => {
+      if (norenderShown && !d.hasHtx) return true;
+      if (bothOnly && !(d.hasTexer && d.hasHtx)) return false;
+      if (htxOnly && !(d.hasHtx && !d.hasTexer)) return false;
+      if (texerOnly && !(d.hasTexer && !d.hasHtx)) return false;
+      return true;
+    });
 
     if (search) {
       const names = manifest.courseNames || {};
