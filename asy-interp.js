@@ -2742,6 +2742,19 @@ function createInterpreter() {
         // Make pen invisible (nullpen-like) since we can't properly render the scaled nib
         return makePen(Object.assign({}, right, {_nibPath: null, _nullpen: true, opacity: 0}));
       }
+      // scale(s)*pen scales the (round) nib — i.e. the linewidth — by the
+      // transform's scale magnitude (Asymptote's `operator *(transform,pen)`).
+      // Rotations / shifts / reflections have |det| = 1, so the linewidth is
+      // unchanged (current behavior preserved). A genuine scale shrinks/grows
+      // the stroke AND the dot radius (dotfactor·linewidth/2). 04241 relies on
+      // this: dot((3/(i+1),-1), scale(1-i/21)*red) draws dots that shrink
+      // toward the origin (rightmost = full size, leftmost = tiny); without
+      // scaling the nib every dot rendered at the identical default size.
+      const _sf = Math.sqrt(Math.abs(left.b * left.f - left.c * left.e));
+      if (isFinite(_sf) && _sf > 0 && Math.abs(_sf - 1) > 1e-9) {
+        const _baseLw = (typeof right.linewidth === 'number') ? right.linewidth : 0.5;
+        return makePen(Object.assign({}, right, {linewidth: _sf * _baseLw}));
+      }
       return right;
     }
 
@@ -15481,16 +15494,29 @@ function createInterpreter() {
         // the non-degenerate refs.)
         const _axesTopAnchor = _axesRotatedEnd;
         const endpointDefault = arrowEndpointDefault || plainEndpointDefault || axisshiftRotatedEndpoint || _axesTopAnchor || fullGraphAxisTopRotated;
+        // A SHORT single math symbol used as a y-axis title (e.g. "$x$",
+        // "$x'$") stays UPRIGHT at the top endpoint, aligned to the LEFT of the
+        // tick labels — even with axis=LeftRight, where a longer label would be
+        // rotated along the axis. TeXeR/Asymptote draws single symbols upright
+        // (03384 "$x$", 03385-89 "$x'$" family) but rotates anything with units,
+        // words, or multiple math tokens ("$T\,(\mathrm{s})$", "Position",
+        // 08812 "Percentage of True Speed"). Gate tightly (math mode + ≤2
+        // visible chars after stripping LaTeX/spaces) so only these cases flip.
+        const _yLabelVisible = label ? stripLaTeX(label).replace(/\s+/g, '') : '';
+        const _isShortSymbolLabel = !!label && label.indexOf('$') !== -1
+          && _yLabelVisible.length > 0 && _yLabelVisible.length <= 2;
+        const symbolUprightEndpoint = explicitEndpoint && extentLeftRight && _isShortSymbolLabel;
         // "uprightEndpoint" means the label is rendered upright (no rotation,
         // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
         // upright behavior to match prior conventions.
         // axisshiftRotatedEndpoint is at-endpoint but ROTATED — exclude it.
-        const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault;
+        const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault || symbolUprightEndpoint;
         const atEndpoint = uprightEndpoint;
         const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
         const lAlign = _axisAlignShim(labelAlign) || (
           arrowEndpointDefault ? {x:-1, y:0} :
           plainEndpointDefault ? {x:-1, y:0} :
+          symbolUprightEndpoint ? {x:-1, y:0} :
           (uprightEndpoint ? {x:0, y:1} : {x:-1, y:0})
         );
         const labelY = ymin + (ymax - ymin) * effPos;
@@ -15526,11 +15552,18 @@ function createInterpreter() {
         // tick-label frame extent (00115/04454: TeXeR's "y" sits to the LEFT
         // of the "5"/"-4" tick labels, not hugging the axis line).
         if (uprightEndpoint && lAlign.x < -0.01) {
+          // A single-symbol upright y-title (symbolUprightEndpoint, e.g. 03385
+          // "$x'$") gets a labelmargin gap so it sits LEFT of the tick column
+          // with daylight, matching TeXeR (which places "$x'$" near the left
+          // edge, clearly separated from "300"). Other upright "y" titles keep
+          // the tight clearance tuned against 00115/04454.
+          const _symMargin = symbolUprightEndpoint
+            ? 0.9 * ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12) : 0;
           for (const c of pic.commands) {
             if (c._isTickLabel && c.pos && Math.abs(c.pos.x - axisShiftX) < 1e-6) {
               const txt = stripLaTeX(c.text || '');
               const fs = (c.pen && c.pen.fontsize) || 12;
-              const w = _estimateMathRunWidth(txt, fs) + (c.screenDx ? Math.abs(c.screenDx) : 0);
+              const w = _estimateMathRunWidth(txt, fs) + (c.screenDx ? Math.abs(c.screenDx) : 0) + _symMargin;
               if (w > tickLabelClearance) tickLabelClearance = w;
             }
           }
@@ -15558,7 +15591,7 @@ function createInterpreter() {
         // EndPoint+NW straddles the arrow tip instead of sitting wholly
         // above it (00260/00263 top margin).
         let _yLabelExtraDy = 0;
-        if (labelAlign != null && labelPosition != null
+        if (((labelAlign != null && labelPosition != null) || symbolUprightEndpoint)
             && (labelPosition >= 0.999 || labelPosition <= 0.001) && !lt) {
           const _lfs3 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
           _yLabelExtraDy = (labelPosition >= 0.999 ? 1 : -1) * 0.5 * (_lfs3 * 0.75);
