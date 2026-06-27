@@ -271,6 +271,8 @@
       <option value="size-desc">Size score (best first)</option>
       <option value="id-asc">ID (ascending)</option>
       <option value="id-desc">ID (descending)</option>
+      <option value="localized-asc">Localized SSIM (worst bug first)</option>
+      <option value="localized-desc">Localized SSIM (best first)</option>
     </select>
   </div>
 
@@ -478,6 +480,15 @@
   fetch('random-ids.json')
     .then(r => r.ok ? r.json() : [])
     .then(ids => { randomSet = new Set((ids || []).map(String)); })
+    .catch(() => {});
+
+  // id -> localized-SSIM record {severity, gap, clusterMin, broad}.
+  // Loaded from localized-scores.json (produced by localized-rescore.js).
+  // Used for "Localized" sort options. Falls back gracefully when file is absent.
+  let localizedMap = new Map();
+  fetch('localized-scores.json')
+    .then(r => r.ok ? r.json() : [])
+    .then(recs => { for (const r of (recs || [])) localizedMap.set(r.id, r); })
     .catch(() => {});
 
   // id -> AoPS crypt URL (document/<coll>/<docId> for scripts, collection/<coll>/
@@ -890,6 +901,14 @@
       case 'id-desc':
         list.sort((a, b) => b.id.localeCompare(a.id));
         break;
+      // Sort by localized-SSIM severity: worst compact local cluster first.
+      // Diagrams missing from localizedMap (no PNG pair yet) go to the end.
+      case 'localized-asc':
+        list.sort((a, b) => (localizedMap.get(b.id)?.severity ?? -1) - (localizedMap.get(a.id)?.severity ?? -1));
+        break;
+      case 'localized-desc':
+        list.sort((a, b) => (localizedMap.get(a.id)?.severity ?? Infinity) - (localizedMap.get(b.id)?.severity ?? Infinity));
+        break;
     }
 
     filtered = list;
@@ -928,7 +947,8 @@
         ? `<div class="half-svg" data-htx-id="${d.id}"></div>`
         : '<div class="no-img">no HTX</div>';
       const sortMode = document.getElementById('sort-mode').value;
-      const badge = ssimBadge(sortMode.startsWith('combined') ? (d.combined ?? d.ssim)
+      const badge = sortMode.startsWith('localized') ? localizedBadge(d.id)
+        : ssimBadge(sortMode.startsWith('combined') ? (d.combined ?? d.ssim)
         : sortMode.startsWith('size') ? (d.sizeScore ?? d.ssim) : d.ssim);
       const isSel = selected.has(d.id);
       const isQueued = queuedIds.has(d.id);
@@ -1198,6 +1218,19 @@
     if (ssim >= 0.85) return `<span class="badge badge-yellow">${val}</span>`;
     if (ssim >= 0.70) return `<span class="badge badge-orange">${val}</span>`;
     return `<span class="badge badge-red">${val}</span>`;
+  }
+
+  // Badge for localized-SSIM sort. Shows gap (mean − worstCluster, 0=none, 0.5+=bad).
+  // gap < 0.1: no local diff (green); 0.1-0.3: minor (yellow); 0.3-0.5: notable (orange); 0.5+: likely real bug (red).
+  function localizedBadge(id) {
+    const r = localizedMap.get(id);
+    if (!r || r.severity == null) return '<span class="badge badge-none">loc N/A</span>';
+    const g = r.gap ?? 0;
+    const label = 'gap ' + g.toFixed(3);
+    if (g < 0.1)  return `<span class="badge badge-green">${label}</span>`;
+    if (g < 0.3)  return `<span class="badge badge-yellow">${label}</span>`;
+    if (g < 0.5)  return `<span class="badge badge-orange">${label}</span>`;
+    return `<span class="badge badge-red">${label}</span>`;
   }
 
   function renderPagination() {
