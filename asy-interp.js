@@ -7353,7 +7353,14 @@ function createInterpreter() {
       // patterns module: add(string name, pattern tile) registers a named fill
       // pattern for later pattern(name) lookup.
       if (args.length >= 2 && typeof args[0] === 'string' && args[1] && args[1]._tag === 'pattern') {
-        patternRegistry[args[0]] = args[1];
+        const spec = args[1];
+        // add(name, tile, ptbl, pttr): the two trailing pairs are bottom-left and
+        // top-right MARGINS around the tile (gaps between cells), e.g.
+        //   add("filledtilewithmargin", tile(6mm,4mm,red,Fill), (1mm,1mm), (1mm,1mm))
+        const mpairs = args.slice(2).filter(a => isPair(a));
+        if (mpairs.length >= 1) spec.marginLB = toPair(mpairs[0]);
+        if (mpairs.length >= 2) spec.marginRT = toPair(mpairs[1]);
+        patternRegistry[args[0]] = spec;
         return;
       }
       // add(string label, pair position) — place a centered text label at the
@@ -8181,6 +8188,37 @@ function createInterpreter() {
     };
     env.set('hatch', (...args) => _makeHatch(false, args));
     env.set('crosshatch', (...args) => _makeHatch(true, args));
+    // patterns module: tile/checker/brick cell patterns (patterns.asy). Args:
+    //   tile(real Hx=5mm, real Hy=Hx, pen p=nullpen, filltype=NoFill)
+    //   checker(real Hx=5mm, real Hy=Hx, pen p=currentpen)
+    //   brick(real Hx=10mm, real Hy=Hx/2, pen p=currentpen)
+    // Hx/Hy are cell sizes in bp (mm/cm constants already converted). `fill` is
+    // set when a Fill/FillDraw filltype is passed (tile only).
+    const MM = 72 / 25.4;
+    const _makeTilePat = (kind, args) => {
+      let Hx = (kind === 'brick' ? 10 : 5) * MM, Hy = null, pen = null, fill = false, numCount = 0;
+      for (const a of args) {
+        if (a && a._named) {
+          if (typeof a.Hx === 'number') Hx = a.Hx;
+          if (typeof a.Hy === 'number') Hy = a.Hy;
+          if (isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+        } else if (typeof a === 'number') {
+          if (numCount === 0) Hx = a; else if (numCount === 1) Hy = a; numCount++;
+        } else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && typeof a === 'object' && a._tag === 'filltype') {
+          if (a.style === 'Fill' || a.style === 'FillDraw') fill = true;
+        } else if (typeof a === 'function' && (a === env.get('Fill') || a === env.get('FillDraw'))) {
+          // bare Fill / FillDraw keyword (an untagged constructor function)
+          fill = true;
+        }
+      }
+      if (Hy == null) Hy = (kind === 'brick' ? Hx / 2 : Hx);
+      return { _tag: 'pattern', kind, Hx, Hy, fill,
+               pen: pen ? clonePen(pen) : clonePen(defaultPen), shift: { x: 0, y: 0 } };
+    };
+    env.set('tile', (...args) => _makeTilePat('tile', args));
+    env.set('checker', (...args) => _makeTilePat('checker', args));
+    env.set('brick', (...args) => _makeTilePat('brick', args));
     env.set('pattern', (name) => {
       const spec = patternRegistry[name];
       const p = makePen({});
@@ -30500,6 +30538,33 @@ function renderSVG(result, opts) {
       const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
       return h.length<2?'0'+h:h;
     }).join('');
+
+    // ── tile / checker / brick cell patterns (patterns.asy) ──
+    if (spec.kind === 'tile' || spec.kind === 'checker' || spec.kind === 'brick') {
+      const Hx = (spec.Hx || 5 * (72/25.4)) * bpCSSPixel;
+      const Hy = (spec.Hy || spec.Hx || 5 * (72/25.4)) * bpCSSPixel;
+      let pw, ph, inner = '';
+      if (spec.kind === 'tile') {
+        const mLB = spec.marginLB || {x:0,y:0}, mRT = spec.marginRT || {x:0,y:0};
+        const mlx = mLB.x * bpCSSPixel, mly = mLB.y * bpCSSPixel;
+        const mrx = mRT.x * bpCSSPixel, mry = mRT.y * bpCSSPixel;
+        pw = Hx + mlx + mrx; ph = Hy + mly + mry;
+        inner = spec.fill
+          ? `<rect x="${fmt(mlx)}" y="${fmt(mly)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="${hcol}"/>`
+          : `<rect x="${fmt(mlx)}" y="${fmt(mly)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="none" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+      } else if (spec.kind === 'checker') {
+        pw = 2 * Hx; ph = 2 * Hy;
+        inner = `<rect x="0" y="0" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="${hcol}"/>` +
+                `<rect x="${fmt(Hx)}" y="${fmt(Hy)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="${hcol}"/>`;
+      } else { // brick — outlined bricks, each row offset half a brick
+        pw = Hx; ph = 2 * Hy;
+        const r = (x, y) => `<rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="none" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+        inner = r(0, 0) + r(-Hx/2, Hy) + r(Hx/2, Hy);
+      }
+      elements.push(`<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(pw)}" height="${fmt(ph)}">${inner}</pattern></defs>`);
+      return `url(#${pid})`;
+    }
+
     const angDeg = ((spec.angle != null ? spec.angle : Math.PI/4) * 180 / Math.PI);
     const sx = (spec.shift ? spec.shift.x : 0) * bpCSSPixel;
     const sy = (spec.shift ? spec.shift.y : 0) * bpCSSPixel;
