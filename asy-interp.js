@@ -21288,11 +21288,17 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && a._named));
       const named = {};
       for (const a of args) if (a && a._named) Object.assign(named, a);
+      // InTicks(Label format, int N, int n, ...): N = number of major tick
+      // intervals, n = minor subdivisions. graph3_1 uses InTicks(Label,2,2) → 2
+      // major intervals (so x∈[-1,1] gets ticks at -1,0,1), not the dense default.
+      const nums = pos.filter(a => typeof a === 'number');
       return {
         _tag:'ticks3',
         beginlabel: named.beginlabel !== false,
         endlabel: named.endlabel !== false,
         Label: pos.find(a => a && a._tag === 'Label') || null,
+        N: (typeof named.N === 'number') ? named.N : (nums.length >= 1 ? nums[0] : 0),
+        n: (typeof named.n === 'number') ? named.n : (nums.length >= 2 ? nums[1] : 0),
       };
     });
     env.set('OutTicks', (...args) => ({_tag:'ticks3', type:'OutTicks'}));
@@ -21409,9 +21415,17 @@ function createInterpreter() {
       // Snap bounds to the innermost tick positions for cleaner axis visualization
       // This matches Asymptote's Bounds style where the box aligns with tick marks
       // Use tighter bounds - first tick >= minX, last tick <= maxX
-      const xTicks = _niceTickValues(b.minX, b.maxX, 6);
-      const yTicks = _niceTickValues(b.minY, b.maxY, 5);
-      const zTicks = _niceTickValues(b.minZ, b.maxZ, 5, true);
+      // Per-axis target tick count: honour InTicks(N) (N major intervals → N+1
+      // ticks) so a sparse InTicks(Label,2,2) doesn't render the dense default
+      // (which crushed graph3_1's x/y labels into an unreadable pile).
+      const _axisTickTarget = (name, def) => {
+        const c = _pendingAxis3Calls.find(cc => cc.axisName === name);
+        const N = c && c.ticks && c.ticks.N;
+        return (typeof N === 'number' && N > 0) ? N + 1 : def;
+      };
+      const xTicks = _niceTickValues(b.minX, b.maxX, _axisTickTarget('x', 6));
+      const yTicks = _niceTickValues(b.minY, b.maxY, _axisTickTarget('y', 5));
+      const zTicks = _niceTickValues(b.minZ, b.maxZ, _axisTickTarget('z', 5), true);
       if (xTicks.length >= 2) {
         // Find first tick >= original minX (snapped inward)
         const firstTick = xTicks.find(t => t >= b.minX - 0.01) || xTicks[0];
@@ -21452,24 +21466,34 @@ function createInterpreter() {
         pic.commands.push({cmd:'draw', path, pen, line: 0});
       }
 
+      // Box colour: use the (first Bounds) axis's own pen so a coloured axis call
+      // like xaxis3(...,red,...) draws a RED bounding box, not the default black.
+      let boxPen = clonePen(axisPen);
+      for (const call of _pendingAxis3Calls) {
+        if (call.pen && call.axisType && call.axisType.type === 'Bounds') {
+          boxPen = clonePen(call.pen);
+          if (!(typeof boxPen.linewidth === 'number' && boxPen.linewidth > 0)) boxPen.linewidth = axisPen.linewidth;
+          break;
+        }
+      }
       // Only draw the full bounding box if at least one axis uses Bounds
       if (hasBoundsAxis) {
         // Draw box edges based on typical Asymptote Bounds style
         // Bottom face (z = minZ)
-        drawEdge([b.minX, b.minY, b.minZ], [b.maxX, b.minY, b.minZ], axisPen);
-        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.maxY, b.minZ], axisPen);
-        drawEdge([b.maxX, b.maxY, b.minZ], [b.minX, b.maxY, b.minZ], axisPen);
-        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.minY, b.minZ], axisPen);
+        drawEdge([b.minX, b.minY, b.minZ], [b.maxX, b.minY, b.minZ], boxPen);
+        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.maxY, b.minZ], boxPen);
+        drawEdge([b.maxX, b.maxY, b.minZ], [b.minX, b.maxY, b.minZ], boxPen);
+        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.minY, b.minZ], boxPen);
         // Top face (z = maxZ)
-        drawEdge([b.minX, b.minY, b.maxZ], [b.maxX, b.minY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.minY, b.maxZ], [b.maxX, b.maxY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.maxY, b.maxZ], [b.minX, b.maxY, b.maxZ], axisPen);
-        drawEdge([b.minX, b.maxY, b.maxZ], [b.minX, b.minY, b.maxZ], axisPen);
+        drawEdge([b.minX, b.minY, b.maxZ], [b.maxX, b.minY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.minY, b.maxZ], [b.maxX, b.maxY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.maxY, b.maxZ], [b.minX, b.maxY, b.maxZ], boxPen);
+        drawEdge([b.minX, b.maxY, b.maxZ], [b.minX, b.minY, b.maxZ], boxPen);
         // Vertical edges
-        drawEdge([b.minX, b.minY, b.minZ], [b.minX, b.minY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.minY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.maxY, b.minZ], [b.maxX, b.maxY, b.maxZ], axisPen);
-        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.maxY, b.maxZ], axisPen);
+        drawEdge([b.minX, b.minY, b.minZ], [b.minX, b.minY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.minY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.maxY, b.minZ], [b.maxX, b.maxY, b.maxZ], boxPen);
+        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.maxY, b.maxZ], boxPen);
       }
 
       // View-aware corner selection: pick the bounding-box edge that's
@@ -21519,7 +21543,7 @@ function createInterpreter() {
           // X axis: runs along the front-bottom edge (y at the side facing
           // the camera, z=minZ). Ticks point into box (up), labels outside
           // (below the edge in screen space).
-          const ticks = _niceTickValues(b.minX, b.maxX, 6);
+          const ticks = xTicks; // N-aware (InTicks N)
           const zRange = b.maxZ - b.minZ;
           // Compute 2D offset for "below" the x-axis edge
           const yEdge = xAxisYEdge;
@@ -21557,7 +21581,7 @@ function createInterpreter() {
           // Y axis: runs along the bottom edge at the side facing the
           // camera in x (x=minX or maxX), z=minZ.
           const xEdge = yAxisXEdge;
-          const ticks = _niceTickValues(b.minY, b.maxY, 5);
+          const ticks = yTicks; // N-aware (InTicks N)
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const y = ticks[i];
@@ -21592,7 +21616,7 @@ function createInterpreter() {
           // (e.g., gamma function plots with z from 0 to ~12 should show every integer)
           const zRange = b.maxZ - b.minZ;
           const zTargetCount = zRange <= 15 ? Math.max(zRange, 5) : 5;
-          const ticks = _niceTickValues(b.minZ, b.maxZ, zTargetCount);
+          const ticks = zTicks; // N-aware (InTicks N)
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const z = ticks[i];
