@@ -117,6 +117,14 @@ function expandViewBox(svgStr) {
     if (fx<minX) minX=fx; if (fy<minY) minY=fy;
     if (fx+fw>maxX) maxX=fx+fw; if (fy+fh>maxY) maxY=fy+fh;
   }
+  // data-ext="x0 y0 x1 y1" — KaTeX-SVG glyph-path label boxes (see ssim-pipeline).
+  const extRe=/\bdata-ext="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/g;
+  let em;
+  while ((em=extRe.exec(svgStr))!==null) {
+    const x0=parseFloat(em[1]), y0=parseFloat(em[2]), x1=parseFloat(em[3]), y1=parseFloat(em[4]);
+    if (x0<minX) minX=x0; if (y0<minY) minY=y0;
+    if (x1>maxX) maxX=x1; if (y1>maxY) maxY=y1;
+  }
   const nx=Math.min(vx,minX), ny=Math.min(vy,minY);
   const nw=Math.max(vx+vw,maxX)-nx, nh=Math.max(vy+vh,maxY)-ny;
   if (nx===vx && ny===vy && nw===vw && nh===vh) return svgStr;

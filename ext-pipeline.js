@@ -87,6 +87,16 @@ function expandViewBox(svgStr) {
     if (fx < minX) minX = fx; if (fy < minY) minY = fy;
     if (fx + fw > maxX) maxX = fx + fw; if (fy + fh > maxY) maxY = fy + fh;
   }
+  // data-ext="x0 y0 x1 y1" — KaTeX-SVG glyph-path label boxes. These are emitted
+  // only for un-clipped labels (siblings of the crop group), so the hasClip skip
+  // above does NOT apply — a caption overflowing a crop viewBox must still expand.
+  const extRe = /\bdata-ext="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/g;
+  let em;
+  while ((em = extRe.exec(svgStr)) !== null) {
+    const x0 = parseFloat(em[1]), y0 = parseFloat(em[2]), x1 = parseFloat(em[3]), y1 = parseFloat(em[4]);
+    if (x0 < minX) minX = x0; if (y0 < minY) minY = y0;
+    if (x1 > maxX) maxX = x1; if (y1 > maxY) maxY = y1;
+  }
   const newVx = Math.min(vx, minX), newVy = Math.min(vy, minY);
   const newVw = Math.max(vx + vw, maxX) - newVx, newVh = Math.max(vy + vh, maxY) - newVy;
   if (newVx === vx && newVy === vy && newVw === vw && newVh === vh) return svgStr;

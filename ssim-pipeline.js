@@ -321,6 +321,22 @@ function expandViewBox(svgStr) {
     if (fy + fh > maxY) maxY = fy + fh;
   }
 
+  // Scan data-ext="x0 y0 x1 y1" — the KaTeX-SVG-emitter label boxes (glyph-path
+  // labels have no <text>/<foreignObject> for the scans above to catch). asy-interp
+  // emits this only for plain horizontal labels in viewBox coords, so a caption
+  // that overflows the geometry viewBox (04545) grows the canvas to the painted
+  // extent the browser shows via overflow:visible.
+  const extRe = /\bdata-ext="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/g;
+  let em;
+  while ((em = extRe.exec(svgStr)) !== null) {
+    const x0 = parseFloat(em[1]), y0 = parseFloat(em[2]);
+    const x1 = parseFloat(em[3]), y1 = parseFloat(em[4]);
+    if (x0 < minX) minX = x0;
+    if (y0 < minY) minY = y0;
+    if (x1 > maxX) maxX = x1;
+    if (y1 > maxY) maxY = y1;
+  }
+
   // Only expand, never shrink
   const newVx = Math.min(vx, minX);
   const newVy = Math.min(vy, minY);

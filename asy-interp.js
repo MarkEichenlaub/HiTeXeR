@@ -32655,7 +32655,19 @@ function renderSVG(result, opts) {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined, undefined, undefined, _isMathLbl);
         }
       }
+      // Axis-title / tick labels must NOT grow the canvas: under limits(...,Crop)
+      // Asymptote fits the cropped region to size() and lets these float into the
+      // thin arrow margin instead of enlarging the box (04454). Expanding for them
+      // misregisters every gridline against TeXeR. Regular label() captions (the
+      // caption in 04545, f/g labels in 04896) DO extend the canvas, so keep their
+      // data-ext. (This also restores their pre-emitter behaviour, where glyph-path
+      // axis titles never reached expandViewBox at all.)
+      if (dc._isAxisLabel && labelEl) labelEl = labelEl.replace(/ data-ext="[^"]*"/, '');
       if (labelTransformAttr) {
+        // The outer rotate/shift/stretch transform invalidates the inner
+        // data-ext box frame (it was computed pre-transform), so drop it —
+        // expandViewBox must not expand the canvas using a stale frame.
+        labelEl = labelEl.replace(/ data-ext="[^"]*"/, '');
         labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
       }
       elements.push(labelEl);
@@ -34101,7 +34113,17 @@ function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, op
   const baselineY = fy + hPx;
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const flip = reflectX ? `translate(${fmt(2 * (fx + svgW / 2))},0) scale(-1,1) ` : '';
-  return `<g transform="${flip}translate(${fmt(fx)},${fmt(baselineY)})"${op}>${r.svg}</g>`;
+  // data-ext = the label's box in viewBox/bp coords ([x0 y0 x1 y1]). The node
+  // rasterizer screenshots the SVG's width/height box, so a label that overflows
+  // the geometry-derived viewBox (e.g. a centred caption anchored at the data edge,
+  // 04545's "$15x+5y=1000$") is CLIPPED there even though the browser shows it via
+  // overflow:visible. expandViewBox reads data-ext to grow the canvas to the real
+  // painted extent — using the emitter's KNOWN box rather than the glyph paths'
+  // em-unit getBBox (which over-expanded ~20x). Only emitted for plain horizontal
+  // labels; the caller suppresses it when a rotate/shift/stretch outer transform
+  // would invalidate this box's frame.
+  const ext = ` data-ext="${fmt(fx)} ${fmt(fy)} ${fmt(fx + svgW)} ${fmt(fy + svgH)}"`;
+  return `<g transform="${flip}translate(${fmt(fx)},${fmt(baselineY)})"${op}${ext}>${r.svg}</g>`;
 }
 
 function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
