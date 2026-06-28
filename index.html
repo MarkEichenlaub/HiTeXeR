@@ -146,6 +146,7 @@ body {
   padding: 1px 4px; font-family: monospace;
 }
 .htx-doc p.htx-p { margin: 0 0 8px; }
+.htx-doc .htx-vspace { display: block; height: 0; line-height: 0; font-size: 0; }
 #preview-stale-badge {
   display: none; position: absolute; top: 46px; left: 8px; z-index: 100;
   background: rgba(233,69,96,0.85); color: #fff; font-size: 11px; font-weight: 600;
@@ -710,7 +711,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.40</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.41</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3186,8 +3187,22 @@ function applyGridOverlay() {
 const HTXDoc = (function () {
   const ASY_BLOCK_RE = /\[asy\]([\s\S]*?)\[\/asy\]/gi;
 
+  // Balance the TeXeR/corpus convention where the FIRST [asy] is implicit (source
+  // begins in asy mode; first marker seen is a closing [/asy]) and/or the LAST
+  // block is left unclosed. So a raw multi-block corpus source parses correctly.
+  function normalizeMarkers(src) {
+    const fOpen = src.search(/\[asy\]/i);
+    const fClose = src.search(/\[\/asy\]/i);
+    if (fClose >= 0 && (fOpen < 0 || fClose < fOpen)) src = '[asy]\n' + src;
+    const opens = (src.match(/\[asy\]/gi) || []).length;
+    const closes = (src.match(/\[\/asy\]/gi) || []).length;
+    if (opens > closes) src = src + '\n[/asy]';
+    return src;
+  }
+
   // Ordered list of {type:'asy'|'text', value} segments.
   function parseSegments(src) {
+    src = normalizeMarkers(src);
     const segs = [];
     let last = 0, m;
     ASY_BLOCK_RE.lastIndex = 0;
@@ -3267,6 +3282,29 @@ const HTXDoc = (function () {
     text = text.replace(/\\\[([\s\S]+?)\\\]/g, (m, t) => keep(renderMath(t, true)));
     text = text.replace(/\\\(([\s\S]+?)\\\)/g, (m, t) => keep(renderMath(t, false)));
     text = text.replace(/\$([^$\n]+?)\$/g, (m, t) => keep(renderMath(t, false)));
+
+    // ── TeXeR/LaTeX layout commands HiTeXeR's doc mode honors ──
+    // \vspace / \hspace take a length; \medskip etc. are fixed; \centerline and
+    // \begin{center} reuse the [center] path; \\ and \par break lines. Done before
+    // HTML-escaping (these carry literal \ and {}). Spacer commands have no inner
+    // text so stashing them here is safe; center forms rewrite to bbcode so their
+    // inner content still flows through inline/block processing.
+    const CSS_UNIT = { cm: 37.795, mm: 3.7795, in: 96, pt: 1.3333, bp: 1.3333, em: 16, ex: 7.4, px: 1 };
+    const lenPx = (v, u) => parseFloat(v) * (CSS_UNIT[(u || 'pt').toLowerCase()] || 1);
+    text = text.replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (m, inner) => '[center]' + inner + '[/center]');
+    text = text.replace(/\\centerline\s*\{([\s\S]*?)\}/g, (m, inner) => '[center]' + inner + '[/center]');
+    text = text.replace(/\\vspace\*?\s*\{\s*(-?[\d.]+)\s*([a-z]*)\s*\}/gi, (m, v, u) =>
+      keep(`<span class="htx-vspace" style="margin-top:${lenPx(v, u)}px"></span>`));
+    text = text.replace(/\\(?:medskip|smallskip|bigskip)\b/g, (m) =>
+      keep(`<span class="htx-vspace" style="margin-top:${m.includes('big') ? 12 : m.includes('small') ? 4 : 8}px"></span>`));
+    text = text.replace(/\\hspace\*?\s*\{\s*(-?[\d.]+)\s*([a-z]*)\s*\}/gi, (m, v, u) =>
+      keep(`<span style="display:inline-block;width:${lenPx(v, u)}px"></span>`));
+    text = text.replace(/\\quad\b/g, () => keep('<span style="display:inline-block;width:16px"></span>'));
+    text = text.replace(/\\qquad\b/g, () => keep('<span style="display:inline-block;width:32px"></span>'));
+    text = text.replace(/\\hfill\b/g, () => keep('<span style="display:inline-block;flex:1"></span>'));
+    text = text.replace(/\\(?:newline|\\)(?:\[[^\]]*\])?/g, '\n');  // \\ and \newline → line break
+    text = text.replace(/\\par\b/g, '\n\n');
+    text = text.replace(/\\noindent\b/g, '');
 
     // Restore literal dollars, then HTML-escape the prose ([, ], = survive).
     text = text.split(DOLLAR).join('$');
