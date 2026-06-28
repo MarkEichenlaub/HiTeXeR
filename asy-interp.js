@@ -6326,12 +6326,16 @@ function createInterpreter() {
 
       const arrow = {_tag:'arrow', style:'Arrow', size:5};
 
-      // Draw into currentPic (not the local `pic` arg). The corpus idiom is
-      // `draw(pic,bt); add(pic.fit());` — routing through pic.fit() renders the
-      // subpicture at its natural 1:1 bp scale and drops the outer size(400),
-      // leaving the tree far too small. Drawing straight into currentPic lets
-      // size()/unitsize() on the main picture scale the tree as Asymptote does.
-      // (The same approach the drawtree module uses.)
+      // Drawing target. The single-tree corpus idiom is
+      //   size(...); draw(pic,bt); add(pic.fit());
+      // where add(pic.fit()) at the origin doesn't rescale the truesize frame, so
+      // we draw straight into currentPic and let size()/unitsize() scale the tree.
+      // BUT with NO size()/unitsize() the diagram is auto-scaled and may compose
+      // SEVERAL trees via add(pic.fit(),(0,0),10N/10S) (binarytree_1) — there each
+      // tree MUST live in its own `pic` so add(...,align) can stack them. So:
+      // size set → currentPic (scales); no size → the target `pic` (composable).
+      const _hasSize = (sizeW > 0 || sizeH > 0 || _globalUnitSize > 0);
+      const _tp = (!_hasSize && target && target !== currentPic) ? [target] : [];
 
       // Draw connecting arrows first (so circles/labels sit on top, matching
       // the module which adds node frames after the deferred connections).
@@ -6341,13 +6345,13 @@ function createInterpreter() {
         const ux = dx/len, uy = dy/len;
         const start = makePair(par._x + r*ux, par._y + r*uy);
         const end = makePair(ch._x - r*ux, ch._y - r*uy);
-        evalDraw('draw', [makePath([lineSegment(toPair(start), toPair(end))], false), arrow, pen]);
+        evalDraw('draw', [..._tp, makePath([lineSegment(toPair(start), toPair(end))], false), arrow, pen]);
       }
 
       // Draw nodes: circle + centered key label.
       for (const n of nodes) {
-        evalDraw('draw', [makeCirclePath({x:n._x, y:n._y}, r), pen]);
-        evalLabel(['$' + n.key + '$', makePair(n._x, n._y)]);
+        evalDraw('draw', [..._tp, makeCirclePath({x:n._x, y:n._y}, r), pen]);
+        evalLabel([..._tp, '$' + n.key + '$', makePair(n._x, n._y)]);
       }
     }
 
