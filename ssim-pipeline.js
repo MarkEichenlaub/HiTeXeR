@@ -40,7 +40,12 @@ const os = require('os');
 const rawArgs = process.argv.slice(2);
 const _concIdx = rawArgs.indexOf('--concurrency');
 const CONCURRENCY = _concIdx >= 0 ? parseInt(rawArgs[_concIdx + 1], 10) : os.cpus().length;
-const args = _concIdx >= 0 ? rawArgs.filter((_, i) => i !== _concIdx && i !== _concIdx + 1) : rawArgs;
+// --only id1,id2,... limits render-htx / rasterize / ssim to specific ids (handy
+// after a targeted fix instead of recomputing all ~13k pairs).
+const _onlyIdx = rawArgs.indexOf('--only');
+const ONLY = _onlyIdx >= 0 ? new Set(String(rawArgs[_onlyIdx + 1] || '').split(',').filter(Boolean)) : null;
+let args = _concIdx >= 0 ? rawArgs.filter((_, i) => i !== _concIdx && i !== _concIdx + 1) : rawArgs;
+if (_onlyIdx >= 0) { const oi = args.indexOf('--only'); if (oi >= 0) args = args.filter((_, i) => i !== oi && i !== oi + 1); }
 // render-asy is intentionally excluded from defaults: SSIM compares against
 // the cached texer_pngs/ references, so re-running real Asymptote is unneeded
 // for normal pipeline runs. Pass it explicitly (e.g. `node ssim-pipeline.js
@@ -165,6 +170,7 @@ async function _htxWorker() {
   global.katex = require('katex');
   require('./asy-interp.js');
   const A = window.AsyInterp;
+  const htxDoc = require('./htx-doc-render.js');
   let epsCache = null;
   try { epsCache = require('./eps-cache'); } catch(e) {}
   const HANG_SKIP = new Set(['gallery_2Dgraphs_electromagnetic.asy']);
@@ -173,10 +179,21 @@ async function _htxWorker() {
   for (const { f, id } of files) {
     if (HANG_SKIP.has(f)) { skip++; continue; }
     const raw = fs.readFileSync(path.join(CORPUS_DIR, f), 'utf8');
-    const code = '[asy]\n' + raw + '\n[/asy]';
-    if (!A.canInterpret(code)) { skip++; continue; }
     let imageCache = {};
     if (epsCache) { try { imageCache = epsCache.getImageCache(raw); } catch(e) {} }
+    // Multi-[asy] documents (e.g. the standing-wave harmonics): render each block
+    // as its own image and stack them, instead of merging every statement into one
+    // overlapping picture. renderDocSVG is robust to a single block failing.
+    if (htxDoc.isDocument(raw)) {
+      try {
+        const svg = htxDoc.renderDocSVG(raw, A, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
+        fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), svg);
+        ok++;
+      } catch(e) { fail++; }
+      continue;
+    }
+    const code = '[asy]\n' + raw + '\n[/asy]';
+    if (!A.canInterpret(code)) { skip++; continue; }
     try {
       const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
       fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), r.svg);
@@ -376,6 +393,7 @@ async function main() {
     console.log('Saving .asy source files...');
     let _saved = 0;
     for (let i = 0; i < allFiles.length; i++) {
+      if (ONLY && !ONLY.has(numId(i))) continue;
       const cp = path.join(CORPUS_DIR, allFiles[i]);
       if (!fs.existsSync(cp)) continue;   // reserved slot — file removed; id stays parked
       const src = cleanCodeTabs(fs.readFileSync(cp, 'utf8'));
@@ -395,7 +413,8 @@ async function main() {
     ]);
 
     const htxItems = allFiles.map((f, i) => ({ f, id: numId(i) }))
-      .filter(it => fs.existsSync(path.join(CORPUS_DIR, it.f)));   // skip reserved/removed slots
+      .filter(it => fs.existsSync(path.join(CORPUS_DIR, it.f)))    // skip reserved/removed slots
+      .filter(it => !ONLY || ONLY.has(it.id));
     console.log(`  Using ${CONCURRENCY} worker threads for rendering...`);
     const htxResults = await _spawnWorkers(CONCURRENCY, htxItems, 'render-htx',
       chunk => ({ files: chunk }));
@@ -608,7 +627,8 @@ async function main() {
       console.log(`  Font CSS built: ${fontCSS.length} chars (${fontCSS ? 'OK' : 'EMPTY — fonts will fall back'})`);
     const blink = USE_BLINK ? require('./blink-raster.js') : null;
     if (blink) await blink.getBrowser();
-    const svgFiles = fs.readdirSync(SVG_DIR).filter(f => f.endsWith('.svg')).sort();
+    const svgFiles = fs.readdirSync(SVG_DIR).filter(f => f.endsWith('.svg'))
+      .filter(f => !ONLY || ONLY.has(f.replace('.svg', ''))).sort();
     let ok = 0, fail = 0;
 
     await withConcurrency(svgFiles, CONCURRENCY, async sf => {
@@ -658,14 +678,26 @@ async function main() {
 
     const refPngs = new Set(fs.readdirSync(TEXER_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
     const htxPngs = new Set(fs.readdirSync(HTX_DIR).filter(f => f.endsWith('.png')).map(f => f.replace('.png', '')));
-    const pairs = [...refPngs].filter(id => htxPngs.has(id)).sort();
+    let pairs = [...refPngs].filter(id => htxPngs.has(id)).sort();
+    if (ONLY) pairs = pairs.filter(id => ONLY.has(id));
     console.log(`  ${pairs.length} pairs to compare`);
 
     console.log(`  Using ${CONCURRENCY} worker threads for scoring...`);
     const ssimChunks = await _spawnWorkers(CONCURRENCY, pairs, 'ssim',
       chunk => ({ pairs: chunk }));
-    const results = ssimChunks.flat().filter(Boolean);
+    let results = ssimChunks.flat().filter(Boolean);
 
+    // With --only we scored just a subset: MERGE into the existing file (replace
+    // the scored ids) rather than clobbering all other rows with this small set.
+    if (ONLY) {
+      let prev = [];
+      try { prev = JSON.parse(fs.readFileSync(path.join(OUT_DIR, 'ssim-results.json'), 'utf8')); } catch {}
+      const fresh = new Map(results.map(r => [r.id, r]));
+      const merged = prev.map(r => fresh.has(r.id) ? fresh.get(r.id) : r);
+      const seen = new Set(prev.map(r => r.id));
+      for (const r of results) if (!seen.has(r.id)) merged.push(r);
+      results = merged;
+    }
     results.sort((a, b) => a.combined - b.combined);
     fs.writeFileSync(path.join(OUT_DIR, 'ssim-results.json'), JSON.stringify(results, null, 2));
 
