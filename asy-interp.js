@@ -6300,7 +6300,7 @@ function createInterpreter() {
 
     const baseDraw = env.get('draw');
 
-    function drawBinarytree(target, tree, minDist, nodeMargin, pen) {
+    function drawBinarytree(target, tree, minDist, nodeMargin, pen, condensed) {
       const root = tree.root;
       if (!root) return;
       const nodeDiameter = labelBBoxDiag(root) + 2*nodeMargin;
@@ -6311,22 +6311,55 @@ function createInterpreter() {
       const nodes = [];
       const edges = [];
 
-      function place(node, px, py) {
+      // Non-condensed (the binarytree.asy "complete-tree" layout): every node
+      // reserves the full 2^(height-level) horizontal slot, so a node at depth d
+      // is spread as if the tree were a FULL binary tree — sparse trees fan out
+      // very wide. condensed=false diagrams (and balanced trees) want this.
+      function placeFull(node, px, py) {
         node._x = px; node._y = py;
         nodes.push(node);
         const dist = (nodeDiameter + minDist) * Math.pow(2, height - getLevel(node)) / 2;
         if (node.left) {
           const cx = px - dist/2, cy = py - levelDist;
           edges.push([node, node.left]);
-          place(node.left, cx, cy);
+          placeFull(node.left, cx, cy);
         }
         if (node.right) {
           const cx = px + dist/2, cy = py - levelDist;
           edges.push([node, node.right]);
-          place(node.right, cx, cy);
+          placeFull(node.right, cx, cy);
         }
       }
-      place(root, 0, 0);
+
+      // Condensed (binarytree.asy condensed=true): only LEAVES consume a
+      // horizontal slot (left-to-right at `step` spacing); a 2-child parent sits at
+      // the midpoint of its children, and a 1-child parent sits DIRECTLY above its
+      // child. Width grows with the LEAF COUNT (not 2^height, and not the full node
+      // count), so a sparse search tree stays as narrow as TeXeR draws it. Placing a
+      // single-child node above its child — rather than at child.x ± step/2 — keeps
+      // it a full `step` from the neighbouring leaf so nothing overlaps.
+      function placeCondensed() {
+        const step = nodeDiameter + minDist;   // adjacent-leaf centre spacing
+        let slot = 0;
+        (function walk(node, depth) {
+          node._y = -depth * levelDist;
+          nodes.push(node);
+          if (!node.left && !node.right) { node._x = slot * step; slot++; return; }
+          if (node.left)  { edges.push([node, node.left]);  walk(node.left,  depth + 1); }
+          if (node.right) { edges.push([node, node.right]); walk(node.right, depth + 1); }
+          if (node.left && node.right) node._x = (node.left._x + node.right._x) / 2;
+          else                         node._x = (node.left || node.right)._x;
+        })(root, 0);
+        // Recentre on the bbox so the pic sits symmetric about its own origin
+        // (matches the full-layout convention where the root is near x=0).
+        let mn = Infinity, mx = -Infinity;
+        for (const n of nodes) { if (n._x < mn) mn = n._x; if (n._x > mx) mx = n._x; }
+        const mid = (mn + mx) / 2;
+        for (const n of nodes) n._x -= mid;
+      }
+
+      if (condensed) placeCondensed();
+      else placeFull(root, 0, 0);
 
       const arrow = {_tag:'arrow', style:'Arrow', size:5};
 
@@ -6367,6 +6400,9 @@ function createInterpreter() {
       if (rest.length > 0 && rest[0] && rest[0]._tag === 'binarytree') {
         const tree = rest[0];
         let minDist = minDistDefault, nodeMargin = nodeMarginDefault, pen = null;
+        let condensed = false;  // binarytree.asy default: full "complete-tree"
+                                // layout (corpus 12299/12306-11 confirm sparse
+                                // no-arg trees render full-width, not packed)
         const pos = rest.slice(1);
         const nums = pos.filter(a => typeof a === 'number');
         if (nums.length >= 1) minDist = nums[0];
@@ -6378,9 +6414,10 @@ function createInterpreter() {
             if ('minDist' in a) minDist = toNumber(a.minDist);
             if ('nodeMargin' in a) nodeMargin = toNumber(a.nodeMargin);
             if ('p' in a && isPen(a.p)) pen = a.p;
+            if ('condensed' in a) condensed = !!toBool(a.condensed);
           }
         }
-        return drawBinarytree(target, tree, minDist, nodeMargin, pen);
+        return drawBinarytree(target, tree, minDist, nodeMargin, pen, condensed);
       }
       if (typeof baseDraw === 'function') return baseDraw(...args);
     });
