@@ -22290,6 +22290,44 @@ function createInterpreter() {
       return;
     }
     // Handle draw(path[], pen) — array of paths (e.g. from contour())
+    // draw(Label[] L, path[] g, pen p | pen[] p) — plain_Label.asy form used by
+    // import contour's labelled-level draw (ext_manual_contour_2). Draw each path
+    // with its index-cycled pen and anchor each non-empty label at its Relative
+    // position along the matching path. Without this the call no-ops entirely (the
+    // path-array handler below requires args[0] to BE the paths, not labels).
+    if (args.length >= 2 && isArray(args[0]) && args[0].length > 0 &&
+        args[0].every(v => v && v._tag === 'label') &&
+        isArray(args[1]) && args[1].length > 0 && isPath(args[1][0])) {
+      const labels = args[0];
+      const paths = args[1];
+      let penArr = null, singlePen = null;
+      for (let i = 2; i < args.length; i++) {
+        const a = args[i];
+        if (isArray(a) && a.length > 0 && a.every(isPen)) penArr = a;
+        else if (isPen(a)) singlePen = singlePen ? mergePens(singlePen, a) : a;
+      }
+      for (let i = 0; i < paths.length; i++) {
+        const path = paths[i];
+        let pen = clonePen(defaultPen);
+        if (singlePen) pen = mergePens(pen, singlePen);
+        if (penArr && penArr.length) pen = mergePens(pen, penArr[i % penArr.length]);
+        target.commands.push({cmd, path, pen, arrow:null, line: args._line || 0});
+        const lbl = labels[i % labels.length];
+        if (lbl && lbl.text) {
+          const t = typeof lbl.position === 'number' ? lbl.position : 0.5;
+          let pt = null;
+          try { pt = _pointOnPath(path, toNumber(t) * _pathTimeSpan(path)); } catch(e) {}
+          if (pt) target.commands.push({
+            cmd: 'label', text: lbl.text, pos: makePair(pt.x, pt.y),
+            align: isPair(lbl.align) ? lbl.align : null,
+            pen: lbl.pen ? mergePens(clonePen(defaultPen), lbl.pen) : clonePen(defaultPen),
+            labelTransform: lbl.transform || null, filltype: lbl.filltype || null,
+            line: args._line || 0,
+          });
+        }
+      }
+      return;
+    }
     if (args.length >= 1 && isArray(args[0]) && args[0].length > 0 && isPath(args[0][0])) {
       const paths = args[0];
       // Start with defaultPen as base so a user-supplied pen that doesn't
