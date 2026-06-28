@@ -20669,10 +20669,26 @@ function createInterpreter() {
       const sideLeft   = axisSide === 'Left';
       const sideTop    = axisSide === 'Top'    || axisSide === 'BottomTop';
       const sideBottom = axisSide === 'Bottom';
-      // Major ticks
-      for (let k = 0; k <= Nmaj; k++) {
-        const t = k / Nmaj;
-        const v = vmin + t * (vmax - vmin);
+      // Major ticks. When the palette's value (z) axis is LOG-scaled
+      // (scale(...,...,Log)), the colorbar maps log(v) to colour, so ticks sit at
+      // powers of 10 — positioned by their log fraction and labelled 10^k (e.g.
+      // palette_2's 10^-3..10^2) — not at even linear value steps.
+      const _zsc = target._zScale;
+      const _zLog = !!(_zsc && (_zsc.type === 'log' || _zsc.type === 'custom-log')) && vmin > 0 && vmax > 0;
+      const majorTicks = [];
+      if (_zLog) {
+        const lmin = Math.log10(vmin), lmax = Math.log10(vmax);
+        const lspan = (lmax - lmin) || 1;
+        const k0 = Math.ceil(lmin - 1e-9), k1 = Math.floor(lmax + 1e-9);
+        for (let k = k0; k <= k1; k++) majorTicks.push({ t: (k - lmin) / lspan, text: '$10^{' + k + '}$' });
+      } else {
+        for (let k = 0; k <= Nmaj; k++) {
+          const t = k / Nmaj;
+          majorTicks.push({ t, text: _formatPaletteTick(fmt, vmin + t * (vmax - vmin)) });
+        }
+      }
+      for (const mt of majorTicks) {
+        const t = mt.t;
         let p0, p1, lp, align;
         if (vertical) {
           const y = y0 + t * (y1 - y0);
@@ -20684,9 +20700,7 @@ function createInterpreter() {
           else            { p0 = makePair(x, y0); p1 = makePair(x, y0 - tickLen); lp = makePair(x, y0 - tickLen); align = makePair(0, -1); }
         }
         target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: tickPen, line, _paletteLegend:true});
-        // Label
-        const labelText = _formatPaletteTick(fmt, v);
-        target.commands.push({cmd:'label', text: labelText, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
+        target.commands.push({cmd:'label', text: mt.text, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
       }
       // Minor ticks: nSub subdivisions per major interval.
       if (nSub > 1) {
