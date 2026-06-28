@@ -4858,6 +4858,17 @@ function createInterpreter() {
       }
     }
 
+    // Namespace-qualified call on an UNRESOLVED import: `ns.func(...)` where `ns`
+    // evaluated to null because HiTeXeR stubs external URL imports
+    // (e.g. `import "/var/www/.../karlin.asy" as karlin; karlin.rr_cartesian_axes(...)`).
+    // The module's functions ARE our global builtins, so dispatch to the global
+    // `func`, preserving named args (evalArgList) so e.g. usegrid=/complexplane=
+    // still bind. Without this 04296's axes silently vanished.
+    if (obj == null) {
+      const g = env.get(method);
+      if (typeof g === 'function') return g(...evalArgList(argNodes, env));
+      if (g && g._tag === 'func') return callUserFuncValues(g, evalArgList(argNodes, env));
+    }
     return null;
   }
 
@@ -5861,7 +5872,12 @@ function createInterpreter() {
     if (mod.includes('contour')) {
       installContourPackage(env);
     }
-    if (mod.includes('trigmacros')) {
+    // karlin.asy (the AoPS external helper, usually imported by URL) provides the
+    // SAME rr_cartesian_axes / rr_polar_axes etc. as TrigMacros, so install them
+    // for karlin imports too — 04296 draws its complex-plane axes via
+    //   import "…/karlin.asy" as karlin; karlin.rr_cartesian_axes(…)
+    // (the namespace-qualified call is dispatched to the global by evalMethodCall).
+    if (mod.includes('trigmacros') || mod.includes('karlin')) {
       installGraphPackage(env); // TrigMacros depends on graph
       installTrigMacros(env);
     }
