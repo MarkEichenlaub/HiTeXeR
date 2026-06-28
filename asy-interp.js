@@ -31676,7 +31676,12 @@ function renderSVG(result, opts) {
         if (Math.abs(axLinf) > 0.99 && !dc.labelTransform
             && (dc._isAxisLabel || (Math.abs(ay) < 0.01 && numLines <= 1))) {
           anchor = ax < 0 ? 'end' : 'start';
-          dx = axLinf * margin + axUnit * dotPush;
+          // Use the FULL align.x for the margin push (not the L-inf-normalized
+          // axLinf) so a magnitude>1 align like 8W pushes the label 8 margins out,
+          // matching the anchor='middle' branch above (ax_n*W + ax*margin gives the
+          // same edge). Normalizing here dropped the magnitude — the "$x$" at 8W in
+          // 05547 sat one margin out instead of eight.
+          dx = ax * margin + axUnit * dotPush;
           dy = -(ay_n * H + ayLinf * margin + ayUnit * dotPush);
         }
       }
