@@ -10628,7 +10628,7 @@ function createInterpreter() {
       }
       if (!b || !dir) return;
       if (!pen) pen = clonePen(defaultPen);
-      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:6};
+      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:0};
 
       // bp-per-user-unit at call time (mirrors _markerBpPerUnit).
       const _gb = getGeoBbox(target.commands);
@@ -13016,6 +13016,83 @@ function createInterpreter() {
         }
       }
       return null;
+    });
+
+    // graph.asy vectorfield(path vector(pair), pair a, pair b, int nx=nmesh,
+    // int ny=nx, bool truesize=false, bool cond(pair)=null, pen p, arrowbar
+    // arrow=Arrow). Draws an arrow at each node of an nx×ny grid over [a,b];
+    // the arrow at z is vector(z) scaled by the cell size (dx,dy) and a global
+    // `scale` chosen so the longest arrow just fills a cell. Returns a picture
+    // (the corpus idiom is add(vectorfield(...))).
+    env.set('vectorfield', (...args) => {
+      let vectorFn = null, a = null, b = null, pen = null, arrowDesc = null;
+      let truesize = false, condFn = null;
+      const nums = [];
+      for (const x of args) {
+        if (isCallable(x)) { if (!vectorFn) vectorFn = x; else if (!condFn) condFn = x; }
+        else if (isPair(x)) { if (!a) a = toPair(x); else if (!b) b = toPair(x); }
+        else if (typeof x === 'number') nums.push(x);
+        else if (isPen(x)) pen = x;
+        else if (x && x._tag === 'arrow') arrowDesc = x;
+        else if (typeof x === 'boolean') truesize = x;
+        else if (x && x._named) {
+          if (typeof x.nx === 'number') nums[0] = x.nx;
+          if (typeof x.ny === 'number') nums[1] = x.ny;
+          if (typeof x.truesize === 'boolean') truesize = x.truesize;
+          if (isPen(x.p)) pen = x.p;
+          if (x.arrow && x.arrow._tag === 'arrow') arrowDesc = x.arrow;
+          if (isCallable(x.cond)) condFn = x.cond;
+        }
+      }
+      const pic = {_tag:'picture', commands:[]};
+      // The graph3 (3D) overload — vectorfield(path3 vector(pair), triple f(pair)
+      // surface, pair a, pair b, …) — leads with TWO callables (vector + surface),
+      // whereas this 2D form has one callable then two pairs. Skip the 3D form so
+      // its path3 arrows aren't drawn as garbage 2D lines (12779/12843 ballooned to
+      // a 2050×3888 canvas); leaving the picture empty lets the rest render.
+      const _pos = args.filter(x => !(x && x._named));
+      if (_pos.length >= 2 && isCallable(_pos[0]) && isCallable(_pos[1])) return pic;
+      if (!vectorFn || !a || !b) return pic;
+      const nx = nums.length >= 1 && nums[0] > 1 ? Math.floor(nums[0]) : 10; // nmesh=10
+      const ny = nums.length >= 2 && nums[1] > 1 ? Math.floor(nums[1]) : nx;
+      if (!pen) pen = clonePen(defaultPen);
+      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:0};
+      const dx = (b.x - a.x) / (nx - 1), dy = (b.y - a.y) / (ny - 1);
+      // vector(z) → its displacement pair (endpoint − start). A bare pair return
+      // (the common idiom, e.g. (sin x, cos y)) is a single-point path ⇒ the pair.
+      const vecOf = (x, y) => {
+        let r; try { r = callUserFuncValues(vectorFn, [makePair(x, y)]); } catch (e) { return makePair(0, 0); }
+        if (isPair(r)) return toPair(r);
+        if (isPath(r) && r.segs && r.segs.length) {
+          const s0 = r.segs[0].p0, s1 = r.segs[r.segs.length - 1].p3;
+          return makePair(s1.x - s0.x, s1.y - s0.y);
+        }
+        return makePair(0, 0);
+      };
+      const nodes = [];
+      let maxX = 0, maxY = 0;
+      for (let i = 0; i < nx; i++) {
+        const x = a.x + i * dx;
+        for (let j = 0; j < ny; j++) {
+          const y = a.y + j * dy;
+          const v = vecOf(x, y);
+          nodes.push({ x, y, v });
+          if (Math.abs(dx * v.x) > maxX) maxX = Math.abs(dx * v.x);
+          if (Math.abs(dy * v.y) > maxY) maxY = Math.abs(dy * v.y);
+        }
+      }
+      let scale;
+      if (maxX === 0) scale = maxY === 0 ? 1.0 : dy / maxY;
+      else if (maxY === 0) scale = dx / maxX;
+      else scale = Math.min(dx / maxX, dy / maxY);
+      for (const nd of nodes) {
+        if (condFn) { let c; try { c = callUserFuncValues(condFn, [makePair(nd.x, nd.y)]); } catch (e) { c = true; } if (!toBool(c)) continue; }
+        const ex = nd.x + scale * dx * nd.v.x, ey = nd.y + scale * dy * nd.v.y;
+        if (ex === nd.x && ey === nd.y) continue; // zero vector → nothing to draw
+        const path = makePath([lineSegment(makePair(nd.x, nd.y), makePair(ex, ey))], false);
+        pic.commands.push({ cmd: 'draw', path, pen: clonePen(pen), arrow: arrowDesc, line: 0 });
+      }
+      return pic;
     });
 
     // Helper: build path from points, using smooth (..) or straight (--) joins
