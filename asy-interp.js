@@ -28055,7 +28055,17 @@ function renderSVG(result, opts) {
       const _sh = sizeH > 0 ? sizeH : Infinity;
       const _gW = (geoMaxX - geoMinX) || 1;
       const _gH = (geoMaxY - geoMinY) || 1;
-      pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
+      if (!keepAspect && sizeW > 0 && sizeH > 0) {
+        // IgnoreAspect with axes/unitScale present: x and y must scale
+        // INDEPENDENTLY to fill size(W,H). Forcing them equal via min() collapsed
+        // wide axis plots — graph_2's size(400,200,IgnoreAspect) (an axis plot, so
+        // hasUnitScale is set via _isAxisLine) rendered 142 wide instead of ~400.
+        pxPerUnitX = _sw / _gW;
+        pxPerUnitY = _sh / _gH;
+        pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+      } else {
+        pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
+      }
     } else if (!_trueSizeFrame && !_is3D && _boundsInexact) {
       // TRUE TeXeR pass-2 (fit2's corrective rescale, one step): re-measure
       // the literal frame (geometry + truesize labels) and rescale the
@@ -28318,7 +28328,17 @@ function renderSVG(result, opts) {
         if (_sxS === 0) _sxS = _syS;
         if (_syS === 0) _syS = _sxS;
         if (_sxS > 0 && _syS > 0) {
-          pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+          if (keepAspect) {
+            pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+          } else {
+            // IgnoreAspect (keepAspect=false): x and y scale INDEPENDENTLY to fill
+            // size(W,H). Forcing them equal via min() collapsed wide plots — e.g.
+            // graph_2's size(400,200,IgnoreAspect) over x∈[0,1],y∈[-1,1] rendered
+            // 142 wide (x stuck at the y-scale 58.8) instead of ~400.
+            pxPerUnitX = _sxS;
+            pxPerUnitY = _syS;
+            pxPerUnit = Math.min(_sxS, _syS);
+          }
           _sizeLpApplied = true;
         }
       }
