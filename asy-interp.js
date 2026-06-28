@@ -8260,14 +8260,16 @@ function createInterpreter() {
     env.set('hatch', (...args) => _makeHatch(false, args));
     env.set('crosshatch', (...args) => _makeHatch(true, args));
     // patterns module: tile/checker/brick cell patterns (patterns.asy). Args:
-    //   tile(real Hx=5mm, real Hy=Hx, pen p=nullpen, filltype=NoFill)
-    //   checker(real Hx=5mm, real Hy=Hx, pen p=currentpen)
-    //   brick(real Hx=10mm, real Hy=Hx/2, pen p=currentpen)
-    // Hx/Hy are cell sizes in bp (mm/cm constants already converted). `fill` is
-    // set when a Fill/FillDraw filltype is passed (tile only).
+    //   tile(real Hx=5mm, real Hy=Hx,   pen p=currentpen, filltype=NoFill)
+    //   checker(real Hx=5mm, real Hy=Hx,   pen p=currentpen)
+    //   brick(real Hx=5mm, real Hy=Hx/2, pen p=currentpen)
+    // All three default Hx=5mm (verified against Asymptote 3.05 patterns.asy);
+    // only brick's default Hy differs (Hx/2 → 2:1 brick aspect). Hx/Hy are cell
+    // sizes in bp (mm/cm constants already converted). `fill` is set when a
+    // Fill/FillDraw filltype is passed (tile only).
     const MM = 72 / 25.4;
     const _makeTilePat = (kind, args) => {
-      let Hx = (kind === 'brick' ? 10 : 5) * MM, Hy = null, pen = null, fill = false, numCount = 0;
+      let Hx = 5 * MM, Hy = null, pen = null, fill = false, numCount = 0;
       for (const a of args) {
         if (a && a._named) {
           if (typeof a.Hx === 'number') Hx = a.Hx;
