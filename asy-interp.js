@@ -5889,6 +5889,10 @@ function createInterpreter() {
     }
     if (mod.includes('graph')) {
       installGraphPackage(env);
+      // marker()/markuniform()/marknodes/errorbars are part of graph in real
+      // Asymptote (plain_markers.asy is auto-loaded), so make them available
+      // without a separate `import markers` (ext_manual_graph_7).
+      installMarkersPackage(env);
     }
     if (mod.includes('stats')) {
       // stats.asy imports graph and adds histogram/Gaussian/bins/Gaussrand.
@@ -6965,10 +6969,14 @@ function createInterpreter() {
       let frame = ('uniform' in named) ? named.uniform : (('f' in named) ? named.f : null);
       let routine = ('markroutine' in named) ? named.markroutine : null;
       let above = ('above' in named) ? !!named.above : true;
+      let symbolPath = null, symbolPen = null, symbolFill = null;
       // Positional dispatch
       for (const a of pos) {
         if (a && (a._tag === 'mframe')) { if (!frame) frame = a; }
         else if (typeof a === 'function' && a._isMarkroutine) { if (!routine) routine = a; }
+        else if (a && a._tag === 'filltype') { symbolFill = a; }
+        else if (isPen(a)) { if (!symbolPen) symbolPen = a; }
+        else if (isPath(a)) { if (!symbolPath) symbolPath = a; }
         else if (typeof a === 'function') {
           // Could be a frame-builder function used as bare reference (e.g.
           // stickframe). Resolve to default frame.
@@ -6980,9 +6988,6 @@ function createInterpreter() {
         else if (Array.isArray(a) && a.length > 0 && isPath(a[0])) {
           // marker(path[] g, ...) form: build a stroked frame from the paths.
           const f = _newFrame();
-          // Simple approximation: stroke each path with currentpen — convert
-          // to bp-coord stroke list. (Each path is in bp units already since
-          // these come from markers.asy's path constructions.)
           for (const pth of a) {
             if (pth && pth.segs) {
               for (const s of pth.segs) {
@@ -6992,6 +6997,31 @@ function createInterpreter() {
           }
           if (!frame) frame = f;
         }
+      }
+      // marker(path g, pen p, filltype filltype, above) — a single symbol path
+      // (e.g. scale(0.8mm)*unitcircle) filled per filltype and outlined with p.
+      // Build a frame: flatten g to a bp polyline, add a fill (filltype pen) and
+      // an outline stroke (the marker pen).
+      if (!frame && symbolPath && symbolPath.segs && symbolPath.segs.length) {
+        const f = _newFrame();
+        const segs = symbolPath.segs;
+        const pts = [{ x: segs[0].p0.x, y: segs[0].p0.y }];
+        for (const s of segs) {
+          for (let k = 1; k <= 8; k++) {
+            const t = k / 8, b = 1 - t;
+            pts.push({ x: b*b*b*s.p0.x + 3*b*b*t*s.cp1.x + 3*b*t*t*s.cp2.x + t*t*t*s.p3.x,
+                       y: b*b*b*s.p0.y + 3*b*b*t*s.cp1.y + 3*b*t*t*s.cp2.y + t*t*t*s.p3.y });
+          }
+        }
+        const drawPen = symbolPen ? clonePen(symbolPen) : clonePen(env.get('currentpen') || defaultPen);
+        const fstyle = symbolFill && symbolFill.style;
+        if (fstyle === 'Fill' || fstyle === 'FillDraw') {
+          f.fills.push({ pts: pts.map(p => ({ x: p.x, y: p.y })), closed: true, pen: clonePen(symbolFill.pen || drawPen) });
+        }
+        if (fstyle !== 'Fill') {
+          f.strokes.push({ pts: pts.map(p => ({ x: p.x, y: p.y })), closed: !!symbolPath.closed, pen: drawPen });
+        }
+        frame = f;
       }
       if (!frame) frame = _newFrame();
       if (!routine) routine = _markNodes;
@@ -12913,6 +12943,42 @@ function createInterpreter() {
     env.set('Hermite', {_tag:'operator', value:'..'});
     env.set('Linear',  {_tag:'operator', value:'--'});
 
+    // errorbars(picture pic=currentpicture, pair[] z, pair[] dp, pair[] dm=dp,
+    //           bool[] cond={}, pen p=currentpen, real size=0): draw an error
+    // cross at each data point z[i] spanning ±dp[i]/±dm[i] in x and y, with small
+    // perpendicular end caps. (graph.asy; ext_manual_graph_7.)
+    env.set('errorbars', (...args) => {
+      let target = currentPic, rest = args;
+      if (rest.length && rest[0] && rest[0]._tag === 'picture') { target = rest[0]; rest = rest.slice(1); }
+      const arrs = rest.filter(a => Array.isArray(a) && a.length && isPair(a[0]));
+      const z = arrs[0], dp = arrs[1], dm = arrs[2] || arrs[1];
+      if (!z || !dp) return null;
+      let pen = null; for (const a of rest) if (isPen(a)) { pen = a; break; }
+      pen = pen ? clonePen(pen) : clonePen(defaultPen);
+      // Cap half-length in user units, derived from the geometry extent so caps
+      // stay a small, visible fraction of the plot (Asymptote's default size=0
+      // draws a modest cap). ~1.2% of the larger data span.
+      let spanX = 0, spanY = 0;
+      for (const a of z) { const p = toPair(a); spanX = Math.max(spanX, Math.abs(p.x)); spanY = Math.max(spanY, Math.abs(p.y)); }
+      const cap = 0.012 * Math.max(spanX, spanY, 1);
+      const seg = (a, b) => evalDraw('draw', [target, makePath([lineSegment(toPair(a), toPair(b))], false), pen]);
+      for (let i = 0; i < z.length; i++) {
+        const p = toPair(z[i]);
+        const u = toPair(dp[i] || makePair(0, 0)), d = toPair(dm[i] || dp[i] || makePair(0, 0));
+        if (u.y !== 0 || d.y !== 0) {
+          seg(makePair(p.x, p.y - d.y), makePair(p.x, p.y + u.y));
+          seg(makePair(p.x - cap, p.y + u.y), makePair(p.x + cap, p.y + u.y));
+          seg(makePair(p.x - cap, p.y - d.y), makePair(p.x + cap, p.y - d.y));
+        }
+        if (u.x !== 0 || d.x !== 0) {
+          seg(makePair(p.x - d.x, p.y), makePair(p.x + u.x, p.y));
+          seg(makePair(p.x + u.x, p.y - cap), makePair(p.x + u.x, p.y + cap));
+          seg(makePair(p.x - d.x, p.y - cap), makePair(p.x - d.x, p.y + cap));
+        }
+      }
+      return null;
+    });
+
     // Helper: build path from points, using smooth (..) or straight (--) joins
     function buildGraphPath(pts, useSmooth) {
       if (pts.length < 2) return makePath([], false);
@@ -13007,6 +13073,17 @@ function createInterpreter() {
       };
       // Strip operator/bool3/picture args and named args for cleaner matching
       const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named) && !(a && a._tag === 'picture'));
+
+      // graph(pair[] z) or graph(pair[] z, operator ..): path through the data
+      // points (graph_7's pair[] form). Distinguished from the real[]×2 form by
+      // the element type. Apply any per-picture log/scale transform. Asymptote's
+      // pair[] graph defaults to STRAIGHT (--) joins; only an explicit Spline/..
+      // operator makes it smooth.
+      if (coreArgs.length >= 1 && isArray(coreArgs[0]) && coreArgs[0].length > 0 && isPair(coreArgs[0][0])) {
+        const pts = coreArgs[0].map(p => { const q = toPair(p); return { x: _xT(q.x), y: _yT(q.y) }; });
+        const splineOp = args.some(a => isOperator(a) && a.value === '..');
+        return buildGraphPath(pts, splineOp);
+      }
 
       // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
       if (coreArgs.length >= 2 && isArray(coreArgs[0]) && isArray(coreArgs[1])) {
@@ -22092,6 +22169,16 @@ function createInterpreter() {
       // transform). The frame will be emitted to a picture by shipout(frame) or add().
       frameTarget = args[0];
       args = args.slice(1);
+    }
+    // Marker support: draw(…, graph(…), marker(…)) places the marker symbol along
+    // the drawn path via its markroutine (marknodes/markuniform). The path is still
+    // drawn by the normal logic below; we just also stamp the markers (graph_7).
+    {
+      const _mk = args.find(a => a && a._tag === 'marker' && !a._empty);
+      if (_mk) {
+        const _mpath = args.find(a => isPath(a));
+        if (_mpath) { try { applyMarker(target, _mk, _mpath); } catch (e) {} }
+      }
     }
     // draw(Label L, box, filltype) — boxed label at the Label's own pair
     // position. Here `box` is the envelope (frame-border routine), not a path;
