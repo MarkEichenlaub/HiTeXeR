@@ -8311,6 +8311,8 @@ function createInterpreter() {
     env.set('log10', _broadcast1(Math.log10));
     env.set('log2', _broadcast1(Math.log2));
     env.set('pow', _broadcast2(Math.pow));
+    // Asymptote's pow10(x) = 10^x (plain.asy / mathfuns).
+    env.set('pow10', _broadcast1((x) => Math.pow(10, x)));
     // Euler gamma function via Lanczos approximation (g=7, n=9 coefficients)
     const _lanczosG = 7;
     const _lanczosC = [
@@ -9220,7 +9222,15 @@ function createInterpreter() {
         const cy = (minY + maxY) / 2;
         const hx = (maxX - minX) / 2;
         const hy = (maxY - minY) / 2;
-        return makePair(cx + d.x * hx, cy + d.y * hy);
+        // Asymptote's point(picture, dir) uses dir components DIRECTLY to pick a
+        // bbox point, so the corner constants must be (±1,±1). This interpreter
+        // normalizes NE/SE/NW/SW to unit-length 45° vectors (±0.707) for label
+        // alignment (the _diag45 shim); recover the ±1 corner here so colorbar
+        // legends (palette(...,point(SE)+(.5,0),point(NE)+(1,0),...)) sit OUT to
+        // the right of the plot at full height instead of overlapping its edge.
+        const dx = d._diag45 ? Math.sign(d.x) : d.x;
+        const dy = d._diag45 ? Math.sign(d.y) : d.y;
+        return makePair(cx + dx * hx, cy + dy * hy);
       }
       return _pointOnPath(args[0], args[1]);
     });
@@ -12466,8 +12476,24 @@ function createInterpreter() {
         }
       }
 
+      // Grid extremes: a contour level at (or within a sub-cell epsilon of) the
+      // global max/min has no real interior — Asymptote draws nothing there. But
+      // image() samples at cell CENTRES, so its returned range.max/min sit a hair
+      // inside the true extreme; the top/bottom level then sits just under a peak
+      // that contour()'s vertex grid samples exactly, producing a degenerate
+      // 1-cell loop that renders as a stray dot at every extremum. Skip such
+      // near-degenerate levels (tol = 0.2% of span) to match Asymptote.
+      let gridMin = Infinity, gridMax = -Infinity;
+      for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
+        const v = grid[i][j];
+        if (v < gridMin) gridMin = v;
+        if (v > gridMax) gridMax = v;
+      }
+      const _degenTol = (gridMax - gridMin) * 0.002;
+
       // Marching squares for each level
       for (const level of levels) {
+        if (level >= gridMax - _degenTol || level <= gridMin + _degenTol) continue;
         // Collect edge intersection segments
         const segments = [];
         for (let i = 0; i < nx; i++) {
@@ -16675,7 +16701,11 @@ function createInterpreter() {
         const cy = (gb.minY + gb.maxY) / 2;
         const hx = (gb.maxX - gb.minX) / 2;
         const hy = (gb.maxY - gb.minY) / 2;
-        return makePair(cx + d.x * hx, cy + d.y * hy);
+        // See note at the base point(): un-normalize the _diag45 corner constants
+        // (NE/SE/NW/SW) back to (±1,±1) for true bbox-corner picking.
+        const dx = d._diag45 ? Math.sign(d.x) : d.x;
+        const dy = d._diag45 ? Math.sign(d.y) : d.y;
+        return makePair(cx + dx * hx, cy + dy * hy);
       }
       // point(path, real t): sample the path at parameter t. The base point()
       // delegates to _pointOnPath; the geometry override must defer to that
@@ -20667,18 +20697,37 @@ function createInterpreter() {
     // end and white at the high end (Black/White Rainbow). The reference texer
     // 12726.png shows the colorbar going black → violet → blue → cyan → green →
     // yellow → orange → red → white.
+    // BWRainbow stops sampled empirically from the TeXeR (stock-Asymptote) render
+    // at 0.1 intervals across the value range. The naive 9-stop even rainbow put
+    // pure blue at f=-0.5 and violet at f=-0.7, but stock Asymptote's cool half
+    // runs green→cyan→AZURE→blue→purple→black (azure (0,131,255) at f=-0.5), so
+    // the old version mis-coloured the large green-saddle / cool-blob regions of
+    // contour heatmaps (ext_manual_contour_4, 12726). These 21 stops reproduce
+    // the measured ramp, preserving the exact red/cyan/orange peaks.
     const bwRainbowPens = () => {
-      const c = (r,g,b) => makePen({r, g, b});
+      const c = (r,g,b) => makePen({r: r/255, g: g/255, b: b/255});
       return [
-        c(0, 0, 0),        // black (low)
-        c(0.5, 0, 1),      // violet
-        c(0, 0, 1),        // blue
-        c(0, 1, 1),        // cyan
-        c(0, 1, 0),        // green
-        c(1, 1, 0),        // yellow
-        c(1, 0.5, 0),      // orange
-        c(1, 0, 0),        // red
-        c(1, 1, 1),        // white (high)
+        c(0,   0,   0),    // f=-1.0 black
+        c(79,  0,   79),   // f=-0.9 purple
+        c(50,  0,   156),  // f=-0.8
+        c(21,  0,   234),  // f=-0.7 blue
+        c(10,  65,  244),  // f=-0.6
+        c(0,   131, 255),  // f=-0.5 azure
+        c(0,   193, 240),  // f=-0.4
+        c(0,   255, 225),  // f=-0.3 cyan
+        c(0,   255, 154),  // f=-0.2
+        c(0,   255, 84),   // f=-0.1
+        c(30,  255, 42),   // f= 0.0 green
+        c(60,  255, 0),    // f=+0.1
+        c(142, 255, 0),    // f=+0.2
+        c(225, 255, 0),    // f=+0.3 yellow
+        c(240, 193, 0),    // f=+0.4
+        c(255, 131, 0),    // f=+0.5 orange
+        c(255, 76,  10),   // f=+0.6
+        c(255, 21,  21),   // f=+0.7 red
+        c(255, 98,  98),   // f=+0.8
+        c(255, 176, 176),  // f=+0.9 pink
+        c(255, 255, 255),  // f=+1.0 white
       ];
     };
     env.set('Rainbow', (...args) => {
@@ -30385,7 +30434,13 @@ function renderSVG(result, opts) {
     globalThis._hatchPatCounter += 1;
     const pid = `_hpat${globalThis._hatchPatCounter}`;
     const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
-    const lwPx = Math.max(0.4, ((spec.pen && spec.pen.linewidth) || 0.5) * bpCSSPixel);
+    // TeXeR renders default/hairline hatch pens device-pixel-snapped (~3x the
+    // geometric 0.5bp width — see the "default stroke thinness" note), so a bare
+    // hatch()/crosshatch() looks far too thin in HiTeXeR. Boost only thin/default
+    // pens; an explicit thick hatch pen (e.g. hatch(black+2bp)) keeps its width.
+    let lwBp = (spec.pen && spec.pen.linewidth) || 0.5;
+    if (lwBp <= 0.6) lwBp *= 2.5;
+    const lwPx = Math.max(0.4, lwBp * bpCSSPixel);
     const hp = spec.pen || {r:0,g:0,b:0};
     const hcol = '#' + [hp.r,hp.g,hp.b].map(c => {
       const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
