@@ -867,6 +867,7 @@
       const names = manifest.courseNames || {};
       list = list.filter(d =>
         d.id.includes(search) ||
+        (d.num && d.num.includes(search)) ||
         d.source.toLowerCase().includes(search) ||
         d.collection.toLowerCase().includes(search) ||
         (names[d.collection] || '').toLowerCase().includes(search)
@@ -960,7 +961,7 @@
           <div class="half">${htxHalf}<div class="half-label">HiTeXeR</div></div>
         </div>
         <div class="info">
-          <span class="id">${d.id}</span>
+          <span class="id">${d.num || d.id}</span>
           ${badge}
           <span class="queue-badge">queued</span>
         </div>
@@ -1444,8 +1445,9 @@
     const ssimEl = document.getElementById('blink-ssim');
     const posEl = document.getElementById('blink-position');
 
-    // Update metadata row
-    idEl.textContent = d.id;
+    // Update metadata row. Show the display number; ext diagrams' string id (the
+    // file key) stays visible via the filename field.
+    idEl.textContent = d.num || d.id;
     fileEl.textContent = ` | ${d.source} | `;
     ssimEl.textContent = d.ssim !== null && d.ssim !== undefined ? d.ssim.toFixed(4) : 'N/A';
     const combWrap = document.getElementById('blink-combined-wrap');
@@ -2109,6 +2111,10 @@
         if (e.key === 'Escape') { e.preventDefault(); e.target.blur(); }
         return;
       }
+      // Let OS shortcuts through (Ctrl/Cmd+C copy, Ctrl+A select-all, etc.) so
+      // selecting and copying text in the comparator works normally — bare keys
+      // remain single-key shortcuts.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       switch (e.key) {
         case 'ArrowLeft':
         case 'ArrowRight':
@@ -2300,11 +2306,12 @@
   document.getElementById('blink-search').addEventListener('input', () => {
     const val = document.getElementById('blink-search').value.trim();
     if (/^\d{5}$/.test(val)) {
-      let idx = filtered.findIndex(d => d.id === val);
-      if (idx < 0 && manifest && manifest.diagrams.some(d => d.id === val)) {
+      const matchNum = d => d.id === val || d.num === val;
+      let idx = filtered.findIndex(matchNum);
+      if (idx < 0 && manifest && manifest.diagrams.some(matchNum)) {
         document.getElementById('search-input').value = val;
         applyFilters(true);
-        idx = filtered.findIndex(d => d.id === val);
+        idx = filtered.findIndex(matchNum);
       }
       if (idx >= 0) {
         document.getElementById('blink-search').value = '';

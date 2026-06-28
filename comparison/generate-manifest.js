@@ -153,6 +153,7 @@ for (let i = 0; i < corpusOrder.length; i++) {
 
   diagrams.push({
     id,
+    num: id,                     // display number === numeric id for the main corpus
     source,
     collection,
     hasEps,
@@ -180,10 +181,31 @@ const EXT_NAMES = {
   staats:   'Staats — An Asymptote Tutorial',
   asytug:   'Bowman — Asymptote (TUGboat)',
 };
+// ── Stable, append-only ext display numbers ────────────────────────────────
+// Ext diagrams keep their STRING id (the file key for htx/texer/asy_src) but ALSO
+// get a 5-digit display number, so every diagram in the comparator has one to be
+// referred to like the rest. Numbers start at EXT_NUM_BASE — well clear of the
+// asy_corpus positional range (~15k) — and are append-only via ext-ids.json, so
+// existing ext numbers never move when new ext files are added.
+const EXT_NUM_BASE = 90000;
+const EXT_IDS_FILE = path.join(OUT_DIR, 'ext-ids.json');
+let extOrder = [];
+try { extOrder = JSON.parse(fs.readFileSync(EXT_IDS_FILE, 'utf-8')); } catch {}
 if (fs.existsSync(EXT_DIR)) {
   const extFiles = fs.readdirSync(EXT_DIR).filter(f => f.endsWith('.asy')).sort();
+  const extStems = extFiles.map(f => f.replace(/\.asy$/, ''));
+  const extKnown = new Set(extOrder);
+  const newExt = extStems.filter(s => !extKnown.has(s)).sort();
+  if (newExt.length) {
+    const firstNew = extOrder.length;
+    extOrder = extOrder.concat(newExt);
+    fs.writeFileSync(EXT_IDS_FILE, JSON.stringify(extOrder, null, 0));
+    console.log(`Appended ${newExt.length} new ext file(s) -> nums ${String(EXT_NUM_BASE + firstNew + 1).padStart(5,'0')}..${String(EXT_NUM_BASE + extOrder.length).padStart(5,'0')}`);
+  }
+  const extNumOf = new Map(extOrder.map((s, i) => [s, String(EXT_NUM_BASE + i + 1).padStart(5, '0')]));
   for (const source of extFiles) {
     const id = source.replace(/\.asy$/, '');
+    const num = extNumOf.get(id) || id;
     const m = id.match(/^ext_([a-z0-9]+)_/);
     const collection = m ? `ext:${m[1]}` : 'ext:other';
     collectionsSet.add(collection);
@@ -192,7 +214,7 @@ if (fs.existsSync(EXT_DIR)) {
     if (hasEps) epsCount++;
     const ssimEntry = ssimLookup[id];
     diagrams.push({
-      id, source, collection, hasEps,
+      id, num, source, collection, hasEps,
       hasAsy:  asySet.has(id),
       hasHtx:  htxSet.has(id),
       hasSvg:  svgSet.has(id),
