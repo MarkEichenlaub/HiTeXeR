@@ -27246,7 +27246,14 @@ function renderSVG(result, opts) {
   // and the axis ticks the frame extends out to reach them — fell off-frame
   // (the missing x=6 tick in 00115). Union (expand-only) so geometry that
   // overshoots NoCrop limits still draws beyond the window rather than clipping.
-  if (axisLimits && !axisLimits.crop) {
+  // Skip for a truesize composited frame: its geometry is already in bp space
+  // (a fitted+placed sub-picture), so the non-crop limits — which are in USER
+  // coords — are a different coordinate system. Applying them mixes spaces and,
+  // when the frame was add()ed with a large align shift (00430:
+  // add(pic3.fit(),(0,0),12*margin*S) shifts the frame to bp y[-306,-182] while
+  // pic3's leaked ylimits ymax=4), pulls maxY up to the user-coord 4 → ~187bp of
+  // phantom empty canvas above the content (a 311-tall viewBox vs the ~125 frame).
+  if (axisLimits && !axisLimits.crop && !_trueSizeFrame) {
     if (axisLimits.xmin !== null && !(axisLimits.xmin >= minX)) minX = axisLimits.xmin;
     if (axisLimits.xmax !== null && !(axisLimits.xmax <= maxX)) maxX = axisLimits.xmax;
     if (axisLimits.ymin !== null && !(axisLimits.ymin >= minY)) minY = axisLimits.ymin;
