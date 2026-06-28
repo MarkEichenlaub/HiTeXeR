@@ -21279,11 +21279,16 @@ function createInterpreter() {
 
     // light stubs
     env.set('light', (...args) => ({_tag:'light'}));
-    // currentlight is a mutable object so .background can be assigned
-    const _currentlight = {_tag:'light', background: null};
+    // currentlight is a mutable object so .background can be assigned.
+    // _headlamp marks the camera-relative default (three_light.asy's
+    // currentlight=Headlamp=light(...,dir(42,48))): its highlight is fixed in
+    // SCREEN space (upper-right), not world space. Explicit world lights
+    // (White, (10,10,5), light(...)) are NOT tagged, so they keep the
+    // world-space sphere-shading path.
+    const _currentlight = {_tag:'light', background: null, _headlamp: true};
     env.set('currentlight', _currentlight);
     env.set('nolight', {_tag:'light'});
-    env.set('Headlamp', {_tag:'light'});
+    env.set('Headlamp', {_tag:'light', _headlamp: true});
     env.set('White', {_tag:'light'});
 
     // material stubs
@@ -25266,9 +25271,11 @@ function createInterpreter() {
     // sentinel (_viewport:true was added when env.set('Viewport',...)).
     let slx, sly, slz;
     let _isViewportLight = false;
+    let _isHeadlamp = false;
     try {
       const _cl = globalEnv && globalEnv.get && globalEnv.get('currentlight');
       if (_cl && _cl._viewport) _isViewportLight = true;
+      else if (_cl && _cl._headlamp) _isHeadlamp = true;
     } catch(_) {}
     if (_isViewportLight) {
       // Screen-relative: pure up-tilt for the Viewport light.  Asymptote's
@@ -25284,11 +25291,24 @@ function createInterpreter() {
       slx = vx + sphereUpTilt*upx;
       sly = vy + sphereUpTilt*upy;
       slz = vz + sphereUpTilt*upz;
+    } else if (_isHeadlamp) {
+      // Default Headlamp (three_light.asy: currentlight=Headlamp=light(...,
+      // dir(42,48))). Headlamp is CAMERA-RELATIVE, so build its highlight from the
+      // SCREEN basis: dir(42,48) = (sinθcosφ, sinθsinφ, cosθ) = right·0.448 +
+      // up·0.497 + viewer·0.743, putting the bright spot upper-right of each
+      // sphere. The previous hardcoded WORLD vector (0.25,1.2,1)+camera-flip aimed
+      // the highlight upper-right for 03360's camera but the flip (negate when the
+      // light tips behind the view plane) FLIPPED it to the lower-LEFT for
+      // orthographic(2,-1,1/2) (06836 had dot −0.087). The screen basis tracks the
+      // camera so it lands right for 06836/03633/03634 too.
+      const HR = 0.4477, HU = 0.4972, HV = 0.7431; // dir(42,48)
+      slx = HR*rxScreen + HU*upx + HV*vx;
+      sly = HR*ryScreen + HU*upy + HV*vy;
+      slz = HR*rzScreen + HU*upz + HV*vz;
     } else {
-      // World-space default light. Asymptote's three.asy declares
-      // (0.25,-0.25,1) but TeXeR's PRC rasterizer appears to use a
-      // direction closer to (0.25,0.25,1) for surface highlights. Empirically
-      // tuned against 03360 to put the focal in the upper-right quadrant.
+      // Explicit WORLD-space light (White, (10,10,5), light(...)). Asymptote's
+      // three.asy declares (0.25,-0.25,1) but TeXeR's PRC rasterizer appears to
+      // use a direction closer to (0.25,0.25,1) for surface highlights.
       slx = 0.25; sly = 1.2; slz = 1;
       const lvDot = slx*vx + sly*vy + slz*vz;
       if (lvDot < 0) { slx = -slx; sly = -sly; slz = -slz; }
