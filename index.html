@@ -2879,7 +2879,19 @@ function highlightLines(primaryLine, depLines, scroll = false) {
 // ============================================================
 // Compilation
 // ============================================================
-const SERVER_URL = 'http://127.0.0.1:8080';
+// HiTeXeR runs either standalone (its own Python server on :8080) or embedded
+// inside a host app (e.g. EigenNode) via an <iframe>. When embedded, the
+// server-backed features (compile / ai / texer / convert-eps / render-gif) are
+// routed to the host's same-origin /api/hitexer/* endpoints instead of the
+// :8080 Python server, and code in/out happens over window.postMessage rather
+// than temp files (see the EigenNode integration block below).
+const HITEXER_EMBEDDED = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') return true;
+  } catch (e) {}
+  try { return !!(window.parent && window.parent !== window); } catch (e) { return false; }
+})();
+const SERVER_URL = HITEXER_EMBEDDED ? '/api/hitexer' : 'http://127.0.0.1:8080';
 
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let useRealAsy = false; // when true, skip JS interpreter and always use server
@@ -5480,51 +5492,100 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-export-pdf').addEventListener('click', () => doExportPdf());
 
   // === EigenNode integration ===
-  // URL params: ?eigennode_node=NODEID&eigennode_file=FILEPATH
-  // eigennode_file: temp file containing the asymptote code to load
-  // eigennode_node: the EigenNode node ID to send code back to
+  // Standalone launch uses URL params + temp files:
+  //   ?eigennode_node=NODEID&eigennode_file=FILEPATH&eigennode_callback=CBPATH
+  //   eigennode_file: temp file containing the asymptote code to load
+  //   eigennode_node: the EigenNode node ID to send code back to
+  // Embedded (in an <iframe>) launch uses window.postMessage instead — no
+  // server temp files. The host (EigenNode) and this iframe are same-origin, so
+  // both sides pin the origin. Contract:
+  //   host  -> iframe : { type:'eigennode:load', code, nodeId, name }
+  //   iframe -> host  : { type:'eigennode:ready' }            (once, on startup)
+  //                     { type:'eigennode:code', code, nodeId } (on send)
   const urlParams = new URLSearchParams(window.location.search);
   const eigennodeNode = urlParams.get('eigennode_node');
   const eigennodeFile = urlParams.get('eigennode_file');
   const eigennodeCallbackFile = urlParams.get('eigennode_callback');
   // Name hint from EigenNode (e.g. "head_to_toe" from "#asymptote head_to_toe").
-  // Used as the suggested filename when saving PNG/JPG/SVG/GIF exports.
-  const eigennodeName = urlParams.get('eigennode_name') || '';
+  // Used as the suggested filename when saving PNG/JPG/SVG/GIF exports. `let`
+  // because embedded mode can update it from the postMessage payload.
+  let eigennodeName = urlParams.get('eigennode_name') || '';
 
-  if (eigennodeFile) {
-    // Load code from file via the server
-    fetch('/eigennode-read?path=' + encodeURIComponent(eigennodeFile))
-      .then(r => r.text())
-      .then(code => {
-        if (code) {
-          editor.setValue(code);
+  if (HITEXER_EMBEDDED) {
+    let embedNodeId = eigennodeNode || null;
+    const sendBtn = document.getElementById('btn-eigennode-send');
+    if (sendBtn) {
+      sendBtn.style.display = '';
+      sendBtn.addEventListener('click', () => {
+        const code = editor.getValue();
+        try {
+          window.parent.postMessage(
+            { type: 'eigennode:code', code, nodeId: embedNodeId },
+            window.location.origin
+          );
+        } catch (err) { console.error('postMessage to host failed:', err); }
+        sendBtn.textContent = 'SENT ✓';
+        sendBtn.style.background = '#16a34a';
+        setTimeout(() => {
+          sendBtn.textContent = 'SEND TO EIGENNODE';
+          sendBtn.style.background = '#e94560';
+        }, 2000);
+      });
+    }
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== window.parent) return;
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'eigennode:load') {
+        if (typeof msg.nodeId === 'string') embedNodeId = msg.nodeId;
+        if (typeof msg.name === 'string') eigennodeName = msg.name;
+        if (typeof msg.code === 'string') {
+          editor.setValue(msg.code);
           doRender();
         }
-      })
-      .catch(err => console.error('Failed to load EigenNode code:', err));
-  }
-
-  if (eigennodeNode && eigennodeCallbackFile) {
-    const sendBtn = document.getElementById('btn-eigennode-send');
-    sendBtn.style.display = '';
-    sendBtn.addEventListener('click', () => {
-      const code = editor.getValue();
-      // Write code back via the server
-      fetch('/eigennode-write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: eigennodeCallbackFile, code, nodeId: eigennodeNode }),
-      }).then(r => {
-        if (r.ok) {
-          sendBtn.textContent = 'SENT ✓';
-          sendBtn.style.background = '#16a34a';
-          setTimeout(() => {
-            sendBtn.textContent = 'SEND TO EIGENNODE';
-            sendBtn.style.background = '#e94560';
-          }, 2000);
-        }
-      }).catch(err => console.error('Failed to send to EigenNode:', err));
+      }
     });
+    // Announce readiness so the host can send the initial code without a race.
+    try {
+      window.parent.postMessage({ type: 'eigennode:ready' }, window.location.origin);
+    } catch (err) {}
+  } else {
+    if (eigennodeFile) {
+      // Load code from file via the server
+      fetch('/eigennode-read?path=' + encodeURIComponent(eigennodeFile))
+        .then(r => r.text())
+        .then(code => {
+          if (code) {
+            editor.setValue(code);
+            doRender();
+          }
+        })
+        .catch(err => console.error('Failed to load EigenNode code:', err));
+    }
+
+    if (eigennodeNode && eigennodeCallbackFile) {
+      const sendBtn = document.getElementById('btn-eigennode-send');
+      sendBtn.style.display = '';
+      sendBtn.addEventListener('click', () => {
+        const code = editor.getValue();
+        // Write code back via the server
+        fetch('/eigennode-write', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: eigennodeCallbackFile, code, nodeId: eigennodeNode }),
+        }).then(r => {
+          if (r.ok) {
+            sendBtn.textContent = 'SENT ✓';
+            sendBtn.style.background = '#16a34a';
+            setTimeout(() => {
+              sendBtn.textContent = 'SEND TO EIGENNODE';
+              sendBtn.style.background = '#e94560';
+            }, 2000);
+          }
+        }).catch(err => console.error('Failed to send to EigenNode:', err));
+      });
+    }
   }
 
   // TeXeR button: open AoPS TeXeR and copy [asy]...[/asy]-wrapped code to clipboard
