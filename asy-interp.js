@@ -8313,6 +8313,7 @@ function createInterpreter() {
     env.set('cm', 72 / 2.54);
     env.set('mm', 72 / 25.4);
     env.set('inch', 72);
+    env.set('inches', 72);   // plain_constants.asy: inches=72, inch=inches
 
     // Dot sizing
     env.set('dotfactor', 6);
