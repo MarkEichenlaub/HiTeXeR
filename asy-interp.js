@@ -2194,6 +2194,13 @@ function createInterpreter() {
   // currentpicture — these composites carry their own fixed scale and TeXeR does
   // NOT fit them to the path-label ~400bp default (e.g. 06064 stays near literal).
   let _usedPictureComposite = false;
+  // Set when add(shift(triple)*pic) composites a 3D sub-picture beside another
+  // (the transform3*picture pure-shift path below). Such added figures are
+  // already-projected 2D and bypass _projectedTriples, so _bbox3D under-counts
+  // them and the mixed-3D/2D size-fit would wrongly treat the OTHER 3D figures as
+  // a 2D overlay to spill out (02030/02041 rendered ~2-3x too big). The whole
+  // composite should fit size() — so this flag disables that mixed-3D/2D branch.
+  let _usedMulti3DComposite = false;
   // Set only when `currentpicture = transform*currentpicture` reassigns the
   // current picture (the multi-panel idiom, e.g. 12008/11370 shift three
   // makediagram() calls side by side). This operation flips the picture into
@@ -3170,6 +3177,7 @@ function createInterpreter() {
         m[8] === 0 && m[9] === 0 && m[10] === 1 &&
         m[12] === 0 && m[13] === 0 && m[14] === 0 && m[15] === 1;
       if (isPureShift) {
+        _usedMulti3DComposite = true;
         const shiftTriple = {_tag:'triple', x: m[3], y: m[7], z: m[11]};
         const proj = projection;
         let dx, dy;
@@ -26085,6 +26093,7 @@ function createInterpreter() {
     unitScale = 1; hasUnitScale = false; _trueSizeFrame = false;
     _globalUnitSize = 0;
     _usedPictureComposite = false;
+    _usedMulti3DComposite = false;
     _usedCurrentpictureReassign = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
@@ -26299,6 +26308,7 @@ function createInterpreter() {
       _bboxSpec: currentPic._bboxSpec,
       _pageOrientation: currentPic._pageOrientation,
       _usedPictureComposite,
+      _usedMulti3DComposite,
       _usedCurrentpictureReassign,
       // TeXeR's server-side default-size selection (verified by live
       // introspection probes 2026-06-10): the [asy] wrapper prepends
@@ -26387,7 +26397,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedCurrentpictureReassign, _texerSizeTextMatch } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedMulti3DComposite, _usedCurrentpictureReassign, _texerSizeTextMatch } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -28311,7 +28321,7 @@ function renderSVG(result, opts) {
     // beyond the projected 3D figure on at least one axis, fit size() to the
     // 3D figure's bbox (so it is not crushed) and let the 2D overlay spill
     // out. Detected by comparing the combined geo bbox to the 3D-only bbox.
-    if (_is3D && _bbox3D && _bbox3D.w > 1e-6 && _bbox3D.h > 1e-6 && !_isIgnoreAspect) {
+    if (_is3D && _bbox3D && _bbox3D.w > 1e-6 && _bbox3D.h > 1e-6 && !_isIgnoreAspect && !_usedMulti3DComposite) {
       const _rW = _geoRefW / _bbox3D.w;
       const _rH = _geoRefH / _bbox3D.h;
       if (_rW > 1.12 || _rH > 1.12) {
