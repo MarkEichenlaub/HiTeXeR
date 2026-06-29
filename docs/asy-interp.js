@@ -29,6 +29,34 @@ if (typeof document === 'undefined' && typeof require === 'function'
 }
 
 // ============================================================
+// Instrumentation — surface features HiTeXeR met but could not fully handle.
+// Records named function calls that fail to resolve to any builtin/user function
+// (the "Unknown function → return null" path). Two consumers:
+//   • corpus scan (localized/feature audit) reads globalThis.__htxUnknown to
+//     rank under-implemented APIs that actually appear in real diagrams;
+//   • the live editor self-reports each missing feature once via console.warn,
+//     so new author/AI diagrams reveal gaps proactively.
+// Pure logging — it must NEVER change interpreter control flow or throw.
+// ============================================================
+const _htxUnknown = (typeof globalThis !== 'undefined')
+  ? (globalThis.__htxUnknown = globalThis.__htxUnknown ||
+       { calls: Object.create(null), recent: [], warned: Object.create(null) })
+  : { calls: Object.create(null), recent: [], warned: Object.create(null) };
+function recordUnknownCall(name, nargs) {
+  try {
+    if (!name || typeof name !== 'string') return;
+    nargs = nargs | 0;
+    _htxUnknown.calls[name] = (_htxUnknown.calls[name] || 0) + 1;
+    if (_htxUnknown.recent.length < 10000) _htxUnknown.recent.push(name + '/' + nargs);
+    if (typeof console !== 'undefined' && console.warn && !_htxUnknown.warned[name]) {
+      _htxUnknown.warned[name] = 1;
+      console.warn('[HTX-unknown-call] ' + name + '() with ' + nargs +
+        ' arg(s) did not resolve to a builtin or user function — possible unimplemented feature');
+    }
+  } catch (e) { /* instrumentation must never break a render */ }
+}
+
+// ============================================================
 // Token Types
 // ============================================================
 const T = {
@@ -2166,6 +2194,15 @@ function createInterpreter() {
   // currentpicture — these composites carry their own fixed scale and TeXeR does
   // NOT fit them to the path-label ~400bp default (e.g. 06064 stays near literal).
   let _usedPictureComposite = false;
+  // Set when add(shift(triple)*pic) composites a 3D sub-picture beside another
+  // (the transform3*picture pure-shift path below). Such added figures are
+  // already-projected 2D and bypass _projectedTriples, so _bbox3D under-counts
+  // them and the mixed-3D/2D size-fit would wrongly treat the OTHER 3D figures as
+  // a 2D overlay to spill out (02030/02041 rendered ~2-3x too big). The whole
+  // composite should fit size() — so this flag disables that mixed-3D/2D branch.
+  let _usedMulti3DComposite = false;
+  // KaTeX macros parsed from texpreamble("\def\X{..}") — applied to every label.
+  let _texMacros = {};
   // Set only when `currentpicture = transform*currentpicture` reassigns the
   // current picture (the multi-panel idiom, e.g. 12008/11370 shift three
   // makediagram() calls side by side). This operation flips the picture into
@@ -3142,6 +3179,7 @@ function createInterpreter() {
         m[8] === 0 && m[9] === 0 && m[10] === 1 &&
         m[12] === 0 && m[13] === 0 && m[14] === 0 && m[15] === 1;
       if (isPureShift) {
+        _usedMulti3DComposite = true;
         const shiftTriple = {_tag:'triple', x: m[3], y: m[7], z: m[11]};
         const proj = projection;
         let dx, dy;
@@ -3637,6 +3675,7 @@ function createInterpreter() {
     }
 
     // Unknown function - return null
+    recordUnknownCall(calleeName, node.args ? node.args.length : 0);
     return null;
   }
 
@@ -4829,6 +4868,17 @@ function createInterpreter() {
       }
     }
 
+    // Namespace-qualified call on an UNRESOLVED import: `ns.func(...)` where `ns`
+    // evaluated to null because HiTeXeR stubs external URL imports
+    // (e.g. `import "/var/www/.../karlin.asy" as karlin; karlin.rr_cartesian_axes(...)`).
+    // The module's functions ARE our global builtins, so dispatch to the global
+    // `func`, preserving named args (evalArgList) so e.g. usegrid=/complexplane=
+    // still bind. Without this 04296's axes silently vanished.
+    if (obj == null) {
+      const g = env.get(method);
+      if (typeof g === 'function') return g(...evalArgList(argNodes, env));
+      if (g && g._tag === 'func') return callUserFuncValues(g, evalArgList(argNodes, env));
+    }
     return null;
   }
 
@@ -5796,8 +5846,10 @@ function createInterpreter() {
     if (mod.includes('geometry')) {
       installGeometryPackage(env);
     }
-    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('palette')) {
-      // Gracefully ignored — stubs/features already in stdlib or not needed for 2D rendering
+    if (mod.includes('olympiad') || mod.includes('cse5') || mod.includes('math') || mod.includes('palette') || mod.includes('patterns')) {
+      // Gracefully ignored — stubs/features already in stdlib or not needed for
+      // 2D rendering. `patterns` (hatch/crosshatch/pattern/add-tile) lives in
+      // installStdlib, so no per-import install is needed.
     }
     if (mod.includes('markers')) {
       installMarkersPackage(env);
@@ -5830,7 +5882,12 @@ function createInterpreter() {
     if (mod.includes('contour')) {
       installContourPackage(env);
     }
-    if (mod.includes('trigmacros')) {
+    // karlin.asy (the AoPS external helper, usually imported by URL) provides the
+    // SAME rr_cartesian_axes / rr_polar_axes etc. as TrigMacros, so install them
+    // for karlin imports too — 04296 draws its complex-plane axes via
+    //   import "…/karlin.asy" as karlin; karlin.rr_cartesian_axes(…)
+    // (the namespace-qualified call is dispatched to the global by evalMethodCall).
+    if (mod.includes('trigmacros') || mod.includes('karlin')) {
       installGraphPackage(env); // TrigMacros depends on graph
       installTrigMacros(env);
     }
@@ -5842,6 +5899,10 @@ function createInterpreter() {
     }
     if (mod.includes('graph')) {
       installGraphPackage(env);
+      // marker()/markuniform()/marknodes/errorbars are part of graph in real
+      // Asymptote (plain_markers.asy is auto-loaded), so make them available
+      // without a separate `import markers` (ext_manual_graph_7).
+      installMarkersPackage(env);
     }
     if (mod.includes('stats')) {
       // stats.asy imports graph and adds histogram/Gaussian/bins/Gaussrand.
@@ -6249,7 +6310,7 @@ function createInterpreter() {
 
     const baseDraw = env.get('draw');
 
-    function drawBinarytree(target, tree, minDist, nodeMargin, pen) {
+    function drawBinarytree(target, tree, minDist, nodeMargin, pen, condensed) {
       const root = tree.root;
       if (!root) return;
       const nodeDiameter = labelBBoxDiag(root) + 2*nodeMargin;
@@ -6260,31 +6321,68 @@ function createInterpreter() {
       const nodes = [];
       const edges = [];
 
-      function place(node, px, py) {
+      // Non-condensed (the binarytree.asy "complete-tree" layout): every node
+      // reserves the full 2^(height-level) horizontal slot, so a node at depth d
+      // is spread as if the tree were a FULL binary tree — sparse trees fan out
+      // very wide. condensed=false diagrams (and balanced trees) want this.
+      function placeFull(node, px, py) {
         node._x = px; node._y = py;
         nodes.push(node);
         const dist = (nodeDiameter + minDist) * Math.pow(2, height - getLevel(node)) / 2;
         if (node.left) {
           const cx = px - dist/2, cy = py - levelDist;
           edges.push([node, node.left]);
-          place(node.left, cx, cy);
+          placeFull(node.left, cx, cy);
         }
         if (node.right) {
           const cx = px + dist/2, cy = py - levelDist;
           edges.push([node, node.right]);
-          place(node.right, cx, cy);
+          placeFull(node.right, cx, cy);
         }
       }
-      place(root, 0, 0);
+
+      // Condensed (binarytree.asy condensed=true): only LEAVES consume a
+      // horizontal slot (left-to-right at `step` spacing); a 2-child parent sits at
+      // the midpoint of its children, and a 1-child parent sits DIRECTLY above its
+      // child. Width grows with the LEAF COUNT (not 2^height, and not the full node
+      // count), so a sparse search tree stays as narrow as TeXeR draws it. Placing a
+      // single-child node above its child — rather than at child.x ± step/2 — keeps
+      // it a full `step` from the neighbouring leaf so nothing overlaps.
+      function placeCondensed() {
+        const step = nodeDiameter + minDist;   // adjacent-leaf centre spacing
+        let slot = 0;
+        (function walk(node, depth) {
+          node._y = -depth * levelDist;
+          nodes.push(node);
+          if (!node.left && !node.right) { node._x = slot * step; slot++; return; }
+          if (node.left)  { edges.push([node, node.left]);  walk(node.left,  depth + 1); }
+          if (node.right) { edges.push([node, node.right]); walk(node.right, depth + 1); }
+          if (node.left && node.right) node._x = (node.left._x + node.right._x) / 2;
+          else                         node._x = (node.left || node.right)._x;
+        })(root, 0);
+        // Recentre on the bbox so the pic sits symmetric about its own origin
+        // (matches the full-layout convention where the root is near x=0).
+        let mn = Infinity, mx = -Infinity;
+        for (const n of nodes) { if (n._x < mn) mn = n._x; if (n._x > mx) mx = n._x; }
+        const mid = (mn + mx) / 2;
+        for (const n of nodes) n._x -= mid;
+      }
+
+      if (condensed) placeCondensed();
+      else placeFull(root, 0, 0);
 
       const arrow = {_tag:'arrow', style:'Arrow', size:5};
 
-      // Draw into currentPic (not the local `pic` arg). The corpus idiom is
-      // `draw(pic,bt); add(pic.fit());` — routing through pic.fit() renders the
-      // subpicture at its natural 1:1 bp scale and drops the outer size(400),
-      // leaving the tree far too small. Drawing straight into currentPic lets
-      // size()/unitsize() on the main picture scale the tree as Asymptote does.
-      // (The same approach the drawtree module uses.)
+      // Drawing target. The single-tree corpus idiom is
+      //   size(...); draw(pic,bt); add(pic.fit());
+      // where add(pic.fit()) at the origin doesn't rescale the truesize frame, so
+      // we draw straight into currentPic and let size()/unitsize() scale the tree.
+      // BUT with NO size()/unitsize() the diagram is auto-scaled and may compose
+      // SEVERAL trees via add(pic.fit(),(0,0),10N/10S) (binarytree_1) — there each
+      // tree MUST live in its own `pic` so add(...,align) can stack them. So:
+      // size set → currentPic (scales); no size → the target `pic` (composable).
+      const _hasSize = (sizeW > 0 || sizeH > 0 || _globalUnitSize > 0);
+      const _tp = (!_hasSize && target && target !== currentPic) ? [target] : [];
 
       // Draw connecting arrows first (so circles/labels sit on top, matching
       // the module which adds node frames after the deferred connections).
@@ -6294,13 +6392,13 @@ function createInterpreter() {
         const ux = dx/len, uy = dy/len;
         const start = makePair(par._x + r*ux, par._y + r*uy);
         const end = makePair(ch._x - r*ux, ch._y - r*uy);
-        evalDraw('draw', [makePath([lineSegment(toPair(start), toPair(end))], false), arrow, pen]);
+        evalDraw('draw', [..._tp, makePath([lineSegment(toPair(start), toPair(end))], false), arrow, pen]);
       }
 
       // Draw nodes: circle + centered key label.
       for (const n of nodes) {
-        evalDraw('draw', [makeCirclePath({x:n._x, y:n._y}, r), pen]);
-        evalLabel(['$' + n.key + '$', makePair(n._x, n._y)]);
+        evalDraw('draw', [..._tp, makeCirclePath({x:n._x, y:n._y}, r), pen]);
+        evalLabel([..._tp, '$' + n.key + '$', makePair(n._x, n._y)]);
       }
     }
 
@@ -6312,6 +6410,9 @@ function createInterpreter() {
       if (rest.length > 0 && rest[0] && rest[0]._tag === 'binarytree') {
         const tree = rest[0];
         let minDist = minDistDefault, nodeMargin = nodeMarginDefault, pen = null;
+        let condensed = false;  // binarytree.asy default: full "complete-tree"
+                                // layout (corpus 12299/12306-11 confirm sparse
+                                // no-arg trees render full-width, not packed)
         const pos = rest.slice(1);
         const nums = pos.filter(a => typeof a === 'number');
         if (nums.length >= 1) minDist = nums[0];
@@ -6323,9 +6424,10 @@ function createInterpreter() {
             if ('minDist' in a) minDist = toNumber(a.minDist);
             if ('nodeMargin' in a) nodeMargin = toNumber(a.nodeMargin);
             if ('p' in a && isPen(a.p)) pen = a.p;
+            if ('condensed' in a) condensed = !!toBool(a.condensed);
           }
         }
-        return drawBinarytree(target, tree, minDist, nodeMargin, pen);
+        return drawBinarytree(target, tree, minDist, nodeMargin, pen, condensed);
       }
       if (typeof baseDraw === 'function') return baseDraw(...args);
     });
@@ -6914,10 +7016,14 @@ function createInterpreter() {
       let frame = ('uniform' in named) ? named.uniform : (('f' in named) ? named.f : null);
       let routine = ('markroutine' in named) ? named.markroutine : null;
       let above = ('above' in named) ? !!named.above : true;
+      let symbolPath = null, symbolPen = null, symbolFill = null;
       // Positional dispatch
       for (const a of pos) {
         if (a && (a._tag === 'mframe')) { if (!frame) frame = a; }
         else if (typeof a === 'function' && a._isMarkroutine) { if (!routine) routine = a; }
+        else if (a && a._tag === 'filltype') { symbolFill = a; }
+        else if (isPen(a)) { if (!symbolPen) symbolPen = a; }
+        else if (isPath(a)) { if (!symbolPath) symbolPath = a; }
         else if (typeof a === 'function') {
           // Could be a frame-builder function used as bare reference (e.g.
           // stickframe). Resolve to default frame.
@@ -6929,9 +7035,6 @@ function createInterpreter() {
         else if (Array.isArray(a) && a.length > 0 && isPath(a[0])) {
           // marker(path[] g, ...) form: build a stroked frame from the paths.
           const f = _newFrame();
-          // Simple approximation: stroke each path with currentpen — convert
-          // to bp-coord stroke list. (Each path is in bp units already since
-          // these come from markers.asy's path constructions.)
           for (const pth of a) {
             if (pth && pth.segs) {
               for (const s of pth.segs) {
@@ -6941,6 +7044,31 @@ function createInterpreter() {
           }
           if (!frame) frame = f;
         }
+      }
+      // marker(path g, pen p, filltype filltype, above) — a single symbol path
+      // (e.g. scale(0.8mm)*unitcircle) filled per filltype and outlined with p.
+      // Build a frame: flatten g to a bp polyline, add a fill (filltype pen) and
+      // an outline stroke (the marker pen).
+      if (!frame && symbolPath && symbolPath.segs && symbolPath.segs.length) {
+        const f = _newFrame();
+        const segs = symbolPath.segs;
+        const pts = [{ x: segs[0].p0.x, y: segs[0].p0.y }];
+        for (const s of segs) {
+          for (let k = 1; k <= 8; k++) {
+            const t = k / 8, b = 1 - t;
+            pts.push({ x: b*b*b*s.p0.x + 3*b*b*t*s.cp1.x + 3*b*t*t*s.cp2.x + t*t*t*s.p3.x,
+                       y: b*b*b*s.p0.y + 3*b*b*t*s.cp1.y + 3*b*t*t*s.cp2.y + t*t*t*s.p3.y });
+          }
+        }
+        const drawPen = symbolPen ? clonePen(symbolPen) : clonePen(env.get('currentpen') || defaultPen);
+        const fstyle = symbolFill && symbolFill.style;
+        if (fstyle === 'Fill' || fstyle === 'FillDraw') {
+          f.fills.push({ pts: pts.map(p => ({ x: p.x, y: p.y })), closed: true, pen: clonePen(symbolFill.pen || drawPen) });
+        }
+        if (fstyle !== 'Fill') {
+          f.strokes.push({ pts: pts.map(p => ({ x: p.x, y: p.y })), closed: !!symbolPath.closed, pen: drawPen });
+        }
+        frame = f;
       }
       if (!frame) frame = _newFrame();
       if (!routine) routine = _markNodes;
@@ -7306,7 +7434,14 @@ function createInterpreter() {
       // patterns module: add(string name, pattern tile) registers a named fill
       // pattern for later pattern(name) lookup.
       if (args.length >= 2 && typeof args[0] === 'string' && args[1] && args[1]._tag === 'pattern') {
-        patternRegistry[args[0]] = args[1];
+        const spec = args[1];
+        // add(name, tile, ptbl, pttr): the two trailing pairs are bottom-left and
+        // top-right MARGINS around the tile (gaps between cells), e.g.
+        //   add("filledtilewithmargin", tile(6mm,4mm,red,Fill), (1mm,1mm), (1mm,1mm))
+        const mpairs = args.slice(2).filter(a => isPair(a));
+        if (mpairs.length >= 1) spec.marginLB = toPair(mpairs[0]);
+        if (mpairs.length >= 2) spec.marginRT = toPair(mpairs[1]);
+        patternRegistry[args[0]] = spec;
         return;
       }
       // add(string label, pair position) — place a centered text label at the
@@ -8134,6 +8269,39 @@ function createInterpreter() {
     };
     env.set('hatch', (...args) => _makeHatch(false, args));
     env.set('crosshatch', (...args) => _makeHatch(true, args));
+    // patterns module: tile/checker/brick cell patterns (patterns.asy). Args:
+    //   tile(real Hx=5mm, real Hy=Hx,   pen p=currentpen, filltype=NoFill)
+    //   checker(real Hx=5mm, real Hy=Hx,   pen p=currentpen)
+    //   brick(real Hx=5mm, real Hy=Hx/2, pen p=currentpen)
+    // All three default Hx=5mm (verified against Asymptote 3.05 patterns.asy);
+    // only brick's default Hy differs (Hx/2 → 2:1 brick aspect). Hx/Hy are cell
+    // sizes in bp (mm/cm constants already converted). `fill` is set when a
+    // Fill/FillDraw filltype is passed (tile only).
+    const MM = 72 / 25.4;
+    const _makeTilePat = (kind, args) => {
+      let Hx = 5 * MM, Hy = null, pen = null, fill = false, numCount = 0;
+      for (const a of args) {
+        if (a && a._named) {
+          if (typeof a.Hx === 'number') Hx = a.Hx;
+          if (typeof a.Hy === 'number') Hy = a.Hy;
+          if (isPen(a.p)) pen = pen ? mergePens(pen, a.p) : a.p;
+        } else if (typeof a === 'number') {
+          if (numCount === 0) Hx = a; else if (numCount === 1) Hy = a; numCount++;
+        } else if (isPen(a)) pen = pen ? mergePens(pen, a) : a;
+        else if (a && typeof a === 'object' && a._tag === 'filltype') {
+          if (a.style === 'Fill' || a.style === 'FillDraw') fill = true;
+        } else if (typeof a === 'function' && (a === env.get('Fill') || a === env.get('FillDraw'))) {
+          // bare Fill / FillDraw keyword (an untagged constructor function)
+          fill = true;
+        }
+      }
+      if (Hy == null) Hy = (kind === 'brick' ? Hx / 2 : Hx);
+      return { _tag: 'pattern', kind, Hx, Hy, fill,
+               pen: pen ? clonePen(pen) : clonePen(defaultPen), shift: { x: 0, y: 0 } };
+    };
+    env.set('tile', (...args) => _makeTilePat('tile', args));
+    env.set('checker', (...args) => _makeTilePat('checker', args));
+    env.set('brick', (...args) => _makeTilePat('brick', args));
     env.set('pattern', (name) => {
       const spec = patternRegistry[name];
       const p = makePen({});
@@ -8147,6 +8315,34 @@ function createInterpreter() {
     env.set('cm', 72 / 2.54);
     env.set('mm', 72 / 25.4);
     env.set('inch', 72);
+    env.set('inches', 72);   // plain_constants.asy: inches=72, inch=inches
+
+    // texpreamble(string) — Asymptote appends the string to the LaTeX preamble.
+    // We harvest its macro-defining commands (\def / \newcommand / \renewcommand /
+    // \DeclareMathOperator) into a KaTeX macro map that katexSvg applies to every
+    // label (e.g. 12886's \def\Ham{...} then $\Ham(r,2)$). Other preamble lines
+    // (\usepackage, lengths, …) are ignored — KaTeX has no use for them.
+    env.set('texpreamble', (s) => {
+      if (typeof s !== 'string') return;
+      const grabBraced = (str, from) => {
+        let i = from; while (i < str.length && str[i] !== '{') i++;
+        if (str[i] !== '{') return null;
+        let depth = 0;
+        for (let j = i; j < str.length; j++) {
+          if (str[j] === '{') depth++;
+          else if (str[j] === '}') { depth--; if (depth === 0) return str.slice(i + 1, j); }
+        }
+        return null;
+      };
+      let m, re, b;
+      re = /\\def\s*\\([a-zA-Z]+)/g;
+      while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = b; }
+      re = /\\(?:re)?newcommand\s*\{?\s*\\([a-zA-Z]+)\s*\}?\s*(?:\[\d+\])?/g;
+      while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = b; }
+      re = /\\DeclareMathOperator\s*\*?\s*\{\s*\\([a-zA-Z]+)\s*\}/g;
+      while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = '\\operatorname{' + b + '}'; }
+      try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros(_texMacros); } catch (e) {}
+    });
 
     // Dot sizing
     env.set('dotfactor', 6);
@@ -8280,6 +8476,8 @@ function createInterpreter() {
     env.set('log10', _broadcast1(Math.log10));
     env.set('log2', _broadcast1(Math.log2));
     env.set('pow', _broadcast2(Math.pow));
+    // Asymptote's pow10(x) = 10^x (plain.asy / mathfuns).
+    env.set('pow10', _broadcast1((x) => Math.pow(10, x)));
     // Euler gamma function via Lanczos approximation (g=7, n=9 coefficients)
     const _lanczosG = 7;
     const _lanczosC = [
@@ -9189,7 +9387,15 @@ function createInterpreter() {
         const cy = (minY + maxY) / 2;
         const hx = (maxX - minX) / 2;
         const hy = (maxY - minY) / 2;
-        return makePair(cx + d.x * hx, cy + d.y * hy);
+        // Asymptote's point(picture, dir) uses dir components DIRECTLY to pick a
+        // bbox point, so the corner constants must be (±1,±1). This interpreter
+        // normalizes NE/SE/NW/SW to unit-length 45° vectors (±0.707) for label
+        // alignment (the _diag45 shim); recover the ±1 corner here so colorbar
+        // legends (palette(...,point(SE)+(.5,0),point(NE)+(1,0),...)) sit OUT to
+        // the right of the plot at full height instead of overlapping its edge.
+        const dx = d._diag45 ? Math.sign(d.x) : d.x;
+        const dy = d._diag45 ? Math.sign(d.y) : d.y;
+        return makePair(cx + dx * hx, cy + dy * hy);
       }
       return _pointOnPath(args[0], args[1]);
     });
@@ -10460,7 +10666,7 @@ function createInterpreter() {
       }
       if (!b || !dir) return;
       if (!pen) pen = clonePen(defaultPen);
-      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:6};
+      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:0};
 
       // bp-per-user-unit at call time (mirrors _markerBpPerUnit).
       const _gb = getGeoBbox(target.commands);
@@ -11978,7 +12184,12 @@ function createInterpreter() {
         else if (headKind === 'HookHead') {
           // HookHead: render the TeX-style chevron glyph, but at a normal
           // fixed size (~5bp) rather than the pen-derived 2.1*lw used for TeXHead.
+          // Mark it distinctly: HookHead and TeXHead BOTH set texHead=true, but
+          // ArcArrow(HookHead) renders a barbed-harpoon head (00301, 08682)
+          // whereas ArcArrow(TeXHead) renders the authentic thin texhead glyph
+          // (00165, 00167). The arc-arrowhead renderer keys off this flag.
           out.texHead = true;
+          out.hookHead = true;
           if (!sizeExplicit) { out.size = 5; out.sizeExplicit = true; }
         }
         else if (headKind) out.headKind = headKind;
@@ -12430,8 +12641,24 @@ function createInterpreter() {
         }
       }
 
+      // Grid extremes: a contour level at (or within a sub-cell epsilon of) the
+      // global max/min has no real interior — Asymptote draws nothing there. But
+      // image() samples at cell CENTRES, so its returned range.max/min sit a hair
+      // inside the true extreme; the top/bottom level then sits just under a peak
+      // that contour()'s vertex grid samples exactly, producing a degenerate
+      // 1-cell loop that renders as a stray dot at every extremum. Skip such
+      // near-degenerate levels (tol = 0.2% of span) to match Asymptote.
+      let gridMin = Infinity, gridMax = -Infinity;
+      for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
+        const v = grid[i][j];
+        if (v < gridMin) gridMin = v;
+        if (v > gridMax) gridMax = v;
+      }
+      const _degenTol = (gridMax - gridMin) * 0.002;
+
       // Marching squares for each level
       for (const level of levels) {
+        if (level >= gridMax - _degenTol || level <= gridMin + _degenTol) continue;
         // Collect edge intersection segments
         const segments = [];
         for (let i = 0; i < nx; i++) {
@@ -12793,6 +13020,119 @@ function createInterpreter() {
     env.set('Hermite', {_tag:'operator', value:'..'});
     env.set('Linear',  {_tag:'operator', value:'--'});
 
+    // errorbars(picture pic=currentpicture, pair[] z, pair[] dp, pair[] dm=dp,
+    //           bool[] cond={}, pen p=currentpen, real size=0): draw an error
+    // cross at each data point z[i] spanning ±dp[i]/±dm[i] in x and y, with small
+    // perpendicular end caps. (graph.asy; ext_manual_graph_7.)
+    env.set('errorbars', (...args) => {
+      let target = currentPic, rest = args;
+      if (rest.length && rest[0] && rest[0]._tag === 'picture') { target = rest[0]; rest = rest.slice(1); }
+      const arrs = rest.filter(a => Array.isArray(a) && a.length && isPair(a[0]));
+      const z = arrs[0], dp = arrs[1], dm = arrs[2] || arrs[1];
+      if (!z || !dp) return null;
+      let pen = null; for (const a of rest) if (isPen(a)) { pen = a; break; }
+      pen = pen ? clonePen(pen) : clonePen(defaultPen);
+      // Cap half-length in user units, derived from the geometry extent so caps
+      // stay a small, visible fraction of the plot (Asymptote's default size=0
+      // draws a modest cap). ~1.2% of the larger data span.
+      let spanX = 0, spanY = 0;
+      for (const a of z) { const p = toPair(a); spanX = Math.max(spanX, Math.abs(p.x)); spanY = Math.max(spanY, Math.abs(p.y)); }
+      const cap = 0.012 * Math.max(spanX, spanY, 1);
+      const seg = (a, b) => evalDraw('draw', [target, makePath([lineSegment(toPair(a), toPair(b))], false), pen]);
+      for (let i = 0; i < z.length; i++) {
+        const p = toPair(z[i]);
+        const u = toPair(dp[i] || makePair(0, 0)), d = toPair(dm[i] || dp[i] || makePair(0, 0));
+        if (u.y !== 0 || d.y !== 0) {
+          seg(makePair(p.x, p.y - d.y), makePair(p.x, p.y + u.y));
+          seg(makePair(p.x - cap, p.y + u.y), makePair(p.x + cap, p.y + u.y));
+          seg(makePair(p.x - cap, p.y - d.y), makePair(p.x + cap, p.y - d.y));
+        }
+        if (u.x !== 0 || d.x !== 0) {
+          seg(makePair(p.x - d.x, p.y), makePair(p.x + u.x, p.y));
+          seg(makePair(p.x + u.x, p.y - cap), makePair(p.x + u.x, p.y + cap));
+          seg(makePair(p.x - d.x, p.y - cap), makePair(p.x - d.x, p.y + cap));
+        }
+      }
+      return null;
+    });
+
+    // graph.asy vectorfield(path vector(pair), pair a, pair b, int nx=nmesh,
+    // int ny=nx, bool truesize=false, bool cond(pair)=null, pen p, arrowbar
+    // arrow=Arrow). Draws an arrow at each node of an nx×ny grid over [a,b];
+    // the arrow at z is vector(z) scaled by the cell size (dx,dy) and a global
+    // `scale` chosen so the longest arrow just fills a cell. Returns a picture
+    // (the corpus idiom is add(vectorfield(...))).
+    env.set('vectorfield', (...args) => {
+      let vectorFn = null, a = null, b = null, pen = null, arrowDesc = null;
+      let truesize = false, condFn = null;
+      const nums = [];
+      for (const x of args) {
+        if (isCallable(x)) { if (!vectorFn) vectorFn = x; else if (!condFn) condFn = x; }
+        else if (isPair(x)) { if (!a) a = toPair(x); else if (!b) b = toPair(x); }
+        else if (typeof x === 'number') nums.push(x);
+        else if (isPen(x)) pen = x;
+        else if (x && x._tag === 'arrow') arrowDesc = x;
+        else if (typeof x === 'boolean') truesize = x;
+        else if (x && x._named) {
+          if (typeof x.nx === 'number') nums[0] = x.nx;
+          if (typeof x.ny === 'number') nums[1] = x.ny;
+          if (typeof x.truesize === 'boolean') truesize = x.truesize;
+          if (isPen(x.p)) pen = x.p;
+          if (x.arrow && x.arrow._tag === 'arrow') arrowDesc = x.arrow;
+          if (isCallable(x.cond)) condFn = x.cond;
+        }
+      }
+      const pic = {_tag:'picture', commands:[]};
+      // The graph3 (3D) overload — vectorfield(path3 vector(pair), triple f(pair)
+      // surface, pair a, pair b, …) — leads with TWO callables (vector + surface),
+      // whereas this 2D form has one callable then two pairs. Skip the 3D form so
+      // its path3 arrows aren't drawn as garbage 2D lines (12779/12843 ballooned to
+      // a 2050×3888 canvas); leaving the picture empty lets the rest render.
+      const _pos = args.filter(x => !(x && x._named));
+      if (_pos.length >= 2 && isCallable(_pos[0]) && isCallable(_pos[1])) return pic;
+      if (!vectorFn || !a || !b) return pic;
+      const nx = nums.length >= 1 && nums[0] > 1 ? Math.floor(nums[0]) : 10; // nmesh=10
+      const ny = nums.length >= 2 && nums[1] > 1 ? Math.floor(nums[1]) : nx;
+      if (!pen) pen = clonePen(defaultPen);
+      if (!arrowDesc) arrowDesc = {_tag:'arrow', style:'Arrow', size:0};
+      const dx = (b.x - a.x) / (nx - 1), dy = (b.y - a.y) / (ny - 1);
+      // vector(z) → its displacement pair (endpoint − start). A bare pair return
+      // (the common idiom, e.g. (sin x, cos y)) is a single-point path ⇒ the pair.
+      const vecOf = (x, y) => {
+        let r; try { r = callUserFuncValues(vectorFn, [makePair(x, y)]); } catch (e) { return makePair(0, 0); }
+        if (isPair(r)) return toPair(r);
+        if (isPath(r) && r.segs && r.segs.length) {
+          const s0 = r.segs[0].p0, s1 = r.segs[r.segs.length - 1].p3;
+          return makePair(s1.x - s0.x, s1.y - s0.y);
+        }
+        return makePair(0, 0);
+      };
+      const nodes = [];
+      let maxX = 0, maxY = 0;
+      for (let i = 0; i < nx; i++) {
+        const x = a.x + i * dx;
+        for (let j = 0; j < ny; j++) {
+          const y = a.y + j * dy;
+          const v = vecOf(x, y);
+          nodes.push({ x, y, v });
+          if (Math.abs(dx * v.x) > maxX) maxX = Math.abs(dx * v.x);
+          if (Math.abs(dy * v.y) > maxY) maxY = Math.abs(dy * v.y);
+        }
+      }
+      let scale;
+      if (maxX === 0) scale = maxY === 0 ? 1.0 : dy / maxY;
+      else if (maxY === 0) scale = dx / maxX;
+      else scale = Math.min(dx / maxX, dy / maxY);
+      for (const nd of nodes) {
+        if (condFn) { let c; try { c = callUserFuncValues(condFn, [makePair(nd.x, nd.y)]); } catch (e) { c = true; } if (!toBool(c)) continue; }
+        const ex = nd.x + scale * dx * nd.v.x, ey = nd.y + scale * dy * nd.v.y;
+        if (ex === nd.x && ey === nd.y) continue; // zero vector → nothing to draw
+        const path = makePath([lineSegment(makePair(nd.x, nd.y), makePair(ex, ey))], false);
+        pic.commands.push({ cmd: 'draw', path, pen: clonePen(pen), arrow: arrowDesc, line: 0 });
+      }
+      return pic;
+    });
+
     // Helper: build path from points, using smooth (..) or straight (--) joins
     function buildGraphPath(pts, useSmooth) {
       if (pts.length < 2) return makePath([], false);
@@ -12887,6 +13227,17 @@ function createInterpreter() {
       };
       // Strip operator/bool3/picture args and named args for cleaner matching
       const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named) && !(a && a._tag === 'picture'));
+
+      // graph(pair[] z) or graph(pair[] z, operator ..): path through the data
+      // points (graph_7's pair[] form). Distinguished from the real[]×2 form by
+      // the element type. Apply any per-picture log/scale transform. Asymptote's
+      // pair[] graph defaults to STRAIGHT (--) joins; only an explicit Spline/..
+      // operator makes it smooth.
+      if (coreArgs.length >= 1 && isArray(coreArgs[0]) && coreArgs[0].length > 0 && isPair(coreArgs[0][0])) {
+        const pts = coreArgs[0].map(p => { const q = toPair(p); return { x: _xT(q.x), y: _yT(q.y) }; });
+        const splineOp = args.some(a => isOperator(a) && a.value === '..');
+        return buildGraphPath(pts, splineOp);
+      }
 
       // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
       if (coreArgs.length >= 2 && isArray(coreArgs[0]) && isArray(coreArgs[1])) {
@@ -16639,7 +16990,11 @@ function createInterpreter() {
         const cy = (gb.minY + gb.maxY) / 2;
         const hx = (gb.maxX - gb.minX) / 2;
         const hy = (gb.maxY - gb.minY) / 2;
-        return makePair(cx + d.x * hx, cy + d.y * hy);
+        // See note at the base point(): un-normalize the _diag45 corner constants
+        // (NE/SE/NW/SW) back to (±1,±1) for true bbox-corner picking.
+        const dx = d._diag45 ? Math.sign(d.x) : d.x;
+        const dy = d._diag45 ? Math.sign(d.y) : d.y;
+        return makePair(cx + dx * hx, cy + dy * hy);
       }
       // point(path, real t): sample the path at parameter t. The base point()
       // delegates to _pointOnPath; the geometry override must defer to that
@@ -20468,10 +20823,26 @@ function createInterpreter() {
       const sideLeft   = axisSide === 'Left';
       const sideTop    = axisSide === 'Top'    || axisSide === 'BottomTop';
       const sideBottom = axisSide === 'Bottom';
-      // Major ticks
-      for (let k = 0; k <= Nmaj; k++) {
-        const t = k / Nmaj;
-        const v = vmin + t * (vmax - vmin);
+      // Major ticks. When the palette's value (z) axis is LOG-scaled
+      // (scale(...,...,Log)), the colorbar maps log(v) to colour, so ticks sit at
+      // powers of 10 — positioned by their log fraction and labelled 10^k (e.g.
+      // palette_2's 10^-3..10^2) — not at even linear value steps.
+      const _zsc = target._zScale;
+      const _zLog = !!(_zsc && (_zsc.type === 'log' || _zsc.type === 'custom-log')) && vmin > 0 && vmax > 0;
+      const majorTicks = [];
+      if (_zLog) {
+        const lmin = Math.log10(vmin), lmax = Math.log10(vmax);
+        const lspan = (lmax - lmin) || 1;
+        const k0 = Math.ceil(lmin - 1e-9), k1 = Math.floor(lmax + 1e-9);
+        for (let k = k0; k <= k1; k++) majorTicks.push({ t: (k - lmin) / lspan, text: '$10^{' + k + '}$' });
+      } else {
+        for (let k = 0; k <= Nmaj; k++) {
+          const t = k / Nmaj;
+          majorTicks.push({ t, text: _formatPaletteTick(fmt, vmin + t * (vmax - vmin)) });
+        }
+      }
+      for (const mt of majorTicks) {
+        const t = mt.t;
         let p0, p1, lp, align;
         if (vertical) {
           const y = y0 + t * (y1 - y0);
@@ -20483,9 +20854,7 @@ function createInterpreter() {
           else            { p0 = makePair(x, y0); p1 = makePair(x, y0 - tickLen); lp = makePair(x, y0 - tickLen); align = makePair(0, -1); }
         }
         target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: tickPen, line, _paletteLegend:true});
-        // Label
-        const labelText = _formatPaletteTick(fmt, v);
-        target.commands.push({cmd:'label', text: labelText, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
+        target.commands.push({cmd:'label', text: mt.text, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
       }
       // Minor ticks: nSub subdivisions per major interval.
       if (nSub > 1) {
@@ -20631,18 +21000,37 @@ function createInterpreter() {
     // end and white at the high end (Black/White Rainbow). The reference texer
     // 12726.png shows the colorbar going black → violet → blue → cyan → green →
     // yellow → orange → red → white.
+    // BWRainbow stops sampled empirically from the TeXeR (stock-Asymptote) render
+    // at 0.1 intervals across the value range. The naive 9-stop even rainbow put
+    // pure blue at f=-0.5 and violet at f=-0.7, but stock Asymptote's cool half
+    // runs green→cyan→AZURE→blue→purple→black (azure (0,131,255) at f=-0.5), so
+    // the old version mis-coloured the large green-saddle / cool-blob regions of
+    // contour heatmaps (ext_manual_contour_4, 12726). These 21 stops reproduce
+    // the measured ramp, preserving the exact red/cyan/orange peaks.
     const bwRainbowPens = () => {
-      const c = (r,g,b) => makePen({r, g, b});
+      const c = (r,g,b) => makePen({r: r/255, g: g/255, b: b/255});
       return [
-        c(0, 0, 0),        // black (low)
-        c(0.5, 0, 1),      // violet
-        c(0, 0, 1),        // blue
-        c(0, 1, 1),        // cyan
-        c(0, 1, 0),        // green
-        c(1, 1, 0),        // yellow
-        c(1, 0.5, 0),      // orange
-        c(1, 0, 0),        // red
-        c(1, 1, 1),        // white (high)
+        c(0,   0,   0),    // f=-1.0 black
+        c(79,  0,   79),   // f=-0.9 purple
+        c(50,  0,   156),  // f=-0.8
+        c(21,  0,   234),  // f=-0.7 blue
+        c(10,  65,  244),  // f=-0.6
+        c(0,   131, 255),  // f=-0.5 azure
+        c(0,   193, 240),  // f=-0.4
+        c(0,   255, 225),  // f=-0.3 cyan
+        c(0,   255, 154),  // f=-0.2
+        c(0,   255, 84),   // f=-0.1
+        c(30,  255, 42),   // f= 0.0 green
+        c(60,  255, 0),    // f=+0.1
+        c(142, 255, 0),    // f=+0.2
+        c(225, 255, 0),    // f=+0.3 yellow
+        c(240, 193, 0),    // f=+0.4
+        c(255, 131, 0),    // f=+0.5 orange
+        c(255, 76,  10),   // f=+0.6
+        c(255, 21,  21),   // f=+0.7 red
+        c(255, 98,  98),   // f=+0.8
+        c(255, 176, 176),  // f=+0.9 pink
+        c(255, 255, 255),  // f=+1.0 white
       ];
     };
     env.set('Rainbow', (...args) => {
@@ -21006,11 +21394,16 @@ function createInterpreter() {
 
     // light stubs
     env.set('light', (...args) => ({_tag:'light'}));
-    // currentlight is a mutable object so .background can be assigned
-    const _currentlight = {_tag:'light', background: null};
+    // currentlight is a mutable object so .background can be assigned.
+    // _headlamp marks the camera-relative default (three_light.asy's
+    // currentlight=Headlamp=light(...,dir(42,48))): its highlight is fixed in
+    // SCREEN space (upper-right), not world space. Explicit world lights
+    // (White, (10,10,5), light(...)) are NOT tagged, so they keep the
+    // world-space sphere-shading path.
+    const _currentlight = {_tag:'light', background: null, _headlamp: true};
     env.set('currentlight', _currentlight);
     env.set('nolight', {_tag:'light'});
-    env.set('Headlamp', {_tag:'light'});
+    env.set('Headlamp', {_tag:'light', _headlamp: true});
     env.set('White', {_tag:'light'});
 
     // material stubs
@@ -21054,11 +21447,17 @@ function createInterpreter() {
       const pos = args.filter(a => !(a && a._named));
       const named = {};
       for (const a of args) if (a && a._named) Object.assign(named, a);
+      // InTicks(Label format, int N, int n, ...): N = number of major tick
+      // intervals, n = minor subdivisions. graph3_1 uses InTicks(Label,2,2) → 2
+      // major intervals (so x∈[-1,1] gets ticks at -1,0,1), not the dense default.
+      const nums = pos.filter(a => typeof a === 'number');
       return {
         _tag:'ticks3',
         beginlabel: named.beginlabel !== false,
         endlabel: named.endlabel !== false,
         Label: pos.find(a => a && a._tag === 'Label') || null,
+        N: (typeof named.N === 'number') ? named.N : (nums.length >= 1 ? nums[0] : 0),
+        n: (typeof named.n === 'number') ? named.n : (nums.length >= 2 ? nums[1] : 0),
       };
     });
     env.set('OutTicks', (...args) => ({_tag:'ticks3', type:'OutTicks'}));
@@ -21175,9 +21574,17 @@ function createInterpreter() {
       // Snap bounds to the innermost tick positions for cleaner axis visualization
       // This matches Asymptote's Bounds style where the box aligns with tick marks
       // Use tighter bounds - first tick >= minX, last tick <= maxX
-      const xTicks = _niceTickValues(b.minX, b.maxX, 6);
-      const yTicks = _niceTickValues(b.minY, b.maxY, 5);
-      const zTicks = _niceTickValues(b.minZ, b.maxZ, 5, true);
+      // Per-axis target tick count: honour InTicks(N) (N major intervals → N+1
+      // ticks) so a sparse InTicks(Label,2,2) doesn't render the dense default
+      // (which crushed graph3_1's x/y labels into an unreadable pile).
+      const _axisTickTarget = (name, def) => {
+        const c = _pendingAxis3Calls.find(cc => cc.axisName === name);
+        const N = c && c.ticks && c.ticks.N;
+        return (typeof N === 'number' && N > 0) ? N + 1 : def;
+      };
+      const xTicks = _niceTickValues(b.minX, b.maxX, _axisTickTarget('x', 6));
+      const yTicks = _niceTickValues(b.minY, b.maxY, _axisTickTarget('y', 5));
+      const zTicks = _niceTickValues(b.minZ, b.maxZ, _axisTickTarget('z', 5), true);
       if (xTicks.length >= 2) {
         // Find first tick >= original minX (snapped inward)
         const firstTick = xTicks.find(t => t >= b.minX - 0.01) || xTicks[0];
@@ -21218,24 +21625,34 @@ function createInterpreter() {
         pic.commands.push({cmd:'draw', path, pen, line: 0});
       }
 
+      // Box colour: use the (first Bounds) axis's own pen so a coloured axis call
+      // like xaxis3(...,red,...) draws a RED bounding box, not the default black.
+      let boxPen = clonePen(axisPen);
+      for (const call of _pendingAxis3Calls) {
+        if (call.pen && call.axisType && call.axisType.type === 'Bounds') {
+          boxPen = clonePen(call.pen);
+          if (!(typeof boxPen.linewidth === 'number' && boxPen.linewidth > 0)) boxPen.linewidth = axisPen.linewidth;
+          break;
+        }
+      }
       // Only draw the full bounding box if at least one axis uses Bounds
       if (hasBoundsAxis) {
         // Draw box edges based on typical Asymptote Bounds style
         // Bottom face (z = minZ)
-        drawEdge([b.minX, b.minY, b.minZ], [b.maxX, b.minY, b.minZ], axisPen);
-        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.maxY, b.minZ], axisPen);
-        drawEdge([b.maxX, b.maxY, b.minZ], [b.minX, b.maxY, b.minZ], axisPen);
-        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.minY, b.minZ], axisPen);
+        drawEdge([b.minX, b.minY, b.minZ], [b.maxX, b.minY, b.minZ], boxPen);
+        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.maxY, b.minZ], boxPen);
+        drawEdge([b.maxX, b.maxY, b.minZ], [b.minX, b.maxY, b.minZ], boxPen);
+        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.minY, b.minZ], boxPen);
         // Top face (z = maxZ)
-        drawEdge([b.minX, b.minY, b.maxZ], [b.maxX, b.minY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.minY, b.maxZ], [b.maxX, b.maxY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.maxY, b.maxZ], [b.minX, b.maxY, b.maxZ], axisPen);
-        drawEdge([b.minX, b.maxY, b.maxZ], [b.minX, b.minY, b.maxZ], axisPen);
+        drawEdge([b.minX, b.minY, b.maxZ], [b.maxX, b.minY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.minY, b.maxZ], [b.maxX, b.maxY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.maxY, b.maxZ], [b.minX, b.maxY, b.maxZ], boxPen);
+        drawEdge([b.minX, b.maxY, b.maxZ], [b.minX, b.minY, b.maxZ], boxPen);
         // Vertical edges
-        drawEdge([b.minX, b.minY, b.minZ], [b.minX, b.minY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.minY, b.maxZ], axisPen);
-        drawEdge([b.maxX, b.maxY, b.minZ], [b.maxX, b.maxY, b.maxZ], axisPen);
-        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.maxY, b.maxZ], axisPen);
+        drawEdge([b.minX, b.minY, b.minZ], [b.minX, b.minY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.minY, b.minZ], [b.maxX, b.minY, b.maxZ], boxPen);
+        drawEdge([b.maxX, b.maxY, b.minZ], [b.maxX, b.maxY, b.maxZ], boxPen);
+        drawEdge([b.minX, b.maxY, b.minZ], [b.minX, b.maxY, b.maxZ], boxPen);
       }
 
       // View-aware corner selection: pick the bounding-box edge that's
@@ -21285,7 +21702,7 @@ function createInterpreter() {
           // X axis: runs along the front-bottom edge (y at the side facing
           // the camera, z=minZ). Ticks point into box (up), labels outside
           // (below the edge in screen space).
-          const ticks = _niceTickValues(b.minX, b.maxX, 6);
+          const ticks = xTicks; // N-aware (InTicks N)
           const zRange = b.maxZ - b.minZ;
           // Compute 2D offset for "below" the x-axis edge
           const yEdge = xAxisYEdge;
@@ -21323,7 +21740,7 @@ function createInterpreter() {
           // Y axis: runs along the bottom edge at the side facing the
           // camera in x (x=minX or maxX), z=minZ.
           const xEdge = yAxisXEdge;
-          const ticks = _niceTickValues(b.minY, b.maxY, 5);
+          const ticks = yTicks; // N-aware (InTicks N)
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const y = ticks[i];
@@ -21358,7 +21775,7 @@ function createInterpreter() {
           // (e.g., gamma function plots with z from 0 to ~12 should show every integer)
           const zRange = b.maxZ - b.minZ;
           const zTargetCount = zRange <= 15 ? Math.max(zRange, 5) : 5;
-          const ticks = _niceTickValues(b.minZ, b.maxZ, zTargetCount);
+          const ticks = zTicks; // N-aware (InTicks N)
           const labelOffset = tickLen * 3;
           for (let i = 0; i < ticks.length; i++) {
             const z = ticks[i];
@@ -21950,6 +22367,16 @@ function createInterpreter() {
       frameTarget = args[0];
       args = args.slice(1);
     }
+    // Marker support: draw(…, graph(…), marker(…)) places the marker symbol along
+    // the drawn path via its markroutine (marknodes/markuniform). The path is still
+    // drawn by the normal logic below; we just also stamp the markers (graph_7).
+    {
+      const _mk = args.find(a => a && a._tag === 'marker' && !a._empty);
+      if (_mk) {
+        const _mpath = args.find(a => isPath(a));
+        if (_mpath) { try { applyMarker(target, _mk, _mpath); } catch (e) {} }
+      }
+    }
     // draw(Label L, box, filltype) — boxed label at the Label's own pair
     // position. Here `box` is the envelope (frame-border routine), not a path;
     // with Fill(grey) it renders a filled grey rectangle behind the label text
@@ -22205,6 +22632,44 @@ function createInterpreter() {
       return;
     }
     // Handle draw(path[], pen) — array of paths (e.g. from contour())
+    // draw(Label[] L, path[] g, pen p | pen[] p) — plain_Label.asy form used by
+    // import contour's labelled-level draw (ext_manual_contour_2). Draw each path
+    // with its index-cycled pen and anchor each non-empty label at its Relative
+    // position along the matching path. Without this the call no-ops entirely (the
+    // path-array handler below requires args[0] to BE the paths, not labels).
+    if (args.length >= 2 && isArray(args[0]) && args[0].length > 0 &&
+        args[0].every(v => v && v._tag === 'label') &&
+        isArray(args[1]) && args[1].length > 0 && isPath(args[1][0])) {
+      const labels = args[0];
+      const paths = args[1];
+      let penArr = null, singlePen = null;
+      for (let i = 2; i < args.length; i++) {
+        const a = args[i];
+        if (isArray(a) && a.length > 0 && a.every(isPen)) penArr = a;
+        else if (isPen(a)) singlePen = singlePen ? mergePens(singlePen, a) : a;
+      }
+      for (let i = 0; i < paths.length; i++) {
+        const path = paths[i];
+        let pen = clonePen(defaultPen);
+        if (singlePen) pen = mergePens(pen, singlePen);
+        if (penArr && penArr.length) pen = mergePens(pen, penArr[i % penArr.length]);
+        target.commands.push({cmd, path, pen, arrow:null, line: args._line || 0});
+        const lbl = labels[i % labels.length];
+        if (lbl && lbl.text) {
+          const t = typeof lbl.position === 'number' ? lbl.position : 0.5;
+          let pt = null;
+          try { pt = _pointOnPath(path, toNumber(t) * _pathTimeSpan(path)); } catch(e) {}
+          if (pt) target.commands.push({
+            cmd: 'label', text: lbl.text, pos: makePair(pt.x, pt.y),
+            align: isPair(lbl.align) ? lbl.align : null,
+            pen: lbl.pen ? mergePens(clonePen(defaultPen), lbl.pen) : clonePen(defaultPen),
+            labelTransform: lbl.transform || null, filltype: lbl.filltype || null,
+            line: args._line || 0,
+          });
+        }
+      }
+      return;
+    }
     if (args.length >= 1 && isArray(args[0]) && args[0].length > 0 && isPath(args[0][0])) {
       const paths = args[0];
       // Start with defaultPen as base so a user-supplied pen that doesn't
@@ -24921,9 +25386,11 @@ function createInterpreter() {
     // sentinel (_viewport:true was added when env.set('Viewport',...)).
     let slx, sly, slz;
     let _isViewportLight = false;
+    let _isHeadlamp = false;
     try {
       const _cl = globalEnv && globalEnv.get && globalEnv.get('currentlight');
       if (_cl && _cl._viewport) _isViewportLight = true;
+      else if (_cl && _cl._headlamp) _isHeadlamp = true;
     } catch(_) {}
     if (_isViewportLight) {
       // Screen-relative: pure up-tilt for the Viewport light.  Asymptote's
@@ -24939,11 +25406,24 @@ function createInterpreter() {
       slx = vx + sphereUpTilt*upx;
       sly = vy + sphereUpTilt*upy;
       slz = vz + sphereUpTilt*upz;
+    } else if (_isHeadlamp) {
+      // Default Headlamp (three_light.asy: currentlight=Headlamp=light(...,
+      // dir(42,48))). Headlamp is CAMERA-RELATIVE, so build its highlight from the
+      // SCREEN basis: dir(42,48) = (sinθcosφ, sinθsinφ, cosθ) = right·0.448 +
+      // up·0.497 + viewer·0.743, putting the bright spot upper-right of each
+      // sphere. The previous hardcoded WORLD vector (0.25,1.2,1)+camera-flip aimed
+      // the highlight upper-right for 03360's camera but the flip (negate when the
+      // light tips behind the view plane) FLIPPED it to the lower-LEFT for
+      // orthographic(2,-1,1/2) (06836 had dot −0.087). The screen basis tracks the
+      // camera so it lands right for 06836/03633/03634 too.
+      const HR = 0.4477, HU = 0.4972, HV = 0.7431; // dir(42,48)
+      slx = HR*rxScreen + HU*upx + HV*vx;
+      sly = HR*ryScreen + HU*upy + HV*vy;
+      slz = HR*rzScreen + HU*upz + HV*vz;
     } else {
-      // World-space default light. Asymptote's three.asy declares
-      // (0.25,-0.25,1) but TeXeR's PRC rasterizer appears to use a
-      // direction closer to (0.25,0.25,1) for surface highlights. Empirically
-      // tuned against 03360 to put the focal in the upper-right quadrant.
+      // Explicit WORLD-space light (White, (10,10,5), light(...)). Asymptote's
+      // three.asy declares (0.25,-0.25,1) but TeXeR's PRC rasterizer appears to
+      // use a direction closer to (0.25,0.25,1) for surface highlights.
       slx = 0.25; sly = 1.2; slz = 1;
       const lvDot = slx*vx + sly*vy + slz*vz;
       if (lvDot < 0) { slx = -slx; sly = -sly; slz = -slz; }
@@ -25643,6 +26123,9 @@ function createInterpreter() {
     unitScale = 1; hasUnitScale = false; _trueSizeFrame = false;
     _globalUnitSize = 0;
     _usedPictureComposite = false;
+    _usedMulti3DComposite = false;
+    _texMacros = {};
+    try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros({}); } catch (e) {}
     _usedCurrentpictureReassign = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
@@ -25857,6 +26340,7 @@ function createInterpreter() {
       _bboxSpec: currentPic._bboxSpec,
       _pageOrientation: currentPic._pageOrientation,
       _usedPictureComposite,
+      _usedMulti3DComposite,
       _usedCurrentpictureReassign,
       // TeXeR's server-side default-size selection (verified by live
       // introspection probes 2026-06-10): the [asy] wrapper prepends
@@ -25945,7 +26429,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedCurrentpictureReassign, _texerSizeTextMatch } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedMulti3DComposite, _usedCurrentpictureReassign, _texerSizeTextMatch } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -26804,7 +27288,14 @@ function renderSVG(result, opts) {
   // and the axis ticks the frame extends out to reach them — fell off-frame
   // (the missing x=6 tick in 00115). Union (expand-only) so geometry that
   // overshoots NoCrop limits still draws beyond the window rather than clipping.
-  if (axisLimits && !axisLimits.crop) {
+  // Skip for a truesize composited frame: its geometry is already in bp space
+  // (a fitted+placed sub-picture), so the non-crop limits — which are in USER
+  // coords — are a different coordinate system. Applying them mixes spaces and,
+  // when the frame was add()ed with a large align shift (00430:
+  // add(pic3.fit(),(0,0),12*margin*S) shifts the frame to bp y[-306,-182] while
+  // pic3's leaked ylimits ymax=4), pulls maxY up to the user-coord 4 → ~187bp of
+  // phantom empty canvas above the content (a 311-tall viewBox vs the ~125 frame).
+  if (axisLimits && !axisLimits.crop && !_trueSizeFrame) {
     if (axisLimits.xmin !== null && !(axisLimits.xmin >= minX)) minX = axisLimits.xmin;
     if (axisLimits.xmax !== null && !(axisLimits.xmax <= maxX)) maxX = axisLimits.xmax;
     if (axisLimits.ymin !== null && !(axisLimits.ymin >= minY)) minY = axisLimits.ymin;
@@ -26932,11 +27423,18 @@ function renderSVG(result, opts) {
   function _lblAbsorb(px, py, wU, hU, dc) {
     if (!_lblInterior(px, py, dc)) return false;
     const _gw = geoMaxX - geoMinX, _gh = geoMaxY - geoMinY;
-    // A caption spanning most of the figure (01763's "The projection of v onto
-    // u" ≈ 70% of the width) is not a point annotation — asy lets it protrude,
-    // so don't absorb it. Point labels (the trig cluster's "(cos θ,sin θ)" ≈
-    // 46%) are well under this.
-    if (wU > 0.6 * _gw || hU > 0.6 * _gh) return false;
+    // A caption/coordinate label spanning a large fraction of the figure is not a
+    // point annotation — asy lets it protrude past the geometry, so don't absorb
+    // (centre) it for the fit. The wide nested-fraction coordinate labels
+    // "$\left(\cos\left(\frac{7\pi}{3}\right),\sin(\dots)\right)$" of the c10_L1
+    // unit-circle family run ~0.44–0.52 of the geometry width and DO protrude in
+    // TeXeR (00165/00164 NE, 00167) — absorbing them under-counted their reach in
+    // the size() LP, so the solver scaled the geometry up and the truesize label
+    // rendered ~0.7× too small (sizeScore fine, but trimmed aspect ratio off →
+    // SSIM ~0.92). The short single-line trig label "(cos θ,sin θ)" (00162) sits
+    // at ~0.385 and genuinely stays interior in TeXeR, so it must still absorb;
+    // the 0.42 width cut separates the two clusters. Height keeps the 0.6 cut.
+    if (wU > 0.42 * _gw || hU > 0.6 * _gh) return false;
     const hwU = (wU > 0 ? wU : 0) / 2, hhU = (hU > 0 ? hU : 0) / 2;
     return (px - hwU) >= geoMinX && (px + hwU) <= geoMaxX &&
            (py - hhU) >= geoMinY && (py + hhU) <= geoMaxY;
@@ -27780,7 +28278,17 @@ function renderSVG(result, opts) {
       const _sh = sizeH > 0 ? sizeH : Infinity;
       const _gW = (geoMaxX - geoMinX) || 1;
       const _gH = (geoMaxY - geoMinY) || 1;
-      pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
+      if (!keepAspect && sizeW > 0 && sizeH > 0) {
+        // IgnoreAspect with axes/unitScale present: x and y must scale
+        // INDEPENDENTLY to fill size(W,H). Forcing them equal via min() collapsed
+        // wide axis plots — graph_2's size(400,200,IgnoreAspect) (an axis plot, so
+        // hasUnitScale is set via _isAxisLine) rendered 142 wide instead of ~400.
+        pxPerUnitX = _sw / _gW;
+        pxPerUnitY = _sh / _gH;
+        pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+      } else {
+        pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
+      }
     } else if (!_trueSizeFrame && !_is3D && _boundsInexact) {
       // TRUE TeXeR pass-2 (fit2's corrective rescale, one step): re-measure
       // the literal frame (geometry + truesize labels) and rescale the
@@ -27845,7 +28353,7 @@ function renderSVG(result, opts) {
     // beyond the projected 3D figure on at least one axis, fit size() to the
     // 3D figure's bbox (so it is not crushed) and let the 2D overlay spill
     // out. Detected by comparing the combined geo bbox to the 3D-only bbox.
-    if (_is3D && _bbox3D && _bbox3D.w > 1e-6 && _bbox3D.h > 1e-6 && !_isIgnoreAspect) {
+    if (_is3D && _bbox3D && _bbox3D.w > 1e-6 && _bbox3D.h > 1e-6 && !_isIgnoreAspect && !_usedMulti3DComposite) {
       const _rW = _geoRefW / _bbox3D.w;
       const _rH = _geoRefH / _bbox3D.h;
       if (_rW > 1.12 || _rH > 1.12) {
@@ -28043,7 +28551,17 @@ function renderSVG(result, opts) {
         if (_sxS === 0) _sxS = _syS;
         if (_syS === 0) _syS = _sxS;
         if (_sxS > 0 && _syS > 0) {
-          pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+          if (keepAspect) {
+            pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+          } else {
+            // IgnoreAspect (keepAspect=false): x and y scale INDEPENDENTLY to fill
+            // size(W,H). Forcing them equal via min() collapsed wide plots — e.g.
+            // graph_2's size(400,200,IgnoreAspect) over x∈[0,1],y∈[-1,1] rendered
+            // 142 wide (x stuck at the y-scale 58.8) instead of ~400.
+            pxPerUnitX = _sxS;
+            pxPerUnitY = _syS;
+            pxPerUnit = Math.min(_sxS, _syS);
+          }
           _sizeLpApplied = true;
         }
       }
@@ -30330,6 +30848,74 @@ function renderSVG(result, opts) {
     ];
   }
 
+  // patterns module: emit an SVG <pattern> of parallel (or crossed) lines for a
+  // hatch/crosshatch fill spec and return the fill value (`url(#id)`), or 'none'
+  // when pattern(name) matched no registered tile. The tile background is
+  // transparent so overlapping hatch fills both remain visible (matches
+  // Asymptote's patterns). Shared by the `fill` and `filldraw` render branches
+  // so BOTH fill(g, pattern("h")) and filldraw(g, pattern("h")) tile correctly.
+  function emitHatchFill(spec) {
+    if (!spec) return 'none'; // pattern(name) found no registered tile
+    if (typeof globalThis._hatchPatCounter !== 'number') globalThis._hatchPatCounter = 0;
+    globalThis._hatchPatCounter += 1;
+    const pid = `_hpat${globalThis._hatchPatCounter}`;
+    const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
+    // TeXeR renders default/hairline hatch pens device-pixel-snapped (~3x the
+    // geometric 0.5bp width — see the "default stroke thinness" note), so a bare
+    // hatch()/crosshatch() looks far too thin in HiTeXeR. Boost only thin/default
+    // pens; an explicit thick hatch pen (e.g. hatch(black+2bp)) keeps its width.
+    let lwBp = (spec.pen && spec.pen.linewidth) || 0.5;
+    if (lwBp <= 0.6) lwBp *= 2.5;
+    const lwPx = Math.max(0.4, lwBp * bpCSSPixel);
+    const hp = spec.pen || {r:0,g:0,b:0};
+    const hcol = '#' + [hp.r,hp.g,hp.b].map(c => {
+      const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
+      return h.length<2?'0'+h:h;
+    }).join('');
+
+    // ── tile / checker / brick cell patterns (patterns.asy) ──
+    if (spec.kind === 'tile' || spec.kind === 'checker' || spec.kind === 'brick') {
+      const Hx = (spec.Hx || 5 * (72/25.4)) * bpCSSPixel;
+      const Hy = (spec.Hy || spec.Hx || 5 * (72/25.4)) * bpCSSPixel;
+      let pw, ph, inner = '';
+      if (spec.kind === 'tile') {
+        const mLB = spec.marginLB || {x:0,y:0}, mRT = spec.marginRT || {x:0,y:0};
+        const mlx = mLB.x * bpCSSPixel, mly = mLB.y * bpCSSPixel;
+        const mrx = mRT.x * bpCSSPixel, mry = mRT.y * bpCSSPixel;
+        pw = Hx + mlx + mrx; ph = Hy + mly + mry;
+        inner = spec.fill
+          ? `<rect x="${fmt(mlx)}" y="${fmt(mly)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="${hcol}"/>`
+          : `<rect x="${fmt(mlx)}" y="${fmt(mly)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="none" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+      } else if (spec.kind === 'checker') {
+        pw = 2 * Hx; ph = 2 * Hy;
+        inner = `<rect x="0" y="0" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="${hcol}"/>` +
+                `<rect x="${fmt(Hx)}" y="${fmt(Hy)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="${hcol}"/>`;
+      } else { // brick — outlined bricks, each row offset half a brick
+        pw = Hx; ph = 2 * Hy;
+        const r = (x, y) => `<rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(Hx)}" height="${fmt(Hy)}" fill="none" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+        inner = r(0, 0) + r(-Hx/2, Hy) + r(Hx/2, Hy);
+      }
+      elements.push(`<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(pw)}" height="${fmt(ph)}">${inner}</pattern></defs>`);
+      return `url(#${pid})`;
+    }
+
+    const angDeg = ((spec.angle != null ? spec.angle : Math.PI/4) * 180 / Math.PI);
+    const sx = (spec.shift ? spec.shift.x : 0) * bpCSSPixel;
+    const sy = (spec.shift ? spec.shift.y : 0) * bpCSSPixel;
+    // Horizontal lines spaced d_px apart, rotated to the hatch angle.
+    // Screen y is down, so negate the math-coords angle.
+    let lines = `<line x1="0" y1="0" x2="${fmt(d_px)}" y2="0" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+    if (spec.kind === 'crosshatch') {
+      lines += `<line x1="0" y1="0" x2="0" y2="${fmt(d_px)}" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
+    }
+    const ptrans = `translate(${fmt(sx)},${fmt(sy)}) rotate(${fmt(-angDeg)})`;
+    elements.push(
+      `<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(d_px)}" height="${fmt(d_px)}" patternTransform="${ptrans}">` +
+      lines + `</pattern></defs>`
+    );
+    return `url(#${pid})`;
+  }
+
   function renderPathCommand(ci, dc, css, dashArray) {
     if (dc.path._singlePoint) {
       const p = dc.path._singlePoint;
@@ -30439,41 +31025,9 @@ function renderSVG(result, opts) {
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
       fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
-      // patterns module: hatch/crosshatch fill. Emit an SVG <pattern> of
-      // parallel (or crossed) lines at the correct absolute spacing and set
-      // fill to url(#...). The tile background is transparent so overlapping
-      // hatch fills both remain visible (matches Asymptote's patterns).
+      // patterns module: hatch/crosshatch fill (see emitHatchFill).
       if (dc.cmd === 'fill' && dc.pen && dc.pen._fillPattern !== undefined) {
-        const spec = dc.pen._fillPattern;
-        if (!spec) {
-          fill = 'none'; // pattern(name) found no registered tile
-        } else {
-          if (typeof globalThis._hatchPatCounter !== 'number') globalThis._hatchPatCounter = 0;
-          globalThis._hatchPatCounter += 1;
-          const pid = `_hpat${globalThis._hatchPatCounter}`;
-          const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
-          const lwPx = Math.max(0.4, ((spec.pen && spec.pen.linewidth) || 0.5) * bpCSSPixel);
-          const hp = spec.pen || {r:0,g:0,b:0};
-          const hcol = '#' + [hp.r,hp.g,hp.b].map(c => {
-            const h = Math.round(Math.max(0,Math.min(255,(c||0)*255))).toString(16);
-            return h.length<2?'0'+h:h;
-          }).join('');
-          const angDeg = ((spec.angle != null ? spec.angle : Math.PI/4) * 180 / Math.PI);
-          const sx = (spec.shift ? spec.shift.x : 0) * bpCSSPixel;
-          const sy = (spec.shift ? spec.shift.y : 0) * bpCSSPixel;
-          // Horizontal lines spaced d_px apart, rotated to the hatch angle.
-          // Screen y is down, so negate the math-coords angle.
-          let lines = `<line x1="0" y1="0" x2="${fmt(d_px)}" y2="0" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
-          if (spec.kind === 'crosshatch') {
-            lines += `<line x1="0" y1="0" x2="0" y2="${fmt(d_px)}" stroke="${hcol}" stroke-width="${fmt(lwPx)}"/>`;
-          }
-          const ptrans = `translate(${fmt(sx)},${fmt(sy)}) rotate(${fmt(-angDeg)})`;
-          elements.push(
-            `<defs><pattern id="${pid}" patternUnits="userSpaceOnUse" width="${fmt(d_px)}" height="${fmt(d_px)}" patternTransform="${ptrans}">` +
-            lines + `</pattern></defs>`
-          );
-          fill = `url(#${pid})`;
-        }
+        fill = emitHatchFill(dc.pen._fillPattern);
       }
       // Closed-sphere radial-gradient fill (see renderMeshToPicture
       // short-circuit). Replace flat fill with url(#...) and emit a
@@ -30510,6 +31064,13 @@ function renderSVG(result, opts) {
     } else if (dc.cmd === 'filldraw') {
       // If fill pen is invisible (opacity 0), use fill='none' so the stroke outline remains visible
       fill = (css.opacity === 0) ? 'none' : css.fill;
+      // patterns module: a filldraw whose FILL pen carries a hatch/crosshatch
+      // tile (e.g. filldraw(unitsquare, pattern("hatch"))) tiles the interior
+      // just like fill() does — the outline below is still stroked with the
+      // draw pen. Without this the interior rendered as a solid black fill.
+      if (dc.pen && dc.pen._fillPattern !== undefined) {
+        fill = emitHatchFill(dc.pen._fillPattern);
+      }
       // The filldraw OUTLINE is stroked with the draw pen (drawPen, or the
       // default pen when only a fill pen was supplied). penToCSS gives its
       // nominal width; we then apply the SAME auto-scaled / explicit-size
@@ -31530,7 +32091,12 @@ function renderSVG(result, opts) {
         if (Math.abs(axLinf) > 0.99 && !dc.labelTransform
             && (dc._isAxisLabel || (Math.abs(ay) < 0.01 && numLines <= 1))) {
           anchor = ax < 0 ? 'end' : 'start';
-          dx = axLinf * margin + axUnit * dotPush;
+          // Use the FULL align.x for the margin push (not the L-inf-normalized
+          // axLinf) so a magnitude>1 align like 8W pushes the label 8 margins out,
+          // matching the anchor='middle' branch above (ax_n*W + ax*margin gives the
+          // same edge). Normalizing here dropped the magnitude — the "$x$" at 8W in
+          // 05547 sat one margin out instead of eight.
+          dx = ax * margin + axUnit * dotPush;
           dy = -(ay_n * H + ayLinf * margin + ayUnit * dotPush);
         }
       }
@@ -32235,7 +32801,19 @@ function renderSVG(result, opts) {
           labelEl = renderLabelWithScripts(displayText, fmt(sx+dx), fmt(_swsY), effectiveFontSize, css.fill, anchor, baseline, css.opacity, penFF || undefined, undefined, undefined, _isMathLbl);
         }
       }
+      // Axis-title / tick labels must NOT grow the canvas: under limits(...,Crop)
+      // Asymptote fits the cropped region to size() and lets these float into the
+      // thin arrow margin instead of enlarging the box (04454). Expanding for them
+      // misregisters every gridline against TeXeR. Regular label() captions (the
+      // caption in 04545, f/g labels in 04896) DO extend the canvas, so keep their
+      // data-ext. (This also restores their pre-emitter behaviour, where glyph-path
+      // axis titles never reached expandViewBox at all.)
+      if (dc._isAxisLabel && labelEl) labelEl = labelEl.replace(/ data-ext="[^"]*"/, '');
       if (labelTransformAttr) {
+        // The outer rotate/shift/stretch transform invalidates the inner
+        // data-ext box frame (it was computed pre-transform), so drop it —
+        // expandViewBox must not expand the canvas using a stale frame.
+        labelEl = labelEl.replace(/ data-ext="[^"]*"/, '');
         labelEl = `<g${labelTransformAttr}>${labelEl}</g>`;
       }
       elements.push(labelEl);
@@ -32547,6 +33125,10 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
   // tip (open "<"/">" chevron), per Asymptote's plain_arrows.asy. It applies
   // regardless of Arrow vs ArcArrow style and overrides the filled head shape.
   const isSimpleHead = dc.arrow.headKind === 'SimpleHead';
+  // HookHead vs TeXHead disambiguation: both set texHead=true, but only
+  // ArcArrow(HookHead) gets the barbed-harpoon head; ArcArrow(TeXHead) gets
+  // the authentic thin texhead glyph (same as axis EndArrow(TeXHead)).
+  const isHook = !!dc.arrow.hookHead;
   // ArcArrow uses filled curved arrowhead (bowed-out shape); regular Arrow uses filled triangle.
   // TeXHead uses a thin stroked chevron (not filled), matching LaTeX arrow glyph shape.
   const filled = style !== 'Bar' && style !== 'Bars' && !isTexHead;
@@ -32609,7 +33191,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
       return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)}`, filled: false};
     }
 
-    if (isArcStyle && isTexHead) {
+    if (isArcStyle && isTexHead && isHook) {
       // HookHead used as an arc arrowhead (ArcArrow(HookHead)/ArcArrows(HookHead)):
       // render a barbed harpoon — straight arms from the tip out to two rear
       // barb points, with the trailing edge notched inward (concave toward the
@@ -32633,7 +33215,7 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
       return {d, filled: true};
     }
 
-    if (isArcStyle) {
+    if (isArcStyle && !isTexHead) {
       // ArcArrow: filled closed arrowhead with two curved bezier arms meeting
       // at the tip. Asymptote's ArcArrow produces a filled head similar to a
       // regular Arrow but with the sides slightly bowed inward (concave arcs),
@@ -33677,7 +34259,17 @@ function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, op
   const baselineY = fy + hPx;
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const flip = reflectX ? `translate(${fmt(2 * (fx + svgW / 2))},0) scale(-1,1) ` : '';
-  return `<g transform="${flip}translate(${fmt(fx)},${fmt(baselineY)})"${op}>${r.svg}</g>`;
+  // data-ext = the label's box in viewBox/bp coords ([x0 y0 x1 y1]). The node
+  // rasterizer screenshots the SVG's width/height box, so a label that overflows
+  // the geometry-derived viewBox (e.g. a centred caption anchored at the data edge,
+  // 04545's "$15x+5y=1000$") is CLIPPED there even though the browser shows it via
+  // overflow:visible. expandViewBox reads data-ext to grow the canvas to the real
+  // painted extent — using the emitter's KNOWN box rather than the glyph paths'
+  // em-unit getBBox (which over-expanded ~20x). Only emitted for plain horizontal
+  // labels; the caller suppresses it when a rotate/shift/stretch outer transform
+  // would invalidate this box's frame.
+  const ext = ` data-ext="${fmt(fx)} ${fmt(fy)} ${fmt(fx + svgW)} ${fmt(fy + svgH)}"`;
+  return `<g transform="${flip}translate(${fmt(fx)},${fmt(baselineY)})"${op}${ext}>${r.svg}</g>`;
 }
 
 function renderLabelKaTeX(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS) {
@@ -35761,6 +36353,10 @@ function detectUnsupportedFeature(code) {
 }
 
 function render(code, opts) {
+  // katexSvg is a shared singleton across renders — clear any texpreamble() macros
+  // a previous diagram installed so they don't leak into this one (the interpreter
+  // itself is fresh per render, but katexSvg is not).
+  try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros({}); } catch (e) {}
   const interp = createInterpreter();
   const result = interp.execute(code, opts);
   return renderSVG(result, opts);
@@ -35774,6 +36370,7 @@ window.AsyInterp = {
   parse,
   _createInterpreter: createInterpreter,
   _renderSVG: renderSVG,
+  _unknown: _htxUnknown,   // instrumentation log of unresolved named calls
 };
 
 })();

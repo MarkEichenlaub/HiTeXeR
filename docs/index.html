@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/hint/show-hint.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="katex-svg.js?v=8.84"></script>
+<script defer src="katex-svg.js?v=9.47"></script>
 <script>
 // Prime the KaTeX faces used by the label renderer's canvas ink measurer
 // (asy-interp _labelFontsReady): @font-face fonts load lazily, and until they
@@ -92,6 +92,61 @@ body {
   padding: 20px; background: #1a1a2e; border-radius: 4px; max-width: 90%;
 }
 #preview-container .placeholder { color: #999; font-size: 14px; text-align: center; }
+
+/* ── TeXeR document mode: multiple [asy] diagrams + text + math + bbcode ── */
+#preview-container.htx-doc-mode {
+  align-items: flex-start; justify-content: center; overflow: auto; cursor: auto;
+}
+.htx-doc {
+  width: 100%; max-width: 760px; box-sizing: border-box; padding: 4px 8px 40px;
+  color: #1a1a2e; font-family: Georgia, 'Times New Roman', serif; font-size: 16px;
+  line-height: 1.5; text-align: left; word-wrap: break-word; overflow-wrap: break-word;
+}
+.htx-doc .htx-diagram {
+  display: inline-block; vertical-align: middle; margin: 4px 6px; max-width: 100%;
+}
+.htx-doc .htx-diagram svg { display: inline-block; max-width: 100%; height: auto; }
+.htx-doc .htx-diagram-error {
+  display: inline-block; color: #b00020; background: #fdecef; border: 1px solid #f4b9c4;
+  border-radius: 4px; padding: 8px 10px; font-family: monospace; font-size: 12px;
+  white-space: pre-wrap; max-width: 100%; vertical-align: middle; margin: 4px 6px;
+}
+.htx-doc .htx-diagram-loading { color: #888; font-style: italic; font-size: 13px; }
+.htx-doc pre.htx-code {
+  background: #f4f4f7; border: 1px solid #ddd; border-radius: 4px; padding: 8px 12px;
+  font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.4; overflow-x: auto;
+  white-space: pre-wrap; color: #222; margin: 8px 0;
+}
+.htx-doc code.htx-inline-code, .htx-doc tt {
+  background: #f4f4f7; border-radius: 3px; padding: 1px 4px;
+  font-family: 'Consolas', monospace; font-size: 0.9em;
+}
+.htx-doc blockquote.htx-quote {
+  border-left: 4px solid #b8c4d8; background: #f6f8fb; margin: 8px 0; padding: 6px 12px;
+  border-radius: 0 4px 4px 0;
+}
+.htx-doc .htx-quote-cite { font-weight: 700; font-size: 0.9em; color: #5a6a85; margin-bottom: 4px; }
+.htx-doc details.htx-hide {
+  border: 1px solid #cdd6e6; border-radius: 4px; margin: 8px 0; padding: 4px 10px; background: #fafbfd;
+}
+.htx-doc details.htx-hide > summary { cursor: pointer; font-weight: 700; color: #2d5a9e; user-select: none; }
+.htx-doc table.htx-table { border-collapse: collapse; margin: 8px 0; }
+.htx-doc table.htx-table td, .htx-doc table.htx-table th {
+  border: 1px solid #c8c8d4; padding: 4px 10px; text-align: left; vertical-align: top;
+}
+.htx-doc table.htx-table th { background: #eef1f6; font-weight: 700; }
+.htx-doc ul, .htx-doc ol { margin: 6px 0; padding-left: 28px; }
+.htx-doc li { margin: 2px 0; }
+.htx-doc hr.htx-hr { border: none; border-top: 1px solid #ccc; margin: 12px 0; }
+.htx-doc a.htx-link { color: #2d5a9e; text-decoration: underline; }
+.htx-doc img.htx-img { max-width: 100%; height: auto; vertical-align: middle; }
+.htx-doc .katex-display { margin: 10px 0; overflow-x: auto; overflow-y: hidden; }
+.htx-doc code.htx-math-error {
+  color: #b00020; background: #fdecef; border: 1px solid #f4b9c4; border-radius: 3px;
+  padding: 1px 4px; font-family: monospace;
+}
+.htx-doc p.htx-p { margin: 0 0 8px; }
+.htx-doc .htx-vspace { display: block; height: 0; line-height: 0; font-size: 0; }
 #preview-stale-badge {
   display: none; position: absolute; top: 46px; left: 8px; z-index: 100;
   background: rgba(233,69,96,0.85); color: #fff; font-size: 11px; font-weight: 600;
@@ -656,7 +711,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.35</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.47</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -719,6 +774,7 @@ body {
   <button id="btn-gif" title="Toggle GIF mode">GIF</button>
   <button id="btn-measure" title="Toggle distance measuring tool">&#x1F4CF; Measure</button>
   <button id="btn-hide-mode" title="Toggle hide mode — click elements to comment/uncomment them">Hide</button>
+  <button id="md-ai-chat" title="Toggle AI Chat">AI Chat</button>
   <button class="primary" id="btn-render" title="Ctrl+Enter" style="display:none">RENDER</button>
   <button id="btn-eigennode-send" style="display:none;background:#e94560;border-color:#e94560;" title="Send code back to EigenNode">SEND TO EIGENNODE</button>
   <button id="btn-library" title="Browse the AoPS diagram library" style="background:#5a3a8a;border-color:#4a2e75;">Library</button>
@@ -923,6 +979,34 @@ label("$C$", C, N);
       <span class="pib-cursor pib-section" id="pib-cursor-section" style="display:none"><span class="pib-label">cursor:</span> <span id="pib-cursor-pos"></span></span>
     </div>
   </div>
+  <div id="chat-resizer"></div>
+  <div id="chat-panel">
+    <div class="chat-header">
+      <h3>AI Chat</h3>
+      <button id="chat-close-btn">&times;</button>
+    </div>
+    <div class="chat-options">
+      <label><input type="checkbox" id="chat-opt-noedits"> No edits</label>
+      <label><input type="checkbox" id="chat-opt-refactor"> Refactor (style guide)</label>
+      <label><input type="checkbox" id="chat-opt-novisible"> No visible changes</label>
+      <label><input type="checkbox" id="chat-opt-comments"> Comments only</label>
+    </div>
+    <div id="chat-messages"></div>
+    <div class="chat-input-area">
+      <div class="chat-input-wrapper">
+        <textarea id="chat-input" rows="6" placeholder="Ask about your code... (Ctrl+V to paste image)"></textarea>
+        <div id="chat-image-preview" style="display:none">
+          <img id="chat-image-thumb" src="" alt="Attached image">
+          <button id="chat-image-remove" title="Remove image">&times;</button>
+        </div>
+      </div>
+      <div class="chat-input-buttons">
+        <button id="chat-attach-btn" title="Attach image">&#128247;</button>
+        <button id="chat-send-btn">Send</button>
+      </div>
+    </div>
+    <input type="file" id="chat-file-input" accept="image/*" style="display:none">
+  </div>
 </div>
 
 <div id="style-menu"></div>
@@ -940,6 +1024,20 @@ label("$C$", C, N);
   </div>
 </div>
 
+<!-- AI Edit Bar (hidden by default) -->
+<div id="ai-edit-bar" style="display:none;background:#16213e;border-top:2px solid #0f3460;padding:8px 16px;position:fixed;bottom:0;left:0;right:0;z-index:9999;display:none;">
+  <div style="display:flex;align-items:center;gap:8px;max-width:100%;">
+    <span style="color:#e9c46a;font-size:12px;font-weight:600;white-space:nowrap;">AI Edit:</span>
+    <input type="text" id="ai-edit-input" placeholder="Describe the image or changes you want..." style="flex:1;background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 12px;border-radius:4px;font-size:13px;">
+    <label id="ai-edit-upload-label" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Upload Image
+      <input type="file" id="ai-edit-file" accept="image/*" style="display:none;">
+    </label>
+    <span id="ai-edit-file-name" style="font-size:11px;color:#888;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    <button id="ai-edit-send" class="primary" style="white-space:nowrap;">SEND</button>
+    <button id="ai-edit-close">CLOSE</button>
+  </div>
+</div>
+
 <!-- Add Element Menu (floating) -->
 <div id="add-element-menu" style="display:none;position:fixed;z-index:10001;background:#1e1e2e;border:1px solid #555;border-radius:8px;padding:10px;box-shadow:0 8px 32px rgba(0,0,0,0.6);min-width:200px;">
 </div>
@@ -950,13 +1048,25 @@ label("$C$", C, N);
   <div style="text-align:right;margin-top:8px;"><button id="learn-popup-close" style="background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Close</button></div>
 </div>
 
+<!-- AI Progress Overlay -->
+<div id="ai-progress" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10003;background:#1e1e2e;border:2px solid #e9c46a;border-radius:12px;padding:24px 36px;box-shadow:0 12px 48px rgba(0,0,0,0.8);text-align:center;min-width:320px;">
+  <div style="font-size:16px;color:#e9c46a;font-weight:600;margin-bottom:12px;" id="ai-progress-title">AI Working...</div>
+  <div id="ai-progress-text" style="font-size:13px;color:#ccc;margin-bottom:12px;"></div>
+  <div id="ai-progress-spinner" style="color:#e9c46a;">
+    <svg width="32" height="32" viewBox="0 0 32 32" style="animation:spin 1s linear infinite;"><circle cx="16" cy="16" r="12" fill="none" stroke="#e9c46a" stroke-width="3" stroke-dasharray="60 20"/></svg>
+  </div>
+  <button id="ai-progress-cancel" style="margin-top:12px;background:#e94560;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Cancel</button>
+  <button id="ai-progress-revert" style="margin-top:8px;background:#0f3460;color:#eee;border:1px solid #1a1a5e;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Revert</button>
+  <button id="ai-progress-accept" style="margin-top:8px;background:#2ecc71;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;display:none;">Accept</button>
+</div>
+
 <!-- Slide Mode Slider Panel -->
 <div id="slide-panel" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(30,30,46,0.95);border-top:2px solid #e9c46a;padding:8px 16px;z-index:5000;max-height:120px;overflow-y:auto;">
   <div style="font-size:11px;color:#e9c46a;font-weight:600;margin-bottom:4px;">Variable Sliders</div>
   <div id="slide-sliders"></div>
 </div>
 
-<script src="asy-interp.js?v=8.84"></script>
+<script src="asy-interp.js?v=9.47"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
@@ -2769,7 +2879,19 @@ function highlightLines(primaryLine, depLines, scroll = false) {
 // ============================================================
 // Compilation
 // ============================================================
-const SERVER_URL = 'http://127.0.0.1:8080';
+// HiTeXeR runs either standalone (its own Python server on :8080) or embedded
+// inside a host app (e.g. EigenNode) via an <iframe>. When embedded, the
+// server-backed features (compile / ai / texer / convert-eps / render-gif) are
+// routed to the host's same-origin /api/hitexer/* endpoints instead of the
+// :8080 Python server, and code in/out happens over window.postMessage rather
+// than temp files (see the EigenNode integration block below).
+const HITEXER_EMBEDDED = (() => {
+  try {
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') return true;
+  } catch (e) {}
+  try { return !!(window.parent && window.parent !== window); } catch (e) { return false; }
+})();
+const SERVER_URL = HITEXER_EMBEDDED ? '/api/hitexer' : 'http://127.0.0.1:8080';
 
 let lastJsRenderOk = false; // tracks whether last render used JS interpreter
 let useRealAsy = false; // when true, skip JS interpreter and always use server
@@ -3060,11 +3182,397 @@ function applyGridOverlay() {
   container.appendChild(overlay);
 }
 
+// ============================================================
+// TeXeR document mode
+// ------------------------------------------------------------
+// The AoPS TeXeR is not just an Asymptote renderer — it renders a whole forum
+// post: arbitrary text, LaTeX math ($...$, $$...$$, \[...\]), AoPS bbcode, and
+// any number of [asy]...[/asy] diagrams interleaved. HiTeXeR emulates that here.
+//
+// A document is anything richer than a single clean [asy] block:
+//   • 2+ [asy] blocks, OR
+//   • 1 [asy] block with non-whitespace text outside it, OR
+//   • 0 [asy] blocks but the content carries math/bbcode and is not raw asy.
+// The common single-diagram case (the editor's default) keeps the existing
+// fully-interactive single-SVG path untouched.
+// ============================================================
+const HTXDoc = (function () {
+  const ASY_BLOCK_RE = /\[asy\]([\s\S]*?)\[\/asy\]/gi;
+
+  // Balance the TeXeR/corpus convention where the FIRST [asy] is implicit (source
+  // begins in asy mode; first marker seen is a closing [/asy]) and/or the LAST
+  // block is left unclosed. So a raw multi-block corpus source parses correctly.
+  function normalizeMarkers(src) {
+    const fOpen = src.search(/\[asy\]/i);
+    const fClose = src.search(/\[\/asy\]/i);
+    if (fClose >= 0 && (fOpen < 0 || fClose < fOpen)) src = '[asy]\n' + src;
+    const opens = (src.match(/\[asy\]/gi) || []).length;
+    const closes = (src.match(/\[\/asy\]/gi) || []).length;
+    if (opens > closes) src = src + '\n[/asy]';
+    return src;
+  }
+
+  // Ordered list of {type:'asy'|'text', value} segments.
+  function parseSegments(src) {
+    src = normalizeMarkers(src);
+    const segs = [];
+    let last = 0, m;
+    ASY_BLOCK_RE.lastIndex = 0;
+    while ((m = ASY_BLOCK_RE.exec(src)) !== null) {
+      if (m.index > last) segs.push({ type: 'text', value: src.slice(last, m.index) });
+      segs.push({ type: 'asy', value: m[1] });
+      last = m.index + m[0].length;
+    }
+    if (last < src.length) segs.push({ type: 'text', value: src.slice(last) });
+    return segs;
+  }
+
+  // Heuristic: does this 0-[asy]-block source look like raw Asymptote source
+  // (so we should NOT treat it as a text document)?
+  function looksLikeAsy(src) {
+    return /(^|\n)\s*(size|unitsize|draw|fill|filldraw|label|dot|path|pair|guide|pen|import|defaultpen|currentpicture|clip|real|int|void|picture)\s*[({=]/.test(src)
+      || /--cycle|\bcycle\b/.test(src);
+  }
+
+  // Does the text carry markup that only makes sense in document mode?
+  function hasMarkup(src) {
+    return /\$[^$]/.test(src)                       // a $ that starts inline/display math
+      || /\\\[|\\\(/.test(src)                       // \[ \] / \( \) math
+      || /\[(b|i|u|s|color|size|center|quote|code|list|url|img|hide|table|hr|tt|sub|sup|strike|del)(=|\])/i.test(src);
+  }
+
+  function isDocument(src) {
+    const segs = parseSegments(src);
+    const asyCount = segs.filter(s => s.type === 'asy').length;
+    if (asyCount >= 2) return true;
+    if (asyCount >= 1) return segs.some(s => s.type === 'text' && s.value.trim() !== '');
+    // No [asy] blocks: only a document if it has markup and isn't raw asy source.
+    return hasMarkup(src) && !looksLikeAsy(src);
+  }
+
+  const KATEX_MACROS = {
+    '\\bfseries': '\\bf',
+    '\\R': '\\mathbb{R}', '\\C': '\\mathbb{C}', '\\Z': '\\mathbb{Z}',
+    '\\N': '\\mathbb{N}', '\\Q': '\\mathbb{Q}',
+  };
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function renderMath(tex, display) {
+    tex = tex.trim();
+    if (window.katex) {
+      try {
+        return katex.renderToString(tex, { throwOnError: false, displayMode: display, macros: KATEX_MACROS });
+      } catch (e) {
+        return '<code class="htx-math-error">' + esc(tex) + '</code>';
+      }
+    }
+    return '<code class="htx-math-error">' + esc(tex) + '</code>';
+  }
+
+  // Convert one text segment (bbcode + math + prose) into HTML.
+  function renderText(text) {
+    if (!text || !text.trim()) return '';
+    const stash = [];
+    // Alphanumeric sentinel: untouched by HTML-escaping, bbcode regexes, and the
+    // newline->br pass, and astronomically unlikely to collide with prose.
+    const keep = (html) => 'HTXSTASH' + (stash.push(html) - 1) + 'ENDSTASH';
+    const DOLLAR = 'HTXLITDOLLAR';
+
+    // Protect escaped \$ so it survives math scanning as a literal dollar.
+    text = text.replace(/\\\$/g, DOLLAR);
+
+    // Extract verbatim [code] blocks first (no inner formatting).
+    text = text.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, (m, inner) =>
+      keep('<pre class="htx-code">' + esc(inner.replace(/^\n/, '').replace(/\n+$/, '')) + '</pre>'));
+
+    // Extract math (display first, then inline).
+    text = text.replace(/\$\$([\s\S]+?)\$\$/g, (m, t) => keep(renderMath(t, true)));
+    text = text.replace(/\\\[([\s\S]+?)\\\]/g, (m, t) => keep(renderMath(t, true)));
+    text = text.replace(/\\\(([\s\S]+?)\\\)/g, (m, t) => keep(renderMath(t, false)));
+    text = text.replace(/\$([^$\n]+?)\$/g, (m, t) => keep(renderMath(t, false)));
+
+    // ── TeXeR/LaTeX layout commands HiTeXeR's doc mode honors ──
+    // \vspace / \hspace take a length; \medskip etc. are fixed; \centerline and
+    // \begin{center} reuse the [center] path; \\ and \par break lines. Done before
+    // HTML-escaping (these carry literal \ and {}). Spacer commands have no inner
+    // text so stashing them here is safe; center forms rewrite to bbcode so their
+    // inner content still flows through inline/block processing.
+    const CSS_UNIT = { cm: 37.795, mm: 3.7795, in: 96, pt: 1.3333, bp: 1.3333, em: 16, ex: 7.4, px: 1 };
+    const lenPx = (v, u) => parseFloat(v) * (CSS_UNIT[(u || 'pt').toLowerCase()] || 1);
+    text = text.replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (m, inner) => '[center]' + inner + '[/center]');
+    text = text.replace(/\\centerline\s*\{([\s\S]*?)\}/g, (m, inner) => '[center]' + inner + '[/center]');
+    text = text.replace(/\\vspace\*?\s*\{\s*(-?[\d.]+)\s*([a-z]*)\s*\}/gi, (m, v, u) =>
+      keep(`<span class="htx-vspace" style="margin-top:${lenPx(v, u)}px"></span>`));
+    text = text.replace(/\\(?:medskip|smallskip|bigskip)\b/g, (m) =>
+      keep(`<span class="htx-vspace" style="margin-top:${m.includes('big') ? 12 : m.includes('small') ? 4 : 8}px"></span>`));
+    text = text.replace(/\\hspace\*?\s*\{\s*(-?[\d.]+)\s*([a-z]*)\s*\}/gi, (m, v, u) =>
+      keep(`<span style="display:inline-block;width:${lenPx(v, u)}px"></span>`));
+    text = text.replace(/\\quad\b/g, () => keep('<span style="display:inline-block;width:16px"></span>'));
+    text = text.replace(/\\qquad\b/g, () => keep('<span style="display:inline-block;width:32px"></span>'));
+    text = text.replace(/\\hfill\b/g, () => keep('<span style="display:inline-block;flex:1"></span>'));
+    text = text.replace(/\\(?:newline|\\)(?:\[[^\]]*\])?/g, '\n');  // \\ and \newline → line break
+    text = text.replace(/\\par\b/g, '\n\n');
+    text = text.replace(/\\noindent\b/g, '');
+
+    // Restore literal dollars, then HTML-escape the prose ([, ], = survive).
+    text = text.split(DOLLAR).join('$');
+    text = esc(text);
+
+    // -- Inline bbcode -- run BEFORE block tags so inline formatting inside a
+    // [center]/[quote]/[hide]/list-item/cell (which get stashed whole) still
+    // applies. Block tags (e.g. [list]) pass through untouched here.
+    const applyInline = (s) => {
+      s = s.replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong>$1</strong>');
+      s = s.replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<em>$1</em>');
+      s = s.replace(/\[u\]([\s\S]*?)\[\/u\]/gi, '<u>$1</u>');
+      s = s.replace(/\[(?:s|strike|del)\]([\s\S]*?)\[\/(?:s|strike|del)\]/gi, '<del>$1</del>');
+      s = s.replace(/\[tt\]([\s\S]*?)\[\/tt\]/gi, '<code class="htx-inline-code">$1</code>');
+      s = s.replace(/\[sub\]([\s\S]*?)\[\/sub\]/gi, '<sub>$1</sub>');
+      s = s.replace(/\[sup\]([\s\S]*?)\[\/sup\]/gi, '<sup>$1</sup>');
+      s = s.replace(/\[color=([^\]]+?)\]([\s\S]*?)\[\/color\]/gi, (m, color, inner) => {
+        if (!/^[a-zA-Z0-9#,.\s()%]+$/.test(color)) return inner;
+        return `<span style="color:${color}">${inner}</span>`;
+      });
+      s = s.replace(/\[size=(\d+)\]([\s\S]*?)\[\/size\]/gi, (m, n, inner) => {
+        const pct = Math.max(40, Math.min(300, parseInt(n, 10)));
+        return `<span style="font-size:${pct}%">${inner}</span>`;
+      });
+      s = s.replace(/\[img\]([\s\S]*?)\[\/img\]/gi, (m, url) => {
+        const u = url.trim();
+        if (!/^(https?:)?\/\//i.test(u)) return esc(u);
+        return `<img class="htx-img" src="${esc(u)}" alt="">`;
+      });
+      s = s.replace(/\[url=(?:&quot;)?([^\]]*?)(?:&quot;)?\]([\s\S]*?)\[\/url\]/gi, (m, url, label) => {
+        const u = url.trim().replace(/&amp;/g, '&');
+        return `<a class="htx-link" href="${esc(u)}" target="_blank" rel="noopener">${label}</a>`;
+      });
+      s = s.replace(/\[url\]([\s\S]*?)\[\/url\]/gi, (m, url) => {
+        const u = url.trim().replace(/&amp;/g, '&');
+        return `<a class="htx-link" href="${esc(u)}" target="_blank" rel="noopener">${esc(url.trim())}</a>`;
+      });
+      return s;
+    };
+    text = applyInline(text);
+
+    // -- Block-level bbcode --
+    // Lists (loop to handle nesting). [list]/[list=1]/[list=a].
+    let prev;
+    do {
+      prev = text;
+      text = text.replace(/\[list(?:=([^\]]+))?\]([\s\S]*?)\[\/list\]/gi, (m, kind, body) => {
+        const ordered = kind && /^[0-9aAiI]/.test(kind.trim());
+        const tag = ordered ? 'ol' : 'ul';
+        const typeAttr = ordered ? ` type="${esc(kind.trim()[0])}"` : '';
+        const items = body.split(/\[\*\]/).map(s => s.trim()).filter(s => s.length);
+        return keep(`<${tag} class="htx-list"${typeAttr}>` + items.map(it => '<li>' + it + '</li>').join('') + `</${tag}>`);
+      });
+    } while (text !== prev);
+
+    // [quote] / [quote="name"]
+    do {
+      prev = text;
+      text = text.replace(/\[quote(?:=(?:&quot;)?([^\]]*?)(?:&quot;)?)?\]([\s\S]*?)\[\/quote\]/gi, (m, who, body) => {
+        const cite = who && who.trim() ? `<div class="htx-quote-cite">${who.trim()} wrote:</div>` : '';
+        return keep(`<blockquote class="htx-quote">${cite}${body.trim()}</blockquote>`);
+      });
+    } while (text !== prev);
+
+    // [hide] / [hide="title"]
+    do {
+      prev = text;
+      text = text.replace(/\[hide(?:=(?:&quot;)?([^\]]*?)(?:&quot;)?)?\]([\s\S]*?)\[\/hide\]/gi, (m, title, body) => {
+        const t = (title && title.trim()) ? title.trim() : 'Click to reveal hidden text';
+        return keep(`<details class="htx-hide"><summary>${t}</summary>${body.trim()}</details>`);
+      });
+    } while (text !== prev);
+
+    // [table]/[tr]/[td]/[th]
+    do {
+      prev = text;
+      text = text.replace(/\[table\]([\s\S]*?)\[\/table\]/gi, (m, body) => {
+        const rows = body.replace(/\[tr\]([\s\S]*?)\[\/tr\]/gi, (mm, cells) => {
+          const c = cells
+            .replace(/\[td\]([\s\S]*?)\[\/td\]/gi, (cm, inner) => `<td>${inner.trim()}</td>`)
+            .replace(/\[th\]([\s\S]*?)\[\/th\]/gi, (cm, inner) => `<th>${inner.trim()}</th>`);
+          return `<tr>${c}</tr>`;
+        });
+        return keep(`<table class="htx-table"><tbody>${rows}</tbody></table>`);
+      });
+    } while (text !== prev);
+
+    // [center]
+    do {
+      prev = text;
+      text = text.replace(/\[center\]([\s\S]*?)\[\/center\]/gi, (m, body) =>
+        keep(`<div style="text-align:center">${body.trim()}</div>`));
+    } while (text !== prev);
+
+    // [hr]
+    text = text.replace(/\[hr\]/gi, () => keep('<hr class="htx-hr">'));
+
+    // Line breaks: collapse runs, then newline -> <br>.
+    text = text.replace(/\n{3,}/g, '\n\n').replace(/\n/g, '<br>\n');
+
+    // Restore stashed block/math/code HTML (iterate: nested stashes reference
+    // each other, so one pass can leave inner placeholders unresolved).
+    let guard = 0;
+    while (/HTXSTASH\d+ENDSTASH/.test(text) && guard++ < 50) {
+      text = text.replace(/HTXSTASH(\d+)ENDSTASH/g, (m, i) => stash[+i] != null ? stash[+i] : '');
+    }
+
+    // Tidy <br> that hug block boundaries (lists, quotes, tables, code,
+    // display math, hide, hr, divs) so blocks don't gain stray blank lines.
+    const BLOCK = '(?:<(?:ul|ol|li|blockquote|details|summary|table|tbody|tr|t[dh]|hr|pre|div)\\b|<span class="katex-display">|</(?:ul|ol|li|blockquote|details|summary|table|tbody|tr|t[dh]|pre|div)>)';
+    text = text.replace(new RegExp('<br>\\s*(' + BLOCK + ')', 'g'), '$1');
+    text = text.replace(new RegExp('(' + BLOCK + ')\\s*<br>', 'g'), '$1');
+
+    return text;
+  }
+
+  return { parseSegments, isDocument, renderText };
+})();
+
+// Render a TeXeR-style document (text + math + bbcode + multiple [asy] blocks)
+// into the preview container. Each [asy] block is interpreted independently;
+// failures fall back to the server compiler per-block.
+async function renderDocument(code) {
+  const previewEl = document.getElementById('preview-container');
+  const statusEl = document.getElementById('status');
+
+  // Reset single-diagram view transform state so a stray transform from a prior
+  // single render can't linger (doc-mode SVGs are data-perm and ignored by it).
+  inFitMode = true; canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; canvasRotate = 0;
+
+  const dims = getPreviewDimensions();
+  // Render diagrams at natural size (no shrink); CSS caps width responsively.
+  const renderOpts = { containerW: 100000, containerH: 100000 };
+  const images = await prefetchGraphicImages(code);
+  renderOpts.imageCache = images;
+
+  const segs = HTXDoc.parseSegments(code);
+  const parts = [];          // HTML fragments in document order
+  const asyJobs = [];        // { id, asyCode } for blocks needing async server fallback
+  let diagN = 0;
+
+  // Add data-perm="htx-doc" to every <svg> (diagram or KaTeX glyph) so the
+  // single-diagram interactivity/zoom code (which selects svg:not([data-perm]))
+  // never grabs and transforms a document SVG.
+  const tagSvgs = (html) => html.replace(/<svg\b/g, '<svg data-perm="htx-doc"');
+
+  for (const seg of segs) {
+    if (seg.type === 'text') {
+      const html = HTXDoc.renderText(seg.value);
+      if (html) parts.push(html);
+      continue;
+    }
+    // asy block
+    const asyCode = seg.value;
+    const did = 'htx-diag-' + (diagN++);
+    const unsupported = (window.AsyInterp && AsyInterp.detectUnsupportedFeature)
+      ? AsyInterp.detectUnsupportedFeature(asyCode) : null;
+    if (!useRealAsy && !unsupported && window.AsyInterp && AsyInterp.canInterpret(asyCode)) {
+      try {
+        const result = AsyInterp.render(asyCode, renderOpts);
+        parts.push(`<span class="htx-diagram" id="${did}">${result.svg}</span>`);
+        continue;
+      } catch (e) {
+        console.warn('Document diagram JS interpret failed, will try server:', e.message);
+      }
+    }
+    // Needs server compile (real-asy mode, unsupported feature, or interp threw).
+    parts.push(`<span class="htx-diagram htx-diagram-loading" id="${did}">rendering diagram…</span>`);
+    asyJobs.push({ id: did, asyCode });
+  }
+
+  const docHtml = tagSvgs(parts.join(''));
+
+  // Swap the preview into document mode.
+  const oldSvg = previewEl.querySelector('svg:not([data-perm])');
+  if (oldSvg) oldSvg.remove();
+  const oldPh = previewEl.querySelector('.placeholder');
+  if (oldPh) oldPh.remove();
+  const oldErr = previewEl.querySelector('.error');
+  if (oldErr) oldErr.remove();
+  let docEl = previewEl.querySelector('#htx-doc');
+  if (!docEl) {
+    docEl = document.createElement('div');
+    docEl.id = 'htx-doc';
+    docEl.className = 'htx-doc';
+    previewEl.insertBefore(docEl, previewEl.firstChild);
+  }
+  docEl.innerHTML = docHtml;
+  previewEl.classList.add('htx-doc-mode');
+  showStaleBadge(false);
+  showWarnBadge('');
+
+  const nDiag = segs.filter(s => s.type === 'asy').length;
+  statusEl.textContent = `Rendered document (${nDiag} diagram${nDiag === 1 ? '' : 's'})`;
+  statusEl.style.color = '#2ecc71';
+  document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
+
+  // Resolve any server-fallback diagrams asynchronously and patch them in place.
+  for (const job of asyJobs) {
+    compileAsyToSvg(job.asyCode).then(svg => {
+      const slot = docEl.querySelector('#' + job.id);
+      if (!slot) return;   // a newer render replaced the document
+      if (svg) {
+        slot.outerHTML = `<span class="htx-diagram" id="${job.id}">${svg.replace(/<svg\b/g, '<svg data-perm="htx-doc"')}</span>`;
+      } else {
+        slot.outerHTML = `<span class="htx-diagram-error" id="${job.id}">[diagram failed to render]</span>`;
+      }
+    }).catch(() => {
+      const slot = docEl.querySelector('#' + job.id);
+      if (slot) slot.outerHTML = `<span class="htx-diagram-error" id="${job.id}">[diagram failed to render]</span>`;
+    });
+  }
+}
+
+// Compile a single [asy] block via the server, returning the SVG string or null.
+async function compileAsyToSvg(asyCode) {
+  try {
+    const resp = await fetch(`${SERVER_URL}/compile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: asyCode }),
+    });
+    const data = await resp.json();
+    return (data && data.svg) ? data.svg : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Leave document mode: remove the document wrapper and its container class so the
+// single-diagram render path can take over cleanly.
+function exitDocMode() {
+  const previewEl = document.getElementById('preview-container');
+  if (!previewEl) return;
+  previewEl.classList.remove('htx-doc-mode');
+  const docEl = previewEl.querySelector('#htx-doc');
+  if (docEl) docEl.remove();
+}
+
 async function doRender() {
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
   const previewEl = document.getElementById('preview-container');
   lastJsRenderOk = false;
+
+  // TeXeR document mode: multiple diagrams and/or text/math/bbcode.
+  if (HTXDoc.isDocument(code)) {
+    try {
+      await renderDocument(code);
+    } catch (e) {
+      console.error('Document render error:', e);
+      statusEl.textContent = 'Document render error'; statusEl.style.color = '#e94560';
+    }
+    return;
+  }
+  // Single-diagram path: make sure no document wrapper lingers.
+  exitDocMode();
 
   // Detect features unsupported by HiTeXeR's interpreter so we can warn the
   // user (struct, import animation/animate, etc.). The message persists across
@@ -4867,6 +5375,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-undo').addEventListener('click', () => { editor.undo(); editor.focus(); });
   document.getElementById('md-redo').addEventListener('click', () => { editor.redo(); editor.focus(); });
   document.getElementById('md-share-url').addEventListener('click', () => doShareViaUrl());
+  document.getElementById('md-ai-chat').addEventListener('click', () => toggleChatPanel());
   document.getElementById('md-highlight').addEventListener('click', () => toggleHighlight());
   document.getElementById('md-grid').addEventListener('click', () => toggleGrid());
   document.getElementById('md-colorblind').addEventListener('click', () => toggleColorBlind());
@@ -4983,51 +5492,100 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-export-pdf').addEventListener('click', () => doExportPdf());
 
   // === EigenNode integration ===
-  // URL params: ?eigennode_node=NODEID&eigennode_file=FILEPATH
-  // eigennode_file: temp file containing the asymptote code to load
-  // eigennode_node: the EigenNode node ID to send code back to
+  // Standalone launch uses URL params + temp files:
+  //   ?eigennode_node=NODEID&eigennode_file=FILEPATH&eigennode_callback=CBPATH
+  //   eigennode_file: temp file containing the asymptote code to load
+  //   eigennode_node: the EigenNode node ID to send code back to
+  // Embedded (in an <iframe>) launch uses window.postMessage instead — no
+  // server temp files. The host (EigenNode) and this iframe are same-origin, so
+  // both sides pin the origin. Contract:
+  //   host  -> iframe : { type:'eigennode:load', code, nodeId, name }
+  //   iframe -> host  : { type:'eigennode:ready' }            (once, on startup)
+  //                     { type:'eigennode:code', code, nodeId } (on send)
   const urlParams = new URLSearchParams(window.location.search);
   const eigennodeNode = urlParams.get('eigennode_node');
   const eigennodeFile = urlParams.get('eigennode_file');
   const eigennodeCallbackFile = urlParams.get('eigennode_callback');
   // Name hint from EigenNode (e.g. "head_to_toe" from "#asymptote head_to_toe").
-  // Used as the suggested filename when saving PNG/JPG/SVG/GIF exports.
-  const eigennodeName = urlParams.get('eigennode_name') || '';
+  // Used as the suggested filename when saving PNG/JPG/SVG/GIF exports. `let`
+  // because embedded mode can update it from the postMessage payload.
+  let eigennodeName = urlParams.get('eigennode_name') || '';
 
-  if (eigennodeFile) {
-    // Load code from file via the server
-    fetch('/eigennode-read?path=' + encodeURIComponent(eigennodeFile))
-      .then(r => r.text())
-      .then(code => {
-        if (code) {
-          editor.setValue(code);
+  if (HITEXER_EMBEDDED) {
+    let embedNodeId = eigennodeNode || null;
+    const sendBtn = document.getElementById('btn-eigennode-send');
+    if (sendBtn) {
+      sendBtn.style.display = '';
+      sendBtn.addEventListener('click', () => {
+        const code = editor.getValue();
+        try {
+          window.parent.postMessage(
+            { type: 'eigennode:code', code, nodeId: embedNodeId },
+            window.location.origin
+          );
+        } catch (err) { console.error('postMessage to host failed:', err); }
+        sendBtn.textContent = 'SENT ✓';
+        sendBtn.style.background = '#16a34a';
+        setTimeout(() => {
+          sendBtn.textContent = 'SEND TO EIGENNODE';
+          sendBtn.style.background = '#e94560';
+        }, 2000);
+      });
+    }
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== window.parent) return;
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'eigennode:load') {
+        if (typeof msg.nodeId === 'string') embedNodeId = msg.nodeId;
+        if (typeof msg.name === 'string') eigennodeName = msg.name;
+        if (typeof msg.code === 'string') {
+          editor.setValue(msg.code);
           doRender();
         }
-      })
-      .catch(err => console.error('Failed to load EigenNode code:', err));
-  }
-
-  if (eigennodeNode && eigennodeCallbackFile) {
-    const sendBtn = document.getElementById('btn-eigennode-send');
-    sendBtn.style.display = '';
-    sendBtn.addEventListener('click', () => {
-      const code = editor.getValue();
-      // Write code back via the server
-      fetch('/eigennode-write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: eigennodeCallbackFile, code, nodeId: eigennodeNode }),
-      }).then(r => {
-        if (r.ok) {
-          sendBtn.textContent = 'SENT ✓';
-          sendBtn.style.background = '#16a34a';
-          setTimeout(() => {
-            sendBtn.textContent = 'SEND TO EIGENNODE';
-            sendBtn.style.background = '#e94560';
-          }, 2000);
-        }
-      }).catch(err => console.error('Failed to send to EigenNode:', err));
+      }
     });
+    // Announce readiness so the host can send the initial code without a race.
+    try {
+      window.parent.postMessage({ type: 'eigennode:ready' }, window.location.origin);
+    } catch (err) {}
+  } else {
+    if (eigennodeFile) {
+      // Load code from file via the server
+      fetch('/eigennode-read?path=' + encodeURIComponent(eigennodeFile))
+        .then(r => r.text())
+        .then(code => {
+          if (code) {
+            editor.setValue(code);
+            doRender();
+          }
+        })
+        .catch(err => console.error('Failed to load EigenNode code:', err));
+    }
+
+    if (eigennodeNode && eigennodeCallbackFile) {
+      const sendBtn = document.getElementById('btn-eigennode-send');
+      sendBtn.style.display = '';
+      sendBtn.addEventListener('click', () => {
+        const code = editor.getValue();
+        // Write code back via the server
+        fetch('/eigennode-write', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: eigennodeCallbackFile, code, nodeId: eigennodeNode }),
+        }).then(r => {
+          if (r.ok) {
+            sendBtn.textContent = 'SENT ✓';
+            sendBtn.style.background = '#16a34a';
+            setTimeout(() => {
+              sendBtn.textContent = 'SEND TO EIGENNODE';
+              sendBtn.style.background = '#e94560';
+            }, 2000);
+          }
+        }).catch(err => console.error('Failed to send to EigenNode:', err));
+      });
+    }
   }
 
   // TeXeR button: open AoPS TeXeR and copy [asy]...[/asy]-wrapped code to clipboard
@@ -5660,68 +6218,74 @@ document.addEventListener('DOMContentLoaded', () => {
       return { x: (mx - minX) * slidePxPerUnit, y: (maxY - my) * slidePxPerUnit };
     }
 
+    // Hit-circle geometry depends only on the viewBox, so compute it once.
+    const vbAttr = svg.getAttribute('viewBox');
+    let hitR = 18, hitStroke = 2.5, hitDash = '4 2';
+    if (vbAttr) {
+      const parts = vbAttr.split(/[\s,]+/).map(Number);
+      const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
+      // Target: ~2% of the viewBox diagonal
+      hitR = vbDiag * 0.02;
+      hitStroke = hitR * 0.14;
+      hitDash = `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`;
+    }
+    // A glyph counts as "this point's" only if it sits within a few hit-radii of
+    // the point. This rejects a label whose probe-mapped element is wrong (the
+    // bug below): an offset vertex label is ~1 radius away, but a mis-mapped
+    // label on the far side of the diagram is dozens.
+    const glowMaxDist = hitR * 3;
+
+    function elViewBoxCenter(el) {
+      const bbox = el.getBBox();
+      return localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+    }
+
     slideFreePointData = [];
     for (const fp of freePoints) {
+      // Position the grab target at the point's TRUE math coordinate. mathToSvg is
+      // the exact inverse of the render transform the drag handler uses, so it's
+      // deterministic and independent of label/command order. (The old code took
+      // the bbox of a label glyph found via the probe-derived command mapping;
+      // when labels were reordered that mapping shifted, clustering every hit
+      // circle onto one unrelated centered label.)
       let svgCX = null, svgCY = null;
+      const mapped = mathToSvg(fp.x, fp.y);
+      if (mapped) { svgCX = mapped.x; svgCY = mapped.y; }
       const glowEls = [];
 
-      if (fp.varName) {
-        // Named point: find SVG elements for dot/label commands that reference this var
-        for (const [cmdIdx, els] of svgElsByCommand) {
-          const cmd = currentMapping[cmdIdx];
-          if (!cmd) continue;
+      // Collect candidate label/dot glyphs to glow.
+      const glowCandidates = [];
+      for (const [cmdIdx, els] of svgElsByCommand) {
+        const cmd = currentMapping[cmdIdx];
+        if (!cmd) continue;
+        if (fp.varName) {
           const varRe = new RegExp('\\b' + fp.varName + '\\b');
           if (!varRe.test(cmd.commandText)) continue;
           if (!/\b(label|dot)\b/.test(cmd.commandText)) continue;
-          for (const el of els) {
-            if (svgCX === null) {
-              const bbox = el.getBBox();
-              const center = localToViewBox(el, bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-              svgCX = center.x;
-              svgCY = center.y;
-            }
-            addSlideGlow(el);
-            glowEls.push(el);
-          }
+        } else if (cmd.primaryLine !== fp.lineIdx) {
+          continue;
         }
+        for (const el of els) glowCandidates.push(el);
       }
 
-      // For inline points (or named points without a dot/label), use coordinate mapping
-      if (svgCX === null) {
-        const mapped = mathToSvg(fp.x, fp.y);
-        if (mapped) {
-          svgCX = mapped.x;
-          svgCY = mapped.y;
+      for (const el of glowCandidates) {
+        if (svgCX === null) {
+          // No math mapping (e.g. server-rendered, lastRenderInfo null): fall back
+          // to the first candidate's bbox center for positioning.
+          const c = elViewBoxCenter(el);
+          svgCX = c.x; svgCY = c.y;
+          addSlideGlow(el); glowEls.push(el);
+          continue;
         }
-        // Try to find and glow any SVG elements on the same source line
-        for (const [cmdIdx, els] of svgElsByCommand) {
-          const cmd = currentMapping[cmdIdx];
-          if (!cmd) continue;
-          if (cmd.primaryLine === fp.lineIdx) {
-            for (const el of els) {
-              addSlideGlow(el);
-              glowEls.push(el);
-            }
-          }
+        const c = elViewBoxCenter(el);
+        if (Math.hypot(c.x - svgCX, c.y - svgCY) <= glowMaxDist) {
+          addSlideGlow(el); glowEls.push(el);
         }
       }
 
       // Create a large visible hit circle at the point's position (in viewBox coords)
       let hitCircle = null;
       if (svgCX !== null) {
-        // Scale hit-circle radius relative to viewBox so it looks the same on any diagram
-        const vb = svg.getAttribute('viewBox');
-        let hitR = 18;
-        let hitStroke = 2.5;
-        let hitDash = '4 2';
-        if (vb) {
-          const parts = vb.split(/[\s,]+/).map(Number);
-          const vbDiag = Math.hypot(parts[2] || 300, parts[3] || 300);
-          // Target: ~2% of the viewBox diagonal
-          hitR = vbDiag * 0.02;
-          hitStroke = hitR * 0.14;
-          hitDash = `${(hitR * 0.22).toFixed(1)} ${(hitR * 0.11).toFixed(1)}`;
-        }
         hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         hitCircle.setAttribute('cx', svgCX);
         hitCircle.setAttribute('cy', svgCY);
@@ -7427,6 +7991,175 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ============================================================
+  // Feature #2: AI Refactor
+  // ============================================================
+  let aiRevertCode = null;
+  const aiProgress = document.getElementById('ai-progress');
+  const aiProgressTitle = document.getElementById('ai-progress-title');
+  const aiProgressText = document.getElementById('ai-progress-text');
+  const aiProgressCancel = document.getElementById('ai-progress-cancel');
+  const aiProgressRevert = document.getElementById('ai-progress-revert');
+  const aiProgressAccept = document.getElementById('ai-progress-accept');
+  let aiAbortController = null;
+
+  async function doAiRefactor() {
+    const code = editor.getValue();
+    aiRevertCode = code;
+    aiAbortController = new AbortController();
+    showAiProgress('AI Refactoring...', 'Sending code to AI for style refactoring...', true);
+
+    try {
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refactor', code }),
+        signal: aiAbortController.signal,
+      });
+      const data = await resp.json();
+      if (data.error) {
+        showAiResult('Refactor Failed', data.error, true);
+        return;
+      }
+      if (data.code) {
+        editor.setValue(data.code);
+        if (data.imageMatch) {
+          showAiResult('Refactoring Complete', 'Code refactored successfully. Image verified identical.', true);
+        } else {
+          showAiResult('Approximate Refactoring', data.message || 'Could not achieve perfect match. Accept or revert?', true);
+        }
+        doRender();
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showAiResult('Error', 'AI refactoring failed: ' + e.message, true);
+      }
+    }
+  }
+
+  aiProgressCancel.addEventListener('click', () => {
+    if (aiAbortController) aiAbortController.abort();
+    hideAiProgress();
+  });
+
+  aiProgressRevert.addEventListener('click', () => {
+    if (aiRevertCode) {
+      editor.setValue(aiRevertCode);
+      doRender();
+    }
+    hideAiProgress();
+  });
+
+  aiProgressAccept.addEventListener('click', () => {
+    hideAiProgress();
+  });
+
+  function showAiProgress(title, text, cancelable) {
+    aiProgressTitle.textContent = title;
+    aiProgressText.textContent = text;
+    aiProgressCancel.style.display = cancelable ? '' : 'none';
+    aiProgressRevert.style.display = 'none';
+    aiProgressAccept.style.display = 'none';
+    document.getElementById('ai-progress-spinner').style.display = '';
+    aiProgress.style.display = '';
+  }
+
+  function showAiResult(title, text, showRevert) {
+    aiProgressTitle.textContent = title;
+    aiProgressText.textContent = text;
+    aiProgressCancel.style.display = 'none';
+    document.getElementById('ai-progress-spinner').style.display = 'none';
+    aiProgressRevert.style.display = showRevert ? '' : 'none';
+    aiProgressAccept.style.display = '';
+  }
+
+  function hideAiProgress() {
+    aiProgress.style.display = 'none';
+  }
+
+  // ============================================================
+  // Feature #3 + #5: AI Edit + Hand-drawn mode
+  // ============================================================
+  const aiEditBar = document.getElementById('ai-edit-bar');
+  const aiEditInput = document.getElementById('ai-edit-input');
+  const aiEditFile = document.getElementById('ai-edit-file');
+  const aiEditFileName = document.getElementById('ai-edit-file-name');
+  let aiEditImageData = null;
+
+  // Toggle AI edit bar with Ctrl+Shift+E or by clicking a button
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      toggleAiEditBar();
+    }
+  });
+
+  // AI edit bar toggle wired via menu bar
+
+  function toggleAiEditBar() {
+    const visible = aiEditBar.style.display === 'flex';
+    aiEditBar.style.display = visible ? 'none' : 'flex';
+    if (!visible) aiEditInput.focus();
+  }
+
+  // Also open AI edit bar from the refactor button area - let's add a keyboard shortcut hint
+  // The AI Edit is triggered via Ctrl+Shift+E or we can add a toolbar button too.
+  // Let's reuse the existing UI - when user types in the text box in ai-edit-bar and hits send
+
+  aiEditFile.addEventListener('change', () => {
+    if (aiEditFile.files.length > 0) {
+      const file = aiEditFile.files[0];
+      aiEditFileName.textContent = file.name;
+      const reader = new FileReader();
+      reader.onload = () => { aiEditImageData = reader.result; };
+      reader.readAsDataURL(file);
+    } else {
+      aiEditFileName.textContent = '';
+      aiEditImageData = null;
+    }
+  });
+
+  document.getElementById('ai-edit-send').addEventListener('click', doAiEdit);
+  aiEditInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAiEdit(); });
+  document.getElementById('ai-edit-close').addEventListener('click', () => { aiEditBar.style.display = 'none'; });
+
+  async function doAiEdit() {
+    const prompt = aiEditInput.value.trim();
+    if (!prompt && !aiEditImageData) return;
+    const code = editor.getValue();
+    aiRevertCode = code;
+    aiAbortController = new AbortController();
+    aiEditBar.style.display = 'none';
+    showAiProgress('AI Editing...', 'Sending request to AI...', true);
+
+    try {
+      const body = { action: 'edit', code, prompt };
+      if (aiEditImageData) body.image = aiEditImageData;
+
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: aiAbortController.signal,
+      });
+      const data = await resp.json();
+      if (data.error) {
+        showAiResult('Edit Failed', data.error, true);
+        return;
+      }
+      if (data.code) {
+        editor.setValue(data.code);
+        showAiResult('AI Edit Complete', data.message || 'Code updated. Accept or revert?', true);
+        doRender();
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showAiResult('Error', 'AI edit failed: ' + e.message, true);
+      }
+    }
+    aiEditInput.value = '';
+    aiEditFileName.textContent = '';
+    aiEditImageData = null;
+  }
+
+  // ============================================================
   // Save / Open / Export
   // ============================================================
   function extractAsyCode() {
@@ -8079,6 +8812,284 @@ document.addEventListener('DOMContentLoaded', () => {
       a.click();
       URL.revokeObjectURL(a.href);
     }, mimeType, quality);
+  }
+
+  // ============================================================
+  // AI Chat Panel
+  // ============================================================
+  const chatPanel = document.getElementById('chat-panel');
+  const chatMessages = document.getElementById('chat-messages');
+  const chatInput = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('chat-send-btn');
+  const chatCloseBtn = document.getElementById('chat-close-btn');
+  const chatOptNoEdits = document.getElementById('chat-opt-noedits');
+  const chatOptRefactor = document.getElementById('chat-opt-refactor');
+  const chatOptNoVisible = document.getElementById('chat-opt-novisible');
+  const chatOptComments = document.getElementById('chat-opt-comments');
+  let chatHistory = [];
+  let chatRevertCode = null;
+  let chatPendingImage = null; // { data: base64string, type: 'image/png' }
+
+  // Image attachment handling
+  const chatAttachBtn = document.getElementById('chat-attach-btn');
+  const chatFileInput = document.getElementById('chat-file-input');
+  const chatImagePreview = document.getElementById('chat-image-preview');
+  const chatImageThumb = document.getElementById('chat-image-thumb');
+  const chatImageRemove = document.getElementById('chat-image-remove');
+
+  chatAttachBtn.addEventListener('click', () => chatFileInput.click());
+
+  chatFileInput.addEventListener('change', () => {
+    if (chatFileInput.files[0]) setChatImage(chatFileInput.files[0]);
+    chatFileInput.value = '';
+  });
+
+  chatImageRemove.addEventListener('click', clearChatImage);
+
+  chatInput.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        setChatImage(item.getAsFile());
+        return;
+      }
+    }
+  });
+
+  // Global paste handler: extract Asymptote source from pasted images.
+  // Handles two cases:
+  //  1. AoPS TeXeR images — clipboard HTML contains <img alt="[asy]...[/asy]">
+  //  2. HiTeXeR images — PNG with tEXt "Source" metadata chunk
+  document.addEventListener('paste', (e) => {
+    // Don't intercept pastes aimed at text inputs or the CodeMirror editor
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' ||
+        ae.closest('.CodeMirror'))) return;
+
+    const cd = e.clipboardData;
+    if (!cd) return;
+
+    // --- Case 1: TeXeR HTML with alt text containing [asy]...[/asy] ---
+    const html = cd.getData('text/html');
+    if (html) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const imgs = doc.querySelectorAll('img[alt]');
+      for (const img of imgs) {
+        const alt = img.getAttribute('alt');
+        const m = alt.match(/\[asy\]([\s\S]*?)\[\/asy\]/);
+        if (m) {
+          e.preventDefault();
+          let code = m[1].trim();
+          code = '[asy]\n' + code + '\n[/asy]';
+          editor.setValue(code);
+          doRender();
+          return;
+        }
+      }
+    }
+
+    // --- Case 2: HiTeXeR image with embedded source metadata ---
+    let imageItem = null;
+    for (const item of cd.items) {
+      if (item.type.startsWith('image/')) { imageItem = item; break; }
+    }
+    if (!imageItem) return;
+
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+
+    file.arrayBuffer().then(buf => {
+      const { code, gifSettings } = extractSourceFromBytes(new Uint8Array(buf));
+      if (!code) return; // no source found — do nothing
+      loadExtractedSource(code, gifSettings);
+    }).catch(err => console.error('Paste image read failed:', err));
+  });
+
+  // Global drag-and-drop handler: open dropped image files and extract
+  // embedded Asymptote source, just like File > Open Image.
+  document.addEventListener('dragover', (e) => {
+    // Only accept drops with files
+    if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  });
+  document.addEventListener('drop', (e) => {
+    // Don't intercept drops aimed at file inputs
+    const ae = e.target;
+    if (ae && (ae.tagName === 'INPUT' && ae.type === 'file')) return;
+
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    e.preventDefault();
+
+    const file = files[0];
+    const imageExts = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'pdf'];
+    const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
+    if (imageExts.includes(ext)) {
+      openImageFile(file);
+    } else if (file.name && file.name.toLowerCase().endsWith('.asy')) {
+      // Also support dropping .asy files
+      file.text().then(text => {
+        if (!text.trim().startsWith('[asy]')) text = '[asy]\n' + text;
+        if (!text.trim().endsWith('[/asy]')) text = text + '\n[/asy]';
+        editor.setValue(text);
+        doRender();
+      });
+    }
+  });
+
+  function setChatImage(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      // dataUrl is "data:<type>;base64,<data>"
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return;
+      chatPendingImage = { type: match[1], data: match[2] };
+      chatImageThumb.src = dataUrl;
+      chatImagePreview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearChatImage() {
+    chatPendingImage = null;
+    chatImageThumb.src = '';
+    chatImagePreview.style.display = 'none';
+  }
+
+  // "No edits" disables other options
+  chatOptNoEdits.addEventListener('change', () => {
+    const disabled = chatOptNoEdits.checked;
+    [chatOptRefactor, chatOptNoVisible, chatOptComments].forEach(cb => {
+      cb.disabled = disabled;
+      if (disabled) cb.checked = false;
+    });
+  });
+
+  function toggleChatPanel() {
+    const isOpen = chatPanel.classList.contains('open');
+    chatPanel.classList.toggle('open', !isOpen);
+    document.getElementById('chat-resizer').style.display = isOpen ? 'none' : 'block';
+    if (!isOpen) {
+      // Shrink preview panel
+      document.getElementById('preview-panel').style.width = 'calc(50% - 175px)';
+      chatInput.focus();
+    } else {
+      document.getElementById('preview-panel').style.width = '50%';
+    }
+  }
+
+  chatCloseBtn.addEventListener('click', toggleChatPanel);
+  chatSendBtn.addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
+
+  // Chat resizer
+  (function() {
+    const cr = document.getElementById('chat-resizer');
+    let dragging = false;
+    cr.addEventListener('mousedown', e => { dragging = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault(); });
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const mainW = document.getElementById('main').offsetWidth;
+      const chatW = mainW - e.clientX;
+      if (chatW > 200 && chatW < mainW * 0.5) {
+        chatPanel.style.width = chatW + 'px';
+      }
+    });
+    document.addEventListener('mouseup', () => { if (dragging) { dragging = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; } });
+  })();
+
+  function addChatMessage(role, text, codePayload, imageDataUrl) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+    let html = '';
+    if (imageDataUrl) {
+      html += `<img class="chat-msg-image" src="${imageDataUrl}" alt="Attached image">`;
+    }
+    html += escapeHtml(text).replace(/\n/g, '<br>');
+    if (codePayload) {
+      html += `<div class="chat-actions">
+        <button class="btn-accept" onclick="applyChatCode(this)">Accept</button>
+        <button class="btn-revert" onclick="revertChatCode(this)">Revert</button>
+      </div>`;
+      div.dataset.code = codePayload;
+    }
+    div.innerHTML = html;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  // Global handlers for chat accept/revert buttons
+  window.applyChatCode = function(btn) {
+    const msg = btn.closest('.chat-msg');
+    if (msg && msg.dataset.code) {
+      chatRevertCode = editor.getValue();
+      editor.setValue(msg.dataset.code);
+      doRender();
+      btn.textContent = 'Applied';
+      btn.disabled = true;
+    }
+  };
+  window.revertChatCode = function(btn) {
+    if (chatRevertCode) {
+      editor.setValue(chatRevertCode);
+      doRender();
+      chatRevertCode = null;
+    }
+  };
+
+  async function sendChatMessage() {
+    const text = chatInput.value.trim();
+    if (!text && !chatPendingImage) return;
+    chatInput.value = '';
+
+    const imageToSend = chatPendingImage;
+    const imageDataUrl = imageToSend ? `data:${imageToSend.type};base64,${imageToSend.data}` : null;
+    clearChatImage();
+
+    addChatMessage('user', text, null, imageDataUrl);
+    chatHistory.push({ role: 'user', content: text });
+
+    const options = {
+      noEdits: chatOptNoEdits.checked,
+      refactor: chatOptRefactor.checked,
+      noVisibleChanges: chatOptNoVisible.checked,
+      commentsOnly: chatOptComments.checked,
+    };
+
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = 'AI thinking...'; statusEl.style.color = '#e9c46a';
+
+    try {
+      const body = {
+        action: 'chat', code: editor.getValue(),
+        prompt: text, options, history: chatHistory,
+      };
+      if (imageToSend) body.image = imageToSend;
+
+      const resp = await fetch(`${SERVER_URL}/ai`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      const msg = data.message || 'No response';
+      chatHistory.push({ role: 'assistant', content: msg });
+      addChatMessage('assistant', msg, data.code || null);
+      if (data.code && !options.noEdits) {
+        chatRevertCode = editor.getValue();
+      }
+      statusEl.textContent = 'Ready'; statusEl.style.color = '#888';
+    } catch(err) {
+      addChatMessage('assistant', 'Error: ' + err.message);
+      statusEl.textContent = 'Chat error'; statusEl.style.color = '#e94560';
+    }
   }
 
   // ============================================================

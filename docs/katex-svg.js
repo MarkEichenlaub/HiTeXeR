@@ -449,13 +449,18 @@
   }
 
   // ---- public API ----------------------------------------------------------
+  // User \def/\newcommand macros from Asymptote's texpreamble(), applied to every
+  // label render/measure. Set via katexSvg.setMacros (below); null = none.
+  let _activeMacros = null;
   katexSvg.render = function (tex, opts) {
     opts = opts || {};
     const k = getKatex();
     if (!k || !GLYPHS) return null;
     let tree;
     try {
-      tree = k.__renderToDomTree(tex, { throwOnError: false, displayMode: false, output: 'html' });
+      const _ktopts = { throwOnError: false, displayMode: false, output: 'html' };
+      if (_activeMacros) _ktopts.macros = _activeMacros;
+      tree = k.__renderToDomTree(tex, _ktopts);
     } catch (e) { return null; }
     if (!tree || !tree.children) return null;
     // error fallback: KaTeX returns a span.katex-error / color #cc0000 title node
@@ -488,6 +493,14 @@
   // call it repeatedly don't re-run the emit — strictly faster than the old path,
   // which rebuilt the DomTree on every call.
   const _measureCache = new Map();
+  // Install user macros (from texpreamble). Clearing the measure cache is required
+  // because cached widths were computed without the macros (or with stale ones).
+  katexSvg.setMacros = function (m) {
+    const next = (m && typeof m === 'object' && Object.keys(m).length) ? m : null;
+    if (next === null && _activeMacros === null) return; // already empty — keep cache
+    _activeMacros = next;
+    _measureCache.clear();
+  };
   katexSvg.measure = function (tex) {
     if (_measureCache.has(tex)) return _measureCache.get(tex);
     const r = katexSvg.render(tex, { emPx: 16 });
