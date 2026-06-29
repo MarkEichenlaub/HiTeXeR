@@ -2201,6 +2201,8 @@ function createInterpreter() {
   // a 2D overlay to spill out (02030/02041 rendered ~2-3x too big). The whole
   // composite should fit size() — so this flag disables that mixed-3D/2D branch.
   let _usedMulti3DComposite = false;
+  // KaTeX macros parsed from texpreamble("\def\X{..}") — applied to every label.
+  let _texMacros = {};
   // Set only when `currentpicture = transform*currentpicture` reassigns the
   // current picture (the multi-panel idiom, e.g. 12008/11370 shift three
   // makediagram() calls side by side). This operation flips the picture into
@@ -8314,6 +8316,33 @@ function createInterpreter() {
     env.set('mm', 72 / 25.4);
     env.set('inch', 72);
     env.set('inches', 72);   // plain_constants.asy: inches=72, inch=inches
+
+    // texpreamble(string) — Asymptote appends the string to the LaTeX preamble.
+    // We harvest its macro-defining commands (\def / \newcommand / \renewcommand /
+    // \DeclareMathOperator) into a KaTeX macro map that katexSvg applies to every
+    // label (e.g. 12886's \def\Ham{...} then $\Ham(r,2)$). Other preamble lines
+    // (\usepackage, lengths, …) are ignored — KaTeX has no use for them.
+    env.set('texpreamble', (s) => {
+      if (typeof s !== 'string') return;
+      const grabBraced = (str, from) => {
+        let i = from; while (i < str.length && str[i] !== '{') i++;
+        if (str[i] !== '{') return null;
+        let depth = 0;
+        for (let j = i; j < str.length; j++) {
+          if (str[j] === '{') depth++;
+          else if (str[j] === '}') { depth--; if (depth === 0) return str.slice(i + 1, j); }
+        }
+        return null;
+      };
+      let m, re, b;
+      re = /\\def\s*\\([a-zA-Z]+)/g;
+      while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = b; }
+      re = /\\(?:re)?newcommand\s*\{?\s*\\([a-zA-Z]+)\s*\}?\s*(?:\[\d+\])?/g;
+      while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = b; }
+      re = /\\DeclareMathOperator\s*\*?\s*\{\s*\\([a-zA-Z]+)\s*\}/g;
+      while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = '\\operatorname{' + b + '}'; }
+      try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros(_texMacros); } catch (e) {}
+    });
 
     // Dot sizing
     env.set('dotfactor', 6);
@@ -26095,6 +26124,8 @@ function createInterpreter() {
     _globalUnitSize = 0;
     _usedPictureComposite = false;
     _usedMulti3DComposite = false;
+    _texMacros = {};
+    try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros({}); } catch (e) {}
     _usedCurrentpictureReassign = false;
     sizeW = 0; sizeH = 0; keepAspect = true;
     defaultPen = makePen({});
@@ -36322,6 +36353,10 @@ function detectUnsupportedFeature(code) {
 }
 
 function render(code, opts) {
+  // katexSvg is a shared singleton across renders — clear any texpreamble() macros
+  // a previous diagram installed so they don't leak into this one (the interpreter
+  // itself is fresh per render, but katexSvg is not).
+  try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros({}); } catch (e) {}
   const interp = createInterpreter();
   const result = interp.execute(code, opts);
   return renderSVG(result, opts);
