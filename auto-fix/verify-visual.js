@@ -25,7 +25,7 @@ const cp    = require('child_process');
 const sharp = require('sharp');
 
 const ROOT = path.resolve(__dirname, '..');
-const DEFAULT_MODEL   = 'claude-sonnet-4-6';
+const DEFAULT_MODEL   = 'claude-sonnet-5';
 const DEFAULT_TIMEOUT = 10 * 60 * 1000;  // 10 min
 const DEFAULT_TURNS   = 20;
 

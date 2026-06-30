@@ -424,7 +424,7 @@ If the images look essentially the same to a human viewer (minor pixel-level dif
     try:
         cmd = (
             f'claude --print --output-format text '
-            f'--model claude-sonnet-4-6 '
+            f'--model claude-sonnet-5 '
             f'--dangerously-skip-permissions '
             f'< "{prompt_file}"'
         )

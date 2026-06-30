@@ -335,7 +335,7 @@ def call_claude(prompt, model=CLAUDE_MODEL, max_tokens=16000):
         return f"Error: {e}"
 
 
-def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-sonnet-4-6"):
+def call_claude_vision(prompt, image_b64, media_type="image/png", model="claude-sonnet-5"):
     """Call Claude with an image by saving it to a temp file for the CLI's Read tool.
 
     The Claude CLI supports reading image files natively (multimodal Read tool),
@@ -863,7 +863,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                     "If no, respond with specific notes for improvement."
                 )
 
-                critic_response = call_claude(critic_prompt, model="claude-sonnet-4-6")
+                critic_response = call_claude(critic_prompt, model="claude-sonnet-5")
 
                 if "APPROVED" in critic_response.upper()[:50]:
                     break
@@ -906,7 +906,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             "Return ONLY the JSON object, no markdown formatting."
         )
 
-        response = call_claude(prompt, model="claude-sonnet-4-6")
+        response = call_claude(prompt, model="claude-sonnet-5")
 
         # Parse JSON from response
         try:
@@ -965,7 +965,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             media_type = image.get("type", "image/png")
             response = call_claude_vision(messages, image_b64, media_type)
         else:
-            response = call_claude(messages, model="claude-sonnet-4-6")
+            response = call_claude(messages, model="claude-sonnet-5")
 
         # Extract code if present
         result_code = None
@@ -1036,7 +1036,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             "Return just the fixed line of code, nothing else."
         )
 
-        response = call_claude(prompt, model="claude-sonnet-4-6")
+        response = call_claude(prompt, model="claude-sonnet-5")
         # Clean up: take first non-empty line, strip markdown
         fixed = response.strip()
         fixed = re.sub(r'^```\w*\s*', '', fixed)
@@ -1060,7 +1060,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             f"Each completion should be the FULL word/identifier (not just the suffix after the prefix)."
         )
 
-        response = call_claude(prompt, model="claude-sonnet-4-6", max_tokens=500)
+        response = call_claude(prompt, model="claude-sonnet-5", max_tokens=500)
 
         try:
             # Extract JSON array from response

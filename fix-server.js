@@ -807,7 +807,7 @@ const server = http.createServer((req, res) => {
         const promptFileSq = promptFile.replace(/'/g, "''");
         const psCmd = [
           `$p = Get-Content -Path '${promptFileSq}' -Raw -Encoding UTF8`,
-          `claude --dangerously-skip-permissions --model claude-sonnet-4-6 $p`,
+          `claude --dangerously-skip-permissions --model claude-sonnet-5 $p`,
         ].join('; ');
         const child = spawn('wt', ['-w', '0', 'new-tab', '-d', ROOT, '--',
           'powershell', '-NoExit', '-Command', psCmd], { detached: true, stdio: 'ignore' });
