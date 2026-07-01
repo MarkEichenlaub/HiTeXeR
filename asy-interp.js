@@ -29638,7 +29638,14 @@ function renderSVG(result, opts) {
       // ~26900) so the canvas doesn't reserve ~half its rotated length as phantom
       // margin past the axis end (08812's y-title → ~42bp phantom top). Tall plots
       // (06507) legitimately keep that space in TeXeR, so leave them untouched.
-      const _esh = _igNotTall ? (li._axisLabelEndShift || 0) : 0;
+      // Applies to ALL IgnoreAspect aspects now: the render pins the title via
+      // _axisLabelEndShift regardless of aspect, so skipping the pin here just
+      // reserved phantom margin past the axis end. The old tall-plot (AR<1)
+      // exemption cited 06507 ("TeXeR keeps their top space") but 06216 showed
+      // a 70px phantom TOP margin with content-AR EXACTLY matching the ref
+      // (0.804), and 06507 itself sat at hRatio 1.134 (13% too tall) WITH the
+      // exemption — both improve with the pin (A/B verified).
+      const _esh = (_keepAspect === false && _sizeW > 0 && _sizeH > 0) ? (li._axisLabelEndShift || 0) : 0;
       const cy = li.posY + li.alignOffsetYBp / pxPerUnitY - _esh * hh;
       minX = Math.min(minX, cx - hw);
       maxX = Math.max(maxX, cx + hw);
