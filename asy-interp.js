@@ -14278,6 +14278,16 @@ function createInterpreter() {
       // 1mm default minor (not a ratio of the explicit major).
       let minorSize = ticks.subSizeExplicit ? _bpToUnit(ticks.subSize)
         : (ticks.sizeExplicit ? _bpToUnit(2.834645669) : majorSize * 0.5);
+      // Intended PHYSICAL tick sizes in bp. The user-unit sizes above use a
+      // PRE-FIT bp-per-unit estimate that ignores how much of the size()
+      // budget labels consume, so drawn ticks land ~20-25% short of 2mm
+      // (12995: 9.3bp vs TeXeR's 11.8bp total straddle; 06494: 4.5 vs 5.67).
+      // Each tick command carries its intent so the renderer can rebuild it
+      // at the FINAL scale (see the tick-truesize pass next to the Bar one).
+      const _scaleIsPhysicalT = (sizeW > 0 || sizeH > 0 || hasUnitScale);
+      const _majorSizeBp = ticks.sizeExplicit ? ticks.size : 5.669291339;
+      const _minorSizeBp = ticks.subSizeExplicit ? ticks.subSize
+        : (ticks.sizeExplicit ? 2.834645669 : _majorSizeBp * 0.5);
       // If size was explicitly set extremely small (e.g. Size = 0.1pt), the user is
       // suppressing visible tick marks — skip drawing tick lines entirely.
       const skipTickMarks = ticks.sizeExplicit && ticks.size < 0.05;
@@ -14443,9 +14453,15 @@ function createInterpreter() {
       const suppressBeginTick = ticks.begin === false;
       const suppressEndTick = ticks.end === false;
 
-      // Compute sub-tick positions (minor ticks between major ticks)
+      // Compute sub-tick positions (minor ticks between major ticks).
+      // Frame extents (BottomTop/LeftRight) draw minors too when the caller
+      // EXPLICITLY asked for them (step= or n= on LeftTicks/RightTicks/Ticks)
+      // — the AoPS blank-axes template (06216) relies on this. Auto-minors
+      // stay suppressed on frame extents (preserves prior behavior for the
+      // gridline idiom, whose sub-grid comes from a separate axis call).
       let minorPositions = [];
-      if (!isExtend) {
+      const _explicitMinors = (ticks.subStep > 0) || (ticks.subN !== undefined && ticks.subN >= 2);
+      if (!isExtend || _explicitMinors) {
         if (minorAnchored) {
           // Real-algorithm minors (already anchored at tickmin and clipped).
           minorPositions = minorAnchored;
@@ -14481,9 +14497,13 @@ function createInterpreter() {
       // Draw function for a single tick mark. For frame-style extent (BottomTop/
       // LeftRight), draw a short tick at the primary axis pointing INWARD and a
       // mirror tick at the opposite axis also pointing INWARD.
-      function drawTick(v, sz) {
+      function drawTick(v, sz, szBp) {
         if (noZero && Math.abs(v) < 1e-10) return;
         if (v < min - 1e-10 || v > max + 1e-10) return;
+        // Truesize intent for the final-scale rebuild: t = anchor fraction
+        // along p0→p3 (the on-axis point), lenBp = total physical length.
+        const _tts = (_scaleIsPhysicalT && szBp > 0)
+          ? (t, lenBp) => ({ t, lenBp }) : () => undefined;
         // begin=false / end=false: no tick mark or gridline at the endpoint
         // (the label for it is still emitted by the label loop below).
         // Compare against the un-extended DATA range (_suppMin/_suppMax), not the
@@ -14527,12 +14547,14 @@ function createInterpreter() {
           const pp0 = isX ? {x:v, y:primaryOffset} : {x:primaryOffset, y:v};
           const pp1 = isX ? {x:v, y:primaryOffset + inward*sz} : {x:primaryOffset + inward*sz, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(pp0, pp1)], false),
-                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true});
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true,
+                             _tickTruesizeBp: _tts(0, szBp)});
           // Mirror axis tick (pointing inward, opposite direction)
           const mp0 = isX ? {x:v, y:mirrorOffset} : {x:mirrorOffset, y:v};
           const mp1 = isX ? {x:v, y:mirrorOffset - inward*sz} : {x:mirrorOffset - inward*sz, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(mp0, mp1)], false),
-                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true});
+                             pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true,
+                             _tickTruesizeBp: _tts(0, szBp)});
           return;
         }
         // Asymptote semantics: LeftTicks/RightTicks name the hand side of the
@@ -14548,28 +14570,33 @@ function createInterpreter() {
         //   y-axis (+y, north): left → LEFT (-x),  right → RIGHT (+x)
         // RightTicks on a horizontal axis therefore points DOWN (matches
         // Asymptote/TeXeR), and LeftTicks on a vertical axis points LEFT.
-        let p0, p1;
+        let p0, p1, _anchorT;
         if (actualSide === 'left') {
           p0 = isX ? {x:v, y:axisOffset} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset, y:v};
+          _anchorT = isX ? 0 : 1;
         } else if (actualSide === 'right') {
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset, y:v};
           p1 = isX ? {x:v, y:axisOffset} : {x:axisOffset+sz, y:v};
+          _anchorT = isX ? 1 : 0;
         } else {
+          // sign=0 straddle: ±Size on each side (asy drawtick), total 2×Size.
           p0 = isX ? {x:v, y:axisOffset-sz} : {x:axisOffset-sz, y:v};
           p1 = isX ? {x:v, y:axisOffset+sz} : {x:axisOffset+sz, y:v};
+          _anchorT = 0.5;
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
-        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true});
+        pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true,
+                           _tickTruesizeBp: _tts(_anchorT, _anchorT === 0.5 ? 2 * szBp : szBp)});
       }
 
       // Draw major ticks (skip when size was explicitly set to near-zero, or
       // when the tick pen is the invisible axis pen — gridline/label idioms
       // still draw their extended gridlines via explicit pTick pens).
       if ((!skipTickMarks || isExtend) && !tickMarksInvisible) {
-        for (const v of majorPositions) drawTick(v, majorSize);
+        for (const v of majorPositions) drawTick(v, majorSize, _majorSizeBp);
         // Draw minor ticks
-        for (const v of minorPositions) drawTick(v, minorSize);
+        for (const v of minorPositions) drawTick(v, minorSize, _minorSizeBp);
       }
 
       // Draw labels for major ticks.
@@ -15163,13 +15190,19 @@ function createInterpreter() {
           // end (s *= -axislabelfactor) — TeXeR's "x" sits to the right of
           // the last tick label, not corner-anchored inside the axis.
           if (labelAlign == null && labelPosition == null && ticks && !ticks.none) {
-            const _lfs0 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
-            const _wBp0 = _estimateMathRunWidth(stripLaTeX(label || ''), _lfs0);
+            // graph.asy labelaxis(): a default-align endpoint title is shifted
+            // HALF its width back along the axis (d=shift(-s)*d), so its
+            // trailing edge lands EXACTLY at the (extended) axis end.
+            // Instrumented-asy truth (00115/04454/06494/00383): dmax.x == tip.x
+            // in every probe. The previous +0.25w ("0.75 widths past the end")
+            // calibration was compensating a then-too-short axis extension.
+            let _wBp0;
+            if (typeof _mjxMeasureBp === 'function') {
+              try { const _m0 = _mjxMeasureBp(label || '', ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12)); _wBp0 = _m0 && _m0.wBp > 0 ? _m0.wBp : null; } catch (e) { _wBp0 = null; }
+            }
+            if (_wBp0 == null) _wBp0 = _estimateMathRunWidth(stripLaTeX(label || ''), ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12));
             lAlign = {x: 0, y: -1};
-            // Net shift calibrated against TeXeR refs (04454/00115): the
-            // glyph's right edge lands ~0.75 widths past the axis end.
-            _xLabelExtraDx = 0.25 * _wBp0;
-            _xTitleOverflow = true;
+            _xLabelExtraDx = -0.5 * _wBp0;
           }
           // An EXPLICIT diagonal align (e.g. align=NE on the AoPS graph
           // template's x-title `Label("Time (s)", position=1, align=NE)`) is
@@ -15343,7 +15376,13 @@ function createInterpreter() {
             if (!isFinite(_aHi)) _aHi = isFinite(fb.maxX) ? fb.maxX : _xInitHi;
             for (const tc of myCmds) {
               if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
-              const box = _labelBoxU(tc, fb.sX, fb.sY);
+              // asy's bounds() reserves the title box UNSHIFTED at its anchor
+              // (add(f,L0) at position 0 with the align applied). The drawn
+              // label carries the labelaxis half-width back-shift in screenDx;
+              // strip it so the ride matches the reservation (instrumented
+              // truth: 12995 y-end 3.44 = anchor + full aligned box, not the
+              // half-height-shifted drawn box).
+              const box = _labelBoxU(tc.screenDx ? Object.assign({}, tc, { screenDx: 0 }) : tc, fb.sX, fb.sY);
               if (!box) continue;
               if (tc.pos.x >= (curLo + curHi) / 2) _xTitleHi = Math.max(_xTitleHi, _aHi + Math.max(0, box.rx - tc.pos.x));
               else _xTitleLo = Math.min(_xTitleLo, _aLo - Math.max(0, tc.pos.x - box.lx));
@@ -15857,11 +15896,29 @@ function createInterpreter() {
         const _isShortSymbolLabel = !!label && label.indexOf('$') !== -1
           && _yLabelVisible.length > 0 && _yLabelVisible.length <= 2;
         const symbolUprightEndpoint = explicitEndpoint && extentLeftRight && _isShortSymbolLabel;
+        // graph.asy yaxis() autorotate: with no explicit transform, the title
+        // rotates 90° iff its rendered diagonal exceeds ylabelwidth(2.0)×
+        // fontsize — INDEPENDENT of arrows/extents/position. Apply the size
+        // rule to default-align titles: long titles rotate even on arrow/plain
+        // axes; short titles stay upright even on axisshift/extent axes.
+        let _yAutoRotLong = false, _yAutoRotShort = false;
+        if (!labelTransform && labelAlign == null && label) {
+          const _lfsR = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
+          let _wR = null, _hR = null;
+          if (typeof _mjxMeasureBp === 'function') {
+            try { const _mR = _mjxMeasureBp(label, _lfsR); if (_mR && _mR.wBp > 0) { _wR = _mR.wBp; _hR = _mR.hBp; } } catch (e) {}
+          }
+          if (_wR == null) _wR = _estimateMathRunWidth(stripLaTeX(label), _lfsR);
+          if (_hR == null || !(_hR > 0)) _hR = _lfsR * 0.75;
+          if (Math.hypot(_wR, _hR) > 2.0 * _lfsR) _yAutoRotLong = true;
+          else _yAutoRotShort = true;
+        }
         // "uprightEndpoint" means the label is rendered upright (no rotation,
         // N/W alignment). For `explicitEndpoint && !extentLeftRight` we keep
         // upright behavior to match prior conventions.
         // axisshiftRotatedEndpoint is at-endpoint but ROTATED — exclude it.
-        const uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault || symbolUprightEndpoint;
+        let uprightEndpoint = (explicitEndpoint && !extentLeftRight) || arrowEndpointDefault || plainEndpointDefault || symbolUprightEndpoint;
+        if (_yAutoRotLong) uprightEndpoint = false;
         const atEndpoint = uprightEndpoint;
         const effPos = labelPosition == null ? (endpointDefault ? 1 : 0.5) : labelPosition;
         const lAlign = _axisAlignShim(labelAlign) || (
@@ -15877,7 +15934,7 @@ function createInterpreter() {
         // POSITION but the label is still rotated (matches texer for 3890,
         // 8812, etc.).
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
-        const lt = labelTransform || (uprightEndpoint ? undefined : rot90ccw);
+        const lt = labelTransform || ((uprightEndpoint || _yAutoRotShort) ? undefined : rot90ccw);
         // Asymptote's graph.asy autoshifts the axis label past the tick labels so they don't
         // overlap. Only relevant for labels rotated along the axis (not endpoint labels).
         let tickLabelClearance = 0;
@@ -15946,6 +16003,13 @@ function createInterpreter() {
             && (labelPosition >= 0.999 || labelPosition <= 0.001) && !lt) {
           const _lfs3 = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
           _yLabelExtraDy = (labelPosition >= 0.999 ? 1 : -1) * 0.5 * (_lfs3 * 0.75);
+        } else if (_yAutoRotShort && !uprightEndpoint && !lt
+                   && (effPos >= 0.999 || effPos <= 0.001)) {
+          // A short title kept upright by the autorotate size rule on a
+          // previously-rotated path (e.g. axisshift XZero + ticks) still gets
+          // labelaxis()'s half-height back-shift at the axis end.
+          const _lfs3b = ((labelPen && labelPen.fontsize) || (pen && pen.fontsize) || 12);
+          _yLabelExtraDy = (effPos >= 0.999 ? 1 : -1) * 0.5 * (_lfs3b * 0.75);
         }
         pic.commands.push({cmd:'label', text: label, pos:{x:axisShiftX, y:labelY}, align:lAlign, pen: labelPen || pen, labelTransform: lt, line:0, screenDx: tickLabelClearance > 0 ? -tickLabelClearance : 0, screenDy: _yLabelExtraDy, _isAxisLabel: true, _axisLabelMidRotated: _midRotated, _axisLabelEndShift: _axisLabelEndShift});
       }
@@ -16000,7 +16064,11 @@ function createInterpreter() {
             if (!isFinite(_aHi)) _aHi = isFinite(fb.maxY) ? fb.maxY : _yInitHi;
             for (const tc of myCmds) {
               if (!tc || !tc._isAxisLabel || tc.cmd !== 'label' || !tc.pos) continue;
-              const box = _labelBoxU(tc, fb.sX, fb.sY);
+              // Strip the labelaxis half-height back-shift (screenDy) so the
+              // ride uses the UNSHIFTED aligned box, matching asy's bounds()
+              // reservation (see the x-job comment; fixes 12995's y-arrow
+              // overlapping the y=3 tick — truth end 3.44 vs 3.23 shifted).
+              const box = _labelBoxU(tc.screenDy ? Object.assign({}, tc, { screenDy: 0 }) : tc, fb.sX, fb.sY);
               if (!box) continue;
               if (tc.pos.y >= (curLo + curHi) / 2) _yTitleHi = Math.max(_yTitleHi, _aHi + Math.max(0, box.ty - tc.pos.y));
               else _yTitleLo = Math.min(_yTitleLo, _aLo - Math.max(0, tc.pos.y - box.by));
@@ -29917,6 +29985,31 @@ function renderSVG(result, opts) {
     }
   }
 
+  // ── Resolve axis tick marks at the FINAL scale ──
+  // Tick lengths are physical (Ticksize=2mm etc), but draw-time conversion
+  // used a PRE-FIT bp-per-unit estimate that ignores the share of the size()
+  // budget consumed by labels — ticks landed ~20-25% short (12995/06494 vs
+  // instrumented-asy truth). Rebuild each tick around its on-axis anchor
+  // (fraction t along the segment) to its exact bp length now that
+  // pxPerUnit/bpCSSPixel are final. Transform-safe: anchor and direction are
+  // derived from the live (possibly subpic-transformed) segment.
+  {
+    for (const dc of drawCommands) {
+      if (!dc || !dc._isTickMark || !dc._tickTruesizeBp || !dc.path || !dc.path.segs || dc.path.segs.length !== 1) continue;
+      const ts = dc._tickTruesizeBp;
+      const seg = dc.path.segs[0];
+      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
+      const curPx = Math.hypot(dx * pxPerUnitX, dy * pxPerUnitY);
+      if (!(curPx > 1e-9)) continue;
+      const f = (ts.lenBp * bpCSSPixel) / curPx;
+      if (!isFinite(f) || f <= 0 || f > 40) continue;
+      const ax = seg.p0.x + ts.t * dx, ay = seg.p0.y + ts.t * dy;
+      const np0 = makePair(ax + (seg.p0.x - ax) * f, ay + (seg.p0.y - ay) * f);
+      const np3 = makePair(ax + (seg.p3.x - ax) * f, ay + (seg.p3.y - ay) * f);
+      dc.path = makePath([lineSegment(np0, np3)], false);
+    }
+  }
+
   // ── Expand viewBox for element overshoot (dots, strokes, arrows) ──
   // Now that bpCSSPixel is known, compute how far each element extends
   // beyond its geometric center/path in viewBox units. Expand the viewBox
@@ -31513,10 +31606,14 @@ function renderSVG(result, opts) {
       const pen = dc.pen;
       if (pen && typeof pen.r === 'number') {
         const brightness = ((pen.r || 0) + (pen.g || 0) + (pen.b || 0)) / 3;
-        // brightness 0 = black, 1 = white. gray ~ 0.5, lightgray ~ 0.9
-        // Scale boost: darker pens get thicker strokes, lighter pens get thinner
-        // gray (0.5) → 1.5, lightgray (0.9) → 0.5 for visual differentiation
-        gridBoost = 2.5 - 2.22 * brightness;
+        // brightness 0 = black, 1 = white. gray ~ 0.5, lightgray ~ 0.9.
+        // Darker pens get a slightly thicker stroke; light pens are FLOORED at
+        // 1.35× rather than thinned. Local-asy/TeXeR truth (06494/06216
+        // scanlines): minor lightgray gridlines are FULL 0.5bp-width solid
+        // gray(0.9) lines (center pixel ≈230), same width as the gray majors —
+        // the major/minor differentiation is color-only. The old ramp cut
+        // lightgray to ~0.25bp, anti-aliasing it to ≈243 (nearly invisible).
+        gridBoost = Math.max(1.35, 2.5 - 2.22 * brightness);
       }
       css.strokeWidth *= gridBoost;
     }
