@@ -732,8 +732,9 @@ async function main() {
     }
 
     console.log(`  Worst 10:`);
+    const _fx = v => (typeof v === 'number' ? v.toFixed(4) : 'null');
     for (const r of results.slice(0, 10))
-      console.log(`    #${r.id} (${r.corpusFile}) combined=${r.combined.toFixed(4)} ssim=${r.ssim.toFixed(4)} size=${r.sizeScore.toFixed(4)}${r.error ? ' ' + r.error : ''}`);
+      console.log(`    #${r.id} (${r.corpusFile}) combined=${_fx(r.combined)} ssim=${_fx(r.ssim)} size=${_fx(r.sizeScore)}${r.error ? ' ' + r.error : ''}`);
     console.log();
   }
 
@@ -813,8 +814,8 @@ async function main() {
 <div class="card" id="pair-${rank}">
   <div class="card-header">
     <h2>#${rank} &mdash; ${esc(r.corpusFile)}</h2>
-    <span class="badge" style="background:${ssimColor(r.combined != null ? r.combined : r.ssim)}">Combined ${(r.combined != null && r.combined >= 0) ? r.combined.toFixed(4) : (r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')} &middot; ${ssimLabel(r.combined != null ? r.combined : r.ssim)}</span>
-    <span class="badge" style="background:${ssimColor(r.ssim)};margin-left:4px">Content ${(r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')}</span>
+    <span class="badge" style="background:${ssimColor(r.combined != null ? r.combined : r.ssim)}">Combined ${(r.combined != null && r.combined >= 0) ? r.combined.toFixed(4) : (typeof r.ssim === 'number' && r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')} &middot; ${ssimLabel(r.combined != null ? r.combined : r.ssim)}</span>
+    <span class="badge" style="background:${ssimColor(r.ssim)};margin-left:4px">Content ${(typeof r.ssim === 'number' && r.ssim >= 0 ? r.ssim.toFixed(4) : 'N/A')}</span>
     ${r.rawSsim != null ? `<span class="badge" style="background:${ssimColor(r.rawSsim)};margin-left:4px" title="Pixel-wise SSIM (no blur)">Raw ${r.rawSsim.toFixed(4)}</span>` : ''}
     ${r.softSsim != null ? `<span class="badge" style="background:${ssimColor(r.softSsim)};margin-left:4px" title="SSIM after Gaussian blur (shift-tolerant)">Soft ${r.softSsim.toFixed(4)}</span>` : ''}
     <span class="badge" style="background:${ssimColor(r.sizeScore != null ? r.sizeScore : -1)};margin-left:4px">Size ${(r.sizeScore != null && r.sizeScore >= 0) ? r.sizeScore.toFixed(4) : 'N/A'}</span>
