@@ -40,12 +40,15 @@ TEXER_DIR = COMPARISON / "texer_pngs"
 TEXER_URL = "https://artofproblemsolving.com/texer/"
 
 
-def setup_driver():
+def setup_driver(headless=False):
     """Create a Chrome WebDriver instance."""
     options = webdriver.ChromeOptions()
+    if headless:
+        # Headless works: refetch-single.py has fetched via --headless=new for
+        # months. The img.src download below is display-independent anyway.
+        options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1200,900")
-    # Don't use headless — TeXeR may need visible browser for rendering
     options.add_argument("--disable-extensions")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
 
@@ -71,6 +74,24 @@ def ensure_texer_loaded(driver):
         )
 
 
+def dismiss_modals(driver):
+    """Close/hide any AoPS modal (e.g. a compile-error dialog from the previous
+    render) so it can't block the render button for the rest of a batch."""
+    try:
+        driver.execute_script("""
+            document.querySelectorAll('.aops-modal-wrapper').forEach(function(el) {
+                var btn = el.querySelector('.aops-modal-btn, button');
+                if (btn) btn.click();
+                el.style.display = 'none';
+            });
+            document.querySelectorAll('.aops-modal-overlay, .modal-backdrop').forEach(function(el) {
+                el.style.display = 'none';
+            });
+        """)
+    except Exception:
+        pass
+
+
 def render_on_texer(driver, asy_code, output_path, timeout=60):
     """
     Render Asymptote code on the AoPS TeXeR and save the image.
@@ -87,6 +108,7 @@ def render_on_texer(driver, asy_code, output_path, timeout=60):
     extract its pixels via canvas rather than re-downloading from the URL.
     """
     ensure_texer_loaded(driver)
+    dismiss_modals(driver)
 
     # Remove any existing image from #preview so we can detect when a fresh one appears
     driver.execute_script("""
@@ -139,9 +161,36 @@ def render_on_texer(driver, asy_code, output_path, timeout=60):
 
         WebDriverWait(driver, timeout).until(image_fully_loaded)
 
-        # Use Selenium's element screenshot to capture exactly what the browser
-        # rendered. This avoids CORS tainted-canvas issues with toDataURL(),
-        # and avoids race conditions with re-downloading from the URL.
+        # Save the image at its NATURAL resolution by downloading img.src (the
+        # exact cache-busted URL the browser just loaded — no stale-image race,
+        # since the previous <img> was removed before clicking render). An
+        # ELEMENT SCREENSHOT captures the img AS DISPLAYED: the preview pane's
+        # CSS caps wide images (~611 css px) and the viewport clips tall ones,
+        # which silently corrupted every reference wider than the pane (the
+        # 13868/13692 class: 611x306 stored for a true ~1167x500 image).
+        img_src = driver.execute_script(
+            "var img = document.querySelector('#preview img');"
+            "return img ? img.src : null;")
+        natural = driver.execute_script(
+            "var img = document.querySelector('#preview img');"
+            "return img ? [img.naturalWidth, img.naturalHeight] : null;")
+        if img_src:
+            try:
+                import requests, struct
+                cookies = {c['name']: c['value'] for c in driver.get_cookies()}
+                resp = requests.get(img_src, cookies=cookies, timeout=30,
+                                    headers={'User-Agent': 'Mozilla/5.0'})
+                if resp.status_code == 200 and resp.content[:8] == b'\x89PNG\r\n\x1a\n':
+                    Path(output_path).write_bytes(resp.content)
+                    w = struct.unpack('>I', resp.content[16:20])[0]
+                    h = struct.unpack('>I', resp.content[20:24])[0]
+                    if natural and (w != natural[0] or h != natural[1]):
+                        print(f"    Warning: downloaded {w}x{h} != natural {natural[0]}x{natural[1]}")
+                    return True
+                print(f"    src download HTTP {resp.status_code}; falling back to screenshot")
+            except Exception as e:
+                print(f"    src download failed ({e}); falling back to screenshot")
+        # Fallback: element screenshot (display resolution; may be capped/clipped)
         img_el = driver.find_element(By.CSS_SELECTOR, "#preview img")
         img_el.screenshot(str(output_path))
         return True
@@ -161,15 +210,27 @@ def main():
     parser.add_argument("--count", type=int, default=100, help="Number of diagrams to render (by SSIM rank)")
     parser.add_argument("--start", type=int, default=0, help="Starting rank (0-indexed)")
     parser.add_argument("--force", action="store_true", help="Re-render even if PNG already exists")
+    parser.add_argument("--ids", type=str, default=None,
+                        help="Comma-separated id list OR path to a file of ids; "
+                             "refetches exactly these ids (implies --force), reusing one browser")
+    parser.add_argument("--headless", action="store_true", help="Run Chrome headless (no visible window)")
     args = parser.parse_args()
 
-    if not SSIM_RESULTS.exists():
-        print(f"Error: {SSIM_RESULTS} not found. Run the SSIM pipeline first.")
-        return
-
-    results = json.loads(SSIM_RESULTS.read_text())
-    items = results[args.start : args.start + args.count]
-    print(f"Rendering {len(items)} diagrams on AoPS TeXeR (ranks {args.start+1} to {args.start+len(items)})")
+    if args.ids:
+        raw = args.ids
+        if Path(raw).exists():
+            raw = Path(raw).read_text()
+        id_list = [t.strip() for t in raw.replace("\n", ",").replace(" ", ",").split(",") if t.strip()]
+        items = [{"id": i, "corpusFile": i} for i in id_list]
+        args.force = True
+        print(f"Rendering {len(items)} diagrams on AoPS TeXeR (explicit id list)")
+    else:
+        if not SSIM_RESULTS.exists():
+            print(f"Error: {SSIM_RESULTS} not found. Run the SSIM pipeline first.")
+            return
+        results = json.loads(SSIM_RESULTS.read_text())
+        items = results[args.start : args.start + args.count]
+        print(f"Rendering {len(items)} diagrams on AoPS TeXeR (ranks {args.start+1} to {args.start+len(items)})")
 
     TEXER_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -192,7 +253,7 @@ def main():
 
     print(f"  {len(to_render)} diagrams to render ({len(items) - len(to_render)} already done)")
 
-    driver = setup_driver()
+    driver = setup_driver(headless=args.headless)
     ok = 0
     fail = 0
 
