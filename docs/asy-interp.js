@@ -10474,6 +10474,15 @@ function createInterpreter() {
       const lw = (p && typeof p.linewidth === 'number' && p.linewidth > 0) ? p.linewidth : 0.5;
       return 0.28 * fs + 0.5 * lw;
     });
+    // barsize(pen p=currentpen) = barfactor*linewidth(p), barfactor=15
+    // (plain_arrows.asy; oracle: barsize(currentpen)=7.5). Was unbound, so
+    // BeginBar(2*barsize()) got NaN and drew a zero-length bar (spring.asy's
+    // wall anchor in 12924/12925).
+    env.set('barsize', (...args) => {
+      const p = args.find(a => isPen(a)) || env.get('currentpen') || defaultPen;
+      const lw = (p && typeof p.linewidth === 'number' && p.linewidth > 0) ? p.linewidth : 0.5;
+      return 15 * lw;
+    });
     env.set('linetype', (...args) => {
       // linetype("dash pattern") or linetype(real[])
       let pattern = null;
