@@ -31693,7 +31693,12 @@ function renderSVG(result, opts) {
       _autoScaledStrokeBoost = 1.67;
     } else {
       // Linear ramp: aspect 1 -> 1x, aspect 10+ -> 5x
-      _autoScaledStrokeBoost = Math.min(5.0, 1.0 + (_aspect - 1) * (4.0 / 9.0));
+      // Aspect ramp capped at the 1.67 DPI floor: the old 1->5 ramp was a
+      // scorer-era compensation, but at display scale it rendered high-aspect
+      // auto diagrams (03668/00981, aspect ~5.7 -> 3.1x) with ~2.3x the ink
+      // TeXeR shows. gs truth for a default pen is 2.27px at 240 DPI; the
+      // 1.67 floor (2.78px) is the tuned survivable weight.
+      _autoScaledStrokeBoost = Math.min(1.67, 1.0 + (_aspect - 1) * (4.0 / 9.0));
       // STROKE-only floor: TeXeR's 240-DPI rasterization renders default
       // 0.5bp strokes ~1.8× heavier than our nominal (measured 3px vs
       // 1.67px on 07413's axes). Dots and arrowheads are truesize and

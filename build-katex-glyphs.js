@@ -61,6 +61,14 @@ const OPTICAL_OVERRIDES = {
   'KaTeX_Main-Bold': path.join(LM_DIR, 'lmroman12-bold.otf'),
   'KaTeX_Main-Italic': path.join(LM_DIR, 'lmroman12-italic.otf'),
 };
+// Math italic has no 12pt-optical OTF; its outlines come from the Type1
+// lmmi12.pfb (metric twin of cmmi12), pre-extracted to JSON by
+// _extract_lmmi.py ({char: {p: y-up svg path @1000upem, a: advance}}).
+// Outlines are used as-is (bearing delta vs the KaTeX cell is <=0.01em);
+// KaTeX advances are kept, as with the OTF overrides.
+const JSON_OVERRIDES = {
+  'KaTeX_Math-Italic': path.join(__dirname, 'lmmi12-outlines.json'),
+};
 
 function glyphToPathShifted(glyph, dx) {
   const p = glyph.getPath(dx, 0, 1000);
@@ -92,6 +100,11 @@ for (const face of FACES) {
       ovFont = opentype.parse(ob.buffer.slice(ob.byteOffset, ob.byteOffset + ob.byteLength));
     } catch (e) { console.warn('override parse failed for', face, e.message); }
   }
+  let ovJson = null;
+  if (JSON_OVERRIDES[face] && fs.existsSync(JSON_OVERRIDES[face])) {
+    try { ovJson = JSON.parse(fs.readFileSync(JSON_OVERRIDES[face], 'utf8')); }
+    catch (e) { console.warn('json override parse failed for', face, e.message); }
+  }
   const ovScale = ovFont ? 1000 / ovFont.unitsPerEm : 1;
   let overridden = 0;
   const table = {};
@@ -117,6 +130,15 @@ for (const face of FACES) {
           }
         }
       }
+    } else if (ovJson) {
+      const _u0 = codes.find(u => u != null);
+      if (_u0 != null) {
+        const ovEntry = ovJson[String.fromCodePoint(_u0)];
+        if (ovEntry && ovEntry.p) {
+          d = ovEntry.p;
+          overridden++;
+        }
+      }
     }
     for (const u of codes) {
       if (u == null) continue;
@@ -125,7 +147,7 @@ for (const face of FACES) {
     }
   }
   out.faces[face] = table;
-  console.log(face, Object.keys(table).length, 'glyphs, upem', upem, ovFont ? ('(' + overridden + ' outlines from ' + path.basename(OPTICAL_OVERRIDES[face]) + ')') : '');
+  console.log(face, Object.keys(table).length, 'glyphs, upem', upem, (ovFont||ovJson) ? ('(' + overridden + ' outlines from ' + path.basename(ovFont ? OPTICAL_OVERRIDES[face] : JSON_OVERRIDES[face]) + ')') : '');
 }
 fs.writeFileSync(OUT, JSON.stringify(out));
 console.log('wrote', OUT, (fs.statSync(OUT).size / 1024).toFixed(0) + 'KB,', totalGlyphs, 'glyph entries');

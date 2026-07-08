@@ -1390,6 +1390,55 @@
     img.style.height = (displayH * ratio) + 'px';
   }
 
+  // ── Content-aligned blinking ─────────────────────────
+  // The blink pane centers each image by its CANVAS, so a margin asymmetry in
+  // either render (e.g. an over-reserved label box padding one side) shifts
+  // the whole drawing when toggling TeXeR<->HiTeXeR, drowning real
+  // differences in a global jump (05534: 39px phantom left margin; 01759:
+  // 74px right). Align by the CONTENT bounding box instead: measure each
+  // artifact's ink bbox (downsampled canvas scan, cached per src) and
+  // translate the element so content centers coincide with the pane center.
+  const _contentCenterCache = new Map();
+  function contentCenterOf(el, naturalW, naturalH, cacheKey) {
+    if (cacheKey && _contentCenterCache.has(cacheKey)) return _contentCenterCache.get(cacheKey);
+    let out = null;
+    try {
+      const s = Math.min(1, 480 / Math.max(naturalW, naturalH, 1));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(naturalW * s));
+      c.height = Math.max(1, Math.round(naturalH * s));
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(el, 0, 0, c.width, c.height);
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      let minx = 1e9, maxx = -1, miny = 1e9, maxy = -1;
+      for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        if (0.3 * d[i] + 0.6 * d[i + 1] + 0.1 * d[i + 2] < 210) {
+          if (x < minx) minx = x; if (x > maxx) maxx = x;
+          if (y < miny) miny = y; if (y > maxy) maxy = y;
+        }
+      }
+      if (maxx >= 0) out = { cx: (minx + maxx + 1) / 2 / s, cy: (miny + maxy + 1) / 2 / s };
+    } catch (e) { out = null; }
+    if (cacheKey) _contentCenterCache.set(cacheKey, out);
+    return out;
+  }
+  // Translate el so its content center sits at the pane center. displayW/H =
+  // the CSS size the element is shown at; naturalW/H = its bitmap size.
+  function alignContent(el, naturalW, naturalH, cacheKey) {
+    try {
+      const cc = contentCenterOf(el, naturalW, naturalH, cacheKey);
+      if (!cc) { el.style.transform = ''; return; }
+      const dispW = parseFloat(el.style.width) || el.width || naturalW;
+      const k = dispW / naturalW;
+      const dx = (naturalW / 2 - cc.cx) * k;
+      const dy = (naturalH / 2 - cc.cy) * k;
+      el.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    } catch (e) { /* leave centered */ }
+  }
+
   // Build the renderable source descriptor for a given kind ('htx' | 'texer' | 'asy')
   function sourceDescriptor(d, kind, cacheBust) {
     // If cacheBust is set, always emit a fresh timestamp.  Otherwise, if this
@@ -1575,7 +1624,15 @@
         svgDiv.style.display = '';
         svgDiv.innerHTML = '';
         injectLiveHtx(svgDiv, desc.id).then(ok => {
-          if (ok) return;
+          if (ok) {
+            // Content-align the rasterized live render for jump-free blinking.
+            const live = svgDiv.querySelector('img');
+            if (live) {
+              const doAlign = () => alignContent(live, live.naturalWidth, live.naturalHeight, 'htx:' + desc.id + ':' + (live.src.length));
+              if (live.complete) doAlign(); else live.onload = doAlign;
+            }
+            return;
+          }
           svgDiv.style.display = 'none';
           svgDiv.innerHTML = '';
           img.style.display = '';
@@ -1622,6 +1679,9 @@
         img.style.visibility = 'hidden';
         img.onload = () => {
           fitImage(img, img.naturalWidth * desc.scale, img.naturalHeight * desc.scale);
+          // Content-align (TeXeR/asy PNGs) so blinking compares content, not
+          // canvas margins.
+          alignContent(img, img.naturalWidth, img.naturalHeight, desc.kind + ':' + desc.src);
           img.style.visibility = '';
         };
         img.src = desc.src;
