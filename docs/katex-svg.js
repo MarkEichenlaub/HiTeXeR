@@ -230,11 +230,17 @@
       }
       if (!content) continue;
       const sc = scaleForClasses(row.classes) /* rows are plain spans */;
+      // Row-wrapper marginRight is real layout width: KaTeX carries TeX's
+      // scriptspace (0.05em) THERE for sub/superscript vlists — dropping it
+      // measured every scripted atom ~0.5bp narrower than the TeX box
+      // (oracle probe: $x^2$ box 11.57bp vs 11.02 measured). Fold it into
+      // the column width so the msupsub advance matches TeX.
+      const rowMarginR = em(row.style && row.style.marginRight);
       out.push({
         topEm: em(row.style && row.style.top),
         pstrut,
         content,
-        contentW: widthOf(content) * sc,
+        contentW: widthOf(content) * sc + rowMarginR,
         contentDepth: typeof content.depth === 'number' ? content.depth : 0,
         rowScale: sc,
       });
@@ -435,8 +441,28 @@
     const childCenter = has(n, 'op-limits') || has(n, 'accent') || has(n, 'col-align-c') || has(n, 'mfrac')
       || has(n, 'munder') || has(n, 'mover');
     let x = ctx.x + marginL + padL;
-    for (const c of (n.children || [])) {
+    const kids = n.children || [];
+    for (let ki = 0; ki < kids.length; ki++) {
+      const c = kids[ki];
       x += emitNode(c, { ...ctx, x, s: ctx.s * sc, face, color, centerCols: childCenter });
+      // TeX math-mode italic correction: an italic-font letter's box in TeX is
+      // charwd + charic — the correction is a kern added after the atom, both
+      // mid-string ($Mx$: x starts after M's ic) and trailing ($M$ E/W-aligned:
+      // the box edge clears the overhang). KaTeX stores .italic on the
+      // SymbolNode but (for mathnormal) neither advances by it nor sets a
+      // marginRight, so every italic capital measured/rendered ~0.05-0.22em
+      // narrower than TeX's box (oracle probe: W-aligned $M$ sat 1.1bp too
+      // close to its anchor; N/S-centered shifted half that). Advance by the
+      // metric here, matching TeX. Skip when KaTeX already carries the ic in
+      // marginRight (\mathit path), and skip before an msupsub sibling: TeX
+      // attaches subscripts at the width WITHOUT the correction, which KaTeX
+      // models inside the msupsub vlist itself.
+      if (isSym(c) && c.italic > 0 && !(c.style && c.style.marginRight)) {
+        const nxt = kids[ki + 1];
+        if (!(nxt && nxt.classes && nxt.classes.indexOf('msupsub') !== -1)) {
+          x += c.italic * ctx.s * sc;
+        }
+      }
     }
     let advance = (x - ctx.x) + marginR + classHPad;   // symmetric .boxpad right pad
     if (style.width !== undefined) {
