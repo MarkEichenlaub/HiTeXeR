@@ -721,13 +721,21 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         URL.revokeObjectURL(url);
-        canvas.style.width = cssW + 'px';
-        canvas.style.height = cssH + 'px';
-        canvas.style.maxWidth = '100%';
-        canvas.style.maxHeight = '100%';
-        canvas.style.display = 'block';
+        // Emit an <img> (not the canvas): a canvas with explicit width+height
+        // styles DISTORTS when the thumb/pane max-constraints clamp one axis
+        // (the grid squashed spheres into ellipses); an img with only a width
+        // attribute keeps its intrinsic ratio under max-width/max-height,
+        // exactly like the TeXeR pane's img — same element class, same
+        // display transform (240-DPI bitmap at half size) on every surface.
+        const out = new Image();
+        out.src = canvas.toDataURL('image/png');
+        out.width = Math.round(cssW);
+        out.style.maxWidth = '100%';
+        out.style.maxHeight = '100%';
+        out.style.objectFit = 'contain';
+        out.style.display = 'block';
         container.innerHTML = '';
-        container.appendChild(canvas);
+        container.appendChild(out);
       }
     } catch (e) { /* keep the vector */ }
     return true;

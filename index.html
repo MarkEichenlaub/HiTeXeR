@@ -711,7 +711,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.57</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.58</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3564,7 +3564,7 @@ async function applyFaithfulRaster() {
     ? [...previewEl.querySelectorAll('.htx-doc svg')]
     : [...previewEl.querySelectorAll('svg:not([data-perm])')];
   // Tear down existing rasters first (mode off, or re-render).
-  previewEl.querySelectorAll('canvas.htx-faithful-raster').forEach(c => c.remove());
+  previewEl.querySelectorAll('.htx-faithful-raster').forEach(c => c.remove());
   if (!faithfulRasterOn) {
     for (const s of svgs) { s.style.visibility = ''; s.style.position = ''; }
     applyCanvasTransform();
@@ -3587,14 +3587,21 @@ async function applyFaithfulRaster() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      canvas.className = 'htx-faithful-raster';
-      canvas.style.width = cssW + 'px';    // display at half raster = AoPS scale
-      canvas.style.height = cssH + 'px';
-      canvas.style.maxWidth = '100%';
-      canvas.style.maxHeight = '100%';
+      // Emit an <img>, not the canvas: explicit width+height styles distort
+      // under max-width/max-height clamping (the grid squashed spheres into
+      // ellipses); an img with only a width attribute keeps its intrinsic
+      // ratio — the same element class and display transform as TeXeR PNGs.
+      const rimg = new Image();
+      rimg.src = canvas.toDataURL('image/png');
+      rimg.width = Math.round(cssW);       // display at half raster = AoPS scale
+      rimg.className = 'htx-faithful-raster';
+      rimg.style.maxWidth = '100%';
+      rimg.style.maxHeight = '100%';
+      rimg.style.objectFit = 'contain';
+      rimg.style.display = 'block';
       svg.style.visibility = 'hidden';
       svg.style.position = 'absolute';
-      svg.insertAdjacentElement('afterend', canvas);
+      svg.insertAdjacentElement('afterend', rimg);
     } catch (e) {
       // Rasterization failed (e.g. foreignObject taint) — keep the vector.
       svg.style.visibility = '';
@@ -4828,7 +4835,7 @@ function applyCanvasTransform() {
   // In TeXeR-faithful mode the visible artifact is the raster canvas; apply
   // the same transform to it (zooming a raster resamples its pixels — the
   // same thing zooming TeXeR's PNG on AoPS does).
-  const svg = document.querySelector('#preview-container canvas.htx-faithful-raster')
+  const svg = document.querySelector('#preview-container .htx-faithful-raster')
     || document.querySelector('#preview-container svg:not([data-perm])');
   if (!svg) return;
   if (inFitMode) {

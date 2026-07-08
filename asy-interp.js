@@ -31872,7 +31872,12 @@ function renderSVG(result, opts) {
       // fringe (every probe band measured N.27px of ink: 1.27, 2.27, 3.27,
       // 5.27...). The browser renders exactly the requested width as ink, so
       // request round(px)+0.27 for total-ink parity with the reference.
-      if (_devPxQ >= 0.995) css.strokeWidth = (Math.round(_devPxQ) + 0.27) * 0.3 * bpCSSPixel;
+      // gs rounds HALF-DOWN (probed at the boundaries: 0.45bp/1.5px -> 1,
+      // 0.75/2.5 -> 2, 1.05/3.5 -> 3, 1.35/4.5 -> 4, while 0.76/2.53 -> 3),
+      // so use ceil(px - 0.5), not Math.round (half-up) — the half-up bias
+      // over-weighted every boundary pen, notably defaultpen(black+0.75)
+      // across the 058xx number-line family (+51% arc ink at display scale).
+      if (_devPxQ >= 0.995) css.strokeWidth = (Math.ceil(_devPxQ - 0.5) + 0.27) * 0.3 * bpCSSPixel;
     }
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth);
 
