@@ -32383,8 +32383,16 @@ function renderSVG(result, opts) {
         // (see plain_pens.asy:174). Using the correct 0.28 coefficient (not 0.25)
         // and including the linewidth term gives labels proper clearance from
         // nearby graphics (notably dots at the same anchor position).
+        // IMPORTANT: the margin uses the RAW pen fontsize, not the TeX-capped
+        // one — LaTeX substitutes the nearest available font (~25pt cap) for
+        // the GLYPHS, but labelmargin(p) reads the pen's stored value, so a
+        // fontsize(72pt) N-label sits 0.28*72 = 20bp off its anchor while its
+        // glyph renders at ~25pt (oracle: unitsize(1cm) draw + 72pt "1": gap
+        // 20.1bp vs HTX's capped 6.9bp).
         const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
-        const margin = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
+        const _rawFsM = (dc.pen && typeof dc.pen.fontsize === 'number' && dc.pen.fontsize > 0) ? dc.pen.fontsize : 0;
+        const _marginFsSVG = (_rawFsM > 25 && fontSize > 0) ? fontSizeSVG * (_rawFsM / fontSize) : fontSizeSVG;
+        const margin = (0.28 * _marginFsSVG) + 0.5 * _labelLw * bpCSSPixel;
         // dot(Label, z) labels get NO extra dot-radius push. Verified against
         // the local-asy oracle (dot("$K$",(0,0),dir(75)) at linewidth 0.5/2/5):
         // the label offset is exactly labelmargin(dotpen) = 0.28*fs + 0.5*lw —
@@ -35245,6 +35253,15 @@ function _reconstructMixedLabel(src) {
     if (c === '$') {
       flush();
       if (stack[stack.length - 1] === 'T') out += '$';   // keep delimiter only in a text context
+      else {
+        // Brace-wrap the inline $...$ run so it becomes a single Ord atom.
+        // Without this, KaTeX applies inter-atom spacing between the run's
+        // last atom and the following \text{} (e.g. "$\cdots$ 0": \cdots is
+        // an INNER atom, so KaTeX added a thin space ON TOP of the interword
+        // space — TeX has no such glue across a $-boundary; 05896's cdots-
+        // digit junctions ran ~2bp wide on each side).
+        out += inDollar ? '}' : '{';
+      }
       inDollar = !inDollar;
       i++; continue;
     }
