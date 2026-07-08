@@ -699,6 +699,37 @@
       svgEl.style.maxWidth = '100%';
       svgEl.style.maxHeight = '100%';
     }
+    // TeXeR-faithful display: what students see from TeXeR is a 240-DPI PNG
+    // shown at half its pixel size. Rasterize the live SVG the same way (2x
+    // canvas, displayed at half) so BOTH panes are the same class of artifact
+    // going through the same browser display transform — a crisp vector next
+    // to a downsampled bitmap otherwise reads as "thicker/sharper" even at
+    // pixel-identical geometry. Falls back to the vector on any failure.
+    try {
+      const cssW = parseFloat(svgEl.getAttribute('width')) || svgEl.clientWidth || 0;
+      const cssH = parseFloat(svgEl.getAttribute('height')) || svgEl.clientHeight || 0;
+      if (cssW > 0 && cssH > 0) {
+        const xml = new XMLSerializer().serializeToString(svgEl);
+        const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
+        const img = new Image();
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(cssW * 2));
+        canvas.height = Math.max(1, Math.round(cssH * 2));
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        canvas.style.maxWidth = '100%';
+        canvas.style.maxHeight = '100%';
+        canvas.style.display = 'block';
+        container.innerHTML = '';
+        container.appendChild(canvas);
+      }
+    } catch (e) { /* keep the vector */ }
     return true;
   }
 

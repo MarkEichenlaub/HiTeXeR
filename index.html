@@ -711,7 +711,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.55</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.56</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -752,6 +752,7 @@ body {
         <div class="md-item checked" id="md-highlight" title="Highlight the source code for whichever element is under the cursor in the rendered image">Highlight</div>
         <div class="md-item" id="md-grid" title="Overlay a coordinate grid on the rendered image to identify exact coordinates">Grid</div>
         <div class="md-item" id="md-colorblind" title="Recolor the rendered image using a color-blind-friendly palette">Color Blind Mode</div>
+        <div class="md-item checked" id="md-faithful" title="Show the diagram exactly as TeXeR/AoPS displays it: a 240-DPI raster at half size. Uncheck for the crisp zoomable vector view.">TeXeR-faithful Display</div>
         <div class="md-separator"></div>
         <div class="md-item" id="md-zoom-in">Zoom In</div>
         <div class="md-item" id="md-zoom-out">Zoom Out</div>
@@ -3541,6 +3542,68 @@ function exitDocMode() {
   if (docEl) docEl.remove();
 }
 
+// ── TeXeR-faithful display ───────────────────────────────────────────────
+// What a student sees from TeXeR is a 240-DPI PNG displayed at HALF its
+// pixel size (AoPS sets width = naturalWidth/2). A live vector at the same
+// nominal size can never look identical on a standard-DPI monitor: the
+// browser downsamples the bitmap (soft edges) but rasterizes the vector
+// crisply. To make what-you-see-in-HiTeXeR literally the same class of
+// artifact, this mode rasterizes the rendered SVG at 2x (the same 240-DPI
+// grid the SSIM pipeline judges) into a canvas displayed at half size —
+// the identical display transform AoPS applies to TeXeR's PNGs, on any
+// monitor. The interactive SVG stays in the DOM (hidden) so element
+// tooling still works; toggle View → TeXeR-faithful Display for the crisp
+// vector view while editing.
+let faithfulRasterOn = (function () {
+  try { return localStorage.getItem('htx-faithful-raster') !== '0'; } catch (e) { return true; }
+})();
+async function applyFaithfulRaster() {
+  const previewEl = document.getElementById('preview-container');
+  if (!previewEl) return;
+  const svgs = previewEl.classList.contains('htx-doc-mode')
+    ? [...previewEl.querySelectorAll('.htx-doc svg')]
+    : [...previewEl.querySelectorAll('svg:not([data-perm])')];
+  // Tear down existing rasters first (mode off, or re-render).
+  previewEl.querySelectorAll('canvas.htx-faithful-raster').forEach(c => c.remove());
+  if (!faithfulRasterOn) {
+    for (const s of svgs) { s.style.visibility = ''; s.style.position = ''; }
+    applyCanvasTransform();
+    return;
+  }
+  for (const svg of svgs) {
+    const cssW = parseFloat(svg.getAttribute('width')) || svg.clientWidth || 0;
+    const cssH = parseFloat(svg.getAttribute('height')) || svg.clientHeight || 0;
+    if (!(cssW > 0 && cssH > 0)) continue;
+    try {
+      const xml = new XMLSerializer().serializeToString(svg);
+      const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(cssW * 2));   // 240-DPI raster
+      canvas.height = Math.max(1, Math.round(cssH * 2));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.className = 'htx-faithful-raster';
+      canvas.style.width = cssW + 'px';    // display at half raster = AoPS scale
+      canvas.style.height = cssH + 'px';
+      canvas.style.maxWidth = '100%';
+      canvas.style.maxHeight = '100%';
+      svg.style.visibility = 'hidden';
+      svg.style.position = 'absolute';
+      svg.insertAdjacentElement('afterend', canvas);
+    } catch (e) {
+      // Rasterization failed (e.g. foreignObject taint) — keep the vector.
+      svg.style.visibility = '';
+      svg.style.position = '';
+    }
+  }
+  applyCanvasTransform();
+}
+
 async function doRender() {
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
@@ -3551,6 +3614,7 @@ async function doRender() {
   if (HTXDoc.isDocument(code)) {
     try {
       await renderDocument(code);
+      await applyFaithfulRaster();
     } catch (e) {
       console.error('Document render error:', e);
       statusEl.textContent = 'Document render error'; statusEl.style.color = '#e94560';
@@ -3607,6 +3671,7 @@ async function doRender() {
       showWarnBadge(warns.length ? warns.join(' · ') : '');
       setupSvgInteractivityDirect(code, result.commandMap);
       applyGhostStyles(code, result.commandMap);
+      await applyFaithfulRaster();
       lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
       updateZoomLabel();
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
@@ -4760,7 +4825,11 @@ let canvasPanDrag = null; // { startX, startY, startPanX, startPanY }
 let inFitMode = true; // true = CSS shrink-to-fit; false = explicit canvasZoom at 100% native
 
 function applyCanvasTransform() {
-  const svg = document.querySelector('#preview-container svg:not([data-perm])');
+  // In TeXeR-faithful mode the visible artifact is the raster canvas; apply
+  // the same transform to it (zooming a raster resamples its pixels — the
+  // same thing zooming TeXeR's PNG on AoPS does).
+  const svg = document.querySelector('#preview-container canvas.htx-faithful-raster')
+    || document.querySelector('#preview-container svg:not([data-perm])');
   if (!svg) return;
   if (inFitMode) {
     // Default view: let CSS handle max-width/max-height (shrink to fit)
@@ -5365,6 +5434,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-highlight').addEventListener('click', () => toggleHighlight());
   document.getElementById('md-grid').addEventListener('click', () => toggleGrid());
   document.getElementById('md-colorblind').addEventListener('click', () => toggleColorBlind());
+  document.getElementById('md-faithful').addEventListener('click', () => {
+    faithfulRasterOn = !faithfulRasterOn;
+    try { localStorage.setItem('htx-faithful-raster', faithfulRasterOn ? '1' : '0'); } catch (e) {}
+    document.getElementById('md-faithful').classList.toggle('checked', faithfulRasterOn);
+    applyFaithfulRaster();
+  });
+  document.getElementById('md-faithful').classList.toggle('checked', faithfulRasterOn);
   document.getElementById('md-zoom-in').addEventListener('click', () => adjustScale(1.25));
   document.getElementById('md-zoom-out').addEventListener('click', () => adjustScale(0.8));
   document.getElementById('md-autocomplete').addEventListener('click', () => toggleAutocomplete());
