@@ -36728,6 +36728,16 @@ function render(code, opts) {
   // a previous diagram installed so they don't leak into this one (the interpreter
   // itself is fresh per render, but katexSvg is not).
   try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros({}); } catch (e) {}
+  // SINGLE SOURCE OF TRUTH: svg-native (KaTeX glyph-path labels) is the ONE
+  // render mode, everywhere. It is the artifact the SSIM pipeline scores;
+  // before this default, browser callers (index.html editor, blink live pane)
+  // omitted labelOutput and mixed text/math labels fell to the SVG-<text>
+  // fallback — laid out by the BROWSER in whatever font resolved (Times in
+  // SVG-as-image rasterization, where webfonts never load), so the editor
+  // showed bolder/tighter labels than both TeXeR and the scored artifact
+  // (05896). Callers can still pass an explicit labelOutput to opt out.
+  opts = opts || {};
+  if (opts.labelOutput === undefined) opts = Object.assign({}, opts, { labelOutput: 'svg-native' });
   const interp = createInterpreter();
   const result = interp.execute(code, opts);
   return renderSVG(result, opts);
