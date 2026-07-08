@@ -26699,6 +26699,14 @@ function renderSVG(result, opts) {
     // EndPoint axis labels that were placed at the now-stale endpoint.
     for (const c of drawCommands) {
       if (!c._isAxisLine || !c.path || !c.path.segs || c.path.segs.length === 0) continue;
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_AXFIN_DBG) {
+        try { process.stderr.write('[axfin] axis=' + c._isAxisLine + ' jobManaged=' + !!c._jobManaged
+          + ' autoXmin=' + !!c._autoXmin + ' autoXmax=' + !!c._autoXmax
+          + ' autoYmin=' + !!c._autoYmin + ' autoYmax=' + !!c._autoYmax
+          + ' shiftX=' + c._axisShiftX + ' shiftY=' + c._axisShiftY
+          + ' p0=(' + c.path.segs[0].p0.x.toFixed(2) + ',' + c.path.segs[0].p0.y.toFixed(2) + ')'
+          + ' p3=(' + c.path.segs[0].p3.x.toFixed(2) + ',' + c.path.segs[0].p3.y.toFixed(2) + ')\n'); } catch (e) {}
+      }
       // Axes managed by the deferred frame-extension jobs (graph.asy's
       // extend=true semantics, run at end-of-eval) are already final —
       // the legacy content-extent override below would SHRINK them back.
@@ -31623,6 +31631,30 @@ function renderSVG(result, opts) {
         gridBoost = Math.max(1.35, 2.5 - 2.22 * brightness);
       }
       css.strokeWidth *= gridBoost;
+    }
+    // Ghostscript 240-DPI stroke staircase for LITERAL pen widths. TeXeR's
+    // rasterizer (gs, with stroke adjustment) renders a stroke as
+    // round(lw*240/72) FULLY-DARK device pixels — measured on a 0.1..2.0bp
+    // probe: 0.5-0.7bp all -> 2px, 0.8-1.0 -> 3px, 1.1-1.3 -> 4px, ...; widths
+    // under one device pixel stay a continuous thin gray (0.1/0.2bp probe rows
+    // had NO dark core). The browser draws the continuous width, so explicit
+    // linewidths sat up to ~22% thinner (0.8bp: 2.67px vs gs 3.27px) or
+    // slightly thicker (1.0bp) than TeXeR. Snap the rendered width to the gs
+    // grid (device px * 0.3bp) for exactly the pens the tuned weight boosts
+    // never touch: _lwExplicit and defaultpen(linewidth(...)) diagrams.
+    // Default pens keep the empirically-tuned boost ramps above (their target
+    // already approximates the staircase at 0.5bp), gridlines keep gridBoost,
+    // and the quantization reads the NOMINAL bp width so dot radii, arrowhead
+    // sizes (both derived from pen.linewidth elsewhere), and dash patterns
+    // (scaled by _nominalStrokeWidth) are untouched.
+    if (dc.pen && (dc.pen._lwExplicit || _defaultpenLwSet) && !isGridline) {
+      const _lwBpQ = (typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+      const _devPxQ = _lwBpQ * 10 / 3;
+      // +0.27px: gs's stroke-adjusted edges still antialias a consistent
+      // fringe (every probe band measured N.27px of ink: 1.27, 2.27, 3.27,
+      // 5.27...). The browser renders exactly the requested width as ink, so
+      // request round(px)+0.27 for total-ink parity with the reference.
+      if (_devPxQ >= 0.995) css.strokeWidth = (Math.round(_devPxQ) + 0.27) * 0.3 * bpCSSPixel;
     }
     const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth);
 
