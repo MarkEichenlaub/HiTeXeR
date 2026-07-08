@@ -17,6 +17,11 @@ const COMPARISON = path.join(ROOT, 'comparison');
 const SSIM_RESULTS_PATH = path.join(COMPARISON, 'ssim-results.json');
 const ATTEMPTS_PATH     = path.join(__dirname, 'attempts.jsonl');
 const SKIPLIST_PATH     = path.join(__dirname, 'skiplist.json');
+// References proven untrustworthy by the local-asy oracle (150-DPI saves,
+// 611px page screenshots, error-dialog captures — see the file's _comment).
+// Their ssim/sizeScore measure the BAD REFERENCE, not HiTeXeR, so the loop
+// must never chase them.
+const REF_DENYLIST_PATH = path.join(COMPARISON, 'ref-denylist.json');
 
 const MIN_SIZE_SCORE   = 0.7;
 const MAX_SSIM         = 0.75;
@@ -99,6 +104,7 @@ function main() {
   }
 
   const skiplist = new Set(loadJson(SKIPLIST_PATH, { ids: [] }).ids || []);
+  const refDenied = new Set(Object.keys(loadJson(REF_DENYLIST_PATH, { entries: {} }).entries || {}));
   const attempts = loadAttempts();
 
   // attempts index: id -> array of verdicts (most-recent-last)
@@ -116,6 +122,7 @@ function main() {
     if (r.sizeScore < MIN_SIZE_SCORE) continue;
     if (r.ssim >= MAX_SSIM) continue;
     if (skiplist.has(r.id)) continue;
+    if (refDenied.has(r.id)) continue;
     const history = attemptsById.get(r.id) || [];
     // Permanent skip verdicts
     if (history.some(a => a.verdict === 'fix' || a.verdict === 'ssim-artifact')) continue;

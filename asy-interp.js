@@ -2331,6 +2331,13 @@ function createInterpreter() {
   // Transform a single draw command by an affine transform
   function transformDrawCmd(t, dc) {
     const r = Object.assign({}, dc);
+    // An axis command whose deferred range job has NOT yet run is being cloned
+    // away from the job's reach (the closure mutates the original objects
+    // only). Strip the pre-registration _jobManaged mark so finalizeAutoAxes'
+    // content-extent override can re-range the clone; otherwise it renders at
+    // the no-content ±5 fallback forever (14370-73). Already-run jobs (e.g.
+    // sub-picture jobs executed at fit() before cloning) keep their mark.
+    if (r._jobPending) { delete r._jobManaged; delete r._jobPending; }
     if (r.path) r.path = applyTransformPath(t, r.path);
     if (r.pos) r.pos = applyTransformPair(t, r.pos);
     // markangle arcs/labels/wedges carry a truesize bp radius around an
@@ -15311,13 +15318,23 @@ function createInterpreter() {
         // never runs, so pre-marking would wrongly make the finalize pass skip
         // the legacy content-extent override for these never-extended axes. The
         // in-job re-emission below marks its own commands when it does run.
-        if (!_xSubpicJob) for (const c of myCmds) c._jobManaged = true;
+        // _jobPending marks "job registered but not yet run". If the command is
+        // CLONED before the job runs (add(dest, pic) / transform*pic copies via
+        // transformDrawCmd), the job closure mutates only the orphaned original
+        // — the clone would render at the no-content ±5 fallback while its
+        // copied _jobManaged flag ALSO blocks the finalize content-extent
+        // override (14370-73: xaxis() into a fresh picture, geometry drawn
+        // after, add(original, rotate(0)*currentpicture) — axes stuck at ±5).
+        // transformDrawCmd strips _jobManaged from clones that are still
+        // pending so finalizeAutoAxes re-ranges them against final content.
+        if (!_xSubpicJob) for (const c of myCmds) { c._jobManaged = true; c._jobPending = true; }
         let curLo = xmin, curHi = xmax;
         const _xPrefixSet = new Set(pic.commands.slice(0, _xJobStart));
         const _xInitLo = xmin, _xInitHi = xmax;
         let _xRideLo = 0, _xRideHi = 0;
         if (_xSubpicJob) { pic._axisJobs = pic._axisJobs || []; }
         (_xSubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
+          for (const c of myCmds) c._jobPending = false;
           // Exclude this axis's own LINE (a placeholder range when the axis
           // was drawn before content — it must be able to SHRINK, 00247)
           // and its own TITLE from the frame estimate; the title contributes
@@ -15417,7 +15434,7 @@ function createInterpreter() {
             if (mySet.has(pic.commands[i])) { insertAt = i; break; }
           }
           for (let i = pic.commands.length - 1; i >= 0; i--) {
-            if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
+            if (mySet.has(pic.commands[i])) { pic.commands[i]._jobSuperseded = true; pic.commands.splice(i, 1); } // add(dest,pic) may hold shared refs to these pre-job cmds; corrected re-emission lands only in THIS pic, so dest copies re-range via the finalize _jobSuperseded gate
           }
           const s0 = pic.commands.length;
           // Endpoint-tick suppression range = data/limit extent only, WITHOUT
@@ -16025,13 +16042,16 @@ function createInterpreter() {
         const _yUserHi = _ymaxFromUserLimits ? ymax : null;
         let myCmds = pic.commands.slice(_yJobStart);
         // See the xaxis note: pre-mark _jobManaged only for currentPic jobs.
-        if (!_ySubpicJob) for (const c of myCmds) c._jobManaged = true;
+        // _jobPending: see the xaxis note — lets transformDrawCmd strip the
+        // stale _jobManaged from clones made before the job runs.
+        if (!_ySubpicJob) for (const c of myCmds) { c._jobManaged = true; c._jobPending = true; }
         let curLo = ymin, curHi = ymax;
         const _yPrefixSet = new Set(pic.commands.slice(0, _yJobStart));
         const _yInitLo = ymin, _yInitHi = ymax;
         let _yRideLo = 0, _yRideHi = 0;
         if (_ySubpicJob) { pic._axisJobs = pic._axisJobs || []; }
         (_ySubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
+          for (const c of myCmds) c._jobPending = false;
           // Exclude ALL of THIS axis's own commands (line, TICK MARKS, tick
           // labels, title) from the frame estimate — they are CONSEQUENCES of the
           // extent, not inputs. Counting the axis's own tick marks (at integer
@@ -16112,7 +16132,7 @@ function createInterpreter() {
             if (mySet.has(pic.commands[i])) { insertAt = i; break; }
           }
           for (let i = pic.commands.length - 1; i >= 0; i--) {
-            if (mySet.has(pic.commands[i])) pic.commands.splice(i, 1);
+            if (mySet.has(pic.commands[i])) { pic.commands[i]._jobSuperseded = true; pic.commands.splice(i, 1); } // add(dest,pic) may hold shared refs to these pre-job cmds; corrected re-emission lands only in THIS pic, so dest copies re-range via the finalize _jobSuperseded gate
           }
           const s0 = pic.commands.length;
           // Endpoint-tick suppression range = data/limit extent only, WITHOUT
@@ -26710,7 +26730,14 @@ function renderSVG(result, opts) {
       // Axes managed by the deferred frame-extension jobs (graph.asy's
       // extend=true semantics, run at end-of-eval) are already final —
       // the legacy content-extent override below would SHRINK them back.
-      if (c._jobManaged) continue;
+      // EXCEPT commands still marked _jobPending: their job ran (and cleared
+      // the flag) only on the ORIGINAL objects — this command is a clone made
+      // by add()/transform*pic BEFORE the job executed, so it still sits at
+      // the no-content ±5 fallback and must take the content-extent override
+      // (14370-73: xaxis();yaxis(); into a fresh picture, geometry after,
+      // add(original, rotate(0)*currentpicture) — axes stuck at ±5 while the
+      // stale copied _jobManaged blocked this pass).
+      if (c._jobManaged && !c._jobPending && !c._jobSuperseded) continue;
       const seg = c.path.segs[0];
       // Sub-picture axes transformed by add(pic.fit(), pos, align) carry
       // STALE _axisShift* markers: rebuilding the line at the marker

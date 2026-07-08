@@ -230,11 +230,17 @@
       }
       if (!content) continue;
       const sc = scaleForClasses(row.classes) /* rows are plain spans */;
+      // Row-wrapper marginRight is real layout width: KaTeX carries TeX's
+      // scriptspace (0.05em) THERE for sub/superscript vlists — dropping it
+      // measured every scripted atom ~0.5bp narrower than the TeX box
+      // (oracle probe: $x^2$ box 11.57bp vs 11.02 measured). Fold it into
+      // the column width so the msupsub advance matches TeX.
+      const rowMarginR = em(row.style && row.style.marginRight);
       out.push({
         topEm: em(row.style && row.style.top),
         pstrut,
         content,
-        contentW: widthOf(content) * sc,
+        contentW: widthOf(content) * sc + rowMarginR,
         contentDepth: typeof content.depth === 'number' ? content.depth : 0,
         rowScale: sc,
       });
