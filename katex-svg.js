@@ -153,19 +153,32 @@
     for (const c of (classes || [])) if (CLASS_HPAD[c] !== undefined) p += CLASS_HPAD[c];
     return p; // per side
   }
+  // TeX interword space. The KaTeX_Main space GLYPH advances 0.25em, but real
+  // TeX text sets interword glue from the font's fontdimen2 — 0.3333em for
+  // cmr10, 0.3263 for cmr12 — so every text label with spaces rendered ~25%
+  // tighter than TeXeR (05896's digit row: pitch 0.75em vs the oracle's
+  // 0.82em, 20px narrower over 13 spaces). Typewriter keeps its own fixed
+  // 0.525em space glyph (cmtt has no interword stretch).
+  function spaceAdvEm(face, g) {
+    if (face && face.indexOf('Typewriter') !== -1) return g ? g.a / UPEM : 0.525;
+    return 1 / 3;
+  }
+  const isSpaceChar = (ch) => ch === ' ' || ch === ' ';
   // Advance width of a SymbolNode in em. KaTeX merges adjacent text-mode
   // symbols into one node (tryCombineChars) but the merged .width only
   // reflects the first character (" cells" reported 0.25em), so multi-char
-  // runs sum the font advances instead; single chars trust KaTeX's metric.
+  // runs sum the font advances instead; single chars trust KaTeX's metric
+  // (except lone spaces, which take the TeX interword width above).
   function symAdvanceEm(n, face) {
     const text = n.text || '';
     const chars = Array.from(text);
+    if (chars.length === 1 && isSpaceChar(chars[0])) return spaceAdvEm(face, null);
     if (chars.length <= 1) return typeof n.width === 'number' ? n.width : 0;
     const table = (GLYPHS && (GLYPHS[face] || GLYPHS['KaTeX_Main-Regular'])) || {};
     let w = 0;
     for (const ch of chars) {
       const g = table[ch] || (GLYPHS && GLYPHS['KaTeX_Main-Regular'] || {})[ch];
-      w += g ? g.a / UPEM : 0.5;
+      w += isSpaceChar(ch) ? spaceAdvEm(face, g) : (g ? g.a / UPEM : 0.5);
     }
     return w;
   }
@@ -268,9 +281,12 @@
         consumedW += (g.a / UPEM);
         x += (g.a / UPEM) * ctx.s;
       } else if (g) {
-        // glyph with an advance but no outline (space): advance only
-        consumedW += (g.a / UPEM);
-        x += (g.a / UPEM) * ctx.s;
+        // glyph with an advance but no outline (space): advance only.
+        // Spaces take the TeX interword width (see spaceAdvEm), not the
+        // font's 0.25em space-glyph advance.
+        const _aEm = isSpaceChar(ch) ? spaceAdvEm(face, g) : (g.a / UPEM);
+        consumedW += _aEm;
+        x += _aEm * ctx.s;
       } else if (ch && ch !== '​') {
         // glyph missing from table: SVG <text> fallback in the matching face
         ctx.out.push('<text x="' + fmt(x) + '" y="' + fmt(ctx.y) + '" font-size="' + fmt(ctx.s) + '" font-family="' + face.replace(/-(Regular|Bold|Italic|BoldItalic)$/, '') + '" fill="' + color + '">' + ch.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</text>');
