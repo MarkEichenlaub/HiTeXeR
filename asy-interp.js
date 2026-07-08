@@ -3720,6 +3720,10 @@ function createInterpreter() {
       case 'triple': return isTriple(val);
       case 'pen': return isPen(val);
       case 'path': return isPath(val);
+      // guides are represented as paths; without this case a NUMBER "matched"
+      // a defaulted leading `guide g=nullpath` param (spring.asy's
+      // coil(lambda,r,a,b,n) bound lambda->g and shifted every arg).
+      case 'guide': return isPath(val);
       case 'string': return isString(val);
       case 'picture': return val && val._tag === 'picture';
       case 'transform': return val && val._tag === 'transform';
@@ -5147,6 +5151,33 @@ function createInterpreter() {
       }
     }
 
+    // Deferred-guide semantics for the `g = g..pt` accumulation idiom: real
+    // Asymptote stores a guide as a KNOT LIST and solves the Hobby spline once
+    // at use time, so appending a knot re-curves the WHOLE path. HTX resolves
+    // segments eagerly, so the append join only ever saw two points and
+    // degraded to a straight line (spring.asy's coil() rendered flat, 12924).
+    // When the expression is [knot-carrying path, pair, ...] with plain '..'
+    // joins throughout (no dirs/controls/cycle), rebuild the spline over the
+    // combined knot list and carry the list forward on the result. Knot lists
+    // originate on paths built from pure-'..' pair chains (see the return at
+    // the bottom of this function).
+    if (!hasCycle && elements.length >= 2 && elements[0].type === 'path'
+        && elements[0]._origPath && Array.isArray(elements[0]._origPath._dotdotKnots)
+        && elements.slice(1).every(e => e.type === 'pair' && !isTriple(e.pt))
+        && elements.slice(0, -1).every(e => e.join === '..')
+        && elements.every(e => e.dirIn == null && e.dirOut == null && !e.controlsOut && !e.controlsIn)) {
+      const knots = elements[0]._origPath._dotdotKnots.concat(elements.slice(1).map(e => e.pt));
+      const dirs = knots.map(() => ({ dirIn: null, dirOut: null }));
+      const segs = knots.length === 2
+        ? [lineSegment(knots[0], knots[1])]
+        : hobbySpline(knots, false, dirs);
+      if (segs && segs.length > 0) {
+        const rp = makePath(segs, false);
+        rp._dotdotKnots = knots.slice();
+        return rp;
+      }
+    }
+
     // If any inline paths, build segments directly
     const hasInlinePaths = elements.some(e => e.type === 'path');
     if (hasInlinePaths) {
@@ -5465,7 +5496,17 @@ function createInterpreter() {
       return result;
     }
 
-    return makePath(buildPathSegs(points, joins, hasCycle, directions, hasExplicitControls ? segControls : null), hasCycle);
+    const _purePath = makePath(buildPathSegs(points, joins, hasCycle, directions, hasExplicitControls ? segControls : null), hasCycle);
+    // Record the knot list on paths built purely from '..'-joined 2D pairs so
+    // the `g = g..pt` accumulation fast-path above can re-solve the whole
+    // Hobby spline when more knots are appended (deferred-guide semantics).
+    if (!hasCycle && !hasExplicitControls && points.length >= 2
+        && joins.every(j => j === '..')
+        && directions.every(d => !d || (d.dirIn == null && d.dirOut == null))
+        && points.every(p => !isTriple(p))) {
+      _purePath._dotdotKnots = points.slice();
+    }
+    return _purePath;
   }
 
   function buildPathSegs(points, joins, hasCycle, directions, controls) {
@@ -5948,6 +5989,49 @@ function createInterpreter() {
     }
     if (mod === 'cad' || mod.endsWith('/cad')) {
       installCADPackage(env);
+    }
+    if (mod === 'spring' || mod.endsWith('/spring')) {
+      // Asymptote's examples/spring.asy is a small pure-asy module (coilpoint/
+      // coil/drawspring — gallery spring0/spring2, 12924/12925). Interpret the
+      // verbatim module source instead of hand-porting it to JS.
+      const _SPRING_ASY = [
+        'pair coilpoint(real lambda, real r, real t)',
+        '{',
+        '  return (2.0*lambda*t+r*cos(t),r*sin(t));',
+        '}',
+        '',
+        'guide coil(guide g=nullpath, real lambda, real r, real a, real b, int n)',
+        '{',
+        '  real width=(b-a)/n;',
+        '  for(int i=0; i <= n; ++i) {',
+        '    real t=a+width*i;',
+        '    g=g..coilpoint(lambda,r,t);',
+        '  }',
+        '  return g;',
+        '}',
+        '',
+        'void drawspring(real x, string label) {',
+        '  real r=8;',
+        '  real t1=-pi;',
+        '  real t2=10*pi;',
+        '  real lambda=(t2-t1+x)/(t2-t1);',
+        '  pair b=coilpoint(lambda,r,t1);',
+        '  pair c=coilpoint(lambda,r,t2);',
+        '  pair a=b-20;',
+        '  pair d=c+20;',
+        '',
+        '  draw(a--b,BeginBar(2*barsize()));',
+        '  draw(c--d);',
+        '  draw(coil(lambda,r,t1,t2,100));',
+        '  dot(d);',
+        '',
+        '  pair h=20*I;',
+        '  draw(label,a-h--d-h,red,Arrow,Bars,PenMargin);',
+        '}',
+      ].join('\n');
+      try { evalNode(parse(lex(_SPRING_ASY)), env); } catch (e) {
+        try { console.warn('[HTX] spring module install failed: ' + (e && e.message)); } catch (e2) {}
+      }
     }
     return null;
   }
@@ -30162,20 +30246,50 @@ function renderSVG(result, opts) {
           // arrowR by the path tangent so axis-aligned arrows don't pad the
           // along-path edges (which inflates the canvas and tanks sizeScore).
           // A small along-axis allowance covers tip stroke/render variance.
+          // Pad ONLY the endpoints that actually carry a head (Arrow/EndArrow
+          // = end, BeginArrow = start, Arrows = both) — padding the bare tail
+          // reserved a phantom head there. Measured head geometry (01700,
+          // Arrow(size=0.3cm)): half-width = 0.30×len, and nothing extends
+          // past the TIP but the stroke cap — the old 0.4×len perpendicular +
+          // 0.3×len along-path over-reserved ~4bp per side, ballooning tiny
+          // truesize canvases (01700: 52×26bp vs TeXeR 47×19bp). Bar/Bars
+          // keep the old both-ends behavior (a bar IS perpendicular at both
+          // ends and has no tip taper).
+          const _lwArr = (dc.pen && typeof dc.pen.linewidth === 'number' ? dc.pen.linewidth : 0.5);
+          const _isBarPad = asty === 'Bar' || asty === 'Bars';
+          // Auto-scaled default-pen arrows get their heads BOOSTED at render
+          // time (up to the 5x aspect ramp — computed after this pass, so it
+          // can't be read here). Only literal-size heads (explicit-lw pen,
+          // defaultpen(linewidth), or a size()/unitsize diagram) take the
+          // measured-tight pads; boosted heads keep the old generous factors
+          // so the canvas still covers the enlarged flare (09212/00259/05896
+          // regressed with tight pads).
+          const _litHead = (!isAutoScaled || (dc.pen && dc.pen._lwExplicit) || _defaultpenLwSet) && !isArc;
+          // Factors stay at their long-tuned values (0.4 perpendicular,
+          // 0.3·len along-path): tightening them to the measured head geometry
+          // regressed size()-fitted arrow figures whose references reserve
+          // comparable padding (03151 −0.077, 14405 −0.023 in the A/B). The
+          // one unambiguous truth kept below is head-end-only padding — no
+          // head exists at a bare tail, so no flare is reserved there.
           const alongR = arrowLen * 0.3;
-          const _segArr = [dc.path.segs[0], dc.path.segs[dc.path.segs.length - 1]];
-          for (const seg of _segArr) {
-            for (const p of [seg.p0, seg.p3]) {
+          const arrowRPad = arrowLen * (isArc ? 0.9 : 0.4);
+          const _headAtEnd = _isBarPad || !_litHead || !/^Begin/.test(asty);
+          const _headAtStart = _isBarPad || !_litHead || /^Begin/.test(asty) || asty === 'Arrows' || asty === 'ArcArrows';
+          const _firstSeg = dc.path.segs[0];
+          const _lastSeg = dc.path.segs[dc.path.segs.length - 1];
+          const _headPts = [];
+          if (_headAtStart) _headPts.push({ p: _firstSeg.p0, other: _firstSeg.p3 });
+          if (_headAtEnd) _headPts.push({ p: _lastSeg.p3, other: _lastSeg.p0 });
+          for (const { p, other } of _headPts) {
               const sx = (p.x - minX) * pxPerUnitX;
               const sy = (maxY - p.y) * pxPerUnitY;
               // Outward tangent at this endpoint in screen coords (Y flipped).
-              const other = (p === seg.p0) ? seg.p3 : seg.p0;
               let tx = (p.x - other.x), ty = (other.y - p.y); // screen-space
               const tlen = Math.hypot(tx, ty) || 1;
               tx /= tlen; ty /= tlen;
               // Extent of the arrowhead bbox projected onto X and Y.
-              const extX = arrowR * Math.abs(ty) + alongR * Math.abs(tx);
-              const extY = arrowR * Math.abs(tx) + alongR * Math.abs(ty);
+              const extX = arrowRPad * Math.abs(ty) + alongR * Math.abs(tx);
+              const extY = arrowRPad * Math.abs(tx) + alongR * Math.abs(ty);
               // Skip points far outside the viewport
               if (sx < -extX || sx > viewW + extX ||
                   sy < -extY || sy > viewH + extY) continue;
@@ -30183,7 +30297,6 @@ function renderSVG(result, opts) {
               padR = Math.max(padR, (sx + extX) - viewW);
               padT = Math.max(padT, extY - sy);
               padB = Math.max(padB, (sy + extY) - viewH);
-            }
           }
         }
       } else if (dc.cmd === 'marker' && dc.markerPath && dc.markerPath.segs.length > 0) {
@@ -30384,6 +30497,13 @@ function renderSVG(result, opts) {
                   // tall-numerator clipping risk.
                   H = m.hBp * bpCSSPixel * 1.06;
                 } else {
+                  // Keep the 1-em floor for plain labels: TeXeR's own canvases
+                  // reserve roughly the full line box around short labels
+                  // (09775's W/E "$C$"/"$B$" endpoint caps: ref canvas 13.2bp
+                  // tall ≈ em+stroke, not the 8.2bp glyph box) — trusting the
+                  // measured ink here shrank canvases corpus-wide (A/B net
+                  // −0.11: 09775 −0.022, 03151 −0.024, 10675, 05949...).
+                  // 01700-class over-tall tiny figures are the smaller error.
                   H = Math.max(H, m.hBp * bpCSSPixel);
                 }
               }
