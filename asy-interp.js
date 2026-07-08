@@ -28395,8 +28395,16 @@ function renderSVG(result, opts) {
   // geometry scale. Mirrors Asymptote's frame measurement in fit2.
   const _spanAtScaleBp = (sx, sy) => {
     if (hasClip && isFinite(clipMinX) && isFinite(clipMaxX)) {
-      return { w: (clipMaxX - clipMinX) * sx,
-               h: ((isFinite(clipMaxY) ? clipMaxY : geoMaxY) - (isFinite(clipMinY) ? clipMinY : geoMinY)) * sy };
+      // Span = CONTENT within the clip, not the raw clip box: an oversized
+      // clip window (08911: 0.9-unit box around 0.52 units of surviving
+      // geometry) otherwise reports a phantom overflow at the correct scale
+      // and triggers the LP re-solve, which re-shrinks to fit the empty box.
+      const _cw = Math.min(clipMaxX, geoMaxX) - Math.max(clipMinX, geoMinX);
+      const _chLo = Math.max(isFinite(clipMinY) ? clipMinY : -Infinity, geoMinY);
+      const _chHi = Math.min(isFinite(clipMaxY) ? clipMaxY : Infinity, geoMaxY);
+      const _ch = _chHi - _chLo;
+      return { w: (_cw > 0 ? _cw : (clipMaxX - clipMinX)) * sx,
+               h: (_ch > 0 ? _ch : ((isFinite(clipMaxY) ? clipMaxY : geoMaxY) - (isFinite(clipMinY) ? clipMinY : geoMinY))) * sy };
     }
     let gb = null;
     if (_hasMarkangleDc) gb = _dcGeoBounds(true);
@@ -28558,8 +28566,24 @@ function renderSVG(result, opts) {
     // an oversized geometry box with labels stacked beside it.
     const targetW = sizeW > 0 ? sizeW : Infinity;
     const targetH = sizeH > 0 ? sizeH : Infinity;
-    const _geoRefW = (geoMaxX - geoMinX) || 1;
-    const _geoRefH = (geoMaxY - geoMinY) || 1;
+    // clip() constrains what the size() fit sees: Asymptote solves the scale
+    // for the CLIPPED picture bounds, not the full drawn extent. Solving on
+    // the unclipped geometry left the visible (clipped) window at a fraction
+    // of the size box (08911: clip is a 0.9x0.6-unit detail of an 8-unit
+    // scene under size(12cm) — canvas came out 227bp instead of 341, with
+    // truesize labels dominating). When the clip does not shrink the bounds
+    // (28 of the 30 corpus size()+clip() diagrams) this clamp is a no-op.
+    let _geoLoX = geoMinX, _geoHiX = geoMaxX, _geoLoY = geoMinY, _geoHiY = geoMaxY;
+    if (hasClip) {
+      if (isFinite(clipMinX)) _geoLoX = Math.max(_geoLoX, clipMinX);
+      if (isFinite(clipMaxX)) _geoHiX = Math.min(_geoHiX, clipMaxX);
+      if (isFinite(clipMinY)) _geoLoY = Math.max(_geoLoY, clipMinY);
+      if (isFinite(clipMaxY)) _geoHiY = Math.min(_geoHiY, clipMaxY);
+      if (!(_geoHiX > _geoLoX)) { _geoLoX = geoMinX; _geoHiX = geoMaxX; }
+      if (!(_geoHiY > _geoLoY)) { _geoLoY = geoMinY; _geoHiY = geoMaxY; }
+    }
+    const _geoRefW = (_geoHiX - _geoLoX) || 1;
+    const _geoRefH = (_geoHiY - _geoLoY) || 1;
     const _fullRefW = (maxX - minX) || 1;
     const _fullRefH = (maxY - minY) || 1;
     // For IgnoreAspect (keepAspect=false with explicit sizeW and sizeH), scale
@@ -28571,6 +28595,16 @@ function renderSVG(result, opts) {
     const _isIgnoreAspect = !keepAspect && sizeW > 0 && sizeH > 0;
     _labelDominatesSize = !_isIgnoreAspect &&
                           ((_fullRefW / _geoRefW >= 1.5) || (_fullRefH / _geoRefH >= 1.5));
+    // When a clip() genuinely shrinks the picture, fit the size() box to the
+    // clipped GEOMETRY window: labels drawn before the clip are clipped
+    // content like everything else, and the min/max clamp above pins their
+    // (mostly clipped-away) boxes AT the clip edge, manufacturing a phantom
+    // full-clip-box span (08911: _fullRefW = the 0.9-unit clip box while the
+    // surviving content spans 0.52 — the fit went width-bound at ppu 377
+    // instead of asy's height-bound 567, rendering 227bp for size(12cm)).
+    const _clipShrinks = hasClip &&
+      (_geoRefW < (geoMaxX - geoMinX) - 1e-9 || _geoRefH < (geoMaxY - geoMinY) - 1e-9);
+    if (_clipShrinks) _labelDominatesSize = false;
     let scaleRefW = _labelDominatesSize ? _fullRefW : _geoRefW;
     let scaleRefH = _labelDominatesSize ? _fullRefH : _geoRefH;
     // Mixed 3D+2D: if a 2D overlay extends the combined geometry bbox well
