@@ -26,6 +26,9 @@ function boot() {
     importScripts('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js');
     importScripts('../katex-svg.js');
     importScripts('../asy-interp.js');
+    // Multi-[asy] document composition — the SAME module node's pipeline and
+    // the main thread use (single source of truth for doc mode).
+    importScripts('../htx-doc-render.js');
   } catch (e) {
     self.postMessage({ type: 'init-failed', error: 'importScripts: ' + (e && e.message) });
     return;
@@ -56,7 +59,14 @@ self.onmessage = function (e) {
   if (msg.type === 'render') {
     let svg = null;
     try {
-      if (self.AsyInterp && self.AsyInterp.canInterpret(msg.code)) {
+      // Multi-[asy] documents stack each block (matching index.html's doc
+      // mode and the node pipeline); feeding the raw text to AsyInterp.render
+      // would merge every block into ONE picture, drawing the diagrams on top
+      // of each other (12948).
+      if (self.HTXDocRender && self.HTXDocRender.isDocument(msg.code)) {
+        svg = self.HTXDocRender.renderDocSVG(msg.code, self.AsyInterp,
+          { containerW: 800, containerH: 600, imageCache: msg.imageCache || {} }) || null;
+      } else if (self.AsyInterp && self.AsyInterp.canInterpret(msg.code)) {
         const result = self.AsyInterp.render(msg.code,
           { containerW: 800, containerH: 600, imageCache: msg.imageCache || {} });
         svg = (result && result.svg) || null;

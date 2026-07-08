@@ -189,4 +189,11 @@ function pushTextRows(rows, text, R) {
   flush();
 }
 
-module.exports = { isDocument, renderDocSVG, parseSegments, normalize };
+// Universal export: node (pipeline/_render_one), browser window (blink.html
+// live pane), and Web Workers (htx-worker.js pool) all load THIS file, so the
+// multi-[asy] document composition has a single source of truth — an engine
+// or doc-mode change propagates to every surface by construction.
+const _HTXDocExports = { isDocument, renderDocSVG, parseSegments, normalize };
+if (typeof module !== 'undefined' && module.exports) module.exports = _HTXDocExports;
+if (typeof self !== 'undefined') self.HTXDocRender = _HTXDocExports;
+else if (typeof window !== 'undefined') window.HTXDocRender = _HTXDocExports;

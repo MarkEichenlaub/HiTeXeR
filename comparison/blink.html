@@ -13,6 +13,9 @@
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="../katex-svg.js?v=9.47"></script>
 <script src="../asy-interp.js?v=9.47"></script>
+<!-- Multi-[asy] document composition — the SAME module the node pipeline and
+     the render workers use, so doc-mode behavior has one source of truth. -->
+<script src="../htx-doc-render.js?v=9.52"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
@@ -648,11 +651,21 @@
   // live code editor and as the inner step of liveHtxSvg. Routes through the
   // render-worker pool when available (off the main thread), else renders inline.
   async function renderCodeToSvg(code) {
-    if (!code || !(window.AsyInterp && AsyInterp.canInterpret(code))) return null;
+    if (!code) return null;
+    // Multi-[asy] documents (12948, the standing-wave posts, ...): stack each
+    // block via the SAME htx-doc-render module the node pipeline and the
+    // render workers use. Feeding the raw text to AsyInterp.render merges
+    // every block into ONE picture — the diagrams drew on top of each other
+    // here while index.html (doc mode) stacked them correctly.
+    const _isDoc = window.HTXDocRender && HTXDocRender.isDocument(code);
+    if (!_isDoc && !(window.AsyInterp && AsyInterp.canInterpret(code))) return null;
     try {
       const imageCache = await prefetchGraphicImages(code);
       const viaWorker = await renderPool.render(code, imageCache);
       if (viaWorker !== undefined) return viaWorker;            // worker handled it (svg or null)
+      if (_isDoc) {
+        return HTXDocRender.renderDocSVG(code, AsyInterp, { containerW: 800, containerH: 600, imageCache }) || null;
+      }
       const result = AsyInterp.render(code, { containerW: 800, containerH: 600, imageCache });
       return (result && result.svg) || null;
     } catch (e) { return null; }
