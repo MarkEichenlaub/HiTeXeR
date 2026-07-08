@@ -8,9 +8,14 @@ global.katex = require('katex');
 require(path.resolve('asy-interp.js'));
 const asyPath = path.join('comparison', 'asy_src', id + '.asy');
 const src = fs.readFileSync(asyPath, 'utf8');
-const r = global.window.AsyInterp.render('[asy]\n'+src+'\n[/asy]', {
-  containerW: 800, containerH: 600, labelOutput: 'svg-native'
-});
+// Multi-[asy] documents stack via the shared doc module (single source of
+// truth with the pipeline/comparator) — raw render merges the blocks.
+const htxDoc = require('./htx-doc-render.js');
+const r = htxDoc.isDocument(src)
+  ? { svg: htxDoc.renderDocSVG(src, global.window.AsyInterp, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache: {} }) }
+  : global.window.AsyInterp.render('[asy]\n'+src+'\n[/asy]', {
+      containerW: 800, containerH: 600, labelOutput: 'svg-native'
+    });
 fs.writeFileSync('_'+id+'.svg', r.svg);
 let sharp;
 try { sharp = require('sharp'); } catch(e) {}

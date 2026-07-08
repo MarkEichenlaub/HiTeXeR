@@ -161,7 +161,18 @@ async function scoreOne(id, A, fontCSS, opts) {
 
   let svg;
   try {
-    const r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
+    let htxDoc = null;
+    // Multi-[asy] documents: use the SAME htx-doc-render module as the
+    // pipeline/comparator, else the blocks merge into one picture AND this
+    // tool silently overwrites the pipeline correct stacked SVG in htx_svgs/
+    // (12948 regressed this way after a batch A/B run).
+    try { htxDoc = require(path.join(ROOT, 'htx-doc-render.js')); } catch (e) {}
+    let r;
+    if (htxDoc && htxDoc.isDocument(raw)) {
+      r = { svg: htxDoc.renderDocSVG(raw, A, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache }) };
+    } else {
+      r = A.render(code, { containerW: 800, containerH: 600, labelOutput: 'svg-native', imageCache });
+    }
     svg = r.svg;
     fs.writeFileSync(path.join(SVG_DIR, id + '.svg'), svg);
   } catch (e) {

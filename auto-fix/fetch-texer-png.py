@@ -96,7 +96,22 @@ def main():
         """)
 
         # Set code in CodeMirror
-        wrapped = f"[asy]\n{asy_code}\n[/asy]"
+        # Multi-[asy] documents already carry markers (first block implicit,
+        # last unclosed — the TeXeR convention): balance them instead of
+        # double-wrapping, which breaks TeXeR's parser (12955/12985).
+        import re as _re
+        if _re.search(r"\[/asy\]", asy_code, _re.I):
+            wrapped = asy_code
+            f_open = _re.search(r"\[asy\]", wrapped, _re.I)
+            f_close = _re.search(r"\[/asy\]", wrapped, _re.I)
+            if f_close and (not f_open or f_close.start() < f_open.start()):
+                wrapped = "[asy]\n" + wrapped
+            opens = len(_re.findall(r"\[asy\]", wrapped, _re.I))
+            closes = len(_re.findall(r"\[/asy\]", wrapped, _re.I))
+            if opens > closes:
+                wrapped = wrapped + "\n[/asy]"
+        else:
+            wrapped = f"[asy]\n{asy_code}\n[/asy]"
         ok = driver.execute_script("""
             var cm = document.querySelector('.CodeMirror');
             if (cm && cm.CodeMirror) { cm.CodeMirror.setValue(arguments[0]); return true; }

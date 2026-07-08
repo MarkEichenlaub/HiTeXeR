@@ -213,14 +213,22 @@ async function main() {
       const raw = fs.readFileSync(path.join(ASY_SRC, f), 'utf8');
       const code = '[asy]\n' + raw + '\n[/asy]';
 
-      if (!A.canInterpret(code)) { skip++; continue; }
+      // Multi-[asy] documents: stack via the shared doc module (single source
+      // of truth with the pipeline/comparator); raw render merges the blocks.
+      let _htxDocR = null;
+      try { _htxDocR = require('./htx-doc-render.js'); } catch (e) {}
+      const _isDocR = _htxDocR && _htxDocR.isDocument(raw);
+
+      if (!_isDocR && !A.canInterpret(code)) { skip++; continue; }
 
       // Resolve any /var/www/cdn/...eps assets via the persistent cache.
       let imageCache = {};
       try { imageCache = epsCache.getImageCache(raw); } catch (e) {}
 
       try {
-        const r = A.render(code, { containerW: 800, containerH: 600, imageCache });
+        const r = _isDocR
+          ? { svg: _htxDocR.renderDocSVG(raw, A, { containerW: 800, containerH: 600, imageCache }) }
+          : A.render(code, { containerW: 800, containerH: 600, imageCache });
         fs.writeFileSync(svgPath, r.svg);
         ok++;
       } catch (e) { fail++; }
