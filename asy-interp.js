@@ -2451,6 +2451,19 @@ function createInterpreter() {
 
   // Apply a transform to all commands in a picture, returning a new picture
   function transformPicture(t, pic) {
+    // ROTATED/REFLECTED clones: resolve the picture's still-pending deferred
+    // axis jobs FIRST. The job closures mutate/re-emit only in the source
+    // picture, and finalizeAutoAxes cannot re-range an axis line that is no
+    // longer axis-aligned — so a rotate(30)*pic axis clone would keep the
+    // no-content ±5 placeholder forever (14372). Non-rotated clones are left
+    // to the _jobPending/_jobSuperseded finalize path instead, which re-ranges
+    // against the FULL final content (safer for transform-then-draw-more
+    // idioms like the shift(..)*currentpicture 3D-separation pattern).
+    if (t && typeof _runPendingAxisJobsForPic === 'function') {
+      const _rotT = Math.abs(Math.atan2(t.e, t.b));
+      const _reflT = (t.b * t.f - t.c * t.e) < -1e-9;
+      if (_rotT > 0.01 || _reflT) _runPendingAxisJobsForPic(pic);
+    }
     // 2D picture transforms (e.g. shift(a,b)*currentpicture) only affect the
     // picture's 2D layer in Asymptote.  Commands originating from the 3D layer
     // (tagged _from3d) are left in their projected 2D positions.  This is what
@@ -12997,6 +13010,21 @@ function createInterpreter() {
   // line + ticks + labels across the extended range.
   let _deferredAxisJobs = [];
 
+  // Run any still-pending GLOBAL deferred axis jobs registered against `pic`
+  // (jobs carry ._pic from registration). Called before add()/transform*pic
+  // clone a picture's commands: the job closures mutate/re-emit only in the
+  // source picture, so clones taken before the post-eval run would keep the
+  // no-content ±5 placeholder range (and a rotated clone can't be re-ranged
+  // by finalizeAutoAxes at all — 14372). Jobs stay in the list; their later
+  // post-eval run only touches the (unrendered) source again.
+  function _runPendingAxisJobsForPic(pic) {
+    if (!pic || !pic.commands || !_deferredAxisJobs.length) return;
+    if (!pic.commands.some(c => c && c._jobPending)) return;
+    const mine = _deferredAxisJobs.filter(j => j && j._pic === pic);
+    if (!mine.length) return;
+    for (let p = 0; p < 4; p++) for (const j of mine) { try { j(p); } catch (e) {} }
+  }
+
   // Run a sub-picture's deferred axis-extension jobs (registered by xaxis/yaxis
   // when pic !== currentPic, e.g. 00444's axes drawn into pic1). Called from the
   // pic.fit() method AFTER the fit scale is fixed but BEFORE the frame is built,
@@ -15333,7 +15361,7 @@ function createInterpreter() {
         const _xInitLo = xmin, _xInitHi = xmax;
         let _xRideLo = 0, _xRideHi = 0;
         if (_xSubpicJob) { pic._axisJobs = pic._axisJobs || []; }
-        (_xSubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
+        const _xJobList = (_xSubpicJob ? pic._axisJobs : _deferredAxisJobs); _xJobList.push(Object.assign((_pass) => {
           for (const c of myCmds) c._jobPending = false;
           // Exclude this axis's own LINE (a placeholder range when the axis
           // was drawn before content — it must be able to SHRINK, 00247)
@@ -15447,7 +15475,7 @@ function createInterpreter() {
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
           pic.commands.splice(insertAt, 0, ...myCmds);
           curLo = lo; curHi = hi;
-        });
+        }, { _pic: pic }));
       }
     });
 
@@ -16050,7 +16078,7 @@ function createInterpreter() {
         const _yInitLo = ymin, _yInitHi = ymax;
         let _yRideLo = 0, _yRideHi = 0;
         if (_ySubpicJob) { pic._axisJobs = pic._axisJobs || []; }
-        (_ySubpicJob ? pic._axisJobs : _deferredAxisJobs).push((_pass) => {
+        const _yJobList = (_ySubpicJob ? pic._axisJobs : _deferredAxisJobs); _yJobList.push(Object.assign((_pass) => {
           for (const c of myCmds) c._jobPending = false;
           // Exclude ALL of THIS axis's own commands (line, TICK MARKS, tick
           // labels, title) from the frame estimate — they are CONSEQUENCES of the
@@ -16145,7 +16173,7 @@ function createInterpreter() {
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
           pic.commands.splice(insertAt, 0, ...myCmds);
           curLo = lo; curHi = hi;
-        });
+        }, { _pic: pic }));
       }
     });
 

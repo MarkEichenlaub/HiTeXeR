@@ -27,10 +27,11 @@ def main():
         sys.exit(1)
 
     id_ = sys.argv[1].zfill(5)
+    force = "--force" in sys.argv
     out_path = TEXER_DIR / f"{id_}.png"
 
-    if out_path.exists():
-        print(f"[fetch-texer] {id_}: already present, skipping")
+    if out_path.exists() and not force:
+        print(f"[fetch-texer] {id_}: already present, skipping (--force to refetch)")
         sys.exit(0)
 
     src_path = ASY_SRC_DIR / f"{id_}.asy"
@@ -127,15 +128,43 @@ def main():
         WebDriverWait(driver, 60).until(image_ready)
 
         # Screenshot the rendered image element
-        img_el = driver.find_element(By.CSS_SELECTOR, "#preview img")
-        img_el.screenshot(str(out_path))
-
-        if out_path.exists() and out_path.stat().st_size > 0:
-            print(f"[fetch-texer] {id_}: saved to {out_path} ({out_path.stat().st_size} bytes)")
-            sys.exit(0)
-        else:
-            print(f"[fetch-texer] {id_}: screenshot saved but file empty", file=sys.stderr)
+        # Download the image's NATURAL bytes via in-page fetch. The old
+        # img_el.screenshot() captured the <img> at its CSS DISPLAY size —
+        # the preview pane caps at ~611px and the page downscales large
+        # renders (~0.63x = the "150 DPI" reference class), which corrupted
+        # 270 reference PNGs (see comparison/ref-denylist.json). fetch(src)
+        # inside the page reuses the session cookies and returns the true
+        # 240-DPI PNG that TeXeR serves.
+        import base64
+        b64 = driver.execute_async_script("""
+            var done = arguments[arguments.length - 1];
+            var img = document.querySelector('#preview img');
+            if (!img || !img.src) { done(null); return; }
+            fetch(img.src, {credentials: 'include'}).then(function(r) {
+                return r.arrayBuffer();
+            }).then(function(buf) {
+                var bytes = new Uint8Array(buf);
+                var bin = '';
+                var CHUNK = 32768;
+                for (var i = 0; i < bytes.length; i += CHUNK) {
+                    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+                }
+                done(btoa(bin));
+            }).catch(function() { done(null); });
+        """)
+        if not b64:
+            print(f"[fetch-texer] {id_}: in-page fetch of img.src failed", file=sys.stderr)
             sys.exit(1)
+        data = base64.b64decode(b64)
+        # sanity: PNG magic + plausible size
+        if not data.startswith(b"\x89PNG"):
+            print(f"[fetch-texer] {id_}: fetched data is not a PNG ({len(data)} bytes)", file=sys.stderr)
+            sys.exit(1)
+        out_path.write_bytes(data)
+        w = int.from_bytes(data[16:20], "big")
+        h = int.from_bytes(data[20:24], "big")
+        print(f"[fetch-texer] {id_}: saved {w}x{h} PNG to {out_path} ({len(data)} bytes)")
+        sys.exit(0)
 
     except Exception as e:
         print(f"[fetch-texer] {id_}: render failed: {e}", file=sys.stderr)
