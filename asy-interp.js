@@ -13297,10 +13297,12 @@ const _HTX_DATA_FILES = {
   }
 
   function installGraphPackage(env) {
-    // graph.asy trailingzero: a tick format that keeps trailing zeros.
-    // Undefined, it perturbed RightTicks' auto-step divisor into raw range/N
-    // ticks (12745's 0.0658-step y labels).
-    env.set('trailingzero', '$%#.4g$');
+    // graph.asy trailingzero/signedtrailingzero: sentinel formats — autoformat()
+    // picks the minimal FIXED precision that distinguishes adjacent ticks and
+    // keeps trailing zeros (0.1..1.0 renders 0.1,0.2,...,1.0 — not %#.4g's
+    // 0.1000). The tick-label formatter special-cases these sentinels.
+    env.set('trailingzero', '$%#$');
+    env.set('signedtrailingzero', '$%+#$');
     if (graphPackageInstalled) return;
     graphPackageInstalled = true;
 
@@ -14981,6 +14983,21 @@ const _HTX_DATA_FILES = {
               if (txt === null || txt === undefined) txt = fmtDefault();
               else txt = String(txt);
             } catch(e) { txt = fmtDefault(); }
+          } else if (ticks.format === '$%#$' || ticks.format === '$%+#$') {
+            // trailingzero sentinels (see the env constants): fixed precision
+            // derived from the tick step, trailing zeros kept.
+            let _tzN = 0;
+            const _tzStep = (typeof step === 'number' && step > 0 && isFinite(step)) ? step : 0;
+            if (_tzStep > 0) {
+              while (_tzN < 6) {
+                const scaled = _tzStep * Math.pow(10, _tzN);
+                if (Math.abs(scaled - Math.round(scaled)) < 1e-9 * Math.max(1, scaled) && Math.round(scaled) !== 0) break;
+                _tzN++;
+              }
+            }
+            let _tzTxt = v.toFixed(_tzN);
+            if (ticks.format === '$%+#$' && v > 0) _tzTxt = '+' + _tzTxt;
+            txt = _tzTxt;
           } else if (ticks.format && ticks.format !== '%') {
             txt = ticks.format.replace(/%#?[0-9]*[.]*[0-9]*[dfegs]/g, (spec) => {
               // Simple printf-style: %d→int, %f→fixed, %e→scientific, %g→general.
@@ -15037,7 +15054,8 @@ const _HTX_DATA_FILES = {
           if (!_lblBasePen || _lblBasePen.opacity === 0) _lblBasePen = clonePen(defaultPen);
           const labelPen = clonePen(ticks.labelPen || _lblBasePen);
           labelPen.fontsize = labelPen.fontsize || 12;
-          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, screenDx: _sDx, screenDy: _sDy, _isTickLabel: true});
+          if (typeof process !== 'undefined' && process.env && process.env.HTX_INFILL_DBG) { try { process.stderr.write('[tickemit15040] pos='+JSON.stringify(pos)+' txt='+JSON.stringify(txt)+String.fromCharCode(10)); } catch(e){} }
+          pic.commands.push({cmd:'label', text:txt, pos, align, pen:labelPen, filltype: ticks.labelFill || null, line:0, screenDx: _sDx, screenDy: _sDy, _isTickLabel: true, _tickAxis: axisDir});
         }
       }
       if (_tickGenInfo) {
@@ -15701,6 +15719,18 @@ const _HTX_DATA_FILES = {
           let hiFrame = xmaxExplicit ? curHi : (fb.maxX + _xRideHi);
           if (!xminExplicit && _xUserLo != null) loFrame = Math.min(loFrame, _xUserLo);
           if (!xmaxExplicit && _xUserHi != null) hiFrame = Math.max(hiFrame, _xUserHi);
+          // asy automin/automax rounding for fully-auto ranges — see the y-job.
+          const _xTicksAuto = ticks && !(ticks.step > 0) && !(ticks.positions && isArray(ticks.positions)) && !(ticks.N > 0);
+          if (_xTicksAuto && !xminExplicit && !xmaxExplicit && _xUserLo == null && _xUserHi == null) {
+            // Pure user-coordinate content only — see the y-job note.
+            const _clean = pic.commands.filter(cc => cc && !cc._isAxisLine && !cc._isTickMark && !cc._isTickLabel && !cc._isAxisLabel && !cc._jobManaged && !_selfNoLineNoTitle.has(cc));
+            const _ggb = getGeoBbox(_clean);
+            if (_ggb && isFinite(_ggb.minX) && isFinite(_ggb.maxX) && _ggb.maxX > _ggb.minX) {
+              const _as = _asyAutoscale(_ggb.minX, _ggb.maxX);
+              if (isFinite(_as.max) && _as.max > hiFrame) hiFrame = _as.max;
+              if (isFinite(_as.min) && _as.min < loFrame) loFrame = _as.min;
+            }
+          }
           let lo = Math.min(loFrame, _xTitleLo);
           let hi = Math.max(hiFrame, _xTitleHi);
           // Arrowhead clearance: extend so a left/right arrowhead doesn't overlap
@@ -16396,6 +16426,26 @@ const _HTX_DATA_FILES = {
           let hiFrame = ymaxExplicit ? curHi : (fb.maxY + _yRideHi);
           if (!yminExplicit && _yUserLo != null) loFrame = Math.min(loFrame, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hiFrame = Math.max(hiFrame, _yUserHi);
+          // asy automin/automax: a fully-auto axis range with AUTO ticks rounds
+          // to the autoscale bounds (graph.asy: if(automax) max=b.max). 12745's
+          // reference y-axis runs 0..1.0 with a 1.0 tick over 0.0342..0.9973
+          // data (the curve floats above the x-axis at the right edge).
+          // Explicit Step keeps data extents (03900's 1.158e8 axis must NOT
+          // round to 1.2e8 — its ref doesn't).
+          const _yTicksAuto = ticks && !(ticks.step > 0) && !(ticks.positions && isArray(ticks.positions)) && !(ticks.N > 0);
+          if (_yTicksAuto && !yminExplicit && !ymaxExplicit && _yUserLo == null && _yUserHi == null) {
+            // Autoscale over PURE user-coordinate content (asy uses picture
+            // userMin/userMax). fb.geo bakes in frame-time fuzz — 00383's
+            // −0.13 arrowhead overhang floored to −1 and the a<0 branch
+            // upscaled (−1,6) to (−5,10), tripling the axis.
+            const _clean = pic.commands.filter(cc => cc && !cc._isAxisLine && !cc._isTickMark && !cc._isTickLabel && !cc._isAxisLabel && !cc._jobManaged && !_selfNoLineNoTitle.has(cc));
+            const _ggb = getGeoBbox(_clean);
+            if (_ggb && isFinite(_ggb.minY) && isFinite(_ggb.maxY) && _ggb.maxY > _ggb.minY) {
+              const _as = _asyAutoscale(_ggb.minY, _ggb.maxY);
+              if (isFinite(_as.max) && _as.max > hiFrame) hiFrame = _as.max;
+              if (isFinite(_as.min) && _as.min < loFrame) loFrame = _as.min;
+            }
+          }
           let lo = Math.min(loFrame, _yTitleLo);
           let hi = Math.max(hiFrame, _yTitleHi);
           // Horizontal-line headroom floor: the job re-derives hi from the content
@@ -16710,6 +16760,7 @@ const _HTX_DATA_FILES = {
             _sdxBp = _adx * _m;
             _sdyBp = -_ady * _m;
           }
+          if (typeof process !== 'undefined' && process.env && process.env.HTX_INFILL_DBG) { try { process.stderr.write('[tickemit16713] pos='+JSON.stringify({x:z.x,y:z.y})+' txt='+JSON.stringify(labelText)+String.fromCharCode(10)); } catch(e){} }
           pic.commands.push({cmd:'label', text: labelText, pos: {x:z.x, y:z.y}, align, pen: clonePen(pen), line:0, screenDx: _sdxBp, screenDy: _sdyBp, _isTickLabel: true});
         }
       };
@@ -27319,6 +27370,8 @@ function renderSVG(result, opts) {
           let refTickLabelPen = null; // Reference pen from first x-axis tick label found
           for (const dc of drawCommands) {
             if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.y - y) < 1e-6) {
+              // See the y-collector: trust the emitter's axis tag when present.
+              if (dc._tickAxis && dc._tickAxis !== 'x') continue;
               // Filter: only include labels whose color matches the first x-axis tick label.
               // This excludes y-axis tick labels at y=0 which have different pen color (e.g. red vs blue).
               if (refTickLabelPen && dc.pen) {
@@ -27351,11 +27404,23 @@ function renderSVG(result, opts) {
           // to 0, so uniform-step in-fill would add wrong-phase ticks (e.g. 0,2,4
           // for an odd {-5,-3,-1,1,3,5} set). Only preserve/remove, never in-fill.
           if (!c._explicitTicks && existingTickLabels.length >= 2) {
-            let step = existingTickLabels[1] - existingTickLabels[0];
-            for (let i = 2; i < existingTickLabels.length; i++) {
-              const diff = existingTickLabels[i] - existingTickLabels[i - 1];
-              if (Math.abs(diff - step) < 1e-8) continue;
-              if (diff < step) step = diff;
+            // MODE of the adjacent diffs, not the MIN: one stray label (e.g. an
+            // endpoint or cross-axis label that slipped the filters) would
+            // otherwise collapse the step and mint a phantom tick set at a
+            // junk period (12745's 0.0658-step ghosts next to the real 0.1s).
+            const _diffs = [];
+            for (let i = 1; i < existingTickLabels.length; i++) {
+              const d = existingTickLabels[i] - existingTickLabels[i - 1];
+              if (d > 1e-12) _diffs.push(d);
+            }
+            let step = _diffs.length ? _diffs[0] : 0;
+            {
+              let bestCount = 0;
+              for (const d of _diffs) {
+                let count = 0;
+                for (const e of _diffs) if (Math.abs(e - d) < 1e-8 + 1e-6 * Math.abs(d)) count++;
+                if (count > bestCount || (count === bestCount && d < step)) { bestCount = count; step = d; }
+              }
             }
             if (step > 0 && tickLabelPen) {
               const fmtTick = (v) => {
@@ -27512,6 +27577,12 @@ function renderSVG(result, opts) {
           let refTickLabelPen = null; // Reference pen from first y-axis tick label found
           for (const dc of drawCommands) {
             if (dc._isTickLabel && dc.pos && Math.abs(dc.pos.x - x) < xTol) {
+              // An x-axis tick label at x=0 sits exactly ON the y-axis (12745's
+              // "$0$" at (0, ymin)) and passes the positional test; its stray
+              // y-coordinate then collapses the inferred in-fill step to a
+              // junk value (0.1 -> 0.0658, minting a whole phantom tick set).
+              // Tick labels carry their axis since v9.67 — trust the tag.
+              if (dc._tickAxis && dc._tickAxis !== 'y') continue;
               // Filter: only include labels whose color matches the first y-axis tick label.
               // This excludes x-axis tick labels at x=0 which have different pen color (e.g. blue vs red).
               if (refTickLabelPen && dc.pen) {
@@ -27544,11 +27615,23 @@ function renderSVG(result, opts) {
           // to 0, so uniform-step in-fill would add wrong-phase ticks (e.g. 0,2,4
           // for an odd {-5,-3,-1,1,3,5} set). Only preserve/remove, never in-fill.
           if (!c._explicitTicks && existingTickLabels.length >= 2) {
-            let step = existingTickLabels[1] - existingTickLabels[0];
-            for (let i = 2; i < existingTickLabels.length; i++) {
-              const diff = existingTickLabels[i] - existingTickLabels[i - 1];
-              if (Math.abs(diff - step) < 1e-8) continue;
-              if (diff < step) step = diff;
+            // MODE of the adjacent diffs, not the MIN: one stray label (e.g. an
+            // endpoint or cross-axis label that slipped the filters) would
+            // otherwise collapse the step and mint a phantom tick set at a
+            // junk period (12745's 0.0658-step ghosts next to the real 0.1s).
+            const _diffs = [];
+            for (let i = 1; i < existingTickLabels.length; i++) {
+              const d = existingTickLabels[i] - existingTickLabels[i - 1];
+              if (d > 1e-12) _diffs.push(d);
+            }
+            let step = _diffs.length ? _diffs[0] : 0;
+            {
+              let bestCount = 0;
+              for (const d of _diffs) {
+                let count = 0;
+                for (const e of _diffs) if (Math.abs(e - d) < 1e-8 + 1e-6 * Math.abs(d)) count++;
+                if (count > bestCount || (count === bestCount && d < step)) { bestCount = count; step = d; }
+              }
             }
             if (step > 0 && tickLabelPen) {
               const fmtTick = (v) => {
@@ -27564,6 +27647,7 @@ function renderSVG(result, opts) {
                 }
                 return String(parseFloat(s4));
               };
+              if (typeof process !== 'undefined' && process.env && process.env.HTX_INFILL_DBG) { try { process.stderr.write('[yinfill] x='+x+' lo='+lo.toFixed(4)+' hi='+hi.toFixed(4)+' step='+step.toFixed(5)+' existing='+existingTickLabels.map(v=>v.toFixed(4)).join(';')+String.fromCharCode(10)); } catch(e){} }
               const alreadyLabeled = new Set(existingTickLabels.map(y => Math.round(y * 1e10)));
               for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-10; v += step) {
                 const vRounded = Math.round(v * 1e10) / 1e10;
