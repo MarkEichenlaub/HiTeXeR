@@ -20073,6 +20073,36 @@ const _HTX_DATA_FILES = {
         }
       }
       // Parametric: surface(f, lo, hi, nu[, nv], ...) or
+      // surface(real[][] f, real[] x, real[] y) — grid surface from data
+      // arrays (graph3.asy: vertex (x[i], y[j], f[i][j])). 12760's
+      // filesurface.dat: 10 x-values, 48 y-values, 10x48 z matrix.
+      if (pos.length >= 3 && isArray(pos[0]) && pos[0].length > 1 && isArray(pos[0][0])
+          && isArray(pos[1]) && pos[1].length > 1 && !isArray(pos[1][0])
+          && isArray(pos[2]) && pos[2].length > 1 && !isArray(pos[2][0])) {
+        const fM = pos[0];
+        const xA = pos[1].map(toNumber);
+        const yA = pos[2].map(toNumber);
+        const nx = Math.min(fM.length, xA.length);
+        const ny0 = Math.min(isArray(fM[0]) ? fM[0].length : 0, yA.length);
+        if (nx >= 2 && ny0 >= 2) {
+          const grid = [];
+          for (let i = 0; i < nx; i++) {
+            const row = [];
+            for (let j = 0; j < ny0; j++) row.push(makeTriple(xA[i], yA[j], toNumber(fM[i][j])));
+            grid.push(row);
+          }
+          const faces = [];
+          for (let i = 0; i < nx - 1; i++) {
+            for (let j = 0; j < ny0 - 1; j++) {
+              const face = {vertices: [grid[i][j], grid[i+1][j], grid[i+1][j+1], grid[i][j+1]], _gi: i, _gj: j};
+              face.normal = faceNormal(face);
+              faces.push(face);
+            }
+          }
+          const mesh = makeMesh(faces);
+          return {_tag:'surface', mesh, _grid: grid, _gridRows: nx, _gridCols: ny0, _gridCyclic: false, _activeGrid: null};
+        }
+      }
       // surface(f, lo, hi, nx=N, ny=N) where nx/ny/nu/nv come in as named args.
       // where f is callable pair→triple
       if (pos.length >= 3 &&
@@ -28641,7 +28671,8 @@ function renderSVG(result, opts) {
             for (let i = 0; i < t.length; i++) {
               const c = t[i];
               if (c === '~') _esc += ' ';
-              else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc += '\\' + c;
+              else if ((c === '{' || c === '}') && _bracesBalanced(t)) _esc += c;
+          else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc += '\\' + c;
               else _esc += c;
             }
             _measStr = '\\text{' + _esc + '}';
@@ -29214,7 +29245,13 @@ function renderSVG(result, opts) {
       // label-dominated picture underfills the measured span on BOTH axes.
       const _legacyUnderfill = _labelDominatesSize && _exW > 0 && _exH > 0 &&
                                Math.max(_exW, _exH) < 0.95;
-      const _legacyOverflow = _legacyUnderfill || Math.max(_exW, _exH) > 1.20;
+      // Real asy's fit ALWAYS solves size() exactly (its fit2 IS an LP over
+      // truesize label boxes). The 1.20 overflow threshold dated from the
+      // heuristic-width era, when over-estimated labels made the LP
+      // over-shrink geometry; with measured widths (v9.63) the LP inputs are
+      // the drawn boxes, so solve for any real overflow. 02164-class rr_
+      // axes (exW 1.147) rendered 13% past size(220) under the old gate.
+      const _legacyOverflow = _legacyUnderfill || Math.max(_exW, _exH) > 1.005;
       if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' underfill=' + _legacyUnderfill + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
       if (_legacyOverflow) {
       const { xs: _xsS, ys: _ysS } = _buildLpCoords();
@@ -33632,6 +33669,7 @@ function renderSVG(result, opts) {
         for (let i = 0; i < displayText.length; i++) {
           const c = displayText[i];
           if (c === '~') esc += ' ';
+          else if ((c === '{' || c === '}') && _bracesBalanced(displayText)) esc += c;
           else if ('\\{}$&#^_%'.indexOf(c) !== -1) esc += '\\' + c;
           else esc += c;
         }
@@ -33664,7 +33702,8 @@ function renderSVG(result, opts) {
             for (let i = 0; i < displayText.length; i++) {
               const c = displayText[i];
               if (c === '~') _esc2 += ' ';
-              else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc2 += '\\' + c;
+              else if ((c === '{' || c === '}') && _bracesBalanced(displayText)) _esc2 += c;
+          else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc2 += '\\' + c;
               else _esc2 += c;
             }
             _ksEl = renderLabelKatexSvg('\\text{' + _esc2 + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
@@ -35932,6 +35971,22 @@ const _mpVspaceClip = new Map();
 // before rendering — strip it here so the set (label-creation time) and every
 // get (sizing + render) agree on the same key.
 const _mpClipKey = (s) => (typeof s === 'string' ? s.replace(/^\x06[clr]/, '') : s);
+
+// TeX group braces in plain-text labels are INVISIBLE delimiters - escaping
+// them rendered literal braces (05464's {Pizza-Cake} tree tips vs the
+// reference's brace-less text). Pass BALANCED braces through to KaTeX as
+// groups; unbalanced ones still get escaped so KaTeX doesn't throw.
+function _bracesBalanced(s) {
+  if (typeof s !== 'string') return false;
+  let d = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '\\') { i++; continue; }
+    if (ch === '{') d++;
+    else if (ch === '}') { d--; if (d < 0) return false; }
+  }
+  return d === 0;
+}
 
 function expandMinipageText(text, pen) {
   if (!text || typeof text !== 'string') return text;
