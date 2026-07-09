@@ -2211,6 +2211,9 @@ function createInterpreter() {
   // TeXeR longest side ≤ ~455bp (192 ≤ 420bp). Distinct from the add()-picture
   // composite (06064), which TeXeR keeps near literal.
   let _usedCurrentpictureReassign = false;
+  // Set by _htx_trig_inexact (TrigMacros): the picture contains graph.asy
+  // axes with exact=false bounds — enables fit2's pass-2 unitsize refit.
+  let _trigInexactHint = false;
   let sizeW = 0, sizeH = 0;
   let keepAspect = true;
   let defaultPen = makePen({});
@@ -6475,7 +6478,50 @@ function createInterpreter() {
       if (condensed) placeCondensed();
       else placeFull(root, 0, 0);
 
-      const arrow = {_tag:'arrow', style:'Arrow', size:5};
+      // Truesize compensation. In binarytree.asy each node is a sub-picture
+      // added via add(pic,obj,pos) and the connections are frame-time deferred
+      // draws — so the LAYOUT scales with size()/unitsize() while circles,
+      // labels, arrowheads, and the nodeDiameter/2 line shortening keep their
+      // absolute bp dimensions. (Oracle-instrumented 12409: nodeDiameter
+      // 23.85bp; rendered circles 79.5px at 240dpi = truesize while the leaf
+      // spacing compressed to 84.5% under size(7cm) — bottom circles touch.)
+      // Estimate the fit scale like the real fit does — truesize circle
+      // diameter D rides OUTSIDE the scaled center span:
+      //   s = (size − D) / centerSpan  (per axis; keepAspect min)
+      // Scope: ONLY the direct `size(...); draw(bt);` idiom — there the size()
+      // fit rescales the layout while node objects stay truesize. The
+      // `picture pic; draw(pic,bt); add(pic.fit());` idiom composes the tree
+      // as a TRUESIZE frame (pic has no size, fit() is identity): real refs
+      // confirm (08671 ref 231bp = the natural span; compensating there
+      // shrank circles 45% and dropped the family up to −0.34).
+      let _fitScale = 1;
+      if (target === currentPic) {
+        let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+        for (const n of nodes) {
+          if (n._x < mnX) mnX = n._x; if (n._x > mxX) mxX = n._x;
+          if (n._y < mnY) mnY = n._y; if (n._y > mxY) mxY = n._y;
+        }
+        const spanX = mxX - mnX, spanY = mxY - mnY;
+        if (sizeW > 0 || sizeH > 0) {
+          const cands = [];
+          if (sizeW > 0 && spanX > 1e-9) cands.push((sizeW - nodeDiameter) / spanX);
+          if (sizeH > 0 && spanY > 1e-9) cands.push((sizeH - nodeDiameter) / spanY);
+          if (cands.length) _fitScale = Math.max(0.05, Math.min(...cands));
+        } else if (_globalUnitSize > 0) {
+          _fitScale = _globalUnitSize;
+        }
+      }
+      const rTrue = r / _fitScale;   // user-unit radius that renders as D/2 bp
+
+      // Arrow(5): explicit 5bp head (matches oracle heads) — but ONLY for the
+      // direct `draw(bt)` idiom where the truesize compensation is active.
+      // The `draw(pic,bt); add(pic.fit())` composite family (12299/12306-11)
+      // was tuned against the old non-explicit head (its viewBox pads are
+      // part of the 0.986-scoring canvas); explicit heads there shrank the
+      // canvas ~7% and cost up to −0.08.
+      const arrow = (target === currentPic)
+        ? {_tag:'arrow', style:'Arrow', size:5, sizeExplicit:true}
+        : {_tag:'arrow', style:'Arrow', size:5};
 
       // Drawing target. The single-tree corpus idiom is
       //   size(...); draw(pic,bt); add(pic.fit());
@@ -6494,14 +6540,14 @@ function createInterpreter() {
         const dx = ch._x - par._x, dy = ch._y - par._y;
         const len = Math.hypot(dx, dy) || 1;
         const ux = dx/len, uy = dy/len;
-        const start = makePair(par._x + r*ux, par._y + r*uy);
-        const end = makePair(ch._x - r*ux, ch._y - r*uy);
+        const start = makePair(par._x + rTrue*ux, par._y + rTrue*uy);
+        const end = makePair(ch._x - rTrue*ux, ch._y - rTrue*uy);
         evalDraw('draw', [..._tp, makePath([lineSegment(toPair(start), toPair(end))], false), arrow, pen]);
       }
 
       // Draw nodes: circle + centered key label.
       for (const n of nodes) {
-        evalDraw('draw', [..._tp, makeCirclePath({x:n._x, y:n._y}, r), pen]);
+        evalDraw('draw', [..._tp, makeCirclePath({x:n._x, y:n._y}, rTrue), pen]);
         evalLabel([..._tp, '$' + n.key + '$', makePair(n._x, n._y)]);
       }
     }
@@ -12356,18 +12402,23 @@ function createInterpreter() {
     env.set('DotMargin', null);
     env.set('DotMargins', null);
     env.set('NoMargin', null);
+    // Margin(b,e) units are LABELMARGINS of the draw pen, not bp:
+    // plain_margins.asy multiplies by labelmargin(p) (~0.28*fontsize) at
+    // application time. TrueMargin above stays in bp by definition. 03576's
+    // Margin(1,0) gap between the dashed line and its \otimes label was
+    // ~1/3 the reference size when applied as 1bp.
     env.set('BeginMargin', (...args) => {
       const b = typeof args[0] === 'number' ? args[0] : 0;
-      return {_tag:'margin', begin:b, end:0};
+      return {_tag:'margin', begin:b, end:0, units:'labelmargin'};
     });
     env.set('EndMargin', (...args) => {
       const e = typeof args[0] === 'number' ? args[0] : 0;
-      return {_tag:'margin', begin:0, end:e};
+      return {_tag:'margin', begin:0, end:e, units:'labelmargin'};
     });
     env.set('Margin', (...args) => {
       const b = typeof args[0] === 'number' ? args[0] : 0;
       const e = typeof args[1] === 'number' ? args[1] : b;
-      return {_tag:'margin', begin:b, end:e};
+      return {_tag:'margin', begin:b, end:e, units:'labelmargin'};
     });
     env.set('PenMargin', null);
     env.set('PenMargins', null);
@@ -18694,6 +18745,139 @@ function createInterpreter() {
     const ticklength = 0.1 * 28.35; // 0.1cm in bp
     const axisarrowsize = 0.14 * 28.35; // 0.14cm in bp
     const axisPen = makePen({r:0,g:0,b:0,linewidth:1.3});
+
+    // ── Verbatim behavioral port of the AoPS server-side TrigMacros.asy ──
+    // Reverse-engineered against the LIVE TeXeR service (2026-07-08 probe
+    // battery; see memory project-trigmacros-reverse-engineered):
+    //  • signatures decompiled via arity-error probes:
+    //      void trig_axes(real xleft, real xright, real ybottom, real ytop,
+    //                     real xstep, real ystep)
+    //      void rm_trig_labels(int low_label, int high_label, int denom,
+    //                          real nudgedown=<default>)
+    //      rr_cartesian_axes = same signature as the corpus-inlined copies
+    //  • header globals value-dumped via abort(format(...)) — exact
+    //  • trig_axes y ticks/gridlines: INTEGERS ONLY, ceil(ybottom)+1 ..
+    //    < floor(ytop), skip 0 — ystep is accepted but UNUSED (probes with
+    //    ystep 0.5/2/4 all gave integer ticks; non-integer bounds ±π/2 gave
+    //    none; range 0.5..3 gave {2}, pinning ceil over floor/trunc)
+    //  • trig_axes draws NO tick labels; rm_trig_labels ADDS π-fraction
+    //    labels at (k·π/denom, tickdown=−0.5), default size, centered
+    //    (overlay probe: manual \frac{\pi}{4} at (π/4,−0.5) coincides
+    //    pixel-exactly) — the old JS port drew fontsize-8 labels from
+    //    trig_axes and made rm_trig_labels FILTER them, both wrong
+    //  • gridline pen is gray(0.82) at default width on the live server
+    //    (rasterized side-by-side with gray(0.72/0.8/0.85) rulers), for
+    //    BOTH trig_axes and rr_cartesian_axes; the gray(0.72) in
+    //    corpus-inlined rr_ copies is an older user-pasted variant
+    // Interpreting the source (spring-module pattern) routes everything
+    // through the oracle-verified graph-package axis machinery — truesize
+    // ticks, extension rides, arrow sizing — instead of hand-built paths.
+    // TrigMacros bounds hint: rr_cartesian_axes/trig_axes draw graph.asy
+    // axes, whose drawerBounds are exact=false in real Asymptote — the
+    // picture must take fit2's pass-2 unitsize refit (02446-class unitsize
+    // diagrams collapsed to literal scale without it). ONLY the inexactness
+    // is flagged: tagging the module's xequals/yequals lines _isAxisLine
+    // (like the old JS port) also excluded them from the geometry bbox,
+    // blowing 03151-class axis-only size() diagrams 40% oversize.
+    env.set('_htx_trig_inexact', () => { _trigInexactHint = true; return null; });
+    const _TRIGMACROS_ASY = [
+      'real ticklength = 0.1cm;',
+      'real axisarrowsize = 0.14cm;',
+      'pen axispen = black + 1.3bp;',
+      'real vectorarrowsize = 0.2cm;',
+      'real tickdown = -0.5;',
+      'real tickdownlength = -0.15inch;',
+      'real tickdownbase = 0.3;',
+      'real wholetickdown = -0.5;',
+      '',
+      'void rr_cartesian_axes(real xleft, real xright, real ybottom, real ytop,',
+      '                       real xstep=1, real ystep=1, bool useticks=false,',
+      '                       bool complexplane=false, bool usegrid=true) {',
+      '  if (complexplane) {',
+      '    label("$\\textnormal{Re}$", (xright,0), SE);',
+      '    label("$\\textnormal{Im}$", (0,ytop), NW);',
+      '  } else {',
+      '    label("$x$", (xright+0.4,-0.5));',
+      '    label("$y$", (-0.5,ytop+0.2));',
+      '  }',
+      '  _htx_trig_inexact();',
+      '  ylimits(ybottom, ytop);',
+      '  xlimits(xleft, xright);',
+      '  real[] TicksArrx;',
+      '  real[] TicksArry;',
+      '  for (real i = xleft+xstep; i < xright; i += xstep) {',
+      '    if (abs(i) > 0.1) TicksArrx.push(i);',
+      '  }',
+      '  for (real i = ybottom+ystep; i < ytop; i += ystep) {',
+      '    if (abs(i) > 0.1) TicksArry.push(i);',
+      '  }',
+      '  if (usegrid) {',
+      '    xaxis(BottomTop(extend=false), Ticks("%", TicksArrx, pTick=gray(0.82), extend=true), p=invisible);',
+      '    yaxis(LeftRight(extend=false), Ticks("%", TicksArry, pTick=gray(0.82), extend=true), p=invisible);',
+      '  }',
+      '  if (useticks) {',
+      '    xequals(0, ymin=ybottom, ymax=ytop, p=axispen, Ticks("%", TicksArry, pTick=black+0.8bp, Size=ticklength), above=true, Arrows(size=axisarrowsize));',
+      '    yequals(0, xmin=xleft, xmax=xright, p=axispen, Ticks("%", TicksArrx, pTick=black+0.8bp, Size=ticklength), above=true, Arrows(size=axisarrowsize));',
+      '  } else {',
+      '    xequals(0, ymin=ybottom, ymax=ytop, p=axispen, above=true, Arrows(size=axisarrowsize));',
+      '    yequals(0, xmin=xleft, xmax=xright, p=axispen, above=true, Arrows(size=axisarrowsize));',
+      '  }',
+      '}',
+      '',
+      'void trig_axes(real xleft, real xright, real ybottom, real ytop,',
+      '               real xstep, real ystep) {',
+      '  label("$x$", (xright+0.4,-0.5));',
+      '  label("$y$", (-0.5,ytop+0.2));',
+      '  _htx_trig_inexact();',
+      '  ylimits(ybottom, ytop);',
+      '  xlimits(xleft, xright);',
+      '  real[] TicksArrx;',
+      '  real[] TicksArry;',
+      '  for (real i = xleft+xstep; i < xright; i += xstep) {',
+      '    if (abs(i) > 0.1) TicksArrx.push(i);',
+      '  }',
+      '  for (int i = ceil(ybottom)+1; i < floor(ytop); ++i) {',
+      '    if (abs(i) > 0.1) TicksArry.push(i);',
+      '  }',
+      '  xaxis(BottomTop(extend=false), Ticks("%", TicksArrx, pTick=gray(0.82), extend=true), p=invisible);',
+      '  yaxis(LeftRight(extend=false), Ticks("%", TicksArry, pTick=gray(0.82), extend=true), p=invisible);',
+      '  xequals(0, ymin=ybottom, ymax=ytop, p=axispen, Ticks("%", TicksArry, pTick=black+0.8bp, Size=ticklength), above=true, Arrows(size=axisarrowsize));',
+      '  yequals(0, xmin=xleft, xmax=xright, p=axispen, Ticks("%", TicksArrx, pTick=black+0.8bp, Size=ticklength), above=true, Arrows(size=axisarrowsize));',
+      '}',
+      '',
+      'int _rm_gcd(int a, int b) {',
+      '  a = abs(a); b = abs(b);',
+      '  while (b != 0) { int t = b; b = a % b; a = t; }',
+      '  return a;',
+      '}',
+      '',
+      'string _rm_pi_frac(int k, int n) {',
+      '  int g = _rm_gcd(k, n);',
+      '  int kk = round(k / g);',
+      '  int nn = round(n / g);',
+      '  string sgn = "";',
+      '  if (kk < 0) sgn = "-";',
+      '  int a = abs(kk);',
+      '  string num = "\\pi";',
+      '  if (a != 1) num = string(a) + "\\pi";',
+      '  if (nn == 1) return "$" + sgn + num + "$";',
+      '  return "$" + sgn + "\\frac{" + num + "}{" + string(nn) + "}$";',
+      '}',
+      '',
+      'void rm_trig_labels(int low_label, int high_label, int denom, real nudgedown=0) {',
+      '  for (int i = low_label; i <= high_label; ++i) {',
+      '    if (i != 0) {',
+      '      label(_rm_pi_frac(i, denom), (i*pi/denom, tickdown - nudgedown));',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    try {
+      evalNode(parse(lex(_TRIGMACROS_ASY)), env);
+      return;
+    } catch (e) {
+      try { console.warn('[HTX] TrigMacros source install failed, using JS fallback: ' + (e && e.message)); } catch (e2) {}
+    }
 
     env.set('rr_cartesian_axes', (...args) => {
       // Parse args: xleft, xright, ybottom, ytop, then named args
@@ -26340,6 +26524,7 @@ function createInterpreter() {
     defaultPen = makePen({});
     _defaultpenLwSet = false;
     _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
+    _trigInexactHint = false;
     _deferredAxisJobs = [];
 
     // Restore any built-in functions that were shadowed by user variables in a
@@ -26551,6 +26736,7 @@ function createInterpreter() {
       _usedPictureComposite,
       _usedMulti3DComposite,
       _usedCurrentpictureReassign,
+      _trigInexactHint,
       // TeXeR's server-side default-size selection (verified by live
       // introspection probes 2026-06-10): the [asy] wrapper prepends
       // size(400,400) and then appends size(150,150) AFTER the user code
@@ -26638,7 +26824,7 @@ function computeGraphicDisplaySize(graphic, unitScale, hasUnitScale) {
 
 function renderSVG(result, opts) {
   opts = opts || {};
-  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedMulti3DComposite, _usedCurrentpictureReassign, _texerSizeTextMatch } = result;
+  const { drawCommands, unitScale, hasUnitScale, _trueSizeFrame, sizeW: _sizeW, sizeH: _sizeH, keepAspect: _keepAspect, axisLimits, dotfactor: _dotfactor, currentlight, _defaultpenLwSet, _is3D, _bbox3D, _bboxSpec, _pageOrientation, _usedPictureComposite, _usedMulti3DComposite, _usedCurrentpictureReassign, _trigInexactHint, _texerSizeTextMatch } = result;
   const keepAspect = _keepAspect !== false;
   let sizeW = _sizeW, sizeH = _sizeH;
   // When shipout(bbox(margin)) is used, the size constraint applies to
@@ -28521,7 +28707,11 @@ function renderSVG(result, opts) {
       } else {
         pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sw / _gW, _sh / _gH);
       }
-    } else if (!_trueSizeFrame && !_is3D && _boundsInexact) {
+    } else if (!_trueSizeFrame && !_is3D && (_boundsInexact || _trigInexactHint)) {
+      // _trigInexactHint: TrigMacros graph-axes make bounds inexact in real
+      // asy. It is consulted ONLY here (the unitsize pass-2 refit) — feeding
+      // it into _boundsInexact also flipped the size() canvas-remeasure
+      // gates, blowing 03151-class axis-only size() diagrams 40% oversize.
       // TRUE TeXeR pass-2 (fit2's corrective rescale, one step): re-measure
       // the literal frame (geometry + truesize labels) and rescale the
       // GEOMETRY by min(400/W, 400/H) — grow or shrink — then truesize
@@ -28907,7 +29097,7 @@ function renderSVG(result, opts) {
     }
     // TRUE pass-2 (only when bounds are inexact): one corrective rescale of
     // the geometry so the frame (geometry + truesize) lands ON D.
-    if (_boundsInexact && !_is3D && !_trueSizeFrame && !_usedPictureComposite) {
+    if ((_boundsInexact || (_trigInexactHint && hasUnitScale)) && !_is3D && !_trueSizeFrame && !_usedPictureComposite) {
       const _spB = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
       const _gB = [];
       if (_spB.w > 1e-9) _gB.push(_Dfit / _spB.w);
@@ -29710,7 +29900,7 @@ function renderSVG(result, opts) {
   // than merely within it. Exact-bounds pictures keep the LP/solver result
   // above. IgnoreAspect plots are excluded (the dedicated grow-to-fill pass
   // covers grid plots); 3D and truesize-frame pictures keep their semantics.
-  if (_boundsInexact && !_is3D && !_trueSizeFrame && !_mixed3D2D && keepAspect
+  if ((_boundsInexact || (_trigInexactHint && hasUnitScale)) && !_is3D && !_trueSizeFrame && !_mixed3D2D && keepAspect
       && !isAutoScaled && (sizeW > 0 || sizeH > 0)) {
     const _sp2 = _spanAtScaleBp(pxPerUnitX, pxPerUnitY);
     const _g2 = [];
@@ -31264,8 +31454,13 @@ function renderSVG(result, opts) {
     // shortened version for the duration of this call and restore at exit.
     let __origDcPath = null;
     if (dc.margin && dc.cmd === 'draw' && dc.path.segs && dc.path.segs.length > 0) {
-      const mBegin = (dc.margin.begin || 0) * bpCSSPixel;
-      const mEnd   = (dc.margin.end   || 0) * bpCSSPixel;
+      // Margin() carries labelmargin units (0.28*fontsize of the draw pen,
+      // the same constant the label renderer uses); TrueMargin carries bp.
+      const _mUnit = dc.margin.units === 'labelmargin'
+        ? 0.28 * _texCapFontSize((dc.pen && dc.pen.fontsize) || 12) * bpCSSPixel
+        : bpCSSPixel;
+      const mBegin = (dc.margin.begin || 0) * _mUnit;
+      const mEnd   = (dc.margin.end   || 0) * _mUnit;
       if (mBegin > 0 || mEnd > 0) {
         let segs = dc.path.segs.map(s => ({p0:{...s.p0}, cp1:{...s.cp1}, cp2:{...s.cp2}, p3:{...s.p3}}));
         if (mEnd > 0   && segs.length > 0) segs = shortenPathEnd(segs, mEnd, pxPerUnitX, pxPerUnitY);
@@ -31884,7 +32079,48 @@ function renderSVG(result, opts) {
       // across the 058xx number-line family (+51% arc ink at display scale).
       if (_devPxQ >= 0.995) css.strokeWidth = (Math.ceil(_devPxQ - 0.5) + 0.27) * 0.3 * bpCSSPixel;
     }
-    const dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth);
+    let dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth);
+    // Asymptote linetype(..., adjust=true) — the DEFAULT — rescales the dash
+    // period per path so the stroke begins AND ends with a full dash:
+    // L = n*(on+off) + on, n = nearest non-negative integer, then the whole
+    // pattern is scaled by L/(n*P + on). TeXeR's linetype("4 4") cell wall in
+    // 12148 shows 4 dashes over its 50bp span (adjusted period 7.14bp); the
+    // unadjusted pattern gave 3. Scoped to custom numeric linetype patterns —
+    // the named styles (dashed/dotted/…) keep their tuned arrays until they
+    // get their own adjust pass + A/B.
+    if (dashArray && dc.path && dc.path.segs && dc.pen && typeof dc.pen.linestyle === 'string'
+        && /^[\d.\s]+$/.test(dc.pen.linestyle)) {
+      const nums = dashArray.split(' ').map(Number).filter(n => isFinite(n));
+      const P = nums.reduce((a, b) => a + b, 0);
+      if (nums.length >= 2 && P > 0) {
+        let Lvb = 0;
+        const sx = pxPerUnitX || 1, sy = pxPerUnitY || pxPerUnitX || 1;
+        for (const seg of dc.path.segs) {
+          if (!seg || !seg.p0 || !seg.p1) continue;
+          if (seg.c1 && seg.c2) {
+            let px = seg.p0.x, py = seg.p0.y;
+            for (let k = 1; k <= 12; k++) {
+              const t = k / 12, mt = 1 - t;
+              const bx = mt*mt*mt*seg.p0.x + 3*mt*mt*t*seg.c1.x + 3*mt*t*t*seg.c2.x + t*t*t*seg.p1.x;
+              const by = mt*mt*mt*seg.p0.y + 3*mt*mt*t*seg.c1.y + 3*mt*t*t*seg.c2.y + t*t*t*seg.p1.y;
+              Lvb += Math.hypot((bx - px) * sx, (by - py) * sy);
+              px = bx; py = by;
+            }
+          } else {
+            Lvb += Math.hypot((seg.p1.x - seg.p0.x) * sx, (seg.p1.y - seg.p0.y) * sy);
+          }
+        }
+        const on = nums[0];
+        if (Lvb > on) {
+          const n = Math.max(0, Math.round((Lvb - on) / P));
+          const target = n * P + on;
+          if (target > 0) {
+            const s = Lvb / target;
+            dashArray = nums.map(v => (v * s < 0.01 ? 0.01 : (v * s).toFixed(4))).join(' ');
+          }
+        }
+      }
+    }
 
     const elsBefore = elements.length;
     if (dc.cmd === 'label') {
@@ -33104,7 +33340,13 @@ function renderSVG(result, opts) {
           labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
             || renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
         }
-      } else if (opts && opts.labelOutput === 'svg-native' && (wasStrippedMath || (hasMath && unicodeSafe)) && !(dc.pen && dc.pen.fontFamily)) {
+      } else if (opts && opts.labelOutput === 'svg-native' && (wasStrippedMath || (hasMath && unicodeSafe))) {
+        // NOTE no pen-fontFamily gate here: LaTeX font pens (Helvetica() etc.)
+        // only change TEXT-mode fonts — math stays Computer Modern italic on
+        // TeXeR (06521 rotate(90)*"$K$" with pen Helvetica() renders CM italic
+        // K on the reference; the sans face applies only to its text-mode
+        // "Total"). Routing math away from KaTeX because of the pen made
+        // $K$/$U$ render as upright Arial <text>.
         // Simple math labels ($m$, $M$, $\theta$, etc.) — in rasterization mode,
         // route through MathJax so real glyph <path>s are emitted.  Otherwise
         // librsvg falls back to a generic "serif" font (often bold/sans-looking)
@@ -33116,7 +33358,10 @@ function renderSVG(result, opts) {
         // KaTeX emitter first (matches the live app), MathJax fallback.
         labelEl = renderLabelKatexSvg(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
           || renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
-      } else if (opts && opts.labelOutput === 'svg-native' && !hasMath && !hasLaTeX && !wasStrippedMath && !(dc.pen && dc.pen.fontFamily) && displayText && /[A-Za-z]/.test(displayText) && !/[_^]/.test(displayText)) {
+      } else if (opts && opts.labelOutput === 'svg-native' && !hasMath && !hasLaTeX && !wasStrippedMath && !(dc.pen && dc.pen.fontFamily) && displayText && /[A-Za-z0-9]/.test(displayText) && !/[_^]/.test(displayText)) {
+        // [0-9] included: digit-only plain labels (12148's "22"/"9"/"40")
+        // otherwise fell to the <text> fallback, which Blink rasterizes in
+        // Times — bolder digits, straight-tailed 9 — instead of CM glyphs.
         // Plain text label (e.g. "Pivot", "Post") in rasterization mode.
         // librsvg has no KaTeX_Main font installed, so a <text font-family="KaTeX_Main,
         // serif"> falls back to a generic bold/sans face — but real Asymptote/TeXeR
@@ -33140,19 +33385,21 @@ function renderSVG(result, opts) {
         // (e.g. coordinates like $(-6,4)$) stays upright — digits and punctuation are
         // upright in LaTeX math.
         const penFF = dc.pen && dc.pen.fontFamily;
-        const _isMathLbl = !!(wasStrippedMath || unicodeSafe) && !penFF;
+        // Font pens don't apply to math mode (see the svg-native branch above):
+        // a $...$ label stays a math label even under Helvetica().
+        const _isMathLbl = !!(wasStrippedMath || unicodeSafe);
         // Browser: prefer the KaTeX SVG emitter for math and plain-CM text —
         // one engine for every label, with TeX kerning/italic correction the
         // tspan path approximates. SVG-text remains the fallback (emitter not
         // loaded, pen fontFamily, multiline).
         let _ksEl = null;
-        if (!svgNativeMode && !penFF && typeof katexSvg !== 'undefined' && katexSvg.ready()
+        if (!svgNativeMode && (!penFF || _isMathLbl) && typeof katexSvg !== 'undefined' && katexSvg.ready()
             && displayText && displayText.indexOf('\n') === -1) {
           if (_isMathLbl) {
             const _esc = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
             const _input = wasStrippedMath ? '$' + _esc + '$' : _esc;
             _ksEl = renderLabelKatexSvg(_input, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
-          } else if (!hasMath && !hasLaTeX && /[A-Za-z]/.test(displayText) && !/[_^]/.test(displayText)) {
+          } else if (!hasMath && !hasLaTeX && /[A-Za-z0-9]/.test(displayText) && !/[_^]/.test(displayText)) {
             let _esc2 = '';
             for (let i = 0; i < displayText.length; i++) {
               const c = displayText[i];
