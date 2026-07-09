@@ -347,11 +347,17 @@ async function main() {
     const row = await scoreOne(id, A, fontCSS, { fast: args.fast, epsCache, blink: args.blink, blinkRaster });
     if (row.err) { errors++; console.log(JSON.stringify(row)); continue; }
     // Baseline selection: canary.json overrides ssim-results.json when applicable.
-    let pre = null, baselineSource = null;
+    // NOTE: `pre`/`delta` are SSIM-based (canary stores ssim); `preCombined`/
+    // `deltaCombined` are the combined-score baseline for apples-to-apples
+    // reading — juxtaposing pre(ssim) with the fresh combined manufactured
+    // phantom regressions on every id whose sizeScore < 1 (v9.62 session).
+    let pre = null, baselineSource = null, preCombined = null;
     if (canaryMap[id] != null) { pre = canaryMap[id]; baselineSource = 'canary'; }
     else if (byId.has(id))     { pre = byId.get(id).ssim; baselineSource = 'ssim-results'; }
+    if (byId.has(id) && typeof byId.get(id).combined === 'number') preCombined = byId.get(id).combined;
     const delta = (pre != null) ? row.ssim - pre : null;
-    const out = { id: row.id, ssim: row.ssim, sizeScore: row.sizeScore, combined: row.combined, pre, delta, baselineSource };
+    const deltaCombined = (preCombined != null) ? row.combined - preCombined : null;
+    const out = { id: row.id, ssim: row.ssim, sizeScore: row.sizeScore, combined: row.combined, pre, delta, preCombined, deltaCombined, baselineSource };
     console.log(JSON.stringify(out));
     scored++;
     if (delta != null && delta < worstDelta) { worstDelta = delta; worstId = id; }

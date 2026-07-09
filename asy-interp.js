@@ -28045,12 +28045,14 @@ function renderSVG(result, opts) {
         // 05537 -0.074, 02582 -0.019).
         const _ltHasScale = !!dc.labelTransform && Math.abs(ltScale - 1) > 0.01;
         let _mjxMeasured = false;
+        let _floorMeasured = false;  // 0.52-floor replaced by a real measurement
         let _mjxHBp = null;
         if ((hasFrac || _ltHasScale || hasUnitScale) && opts && opts.labelOutput === 'svg-native'
             && typeof _mjxMeasureBp === 'function'
             && typeof text === 'string' && text.indexOf('\n') === -1) {
           try {
             const _mm = _mjxMeasureBp(text, fontSize);
+            if (process.env.HTX_LBL_DBG) { try { process.stderr.write('[lblmeas] '+JSON.stringify(text)+' base='+textWidthBpBase.toFixed(1)+' mm='+(_mm?_mm.wBp.toFixed(1):'null')+String.fromCharCode(10)); } catch(e){} }
             if (_mm && _mm.wBp > 0) {
               textWidthBpBase = _mm.wBp;
               // Real rendered height too: \frac{b}{\sqrt{3}} and \dfrac run
@@ -28105,7 +28107,24 @@ function renderSVG(result, opts) {
           // SW/end-anchored label was being clipped, e.g. 08567's "-2-2i").
           const _opCount = (text.match(/[-+=]/g) || []).length;
           const _renderWidthBpFloor = _effLenBB * fontSize * 0.52 + _opCount * fontSize * 0.28;
-          if (_renderWidthBpFloor > textWidthBpBase) textWidthBpBase = _renderWidthBpFloor;
+          if (_renderWidthBpFloor > textWidthBpBase) {
+            // The 0.52/char formula mirrors the LEGACY <text> renderer; under
+            // the KaTeX glyph emitter (svg-native default) the drawn width is
+            // the measured width, and reserving the legacy floor leaves dead
+            // canvas on the aligned side (01759's SE "The projection of $v$
+            // onto $u$" reserved 162bp for a 141bp label — a 74px phantom
+            // right margin). When the emitter can measure, use the REAL width
+            // as the floor; still never narrower than the char-count base.
+            let _fw = _renderWidthBpFloor;
+            if (opts && opts.labelOutput === 'svg-native'
+                && typeof katexSvg !== 'undefined' && katexSvg.ready()
+                && typeof _mjxMeasureBp === 'function'
+                && typeof text === 'string' && text.indexOf(String.fromCharCode(10)) === -1
+                && !(dc.pen && dc.pen.fontFamily)) {
+              try { const _m2 = _mjxMeasureBp(text, fontSize); if (_m2 && _m2.wBp > 0) { _fw = _m2.wBp; _floorMeasured = true; } } catch (e) {}
+            }
+            if (_fw > textWidthBpBase) textWidthBpBase = _fw;
+          }
         }
         let textWidthUser = textWidthBpBase / roughPxPerUnitX;
         // Height estimate: for size()-constrained, use fuller capRatio; for auto-scaled, fuller height
@@ -28236,7 +28255,12 @@ function renderSVG(result, opts) {
             // the actual rendering's _effLen so we don't over-expand for labels
             // like "e^{2πi/5}" whose visual width is smaller than char count.
             let lWidthBp = textWidthBpBase;
-            if (!hasFrac) {
+            if (!hasFrac && !_floorMeasured) {
+              // Same legacy-<text> 0.52 floor as above; skip when the floor was
+              // already replaced by the emitter measurement (textWidthBpBase IS
+              // the drawn width) — re-raising it here fed the LP an oversized
+              // box (01759's SE caption: 162bp reserved for a 141bp label —
+              // the 74px phantom right margin).
               const _renderWidthBp = _effLenBB * fontSize * 0.52;
               if (_renderWidthBp > lWidthBp) lWidthBp = _renderWidthBp;
             }
@@ -30900,7 +30924,18 @@ function renderSVG(result, opts) {
         // since their horizontal extent is the rotated HEIGHT, not the original WIDTH.
         // The "render override" was incorrectly using unrotated width for rotated labels,
         // causing excessive left padding for y-axis labels (08812).
-        if (Math.abs(ax) > 0.01 && !dc._axisLabelMidRotated && !dc.labelTransform) {
+        // RELIC GATE: this 0.52-char-heuristic widening mirrors the legacy
+        // <text>/tspan renderer's W formula. With the KaTeX glyph emitter as
+        // the actual renderer (svg-native default, v9.57) the drawn width IS
+        // the measured effW, and the widening only inflates the canvas on the
+        // aligned side — 05534's W-aligned "66 2/3 %" frac reserved 44bp for
+        // a 29bp label, a 39px phantom left margin. Keep the override only
+        // when the label will really take the <text> fallback (emitter absent,
+        // pen fontFamily on a non-math label, or multiline).
+        const _willTextFallback = !(typeof katexSvg !== 'undefined' && katexSvg.ready())
+          || (dc.pen && dc.pen.fontFamily)
+          || (typeof dc.text === 'string' && dc.text.indexOf(String.fromCharCode(10)) !== -1);
+        if (Math.abs(ax) > 0.01 && !dc._axisLabelMidRotated && !dc.labelTransform && _willTextFallback) {
           const _wRender = _effLenVB * fontSizeSVG * 0.52;
           const _labelLw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
           const _marginRender = (0.28 * fontSizeSVG) + 0.5 * _labelLw * bpCSSPixel;
