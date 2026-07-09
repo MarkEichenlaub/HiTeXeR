@@ -15719,18 +15719,6 @@ const _HTX_DATA_FILES = {
           let hiFrame = xmaxExplicit ? curHi : (fb.maxX + _xRideHi);
           if (!xminExplicit && _xUserLo != null) loFrame = Math.min(loFrame, _xUserLo);
           if (!xmaxExplicit && _xUserHi != null) hiFrame = Math.max(hiFrame, _xUserHi);
-          // asy automin/automax rounding for fully-auto ranges — see the y-job.
-          const _xTicksAuto = ticks && !(ticks.step > 0) && !(ticks.positions && isArray(ticks.positions)) && !(ticks.N > 0);
-          if (_xTicksAuto && !xminExplicit && !xmaxExplicit && _xUserLo == null && _xUserHi == null) {
-            // Pure user-coordinate content only — see the y-job note.
-            const _clean = pic.commands.filter(cc => cc && !cc._isAxisLine && !cc._isTickMark && !cc._isTickLabel && !cc._isAxisLabel && !cc._jobManaged && !_selfNoLineNoTitle.has(cc));
-            const _ggb = getGeoBbox(_clean);
-            if (_ggb && isFinite(_ggb.minX) && isFinite(_ggb.maxX) && _ggb.maxX > _ggb.minX) {
-              const _as = _asyAutoscale(_ggb.minX, _ggb.maxX);
-              if (isFinite(_as.max) && _as.max > hiFrame) hiFrame = _as.max;
-              if (isFinite(_as.min) && _as.min < loFrame) loFrame = _as.min;
-            }
-          }
           let lo = Math.min(loFrame, _xTitleLo);
           let hi = Math.max(hiFrame, _xTitleHi);
           // Arrowhead clearance: extend so a left/right arrowhead doesn't overlap
@@ -16426,26 +16414,6 @@ const _HTX_DATA_FILES = {
           let hiFrame = ymaxExplicit ? curHi : (fb.maxY + _yRideHi);
           if (!yminExplicit && _yUserLo != null) loFrame = Math.min(loFrame, _yUserLo);
           if (!ymaxExplicit && _yUserHi != null) hiFrame = Math.max(hiFrame, _yUserHi);
-          // asy automin/automax: a fully-auto axis range with AUTO ticks rounds
-          // to the autoscale bounds (graph.asy: if(automax) max=b.max). 12745's
-          // reference y-axis runs 0..1.0 with a 1.0 tick over 0.0342..0.9973
-          // data (the curve floats above the x-axis at the right edge).
-          // Explicit Step keeps data extents (03900's 1.158e8 axis must NOT
-          // round to 1.2e8 — its ref doesn't).
-          const _yTicksAuto = ticks && !(ticks.step > 0) && !(ticks.positions && isArray(ticks.positions)) && !(ticks.N > 0);
-          if (_yTicksAuto && !yminExplicit && !ymaxExplicit && _yUserLo == null && _yUserHi == null) {
-            // Autoscale over PURE user-coordinate content (asy uses picture
-            // userMin/userMax). fb.geo bakes in frame-time fuzz — 00383's
-            // −0.13 arrowhead overhang floored to −1 and the a<0 branch
-            // upscaled (−1,6) to (−5,10), tripling the axis.
-            const _clean = pic.commands.filter(cc => cc && !cc._isAxisLine && !cc._isTickMark && !cc._isTickLabel && !cc._isAxisLabel && !cc._jobManaged && !_selfNoLineNoTitle.has(cc));
-            const _ggb = getGeoBbox(_clean);
-            if (_ggb && isFinite(_ggb.minY) && isFinite(_ggb.maxY) && _ggb.maxY > _ggb.minY) {
-              const _as = _asyAutoscale(_ggb.minY, _ggb.maxY);
-              if (isFinite(_as.max) && _as.max > hiFrame) hiFrame = _as.max;
-              if (isFinite(_as.min) && _as.min < loFrame) loFrame = _as.min;
-            }
-          }
           let lo = Math.min(loFrame, _yTitleLo);
           let hi = Math.max(hiFrame, _yTitleHi);
           // Horizontal-line headroom floor: the job re-derives hi from the content
@@ -28573,6 +28541,24 @@ function renderSVG(result, opts) {
         const cy = pos.y + (ay_n * h_user);
         expandBBox(cx - w_user/2, cy - h_user/2);
         expandBBox(cx + w_user/2, cy + h_user/2);
+        // Feed the image box into the size() fit as TRUESIZE content (like a
+        // label): asy fits pictures so embedded EPS images land INSIDE
+        // size(). Neither the LP nor the iterative solver saw images before,
+        // so 04889 rendered 202bp for size(175) once its images resolved
+        // from eps_cache (placeholder-era scores hid this).
+        labelInfoBp.push({
+          posX: pos.x, posY: pos.y,
+          widthBp: imgSize.w_bp,
+          heightBp: imgSize.h_bp,
+          alignOffsetXBp: ax_n * imgSize.w_bp,
+          alignOffsetYBp: ay_n * imgSize.h_bp,
+          _text: '', _fontSize: 12, _ltAngle: 0,
+          _axAl: dc.align ? dc.align.x : 0, _ayAl: dc.align ? dc.align.y : 0,
+          _screenDx: 0, _screenDy: 0,
+          _isTickLabel: false, _isAxisLabel: false,
+          _axisTitleOverflow: false, _axisLabelEndShift: 0,
+          _isImage: true
+        });
       }
     }
     // Convergence: bail out once the label-expanded bbox stops changing
@@ -28625,6 +28611,7 @@ function renderSVG(result, opts) {
   // must not re-shrink on top of it (it uses cruder label boxes; 08856-class
   // collapsed 8x when both ran)
   let _sizeLpApplied = false;
+  let _sizeLpGrew = false;   // LP accepted a scale ABOVE the geometry fit (deliberate growth)
   // Mixed 3D+2D scene: a 2D overlay (axes/graphs) extends the combined geometry
   // bbox well beyond the dominant 3D figure. When set, size() is fit to the
   // 3D-only bbox and the label-shrink solver is skipped so the 2D overlay
@@ -29251,7 +29238,8 @@ function renderSVG(result, opts) {
       // over-shrink geometry; with measured widths (v9.63) the LP inputs are
       // the drawn boxes, so solve for any real overflow. 02164-class rr_
       // axes (exW 1.147) rendered 13% past size(220) under the old gate.
-      const _legacyOverflow = _legacyUnderfill || Math.max(_exW, _exH) > 1.005;
+      const _gateThresh = (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_THRESH) ? parseFloat(process.env.HTX_GATE_THRESH) : 1.005;
+      const _legacyOverflow = _legacyUnderfill || Math.max(_exW, _exH) > _gateThresh;
       if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[szgate] exW=' + _exW.toFixed(3) + ' exH=' + _exH.toFixed(3) + ' underfill=' + _legacyUnderfill + ' lp=' + _legacyOverflow + String.fromCharCode(10)); } catch (e) {} }
       if (_legacyOverflow) {
       const { xs: _xsS, ys: _ysS } = _buildLpCoords();
@@ -29279,16 +29267,43 @@ function renderSVG(result, opts) {
         if (_sxS === 0) _sxS = _syS;
         if (_syS === 0) _syS = _sxS;
         if (_sxS > 0 && _syS > 0) {
+          // Shrink sanity clamp: absorbing an overflow estimate e with
+          // TRUESIZE label boxes needs a scale shrink of at most ~1/(2-e)
+          // (labels don't scale, so the geometry gives back less than the
+          // whole overflow). When the LP shrinks far beyond that, one of its
+          // box constraints is an overestimate (rotated/multiline/diagonal
+          // boxes) — trust the overflow estimate instead and floor the
+          // scale. The v9.68 full rescore exposed a severe tail without
+          // this (04889 -0.46, 12739 -0.45, 08983 -0.43: exW 1.01-1.17 yet
+          // the LP halved the scale); the estimate-consistent wins (02164,
+          // 12936, 00041) shrink well under the cap and keep their gains.
+          const _exMax = Math.max(_exW, _exH);
+          const _maxShrink = 1 + 2 * Math.max(0, _exMax - 1) + 0.02;
+          const _preLpScale = pxPerUnit;
+          const _clampScale = (s) => {
+            if (typeof process !== 'undefined' && process.env && process.env.HTX_GATE_DBG) { try { process.stderr.write('[lpclamp] s='+s+' pre='+_preLpScale+' underfill='+_legacyUnderfill+String.fromCharCode(10)); } catch(e){} }
+            if (!(s > 0) || !(_preLpScale > 0)) return s;
+            // NO growth cap here: a scale above the geometry fit is the LP's
+            // DELIBERATE growth (truesize content alone exceeds size() —
+            // 08989's fontsize-25 labels, 12936, 08984, 04702). Capping it
+            // crushed that whole class (08989 0.954 -> 0.059). Oversize from
+            // shrinking LPs (04889's graphic() placeholders) is contained by
+            // the canvas clamp downstream, keyed on _sizeLpGrew.
+            const shrink = _preLpScale / s;
+            return (shrink > _maxShrink) ? _preLpScale / _maxShrink : s;
+          };
           if (keepAspect) {
-            pxPerUnit = pxPerUnitX = pxPerUnitY = Math.min(_sxS, _syS);
+            pxPerUnit = pxPerUnitX = pxPerUnitY = _clampScale(Math.min(_sxS, _syS));
+            if (pxPerUnit > _preLpScale * 1.001) _sizeLpGrew = true;
           } else {
             // IgnoreAspect (keepAspect=false): x and y scale INDEPENDENTLY to fill
             // size(W,H). Forcing them equal via min() collapsed wide plots — e.g.
             // graph_2's size(400,200,IgnoreAspect) over x∈[0,1],y∈[-1,1] rendered
             // 142 wide (x stuck at the y-scale 58.8) instead of ~400.
-            pxPerUnitX = _sxS;
-            pxPerUnitY = _syS;
-            pxPerUnit = Math.min(_sxS, _syS);
+            pxPerUnitX = _clampScale(_sxS);
+            pxPerUnitY = _clampScale(_syS);
+            pxPerUnit = Math.min(pxPerUnitX, pxPerUnitY);
+            if (pxPerUnit > _preLpScale * 1.001) _sizeLpGrew = true;
           }
           _sizeLpApplied = true;
         }
@@ -29419,7 +29434,13 @@ function renderSVG(result, opts) {
   // size(p,W) already fixed the fitted frame's scale. Skipping the solver here
   // mirrors the _trueSizeFrame guard on the size()-rescale block above; without
   // it an outer size(8cm) crushes a 12cm-fitted frame down to 8cm (03401).
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D && !_sizeLpApplied) {
+  // NOTE: the LP (v9.68 always-solve gate) no longer skips this pass. The
+  // iterative solver re-measures the frame at the CURRENT scale, so when the
+  // LP already fit, exceed ~= 1 and this is a no-op; when the LP's estimate
+  // boxes were wrong (04889-class: graphic() placeholders wider than the
+  // real images), this pass catches the residual overflow the same way it
+  // did under the old 1.20 gate.
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
