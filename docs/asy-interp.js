@@ -28116,11 +28116,18 @@ function renderSVG(result, opts) {
             // right margin). When the emitter can measure, use the REAL width
             // as the floor; still never narrower than the char-count base.
             let _fw = _renderWidthBpFloor;
+            // Font pens don't apply to math mode (v9.61): a pure-$...$ label
+            // renders via the emitter even under Helvetica(), so measure it
+            // (06521's rotate(90) Delta-E-th math label with pen Helvetica
+            // kept the 37bp legacy floor and reserved ~8bp too much below
+            // the axis).
+            const _penFFBlocksMeasure = (dc.pen && dc.pen.fontFamily)
+              && !(typeof text === 'string' && /^\s*\$[\s\S]*\$\s*$/.test(text));
             if (opts && opts.labelOutput === 'svg-native'
                 && typeof katexSvg !== 'undefined' && katexSvg.ready()
                 && typeof _mjxMeasureBp === 'function'
                 && typeof text === 'string' && text.indexOf(String.fromCharCode(10)) === -1
-                && !(dc.pen && dc.pen.fontFamily)) {
+                && !_penFFBlocksMeasure) {
               try { const _m2 = _mjxMeasureBp(text, fontSize); if (_m2 && _m2.wBp > 0) { _fw = _m2.wBp; _floorMeasured = true; } } catch (e) {}
             }
             if (_fw > textWidthBpBase) textWidthBpBase = _fw;
@@ -30933,7 +30940,8 @@ function renderSVG(result, opts) {
         // when the label will really take the <text> fallback (emitter absent,
         // pen fontFamily on a non-math label, or multiline).
         const _willTextFallback = !(typeof katexSvg !== 'undefined' && katexSvg.ready())
-          || (dc.pen && dc.pen.fontFamily)
+          || ((dc.pen && dc.pen.fontFamily)
+              && !(typeof dc.text === 'string' && /^\s*\$[\s\S]*\$\s*$/.test(dc.text)))
           || (typeof dc.text === 'string' && dc.text.indexOf(String.fromCharCode(10)) !== -1);
         if (Math.abs(ax) > 0.01 && !dc._axisLabelMidRotated && !dc.labelTransform && _willTextFallback) {
           const _wRender = _effLenVB * fontSizeSVG * 0.52;
