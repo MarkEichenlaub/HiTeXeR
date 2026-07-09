@@ -29434,13 +29434,16 @@ function renderSVG(result, opts) {
   // size(p,W) already fixed the fitted frame's scale. Skipping the solver here
   // mirrors the _trueSizeFrame guard on the size()-rescale block above; without
   // it an outer size(8cm) crushes a 12cm-fitted frame down to 8cm (03401).
-  // NOTE: the LP (v9.68 always-solve gate) no longer skips this pass. The
-  // iterative solver re-measures the frame at the CURRENT scale, so when the
-  // LP already fit, exceed ~= 1 and this is a no-op; when the LP's estimate
-  // boxes were wrong (04889-class: graphic() placeholders wider than the
-  // real images), this pass catches the residual overflow the same way it
-  // did under the old 1.20 gate.
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D) {
+  // The LP normally OWNS the size() solve (running this pass after it
+  // double-shrank label-heavy pictures via the estimate boxes: 05868's
+  // size(5cm) triangle landed 22% under its ref, -0.68). EXCEPTION:
+  // image-containing pictures — image boxes interact with the LP through
+  // rough estimates, and this measured pass is what lands them on the
+  // reference size (08983 +0.44, 04889-class).
+  const _hasImageContent = drawCommands.some(dc => dc && (dc.cmd === 'image' || dc.graphic));
+  // ... and single-dimension size() (size(60,0)): the LP solves only the
+  // constrained axis there and the measured pass lands the free one (08983).
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D && (!_sizeLpApplied || _hasImageContent || !(sizeW > 0 && sizeH > 0))) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
