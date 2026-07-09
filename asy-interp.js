@@ -14052,10 +14052,22 @@ const _HTX_DATA_FILES = {
         // at g≈4-5, not 400/geoInk (measured: 00247 g=5.1, 00245 g=3.9 —
         // the raw formula gave ~12, shrinking label boxes 2.4x and cutting
         // the frame-extended axes short).
-        const lit = Math.max(rX, rY) * unitScale;
+        // ONLY when bounds are INEXACT (asy's scale(frame,...) returns
+        // identity for exact bounds), and the gain SATURATES on truesize
+        // label boxes: g = 400/W1 with W1 = geometry ink at the literal
+        // scale + label boxes (probe-verified: 00247 g=5.1, 00130 g=11.7,
+        // 07663 g=43.8). The old geometry-only estimate over-shot g and was
+        // clamped at 5 — which froze the axis-extension rides at ~1/2.3 of
+        // the true final scale and shipped the whole c463/c10/c134 unitsize
+        // tail 1.4-1.6x oversize.
+        const _inexactI = _usedCurrentpictureReassign || _trigInexactHint
+          || (pic && pic.commands && pic.commands.some(dc => dc && (dc._fromPathLabelNoAlign || (dc._isAxisLine && !dc._fromAddedPicture))));
+        if (!_inexactI) return unitScale;
+        const _spI = _fit2SaturatingSpanBp(pic && pic.commands, unitScale);
+        const lit = _spI ? Math.max(_spI.w, _spI.h) : Math.max(rX, rY) * unitScale;
         if (lit > 0) {
           const g = 400 / lit;
-          return unitScale * Math.max(0.05, Math.min(5, g));
+          return unitScale * Math.max(0.05, Math.min(64, g));
         }
         return unitScale;
       }
@@ -27187,10 +27199,15 @@ function renderSVG(result, opts) {
       if (sizeW > 0 || sizeH > 0)
         return Math.min((sizeW > 0 ? sizeW : Infinity) / _w, (sizeH > 0 ? sizeH : Infinity) / _h);
       if (hasUnitScale) {
-        const lit = Math.max(_w * unitScale, _h * unitScale);
+        // Saturating pass-2 estimate — see _alongAxisBpPerUnit's twin note.
+        const _inexactP = _usedCurrentpictureReassign || _trigInexactHint
+          || drawCommands.some(dc => dc && (dc._fromPathLabelNoAlign || (dc._isAxisLine && !dc._fromAddedPicture)));
+        if (!_inexactP) return unitScale;
+        const _spP = _fit2SaturatingSpanBp(drawCommands, unitScale);
+        const lit = _spP ? Math.max(_spP.w, _spP.h) : Math.max(_w * unitScale, _h * unitScale);
         if (lit > 0) {
           const g = 400 / lit;
-          return unitScale * Math.max(0.05, Math.min(50, g));
+          return unitScale * Math.max(0.05, Math.min(64, g));
         }
         return unitScale;
       }
@@ -28946,13 +28963,16 @@ function renderSVG(result, opts) {
     // picture's bounds are exact (bounds.scaling: sx = xunitsize). The former
     // boost tower fired on exact unitsize pictures and is gone deliberately.
     pxPerUnit = pxPerUnitX = pxPerUnitY = unitScale;
-    // When size() is also explicitly set, use it to govern the geometry scale.
-    // Real Asymptote/TeXeR scales 3D diagrams (and others with both set) to the
-    // requested size() regardless of unitsize(), so size() acts as an override.
+    // When size() is also explicitly set: real asy's bounds.scaling checks
+    // xunitsize FIRST — `if(xunitsize == 0) sx=calculateScaling(...) else
+    // sx=xunitsize` — so in 2D, unitsize() WINS over size() (oracle-proven:
+    // 00653's unitsize(3cm)+size(250) ships at 212bp = the literal unit
+    // scale, not 250). The size-override behavior is kept for 3D, where the
+    // original calibration evidence came from.
     // EXCEPTION: truesize frame content (add(frame)) keeps its absolute bp
     // dimensions and must not be rescaled by a picture-level size() — e.g. a
     // composition of pre-fit sub-pictures added as a frame (00778).
-    if (!_trueSizeFrame && (sizeW > 0 || sizeH > 0)) {
+    if (!_trueSizeFrame && (sizeW > 0 || sizeH > 0) && _is3D) {
       const _sw = sizeW > 0 ? sizeW : Infinity;
       const _sh = sizeH > 0 ? sizeH : Infinity;
       const _gW = (geoMaxX - geoMinX) || 1;
@@ -28987,6 +29007,17 @@ function renderSVG(result, opts) {
       // (memory: project_texer_pathlabel_sizing).
       const FIT2_TARGET_BP = 400;
       const _sp = _spanAtScaleBp(unitScale, unitScale);
+      // The literal-frame span must not undercount label boxes (asy's frames
+      // pad ~1mm past the glyphs): 07663's "$a$" made the real W1 9.14 vs
+      // our 6.3, overshooting g 63.5 vs the true 43.8. Take the max with the
+      // calibrated saturating-span helper.
+      {
+        const _sp2 = _fit2SaturatingSpanBp(drawCommands, unitScale);
+        if (_sp2) {
+          if (_sp2.w > _sp.w) _sp.w = _sp2.w;
+          if (_sp2.h > _sp.h) _sp.h = _sp2.h;
+        }
+      }
       if (typeof process !== 'undefined' && process.env && process.env.HTX_FIT_DBG) {
         try { process.stderr.write('[fit2] spanW=' + _sp.w.toFixed(1) + ' spanH=' + _sp.h.toFixed(1) + ' unitScale=' + unitScale.toFixed(2) + ' geoW=' + ((geoMaxX-geoMinX)*unitScale).toFixed(1) + ' geoH=' + ((geoMaxY-geoMinY)*unitScale).toFixed(1) + String.fromCharCode(10)); } catch (e) {}
       }
@@ -35568,6 +35599,66 @@ function _texCapFontSize(n) {
 // Must be applied identically in _mjxMeasureBp (so the bbox/viewBox grows to
 // fit the label) and renderLabelMathJaxSVG (the actual emitted glyphs).
 const _MJX_SCALE = 1.072;
+
+// fit2 pass-2 saturating span: the picture's literal frame in bp — geometry
+// ink at the literal unit scale PLUS truesize label boxes (labels don't
+// scale, so they saturate the 400bp wrapper target). This is the exact
+// quantity real asy's `scale(frame f,...)` measures: instrumented probes
+// give g = min(400/W1, 400/H1) = 43.78 for 07663 (W1 9.14), 11.70 for 00130
+// (W1 34.18), 5.1 for 00247 — one formula covers the label-light AND
+// label-dominated cases that the old geometry-only estimate (clamped at
+// gain 5) could not.
+function _fit2SaturatingSpanBp(cmds, unitScale) {
+  let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+  const seen = (x, y) => {
+    if (typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) return;
+    if (x < mnX) mnX = x; if (x > mxX) mxX = x;
+    if (y < mnY) mnY = y; if (y > mxY) mxY = y;
+  };
+  for (const dc of cmds || []) {
+    if (!dc) continue;
+    if (dc.path && dc.path.segs) {
+      for (const s of dc.path.segs) {
+        if (!s) continue;
+        if (s.p0) seen(s.p0.x, s.p0.y);
+        if (s.p3) seen(s.p3.x, s.p3.y);
+        if (s.cp1) seen(s.cp1.x, s.cp1.y);
+        if (s.cp2) seen(s.cp2.x, s.cp2.y);
+      }
+    }
+    if (dc.path && dc.path._singlePoint) seen(dc.path._singlePoint.x, dc.path._singlePoint.y);
+    if (dc.pos && typeof dc.pos.x === 'number') seen(dc.pos.x, dc.pos.y);
+  }
+  if (!isFinite(mnX) || !isFinite(mnY)) return null;
+  let fMinX = mnX * unitScale, fMaxX = mxX * unitScale;
+  let fMinY = mnY * unitScale, fMaxY = mxY * unitScale;
+  for (const dc of cmds || []) {
+    if (!dc || dc.cmd !== 'label' || !dc.pos || typeof dc.pos.x !== 'number') continue;
+    const t = typeof dc.text === 'string' ? dc.text : (typeof dc.label === 'string' ? dc.label : '');
+    if (!t) continue;
+    const fs = (dc.pen && typeof dc.pen.fontsize === 'number' && dc.pen.fontsize > 0) ? Math.min(dc.pen.fontsize, 25) : 12;
+    let wBp = 0, hBp = 0.72 * fs;
+    try {
+      const m = _mjxMeasureBp(t, fs);
+      if (m && m.wBp > 0) { wBp = m.wBp; if (m.hBp > 0) hBp = m.hBp; }
+    } catch (e) {}
+    if (!(wBp > 0)) wBp = String(t).replace(/\[A-Za-z]+|[${}]/g, '').length * 0.52 * fs;
+    // Real asy frames carry ~1mm (2.835bp) beyond the glyph box in each
+    // dimension (the same constant the tick-label extent model uses;
+    // instrumented here: "$a$" glyph 6.34x5.17 vs frame 9.14x8.14,
+    // "$ab$" 11.50x8.33 vs 14.11x11.29, frac 32.34x14.28 vs 34.18x16.96).
+    wBp += 2.835; hBp += 2.835;
+    const ax = (dc.align && typeof dc.align.x === 'number') ? Math.sign(dc.align.x) : 0;
+    const ay = (dc.align && typeof dc.align.y === 'number') ? Math.sign(dc.align.y) : 0;
+    const cx = dc.pos.x * unitScale + ax * wBp / 2;
+    const cy = dc.pos.y * unitScale + ay * hBp / 2;
+    if (cx - wBp / 2 < fMinX) fMinX = cx - wBp / 2;
+    if (cx + wBp / 2 > fMaxX) fMaxX = cx + wBp / 2;
+    if (cy - hBp / 2 < fMinY) fMinY = cy - hBp / 2;
+    if (cy + hBp / 2 > fMaxY) fMaxY = cy + hBp / 2;
+  }
+  return { w: fMaxX - fMinX, h: fMaxY - fMinY };
+}
 
 function _mjxMeasureBp(rawText, fontSize) {
   // UNIFY on the KaTeX SVG emitter. Labels are RENDERED by katexSvg
