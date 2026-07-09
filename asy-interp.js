@@ -32145,11 +32145,16 @@ function renderSVG(result, opts) {
     // L = n*(on+off) + on, n = nearest non-negative integer, then the whole
     // pattern is scaled by L/(n*P + on). TeXeR's linetype("4 4") cell wall in
     // 12148 shows 4 dashes over its 50bp span (adjusted period 7.14bp); the
-    // unadjusted pattern gave 3. Scoped to custom numeric linetype patterns —
-    // the named styles (dashed/dotted/…) keep their tuned arrays until they
-    // get their own adjust pass + A/B.
-    if (dashArray && dc.path && dc.path.segs && dc.pen && typeof dc.pen.linestyle === 'string'
-        && /^[\d.\s]+$/.test(dc.pen.linestyle)) {
+    // unadjusted pattern gave 3. Applies to custom numeric linetype patterns
+    // AND the stock dash styles (plain_pens.asy defines dashed/longdashed/
+    // dashdotted with adjust=true). `dotted` is excluded: its rendered
+    // "1w 3w" array is a raster-tuned approximation of linetype("0 4") whose
+    // round-cap dots don't follow the same on-length scaling.
+    const _adjustableStyle = dc.pen && typeof dc.pen.linestyle === 'string'
+      && (/^[\d.\s]+$/.test(dc.pen.linestyle)
+          || dc.pen.linestyle === 'dashed' || dc.pen.linestyle === 'longdashed'
+          || dc.pen.linestyle === 'dashdotted' || dc.pen.linestyle === 'longdashdotted');
+    if (dashArray && dc.path && dc.path.segs && _adjustableStyle) {
       const nums = dashArray.split(' ').map(Number).filter(n => isFinite(n));
       const P = nums.reduce((a, b) => a + b, 0);
       if (nums.length >= 2 && P > 0) {
