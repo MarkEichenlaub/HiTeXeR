@@ -14189,25 +14189,25 @@ function createInterpreter() {
     // fit, not the (often unset) global size — 00444's size(pic1,200,140,
     // IgnoreAspect) rendered y-ticks ~2.5× long because the global no-size
     // 150/maxDim estimate ignored the anisotropic 200×140 fit.
-    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax) {
+    function _drawTicks(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax, majorCapLo, majorCapHi) {
       if (pic && (pic._sizeW > 0 || pic._sizeH > 0) && (pic._sizeW !== sizeW || pic._sizeH !== sizeH)) {
         const _oW = sizeW, _oH = sizeH, _oA = keepAspect;
         sizeW = pic._sizeW || 0; sizeH = pic._sizeH || 0;
         if (pic._sizeAniso) keepAspect = false;
         try {
-          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax);
+          return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax, majorCapLo, majorCapHi);
         } finally {
           sizeW = _oW; sizeH = _oH; keepAspect = _oA;
         }
       }
-      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax);
+      return _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax, majorCapLo, majorCapHi);
     }
     // suppMin/suppMax: the UN-extended data/limit range used for begin=false /
     // end=false endpoint-tick suppression. min/max may be arrow- and title-
     // extended past the data (the axis line rides out for the arrowhead), which
     // would defeat the `Math.abs(v-max)` endpoint test; suppMin/suppMax pin the
     // suppression to the real data endpoints. Default to min/max when omitted.
-    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax) {
+    function _drawTicksInner(ticks, axisDir, min, max, pen, pic, extent, crossMin, crossMax, axisOffset, above, suppMin, suppMax, majorCapLo, majorCapHi) {
       const _suppMin = (suppMin !== undefined && isFinite(suppMin)) ? suppMin : min;
       const _suppMax = (suppMax !== undefined && isFinite(suppMax)) ? suppMax : max;
       axisOffset = axisOffset || 0;
@@ -14613,11 +14613,16 @@ function createInterpreter() {
         if (majorPositions === undefined) {
           // Explicit Step: anchored at floor(min/Step)*Step (graph.asy floors
           // tickmin to a Step multiple), equivalent in-range to ceil-walking.
+          // majorCapLo/Hi (from the axis job): the ride-free frame extent —
+          // a title ride extends the LINE past the frame but must not mint
+          // new labeled majors there (03900's extra "1.2x10^8" tick).
           majorPositions = [];
-          for (let v = Math.ceil(min / step - 1e-9) * step; v <= max + 1e-10; v += step) {
+          const _mjLo2 = (majorCapLo !== undefined && isFinite(majorCapLo)) ? Math.max(min, majorCapLo) : min;
+          const _mjHi2 = (majorCapHi !== undefined && isFinite(majorCapHi)) ? Math.min(max, majorCapHi) : max;
+          for (let v = Math.ceil(_mjLo2 / step - 1e-9) * step; v <= _mjHi2 + 1e-10; v += step) {
             majorPositions.push(Math.round(v * 1e10) / 1e10);
           }
-          _tickGenInfo = { anchor: Math.ceil(min / step - 1e-9) * step, step, N: majorPositions.length, minorN: ticks.subStep > 0 ? Math.ceil(step / ticks.subStep) : 0 };
+          _tickGenInfo = { anchor: Math.ceil(_mjLo2 / step - 1e-9) * step, step, N: majorPositions.length, minorN: ticks.subStep > 0 ? Math.ceil(step / ticks.subStep) : 0 };
         }
       }
       // begin=false / end=false (Ticks) suppress the TICK MARK and extended
@@ -15273,7 +15278,7 @@ function createInterpreter() {
       // Wrapped in a closure so the deferred frame-extension job can remove
       // and re-emit the whole axis across the final extended range
       // (Asymptote's extend=true deferred drawing).
-      const _emitXAxis = (xlo, xhi, sLo, sHi) => {
+      const _emitXAxis = (xlo, xhi, sLo, sHi, mcLo, mcHi) => {
       const xmin = xlo, xmax = xhi;
       // Un-extended data/limit range for endpoint-tick suppression (begin/end).
       const _xSuppLo = (sLo !== undefined) ? sLo : xlo;
@@ -15319,7 +15324,7 @@ function createInterpreter() {
         }
       }
       if (xTicks) xTicks = Object.assign({}, xTicks, {_axisAutoRange: !(xminExplicit || xmaxExplicit || _xminFromUserLimits || _xmaxFromUserLimits)});
-      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above, _xSuppLo, _xSuppHi);
+      const _xTickGen = _drawTicks(xTicks, 'x', xmin, xmax, pen, pic, extent, crossMin, crossMax, axisShiftY, above, _xSuppLo, _xSuppHi, mcLo, mcHi);
       if (_xaxisDrawCmd && _xTickGen) _xaxisDrawCmd._tickGen = _xTickGen;
       if (label && !isInvisible) {
         // Default: right-aligned at xmax, pushed below tick labels (W+S combined).
@@ -15579,10 +15584,14 @@ function createInterpreter() {
           }
           // Exact frame assignment each pass; xlimits()-driven sides floor
           // it so framed plots (00101) never shrink inside their window.
-          let lo = xminExplicit ? curLo : Math.min(fb.minX - _xRideLo, _xTitleLo);
-          let hi = xmaxExplicit ? curHi : Math.max(fb.maxX + _xRideHi, _xTitleHi);
-          if (!xminExplicit && _xUserLo != null) lo = Math.min(lo, _xUserLo);
-          if (!xmaxExplicit && _xUserHi != null) hi = Math.max(hi, _xUserHi);
+          // Frame extent WITHOUT the title ride — see the y-job note: title
+          // rides extend the axis LINE but must not mint new labeled majors.
+          let loFrame = xminExplicit ? curLo : (fb.minX - _xRideLo);
+          let hiFrame = xmaxExplicit ? curHi : (fb.maxX + _xRideHi);
+          if (!xminExplicit && _xUserLo != null) loFrame = Math.min(loFrame, _xUserLo);
+          if (!xmaxExplicit && _xUserHi != null) hiFrame = Math.max(hiFrame, _xUserHi);
+          let lo = Math.min(loFrame, _xTitleLo);
+          let hi = Math.max(hiFrame, _xTitleHi);
           // Arrowhead clearance: extend so a left/right arrowhead doesn't overlap
           // the geometry directly beside it (see y-job / 00133). Geometry near the
           // x-axis only; ONLY for endpoint-title axes (bare arrow axes overlap in
@@ -15592,9 +15601,9 @@ function createInterpreter() {
           if (arrow && _xHasEndTitle && !_xSF) {
             const _bandX = 1.2 * ((typeof arrow.size === 'number' && arrow.size > 0 ? arrow.size : 6) / (fb.sY || fb.sX));
             const _gHi = _geomReachNearAxis(pic, true, axisShiftY, 1, _bandX, _selfNoLineNoTitle);
-            if (_gHi != null && !xmaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sX, _gHi, hi, 1); if (_ch != null && _ch > hi) hi = _ch; }
+            if (_gHi != null && !xmaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sX, _gHi, hi, 1); if (_ch != null && _ch > hi) { hi = _ch; hiFrame = Math.max(hiFrame, _ch); } }
             const _gLo = _geomReachNearAxis(pic, true, axisShiftY, -1, _bandX, _selfNoLineNoTitle);
-            if (_gLo != null && !xminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sX, _gLo, lo, -1); if (_cl != null && _cl < lo) lo = _cl; }
+            if (_gLo != null && !xminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sX, _gLo, lo, -1); if (_cl != null && _cl < lo) { lo = _cl; loFrame = Math.min(loFrame, _cl); } }
           }
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
@@ -15613,7 +15622,7 @@ function createInterpreter() {
           // the title ride or arrowhead clearance baked into lo/hi above.
           const _xSuppLoJob = xminExplicit ? curLo : (_xUserLo != null ? _xUserLo : fb.minX);
           const _xSuppHiJob = xmaxExplicit ? curHi : (_xUserHi != null ? _xUserHi : fb.maxX);
-          _emitXAxis(lo, hi, _xSuppLoJob, _xSuppHiJob);
+          _emitXAxis(lo, hi, _xSuppLoJob, _xSuppHiJob, loFrame, hiFrame);
           myCmds = pic.commands.splice(s0);
           for (const c of myCmds) c._jobManaged = true;
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
@@ -15958,7 +15967,7 @@ function createInterpreter() {
         ((yIsRightSide || extent === 'RightLeft') && crossMaxDefaulted)
       ) ? extent : null;
       // Emit closure for deferred frame-extension (see _emitXAxis in xaxis).
-      const _emitYAxis = (ylo, yhi, sLo, sHi) => {
+      const _emitYAxis = (ylo, yhi, sLo, sHi, mcLo, mcHi) => {
       const ymin = ylo, ymax = yhi;
       // Un-extended data/limit range for endpoint-tick suppression (begin/end).
       const _ySuppLo = (sLo !== undefined) ? sLo : ylo;
@@ -15999,7 +16008,7 @@ function createInterpreter() {
         });
       }
       if (yTicks) yTicks = Object.assign({}, yTicks, {_axisAutoRange: !(yminExplicit || ymaxExplicit || _yminFromUserLimits || _ymaxFromUserLimits)});
-      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above, _ySuppLo, _ySuppHi);
+      const _yTickGen = _drawTicks(yTicks, 'y', ymin, ymax, pen, pic, extent, crossMin, crossMax, axisShiftX, above, _ySuppLo, _ySuppHi, mcLo, mcHi);
       if (_yaxisDrawCmd && _yTickGen) _yaxisDrawCmd._tickGen = _yTickGen;
       if (label && !isInvisible) {
         // In Asymptote's graph.asy, the default position for a y-axis label is at the
@@ -16266,14 +16275,22 @@ function createInterpreter() {
               else _yTitleLo = Math.min(_yTitleLo, _aLo - Math.max(0, tc.pos.y - box.by));
             }
           }
-          let lo = yminExplicit ? curLo : Math.min(fb.minY - _yRideLo, _yTitleLo);
-          let hi = ymaxExplicit ? curHi : Math.max(fb.maxY + _yRideHi, _yTitleHi);
-          if (!yminExplicit && _yUserLo != null) lo = Math.min(lo, _yUserLo);
-          if (!ymaxExplicit && _yUserHi != null) hi = Math.max(hi, _yUserHi);
+          // Frame extent WITHOUT the title ride: title rides extend the axis
+          // LINE but must not mint new labeled majors (03900's arrowless
+          // y-axis rode its title 1.158e8 -> 1.2e8 and grew an extra
+          // "1.2x10^8" major; TeXeR ends majors at 1.1e8). The ride itself
+          // stays unconditional — gating it on arrows broke its convergence
+          // anchoring and diverged 12745/12939 to 2x width.
+          let loFrame = yminExplicit ? curLo : (fb.minY - _yRideLo);
+          let hiFrame = ymaxExplicit ? curHi : (fb.maxY + _yRideHi);
+          if (!yminExplicit && _yUserLo != null) loFrame = Math.min(loFrame, _yUserLo);
+          if (!ymaxExplicit && _yUserHi != null) hiFrame = Math.max(hiFrame, _yUserHi);
+          let lo = Math.min(loFrame, _yTitleLo);
+          let hi = Math.max(hiFrame, _yTitleHi);
           // Horizontal-line headroom floor: the job re-derives hi from the content
           // frame (the flat line), which would shrink the axis back to the line
           // (04156 line at top). Floor at the ~70% extension computed above.
-          if (!ymaxExplicit && _yHLineExtHi != null) hi = Math.max(hi, _yHLineExtHi);
+          if (!ymaxExplicit && _yHLineExtHi != null) { hi = Math.max(hi, _yHLineExtHi); hiFrame = Math.max(hiFrame, _yHLineExtHi); }
           // Arrowhead clearance: extend so an up/down arrowhead doesn't overlap
           // the geometry directly under it (00133's arc apex sits on the y-axis).
           // Uses geometry NEAR the y-axis (not the global max), so a curve whose
@@ -16290,9 +16307,9 @@ function createInterpreter() {
           if (arrow && _yHasEndTitle && !_ySF) {
             const _bandY = 1.2 * ((typeof arrow.size === 'number' && arrow.size > 0 ? arrow.size : 6) / (fb.sX || fb.sY));
             const _gHi = _geomReachNearAxis(pic, false, axisShiftX, 1, _bandY, _selfNoLineNoTitle);
-            if (_gHi != null && !ymaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sY, _gHi, hi, 1); if (_ch != null && _ch > hi) hi = _ch; }
+            if (_gHi != null && !ymaxExplicit) { const _ch = _arrowClearEnd(arrow, fb.sY, _gHi, hi, 1); if (_ch != null && _ch > hi) { hi = _ch; hiFrame = Math.max(hiFrame, _ch); } }
             const _gLo = _geomReachNearAxis(pic, false, axisShiftX, -1, _bandY, _selfNoLineNoTitle);
-            if (_gLo != null && !yminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sY, _gLo, lo, -1); if (_cl != null && _cl < lo) lo = _cl; }
+            if (_gLo != null && !yminExplicit) { const _cl = _arrowClearEnd(arrow, fb.sY, _gLo, lo, -1); if (_cl != null && _cl < lo) { lo = _cl; loFrame = Math.min(loFrame, _cl); } }
           }
           if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return;
           if (typeof process !== 'undefined' && process.env && process.env.HTX_AXJOB_DBG) {
@@ -16311,7 +16328,7 @@ function createInterpreter() {
           // the title ride or arrowhead clearance baked into lo/hi above.
           const _ySuppLoJob = yminExplicit ? curLo : (_yUserLo != null ? _yUserLo : fb.minY);
           const _ySuppHiJob = ymaxExplicit ? curHi : (_yUserHi != null ? _yUserHi : fb.maxY);
-          _emitYAxis(lo, hi, _ySuppLoJob, _ySuppHiJob);
+          _emitYAxis(lo, hi, _ySuppLoJob, _ySuppHiJob, loFrame, hiFrame);
           myCmds = pic.commands.splice(s0);
           for (const c of myCmds) c._jobManaged = true;
           if (insertAt < 0 || insertAt > pic.commands.length) insertAt = pic.commands.length;
