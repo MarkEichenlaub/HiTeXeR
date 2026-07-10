@@ -3298,6 +3298,9 @@ function createInterpreter() {
           return newL;
         });
       }
+      // NOTE: slot metadata (_sizeW/_fitSx/_fitMin*) deliberately NOT carried
+      // onto transformed copies — both carry variants regressed 12862's
+      // mirror-tile layout (0.544->0.03); the raw-content path wins there.
       return out;
     }
     // Transform ^ integer: repeated composition. t^0 = identity, t^n = t*t*…*t
@@ -14378,7 +14381,7 @@ const _HTX_DATA_FILES = {
           || (pic && pic.commands && pic.commands.some(dc => dc && (dc._fromPathLabelNoAlign || (dc._isAxisLine && !dc._fromAddedPicture))));
         if (!_inexactI) return unitScale;
         const _spI = _fit2SaturatingSpanBp(pic && pic.commands, unitScale);
-        if (typeof process !== 'undefined' && process.env && process.env.HTX_SPAN_DBG && _spI) { try { process.stderr.write('[satspan] w='+_spI.w.toFixed(2)+' h='+_spI.h.toFixed(2)+String.fromCharCode(10)); } catch(e){} }
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_SPAN_DBG && _spI) { try { process.stderr.write('[satspan] w='+_spI.w.toFixed(2)+' h='+_spI.h.toFixed(2)+' x='+(_spI.minX!==undefined?_spI.minX.toFixed(2)+'..'+_spI.maxX.toFixed(2):'?')+' y='+(_spI.minY!==undefined?_spI.minY.toFixed(2)+'..'+_spI.maxY.toFixed(2):'?')+String.fromCharCode(10)); } catch(e){} }
         const lit = _spI ? Math.max(_spI.w, _spI.h) : Math.max(rX, rY) * unitScale;
         if (lit > 0) {
           const g = 400 / lit;
@@ -27150,10 +27153,10 @@ const _HTX_DATA_FILES = {
     // All-equal anchors (08867: add(p1); add(shift(250,0)*p2) — the shift is
     // BAKED, both anchors 0) leave the LP unbounded → natural scale, matching
     // its 471bp reference. Spread anchors (12929: four panels at (i·inc·S,0))
-    // compress into the 150 box exactly like the live reference. Gated to
-    // COMPRESSION (a<1): the a>1 spread direction is real asy behavior too,
-    // but no reference has confirmed it and it would move every close-packed
-    // unsized composite in the corpus.
+    // compress into the 150 box exactly like the live reference. The a>1
+    // SPREAD direction is confirmed too (live probe 2026-07-10: two 10bp
+    // circles add()ed at anchors 0 and 20 ship at 151bp — anchors spread
+    // a=7 to fill the box).
     if (currentPic._addPanels && currentPic._addPanels.length >= 2
         && sizeW === 0 && sizeH === 0 && !hasUnitScale && !projection) {
       const _panels = currentPic._addPanels;
@@ -27235,7 +27238,7 @@ const _HTX_DATA_FILES = {
         const _ax = _solveAxis(_extsX);
         const _ay = _solveAxis(_extsY);
         const _a = Math.min(_ax, _ay);
-        if (isFinite(_a) && _a > 0 && _a < 1 - 1e-6) {
+        if (isFinite(_a) && _a > 0 && Math.abs(_a - 1) > 1e-6) {
           for (const e of _exts) {
             const dx = (_a - 1) * e.p.px, dy = (_a - 1) * e.p.py;
             if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) continue;
@@ -27260,6 +27263,18 @@ const _HTX_DATA_FILES = {
           if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         }
       }
+    }
+
+    // Label-only pictures (12912: one display-math label, nothing else):
+    // pure-truesize content leaves asy's scaling LP unbounded on both axes →
+    // natural scale — the shipped frame is exactly the label box(es), NOT the
+    // wrapper's 150 box (TeXeR ref 73x37bp vs HTX's old 150x150 canvas with
+    // the label lost in the middle). Same rule as the truesize composites.
+    if (!hasUnitScale && sizeW === 0 && sizeH === 0 && !projection
+        && currentPic.commands.length > 0
+        && currentPic.commands.every(c => !c || c.cmd === 'label')) {
+      _trueSizeFrame = true;
+      hasUnitScale = true; unitScale = 1;
     }
 
     // size3(w,h,d,IgnoreAspect): real asy's fit3 scales x/y/z INDEPENDENTLY
@@ -36382,8 +36397,22 @@ function _fit2SaturatingSpanBp(cmds, unitScale) {
     wBp += 2.835; hBp += 2.835;
     const ax = (dc.align && typeof dc.align.x === 'number') ? Math.sign(dc.align.x) : 0;
     const ay = (dc.align && typeof dc.align.y === 'number') ? Math.sign(dc.align.y) : 0;
-    const cx = dc.pos.x * unitScale + ax * wBp / 2;
-    const cy = dc.pos.y * unitScale + ay * hBp / 2;
+    let cx = dc.pos.x * unitScale + ax * wBp / 2;
+    let cy = dc.pos.y * unitScale + ay * hBp / 2;
+    // EndPoint axis titles ride PAST the arrowhead (graph.asy axislabelfactor):
+    // displace the box ~arrowlen + one labelmargin along the align direction.
+    // Probe (00018): the real frame extends 7-8bp past a ride-less estimate
+    // on EVERY axis-title side — the estimator ran ~15% small, the fit2
+    // refit overshot g, and 00018 rendered 12% oversize.
+    if (dc._isAxisLabel && (ax !== 0 || ay !== 0)) {
+      const _ride = (typeof process !== 'undefined' && process.env && process.env.HTX_RIDE) ? +process.env.HTX_RIDE : 6.5;
+      // The ride runs along the AXIS (an endpoint title sits at the far end
+      // of its axis: the dominant |pos| coordinate), not the align diagonal —
+      // riding both components pushed 00018's SE/NW titles down/left too and
+      // flipped the miss from +12% to -17%.
+      if (Math.abs(dc.pos.x) >= Math.abs(dc.pos.y)) cx += ax * _ride;
+      else cy += ay * _ride;
+    }
     if (cx - wBp / 2 < fMinX) fMinX = cx - wBp / 2;
     if (cx + wBp / 2 > fMaxX) fMaxX = cx + wBp / 2;
     if (cy - hBp / 2 < fMinY) fMinY = cy - hBp / 2;
