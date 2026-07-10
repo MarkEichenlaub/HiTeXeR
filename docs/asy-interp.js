@@ -20039,6 +20039,13 @@ const _HTX_DATA_FILES = {
         try { process.stderr.write('[scale-9756] n='+args.length+' args='+args.map(a=> a===null?'null':(a===undefined?'undef':(a && a._tag ? ('<'+a._tag+'>') : typeof a))).join(',')+'\n'); } catch(e){}
       }
       const pos = args.filter(a => !(a && a._named));
+      // scale(Linear,Linear,Log): record the z-axis log scale for axis3
+      // rendering (12751), pass x/y through to the 2D handler.
+      if (pos.length >= 3 && pos.every(a => a && a._tag === 'scaleT')) {
+        currentPic._zLogScale = pos[2].type === 'log';
+        if (origScale) return origScale(pos[0], pos[1]);
+        return null;
+      }
       // Picture-form and scaleT-form are handled by origScale
       if (pos.length >= 1 && pos[0] && (pos[0]._tag === 'picture' || pos[0]._tag === 'scaleT')) {
         if (origScale) return origScale(...args);
@@ -22870,6 +22877,7 @@ const _HTX_DATA_FILES = {
           p0 = makeTriple(xStart, y0, z0);
           p1 = makeTriple(xEnd, y0, z0);
           labelPos3 = makeTriple(xEnd + extraOut * (xEnd - xStart), y0, z0);
+          call._vRange = { v0: xStart, v1: xEnd };
         } else if (axisName === 'y') {
           const x0 = (b.minX <= 0 && b.maxX >= 0) ? 0 : b.minX;
           const z0 = (b.minZ <= 0 && b.maxZ >= 0) ? 0 : b.minZ;
@@ -22880,6 +22888,7 @@ const _HTX_DATA_FILES = {
           p0 = makeTriple(x0, yStart, z0);
           p1 = makeTriple(x0, yEnd, z0);
           labelPos3 = makeTriple(x0, yEnd + extraOut * (yEnd - yStart), z0);
+          call._vRange = { v0: yStart, v1: yEnd };
         } else {
           // z-axis: XYZero-style line through (0,0) from minZ to maxZ. Use the
           // un-snapped data extent (origMinZ/origMaxZ) so the axis tip lands at
@@ -22889,9 +22898,13 @@ const _HTX_DATA_FILES = {
           const y0 = (b.minY <= 0 && b.maxY >= 0) ? 0 : b.minY;
           let zEnd = (typeof ub.zmax === 'number') ? ub.zmax : origMaxZ;
           let zStart = (typeof ub.zmin === 'number') ? ub.zmin : origMinZ;
-          p0 = makeTriple(x0, y0, zStart);
-          p1 = makeTriple(x0, y0, zEnd);
-          labelPos3 = makeTriple(x0, y0, zEnd + extraOut * (zEnd - zStart));
+          // scale(,,Log): the drawn coordinate is log10(value) (12751's
+          // zaxis3 1..30 spans scene z 0..1.477); tick VALUES stay user-facing.
+          const _zlogC = pic._zLogScale ? ((v) => Math.log10(Math.max(v, 1e-12))) : ((v) => v);
+          call._vRange = { v0: zStart, v1: zEnd };
+          p0 = makeTriple(x0, y0, _zlogC(zStart));
+          p1 = makeTriple(x0, y0, _zlogC(zEnd));
+          labelPos3 = makeTriple(x0, y0, _zlogC(zEnd) + extraOut * (_zlogC(zEnd) - _zlogC(zStart)));
         }
         // Split the axis into N sub-segments and depth-sort them against
         // the existing 3D fills (`_from3d` commands). Sub-segments that sit
@@ -22961,6 +22974,61 @@ const _HTX_DATA_FILES = {
         } else {
           const seg = makeSeg(proj0, proj0, proj1, proj1);
           pic.commands.push({cmd:'draw', path: makePath([seg], false), pen, arrow, line: 0});
+        }
+        // OutTicks on a simple (non-Bounds) axis (12751): perpendicular
+        // screen-space ticks with value labels; log-decade majors (labeled
+        // $10^k$) with log-spaced minors under scale(,,Log) on z.
+        if (call.ticks && call._vRange && call._vRange.v1 > call._vRange.v0) {
+          const _log = (axisName === 'z') && pic._zLogScale;
+          const vr = call._vRange;
+          const _coord = (v) => _log ? Math.log10(Math.max(v, 1e-12)) : v;
+          const t3v = (c) => axisName === 'x' ? makeTriple(c, p0.y, p0.z)
+                         : axisName === 'y' ? makeTriple(p0.x, c, p0.z)
+                         : makeTriple(p0.x, p0.y, c);
+          const A2 = projectTriple(p0), B2 = projectTriple(p1);
+          let dxA = B2.x - A2.x, dyA = B2.y - A2.y;
+          const L2 = Math.hypot(dxA, dyA) || 1; dxA /= L2; dyA /= L2;
+          let px2 = -dyA, py2 = dxA;
+          const C2 = projectTriple(makeTriple((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2));
+          const M2 = { x: (A2.x + B2.x) / 2, y: (A2.y + B2.y) / 2 };
+          if (px2 * (C2.x - M2.x) + py2 * (C2.y - M2.y) > 0) { px2 = -px2; py2 = -py2; }
+          const majLen = L2 * 0.03, minLen = majLen * 0.6;
+          const _beginlabel = !(call.ticks && call.ticks.beginlabel === false);
+          let majors = [], minors = [];
+          if (_log && vr.v0 > 0 && vr.v1 > 0 && isFinite(Math.log10(vr.v0)) && isFinite(Math.log10(vr.v1))
+              && Math.log10(vr.v1) - Math.log10(vr.v0) < 20) {
+            const k0 = Math.ceil(Math.log10(vr.v0) - 1e-9), k1 = Math.floor(Math.log10(vr.v1) + 1e-9);
+            for (let k = k0; k <= k1; k++) majors.push(Math.pow(10, k));
+            for (let k = Math.floor(Math.log10(vr.v0) - 1e-9); k <= k1; k++) {
+              for (let m = 2; m <= 9; m++) {
+                const v = m * Math.pow(10, k);
+                if (v > vr.v0 + 1e-9 && v < vr.v1 - 1e-9) minors.push(v);
+              }
+            }
+          } else {
+            majors = _niceTickValues(vr.v0, vr.v1, 3).filter(v => v >= vr.v0 - 1e-9 && v <= vr.v1 + 1e-9);
+            const step = majors.length >= 2 ? (majors[1] - majors[0]) / 5 : 0;
+            if (step > 0) for (let v = majors[0] + step; v < vr.v1 - 1e-9; v += step) {
+              if (!majors.some(mv => Math.abs(mv - v) < step * 0.25)) minors.push(v);
+            }
+          }
+          const _emitTick = (v, len) => {
+            const P2 = projectTriple(t3v(_coord(v)));
+            const Q2 = makePair(P2.x + px2 * len, P2.y + py2 * len);
+            const seg = makeSeg(P2, P2, Q2, Q2);
+            pic.commands.push({cmd:'draw', path: makePath([seg], false), pen, line: 0, _isTickMark: true});
+            return P2;
+          };
+          for (const v of minors) _emitTick(v, minLen);
+          for (let i = 0; i < majors.length; i++) {
+            const v = majors[i];
+            const P2 = _emitTick(v, majLen);
+            if (!_beginlabel && i === 0) continue;
+            const lt = _log ? ('$10^{' + Math.round(Math.log10(v)) + '}$') : _formatTick(v);
+            pic.commands.push({cmd:'label', text: lt,
+                               pos: makePair(P2.x + px2 * majLen * 2.2, P2.y + py2 * majLen * 2.2),
+                               align: makePair(px2, py2), pen, line: 0});
+          }
         }
         if (call.label) {
           // Place the label just past the arrow tip in the screen-space
