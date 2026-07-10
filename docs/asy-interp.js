@@ -2341,6 +2341,18 @@ function createInterpreter() {
     // the no-content ±5 fallback forever (14370-73). Already-run jobs (e.g.
     // sub-picture jobs executed at fit() before cloning) keep their mark.
     if (r._jobPending) { delete r._jobManaged; delete r._jobPending; }
+    // Pre-transform endpoint stamp for ROTATED axis-line clones: finalize's
+    // axis-parallel re-range can't handle a rotated line; the stamp preserves
+    // the LOCAL lo/hi so the rotated-clone pass can re-range along the line's
+    // own direction (14372/14370). First stamp wins — the segment↔endpoint
+    // correspondence survives later affine transforms.
+    if (r._isAxisLine && !r._rotAxisClone && r.path && r.path.segs && r.path.segs.length && t) {
+      const _rotS = Math.abs(Math.atan2(t.e, t.b));
+      if (_rotS > 0.01) {
+        const _s0 = r.path.segs[0], _s1 = r.path.segs[r.path.segs.length - 1];
+        r._rotAxisClone = { p0: { x: _s0.p0.x, y: _s0.p0.y }, p3: { x: _s1.p3.x, y: _s1.p3.y } };
+      }
+    }
     if (r.path) r.path = applyTransformPath(t, r.path);
     if (r.pos) r.pos = applyTransformPair(t, r.pos);
     // markangle arcs/labels/wedges carry a truesize bp radius around an
@@ -27222,7 +27234,7 @@ function renderSVG(result, opts) {
     for (const c of drawCommands) {
       if (!c._isAxisLine || !c.path || !c.path.segs || c.path.segs.length === 0) continue;
       if (typeof process !== 'undefined' && process.env && process.env.HTX_AXFIN_DBG) {
-        try { process.stderr.write('[axfin] axis=' + c._isAxisLine + ' jobManaged=' + !!c._jobManaged
+        try { process.stderr.write('[axfin] axis=' + c._isAxisLine + ' rotClone=' + !!c._rotAxisClone + ' jobManaged=' + !!c._jobManaged
           + ' autoXmin=' + !!c._autoXmin + ' autoXmax=' + !!c._autoXmax
           + ' autoYmin=' + !!c._autoYmin + ' autoYmax=' + !!c._autoYmax
           + ' shiftX=' + c._axisShiftX + ' shiftY=' + c._axisShiftY
@@ -27239,8 +27251,75 @@ function renderSVG(result, opts) {
       // (14370-73: xaxis();yaxis(); into a fresh picture, geometry after,
       // add(original, rotate(0)*currentpicture) — axes stuck at ±5 while the
       // stale copied _jobManaged blocked this pass).
-      if (c._jobManaged && !c._jobPending && !c._jobSuperseded) continue;
+      if (c._jobManaged && !c._jobPending && !c._jobSuperseded && !c._rotAxisClone) continue;
       const seg = c.path.segs[0];
+      // ROTATED axis clones (add(dest, rotate(30)*pic) with the deferred job
+      // resolved against the SUB-picture only — 14372/14370/14391): the
+      // axis-parallel re-range below can't touch a non-axis-aligned line, so
+      // the axis stopped at the sub-picture content while TeXeR re-ranges the
+      // deferred axis against the FINAL composite at shipout (oracle: 14372's
+      // x-axis reaches local 7 = the composite xmax from an unrotated
+      // invisible draw). Extend the line along its own direction so its LOCAL
+      // range covers the final content extents, and carry endpoint-anchored
+      // axis titles with it. Gated on a tick-free picture (rotated tick
+      // regeneration is unsupported).
+      if (c._rotAxisClone) {
+        if (drawCommands.some(dc => dc && dc._isTickMark)) continue;
+        const segL = c.path.segs[c.path.segs.length - 1];
+        const P0 = seg.p0, P3 = segL.p3;
+        const lenR = Math.hypot(P3.x - P0.x, P3.y - P0.y);
+        const isXr = c._isAxisLine === 'x';
+        const axf = isXr ? 'x' : 'y';
+        const pre = c._rotAxisClone;
+        const oldLo = Math.min(pre.p0[axf], pre.p3[axf]);
+        const oldHi = Math.max(pre.p0[axf], pre.p3[axf]);
+        if (!(lenR > 1e-9) || !(oldHi - oldLo > 1e-9)) continue;
+        // A = final image of the local-lo end, B = of the local-hi end.
+        const A = pre.p0[axf] <= pre.p3[axf] ? P0 : P3;
+        const B = A === P0 ? P3 : P0;
+        const ux = (B.x - A.x) / lenR, uy = (B.y - A.y) / lenR;
+        const sR = lenR / (oldHi - oldLo);
+        let lo = oldLo, hi = oldHi;
+        const autoLo = isXr ? (c._autoXmin && !c._xMinFromUserLimits) : (c._autoYmin && !c._yMinFromUserLimits);
+        const autoHi = isXr ? (c._autoXmax && !c._xMaxFromUserLimits) : (c._autoYmax && !c._yMaxFromUserLimits);
+        if (autoLo) lo = isXr ? cMinX : cMinY;
+        if (autoHi) hi = isXr ? cMaxX : cMaxY;
+        // Bare "xaxis(string, Arrow)" idiom: TeXeR pokes a small negative tail
+        // past the origin on each auto side (see the axis-parallel _bareIdiom
+        // ext). The clone often loses the _bareIdiom mark through the job
+        // re-emission, so apply it to any fully-auto rotated title axis.
+        if ((c._bareIdiom || (autoLo && autoHi)) && hi > lo) {
+          const _ext = (hi - lo) * 0.06;
+          if (autoLo) lo -= _ext;
+          if (autoHi) hi += _ext;
+        }
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_AXFIN_DBG) {
+          try { process.stderr.write('[axfin-rot] axis=' + c._isAxisLine + ' oldLo=' + oldLo.toFixed(2) + ' oldHi=' + oldHi.toFixed(2)
+            + ' lo=' + lo.toFixed(2) + ' hi=' + hi.toFixed(2) + ' cX=' + cMinX.toFixed(2) + '..' + cMaxX.toFixed(2)
+            + ' cY=' + cMinY.toFixed(2) + '..' + cMaxY.toFixed(2) + ' bare=' + !!c._bareIdiom + '\n'); } catch (e) {}
+        }
+        if (hi > lo && (Math.abs(lo - oldLo) > 1e-9 || Math.abs(hi - oldHi) > 1e-9)) {
+          // TeXeR solves the size() fit WITHOUT deferred axes and lets them
+          // ride out past the fit box (oracle: 14372 axes-removed = 201bp,
+          // full = 265bp — the rotated y-axis tip pokes ~65bp past the box).
+          // Keep the pre-extension path for the fit bbox; the overshoot pass
+          // expands the final viewBox to the drawn extent.
+          c._fitExtPath = c.path;
+          const mk = v => ({ x: A.x + (v - oldLo) * sR * ux, y: A.y + (v - oldLo) * sR * uy });
+          const nA = mk(lo), nB = mk(hi);
+          const n0 = A === P0 ? nA : nB, n3 = A === P0 ? nB : nA;
+          c.path = { segs: [{ p0: n0,
+            cp1: { x: n0.x + (n3.x - n0.x) / 3, y: n0.y + (n3.y - n0.y) / 3 },
+            cp2: { x: n0.x + 2 * (n3.x - n0.x) / 3, y: n0.y + 2 * (n3.y - n0.y) / 3 },
+            p3: n3 }], closed: false };
+          for (const lc of drawCommands) {
+            if (lc.cmd !== 'label' || !lc._isAxisLabel || !lc.pos) continue;
+            if (Math.hypot(lc.pos.x - B.x, lc.pos.y - B.y) < 1e-6) { lc.pos = { x: nB.x, y: nB.y }; lc._rideOutLabel = true; }
+            else if (Math.hypot(lc.pos.x - A.x, lc.pos.y - A.y) < 1e-6) { lc.pos = { x: nA.x, y: nA.y }; lc._rideOutLabel = true; }
+          }
+        }
+        continue;
+      }
       // Sub-picture axes transformed by add(pic.fit(), pos, align) carry
       // STALE _axisShift* markers: rebuilding the line at the marker
       // coordinate would teleport the axis away from its (transformed)
@@ -27796,7 +27875,11 @@ function renderSVG(result, opts) {
       expandBBox(dc.pos.x, dc.pos.y);
     } else if (dc.cmd === 'label') {
       // Include all labels in geometry bbox, even invisible ones
-      // (matches Asymptote behavior for unitsize scaling)
+      // (matches Asymptote behavior for unitsize scaling).
+      // EXCEPT axis titles carried out on a ride-out axis extension
+      // (_rideOutLabel): like the extension itself they must not feed the
+      // fit; the overshoot pass reserves canvas for them.
+      if (dc._rideOutLabel) continue;
       expandBBox(dc.pos.x, dc.pos.y);
       // Estimate text extent in user coordinates for bbox expansion
       // We don't know pxPerUnit yet, so approximate with a fraction of bbox size
@@ -27832,6 +27915,12 @@ function renderSVG(result, opts) {
       // Extended lines (drawline) don't contribute to bbox — they get clipped
       // to the final bbox after scaling is determined.
       if (dc._extendedLine) continue;
+      // Re-ranged rotated deferred axes (finalizeAutoAxes' _rotAxisClone pass):
+      // the fit scale must not see the extension — TeXeR solves the size() fit
+      // without deferred axes and lets them ride past the box (14372). The
+      // pre-extension extent contributes here; the overshoot pass expands the
+      // final viewBox to the real drawn extent.
+      if (dc._fitExtPath) continue;
       // Geometry module infinite lines also don't contribute to bbox
       if (dc.path && dc.path._infiniteLine) continue;
       if (dc._subpicClipRect) {
@@ -28023,7 +28112,7 @@ function renderSVG(result, opts) {
         if (!dc || !dc.path || !dc.path.segs) continue;
         let _mn = Infinity, _mx = -Infinity, _mny = Infinity, _mxy = -Infinity;
         for (const s of dc.path.segs) { for (const pt of [s.p0, s.p3, s.cp1, s.cp2]) { if (pt && typeof pt.x === 'number') { if (pt.x < _mn) _mn = pt.x; if (pt.x > _mx) _mx = pt.x; if (pt.y < _mny) _mny = pt.y; if (pt.y > _mxy) _mxy = pt.y; } } }
-        if (_mn < -_thr || _mx > _thr || _mny < -_thr || _mxy > _thr) { try { process.stderr.write('[bboxwho] cmd=' + dc.cmd + ' x[' + _mn.toFixed(3) + '..' + _mx.toFixed(3) + '] y[' + _mny.toFixed(3) + '..' + _mxy.toFixed(3) + '] axis=' + (dc._isAxisLine || '') + ' tick=' + !!dc._isTickMark + ' job=' + !!dc._jobManaged + String.fromCharCode(10)); } catch (e2) {} }
+        if (_mn < -_thr || _mx > _thr || _mny < -_thr || _mxy > _thr) { try { process.stderr.write('[bboxwho] cmd=' + dc.cmd + ' x[' + _mn.toFixed(3) + '..' + _mx.toFixed(3) + '] y[' + _mny.toFixed(3) + '..' + _mxy.toFixed(3) + '] axis=' + (dc._isAxisLine || '') + ' tick=' + !!dc._isTickMark + ' job=' + !!dc._jobManaged + ' fep=' + !!dc._fitExtPath + String.fromCharCode(10)); } catch (e2) {} }
       }
     }
   }
@@ -28171,6 +28260,9 @@ function renderSVG(result, opts) {
         // the label-inclusive bbox AND labelInfoBp (the iterative size-solver),
         // so the legend doesn't shrink the graph to fit (04452).
         if (dc._fromLegend) continue;
+        // Axis titles riding a rotated deferred-axis extension likewise stay
+        // outside the fit (TeXeR solves size() without deferred axes — 14372).
+        if (dc._rideOutLabel) continue;
         // markangle labels (pi/theta angle marks) are still at the LITERAL
         // unitScale position here — their stale radius (≈0.53 user units) puts
         // them far outside the real geometry, inflating the viewBox (00247's
@@ -30795,7 +30887,9 @@ function renderSVG(result, opts) {
         const halfStroke = (lw * bpCSSPixel) / 2;
         // Tick marks: their full extent should be included in the viewbox, not just
         // stroke overshoot. Tick marks extend outside the geometry bbox intentionally.
-        if (dc._isTickMark) {
+        // Ride-out axis extensions (_fitExtPath — see finalizeAutoAxes) likewise
+        // extend past the fit box by design and need their full extent.
+        if (dc._isTickMark || dc._fitExtPath) {
           for (const seg of dc.path.segs) {
             for (const p of [seg.p0, seg.p3]) {
               const sx = (p.x - minX) * pxPerUnitX;
@@ -30806,6 +30900,9 @@ function renderSVG(result, opts) {
               padT = Math.max(padT, halfStroke - sy);
               padB = Math.max(padB, (sy + halfStroke) - viewH);
             }
+          }
+          if (dc._fitExtPath && typeof process !== 'undefined' && process.env && process.env.HTX_PAD_DBG) {
+            try { process.stderr.write('[padfep] axis=' + dc._isAxisLine + ' p3=(' + dc.path.segs[dc.path.segs.length-1].p3.x.toFixed(2) + ',' + dc.path.segs[dc.path.segs.length-1].p3.y.toFixed(2) + ') minX=' + minX.toFixed(3) + ' ppuX=' + pxPerUnitX.toFixed(2) + ' padL=' + padL.toFixed(1) + ' padR=' + padR.toFixed(1) + String.fromCharCode(10)); } catch (e) {}
           }
         } else {
           // Check path endpoints for stroke overshoot
@@ -31413,6 +31510,9 @@ function renderSVG(result, opts) {
     }
 
     // Apply padding: shift origin and expand viewBox/display dimensions
+    if (typeof process !== 'undefined' && process.env && process.env.HTX_PAD_DBG) {
+      try { process.stderr.write('[padapply] padL=' + padL.toFixed(1) + ' padR=' + padR.toFixed(1) + ' padT=' + padT.toFixed(1) + ' padB=' + padB.toFixed(1) + ' viewW=' + viewW.toFixed(1) + String.fromCharCode(10)); } catch (e) {}
+    }
     if (padL > 0 || padR > 0 || padT > 0 || padB > 0) {
       // Shift minX left and maxY up in user coords so rendering coordinates adjust
       minX -= padL / pxPerUnitX;
@@ -35102,6 +35202,9 @@ function preprocessLatexForKatex(src, forMathJax, emForHspace) {
   // `\sinheta`) or reject it.  Map them to a real space so the macro is
   // terminated identically to TeX.
   src = src.replace(/[\t\r\n]+/g, ' ');
+  // This KaTeX build has \hbox and \text but NOT \mbox (TeX's unbreakable
+  // text box) — it renders as literal "\mbox" + italic argument. Alias it.
+  src = src.replace(/\\mbox\b/g, '\\text');
   // Mirror the render path's xcolor handling (renderSVG ~31614/~31651) so a label
   // is MEASURED from the same glyphs the emitter draws. \definecolor{name}{RGB}{r,g,b}
   // and \color[model]{values} emit no ink, but this build's KaTeX has no
