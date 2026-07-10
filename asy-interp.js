@@ -8413,6 +8413,14 @@ function createInterpreter() {
           }
         }
       }
+      // Record the panel for the composite anchor-LP post-pass (execute end):
+      // asy add(pic[,pos]) = add(pic.fit()[,pos]) — TRUESIZE frame content at
+      // a SCALABLE anchor (pos, or the origin when absent / baked via t*pic).
+      if (dest === currentPic && !src._sizeW && !src._sizeH && cmds.length) {
+        const _anch = pairs.length ? toPair(pairs[0]) : makePair(0, 0);
+        (currentPic._addPanels || (currentPic._addPanels = [])).push({
+          px: _anch.x, py: _anch.y, start: dest.commands.length, count: cmds.length });
+      }
       // Plain add(picture) does NOT propagate the sub-picture's inexact bounds
       // to the destination (Asymptote picture.add: only transform*currentpicture
       // and direct inexact drawers flip bounds.exact=false). Tag the copied
@@ -9971,8 +9979,14 @@ function createInterpreter() {
       const round_factor = 1;
       const segsIn = A.segs;
       const n = segsIn.length; // length(A)
-      const V = [ {x: segsIn[0].p0.x, y: segsIn[0].p0.y} ];
-      for (const s of segsIn) V.push({x: s.p3.x, y: s.p3.y});
+      // The real roundedpath.asy's third parameter S is a SCALE factor
+      // applied to the path points (LocalPair = S*point(A,i)); it is NOT a
+      // corner-tightness knob. 12929 builds unit-coordinate hysteresis
+      // curves and relies on roundedpath(graph, radius, S=13mm) to blow
+      // them up to the diagram scale — reading S as tightness collapsed
+      // every curve to a ~2bp dot.
+      const V = [ {x: segsIn[0].p0.x * S, y: segsIn[0].p0.y * S} ];
+      for (const s of segsIn) V.push({x: s.p3.x * S, y: s.p3.y * S});
       const cyclic = !!A.closed;
       const sub = (a,b) => ({x:a.x-b.x, y:a.y-b.y});
       const add = (a,b) => ({x:a.x+b.x, y:a.y+b.y});
@@ -9991,7 +10005,7 @@ function createInterpreter() {
         const psi = Math.acos(cph);           // interior angle at the corner
         const kappa = Math.tan(psi/2) * (4/3) * Math.tan((Math.PI - psi)/4);
         const ta = unit(sub(p, a)), tb = unit(sub(p, b));
-        const la = kappa * S * rm, lb = kappa * S * rp;
+        const la = kappa * rm, lb = kappa * rp;
         return makeSeg(a, add(a, scl(ta, la)), add(b, scl(tb, lb)), b);
       };
       const out = [];
@@ -27123,6 +27137,127 @@ const _HTX_DATA_FILES = {
           const rp = _projectTripleRaw(entry.triple, projection, true);
           entry.result.x = rp.x;
           entry.result.y = rp.y;
+        }
+      }
+    }
+
+    // Composite anchor-LP: asy add(pic[,pos]) fits sub-pictures 1:1 into
+    // TRUESIZE frames whose interiors cannot be scaled by the outer size();
+    // only the anchor positions are user coordinates. When the composite is
+    // itself unsized, solve asy's per-axis LP for the anchor scale
+    // (max a: ∀i,j a(u_j−u_i) + (hi_j−lo_i) ≤ D, D enlarging ×√2 when
+    // infeasible) and rigidly shift each panel anchor → a·anchor.
+    // All-equal anchors (08867: add(p1); add(shift(250,0)*p2) — the shift is
+    // BAKED, both anchors 0) leave the LP unbounded → natural scale, matching
+    // its 471bp reference. Spread anchors (12929: four panels at (i·inc·S,0))
+    // compress into the 150 box exactly like the live reference. Gated to
+    // COMPRESSION (a<1): the a>1 spread direction is real asy behavior too,
+    // but no reference has confirmed it and it would move every close-packed
+    // unsized composite in the corpus.
+    if (currentPic._addPanels && currentPic._addPanels.length >= 2
+        && sizeW === 0 && sizeH === 0 && !hasUnitScale && !projection) {
+      const _panels = currentPic._addPanels;
+      const _exts = _panels.map(p => {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (let i = p.start; i < p.start + p.count && i < currentPic.commands.length; i++) {
+          const c = currentPic.commands[i];
+          if (!c) continue;
+          if (c.path && c.path.segs) for (const s of c.path.segs) for (const pt of [s.p0, s.cp1, s.cp2, s.p3]) {
+            if (pt && isFinite(pt.x) && isFinite(pt.y)) {
+              if (pt.x < x0) x0 = pt.x; if (pt.x > x1) x1 = pt.x;
+              if (pt.y < y0) y0 = pt.y; if (pt.y > y1) y1 = pt.y;
+            }
+          }
+          if (c.pos && isFinite(c.pos.x) && isFinite(c.pos.y)) {
+            if (c.pos.x < x0) x0 = c.pos.x; if (c.pos.x > x1) x1 = c.pos.x;
+            if (c.pos.y < y0) y0 = c.pos.y; if (c.pos.y > y1) y1 = c.pos.y;
+          }
+        }
+        return { p, x0, x1, y0, y1 };
+      }).filter(e => isFinite(e.x0) && isFinite(e.y0));
+      let _spreadX = 0, _spreadY = 0;
+      for (const ei of _exts) for (const ej of _exts) {
+        const dx = Math.abs(ej.p.px - ei.p.px), dy = Math.abs(ej.p.py - ei.p.py);
+        if (dx > _spreadX) _spreadX = dx; if (dy > _spreadY) _spreadY = dy;
+      }
+      // Non-panel commands (drawn directly on currentpicture, e.g. 12929's
+      // sigma_s background line and intersection marks) are ORDINARY scalable
+      // user geometry: they join the LP as zero-width coords and scale by a.
+      const _panelIdx = new Set();
+      for (const p of _panels) for (let i = p.start; i < p.start + p.count; i++) _panelIdx.add(i);
+      let _sX0 = Infinity, _sX1 = -Infinity, _sY0 = Infinity, _sY1 = -Infinity;
+      const _nonPanel = [];
+      for (let i = 0; i < currentPic.commands.length; i++) {
+        if (_panelIdx.has(i)) continue;
+        const c = currentPic.commands[i];
+        if (!c) continue;
+        _nonPanel.push(i);
+        if (c.path && c.path.segs) for (const sg of c.path.segs) for (const pt of [sg.p0, sg.cp1, sg.cp2, sg.p3]) {
+          if (pt && isFinite(pt.x) && isFinite(pt.y)) {
+            if (pt.x < _sX0) _sX0 = pt.x; if (pt.x > _sX1) _sX1 = pt.x;
+            if (pt.y < _sY0) _sY0 = pt.y; if (pt.y > _sY1) _sY1 = pt.y;
+          }
+        }
+        if (c.pos && isFinite(c.pos.x) && isFinite(c.pos.y)) {
+          if (c.pos.x < _sX0) _sX0 = c.pos.x; if (c.pos.x > _sX1) _sX1 = c.pos.x;
+          if (c.pos.y < _sY0) _sY0 = c.pos.y; if (c.pos.y > _sY1) _sY1 = c.pos.y;
+        }
+      }
+      if (_exts.length >= 2 && (_spreadX > 1e-6 || _spreadY > 1e-6)) {
+        const _D0 = /size\w*\s*[(=]\s*[\d.]/.test(code) ? 400 : 150;
+        const _solveAxis = (cs) => {
+          let D = _D0;
+          for (let tries = 0; tries < 13; tries++) {
+            let a = Infinity, feasible = true;
+            for (const ci of cs) {
+              for (const cj of cs) {
+                const du = cj.u - ci.u;
+                const fixed = cj.hi - ci.lo;
+                if (du > 1e-9) {
+                  const lim = (D - fixed) / du;
+                  if (lim <= 0) { feasible = false; break; }
+                  if (lim < a) a = lim;
+                } else if (Math.abs(du) <= 1e-9 && fixed > D) { feasible = false; break; }
+              }
+              if (!feasible) break;
+            }
+            if (feasible) return isFinite(a) ? a : 1;
+            D *= Math.SQRT2;
+          }
+          return 1;
+        };
+        // Fold the scalable (non-panel) extremes into each axis as
+        // zero-width coords.
+        const _extsX = _exts.map(e => ({ u: e.p.px, lo: e.x0 - e.p.px, hi: e.x1 - e.p.px }));
+        const _extsY = _exts.map(e => ({ u: e.p.py, lo: e.y0 - e.p.py, hi: e.y1 - e.p.py }));
+        if (isFinite(_sX0)) { _extsX.push({ u: _sX0, lo: 0, hi: 0 }, { u: _sX1, lo: 0, hi: 0 }); }
+        if (isFinite(_sY0)) { _extsY.push({ u: _sY0, lo: 0, hi: 0 }, { u: _sY1, lo: 0, hi: 0 }); }
+        const _ax = _solveAxis(_extsX);
+        const _ay = _solveAxis(_extsY);
+        const _a = Math.min(_ax, _ay);
+        if (isFinite(_a) && _a > 0 && _a < 1 - 1e-6) {
+          for (const e of _exts) {
+            const dx = (_a - 1) * e.p.px, dy = (_a - 1) * e.p.py;
+            if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) continue;
+            const _shT = makeTransform(dx, 1, 0, dy, 0, 1);
+            for (let i = e.p.start; i < e.p.start + e.p.count && i < currentPic.commands.length; i++) {
+              if (currentPic.commands[i]) currentPic.commands[i] = transformDrawCmd(_shT, currentPic.commands[i]);
+            }
+          }
+          // Scalable top-level content scales fully by a (labels keep their
+          // truesize glyphs: strip the labelTransform the scale accrues,
+          // mirroring the sized-add branch).
+          const _scT = makeTransform(0, _a, 0, 0, 0, _a);
+          for (const i of _nonPanel) {
+            const c = currentPic.commands[i];
+            if (!c) continue;
+            const tc = transformDrawCmd(_scT, c);
+            if (tc.cmd === 'label' && !tc._isAxisLabel) tc.labelTransform = null;
+            currentPic.commands[i] = tc;
+          }
+          // Ship the compressed layout at natural bp (frames are truesize).
+          _trueSizeFrame = true;
+          if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
         }
       }
     }
