@@ -612,11 +612,23 @@ def cmd_cli(args):
 def _write_manifest(manifest):
     """Atomic write: write to .tmp then os.replace so a crash mid-dump
     cannot truncate the canonical file. The earlier non-atomic version
-    burned a full run when the python process died mid-write."""
+    burned a full run when the python process died mid-write.
+
+    os.replace occasionally hits a transient WinError 5 (PermissionError)
+    when AV/OneDrive/indexer briefly holds the destination file open;
+    retry a few times with a short backoff instead of killing the whole
+    run over one blocked rename."""
     tmp = MANIFEST_PATH + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, MANIFEST_PATH)
+    for attempt in range(5):
+        try:
+            os.replace(tmp, MANIFEST_PATH)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(1.0 * (attempt + 1))
 
 
 # ---------------------------------------------------------------------------
