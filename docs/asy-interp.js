@@ -14064,6 +14064,7 @@ const _HTX_DATA_FILES = {
           || (pic && pic.commands && pic.commands.some(dc => dc && (dc._fromPathLabelNoAlign || (dc._isAxisLine && !dc._fromAddedPicture))));
         if (!_inexactI) return unitScale;
         const _spI = _fit2SaturatingSpanBp(pic && pic.commands, unitScale);
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_SPAN_DBG && _spI) { try { process.stderr.write('[satspan] w='+_spI.w.toFixed(2)+' h='+_spI.h.toFixed(2)+String.fromCharCode(10)); } catch(e){} }
         const lit = _spI ? Math.max(_spI.w, _spI.h) : Math.max(rX, rY) * unitScale;
         if (lit > 0) {
           const g = 400 / lit;
@@ -29013,6 +29014,7 @@ function renderSVG(result, opts) {
       // calibrated saturating-span helper.
       {
         const _sp2 = _fit2SaturatingSpanBp(drawCommands, unitScale);
+        if (typeof process !== 'undefined' && process.env && process.env.HTX_SPAN_DBG) { try { process.stderr.write('[refitspan] base='+_sp.w.toFixed(1)+'x'+_sp.h.toFixed(1)+' helper='+(_sp2?_sp2.w.toFixed(1)+'x'+_sp2.h.toFixed(1):'null')+String.fromCharCode(10)); } catch(e){} }
         if (_sp2) {
           if (_sp2.w > _sp.w) _sp.w = _sp2.w;
           if (_sp2.h > _sp.h) _sp.h = _sp2.h;
@@ -35643,6 +35645,14 @@ function _fit2SaturatingSpanBp(cmds, unitScale) {
       if (m && m.wBp > 0) { wBp = m.wBp; if (m.hBp > 0) hBp = m.hBp; }
     } catch (e) {}
     if (!(wBp > 0)) wBp = String(t).replace(/\[A-Za-z]+|[${}]/g, '').length * 0.52 * fs;
+    // scale(k)*Label transforms scale the drawn glyphs — measure at the
+    // transformed size (12275's drawGraph labels are scale(font)* with
+    // font<1; ignoring it overestimated the frame span ~35% and deflated
+    // the unitsize refit gain, -0.36).
+    if (dc.labelTransform && typeof dc.labelTransform.b === 'number') {
+      const _lts = Math.sqrt(dc.labelTransform.b * dc.labelTransform.b + (dc.labelTransform.e || 0) * (dc.labelTransform.e || 0));
+      if (isFinite(_lts) && _lts > 0.01 && Math.abs(_lts - 1) > 0.01) { wBp *= _lts; hBp *= _lts; }
+    }
     // Real asy frames carry ~1mm (2.835bp) beyond the glyph box in each
     // dimension (the same constant the tick-label extent model uses;
     // instrumented here: "$a$" glyph 6.34x5.17 vs frame 9.14x8.14,
