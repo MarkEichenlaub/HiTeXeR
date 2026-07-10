@@ -31685,8 +31685,15 @@ function renderSVG(result, opts) {
             const _wbp = _u === 'pt' ? _v : _u === 'cm' ? _v * 28.35 : _u === 'mm' ? _v * 2.835 : _u === 'in' ? _v * 72 : _u === 'em' ? _v * 12 : _v * 28.35;
             if (_wbp > _braceFloorBp) _braceFloorBp = _wbp;
           }
-          const _sizeTargetDisp = Math.max(sizeW, sizeH || sizeW, _braceFloorBp) * bpToCSSPx;
-          const _maxDisp = Math.max(svgW, svgH);
+          // size(W,0): the zero dimension is FREE in Asymptote (one-arg size(W)
+          // stores sizeH=sizeW, so sizeH===0 only ever means the explicit
+          // width-only form). Clamp only the constrained axis — the old
+          // max-dim fallback crushed 08986 (size(250,0), portrait content
+          // legitimately 350bp tall) 29% to force the free height under 250.
+          const _sizeTargetDisp = (sizeH > 0
+            ? Math.max(sizeW, sizeH, _braceFloorBp)
+            : Math.max(sizeW, _braceFloorBp)) * bpToCSSPx;
+          const _maxDisp = sizeH > 0 ? Math.max(svgW, svgH) : svgW;
           if (_sizeTargetDisp > 0 && _maxDisp > _sizeTargetDisp * 1.005) {
             const _clamp = _sizeTargetDisp / _maxDisp;
             svgW *= _clamp; svgH *= _clamp;
