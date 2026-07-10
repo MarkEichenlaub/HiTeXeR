@@ -35946,6 +35946,22 @@ function _katexMeasureBp(rawText, fontSize) {
       // physical width (matching renderLabelKatexSvg's corrected render).
       math = preprocessLatexForKatex(math, true, fontSize);
       if (!isD && /\$[^$]+\$/.test(math)) math = _reconstructMixedLabel(math);
+      // Pure-text labels (no $, no commands, no scripts) RENDER upright via
+      // the \text{} route (or the <text> fallback) — measure the same way.
+      // Math-mode measure ran ~15-18% wide on prose (italic letter advances:
+      // 12691's "semi-major axis" measured 81.3bp vs the rendered 68.5bp),
+      // inflating unitsize canvases and size() label reserves.
+      else if (!isD && math.indexOf('$') === -1 && math.indexOf('\\') === -1
+               && !/[\^_]/.test(math) && /[A-Za-z]/.test(math)) {
+        let _esc = '';
+        for (let i = 0; i < math.length; i++) {
+          const c = math[i];
+          if (c === '~') _esc += ' ';
+          else if ('{}$&#^_%'.indexOf(c) !== -1) _esc += '\\' + c;
+          else _esc += c;
+        }
+        math = '\\text{' + _esc + '}';
+      }
       const r = katexSvg.measure(math);
       if (r && r.widthEm > 0) {
         return { wBp: r.widthEm * fontSize, hBp: (r.heightEm + r.depthEm) * fontSize };
