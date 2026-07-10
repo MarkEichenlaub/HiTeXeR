@@ -28470,7 +28470,25 @@ function renderSVG(result, opts) {
         const _heightBpRaw = numLines === 1
           ? fontSize * heightFactor
           : fontSize * (heightFactor + 1.2 * (numLines - 1));
-        let textHeightUser = (_mjxHBp != null ? _mjxHBp
+        // Height-ONLY floor from the real glyph box: tall delimiters at large
+        // fontsize (08670's fontsize(28pt) "(" spans a full em+depth ≈ 1.54×
+        // the 0.65 cap-height heuristic) were clipped by the computed viewBox
+        // and the canvas came out half the reference height. Width is left
+        // untouched (measured widths broadly re-scale diagrams — see the
+        // mis-scale note above), and the floor only fires on a ≥1.3× miss so
+        // ordinary text keeps the corpus-tuned heuristic.
+        let _mjxHBpFloor = _mjxHBp;
+        if (_mjxHBpFloor == null && !autoScaled && !hasFrac && numLines === 1
+            && opts && opts.labelOutput === 'svg-native'
+            && typeof _mjxMeasureBp === 'function'
+            && typeof text === 'string' && text.indexOf('\n') === -1) {
+          try {
+            const _hm = _mjxMeasureBp(text, fontSize);
+            if (process.env.HTX_LBL_DBG) { try { process.stderr.write('[hfloor] ' + JSON.stringify(text) + ' fs=' + fontSize.toFixed(1) + ' raw=' + _heightBpRaw.toFixed(1) + ' meas=' + (_hm ? _hm.hBp.toFixed(1) : 'null') + String.fromCharCode(10)); } catch (e2) {} }
+            if (_hm && _hm.hBp > _heightBpRaw * 1.3) _mjxHBpFloor = _hm.hBp;
+          } catch (e) { /* keep heuristic */ }
+        }
+        let textHeightUser = (_mjxHBpFloor != null ? _mjxHBpFloor
           : (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw)) / roughPxPerUnitY;
 
         // For rotated labels, compute the axis-aligned bounding box of the rotated text.
@@ -28599,8 +28617,12 @@ function renderSVG(result, opts) {
               if (_renderWidthBp > lWidthBp) lWidthBp = _renderWidthBp;
             }
             // Match textHeightUser formula above so the bp-space solver and the
-            // user-space bbox stay in agreement for multi-line labels.
-            let lHeightBp = hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw;
+            // user-space bbox stay in agreement for multi-line labels
+            // (including the tall-delimiter measured height floor — the LP
+            // rebuilds the canvas from THESE boxes, so 08670's parens were
+            // re-clipped when only textHeightUser carried the floor).
+            let lHeightBp = _mjxHBpFloor != null ? _mjxHBpFloor
+              : (hasFrac ? _heightBpRaw * 1.5 : _heightBpRaw);
             // For rotated labels, use the rotated bounding box dimensions
             if (Math.abs(ltAngle) > 0.5) {
               const cosA = Math.abs(Math.cos(ltAngle * Math.PI / 180));
