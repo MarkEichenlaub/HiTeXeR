@@ -28017,6 +28017,15 @@ function renderSVG(result, opts) {
   const geoMinX = minX, geoMinY = minY, geoMaxX = maxX, geoMaxY = maxY;
   if (typeof process !== 'undefined' && process.env && process.env.HTX_DBG_BBOX) {
     try { process.stderr.write('[geo-only] geoMinX=' + geoMinX.toFixed(4) + ' geoMaxX=' + geoMaxX.toFixed(4) + ' geoMinY=' + geoMinY.toFixed(4) + ' geoMaxY=' + geoMaxY.toFixed(4) + ' geoW=' + ((geoMaxX-geoMinX)||1).toFixed(4) + ' geoH=' + ((geoMaxY-geoMinY)||1).toFixed(4) + '\n'); } catch(e){}
+    if (process.env.HTX_BBOX_WHO) {
+      const _thr = parseFloat(process.env.HTX_BBOX_WHO);
+      for (const dc of drawCommands) {
+        if (!dc || !dc.path || !dc.path.segs) continue;
+        let _mn = Infinity, _mx = -Infinity, _mny = Infinity, _mxy = -Infinity;
+        for (const s of dc.path.segs) { for (const pt of [s.p0, s.p3, s.cp1, s.cp2]) { if (pt && typeof pt.x === 'number') { if (pt.x < _mn) _mn = pt.x; if (pt.x > _mx) _mx = pt.x; if (pt.y < _mny) _mny = pt.y; if (pt.y > _mxy) _mxy = pt.y; } } }
+        if (_mn < -_thr || _mx > _thr || _mny < -_thr || _mxy > _thr) { try { process.stderr.write('[bboxwho] cmd=' + dc.cmd + ' x[' + _mn.toFixed(3) + '..' + _mx.toFixed(3) + '] y[' + _mny.toFixed(3) + '..' + _mxy.toFixed(3) + '] axis=' + (dc._isAxisLine || '') + ' tick=' + !!dc._isTickMark + ' job=' + !!dc._jobManaged + String.fromCharCode(10)); } catch (e2) {} }
+      }
+    }
   }
   // ── Interior-label box centering (Asymptote fit2 fidelity) ────────────────
   // Asymptote sizes a label by its frame box placed at the anchor WITH the
@@ -30329,9 +30338,24 @@ function renderSVG(result, opts) {
     // markangle arcs were rebuilt to the final scale above — the stale
     // literal-scale extents baked into the geo consts would over-pad the
     // canvas after a pass-2 rescale (12972/00210). Re-derive from paths.
-    if (_hasMarkangleDc) {
+    // Same for ANY pass-2-boosted unitsize picture: the geo consts carry
+    // label boxes frozen at the pre-refit rough scale (g-times too wide in
+    // user units — 00130's canvas ran 24% over from a label box and pads
+    // frozen at scale 28.35 when the final scale was 64.5). Paths are
+    // scale-true; the loop below re-adds label boxes at the FINAL scale.
+    if (_hasMarkangleDc || _unitsizeBoosted) {
       const _gb2 = _dcGeoBounds(false);
-      if (_gb2) { minX = _gb2.minX; maxX = _gb2.maxX; minY = _gb2.minY; maxY = _gb2.maxY; }
+      if (_gb2) {
+        // Shipped EPS frames round outward ~0.5-1bp past the ink (07705's
+        // reference keeps ~2px margins around a frame-filling grid; a
+        // mathematically tight box stretches the content ~1% and
+        // misregisters every grid line). Pad the path-derived extents by
+        // ~1.0bp per side to mimic the frame rounding (swept 0.5/0.75/1.0/1.4; 1.0 maximizes the c463+polar family net).
+        const _fpadX = (pxPerUnitX > 0) ? 1.0 / pxPerUnitX : 0;
+        const _fpadY = (pxPerUnitY > 0) ? 1.0 / pxPerUnitY : 0;
+        minX = _gb2.minX - _fpadX; maxX = _gb2.maxX + _fpadX;
+        minY = _gb2.minY - _fpadY; maxY = _gb2.maxY + _fpadY;
+      }
     }
     // With limits(...,Crop) the window IS the crop box: Asymptote fits the cropped
     // region to size() and the axis-title labels ("$x$" at the right end, "$y$" at
@@ -35667,7 +35691,7 @@ function _fit2SaturatingSpanBp(cmds, unitScale) {
     if (cy - hBp / 2 < fMinY) fMinY = cy - hBp / 2;
     if (cy + hBp / 2 > fMaxY) fMaxY = cy + hBp / 2;
   }
-  return { w: fMaxX - fMinX, h: fMaxY - fMinY };
+  return { w: fMaxX - fMinX, h: fMaxY - fMinY, minX: fMinX, maxX: fMaxX, minY: fMinY, maxY: fMaxY };
 }
 
 function _mjxMeasureBp(rawText, fontSize) {
