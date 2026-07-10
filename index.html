@@ -693,6 +693,14 @@ body {
   font-style: italic; color: #aaa; margin-top: 6px; font-size: 11px;
   line-height: 1.4;
 }
+.lib-tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.lib-tag-chip {
+  background: #0f3460; color: #cfe0ff; border-radius: 10px;
+  padding: 1px 8px; font-size: 10.5px; white-space: nowrap;
+}
+.lib-tag-chip.lib-tag-feature { background: #2a2a4a; color: #d8d0ff; }
+.lib-subject-line { color: #eee; font-size: 12.5px; line-height: 1.4; margin: 3px 0 6px; }
+.lib-tag-low-confidence { color: #d99; }
 #lib-detail-source {
   flex: 1; overflow: auto; background: #0f1525; color: #ccc;
   padding: 8px 12px; font-family: monospace; font-size: 11px;
@@ -711,7 +719,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.85</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.86</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -787,7 +795,7 @@ body {
 <div id="lib-overlay">
   <div id="lib-header">
     <h2>Library</h2>
-    <input id="lib-search-input" type="text" placeholder="Search id, title, context, imports...">
+    <input id="lib-search-input" type="text" placeholder="Search id, title, context, imports, tags...">
     <div class="lib-flag-chip" data-flag="has_3d" title="diagrams that use import three / graph3 / tube / solids / revolution">3D</div>
     <div class="lib-flag-chip" data-flag="has_axes" title="diagrams that draw xaxis / yaxis / axes">axes</div>
     <div class="lib-flag-chip" data-flag="has_arrows" title="diagrams that use Arrow / EndArrow / MidArrow">arrows</div>
@@ -10186,6 +10194,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (imp.toLowerCase().includes(s)) return true;
           }
         }
+        if (r.tags && !r.tags._error) {
+          if (r.tags.subject_line && r.tags.subject_line.toLowerCase().includes(s)) return true;
+          for (const tag of (r.tags.concept_tags || [])) {
+            if (tag.toLowerCase().includes(s) || prettyTag(tag).toLowerCase().includes(s)) return true;
+          }
+          for (const tag of (r.tags.feature_tags || [])) {
+            if (tag.toLowerCase().includes(s) || prettyTag(tag).toLowerCase().includes(s)) return true;
+          }
+        }
         return false;
       });
     }
@@ -10263,6 +10280,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const card = document.createElement('div');
     card.className = 'lib-card';
     card.dataset.id = rec.id;
+    if (rec.tags && !rec.tags._error && rec.tags.subject_line) {
+      card.title = rec.tags.subject_line;
+    }
     if (rec.thumb_path) {
       const img = document.createElement('img');
       img.dataset.src = rec.thumb_path;
@@ -10320,7 +10340,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const colors = (f.pen_colors || []).join(', ');
     const ctx = (rec.context_before || '') + ' [...] ' + (rec.context_after || '');
 
+    const t = (rec.tags && !rec.tags._error) ? rec.tags : null;
+    const lowConf = t && typeof t.confidence === 'number' && t.confidence < 0.5;
+    const conceptChips = t && t.concept_tags && t.concept_tags.length
+      ? `<div class="lib-tag-chips">${t.concept_tags.map(s => `<span class="lib-tag-chip">${escapeHtml(prettyTag(s))}</span>`).join('')}</div>`
+      : '';
+    const featureChips = t && t.feature_tags && t.feature_tags.length
+      ? `<div class="lib-tag-chips">${t.feature_tags.map(s => `<span class="lib-tag-chip lib-tag-feature">${escapeHtml(prettyTag(s))}</span>`).join('')}</div>`
+      : '';
+    const subjectLine = t && t.subject_line
+      ? `<div class="lib-subject-line${lowConf ? ' lib-tag-low-confidence' : ''}">${escapeHtml(t.subject_line)}${lowConf ? ' (low-confidence tag)' : ''}</div>`
+      : '';
+
     document.getElementById('lib-detail-meta').innerHTML = `
+      ${subjectLine}
+      ${conceptChips}
+      ${featureChips}
       <div><b>Course:</b> ${escapeHtml(rec.collection_name || '')} (id ${rec.collection_id})</div>
       <div><b>Lesson:</b> ${rec.lesson === null || rec.lesson === undefined ? '(none)' : rec.lesson}${rec.lesson_title ? ' &mdash; ' + escapeHtml(rec.lesson_title) : ''}</div>
       <div><b>Source:</b> ${escapeHtml(rec.source_kind)}${rec.problem_id ? ' (problem ' + rec.problem_id + ')' : ''}</div>
@@ -10378,6 +10413,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---- Utility ----
+
+  function prettyTag(slug) {
+    return String(slug).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
 
   function escapeHtml(s) {
     if (s == null) return '';
