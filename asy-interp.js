@@ -3826,9 +3826,24 @@ function createInterpreter() {
     if (++_callDepth > MAX_CALL_DEPTH) { _callDepth--; throw new Error('Maximum recursion depth exceeded'); }
     const local = createEnv(func.closure);
     const params = func.params;
+    // Named-arg wrappers ({_named:true, <name>: value} from evalArgList) bind
+    // by parameter name; the rest bind positionally in order. The old strict
+    // positional loop dropped the names, so the unresolved-import dispatch
+    // (karlin.rr_cartesian_axes(..., usegrid=false, complexplane=true))
+    // bound usegrid INTO xstep and hung the tick loop (04296/13525).
+    const _named = {};
+    const _positional = [];
+    for (const a of argValues) {
+      if (a && typeof a === 'object' && a._named === true) {
+        for (const k of Object.keys(a)) if (k !== '_named') _named[k] = a[k];
+      } else _positional.push(a);
+    }
+    let _pi = 0;
     for (let i = 0; i < params.length; i++) {
-      if (i < argValues.length) {
-        local.set(params[i].name, argValues[i]);
+      if (Object.prototype.hasOwnProperty.call(_named, params[i].name)) {
+        local.set(params[i].name, _named[params[i].name]);
+      } else if (_pi < _positional.length) {
+        local.set(params[i].name, _positional[_pi++]);
       } else if (params[i].default) {
         local.set(params[i].name, evalNode(params[i].default, local));
       } else {
