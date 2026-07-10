@@ -29614,7 +29614,12 @@ function renderSVG(result, opts) {
   const _hasImageContent = drawCommands.some(dc => dc && (dc.cmd === 'image' || dc.graphic));
   // ... and single-dimension size() (size(60,0)): the LP solves only the
   // constrained axis there and the measured pass lands the free one (08983).
-  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0)) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D && (!_sizeLpApplied || _hasImageContent || !(sizeW > 0 && sizeH > 0))) {
+  // unitsize()+size() together: in 2D, unitsize WINS (bounds.scaling checks
+  // xunitsize first — oracle-proven, see the fit2 branch above), so size()
+  // must not re-enter through this measured pass either (00626: unitsize(2.2cm)
+  // + size(180) shrank the literal 211bp frame to 180). Keep the pass for 3D,
+  // where the size-override calibration evidence came from.
+  if ((!hasUnitScale && !isAutoScaled || hasUnitScale && (sizeW > 0 || sizeH > 0) && _is3D) && labelInfoBp.length > 0 && !_trueSizeFrame && !_mixed3D2D && (!_sizeLpApplied || _hasImageContent || !(sizeW > 0 && sizeH > 0))) {
     const tgtW = sizeW > 0 ? sizeW : Infinity;
     const tgtH = sizeH > 0 ? sizeH : Infinity;
 
