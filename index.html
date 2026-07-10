@@ -711,7 +711,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.82</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.83</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -10031,6 +10031,12 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadManifest() {
     const loadingEl = document.getElementById('lib-loading');
     loadingEl.style.display = 'block';
+    if (location.protocol === 'file:') {
+      loadingEl.textContent = 'This page was opened directly from disk (file://), so the '
+        + 'browser blocks fetching library/manifest.json. Start fix-server.js and open '
+        + 'http://localhost:7842/index.html instead.';
+      return;
+    }
     loadingEl.textContent = 'Loading manifest...';
     try {
       const res = await fetch(MANIFEST_URL);
