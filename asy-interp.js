@@ -5184,6 +5184,60 @@ function createInterpreter() {
   }
 
   function evalPathExpr(node, env) {
+    // Flowchart connector chain (12869): `block--Label(..)--Arrow--block--
+    // Down--Left--...` parses as a path-join expression. When flowchart
+    // blocks exist in this program, pre-scan the chain: block operands become
+    // connector endpoints; Arrow/Down/Up/Left/Right are recognized by AST
+    // identifier name (bare `Arrow` evaluates to null); Label(...) attaches
+    // to the next segment. Specs are emitted AFTER the composite anchor-LP
+    // fixes the block layout.
+    if (_flowchartActive && node.nodes && node.nodes.length > 1) {
+      const kw = (n) => (n && n.point && (n.point.type === 'Ident' || n.point.type === 'Identifier')) ? (n.point.name || n.point.value) : null;
+      let sawBlockAst = false;
+      for (const n of node.nodes) {
+        const k = kw(n);
+        if (k === 'Down' || k === 'Up') { sawBlockAst = true; break; }
+      }
+      // Cheap gate passed (or not): evaluate nodes once and look for blocks.
+      const vals = [];
+      let anyBlock = false;
+      for (const n of node.nodes) {
+        if (n.isCycle) { vals.push(null); continue; }
+        const k = kw(n);
+        if (k === 'Arrow') { vals.push({_flowKw:'arrow'}); continue; }
+        if (k === 'Down')  { vals.push({_tag:'flowdir', dx:0, dy:-1}); continue; }
+        if (k === 'Up')    { vals.push({_tag:'flowdir', dx:0, dy:1}); continue; }
+        if (k === 'Left')  { vals.push({_tag:'flowdir', dx:-1, dy:0}); continue; }
+        if (k === 'Right') { vals.push({_tag:'flowdir', dx:1, dy:0}); continue; }
+        vals.push(evalNode(n.point, env));
+      }
+      for (const v of vals) if (v && v._tag === 'block') { anyBlock = true; break; }
+      if (anyBlock) {
+        let cur = null, pendLabel = null, pendArrow = false, dirs = [];
+        for (const v of vals) {
+          if (!v) continue;
+          if (v._tag === 'block') {
+            if (cur) {
+              (currentPic._flowConnectors || (currentPic._flowConnectors = [])).push({
+                from: cur, to: v, dirs: dirs.slice(), label: pendLabel, arrow: pendArrow });
+            }
+            cur = v; dirs = []; pendLabel = null; pendArrow = false;
+          } else if (v._tag === 'label') {
+            pendLabel = { text: v.text || '', align: v.align || null };
+          } else if (typeof v === 'string') {
+            pendLabel = { text: v, align: null };
+          } else if (v._flowKw === 'arrow' || v._tag === 'arrow') {
+            pendArrow = true;
+          } else if (v._tag === 'flowdir') {
+            dirs.push(v);
+          }
+        }
+        return makePath([], false);
+      }
+      // fall through: rebuild path from the already-evaluated vals is unsafe
+      // (dir specs etc). Non-block chains under _flowchartActive re-evaluate
+      // below — flowchart sources are rare and side-effect-free in practice.
+    }
     // First pass: evaluate all nodes, collecting pairs and inline paths
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
     let hasCycle = false;
@@ -9235,9 +9289,10 @@ function createInterpreter() {
     });
 
     // Path constructors
-    env.set('circle', (center, r) => {
-      const c = toPair(center);
-      const rad = toNumber(r);
+    env.set('circle', (...args) => {
+      if (_flowCircleBranch) { const _fb = _flowCircleBranch(args); if (_fb !== undefined) return _fb; }
+      const c = toPair(args[0]);
+      const rad = toNumber(args[1]);
       return makeCirclePath(c, rad);
     });
     env.set('Circle', (center, r) => {
@@ -10947,6 +11002,62 @@ function createInterpreter() {
         line: args._line || 0});
       return null;
     });
+    // ── flowchart module blocks (gallery controlsystem 12869) ──
+    // A block is a TRUESIZE outline (label + margins in bp) at a SCALABLE
+    // user anchor — exactly the composite anchor-LP shape: draw(block)
+    // emits at anchor+bp offsets and records a panel so the execute-end
+    // anchor-LP lays the diagram out like asy's fit.
+    const _mkFlowBlock = (kind, label, center, opts) => {
+      _flowchartActive = true;
+      let wBp = 0, hBp = 0;
+      const fs = 12;
+      if (label) {
+        try { const m = _mjxMeasureBp(label, fs); if (m && m.wBp > 0) { wBp = m.wBp; hBp = m.hBp || fs; } } catch (e) {}
+      }
+      let w = wBp + 11.34, h = hBp + 8.5;
+      if (kind === 'circle') {
+        const d = Math.max(Math.hypot(wBp, hBp) + 5.67, (opts && opts.mindiameter) || 0, 6);
+        w = h = d;
+      }
+      return { _tag: 'block', kind, label: label || '', center: toPair(center), w, h,
+               fillpen: (opts && opts.fillpen) || null };
+    };
+    const _flowBlockArgs = (args) => {
+      let label = null, center = null, mindiameter = 0, fillpen = null, pen = null;
+      for (const a of args) {
+        if (typeof a === 'string') { if (label === null) label = a; }
+        else if (a && a._tag === 'label') { if (label === null) label = a.text || ''; }
+        else if (isPair(a) && !center) center = a;
+        else if (a && a._named) {
+          if ('mindiameter' in a) mindiameter = toNumber(a.mindiameter);
+          if ('fillpen' in a && isPen(a.fillpen)) fillpen = a.fillpen;
+          if ('drawpen' in a && isPen(a.drawpen)) pen = a.drawpen;
+        }
+      }
+      return { label, center: center || makePair(0, 0), mindiameter, fillpen, pen };
+    };
+    env.set('roundrectangle', (...args) => {
+      const o = _flowBlockArgs(args);
+      return _mkFlowBlock('roundrectangle', o.label, o.center, o);
+    });
+    env.set('rectangle', (...args) => {
+      const o = _flowBlockArgs(args);
+      return _mkFlowBlock('rectangle', o.label, o.center, o);
+    });
+    env.set('block', (...args) => {
+      // block(pair z) — a zero-size waypoint used by connector chains.
+      const pos = args.filter(a => isPair(a));
+      const z = pos.length ? toPair(pos[0]) : (args.length >= 2 ? makePair(toNumber(args[0]), toNumber(args[1])) : makePair(0, 0));
+      return { _tag: 'block', kind: 'point', label: '', center: z, w: 0, h: 0, fillpen: null };
+    });
+    env.set('blockconnector', (...args) => null);
+    // string/Label-first circle(...) is the flowchart CIRCLE BLOCK — injected
+    // at the head of every circle() registration (they replace each other).
+    _flowCircleBranch = (args) => {
+      if (!(typeof args[0] === 'string' || (args[0] && args[0]._tag === 'label'))) return undefined;
+      const o = _flowBlockArgs(args);
+      return _mkFlowBlock('circle', o.label, o.center, o);
+    };
     // ── plain.asy object/align/point API (gallery alignbox 12854) ──
     // An object wraps a Label in an envelope path (box/ellipse) drawn around
     // the label's measured box. Everything is TRUESIZE bp; add(object) emits
@@ -13576,6 +13687,8 @@ const _HTX_DATA_FILES = {
   // removes the axis's previously-emitted commands, and re-emits the axis
   // line + ticks + labels across the extended range.
   let _deferredAxisJobs = [];
+  // flowchart blocks were created this run (gates the connector-chain scan)
+  let _flowchartActive = false;
 
   // Run any still-pending GLOBAL deferred axis jobs registered against `pic`
   // (jobs carry ._pic from registration). Called before add()/transform*pic
@@ -17953,6 +18066,7 @@ const _HTX_DATA_FILES = {
 
     // circle(point C, real r) or circle(point A, point B) [diameter]
     env.set('circle', (...args) => {
+      if (_flowCircleBranch) { const _fb = _flowCircleBranch(args); if (_fb !== undefined) return _fb; }
       let pts = [], r = null;
       for (const a of args) {
         if (isPoint(a) || isPair(a)) pts.push(a);
@@ -23287,6 +23401,33 @@ const _HTX_DATA_FILES = {
       frameTarget = args[0];
       args = args.slice(1);
     }
+    // draw(block): flowchart block — truesize outline + centered label at the
+    // block's user anchor, recorded as an anchor-LP panel (12869).
+    if (args.length > 0 && args[0] && args[0]._tag === 'block') {
+      const b = args[0];
+      if (b.kind === 'point' || (b.w <= 0 && b.h <= 0)) return null;
+      const cx = b.center.x, cy = b.center.y;
+      const w2 = b.w / 2, h2 = b.h / 2;
+      const start = target.commands.length;
+      let outline;
+      if (b.kind === 'circle') {
+        outline = makeCirclePath(makePair(cx, cy), w2);
+      } else {
+        outline = makePath([
+          lineSegment(makePair(cx - w2, cy - h2), makePair(cx + w2, cy - h2)),
+          lineSegment(makePair(cx + w2, cy - h2), makePair(cx + w2, cy + h2)),
+          lineSegment(makePair(cx + w2, cy + h2), makePair(cx - w2, cy + h2)),
+          lineSegment(makePair(cx - w2, cy + h2), makePair(cx - w2, cy - h2)),
+        ], true);
+      }
+      if (b.fillpen) target.commands.push({cmd:'fill', path: outline, pen: clonePen(b.fillpen), line: 0});
+      target.commands.push({cmd:'draw', path: outline, pen: clonePen(defaultPen), line: 0});
+      if (b.label) target.commands.push({cmd:'label', text: b.label, pos: makePair(cx, cy),
+                                         align: makePair(0, 0), pen: clonePen(defaultPen), line: 0});
+      (currentPic._addPanels || (currentPic._addPanels = [])).push({
+        px: cx, py: cy, start, count: target.commands.length - start });
+      return null;
+    }
     // Marker support: draw(…, graph(…), marker(…)) places the marker symbol along
     // the drawn path via its markroutine (marknodes/markuniform). The path is still
     // drawn by the normal logic below; we just also stamp the markers (graph_7).
@@ -27053,6 +27194,7 @@ const _HTX_DATA_FILES = {
     _axisLimits = { xmin: null, xmax: null, ymin: null, ymax: null, crop: false };
     _trigInexactHint = false;
     _deferredAxisJobs = [];
+    _flowchartActive = false;
 
     // Restore any built-in functions that were shadowed by user variables in a
     // previous execution (e.g. `real scale = 0.02;` overwrote `scale` function).
@@ -27144,6 +27286,49 @@ const _HTX_DATA_FILES = {
       }
     }
 
+    // Resolve deferred flowchart connector specs (12869) against the
+    // anchor-LP-scaled block centers: straight edge-to-edge segments, or an
+    // orthogonal L-route following the queued Down/Up/Left/Right dirs.
+    const _emitFlowConnectors = (aScale) => {
+      const specs = currentPic._flowConnectors;
+      if (!specs || !specs.length || currentPic._flowConnectorsEmitted) return;
+      currentPic._flowConnectorsEmitted = true;
+      const edge = (b, dx, dy) => ({
+        x: aScale * b.center.x + dx * b.w / 2,
+        y: aScale * b.center.y + dy * b.h / 2 });
+      for (const sp of specs) {
+        const A = sp.from, B = sp.to;
+        const Ac = { x: aScale * A.center.x, y: aScale * A.center.y };
+        const Bc = { x: aScale * B.center.x, y: aScale * B.center.y };
+        let pts;
+        if (!sp.dirs.length) {
+          const hor = Math.abs(Bc.x - Ac.x) >= Math.abs(Bc.y - Ac.y);
+          if (hor) { const g = Bc.x >= Ac.x ? 1 : -1; pts = [edge(A, g, 0), edge(B, -g, 0)]; }
+          else { const g = Bc.y >= Ac.y ? 1 : -1; pts = [edge(A, 0, g), edge(B, 0, -g)]; }
+        } else {
+          const d1 = sp.dirs[0], dl = sp.dirs[sp.dirs.length - 1];
+          const start = edge(A, d1.dx, d1.dy);
+          const end = edge(B, -dl.dx, -dl.dy);
+          const corner = (d1.dx !== 0) ? { x: end.x, y: start.y } : { x: start.x, y: end.y };
+          pts = [start, corner, end];
+        }
+        const segs = [];
+        for (let i = 0; i + 1 < pts.length; i++) {
+          if (Math.abs(pts[i].x - pts[i+1].x) < 1e-9 && Math.abs(pts[i].y - pts[i+1].y) < 1e-9) continue;
+          segs.push(lineSegment(makePair(pts[i].x, pts[i].y), makePair(pts[i+1].x, pts[i+1].y)));
+        }
+        if (!segs.length) continue;
+        const dc = { cmd: 'draw', path: makePath(segs, false), pen: clonePen(defaultPen), line: 0 };
+        if (sp.arrow) dc.arrow = { _tag: 'arrow', style: 'Arrow', size: 5, sizeExplicit: true };
+        currentPic.commands.push(dc);
+        if (sp.label && sp.label.text) {
+          const m = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+          const al = (sp.label.align && typeof sp.label.align.x === 'number') ? sp.label.align : makePair(0, 1);
+          currentPic.commands.push({ cmd: 'label', text: sp.label.text, pos: makePair(m.x, m.y),
+                                     align: makePair(al.x, al.y), pen: clonePen(defaultPen), line: 0 });
+        }
+      }
+    };
     // Composite anchor-LP: asy add(pic[,pos]) fits sub-pictures 1:1 into
     // TRUESIZE frames whose interiors cannot be scaled by the outer size();
     // only the anchor positions are user coordinates. When the composite is
@@ -27158,7 +27343,7 @@ const _HTX_DATA_FILES = {
     // circles add()ed at anchors 0 and 20 ship at 151bp — anchors spread
     // a=7 to fill the box).
     if (currentPic._addPanels && currentPic._addPanels.length >= 2
-        && sizeW === 0 && sizeH === 0 && !hasUnitScale && !projection) {
+        && !hasUnitScale && !projection) {
       const _panels = currentPic._addPanels;
       const _exts = _panels.map(p => {
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -27207,8 +27392,11 @@ const _HTX_DATA_FILES = {
         }
       }
       if (_exts.length >= 2 && (_spreadX > 1e-6 || _spreadY > 1e-6)) {
-        const _D0 = /size\w*\s*[(=]/.test(code) ? 400 : 150;
-        const _solveAxis = (cs) => {
+        // Per-axis target: an explicit size() bounds its own axis; a free
+        // axis falls to the wrapper default (12869's size(0,4cm): y bound at
+        // 113bp, x free at the 400 default since 'size(' matches).
+        const _Ddef = /size\w*\s*[(=]/.test(code) ? 400 : 150;
+        const _solveAxis = (cs, _D0) => {
           let D = _D0;
           for (let tries = 0; tries < 13; tries++) {
             let a = Infinity, feasible = true;
@@ -27235,8 +27423,8 @@ const _HTX_DATA_FILES = {
         const _extsY = _exts.map(e => ({ u: e.p.py, lo: e.y0 - e.p.py, hi: e.y1 - e.p.py }));
         if (isFinite(_sX0)) { _extsX.push({ u: _sX0, lo: 0, hi: 0 }, { u: _sX1, lo: 0, hi: 0 }); }
         if (isFinite(_sY0)) { _extsY.push({ u: _sY0, lo: 0, hi: 0 }, { u: _sY1, lo: 0, hi: 0 }); }
-        const _ax = _solveAxis(_extsX);
-        const _ay = _solveAxis(_extsY);
+        const _ax = _solveAxis(_extsX, sizeW > 0 ? sizeW : _Ddef);
+        const _ay = _solveAxis(_extsY, sizeH > 0 ? sizeH : _Ddef);
         const _a = Math.min(_ax, _ay);
         if (isFinite(_a) && _a > 0 && Math.abs(_a - 1) > 1e-6) {
           for (const e of _exts) {
@@ -27261,9 +27449,13 @@ const _HTX_DATA_FILES = {
           // Ship the compressed layout at natural bp (frames are truesize).
           _trueSizeFrame = true;
           if (!hasUnitScale) { hasUnitScale = true; unitScale = 1; }
+          _emitFlowConnectors(_a);
         }
       }
     }
+    // Flowchart connectors not yet emitted (anchor-LP skipped or a≈1):
+    // resolve at natural scale.
+    _emitFlowConnectors(1);
 
     // Label-only pictures (12912: one display-math label, nothing else):
     // pure-truesize content leaves asy's scaling LP unbounded on both axes →
@@ -38199,6 +38391,9 @@ function detectUnsupportedFeature(code) {
 // size3(...,IgnoreAspect) two-pass pre-projection scale — set between the
 // discovery eval and the re-eval in render(); read by projectTriple.
 let _size3PreScale = null;
+// flowchart circle-block branch — module scope so BOTH circle() registrations
+// (base env + geometry module, different closures) can read it.
+let _flowCircleBranch = null;
 
 function render(code, opts) {
   // katexSvg is a shared singleton across renders — clear any texpreamble() macros
