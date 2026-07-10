@@ -27203,7 +27203,10 @@ const _HTX_DATA_FILES = {
       const horiz = pxSpan > 1e-6 && pySpan <= 1e-6;
       const vert  = pySpan > 1e-6 && pxSpan <= 1e-6;
       if (horiz || vert) {
-        const TARGET = 400; // TeXeR wrapper's prepended size(400,400)
+        // TeXeR wrapper target: prepended size(400,400) when the source has
+        // its own size text; otherwise the APPENDED size(150,150) is the last
+        // size call and wins (12929: four unsized panels must land at 150).
+        const TARGET = _texerSizeTextMatch ? 400 : 150; // TeXeR wrapper's prepended size(400,400)
         // Current full extent (geometry + label ink) along the spread axis.
         const gb = getGeoBbox(currentPic.commands);
         let minX = gb.minX, maxX = gb.maxX, minY = gb.minY, maxY = gb.maxY;
@@ -29893,6 +29896,15 @@ function renderSVG(result, opts) {
     // (08867: 472bp geometry stays literal). NOTE: today's live TeXeR + local
     // oracle disagree (they fit it to 150) — stored-ref-compatible until those
     // refs are refetched.
+    // Multi-picture composite true-bp floor. 2026-07-10 audit: 08867's ref
+    // IS current (live refetch byte-identical, 471bp natural) — TeXeR ships
+    // it natural because its truesize panels are INFEASIBLE at D=150 and the
+    // sqrt2-enlarge loop walks D up to ~natural. 12929 (panels 88bp, feasible
+    // at 150) is fit to 150 instead — the blanket floor mis-sizes it. The
+    // REAL rule is asy add(pic,pos)=add(pic.fit(),pos): sub-pictures are
+    // truesize frames with scalable anchors through the per-axis LP; until
+    // the unsized add(picture,pos) path models that, keep the floor (08867
+    // protected; 12929 documented residual).
     if (_usedPictureComposite && pxPerUnit < 1.0) {
       pxPerUnit = pxPerUnitX = pxPerUnitY = 1.0;
     }
