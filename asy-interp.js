@@ -27204,7 +27204,7 @@ const _HTX_DATA_FILES = {
         }
       }
       if (_exts.length >= 2 && (_spreadX > 1e-6 || _spreadY > 1e-6)) {
-        const _D0 = /size\w*\s*[(=]\s*[\d.]/.test(code) ? 400 : 150;
+        const _D0 = /size\w*\s*[(=]/.test(code) ? 400 : 150;
         const _solveAxis = (cs) => {
           let D = _D0;
           for (let tries = 0; tries < 13; tries++) {
@@ -27341,7 +27341,7 @@ const _HTX_DATA_FILES = {
         // TeXeR wrapper target: prepended size(400,400) when the source has
         // its own size text; otherwise the APPENDED size(150,150) is the last
         // size call and wins (12929: four unsized panels must land at 150).
-        const TARGET = _texerSizeTextMatch ? 400 : 150; // TeXeR wrapper's prepended size(400,400)
+        const TARGET = /size\w*\s*[(=]/.test(code) ? 400 : 150; // TeXeR wrapper's size-text rule (NO digit requirement: size(p1,3cm) counts — 03400 pins the 400 target)'s prepended size(400,400)
         // Current full extent (geometry + label ink) along the spread axis.
         const gb = getGeoBbox(currentPic.commands);
         let minX = gb.minX, maxX = gb.maxX, minY = gb.minY, maxY = gb.maxY;
