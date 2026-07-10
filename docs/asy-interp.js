@@ -2260,6 +2260,14 @@ function createInterpreter() {
   // outward and re-project all previously projected points in-place.
   function projectTriple(v) {
     if (!isTriple(v)) return isPair(v) ? v : makePair(0,0);
+    // size3(...,IgnoreAspect) two-pass rescale (see render()): normalize the
+    // model anisotropically about the first-pass scene centre BEFORE
+    // projection, so every projection consumer (paths, meshes, axes) sees
+    // the fit3-scaled scene.
+    if (_size3PreScale) {
+      const s = _size3PreScale;
+      v = makeTriple((v.x - s.cx) * s.sx, (v.y - s.cy) * s.sy, (v.z - s.cz) * s.sz);
+    }
     const proj = projection;
     if (!proj) return makePair(v.x, v.y); // no projection: drop z
 
@@ -8345,6 +8353,12 @@ function createInterpreter() {
         if (a && a._tag === 'mframe') { frameArg = a; }
         if (a && a._tag === 'bbox') { bboxArg = a; }
         if (a && a._tag === 'orientation') { orientArg = a; }
+        // shipout(picture p): ship p instead of currentpicture (12876's
+        // two-panel composition builds an `output` picture and ships it).
+        if (a && a._tag === 'picture' && a !== currentPic) {
+          currentPic = a;
+          _usedCurrentpictureReassign = true;
+        }
       }
       if (orientArg && orientArg.name && orientArg.name !== 'Portrait') {
         currentPic._pageOrientation = orientArg.name;
@@ -10750,6 +10764,75 @@ function createInterpreter() {
 
     // Draw commands - these append to drawCommands
     env.set('draw', (...args) => evalDraw('draw', args));
+    // axialshade(picture pic=currentpicture, path g, pen pena, pair a,
+    //            pen penb, pair b, bool extend=false): fill g with a linear
+    // gradient from pena at point a to penb at point b (gallery
+    // axialshade.asy / shade.asy). Rendered as an SVG <linearGradient> in
+    // user-space coords by the fill emitter.
+    env.set('axialshade', (...args) => {
+      const pos = args.filter(a => !(a && a._named) && typeof a !== 'boolean');
+      let target = currentPic, g = null;
+      const pens = [], pairs = [];
+      for (const a of pos) {
+        if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
+        if (isPath(a) && !g) { g = a; continue; }
+        if (isPen(a)) { pens.push(a); continue; }
+        if (isPair(a)) { pairs.push(a); continue; }
+      }
+      if (!g || pens.length < 2 || pairs.length < 2) return null;
+      const cssA = penToCSS(pens[0]), cssB = penToCSS(pens[1]);
+      const pa = toPair(pairs[0]), pb = toPair(pairs[1]);
+      target.commands.push({cmd:'fill', path: g, pen: clonePen(pens[0]),
+        _axialGradient: { a: {x: pa.x, y: pa.y}, b: {x: pb.x, y: pb.y},
+                          c1: cssA.fill, o1: cssA.opacity, c2: cssB.fill, o2: cssB.opacity },
+        line: args._line || 0});
+      return null;
+    });
+    // radialshade(path g, pen pena, pair a, real ra, pen penb, pair b,
+    //             real rb): fill g with a radial gradient from pena on
+    // circle(a,ra) to penb on circle(b,rb) (gallery shade.asy).
+    env.set('radialshade', (...args) => {
+      const pos = args.filter(a => !(a && a._named) && typeof a !== 'boolean');
+      let target = currentPic, g = null;
+      const pens = [], pairs = [], reals = [];
+      for (const a of pos) {
+        if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
+        if (isPath(a) && !g) { g = a; continue; }
+        if (isPen(a)) { pens.push(a); continue; }
+        if (isPair(a)) { pairs.push(a); continue; }
+        if (typeof a === 'number') { reals.push(a); continue; }
+      }
+      if (!g || pens.length < 2 || pairs.length < 2 || reals.length < 2) return null;
+      const cssA = penToCSS(pens[0]), cssB = penToCSS(pens[1]);
+      const pa = toPair(pairs[0]), pb = toPair(pairs[1]);
+      target.commands.push({cmd:'fill', path: g, pen: clonePen(pens[1]),
+        _radialGradient: { c0: {x: pa.x, y: pa.y}, r0: reals[0],
+                           c1: {x: pb.x, y: pb.y}, r1: reals[1],
+                           colA: cssA.fill, oA: cssA.opacity, colB: cssB.fill, oB: cssB.opacity },
+        line: args._line || 0});
+      return null;
+    });
+    // plain.asy save()/restore(): snapshot & restore the current picture
+    // contents and the default pen (gallery elliptic.asy draws two variants
+    // of a shared base picture between save()/restore() pairs). Shallow
+    // command-list copy — subsequent draws only append; they don't mutate
+    // existing commands in place.
+    const _saveRestoreStack = [];
+    env.set('save', () => {
+      _saveRestoreStack.push({
+        commands: currentPic.commands.slice(),
+        defaultPen: clonePen(defaultPen)
+      });
+      return null;
+    });
+    env.set('restore', () => {
+      const s = _saveRestoreStack.pop();
+      if (!s) return null;
+      currentPic.commands.length = 0;
+      Array.prototype.push.apply(currentPic.commands, s.commands);
+      defaultPen = s.defaultPen;
+      return null;
+    });
     env.set('fill', (...args) => evalDraw('fill', args));
     env.set('filldraw', (...args) => evalDraw('filldraw', args));
     env.set('clip', (...args) => evalDraw('clip', args));
@@ -21952,13 +22035,16 @@ const _HTX_DATA_FILES = {
     // 3D dims on the picture for diagnostics and use max(W,H) as the 2D size if
     // no size() was given. Full 3D aspect-preserving scaling is Phase 1.
     env.set('size3', (...args) => {
-      const pos = args.filter(a => !(a && a._named));
+      // Booleans are the keepAspect flag (IgnoreAspect === false), not sizes:
+      // size3(200,IgnoreAspect) must give h=d=200, not toNumber(false)=0.
+      const pos = args.filter(a => !(a && a._named) && typeof a !== 'boolean');
       const w = pos.length > 0 ? toNumber(pos[0]) : 0;
       const h = pos.length > 1 ? toNumber(pos[1]) : w;
       const d = pos.length > 2 ? toNumber(pos[2]) : h;
       currentPic._size3W = w;
       currentPic._size3H = h;
       currentPic._size3D = d;
+      currentPic._size3Aniso = args.some(a => a === false);
       // Fallback: if no 2D size set yet, use max of W,H,D so diagram isn't tiny.
       if (sizeW === 0 && sizeH === 0) {
         const s = Math.max(w, h, d);
@@ -26841,6 +26927,47 @@ const _HTX_DATA_FILES = {
       }
     }
 
+    // size3(w,h,d,IgnoreAspect): real asy's fit3 scales x/y/z INDEPENDENTLY
+    // so the 3D bounding box fills the w×h×d target before projection
+    // (12760 filesurface: x=2005..2011, y=0..350, z=0..3e4 collapsed to a
+    // sliver without it). HTX projects eagerly (mesh faces copy projected
+    // coords), so an in-place re-projection can't reach everything — instead
+    // compute the anisotropic normalization from THIS pass's tracked 3D bbox
+    // and hand it to render(), which re-evals with the pre-projection scale
+    // installed in projectTriple (scene centered to the origin so the
+    // authored camera direction + autoadjust re-frame it cleanly).
+    if (!_size3PreScale && currentPic._size3Aniso && _projectedTriples.length > 0
+        && (currentPic._size3W > 0 || currentPic._size3H > 0 || currentPic._size3D > 0)) {
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (const e of _projectedTriples) {
+        const t = e.triple;
+        if (t.x < x0) x0 = t.x; if (t.y < y0) y0 = t.y; if (t.z < z0) z0 = t.z;
+        if (t.x > x1) x1 = t.x; if (t.y > y1) y1 = t.y; if (t.z > z1) z1 = t.z;
+      }
+      if (isFinite(x0) && isFinite(y0) && isFinite(z0)) {
+        const W = currentPic._size3W > 0 ? currentPic._size3W : Math.max(currentPic._size3H, currentPic._size3D);
+        const H = currentPic._size3H > 0 ? currentPic._size3H : W;
+        const D = currentPic._size3D > 0 ? currentPic._size3D : H;
+        const rx = (x1 - x0) || 1, ry = (y1 - y0) || 1, rz = (z1 - z0) || 1;
+        let sx = W / rx, sy = H / ry, sz = D / rz;
+        const sm = Math.max(sx, sy, sz);
+        const _smin = Math.min(sx, sy, sz);
+        // Only rescale under STRONG anisotropy (data axes on wildly different
+        // scales — 12760's z spans ~5000x its x). Near-cubic scenes (12764,
+        // ratio <5) render acceptably without it, and the rescale's residual
+        // tick-label distortion costs more than it buys there.
+        const _anisoRatio = _smin > 0 ? sm / _smin : Infinity;
+        if (isFinite(sm) && sm > 0) { sx /= sm; sy /= sm; sz /= sm; }
+        if (_anisoRatio > 5 &&
+            (Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6 || Math.abs(sz - 1) > 1e-6)) {
+          currentPic._size3Rescale = {
+            cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, cz: (z0 + z1) / 2,
+            sx, sy, sz
+          };
+        }
+      }
+    }
+
     // Finalize 3D grid now that bounds are known (before axes, so grid is behind)
     const _finalize3DGrid = globalEnv.get('_finalize3DGrid');
     if (typeof _finalize3DGrid === 'function') {
@@ -26955,6 +27082,7 @@ const _HTX_DATA_FILES = {
       _defaultpenLwSet,
       _is3D: !!projection,
       _bbox3D,
+      _size3Rescale: currentPic._size3Rescale || null,
       _bboxSpec: currentPic._bboxSpec,
       _pageOrientation: currentPic._pageOrientation,
       _usedPictureComposite,
@@ -32133,6 +32261,44 @@ function renderSVG(result, opts) {
         elements.push(
           `<defs><radialGradient id="${gid}" cx="${fmt(cxPx)}" cy="${fmt(cyPx)}" r="${fmt(rPx)}" fx="${fmt(fxPx)}" fy="${fmt(fyPx)}" gradientUnits="userSpaceOnUse">` +
           _stopEls +
+          `</radialGradient></defs>`
+        );
+        fill = `url(#${gid})`;
+      }
+      // 2D axialshade(): linear gradient between the two anchor points,
+      // in user-space px coords (same transform as paths).
+      if (dc._axialGradient) {
+        const ag = dc._axialGradient;
+        const x1 = (ag.a.x - minX) * pxPerUnitX, y1 = (maxY - ag.a.y) * pxPerUnitY;
+        const x2 = (ag.b.x - minX) * pxPerUnitX, y2 = (maxY - ag.b.y) * pxPerUnitY;
+        if (typeof globalThis._sphereGradCounter !== 'number') globalThis._sphereGradCounter = 0;
+        const gid = `_ax${++globalThis._sphereGradCounter}`;
+        const _op = o => (o != null && o < 1) ? ` stop-opacity="${fmt(o)}"` : '';
+        elements.push(
+          `<defs><linearGradient id="${gid}" x1="${fmt(x1)}" y1="${fmt(y1)}" x2="${fmt(x2)}" y2="${fmt(y2)}" gradientUnits="userSpaceOnUse">` +
+          `<stop offset="0%" stop-color="${ag.c1}"${_op(ag.o1)}/>` +
+          `<stop offset="100%" stop-color="${ag.c2}"${_op(ag.o2)}/>` +
+          `</linearGradient></defs>`
+        );
+        fill = `url(#${gid})`;
+      }
+      // 2D radialshade(): radial gradient from circle(c0,r0) to circle(c1,r1).
+      // SVG1.1 has no focal radius, so map r0 as the first stop offset.
+      if (dc._radialGradient) {
+        const rg = dc._radialGradient;
+        const cxPx = (rg.c1.x - minX) * pxPerUnitX;
+        const cyPx = (maxY - rg.c1.y) * pxPerUnitY;
+        const fxPx = (rg.c0.x - minX) * pxPerUnitX;
+        const fyPx = (maxY - rg.c0.y) * pxPerUnitY;
+        const rPx = Math.max(1e-6, rg.r1 * Math.min(pxPerUnitX, pxPerUnitY));
+        const off0 = Math.max(0, Math.min(99, (rg.r1 > 1e-9 ? rg.r0 / rg.r1 : 0) * 100));
+        if (typeof globalThis._sphereGradCounter !== 'number') globalThis._sphereGradCounter = 0;
+        const gid = `_rs${++globalThis._sphereGradCounter}`;
+        const _op = o => (o != null && o < 1) ? ` stop-opacity="${fmt(o)}"` : '';
+        elements.push(
+          `<defs><radialGradient id="${gid}" cx="${fmt(cxPx)}" cy="${fmt(cyPx)}" r="${fmt(rPx)}" fx="${fmt(fxPx)}" fy="${fmt(fyPx)}" gradientUnits="userSpaceOnUse">` +
+          `<stop offset="${fmt(off0)}%" stop-color="${rg.colA}"${_op(rg.oA)}/>` +
+          `<stop offset="100%" stop-color="${rg.colB}"${_op(rg.oB)}/>` +
           `</radialGradient></defs>`
         );
         fill = `url(#${gid})`;
@@ -37654,6 +37820,10 @@ function detectUnsupportedFeature(code) {
   return null;
 }
 
+// size3(...,IgnoreAspect) two-pass pre-projection scale — set between the
+// discovery eval and the re-eval in render(); read by projectTriple.
+let _size3PreScale = null;
+
 function render(code, opts) {
   // katexSvg is a shared singleton across renders — clear any texpreamble() macros
   // a previous diagram installed so they don't leak into this one (the interpreter
@@ -37670,7 +37840,17 @@ function render(code, opts) {
   opts = opts || {};
   if (opts.labelOutput === undefined) opts = Object.assign({}, opts, { labelOutput: 'svg-native' });
   const interp = createInterpreter();
-  const result = interp.execute(code, opts);
+  let result = interp.execute(code, opts);
+  // size3(...,IgnoreAspect): the first eval discovered the 3D bbox and left
+  // the anisotropic normalization on the result; re-eval with the scale
+  // installed so every projection (paths, meshes, deferred axes) sees the
+  // fit3-scaled scene. Deterministic sources re-eval identically.
+  if (result && result._size3Rescale && !_size3PreScale) {
+    _size3PreScale = result._size3Rescale;
+    try { result = createInterpreter().execute(code, opts); }
+    catch (e) { /* keep the first-pass result */ }
+    finally { _size3PreScale = null; }
+  }
   return renderSVG(result, opts);
 }
 
