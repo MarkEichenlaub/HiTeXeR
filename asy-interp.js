@@ -2114,7 +2114,16 @@ const CONTINUE_SIG = {_sig:'continue'};
 function ReturnSig(v) { return {_sig:'return', value:v}; }
 
 // Raw 3D→2D projection (module-scope so both interpreter and renderer can use it)
-function _projectTripleRaw(v, proj) {
+function _projectTripleRaw(v, proj, _preApplied) {
+  // size3(...,IgnoreAspect) two-pass rescale: normalize the model here (the
+  // ONE projection primitive) so every 3D->2D path — frame re-projection,
+  // shift(triple)*pic, axis3 label anchors — sees the fit3-scaled scene.
+  // projectTriple pre-applies it for its autoadjust math and passes
+  // _preApplied=true; tracked-triple re-projections do the same.
+  if (!_preApplied && _size3PreScale && v && typeof v.x === 'number') {
+    const _s3 = _size3PreScale;
+    v = { x: (v.x - _s3.cx) * _s3.sx, y: (v.y - _s3.cy) * _s3.sy, z: (v.z - _s3.cz) * _s3.sz };
+  }
   const cx = proj.cx, cy = proj.cy, cz = proj.cz;
   const tx = proj.tx || 0, ty = proj.ty || 0, tz = proj.tz || 0;
   // Direction from target to camera (view direction in Asymptote convention)
@@ -2322,14 +2331,14 @@ function createInterpreter() {
         // Re-project all previously tracked triples with new camera
         for (const entry of _projectedTriples) {
           const t = entry.triple;
-          const rp = _projectTripleRaw(t, proj);
+          const rp = _projectTripleRaw(t, proj, true);
           entry.result.x = rp.x;
           entry.result.y = rp.y;
         }
       }
     }
 
-    const result = _projectTripleRaw(v, proj);
+    const result = _projectTripleRaw(v, proj, true);
     // Track for later potential re-projection AND for computing a 3D-only
     // projected bbox (used to fit size() to the dominant 3D figure in mixed
     // 3D+2D scenes — see the _bbox3D logic in the size-fit block). Orthographic
@@ -8851,7 +8860,16 @@ function createInterpreter() {
         }
         return makePair(minX, minY);
       }
-      if (args.length===1 && isArray(args[0])) return Math.min(...args[0].map(toNumber));
+      if (args.length===1 && isArray(args[0])) {
+        // min(real[][]) is the global elementwise minimum in asy. Flatten
+        // nested numeric arrays (12760's palette levels came from min/max of
+        // a data matrix; toNumber(row)=0 zeroed every level -> uniform
+        // magenta surface). reduce, not spread — data matrices can be large.
+        const flat = args[0].flat(3);
+        let m = Infinity;
+        for (const v of flat) { const n = toNumber(v); if (isFinite(n) && n < m) m = n; }
+        return isFinite(m) ? m : 0;
+      }
       return Math.min(...args.map(toNumber));
     });
     env.set('max', (...args) => {
@@ -8873,7 +8891,13 @@ function createInterpreter() {
         }
         return makePair(maxX, maxY);
       }
-      if (args.length===1 && isArray(args[0])) return Math.max(...args[0].map(toNumber));
+      if (args.length===1 && isArray(args[0])) {
+        // See min(): flatten nested numeric arrays, reduce not spread.
+        const flat = args[0].flat(3);
+        let m = -Infinity;
+        for (const v of flat) { const n = toNumber(v); if (isFinite(n) && n > m) m = n; }
+        return isFinite(m) ? m : 0;
+      }
       return Math.max(...args.map(toNumber));
     });
     env.set('floor', _broadcast1(Math.floor));
@@ -22045,11 +22069,13 @@ const _HTX_DATA_FILES = {
       currentPic._size3H = h;
       currentPic._size3D = d;
       currentPic._size3Aniso = args.some(a => a === false);
-      // Fallback: if no 2D size set yet, use max of W,H,D so diagram isn't tiny.
-      if (sizeW === 0 && sizeH === 0) {
-        const s = Math.max(w, h, d);
-        sizeW = s; sizeH = s;
-      }
+      // No 2D-size fallback: 'size3(' matches the TeXeR wrapper's size-text
+      // regex, so the prepended size(400,400) governs the 2D fit — the ref
+      // for a size3-only picture is ~400bp (12760 filesurface 397x419), not
+      // max(w,h,d). Forcing 200 here rendered these at HALF the reference
+      // scale with the meshpen drowning the palette fills. Only 4 corpus
+      // sources are size3-without-size() (12760/12769/12800/12830, all
+      // gallery), so the default-size path decides for exactly this class.
     });
 
     // path3 wire-frame type: {_tag:'path3', edges, vertices}
@@ -22310,6 +22336,19 @@ const _HTX_DATA_FILES = {
       const axisPen = makePen({r:0, g:0, b:0, linewidth: 0.5});
       const tickPen = makePen({r:0, g:0, b:0, linewidth: 0.3});
       const tickLen = 0.05 * Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
+      // size3(...,IgnoreAspect) pre-scale: a displacement of tickLen USER
+      // units projects to wildly different visual lengths per axis once the
+      // anisotropic normalization applies (12760: 17 user units of label
+      // offset along the squeezed axis put tick labels 3 scene-widths away).
+      // Express offsets as a VISUAL length divided back by each axis's scale.
+      const _s3p = (typeof _size3PreScale !== 'undefined' && _size3PreScale) ? _size3PreScale : null;
+      const _s3x = _s3p && _s3p.sx > 0 ? _s3p.sx : 1;
+      const _s3y = _s3p && _s3p.sy > 0 ? _s3p.sy : 1;
+      const _s3z = _s3p && _s3p.sz > 0 ? _s3p.sz : 1;
+      const _visTickLen = _s3p
+        ? 0.05 * Math.max((b.maxX - b.minX) * _s3x, (b.maxY - b.minY) * _s3y, (b.maxZ - b.minZ) * _s3z)
+        : tickLen;
+      const tickLenX = _visTickLen / _s3x, tickLenY = _visTickLen / _s3y, tickLenZ = _visTickLen / _s3z;
 
       // Track which axes are requested and check for Bounds type
       const axes = {};
@@ -22444,21 +22483,21 @@ const _HTX_DATA_FILES = {
           // camera in x (x=minX or maxX), z=minZ.
           const xEdge = yAxisXEdge;
           const ticks = yTicks; // N-aware (InTicks N)
-          const labelOffset = tickLen * 3;
+          const labelOffset = tickLenX * 3, labelOffsetZ = tickLenZ * 3;
           for (let i = 0; i < ticks.length; i++) {
             const y = ticks[i];
             if (y < b.minY || y > b.maxY) continue;
             // Tick mark points into box (toward opposite x edge, plus a
             // small +z lift so it's distinguishable from the floor edge).
             const tickStart = makeTriple(xEdge, y, b.minZ);
-            const tickEnd = makeTriple(xEdge - yOutSignX * tickLen * 0.8, y, b.minZ);
+            const tickEnd = makeTriple(xEdge - yOutSignX * tickLenX * 0.8, y, b.minZ);
             const projStart = projectTriple(tickStart);
             const projEnd = projectTriple(tickEnd);
             const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
             pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
             if (!beginlabel && i === 0) continue;
             if (!endlabel && i === ticks.length - 1) continue;
-            const labelPos = projectTriple(makeTriple(xEdge + yOutSignX * labelOffset * 0.5, y, b.minZ - labelOffset * 0.3));
+            const labelPos = projectTriple(makeTriple(xEdge + yOutSignX * labelOffset * 0.5, y, b.minZ - labelOffsetZ * 0.3));
             pic.commands.push({cmd:'label', text: _formatTick(y), pos: labelPos, align: makePair(-yOutSignX, 0), pen: tickPen, line: 0});
           }
           if (call.label) {
@@ -22479,7 +22518,7 @@ const _HTX_DATA_FILES = {
           const zRange = b.maxZ - b.minZ;
           const zTargetCount = zRange <= 15 ? Math.max(zRange, 5) : 5;
           const ticks = zTicks; // N-aware (InTicks N)
-          const labelOffset = tickLen * 3;
+          const labelOffset = tickLenX * 3, labelOffsetY = tickLenY * 3;
           for (let i = 0; i < ticks.length; i++) {
             const z = ticks[i];
             if (z < b.minZ || z > b.maxZ) continue;
@@ -22487,17 +22526,17 @@ const _HTX_DATA_FILES = {
             // diagonal opposite corner) so it's visible against the empty
             // background, matching Asymptote's InTicks rendering.
             const tickStart = makeTriple(xEdge, yEdge, z);
-            const tickEnd = makeTriple(xEdge - zOutSignX * tickLen * 0.8, yEdge - zOutSignY * tickLen * 0.8, z);
+            const tickEnd = makeTriple(xEdge - zOutSignX * tickLenX * 0.8, yEdge - zOutSignY * tickLenY * 0.8, z);
             const projStart = projectTriple(tickStart);
             const projEnd = projectTriple(tickEnd);
             const tickSeg = makeSeg(projStart, projStart, projEnd, projEnd);
             pic.commands.push({cmd:'draw', path: makePath([tickSeg], false), pen: tickPen, line: 0});
-            const labelPos = projectTriple(makeTriple(xEdge + zOutSignX * labelOffset * 0.5, yEdge + zOutSignY * labelOffset * 0.3, z));
+            const labelPos = projectTriple(makeTriple(xEdge + zOutSignX * labelOffset * 0.5, yEdge + zOutSignY * labelOffsetY * 0.3, z));
             pic.commands.push({cmd:'label', text: _formatTick(z), pos: labelPos, align: makePair(-zOutSignX, 0), pen: tickPen, line: 0});
           }
           if (call.label) {
             const midZ = (b.minZ + b.maxZ) / 2;
-            const labelPos = projectTriple(makeTriple(xEdge + zOutSignX * labelOffset * 1.5, yEdge + zOutSignY * labelOffset * 0.8, midZ));
+            const labelPos = projectTriple(makeTriple(xEdge + zOutSignX * labelOffset * 1.5, yEdge + zOutSignY * labelOffsetY * 0.8, midZ));
             pic.commands.push({cmd:'label', text: call.label, pos: labelPos, align: makePair(-zOutSignX, 0), pen: axisPen, line: 0});
           }
         }
@@ -26920,7 +26959,7 @@ const _HTX_DATA_FILES = {
         // Prevent infinite recursion in projectTriple's adjust code during re-projection
         projection.center = false;
         for (const entry of _projectedTriples) {
-          const rp = _projectTripleRaw(entry.triple, projection);
+          const rp = _projectTripleRaw(entry.triple, projection, true);
           entry.result.x = rp.x;
           entry.result.y = rp.y;
         }
@@ -37863,6 +37902,8 @@ window.AsyInterp = {
   _createInterpreter: createInterpreter,
   _renderSVG: renderSVG,
   _unknown: _htxUnknown,   // instrumentation log of unresolved named calls
+  // debug hook: set/get the size3 IgnoreAspect pre-projection scale
+  _size3Pre: { set(v) { _size3PreScale = v; }, get() { return _size3PreScale; } },
 };
 
 })();
