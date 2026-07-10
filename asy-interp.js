@@ -7682,6 +7682,56 @@ function createInterpreter() {
       // Composing a sub-picture (possibly transform-wrapped) marks this as a
       // composite — exempt from the path-label fit (see _usedPictureComposite).
       if (args.some(a => a && a._tag === 'picture')) _usedPictureComposite = true;
+      // add(object): draw the envelope + centered label at the object's
+      // aligned position, in TRUESIZE bp (gallery alignbox 12854).
+      if (args.length >= 1 && args[0] && args[0]._tag === 'object') {
+        const ob = args[0];
+        const w2 = ob.wBp / 2 + ob.margin, h2 = ob.hBp / 2 + ob.margin;
+        let envPath = null;
+        if (ob.kind === 'ellipse') {
+          const _ell = env.get('ellipse');
+          envPath = typeof _ell === 'function' ? _ell(makePair(ob.cx, ob.cy), w2 * Math.SQRT2, h2 * Math.SQRT2) : null;
+        } else {
+          envPath = makePath([
+            lineSegment(makePair(ob.cx - w2, ob.cy - h2), makePair(ob.cx + w2, ob.cy - h2)),
+            lineSegment(makePair(ob.cx + w2, ob.cy - h2), makePair(ob.cx + w2, ob.cy + h2)),
+            lineSegment(makePair(ob.cx + w2, ob.cy + h2), makePair(ob.cx - w2, ob.cy + h2)),
+            lineSegment(makePair(ob.cx - w2, ob.cy + h2), makePair(ob.cx - w2, ob.cy - h2)),
+          ], true);
+        }
+        if (envPath) currentPic.commands.push({cmd:'draw', path: envPath, pen: clonePen(ob.pen || defaultPen), line: 0});
+        currentPic.commands.push({cmd:'label', text: ob.label, pos: makePair(ob.cx, ob.cy),
+                                  align: makePair(0, 0), pen: clonePen(ob.pen || defaultPen), line: 0});
+        unitScale = 1; hasUnitScale = true; _trueSizeFrame = true;
+        return;
+      }
+      // add(new void(frame f, transform t){...}): deferred user drawing. Run
+      // it NOW with an empty frame + identity transform (bounds are truesize
+      // bp in the object idiom), then inline the frame content (12854 draws
+      // the connector line between object envelopes this way).
+      if (args.length === 1 && args[0] && args[0]._tag === 'func'
+          && args[0].params && args[0].params.length === 2) {
+        const _tf = {_tag:'mframe', strokes: [], fills: []};
+        const _idT = makeTransform(0, 1, 0, 0, 0, 1);
+        try { callUserFuncValues(args[0], [_tf, _idT]); } catch (e) {}
+        for (const st of (_tf.strokes || [])) {
+          if (!st.pts || st.pts.length < 2) continue;
+          const segs = [];
+          for (let i = 0; i + 1 < st.pts.length; i++) {
+            segs.push(lineSegment(makePair(st.pts[i].x, st.pts[i].y), makePair(st.pts[i+1].x, st.pts[i+1].y)));
+          }
+          currentPic.commands.push({cmd:'draw', path: makePath(segs, !!st.closed), pen: st.pen ? clonePen(st.pen) : clonePen(defaultPen), line: 0});
+        }
+        for (const fl of (_tf.fills || [])) {
+          if (!fl.pts || fl.pts.length < 3) continue;
+          const segs = [];
+          for (let i = 0; i + 1 < fl.pts.length; i++) {
+            segs.push(lineSegment(makePair(fl.pts[i].x, fl.pts[i].y), makePair(fl.pts[i+1].x, fl.pts[i+1].y)));
+          }
+          currentPic.commands.push({cmd:'fill', path: makePath(segs, true), pen: fl.pen ? clonePen(fl.pen) : clonePen(defaultPen), line: 0});
+        }
+        return;
+      }
       // patterns module: add(string name, pattern tile) registers a named fill
       // pattern for later pattern(name) lookup.
       if (args.length >= 2 && typeof args[0] === 'string' && args[1] && args[1]._tag === 'pattern') {
@@ -9651,6 +9701,7 @@ function createInterpreter() {
     }
 
     env.set('point', (...args) => {
+      if (_objectPointBranch) { const _op = _objectPointBranch(args); if (_op !== undefined) return _op; }
       // point(pair dir): shorthand for point(currentpicture, dir). Used by
       // colorbar legend code: `palette(..., point(SE)+(0.5,0), point(NE)+(1,0), ...)`.
       if (args.length === 1 && isPair(args[0])) {
@@ -10879,6 +10930,71 @@ function createInterpreter() {
         line: args._line || 0});
       return null;
     });
+    // ── plain.asy object/align/point API (gallery alignbox 12854) ──
+    // An object wraps a Label in an envelope path (box/ellipse) drawn around
+    // the label's measured box. Everything is TRUESIZE bp; add(object) emits
+    // under the truesize-frame convention (unitScale=1).
+    let _objectPointBranch = null;
+    const _objSupport = (obj, ux, uy) => {
+      // distance from center to the envelope boundary along unit dir (ux,uy)
+      const w2 = obj.wBp / 2 + obj.margin, h2 = obj.hBp / 2 + obj.margin;
+      if (obj.kind === 'ellipse') {
+        const a = w2 * Math.SQRT2, b = h2 * Math.SQRT2;
+        const q = (ux / a) * (ux / a) + (uy / b) * (uy / b);
+        return q > 1e-12 ? 1 / Math.sqrt(q) : 0;
+      }
+      const rx = Math.abs(ux) > 1e-9 ? w2 / Math.abs(ux) : Infinity;
+      const ry = Math.abs(uy) > 1e-9 ? h2 / Math.abs(uy) : Infinity;
+      return Math.min(rx, ry);
+    };
+    env.set('object', (...args) => {
+      let label = '', kind = 'box', margin = 0, pen = null;
+      const _ellipseFn = env.get('ellipse'), _boxFn = env.get('box'), _roundboxFn = env.get('roundbox');
+      for (const a of args) {
+        if (typeof a === 'string') label = a;
+        else if (a && a._tag === 'label') label = a.text || '';
+        else if (typeof a === 'number') margin = a;
+        else if (isPen(a)) pen = a;
+        else if (a === _ellipseFn) kind = 'ellipse';
+        else if (a === _boxFn || a === _roundboxFn) kind = 'box';
+      }
+      let wBp = 12, hBp = 10;
+      try {
+        const m = _mjxMeasureBp(label, 12);
+        if (m && m.wBp > 0) { wBp = m.wBp; if (m.hBp > 0) hBp = m.hBp; }
+      } catch (e) {}
+      return { _tag: 'object', label, kind, margin, wBp, hBp, cx: 0, cy: 0, pen };
+    });
+    env.set('align', (obj, dir) => {
+      if (!obj || obj._tag !== 'object') return obj;
+      const d = toPair(dir);
+      const mag = Math.hypot(d.x, d.y);
+      if (mag > 1e-9) {
+        const ux = d.x / mag, uy = d.y / mag;
+        // Frame alignment: the envelope sits on the dir side of the anchor,
+        // pushed out by |dir| labelmargins (matches label-align semantics;
+        // '4E' = four margins of clearance).
+        const lm = 1.5; // calibrated against 12854 ref (83bp total; 3.6 gave 94)
+        const s = _objSupport(obj, ux, uy) + mag * lm;
+        obj.cx = ux * s; obj.cy = uy * s;
+      }
+      return obj;
+    });
+    // point(object, dir[, transform t]) — envelope boundary point along dir.
+    // Injected at the head of every point() registration (they replace each
+    // other; the object form must survive whichever is last).
+    _objectPointBranch = (args) => {
+      const obj = args[0];
+      if (!obj || obj._tag !== 'object') return undefined;
+      const d = toPair(args[1] || makePair(1, 0));
+      const mag = Math.hypot(d.x, d.y) || 1;
+      const ux = d.x / mag, uy = d.y / mag;
+      const sup = _objSupport(obj, ux, uy);
+      let px = obj.cx + ux * sup, py = obj.cy + uy * sup;
+      const t = args.find(a => isTransform(a));
+      if (t) { const tp = applyTransformPair(t, makePair(px, py)); px = tp.x; py = tp.y; }
+      return makePair(px, py);
+    };
     // plain.asy save()/restore(): snapshot & restore the current picture
     // contents and the default pen (gallery elliptic.asy draws two variants
     // of a shared base picture between save()/restore() pairs). Shallow
@@ -17585,6 +17701,7 @@ const _HTX_DATA_FILES = {
     // point(picture pic, pair dir) → pair (user-coord bbox point in direction)
     const _origPointForGeom = env.get('point');
     env.set('point', (...args) => {
+      if (_objectPointBranch) { const _op = _objectPointBranch(args); if (_op !== undefined) return _op; }
       // point(picture, dir): return the user-coord bbox point in that direction.
       // SW=(-1,-1)→(minX,minY), NE=(1,1)→(maxX,maxY), etc.
       if (args.length >= 2 && args[0] && args[0]._tag === 'picture' && isPair(args[1])) {
@@ -22918,6 +23035,7 @@ const _HTX_DATA_FILES = {
     // where triple components map: -1 = min, +1 = max
     const origPoint = env.get('point');
     env.set('point', (...args) => {
+      if (_objectPointBranch) { const _op = _objectPointBranch(args); if (_op !== undefined) return _op; }
       // Check for 3D triple argument
       if (args.length === 1 && isTriple(args[0])) {
         const t = args[0];
