@@ -27533,8 +27533,21 @@ const _HTX_DATA_FILES = {
     if (!hasUnitScale && sizeW === 0 && sizeH === 0 && !projection
         && currentPic.commands.length > 0
         && currentPic.commands.every(c => !c || c.cmd === 'label')) {
-      _trueSizeFrame = true;
-      hasUnitScale = true; unitScale = 1;
+      // ...but ONLY when every anchor coincides: multi-anchor label pictures
+      // scale their anchors through the bare LP like any geometry (06913's
+      // 21 labels on an r=3 circle fit to 150; naturalizing them collapsed
+      // the circle to 6bp and zeroed six corpus ids in the v9.88 rescore).
+      let _lx0 = Infinity, _lx1 = -Infinity, _ly0 = Infinity, _ly1 = -Infinity;
+      for (const c of currentPic.commands) {
+        if (c && c.pos && isFinite(c.pos.x) && isFinite(c.pos.y)) {
+          if (c.pos.x < _lx0) _lx0 = c.pos.x; if (c.pos.x > _lx1) _lx1 = c.pos.x;
+          if (c.pos.y < _ly0) _ly0 = c.pos.y; if (c.pos.y > _ly1) _ly1 = c.pos.y;
+        }
+      }
+      if (isFinite(_lx0) && (_lx1 - _lx0) < 1e-6 && (_ly1 - _ly0) < 1e-6) {
+        _trueSizeFrame = true;
+        hasUnitScale = true; unitScale = 1;
+      }
     }
 
     // size3(w,h,d,IgnoreAspect): real asy's fit3 scales x/y/z INDEPENDENTLY
