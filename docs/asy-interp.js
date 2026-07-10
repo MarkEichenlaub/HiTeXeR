@@ -10809,6 +10809,7 @@ function createInterpreter() {
     // sizing by converting the bp length to user units using the same
     // bp-per-user-unit heuristic markers use, evaluated against the
     // already-drawn geometry of the target picture.
+    let _arrowFromDirSeq = 0;
     env.set('arrow', (...args) => {
       let target = currentPic;
       if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
@@ -10931,7 +10932,13 @@ function createInterpreter() {
       const tail = makePair(b.x + (length_bp * ux) / bppX, b.y + (length_bp * uy) / bppY);
       const path = makePath([lineSegment(tail, tip)], false);
 
-      target.commands.push({cmd:'draw', path, pen: clonePen(pen), arrow: arrowDesc, line: args._line || 0});
+      // The arrow length is TRUESIZE (arrowlength=0.75cm drawn as a deferred
+      // object at the FINAL scale in real asy); the tail above is only a
+      // call-time estimate. Tag for the final-scale rebuild pass (06401's
+      // circuit arrows sat ~30% short with detached tail labels).
+      const _afdId = ++_arrowFromDirSeq;
+      target.commands.push({cmd:'draw', path, pen: clonePen(pen), arrow: arrowDesc, line: args._line || 0,
+                            _arrowFromDirBp: { lenBp: length_bp, id: _afdId }});
 
       if (label) {
         // graph.asy arrow(Label L, pair b, ...) places L at the arrow TAIL
@@ -10947,7 +10954,7 @@ function createInterpreter() {
         }
         target.commands.push({cmd:'label', text: _mpText, pos: makePair(lx, ly),
                               align: labelAlign || makePair(ux, uy), pen: clonePen(pen),
-                              line: args._line || 0});
+                              line: args._line || 0, _arrowTailLabelOf: _afdId});
       }
     });
 
@@ -30889,6 +30896,32 @@ function renderSVG(result, opts) {
       const np0 = makePair(ax + (seg.p0.x - ax) * f, ay + (seg.p0.y - ay) * f);
       const np3 = makePair(ax + (seg.p3.x - ax) * f, ay + (seg.p3.y - ay) * f);
       dc.path = makePath([lineSegment(np0, np3)], false);
+    }
+    // graph.asy arrow(Label, pair b, dir): the length is TRUESIZE
+    // (arrowlength=0.75cm as a deferred object at the FINAL scale). arrow()
+    // froze the tail at a call-time scale estimate; rebuild around the TIP
+    // now, and carry the tail label by the same delta (06401's circuit
+    // arrows sat ~30% short with detached labels).
+    for (const dc of drawCommands) {
+      if (!dc || !dc._arrowFromDirBp || !dc.path || !dc.path.segs || dc.path.segs.length !== 1) continue;
+      const seg = dc.path.segs[0];
+      const oldTail = { x: seg.p0.x, y: seg.p0.y };
+      const dx = seg.p0.x - seg.p3.x, dy = seg.p0.y - seg.p3.y; // tip→tail
+      const curPx = Math.hypot(dx * pxPerUnitX, dy * pxPerUnitY);
+      if (!(curPx > 1e-9)) continue;
+      const f = (dc._arrowFromDirBp.lenBp * bpCSSPixel) / curPx;
+      if (!isFinite(f) || f <= 0 || f > 40) continue;
+      // Only correct gross call-time misses: near-1 rescales trade tiny
+      // length gains for post-fit extent inconsistencies (the tail moves
+      // AFTER the viewBox/fit solved around the old geometry — 12936/12897
+      // lost 0.03 to overlap/clip when mildly rescaled).
+      if (f > 0.7 && f < 1.3) continue;
+      const nTail = makePair(seg.p3.x + dx * f, seg.p3.y + dy * f);
+      dc.path = makePath([lineSegment(nTail, makePair(seg.p3.x, seg.p3.y))], false);
+      for (const lc of drawCommands) {
+        if (!lc || lc.cmd !== 'label' || lc._arrowTailLabelOf !== dc._arrowFromDirBp.id) continue;
+        lc.pos = makePair(lc.pos.x + (nTail.x - oldTail.x), lc.pos.y + (nTail.y - oldTail.y));
+      }
     }
   }
 
