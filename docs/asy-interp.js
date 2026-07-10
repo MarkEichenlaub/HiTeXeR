@@ -4114,23 +4114,28 @@ function createInterpreter() {
         // picture (e.g. the outer add(pic.fit()) of a composition whose sub-pics
         // were already placed in bp space) — in that case the label-extent shrink
         // below must NOT run, or it squeezes the whole composition (00778).
-        const explicitSize = numArgs.length > 0 || !!obj._sizeW;
+        const explicitSize = numArgs.length > 0 || !!obj._sizeW || !!obj._sizeH;
         // When fit() is called with no explicit size, honor the picture's own
         // size(pic, W, H[, SW, NE]) constraint so the fitted frame matches the
         // author's intended bp dimensions instead of falling back to 1:1 user
         // coords (which collapses log/large-range axes into a sliver).
-        if (!targetW && obj._sizeW) {
-          targetW = obj._sizeW;
-          targetH = obj._sizeH || obj._sizeW;
+        // size(pic, 0, H) constrains ONLY the height (12862's cards:
+        // size(rect,0,2.5cm) fell through to 1:1 because the check keyed on
+        // _sizeW alone — the whole composition collapsed to a 21bp canvas).
+        if (!targetW && !targetH && (obj._sizeW || obj._sizeH)) {
+          targetW = obj._sizeW || 0;
+          targetH = obj._sizeH || 0;
           if (obj._sizeAniso) keepAspect = false;
         }
         // Compute user-coord bbox of the picture's geometry
         const gb = getGeoBbox(obj.commands);
         const userW = (gb.maxX - gb.minX) || 1;
         const userH = (gb.maxY - gb.minY) || 1;
-        // If no size given, use 1:1 (user→bp)
-        if (!targetW) targetW = userW;
-        if (!targetH) targetH = userH;
+        // A single-dim size (W,0)/(0,H) leaves the zero dimension FREE: the
+        // constrained axis alone sets the scale (Infinity never wins the
+        // keepAspect min()). Only with NO size at all fall back to 1:1.
+        if (!targetW && !targetH) { targetW = userW; targetH = userH; }
+        else { if (!targetW) targetW = Infinity; if (!targetH) targetH = Infinity; }
         // Compute scale to fit within target size
         let sx = targetW / userW;
         let sy = targetH / userH;
@@ -4240,6 +4245,10 @@ function createInterpreter() {
         // (endpoint-title ride + minor ticks past xlimits/ylimits) without the
         // newly-extended axis line growing the fit scale. See _runSubpicAxisJobs.
         _runSubpicAxisJobs(obj);
+        // Single-dim size(pic,0,H)/(W,0): the free axis (Infinity target)
+        // follows the constrained one so coordinates stay finite.
+        if (!isFinite(sx)) sx = isFinite(sy) ? sy : 1;
+        if (!isFinite(sy)) sy = isFinite(sx) ? sx : 1;
         // Helper to sample a cubic bezier segment into line points
         const sampleBezier = (seg, nSamples) => {
           const pts = [];
@@ -4328,7 +4337,10 @@ function createInterpreter() {
         // Carry the picture's size(pic, W[, H]) so add(frame, (i,0)) can space
         // sub-pictures by one slot (_sizeW bp) per user-unit offset, matching
         // the picture-form branch's per-slot layout (03398 c190_L1 panel grid).
-        if (obj._sizeW) { frame._sizeW = obj._sizeW; frame._sizeH = obj._sizeH; }
+        // Stamp when EITHER dim is set — size(pic,0,H) height-only pictures
+        // (12862's cards) previously left the frame unstamped, so add(frame,
+        // pos) fell to the raw-bp offset path and the copies stacked ~1bp apart.
+        if (obj._sizeW || obj._sizeH) { frame._sizeW = obj._sizeW; frame._sizeH = obj._sizeH; }
         // typeof guard: bare `process` throws ReferenceError in the browser,
         // killing the whole render for any diagram that reaches this path
         // (12713's size(pic,100,100,...) did).
@@ -7754,7 +7766,7 @@ function createInterpreter() {
           offY = (fr._fitSy || 1) * (fr._fitMinY || 0);
         }
         if (framePairs.length === 1) {
-          if (fr._sizeW) {
+          if (fr._sizeW || fr._sizeH) {
             // add(pic.fit(), (i,0)) — the offset is in the OUTER picture's user
             // coords, but the frame geometry is already in bp space (~_sizeW bp
             // wide). Map each user-unit step of offset to one picture slot
@@ -7769,8 +7781,25 @@ function createInterpreter() {
             if (absY > 0 && (steps.y === 0 || absY < steps.y)) steps.y = absY;
             const stepX = steps.x > 0 ? steps.x : 1;
             const stepY = steps.y > 0 ? steps.y : 1;
-            offX = (px / stepX) * fr._sizeW;
-            offY = (py / stepY) * (fr._sizeH || fr._sizeW);
+            // Height-only size(pic,0,H) leaves _sizeW=0: derive the missing
+            // slot dimension from the frame's actual bp extent (12862's cards
+            // all collapsed onto x=0, one blob instead of a 2x2 grid).
+            let _slotW = fr._sizeW, _slotH = fr._sizeH;
+            if (!_slotW || !_slotH) {
+              let _fx0 = Infinity, _fx1 = -Infinity, _fy0 = Infinity, _fy1 = -Infinity;
+              for (const st of (fr.strokes || [])) for (const p of st.pts) {
+                if (p.x < _fx0) _fx0 = p.x; if (p.x > _fx1) _fx1 = p.x;
+                if (p.y < _fy0) _fy0 = p.y; if (p.y > _fy1) _fy1 = p.y;
+              }
+              for (const fl of (fr.fills || [])) for (const p of fl.pts) {
+                if (p.x < _fx0) _fx0 = p.x; if (p.x > _fx1) _fx1 = p.x;
+                if (p.y < _fy0) _fy0 = p.y; if (p.y > _fy1) _fy1 = p.y;
+              }
+              if (!_slotW) _slotW = isFinite(_fx1 - _fx0) && _fx1 > _fx0 ? _fx1 - _fx0 : (_slotH || 1);
+              if (!_slotH) _slotH = isFinite(_fy1 - _fy0) && _fy1 > _fy0 ? _fy1 - _fy0 : _slotW;
+            }
+            offX = (px / stepX) * _slotW;
+            offY = (py / stepY) * _slotH;
             // Align panels by their sub-picture USER ORIGIN (0,0), not the
             // fitted bbox-min corner. Asymptote's add(frame,(i,0)) anchors the
             // frame origin at the slot, so panels whose geometry dips below y=0
@@ -10713,6 +10742,20 @@ function createInterpreter() {
       if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; _globalUnitSize = unitScale; }
     });
     env.set('size', (...args) => {
+      // size(frame f): query — return the frame's bbox dimensions as a pair
+      // (12866 clockarray: pair size=size(f)+(xmargin,ymargin) drives the
+      // grid spacing; falling through to the global size-setter returned
+      // garbage and the 3x4 grid collapsed to ~40bp cells).
+      if (args.length === 1 && args[0] && args[0]._tag === 'mframe') {
+        const fr = args[0];
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        const _seenPt = (p) => { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; };
+        for (const st of (fr.strokes || [])) for (const p of st.pts) _seenPt(p);
+        for (const fl of (fr.fills || [])) for (const p of fl.pts) _seenPt(p);
+        for (const L of (fr.labels || [])) if (L.pos) _seenPt(L.pos);
+        if (!isFinite(x0)) return makePair(0, 0);
+        return makePair(x1 - x0, y1 - y0);
+      }
       // size(pic, w, h, keepAspect=bool) or size(w, h, keepAspect=bool) or size(w)
       if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
         // Per-picture sizing: size(p, w[, h]) — store dimensions on the picture so
