@@ -31659,7 +31659,11 @@ function renderSVG(result, opts) {
       const dx = seg.p0.x - seg.p3.x, dy = seg.p0.y - seg.p3.y; // tip→tail
       const curPx = Math.hypot(dx * pxPerUnitX, dy * pxPerUnitY);
       if (!(curPx > 1e-9)) continue;
-      const f = (dc._arrowFromDirBp.lenBp * bpCSSPixel) / curPx;
+      // margin=EndMargin: the drawn line spans arrowlength and the HEAD sits
+      // beyond the line's visual weight — the reference arrows measure
+      // ~arrowlength + head (06401: 25.5bp vs 21.3 drawn). Include the head.
+      const _lenTot = dc._arrowFromDirBp.lenBp + ((dc.arrow && dc.arrow.size) || 0);
+      const f = (_lenTot * bpCSSPixel) / curPx;
       if (!isFinite(f) || f <= 0 || f > 40) continue;
       // Only correct gross call-time misses: near-1 rescales trade tiny
       // length gains for post-fit extent inconsistencies (the tail moves
