@@ -719,7 +719,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.93</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.94</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3619,6 +3619,21 @@ async function applyFaithfulRaster() {
   applyCanvasTransform();
 }
 
+// During interactive live-preview modes (slide, label-slide, GIF) each move
+// re-renders and swaps in a fresh vector SVG. TeXeR-faithful display (default
+// on) leaves an <img class="htx-faithful-raster"> from the last full render as
+// the visible artifact, with the SVG hidden behind it. If that raster isn't
+// cleared, the static pre-interaction raster and the live SVG show at once and
+// the diagram appears twice. So drop both the previous interactive SVG and any
+// faithful raster, then insert the new one. Exiting the mode re-renders, which
+// restores the faithful raster.
+function swapPreviewToLiveSvg(previewEl, svgHtml) {
+  const oldSvg = previewEl.querySelector('svg:not([data-perm])');
+  if (oldSvg) oldSvg.remove();
+  previewEl.querySelectorAll('.htx-faithful-raster').forEach(el => el.remove());
+  previewEl.insertAdjacentHTML('afterbegin', svgHtml);
+}
+
 async function doRender() {
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
@@ -6497,7 +6512,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const cleaned = lines.filter(l => !l.includes('// SLIDE_DOT'));
       editor.setValue(cleaned.join('\n'));
       slideInjectedDots = [];
-      doRender();
+      doRender(); // restores the TeXeR-faithful raster via applyFaithfulRaster
+    } else {
+      // No dots were injected (so no re-render above), but a slider drag may
+      // have cleared the TeXeR-faithful raster — restore the normal display.
+      applyFaithfulRaster();
     }
   }
 
@@ -6637,9 +6656,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        const oldSvg = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvg) oldSvg.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -6701,9 +6718,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
-        const oldSvg = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvg) oldSvg.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -6735,9 +6750,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        const oldSvg = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvg) oldSvg.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         setupSvgInteractivityDirect(newCode, result.commandMap);
@@ -6956,6 +6969,9 @@ document.addEventListener('DOMContentLoaded', () => {
     labelSlideDragState = null;
     labelSlideSelectedLabel = null;
     labelSlidePendingClick = null;
+    // A live label drag may have cleared the TeXeR-faithful raster (swapped in a
+    // crisp preview SVG) — restore the normal faithful display on exit.
+    applyFaithfulRaster();
   }
 
   // Inject _lblAdj variable if not present; sync re-renders and returns fresh label or null.
@@ -6985,9 +7001,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvgEl) oldSvgEl.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -7052,9 +7066,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvgEl) oldSvgEl.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -7166,9 +7178,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvgEl) oldSvgEl.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -7250,9 +7260,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewEl = document.getElementById('preview-container');
         const dims = getPreviewDimensions();
         const result = AsyInterp.render(code, { containerW: dims.w, containerH: dims.h });
-        const oldSvgEl = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvgEl) oldSvgEl.remove();
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
@@ -7474,16 +7482,7 @@ document.addEventListener('DOMContentLoaded', () => {
           renderOpts.forcedPxPerUnitY = gifPreviewBounds.ppuY;
         }
         const result = AsyInterp.render(newCode, renderOpts);
-        const oldSvg = previewEl.querySelector('svg:not([data-perm])');
-        if (oldSvg) oldSvg.remove();
-        // In TeXeR-faithful display mode (default on) a normal render leaves a
-        // <img class="htx-faithful-raster"> as the visible artifact with the SVG
-        // hidden behind it. The GIF live preview draws the crisp SVG directly,
-        // so drop any leftover faithful raster — otherwise the static pre-GIF
-        // raster and the animating SVG show side by side and the diagram appears
-        // twice. (deactivateGifMode re-renders, which restores the raster.)
-        previewEl.querySelectorAll('.htx-faithful-raster').forEach(el => el.remove());
-        previewEl.insertAdjacentHTML('afterbegin', result.svg);
+        swapPreviewToLiveSvg(previewEl, result.svg);
         showStaleBadge(false);
         lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
         applyCanvasTransform();
