@@ -4,6 +4,53 @@
 
 Every time you edit HiTeXeR, bump the version number in `index.html` (search for the `v` string in the `<h1>` header, around line 340) so the user can confirm they're seeing the latest changes.
 
+## Deploying to the hosted app (docs/ lags silently — deploy in the same session)
+
+GitHub Pages serves `master:/docs` as a **straight copy with no build step and no
+automation**, so master can run ahead of the live site indefinitely. Deploy is:
+
+```
+cp index.html asy-interp.js katex-svg.js htx-doc-render.js katex-glyphs.json docs/   # only the changed ones
+git add docs/ && git commit -m "deploy vX.YZ to Pages" && git push
+```
+
+`docs/physics-library.json` is a docs-only asset — it has no root counterpart, so
+don't try to source it from the repo root.
+
+**When a bug report says "broken on the web," diff `docs/index.html` against root
+and compare the two `v` strings BEFORE debugging any behavior.** On 2026-08-13 the
+live app was stuck at v9.92 while master was at v9.94; three versions of fixes had
+never shipped, which made triage point at the wrong things.
+
+## TeXeR-faithful display must never block the canvas (READ BEFORE TOUCHING IT)
+
+TeXeR-faithful display (View menu, **default ON**) rasterizes the rendered SVG at
+2x and shows that `<img class="htx-faithful-raster">` as the visible artifact, with
+the live SVG parked underneath. Every canvas interaction — hover highlighting,
+click-to-isolate-code, right-click Style menu, hide-mode clicks, and the
+slide/label drag handlers — is bound to that SVG element. Two invariants keep them
+alive; breaking either kills the ENTIRE canvas at once, silently, with no console
+error (shipped once as v9.94 and reported as "nothing in the diagram responds"):
+
+1. **Park the SVG at `opacity:0`, never `visibility:hidden` or `display:none`.**
+   The latter two remove the element from hit-testing, so no event ever fires.
+   The raster must carry `pointer-events:none` so events reach the SVG below it.
+   The two overlap pixel-exactly, so `findNearest(clientX, clientY)` stays correct.
+2. **Suspend the raster entirely during slide / label-slide / GIF mode**
+   (`faithfulModeActive()`). Those modes inject drag handles into the live SVG,
+   which a raster on top would hide; in GIF mode the stale raster also sits beside
+   the animating SVG and shows the diagram twice.
+
+Also: `applyFaithfulRaster()` must clear its own inline styles BEFORE re-serializing
+— `serializeToString()` copies them, so re-running over an already-parked SVG would
+bake `opacity:0` into the raster and produce a blank image. And clear mode flags
+BEFORE the restoring `doRender()` on mode exit, or the exit render skips
+re-rasterizing.
+
+Verify after any change here: hover glow + code highlight, click-to-isolate,
+right-click Style menu, slide drag, Labels hit targets, GIF (exactly ONE diagram),
+Hide ghosting, the View toggle both ways, and multi-`[asy]` doc mode.
+
 ## Cache-busting (handled by fix-server — no manual ?v= bumping)
 
 `fix-server.js` (the :7842 dev server) sends `Cache-Control: no-store` for
