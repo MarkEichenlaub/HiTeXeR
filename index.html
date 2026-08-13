@@ -86,6 +86,14 @@ body {
 #preview-panel { width: 50%; display: flex; flex-direction: column; background: #fff; position: relative; }
 #preview-container { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 20px; position: relative; cursor: default; }
 #preview-container svg:not([data-perm]) { display: block; max-width: 100%; max-height: 100%; }
+/* TeXeR-faithful display parks the live vector under the raster at opacity:0 —
+   NOT visibility:hidden, which would stop it receiving the mouse entirely. While
+   the pointer is over the diagram, show the vector instead of the raster so hover
+   glows, selection highlights and drag handles are actually visible; the faithful
+   raster returns the moment the pointer leaves. The two overlap pixel-exactly, so
+   this swaps crispness only — nothing moves. */
+#preview-container svg.htx-faithful-under:hover { opacity: 1 !important; }
+#preview-container svg.htx-faithful-under:hover + .htx-faithful-raster { visibility: hidden; }
 .htx-ghost { opacity: 0.25; }
 #preview-container .error {
   color: #e94560; font-family: monospace; font-size: 13px; white-space: pre-wrap;
@@ -719,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.94</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.95</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -3559,12 +3567,24 @@ function exitDocMode() {
 // artifact, this mode rasterizes the rendered SVG at 2x (the same 240-DPI
 // grid the SSIM pipeline judges) into a canvas displayed at half size —
 // the identical display transform AoPS applies to TeXeR's PNGs, on any
-// monitor. The interactive SVG stays in the DOM (hidden) so element
-// tooling still works; toggle View → TeXeR-faithful Display for the crisp
-// vector view while editing.
+// monitor. The interactive SVG stays in the DOM (invisible) and still receives
+// the mouse, so element tooling keeps working; toggle View → TeXeR-faithful
+// Display for the crisp vector view while editing.
 let faithfulRasterOn = (function () {
   try { return localStorage.getItem('htx-faithful-raster') !== '0'; } catch (e) { return true; }
 })();
+
+// Slide, label-slide and GIF mode own the canvas: the first two inject drag
+// handles (dots, hit circles, glows) straight into the live SVG, and GIF swaps in
+// a fresh SVG per frame. A static raster sitting on top would hide the handles
+// outright and, in GIF mode, show the stale pre-interaction diagram NEXT TO the
+// animating one. So the raster is suspended for the duration of those modes;
+// leaving one re-renders and brings it back.
+function faithfulModeActive() {
+  return !!(window.hitexerSlideActive || window.hitexerGifActive ||
+            (typeof labelSlideActive !== 'undefined' && labelSlideActive));
+}
+
 async function applyFaithfulRaster() {
   const previewEl = document.getElementById('preview-container');
   if (!previewEl) return;
@@ -3573,8 +3593,14 @@ async function applyFaithfulRaster() {
     : [...previewEl.querySelectorAll('svg:not([data-perm])')];
   // Tear down existing rasters first (mode off, or re-render).
   previewEl.querySelectorAll('.htx-faithful-raster').forEach(c => c.remove());
-  if (!faithfulRasterOn) {
-    for (const s of svgs) { s.style.visibility = ''; s.style.position = ''; }
+  // Always clear the styles/marker this pass sets BEFORE re-rasterizing below:
+  // serializeToString() copies inline styles into the raster, so re-running over
+  // an already-parked SVG would otherwise snapshot opacity:0 and bake a blank image.
+  for (const s of svgs) {
+    s.style.visibility = ''; s.style.position = ''; s.style.opacity = '';
+    s.classList.remove('htx-faithful-under');
+  }
+  if (!faithfulRasterOn || faithfulModeActive()) {
     applyCanvasTransform();
     return;
   }
@@ -3607,13 +3633,23 @@ async function applyFaithfulRaster() {
       rimg.style.maxHeight = '100%';
       rimg.style.objectFit = 'contain';
       rimg.style.display = 'block';
-      svg.style.visibility = 'hidden';
+      // The raster is a passive picture: let the mouse straight through to the
+      // vector parked underneath, which is what every SVG interaction is bound to.
+      rimg.style.pointerEvents = 'none';
+      // opacity:0, NOT visibility:hidden. A visibility:hidden element is dropped
+      // from hit-testing, so the previous approach silently killed every canvas
+      // interaction at once — hover highlighting, click-to-isolate-code, hide-mode
+      // clicks and the slide/label drag handlers all listen on this element and
+      // simply never fired. opacity:0 is equally invisible but still gets events.
+      svg.style.opacity = '0';
       svg.style.position = 'absolute';
+      svg.classList.add('htx-faithful-under');  // enables the :hover reveal rule
       svg.insertAdjacentElement('afterend', rimg);
     } catch (e) {
       // Rasterization failed (e.g. foreignObject taint) — keep the vector.
       svg.style.visibility = '';
       svg.style.position = '';
+      svg.style.opacity = '';
     }
   }
   applyCanvasTransform();
@@ -6229,6 +6265,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- Activate / Deactivate ---
 
   function activateSlideMode() {
+    // Drop the TeXeR-faithful raster up front: the free-point dots and hit circles
+    // below are appended to the live SVG, and a raster on top would hide them.
+    applyFaithfulRaster();
     const code = editor.getValue();
     const freePoints = findFreePoints(code);
 
@@ -6794,6 +6833,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function activateLabelSlideMode() {
+    // Drop the TeXeR-faithful raster: the label hit targets and glows added by
+    // applyLabelSlideOverlay() live in the SVG and would be hidden behind it.
+    applyFaithfulRaster();
     probeReady.then(() => applyLabelSlideOverlay());
     window.addEventListener('keydown', labelSlideKeyDown);
   }
@@ -7311,6 +7353,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.hitexerGifActive = true;
     const btnGif = document.getElementById('btn-gif');
     if (btnGif) btnGif.classList.toggle('active', true);
+    // Drop the TeXeR-faithful raster now that the mode flag is set: otherwise the
+    // stale pre-animation raster stays put and the live preview SVG is inserted
+    // beside it, showing the diagram twice.
+    applyFaithfulRaster();
 
     // Snapshot all free-real variable values before any animation changes them
     gifAllOriginalValues = {};
@@ -7494,6 +7540,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
     gifPreviewBounds = null;
 
+    // Clear the mode flags BEFORE the restoring doRender() below. applyFaithfulRaster
+    // suspends itself while GIF mode is active, so leaving these set until the end
+    // meant the exit render skipped re-rasterizing and the diagram stayed a bare
+    // vector until the next unrelated edit.
+    gifActive = false;
+    window.hitexerGifActive = false;
+
     // Restore ALL free-real variables to the values they had when GIF mode was entered
     if (gifAllOriginalValues) {
       const code = editor.getValue();
@@ -7524,8 +7577,6 @@ document.addEventListener('DOMContentLoaded', () => {
       gifAllOriginalValues = null;
     }
 
-    gifActive = false;
-    window.hitexerGifActive = false;
     gifSelectedVar = null;
     gifOriginalValue = null;
     const btnGif = document.getElementById('btn-gif');
