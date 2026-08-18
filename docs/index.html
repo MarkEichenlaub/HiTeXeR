@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.95</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.96</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -7327,6 +7327,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let gifPreviewBounds = null; // {minX, minY, maxX, maxY, ppu} — stable bounds for preview
   let gifOriginalValue = null; // original value of the variable before GIF preview
   let gifAllOriginalValues = null; // map of lineIdx → {varName, value} for ALL free reals at entry
+  let gifCacheKey = null;      // fingerprint of the settings/code that produced gifCacheBlob
+  let gifCacheBlob = null;     // last fully-encoded GIF (with embedded comment metadata)
 
   function toggleGifMode() {
     if (gifActive) deactivateGifMode();
@@ -7620,19 +7622,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const transparent = document.getElementById('gif-transparent').checked;
     const widthStr = document.getElementById('gif-width').value.trim().toLowerCase();
     const progressEl = document.getElementById('gif-progress');
+    const stabilize = document.getElementById('gif-stabilize').checked;
+    const code = editor.getValue();
 
     const totalFrames = Math.max(2, Math.round(durationMs / frameDelay));
-    if (totalFrames > 500) {
+
+    // Reuse the last fully-encoded GIF when nothing that affects the pixels
+    // has changed (e.g. Copy GIF followed immediately by Save GIF) instead of
+    // re-rendering every frame and re-encoding from scratch. The live preview
+    // loop continuously rewrites the animated variable's line in the editor
+    // (gifUpdateVariable -> editor.setValue), so that one line is a moving
+    // target between clicks even when nothing the user controls has changed;
+    // blank it out before fingerprinting so the key is stable across ticks.
+    const codeLinesForKey = code.split('\n');
+    const gifVarLineIdx = gifSelectedVar.lineIdx;
+    if (gifVarLineIdx >= 0 && gifVarLineIdx < codeLinesForKey.length) {
+      const gifVarRe = new RegExp('(\\b' + gifSelectedVar.varName + '\\s*=\\s*)[-\\d.eE+]+', '');
+      codeLinesForKey[gifVarLineIdx] = codeLinesForKey[gifVarLineIdx].replace(gifVarRe, '$1__GIF_ANIM_VAR__');
+    }
+    const cacheKey = JSON.stringify({
+      code: codeLinesForKey.join('\n'), lineIdx: gifSelectedVar.lineIdx, varName: gifSelectedVar.varName,
+      startVal, endVal, durationMs, delayInput, loopCount, pauseMs, pauseFirstMs,
+      transparent, widthStr, stabilize,
+    });
+    const cacheHit = cacheKey === gifCacheKey && !!gifCacheBlob;
+
+    if (!cacheHit && totalFrames > 500) {
       if (!confirm(`This will generate ${totalFrames} frames. Continue?`)) return;
     }
 
     // Pause preview animation during generation
     if (gifPreviewAnimId) { clearTimeout(gifPreviewAnimId); gifPreviewAnimId = null; }
     document.getElementById('gif-panel').classList.add('gif-generating');
-    progressEl.textContent = 'Rendering frames...';
+    progressEl.textContent = cacheHit ? 'Reusing last render...' : 'Rendering frames...';
 
     try {
-      const code = editor.getValue();
+      let blob;
+      if (cacheHit) {
+        blob = gifCacheBlob;
+      } else {
       const lineIdx = gifSelectedVar.lineIdx;
 
       function renderFrame(value, extraOpts) {
@@ -7655,8 +7683,6 @@ document.addEventListener('DOMContentLoaded', () => {
         gifStartPreview();
         return;
       }
-
-      const stabilize = document.getElementById('gif-stabilize').checked;
 
       let uMinX, uMinY, uMaxX, uMaxY, minPpu, minPpuX, minPpuY;
 
@@ -7840,7 +7866,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       progressEl.textContent = 'Encoding GIF...';
 
-      let blob = await new Promise((resolve, reject) => {
+      blob = await new Promise((resolve, reject) => {
         gif.on('finished', resolve);
         gif.on('error', reject);
         gif.render();
@@ -7860,6 +7886,10 @@ document.addEventListener('DOMContentLoaded', () => {
         },
       });
       blob = await gifAddComment(blob, gifMeta);
+
+      gifCacheKey = cacheKey;
+      gifCacheBlob = blob;
+      }
 
       if (action === 'copy') {
         // Strategy: store the GIF on the local server, then write image/png +
