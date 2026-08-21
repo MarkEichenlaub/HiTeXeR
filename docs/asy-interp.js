@@ -101,6 +101,510 @@ const TYPE_NAMES = new Set([
 const STRUCT_DEFS = new Map();
 
 // ============================================================
+// Asymptote numeric-infinity semantics
+// ============================================================
+// Asymptote's `infinity` constant is NOT IEEE infinity: it is cbrt(DBL_MAX)
+// ≈ 5.6438030941223623e102 (Math.cbrt(Number.MAX_VALUE) matches asy 3.x
+// bit-for-bit; verified against asy 3.05 write(format("%.17g", infinity))).
+// `inf` IS IEEE infinity. asy's finite(x) is `abs(x) < infinity`, so any
+// magnitude >= _ASY_INFINITY counts as non-finite — the axis code uses
+// _asyFiniteNum for its "±infinity bound means auto-extend" sentinel so that
+// both `inf` and `infinity` (a finite JS number!) are recognized.
+const _ASY_INFINITY = Math.cbrt(Number.MAX_VALUE);
+function _asyFiniteNum(v) { return isFinite(v) && Math.abs(v) < _ASY_INFINITY; }
+
+// ============================================================
+// hash() builtins (asy 3.11: native hashing of ints, strings, reals, int[])
+// ============================================================
+// Real asy salts hashes per process (its own tests are only probabilistic),
+// so exact values are unreproducible BY DESIGN. HiTeXeR uses a FIXED salt:
+// renders must stay deterministic for md5 A/B verification. Values are
+// non-negative integers < 2^53 (asy's are < 2^62; both satisfy the
+// documented properties: >= 0, equal inputs agree, distinct inputs differ).
+const _HASH_SALT = 0x51ab;
+function _hMix32(h, x) {
+  h = Math.imul(h ^ x, 2654435761) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 2246822519) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+function _hCombine(h1, h2) { return (h1 % 0x200000) * 0x100000000 + h2; }
+function _asyHashNum(x) {
+  if (!isFinite(x)) x = isNaN(x) ? -1 : (x > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE);
+  if (Number.isInteger(x) && Math.abs(x) <= Number.MAX_SAFE_INTEGER) {
+    // int path (HiTeXeR cannot distinguish int 1 from real 1.0 — both hash here)
+    const neg = x < 0 ? 0x55555555 : 0, a = Math.abs(x);
+    const hi = Math.floor(a / 0x100000000) >>> 0, lo = (a % 0x100000000) >>> 0;
+    return _hCombine(_hMix32(_hMix32(_HASH_SALT ^ 1, hi ^ neg), lo),
+                     _hMix32(_hMix32(_HASH_SALT ^ 2, lo), hi ^ neg));
+  }
+  _hashDV.setFloat64(0, x);
+  const hi = _hashDV.getUint32(0), lo = _hashDV.getUint32(4);
+  return _hCombine(_hMix32(_hMix32(_HASH_SALT ^ 3, hi), lo),
+                   _hMix32(_hMix32(_HASH_SALT ^ 4, lo), hi));
+}
+const _hashDV = new DataView(new ArrayBuffer(8));
+function _asyHashString(s) {
+  let h1 = _HASH_SALT ^ 5, h2 = _HASH_SALT ^ 6;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = _hMix32(h1, c);
+    h2 = _hMix32(h2, c + 0x9e3779b9);
+  }
+  return _hCombine(_hMix32(h1, s.length), _hMix32(h2, s.length ^ 0xabcd));
+}
+function _asyHashArray(a) {
+  let h1 = _HASH_SALT ^ 7, h2 = _HASH_SALT ^ 8;
+  h1 = _hMix32(h1, a.length); h2 = _hMix32(h2, a.length);
+  for (const v of a) {
+    const hv = (typeof v === 'string') ? _asyHashString(v) : _asyHashNum(Number(v) || 0);
+    const vLo = (hv % 0x100000000) >>> 0, vHi = Math.floor(hv / 0x100000000);
+    h1 = _hMix32(_hMix32(h1, vLo), vHi);
+    h2 = _hMix32(_hMix32(h2, vHi ^ 0xdeadbeef), vLo);
+  }
+  return _hCombine(h1, h2);
+}
+function _asyHashValue(v) {
+  if (Array.isArray(v)) return _asyHashArray(v);
+  if (typeof v === 'string') return _asyHashString(v);
+  if (typeof v === 'boolean') return _asyHashNum(v ? 1 : 0);
+  return _asyHashNum(Number(v) || 0);
+}
+
+// ============================================================
+// asy 3.11 collections library (native implementation)
+// ============================================================
+// The real library (base/collections/*.asy) is pure Asymptote built on
+// templated imports, struct methods, operator[]/[=]/iter and autounravel —
+// far beyond the struct support in this interpreter. Instead the OBSERVABLE
+// API is implemented natively and installed by the `from module(T=...)
+// access ...` statement (see parseImport/evalFromAccess). Faithfulness
+// notes, verified against a real asy 3.11 binary:
+//   - HashSet/HashMap iterate in INSERTION order (the real hashset keeps an
+//     oldest→newest linked list; its own tests assert it matches the naive
+//     reference exactly), so array-backed storage here is order-faithful.
+//   - Sorted sets (sortedset/splaytree/btreegeneral) and btreemap iterate
+//     in sorted order.
+//   - zip/enumerate/range materialize eagerly; all HiTeXeR iterables are
+//     finite so this is observationally equivalent.
+// User-defined `operator iter`/`operator []` on user structs is NOT
+// supported (needs struct methods); only the collections themselves are.
+let _colCallHook = null;  // set by installStdlib: calls builtin or user funcs by value
+function _colCall(f, args) { return _colCallHook ? _colCallHook(f, args) : null; }
+let _colRandState = 0x9e3779b9;  // deterministic: getRandom/randomKey must not break md5 A/B
+function _colRand(n) {
+  _colRandState = (Math.imul(_colRandState, 1664525) + 1013904223) >>> 0;
+  return _colRandState % n;
+}
+function _cEq(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a === b;
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    if (a._tag === 'pair' && b._tag === 'pair') return a.x === b.x && a.y === b.y;
+    if (a._tag === 'triple' && b._tag === 'triple') return a.x === b.x && a.y === b.y && a.z === b.z;
+  }
+  return a === b;
+}
+function _cLt(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a < b;
+  if (typeof a === 'string' && typeof b === 'string') return a < b;
+  return String(a) < String(b);
+}
+function _splitNamedArgs(args) {
+  const pos = [], named = {};
+  for (const a of args) {
+    if (a && a._named === true) {
+      for (const k in a) if (k !== '_named') named[k] = a[k];
+    } else pos.push(a);
+  }
+  return {pos, named};
+}
+function _namedOrPos(split, name, posIdx) {
+  return split.named[name] !== undefined ? split.named[name] : split.pos[posIdx];
+}
+// --- construction ---
+function _mkMap(kind, args) {
+  const s = _splitNamedArgs(args);
+  const nullValue = _namedOrPos(s, 'nullValue', 0);
+  const isNullValue = _namedOrPos(s, 'isNullValue', 1);
+  const m = {_tag:'collection', kind, keys: [], vals: [],
+             nullValue: nullValue !== undefined ? nullValue : null, isNullValue: null};
+  if (isNullValue != null) m.isNullValue = (v) => !!_colCall(isNullValue, [v]);
+  else if (nullValue !== undefined) m.isNullValue = (v) => _cEq(v, nullValue);
+  return m;
+}
+function _mkSet(kind, args) {
+  const s = _splitNamedArgs(args);
+  const nullT = _namedOrPos(s, 'nullT', 0);
+  const equiv = _namedOrPos(s, 'equiv', 1);
+  const isNullT = _namedOrPos(s, 'isNullT', 2);
+  const set = {_tag:'collection', kind, items: [],
+               nullT: nullT !== undefined ? nullT : null, hasNullT: nullT !== undefined,
+               equivFn: null, isNullTFn: null, ltFn: null};
+  if (equiv != null) set.equivFn = (a, b) => !!_colCall(equiv, [a, b]);
+  if (isNullT != null) set.isNullTFn = (t) => !!_colCall(isNullT, [t]);
+  else if (nullT !== undefined) set.isNullTFn = (t) => _setEquiv(set, t, set.nullT);
+  return set;
+}
+// sortedset/splaytree/btreegeneral ctor: (lessThan, nullT [, isNullT])
+function _mkSortedSet(args) {
+  const s = _splitNamedArgs(args);
+  // param names vary across the sorted implementations: sortedset/btree use
+  // lessThan/nullT, splaytree uses lessthan/emptyresponse
+  const lessThan = s.named.lessthan !== undefined ? s.named.lessthan : _namedOrPos(s, 'lessThan', 0);
+  const nullT = s.named.emptyresponse !== undefined ? s.named.emptyresponse : _namedOrPos(s, 'nullT', 1);
+  const isNullT = _namedOrPos(s, 'isNullT', 2);
+  const set = {_tag:'collection', kind:'sortedset', items: [],
+               nullT: nullT !== undefined ? nullT : null, hasNullT: nullT !== undefined,
+               equivFn: null, isNullTFn: null, ltFn: null};
+  if (lessThan != null) set.ltFn = (a, b) => !!_colCall(lessThan, [a, b]);
+  set.equivFn = (a, b) => !_setLt(set, a, b) && !_setLt(set, b, a);
+  if (isNullT != null) set.isNullTFn = (t) => !!_colCall(isNullT, [t]);
+  else if (nullT !== undefined) set.isNullTFn = (t) => _setEquiv(set, t, set.nullT);
+  return set;
+}
+function _mkQueue(args) {
+  const s = _splitNamedArgs(args);
+  const init = _namedOrPos(s, 'initialData', 0);
+  return {_tag:'collection', kind:'queue', items: Array.isArray(init) ? init.slice() : []};
+}
+function _mkIterable(items) {
+  return {_tag:'collection', kind:'iterable', items};
+}
+// --- shared internals ---
+function _setEquiv(s, a, b) { return s.equivFn ? s.equivFn(a, b) : _cEq(a, b); }
+function _setLt(s, a, b) { return s.ltFn ? s.ltFn(a, b) : _cLt(a, b); }
+function _setIsNull(s, t) { return s.isNullTFn ? s.isNullTFn(t) : false; }
+function _setFind(s, item) {
+  for (let i = 0; i < s.items.length; i++) if (_setEquiv(s, s.items[i], item)) return i;
+  return -1;
+}
+function _setInsert(s, item) {
+  if (s.kind === 'sortedset') {
+    let i = 0;
+    while (i < s.items.length && _setLt(s, s.items[i], item)) i++;
+    s.items.splice(i, 0, item);
+  } else s.items.push(item);
+}
+function _mapFind(m, key) {
+  for (let i = 0; i < m.keys.length; i++) if (_cEq(m.keys[i], key)) return i;
+  return -1;
+}
+function _mapGet(m, key) {
+  const i = _mapFind(m, key);
+  if (i >= 0) return m.vals[i];
+  if (m.isNullValue) return m.nullValue;
+  throw new Error('Key not found in map');
+}
+function _mapSet(m, key, val) {
+  const i = _mapFind(m, key);
+  if (m.isNullValue && m.isNullValue(val)) {  // storing the null value deletes
+    if (i >= 0) { m.keys.splice(i, 1); m.vals.splice(i, 1); }
+    return;
+  }
+  if (i >= 0) { m.keys[i] = key; m.vals[i] = val; return; }
+  if (m.kind === 'btreemap') {  // sorted key order
+    let j = 0;
+    while (j < m.keys.length && _cLt(m.keys[j], key)) j++;
+    m.keys.splice(j, 0, key); m.vals.splice(j, 0, val);
+  } else { m.keys.push(key); m.vals.push(val); }
+}
+function _collectionIterItems(c) {
+  if (c.kind === 'map' || c.kind === 'btreemap') return c.keys.slice();
+  if (c.kind === 'oldmap') return c.M.map(e => e.key);
+  return (c.items || []).slice();
+}
+function _toItems(v) {
+  if (Array.isArray(v)) return v.slice();
+  if (v && v._tag === 'collection') return _collectionIterItems(v);
+  return [];
+}
+function _isIterableVal(v) {
+  return Array.isArray(v) || (v && v._tag === 'collection');
+}
+// --- method dispatch; returns {_v: value} when handled, undefined otherwise ---
+function _collectionMethod(c, method, args) {
+  const k = c.kind;
+  if (k === 'map' || k === 'btreemap') {
+    switch (method) {
+      case 'size': return {_v: c.keys.length};
+      case 'empty': return {_v: c.keys.length === 0};
+      case 'contains': return {_v: _mapFind(c, args[0]) >= 0};
+      case 'delete': {
+        const i = _mapFind(c, args[0]);
+        if (i < 0) throw new Error('Nonexistent key cannot be deleted');
+        c.keys.splice(i, 1); c.vals.splice(i, 1);
+        return {_v: null};
+      }
+      case 'keys': return {_v: c.keys.slice()};
+      case 'pairs': return {_v: _mkIterable(c.keys.map((key, i) => ({k: key, v: c.vals[i]})))};
+      case 'add': {  // add(Iterable of pairs)
+        for (const kv of _toItems(args[0])) if (kv) _mapSet(c, kv.k, kv.v);
+        return {_v: null};
+      }
+      case 'randomKey': {
+        if (c.keys.length === 0) throw new Error('Cannot get a random key from an empty map');
+        return {_v: c.keys[_colRand(c.keys.length)]};
+      }
+    }
+    return undefined;
+  }
+  if (k === 'set' || k === 'sortedset') {
+    switch (method) {
+      case 'size': return {_v: c.items.length};
+      case 'empty': return {_v: c.items.length === 0};
+      case 'contains': return {_v: _setFind(c, args[0]) >= 0};
+      case 'get': {
+        const i = _setFind(c, args[0]);
+        if (i >= 0) return {_v: c.items[i]};
+        if (c.isNullTFn) return {_v: c.nullT};
+        throw new Error('Item is not present.');
+      }
+      case 'add': {
+        if (_isIterableVal(args[0]) && !c.items.some(it => _cEq(it, args[0]))) {
+          // add(Iterable): bulk insert (arrays are only ambiguous if T is an
+          // array type, which the corpus never instantiates)
+          for (const it of _toItems(args[0])) _colAddItem(c, it);
+          return {_v: null};
+        }
+        return {_v: _colAddItem(c, args[0])};
+      }
+      case 'push': {
+        const item = args[0];
+        if (_setIsNull(c, item)) return {_v: c.nullT};
+        const i = _setFind(c, item);
+        if (i >= 0) { const old = c.items[i]; c.items[i] = item; return {_v: old}; }
+        _setInsert(c, item);
+        if (!c.isNullTFn) throw new Error('Adding item via push() without defining nullT.');
+        return {_v: c.nullT};
+      }
+      case 'extract': {
+        if (_setIsNull(c, args[0])) return {_v: c.nullT};
+        const i = _setFind(c, args[0]);
+        if (i >= 0) { const it = c.items[i]; c.items.splice(i, 1); return {_v: it}; }
+        if (c.isNullTFn) return {_v: c.nullT};
+        throw new Error('Item is not present.');
+      }
+      case 'delete': {
+        if (_isIterableVal(args[0]) && !c.items.some(it => _cEq(it, args[0]))) {
+          for (const it of _toItems(args[0])) {
+            const i = _setFind(c, it);
+            if (i >= 0) c.items.splice(i, 1);
+          }
+          return {_v: null};
+        }
+        if (_setIsNull(c, args[0])) return {_v: false};
+        const i = _setFind(c, args[0]);
+        if (i < 0) return {_v: false};
+        c.items.splice(i, 1);
+        return {_v: true};
+      }
+      case 'getRandom': {
+        if (c.items.length === 0) {
+          if (c.isNullTFn) return {_v: c.nullT};
+          throw new Error('Cannot get a random item from an empty set');
+        }
+        return {_v: c.items[_colRand(c.items.length)]};
+      }
+      case 'newEmpty': {
+        const fresh = {_tag:'collection', kind: c.kind, items: [], nullT: c.nullT,
+                       hasNullT: c.hasNullT, equivFn: c.equivFn, isNullTFn: c.isNullTFn, ltFn: c.ltFn};
+        return {_v: fresh};
+      }
+    }
+    if (k === 'sortedset') {
+      switch (method) {
+        case 'min': return {_v: c.items.length ? c.items[0] : c.nullT};
+        case 'max': return {_v: c.items.length ? c.items[c.items.length-1] : c.nullT};
+        case 'popMin': return {_v: c.items.length ? c.items.shift() : c.nullT};
+        case 'popMax': return {_v: c.items.length ? c.items.pop() : c.nullT};
+        case 'after': {  // least element > item
+          for (const it of c.items) if (_setLt(c, args[0], it)) return {_v: it};
+          return {_v: c.nullT};
+        }
+        case 'before': {  // greatest element < item
+          for (let i = c.items.length - 1; i >= 0; i--)
+            if (_setLt(c, c.items[i], args[0])) return {_v: c.items[i]};
+          return {_v: c.nullT};
+        }
+        case 'atOrAfter': {
+          const i = _setFind(c, args[0]);
+          if (i >= 0) return {_v: c.items[i]};
+          return _collectionMethod(c, 'after', args);
+        }
+        case 'atOrBefore': {
+          const i = _setFind(c, args[0]);
+          if (i >= 0) return {_v: c.items[i]};
+          return _collectionMethod(c, 'before', args);
+        }
+      }
+    }
+    return undefined;
+  }
+  if (k === 'queue') {
+    switch (method) {
+      case 'push': c.items.push(args[0]); return {_v: null};
+      case 'peek':
+        if (!c.items.length) throw new Error('Queue is empty');
+        return {_v: c.items[0]};
+      case 'pop':
+        if (!c.items.length) throw new Error('Queue is empty');
+        return {_v: c.items.shift()};
+      case 'size': return {_v: c.items.length};
+    }
+    return undefined;
+  }
+  if (k === 'iter') {
+    switch (method) {
+      case 'valid': return {_v: c.i < c.items.length};
+      case 'get': return {_v: c.items[c.i]};
+      case 'advance': c.i++; return {_v: null};
+    }
+    return undefined;
+  }
+  if (k === 'oldmap') {  // pre-3.11 map.asy template: add()/lookup()
+    switch (method) {
+      case 'add': {
+        let j = 0;
+        while (j < c.M.length && _cLt(c.M[j].key, args[0])) j++;
+        c.M.splice(j, 0, {key: args[0], value: args[1]});
+        return {_v: null};
+      }
+      case 'lookup': {
+        for (const e of c.M) if (_cEq(e.key, args[0])) return {_v: e.value};
+        return {_v: c.Default};
+      }
+    }
+    return undefined;
+  }
+  return undefined;
+}
+function _colAddItem(s, item) {
+  if (_setIsNull(s, item)) return false;
+  if (_setFind(s, item) >= 0) return false;
+  _setInsert(s, item);
+  return true;
+}
+// --- set operators (+ union, - difference, & intersection, ^ symmetric
+//     difference, <= subset, >= superset, ==/!= equality) ---
+function _isColSet(v) { return v && v._tag === 'collection' && (v.kind === 'set' || v.kind === 'sortedset'); }
+function _colSetOp(op, a, b) {
+  const fresh = () => _collectionMethod(a, 'newEmpty', [])._v;
+  const bItems = _toItems(b);
+  switch (op) {
+    case '+': {
+      const r = fresh();
+      for (const it of a.items) _colAddItem(r, it);
+      for (const it of bItems) _colAddItem(r, it);
+      return r;
+    }
+    case '-': {
+      const r = fresh();
+      for (const it of a.items) if (_setFind(b, it) < 0) _colAddItem(r, it);
+      return r;
+    }
+    case '&': {
+      const r = fresh();
+      for (const it of a.items) if (_setFind(b, it) >= 0) _colAddItem(r, it);
+      return r;
+    }
+    case '^': {
+      const r = fresh();
+      for (const it of a.items) if (_setFind(b, it) < 0) _colAddItem(r, it);
+      for (const it of bItems) if (_setFind(a, it) < 0) _colAddItem(r, it);
+      return r;
+    }
+    case '<=': return a.items.every(it => _setFind(b, it) >= 0);
+    case '>=': return bItems.every(it => _setFind(a, it) >= 0);
+    case '==': return a.items.every(it => _setFind(b, it) >= 0) && bItems.every(it => _setFind(a, it) >= 0);
+    case '!=': return !(a.items.every(it => _setFind(b, it) >= 0) && bItems.every(it => _setFind(a, it) >= 0));
+  }
+  return null;
+}
+// --- module export factories, keyed by the module path in `from <path>(...) access` ---
+function _colModuleExports(moduleName) {
+  const mod = String(moduleName).replace(/["']/g, '');
+  const pairCtor = (...args) => {
+    const s = _splitNamedArgs(args);
+    return {k: _namedOrPos(s, 'k', 0), v: _namedOrPos(s, 'v', 1)};
+  };
+  const iterableCtor = (...args) => {
+    const s = _splitNamedArgs(args);
+    return _mkIterable(_toItems(s.pos[0]));
+  };
+  switch (mod) {
+    case 'collections.iter': {
+      const iterCtor = (...args) => ({_tag:'collection', kind:'iter', items: _toItems(args[0]), i: 0});
+      return {Iter_T: iterCtor, Iterable_T: iterableCtor, Iterable: iterableCtor, range: iterableCtor};
+    }
+    case 'collections.zip':
+      return {zip: (...args) => {
+        const s = _splitNamedArgs(args);
+        const hasDefault = 'default' in s.named;
+        const arrays = s.pos.map(_toItems);
+        if (!arrays.length) return [];
+        const len = hasDefault ? Math.max(...arrays.map(a => a.length))
+                               : Math.min(...arrays.map(a => a.length));
+        const out = [];
+        for (let i = 0; i < len; i++)
+          out.push(arrays.map(a => i < a.length ? a[i] : s.named.default));
+        return out;
+      }};
+    case 'collections.zip2':
+      return {makePair: pairCtor, zip: (...args) => {
+        const s = _splitNamedArgs(args);
+        const def = s.named.default !== undefined ? s.named.default : null;
+        const A = _toItems(s.pos[0]), B = _toItems(s.pos[1]);
+        const len = def != null ? Math.max(A.length, B.length) : Math.min(A.length, B.length);
+        const out = [];
+        for (let i = 0; i < len; i++)
+          out.push({k: i < A.length ? A[i] : def.k, v: i < B.length ? B[i] : def.v});
+        return out;
+      }};
+    case 'collections.enumerate':
+      return {enumerate: (arr) => _toItems(arr).map((item, i) => ({k: i, v: item}))};
+    case 'collections.genericpair':
+      return {Pair_K_V: pairCtor, makePair: pairCtor};
+    case 'collections.wrapper': {
+      const wrapCtor = (t) => ({t});
+      return {Wrapped_T: wrapCtor, wrap: wrapCtor};
+    }
+    case 'collections.map':
+      return {Map_K_V: (...a) => _mkMap('map', a), NaiveMap_K_V: (...a) => _mkMap('map', a)};
+    case 'collections.hashmap':
+      return {HashMap_K_V: (...a) => _mkMap('map', a)};
+    case 'collections.btreemap':
+      return {BTreeMap_K_V: (...a) => _mkMap('btreemap', a)};
+    case 'collections.set':
+      return {Set_T: (...a) => _mkSet('set', a), NaiveSet_T: (...a) => _mkSet('set', a)};
+    case 'collections.hashset':
+      return {HashSet_T: (...a) => _mkSet('set', a)};
+    case 'collections.sortedset':
+      return {SortedSet_T: (...a) => _mkSortedSet(a), Naive_T: (...a) => _mkSortedSet(a)};
+    case 'collections.splaytree':
+      return {SplayTree_T: (...a) => _mkSortedSet(a)};
+    case 'collections.btree':
+    case 'collections.btreegeneral':
+      return {BTreeSet_T: (...a) => _mkSortedSet(a)};
+    case 'collections.queue': {
+      const make = (...a) => _mkQueue(a);
+      return {Queue_T: {makeQueue: make}, makeQueue: make, makeNaiveQueue: make,
+              makeArrayQueue: make, makeLinkedQueue: make};
+    }
+    case 'mapArray':
+      return {map: (f, a) => _toItems(a).map(x => _colCall(f, [x]))};
+    case 'map': {  // pre-3.11 top-level map.asy template
+      const kvCtor = (...args) => ({key: args[0], value: args[1]});
+      return {keyValue: kvCtor, map: (...args) => {
+        const s = _splitNamedArgs(args);
+        return {_tag:'collection', kind:'oldmap', M: [],
+                Default: _namedOrPos(s, 'Default', 0)};
+      }};
+    }
+  }
+  return null;
+}
+
+// ============================================================
 // Lexer
 // ============================================================
 function lex(source) {
@@ -409,6 +913,34 @@ function parse(tokens) {
     if (atVal(T.IDENT,'break')) { const ln=cur().line; pos++; tryEat(T.SEMI); return BreakStmt(ln); }
     if (atVal(T.IDENT,'continue')) { const ln=cur().line; pos++; tryEat(T.SEMI); return ContinueStmt(ln); }
 
+    // Type aliases: classic `typedef real func(real);` and asy 2.96
+    // `using F = void(int);`. The interpreter is dynamically typed, so the
+    // alias only needs to register as a TYPE NAME for declaration parsing;
+    // the signature itself carries no runtime semantics here. `typedef
+    // import(T,...)` (template-module headers) is swallowed harmlessly.
+    if (atVal(T.IDENT,'typedef') || atVal(T.IDENT,'using')) {
+      const kw = cur().value; pos++;
+      if (kw === 'using' && at(T.IDENT) && peekType(1) === T.ASSIGN) {
+        TYPE_NAMES.add(cur().value);
+        while (!at(T.SEMI) && !at(T.EOF)) pos++;
+      } else if (kw === 'typedef') {
+        // Register the identifier immediately before '(' (function-type
+        // alias) or the last identifier before ';' (plain alias).
+        let lastIdent = null, regName = null;
+        while (!at(T.SEMI) && !at(T.EOF)) {
+          if (at(T.IDENT) && cur().value !== 'import') lastIdent = cur().value;
+          if (at(T.LPAREN) && lastIdent && !regName) regName = lastIdent;
+          pos++;
+        }
+        const name = regName || lastIdent;
+        if (name) TYPE_NAMES.add(name);
+      } else {
+        while (!at(T.SEMI) && !at(T.EOF)) pos++;
+      }
+      tryEat(T.SEMI);
+      return null;
+    }
+
     // Skip 'static' modifier
     if (atVal(T.IDENT,'static')) pos++;
 
@@ -522,11 +1054,72 @@ function parse(tokens) {
   function parseImport() {
     const ln = cur().line;
     const keyword = eat(T.IDENT).value; // import/access/from/include
+    if (keyword === 'from') {
+      // Structured parse of `from <mod>[(T=type,...)] access a [as b], ...;`
+      // (asy templated imports, the mechanism behind the 3.11 collections
+      // library). Falls back to the legacy swallow-to-semicolon ImportStmt
+      // on anything that doesn't match.
+      const saved = pos;
+      const parsed = tryParseFromAccess(ln);
+      if (parsed) return parsed;
+      pos = saved;
+    }
     let mod = '';
     // Collect until semicolon
     while (!at(T.SEMI) && !at(T.EOF)) { mod += cur().value + ' '; pos++; }
     tryEat(T.SEMI);
     return ImportStmt(mod.trim(), ln);
+  }
+
+  function tryParseFromAccess(ln) {
+    // module path: IDENT(.IDENT)* or a string literal ("collections/hashmap")
+    let module = '';
+    if (at(T.STRING)) {
+      module = String(cur().value).replace(/\//g, '.');
+      pos++;
+    } else if (at(T.IDENT)) {
+      module = eat(T.IDENT).value;
+      while (at(T.DOT) && peekType(1) === T.IDENT) { pos++; module += '.' + eat(T.IDENT).value; }
+    } else return null;
+    // optional template type args: (K=string, V=int[])
+    const typeArgs = {};
+    if (at(T.LPAREN)) {
+      pos++;
+      while (!at(T.RPAREN) && !at(T.EOF)) {
+        if (!at(T.IDENT)) return null;
+        const pname = eat(T.IDENT).value;
+        if (!tryEat(T.ASSIGN)) return null;
+        if (!at(T.IDENT)) return null;
+        let tname = eat(T.IDENT).value;
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; tname += '[]'; }
+        typeArgs[pname] = tname;
+        if (!tryEat(T.COMMA)) break;
+      }
+      if (!tryEat(T.RPAREN)) return null;
+    }
+    if (!atVal(T.IDENT, 'access')) return null;  // `from X unravel ...` → legacy path
+    pos++;
+    const imports = [];
+    while (at(T.IDENT)) {
+      const name = eat(T.IDENT).value;
+      let alias = null;
+      if (atVal(T.IDENT, 'as')) {
+        pos++;
+        if (!at(T.IDENT)) return null;
+        alias = eat(T.IDENT).value;
+      }
+      imports.push({name, alias});
+      // Imported collection types must parse as declaration types
+      // (`HashMap_string_int m = ...`). Struct-style exports are
+      // uppercase-initial (HashMap_K_V, Queue_T, Pair_K_V, ...); keyValue
+      // (old map.asy) is the one lowercase type export.
+      const local = alias || name;
+      if (/^[A-Z]/.test(local) || local === 'keyValue') TYPE_NAMES.add(local);
+      if (!tryEat(T.COMMA)) break;
+    }
+    if (!imports.length) return null;
+    tryEat(T.SEMI);
+    return {type:'FromAccessStmt', module, typeArgs, imports, line: ln};
   }
 
   function parseBlock() {
@@ -2729,6 +3322,7 @@ function createInterpreter() {
       case 'ContinueStmt': throw CONTINUE_SIG;
       case 'FuncDecl': return evalFuncDecl(node, env);
       case 'ImportStmt': return evalImport(node, env);
+      case 'FromAccessStmt': return evalFromAccess(node, env);
       case 'OperatorLit': return {_tag:'operator', value: node.value};
       default: return null;
     }
@@ -2806,6 +3400,22 @@ function createInterpreter() {
     const left = evalNode(node.left, env);
     const right = evalNode(node.right, env);
     const op = node.op;
+
+    // asy 3.11 Set_T operators: + union, - difference, & intersection,
+    // ^ symmetric difference, <=/>= subset, ==/!= set equality. T.AND covers
+    // both '&' and '&&' in this lexer; booleans are never collections so the
+    // guard is unambiguous.
+    if (_isColSet(left) && (_isColSet(right) || Array.isArray(right))) {
+      const opStr = op === T.PLUS ? '+' : op === T.MINUS ? '-' : op === T.AND ? '&'
+                  : op === T.CARET ? '^' : op === T.LE ? '<=' : op === T.GE ? '>='
+                  : op === T.EQ ? '==' : op === T.NEQ ? '!=' : null;
+      if (opStr) {
+        const rSet = _isColSet(right) ? right
+          : (() => { const s = _collectionMethod(left, 'newEmpty', [])._v;
+                     for (const it of right) _colAddItem(s, it); return s; })();
+        return _colSetOp(opStr, left, rSet);
+      }
+    }
 
     // Pen + pen composition
     if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
@@ -3902,6 +4512,20 @@ function createInterpreter() {
     const args = (_isCAD && argNodes.some(a => a && (a.type === 'NamedArg' || a.type === 'SpreadArg')))
       ? evalArgList(argNodes, env)
       : argNodes.map(a => evalNode(a, env));
+
+    // asy 3.11 collections (HashMap/HashSet/SortedSet/Queue/...): native
+    // method dispatch. Returns a {_v} wrapper so methods that legitimately
+    // return null are distinguishable from "not handled".
+    if (obj && obj._tag === 'collection') {
+      const r = _collectionMethod(obj, method, args);
+      if (r !== undefined) return r._v;
+    }
+    // asy 3.11 native hashing: int/real/string .hash() methods (hash values
+    // use a fixed salt — see _asyHashValue; real asy salts per process).
+    if (method === 'hash' && args.length === 0 &&
+        (typeof obj === 'number' || typeof obj === 'string' || isArray(obj))) {
+      return _asyHashValue(obj);
+    }
 
     if (obj && obj._tag === 'file') {
       // Mode setters return the file itself (input(f).line().csv() chains).
@@ -5093,6 +5717,11 @@ function createInterpreter() {
 
   function evalArrayAccess(node, env) {
     const obj = evalNode(node.object, env);
+    // Map indexing m[key] (asy 3.11 collections): the key may be a string —
+    // must not go through toNumber.
+    if (obj && obj._tag === 'collection' && (obj.kind === 'map' || obj.kind === 'btreemap')) {
+      return _mapGet(obj, evalNode(node.index, env));
+    }
     const idx = toNumber(evalNode(node.index, env));
     if (isArray(obj)) {
       let i = Math.floor(idx);
@@ -5891,6 +6520,18 @@ function createInterpreter() {
     }
     if (node.target.type === 'ArrayAccess') {
       const obj = evalNode(node.target.object, env);
+      // Map write m[key] = v (asy 3.11 collections). Assigning the map's
+      // nullValue deletes the key (real asy operator[=] semantics).
+      if (obj && obj._tag === 'collection' && (obj.kind === 'map' || obj.kind === 'btreemap')) {
+        const key = evalNode(node.target.index, env);
+        let newVal = val;
+        if (node.op !== '=') {
+          const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
+          newVal = evalBinaryValues(ops[node.op], _mapGet(obj, key), val);
+        }
+        _mapSet(obj, key, newVal);
+        return newVal;
+      }
       const idx = Math.floor(toNumber(evalNode(node.target.index, env)));
       if (isArray(obj)) {
         let newVal = val;
@@ -5994,6 +6635,10 @@ function createInterpreter() {
   function evalForEach(node, env) {
     const local = createEnv(env);
     let iterVal = evalNode(node.iter, env);
+    // asy 3.11 collections: for (K key : map) iterates keys; sets/queues/
+    // iterables iterate items (insertion order; sorted sets sorted). Snapshot
+    // so mutation inside the loop can't skip elements.
+    if (iterVal && iterVal._tag === 'collection') iterVal = _collectionIterItems(iterVal);
     // Unwrap a `^^`-built composite path into its components so
     // `for(path pp : g)` over `path[] g = pA ^^ pB` iterates as expected.
     if (!isArray(iterVal) && iterVal && iterVal._tag === 'path'
@@ -6061,6 +6706,22 @@ function createInterpreter() {
     // real `exp(real)`: when called with a real, the builtin should win.
     if (overload.builtin && bestScore <= 0) return overload.builtin;
     return best || alts[alts.length - 1];
+  }
+
+  // `from <module>(T=...) access name [as alias], ...` — installs the
+  // requested exports of a native template module (asy 3.11 collections,
+  // mapArray, old map.asy). Unknown modules degrade to the legacy
+  // ImportStmt path so e.g. `from graph access xaxis;` still installs the
+  // graph package (HiTeXeR imports are whole-module anyway).
+  function evalFromAccess(node, env) {
+    const exports = _colModuleExports(node.module);
+    if (!exports) return evalImport({module: String(node.module)}, env);
+    for (const im of node.imports) {
+      const v = exports[im.name];
+      if (v !== undefined) env.set(im.alias || im.name, v);
+      else recordUnknownCall('from ' + node.module + ' access ' + im.name, 0);
+    }
+    return null;
   }
 
   function evalImport(node, env) {
@@ -7700,8 +8361,28 @@ function createInterpreter() {
     env.set('pi', Math.PI);
     env.set('PI', Math.PI);
     env.set('e', Math.E);
+    // `inf` is IEEE infinity; `infinity` is asy's cbrt(realMax) ≈ 5.6438e102
+    // (a large FINITE number — see _ASY_INFINITY at top). finite(x) is
+    // abs(x) < infinity, so finite(infinity) is false but infinity*0.999999
+    // is finite, matching asy 3.05 exactly.
     env.set('inf', Infinity);
-    env.set('infinity', Infinity);
+    env.set('infinity', _ASY_INFINITY);
+    env.set('nan', NaN);
+    env.set('isnan', (v) => Number.isNaN(toNumber(v)));
+    env.set('finite', (v) => {
+      if (isPair(v)) return _asyFiniteNum(v.x) && _asyFiniteNum(v.y);
+      if (isTriple(v)) return _asyFiniteNum(v.x) && _asyFiniteNum(v.y) && _asyFiniteNum(v.z);
+      return _asyFiniteNum(toNumber(v));
+    });
+    env.set('hash', (v) => _asyHashValue(v));
+    // Collections runtime → interpreter bridge: lets the top-level collection
+    // helpers invoke user-supplied predicates (equiv/isNullValue/lessThan)
+    // whether they're JS builtins or interpreted {_tag:'func'} values.
+    _colCallHook = (f, args) => {
+      if (typeof f === 'function') return f(...args);
+      if (f && (f._tag === 'func' || f._tag === 'overload')) return callUserFuncValues(f, args);
+      return null;
+    };
     env.set('intMax', 2147483647);
     env.set('intMin', -2147483648);
     env.set('realMax', Number.MAX_VALUE);
@@ -12745,18 +13426,44 @@ const _HTX_DATA_FILES = {
     env.set('assert', (cond, msg) => {
       if (!toBool(cond)) throw new Error('Assertion failed: ' + (msg || ''));
     });
+    // alias(a, b): reference identity (asy semantics; null-safe).
+    env.set('alias', (a, b) => (a === b) || (a == null && b == null));
+    // asy-parity value formatting for write(): %.15g numbers, inf/nan
+    // spellings, "true "/"false " (asy pads bools with a trailing space),
+    // concatenated args. Only active under HTX_WRITE (node test harnesses);
+    // rendering never calls it.
+    const _fmtAsyNum = (n) => {
+      if (n === Infinity) return 'inf';
+      if (n === -Infinity) return '-inf';
+      if (Number.isNaN(n)) return 'nan';
+      if (Number.isInteger(n) && Math.abs(n) < 1e15) return String(n);
+      let s = n.toPrecision(15);
+      if (s.includes('e')) {
+        let [m, ex] = s.split('e');
+        if (m.includes('.')) m = m.replace(/0+$/, '').replace(/\.$/, '');
+        const exNum = parseInt(ex, 10);
+        return m + 'e' + (exNum >= 0 ? '+' : '-') + String(Math.abs(exNum)).padStart(2, '0');
+      }
+      if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+      return s;
+    };
+    const _fmtAsyVal = (a) => {
+      if (a === null || a === undefined) return '';
+      if (typeof a === 'string') return a;
+      if (typeof a === 'number') return _fmtAsyNum(a);
+      if (typeof a === 'boolean') return a ? 'true ' : 'false ';
+      if (a && a._tag === 'triple') return `(${_fmtAsyNum(a.x)},${_fmtAsyNum(a.y)},${_fmtAsyNum(a.z)})`;
+      if (a && a._tag === 'pair') return `(${_fmtAsyNum(a.x)},${_fmtAsyNum(a.y)})`;
+      if (Array.isArray(a)) return a.map(_fmtAsyVal).join('\n');
+      if (a && a._tag === 'collection') {
+        const items = _collectionIterItems(a);
+        return a.kind + '[' + items.length + ']';
+      }
+      return JSON.stringify(a).slice(0, 100);
+    };
     env.set('write', (...args) => {
       if (typeof process !== 'undefined' && process.env && process.env.HTX_WRITE) {
-        const parts = args.map(a => {
-          if (a === null || a === undefined) return '';
-          if (typeof a === 'string') return a;
-          if (typeof a === 'number') return String(a);
-          if (a && a._tag === 'triple') return `(${a.x},${a.y},${a.z})`;
-          if (a && a._tag === 'pair') return `(${a.x},${a.y})`;
-          if (Array.isArray(a)) return '[' + a.length + ' items]';
-          return JSON.stringify(a).slice(0, 100);
-        });
-        try { process.stderr.write('[write] ' + parts.join(' ') + '\n'); } catch(e) {}
+        try { process.stderr.write('[write] ' + args.map(_fmtAsyVal).join('') + '\n'); } catch(e) {}
       }
     });
     env.set('quotient', (a,b) => Math.floor(toNumber(a)/toNumber(b)));
@@ -15603,9 +16310,10 @@ const _HTX_DATA_FILES = {
       // means "extend to the picture's data bound" (Asymptote semantics).
       // Treat it as unspecified so it auto-resolves from content below; left
       // as ±Infinity it poisons the label position math (xmin + pos*(xmax-xmin)
-      // = -Inf + Inf = NaN), producing a NaN viewBox (12923).
-      if (xmin !== null && !isFinite(xmin)) xmin = null;
-      if (xmax !== null && !isFinite(xmax)) xmax = null;
+      // = -Inf + Inf = NaN), producing a NaN viewBox (12923). _asyFiniteNum,
+      // not isFinite: asy's `infinity` constant is a finite 5.6438e102.
+      if (xmin !== null && !_asyFiniteNum(xmin)) xmin = null;
+      if (xmax !== null && !_asyFiniteNum(xmax)) xmax = null;
       // Track whether range was explicitly provided (vs auto-computed)
       const xminExplicit = xmin !== null;
       const xmaxExplicit = xmax !== null;
@@ -16272,9 +16980,10 @@ const _HTX_DATA_FILES = {
       // yaxis(L, -infinity, y) / yaxis(L, y, infinity): ±infinity means
       // "extend to the picture's data bound" (Asymptote). Treat as unspecified
       // so it auto-resolves; left as ±Infinity it produces NaN label positions
-      // and a NaN viewBox (12923).
-      if (ymin !== null && !isFinite(ymin)) ymin = null;
-      if (ymax !== null && !isFinite(ymax)) ymax = null;
+      // and a NaN viewBox (12923). _asyFiniteNum, not isFinite: asy's
+      // `infinity` constant is a finite 5.6438e102.
+      if (ymin !== null && !_asyFiniteNum(ymin)) ymin = null;
+      if (ymax !== null && !_asyFiniteNum(ymax)) ymax = null;
       // Track whether range was explicitly provided (vs auto-computed)
       const yminExplicit = ymin !== null;
       const ymaxExplicit = ymax !== null;
@@ -17437,10 +18146,15 @@ const _HTX_DATA_FILES = {
 
     // xlimits/ylimits — store axis ranges for xaxis/yaxis to use.
     // If a picture is passed as first arg, store per-picture; else global.
+    // Users pass asy's `infinity` (finite 5.6438e102) as an unbounded limit;
+    // downstream consumers of _picLimits/_axisLimits historically saw IEEE
+    // ±Infinity there, so normalize at intake to keep them unchanged.
+    const _limitNum = (v) => (typeof v === 'number' && !_asyFiniteNum(v) && !isNaN(v))
+      ? (v > 0 ? Infinity : -Infinity) : v;
     env.set('xlimits', (...args) => {
       let targetPic = null;
       for (const a of args) { if (a && a._tag === 'picture') { targetPic = a; break; } }
-      const nums = args.filter(a => typeof a === 'number');
+      const nums = args.filter(a => typeof a === 'number').map(_limitNum);
       let crop = false;
       for (const a of args) {
         if (a === true) crop = true;
@@ -17463,7 +18177,7 @@ const _HTX_DATA_FILES = {
     env.set('ylimits', (...args) => {
       let targetPic = null;
       for (const a of args) { if (a && a._tag === 'picture') { targetPic = a; break; } }
-      const nums = args.filter(a => typeof a === 'number');
+      const nums = args.filter(a => typeof a === 'number').map(_limitNum);
       let crop = false;
       for (const a of args) {
         if (a === true) crop = true;
@@ -17490,7 +18204,7 @@ const _HTX_DATA_FILES = {
       let hasCrop = false;
       for (const a of args) {
         if (a && a._tag === 'picture') targetPic = a;
-        else if (isPair(a)) pairs.push(a);
+        else if (isPair(a)) pairs.push(makePair(_limitNum(a.x), _limitNum(a.y)));
         else if (a === true) hasCrop = true; // Crop is env-set to true
         else if (a && a._named && a.crop === true) hasCrop = true; // crop=Crop keyword arg
       }
