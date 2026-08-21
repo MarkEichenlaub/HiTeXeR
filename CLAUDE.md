@@ -1,5 +1,36 @@
 # HiTeXeR Project Instructions
 
+## asy 3.11 collections & templated imports (v9.97)
+
+`from module(T=...) access X as Y;` (asy templated imports) is parsed
+natively (`tryParseFromAccess` in the parser) and resolved against NATIVE JS
+implementations of the asy 3.11 collections library — see
+`_colModuleExports` in `asy-interp.js` (hashmap / hashset / set / sortedset /
+splaytree / btreemap / btreegeneral / queue / zip / zip2 / enumerate / iter /
+genericpair / wrapper, plus the pre-3.11 `mapArray` and `map` templates).
+`typedef` / `using` statements register type aliases only (the interpreter is
+dynamically typed). `hash()` and `.hash()` use a FIXED salt — real asy salts
+per-process, so exact hash values are unportable BY DESIGN; a fixed salt
+keeps renders deterministic for md5 A/B. Maps iterate in insertion order
+(matches real hashmap/hashset, which keep an oldest→newest list); sorted
+sets/btreemap iterate sorted. User-defined `operator iter`/`operator[]` on
+user structs is NOT supported (struct methods aren't parsed) — only the
+collections themselves.
+
+`infinity` is cbrt(realMax) ≈ 5.6438e102 (bit-exact vs asy; NOT IEEE inf —
+`inf` is IEEE). `finite(x)` is abs(x) < infinity. The axis code detects
+"±infinity bound = auto-extend" via `_asyFiniteNum`, and
+xlimits/ylimits/limits normalize |v| ≥ infinity to ±Infinity at intake so
+downstream consumers see what they always saw. Do NOT set `infinity` back to
+`Infinity`: 12765-class sources seed running min/max from it and real asy's
+numerics match the finite value.
+
+Regression suite: `node collections-tests/run.js` (HiTeXeR output only) or
+`node collections-tests/run.js --oracle <asy.exe> --dir <ASYMPTOTE_DIR>` to
+diff write() output line-by-line against a real asy ≥ 3.11 binary (extract
+the SourceForge Windows installer with 7z into a scratch dir; do NOT upgrade
+the system 3.05 install — the corpus oracle pipeline depends on it).
+
 ## Version Number
 
 Every time you edit HiTeXeR, bump the version number in `index.html` (search for the `v` string in the `<h1>` header, around line 340) so the user can confirm they're seeing the latest changes.
