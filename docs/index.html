@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.99</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.100</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -7819,7 +7819,6 @@ document.addEventListener('DOMContentLoaded', () => {
       // (below) so there's no dependence on quantization happening to land
       // exactly on it.
       const GIF_TRANSPARENT_KEY = 0xff00fe;
-      const gifTransparentColor = 'rgb(255,0,254)';
       const gif = new GIF({
         workers: 2,
         quality: 10,
@@ -7851,21 +7850,41 @@ document.addEventListener('DOMContentLoaded', () => {
         // Remove overlays
         frameSvg.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
 
-        // Add a background rect behind the diagram: white when opaque, or the
-        // chroma key when transparent (so every pixel that isn't diagram
-        // content is EXACTLY that key, not whatever a browser happens to
-        // leave in an untouched canvas region — see the GIF_TRANSPARENT_KEY
-        // comment above).
-        {
+        // If not transparent, add white background rect
+        if (!transparent) {
           const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
           bgRect.setAttribute('width', '100%');
           bgRect.setAttribute('height', '100%');
-          bgRect.setAttribute('fill', transparent ? gifTransparentColor : 'white');
+          bgRect.setAttribute('fill', 'white');
           frameSvg.insertBefore(bgRect, frameSvg.firstChild);
         }
 
         try {
-          const canvas = await svgToCanvas(frameSvg, 1, transparent ? gifTransparentColor : 'white');
+          const canvas = await svgToCanvas(frameSvg, 1, transparent ? null : 'white');
+
+          // GIF has no partial transparency, so any color we pick for the
+          // "transparent" chroma key would otherwise get blended into every
+          // anti-aliased edge pixel if we painted it in as an opaque
+          // backdrop (thin strokes are almost ALL edge pixels, so the whole
+          // diagram would pick up a visible tint of the key color). Instead,
+          // hard-threshold each pixel's real alpha ourselves: mostly-opaque
+          // pixels keep their true, unblended color at full opacity; mostly-
+          // transparent pixels become the chroma key exactly. No blending
+          // ever happens, so no tint — see the GIF_TRANSPARENT_KEY comment.
+          if (transparent) {
+            const tctx = canvas.getContext('2d');
+            const imgData = tctx.getImageData(0, 0, canvas.width, canvas.height);
+            const d = imgData.data;
+            for (let p = 0; p < d.length; p += 4) {
+              if (d[p + 3] < 128) {
+                d[p] = 0xff; d[p + 1] = 0x00; d[p + 2] = 0xfe; d[p + 3] = 255;
+              } else {
+                d[p + 3] = 255;
+              }
+            }
+            tctx.putImageData(imgData, 0, 0);
+          }
+
           let delay = frameDelay;
           if (i === totalFrames - 1 && pauseMs > 0) delay += pauseMs;
           if (i === 0 && pauseFirstMs > 0) delay += pauseFirstMs;
