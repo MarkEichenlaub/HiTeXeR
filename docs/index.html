@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.97</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.98</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -7804,6 +7804,20 @@ document.addEventListener('DOMContentLoaded', () => {
       outW = Math.max(10, outW);
       outH = Math.max(10, outH);
 
+      // gif.js has no real alpha channel: "transparent" pixels are just the
+      // ones whose quantized RGB happens to match this one chroma-key color
+      // (checked by GIFEncoder.findClosest, ignoring alpha entirely). Black
+      // (0x000000) is the worst possible choice for that key, since it's also
+      // Asymptote's default draw color — any black axis, label, or line in
+      // the diagram quantizes to the same palette entry and gets marked
+      // transparent right along with the background, which is what made
+      // "transparent" GIFs come out with missing content / a solid black
+      // background instead. Use a color real diagrams essentially never draw
+      // in instead, and paint every non-content pixel with it explicitly
+      // (below) so there's no dependence on quantization happening to land
+      // exactly on it.
+      const GIF_TRANSPARENT_KEY = 0xff00fe;
+      const gifTransparentColor = 'rgb(255,0,254)';
       const gif = new GIF({
         workers: 2,
         quality: 10,
@@ -7811,7 +7825,7 @@ document.addEventListener('DOMContentLoaded', () => {
         height: outH,
         workerScript: gifWorkerBlobUrl,
         repeat: loopCount,
-        transparent: transparent ? 0x00000000 : null,
+        transparent: transparent ? GIF_TRANSPARENT_KEY : null,
       });
 
       // Pass 2: re-render each frame (with forced bounds/scale when stabilizing), then rasterize
@@ -7835,22 +7849,32 @@ document.addEventListener('DOMContentLoaded', () => {
         // Remove overlays
         frameSvg.querySelectorAll('#hitexer-grid-overlay, .slide-hit-circle, .slide-free-glow').forEach(el => el.remove());
 
-        // If not transparent, add white background rect
-        if (!transparent) {
+        // Add a background rect behind the diagram: white when opaque, or the
+        // chroma key when transparent (so every pixel that isn't diagram
+        // content is EXACTLY that key, not whatever a browser happens to
+        // leave in an untouched canvas region — see the GIF_TRANSPARENT_KEY
+        // comment above).
+        {
           const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
           bgRect.setAttribute('width', '100%');
           bgRect.setAttribute('height', '100%');
-          bgRect.setAttribute('fill', 'white');
+          bgRect.setAttribute('fill', transparent ? gifTransparentColor : 'white');
           frameSvg.insertBefore(bgRect, frameSvg.firstChild);
         }
 
         try {
-          const canvas = await svgToCanvas(frameSvg, 1, transparent ? null : 'white');
+          const canvas = await svgToCanvas(frameSvg, 1, transparent ? gifTransparentColor : 'white');
           let delay = frameDelay;
           if (i === totalFrames - 1 && pauseMs > 0) delay += pauseMs;
           if (i === 0 && pauseFirstMs > 0) delay += pauseFirstMs;
 
-          gif.addFrame(canvas, { delay, copy: true });
+          // Pass the 2D context, not the canvas element: gif.js's DOM-element
+          // path (getImageData) re-fills the frame onto an internal canvas
+          // via a broken `ctx.setFill = background` (not a real Canvas API
+          // property, so fillStyle stays default black) before drawImage.
+          // The context path (getContextData) reads our ImageData directly
+          // and skips that pointless extra composite.
+          gif.addFrame(canvas.getContext('2d'), { delay, copy: true });
           framesAdded++;
         } catch(e) {
           console.warn('GIF frame render failed:', e);
