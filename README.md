@@ -57,7 +57,7 @@ the editor) all shell out server-side to the `claude` CLI
 (`call_claude()` / `call_claude_vision()` in `server.py`), so they bill
 against your Claude subscription like every other AI task on this
 machine — never the Anthropic API. Code-generation calls (AI Edit, Refactor,
-and their internal fix/revision passes) default to `claude-fable-5`,
+and their internal fix/revision passes) default to `claude-opus-5`,
 overridable with the `CLAUDE_MODEL` env var; chat, critique, learn, lint-fix,
 and autocomplete are hardcoded to `claude-sonnet-5`.
 
