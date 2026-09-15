@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.100</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.101</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -736,6 +736,8 @@ body {
         <div class="md-item" id="md-open">Open .asy</div>
         <div class="md-item" id="md-open-image" title="Open a PNG, SVG, or GIF previously rendered by HiTeXeR to resume editing">Open Image...</div>
         <div class="md-item" id="md-paste" title="Paste a HiTeXeR-rendered image from the clipboard to resume editing">Paste</div>
+        <div class="md-separator"></div>
+        <div class="md-item" id="md-insert-image" title="Put a picture into the diagram: it is converted to EPS, hosted on AoPS, and added with a graphic() line at (0,0)">Insert Image...</div>
         <div class="md-separator"></div>
         <div class="md-item md-submenu" title="Save the rendered diagram as an image file; exported files keep HiTeXeR metadata so they can be reopened">Export
           <div class="menu-dropdown">
@@ -841,6 +843,7 @@ body {
 <!-- Hidden file input for Open .asy -->
 <input type="file" id="file-open-input" accept=".asy" style="display:none">
 <input type="file" id="file-open-image-input" accept=".svg,.png,.jpg,.jpeg,.gif,.pdf" style="display:none">
+<input type="file" id="file-insert-image-input" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.tif,.tiff,.svg,.eps,.pdf" style="display:none">
 
 <div id="main">
   <div id="editor-panel">
@@ -5616,6 +5619,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('md-open-image').addEventListener('click', () => document.getElementById('file-open-image-input').click());
   document.getElementById('file-open-image-input').addEventListener('change', (e) => doOpenImage(e));
   document.getElementById('md-paste').addEventListener('click', () => doPasteFromClipboard());
+  document.getElementById('md-insert-image').addEventListener('click', () => document.getElementById('file-insert-image-input').click());
+  document.getElementById('file-insert-image-input').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) insertImageFromBlob(f, f.name);
+  });
   document.getElementById('md-export-svg').addEventListener('click', () => doExportSvg());
   document.getElementById('md-export-png').addEventListener('click', () => doExportPng());
   document.getElementById('md-export-jpg').addEventListener('click', () => doExportJpg());
@@ -8537,10 +8546,122 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (!code) {
+      // Not a HiTeXeR export — treat it as a picture to embed rather than
+      // dead-ending on "no source found".
+      if (isInsertableImage(file)) { await insertImageFromBlob(file, file.name); return; }
       showWarnBadge('No Asymptote source code found in this file.');
       return;
     }
     await loadExtractedSource(code, gifSettings);
+  }
+
+  // === Insert a picture into the diagram ===
+  //
+  // Asymptote's graphic() reads a file from whichever machine runs asy, and for
+  // AoPS TeXeR that is the AoPS server -- so a picture only reaches a diagram by
+  // being hosted in an AoPS collection first. The local server converts it to
+  // EPS, uploads it, and hands back the /var/www/cdn path, which goes into the
+  // code as a graphic() at (0,0) for the user to move.
+
+  const INSERT_IMAGE_EXTS = ['png','jpg','jpeg','gif','bmp','webp','tif','tiff','svg','eps','pdf'];
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',', 2)[1] || '');
+      r.onerror = () => reject(r.error || new Error('Could not read the image.'));
+      r.readAsDataURL(blob);
+    });
+  }
+
+  // Drop the line in just above [/asy] (or at the end), then select the (0,0)
+  // so it can be typed over straight away.
+  function insertGraphicLine(line) {
+    const doc = editor.getDoc();
+    let insertAt = doc.lineCount();
+    for (let i = doc.lineCount() - 1; i >= 0; i--) {
+      if (/\[\/asy\]/.test(doc.getLine(i))) { insertAt = i; break; }
+    }
+    const indent = (doc.getLine(Math.max(0, insertAt - 1)) || '').match(/^[ \t]*/)[0];
+    doc.replaceRange(indent + line + '\n', {line: insertAt, ch: 0});
+
+    const placed = doc.getLine(insertAt) || '';
+    const at = placed.lastIndexOf('(0,0)');
+    if (at >= 0) {
+      doc.setSelection({line: insertAt, ch: at}, {line: insertAt, ch: at + 5});
+    } else {
+      doc.setCursor({line: insertAt, ch: placed.length});
+    }
+    editor.focus();
+  }
+
+  async function insertImageFromBlob(blob, filename) {
+    const statusEl = document.getElementById('status');
+    const shortName = filename || 'image';
+    statusEl.textContent = `Hosting ${shortName} on AoPS...`;
+    statusEl.style.color = '#e9c46a';
+    showWarnBadge('');
+
+    let data_b64;
+    try {
+      data_b64 = await blobToBase64(blob);
+    } catch (e) {
+      statusEl.textContent = 'Image read failed'; statusEl.style.color = '#e94560';
+      showWarnBadge(e.message);
+      return false;
+    }
+
+    // Same endpoint order as the graphic() pre-fetch: same-origin first (works
+    // on :8080 and behind the EigenNode proxy), then the absolute server URL
+    // (covers being served by fix-server on :7842, or from file://).
+    const endpoints = [];
+    if (location.protocol === 'http:' || location.protocol === 'https:') endpoints.push('/upload-image');
+    endpoints.push(`${SERVER_URL}/upload-image`);
+
+    let info = null, lastErr = 'The HiTeXeR server is not running, so there is nowhere to convert and upload the image.';
+    for (const url of endpoints) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({filename: shortName, data_b64}),
+        });
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        if (data.error) { lastErr = data.error; break; }
+        if (data.path && data.asy) { info = data; break; }
+      } catch (e) {
+        lastErr = e.message;
+      }
+    }
+
+    if (!info) {
+      statusEl.textContent = 'Image upload failed'; statusEl.style.color = '#e94560';
+      showWarnBadge(lastErr);
+      return false;
+    }
+
+    // Seed the render cache so the first render draws the picture without
+    // waiting on the CDN, which lags a fresh upload by a few seconds.
+    window._graphicCache = window._graphicCache || {};
+    if (info.png_b64) {
+      window._graphicCache[info.path] = {
+        png_b64: info.png_b64,
+        width_bp: info.width_bp,
+        height_bp: info.height_bp,
+      };
+    }
+
+    insertGraphicLine(info.asy);
+    statusEl.textContent = `Added ${info.filename}`;
+    statusEl.style.color = '#2ecc71';
+    doRender();
+    return true;
+  }
+
+  function isInsertableImage(file) {
+    const ext = file && file.name ? file.name.split('.').pop().toLowerCase() : '';
+    return INSERT_IMAGE_EXTS.includes(ext) || (file && file.type && file.type.startsWith('image/'));
   }
 
   // Paste from clipboard via File menu. If the clipboard contains an image,
@@ -9117,8 +9238,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     file.arrayBuffer().then(buf => {
       const { code, gifSettings } = extractSourceFromBytes(new Uint8Array(buf));
-      if (!code) return; // no source found — do nothing
-      loadExtractedSource(code, gifSettings);
+      if (code) { loadExtractedSource(code, gifSettings); return; }
+      // No embedded source — an ordinary picture. Put it in the diagram rather
+      // than letting the paste do nothing at all.
+      const name = file.name || ('pasted.' + ((file.type || '').split('/')[1] || 'png'));
+      insertImageFromBlob(file, name);
     }).catch(err => console.error('Paste image read failed:', err));
   });
 
@@ -9145,6 +9269,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
     if (imageExts.includes(ext)) {
       openImageFile(file);
+    } else if (isInsertableImage(file)) {
+      // Formats HiTeXeR never writes (eps, bmp, webp, tiff) can only be a
+      // picture to embed, so skip the source-extraction attempt.
+      insertImageFromBlob(file, file.name);
     } else if (file.name && file.name.toLowerCase().endsWith('.asy')) {
       // Also support dropping .asy files
       file.text().then(text => {

@@ -531,6 +531,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_store_clipboard_gif()
         elif self.path == "/convert-eps":
             self.handle_convert_eps()
+        elif self.path == "/upload-image":
+            self.handle_upload_image()
         elif self.path == "/fix":
             self.handle_blink_fix()
         elif self.path == "/refetch":
@@ -643,6 +645,54 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             images[p] = _convert_eps_for_client(p)
 
         self.send_json(200, {"images": images})
+
+    def handle_upload_image(self):
+        """Host a pasted/dropped image on AoPS and return its graphic() line.
+
+        Asymptote resolves graphic() on whichever machine runs asy, so an image
+        only reaches a TeXeR diagram by living in an AoPS collection first.  We
+        convert to EPS, upload, and hand back both the /var/www/cdn path and a
+        pre-rasterised preview so the next render needs no CDN round-trip.
+        """
+        content_length = int(self.headers["Content-Length"])
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_json(400, {"error": "Invalid JSON"})
+            return
+
+        b64 = data.get("data_b64", "")
+        filename = data.get("filename", "image.png")
+        if not b64:
+            self.send_json(400, {"error": "No image data provided"})
+            return
+        try:
+            blob = base64.b64decode(b64)
+        except Exception:
+            self.send_json(400, {"error": "Image data was not valid base64"})
+            return
+
+        try:
+            import aops_upload
+            info = aops_upload.upload_image(
+                blob, filename, project_root=os.path.dirname(os.path.abspath(__file__)))
+        except Exception as e:
+            # UploadError messages are written for the user; anything else at
+            # least names the failing stage.
+            self.send_json(200, {"error": str(e) or e.__class__.__name__})
+            return
+
+        # Seed the in-process EPS cache too, so a render in this same server
+        # lifetime skips the download entirely.
+        if info.get("png_b64"):
+            _eps_cache[info["path"]] = {
+                "png_b64": info["png_b64"],
+                "width_bp": info["width_bp"],
+                "height_bp": info["height_bp"],
+            }
+
+        self.send_json(200, info)
 
     def handle_compile(self):
         content_length = int(self.headers["Content-Length"])

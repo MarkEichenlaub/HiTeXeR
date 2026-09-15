@@ -15,6 +15,7 @@ const { spawn, spawnSync, execSync } = require('child_process');
 const { generate: generateFixHistory } = require('./auto-fix/generate-fix-history.js');
 const epsCache = require('./eps-cache');
 const fs   = require('fs');
+const os   = require('os');
 const path = require('path');
 
 const PORT = 7842;
@@ -290,6 +291,53 @@ const server = http.createServer((req, res) => {
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: String(err && err.message || err) }));
+      }
+    });
+    return;
+  }
+
+  // Host a pasted/dropped picture on AoPS and hand back its graphic() line.
+  // The conversion + upload live in aops_upload.py, so shell out rather than
+  // reimplement them here; that keeps the :7842 editor working without
+  // server.py also running.
+  if (req.method === 'POST' && req.url === '/upload-image') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let tmpFile = null;
+      try {
+        const { filename, data_b64 } = JSON.parse(body);
+        if (!data_b64) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No image data provided' }));
+          return;
+        }
+        const ext = path.extname(filename || '') || '.png';
+        tmpFile = path.join(os.tmpdir(), `htx-upload-${Date.now()}${ext}`);
+        fs.writeFileSync(tmpFile, Buffer.from(data_b64, 'base64'));
+
+        const r = spawnSync('python', [
+          path.join(ROOT, 'aops_upload.py'), tmpFile,
+          '--with-png', '--name', filename || ('image' + ext),
+        ], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 300000 });
+
+        // aops_upload.py prints a JSON object -- the result, or {error} for a
+        // failure it can explain. Anything else means it never got that far,
+        // so fall back to whatever it said on stderr.
+        const out = (r.stdout || '').trim();
+        let payload = null;
+        try { payload = JSON.parse(out.slice(out.lastIndexOf('{'))); } catch (e) {}
+        if (!payload) {
+          payload = { error: (r.stderr || '').trim().slice(-400) ||
+                             'aops_upload.py produced no output.' };
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(err && err.message || err) }));
+      } finally {
+        if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch (e) {} }
       }
     });
     return;
