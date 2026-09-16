@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.102</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.103</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -8611,11 +8611,16 @@ document.addEventListener('DOMContentLoaded', () => {
       return false;
     }
 
-    // Same endpoint order as the graphic() pre-fetch: same-origin first (works
-    // on :8080 and behind the EigenNode proxy), then the absolute server URL
-    // (covers being served by fix-server on :7842, or from file://).
+    // Same-origin first when the page is served locally (:8080, fix-server on
+    // :7842, or behind the EigenNode proxy), then the absolute server URL.
+    // The hosted github.io build skips straight to the local server: its own
+    // origin is a static host that can only 405 a POST, and the body is a
+    // whole base64 image, so there is no point sending it there first.
+    const onLocalhost = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
     const endpoints = [];
-    if (location.protocol === 'http:' || location.protocol === 'https:') endpoints.push('/upload-image');
+    if ((location.protocol === 'http:' || location.protocol === 'https:') && onLocalhost) {
+      endpoints.push('/upload-image');
+    }
     endpoints.push(`${SERVER_URL}/upload-image`);
 
     // "Failed to fetch" on its own says nothing useful, so separate the two

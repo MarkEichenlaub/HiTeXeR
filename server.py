@@ -494,8 +494,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 code = Path(filepath).read_text(encoding="utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
+                self.end_headers()  # adds the CORS header for every response
                 self.wfile.write(code.encode("utf-8"))
             else:
                 self.send_error(404, "File not found")
@@ -1329,18 +1328,27 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", len(response))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
+        self.end_headers()  # adds the CORS header for every response
         self.wfile.write(response)
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # The hosted app on github.io is a public https origin reaching back to
+        # 127.0.0.1, which Chrome treats as a private-network request: without
+        # this header it rejects the preflight and every POST from the hosted
+        # page fails as a bare "Failed to fetch".
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
     def end_headers(self):
+        # The single source of the CORS header -- do NOT also send it from an
+        # individual handler. Two Access-Control-Allow-Origin headers on one
+        # response make the browser reject it, and the failure only shows up
+        # cross-origin (the hosted github.io build calling back to 127.0.0.1),
+        # never when the page is served from this same server.
         self.send_header("Access-Control-Allow-Origin", "*")
         # Prevent browser from caching served files so edits take effect immediately
         self.send_header("Cache-Control", "no-store")
