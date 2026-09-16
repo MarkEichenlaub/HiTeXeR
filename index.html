@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.101</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.102</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -8618,22 +8618,39 @@ document.addEventListener('DOMContentLoaded', () => {
     if (location.protocol === 'http:' || location.protocol === 'https:') endpoints.push('/upload-image');
     endpoints.push(`${SERVER_URL}/upload-image`);
 
-    let info = null, lastErr = 'The HiTeXeR server is not running, so there is nowhere to convert and upload the image.';
+    // "Failed to fetch" on its own says nothing useful, so separate the two
+    // ways this misses: no server listening at all, versus a server that is
+    // listening but predates this feature and 404s the route.
+    const NO_SERVER = 'No HiTeXeR server is running, so there is nowhere to convert and upload the image. '
+                    + 'Start one: node fix-server.js (port 7842) or python server.py (port 8080).';
+    let info = null, lastErr = NO_SERVER, answered = false;
     for (const url of endpoints) {
+      let resp;
       try {
-        const resp = await fetch(url, {
+        resp = await fetch(url, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({filename: shortName, data_b64}),
         });
-        if (!resp.ok) continue;
+      } catch (e) {
+        continue; // nothing listening here — try the next endpoint
+      }
+      answered = true;
+      if (!resp.ok) {
+        lastErr = `The server answering ${new URL(url, location.href).origin} has no image-upload route `
+                + `(HTTP ${resp.status}) — it was started before this version, so restart it.`;
+        continue;
+      }
+      try {
         const data = await resp.json();
         if (data.error) { lastErr = data.error; break; }
         if (data.path && data.asy) { info = data; break; }
+        lastErr = 'The server returned an unexpected reply.';
       } catch (e) {
-        lastErr = e.message;
+        lastErr = `The server reply could not be read: ${e.message}`;
       }
     }
+    if (!info && !answered) lastErr = NO_SERVER;
 
     if (!info) {
       statusEl.textContent = 'Image upload failed'; statusEl.style.color = '#e94560';
