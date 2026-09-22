@@ -57,7 +57,7 @@ try:
 except ImportError:
     HAS_SELENIUM = False
 
-CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-opus-5-5')
+CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'opus')
 
 # ── Paths ────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent
@@ -424,7 +424,7 @@ If the images look essentially the same to a human viewer (minor pixel-level dif
     try:
         cmd = (
             f'claude --print --output-format text '
-            f'--model claude-sonnet-5 '
+            f'--model sonnet '
             f'--dangerously-skip-permissions '
             f'< "{prompt_file}"'
         )
