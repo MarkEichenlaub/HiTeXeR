@@ -4,10 +4,10 @@ Asymptote's graphic() reads a file from the machine that runs asy.  For AoPS
 TeXeR that machine is the AoPS server, so the only images a TeXeR diagram can
 embed are ones already living in an AoPS collection's files/ directory:
 
-    graphic("/var/www/cdn/school/crypt/00540-<hash>/files/<name>.eps", "width=3cm")
+    graphic("/var/www/cdn/school/crypt/00400-<hash>/files/<name>.eps", "width=3cm")
 
 This module takes an arbitrary image (pasted, dropped, or picked from disk),
-converts it to EPS, uploads it to the Test Class file-hosting collection, and
+converts it to EPS, uploads it to the file-hosting collection (400), and
 returns that /var/www/cdn path plus a rasterised preview so HiTeXeR can draw the
 diagram immediately without waiting for the CDN.
 
@@ -29,9 +29,10 @@ import tempfile
 import time
 from pathlib import Path
 
-# AoPS "Test Class" (course collection 43) hosts its files in collection 540 --
-# the same collection the mario.eps / ice_cream.eps corpus diagrams point at.
-COLLECTION_ID = int(os.environ.get('HITEXER_AOPS_COLLECTION', '540'))
+# Collection 400 is where all of Mark's scripts upload files as of 2026-09-23.
+# HiTeXeR used 540 (the collection the mario.eps / ice_cream.eps corpus diagrams
+# point at) until that one filled up and started refusing uploads.
+COLLECTION_ID = int(os.environ.get('HITEXER_AOPS_COLLECTION', '400'))
 AJAX_URL = 'https://artofproblemsolving.com/m/crypt/ajax.php'
 UPLOAD_PAGE = f'https://artofproblemsolving.com/crypt/collection/{COLLECTION_ID}/file-upload'
 
@@ -42,7 +43,7 @@ COOKIE_CACHE = Path.home() / '.hitexer' / 'aops-cookies.json'
 BASE_URL_CACHE = Path.home() / '.hitexer' / 'aops-collection-base.json'
 EIGENNODE_SCRIPTS = Path.home() / 'github' / 'EigenNode' / 'scripts'
 
-# Where collection 540's files are served from.  AoPS's own "list the files in
+# Where each collection's files are served from.  AoPS's own "list the files in
 # this collection" call (get_collection_files) currently returns
 # E_EXCEPTION "Unexpected key 'Marker' found in params" -- it is broken
 # server-side, which is also why the File Upload page renders empty.  The upload
@@ -52,6 +53,8 @@ EIGENNODE_SCRIPTS = Path.home() / 'github' / 'EigenNode' / 'scripts'
 # listing, a good reply overwrites this cache and the hard-coded seed stops
 # mattering.
 KNOWN_COLLECTION_BASES = {
+    400: ('http://cdn.artofproblemsolving.com/school/crypt/'
+          '00400-6ef848956f9c0207478f8f59ae54411efc0ce3f2/files'),
     540: ('http://cdn.artofproblemsolving.com/school/crypt/'
           '00540-e12599cedadfdc40445dca22ddd227e6417975d2/files'),
 }
@@ -493,7 +496,7 @@ def upload_image(data, filename, project_root=None):
 
     eps, w_bp, h_bp = to_eps(data, filename)
 
-    # Collection 540 also holds real course files, and an upload silently
+    # The collection also holds real course files, and an upload silently
     # overwrites a same-named one. With AoPS's file listing broken we can't ask
     # what's already there, so the name carries an htx_ prefix, a timestamp and
     # random bytes and simply never collides.
