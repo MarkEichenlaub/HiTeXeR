@@ -271,6 +271,14 @@
 
   // ── the HiTeXeR side ────────────────────────────────────────────────────
 
+  // Someone who has connected before gets the AoPS tab opened for them
+  // straight away. A first-timer sees the instructions first, since the new
+  // tab would otherwise jump in front of them.
+  const CONNECTED_KEY = 'htx-aops-uploader-connected';
+  function hasConnectedBefore() {
+    try { return localStorage.getItem(CONNECTED_KEY) === '1'; } catch (e) { return false; }
+  }
+
   let bridgeWin = null;
   let bridgeReady = false;
   let readyWaiters = [];
@@ -283,6 +291,7 @@
       if (m.type === 'htx-bridge-ready') {
         bridgeWin = e.source;
         bridgeReady = true;
+        try { localStorage.setItem(CONNECTED_KEY, '1'); } catch (err) {}
         const w = readyWaiters; readyWaiters = [];
         w.forEach((f) => f(true));
       } else if (m.type === 'htx-upload-result' && pending.has(m.id)) {
@@ -389,12 +398,13 @@
 
   async function ensureBridge() {
     if (bridgeReady && bridgeWin && !bridgeWin.closed && await pingBridge(1500)) return true;
-    const w = openBridgeWindow();
+    const w = hasConnectedBefore() ? openBridgeWindow() : null;
     if (w && await pingBridge(1500)) return true;
     let cancelled = false;
     showDialog({
       status: w ? 'Waiting for the AoPS tab...'
-                : 'The browser blocked the AoPS tab. Click "Open the AoPS tab".',
+                : hasConnectedBefore() ? 'The browser blocked the AoPS tab. Click "Open the AoPS tab".'
+                : 'When the button is on your bookmarks bar, click "Open the AoPS tab".',
       onCancel: () => {
         cancelled = true;
         const f = readyWaiters; readyWaiters = []; f.forEach((g) => g(false));
@@ -446,7 +456,7 @@
   function upload(blob, filename, onStatus) {
     // Open the AoPS tab now, while the click/paste/drop still counts as a
     // user action; after the first await the browser would block it.
-    if (!(bridgeWin && !bridgeWin.closed)) openBridgeWindow();
+    if (!(bridgeWin && !bridgeWin.closed) && hasConnectedBefore()) openBridgeWindow();
     return uploadAfterOpen(blob, filename, onStatus);
   }
 
