@@ -12,9 +12,8 @@
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script defer src="katex-svg.js?v=9.47"></script>
 <script>
-// Prime the KaTeX faces used by the label renderer's canvas ink measurer
-// (asy-interp _labelFontsReady): @font-face fonts load lazily, and until they
-// do, label placement falls back to char-count heuristics on first render.
+// Prime the KaTeX faces that SVG-<text> fallback labels paint with:
+// @font-face fonts load lazily, so the first paint could use a stand-in.
 window.addEventListener('load', function () {
   if (document.fonts) {
     ['12px KaTeX_Main', 'bold 12px KaTeX_Main', 'italic 12px KaTeX_Main', 'italic 12px KaTeX_Math']
@@ -727,7 +726,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.107</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.108</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2929,6 +2928,79 @@ let suppressAutoRender = false; // set true during slide/slider to skip redundan
 let gridActive = false; // grid overlay toggle state
 let labelSlideActive = false; // label-slide mode toggle state (module-scope so doRender() can read it)
 
+// Background rendering. The interpreter runs in render-worker.js so a slow
+// diagram never freezes typing, and a render made stale by further edits is
+// killed instead of finishing. A warm spare worker is kept so replacing a
+// killed one costs nothing. If workers can't start (file:// page, blocked
+// CDN), render() falls back to rendering on the page itself.
+const HTXRenderClient = (() => {
+  let busy = null;      // { w, reqs: Map(id -> {resolve, reject}) } running a job
+  let spare = null;     // warm idle worker
+  let broken = false;   // worker startup failed; render in-page from now on
+  let nextId = 1;
+
+  function spawn() {
+    let w;
+    try { w = new Worker('render-worker.js'); } catch (e) { broken = true; return null; }
+    const rec = { w, reqs: new Map(), ready: null };
+    rec.ready = new Promise((resolve) => {
+      w.onmessage = (ev) => {
+        const m = ev.data || {};
+        if (m.type === 'ready') { resolve(true); return; }
+        if (m.type === 'failed') { console.warn('render worker:', m.message); broken = true; resolve(false); return; }
+        const r = rec.reqs.get(m.id);
+        if (!r) return;
+        rec.reqs.delete(m.id);
+        if (m.type === 'result') r.resolve(m.result);
+        else r.reject(new Error(m.message));
+      };
+      w.onerror = (ev) => {
+        ev.preventDefault && ev.preventDefault();
+        broken = true; resolve(false);
+        for (const r of rec.reqs.values()) r.reject(new Error('render worker crashed'));
+        rec.reqs.clear();
+      };
+    });
+    return rec;
+  }
+  function take() {
+    const rec = spare || spawn();
+    spare = null;
+    // Replace the spare once the page is idle, so it's warm for next time.
+    (window.requestIdleCallback || setTimeout)(() => { if (!spare && !broken) spare = spawn(); });
+    return rec;
+  }
+  function inPage(code, opts) {
+    return new Promise((resolve, reject) => {
+      try { resolve(AsyInterp.render(code, opts)); } catch (e) { reject(e); }
+    });
+  }
+  // Abort everything in flight. Pending promises reject with err.cancelled.
+  function cancel() {
+    if (!busy || busy.reqs.size === 0) return;  // idle worker: keep it warm
+    const old = busy; busy = null;
+    old.w.terminate();
+    for (const r of old.reqs.values()) { const e = new Error('render cancelled'); e.cancelled = true; r.reject(e); }
+    old.reqs.clear();
+  }
+  async function render(code, opts) {
+    if (broken || typeof Worker === 'undefined' || location.protocol === 'file:') return inPage(code, opts);
+    if (!busy) busy = take();
+    const rec = busy;
+    if (!rec) return inPage(code, opts);
+    const ok = await rec.ready;
+    if (!ok) { if (busy === rec) busy = null; return inPage(code, opts); }
+    const id = nextId++;
+    return new Promise((resolve, reject) => {
+      if (busy !== rec) { const e = new Error('render cancelled'); e.cancelled = true; reject(e); return; }
+      rec.reqs.set(id, { resolve, reject });
+      rec.w.postMessage({ type: 'render', id, code, opts });
+    });
+  }
+  return { render, cancel };
+})();
+let renderGen = 0;  // bumped by every doRender(); a render whose gen is stale drops its result
+
 // Full-document replace that uses CodeMirror's replaceRange so we can assign a
 // custom origin string. CM coalesces rapid edits that share an origin string
 // into a single undo step, so all moves within one drag collapse to one undo.
@@ -3455,7 +3527,9 @@ const HTXDoc = (function () {
 // Render a TeXeR-style document (text + math + bbcode + multiple [asy] blocks)
 // into the preview container. Each [asy] block is interpreted independently;
 // failures fall back to the server compiler per-block.
-async function renderDocument(code) {
+// Returns false if a newer render superseded this one (gen is doRender's).
+async function renderDocument(code, gen) {
+  const stale = () => gen !== undefined && gen !== renderGen;
   const previewEl = document.getElementById('preview-container');
   const statusEl = document.getElementById('status');
 
@@ -3467,6 +3541,7 @@ async function renderDocument(code) {
   // Render diagrams at natural size (no shrink); CSS caps width responsively.
   const renderOpts = { containerW: 100000, containerH: 100000 };
   const images = await prefetchGraphicImages(code);
+  if (stale()) return false;
   renderOpts.imageCache = images;
 
   const segs = HTXDoc.parseSegments(code);
@@ -3492,10 +3567,12 @@ async function renderDocument(code) {
       ? AsyInterp.detectUnsupportedFeature(asyCode) : null;
     if (!useRealAsy && !unsupported && window.AsyInterp && AsyInterp.canInterpret(asyCode)) {
       try {
-        const result = AsyInterp.render(asyCode, renderOpts);
+        const result = await HTXRenderClient.render(asyCode, renderOpts);
+        if (stale()) return false;
         parts.push(`<span class="htx-diagram" id="${did}">${result.svg}</span>`);
         continue;
       } catch (e) {
+        if ((e && e.cancelled) || stale()) return false;
         console.warn('Document diagram JS interpret failed, will try server:', e.message);
       }
     }
@@ -3545,6 +3622,7 @@ async function renderDocument(code) {
       if (slot) slot.outerHTML = `<span class="htx-diagram-error" id="${job.id}">[diagram failed to render]</span>`;
     });
   }
+  return true;
 }
 
 // Compile a single [asy] block via the server, returning the SVG string or null.
@@ -3688,6 +3766,10 @@ function swapPreviewToLiveSvg(previewEl, svgHtml) {
 }
 
 async function doRender() {
+  // Only the newest doRender() may touch the preview: each await below
+  // re-checks gen, and a newer call kills this one's in-flight render.
+  const gen = ++renderGen;
+  HTXRenderClient.cancel();
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
   const previewEl = document.getElementById('preview-container');
@@ -3696,9 +3778,11 @@ async function doRender() {
   // TeXeR document mode: multiple diagrams and/or text/math/bbcode.
   if (HTXDoc.isDocument(code)) {
     try {
-      await renderDocument(code);
+      if (!(await renderDocument(code, gen))) return;
+      if (gen !== renderGen) return;
       await applyFaithfulRaster();
     } catch (e) {
+      if (e && e.cancelled) return;
       console.error('Document render error:', e);
       statusEl.textContent = 'Document render error'; statusEl.style.color = '#e94560';
     }
@@ -3718,6 +3802,7 @@ async function doRender() {
     try {
       // Pre-fetch any graphic() images before synchronous interpretation
       const images = await prefetchGraphicImages(code);
+      if (gen !== renderGen) return;
       const dims = getPreviewDimensions();
       // In hide mode, strip // htx-hide: prefix so ghost elements render in the SVG
       const HTX_HIDE_PFX = '// htx-hide: ';
@@ -3725,7 +3810,9 @@ async function doRender() {
       const renderCode = (hideMode && code.includes(HTX_HIDE_PFX))
         ? code.split('\n').map(l => l.startsWith(HTX_HIDE_PFX) ? l.slice(HTX_HIDE_PFX.length) : l).join('\n')
         : code;
-      const result = AsyInterp.render(renderCode, { containerW: dims.w, containerH: dims.h, imageCache: images });
+      if (!useRealAsy) statusEl.textContent = 'Rendering...';
+      const result = await HTXRenderClient.render(renderCode, { containerW: dims.w, containerH: dims.h, imageCache: images });
+      if (gen !== renderGen) return;
       // Success — clear stale badge, show SVG (preserving badge elements)
       const svgEl = previewEl.querySelector('svg:not([data-perm])');
       const placeholder = previewEl.querySelector('.placeholder');
@@ -3764,6 +3851,7 @@ async function doRender() {
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
     } catch(e) {
+      if ((e && e.cancelled) || gen !== renderGen) return;
       // If the error is about missing graphic images, always fall through to
       // server compilation — the server can download and embed them directly.
       const isGraphicError = e.message && e.message.startsWith('graphic:');

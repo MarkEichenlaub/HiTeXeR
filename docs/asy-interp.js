@@ -86,7 +86,10 @@ const KEYWORDS = new Set([
   'operator','cast','explicit',
 ]);
 
-const TYPE_NAMES = new Set([
+// Built-in type names. parse() copies this per call: user struct/typedef
+// names must not leak into later parses (they did, making renders depend on
+// what was rendered earlier in the same page/process).
+const BASE_TYPE_NAMES = new Set([
   'int','real','pair','triple','string','bool','bool3','pen','path','path3','guide',
   'picture','transform','transform3','void','var','Label','file','frame',
   'projection','revolution','surface','material','patch','tube','coloredpath',
@@ -804,6 +807,7 @@ function PathExpr(nodes,line) { return {type:'PathExpr',nodes,line}; }
 
 function parse(tokens) {
   let pos = 0;
+  const TYPE_NAMES = new Set(BASE_TYPE_NAMES);
 
   function cur() { return tokens[pos]; }
   function at(type) { return cur().type === type; }
@@ -1443,7 +1447,11 @@ function parse(tokens) {
     pos++;
     const rightPrec = t.type === T.CARET ? prec - 1 : prec;
     const right = parseExpr(rightPrec);
-    return BinaryOp(t.type, left, right, ln);
+    const bin = BinaryOp(t.type, left, right, ln);
+    // && and || short-circuit in asy; & and | (which share their token types
+    // here) evaluate both sides.
+    if (t.value === '&&' || t.value === '||') bin.shortCircuit = true;
+    return bin;
   }
 
   function parseFuncCallNode(callee, ln) {
@@ -3398,8 +3406,34 @@ function createInterpreter() {
 
   function evalBinary(node, env) {
     const left = evalNode(node.left, env);
-    const right = evalNode(node.right, env);
     const op = node.op;
+    if (node.shortCircuit && typeof left === 'boolean') {
+      if (op === T.AND && !left) return false;
+      if (op === T.OR && left) return true;
+    }
+    const right = evalNode(node.right, env);
+
+    // Fast path: number (op) number, the common case in loops. Same results
+    // as the general "Number ops" switch at the end of this function.
+    if (typeof left === 'number' && typeof right === 'number') {
+      switch (op) {
+        case T.PLUS: return left + right;
+        case T.MINUS: return left - right;
+        case T.STAR: return left * right;
+        case T.SLASH: return right !== 0 ? left / right : 0;
+        case T.PERCENT: return right !== 0 ? ((left % right) + right) % right : 0;
+        case T.HASH: return right !== 0 ? Math.floor(left / right) : 0;
+        case T.CARET: return Math.pow(left, right);
+        case T.EQ: return left === right;
+        case T.NEQ: return left !== right;
+        case T.LT: return left < right;
+        case T.GT: return left > right;
+        case T.LE: return left <= right;
+        case T.GE: return left >= right;
+        case T.AND: return left !== 0 && right !== 0;
+        case T.OR: return left !== 0 || right !== 0;
+      }
+    }
 
     // asy 3.11 Set_T operators: + union, - difference, & intersection,
     // ^ symmetric difference, <=/>= subset, ==/!= set equality. T.AND covers
@@ -8251,6 +8285,48 @@ function createInterpreter() {
     return a;
   }
 
+
+  // Internal helper for path point evaluation (avoids env.get shadowing issues)
+  function _pointOnPath(p, t) {
+    if (!isPath(p)) return makePair(0,0);
+    if (p.segs.length === 0) return makePair(0,0);
+    let time = toNumber(t);
+    // Asymptote-style circle parameterization: paths produced by
+    // Circle()/CR()/etc. have a virtual node count `n` (default 400),
+    // and point(circle, t) → c + r*(cos, sin) at angle (t/n)*360°.
+    if (p._circle) {
+      const c = p._circle;
+      const n = c.n || 400;
+      const ang = (time / n) * 2 * Math.PI;
+      return makePair(c.cx + c.r * Math.cos(ang), c.cy + c.r * Math.sin(ang));
+    }
+    // Closed (cyclic) path: wrap t mod length, matching Asymptote.
+    if (p.closed) {
+      const N = p.segs.length;
+      if (N > 0) {
+        time = ((time % N) + N) % N;
+      }
+    }
+    // time >= segs.length means the endpoint of the path
+    if (time >= p.segs.length) return bezierPoint(p.segs[p.segs.length-1], 1);
+    if (time <= 0) return bezierPoint(p.segs[0], 0);
+    const i = Math.floor(time);
+    const frac = time - i;
+    const idx = Math.min(i, p.segs.length-1);
+    return bezierPoint(p.segs[idx], Math.max(0, Math.min(1, frac)));
+  }
+
+  // Path-time span for arclength-fraction APIs (relpoint/waypoint/reltime):
+  // a `_circle`-tagged path is parameterized by a virtual node count `n`
+  // (default 400) inside _pointOnPath, so its full traversal is time∈[0,n],
+  // NOT time∈[0,segs.length] (=4 for the Bezier representation). Using
+  // segs.length here collapsed relpoint(circle,t∈[0,1]) to ~2% of the circle
+  // (broke the transformed-circle blob in 02378).
+  function _pathTimeSpan(p) {
+    if (p && p._circle) return p._circle.n || 400;
+    return p.segs.length;
+  }
+
   function installStdlib(env) {
     // Direction constants
     const dirs = {
@@ -10081,7 +10157,14 @@ function createInterpreter() {
           e2y = wHat.z*d1.x - wHat.x*d1.z;
           e2z = wHat.x*d1.y - wHat.y*d1.x;
           e2l = Math.hypot(e2x, e2y, e2z);
-          if (e2l < 1e-9) { e2x = vHat.x; e2y = vHat.y; e2z = vHat.z; e2l = 1; }
+          if (e2l < 1e-9) {
+            // d1 lies on the polar axis too: any perpendicular will do.
+            const ax = Math.abs(d1.x) < 0.9 ? {x:1,y:0,z:0} : {x:0,y:1,z:0};
+            e2x = ax.y*d1.z - ax.z*d1.y;
+            e2y = ax.z*d1.x - ax.x*d1.z;
+            e2z = ax.x*d1.y - ax.y*d1.x;
+            e2l = Math.hypot(e2x, e2y, e2z);
+          }
         }
         e2x /= e2l; e2y /= e2l; e2z /= e2l;
         // direction=false (CW) selects the complementary long arc on the same circle
@@ -10417,36 +10500,6 @@ function createInterpreter() {
       return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
     }
 
-    // Internal helper for path point evaluation (avoids env.get shadowing issues)
-    function _pointOnPath(p, t) {
-      if (!isPath(p)) return makePair(0,0);
-      if (p.segs.length === 0) return makePair(0,0);
-      let time = toNumber(t);
-      // Asymptote-style circle parameterization: paths produced by
-      // Circle()/CR()/etc. have a virtual node count `n` (default 400),
-      // and point(circle, t) → c + r*(cos, sin) at angle (t/n)*360°.
-      if (p._circle) {
-        const c = p._circle;
-        const n = c.n || 400;
-        const ang = (time / n) * 2 * Math.PI;
-        return makePair(c.cx + c.r * Math.cos(ang), c.cy + c.r * Math.sin(ang));
-      }
-      // Closed (cyclic) path: wrap t mod length, matching Asymptote.
-      if (p.closed) {
-        const N = p.segs.length;
-        if (N > 0) {
-          time = ((time % N) + N) % N;
-        }
-      }
-      // time >= segs.length means the endpoint of the path
-      if (time >= p.segs.length) return bezierPoint(p.segs[p.segs.length-1], 1);
-      if (time <= 0) return bezierPoint(p.segs[0], 0);
-      const i = Math.floor(time);
-      const frac = time - i;
-      const idx = Math.min(i, p.segs.length-1);
-      return bezierPoint(p.segs[idx], Math.max(0, Math.min(1, frac)));
-    }
-
     env.set('point', (...args) => {
       if (_objectPointBranch) { const _op = _objectPointBranch(args); if (_op !== undefined) return _op; }
       // point(pair dir): shorthand for point(currentpicture, dir). Used by
@@ -10686,17 +10739,6 @@ function createInterpreter() {
 
       // General subpicture attach (non-legend) - not implemented yet
     });
-
-    // Path-time span for arclength-fraction APIs (relpoint/waypoint/reltime):
-    // a `_circle`-tagged path is parameterized by a virtual node count `n`
-    // (default 400) inside _pointOnPath, so its full traversal is time∈[0,n],
-    // NOT time∈[0,segs.length] (=4 for the Bezier representation). Using
-    // segs.length here collapsed relpoint(circle,t∈[0,1]) to ~2% of the circle
-    // (broke the transformed-circle blob in 02378).
-    function _pathTimeSpan(p) {
-      if (p && p._circle) return p._circle.n || 400;
-      return p.segs.length;
-    }
 
     env.set('relpoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
@@ -11743,7 +11785,7 @@ function createInterpreter() {
     // An object wraps a Label in an envelope path (box/ellipse) drawn around
     // the label's measured box. Everything is TRUESIZE bp; add(object) emits
     // under the truesize-frame convention (unitScale=1).
-    let _objectPointBranch = null;
+    _objectPointBranch = null;
     const _objSupport = (obj, ux, uy) => {
       // distance from center to the envelope boundary along unit dir (ux,uy)
       const w2 = obj.wBp / 2 + obj.margin, h2 = obj.hBp / 2 + obj.margin;
@@ -33408,9 +33450,7 @@ function renderSVG(result, opts) {
   // so BOTH fill(g, pattern("h")) and filldraw(g, pattern("h")) tile correctly.
   function emitHatchFill(spec) {
     if (!spec) return 'none'; // pattern(name) found no registered tile
-    if (typeof globalThis._hatchPatCounter !== 'number') globalThis._hatchPatCounter = 0;
-    globalThis._hatchPatCounter += 1;
-    const pid = `_hpat${globalThis._hatchPatCounter}`;
+    const pid = `_hpat${++_svgDefSeq}`;
     const d_px = Math.max(2, (spec.H || 5.67) * bpCSSPixel);
     // TeXeR renders default/hairline hatch pens device-pixel-snapped (~3x the
     // geometric 0.5bp width — see the "default stroke thinness" note), so a bare
@@ -33598,13 +33638,7 @@ function renderSVG(result, opts) {
         const fyPx = (maxY - sg.fy) * pxPerUnitY;
         const rPx = sg.r * Math.min(pxPerUnitX, pxPerUnitY);
         const _rgb = c => `rgb(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)})`;
-        if (typeof window !== 'undefined') {
-          window._sphereGradCounter = (window._sphereGradCounter || 0) + 1;
-        } else {
-          if (typeof globalThis._sphereGradCounter !== 'number') globalThis._sphereGradCounter = 0;
-          globalThis._sphereGradCounter += 1;
-        }
-        const gid = `_sg${(typeof window !== 'undefined' ? window._sphereGradCounter : globalThis._sphereGradCounter)}`;
+        const gid = `_sg${++_svgDefSeq}`;
         const _stopEls = (sg.stops && sg.stops.length)
           ? sg.stops.map(s => `<stop offset="${s.off}%" stop-color="${_rgb(s.c)}"/>`).join('')
           : `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
@@ -33624,8 +33658,7 @@ function renderSVG(result, opts) {
         const ag = dc._axialGradient;
         const x1 = (ag.a.x - minX) * pxPerUnitX, y1 = (maxY - ag.a.y) * pxPerUnitY;
         const x2 = (ag.b.x - minX) * pxPerUnitX, y2 = (maxY - ag.b.y) * pxPerUnitY;
-        if (typeof globalThis._sphereGradCounter !== 'number') globalThis._sphereGradCounter = 0;
-        const gid = `_ax${++globalThis._sphereGradCounter}`;
+        const gid = `_ax${++_svgDefSeq}`;
         const _op = o => (o != null && o < 1) ? ` stop-opacity="${fmt(o)}"` : '';
         elements.push(
           `<defs><linearGradient id="${gid}" x1="${fmt(x1)}" y1="${fmt(y1)}" x2="${fmt(x2)}" y2="${fmt(y2)}" gradientUnits="userSpaceOnUse">` +
@@ -33645,8 +33678,7 @@ function renderSVG(result, opts) {
         const fyPx = (maxY - rg.c0.y) * pxPerUnitY;
         const rPx = Math.max(1e-6, rg.r1 * Math.min(pxPerUnitX, pxPerUnitY));
         const off0 = Math.max(0, Math.min(99, (rg.r1 > 1e-9 ? rg.r0 / rg.r1 : 0) * 100));
-        if (typeof globalThis._sphereGradCounter !== 'number') globalThis._sphereGradCounter = 0;
-        const gid = `_rs${++globalThis._sphereGradCounter}`;
+        const gid = `_rs${++_svgDefSeq}`;
         const _op = o => (o != null && o < 1) ? ` stop-opacity="${fmt(o)}"` : '';
         elements.push(
           `<defs><radialGradient id="${gid}" cx="${fmt(cxPx)}" cy="${fmt(cyPx)}" r="${fmt(rPx)}" fx="${fmt(fxPx)}" fy="${fmt(fyPx)}" gradientUnits="userSpaceOnUse">` +
@@ -33675,7 +33707,7 @@ function renderSVG(result, opts) {
       // border came out ~1.5px vs TeXeR's ~3px. The boost only applies when
       // the draw pen carries no explicit linewidth (and defaultpen() wasn't
       // given one); an explicit-width outline renders at literal size.
-      const _strokePen = dc.drawPen || defaultPen;
+      const _strokePen = dc.drawPen || result.defaultPen || makePen({});
       const drawCSS = penToCSS(_strokePen);
       stroke = drawCSS.stroke;
       strokeW = drawCSS.strokeWidth * bpCSSPixel;
@@ -34581,17 +34613,6 @@ function renderSVG(result, opts) {
             }
           } catch (e) { /* fall back to heuristic */ }
         }
-        if (!_measured && typeof document !== 'undefined' && _rawForMeas.indexOf('\n') === -1) {
-          // Browser last resort: canvas ink metrics (emitter not ready yet).
-          try {
-            const _mk = _canvasInkForRaw(_rawForMeas, fontSizeSVG, 'normal', 'normal',
-              /[\\$]/.test(_rawForMeas));
-            if (_mk && _mk.w > 0) {
-              _labelWidthMeasured = _mk.w + fontSizeSVG * 0.1;
-              _labelHeightMeasured = _mk.h;
-            }
-          } catch (e) { /* keep heuristic */ }
-        }
       }
 
       if (dc.align) {
@@ -34661,10 +34682,6 @@ function renderSVG(result, opts) {
                 const _m = _katexMeasureBp(dc.text, fontSizeSVG);
                 if (_m && _m.wBp > 0) _wM = _m.wBp * bpCSSPixel;
               }
-            } else {
-              const _mk = _canvasInkForRaw(dc.text, fontSizeSVG,
-                (dc.pen && dc.pen.fontWeight) || 'normal', 'normal', false);
-              if (_mk && _mk.w > 0) _wM = _mk.w;
             }
             if (_wM) W = _wM;
           } catch (e) { /* ignore — fall back to heuristic */ }
@@ -35346,15 +35363,6 @@ function renderSVG(result, opts) {
       let _swsY = sy + dy;
       if (_labelAyN && _labelHEst && !dc.labelTransform && !(opts && opts.labelOutput === 'svg-native')) {
         let _estH = _estLabelGlyphHeightFactor(stripLaTeX(dc.text || '')) * _labelHEst;
-        // Browser: replace the coarse ascender/descender bucket estimate with
-        // the real canvas-measured ink height of the label (same KaTeX faces
-        // the SVG-text renderer paints with). The renderer also ink-centers on
-        // _swsY, so together N/S-aligned labels sit at the exact TeX box edge.
-        if (typeof document !== 'undefined' && (dc.text || '').indexOf('\n') === -1) {
-          const _mkH = _canvasInkForRaw(dc.text, effectiveFontSize || fontSizeSVG,
-            'normal', 'normal', /[\\$]/.test(dc.text || ''));
-          if (_mkH && _mkH.h > 0 && _mkH.h < _labelHEst * 2) _estH = _mkH.h;
-        }
         _swsY = sy + dy + _labelAyN * (_labelHEst - _estH);
       }
       // Check for \mathbf-only or \textbf-only labels first: render as bold upright SVG text.
@@ -36268,8 +36276,7 @@ function _estLabelGlyphHeightFactor(s) {
 // glyphs with whatever spaces survived the source string, which made labels
 // like "$3-1$" ~40% narrower than the reference. _mathTokenize implements the
 // inline-math (textstyle) spacing rules over the cleaned label string; both
-// the tspan emitter (mathAtomsSvg) and the canvas ink measurer
-// (_canvasInkMetrics) consume it so rendering and placement agree.
+// the tspan emitter (mathAtomsSvg) consumes it.
 // Sentinels: \x01..\x02 upright text (from \mathrm/\text), \x06..\x02 upright
 // operator name (from \sin/\cos/\operatorname), \x03/\x04/\x05 explicit
 // \,/\:/\; spacing, \x07 explicit word space (\  or ~).
@@ -36389,132 +36396,6 @@ function mathAtomsSvg(s, fontSize, italicLetters, spacing) {
   return out;
 }
 
-// ---- Canvas ink measurement (browser only) ----------------------------------
-// Measures the REAL ink box of an SVG-<text> label using the same KaTeX faces
-// the browser will paint with (canvas measureText actualBoundingBox*). Used to
-// (a) center label ink exactly on the target point — dominant-baseline:central
-// centers the FONT box, which sits up to ~0.15em away from the ink center
-// depending on ascenders/descenders — and (b) get true advance widths for
-// E/W alignment offsets. Returns null when unavailable (node, fonts not yet
-// loaded) so callers keep their heuristic fallbacks.
-let _inkCtx = null;
-const _inkCache = new Map();
-let _fontLoadKicked = false;
-function _labelFontsReady() {
-  if (typeof document === 'undefined' || !document.fonts) return false;
-  try {
-    if (document.fonts.check('12px KaTeX_Main') && document.fonts.check('italic 12px KaTeX_Math')) return true;
-    // Faces declared but not yet fetched: kick the loads so subsequent renders
-    // (the editor re-renders on every keystroke) get real metrics.
-    if (!_fontLoadKicked) {
-      _fontLoadKicked = true;
-      try {
-        document.fonts.load('12px KaTeX_Main');
-        document.fonts.load('bold 12px KaTeX_Main');
-        document.fonts.load('italic 12px KaTeX_Main');
-        document.fonts.load('italic 12px KaTeX_Math');
-      } catch (e) {}
-    }
-    return false;
-  } catch (e) { return false; }
-}
-function _canvasInkMetrics(s, fontSize, fontWeight, fontStyle, mathMode) {
-  if (typeof document === 'undefined') return null;
-  if (!_labelFontsReady()) return null;
-  const key = s + '|' + fontSize + '|' + (fontWeight || '') + '|' + (fontStyle || '') + '|' + (mathMode ? 1 : 0);
-  if (_inkCache.has(key)) return _inkCache.get(key);
-  if (!_inkCtx) {
-    try { _inkCtx = document.createElement('canvas').getContext('2d'); } catch (e) { return null; }
-    if (!_inkCtx) return null;
-  }
-  const ctx = _inkCtx;
-  const bold = fontWeight === 'bold' ? 'bold ' : '';
-  const measureSeg = (text, italic, size) => {
-    ctx.font = (italic ? 'italic ' : '') + bold + size + 'px ' + (italic ? 'KaTeX_Math' : 'KaTeX_Main') + ', serif';
-    const m = ctx.measureText(text);
-    return {
-      w: m.width,
-      asc: (m.actualBoundingBoxAscent != null ? m.actualBoundingBoxAscent : size * 0.7),
-      desc: (m.actualBoundingBoxDescent != null ? m.actualBoundingBoxDescent : size * 0.2),
-    };
-  };
-  // Parse ^/_ scripts the same way the renderer does.
-  const parts = [];
-  {
-    let i = 0, cur = '', mode = 'normal';
-    while (i < s.length) {
-      if (s[i] === '^' || s[i] === '_') {
-        if (cur) parts.push({ text: cur, mode });
-        mode = s[i] === '^' ? 'sup' : 'sub';
-        i++;
-        cur = '';
-        if (i < s.length && s[i] === '{') {
-          i++; let depth = 1;
-          while (i < s.length && depth > 0) {
-            if (s[i] === '{') depth++;
-            else if (s[i] === '}') { depth--; if (depth === 0) { i++; break; } }
-            cur += s[i]; i++;
-          }
-        } else if (i < s.length) { cur = s[i]; i++; }
-        parts.push({ text: cur, mode });
-        cur = ''; mode = 'normal';
-      } else { cur += s[i]; i++; }
-    }
-    if (cur) parts.push({ text: cur, mode });
-  }
-  const italicLetters = fontStyle === 'italic';
-  const letterRe = /[a-zA-Zα-ωΑ-Ω]+/g;
-  let w = 0, asc = 0, desc = 0, any = false;
-  for (const p of parts) {
-    const isScript = p.mode !== 'normal';
-    const size = isScript ? fontSize * 0.7 : fontSize;
-    const offY = p.mode === 'sup' ? -fontSize * 0.35 : (p.mode === 'sub' ? fontSize * 0.25 : 0);
-    const text = p.text.replace(/[{}]/g, '');
-    const atoms = _mathTokenize(text, mathMode && !isScript);
-    for (const a of atoms) {
-      if (a.dxEm > 0) w += a.dxEm * size;
-      if (!a.text) continue;
-      const segs = [];
-      if (a.kind === 'upright' || a.kind === 'opname' || !italicLetters) {
-        segs.push({ t: a.text, it: false });
-      } else {
-        let last = 0, m;
-        letterRe.lastIndex = 0;
-        while ((m = letterRe.exec(a.text)) !== null) {
-          if (m.index > last) segs.push({ t: a.text.slice(last, m.index), it: false });
-          segs.push({ t: m[0], it: true });
-          last = m.index + m[0].length;
-        }
-        if (last < a.text.length) segs.push({ t: a.text.slice(last), it: false });
-      }
-      for (const sg of segs) {
-        if (!sg.t) continue;
-        const mm = measureSeg(sg.t, sg.it, size);
-        w += mm.w;
-        if (/\S/.test(sg.t)) {
-          asc = Math.max(asc, mm.asc - offY);
-          desc = Math.max(desc, mm.desc + offY);
-          any = true;
-        }
-      }
-    }
-  }
-  const out = any ? { w, asc, desc, h: asc + desc } : null;
-  _inkCache.set(key, out);
-  return out;
-}
-
-// Measure a RAW label string (as stored in the draw command) by running it
-// through the same cleanup renderLabelWithScripts applies, then measuring with
-// _canvasInkMetrics. Used by the placement code (alignment offsets, vertical
-// centering) so the offsets agree with what actually gets painted.
-function _canvasInkForRaw(rawText, fontSize, fontWeight, fontStyle, mathMode) {
-  if (typeof document === 'undefined' || !_labelFontsReady()) return null;
-  try {
-    const c = _cleanLabelText(rawText, fontWeight, fontStyle, mathMode);
-    return _canvasInkMetrics(c.s, fontSize, c.fontWeight, c.fontStyle, mathMode || c.fontStyle === 'italic');
-  } catch (e) { return null; }
-}
 
 // Render label text with superscript/subscript support as SVG
 // Shared label-string cleanup for the SVG-<text> path: LaTeX → Unicode,
@@ -36654,13 +36535,7 @@ function renderLabelWithScripts(rawText, x, y, fontSize, fill, anchor, baseline,
   // Nudge ⋮ down (keeping the central baseline so node/Blink and browser agree)
   // so its ink center lands where TeXeR's \vdots does (~0.13 unit below anchor).
   const _isVdotsGlyph = /^⋮+$/.test((s || '').trim());
-  if (baseline === 'central' && !_isVdotsGlyph) {
-    const _ink = _canvasInkMetrics(s, fontSize, fontWeight || 'normal', fontStyle || 'normal', mathMode);
-    if (_ink && _ink.h > 0) {
-      y = fmt(parseFloat(y) + (_ink.asc - _ink.desc) / 2);
-      baseline = 'alphabetic';
-    }
-  } else if (baseline === 'central' && _isVdotsGlyph) {
+  if (baseline === 'central' && _isVdotsGlyph) {
     y = fmt(parseFloat(y) + fontSize * 0.37);
   }
 
@@ -39075,75 +38950,6 @@ function mathTextWithScriptsSvg(text, fontSize) {
 }
 
 // ============================================================
-// AST Caching for Slide Mode Performance
-// ============================================================
-
-let cachedTokens = null;
-let cachedAST = null;
-let cachedCode = '';
-
-function renderWithCache(code) {
-  // Check if code only differs in number literals
-  const newTokens = lex(code);
-  let canReuse = false;
-
-  if (cachedTokens && cachedAST) {
-    canReuse = tokensMatchStructure(cachedTokens, newTokens);
-  }
-
-  let ast;
-  if (canReuse) {
-    // Patch number literals in cached AST
-    ast = patchASTNumbers(cachedAST, cachedTokens, newTokens);
-  } else {
-    ast = parse(newTokens);
-    cachedAST = ast;
-  }
-
-  cachedTokens = newTokens;
-  cachedCode = code;
-  return ast;
-}
-
-function tokensMatchStructure(oldToks, newToks) {
-  if (oldToks.length !== newToks.length) return false;
-  for (let i = 0; i < oldToks.length; i++) {
-    const a = oldToks[i], b = newToks[i];
-    if (a.type !== b.type) return false;
-    // Allow NUMBER values to differ
-    if (a.type === T.NUMBER) continue;
-    if (a.value !== b.value) return false;
-  }
-  return true;
-}
-
-function patchASTNumbers(ast, oldToks, newToks) {
-  // Find NUMBER tokens that changed and build a mapping
-  const changes = new Map(); // old value → new value, keyed by position
-  const changedPositions = [];
-  for (let i = 0; i < oldToks.length; i++) {
-    if (oldToks[i].type === T.NUMBER && oldToks[i].value !== newToks[i].value) {
-      changedPositions.push({line: oldToks[i].line, col: oldToks[i].col, newVal: newToks[i].value});
-    }
-  }
-  if (changedPositions.length === 0) return ast;
-
-  // Deep clone and patch
-  const cloned = JSON.parse(JSON.stringify(ast));
-  walkAST(cloned, (node) => {
-    if (node.type === 'NumberLit') {
-      for (const cp of changedPositions) {
-        if (node.line === cp.line) {
-          node.value = cp.newVal;
-          break; // Only patch first match per node
-        }
-      }
-    }
-  });
-  return cloned;
-}
-
-// ============================================================
 // Public API: window.AsyInterp
 // ============================================================
 
@@ -39196,6 +39002,12 @@ let _size3PreScale = null;
 // flowchart circle-block branch — module scope so BOTH circle() registrations
 // (base env + geometry module, different closures) can read it.
 let _flowCircleBranch = null;
+// plain.asy point(object, dir) branch — module scope for the same reason:
+// installStdlib defines it, but the geometry and three point() registrations
+// call it too (a closure-local `let` threw ReferenceError there).
+let _objectPointBranch = null;
+// Sequence for gradient/pattern ids in the SVG; reset per render.
+let _svgDefSeq = 0;
 
 function render(code, opts) {
   // katexSvg is a shared singleton across renders — clear any texpreamble() macros
@@ -39210,6 +39022,11 @@ function render(code, opts) {
   // SVG-as-image rasterization, where webfonts never load), so the editor
   // showed bolder/tighter labels than both TeXeR and the scored artifact
   // (05896). Callers can still pass an explicit labelOutput to opt out.
+  // Per-render state lives at module scope for historical reasons; reset
+  // it so a render never depends on what was rendered before it.
+  STRUCT_DEFS.clear();
+  _colRandState = 0x9e3779b9;
+  _svgDefSeq = 0;
   opts = opts || {};
   if (opts.labelOutput === undefined) opts = Object.assign({}, opts, { labelOutput: 'svg-native' });
   const interp = createInterpreter();
@@ -39224,7 +39041,35 @@ function render(code, opts) {
     catch (e) { /* keep the first-pass result */ }
     finally { _size3PreScale = null; }
   }
-  return renderSVG(result, opts);
+  return _scopeSvgIds(renderSVG(result, opts), code, opts);
+}
+
+// Make the SVG's internal ids (clip paths, gradients, patterns, symbols)
+// unique to this diagram: several rendered SVGs share one HTML page in
+// document mode, and a bare id like "user-clip" would resolve to whichever
+// came first. The suffix hashes the source, so renders stay deterministic.
+function _scopeSvgIds(result, code, opts) {
+  let svg = result && result.svg;
+  if (!svg || svg.indexOf(' id="') === -1) return result;
+  // MathJax numbers each conversion's glyph ids (MJX-<n>-...) with a counter
+  // that runs for the life of the page; renumber by first appearance.
+  if (svg.indexOf('MJX-') !== -1) {
+    const seen = new Map();
+    svg = svg.replace(/MJX-(\d+)-/g, (m, n) => {
+      if (!seen.has(n)) seen.set(n, seen.size + 1);
+      return 'MJX-' + seen.get(n) + '-';
+    });
+  }
+  const ids = new Set();
+  for (const m of svg.matchAll(/ id="([^"]+)"/g)) ids.add(m[1]);
+  let h = 0x811c9dc5;
+  const key = code + '|' + (opts.containerW || '') + 'x' + (opts.containerH || '');
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  const sfx = '-' + (opts.idSuffix || (h >>> 0).toString(36));
+  const esc = [...ids].map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const re = new RegExp('( id="|url\\(#|href="#)(' + esc + ')(?=[")])', 'g');
+  result.svg = svg.replace(re, (m, pre, id) => pre + id + sfx);
+  return result;
 }
 
 window.AsyInterp = {

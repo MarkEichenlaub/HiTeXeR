@@ -1,0 +1,21 @@
+// how write() itself formats values (arrays, multiple args, bools, pens)
+write(new int[]{3, 1, 4});
+write(new real[]{1.5, 2});
+write(new pair[]{(0,0), (1,2)});
+write(new string[]{"a", "bc"});
+write(new bool[]{true, false});
+write(new int[][]{{1,2},{3,4}});
+write(new real[][]{{0.5},{1,2,3}});
+write(new int[0]);
+write(new int[2]);
+write(1, 2);
+write(1.5, (1,2));
+write("a", 1);
+write("a", "b");
+write((1,2), 3);
+write(true);
+write(false);
+write("s=", new int[]{1,2});
+write();
+write("");
+write("end");
