@@ -13,11 +13,60 @@ import re
 import struct
 import subprocess
 import tempfile
+import threading
+import time
 import traceback
 import urllib.request
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+
+
+def _run(args, cwd=None, input=None, capture_output=True, text=False,
+         encoding=None, errors=None, timeout=None):
+    """subprocess.run() with two Windows fixes for asy/latex/gs/node children.
+
+    - stdin is closed unless input is given: a LaTeX error otherwise waits
+      for keyboard input on the server's console, forever.
+    - On timeout the whole process tree is killed. subprocess.run kills only
+      the direct child (asy), then waits on pipes its latex/gs children still
+      hold, so the timeout never actually ends the request.
+    """
+    pipe = subprocess.PIPE if capture_output else None
+    started = time.time()
+    proc = subprocess.Popen(
+        args, cwd=cwd, stdout=pipe, stderr=pipe,
+        stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+        text=text or bool(encoding), encoding=encoding, errors=errors,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+    )
+    try:
+        out, err = proc.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        _kill_orphaned_tex(started)
+        try:
+            proc.communicate(timeout=10)
+        except Exception:
+            pass
+        raise
+    return subprocess.CompletedProcess(args, proc.returncode, out, err)
+
+
+def _kill_orphaned_tex(since):
+    """asy detaches its latex process, so killing asy's tree can leave a
+    latex stuck waiting on a pipe nobody reads. Kill latex processes started
+    after `since` (epoch seconds) whose parent has exited."""
+    if os.name != "nt":
+        return
+    ps = (
+        "$now=Get-Date; Get-CimInstance Win32_Process | Where-Object { "
+        r"$_.Name -match '^(pdf|xe|lua)?latex\.exe$' -and "
+        f"($now - $_.CreationDate).TotalSeconds -le {time.time() - since + 5:.0f} -and "
+        "-not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+    )
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=30)
 
 try:
     import requests
@@ -27,7 +76,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 
-PORT = 8080
+PORT = int(os.environ.get("HITEXER_PORT", "8080"))
 ASY_EXE = r"C:\Program Files\Asymptote\asy.exe"
 DVISVGM = "dvisvgm"
 CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'opus')
@@ -88,7 +137,7 @@ def _eps_cache_load_index() -> dict:
 def _eps_cache_save_index(index: dict) -> None:
     os.makedirs(_EPS_CACHE_DIR, exist_ok=True)
     ordered = {k: index[k] for k in sorted(index.keys())}
-    tmp = _EPS_INDEX_FILE + '.tmp'
+    tmp = f"{_EPS_INDEX_FILE}.{uuid.uuid4().hex[:8]}.tmp"  # unique: threads may save at once
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(ordered, f, indent=2)
     os.replace(tmp, _EPS_INDEX_FILE)
@@ -124,6 +173,15 @@ def _eps_boundingbox(eps_path: str) -> tuple[float, float]:
 
 
 _eps_cache: dict[str, dict] = {}  # in-process memo of fully-loaded entries
+# /convert-eps and /upload-image run on concurrent threads; serialize the
+# index's load-modify-save so one thread can't drop another's entry.
+_eps_index_lock = threading.Lock()
+
+
+def _download(url, dest, timeout=20):
+    """Fetch url to dest; a stalled CDN fails after `timeout` s instead of hanging."""
+    with urllib.request.urlopen(url, timeout=timeout) as r, open(dest, "wb") as f:
+        f.write(r.read())
 
 
 def _convert_eps_for_client(aops_path: str) -> dict:
@@ -167,43 +225,43 @@ def _convert_eps_for_client(aops_path: str) -> dict:
     # Cache miss → fetch + convert and persist
     public_url = _AOPS_CDN_URL + aops_path[len(_AOPS_CDN_LOCAL):]
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             stem = os.path.splitext(os.path.basename(aops_path))[0]
             eps_path = os.path.join(tmpdir, stem + '.eps')
-            urllib.request.urlretrieve(public_url, eps_path)
+            _download(public_url, eps_path)
 
             width_bp, height_bp = _eps_boundingbox(eps_path)
 
             fname = _eps_cache_safe_filename(aops_path)
             png_path = os.path.join(_EPS_CACHE_DIR, fname)
             if not _eps_to_png(eps_path, png_path):
+                # A conversion failure is permanent for this file: remember it.
                 msg = f'Ghostscript conversion failed for {aops_path}'
-                index[aops_path] = {'error': msg}
-                _eps_cache_save_index(index)
-                result = {'error': msg}
-                return result
+                with _eps_index_lock:
+                    index = _eps_cache_load_index()
+                    index[aops_path] = {'error': msg}
+                    _eps_cache_save_index(index)
+                return {'error': msg}
 
             with open(png_path, 'rb') as f:
                 png_b64 = base64.b64encode(f.read()).decode('ascii')
 
-            index[aops_path] = {
-                'fname': fname,
-                'width_bp': width_bp,
-                'height_bp': height_bp,
-            }
-            _eps_cache_save_index(index)
+            with _eps_index_lock:
+                index = _eps_cache_load_index()
+                index[aops_path] = {
+                    'fname': fname,
+                    'width_bp': width_bp,
+                    'height_bp': height_bp,
+                }
+                _eps_cache_save_index(index)
 
             result = {'png_b64': png_b64, 'width_bp': width_bp, 'height_bp': height_bp}
             _eps_cache[aops_path] = result
             return result
     except Exception as e:
-        msg = str(e)
-        try:
-            index[aops_path] = {'error': msg}
-            _eps_cache_save_index(index)
-        except Exception:
-            pass
-        return {'error': msg}
+        # Network trouble (offline, CDN 5xx, timeout) is transient: don't
+        # cache it, or the image would stay broken after the network recovers.
+        return {'error': str(e)}
 
 
 def _eps_to_png(eps_path: str, png_path: str) -> bool:
@@ -211,7 +269,7 @@ def _eps_to_png(eps_path: str, png_path: str) -> bool:
     if not GS_EXE:
         return False
     try:
-        result = subprocess.run(
+        result = _run(
             [GS_EXE, '-dNOPAUSE', '-dBATCH', '-dSAFER',
              '-sDEVICE=png16m', '-r150', '-dEPSCrop',
              f'-sOutputFile={png_path}', eps_path],
@@ -231,7 +289,7 @@ def _eps_to_pdf(eps_path: str, pdf_path: str) -> bool:
     if not GS_EXE:
         return False
     try:
-        result = subprocess.run(
+        result = _run(
             [GS_EXE, '-dNOPAUSE', '-dBATCH', '-dSAFER',
              '-sDEVICE=pdfwrite', '-dEPSCrop',
              f'-sOutputFile={pdf_path}', eps_path],
@@ -264,10 +322,12 @@ def resolve_aops_eps_paths(code: str, tmpdir: str) -> tuple[str, bool]:
     matches = list(set(_AOPS_PATH_RE.findall(code)))
     for aops_path in matches:
         public_url = _AOPS_CDN_URL + aops_path[len(_AOPS_CDN_LOCAL):]
-        stem = os.path.splitext(os.path.basename(aops_path))[0]
+        # Name by the whole path: two images called fig.eps in different CDN
+        # folders must not overwrite each other.
+        stem = os.path.splitext(_eps_cache_safe_filename(aops_path))[0]
         eps_path = os.path.join(tmpdir, stem + '.eps')
         try:
-            urllib.request.urlretrieve(public_url, eps_path)
+            _download(public_url, eps_path)
         except Exception:
             continue  # Leave path unchanged; asy will report its own error
 
@@ -317,22 +377,50 @@ if not os.path.exists(CLAUDE_CLI):
     CLAUDE_CLI = "claude"  # fallback to PATH
 
 
-def call_claude(prompt, model=CLAUDE_MODEL, max_tokens=16000):
-    """Call Claude CLI and return the response text. Pipes prompt via stdin."""
+class ClaudeError(Exception):
+    """The claude CLI failed; the message is meant for the user."""
+
+
+# A server started from inside a Claude Code session inherits these, and
+# `claude -p` would then bill API credits ("Credit balance is too low")
+# instead of the subscription.
+_CLAUDE_ENV = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "CLAUDECODE")}
+
+
+def _run_claude(args, prompt, timeout, cwd):
+    """Run the claude CLI with the prompt on stdin; return stdout text.
+
+    claude.cmd runs under cmd.exe, which starts node. On timeout, kill the
+    whole tree: killing only cmd.exe (what subprocess.run does) leaves node
+    holding the pipes, so the request would hang until it finished anyway.
+    """
     try:
-        result = subprocess.run(
-            [CLAUDE_CLI, "-p", "--model", model, "--max-turns", "1"],
-            input=prompt,
-            capture_output=True, text=True, timeout=120,
-            cwd=tempfile.gettempdir(), shell=True,
+        proc = subprocess.Popen(
+            [CLAUDE_CLI] + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+            cwd=cwd, shell=True, env=_CLAUDE_ENV,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
         )
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "Error: Claude CLI timed out"
     except FileNotFoundError:
-        return "Error: Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
-    except Exception as e:
-        return f"Error: {e}"
+        raise ClaudeError("Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code")
+    try:
+        out, err = proc.communicate(prompt, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        try:
+            proc.communicate(timeout=10)
+        except Exception:
+            pass
+        raise ClaudeError(f"Claude didn't answer within {timeout} seconds")
+    if proc.returncode != 0:
+        detail = (err or out or "").strip()[:500]
+        raise ClaudeError(f"Claude CLI failed: {detail or f'exit code {proc.returncode}'}")
+    return out.strip()
+
+
+def call_claude(prompt, model=CLAUDE_MODEL, max_tokens=16000):
+    """Call Claude CLI and return the response text. Raises ClaudeError."""
+    return _run_claude(["-p", "--model", model, "--max-turns", "1"], prompt, 120, tempfile.gettempdir())
 
 
 def call_claude_vision(prompt, image_b64, media_type="image/png", model="sonnet"):
@@ -341,42 +429,33 @@ def call_claude_vision(prompt, image_b64, media_type="image/png", model="sonnet"
     The Claude CLI supports reading image files natively (multimodal Read tool),
     so we write the image to disk and instruct Claude to read it.
     We write to the project directory (where the server runs) so Claude CLI
-    has file access without needing --add-dir flags.
+    has file access without needing --add-dir flags. Raises ClaudeError.
     """
     ext_map = {"image/png": ".png", "image/jpeg": ".jpg",
                "image/gif": ".gif", "image/webp": ".webp"}
     ext = ext_map.get(media_type, ".png")
-
-    # Write into the project directory so Claude CLI can read it without --add-dir
     project_dir = os.path.dirname(os.path.abspath(__file__))
-    tmp_filename = f"_vision_tmp_{uuid.uuid4().hex}{ext}"
-    tmp_path = os.path.join(project_dir, tmp_filename)
-
+    tmp_path = os.path.join(project_dir, f"_vision_tmp_{uuid.uuid4().hex}{ext}")
     try:
         with open(tmp_path, "wb") as f:
             f.write(base64.b64decode(image_b64))
-
         img_prompt = (
             prompt
             + f"\n\nIMPORTANT: The user has attached an image file at `{tmp_path}`. "
             "Use the Read tool on that path to view the image before responding."
         )
-
-        result = subprocess.run(
-            [CLAUDE_CLI, "-p", "--model", model, "--max-turns", "3"],
-            input=img_prompt,
-            capture_output=True, text=True, timeout=180,
-            cwd=project_dir, shell=True,
-        )
-        return result.stdout.strip() or result.stderr.strip() or "No response"
-    except Exception as e:
-        return f"Error: {e}"
+        return _run_claude(["-p", "--model", model, "--max-turns", "3"], img_prompt, 180, project_dir)
     finally:
-        if os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _split_data_url(data):
+    """'data:image/png;base64,AAA' -> ('AAA', 'image/png'); a bare string is PNG base64."""
+    m = re.match(r"data:([\w/+.-]+);base64,(.*)$", data or "", re.DOTALL)
+    return (m.group(2), m.group(1)) if m else (data, "image/png")
 
 
 def compile_to_png(code, tmpdir=None):
@@ -392,13 +471,15 @@ def compile_to_png(code, tmpdir=None):
     code = re.sub(r'^\s*\[asy\]\s*\n?', '', code)
     code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
 
-    code, _ = resolve_aops_eps_paths(code, tmpdir)
-    with open(asy_file, "w") as f:
+    code, needs_pdflatex = resolve_aops_eps_paths(code, tmpdir)
+    with open(asy_file, "w", encoding="utf-8") as f:
         f.write(AOPS_PREAMBLE + auto_import(code))
 
-    result = subprocess.run(
-        [ASY_EXE, "-f", "png", "-noView", "-render", "4", "-o", "diagram", "diagram.asy"],
-        cwd=tmpdir, capture_output=True, text=True, timeout=30,
+    # Converted AoPS images (PDF/PNG) only embed under pdflatex.
+    tex = ["-tex", "pdflatex"] if needs_pdflatex else []
+    result = _run(
+        [ASY_EXE] + tex + ["-f", "png", "-noView", "-render", "4", "-o", "diagram", "diagram.asy"],
+        cwd=tmpdir, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
     )
     if result.returncode != 0:
         return None
@@ -480,8 +561,44 @@ def auto_import(code: str) -> str:
     return code
 
 
+# Any web page open in the browser can send requests to 127.0.0.1:8080, and
+# some endpoints read/write files or spend the Claude subscription. Only these
+# page origins may call the server (a missing Origin is a same-origin GET, a
+# script, or EigenNode's proxy). The Host check defeats DNS rebinding.
+_ALLOWED_ORIGIN_RE = re.compile(
+    r"^(https?://(127\.0\.0\.1|localhost)(:\d+)?|https://markeichenlaub\.github\.io"
+    r"|tauri://localhost|https?://tauri\.localhost)$")
+_ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}", "127.0.0.1", "localhost"}
+
+# EigenNode hands code to the editor through files in its own temp folder
+# (open_in_hitexer in EigenNode's src-tauri/src/lib.rs); nothing else may be
+# read or written through /eigennode-read and /eigennode-write.
+_EIGENNODE_DIR = os.path.realpath(os.path.join(tempfile.gettempdir(), "eigennode-hitexer"))
+
+
+def _eigennode_path(filepath, pattern):
+    """Return the real path if it's a file of that name pattern directly in
+    EigenNode's exchange folder, else None."""
+    if not filepath:
+        return None
+    real = os.path.realpath(filepath)
+    if os.path.dirname(real).lower() != _EIGENNODE_DIR.lower():
+        return None
+    return real if re.fullmatch(pattern, os.path.basename(real)) else None
+
+
 class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
+    def _request_allowed(self):
+        host = (self.headers.get("Host") or "").lower()
+        origin = self.headers.get("Origin")
+        if host not in _ALLOWED_HOSTS or (origin and not _ALLOWED_ORIGIN_RE.match(origin)):
+            self.send_error(403, "Forbidden origin")
+            return False
+        return True
+
     def do_GET(self):
+        if not self._request_allowed():
+            return
         parsed = urlparse(self.path)
         if parsed.path == "/health":
             self.send_json(200, {"ok": True})
@@ -489,9 +606,9 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         if parsed.path == "/eigennode-read":
             from urllib.parse import parse_qs
             params = parse_qs(parsed.query)
-            filepath = params.get("path", [None])[0]
+            filepath = _eigennode_path(params.get("path", [None])[0], r"asy-[\w.-]+\.txt")
             if filepath and os.path.exists(filepath):
-                code = Path(filepath).read_text(encoding="utf-8")
+                code = Path(filepath).read_text(encoding="utf-8", errors="replace")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
                 self.end_headers()  # adds the CORS header for every response
@@ -514,6 +631,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        if not self._request_allowed():
+            return
         if self.path == "/compile":
             self.handle_compile()
         elif self.path == "/texer":
@@ -532,8 +651,6 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_convert_eps()
         elif self.path == "/upload-image":
             self.handle_upload_image()
-        elif self.path == "/fix":
-            self.handle_blink_fix()
         elif self.path == "/refetch":
             self.handle_blink_refetch()
         elif self.path == "/rerender":
@@ -546,7 +663,10 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(content_length)
         try:
             data = json.loads(body)
-            filepath = data["path"]
+            filepath = _eigennode_path(data.get("path"), r"callback-[\w.-]+\.json")
+            if not filepath:
+                self.send_json(403, {"error": "path is not an EigenNode callback file"})
+                return
             code = data["code"]
             node_id = data.get("nodeId", "")
             # Write atomically via rename so file-watchers reliably see each update
@@ -586,16 +706,17 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         code = re.sub(r'\n?\s*\[/asy\]\s*$', '', code)
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
                 asy_file = os.path.join(tmpdir, "anim.asy")
 
-                code, _ = resolve_aops_eps_paths(code, tmpdir)
-                with open(asy_file, "w") as f:
+                code, needs_pdflatex = resolve_aops_eps_paths(code, tmpdir)
+                with open(asy_file, "w", encoding="utf-8") as f:
                     f.write(AOPS_PREAMBLE + auto_import(code))
 
-                result = subprocess.run(
-                    [ASY_EXE, "-f", "gif", "-noView", "-o", "anim", "anim.asy"],
-                    cwd=tmpdir, capture_output=True, text=True, timeout=120,
+                tex = ["-tex", "pdflatex"] if needs_pdflatex else []
+                result = _run(
+                    [ASY_EXE] + tex + ["-f", "gif", "-noView", "-o", "anim", "anim.asy"],
+                    cwd=tmpdir, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
                 )
 
                 if result.returncode != 0:
@@ -717,6 +838,10 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(200, {"svg": svg})
         except CompilationError as e:
             self.send_json(200, {"error": str(e)})
+        except subprocess.TimeoutExpired as e:
+            self.send_json(200, {"error": (
+                f"Asymptote didn't finish within {e.timeout:.0f} seconds. LaTeX often "
+                "stalls on a character it can't typeset (like → or θ outside $...$).")})
         except Exception as e:
             traceback.print_exc()
             self.send_json(500, {"error": f"Server error: {e}"})
@@ -791,13 +916,15 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_autocomplete(code, data.get("cursor", 0), data.get("prefix", ""))
             else:
                 self.send_json(400, {"error": f"Unknown AI action: {action}"})
+        except ClaudeError as e:
+            self.send_json(200, {"error": str(e)})
         except Exception as e:
             traceback.print_exc()
             self.send_json(500, {"error": f"Server error: {e}"})
 
     def _handle_refactor(self, code):
         """AI Refactor: refactor code while keeping identical output."""
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             # Compile original to PNG
             orig_png = compile_to_png(code, tmpdir)
             if not orig_png:
@@ -873,15 +1000,19 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
             "The code should be complete and compilable."
         )
 
-        # First pass: generate code
-        response = call_claude(edit_prompt)
+        # First pass: generate code (with the reference image, if any)
+        if image_data:
+            img_b64, img_type = _split_data_url(image_data)
+            response = call_claude_vision(edit_prompt, img_b64, img_type, model=CLAUDE_MODEL)
+        else:
+            response = call_claude(edit_prompt)
         new_code = extract_asy_code(response)
         if not new_code:
             self.send_json(200, {"error": "AI failed to generate code"})
             return
 
         # Compile to verify it works
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             png = compile_to_png(new_code, tmpdir)
             if not png:
                 # Try to fix compilation errors
@@ -893,7 +1024,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 new_code = extract_asy_code(response) or new_code
 
         # Critic loop (up to 5 rounds)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             for round_num in range(5):
                 png_path = compile_to_png(new_code, tmpdir)
                 if not png_path:
@@ -904,15 +1035,16 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                     png_b64 = base64.b64encode(f.read()).decode()
 
                 critic_prompt = (
-                    f"You are reviewing an Asymptote diagram.\n\n"
+                    f"You are reviewing an Asymptote diagram. The attached image is how "
+                    "the code below currently renders.\n\n"
                     f"Original request: {prompt or 'Recreate the provided image'}\n\n"
                     f"The generated code:\n```asy\n{new_code}\n```\n\n"
-                    "Does this code fully meet all the requirements? "
+                    "Does the rendered diagram fully meet all the requirements? "
                     "If yes, respond with exactly: APPROVED\n"
                     "If no, respond with specific notes for improvement."
                 )
 
-                critic_response = call_claude(critic_prompt, model="sonnet")
+                critic_response = call_claude_vision(critic_prompt, png_b64, "image/png", model="sonnet")
 
                 if "APPROVED" in critic_response.upper()[:50]:
                     break
@@ -959,14 +1091,11 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
 
         # Parse JSON from response
         try:
-            # Try to find JSON in the response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_match:
-                explanations = json.loads(json_match.group())
-            else:
-                explanations = json.loads(response)
+            # Decode the first JSON object in the reply; a regex can't handle
+            # arbitrary nesting or braces inside explanation strings.
+            explanations, _ = json.JSONDecoder().raw_decode(response[response.index("{"):])
             self.send_json(200, {"explanations": explanations})
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, ValueError):
             self.send_json(200, {"error": "Failed to parse AI explanation", "raw": response[:500]})
 
     def _handle_chat(self, code, prompt, options, history, image=None):
@@ -1043,14 +1172,14 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         full_code = AOPS_PREAMBLE + auto_import(clean)
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
                 asy_file = os.path.join(tmpdir, "diagram.asy")
-                with open(asy_file, "w") as f:
+                with open(asy_file, "w", encoding="utf-8") as f:
                     f.write(full_code)
 
-                result = subprocess.run(
+                result = _run(
                     [ASY_EXE, "-f", "pdf", "-noView", "-o", "diagram", "diagram.asy"],
-                    cwd=tmpdir, capture_output=True, text=True, timeout=30,
+                    cwd=tmpdir, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
                 )
 
                 errors = []
@@ -1123,37 +1252,6 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
 
         self.send_json(200, {"completions": completions})
 
-    def handle_blink_fix(self):
-        """Launch Claude Code to fix a diagram (from blink comparator Fix button)."""
-        content_length = int(self.headers["Content-Length"])
-        body = self.rfile.read(content_length)
-        try:
-            data = json.loads(body)
-            diagram_id = data.get("id")
-            prompt = data.get("prompt")
-            if not diagram_id or not prompt:
-                self.send_json(400, {"ok": False, "error": "Missing id or prompt"})
-                return
-
-            root = os.path.dirname(os.path.abspath(__file__))
-            prompt_file = os.path.join(root, "_fix_prompt.txt")
-            Path(prompt_file).write_text(prompt, encoding="utf-8")
-
-            # PowerShell: read file, pass to claude
-            prompt_file_ps = prompt_file.replace("'", "''")
-            ps_cmd = (
-                f"$p = Get-Content -Path '{prompt_file_ps}' -Raw -Encoding UTF8; "
-                f"claude --dangerously-skip-permissions $p"
-            )
-            subprocess.Popen(
-                ["wt", "-w", "0", "new-tab", "-d", root, "--",
-                 "powershell", "-NoExit", "-Command", ps_cmd],
-                creationflags=subprocess.DETACHED_PROCESS,
-            )
-            self.send_json(200, {"ok": True, "id": diagram_id})
-        except Exception as e:
-            self.send_json(500, {"ok": False, "error": str(e)})
-
     def handle_blink_rerender(self):
         """Re-render HiTeXeR for a single diagram and recompute SSIM.
 
@@ -1171,10 +1269,10 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             root = os.path.dirname(os.path.abspath(__file__))
-            result = subprocess.run(
+            result = _run(
                 ["node", os.path.join(root, "auto-fix", "render-and-score.js"), "--fast"],
                 cwd=root, input=(diagram_id + "\n"), capture_output=True,
-                text=True, timeout=120,
+                text=True, encoding="utf-8", errors="replace", timeout=120,
             )
 
             # Parse the per-ID result line from stdout. Note: render-and-score.js
@@ -1237,15 +1335,16 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(content_length)
         try:
             data = json.loads(body)
-            diagram_id = data.get("id")
-            if not diagram_id:
-                self.send_json(400, {"ok": False, "error": "Missing id"})
+            diagram_id = str(data.get("id") or "")
+            # Corpus ids only (e.g. 04202, ext_gallery_foo): the id becomes a path.
+            if not re.fullmatch(r"[\w-]+", diagram_id):
+                self.send_json(400, {"ok": False, "error": "Missing or invalid id"})
                 return
 
             root = os.path.dirname(os.path.abspath(__file__))
-            result = subprocess.run(
+            result = _run(
                 ["python", os.path.join(root, "comparison", "refetch-single.py"), diagram_id],
-                cwd=root, capture_output=True, text=True, timeout=30,
+                cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
             )
             if result.returncode != 0:
                 err = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
@@ -1254,7 +1353,7 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
 
             # Regenerate manifest
             try:
-                subprocess.run(
+                _run(
                     ["node", os.path.join(root, "comparison", "generate-manifest.js")],
                     cwd=root, capture_output=True, timeout=30,
                 )
@@ -1332,6 +1431,8 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(response)
 
     def do_OPTIONS(self):
+        if not self._request_allowed():
+            return
         self.send_response(200)
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
@@ -1349,7 +1450,11 @@ class HiTeXeRHandler(http.server.SimpleHTTPRequestHandler):
         # response make the browser reject it, and the failure only shows up
         # cross-origin (the hosted github.io build calling back to 127.0.0.1),
         # never when the page is served from this same server.
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Echo the caller's origin (already vetted by _request_allowed).
+        origin = self.headers.get("Origin")
+        if origin and _ALLOWED_ORIGIN_RE.match(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         # Prevent browser from caching served files so edits take effect immediately
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
@@ -1387,21 +1492,21 @@ def _png_as_svg(png_path: str) -> str:
 
 def compile_asy_to_svg(code: str) -> str:
     """Compile Asymptote code to SVG string."""
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         asy_file = os.path.join(tmpdir, "diagram.asy")
         pdf_file = os.path.join(tmpdir, "diagram.pdf")
         svg_file = os.path.join(tmpdir, "diagram.svg")
 
         code, needs_pdflatex = resolve_aops_eps_paths(code, tmpdir)
-        with open(asy_file, "w") as f:
+        with open(asy_file, "w", encoding="utf-8") as f:
             f.write(code)
 
         if needs_pdflatex:
             # Step 1: compile with pdflatex engine to PDF
-            result = subprocess.run(
+            result = _run(
                 [ASY_EXE, "-tex", "pdflatex", "-f", "pdf", "-noView",
                  "-o", "diagram", "diagram.asy"],
-                cwd=tmpdir, capture_output=True, text=True, timeout=60,
+                cwd=tmpdir, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
             )
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
@@ -1412,10 +1517,10 @@ def compile_asy_to_svg(code: str) -> str:
             # Step 2: try dvisvgm on the PDF for a proper vector SVG with
             # tight bounding box.  This works when GS can extract the embedded
             # images; fall back to PNG wrapping when it cannot.
-            dvi_result = subprocess.run(
+            dvi_result = _run(
                 [DVISVGM, "--pdf", "--no-fonts", "--exact-bbox",
                  pdf_file, "-o", svg_file],
-                cwd=tmpdir, capture_output=True, text=True, timeout=30,
+                cwd=tmpdir, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
             )
             if dvi_result.returncode == 0 and os.path.exists(svg_file):
                 with open(svg_file, "r") as f:
@@ -1427,10 +1532,10 @@ def compile_asy_to_svg(code: str) -> str:
 
             # dvisvgm couldn't handle the embedded images — re-compile to PNG
             png_file = os.path.join(tmpdir, "diagram.png")
-            result = subprocess.run(
+            result = _run(
                 [ASY_EXE, "-tex", "pdflatex", "-f", "png", "-noView",
                  "-o", "diagram", "diagram.asy"],
-                cwd=tmpdir, capture_output=True, text=True, timeout=60,
+                cwd=tmpdir, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
             )
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
@@ -1440,11 +1545,11 @@ def compile_asy_to_svg(code: str) -> str:
             return _png_as_svg(png_file)
 
         # Step 1: Asymptote -> PDF
-        result = subprocess.run(
+        result = _run(
             [ASY_EXE, "-f", "pdf", "-noView", "-o", "diagram", "diagram.asy"],
             cwd=tmpdir,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=30,
         )
         if result.returncode != 0:
@@ -1455,11 +1560,11 @@ def compile_asy_to_svg(code: str) -> str:
             raise CompilationError("Asymptote produced no output")
 
         # Step 2: PDF -> SVG via dvisvgm
-        result = subprocess.run(
+        result = _run(
             [DVISVGM, "--pdf", "--no-fonts", "--exact-bbox", pdf_file, "-o", svg_file],
             cwd=tmpdir,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=15,
         )
         if result.returncode != 0:

@@ -190,7 +190,21 @@ const MIME = {
   '.patch':'text/plain',
 };
 
+// Any web page open in the browser can send requests to 127.0.0.1, and /fix
+// launches a Claude Code session with the prompt it's given. Only pages served
+// from this machine may call this server ("null", which file:// pages send, is
+// also what a sandboxed iframe on any site sends, so it's refused); the Host
+// check defeats DNS rebinding.
+const ALLOWED_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
+const ALLOWED_HOST_RE = /^(127\.0\.0\.1|localhost)(:\d+)?$/i;
+
 const server = http.createServer((req, res) => {
+  const origin = req.headers.origin;
+  if (!ALLOWED_HOST_RE.test(req.headers.host || '') || (origin && !ALLOWED_ORIGIN_RE.test(origin))) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden origin');
+    return;
+  }
   // CORS — the browser page is a file:// or localhost URL
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -735,7 +749,9 @@ const server = http.createServer((req, res) => {
         if (!id || !prompt) throw new Error('Missing id or prompt');
 
         // Write prompt to a file so we can pass it to claude cleanly
-        const promptFile = path.join(ROOT, '_fix_prompt.txt');
+        // Unique per click: a second Fix click must not overwrite the first
+        // prompt before its PowerShell tab has read it.
+        const promptFile = path.join(os.tmpdir(), `hitexer-fix-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}.txt`);
         fs.writeFileSync(promptFile, prompt, 'utf8');
 
         // PowerShell command: read file → pass as initial message to claude

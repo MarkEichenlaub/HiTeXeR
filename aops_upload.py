@@ -467,8 +467,12 @@ def _prime_eps_cache(asy_path, eps_bytes, project_root):
     except Exception:
         index = {}
     index[asy_path] = {'fname': fname, 'width_bp': w_bp, 'height_bp': h_bp}
-    with open(index_file, 'w', encoding='utf-8') as f:
+    # Atomic replace: the editor server reads this index concurrently, and a
+    # half-written file would read as empty and then be saved back empty.
+    tmp = f"{index_file}.{os.getpid()}.tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump({k: index[k] for k in sorted(index)}, f, indent=2)
+    os.replace(tmp, index_file)
 
     with open(os.path.join(cache_dir, fname), 'rb') as f:
         return base64.b64encode(f.read()).decode('ascii')
