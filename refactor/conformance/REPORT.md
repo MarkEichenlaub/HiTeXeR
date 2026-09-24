@@ -1,14 +1,14 @@
 # HiTeXeR language/library conformance report
 
-Generated 2026-09-24T18:28:15.713Z by `node refactor/conformance/build-report.js` from the results of
+Generated 2026-09-24T20:59:52.198Z by `node refactor/conformance/build-report.js` from the results of
 `node refactor/conformance/run.js` (write() output diff against real Asymptote 3.06) and
 `node refactor/conformance/colors-check.js`.
 
-Interpreter under test: `refactor/conformance/.snapshot/7f7c84cf/asy-interp.js` (git HEAD at the time of the run; the working-tree asy-interp.js was
+Interpreter under test: `asy-interp.js` (git HEAD at the time of the run; the working-tree asy-interp.js was
 being edited concurrently and at one point failed to load; a later `--working` run against it gave identical totals).
 Line numbers below (Lnnnn) refer to the HEAD snapshot.
 
-**45 test files, 1370 write() checks: 483 real mismatches (149 of them "HiTeXeR printed nothing"), 109 numerical-noise mismatches (agree to 1e-9), 8 format-only.**
+**46 test files, 1420 write() checks: 429 real mismatches (112 of them "HiTeXeR printed nothing"), 109 numerical-noise mismatches (agree to 1e-9), 8 format-only.**
 
 Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) that call the construct
 (`corpus-counts.json`). Categories are ordered by the most-used construct in each.
@@ -19,28 +19,27 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 |---|---|---|---|
 | 1 | [circle()/Circle()/arc()/Arc()/ellipse() construction and parameterization](#circlearc) | 41 (+0) | Circle 2036, arc 1700, circle 903, circumcircle 668, incircle 169, Arc 102, ellipse 57, CR 4, point(circle 82 |
 | 2 | [graph module: graph(), Circle/Arc sampling, interpolation](#graph) | 16 (+2) | graph 1161, Circle 2036, Arc 102, polargraph 32 |
-| 3 | [Built-in constants and misc builtins](#constants) | 18 (+6) | Npt 1573, Degrees 0, hypot 2 |
+| 3 | [Built-in constants and misc builtins](#constants) | 17 (+6) | Npt 1573, Degrees 0, hypot 2 |
 | 4 | [extension() of parallel lines (non-parallel extension() is exact)](#extension) | 1 (+1) | extension 1449 |
 | 5 | [Path intersections are only accurate to ~1e-4](#intersect) | 52 (+0) | intersectionpoint 670, intersectionpoints 825, IP 20, IPs 61, intersect 14, buildcycle 51 |
 | 6 | [Strings: string()/format() number formatting and string functions](#strings) | 23 (+9) | string 622, format( 21, string(real,n) 0 |
 | 7 | [geometry.asy module (point/line/circle/triangle structs)](#geometry) | 7 (+0) | import geometry 339 |
-| 8 | [Operators: bool ^, compound #= %= ^=, prefix --](#operators) | 7 (+0) | # 14, % 295 |
+| 8 | [Operators: bool ^, compound #= %= ^=, prefix --](#operators) | 1 (+0) | # 14, % 295 |
 | 9 | [Path queries: subpath/reverse edge cases, missing path builtins](#subpath) | 44 (+9) | point 226, reverse 143, subpath 13, inside 4, windingnumber 0, beginpoint 0, endpoint 0, precontrol 0 |
 | 10 | [Pair functions](#pairs) | 6 (+4) | cross 201, minbound 0, maxbound 0, abs2 0 |
 | 11 | [Arclength-based functions: arclength, arctime, relpoint, reltime, midpoint, waypoint](#arclen) | 25 (+3) | midpoint 186, relpoint 165, arclength 96, arctime 0, reltime 2, waypoint 10, WP 0 |
-| 12 | [Integer casts, rounding, int/real distinction](#casts) | 23 (+4) | round 6, floor 50, ceil 2, (int) 182, pair=number 3 |
+| 12 | [Integer casts, rounding, int/real distinction](#casts) | 11 (+4) | round 6, floor 50, ceil 2, (int) 182, pair=number 3 |
 | 13 | [Arrays: methods, whole-array arithmetic, sort/search, matrix ops](#arrays) | 34 (+0) | array append/insert/delete 11, sort 2, reverse 143, search 0, concat 0 |
 | 14 | [min()/max() of paths and pictures return 0](#minmax) | 20 (+0) | min/max(ident) 142 |
 | 15 | [olympiad.asy helpers](#olympiad) | 8 (+3) | anglemark 134, tangent 35, collinear 0, cyclic 1, concurrent 0 |
-| 16 | [Parse errors: constructs HiTeXeR cannot parse (whole program aborts)](#syntax) | 34 (+0) | struct 6, operator 125, tension 3, :: 4, curl 1, for comma 0, rest args 1 |
+| 16 | [Parse errors: constructs HiTeXeR cannot parse (whole program aborts)](#syntax) | 9 (+0) | struct 6, operator 125, tension 3, :: 4, curl 1, for comma 0, rest args 1 |
 | 17 | [Path construction: Hobby spline solver, tension, direction specifiers, ---](#hobby) | 11 (+0) | ..cycle 67, --- 27, tension 3, {dir} 17, curl 1, controls 4 |
 | 18 | [Pens: attribute getters and color functions](#pens) | 64 (+0) | pen getter 3, cmyk 1, colors 22 |
 | 19 | [cse5.asy helpers](#cse5) | 5 (+0) | CR 4, IP 20, CP 0, OP 0, WP 0, L 8, d 20 |
 | 20 | [dir(path, t) / dir(path)](#dirpath) | 8 (+5) | dir(path,t) 11 |
-| 21 | [Structs](#structs) | 10 (+0) | struct 6, struct method 4 |
-| 22 | [transform values: inverse, ==, field access, shiftless](#transform) | 14 (+5) | inverse 1, shiftless 0 |
-| 23 | [write() output format (debug-only; affects nothing drawn)](#write) | 12 (+2) | write( 5 |
-| 24 | [Numerical noise (agrees to 1e-9 but not to the last digit)](#epsilon) | 0 (+64) |  |
+| 21 | [transform values: inverse, ==, field access, shiftless](#transform) | 14 (+5) | inverse 1, shiftless 0 |
+| 22 | [write() output format (debug-only; affects nothing drawn)](#write) | 12 (+2) | write( 5 |
+| 23 | [Numerical noise (agrees to 1e-9 but not to the last digit)](#epsilon) | 0 (+64) |  |
 
 ## Constructs where HiTeXeR throws or returns nothing but asy works
 
@@ -48,11 +47,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 
 | test file | HiTeXeR error | construct |
 |---|---|---|
-| control_for_comma.asy | Error: Parse error line 4: expected ), got , ',' | `write(z);` |
-| control_incr_in_cond.asy | Error: Loop iteration limit exceeded | `write(k);` |
-| func_restargs.asy | Error: Parse error line 3: expected IDENT, got ... '...' | `write(sumall(1, 2, 3.5));` |
-| func_var_decl.asy | Error: Parse error line 3: expected ), got IDENT 'x' | `write(sq(1.5));` |
-| operator_overload.asy | Error: Parse error line 5: expected ), got IDENT 'a' | `write(q.x);` |
 | path_syntax_01.asy | Error: Parse error line 16: expected .., got NUMBER '1.5' | `wpath((0,0)..tension atleast 1.5..(1,1));` |
 | path_syntax_02.asy | Error: Parse error line 16: expected .., got NUMBER '3' | `wpath((0,0)..tension 1 and 3 ..(2,1));` |
 | path_syntax_03.asy | Error: Parse error line 16: expected ), got : ':' | `wpath((0,0)::(1,1)::(2,0));` |
@@ -62,8 +56,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 | path_syntax_12.asy | Error: Parse error line 16: expected ), got { '{' | `wpath((0,0)..(1,1){curl 1}..(2,0));` |
 | path_syntax_13.asy | Error: Parse error line 16: expected ), got : ':' | `wpath((0,0)::(1,0)::(2,1)::(3,1));` |
 | path_syntax_14.asy | Error: Parse error line 16: expected ), got : ':' | `wpath((0,0){down}::(1,-1)::{up}(2,0));` |
-| struct_init.asy | Error: unexpected } | `write(p.x);` |
-| struct_static.asy | Error: unexpected } | `write(Stat.count);` |
 
 ### Unimplemented builtins (HiTeXeR logs `[HTX-unknown-call]` and returns null)
 
@@ -71,7 +63,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 |---|---|---|
 | `colors` | 22 | pens.asy:24 |
 | `d` | 20 | mod_cse5.asy:17 |
-| `Floor` | 12 | arith_int_real.asy:88 |
 | `L` | 8 | mod_cse5.asy:22 |
 | `uniform` | 4 | arrays.asy:124 |
 | `hypot` | 2 | math_funcs.asy:54 |
@@ -87,7 +78,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 | `all` | 0 | arrays.asy:77 |
 | `arctime` | 0 | circles_arcs.asy:71, path_basic.asy:27, path_curves.asy:26, path_ops.asy:66 |
 | `beginpoint` | 0 | path_basic.asy:35 |
-| `Ceil` | 0 | arith_int_real.asy:89 |
 | `collinear` | 0 | mod_olympiad.asy:40 |
 | `colorspace` | 0 | pens.asy:53 |
 | `commonpoints` | 0 | mod_cse5.asy:31 |
@@ -113,7 +103,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 | `postcontrol` | 0 | path_basic.asy:46, path_curves.asy:18 |
 | `precontrol` | 0 | path_basic.asy:45, path_curves.asy:17 |
 | `rfind` | 0 | strings.asy:42 |
-| `Round` | 0 | arith_int_real.asy:90 |
 | `search` | 0 | arrays.asy:58 |
 | `shiftless` | 0 | transforms.asy:42 |
 | `straight` | 0 | path_basic.asy:84 |
@@ -129,7 +118,6 @@ Many of these are repeat calls of a builtin listed above (HiTeXeR warns once per
 
 | file:line | source | asy |
 |---|---|---|
-| arith_int_real.asy:91 | `write(Floor(-2.7));` | `-3` |
 | arrays.asy:59 | `write(search(new int[]{1, 3, 5, 7}, 0));` | `-1` |
 | arrays.asy:60 | `write(search(new real[]{1, 3, 5, 7}, 7));` | `3` |
 | arrays.asy:122 | `write(dot(new real[]{1,2,3}, new real[]{4,5,6}));` | `32` |
@@ -174,14 +162,6 @@ Many of these are repeat calls of a builtin listed above (HiTeXeR warns once per
 | path_curves.asy:69 | `write(dirtime(s, (0,-1)));` | `2.76340106451067` |
 | pens.asy:54 | `write(colorspace(gray(0.3)));` | `gray` |
 | pens.asy:55 | `write(colorspace(cmyk(red)));` | `cmyk` |
-| struct_fields.asy:24 | `write(d.a);` | `5` |
-| struct_fields.asy:25 | `write(d.b);` | `10` |
-| struct_fields.asy:26 | `write(d.p);` | `(1,2)` |
-| struct_fields.asy:28 | `write(d.b);` | `10` |
-| struct_methods.asy:10 | `write(p.norm());` | `5` |
-| struct_methods.asy:13 | `write(p.topair());` | `(6,8)` |
-| struct_methods.asy:21 | `write(c.get());` | `2` |
-| struct_methods.asy:24 | `write(c.n);` | `3` |
 | transforms.asy:43 | `write(shift(1,2).x);` | `1` |
 | transforms.asy:44 | `write(shift(1,2).y);` | `2` |
 | transforms.asy:45 | `write(scale(3).xx);` | `3` |
@@ -295,7 +275,6 @@ Corpus usage: `Npt` 1573, `Degrees` 0, `hypot` 2.
 | misc_builtins.asy:17 | `write(point(cyc2, 1.5));` | `(3.41421356237309,1.41421356237309)` | `(3.4142135623731,1.41421356237309)` | epsilon |
 | misc_builtins.asy:37 | `write(NE);` | `(0.707106781186547,0.707106781186547)` | `(0.707106781186548,0.707106781186548)` | epsilon |
 | misc_builtins.asy:38 | `write(SW);` | `(-0.707106781186547,-0.707106781186547)` | `(-0.707106781186548,-0.707106781186548)` | epsilon |
-| misc_builtins.asy:46 | `write(realEpsilon > 0);` | `true` | `false` | value |
 | misc_builtins.asy:48 | `write(intMax);` | `9223372036854775805` | `2147483647` | value |
 | misc_builtins.asy:53 | `write(pt);` | `0.99626400996264` | `1` | value |
 | misc_builtins.asy:58 | `write(arrowlength);` | `21.259842519685` | `` | missing |
@@ -446,12 +425,6 @@ Corpus usage: `#` 14, `%` 295.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| bool_compare.asy:11 | `write(true ^ true);` | `false` | `1` | value |
-| bool_compare.asy:12 | `write(true ^ false);` | `true` | `1` | value |
-| bool_compare.asy:32 | `write(i);` | `4` | `14` | value |
-| bool_compare.asy:34 | `write(i);` | `1` | `14` | value |
-| bool_compare.asy:39 | `write(r);` | `6.25` | `2.5` | value |
-| bool_compare.asy:45 | `write(--k);` | `0` | `1` | value |
 | bool_compare.asy:49 | `write(a, b);` | `7	7` | `77` | value |
 
 <a id="subpath"></a>
@@ -584,17 +557,7 @@ Corpus usage: `round` 6, `floor` 50, `ceil` 2, `(int)` 182, `pair=number` 3.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| arith_int_real.asy:76 | `write((int)(-3.7));` | `-3` | `-4` | value |
-| arith_int_real.asy:80 | `write(round(-2.5));` | `-3` | `-2` | value |
-| arith_int_real.asy:82 | `write(round(-3.5));` | `-4` | `-3` | value |
-| arith_int_real.asy:88 | `write(Floor(2.7));` | `2` | `` | missing |
-| arith_int_real.asy:89 | `write(Ceil(2.1));` | `3` | `` | missing |
-| arith_int_real.asy:90 | `write(Round(2.5));` | `3` | `` | missing |
-| arith_int_real.asy:91 | `write(Floor(-2.7));` | `-3` | `` | missing |
 | circles_arcs.asy:67 | `wpath(shift(1,1)*unitcircle);` | `len=4 / (2,1) / (2,1.5522847498308) / (1.55228474983079,2) / (1,2) / (0.447715250169207,2) / (2.46716227694479 ...` | `len=4 / (2,1) / (2,1.5522847498) / (1.5522847498,2) / (1,2) / (0.447715250200001,2) / (6.90805437544542e-16,1. ...` | epsilon |
-| control_flow.asy:45 | `write(t(1));` | `int` | `real` | value |
-| control_flow.asy:50 | `write(t(1#2));` | `int` | `real` | value |
-| control_flow.asy:89 | `write(ri(-2.9));` | `-2` | `-3` | value |
 | path_ops.asy:33 | `wpath(shift(1,1)*tri);` | `len=3 / (1,1) / (2.33333333333333,1) / (3.66666666666667,1) / (5,1) / (4,2) / (3,3) / (2,4) / (1.6666666666666 ...` | `len=3 / (1,1) / (2.33333333333334,1) / (3.66666666666666,1) / (5,1) / (4,2) / (3,3) / (2,4) / (1.6666666666666 ...` | epsilon |
 | strings.asy:30 | `write(format(1/3));` | `$0.3333$` | `0.3333333333333333` | value |
 | strings.asy:31 | `write(format(10));` | `$10$` | `10` | value |
@@ -607,8 +570,6 @@ Corpus usage: `round` 6, `floor` 50, `ceil` 2, `(int)` 182, `pair=number` 3.
 | transforms.asy:44 | `write(shift(1,2).y);` | `2` | `` | missing |
 | transforms.asy:59 | `write(T == shift(1,2));` | `true` | `{"_tag":"transform","a":2,"b":1,"c":0,"d":4,"e":0,"f":1}` | value |
 | transforms.asy:76 | `write(shift(1,0)*reflect((0,0),(0,1)));` | `(1,0,-1,0,0,1)` | `{"_tag":"transform","a":1,"b":-1,"c":0,"d":0,"e":0,"f":1}` | value |
-| types_casting.asy:3 | `write(z);` | `(3,0)` | `3` | value |
-| types_casting.asy:5 | `write(w);` | `(2.5,0)` | `2.5` | value |
 | types_casting.asy:67 | `write(2^52 + 1);` | `4503599627370497` | `4.5035996273705e+15` | epsilon |
 | types_casting.asy:68 | `write(2^62);` | `4611686018427387904` | `4.61168601842739e+18` | epsilon |
 
@@ -716,23 +677,6 @@ Corpus usage: `struct` 6, `operator` 125, `tension` 3, `::` 4, `curl` 1, `for co
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| control_for_comma.asy:4 | `write(z);` | `15` | `` | missing |
-| control_incr_in_cond.asy:4 | `write(k);` | `5` | `` | missing |
-| control_incr_in_cond.asy:7 | `write(j);` | `5 / one` | `` | missing |
-| control_incr_in_cond.asy:10 | `write(m);` | `1` | `` | missing |
-| func_restargs.asy:3 | `write(sumall(1, 2, 3.5));` | `6.5` | `` | missing |
-| func_restargs.asy:4 | `write(sumall());` | `0` | `` | missing |
-| func_restargs.asy:6 | `write(mx(3));` | `3` | `` | missing |
-| func_restargs.asy:7 | `write(mx(3, 7, 5));` | `7` | `` | missing |
-| func_restargs.asy:8 | `write(max(new real[]{1, 4}));` | `4` | `` | missing |
-| func_var_decl.asy:3 | `write(sq(1.5));` | `2.25` | `` | missing |
-| operator_overload.asy:8 | `write(q.x);` | `4` | `` | missing |
-| operator_overload.asy:9 | `write(q.y);` | `6` | `` | missing |
-| operator_overload.asy:10 | `write((2*q).y);` | `12` | `` | missing |
-| operator_overload.asy:11 | `write(mkv(1,2) == mkv(1,2));` | `true` | `` | missing |
-| operator_overload.asy:12 | `write(mkv(1,2) == mkv(1,3));` | `false` | `` | missing |
-| operator_overload.asy:14 | `write((1,0) ^ (0,1));` | `1` | `` | missing |
-| operator_overload.asy:15 | `write((1,1)*2);` | `(2,2)` | `` | missing |
 | path_syntax_01.asy:15 | `wpath((0,0)..tension atleast 1.5..(1,1));` | `len=1 / (0,0) / (0.222222222222222,0.222222222222222) / (0.777777777777778,0.777777777777778) / (1,1)` | `` | missing |
 | path_syntax_02.asy:15 | `wpath((0,0)..tension 1 and 3 ..(2,1));` | `len=1 / (0,0) / (0.666666666666667,0.333333333333333) / (1.77777777777778,0.888888888888889) / (2,1)` | `` | missing |
 | path_syntax_03.asy:15 | `wpath((0,0)::(1,1)::(2,0));` | `len=2 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `` | missing |
@@ -742,14 +686,6 @@ Corpus usage: `struct` 6, `operator` 125, `tension` 3, `::` 4, `curl` 1, `for co
 | path_syntax_12.asy:15 | `wpath((0,0)..(1,1){curl 1}..(2,0));` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | `` | missing |
 | path_syntax_13.asy:15 | `wpath((0,0)::(1,0)::(2,1)::(3,1));` | `len=3 / (0,0) / (0.308415690042212,-0.182273213578306) / (0.691584309957788,-0.182273213578306) / (1,0) / (1.4 ...` | `` | missing |
 | path_syntax_14.asy:15 | `wpath((0,0){down}::(1,-1)::{up}(2,0));` | `len=2 / (0,0) / (0,-0.552284749830794) / (0.447715250169206,-1) / (1,-1) / (1.55228474983079,-1) / (2,-0.55228 ...` | `` | missing |
-| struct_init.asy:7 | `write(p.x);` | `3` | `` | missing |
-| struct_init.asy:8 | `write(p.y);` | `4` | `` | missing |
-| struct_init.asy:10 | `write(pts[1].y);` | `2` | `` | missing |
-| struct_init.asy:16 | `write(abs(cross(T.B - T.A, T.C - T.A))/2);` | `6` | `` | missing |
-| struct_static.asy:6 | `write(Stat.count);` | `0` | `` | missing |
-| struct_static.asy:7 | `write(Stat.next());` | `1` | `` | missing |
-| struct_static.asy:8 | `write(Stat.next());` | `2` | `` | missing |
-| struct_static.asy:9 | `write(Stat.count);` | `2` | `` | missing |
 
 <a id="hobby"></a>
 ### 17. Path construction: Hobby spline solver, tension, direction specifiers, ---
@@ -884,28 +820,8 @@ Corpus usage: `dir(path,t)` 11.
 | path_ops.asy:25 | `write(dir(tri, 0));` | `(0.584710284663765,-0.811242185175561)` | `(1,0)` | value |
 | path_ops.asy:26 | `write(dir(tri, 3));` | `(0.584710284663765,-0.811242185175561)` | `(-0.316227766016838,-0.948683298050514)` | value |
 
-<a id="structs"></a>
-### 21. Structs
-
-Corpus usage: `struct` 6, `struct method` 4.
-
-**Likely cause.** The struct parser (L949) skips method bodies, so member functions are silently undefined (p.norm() prints nothing and p.scaleby(2) has no effect). Field initializers (`int a = 5; real b = a*2;`) are not applied (d.a prints nothing). A declared-but-unassigned struct variable `Seg s3;` is null in HiTeXeR but asy auto-allocates it (s3 == null is false).
-
-| file:line | source | asy (expected) | HiTeXeR (got) | kind |
-|---|---|---|---|---|
-| struct_fields.asy:12 | `write(s3 == null);` | `false` | `true` | value |
-| struct_fields.asy:24 | `write(d.a);` | `5` | `` | missing |
-| struct_fields.asy:25 | `write(d.b);` | `10` | `` | missing |
-| struct_fields.asy:26 | `write(d.p);` | `(1,2)` | `` | missing |
-| struct_fields.asy:28 | `write(d.b);` | `10` | `` | missing |
-| struct_methods.asy:10 | `write(p.norm());` | `5` | `` | missing |
-| struct_methods.asy:12 | `write(p.x);` | `6` | `3` | value |
-| struct_methods.asy:13 | `write(p.topair());` | `(6,8)` | `` | missing |
-| struct_methods.asy:21 | `write(c.get());` | `2` | `` | missing |
-| struct_methods.asy:24 | `write(c.n);` | `3` | `` | missing |
-
 <a id="transform"></a>
-### 22. transform values: inverse, ==, field access, shiftless
+### 21. transform values: inverse, ==, field access, shiftless
 
 Corpus usage: `inverse` 1, `shiftless` 0.
 
@@ -934,7 +850,7 @@ Corpus usage: `inverse` 1, `shiftless` 0.
 | transforms.asy:81 | `write(inverse(S)*(S*(3,4)));` | `(3,4)` | `0` | value |
 
 <a id="write"></a>
-### 23. write() output format (debug-only; affects nothing drawn)
+### 22. write() output format (debug-only; affects nothing drawn)
 
 Corpus usage: `write(` 5.
 
@@ -958,7 +874,7 @@ Corpus usage: `write(` 5.
 | write_format.asy:18 | `write("s=", new int[]{1,2});` | `s= / 0:	1 / 1:	2` | `s=1 / 2` | value |
 
 <a id="epsilon"></a>
-### 24. Numerical noise (agrees to 1e-9 but not to the last digit)
+### 23. Numerical noise (agrees to 1e-9 but not to the last digit)
 
 **Likely cause.** Mostly two sources: (1) the truncated circle kappa (see circle category) and (2) HiTeXeR computing Sin/Cos/ dir/rotate via Math.cos(x*pi/180), where asy uses exact values at multiples of 30/45/90 degrees (Cos(90) is 0 in asy, 6.1e-17 in HiTeXeR; rotate(45)*(1,0) differs in the last digit). Harmless for drawing, but it breaks exact comparisons like dir(45) == (sqrt(2)/2,sqrt(2)/2) and x == 0 tests in user code.
 
@@ -1043,23 +959,24 @@ Corpus usage: `write(` 5.
 
 | file | checks | value/missing | epsilon | format | HiTeXeR threw |
 |---|---|---|---|---|---|
-| arith_int_real.asy | 93 | 7 | 0 | 2 |  |
+| arith_int_real.asy | 93 | 0 | 0 | 2 |  |
 | arrays.asy | 106 | 34 | 0 | 0 |  |
-| bool_compare.asy | 41 | 7 | 0 | 0 |  |
+| bool_compare.asy | 41 | 1 | 0 | 0 |  |
 | circles_arcs.asy | 66 | 29 | 22 | 0 |  |
-| control_flow.asy | 63 | 3 | 0 | 0 |  |
-| control_for_comma.asy | 1 | 1 | 0 | 0 | yes |
-| control_incr_in_cond.asy | 3 | 3 | 0 | 0 | yes |
-| func_restargs.asy | 5 | 5 | 0 | 0 | yes |
-| func_var_decl.asy | 1 | 1 | 0 | 0 | yes |
+| control_flow.asy | 63 | 0 | 0 | 0 |  |
+| control_for_comma.asy | 1 | 0 | 0 | 0 |  |
+| control_incr_in_cond.asy | 3 | 0 | 0 | 0 |  |
+| func_restargs.asy | 5 | 0 | 0 | 0 |  |
+| func_var_decl.asy | 1 | 0 | 0 | 0 |  |
 | intersections.asy | 59 | 41 | 1 | 0 |  |
+| lang_core.asy | 50 | 0 | 0 | 0 |  |
 | math_funcs.asy | 82 | 10 | 2 | 0 |  |
-| misc_builtins.asy | 73 | 22 | 4 | 0 |  |
+| misc_builtins.asy | 73 | 21 | 4 | 0 |  |
 | mod_cse5.asy | 15 | 15 | 0 | 0 |  |
 | mod_geometry.asy | 35 | 11 | 0 | 0 |  |
 | mod_graph.asy | 39 | 17 | 2 | 0 |  |
 | mod_olympiad.asy | 52 | 19 | 4 | 0 |  |
-| operator_overload.asy | 7 | 7 | 0 | 0 | yes |
+| operator_overload.asy | 7 | 0 | 0 | 0 |  |
 | pairs.asy | 72 | 6 | 4 | 0 |  |
 | path_basic.asy | 100 | 46 | 14 | 0 |  |
 | path_curves.asy | 57 | 26 | 23 | 0 |  |
@@ -1081,12 +998,12 @@ Corpus usage: `write(` 5.
 | path_syntax_14.asy | 1 | 1 | 0 | 0 | yes |
 | pens.asy | 68 | 67 | 0 | 0 |  |
 | strings.asy | 67 | 26 | 3 | 6 |  |
-| struct_fields.asy | 16 | 5 | 0 | 0 |  |
-| struct_init.asy | 4 | 4 | 0 | 0 | yes |
-| struct_methods.asy | 5 | 5 | 0 | 0 |  |
-| struct_static.asy | 4 | 4 | 0 | 0 | yes |
+| struct_fields.asy | 16 | 0 | 0 | 0 |  |
+| struct_init.asy | 4 | 0 | 0 | 0 |  |
+| struct_methods.asy | 5 | 0 | 0 | 0 |  |
+| struct_static.asy | 4 | 0 | 0 | 0 |  |
 | transforms.asy | 64 | 22 | 5 | 0 |  |
-| types_casting.asy | 84 | 2 | 2 | 0 |  |
+| types_casting.asy | 84 | 0 | 2 | 0 |  |
 | write_format.asy | 20 | 12 | 0 | 0 |  |
 
 ## How to run
