@@ -68,6 +68,7 @@ const T = {
   ASSIGN:'=', EQ:'==', NEQ:'!=', LT:'<', GT:'>', LE:'<=', GE:'>=',
   AND:'&&', OR:'||', NOT:'!',
   PLUSASSIGN:'+=', MINUSASSIGN:'-=', STARASSIGN:'*=', SLASHASSIGN:'/=',
+  HASHASSIGN:'#=', PERCENTASSIGN:'%=', CARETASSIGN:'^=',
   QUESTION:'?',
   HASH:'#',
   ARROW:'=>',
@@ -76,6 +77,17 @@ const T = {
   MINUSMINUS_OP:'--_op', // decrement op (distinguished from path join --)
   EOF:'EOF',
 };
+
+// Words that can never start a declaration as its type name (used when an
+// unknown identifier is followed by another identifier: `tree t;`).
+const NON_TYPE_WORDS = new Set([
+  'if','else','for','while','do','return','break','continue','new','null',
+  'true','false','cycle','import','access','from','include','static','typedef',
+  'using','struct','operator','cast','explicit','unravel','private','public',
+  'restricted','this','and','controls','tension','atleast','curl','as',
+  'autounravel','quote',
+]);
+const DECL_MODIFIERS = new Set(['static','private','public','restricted','explicit']);
 
 const KEYWORDS = new Set([
   'if','else','for','while','do','return','break','continue',
@@ -100,8 +112,10 @@ const BASE_TYPE_NAMES = new Set([
   'tremble',
 ]);
 
-// Struct field definitions: Map<structName, Array<{type:string, name:string, init?}>>
-const STRUCT_DEFS = new Map();
+// Evaluation steps (evalNode calls) allowed per render; see _opBudget.
+const OP_BUDGET = 4e7; // ~2x the most any corpus diagram uses (12728: 1.9e7)
+const OP_BUDGET_MSG = 'Evaluation budget exceeded (infinite loop?)';
+
 
 // ============================================================
 // Asymptote numeric-infinity semantics
@@ -115,6 +129,8 @@ const STRUCT_DEFS = new Map();
 // both `inf` and `infinity` (a finite JS number!) are recognized.
 const _ASY_INFINITY = Math.cbrt(Number.MAX_VALUE);
 function _asyFiniteNum(v) { return isFinite(v) && Math.abs(v) < _ASY_INFINITY; }
+// Control-point offset of asy's unitcircle (E..N..W..S..cycle), bit-exact.
+const _ASY_KAPPA = 4/3*(Math.sqrt(2)-1);
 
 // ============================================================
 // hash() builtins (asy 3.11: native hashing of ints, strings, reals, int[])
@@ -662,7 +678,8 @@ function lex(source) {
       // Scientific notation: only consume 'e' if followed by an optional sign
       // and at least one digit. Otherwise leave 'e' to be part of an identifier
       // (e.g. "3exp(...)" means "3 * exp(...)" via implicit multiplication).
-      if (ch() === 'e' || ch() === 'E') {
+      // Only a lowercase e: asy reads `2.5E+0.1*N` as 2.5*E + 0.1*N (E = east).
+      if (ch() === 'e') {
         const off = (peek(1) === '+' || peek(1) === '-') ? 2 : 1;
         const after = peek(off);
         if (after >= '0' && after <= '9') {
@@ -671,7 +688,7 @@ function lex(source) {
           while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
         }
       }
-      tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e')&&!num.includes('E'), line:startLine, col:startCol});
+      tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e'), line:startLine, col:startCol});
       continue;
     }
 
@@ -730,14 +747,14 @@ function lex(source) {
       case '+': advance(); if(ch()==='='){advance();add(T.PLUSASSIGN,'+=');}else if(ch()==='+'){advance();add(T.PLUSPLUS,'++');}else{add(T.PLUS,'+');} break;
       case '-': advance();
         if(ch()==='='){advance();add(T.MINUSASSIGN,'-=');}
-        else if(ch()==='-'){advance();if(ch()==='-'){advance();}add(T.DASHDASH,'--');} // --- is same as --
+        else if(ch()==='-'){advance();if(ch()==='-'){advance();add(T.DASHDASH,'---');}else{add(T.DASHDASH,'--');}} // --- is ..tension atleast infinity..
         else if(ch()==='>'){advance();add(T.ARROW,'=>');}
         else{add(T.MINUS,'-');}
         break;
       case '*': advance(); if(ch()==='='){advance();add(T.STARASSIGN,'*=');}else if(ch()==='*'){advance();add(T.CARET,'^');}else{add(T.STAR,'*');} break;
       case '/': advance(); if(ch()==='='){advance();add(T.SLASHASSIGN,'/=');}else{add(T.SLASH,'/');} break;
-      case '^': advance(); if(ch()==='^'){advance();add(T.HATHAT,'^^');}else{add(T.CARET,'^');} break;
-      case '%': advance(); add(T.PERCENT,'%'); break;
+      case '^': advance(); if(ch()==='^'){advance();add(T.HATHAT,'^^');}else if(ch()==='='){advance();add(T.CARETASSIGN,'^=');}else{add(T.CARET,'^');} break;
+      case '%': advance(); if(ch()==='='){advance();add(T.PERCENTASSIGN,'%=');}else{add(T.PERCENT,'%');} break;
       case '(': advance(); add(T.LPAREN,'('); break;
       case ')': advance(); add(T.RPAREN,')'); break;
       case '{': advance(); add(T.LBRACE,'{'); break;
@@ -746,8 +763,8 @@ function lex(source) {
       case ']': advance(); add(T.RBRACKET,']'); break;
       case ',': advance(); add(T.COMMA,','); break;
       case ';': advance(); add(T.SEMI,';'); break;
-      case ':': advance(); add(T.COLON,':'); break;
-      case '#': advance(); add(T.HASH,'#'); break;
+      case ':': advance(); if(ch()===':'){advance();add(T.DOTDOT,'::');}else{add(T.COLON,':');} break; // :: is ..tension atleast 1..
+      case '#': advance(); if(ch()==='='){advance();add(T.HASHASSIGN,'#=');}else{add(T.HASH,'#');} break;
       case '?': advance(); add(T.QUESTION,'?'); break;
       case '=': advance(); if(ch()==='='){advance();add(T.EQ,'==');}else{add(T.ASSIGN,'=');} break;
       case '!': advance(); if(ch()==='='){advance();add(T.NEQ,'!=');}else{add(T.NOT,'!');} break;
@@ -808,6 +825,7 @@ function PathExpr(nodes,line) { return {type:'PathExpr',nodes,line}; }
 function parse(tokens) {
   let pos = 0;
   const TYPE_NAMES = new Set(BASE_TYPE_NAMES);
+  const STRUCT_NAMES = new Set();
 
   function cur() { return tokens[pos]; }
   function at(type) { return cur().type === type; }
@@ -839,7 +857,18 @@ function parse(tokens) {
   // Check for declaration: type name = ... or type name ; or type name ,
   // Also handles type[][] name and type name[]
   function isDeclaration() {
-    if (!isTypeName()) return false;
+    if (!isTypeName()) {
+      // Unknown type (from a module HiTeXeR doesn't model, e.g. `face[] f;`
+      // or `tree t = ...;`): IDENT ([])* IDENT followed by = ; or , can only
+      // be a declaration.
+      if (!at(T.IDENT) || NON_TYPE_WORDS.has(cur().value)) return false;
+      const off = skipArrayBrackets(1);
+      if (peekType(off) !== T.IDENT || NON_TYPE_WORDS.has(peekVal(off))) return false;
+      const nt = peekType(off + 1);
+      if (nt !== T.ASSIGN && nt !== T.SEMI && nt !== T.COMMA) return false;
+      TYPE_NAMES.add(cur().value);
+      return true;
+    }
     const off = skipArrayBrackets(1);
     if (peekType(off) === T.IDENT) return true;
     return false;
@@ -847,8 +876,10 @@ function parse(tokens) {
 
   // Check for function declaration: type name(...)
   function isFuncDecl() {
-    if (!isTypeName()) return false;
+    // Unknown return types are allowed; the caller confirms a body follows.
+    if (!isTypeName() && (!at(T.IDENT) || NON_TYPE_WORDS.has(cur().value))) return false;
     const off = skipArrayBrackets(1);
+    if (peekType(off) === T.IDENT && NON_TYPE_WORDS.has(peekVal(off))) return false;
     if (peekType(off) === T.IDENT && peekType(off+1) === T.LPAREN) return true;
     return false;
   }
@@ -945,77 +976,68 @@ function parse(tokens) {
       return null;
     }
 
-    // Skip 'static' modifier
-    if (atVal(T.IDENT,'static')) pos++;
+    // Skip declaration modifiers (asy's static/private/public/restricted).
+    while (at(T.IDENT) && DECL_MODIFIERS.has(cur().value) && peekType(1) === T.IDENT) pos++;
 
-    // struct Name { type field; type field = init; ... } — parse and store field definitions
-    // Also allow 'struct Name;' forward declaration.
+    // struct Name { ... } — the body is an ordinary statement list, run for
+    // every new instance (fields, initializers, methods, operator init);
+    // `static` members run once, at the definition. `struct Name;` is a
+    // forward declaration.
     if (atVal(T.IDENT,'struct')) {
+      const ln = cur().line;
       pos++;
       if (at(T.IDENT)) {
         const sname = cur().value;
         pos++;
         TYPE_NAMES.add(sname);
+        STRUCT_NAMES.add(sname);
         if (at(T.LBRACE)) {
           eat(T.LBRACE);
-          const fields = [];
+          const body = [];
           while (!at(T.RBRACE) && !at(T.EOF)) {
-            // Parse field: type name [= init];
-            // Skip methods (type name(...){...}) by checking for LPAREN after name
-            if (isTypeName()) {
-              let fType = eat(T.IDENT).value;
-              while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; fType += '[]'; }
-              if (at(T.IDENT)) {
-                const fName = cur().value;
-                pos++;
-                // Check if this is a method (has parens) — skip it
-                if (at(T.LPAREN)) {
-                  // Skip method: consume params and body
-                  let depth = 1; eat(T.LPAREN);
-                  while (depth > 0 && !at(T.EOF)) {
-                    if (at(T.LPAREN)) depth++;
-                    if (at(T.RPAREN)) depth--;
-                    pos++;
-                  }
-                  if (at(T.LBRACE)) {
-                    depth = 1; eat(T.LBRACE);
-                    while (depth > 0 && !at(T.EOF)) {
-                      if (at(T.LBRACE)) depth++;
-                      if (at(T.RBRACE)) depth--;
-                      pos++;
-                    }
-                  }
-                  tryEat(T.SEMI);
-                } else {
-                  // Array-after-name syntax: type name[]
-                  while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; fType += '[]'; }
-                  // Field with optional initializer
-                  let fInit = null;
-                  if (tryEat(T.ASSIGN)) fInit = parseExpr();
-                  fields.push({type: fType, name: fName, init: fInit});
-                  tryEat(T.SEMI);
-                }
-              } else {
-                // Skip to semicolon on parse error
-                while (!at(T.SEMI) && !at(T.RBRACE) && !at(T.EOF)) pos++;
-                tryEat(T.SEMI);
-              }
-            } else {
-              // Skip unrecognized line
-              while (!at(T.SEMI) && !at(T.RBRACE) && !at(T.EOF)) pos++;
-              tryEat(T.SEMI);
+            let isStatic = false;
+            while (at(T.IDENT) && DECL_MODIFIERS.has(cur().value) && peekType(1) === T.IDENT) {
+              if (cur().value === 'static') isStatic = true;
+              pos++;
             }
+            const st = parseStatement();
+            if (st) { if (isStatic) st._static = true; body.push(st); }
           }
           eat(T.RBRACE);
-          STRUCT_DEFS.set(sname, fields);
+          tryEat(T.SEMI);
+          return {type:'StructDecl', name: sname, body, line: ln};
         }
         tryEat(T.SEMI);
-        return null; // struct definition doesn't produce a runtime node
+        return null;
       }
       // malformed struct — eat to next semicolon to avoid loops
       while (!at(T.SEMI) && !at(T.EOF)) pos++;
       tryEat(T.SEMI);
       return null;
+    }
+
+    // Operator definition: `T operator +(T a, T b) {...}`, `void operator init(...)`.
+    if (at(T.IDENT) && !NON_TYPE_WORDS.has(cur().value)) {
+      const off = skipArrayBrackets(1);
+      if (peekType(off) === T.IDENT && peekVal(off) === 'operator' && peekType(off+1) !== T.LPAREN) {
+        const ln = cur().line;
+        let retType = eat(T.IDENT).value;
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; retType += '[]'; }
+        pos++; // 'operator'
+        let opName;
+        if (at(T.IDENT)) opName = ' ' + eat(T.IDENT).value;          // init, cast, ecast
+        else if (at(T.COLON) && peekType(1) === T.COLON) { pos += 2; opName = '::'; }
+        else if (at(T.LBRACKET)) { opName = ''; while (!at(T.RBRACKET) && !at(T.EOF)) opName += tokens[pos++].value; opName += ']'; pos++; }
+        else opName = tokens[pos++].value;
+        // Operator-valued variable: `blockconnector operator --=blockconnector(pic,t);`
+        if (at(T.ASSIGN)) {
+          pos++;
+          const init = parseExpr();
+          tryEat(T.SEMI);
+          return VarDecl(retType, 'operator' + opName, init, ln);
+        }
+        return parseFuncDeclBody(retType, 'operator' + opName, ln);
+      }
     }
 
     // Function declaration: type name(...) {...}
@@ -1042,6 +1064,17 @@ function parse(tokens) {
           pos = paramStart;
           return parseFuncDeclBody(retType, name, cur().line);
         }
+        // Function-typed variable: `real sq(real x) = new real(real x) {...};`
+        if (at(T.ASSIGN)) {
+          const ln = cur().line;
+          pos++;
+          const init = parseExpr();
+          tryEat(T.SEMI);
+          return VarDecl(retType + '()', name, init, ln);
+        }
+        // Prototype `real f(real);` declares an unset function variable; a
+        // later definition supplies the body, so it is a no-op here.
+        if (at(T.SEMI)) { pos++; return null; }
       }
       pos = saved; // not a func decl, reparse as expression/decl
     }
@@ -1181,17 +1214,23 @@ function parse(tokens) {
       return {type:'ForEachStmt', elemType: 'var', elemName, iter: iterExpr, body, line: ln};
     }
 
+    // init and update may be comma lists: for (i = 0, j = n; ...; ++i, --j)
+    const exprList = () => {
+      const list = [parseExprOrAssign(true)];
+      while (tryEat(T.COMMA)) list.push(parseExprOrAssign(true));
+      return list.length === 1 ? list[0] : {type:'MultiDecl', stmts: list, line: ln};
+    };
     let init = null;
     if (!at(T.SEMI)) {
       if (isDeclaration()) init = parseVarDecl(true);
-      else init = parseExprOrAssign(true);
+      else init = exprList();
     }
     tryEat(T.SEMI);
     let cond = null;
     if (!at(T.SEMI)) cond = parseExpr();
     eat(T.SEMI);
     let update = null;
-    if (!at(T.RPAREN)) update = parseExprOrAssign(true);
+    if (!at(T.RPAREN)) update = exprList();
     eat(T.RPAREN);
     const body = parseStatement();
     return ForStmt(init, cond, update, body, ln);
@@ -1242,15 +1281,27 @@ function parse(tokens) {
     eat(T.LPAREN);
     const params = [];
     while (!at(T.RPAREN) && !at(T.EOF)) {
+      // Rest parameter: `... real[] xs` (also `real a ... real[] b`, no comma).
+      const rest = !!tryEat(T.DOTDOTDOT);
+      if (atVal(T.IDENT, 'explicit')) pos++;
       let pType = 'real';
-      if (isTypeName()) {
+      // A known type, or an unknown one followed by a name (`tree t`,
+      // `face[] fs`) or by nothing (unnamed parameter).
+      const off = skipArrayBrackets(1);
+      if (isTypeName() || (at(T.IDENT) && (peekType(off) === T.IDENT
+          || peekType(off) === T.COMMA || peekType(off) === T.RPAREN) && off > 1)
+          || (at(T.IDENT) && peekType(1) === T.IDENT && !NON_TYPE_WORDS.has(cur().value))) {
         pType = eat(T.IDENT).value;
         // Handle type[], type[][], etc.
         while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; pType += '[]'; }
       }
-      // Function-type parameter: void checker(int,int) or pair f(real)
-      if (at(T.IDENT) && peekType(1) === T.LPAREN) {
-        const pName = eat(T.IDENT).value;
+      let pName;
+      if (at(T.COMMA) || at(T.RPAREN) || at(T.DOTDOTDOT)) {
+        // Unnamed parameter: `new void(frame, transform t) {...}`.
+        pName = '_arg' + params.length;
+      } else if (at(T.IDENT) && peekType(1) === T.LPAREN) {
+        // Function-type parameter: void checker(int,int) or pair f(real)
+        pName = eat(T.IDENT).value;
         // Skip the function signature (params inside parens)
         eat(T.LPAREN);
         let depth = 1;
@@ -1260,17 +1311,17 @@ function parse(tokens) {
           if (depth > 0) pos++;
         }
         eat(T.RPAREN);
-        let pDefault = null;
-        if (tryEat(T.ASSIGN)) pDefault = parseExpr();
-        params.push({type: pType, name: pName, default: pDefault});
       } else {
-        const pName = eat(T.IDENT).value;
+        pName = eat(T.IDENT).value;
         // Handle array-after-name: pair vertices[], int arr[][]
         while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; pType += '[]'; }
-        let pDefault = null;
-        if (tryEat(T.ASSIGN)) pDefault = parseExpr();
-        params.push({type: pType, name: pName, default: pDefault});
       }
+      let pDefault = null;
+      if (tryEat(T.ASSIGN)) pDefault = parseExpr();
+      const prm = {type: pType, name: pName, default: pDefault};
+      if (rest) prm.rest = true;
+      params.push(prm);
+      if (at(T.DOTDOTDOT)) continue;
       if (!tryEat(T.COMMA)) break;
     }
     eat(T.RPAREN);
@@ -1292,7 +1343,8 @@ function parse(tokens) {
   function parseAssignExpr() {
     const ln = cur().line;
     const expr = parseExpr();
-    if (at(T.ASSIGN)||at(T.PLUSASSIGN)||at(T.MINUSASSIGN)||at(T.STARASSIGN)||at(T.SLASHASSIGN)) {
+    if (at(T.ASSIGN)||at(T.PLUSASSIGN)||at(T.MINUSASSIGN)||at(T.STARASSIGN)||at(T.SLASHASSIGN)
+        ||at(T.HASHASSIGN)||at(T.PERCENTASSIGN)||at(T.CARETASSIGN)) {
       const op = eat(cur().type).value;
       const val = parseAssignExpr(); // right-associative: supports a = b = c
       return Assignment(expr, op, val, ln);
@@ -1328,8 +1380,10 @@ function parse(tokens) {
   function infixPrec() {
     const t = cur();
     switch (t.type) {
-      case T.OR: return 2;
-      case T.AND: return 3;
+      // asy (camp.y): || < && < | < & < ==. The lexer gives & and && (| and
+      // ||) one token type each, so split them by spelling.
+      case T.OR: return t.value === '|' ? 3.3 : 2;
+      case T.AND: return t.value === '&' ? 3.6 : 3;
       case T.EQ: case T.NEQ: return 4;
       case T.LT: case T.GT: case T.LE: case T.GE: return 5;
       case T.PLUS: case T.MINUS: return 6;
@@ -1402,6 +1456,10 @@ function parse(tokens) {
     }
     // operator-- / operator.. / operator+ etc. used as callable: operator--(pts)
     if (t.type === T.LPAREN && left.type === 'OperatorLit') {
+      return parseFuncCallNode(left, ln);
+    }
+    // Calling a function value from an array or a call: fs[i](x), f(a)(b).
+    if (t.type === T.LPAREN && (left.type === 'ArrayAccess' || left.type === 'FuncCall')) {
       return parseFuncCallNode(left, ln);
     }
 
@@ -1495,6 +1553,15 @@ function parse(tokens) {
       pos++; eat(T.RBRACE);
       return {x: NumberLit(d.x, saved), y: NumberLit(d.y, saved)};
     }
+    // {curl c}
+    if (atVal(T.IDENT, 'curl') && peekType(1) !== T.RBRACE && peekType(1) !== T.COMMA) {
+      try {
+        pos++;
+        const g = parseExpr();
+        eat(T.RBRACE);
+        return {curl: g};
+      } catch(e) { pos = saved; return null; }
+    }
     try {
       const dx = parseExpr();
       if (at(T.COMMA)) {
@@ -1531,7 +1598,8 @@ function parse(tokens) {
       }
 
       const joinTok = eat(cur().type);
-      const join = joinTok.value === '--' ? '--' : '..';
+      const join = (joinTok.value === '--' || joinTok.value === '---' || joinTok.value === '::')
+        ? joinTok.value : '..';
 
       // Check for 'cycle' (possibly preceded by {dir} — e.g. ..{W}cycle)
       {
@@ -1550,14 +1618,28 @@ function parse(tokens) {
       }
 
       // Check for tension
+      // `..tension [atleast] a [and b]..`: a is the tension leaving the previous
+      // knot, b (default a) the tension arriving at the next one.
       let tension = null;
       if (atVal(T.IDENT, 'tension')) {
         pos++;
-        const tin = parseExpr(7);
-        let tout = tin;
-        if (atVal(T.IDENT, 'and')) { pos++; tout = parseExpr(7); }
-        tension = {in: tin, out: tout};
+        let atleast = false;
+        if (atVal(T.IDENT, 'atleast')) { pos++; atleast = true; }
+        const tout = parseExpr(7);
+        let tin = tout;
+        if (atVal(T.IDENT, 'and')) { pos++; tin = parseExpr(7); }
+        tension = {out: tout, in: tin, atleast};
         eat(T.DOTDOT);
+        const savedT = pos;
+        const dirT = tryParseDir();
+        if (atVal(T.IDENT, 'cycle')) {
+          pos++;
+          nodes[nodes.length-1].join = join;
+          nodes[nodes.length-1].tension = tension;
+          nodes.push({point: Identifier('cycle', cur().line), join: null, isCycle: true, dirIn: dirT || null});
+          break;
+        }
+        pos = savedT;
       }
 
       // Check for explicit controls: ..controls c1 and c2..
@@ -1632,7 +1714,7 @@ function parse(tokens) {
       if (at(T.IDENT)) {
         const nextVal = cur().value;
         // Not a keyword that starts a statement or type declaration
-        const noImplicit = new Set(['if','else','for','while','do','return','break','continue','new','import','access','include','void']);
+        const noImplicit = new Set(['if','else','for','while','do','return','break','continue','new','import','access','include','void','and','tension','controls','atleast']);
         if (!noImplicit.has(nextVal) && !isDeclaration()) {
           // Don't consume the ident - just emit a multiply and let normal parsing handle it
           return BinaryOp(T.STAR, numNode, parseExpr(7), ln);
@@ -1675,6 +1757,10 @@ function parse(tokens) {
       // new picture — creates a fresh picture object
       if (aType === 'picture' && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
         return {type:'NewPicture', line: ln};
+      }
+      // new S — a fresh instance of a user struct
+      if (STRUCT_NAMES.has(aType) && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
+        return {type:'NewStruct', name: aType, line: ln};
       }
       // Anonymous function: new type(params){ body }
       if (at(T.LPAREN)) {
@@ -1772,7 +1858,7 @@ function parse(tokens) {
     // mid-typed `{1,}` direction spec consumes the `}` here and creates an
     // infinite loop in parseExpr (see parsePathExpr/tryParseDir).
     if (t.type === T.RBRACE || t.type === T.RPAREN || t.type === T.RBRACKET) {
-      throw new Error('unexpected ' + (t.value || t.type));
+      throw new Error(`Parse error line ${t.line}: unexpected ${t.value || t.type}`);
     }
     pos++;
     return NullLit(ln);
@@ -1790,30 +1876,6 @@ function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
     fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false, fontFamily:null}, props);
-}
-// Create a struct instance with default values for each field
-// Note: Initializers are NOT evaluated here (would need access to evalNode inside createInterpreter).
-// This is sufficient for simple structs like HitInfo that only use type defaults.
-function createStructInstance(structName) {
-  const fields = STRUCT_DEFS.get(structName);
-  if (!fields) return {}; // Unknown struct
-  const obj = {}; // Plain object, no _tag so generic member access works
-  for (const f of fields) {
-    // Default values by type (initializers ignored for simplicity)
-    switch(f.type) {
-      case 'int': case 'real': obj[f.name] = 0; break;
-      case 'pair': obj[f.name] = makePair(0,0); break;
-      case 'triple': obj[f.name] = makeTriple(0,0,0); break;
-      case 'string': obj[f.name] = ''; break;
-      case 'bool': obj[f.name] = false; break;
-      case 'pen': obj[f.name] = makePen({}); break;
-      case 'path': case 'guide': obj[f.name] = makePath([],false); break;
-      default:
-        if (f.type.endsWith('[]')) obj[f.name] = [];
-        else obj[f.name] = null;
-    }
-  }
-  return obj;
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -1990,11 +2052,14 @@ function applyTransformPair(t, p) {
 }
 
 function applyTransformPath(t, path) {
-  const newSegs = path.segs.map(s => makeSeg(
+  const tseg = s => makeSeg(
     applyTransformPair(t, s.p0), applyTransformPair(t, s.cp1),
     applyTransformPair(t, s.cp2), applyTransformPair(t, s.p3)
-  ));
-  return makePath(newSegs, path.closed);
+  );
+  const out = makePath(path.segs.map(tseg), path.closed);
+  // Compact drawing form of a many-node circle (see makeCirclePath).
+  if (path._drawSegs) out._drawSegs = path._drawSegs.map(tseg);
+  return out;
 }
 
 function composeTransforms(t1, t2) {
@@ -2285,6 +2350,205 @@ function _buildDiskMesh(nLon) {
 // Hobby's Algorithm for smooth '..' paths
 // ============================================================
 
+// Hobby/MetaFont guide solver, following Asymptote's knot.cc (itself a port
+// of MetaFont's make_choices). A guide is a list of knots; each knot carries a
+// spec for the side it is entered from (lt) and left by (rt):
+//   {t:'open'} | {t:'given', a:<radians>} | {t:'curl', g} |
+//   {t:'explicit', c:<control point>} | {t:'endpoint'}
+// plus the tensions of its incoming (tin) and outgoing (tout) segment and
+// whether each is `tension atleast` (ain/aout). `--` is {curl 1}..{curl 1},
+// `::` is ..tension atleast 1.., `---` is ..tension atleast infinity..
+function _mfKnot(z) {
+  return { z, lt: {t:'open'}, rt: {t:'open'}, tin: 1, tout: 1, ain: false, aout: false };
+}
+function _mfReduce(a) { return a > Math.PI ? a - 2*Math.PI : (a < -Math.PI ? a + 2*Math.PI : a); }
+// Turning angle from chord v to chord w (asy: angle(w/v)).
+function _mfTurn(v, w) { return Math.atan2(v.x*w.y - v.y*w.x, v.x*w.x + v.y*w.y); }
+const _MF_C = 1.5*(Math.sqrt(5)-1), _MF_D = 1.5*(3-Math.sqrt(5));
+// Control-point distance over chord length (Hobby's rho/3 divided by tension),
+// bounded by 4; `atleast` keeps the control inside the bounding triangle.
+function _mfVelocity(st, ct, sf, cf, t, atleast) {
+  const den = t * (3 + _MF_C*ct + _MF_D*cf);
+  let r = den !== 0 ? (2 + Math.SQRT2*(st - sf/16)*(sf - st/16)*(ct - cf)) / den : 4;
+  if (r > 4) r = 4;
+  if (atleast) {
+    const sine = st*cf + ct*sf;
+    if ((st >= 0 && sf >= 0 && sine > 0) || (st <= 0 && sf <= 0 && sine < 0)) {
+      const rmax = sf / sine;
+      if (r > rmax) r = rmax;
+    }
+  }
+  return r;
+}
+function _mfCurlRatio(g, ta, tb) {
+  const a = 1/ta, b = 1/tb;
+  const num = (3 - a)*a*a*g + b*b*b, den = a*a*a*g + (3 - b)*b*b;
+  return num >= 4*den ? 4 : num/den;
+}
+function _mfSetControls(K, i, j, w, th, ph, segs, straight) {
+  const zi = K[i].z, zj = K[j].z;
+  if (straight && K[i].tout === 1 && K[j].tin === 1 && !K[i].aout && !K[j].ain) {
+    segs[i] = lineSegment(zi, zj);
+    return;
+  }
+  const st = Math.sin(th), ct = Math.cos(th), sf = Math.sin(ph), cf = Math.cos(ph);
+  const rr = _mfVelocity(st, ct, sf, cf, K[i].tout, K[i].aout);
+  const ss = _mfVelocity(sf, cf, st, ct, K[j].tin, K[j].ain);
+  segs[i] = makeSeg(zi,
+    {x: zi.x + rr*(w.x*ct - w.y*st), y: zi.y + rr*(w.y*ct + w.x*st)},
+    {x: zj.x - ss*(w.x*cf + w.y*sf), y: zj.y - ss*(w.y*cf - w.x*sf)},
+    zj);
+}
+// Solve the open knots between breakpoints p and p+m (MetaFont §§ 283-289).
+function _mfSolveSection(K, p, m, segs) {
+  const n = K.length, idx = [];
+  for (let k = 0; k <= m; k++) idx.push((p + k) % n);
+  const w = [], d = [];
+  for (let k = 0; k < m; k++) {
+    const a = K[idx[k]].z, b = K[idx[k+1]].z;
+    const v = {x: b.x - a.x, y: b.y - a.y};
+    w.push(v); d.push(Math.sqrt(v.x*v.x + v.y*v.y));
+  }
+  const psi = new Array(m + 1).fill(0);
+  for (let k = 1; k < m; k++) psi[k] = _mfTurn(w[k-1], w[k]);
+  const u = new Array(m + 1).fill(0), v = new Array(m + 1).fill(0), theta = new Array(m + 1).fill(0);
+  const s0 = K[idx[0]].rt, sm = K[idx[m]].lt;
+  // A single curl-to-curl segment is the straight line (MetaFont's "simple
+  // case"); the general formula would divide 0 by 0 there.
+  if (m === 1 && s0.t === 'curl' && sm.t === 'curl') {
+    _mfSetControls(K, idx[0], idx[1], w[0], 0, 0, segs, true);
+    return;
+  }
+  if (s0.t === 'given') v[0] = _mfReduce(s0.a - Math.atan2(w[0].y, w[0].x));
+  else { u[0] = _mfCurlRatio(s0.g, K[idx[0]].tout, K[idx[1]].tin); v[0] = -u[0]*psi[1]; }
+  for (let k = 1; k < m; k++) {
+    const aP = 1/K[idx[k-1]].tout, bK = 1/K[idx[k]].tin, aK = 1/K[idx[k]].tout, bN = 1/K[idx[k+1]].tin;
+    const A = aP/(bK*bK*d[k-1]), B = (3 - aP)/(bK*bK*d[k-1]);
+    const C = (3 - bN)/(aK*aK*d[k]), D = bN/(aK*aK*d[k]);
+    const den = B + C - A*u[k-1];
+    u[k] = D/den;
+    v[k] = (-B*psi[k] - D*psi[k+1] - A*v[k-1])/den;
+  }
+  if (sm.t === 'given') theta[m] = _mfReduce(sm.a - Math.atan2(w[m-1].y, w[m-1].x));
+  else {
+    const ff = _mfCurlRatio(sm.g, K[idx[m]].tin, K[idx[m-1]].tout);
+    theta[m] = -ff*v[m-1]/(1 - ff*u[m-1]);
+  }
+  for (let k = m - 1; k >= 0; k--) theta[k] = v[k] - u[k]*theta[k+1];
+  for (let k = 0; k < m; k++)
+    _mfSetControls(K, idx[k], idx[k+1], w[k], theta[k], -psi[k+1] - theta[k+1], segs, false);
+}
+// A cycle with no breakpoint: cyclic tridiagonal system, solved with theta_0
+// carried as a parameter (MetaFont's ww[] column).
+function _mfSolveCycle(K, segs) {
+  const n = K.length, w = [], d = [];
+  for (let k = 0; k < n; k++) {
+    const a = K[k].z, b = K[(k+1) % n].z;
+    const v = {x: b.x - a.x, y: b.y - a.y};
+    w.push(v); d.push(Math.sqrt(v.x*v.x + v.y*v.y));
+  }
+  const psi = [];
+  for (let k = 0; k < n; k++) psi.push(_mfTurn(w[(k-1+n) % n], w[k]));
+  const coef = (k) => {
+    const km = (k-1+n) % n, kp = (k+1) % n;
+    const aP = 1/K[km].tout, bK = 1/K[k].tin, aK = 1/K[k].tout, bN = 1/K[kp].tin;
+    return { A: aP/(bK*bK*d[km]), B: (3 - aP)/(bK*bK*d[km]), C: (3 - bN)/(aK*aK*d[k]), D: bN/(aK*aK*d[k]) };
+  };
+  const u = new Array(n).fill(0), v = new Array(n).fill(0), ww = new Array(n).fill(0);
+  ww[0] = 1;
+  for (let k = 1; k < n; k++) {
+    const c = coef(k);
+    const den = c.B + c.C - c.A*u[k-1];
+    u[k] = c.D/den;
+    v[k] = (-c.B*psi[k] - c.D*psi[(k+1) % n] - c.A*v[k-1])/den;
+    ww[k] = -c.A*ww[k-1]/den;
+  }
+  // theta_k = P_k + Q_k*theta_0 (theta_n is theta_0).
+  const P = new Array(n + 1).fill(0), Q = new Array(n + 1).fill(0);
+  Q[n] = 1;
+  for (let k = n - 1; k >= 1; k--) { P[k] = v[k] - u[k]*P[k+1]; Q[k] = ww[k] - u[k]*Q[k+1]; }
+  const c0 = coef(0);
+  const t0 = (-c0.B*psi[0] - c0.D*psi[1 % n] - c0.A*P[n-1] - c0.D*P[1 % n])
+    / (c0.A*Q[n-1] + c0.B + c0.C + c0.D*Q[1 % n]);
+  const theta = new Array(n + 1);
+  theta[0] = theta[n] = t0;
+  for (let k = 1; k < n; k++) theta[k] = P[k] + Q[k]*t0;
+  for (let k = 0; k < n; k++)
+    _mfSetControls(K, k, (k+1) % n, w[k], theta[k], -psi[(k+1) % n] - theta[k+1], segs, false);
+}
+function _mfSolve(K, cyclic) {
+  const n = K.length;
+  if (n < 1 || (n < 2 && !cyclic)) return [];
+  const nseg = cyclic ? n : n - 1;
+  const nx = (i) => (i + 1) % n;
+  if (!cyclic) {
+    K[0].lt = {t:'endpoint'};
+    K[n-1].rt = {t:'endpoint'};
+    if (K[0].rt.t === 'open') K[0].rt = {t:'curl', g:1};
+    if (K[n-1].lt.t === 'open') K[n-1].lt = {t:'curl', g:1};
+  }
+  // An open side next to explicit controls takes its direction from them.
+  for (let i = 0; i < nseg; i++) {
+    const j = nx(i);
+    if (K[i].rt.t !== 'explicit') continue;
+    if (K[i].lt.t === 'open') {
+      const dx = K[i].rt.c.x - K[i].z.x, dy = K[i].rt.c.y - K[i].z.y;
+      K[i].lt = (dx || dy) ? {t:'given', a: Math.atan2(dy, dx)} : {t:'curl', g:1};
+    }
+    if (K[j].rt.t === 'open') {
+      const dx = K[j].z.x - K[j].lt.c.x, dy = K[j].z.y - K[j].lt.c.y;
+      K[j].rt = (dx || dy) ? {t:'given', a: Math.atan2(dy, dx)} : {t:'curl', g:1};
+    }
+  }
+  // A direction or curl on one side of a knot applies to both sides.
+  for (const k of K) {
+    if (k.lt.t === 'open' && (k.rt.t === 'given' || k.rt.t === 'curl')) k.lt = k.rt;
+    else if (k.rt.t === 'open' && (k.lt.t === 'given' || k.lt.t === 'curl')) k.rt = k.lt;
+  }
+  // Coincident consecutive knots are joined by a degenerate explicit segment,
+  // and their open sides get curl 1 (splits the spline there).
+  for (let i = 0; i < nseg; i++) {
+    const j = nx(i);
+    if (K[i].rt.t !== 'explicit' && K[i].z.x === K[j].z.x && K[i].z.y === K[j].z.y) {
+      K[i].rt = {t:'explicit', c: K[i].z};
+      K[j].lt = {t:'explicit', c: K[i].z};
+      if (K[i].lt.t === 'open') K[i].lt = {t:'curl', g:1};
+      if (K[j].rt.t === 'open') K[j].rt = {t:'curl', g:1};
+    }
+  }
+  const segs = new Array(nseg);
+  const isBreak = (k) => K[k].lt.t !== 'open' || K[k].rt.t !== 'open';
+  let h = -1;
+  for (let k = 0; k < n; k++) if (isBreak(k)) { h = k; break; }
+  if (h < 0) { _mfSolveCycle(K, segs); return segs; }
+  let p = h, done = 0;
+  while (done < nseg) {
+    const rt = K[p].rt;
+    if (rt.t === 'endpoint') break;
+    if (rt.t === 'explicit') {
+      segs[p] = makeSeg(K[p].z, rt.c, K[nx(p)].lt.c, K[nx(p)].z);
+      p = nx(p); done++;
+      continue;
+    }
+    let q = nx(p), m = 1;
+    while (!isBreak(q)) { q = nx(q); m++; }
+    _mfSolveSection(K, p, m, segs);
+    p = q; done += m;
+  }
+  return segs;
+}
+
+// Apply the join from knot i to knot j: explicit controls, '--', '..', '::'
+// or '---', with an optional `tension` {out, in, atleast}.
+function _mfJoin(K, i, j, kind, ten, cp1, cp2) {
+  if (cp1 || cp2) { K[i].rt = {t:'explicit', c: cp1 || cp2}; K[j].lt = {t:'explicit', c: cp2 || cp1}; return; }
+  // `--` is {curl 1}..{curl 1}; it overrides a {dir} written on its ends.
+  if (kind === '--') { K[i].rt = {t:'curl', g:1}; K[j].lt = {t:'curl', g:1}; return; }
+  if (kind === '---') { K[i].tout = K[j].tin = _ASY_INFINITY; K[i].aout = K[j].ain = true; }
+  else if (kind === '::') { K[i].aout = K[j].ain = true; }
+  if (ten) { K[i].tout = ten.out; K[j].tin = ten.in; K[i].aout = K[j].ain = ten.atleast; }
+}
+
 function hobbySpline(knots, closed, directions) {
   const n = knots.length;
   if (n < 2) return [];
@@ -2294,200 +2558,16 @@ function hobbySpline(knots, closed, directions) {
   if (knots.some(k => k && k._tag === 'triple')) {
     return hobbySpline3(knots, closed, directions);
   }
-  if (n === 2) {
-    // Simple case: single segment with default smooth tangents
-    const dOut = directions && directions[0] ? directions[0].dirOut : null;
-    const dIn = directions && directions[1] ? directions[1].dirIn : null;
-    return [hobbyTwoPointSegment(knots[0], knots[1], dOut, dIn)];
-  }
-
-  // Decouple at interior cusp knots — a knot that specifies BOTH an in- and an
-  // out-direction that differ. Asymptote treats this as a corner: the segments
-  // on either side are independent splines. Solving across it with one
-  // tridiagonal system mishandles the arrival/departure tangents (it reversed
-  // the headlight crescent in 12956:
-  //   (794,168){1,.2}..{-1,0}(785,228){1,-5}..{0,-1}(794,168) ).
-  // Each split side is solved independently (recursion handles multiple cusps),
-  // routing 2-knot sides through the verified hobbyTwoPointSegment. Restricted
-  // to open splines; closed seams are handled elsewhere.
-  if (!closed && directions) {
-    for (let i = 1; i < n - 1; i++) {
-      const dir = directions[i];
-      if (dir && dir.dirIn != null && dir.dirOut != null && dir.dirIn !== dir.dirOut) {
-        // The cusp knot is a corner. On the LEFT spline it is the TERMINAL knot,
-        // where only its incoming direction (dirIn) applies; on the RIGHT spline
-        // it is the INITIAL knot, where only its outgoing direction (dirOut)
-        // applies. Pass each side just the relevant single-direction constraint
-        // so the verified dirIn-only / dirOut-only endpoint handling is used.
-        // Carrying BOTH directions into a sub-spline left the terminal knot with
-        // dirOut set, which routed through the phi-override branch and REVERSED
-        // the arrival tangent (12956 roof: (500,468)..{1,-1.3}(597,367) pointed
-        // up-left instead of down-right, flattening the roof and kinking the
-        // windshield/door join).
-        const leftDirs = directions.slice(0, i + 1);
-        leftDirs[i] = { dirIn: dir.dirIn };
-        const rightDirs = directions.slice(i);
-        rightDirs[0] = { dirOut: dir.dirOut };
-        const left = hobbySpline(knots.slice(0, i + 1), false, leftDirs);
-        const right = hobbySpline(knots.slice(i), false, rightDirs);
-        return left.concat(right);
-      }
-    }
-  }
-
-  // Compute chord distances and turning angles
-  const m = closed ? n : n - 1;
-  const d = []; // chord lengths
-  const delta = []; // chord angles
-  for (let i = 0; i < m; i++) {
-    const j = (i + 1) % n;
-    const dx = knots[j].x - knots[i].x;
-    const dy = knots[j].y - knots[i].y;
-    d.push(Math.sqrt(dx*dx + dy*dy));
-    delta.push(Math.atan2(dy, dx));
-  }
-
-  // Turning angles psi
-  const psi = new Array(n).fill(0);
-  for (let i = 1; i < (closed ? n : n-1); i++) {
-    const prev = (i - 1 + m) % m;
-    psi[i] = delta[i % m] - delta[prev];
-    // Normalize to (-pi, pi] — matching Asymptote's psi = angle(w[i]/w[i-1]),
-    // i.e. atan2 of the chord ratio, which returns +pi (not -pi) for an EXACT
-    // 180-degree chord reversal. Using -pi there mirror-flips the resulting
-    // loop: 06929's drawCWLoop self-loop `(p)..(p+r*dir(90))..(p)` came out
-    // reflected across its axis, putting the arrowhead on the wrong side
-    // (merged into the incoming straight edge instead of landing distinctly on
-    // the far side of the node). The `<=` pushes exact -pi up to +pi.
-    while (psi[i] > Math.PI) psi[i] -= 2*Math.PI;
-    while (psi[i] <= -Math.PI) psi[i] += 2*Math.PI;
-  }
-  if (closed) {
-    psi[0] = delta[0] - delta[m-1];
-    while (psi[0] > Math.PI) psi[0] -= 2*Math.PI;
-    while (psi[0] <= -Math.PI) psi[0] += 2*Math.PI;
-  }
-
-  // Build clamped theta array from direction constraints.
-  // For knot i, if a direction is specified, we compute the desired theta[i]
-  // (offset of tangent from chord) and mark it as clamped.
-  // dirOut of knot i constrains the outgoing tangent at knot i → theta[i].
-  // dirIn of knot i constrains the incoming tangent at knot i → phi at knot i-1 side,
-  //   but it is easier to express as theta[i] relative to the incoming chord.
-  // We combine: if dirOut is set, that directly gives theta. If only dirIn is set and
-  // dirOut is not, we convert it to an equivalent theta constraint.
-  const clampedTheta = new Array(n).fill(null);
+  const K = knots.map(_mfKnot);
   if (directions) {
     for (let i = 0; i < n; i++) {
-      const dir = directions[i];
-      if (!dir) continue;
-      if (dir.dirOut != null) {
-        // theta[i] = dirOut - delta[i] (outgoing chord angle at i)
-        let th = dir.dirOut - delta[i % m];
-        while (th > Math.PI) th -= 2*Math.PI;
-        while (th < -Math.PI) th += 2*Math.PI;
-        clampedTheta[i] = th;
-      } else if (dir.dirIn != null && !closed) {
-        // For an interior knot with only dirIn: the incoming tangent at knot i
-        // should be dir.dirIn. The incoming tangent angle = delta[i-1] - phi[i-1].
-        // Using the relation phi[i-1] = -psi[i] - theta[i], we get:
-        // incoming angle = delta[i-1] + psi[i] + theta[i]
-        // Setting this equal to dirIn gives theta[i] = dirIn - delta[i-1] - psi[i].
-        // But it's simpler to just treat dirIn as constraining the outgoing direction
-        // at knot i to the same angle (smooth through the knot).
-        if (i > 0 && i < n-1) {
-          let th = dir.dirIn - delta[i % m];
-          while (th > Math.PI) th -= 2*Math.PI;
-          while (th < -Math.PI) th += 2*Math.PI;
-          clampedTheta[i] = th;
-        } else if (i === n-1) {
-          // Last knot: dirIn constrains the incoming tangent at the endpoint.
-          // theta[n-1] relates to the incoming side: incoming angle = delta[n-2] + psi[n-1] + theta[n-1]
-          // We want incoming angle + PI = dirIn (direction of arrival), so
-          // incoming angle = dirIn + PI (since dirIn points inward).
-          // Actually: the incoming tangent at knot n-1 points from cp2 to p3,
-          // i.e. angle = delta[m-1] - phi[m-1] = delta[m-1] + psi[n-1] + theta[n-1].
-          // We want it to equal dirIn, so:
-          // theta[n-1] = dirIn - delta[m-1] - psi[n-1]
-          let th = dir.dirIn - delta[m-1] - psi[n-1];
-          while (th > Math.PI) th -= 2*Math.PI;
-          while (th < -Math.PI) th += 2*Math.PI;
-          clampedTheta[n-1] = th;
-        }
-      }
+      const dd = directions[i];
+      if (!dd) continue;
+      if (dd.dirIn != null) K[i].lt = {t:'given', a: dd.dirIn};
+      if (dd.dirOut != null) K[i].rt = {t:'given', a: dd.dirOut};
     }
   }
-
-  // Solve for theta (tangent angle offsets at each knot)
-  const theta = new Array(n).fill(0);
-  const phi = new Array(n).fill(0);
-
-  if (closed) {
-    // Cyclic tridiagonal system
-    solveCyclicTridiag(n, d, psi, theta, clampedTheta);
-  } else {
-    // Open: natural end conditions (theta[0]=0 approx, theta[n-1]=0)
-    solveOpenTridiag(n, d, psi, theta, clampedTheta);
-  }
-
-  // Override phi for knots where dirIn is specified (incoming tangent constraint)
-  // This handles the case where dirIn constrains the incoming control point
-  // independently from the outgoing direction.
-  if (directions) {
-    for (let i = 0; i < m; i++) {
-      const j = (i+1) % n;
-      phi[i] = -psi[j] - theta[j];
-      // If next knot has dirIn, override phi to match
-      const dirJ = directions[j];
-      if (dirJ && dirJ.dirIn != null && dirJ.dirOut != null && dirJ.dirIn !== dirJ.dirOut) {
-        // Both dirIn and dirOut specified and different: phi controls incoming angle
-        // phi[i] = delta[i] - dirIn + PI, normalized
-        let p = delta[i] - dirJ.dirIn + Math.PI;
-        while (p > Math.PI) p -= 2*Math.PI;
-        while (p < -Math.PI) p += 2*Math.PI;
-        phi[i] = p;
-      }
-    }
-  } else {
-    // Compute phi from theta and psi (original code)
-    for (let i = 0; i < m; i++) {
-      const j = (i+1) % n;
-      phi[i] = -psi[j] - theta[j];
-    }
-  }
-
-  // Generate Bezier control points
-  const segs = [];
-  for (let i = 0; i < m; i++) {
-    const j = (i+1) % n;
-    const alpha = hobbyRho(theta[i], phi[i]) * d[i] / 3;
-    const beta = hobbyRho(phi[i], theta[i]) * d[i] / 3;
-
-    const angle_out = delta[i] + theta[i];
-    const angle_in = delta[i] - phi[i] + Math.PI;
-
-    const cp1 = {
-      x: knots[i].x + alpha * Math.cos(angle_out),
-      y: knots[i].y + alpha * Math.sin(angle_out)
-    };
-    const cp2 = {
-      x: knots[j].x + beta * Math.cos(angle_in),
-      y: knots[j].y + beta * Math.sin(angle_in)
-    };
-    segs.push(makeSeg(knots[i], cp1, cp2, knots[j]));
-  }
-  return segs;
-}
-
-// Hobby's velocity function rho(theta, phi)
-function hobbyRho(theta, phi) {
-  const st = Math.sin(theta), ct = Math.cos(theta);
-  const sp = Math.sin(phi), cp = Math.cos(phi);
-  const num = 2 + Math.SQRT2 * (st - sp/16) * (sp - st/16) * (ct - cp);
-  const c3 = 0.5 * (Math.sqrt(5) - 1);
-  const d3 = 0.5 * (3 - Math.sqrt(5));
-  const den = 1 + c3 * ct + d3 * cp;
-  return Math.max(0.1, num / den);
+  return _mfSolve(K, closed);
 }
 
 function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
@@ -2497,46 +2577,7 @@ function hobbyTwoPointSegment(a, b, dirOut, dirIn) {
     // 3D direction specs are not expressible as the 2D angles passed here.
     return lineSegment(a, b);
   }
-  // Default smooth tangents for two-point spline
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const d = Math.sqrt(dx*dx + dy*dy);
-  const chordAngle = Math.atan2(dy, dx);
-  // When exactly one tangent is specified, the FREE end uses Hobby's default
-  // curl=1 boundary condition. For a single segment this reflects the specified
-  // tangent across the chord — it is NOT the chord direction itself. Using the
-  // chord angle for the free end underbulges the curve (collapses domes toward
-  // the chord; e.g. 12956's window tops). Verified against Asymptote 3.05:
-  //   (347,481){1,0}..(567,343)  ->  controls (440.73,481) and (526.20,427.39).
-  let angleA, angleB;
-  if (dirOut != null && dirIn != null) {
-    angleA = dirOut; angleB = dirIn;
-  } else if (dirOut != null) {
-    angleA = dirOut; angleB = 2*chordAngle - dirOut;
-  } else if (dirIn != null) {
-    angleB = dirIn; angleA = 2*chordAngle - dirIn;
-  } else {
-    angleA = chordAngle; angleB = chordAngle;
-  }
-  // Compute theta/phi offsets from chord for Hobby's rho function.
-  // Hobby's convention: forward tangent at A makes angle (chord+theta) with x-axis,
-  // forward tangent at B makes angle (chord-phi). Hence:
-  //   theta = angleA - chord
-  //   phi   = chord - angleB
-  // (No additional PI: cp2 = b - beta*(cos angleB, sin angleB) already encodes the
-  // direction reversal; phi only feeds rho, which is sensitive to the sign.)
-  const thetaA = angleA - chordAngle;
-  const phiB = chordAngle - angleB;
-  // Normalize to [-pi, pi]
-  const normAngle = v => { while (v > Math.PI) v -= 2*Math.PI; while (v < -Math.PI) v += 2*Math.PI; return v; };
-  const theta = normAngle(thetaA);
-  const phi = normAngle(phiB);
-  const alpha = hobbyRho(theta, phi) * d / 3;
-  const beta = hobbyRho(phi, theta) * d / 3;
-  return makeSeg(a,
-    {x: a.x + alpha*Math.cos(angleA), y: a.y + alpha*Math.sin(angleA)},
-    {x: b.x - beta*Math.cos(angleB), y: b.y - beta*Math.sin(angleB)},
-    b
-  );
+  return hobbySpline([a, b], false, [{dirOut}, {dirIn}])[0];
 }
 
 // --- 3D vector helpers for plane-reduced Hobby splines ---
@@ -2610,100 +2651,6 @@ function hobbySpline3(knots, closed, directions) {
     segs.push(makeSeg(knots[i % n], to3d(s.cp1), to3d(s.cp2), knots[(i+1) % n]));
   }
   return segs;
-}
-
-function solveOpenTridiag(n, d, psi, theta, clampedTheta) {
-  if (n <= 2) { theta[0] = 0; if(n>1) theta[1] = 0; return; }
-  const m = n - 1;
-  // Build tridiagonal: A[i]*theta[i-1] + B[i]*theta[i] + C[i]*theta[i+1] = D[i]
-  const A = new Array(n).fill(0), B = new Array(n).fill(0);
-  const C = new Array(n).fill(0), D = new Array(n).fill(0);
-
-  // Natural end conditions with curl=1 (Hobby's default)
-  B[0] = 1; C[0] = 1; D[0] = -psi[1];
-  for (let i = 1; i < m; i++) {
-    const di_1 = d[i-1] || 1, di = d[i] || 1;
-    A[i] = 1/di_1;
-    B[i] = (2*di_1 + 2*di) / (di_1 * di);
-    C[i] = 1/di;
-    D[i] = -(2*psi[i]*di + psi[i+1]*di_1) / (di_1 * di);
-  }
-  B[m] = 1; A[m] = 1; D[m] = 0;
-
-  // Apply clamped theta constraints: replace row with identity equation
-  if (clampedTheta) {
-    for (let i = 0; i < n; i++) {
-      if (clampedTheta[i] != null) {
-        A[i] = 0; B[i] = 1; C[i] = 0; D[i] = clampedTheta[i];
-      }
-    }
-  }
-
-  // Thomas algorithm
-  for (let i = 1; i < n; i++) {
-    const w = A[i] / B[i-1];
-    B[i] -= w * C[i-1];
-    D[i] -= w * D[i-1];
-  }
-  theta[n-1] = D[n-1] / B[n-1];
-  for (let i = n-2; i >= 0; i--) {
-    theta[i] = (D[i] - C[i]*theta[i+1]) / B[i];
-  }
-}
-
-function solveCyclicTridiag(n, d, psi, theta, clampedTheta) {
-  // Use Sherman-Morrison trick for cyclic tridiagonal
-  if (n < 3) { theta.fill(0); return; }
-  const A = new Array(n).fill(0), B = new Array(n).fill(0);
-  const C = new Array(n).fill(0), D = new Array(n).fill(0);
-
-  for (let i = 0; i < n; i++) {
-    const di = d[i] || 1;
-    const di_1 = d[(i-1+n)%n] || 1;
-    A[i] = 1/di_1;
-    B[i] = (2*di_1 + 2*di) / (di_1 * di);
-    C[i] = 1/di;
-    D[i] = -(2*psi[i]*di + psi[(i+1)%n]*di_1) / (di_1 * di);
-  }
-
-  // Apply clamped theta constraints: replace row with identity equation
-  if (clampedTheta) {
-    for (let i = 0; i < n; i++) {
-      if (clampedTheta[i] != null) {
-        A[i] = 0; B[i] = 1; C[i] = 0; D[i] = clampedTheta[i];
-      }
-    }
-  }
-
-  // Sherman-Morrison: modify first eq to break cycle
-  const gamma = -B[0];
-  B[0] -= gamma;
-  B[n-1] -= A[0]*C[n-1]/gamma;
-
-  // Solve two systems with Thomas
-  const y = new Array(n).fill(0), q = new Array(n).fill(0);
-  const u = new Array(n).fill(0);
-  u[0] = gamma; u[n-1] = C[n-1];
-
-  // Forward elimination for both
-  const B2 = B.slice();
-  const D2 = D.slice();
-  const u2 = u.slice();
-  for (let i = 1; i < n; i++) {
-    const w = A[i] / B2[i-1];
-    B2[i] -= w * C[i-1];
-    D2[i] -= w * D2[i-1];
-    u2[i] -= w * u2[i-1];
-  }
-  y[n-1] = D2[n-1] / B2[n-1];
-  q[n-1] = u2[n-1] / B2[n-1];
-  for (let i = n-2; i >= 0; i--) {
-    y[i] = (D2[i] - C[i]*y[i+1]) / B2[i];
-    q[i] = (u2[i] - C[i]*q[i+1]) / B2[i];
-  }
-
-  const factor = (y[0] + A[0]*y[n-1]/gamma) / (1 + q[0] + A[0]*q[n-1]/gamma);
-  for (let i = 0; i < n; i++) theta[i] = y[i] - factor*q[i];
 }
 
 // ============================================================
@@ -2830,7 +2777,10 @@ function createInterpreter() {
   let _defaultpenLwSet = false; // whether defaultpen() explicitly set a linewidth
   let _legendEntries = [];    // collected {text, pen} entries for legend()
   const patternRegistry = {}; // name -> {_tag:'pattern',...} from patterns module
-  let iterationLimit = 100000;
+  // One deterministic budget of evaluation steps per render. Real asy has no
+  // cap and the old per-loop cap (100000 iterations) broke legit long loops,
+  // but a runaway loop or recursion must still stop, within seconds.
+  let _opBudget = OP_BUDGET;
   let _imageCache = {};    // pre-fetched graphic() image data
   // Registry mapping sentinel ids -> graphic objects, populated when a graphic
   // value is string-concatenated (e.g. "\reflectbox{" + graphic(...) + "}").
@@ -3208,9 +3158,12 @@ function createInterpreter() {
     // scope, stash the callable here so call resolution can still find it.
     this.shadowedFuncs = null;
   }
+  // Struct instances and a few builtins make their own scope-like objects
+  // ({get, set, has, ...}); a chain that reaches one hands the lookup to it.
   Env.prototype.get = function (name) {
     let e = this;
     do {
+      if (!(e instanceof Env)) return e.get(name);
       const v = e.vars.get(name);
       if (v !== undefined) return v;
       if (e.vars.has(name)) return undefined;
@@ -3220,6 +3173,7 @@ function createInterpreter() {
   };
   Env.prototype.getFunc = function (name) {
     for (let e = this; e; e = e.parent) {
+      if (!(e instanceof Env)) return e.getFunc ? e.getFunc(name) : undefined;
       const v = e.vars.get(name);
       if (v !== undefined && _isCallableBinding(v)) return v;
       if (e.shadowedFuncs && e.shadowedFuncs.has(name)) return e.shadowedFuncs.get(name);
@@ -3237,7 +3191,10 @@ function createInterpreter() {
     this.vars.set(name, val);
   };
   Env.prototype.has = function (name) {
-    for (let e = this; e; e = e.parent) if (e.vars.has(name)) return true;
+    for (let e = this; e; e = e.parent) {
+      if (!(e instanceof Env)) return !!e.has(name);
+      if (e.vars.has(name)) return true;
+    }
     return false;
   };
   // Assign to the nearest scope that binds `name`; an unbound name lands in
@@ -3263,6 +3220,82 @@ function createInterpreter() {
     }
   };
   function createEnv(parent) { return new Env(parent); }
+
+  // Scope backed by a struct instance (or a struct's static members): names
+  // declared in the struct body live on `obj`, so methods see fields as bare
+  // names and `obj.f` sees what the body declared. `this` is the instance.
+  function createObjEnv(obj, parent) {
+    const own = n => Object.prototype.hasOwnProperty.call(obj, n);
+    return {
+      parent, _isObjEnv: true,
+      hasOwn: own,
+      get(n) {
+        if (own(n)) return obj[n];
+        if (n === 'this' && obj._structDef) return obj;
+        return parent.get(n);
+      },
+      getFunc(n) {
+        if (own(n) && _isCallableBinding(obj[n])) return obj[n];
+        return parent.getFunc ? parent.getFunc(n) : undefined;
+      },
+      set(n, v) { obj[n] = v; },
+      has(n) { return own(n) || parent.has(n); },
+      update(n, v) { if (own(n)) { obj[n] = v; return true; } return parent.update(n, v); },
+    };
+  }
+
+  // User structs: name -> {_tag:'structtype', name, body, statics, staticEnv}.
+  // Kept apart from the variable scope so a struct can't shadow a builtin of
+  // the same name.
+  const structTypes = new Map();
+  const _instantiating = new Set();
+  function evalStructDecl(node, env) {
+    const def = {_tag:'structtype', name: node.name, body: node.body, statics: {}};
+    def.staticEnv = createObjEnv(def.statics, env);
+    structTypes.set(node.name, def);
+    for (const st of node.body) if (st._static) evalNode(st, def.staticEnv);
+    return null;
+  }
+  function instantiateStruct(def) {
+    const obj = {};
+    Object.defineProperty(obj, '_structDef', {value: def, enumerable: false});
+    const objEnv = createObjEnv(obj, def.staticEnv);
+    _instantiating.add(def.name);
+    try {
+      for (const st of def.body) if (!st._static) evalNode(st, objEnv);
+    } finally { _instantiating.delete(def.name); }
+    return obj;
+  }
+  // Member lookup on a struct instance falls back to the struct's statics.
+  function structMember(obj, m) {
+    if (obj._tag === 'structtype') return obj.statics[m];
+    if (Object.prototype.hasOwnProperty.call(obj, m)) return obj[m];
+    return obj._structDef.statics[m];
+  }
+  const isStructVal = v => v && typeof v === 'object' && (v._structDef || v._tag === 'structtype');
+
+  // User-defined operators (`V operator +(V a, V b)`), by name ('operator+').
+  // Tried before the builtin semantics, but only when every operand matches
+  // the declared parameter type exactly.
+  const _userOps = new Map();
+  const _NO_USER_OP = {};
+  function _userOpMatch(val, type) {
+    if (structTypes.has(type)) return !!(val && val._structDef && val._structDef.name === type);
+    if (!BASE_TYPE_NAMES.has(type) && !type.endsWith('[]')) return false;
+    return argMatchesParamType(val, type);
+  }
+  function tryUserOp(names, args) {
+    for (const nm of names) {
+      const alts = _userOps.get(nm);
+      if (!alts) continue;
+      for (let i = alts.length - 1; i >= 0; i--) {
+        const ps = alts[i].params;
+        if (ps.length !== args.length) continue;
+        if (args.every((a, k) => _userOpMatch(a, ps[k].type))) return callUserFuncValues(alts[i], args);
+      }
+    }
+    return _NO_USER_OP;
+  }
 
   const globalEnv = createEnv(null);
   // _builtinFuncs: preserves built-in functions so that user variable
@@ -3293,6 +3326,7 @@ function createInterpreter() {
 
   function evalNode(node, env) {
     if (!node) return null;
+    if (--_opBudget < 0) throw new Error(OP_BUDGET_MSG);
     switch(node.type) {
       case 'Program': return evalProgram(node, env);
       case 'Block': return evalBlock(node, env);
@@ -3306,6 +3340,8 @@ function createInterpreter() {
       case 'TripleLit': return makeTriple(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)), toNumber(evalNode(node.z,env)));
       case 'ArrayExpr': return node.elements.map(e => evalNode(e,env));
       case 'NewPicture': return {_tag:'picture', commands:[]};
+      case 'NewStruct': { const d = structTypes.get(node.name); return d ? instantiateStruct(d) : {}; }
+      case 'StructDecl': return evalStructDecl(node, env);
       case 'NewArray': {
         const dims = node.dims.map(d => d ? Math.floor(toNumber(evalNode(d, env))) : 0);
         function allocArray(depth) {
@@ -3435,6 +3471,7 @@ function createInterpreter() {
   function evalIdent(node, env) {
     const v = env.get(node.name);
     if (v === undefined) {
+      if (structTypes.has(node.name)) return structTypes.get(node.name);
       // Might be a function name used as identifier
       return null;
     }
@@ -3453,7 +3490,17 @@ function createInterpreter() {
       if (op === T.OR && left) return true;
     }
     const right = evalNode(node.right, env);
+    return binaryOpValues(op, left, right);
+  }
 
+  // Full binary-operator semantics on evaluated operands. Shared by
+  // expressions and compound assignment (asy defines `a op= b` as
+  // `a = a op b`, so both must agree for every operand type).
+  function binaryOpValues(op, left, right) {
+    if (_userOps.size) {
+      const r = tryUserOp(op === T.AND ? ['operator&&', 'operator&'] : op === T.OR ? ['operator||', 'operator|'] : ['operator' + op], [left, right]);
+      if (r !== _NO_USER_OP) return r;
+    }
     // Fast path: number (op) number, the common case in loops. Same results
     // as the general "Number ops" switch at the end of this function.
     if (typeof left === 'number' && typeof right === 'number') {
@@ -3501,6 +3548,17 @@ function createInterpreter() {
         case T.MINUS: return makePair(left-right.x, -right.y);
       }
     }
+
+    // Reference equality: struct instances, and anything compared with null.
+    if ((op === T.EQ || op === T.NEQ) &&
+        ((left == null && (right == null || typeof right === 'object' || typeof right === 'function')) ||
+         (right == null && (typeof left === 'object' || typeof left === 'function')) ||
+         (isStructVal(left) && isStructVal(right)))) {
+      const same = (left == null && right == null) || left === right;
+      return op === T.EQ ? same : !same;
+    }
+    // bool ^ bool is exclusive or (asy's operator ^(bool,bool)), not a power.
+    if (op === T.CARET && typeof left === 'boolean' && typeof right === 'boolean') return left !== right;
 
     // asy 3.11 Set_T operators: + union, - difference, & intersection,
     // ^ symmetric difference, <=/>= subset, ==/!= set equality. T.AND covers
@@ -4201,69 +4259,12 @@ function createInterpreter() {
   function pairToStr(p) { return `(${p.x},${p.y})`; }
   function tripleToStr(t) { return `(${t.x},${t.y},${t.z})`; }
 
-  // Evaluate binary op on raw values (for compound assignment)
-  function evalBinaryValues(op, left, right) {
-    if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (isPair(left) && isPair(right)) {
-      if (op===T.PLUS) return makePair(left.x+right.x,left.y+right.y);
-      if (op===T.MINUS) return makePair(left.x-right.x,left.y-right.y);
-    }
-    if (isNumber(left) && isPair(right) && op===T.STAR) return makePair(left*right.x,left*right.y);
-    if (isPair(left) && isNumber(right)) {
-      if (op===T.STAR) return makePair(left.x*right,left.y*right);
-      if (op===T.SLASH) return right?makePair(left.x/right,left.y/right):makePair(0,0);
-    }
-    if (isString(left)||isString(right)||isGraphic(left)||isGraphic(right)) {
-      if (op===T.PLUS) {
-        // 09043: `"\reflectbox{" + graphic(...) + "}"` concatenates a graphic
-        // object into a string. Plain String() coerces to "[object Object]";
-        // instead emit a sentinel that label() can recover the graphic from.
-        const _stringify = (v) => {
-          if (isGraphic(v)) {
-            const id = ++_graphicSentinelCounter;
-            _graphicSentinels[id] = v;
-            return '__HITEXER_GRAPHIC_' + id + '__';
-          }
-          return String(v);
-        };
-        return _stringify(left) + _stringify(right);
-      }
-    }
-    // Triple ops — mirror evalBinary so compound assignment (+=, -=, *=, /=) and
-    // ++/-- on triple variables stay triples. Without these, `centroid += v` /
-    // `centroid /= n` (the c582_L14 polyhedron helpers' face-orientation code)
-    // fell through to the toNumber() fallback below, collapsing the triple to its
-    // magnitude and corrupting every back-face-culling decision.
-    if (isTriple(left) || isTriple(right)) {
-      if (isTriple(left) && isTriple(right)) {
-        if (op===T.PLUS)  return makeTriple(left.x+right.x, left.y+right.y, left.z+right.z);
-        if (op===T.MINUS) return makeTriple(left.x-right.x, left.y-right.y, left.z-right.z);
-      }
-      if (isNumber(left) && isTriple(right) && op===T.STAR)
-        return makeTriple(left*right.x, left*right.y, left*right.z);
-      if (isTriple(left) && isNumber(right)) {
-        if (op===T.STAR)  return makeTriple(left.x*right, left.y*right, left.z*right);
-        if (op===T.SLASH) return right ? makeTriple(left.x/right, left.y/right, left.z/right) : makeTriple(0,0,0);
-      }
-    }
-    // transform3 composition / application (e.g. `T *= rotate(...)`, `p *= T`).
-    if (op===T.STAR) {
-      if (isTransform3(left) && isTransform3(right)) return composeTransform3(left, right);
-      if (isTransform3(left) && isTriple(right))     return applyTransform3Triple(left, right);
-    }
-    // pair *= pair → complex multiply (parity with evalBinary's pair*pair).
-    if (isPair(left) && isPair(right) && op===T.STAR)
-      return makePair(left.x*right.x - left.y*right.y, left.x*right.y + left.y*right.x);
-    const l=toNumber(left),r=toNumber(right);
-    if (op===T.PLUS) return l+r;
-    if (op===T.MINUS) return l-r;
-    if (op===T.STAR) return l*r;
-    if (op===T.SLASH) return r?l/r:0;
-    return 0;
-  }
-
   function evalUnary(node, env) {
     const v = evalNode(node.operand, env);
+    if (_userOps.size) {
+      const r = tryUserOp(['operator' + node.op], [v]);
+      if (r !== _NO_USER_OP) return r;
+    }
     if (node.op === '-') {
       if (isPoint(v)) return makePoint(v.coordsys, makePair(-v.x, -v.y), v.m);
       if (isGeoVector(v)) return makeGeoVector(v.v.coordsys, makePair(-v.v.x, -v.v.y));
@@ -4347,6 +4348,15 @@ function createInterpreter() {
       callee = evalNode(node.callee, env);
     }
 
+    // S(args) for a user struct S runs its `operator init` on a new instance.
+    if (callee === undefined && calleeName && structTypes.has(calleeName)) {
+      const obj = instantiateStruct(structTypes.get(calleeName));
+      const init = obj['operator init'];
+      if (init && init._tag === 'func') callUserFunc(init, node.args, env);
+      else if (init && init._tag === 'overload') invokeFunc(init, evalArgList(node.args, env));
+      return obj;
+    }
+
     // Draw commands: evaluate args with line info
     if (_DRAW_FUNCS.has(calleeName)) {
       const hasSpread = node.args.some(a => a && a.type === 'SpreadArg');
@@ -4409,7 +4419,7 @@ function createInterpreter() {
       // Evaluate positional args, pick best-matching alt, then dispatch.
       const positional = node.args.filter(a => a.type !== 'NamedArg');
       const posVals = positional.map(a => evalNode(a, env));
-      const picked = overloadSelect(callee, posVals);
+      const picked = overloadSelect(callee, posVals, positional.map(isIntExpr));
       if (picked) {
         // Builtin fallback selected by overloadSelect (user function shadows a builtin).
         if (typeof picked === 'function') return picked(...posVals);
@@ -4473,8 +4483,46 @@ function createInterpreter() {
       case 'string': return isString(val);
       case 'picture': return val && val._tag === 'picture';
       case 'transform': return val && val._tag === 'transform';
-      default: return true;  // unknown type: allow anything (strict-positional fallback)
+      default:
+        if (structTypes.has(paramType)) return val == null || !!(val._structDef && val._structDef.name === paramType);
+        return true;  // unknown type: allow anything (strict-positional fallback)
     }
+  }
+
+  // A trailing `... T[] xs` parameter collects the leftover positional args
+  // into one array (a single leftover array is passed through as the array).
+  function bundleRestArgs(params, vals) {
+    const n = params.length;
+    if (!n || !params[n - 1].rest) return vals;
+    const k = n - 1;
+    const extra = vals.slice(k);
+    const restVal = (extra.length === 1 && Array.isArray(extra[0]) && !params[k].type.endsWith('[][]')
+                     && !(extra[0].length && Array.isArray(extra[0][0]))) ? extra[0] : extra;
+    return vals.slice(0, k).concat([restVal]);
+  }
+
+  // Statically int-typed expression (asy picks f(int) over f(real) for these).
+  function isIntExpr(n) {
+    if (!n) return false;
+    switch (n.type) {
+      case 'NumberLit': return n.isInt;
+      case 'CastExpr': return n.targetType === 'int';
+      case 'UnaryOp': return n.op === '-' && isIntExpr(n.operand);
+      case 'BinaryOp':
+        if (n.op === T.HASH) return true;
+        if (n.op === T.PLUS || n.op === T.MINUS || n.op === T.STAR || n.op === T.PERCENT) return isIntExpr(n.left) && isIntExpr(n.right);
+        return false;
+      case 'FuncCall': return n.callee.type === 'Identifier' && /^(Floor|Ceil|Round)$/.test(n.callee.name);
+    }
+    return false;
+  }
+
+  // argMatchesParamType plus asy's implicit casts (int->real->pair, pair->path).
+  function argCastsToParamType(val, type) {
+    if (argMatchesParamType(val, type)) return true;
+    if (typeof val === 'number') return type === 'pair' || type === 'triple';
+    if (isPair(val)) return type === 'path' || type === 'guide' || type === 'triple';
+    return false;
   }
 
   function callUserFunc(func, argNodes, callEnv) {
@@ -4492,7 +4540,12 @@ function createInterpreter() {
       }
     }
     // Pre-evaluate positional args for type-based matching
-    const posVals = positional.map(a => evalNode(a, callEnv));
+    let posVals = [];
+    for (const a of positional) {
+      if (a.type === 'SpreadArg') { const v = evalNode(a.value, callEnv); if (Array.isArray(v)) posVals.push(...v); else if (v != null) posVals.push(v); }
+      else posVals.push(evalNode(a, callEnv));
+    }
+    posVals = bundleRestArgs(params, posVals);
     const paramAssigned = new Array(params.length).fill(false);
     const argAssigned = new Array(posVals.length).fill(false);
     // Handle named args first
@@ -4502,19 +4555,26 @@ function createInterpreter() {
         paramAssigned[i] = true;
       }
     }
-    // Type-based matching: assign each positional arg to the first compatible param
+    // asy's matching: positional args fill the parameters in order; a
+    // parameter WITH a default is skipped (left at its default) when the
+    // argument can't be cast to its type. Required parameters are never
+    // skipped, so f(pair z, real r) called as f(3, 2) binds z = (3,0).
+    let nextParam = 0;
     for (let ai = 0; ai < posVals.length; ai++) {
-      const val = posVals[ai];
+      let val = posVals[ai];
       let matched = false;
-      for (let pi = 0; pi < params.length; pi++) {
+      for (let pi = nextParam; pi < params.length; pi++) {
         if (paramAssigned[pi]) continue;
-        if (argMatchesParamType(val, params[pi].type)) {
+        if (val == null || argCastsToParamType(val, params[pi].type)) {
+          if (typeof val === 'number' && params[pi].type === 'pair') val = makePair(val, 0);
           local.set(params[pi].name, val);
           paramAssigned[pi] = true;
           argAssigned[ai] = true;
           matched = true;
+          nextParam = pi + 1;
           break;
         }
+        if (!params[pi].default) break;
       }
       if (!matched) {
         // Fallback: assign to the next unassigned param regardless of type
@@ -4534,7 +4594,7 @@ function createInterpreter() {
         if (params[i].default) {
           local.set(params[i].name, evalNode(params[i].default, local));
         } else {
-          local.set(params[i].name, null);
+          local.set(params[i].name, params[i].rest ? [] : null);
         }
       }
     }
@@ -4559,12 +4619,13 @@ function createInterpreter() {
     // (karlin.rr_cartesian_axes(..., usegrid=false, complexplane=true))
     // bound usegrid INTO xstep and hung the tick loop (04296/13525).
     const _named = {};
-    const _positional = [];
+    let _positional = [];
     for (const a of argValues) {
       if (a && typeof a === 'object' && a._named === true) {
         for (const k of Object.keys(a)) if (k !== '_named') _named[k] = a[k];
       } else _positional.push(a);
     }
+    _positional = bundleRestArgs(params, _positional);
     let _pi = 0;
     for (let i = 0; i < params.length; i++) {
       if (Object.prototype.hasOwnProperty.call(_named, params[i].name)) {
@@ -4574,7 +4635,7 @@ function createInterpreter() {
       } else if (params[i].default) {
         local.set(params[i].name, evalNode(params[i].default, local));
       } else {
-        local.set(params[i].name, null);
+        local.set(params[i].name, params[i].rest ? [] : null);
       }
     }
     let r;
@@ -4595,6 +4656,12 @@ function createInterpreter() {
   }
 
   function evalMethodCall(obj, method, argNodes, env) {
+    if (isStructVal(obj)) {
+      const fn = structMember(obj, method);
+      if (fn && fn._tag === 'func') return callUserFunc(fn, argNodes, env);
+      if (fn && (fn._tag === 'overload' || typeof fn === 'function')) return invokeFunc(fn, evalArgList(argNodes, env));
+      return null;
+    }
     // CAD methods are the only ones that need NamedArg wrappers preserved.
     // Other method branches read positional args, and a NamedArg evaluated
     // through evalNode strips its name (returning just the value), which
@@ -4794,7 +4861,7 @@ function createInterpreter() {
           const vx = fy*uz - fz*uy;
           const vy = fz*ux - fx*uz;
           const vz = fx*uy - fy*ux;
-          const K3 = 0.5522847498 * r;
+          const K3 = _ASY_KAPPA * r;
           const R = r;
           // Parameterize circle: P(t) = c + R*(cos(t)*u + sin(t)*v)
           // Build 4 cubic Bezier arcs (standard unit-circle bezier constants).
@@ -5696,6 +5763,7 @@ function createInterpreter() {
   function evalMemberAccess(node, env) {
     const obj = evalNode(node.object, env);
     const m = node.member;
+    if (isStructVal(obj)) { const v = structMember(obj, m); return v === undefined ? null : v; }
     if (isPair(obj)) {
       if (m === 'x') return obj.x;
       if (m === 'y') return obj.y;
@@ -5853,7 +5921,7 @@ function createInterpreter() {
   function evalCast(node, env) {
     const val = evalNode(node.expr, env);
     switch(node.targetType) {
-      case 'int': return Math.floor(toNumber(val));
+      case 'int': return Math.trunc(toNumber(val)); // (int)-3.7 == -3 in asy
       case 'real': return toNumber(val);
       case 'string':
         if (isPair(val)) return '(' + val.x + ',' + val.y + ')';
@@ -5867,7 +5935,7 @@ function createInterpreter() {
 
   // Convert a direction AST spec ({x,y} pair or {x, singleExpr:true} angle) to radians
   function evalDirSpec(dir, env) {
-    if (!dir) return null;
+    if (!dir || dir.curl) return null;
     if (dir.singleExpr) {
       // Single expression: interpret as degrees (e.g. {dir(225)})
       const val = evalNode(dir.x, env);
@@ -5965,12 +6033,14 @@ function createInterpreter() {
     let hasCycle = false;
     let cycleDirIn = null; // direction spec before 'cycle' (e.g. ..{W}cycle)
     let cycleControlsIn = null; // explicit in-control before 'cycle' (e.g. ..controls P and Q..cycle)
+    let cycleCurlIn = null; // ..{curl c}cycle
 
     for (let i = 0; i < node.nodes.length; i++) {
       const n = node.nodes[i];
       if (n.isCycle) {
         hasCycle = true;
         if (n.dirIn) cycleDirIn = evalDirSpec(n.dirIn, env);
+        if (n.dirIn && n.dirIn.curl) cycleCurlIn = toNumber(evalNode(n.dirIn.curl, env));
         if (n.controlsIn) cycleControlsIn = toPair(evalNode(n.controlsIn, env));
         continue;
       }
@@ -5979,6 +6049,7 @@ function createInterpreter() {
       const eDirOut = evalDirSpec(n.dirOut, env);
       const eControlsOut = n.controlsOut ? toPair(evalNode(n.controlsOut, env)) : null;
       const eControlsIn = n.controlsIn ? toPair(evalNode(n.controlsIn, env)) : null;
+      const nElems = elements.length;
       if (isPath(val) && val.segs.length > 0) {
         elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn, _origPath: val, _inlineCycle: _astHasInlineCycle(n.point)});
       } else if (isPath(val) && val.segs.length === 0) {
@@ -5994,6 +6065,14 @@ function createInterpreter() {
         // Preserve triples so path3 flows through as triple-valued segments.
         const pt = isTriple(val) ? val : toPair(val);
         elements.push({type:'pair', pt, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn});
+      }
+      // {curl c} specs, and `..tension a and b..` on the join leaving this node.
+      if (elements.length > nElems) {
+        const el = elements[elements.length - 1];
+        if (n.dirIn && n.dirIn.curl) el.curlIn = toNumber(evalNode(n.dirIn.curl, env));
+        if (n.dirOut && n.dirOut.curl) el.curlOut = toNumber(evalNode(n.dirOut.curl, env));
+        if (n.tension) el.tension = { out: Math.abs(toNumber(evalNode(n.tension.out, env))),
+          in: Math.abs(toNumber(evalNode(n.tension.in, env))), atleast: !!n.tension.atleast };
       }
     }
 
@@ -6026,6 +6105,58 @@ function createInterpreter() {
 
     // If any inline paths, build segments directly
     const hasInlinePaths = elements.some(e => e.type === 'path');
+
+    // Inline paths joined by `..`/`::`/`---`: asy flattens the whole guide into
+    // one knot list in which each embedded path contributes its nodes joined by
+    // explicit control points, so the spline next to a path leaves or enters
+    // it along the path's own tangent. (Pure `--`/`^^` chains keep the
+    // segment-by-segment builder below.)
+    const _isCurveJoin = (j) => j === '..' || j === '::' || j === '---';
+    const _is2D = (e) => e.type === 'pair' ? !isTriple(e.pt) : e.segs.every(s => !isTriple(s.p0) && !isTriple(s.p3));
+    if (hasInlinePaths && elements.every(e => e.join !== '^^' && _is2D(e))
+        && elements.some((e, i) => _isCurveJoin(e.join) && (i < elements.length - 1 || hasCycle))) {
+      const K = [];
+      let closeCycle = hasCycle, closeKind = null;
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        let pts, ex = [];
+        if (el.type === 'pair') pts = [el.pt];
+        else {
+          let segs = el.segs;
+          // Inline `(...--cycle)` guide last: its cycle closes the OUTER path.
+          if (i === elements.length - 1 && i > 0 && el._inlineCycle && el._origPath && el._origPath.closed && segs.length >= 2) {
+            const dropped = segs[segs.length - 1];
+            closeKind = (dropped._linear || isLinear(dropped)) ? '--' : '..';
+            segs = segs.slice(0, -1);
+            closeCycle = true;
+          }
+          pts = [segs[0].p0];
+          for (const s of segs) { ex.push(s); pts.push(s.p3); }
+        }
+        const k0 = K.length;
+        for (const p of pts) K.push(_mfKnot(p));
+        for (let k = 0; k < ex.length; k++) {
+          K[k0 + k].rt = {t:'explicit', c: ex[k].cp1};
+          K[k0 + k + 1].lt = {t:'explicit', c: ex[k].cp2};
+        }
+        const kf = K[k0], kl = K[K.length - 1];
+        if (el.dirIn != null) kf.lt = {t:'given', a: el.dirIn};
+        if (el.curlIn != null) kf.lt = {t:'curl', g: el.curlIn};
+        if (el.dirOut != null) kl.rt = {t:'given', a: el.dirOut};
+        if (el.curlOut != null) kl.rt = {t:'curl', g: el.curlOut};
+        if (i > 0) {
+          const pe = elements[i - 1];
+          _mfJoin(K, k0 - 1, k0, pe.join || '..', pe.tension, pe.controlsOut, el.controlsIn);
+        }
+      }
+      if (closeCycle) {
+        const le = elements[elements.length - 1];
+        if (cycleDirIn != null) K[0].lt = {t:'given', a: cycleDirIn};
+        if (cycleCurlIn != null) K[0].lt = {t:'curl', g: cycleCurlIn};
+        _mfJoin(K, K.length - 1, 0, closeKind || le.join || '..', le.tension, le.controlsOut, cycleControlsIn);
+      }
+      return makePath(_mfSolve(K, closeCycle), closeCycle);
+    }
     if (hasInlinePaths) {
       // Helper: build a connection (join) between two points honoring directions.
       // joinKind is '..' or '--'. Optional cp1/cp2 are explicit Bezier control points
@@ -6293,6 +6424,11 @@ function createInterpreter() {
       segControls.push((cp1 || cp2) ? {cp1: cp1 || cp2, cp2: cp2 || cp1} : null);
     }
     const hasExplicitControls = segControls.some(Boolean);
+    const guideExtra = {
+      curls: elements.map(e => ({curlIn: e.curlIn, curlOut: e.curlOut})),
+      tensions: elements.map(e => e.tension || null),
+      cycleDirIn, cycleCurlIn,
+    };
 
     // Single point: create a path with no segments but marked with _singlePoint
     // This allows the point to be used in path concatenation without adding stray segments
@@ -6322,7 +6458,8 @@ function createInterpreter() {
         const subDirs = directions.slice(start, hi + 1);
         const subControls = hasExplicitControls ? segControls.slice(start, hi) : null;
         if (subPoints.length >= 2) {
-          const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs, subControls);
+          const subSegs = buildPathSegs(subPoints, subJoins, false, subDirs, subControls,
+            {curls: guideExtra.curls.slice(start, hi + 1), tensions: guideExtra.tensions.slice(start, hi)});
           allSegs.push(...subSegs);
           subPathList.push(makePath(subSegs, false));
         } else if (subPoints.length === 1) {
@@ -6342,20 +6479,53 @@ function createInterpreter() {
       return result;
     }
 
-    const _purePath = makePath(buildPathSegs(points, joins, hasCycle, directions, hasExplicitControls ? segControls : null), hasCycle);
+    const _purePath = makePath(buildPathSegs(points, joins, hasCycle, directions, hasExplicitControls ? segControls : null, guideExtra), hasCycle);
     // Record the knot list on paths built purely from '..'-joined 2D pairs so
     // the `g = g..pt` accumulation fast-path above can re-solve the whole
     // Hobby spline when more knots are appended (deferred-guide semantics).
     if (!hasCycle && !hasExplicitControls && points.length >= 2
         && joins.every(j => j === '..')
         && directions.every(d => !d || (d.dirIn == null && d.dirOut == null))
+        && elements.every(e => !e.tension && e.curlIn == null && e.curlOut == null)
         && points.every(p => !isTriple(p))) {
       _purePath._dotdotKnots = points.slice();
     }
     return _purePath;
   }
 
-  function buildPathSegs(points, joins, hasCycle, directions, controls) {
+  // Solve a guide of 2D knots the way asy does (see _mfSolve). joins[i] joins
+  // point i to i+1 (or to point 0 when cyclic): '--', '..', '::' or '---'.
+  // extra: {curls:[{curlIn,curlOut}], tensions:[{out,in,atleast}] per join,
+  // cycleDirIn, cycleCurlIn}.
+  function buildPathSegs(points, joins, hasCycle, directions, controls, extra) {
+    if (points.some(p => isTriple(p))) return _buildPathSegs3(points, joins, hasCycle, directions, controls);
+    const n = points.length;
+    if (n < 2 && !hasCycle) return [];
+    const K = points.map(_mfKnot);
+    for (let i = 0; i < n; i++) {
+      const dd = directions && directions[i];
+      if (dd && dd.dirIn != null) K[i].lt = {t:'given', a: dd.dirIn};
+      if (dd && dd.dirOut != null) K[i].rt = {t:'given', a: dd.dirOut};
+      const cc = extra && extra.curls && extra.curls[i];
+      if (cc && cc.curlIn != null) K[i].lt = {t:'curl', g: cc.curlIn};
+      if (cc && cc.curlOut != null) K[i].rt = {t:'curl', g: cc.curlOut};
+    }
+    if (hasCycle && extra) {
+      if (extra.cycleDirIn != null) K[0].lt = {t:'given', a: extra.cycleDirIn};
+      if (extra.cycleCurlIn != null) K[0].lt = {t:'curl', g: extra.cycleCurlIn};
+    }
+    const nseg = hasCycle ? n : n - 1;
+    for (let i = 0; i < nseg; i++) {
+      const ctrl = controls && controls[i];
+      _mfJoin(K, i, (i + 1) % n, joins[i] || '..', extra && extra.tensions && extra.tensions[i],
+        ctrl && ctrl.cp1, ctrl && ctrl.cp2);
+    }
+    return _mfSolve(K, hasCycle);
+  }
+
+  // Legacy builder, kept for 3D (triple) knots only.
+  function _buildPathSegs3(points, joins, hasCycle, directions, controls) {
+    joins = joins.map(j => j === '---' ? '--' : (j === '::' ? '..' : j));
     // When explicit Bezier control points are provided (..controls P and Q.. syntax),
     // use them directly for those segments instead of running Hobby's algorithm.
     if (controls && controls.some(Boolean)) {
@@ -6525,10 +6695,19 @@ function createInterpreter() {
         else val = makeGeoVector(cs, toPair(val));
       } else if (node.varType === 'pair' && (isPoint(val) || isGeoVector(val))) {
         val = toPair(val);
+      } else if (node.varType === 'pair' && typeof val === 'number') {
+        val = makePair(val, 0); // implicit real->pair cast: `pair z = 3;` is (3,0)
+      } else if (node.varType === 'pair[]' && Array.isArray(val) && val.some(v => typeof v === 'number')) {
+        val = val.map(v => typeof v === 'number' ? makePair(v, 0) : v);
       } else if (node.varType === 'path[]' && val && val._tag === 'path' && Array.isArray(val._subPaths)) {
         // 03501 idiom: `path[] funnel = a--b--c ^^ d--e--f;` — unwrap the
         // unified path with attached sub-paths into an actual path[].
         val = val._subPaths;
+      } else if (node.varType === 'path' && isPath(val) && val._dotdotKnots) {
+        // A `path` is a solved guide: appending knots later must not re-solve
+        // its interior (only `guide` variables keep the knot list).
+        val = Object.assign({}, val);
+        delete val._dotdotKnots;
       }
     } else {
       // Default values by type
@@ -6561,9 +6740,11 @@ function createInterpreter() {
             break;
           }
           default:
-            // Check if this is a user-defined struct
-            if (STRUCT_DEFS.has(node.varType)) {
-              val = createStructInstance(node.varType);
+            // A user-struct variable without initializer is a new instance
+            // (asy allocates it), except a field of the struct's own type
+            // (`Node next;` inside struct Node), which stays null.
+            if (structTypes.has(node.varType) && !_instantiating.has(node.varType)) {
+              val = instantiateStruct(structTypes.get(node.varType));
             }
         }
       }
@@ -6573,6 +6754,8 @@ function createInterpreter() {
     return val;
   }
 
+  const COMPOUND_OPS = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH,
+                        '#=':T.HASH, '%=':T.PERCENT, '^=':T.CARET};
   function evalAssignment(node, env) {
     const val = evalNode(node.value, env);
     if (node.target.type === 'Identifier') {
@@ -6581,10 +6764,11 @@ function createInterpreter() {
       if (node.op === '=') {
         env.update(name, val);
       } else {
-        const old = env.get(name);
-        const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
-        const result = evalBinaryValues(ops[node.op], old, val);
+        // A compound assignment (and ++k / --k, parsed as k += 1) yields
+        // the NEW value, so `while (++k < n)` and `write(--k)` see it.
+        const result = binaryOpValues(COMPOUND_OPS[node.op], env.get(name), val);
         env.update(name, result);
+        return result;
       }
       // Track currentpicture reassignment so drawing routes to the right picture
       if (name === 'currentpicture' && val && val._tag === 'picture') {
@@ -6619,8 +6803,7 @@ function createInterpreter() {
         const key = evalNode(node.target.index, env);
         let newVal = val;
         if (node.op !== '=') {
-          const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
-          newVal = evalBinaryValues(ops[node.op], _mapGet(obj, key), val);
+          newVal = binaryOpValues(COMPOUND_OPS[node.op], _mapGet(obj, key), val);
         }
         _mapSet(obj, key, newVal);
         return newVal;
@@ -6629,8 +6812,7 @@ function createInterpreter() {
       if (isArray(obj)) {
         let newVal = val;
         if (node.op !== '=') {
-          const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
-          newVal = evalBinaryValues(ops[node.op], obj[idx], val);
+          newVal = binaryOpValues(COMPOUND_OPS[node.op], obj[idx], val);
         }
         obj[idx] = newVal;
         return newVal;
@@ -6638,17 +6820,17 @@ function createInterpreter() {
       return val;
     }
     if (node.target.type === 'MemberAccess') {
-      const obj = evalNode(node.target.object, env);
+      let obj = evalNode(node.target.object, env);
+      if (obj && obj._tag === 'structtype') obj = obj.statics;
       const mem = node.target.member;
       // Compute newVal for compound assignment (+=, -=, *=, /=)
       let newVal = val;
       if (node.op !== '=') {
-        const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
         let old;
         if (isPair(obj) && (mem === 'x' || mem === 'y')) old = obj[mem];
         else if (isArray(obj) && mem === 'cyclic') old = obj._cyclic;
         else if (obj && typeof obj === 'object') old = obj[mem];
-        newVal = evalBinaryValues(ops[node.op], old, val);
+        newVal = binaryOpValues(COMPOUND_OPS[node.op], old, val);
       }
       if (isPair(obj)) {
         if (mem === 'x') obj.x = toNumber(newVal);
@@ -6679,10 +6861,8 @@ function createInterpreter() {
   function evalFor(node, env) {
     const local = createEnv(env);
     if (node.init) evalNode(node.init, local);
-    let iters = 0;
     while (true) {
       if (node.cond && !toBool(evalNode(node.cond, local))) break;
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       const r = node.body ? evalNode(node.body, local) : null;
       if (r && r._sig) {
         if (r === BREAK_SIG) break;
@@ -6694,9 +6874,7 @@ function createInterpreter() {
   }
 
   function evalWhile(node, env) {
-    let iters = 0;
     while (toBool(evalNode(node.cond, env))) {
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       const r = node.body ? evalNode(node.body, env) : null;
       if (r && r._sig) {
         if (r === BREAK_SIG) break;
@@ -6707,9 +6885,7 @@ function createInterpreter() {
   }
 
   function evalDoWhile(node, env) {
-    let iters = 0;
     do {
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       const r = node.body ? evalNode(node.body, env) : null;
       if (r && r._sig) {
         if (r === BREAK_SIG) break;
@@ -6733,9 +6909,7 @@ function createInterpreter() {
       iterVal = iterVal._subPaths;
     }
     if (!isArray(iterVal)) return null;
-    let iters = 0;
     for (const item of iterVal) {
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       local.set(node.elemName, item);
       const r = node.body ? evalNode(node.body, local) : null;
       if (r && r._sig) {
@@ -6748,8 +6922,13 @@ function createInterpreter() {
 
   function evalFuncDecl(node, env) {
     const func = {_tag:'func', name:node.name, params:node.params, body:node.body, closure:env};
+    if (node.name && node.name.startsWith('operator') && node.name !== 'operator init') {
+      if (!_userOps.has(node.name)) _userOps.set(node.name, []);
+      _userOps.get(node.name).push(func);
+    }
     if (node.name) {
-      const existing = env.has(node.name) ? env.get(node.name) : null;
+      // A struct member only overloads members of the same struct.
+      const existing = (env._isObjEnv ? env.hasOwn(node.name) : env.has(node.name)) ? env.get(node.name) : null;
       if (existing && existing._tag === 'func') {
         env.set(node.name, {_tag:'overload', alts:[existing, func], name:node.name});
       } else if (existing && existing._tag === 'overload') {
@@ -6765,31 +6944,46 @@ function createInterpreter() {
   }
 
   // Select best-matching user function from an overload set.
-  function overloadSelect(overload, posVals) {
+  function overloadSelect(overload, posVals, intFlags) {
     const alts = overload.alts;
     // Score each alt: +2 for exact type match, +1 for compatible, -1 for too-few/many params.
-    let best = null, bestScore = -Infinity;
+    let best = null, bestScore = -Infinity, bestBad = 0;
     for (const alt of alts) {
       const params = alt.params || [];
+      const hasRest = params.length > 0 && params[params.length - 1].rest;
       // Count how many declared params have defaults (we don't track defaults here,
       // but params with initializer are marked via .default in parseFuncDeclBody).
       let required = 0;
-      for (const p of params) if (!p.default) required++;
-      if (posVals.length < required || posVals.length > params.length) continue;
-      let score = 0;
-      for (let i = 0; i < posVals.length; i++) {
-        if (argMatchesParamType(posVals[i], params[i].type)) score += 2;
-        else score -= 1;
+      for (const p of params) if (!p.default && !p.rest) required++;
+      if (posVals.length < required || (!hasRest && posVals.length > params.length)) continue;
+      let score = 0, bad = 0;
+      for (let i = 0; i < posVals.length && i < params.length; i++) {
+        if (params[i].rest) break;
+        if (argMatchesParamType(posVals[i], params[i].type)) {
+          score += 2;
+          // Numbers are untyped at runtime: use the argument's static type to
+          // separate f(int) from f(real) as asy does.
+          if (intFlags && typeof posVals[i] === 'number' && params[i].type === 'int') score += intFlags[i] ? 1 : -1;
+        }
+        else {
+          score -= 1;
+          // An argument asy could not even cast to the parameter type.
+          const v = posVals[i], t = params[i].type;
+          if (v != null && !(typeof v === 'number' && (t === 'pair' || t === 'triple'))
+              && !(isPair(v) && (t === 'path' || t === 'guide' || t === 'triple'))) bad++;
+        }
       }
       // Use >= so that on a tie the LAST defined alt wins. This matches
       // the user's intent when redefining a function with an identical
       // signature: the later definition shadows the earlier one.
-      if (score >= bestScore) { bestScore = score; best = alt; }
+      if (score >= bestScore) { bestScore = score; best = alt; bestBad = bad; }
     }
     // If no alt matched positively (all scores ≤ 0) and a builtin fallback exists,
     // prefer the builtin — this handles cases like user `pair exp(pair)` overloading
-    // real `exp(real)`: when called with a real, the builtin should win.
-    if (overload.builtin && bestScore <= 0) return overload.builtin;
+    // real `exp(real)`: when called with a real, the builtin should win. Same
+    // when the best user alt has an argument of an incompatible type: 12903's
+    // `picture box(string s, pair z)` calls the builtin `box(pair, pair)`.
+    if (overload.builtin && (bestScore <= 0 || bestBad > 0)) return overload.builtin;
     return best || alts[alts.length - 1];
   }
 
@@ -7451,7 +7645,7 @@ function createInterpreter() {
 
       // Draw nodes: circle + centered key label.
       for (const n of nodes) {
-        evalDraw('draw', [..._tp, makeCirclePath({x:n._x, y:n._y}, rTrue), pen]);
+        evalDraw('draw', [..._tp, makeBezierCirclePath({x:n._x, y:n._y}, rTrue), pen]);
         evalLabel([..._tp, '$' + n.key + '$', makePair(n._x, n._y)]);
       }
     }
@@ -8342,15 +8536,6 @@ function createInterpreter() {
     if (!isPath(p)) return makePair(0,0);
     if (p.segs.length === 0) return makePair(0,0);
     let time = toNumber(t);
-    // Asymptote-style circle parameterization: paths produced by
-    // Circle()/CR()/etc. have a virtual node count `n` (default 400),
-    // and point(circle, t) → c + r*(cos, sin) at angle (t/n)*360°.
-    if (p._circle) {
-      const c = p._circle;
-      const n = c.n || 400;
-      const ang = (time / n) * 2 * Math.PI;
-      return makePair(c.cx + c.r * Math.cos(ang), c.cy + c.r * Math.sin(ang));
-    }
     // Closed (cyclic) path: wrap t mod length, matching Asymptote.
     if (p.closed) {
       const N = p.segs.length;
@@ -8367,14 +8552,8 @@ function createInterpreter() {
     return bezierPoint(p.segs[idx], Math.max(0, Math.min(1, frac)));
   }
 
-  // Path-time span for arclength-fraction APIs (relpoint/waypoint/reltime):
-  // a `_circle`-tagged path is parameterized by a virtual node count `n`
-  // (default 400) inside _pointOnPath, so its full traversal is time∈[0,n],
-  // NOT time∈[0,segs.length] (=4 for the Bezier representation). Using
-  // segs.length here collapsed relpoint(circle,t∈[0,1]) to ~2% of the circle
-  // (broke the transformed-circle blob in 02378).
+  // Path-time span for arclength-fraction APIs (relpoint/waypoint/reltime).
   function _pathTimeSpan(p) {
-    if (p && p._circle) return p._circle.n || 400;
     return p.segs.length;
   }
 
@@ -8514,6 +8693,11 @@ function createInterpreter() {
     env.set('intMin', -2147483648);
     env.set('realMax', Number.MAX_VALUE);
     env.set('realMin', Number.MIN_VALUE);
+    // Core plain constants (not just three's): 12940's Newton loop stops at
+    // `epsilon = 500*realEpsilon`; with realEpsilon unset it never stopped.
+    env.set('realEpsilon', Number.EPSILON);
+    env.set('sqrtEpsilon', Math.sqrt(Number.EPSILON));
+    env.set('mantissaBits', 53);
     env.set('I', makePair(0,1));
     env.set('origin', makePair(0,0));
     // Direction constants are set ONCE at the top of installStdlib (the
@@ -9405,7 +9589,7 @@ function createInterpreter() {
     env.set('solid', makePen({linestyle:'solid'}));
 
     // Unit circle: 4 cubic Bezier segments approximating a circle
-    const K = 0.5522847498;
+    const K = _ASY_KAPPA;
     env.set('unitcircle', makePath([
       makeSeg({x:1,y:0},{x:1,y:K},{x:K,y:1},{x:0,y:1}),
       makeSeg({x:0,y:1},{x:-K,y:1},{x:-1,y:K},{x:-1,y:0}),
@@ -9861,7 +10045,14 @@ function createInterpreter() {
     });
     env.set('floor', _broadcast1(Math.floor));
     env.set('ceil', _broadcast1(Math.ceil));
-    env.set('round', _broadcast1(Math.round));
+    // asy rounds halves away from zero (C round()); Math.round rounds -2.5 to -2.
+    const _asyRound = x => x < 0 ? -Math.round(-x) : Math.round(x);
+    env.set('round', _broadcast1(_asyRound));
+    // Floor/Ceil/Round: int-returning variants (same values here, since
+    // numbers are untyped at runtime).
+    env.set('Floor', _broadcast1(Math.floor));
+    env.set('Ceil', _broadcast1(Math.ceil));
+    env.set('Round', _broadcast1(_asyRound));
     env.set('sgn', _broadcast1(Math.sign));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
     env.set('remainder', (x,y) => {
@@ -10108,12 +10299,17 @@ function createInterpreter() {
       if (_flowCircleBranch) { const _fb = _flowCircleBranch(args); if (_fb !== undefined) return _fb; }
       const c = toPair(args[0]);
       const rad = toNumber(args[1]);
-      return makeCirclePath(c, rad);
+      return makeBezierCirclePath(c, rad);
     });
-    env.set('Circle', (center, r) => {
-      const c = toPair(center);
-      const rad = toNumber(r);
-      return makeCirclePath(c, rad);
+    // Named `n=` of graph.asy's Circle/Arc, or null.
+    const _namedN = (args) => {
+      for (const a of args) if (a && a._named && a.n !== undefined) return toNumber(a.n);
+      return null;
+    };
+    env.set('Circle', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const n = _namedN(args) != null ? _namedN(args) : (pos.length >= 3 ? toNumber(pos[2]) : 400);
+      return makeCirclePath(toPair(pos[0]), toNumber(pos[1]), n);
     });
 
     env.set('arc', (...args) => {
@@ -10379,19 +10575,12 @@ function createInterpreter() {
       // This matches Asymptote: arc(c,r,a1,a2) => arc(c,r,a1,a2, a2>=a1 ? CCW : CW)
       if (args.length >= 4 && !isPair(args[1])) {
         const c = toPair(args[0]);
-        let r = toNumber(args[1]);
-        let a1 = toNumber(args[2]), a2 = toNumber(args[3]);
-        // Negative radius: draw complementary arc with |r|
-        if (r < 0) {
-          r = -r;
-          const tmp = a1; a1 = a2; a2 = tmp;
-        }
+        const r = toNumber(args[1]);
+        const a1 = toNumber(args[2]), a2 = toNumber(args[3]);
         // Determine direction: explicit 5th arg, named direction=, or infer from angle relationship
         const ccw = args.length >= 5 ? !!args[4]
                   : (_namedDir !== undefined ? !!_namedDir : (a2 >= a1));
-        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
-        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
-        return makeArcPath(c, r, a1, a2);
+        return makeArcPath(c, r, a1, a2, ccw);
       }
       // geometry.asy: path arc(explicit pair B, explicit pair A, explicit pair C, real r)
       // — interior arc BAC of triangle BAC, centered at A with radius |r|, sweeping
@@ -10426,13 +10615,10 @@ function createInterpreter() {
         const c = toPair(args[0]);
         const p1 = toPair(args[1]), p2 = toPair(args[2]);
         const r = Math.sqrt((p1.x-c.x)*(p1.x-c.x) + (p1.y-c.y)*(p1.y-c.y));
-        let a1 = Math.atan2(p1.y-c.y, p1.x-c.x) * 180 / Math.PI;
-        let a2 = Math.atan2(p2.y-c.y, p2.x-c.x) * 180 / Math.PI;
         const ccw = args.length >= 4 ? !!args[3]
                   : (_namedDir !== undefined ? !!_namedDir : true);
-        if (ccw) { while (a2 < a1) a2 += 360; while (a2 > a1 + 360) a2 -= 360; }
-        else     { while (a2 > a1) a2 -= 360; while (a2 < a1 - 360) a2 += 360; }
-        return makeArcPath(c, r, a1, a2);
+        const unit = (p) => { const dx = p.x - c.x, dy = p.y - c.y, l = Math.hypot(dx, dy) || 1; return {x: dx/l, y: dy/l}; };
+        return _plainArc(c, r, unit(p1), unit(p2), ccw);
       }
       if (args.length >= 2) {
         const c = toPair(args[0]);
@@ -10440,9 +10626,31 @@ function createInterpreter() {
       }
       return makePath([], false);
     });
-    // Arc (uppercase, from Asymptote's graph module) is a higher-accuracy arc;
-    // for our Bezier approximation the behaviour is identical to arc.
-    env.set('Arc', env.get('arc'));
+    // graph.asy Arc(c, r, angle1, angle2[, direction][, n]) and
+    // Arc(c, z1, z2[, direction][, n]): an n-segment (default 400) Hobby spline
+    // through points on the true circle. 3D forms stay with arc().
+    const _arcBuiltin = env.get('arc');
+    env.set('Arc', (...args) => {
+      if (args.some(a => isTriple(a))) return _arcBuiltin(...args);
+      let dir, n = _namedN(args);
+      for (const a of args) if (a && a._named && 'direction' in a) dir = !!a.direction;
+      const pos = args.filter(a => !(a && a._named));
+      if (pos.length < 3) return _arcBuiltin(...args);
+      const c = toPair(pos[0]);
+      if (isPair(pos[1]) || isPoint(pos[1])) {
+        const z1 = toPair(pos[1]), z2 = toPair(pos[2]);
+        if (pos.length >= 4 && typeof pos[3] === 'boolean') dir = pos[3];
+        if (n == null && pos.length >= 4 && typeof pos[pos.length - 1] === 'number') n = pos[pos.length - 1];
+        const deg = (z) => Math.atan2(z.y - c.y, z.x - c.x) * 180 / Math.PI;
+        return makeGraphArcPath(c, Math.hypot(z1.x - c.x, z1.y - c.y), deg(z1), deg(z2),
+          dir === undefined ? true : dir, n || 400);
+      }
+      if (pos.length < 4) return _arcBuiltin(...args);
+      const r = toNumber(pos[1]), a1 = toNumber(pos[2]), a2 = toNumber(pos[3]);
+      if (pos.length >= 5 && typeof pos[4] === 'boolean') dir = pos[4];
+      if (n == null && pos.length >= 5 && typeof pos[pos.length - 1] === 'number') n = pos[pos.length - 1];
+      return makeGraphArcPath(c, r, a1, a2, dir === undefined ? a2 >= a1 : dir, n || 400);
+    });
 
     env.set('ellipse', (center, a, b) => {
       const c = toPair(center);
@@ -10466,7 +10674,7 @@ function createInterpreter() {
         const ang = Math.atan2(dy, dx);
         const cosA = Math.cos(ang), sinA = Math.sin(ang);
         // Transform: rotate(ang) then scale(semiMajor, semiMinor) then translate(center).
-        const circ = makeCirclePath({x:0,y:0}, 1);
+        const circ = makeBezierCirclePath({x:0,y:0}, 1);
         const t = makeTransform(
           cx, semiMajor*cosA, -semiMinor*sinA,
           cy, semiMajor*sinA,  semiMinor*cosA
@@ -10474,7 +10682,7 @@ function createInterpreter() {
         return applyTransformPath(t, circ);
       }
       const rx = toNumber(a), ry = toNumber(b);
-      const circ = makeCirclePath({x:0,y:0}, 1);
+      const circ = makeBezierCirclePath({x:0,y:0}, 1);
       const t = makeTransform(c.x, rx, 0, c.y, 0, ry);
       return applyTransformPath(t, circ);
     });
@@ -12583,10 +12791,16 @@ function createInterpreter() {
 
     // CR(center, r) — cse5 shorthand for "Circle with Radius": returns a circle path.
     // CR(center, r, theta1, theta2[, direction]) — cse5 arc form, equivalent to
-    // arc(center, r, theta1, theta2[, direction]). 03489 uses this for partial circles.
+    // Arc(center, r, theta1, theta2[, direction]) (graph.asy's 400-node Arc).
+    // 03489 uses this for partial circles.
     env.set('CR', (...args) => {
-      if (args.length >= 4) return invokeFunc(env.get('arc'), args);
+      if (args.length >= 4) return invokeFunc(env.get('Arc'), args);
       return makeCirclePath(toPair(args[0]), toNumber(args[1]));
+    });
+    // CP(center, point) — cse5: Circle through `point`.
+    env.set('CP', (C, P) => {
+      const c = toPair(C), p = toPair(P);
+      return makeCirclePath(c, Math.hypot(p.x - c.x, p.y - c.y));
     });
 
     // MP (Marked Point) — cse5/olympiad: draws a dot + label, returns the pair
@@ -14544,8 +14758,8 @@ const _HTX_DATA_FILES = {
     graphPackageInstalled = true;
 
     // Interpolation constants for graph(): Spline/Hermite → smooth, Linear → straight
-    env.set('Spline',  {_tag:'operator', value:'..'});
-    env.set('Hermite', {_tag:'operator', value:'..'});
+    env.set('Spline',  {_tag:'operator', value:'..', _spline:true});
+    env.set('Hermite', {_tag:'operator', value:'..', _spline:true});
     env.set('Linear',  {_tag:'operator', value:'--'});
 
     // errorbars(picture pic=currentpicture, pair[] z, pair[] dp, pair[] dm=dp,
@@ -14661,10 +14875,13 @@ const _HTX_DATA_FILES = {
       return pic;
     });
 
-    // Helper: build path from points, using smooth (..) or straight (--) joins
-    function buildGraphPath(pts, useSmooth) {
+    // Helper: build path from sampled points. kind (see graphJoinKind):
+    // 'straight' (operator --), 'hobby' (operator ..), 'spline' (Spline/Hermite
+    // cubic interpolation, approximated by Catmull-Rom).
+    function buildGraphPath(pts, kind) {
       if (pts.length < 2) return makePath([], false);
-      if (useSmooth) {
+      if (kind === 'hobby') return makePath(hobbySpline(pts, false, null), false);
+      if (kind === 'spline') {
         // Standard uniform Catmull-Rom -> Bezier conversion.
         // cp1 = p0 + (p1 - prev)/6,  cp2 = p1 - (next - p0)/6.
         // The control-point magnitude is tied to the ACTUAL tangent vector
@@ -14699,19 +14916,23 @@ const _HTX_DATA_FILES = {
     }
     // Check if an arg is an operator value
     function isOperator(a) { return a && a._tag === 'operator'; }
-    function wantsSmooth(args) {
-      // Asymptote's graph() uses Spline (smooth) interpolation by default.
-      // Only use linear interpolation if explicitly specified with Linear (operator --).
+    // graph.asy's interpolate join defaults to operator --: the samples are
+    // joined by chords. operator .. runs Hobby's spline through them.
+    function graphJoinKind(args) {
       for (const a of args) {
-        if (isOperator(a) && a.value === '--') return false;  // Linear explicitly requested
+        const op = isOperator(a) ? a : (a && a._named && isOperator(a.join) ? a.join : null);
+        if (!op) continue;
+        if (op._spline) return 'spline';
+        if (op.value === '..') return 'hobby';
+        if (op.value === '--') return 'straight';
       }
-      return true;  // Default to smooth interpolation (Spline/Hermite)
+      return 'straight';
     }
 
     // graph() function: plot a function over a range
     env.set('graph', (...args) => {
       // Filter out non-essential args: find functions, numbers, arrays, operators, bool3 funcs
-      const smooth = wantsSmooth(args);
+      const smooth = graphJoinKind(args);
       // Extract named arguments (e.g. n=700, join=operator ..)
       let namedN = null;
       for (const a of args) {
@@ -14763,8 +14984,7 @@ const _HTX_DATA_FILES = {
       // operator makes it smooth.
       if (coreArgs.length >= 1 && isArray(coreArgs[0]) && coreArgs[0].length > 0 && isPair(coreArgs[0][0])) {
         const pts = coreArgs[0].map(p => { const q = toPair(p); return { x: _xT(q.x), y: _yT(q.y) }; });
-        const splineOp = args.some(a => isOperator(a) && a.value === '..');
-        return buildGraphPath(pts, splineOp);
+        return buildGraphPath(pts, smooth);
       }
 
       // graph(real[] x, real[] y) or graph(real[] x, real[] y, operator ..)
@@ -18126,9 +18346,9 @@ const _HTX_DATA_FILES = {
 
     // polargraph — plot r = f(theta) in polar coordinates
     env.set('polargraph', (...args) => {
-      const smooth = wantsSmooth(args);
-      const coreArgs = args.filter(a => !isOperator(a));
-      let funcArg = null, a = 0, b = 2*Math.PI, n = 200;
+      const smooth = graphJoinKind(args);
+      const coreArgs = args.filter(a => !isOperator(a) && !(a && a._named));
+      let funcArg = null, a = 0, b = 2*Math.PI, n = 100;
       const nums = [];
       for (const ca of coreArgs) {
         if ((typeof ca === 'function' || (ca && ca._tag === 'func')) && !funcArg) funcArg = ca;
@@ -18137,6 +18357,7 @@ const _HTX_DATA_FILES = {
       if (nums.length >= 1) a = nums[0];
       if (nums.length >= 2) b = nums[1];
       if (nums.length >= 3) n = Math.floor(nums[2]);
+      for (const na of args) if (na && na._named && na.n !== undefined) n = Math.floor(toNumber(na.n));
       if (!funcArg) return makePath([], false);
       const pts = [];
       for (let i = 0; i <= n; i++) {
@@ -18146,7 +18367,7 @@ const _HTX_DATA_FILES = {
           if (isFinite(r)) pts.push({x: r*Math.cos(theta), y: r*Math.sin(theta)});
         } catch(e) {}
       }
-      return buildGraphPath(pts, smooth || true);
+      return buildGraphPath(pts, smooth);
     });
 
     // Scale types: returned from scale(pic, X, Y) to set log/linear on pic
@@ -20538,8 +20759,8 @@ const _HTX_DATA_FILES = {
     // `offset*V` collapses every vertex to 0, erasing all edges.
     env.set('identity4', identityT3());
     // Floating-point epsilon constants used by 3D/graph modules
-    env.set('realEpsilon', 2.22044604925031e-16);
-    env.set('sqrtEpsilon', 1.4901161193847656e-8);
+    env.set('realEpsilon', Number.EPSILON);
+    env.set('sqrtEpsilon', Math.sqrt(Number.EPSILON));
     env.set('mantissaBits', 53);
 
     // 3D arrow types (treated same as 2D arrows for wireframe rendering).
@@ -20751,7 +20972,7 @@ const _HTX_DATA_FILES = {
 
     // unitcircle3: 3D unit circle in XY plane (4 cubic Bezier segments with triple endpoints)
     {
-      const K3 = 0.5522847498;
+      const K3 = _ASY_KAPPA;
       env.set('unitcircle3', makePath([
         makeSeg(makeTriple(1,0,0), makeTriple(1,K3,0), makeTriple(K3,1,0), makeTriple(0,1,0)),
         makeSeg(makeTriple(0,1,0), makeTriple(-K3,1,0), makeTriple(-1,K3,0), makeTriple(-1,0,0)),
@@ -24293,7 +24514,7 @@ const _HTX_DATA_FILES = {
       const start = target.commands.length;
       let outline;
       if (b.kind === 'circle') {
-        outline = makeCirclePath(makePair(cx, cy), w2);
+        outline = makeBezierCirclePath(makePair(cx, cy), w2);
       } else {
         outline = makePath([
           lineSegment(makePair(cx - w2, cy - h2), makePair(cx + w2, cy - h2)),
@@ -27073,68 +27294,132 @@ const _HTX_DATA_FILES = {
   }
 
   // Path helpers
-  function makeCirclePath(center, r) {
-    const K = 0.5522847498;
-    const cx = center.x, cy = center.y;
-    const p = makePath([
-      makeSeg({x:cx+r,y:cy},{x:cx+r,y:cy+K*r},{x:cx+K*r,y:cy+r},{x:cx,y:cy+r}),
-      makeSeg({x:cx,y:cy+r},{x:cx-K*r,y:cy+r},{x:cx-r,y:cy+K*r},{x:cx-r,y:cy}),
-      makeSeg({x:cx-r,y:cy},{x:cx-r,y:cy-K*r},{x:cx-K*r,y:cy-r},{x:cx,y:cy-r}),
-      makeSeg({x:cx,y:cy-r},{x:cx+K*r,y:cy-r},{x:cx+r,y:cy-K*r},{x:cx+r,y:cy}),
-    ], true);
-    // Tag with circle metadata so point()/dir()/etc can use the
-    // Asymptote-style 400-node parameterization (nCircle default in
-    // graph.asy / geometry.asy) rather than the 4-segment Bezier
-    // approximation.
-    p._circle = { cx, cy, r, n: 400 };
+  // shift(c)*scale(rx,ry)*unitcircle as 4 Bezier segments.
+  function _bezierCircleSegs(cx, cy, rx, ry) {
+    return _UNITCIRCLE_QUADS.map(q => makeSeg(
+      {x: cx + rx*q.p0.x, y: cy + ry*q.p0.y}, {x: cx + rx*q.cp1.x, y: cy + ry*q.cp1.y},
+      {x: cx + rx*q.cp2.x, y: cy + ry*q.cp2.y}, {x: cx + rx*q.p3.x, y: cy + ry*q.p3.y}));
+  }
+
+  // plain circle(c,r) = shift(c)*scale(r)*unitcircle: 4 Bezier segments.
+  // `_circle` records the geometry (intersection seam ordering uses it).
+  function makeBezierCirclePath(center, r) {
+    const p = makePath(_bezierCircleSegs(center.x, center.y, r, r), true);
+    p._circle = { cx: center.x, cy: center.y, r };
     return p;
   }
 
-  function makeArcPath(center, r, startDeg, endDeg) {
-    // Asymptote's arc(c,r,a1,a2) is defined as
-    //   shift(c) * scale(r) * subpath(unitcircle, a1/90, a2/90)
-    // where `unitcircle` consists of FOUR fixed cubic Bezier segments at
-    // quadrant boundaries (nodes at 0°, 90°, 180°, 270°). A non-quadrant-
-    // aligned arc is therefore built by de Casteljau-subdividing those
-    // quadrant Beziers — NOT by computing a fresh closed-form optimal-arc
-    // Bezier per sub-arc. This matters because operators like `& cycle`,
-    // `subpath`, `postcontrol`, `precontrol`, `length` all read the
-    // resulting Bezier control points, so the segmentation/shape must
-    // match Asymptote exactly to reproduce TeXeR's output.
-    if (Math.abs(endDeg - startDeg) < 1e-12) return makePath([], false);
-    const ccw = endDeg >= startDeg;
-    // a1 <= a2 in the CCW build direction; we reverse afterwards for CW.
-    const a1 = ccw ? startDeg : endDeg;
-    const a2 = ccw ? endDeg : startDeg;
-    const segs = [];
-    let cur = a1;
-    while (cur < a2 - 1e-9) {
-      const qIdx = Math.floor(cur / 90 + 1e-9);
-      const next = Math.min((qIdx + 1) * 90, a2);
-      const u1 = (cur - qIdx * 90) / 90;
-      const u2 = (next - qIdx * 90) / 90;
-      segs.push(_unitcircleSubBezierTransformed(qIdx, u1, u2, center, r));
-      cur = next;
+  // graph.asy polargraph(r, a1, a2, n, operator ..) shifted to c: a Hobby
+  // spline through n+1 points at angles a1 + (i/n)*(a2-a1) (radians).
+  function _polarArcSegs(center, r, a1, a2, n) {
+    const w = a2 - a1, pts = [];
+    for (let i = 0; i <= n; i++) {
+      const t = a1 + (i/n)*w;
+      pts.push({x: r*Math.cos(t), y: r*Math.sin(t)});
     }
-    if (!ccw) {
-      return makePath(
-        segs.map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0)).reverse(),
-        false
-      );
-    }
-    return makePath(segs, false);
+    const sh = (z) => makePair(center.x + z.x, center.y + z.y);
+    return hobbySpline(pts, false, null).map(s => makeSeg(sh(s.p0), sh(s.cp1), sh(s.cp2), sh(s.p3)));
   }
 
-  // unitcircle's 4 cubic Bezier quadrants (CCW from angle 0°).
-  // kappa = 4*(sqrt(2)-1)/3 is the standard constant making the off-curve
-  // controls tangent to the circle with optimal radial deviation.
-  const _UNITCIRCLE_KAPPA = 4 * (Math.sqrt(2) - 1) / 3;
+  // graph.asy Circle(c, r, n=nCircle) = Arc(c,r,0,360,n)&cycle: n segments,
+  // the last node merged into the first. olympiad's circumcircle/incircle
+  // and cse5's CR/CP are built on it. It is drawn with the 4-segment Bezier
+  // circle (_drawSegs; within 3e-4*r of it) to keep the SVG small.
+  function makeCirclePath(center, r, n) {
+    n = Math.max(1, Math.floor(n || 400));
+    const segs = _polarArcSegs(center, r, 0, 2*Math.PI, n);
+    const last = segs[segs.length - 1];
+    segs[segs.length - 1] = makeSeg(last.p0, last.cp1, last.cp2, segs[0].p0);
+    const p = makePath(segs, true);
+    p._circle = { cx: center.x, cy: center.y, r, n };
+    p._drawSegs = _bezierCircleSegs(center.x, center.y, r, r);
+    return p;
+  }
+
+  // graph.asy Arc(c, r, angle1, angle2, direction, n=nCircle).
+  function makeGraphArcPath(center, r, deg1, deg2, ccw, n) {
+    n = Math.max(1, Math.floor(n || 400));
+    let a1 = deg1*Math.PI/180, a2 = deg2*Math.PI/180;
+    if (ccw) { if (a1 >= a2) a1 -= 2*Math.PI; }
+    else if (a2 >= a1) a2 -= 2*Math.PI;
+    return makePath(_polarArcSegs(center, r, a1, a2, n), false);
+  }
+
+  // unitcircle's 4 cubic Bezier quadrants (CCW from angle 0°). asy's Hobby
+  // solve of E..N..W..S..cycle puts the controls at exactly 4/3*(sqrt(2)-1)
+  // (bit-identical; note 4*(sqrt(2)-1)/3 differs in the last bit).
+  const _UNITCIRCLE_KAPPA = _ASY_KAPPA;
   const _UNITCIRCLE_QUADS = [
     { p0:{x:1,y:0},  cp1:{x:1,y:_UNITCIRCLE_KAPPA},  cp2:{x:_UNITCIRCLE_KAPPA,y:1},  p3:{x:0,y:1}  },
     { p0:{x:0,y:1},  cp1:{x:-_UNITCIRCLE_KAPPA,y:1}, cp2:{x:-1,y:_UNITCIRCLE_KAPPA}, p3:{x:-1,y:0} },
     { p0:{x:-1,y:0}, cp1:{x:-1,y:-_UNITCIRCLE_KAPPA},cp2:{x:-_UNITCIRCLE_KAPPA,y:-1},p3:{x:0,y:-1} },
     { p0:{x:0,y:-1}, cp1:{x:_UNITCIRCLE_KAPPA,y:-1}, cp2:{x:1,y:-_UNITCIRCLE_KAPPA}, p3:{x:1,y:0}  },
   ];
+
+  // Time on unitcircle where the ray from the origin along z crosses it
+  // (plain_arcs.asy: intersect(unitcircle,(0,0)--2*z)[0]), in [0,4).
+  // Bisection on the quadrant's Bezier; the angle is monotone there.
+  function _unitcircleTime(z) {
+    let a = Math.atan2(z.y, z.x);
+    if (a < 0) a += 2*Math.PI;
+    const q = Math.min(3, Math.floor(a / (Math.PI/2)));
+    const Q = _UNITCIRCLE_QUADS[q];
+    let lo = 0, hi = 1;
+    for (let it = 0; it < 64; it++) {
+      const u = (lo + hi)/2, v = 1 - u;
+      const bx = v*v*v*Q.p0.x + 3*v*v*u*Q.cp1.x + 3*v*u*u*Q.cp2.x + u*u*u*Q.p3.x;
+      const by = v*v*v*Q.p0.y + 3*v*v*u*Q.cp1.y + 3*v*u*u*Q.cp2.y + u*u*u*Q.p3.y;
+      if (z.x*by - z.y*bx < 0) lo = u; else hi = u;
+    }
+    let t = q + (lo + hi)/2;
+    // asy's own root is only good to ~1e-16; land node directions on nodes.
+    if (Math.abs(t - Math.round(t)) < 1e-12) t = Math.round(t);
+    return t >= 4 ? t - 4 : t;
+  }
+
+  // shift(c)*scale(r)*subpath(unitcircle, t1, t2); t1 > t2 gives the
+  // reversed path, as in asy.
+  function _unitcircleSubpath(center, r, t1, t2) {
+    if (t1 > t2) {
+      const f = _unitcircleSubpath(center, r, t2, t1);
+      return f.map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0)).reverse();
+    }
+    const k = Math.floor(t1/4);
+    t1 -= 4*k; t2 -= 4*k;
+    const segs = [];
+    let a = t1;
+    while (a < t2) {
+      const i = Math.floor(a), b = Math.min(i + 1, t2);
+      segs.push(_unitcircleSubBezierTransformed(i, a - i, b - i, center, r));
+      a = b;
+    }
+    return segs;
+  }
+
+  // plain_arcs.asy arc(c, z1, z2, direction), given the unit directions of
+  // z1-c and z2-c: the unit-circle times where those rays cross it, so the
+  // arc ends on the 4-segment Bezier circle (not exactly at dir(angle)), and
+  // equal angles give the full circle.
+  function _plainArc(center, r, u1, u2, ccw) {
+    let t1 = _unitcircleTime(u1), t2 = _unitcircleTime(u2);
+    if (ccw) { if (t1 >= t2) t1 -= 4; }
+    else if (t2 >= t1) t2 -= 4;
+    return makePath(_unitcircleSubpath(center, r, t1, t2), false);
+  }
+
+  // arc(c, r, startDeg, endDeg[, ccw]). Without an explicit direction (the
+  // internal marker callers) the direction is CCW iff endDeg >= startDeg and
+  // equal angles give an empty path.
+  function makeArcPath(center, r, startDeg, endDeg, ccw) {
+    if (ccw === undefined) {
+      if (Math.abs(endDeg - startDeg) < 1e-12) return makePath([], false);
+      ccw = endDeg >= startDeg;
+    }
+    // asy uses the rays through c+r*dir(angle), so r < 0 turns both by 180°.
+    const s = r < 0 ? -1 : 1;
+    const d = (deg) => { const a = deg*Math.PI/180; return {x: s*Math.cos(a), y: s*Math.sin(a)}; };
+    return _plainArc(center, Math.abs(r), d(startDeg), d(endDeg), ccw);
+  }
 
   // Take quadrant qIdx of the unit circle (mod 4) and return the sub-cubic
   // covering local parameter range [u1, u2] (each in [0,1]), then map it
@@ -35726,7 +36011,9 @@ function renderSVG(result, opts) {
 
 function pathToD(path, minX, maxY, scaleX, scaleY) {
   if (scaleY === undefined) scaleY = scaleX; // backward compat
-  const segs = path.segs;
+  // A graph.asy Circle carries its 400 segments in segs (for point/length/
+  // intersect) and a visually identical 4-segment form for drawing.
+  const segs = path._drawSegs || path.segs;
   if (segs.length === 0) return '';
 
   // _closeIndices contains segment indices after which to emit Z (for ^^ with closed subpaths)
@@ -39119,7 +39406,6 @@ function render(code, opts) {
   // (05896). Callers can still pass an explicit labelOutput to opt out.
   // Per-render state lives at module scope for historical reasons; reset
   // it so a render never depends on what was rendered before it.
-  STRUCT_DEFS.clear();
   _colRandState = 0x9e3779b9;
   _svgDefSeq = 0;
   opts = opts || {};
