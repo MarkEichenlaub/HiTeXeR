@@ -1,5 +1,44 @@
 # HiTeXeR Project Instructions
 
+## Regression tools (refactor/) — use them for every interpreter change
+
+- `node refactor/baseline.js --out refactor/X.json [--workers N]` renders the
+  whole corpus (13,002 diagrams) and records an SVG hash, time and error per
+  id; `node refactor/diff-runs.js A.json B.json` lists what changed. A pure
+  refactor or speedup must change NO hash.
+- `node refactor/gate.js --rev <commit> --ids a,b` (or `--idfile`) scores the
+  old and new render of those ids against the TeXeR PNGs (SSIM x size). Gate
+  every id a behavior change touches; the mean must not drop.
+- `node refactor/conformance/run.js --working` diffs write() output of
+  refactor/conformance/tests/*.asy against real asy (C:\Program Files\
+  Asymptote\asy.exe, 3.06); `build-report.js` regenerates REPORT.md.
+- Speed: `node refactor/bench/ab.js` (interleaved old-vs-new timing; set
+  REV=<commit>), `node --cpu-prof refactor/prof.js <id>` then
+  `node refactor/topprof.js` / `refactor/hotlines.js` on the profile.
+- Editor: `refactor/browser-test.js`, `responsive-test.js` (headless, need a
+  static server on :8765) and `hosted-test.js` (the live Pages site).
+- In a git worktree, `sh refactor/link-data.sh` links the untracked corpus.
+
+## Renders must not depend on earlier renders
+
+The editor renders many diagrams in one page, and the corpus harness renders
+thousands in one process. Any module-level state in asy-interp.js must be
+reset in `render()` (see STRUCT_DEFS, _colRandState, _svgDefSeq there), and
+the parser copies BASE_TYPE_NAMES per parse. SVG ids are made unique per
+diagram by `_scopeSvgIds` — don't emit ids from a global counter. Check with
+`node refactor/seq.js <id> <id>` (same hash twice) or two baseline runs with
+different `--workers` (no changed hashes).
+
+## The editor renders in a Web Worker
+
+index.html renders through `HTXRenderClient` (render-worker.js), newest
+request wins: `doRender()` and `liveRender()` (drags) call `newEpoch()`, and
+every await re-checks `gen !== renderGen`. Anything new that renders the
+preview or patches it after an await must do the same, or a stale result
+lands on top of a newer one. The worker has no DOM, so the interpreter must
+not measure with the DOM (the old canvas ink metrics were removed for that
+reason); node, the worker and the page then produce identical SVGs.
+
 ## asy 3.11 collections & templated imports (v9.97)
 
 `from module(T=...) access X as Y;` (asy templated imports) is parsed
