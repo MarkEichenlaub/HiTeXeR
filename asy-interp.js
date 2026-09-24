@@ -68,6 +68,7 @@ const T = {
   ASSIGN:'=', EQ:'==', NEQ:'!=', LT:'<', GT:'>', LE:'<=', GE:'>=',
   AND:'&&', OR:'||', NOT:'!',
   PLUSASSIGN:'+=', MINUSASSIGN:'-=', STARASSIGN:'*=', SLASHASSIGN:'/=',
+  HASHASSIGN:'#=', PERCENTASSIGN:'%=', CARETASSIGN:'^=',
   QUESTION:'?',
   HASH:'#',
   ARROW:'=>',
@@ -76,6 +77,17 @@ const T = {
   MINUSMINUS_OP:'--_op', // decrement op (distinguished from path join --)
   EOF:'EOF',
 };
+
+// Words that can never start a declaration as its type name (used when an
+// unknown identifier is followed by another identifier: `tree t;`).
+const NON_TYPE_WORDS = new Set([
+  'if','else','for','while','do','return','break','continue','new','null',
+  'true','false','cycle','import','access','from','include','static','typedef',
+  'using','struct','operator','cast','explicit','unravel','private','public',
+  'restricted','this','and','controls','tension','atleast','curl','as',
+  'autounravel','quote',
+]);
+const DECL_MODIFIERS = new Set(['static','private','public','restricted','explicit']);
 
 const KEYWORDS = new Set([
   'if','else','for','while','do','return','break','continue',
@@ -100,8 +112,10 @@ const BASE_TYPE_NAMES = new Set([
   'tremble',
 ]);
 
-// Struct field definitions: Map<structName, Array<{type:string, name:string, init?}>>
-const STRUCT_DEFS = new Map();
+// Evaluation steps (evalNode calls) allowed per render; see _opBudget.
+const OP_BUDGET = 4e7; // ~2x the most any corpus diagram uses (12728: 1.9e7)
+const OP_BUDGET_MSG = 'Evaluation budget exceeded (infinite loop?)';
+
 
 // ============================================================
 // Asymptote numeric-infinity semantics
@@ -662,7 +676,8 @@ function lex(source) {
       // Scientific notation: only consume 'e' if followed by an optional sign
       // and at least one digit. Otherwise leave 'e' to be part of an identifier
       // (e.g. "3exp(...)" means "3 * exp(...)" via implicit multiplication).
-      if (ch() === 'e' || ch() === 'E') {
+      // Only a lowercase e: asy reads `2.5E+0.1*N` as 2.5*E + 0.1*N (E = east).
+      if (ch() === 'e') {
         const off = (peek(1) === '+' || peek(1) === '-') ? 2 : 1;
         const after = peek(off);
         if (after >= '0' && after <= '9') {
@@ -671,7 +686,7 @@ function lex(source) {
           while (pos < len && ch() >= '0' && ch() <= '9') { num += ch(); advance(); }
         }
       }
-      tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e')&&!num.includes('E'), line:startLine, col:startCol});
+      tokens.push({type:T.NUMBER, value:parseFloat(num), isInt:!num.includes('.')&&!num.includes('e'), line:startLine, col:startCol});
       continue;
     }
 
@@ -736,8 +751,8 @@ function lex(source) {
         break;
       case '*': advance(); if(ch()==='='){advance();add(T.STARASSIGN,'*=');}else if(ch()==='*'){advance();add(T.CARET,'^');}else{add(T.STAR,'*');} break;
       case '/': advance(); if(ch()==='='){advance();add(T.SLASHASSIGN,'/=');}else{add(T.SLASH,'/');} break;
-      case '^': advance(); if(ch()==='^'){advance();add(T.HATHAT,'^^');}else{add(T.CARET,'^');} break;
-      case '%': advance(); add(T.PERCENT,'%'); break;
+      case '^': advance(); if(ch()==='^'){advance();add(T.HATHAT,'^^');}else if(ch()==='='){advance();add(T.CARETASSIGN,'^=');}else{add(T.CARET,'^');} break;
+      case '%': advance(); if(ch()==='='){advance();add(T.PERCENTASSIGN,'%=');}else{add(T.PERCENT,'%');} break;
       case '(': advance(); add(T.LPAREN,'('); break;
       case ')': advance(); add(T.RPAREN,')'); break;
       case '{': advance(); add(T.LBRACE,'{'); break;
@@ -747,7 +762,7 @@ function lex(source) {
       case ',': advance(); add(T.COMMA,','); break;
       case ';': advance(); add(T.SEMI,';'); break;
       case ':': advance(); add(T.COLON,':'); break;
-      case '#': advance(); add(T.HASH,'#'); break;
+      case '#': advance(); if(ch()==='='){advance();add(T.HASHASSIGN,'#=');}else{add(T.HASH,'#');} break;
       case '?': advance(); add(T.QUESTION,'?'); break;
       case '=': advance(); if(ch()==='='){advance();add(T.EQ,'==');}else{add(T.ASSIGN,'=');} break;
       case '!': advance(); if(ch()==='='){advance();add(T.NEQ,'!=');}else{add(T.NOT,'!');} break;
@@ -808,6 +823,7 @@ function PathExpr(nodes,line) { return {type:'PathExpr',nodes,line}; }
 function parse(tokens) {
   let pos = 0;
   const TYPE_NAMES = new Set(BASE_TYPE_NAMES);
+  const STRUCT_NAMES = new Set();
 
   function cur() { return tokens[pos]; }
   function at(type) { return cur().type === type; }
@@ -839,7 +855,18 @@ function parse(tokens) {
   // Check for declaration: type name = ... or type name ; or type name ,
   // Also handles type[][] name and type name[]
   function isDeclaration() {
-    if (!isTypeName()) return false;
+    if (!isTypeName()) {
+      // Unknown type (from a module HiTeXeR doesn't model, e.g. `face[] f;`
+      // or `tree t = ...;`): IDENT ([])* IDENT followed by = ; or , can only
+      // be a declaration.
+      if (!at(T.IDENT) || NON_TYPE_WORDS.has(cur().value)) return false;
+      const off = skipArrayBrackets(1);
+      if (peekType(off) !== T.IDENT || NON_TYPE_WORDS.has(peekVal(off))) return false;
+      const nt = peekType(off + 1);
+      if (nt !== T.ASSIGN && nt !== T.SEMI && nt !== T.COMMA) return false;
+      TYPE_NAMES.add(cur().value);
+      return true;
+    }
     const off = skipArrayBrackets(1);
     if (peekType(off) === T.IDENT) return true;
     return false;
@@ -847,8 +874,10 @@ function parse(tokens) {
 
   // Check for function declaration: type name(...)
   function isFuncDecl() {
-    if (!isTypeName()) return false;
+    // Unknown return types are allowed; the caller confirms a body follows.
+    if (!isTypeName() && (!at(T.IDENT) || NON_TYPE_WORDS.has(cur().value))) return false;
     const off = skipArrayBrackets(1);
+    if (peekType(off) === T.IDENT && NON_TYPE_WORDS.has(peekVal(off))) return false;
     if (peekType(off) === T.IDENT && peekType(off+1) === T.LPAREN) return true;
     return false;
   }
@@ -945,77 +974,68 @@ function parse(tokens) {
       return null;
     }
 
-    // Skip 'static' modifier
-    if (atVal(T.IDENT,'static')) pos++;
+    // Skip declaration modifiers (asy's static/private/public/restricted).
+    while (at(T.IDENT) && DECL_MODIFIERS.has(cur().value) && peekType(1) === T.IDENT) pos++;
 
-    // struct Name { type field; type field = init; ... } — parse and store field definitions
-    // Also allow 'struct Name;' forward declaration.
+    // struct Name { ... } — the body is an ordinary statement list, run for
+    // every new instance (fields, initializers, methods, operator init);
+    // `static` members run once, at the definition. `struct Name;` is a
+    // forward declaration.
     if (atVal(T.IDENT,'struct')) {
+      const ln = cur().line;
       pos++;
       if (at(T.IDENT)) {
         const sname = cur().value;
         pos++;
         TYPE_NAMES.add(sname);
+        STRUCT_NAMES.add(sname);
         if (at(T.LBRACE)) {
           eat(T.LBRACE);
-          const fields = [];
+          const body = [];
           while (!at(T.RBRACE) && !at(T.EOF)) {
-            // Parse field: type name [= init];
-            // Skip methods (type name(...){...}) by checking for LPAREN after name
-            if (isTypeName()) {
-              let fType = eat(T.IDENT).value;
-              while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; fType += '[]'; }
-              if (at(T.IDENT)) {
-                const fName = cur().value;
-                pos++;
-                // Check if this is a method (has parens) — skip it
-                if (at(T.LPAREN)) {
-                  // Skip method: consume params and body
-                  let depth = 1; eat(T.LPAREN);
-                  while (depth > 0 && !at(T.EOF)) {
-                    if (at(T.LPAREN)) depth++;
-                    if (at(T.RPAREN)) depth--;
-                    pos++;
-                  }
-                  if (at(T.LBRACE)) {
-                    depth = 1; eat(T.LBRACE);
-                    while (depth > 0 && !at(T.EOF)) {
-                      if (at(T.LBRACE)) depth++;
-                      if (at(T.RBRACE)) depth--;
-                      pos++;
-                    }
-                  }
-                  tryEat(T.SEMI);
-                } else {
-                  // Array-after-name syntax: type name[]
-                  while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; fType += '[]'; }
-                  // Field with optional initializer
-                  let fInit = null;
-                  if (tryEat(T.ASSIGN)) fInit = parseExpr();
-                  fields.push({type: fType, name: fName, init: fInit});
-                  tryEat(T.SEMI);
-                }
-              } else {
-                // Skip to semicolon on parse error
-                while (!at(T.SEMI) && !at(T.RBRACE) && !at(T.EOF)) pos++;
-                tryEat(T.SEMI);
-              }
-            } else {
-              // Skip unrecognized line
-              while (!at(T.SEMI) && !at(T.RBRACE) && !at(T.EOF)) pos++;
-              tryEat(T.SEMI);
+            let isStatic = false;
+            while (at(T.IDENT) && DECL_MODIFIERS.has(cur().value) && peekType(1) === T.IDENT) {
+              if (cur().value === 'static') isStatic = true;
+              pos++;
             }
+            const st = parseStatement();
+            if (st) { if (isStatic) st._static = true; body.push(st); }
           }
           eat(T.RBRACE);
-          STRUCT_DEFS.set(sname, fields);
+          tryEat(T.SEMI);
+          return {type:'StructDecl', name: sname, body, line: ln};
         }
         tryEat(T.SEMI);
-        return null; // struct definition doesn't produce a runtime node
+        return null;
       }
       // malformed struct — eat to next semicolon to avoid loops
       while (!at(T.SEMI) && !at(T.EOF)) pos++;
       tryEat(T.SEMI);
       return null;
+    }
+
+    // Operator definition: `T operator +(T a, T b) {...}`, `void operator init(...)`.
+    if (at(T.IDENT) && !NON_TYPE_WORDS.has(cur().value)) {
+      const off = skipArrayBrackets(1);
+      if (peekType(off) === T.IDENT && peekVal(off) === 'operator' && peekType(off+1) !== T.LPAREN) {
+        const ln = cur().line;
+        let retType = eat(T.IDENT).value;
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; retType += '[]'; }
+        pos++; // 'operator'
+        let opName;
+        if (at(T.IDENT)) opName = ' ' + eat(T.IDENT).value;          // init, cast, ecast
+        else if (at(T.COLON) && peekType(1) === T.COLON) { pos += 2; opName = '::'; }
+        else if (at(T.LBRACKET)) { opName = ''; while (!at(T.RBRACKET) && !at(T.EOF)) opName += tokens[pos++].value; opName += ']'; pos++; }
+        else opName = tokens[pos++].value;
+        // Operator-valued variable: `blockconnector operator --=blockconnector(pic,t);`
+        if (at(T.ASSIGN)) {
+          pos++;
+          const init = parseExpr();
+          tryEat(T.SEMI);
+          return VarDecl(retType, 'operator' + opName, init, ln);
+        }
+        return parseFuncDeclBody(retType, 'operator' + opName, ln);
+      }
     }
 
     // Function declaration: type name(...) {...}
@@ -1042,6 +1062,17 @@ function parse(tokens) {
           pos = paramStart;
           return parseFuncDeclBody(retType, name, cur().line);
         }
+        // Function-typed variable: `real sq(real x) = new real(real x) {...};`
+        if (at(T.ASSIGN)) {
+          const ln = cur().line;
+          pos++;
+          const init = parseExpr();
+          tryEat(T.SEMI);
+          return VarDecl(retType + '()', name, init, ln);
+        }
+        // Prototype `real f(real);` declares an unset function variable; a
+        // later definition supplies the body, so it is a no-op here.
+        if (at(T.SEMI)) { pos++; return null; }
       }
       pos = saved; // not a func decl, reparse as expression/decl
     }
@@ -1181,17 +1212,23 @@ function parse(tokens) {
       return {type:'ForEachStmt', elemType: 'var', elemName, iter: iterExpr, body, line: ln};
     }
 
+    // init and update may be comma lists: for (i = 0, j = n; ...; ++i, --j)
+    const exprList = () => {
+      const list = [parseExprOrAssign(true)];
+      while (tryEat(T.COMMA)) list.push(parseExprOrAssign(true));
+      return list.length === 1 ? list[0] : {type:'MultiDecl', stmts: list, line: ln};
+    };
     let init = null;
     if (!at(T.SEMI)) {
       if (isDeclaration()) init = parseVarDecl(true);
-      else init = parseExprOrAssign(true);
+      else init = exprList();
     }
     tryEat(T.SEMI);
     let cond = null;
     if (!at(T.SEMI)) cond = parseExpr();
     eat(T.SEMI);
     let update = null;
-    if (!at(T.RPAREN)) update = parseExprOrAssign(true);
+    if (!at(T.RPAREN)) update = exprList();
     eat(T.RPAREN);
     const body = parseStatement();
     return ForStmt(init, cond, update, body, ln);
@@ -1242,15 +1279,27 @@ function parse(tokens) {
     eat(T.LPAREN);
     const params = [];
     while (!at(T.RPAREN) && !at(T.EOF)) {
+      // Rest parameter: `... real[] xs` (also `real a ... real[] b`, no comma).
+      const rest = !!tryEat(T.DOTDOTDOT);
+      if (atVal(T.IDENT, 'explicit')) pos++;
       let pType = 'real';
-      if (isTypeName()) {
+      // A known type, or an unknown one followed by a name (`tree t`,
+      // `face[] fs`) or by nothing (unnamed parameter).
+      const off = skipArrayBrackets(1);
+      if (isTypeName() || (at(T.IDENT) && (peekType(off) === T.IDENT
+          || peekType(off) === T.COMMA || peekType(off) === T.RPAREN) && off > 1)
+          || (at(T.IDENT) && peekType(1) === T.IDENT && !NON_TYPE_WORDS.has(cur().value))) {
         pType = eat(T.IDENT).value;
         // Handle type[], type[][], etc.
         while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; pType += '[]'; }
       }
-      // Function-type parameter: void checker(int,int) or pair f(real)
-      if (at(T.IDENT) && peekType(1) === T.LPAREN) {
-        const pName = eat(T.IDENT).value;
+      let pName;
+      if (at(T.COMMA) || at(T.RPAREN) || at(T.DOTDOTDOT)) {
+        // Unnamed parameter: `new void(frame, transform t) {...}`.
+        pName = '_arg' + params.length;
+      } else if (at(T.IDENT) && peekType(1) === T.LPAREN) {
+        // Function-type parameter: void checker(int,int) or pair f(real)
+        pName = eat(T.IDENT).value;
         // Skip the function signature (params inside parens)
         eat(T.LPAREN);
         let depth = 1;
@@ -1260,17 +1309,17 @@ function parse(tokens) {
           if (depth > 0) pos++;
         }
         eat(T.RPAREN);
-        let pDefault = null;
-        if (tryEat(T.ASSIGN)) pDefault = parseExpr();
-        params.push({type: pType, name: pName, default: pDefault});
       } else {
-        const pName = eat(T.IDENT).value;
+        pName = eat(T.IDENT).value;
         // Handle array-after-name: pair vertices[], int arr[][]
         while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) { pos += 2; pType += '[]'; }
-        let pDefault = null;
-        if (tryEat(T.ASSIGN)) pDefault = parseExpr();
-        params.push({type: pType, name: pName, default: pDefault});
       }
+      let pDefault = null;
+      if (tryEat(T.ASSIGN)) pDefault = parseExpr();
+      const prm = {type: pType, name: pName, default: pDefault};
+      if (rest) prm.rest = true;
+      params.push(prm);
+      if (at(T.DOTDOTDOT)) continue;
       if (!tryEat(T.COMMA)) break;
     }
     eat(T.RPAREN);
@@ -1292,7 +1341,8 @@ function parse(tokens) {
   function parseAssignExpr() {
     const ln = cur().line;
     const expr = parseExpr();
-    if (at(T.ASSIGN)||at(T.PLUSASSIGN)||at(T.MINUSASSIGN)||at(T.STARASSIGN)||at(T.SLASHASSIGN)) {
+    if (at(T.ASSIGN)||at(T.PLUSASSIGN)||at(T.MINUSASSIGN)||at(T.STARASSIGN)||at(T.SLASHASSIGN)
+        ||at(T.HASHASSIGN)||at(T.PERCENTASSIGN)||at(T.CARETASSIGN)) {
       const op = eat(cur().type).value;
       const val = parseAssignExpr(); // right-associative: supports a = b = c
       return Assignment(expr, op, val, ln);
@@ -1328,8 +1378,10 @@ function parse(tokens) {
   function infixPrec() {
     const t = cur();
     switch (t.type) {
-      case T.OR: return 2;
-      case T.AND: return 3;
+      // asy (camp.y): || < && < | < & < ==. The lexer gives & and && (| and
+      // ||) one token type each, so split them by spelling.
+      case T.OR: return t.value === '|' ? 3.3 : 2;
+      case T.AND: return t.value === '&' ? 3.6 : 3;
       case T.EQ: case T.NEQ: return 4;
       case T.LT: case T.GT: case T.LE: case T.GE: return 5;
       case T.PLUS: case T.MINUS: return 6;
@@ -1402,6 +1454,10 @@ function parse(tokens) {
     }
     // operator-- / operator.. / operator+ etc. used as callable: operator--(pts)
     if (t.type === T.LPAREN && left.type === 'OperatorLit') {
+      return parseFuncCallNode(left, ln);
+    }
+    // Calling a function value from an array or a call: fs[i](x), f(a)(b).
+    if (t.type === T.LPAREN && (left.type === 'ArrayAccess' || left.type === 'FuncCall')) {
       return parseFuncCallNode(left, ln);
     }
 
@@ -1676,6 +1732,10 @@ function parse(tokens) {
       if (aType === 'picture' && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
         return {type:'NewPicture', line: ln};
       }
+      // new S — a fresh instance of a user struct
+      if (STRUCT_NAMES.has(aType) && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
+        return {type:'NewStruct', name: aType, line: ln};
+      }
       // Anonymous function: new type(params){ body }
       if (at(T.LPAREN)) {
         const saved = pos;
@@ -1772,7 +1832,7 @@ function parse(tokens) {
     // mid-typed `{1,}` direction spec consumes the `}` here and creates an
     // infinite loop in parseExpr (see parsePathExpr/tryParseDir).
     if (t.type === T.RBRACE || t.type === T.RPAREN || t.type === T.RBRACKET) {
-      throw new Error('unexpected ' + (t.value || t.type));
+      throw new Error(`Parse error line ${t.line}: unexpected ${t.value || t.type}`);
     }
     pos++;
     return NullLit(ln);
@@ -1790,30 +1850,6 @@ function makeTriple(x,y,z) { return {_tag:'triple', x:x||0, y:y||0, z:z||0}; }
 function makePen(props) {
   return Object.assign({_tag:'pen', r:0, g:0, b:0, linewidth:0.5, linestyle:null,
     fontsize:12, opacity:1, linecap:null, linejoin:null, fillrule:null, _lwExplicit:false, fontFamily:null}, props);
-}
-// Create a struct instance with default values for each field
-// Note: Initializers are NOT evaluated here (would need access to evalNode inside createInterpreter).
-// This is sufficient for simple structs like HitInfo that only use type defaults.
-function createStructInstance(structName) {
-  const fields = STRUCT_DEFS.get(structName);
-  if (!fields) return {}; // Unknown struct
-  const obj = {}; // Plain object, no _tag so generic member access works
-  for (const f of fields) {
-    // Default values by type (initializers ignored for simplicity)
-    switch(f.type) {
-      case 'int': case 'real': obj[f.name] = 0; break;
-      case 'pair': obj[f.name] = makePair(0,0); break;
-      case 'triple': obj[f.name] = makeTriple(0,0,0); break;
-      case 'string': obj[f.name] = ''; break;
-      case 'bool': obj[f.name] = false; break;
-      case 'pen': obj[f.name] = makePen({}); break;
-      case 'path': case 'guide': obj[f.name] = makePath([],false); break;
-      default:
-        if (f.type.endsWith('[]')) obj[f.name] = [];
-        else obj[f.name] = null;
-    }
-  }
-  return obj;
 }
 function makeTransform(a,b,c,d,e,f) { return {_tag:'transform',a,b,c,d,e,f}; }
 function makePath(segs, closed) { return {_tag:'path', segs: segs||[], closed:!!closed}; }
@@ -2830,7 +2866,10 @@ function createInterpreter() {
   let _defaultpenLwSet = false; // whether defaultpen() explicitly set a linewidth
   let _legendEntries = [];    // collected {text, pen} entries for legend()
   const patternRegistry = {}; // name -> {_tag:'pattern',...} from patterns module
-  let iterationLimit = 100000;
+  // One deterministic budget of evaluation steps per render. Real asy has no
+  // cap and the old per-loop cap (100000 iterations) broke legit long loops,
+  // but a runaway loop or recursion must still stop, within seconds.
+  let _opBudget = OP_BUDGET;
   let _imageCache = {};    // pre-fetched graphic() image data
   // Registry mapping sentinel ids -> graphic objects, populated when a graphic
   // value is string-concatenated (e.g. "\reflectbox{" + graphic(...) + "}").
@@ -3239,6 +3278,82 @@ function createInterpreter() {
     };
   }
 
+  // Scope backed by a struct instance (or a struct's static members): names
+  // declared in the struct body live on `obj`, so methods see fields as bare
+  // names and `obj.f` sees what the body declared. `this` is the instance.
+  function createObjEnv(obj, parent) {
+    const own = n => Object.prototype.hasOwnProperty.call(obj, n);
+    return {
+      parent, _isObjEnv: true,
+      hasOwn: own,
+      get(n) {
+        if (own(n)) return obj[n];
+        if (n === 'this' && obj._structDef) return obj;
+        return parent.get(n);
+      },
+      getFunc(n) {
+        if (own(n) && _isCallableBinding(obj[n])) return obj[n];
+        return parent.getFunc ? parent.getFunc(n) : undefined;
+      },
+      set(n, v) { obj[n] = v; },
+      has(n) { return own(n) || parent.has(n); },
+      update(n, v) { if (own(n)) { obj[n] = v; return true; } return parent.update(n, v); },
+    };
+  }
+
+  // User structs: name -> {_tag:'structtype', name, body, statics, staticEnv}.
+  // Kept apart from the variable scope so a struct can't shadow a builtin of
+  // the same name.
+  const structTypes = new Map();
+  const _instantiating = new Set();
+  function evalStructDecl(node, env) {
+    const def = {_tag:'structtype', name: node.name, body: node.body, statics: {}};
+    def.staticEnv = createObjEnv(def.statics, env);
+    structTypes.set(node.name, def);
+    for (const st of node.body) if (st._static) evalNode(st, def.staticEnv);
+    return null;
+  }
+  function instantiateStruct(def) {
+    const obj = {};
+    Object.defineProperty(obj, '_structDef', {value: def, enumerable: false});
+    const objEnv = createObjEnv(obj, def.staticEnv);
+    _instantiating.add(def.name);
+    try {
+      for (const st of def.body) if (!st._static) evalNode(st, objEnv);
+    } finally { _instantiating.delete(def.name); }
+    return obj;
+  }
+  // Member lookup on a struct instance falls back to the struct's statics.
+  function structMember(obj, m) {
+    if (obj._tag === 'structtype') return obj.statics[m];
+    if (Object.prototype.hasOwnProperty.call(obj, m)) return obj[m];
+    return obj._structDef.statics[m];
+  }
+  const isStructVal = v => v && typeof v === 'object' && (v._structDef || v._tag === 'structtype');
+
+  // User-defined operators (`V operator +(V a, V b)`), by name ('operator+').
+  // Tried before the builtin semantics, but only when every operand matches
+  // the declared parameter type exactly.
+  const _userOps = new Map();
+  const _NO_USER_OP = {};
+  function _userOpMatch(val, type) {
+    if (structTypes.has(type)) return !!(val && val._structDef && val._structDef.name === type);
+    if (!BASE_TYPE_NAMES.has(type) && !type.endsWith('[]')) return false;
+    return argMatchesParamType(val, type);
+  }
+  function tryUserOp(names, args) {
+    for (const nm of names) {
+      const alts = _userOps.get(nm);
+      if (!alts) continue;
+      for (let i = alts.length - 1; i >= 0; i--) {
+        const ps = alts[i].params;
+        if (ps.length !== args.length) continue;
+        if (args.every((a, k) => _userOpMatch(a, ps[k].type))) return callUserFuncValues(alts[i], args);
+      }
+    }
+    return _NO_USER_OP;
+  }
+
   const globalEnv = createEnv(null);
   // _builtinFuncs: preserves built-in functions so that user variable
   // declarations (e.g. `real scale = 0.02;`) cannot permanently shadow them.
@@ -3268,6 +3383,7 @@ function createInterpreter() {
 
   function evalNode(node, env) {
     if (!node) return null;
+    if (--_opBudget < 0) throw new Error(OP_BUDGET_MSG);
     switch(node.type) {
       case 'Program': return evalProgram(node, env);
       case 'Block': return evalBlock(node, env);
@@ -3281,6 +3397,8 @@ function createInterpreter() {
       case 'TripleLit': return makeTriple(toNumber(evalNode(node.x,env)), toNumber(evalNode(node.y,env)), toNumber(evalNode(node.z,env)));
       case 'ArrayExpr': return node.elements.map(e => evalNode(e,env));
       case 'NewPicture': return {_tag:'picture', commands:[]};
+      case 'NewStruct': { const d = structTypes.get(node.name); return d ? instantiateStruct(d) : {}; }
+      case 'StructDecl': return evalStructDecl(node, env);
       case 'NewArray': {
         const dims = node.dims.map(d => d ? Math.floor(toNumber(evalNode(d, env))) : 0);
         function allocArray(depth) {
@@ -3398,6 +3516,7 @@ function createInterpreter() {
   function evalIdent(node, env) {
     const v = env.get(node.name);
     if (v === undefined) {
+      if (structTypes.has(node.name)) return structTypes.get(node.name);
       // Might be a function name used as identifier
       return null;
     }
@@ -3412,7 +3531,17 @@ function createInterpreter() {
       if (op === T.OR && left) return true;
     }
     const right = evalNode(node.right, env);
+    return binaryOpValues(op, left, right);
+  }
 
+  // Full binary-operator semantics on evaluated operands. Shared by
+  // expressions and compound assignment (asy defines `a op= b` as
+  // `a = a op b`, so both must agree for every operand type).
+  function binaryOpValues(op, left, right) {
+    if (_userOps.size) {
+      const r = tryUserOp(op === T.AND ? ['operator&&', 'operator&'] : op === T.OR ? ['operator||', 'operator|'] : ['operator' + op], [left, right]);
+      if (r !== _NO_USER_OP) return r;
+    }
     // Fast path: number (op) number, the common case in loops. Same results
     // as the general "Number ops" switch at the end of this function.
     if (typeof left === 'number' && typeof right === 'number') {
@@ -3434,6 +3563,17 @@ function createInterpreter() {
         case T.OR: return left !== 0 || right !== 0;
       }
     }
+
+    // Reference equality: struct instances, and anything compared with null.
+    if ((op === T.EQ || op === T.NEQ) &&
+        ((left == null && (right == null || typeof right === 'object' || typeof right === 'function')) ||
+         (right == null && (typeof left === 'object' || typeof left === 'function')) ||
+         (isStructVal(left) && isStructVal(right)))) {
+      const same = (left == null && right == null) || left === right;
+      return op === T.EQ ? same : !same;
+    }
+    // bool ^ bool is exclusive or (asy's operator ^(bool,bool)), not a power.
+    if (op === T.CARET && typeof left === 'boolean' && typeof right === 'boolean') return left !== right;
 
     // asy 3.11 Set_T operators: + union, - difference, & intersection,
     // ^ symmetric difference, <=/>= subset, ==/!= set equality. T.AND covers
@@ -4134,69 +4274,12 @@ function createInterpreter() {
   function pairToStr(p) { return `(${p.x},${p.y})`; }
   function tripleToStr(t) { return `(${t.x},${t.y},${t.z})`; }
 
-  // Evaluate binary op on raw values (for compound assignment)
-  function evalBinaryValues(op, left, right) {
-    if (op === T.PLUS && isPen(left) && isPen(right)) return mergePens(left, right);
-    if (isPair(left) && isPair(right)) {
-      if (op===T.PLUS) return makePair(left.x+right.x,left.y+right.y);
-      if (op===T.MINUS) return makePair(left.x-right.x,left.y-right.y);
-    }
-    if (isNumber(left) && isPair(right) && op===T.STAR) return makePair(left*right.x,left*right.y);
-    if (isPair(left) && isNumber(right)) {
-      if (op===T.STAR) return makePair(left.x*right,left.y*right);
-      if (op===T.SLASH) return right?makePair(left.x/right,left.y/right):makePair(0,0);
-    }
-    if (isString(left)||isString(right)||isGraphic(left)||isGraphic(right)) {
-      if (op===T.PLUS) {
-        // 09043: `"\reflectbox{" + graphic(...) + "}"` concatenates a graphic
-        // object into a string. Plain String() coerces to "[object Object]";
-        // instead emit a sentinel that label() can recover the graphic from.
-        const _stringify = (v) => {
-          if (isGraphic(v)) {
-            const id = ++_graphicSentinelCounter;
-            _graphicSentinels[id] = v;
-            return '__HITEXER_GRAPHIC_' + id + '__';
-          }
-          return String(v);
-        };
-        return _stringify(left) + _stringify(right);
-      }
-    }
-    // Triple ops — mirror evalBinary so compound assignment (+=, -=, *=, /=) and
-    // ++/-- on triple variables stay triples. Without these, `centroid += v` /
-    // `centroid /= n` (the c582_L14 polyhedron helpers' face-orientation code)
-    // fell through to the toNumber() fallback below, collapsing the triple to its
-    // magnitude and corrupting every back-face-culling decision.
-    if (isTriple(left) || isTriple(right)) {
-      if (isTriple(left) && isTriple(right)) {
-        if (op===T.PLUS)  return makeTriple(left.x+right.x, left.y+right.y, left.z+right.z);
-        if (op===T.MINUS) return makeTriple(left.x-right.x, left.y-right.y, left.z-right.z);
-      }
-      if (isNumber(left) && isTriple(right) && op===T.STAR)
-        return makeTriple(left*right.x, left*right.y, left*right.z);
-      if (isTriple(left) && isNumber(right)) {
-        if (op===T.STAR)  return makeTriple(left.x*right, left.y*right, left.z*right);
-        if (op===T.SLASH) return right ? makeTriple(left.x/right, left.y/right, left.z/right) : makeTriple(0,0,0);
-      }
-    }
-    // transform3 composition / application (e.g. `T *= rotate(...)`, `p *= T`).
-    if (op===T.STAR) {
-      if (isTransform3(left) && isTransform3(right)) return composeTransform3(left, right);
-      if (isTransform3(left) && isTriple(right))     return applyTransform3Triple(left, right);
-    }
-    // pair *= pair → complex multiply (parity with evalBinary's pair*pair).
-    if (isPair(left) && isPair(right) && op===T.STAR)
-      return makePair(left.x*right.x - left.y*right.y, left.x*right.y + left.y*right.x);
-    const l=toNumber(left),r=toNumber(right);
-    if (op===T.PLUS) return l+r;
-    if (op===T.MINUS) return l-r;
-    if (op===T.STAR) return l*r;
-    if (op===T.SLASH) return r?l/r:0;
-    return 0;
-  }
-
   function evalUnary(node, env) {
     const v = evalNode(node.operand, env);
+    if (_userOps.size) {
+      const r = tryUserOp(['operator' + node.op], [v]);
+      if (r !== _NO_USER_OP) return r;
+    }
     if (node.op === '-') {
       if (isPoint(v)) return makePoint(v.coordsys, makePair(-v.x, -v.y), v.m);
       if (isGeoVector(v)) return makeGeoVector(v.v.coordsys, makePair(-v.v.x, -v.v.y));
@@ -4279,6 +4362,15 @@ function createInterpreter() {
       callee = evalNode(node.callee, env);
     }
 
+    // S(args) for a user struct S runs its `operator init` on a new instance.
+    if (callee === undefined && calleeName && structTypes.has(calleeName)) {
+      const obj = instantiateStruct(structTypes.get(calleeName));
+      const init = obj['operator init'];
+      if (init && init._tag === 'func') callUserFunc(init, node.args, env);
+      else if (init && init._tag === 'overload') invokeFunc(init, evalArgList(node.args, env));
+      return obj;
+    }
+
     // Draw commands: evaluate args with line info
     const drawFuncs = new Set(['draw','fill','filldraw','clip','unfill','label','dot']);
     if (drawFuncs.has(calleeName)) {
@@ -4342,7 +4434,7 @@ function createInterpreter() {
       // Evaluate positional args, pick best-matching alt, then dispatch.
       const positional = node.args.filter(a => a.type !== 'NamedArg');
       const posVals = positional.map(a => evalNode(a, env));
-      const picked = overloadSelect(callee, posVals);
+      const picked = overloadSelect(callee, posVals, positional.map(isIntExpr));
       if (picked) {
         // Builtin fallback selected by overloadSelect (user function shadows a builtin).
         if (typeof picked === 'function') return picked(...posVals);
@@ -4406,8 +4498,46 @@ function createInterpreter() {
       case 'string': return isString(val);
       case 'picture': return val && val._tag === 'picture';
       case 'transform': return val && val._tag === 'transform';
-      default: return true;  // unknown type: allow anything (strict-positional fallback)
+      default:
+        if (structTypes.has(paramType)) return val == null || !!(val._structDef && val._structDef.name === paramType);
+        return true;  // unknown type: allow anything (strict-positional fallback)
     }
+  }
+
+  // A trailing `... T[] xs` parameter collects the leftover positional args
+  // into one array (a single leftover array is passed through as the array).
+  function bundleRestArgs(params, vals) {
+    const n = params.length;
+    if (!n || !params[n - 1].rest) return vals;
+    const k = n - 1;
+    const extra = vals.slice(k);
+    const restVal = (extra.length === 1 && Array.isArray(extra[0]) && !params[k].type.endsWith('[][]')
+                     && !(extra[0].length && Array.isArray(extra[0][0]))) ? extra[0] : extra;
+    return vals.slice(0, k).concat([restVal]);
+  }
+
+  // Statically int-typed expression (asy picks f(int) over f(real) for these).
+  function isIntExpr(n) {
+    if (!n) return false;
+    switch (n.type) {
+      case 'NumberLit': return n.isInt;
+      case 'CastExpr': return n.targetType === 'int';
+      case 'UnaryOp': return n.op === '-' && isIntExpr(n.operand);
+      case 'BinaryOp':
+        if (n.op === T.HASH) return true;
+        if (n.op === T.PLUS || n.op === T.MINUS || n.op === T.STAR || n.op === T.PERCENT) return isIntExpr(n.left) && isIntExpr(n.right);
+        return false;
+      case 'FuncCall': return n.callee.type === 'Identifier' && /^(Floor|Ceil|Round)$/.test(n.callee.name);
+    }
+    return false;
+  }
+
+  // argMatchesParamType plus asy's implicit casts (int->real->pair, pair->path).
+  function argCastsToParamType(val, type) {
+    if (argMatchesParamType(val, type)) return true;
+    if (typeof val === 'number') return type === 'pair' || type === 'triple';
+    if (isPair(val)) return type === 'path' || type === 'guide' || type === 'triple';
+    return false;
   }
 
   function callUserFunc(func, argNodes, callEnv) {
@@ -4425,7 +4555,12 @@ function createInterpreter() {
       }
     }
     // Pre-evaluate positional args for type-based matching
-    const posVals = positional.map(a => evalNode(a, callEnv));
+    let posVals = [];
+    for (const a of positional) {
+      if (a.type === 'SpreadArg') { const v = evalNode(a.value, callEnv); if (Array.isArray(v)) posVals.push(...v); else if (v != null) posVals.push(v); }
+      else posVals.push(evalNode(a, callEnv));
+    }
+    posVals = bundleRestArgs(params, posVals);
     const paramAssigned = new Array(params.length).fill(false);
     const argAssigned = new Array(posVals.length).fill(false);
     // Handle named args first
@@ -4435,19 +4570,26 @@ function createInterpreter() {
         paramAssigned[i] = true;
       }
     }
-    // Type-based matching: assign each positional arg to the first compatible param
+    // asy's matching: positional args fill the parameters in order; a
+    // parameter WITH a default is skipped (left at its default) when the
+    // argument can't be cast to its type. Required parameters are never
+    // skipped, so f(pair z, real r) called as f(3, 2) binds z = (3,0).
+    let nextParam = 0;
     for (let ai = 0; ai < posVals.length; ai++) {
-      const val = posVals[ai];
+      let val = posVals[ai];
       let matched = false;
-      for (let pi = 0; pi < params.length; pi++) {
+      for (let pi = nextParam; pi < params.length; pi++) {
         if (paramAssigned[pi]) continue;
-        if (argMatchesParamType(val, params[pi].type)) {
+        if (val == null || argCastsToParamType(val, params[pi].type)) {
+          if (typeof val === 'number' && params[pi].type === 'pair') val = makePair(val, 0);
           local.set(params[pi].name, val);
           paramAssigned[pi] = true;
           argAssigned[ai] = true;
           matched = true;
+          nextParam = pi + 1;
           break;
         }
+        if (!params[pi].default) break;
       }
       if (!matched) {
         // Fallback: assign to the next unassigned param regardless of type
@@ -4467,7 +4609,7 @@ function createInterpreter() {
         if (params[i].default) {
           local.set(params[i].name, evalNode(params[i].default, local));
         } else {
-          local.set(params[i].name, null);
+          local.set(params[i].name, params[i].rest ? [] : null);
         }
       }
     }
@@ -4496,12 +4638,13 @@ function createInterpreter() {
     // (karlin.rr_cartesian_axes(..., usegrid=false, complexplane=true))
     // bound usegrid INTO xstep and hung the tick loop (04296/13525).
     const _named = {};
-    const _positional = [];
+    let _positional = [];
     for (const a of argValues) {
       if (a && typeof a === 'object' && a._named === true) {
         for (const k of Object.keys(a)) if (k !== '_named') _named[k] = a[k];
       } else _positional.push(a);
     }
+    _positional = bundleRestArgs(params, _positional);
     let _pi = 0;
     for (let i = 0; i < params.length; i++) {
       if (Object.prototype.hasOwnProperty.call(_named, params[i].name)) {
@@ -4511,7 +4654,7 @@ function createInterpreter() {
       } else if (params[i].default) {
         local.set(params[i].name, evalNode(params[i].default, local));
       } else {
-        local.set(params[i].name, null);
+        local.set(params[i].name, params[i].rest ? [] : null);
       }
     }
     try {
@@ -4536,6 +4679,12 @@ function createInterpreter() {
   }
 
   function evalMethodCall(obj, method, argNodes, env) {
+    if (isStructVal(obj)) {
+      const fn = structMember(obj, method);
+      if (fn && fn._tag === 'func') return callUserFunc(fn, argNodes, env);
+      if (fn && (fn._tag === 'overload' || typeof fn === 'function')) return invokeFunc(fn, evalArgList(argNodes, env));
+      return null;
+    }
     // CAD methods are the only ones that need NamedArg wrappers preserved.
     // Other method branches read positional args, and a NamedArg evaluated
     // through evalNode strips its name (returning just the value), which
@@ -5637,6 +5786,7 @@ function createInterpreter() {
   function evalMemberAccess(node, env) {
     const obj = evalNode(node.object, env);
     const m = node.member;
+    if (isStructVal(obj)) { const v = structMember(obj, m); return v === undefined ? null : v; }
     if (isPair(obj)) {
       if (m === 'x') return obj.x;
       if (m === 'y') return obj.y;
@@ -5794,7 +5944,7 @@ function createInterpreter() {
   function evalCast(node, env) {
     const val = evalNode(node.expr, env);
     switch(node.targetType) {
-      case 'int': return Math.floor(toNumber(val));
+      case 'int': return Math.trunc(toNumber(val)); // (int)-3.7 == -3 in asy
       case 'real': return toNumber(val);
       case 'string':
         if (isPair(val)) return '(' + val.x + ',' + val.y + ')';
@@ -6466,6 +6616,10 @@ function createInterpreter() {
         else val = makeGeoVector(cs, toPair(val));
       } else if (node.varType === 'pair' && (isPoint(val) || isGeoVector(val))) {
         val = toPair(val);
+      } else if (node.varType === 'pair' && typeof val === 'number') {
+        val = makePair(val, 0); // implicit real->pair cast: `pair z = 3;` is (3,0)
+      } else if (node.varType === 'pair[]' && Array.isArray(val) && val.some(v => typeof v === 'number')) {
+        val = val.map(v => typeof v === 'number' ? makePair(v, 0) : v);
       } else if (node.varType === 'path[]' && val && val._tag === 'path' && Array.isArray(val._subPaths)) {
         // 03501 idiom: `path[] funnel = a--b--c ^^ d--e--f;` — unwrap the
         // unified path with attached sub-paths into an actual path[].
@@ -6502,9 +6656,11 @@ function createInterpreter() {
             break;
           }
           default:
-            // Check if this is a user-defined struct
-            if (STRUCT_DEFS.has(node.varType)) {
-              val = createStructInstance(node.varType);
+            // A user-struct variable without initializer is a new instance
+            // (asy allocates it), except a field of the struct's own type
+            // (`Node next;` inside struct Node), which stays null.
+            if (structTypes.has(node.varType) && !_instantiating.has(node.varType)) {
+              val = instantiateStruct(structTypes.get(node.varType));
             }
         }
       }
@@ -6514,6 +6670,8 @@ function createInterpreter() {
     return val;
   }
 
+  const COMPOUND_OPS = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH,
+                        '#=':T.HASH, '%=':T.PERCENT, '^=':T.CARET};
   function evalAssignment(node, env) {
     const val = evalNode(node.value, env);
     if (node.target.type === 'Identifier') {
@@ -6522,10 +6680,11 @@ function createInterpreter() {
       if (node.op === '=') {
         env.update(name, val);
       } else {
-        const old = env.get(name);
-        const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
-        const result = evalBinaryValues(ops[node.op], old, val);
+        // A compound assignment (and ++k / --k, parsed as k += 1) yields
+        // the NEW value, so `while (++k < n)` and `write(--k)` see it.
+        const result = binaryOpValues(COMPOUND_OPS[node.op], env.get(name), val);
         env.update(name, result);
+        return result;
       }
       // Track currentpicture reassignment so drawing routes to the right picture
       if (name === 'currentpicture' && val && val._tag === 'picture') {
@@ -6560,8 +6719,7 @@ function createInterpreter() {
         const key = evalNode(node.target.index, env);
         let newVal = val;
         if (node.op !== '=') {
-          const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
-          newVal = evalBinaryValues(ops[node.op], _mapGet(obj, key), val);
+          newVal = binaryOpValues(COMPOUND_OPS[node.op], _mapGet(obj, key), val);
         }
         _mapSet(obj, key, newVal);
         return newVal;
@@ -6570,8 +6728,7 @@ function createInterpreter() {
       if (isArray(obj)) {
         let newVal = val;
         if (node.op !== '=') {
-          const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
-          newVal = evalBinaryValues(ops[node.op], obj[idx], val);
+          newVal = binaryOpValues(COMPOUND_OPS[node.op], obj[idx], val);
         }
         obj[idx] = newVal;
         return newVal;
@@ -6579,17 +6736,17 @@ function createInterpreter() {
       return val;
     }
     if (node.target.type === 'MemberAccess') {
-      const obj = evalNode(node.target.object, env);
+      let obj = evalNode(node.target.object, env);
+      if (obj && obj._tag === 'structtype') obj = obj.statics;
       const mem = node.target.member;
       // Compute newVal for compound assignment (+=, -=, *=, /=)
       let newVal = val;
       if (node.op !== '=') {
-        const ops = {'+=':T.PLUS, '-=':T.MINUS, '*=':T.STAR, '/=':T.SLASH};
         let old;
         if (isPair(obj) && (mem === 'x' || mem === 'y')) old = obj[mem];
         else if (isArray(obj) && mem === 'cyclic') old = obj._cyclic;
         else if (obj && typeof obj === 'object') old = obj[mem];
-        newVal = evalBinaryValues(ops[node.op], old, val);
+        newVal = binaryOpValues(COMPOUND_OPS[node.op], old, val);
       }
       if (isPair(obj)) {
         if (mem === 'x') obj.x = toNumber(newVal);
@@ -6620,10 +6777,8 @@ function createInterpreter() {
   function evalFor(node, env) {
     const local = createEnv(env);
     if (node.init) evalNode(node.init, local);
-    let iters = 0;
     while (true) {
       if (node.cond && !toBool(evalNode(node.cond, local))) break;
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       try {
         if (node.body) evalNode(node.body, local);
       } catch(e) {
@@ -6637,9 +6792,7 @@ function createInterpreter() {
   }
 
   function evalWhile(node, env) {
-    let iters = 0;
     while (toBool(evalNode(node.cond, env))) {
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       try {
         if (node.body) evalNode(node.body, env);
       } catch(e) {
@@ -6652,9 +6805,7 @@ function createInterpreter() {
   }
 
   function evalDoWhile(node, env) {
-    let iters = 0;
     do {
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       try {
         if (node.body) evalNode(node.body, env);
       } catch(e) {
@@ -6680,9 +6831,7 @@ function createInterpreter() {
       iterVal = iterVal._subPaths;
     }
     if (!isArray(iterVal)) return null;
-    let iters = 0;
     for (const item of iterVal) {
-      if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       local.set(node.elemName, item);
       try {
         if (node.body) evalNode(node.body, local);
@@ -6697,8 +6846,13 @@ function createInterpreter() {
 
   function evalFuncDecl(node, env) {
     const func = {_tag:'func', name:node.name, params:node.params, body:node.body, closure:env};
+    if (node.name && node.name.startsWith('operator') && node.name !== 'operator init') {
+      if (!_userOps.has(node.name)) _userOps.set(node.name, []);
+      _userOps.get(node.name).push(func);
+    }
     if (node.name) {
-      const existing = env.has(node.name) ? env.get(node.name) : null;
+      // A struct member only overloads members of the same struct.
+      const existing = (env._isObjEnv ? env.hasOwn(node.name) : env.has(node.name)) ? env.get(node.name) : null;
       if (existing && existing._tag === 'func') {
         env.set(node.name, {_tag:'overload', alts:[existing, func], name:node.name});
       } else if (existing && existing._tag === 'overload') {
@@ -6714,31 +6868,46 @@ function createInterpreter() {
   }
 
   // Select best-matching user function from an overload set.
-  function overloadSelect(overload, posVals) {
+  function overloadSelect(overload, posVals, intFlags) {
     const alts = overload.alts;
     // Score each alt: +2 for exact type match, +1 for compatible, -1 for too-few/many params.
-    let best = null, bestScore = -Infinity;
+    let best = null, bestScore = -Infinity, bestBad = 0;
     for (const alt of alts) {
       const params = alt.params || [];
+      const hasRest = params.length > 0 && params[params.length - 1].rest;
       // Count how many declared params have defaults (we don't track defaults here,
       // but params with initializer are marked via .default in parseFuncDeclBody).
       let required = 0;
-      for (const p of params) if (!p.default) required++;
-      if (posVals.length < required || posVals.length > params.length) continue;
-      let score = 0;
-      for (let i = 0; i < posVals.length; i++) {
-        if (argMatchesParamType(posVals[i], params[i].type)) score += 2;
-        else score -= 1;
+      for (const p of params) if (!p.default && !p.rest) required++;
+      if (posVals.length < required || (!hasRest && posVals.length > params.length)) continue;
+      let score = 0, bad = 0;
+      for (let i = 0; i < posVals.length && i < params.length; i++) {
+        if (params[i].rest) break;
+        if (argMatchesParamType(posVals[i], params[i].type)) {
+          score += 2;
+          // Numbers are untyped at runtime: use the argument's static type to
+          // separate f(int) from f(real) as asy does.
+          if (intFlags && typeof posVals[i] === 'number' && params[i].type === 'int') score += intFlags[i] ? 1 : -1;
+        }
+        else {
+          score -= 1;
+          // An argument asy could not even cast to the parameter type.
+          const v = posVals[i], t = params[i].type;
+          if (v != null && !(typeof v === 'number' && (t === 'pair' || t === 'triple'))
+              && !(isPair(v) && (t === 'path' || t === 'guide' || t === 'triple'))) bad++;
+        }
       }
       // Use >= so that on a tie the LAST defined alt wins. This matches
       // the user's intent when redefining a function with an identical
       // signature: the later definition shadows the earlier one.
-      if (score >= bestScore) { bestScore = score; best = alt; }
+      if (score >= bestScore) { bestScore = score; best = alt; bestBad = bad; }
     }
     // If no alt matched positively (all scores ≤ 0) and a builtin fallback exists,
     // prefer the builtin — this handles cases like user `pair exp(pair)` overloading
-    // real `exp(real)`: when called with a real, the builtin should win.
-    if (overload.builtin && bestScore <= 0) return overload.builtin;
+    // real `exp(real)`: when called with a real, the builtin should win. Same
+    // when the best user alt has an argument of an incompatible type: 12903's
+    // `picture box(string s, pair z)` calls the builtin `box(pair, pair)`.
+    if (overload.builtin && (bestScore <= 0 || bestBad > 0)) return overload.builtin;
     return best || alts[alts.length - 1];
   }
 
@@ -8463,6 +8632,11 @@ function createInterpreter() {
     env.set('intMin', -2147483648);
     env.set('realMax', Number.MAX_VALUE);
     env.set('realMin', Number.MIN_VALUE);
+    // Core plain constants (not just three's): 12940's Newton loop stops at
+    // `epsilon = 500*realEpsilon`; with realEpsilon unset it never stopped.
+    env.set('realEpsilon', Number.EPSILON);
+    env.set('sqrtEpsilon', Math.sqrt(Number.EPSILON));
+    env.set('mantissaBits', 53);
     env.set('I', makePair(0,1));
     env.set('origin', makePair(0,0));
     // Direction constants are set ONCE at the top of installStdlib (the
@@ -9803,7 +9977,14 @@ function createInterpreter() {
     });
     env.set('floor', _broadcast1(Math.floor));
     env.set('ceil', _broadcast1(Math.ceil));
-    env.set('round', _broadcast1(Math.round));
+    // asy rounds halves away from zero (C round()); Math.round rounds -2.5 to -2.
+    const _asyRound = x => x < 0 ? -Math.round(-x) : Math.round(x);
+    env.set('round', _broadcast1(_asyRound));
+    // Floor/Ceil/Round: int-returning variants (same values here, since
+    // numbers are untyped at runtime).
+    env.set('Floor', _broadcast1(Math.floor));
+    env.set('Ceil', _broadcast1(Math.ceil));
+    env.set('Round', _broadcast1(_asyRound));
     env.set('sgn', _broadcast1(Math.sign));
     env.set('fmod', (x,y) => toNumber(x) % toNumber(y));
     env.set('remainder', (x,y) => {
@@ -20480,8 +20661,8 @@ const _HTX_DATA_FILES = {
     // `offset*V` collapses every vertex to 0, erasing all edges.
     env.set('identity4', identityT3());
     // Floating-point epsilon constants used by 3D/graph modules
-    env.set('realEpsilon', 2.22044604925031e-16);
-    env.set('sqrtEpsilon', 1.4901161193847656e-8);
+    env.set('realEpsilon', Number.EPSILON);
+    env.set('sqrtEpsilon', Math.sqrt(Number.EPSILON));
     env.set('mantissaBits', 53);
 
     // 3D arrow types (treated same as 2D arrows for wireframe rendering).
@@ -39024,7 +39205,6 @@ function render(code, opts) {
   // (05896). Callers can still pass an explicit labelOutput to opt out.
   // Per-render state lives at module scope for historical reasons; reset
   // it so a render never depends on what was rendered before it.
-  STRUCT_DEFS.clear();
   _colRandState = 0x9e3779b9;
   _svgDefSeq = 0;
   opts = opts || {};
