@@ -221,7 +221,11 @@
       el.textContent = text;
     };
     if (!/(^|\.)artofproblemsolving\.com$/.test(location.hostname)) {
-      banner('The HiTeXeR uploader only works in the AoPS tab that HiTeXeR opens.', '#b00020');
+      banner('Click the HiTeXeR uploader bookmark in the AoPS tab that HiTeXeR opens, not here. (Click to close.)', '#b00020');
+      var warn = document.getElementById('htx-bridge-banner');
+      warn.style.cursor = 'pointer';
+      warn.onclick = function () { warn.remove(); };
+      setTimeout(function () { warn.remove(); }, 6000);
       return;
     }
     var op = window.opener;
@@ -284,6 +288,26 @@
   let readyWaiters = [];
   const pending = new Map();
 
+  // The bookmark's warning bar lands on this page if someone clicks it here
+  // instead of in the AoPS tab. Bookmarks saved before v9.107 make that bar
+  // permanent and let it cover the toolbar, so clear it from this side.
+  function clearStrayBanner() {
+    const el = document.getElementById('htx-bridge-banner');
+    if (el) el.remove();
+  }
+  if (typeof window !== 'undefined' && typeof MutationObserver !== 'undefined') {
+    const watch = () => new MutationObserver(() => {
+      const el = document.getElementById('htx-bridge-banner');
+      if (el && !el.dataset.htxTimed) {
+        el.dataset.htxTimed = '1';
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', clearStrayBanner);
+        setTimeout(clearStrayBanner, 6000);
+      }
+    }).observe(document.body, { childList: true });
+    if (document.body) watch(); else document.addEventListener('DOMContentLoaded', watch);
+  }
+
   if (typeof window !== 'undefined') {
     window.addEventListener('message', (e) => {
       if (!/^https:\/\/([a-z0-9-]+\.)*artofproblemsolving\.com$/.test(e.origin)) return;
@@ -291,6 +315,7 @@
       if (m.type === 'htx-bridge-ready') {
         bridgeWin = e.source;
         bridgeReady = true;
+        clearStrayBanner();
         try { localStorage.setItem(CONNECTED_KEY, '1'); } catch (err) {}
         const w = readyWaiters; readyWaiters = [];
         w.forEach((f) => f(true));
