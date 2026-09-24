@@ -18,6 +18,12 @@
 - Editor: `refactor/browser-test.js`, `responsive-test.js` (headless, need a
   static server on :8765) and `hosted-test.js` (the live Pages site).
 - In a git worktree, `sh refactor/link-data.sh` links the untracked corpus.
+  **Before removing that worktree, run `sh refactor/unlink-data.sh` in it and
+  check it prints "safe to remove".** `git worktree remove --force` follows
+  the junctions and deletes the MAIN checkout's `comparison/asy_src`,
+  `comparison/texer_pngs` and `node_modules`. That happened on 2026-09-24;
+  the PNGs came back from `G:\My Drive\ClaudeSync\transfers\HiTeXeR\
+  texer_pngs.zip` (June 25) plus a refetch of the gallery ids changed since.
 
 ## Renders must not depend on earlier renders
 
