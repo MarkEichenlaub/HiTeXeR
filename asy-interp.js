@@ -25771,6 +25771,9 @@ const _HTX_DATA_FILES = {
             }
             const i0 = f._gi, j0 = f._gj;
             const j1 = cyc ? ((j0 + 1) % (gC - 1)) : (j0 + 1);
+            // A face outside the normal grid (12792/12822: the grid came from
+            // a differently-sampled surface) keeps its flat shading.
+            if (!vn[i0] || !vn[i0+1] || !vn[i0][j1] || !vn[i0+1][j1]) { newFaces.push(f); continue; }
             const N00 = vn[i0][j0], N10 = vn[i0+1][j0];
             const N11 = vn[i0+1][j1], N01 = vn[i0][j1];
             // Get corner colors for this face
@@ -39394,6 +39397,10 @@ function _inlineMathSvg(line, fontSize) {
       out += `<tspan font-weight="bold">${_inlineMathSvg(mB[1], fontSize)}</tspan>`;
       lastB = mB.index + mB[0].length;
     }
+    // No match (braces nested deeper than the pattern allows): drop the
+    // command word and carry on, instead of recursing on the same string
+    // forever (12848 overflowed the stack).
+    if (lastB === 0) return _inlineMathSvg(line.replace(/\\textbf\s*/g, ''), fontSize);
     if (lastB < line.length) out += _inlineMathSvg(line.slice(lastB), fontSize);
     return out;
   }
