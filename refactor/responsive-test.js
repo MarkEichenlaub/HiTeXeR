@@ -3,7 +3,7 @@ const puppeteer=require('puppeteer');const fs=require('fs');
 (async()=>{const b=await puppeteer.launch({headless:'new'});const p=await b.newPage();
 await p.goto('http://localhost:8765/index.html',{waitUntil:'load'});
 await p.waitForFunction(()=>window.katexSvg&&katexSvg.ready(),{timeout:30000});await new Promise(r=>setTimeout(r,2000));
-const heavy=fs.readFileSync('comparison/asy_src/08919.asy','utf8');
+const heavy='real s=0; for(int i=0;i<3000000;++i) s+=sin(i); dot((s,0));';
 await p.evaluate(src=>{editor.setValue(src)},heavy);
 await new Promise(r=>setTimeout(r,600));
 // main thread latency while heavy render is running
@@ -14,4 +14,4 @@ await p.waitForFunction(()=>{const s=document.querySelector('#preview-container 
 console.log('small edit shown',Date.now()-t1,'ms after typing');
 await new Promise(r=>setTimeout(r,1500));
 console.log('final status:',await p.evaluate(()=>document.getElementById('status').textContent));
-await b.close();process.exit(0)})().catch(e=>{console.error(e.message);process.exit(1)});
+b.close().catch(()=>{});process.exit(0)})().catch(e=>{console.error(e.message);process.exit(1)});

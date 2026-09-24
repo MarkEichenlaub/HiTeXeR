@@ -726,7 +726,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.108</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.109</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2929,36 +2929,50 @@ let gridActive = false; // grid overlay toggle state
 let labelSlideActive = false; // label-slide mode toggle state (module-scope so doRender() can read it)
 
 // Background rendering. The interpreter runs in render-worker.js so a slow
-// diagram never freezes typing, and a render made stale by further edits is
-// killed instead of finishing. A warm spare worker is kept so replacing a
-// killed one costs nothing. If workers can't start (file:// page, blocked
-// CDN), render() falls back to rendering on the page itself.
+// diagram never freezes typing or dragging. newEpoch() abandons everything
+// requested before it; see KILL_MS below for when stale work gets killed.
+// A warm spare worker is kept so a replacement starts instantly. If workers
+// can't start (file:// page, blocked CDN), render() renders on the page.
 const HTXRenderClient = (() => {
-  let busy = null;      // { w, reqs: Map(id -> {resolve, reject}) } running a job
+  // A render that newer edits made stale is abandoned at once (its promise
+  // rejects with err.cancelled). If the worker is still busy on abandoned
+  // work after KILL_MS, the worker is killed and a warm spare takes over, so
+  // a slow diagram never holds up the next edit. Short stale renders are
+  // allowed to finish instead: killing costs a worker restart.
+  const KILL_MS = 200;
+  let cur = null;       // active worker record
   let spare = null;     // warm idle worker
   let broken = false;   // worker startup failed; render in-page from now on
   let nextId = 1;
+  let epoch = 0;
+  let watchdog = null;
+
+  function cancelledError() { const e = new Error('render cancelled'); e.cancelled = true; return e; }
 
   function spawn() {
     let w;
     try { w = new Worker('render-worker.js'); } catch (e) { broken = true; return null; }
-    const rec = { w, reqs: new Map(), ready: null };
+    // posted: jobs sent to the worker, in the order it runs them (head = running)
+    const rec = { w, posted: [], headSince: 0, ready: null };
     rec.ready = new Promise((resolve) => {
       w.onmessage = (ev) => {
         const m = ev.data || {};
         if (m.type === 'ready') { resolve(true); return; }
         if (m.type === 'failed') { console.warn('render worker:', m.message); broken = true; resolve(false); return; }
-        const r = rec.reqs.get(m.id);
-        if (!r) return;
-        rec.reqs.delete(m.id);
-        if (m.type === 'result') r.resolve(m.result);
-        else r.reject(new Error(m.message));
+        const i = rec.posted.findIndex(j => j.id === m.id);
+        if (i < 0) return;
+        const job = rec.posted.splice(i, 1)[0];
+        rec.headSince = performance.now();
+        if (job.done) return;  // abandoned
+        job.done = true;
+        if (m.type === 'result') job.resolve(m.result);
+        else job.reject(new Error(m.message));
       };
       w.onerror = (ev) => {
-        ev.preventDefault && ev.preventDefault();
+        if (ev.preventDefault) ev.preventDefault();
         broken = true; resolve(false);
-        for (const r of rec.reqs.values()) r.reject(new Error('render worker crashed'));
-        rec.reqs.clear();
+        for (const j of rec.posted) if (!j.done) { j.done = true; j.reject(new Error('render worker crashed')); }
+        rec.posted = [];
       };
     });
     return rec;
@@ -2966,40 +2980,88 @@ const HTXRenderClient = (() => {
   function take() {
     const rec = spare || spawn();
     spare = null;
-    // Replace the spare once the page is idle, so it's warm for next time.
-    (window.requestIdleCallback || setTimeout)(() => { if (!spare && !broken) spare = spawn(); });
+    // Warm a replacement once the page is idle.
+    const warm = () => { if (!spare && !broken) spare = spawn(); };
+    if (window.requestIdleCallback) window.requestIdleCallback(warm); else setTimeout(warm, 50);
     return rec;
+  }
+  function post(rec, job) {
+    if (!rec.posted.length) rec.headSince = performance.now();
+    rec.posted.push(job);
+    rec.w.postMessage({ type: 'render', id: job.id, code: job.code, opts: job.opts });
   }
   function inPage(code, opts) {
     return new Promise((resolve, reject) => {
       try { resolve(AsyInterp.render(code, opts)); } catch (e) { reject(e); }
     });
   }
-  // Abort everything in flight. Pending promises reject with err.cancelled.
-  function cancel() {
-    if (!busy || busy.reqs.size === 0) return;  // idle worker: keep it warm
-    const old = busy; busy = null;
-    old.w.terminate();
-    for (const r of old.reqs.values()) { const e = new Error('render cancelled'); e.cancelled = true; r.reject(e); }
-    old.reqs.clear();
+  // Kill the worker if it's been stuck on abandoned work for KILL_MS; move
+  // any live jobs to a fresh worker.
+  function checkStale() {
+    watchdog = null;
+    const rec = cur;
+    if (!rec || !rec.posted.length || !rec.posted[0].done) return;
+    const age = performance.now() - rec.headSince;
+    if (age < KILL_MS) { watchdog = setTimeout(checkStale, KILL_MS - age + 5); return; }
+    rec.w.terminate();
+    const live = rec.posted.filter(j => !j.done);
+    cur = take();
+    if (!cur) { for (const j of live) { j.done = true; inPage(j.code, j.opts).then(j.resolve, j.reject); } return; }
+    const next = cur;
+    next.ready.then(ok => {
+      for (const j of live) {
+        if (j.done) continue;
+        if (ok && cur === next) post(next, j);
+        else { j.done = true; inPage(j.code, j.opts).then(j.resolve, j.reject); }
+      }
+    });
+  }
+  // Abandon every render requested so far (the caller is about to request
+  // the up-to-date one).
+  function newEpoch() {
+    epoch++;
+    if (!cur) return;
+    for (const j of cur.posted) if (!j.done) { j.done = true; j.reject(cancelledError()); }
+    if (cur.posted.length && !watchdog) watchdog = setTimeout(checkStale, 0);
   }
   async function render(code, opts) {
     if (broken || typeof Worker === 'undefined' || location.protocol === 'file:') return inPage(code, opts);
-    if (!busy) busy = take();
-    const rec = busy;
+    const myEpoch = epoch;
+    if (!cur) cur = take();
+    const rec = cur;
     if (!rec) return inPage(code, opts);
     const ok = await rec.ready;
-    if (!ok) { if (busy === rec) busy = null; return inPage(code, opts); }
-    const id = nextId++;
+    if (myEpoch !== epoch) throw cancelledError();
+    if (!ok) { if (cur === rec) cur = null; return inPage(code, opts); }
     return new Promise((resolve, reject) => {
-      if (busy !== rec) { const e = new Error('render cancelled'); e.cancelled = true; reject(e); return; }
-      rec.reqs.set(id, { resolve, reject });
-      rec.w.postMessage({ type: 'render', id, code, opts });
+      const job = { id: nextId++, code, opts, resolve, reject, done: false };
+      post(cur === rec ? rec : cur, job);
     });
   }
-  return { render, cancel };
+  return { render, newEpoch };
 })();
 let renderGen = 0;  // bumped by every doRender(); a render whose gen is stale drops its result
+
+// Re-render the preview while the user drags a point, label or slider.
+// Newest request wins (shares renderGen with doRender). `after` runs once the
+// new SVG is in place, to rebuild overlays.
+function liveRender(newCode, after) {
+  const gen = ++renderGen;
+  HTXRenderClient.newEpoch();
+  const dims = getPreviewDimensions();
+  HTXRenderClient.render(newCode, { containerW: dims.w, containerH: dims.h }).then(result => {
+    if (gen !== renderGen) return;
+    const previewEl = document.getElementById('preview-container');
+    swapPreviewToLiveSvg(previewEl, result.svg);
+    showStaleBadge(false);
+    lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
+    applyCanvasTransform();
+    // Rebuild element mappings for the new SVG so overlays can locate
+    // elements (old refs are disconnected).
+    setupSvgInteractivityDirect(newCode, result.commandMap);
+    if (after) after();
+  }).catch(() => { /* superseded, or the code doesn't interpret mid-drag */ });
+}
 
 // Full-document replace that uses CodeMirror's replaceRange so we can assign a
 // custom origin string. CM coalesces rapid edits that share an origin string
@@ -3769,7 +3831,7 @@ async function doRender() {
   // Only the newest doRender() may touch the preview: each await below
   // re-checks gen, and a newer call kills this one's in-flight render.
   const gen = ++renderGen;
-  HTXRenderClient.cancel();
+  HTXRenderClient.newEpoch();
   const code = editor.getValue();
   const statusEl = document.getElementById('status');
   const previewEl = document.getElementById('preview-container');
@@ -3879,6 +3941,7 @@ async function doRender() {
   const RETRY_DELAY = 1000; // ms
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (gen !== renderGen) return;  // a newer edit took over
     try {
       const resp = await fetch(`${SERVER_URL}/compile`, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -3886,6 +3949,7 @@ async function doRender() {
       });
       const data = await resp.json();
       _serverDown = false;
+      if (gen !== renderGen) return;
       if (data.error) {
         // Server error — show stale badge if we have a previous render
         if (previewEl.querySelector('svg:not([data-perm])')) {
@@ -3920,6 +3984,7 @@ async function doRender() {
       document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
       return;
     } catch(err) {
+      if (gen !== renderGen) return;
       if (attempt < MAX_RETRIES) {
         statusEl.textContent = `Server not ready, retrying (${attempt + 1}/${MAX_RETRIES})...`;
         await new Promise(r => setTimeout(r, RETRY_DELAY));
@@ -6800,25 +6865,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const newCode = lines.join('\n');
     editorReplaceFull(newCode, slideDragState.origin);
 
-    // Try JS interpreter for real-time full re-render during drag
+    // Real-time full re-render during drag (in the background renderer)
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
-      try {
-        const previewEl = document.getElementById('preview-container');
-        const dims = getPreviewDimensions();
-        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        swapPreviewToLiveSvg(previewEl, result.svg);
-        showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
-        applyCanvasTransform();
-        // Rebuild element mappings for the new SVG so applySlideOverlay
-        // can locate elements via localToViewBox (old refs are disconnected)
-        setupSvgInteractivityDirect(newCode, result.commandMap);
-        // Re-apply slide overlay on the new SVG
-        applySlideOverlay();
-        return;
-      } catch(e2) {
-        // Fall through to SVG transform approach
-      }
+      liveRender(newCode, () => applySlideOverlay());
+      return;
     }
 
     // Fallback: move hit circle and glow elements via SVG transform
@@ -6894,20 +6944,10 @@ document.addEventListener('DOMContentLoaded', () => {
     editorReplaceFull(newCode, origin || ('+slider-' + varName));
     suppressAutoRender = false;
 
-    // Try JS interpreter for instant response
+    // Instant response from the background renderer
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
-      try {
-        const previewEl = document.getElementById('preview-container');
-        const dims = getPreviewDimensions();
-        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        swapPreviewToLiveSvg(previewEl, result.svg);
-        showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
-        setupSvgInteractivityDirect(newCode, result.commandMap);
-        applyCanvasTransform();
-        if (slideActive) applySlideOverlay();
-        return;
-      } catch(e) { /* fall through to server */ }
+      liveRender(newCode, () => { if (slideActive) applySlideOverlay(); });
+      return;
     }
 
     // Fallback to server
@@ -7325,20 +7365,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const newCode = lines.join('\n');
     editorReplaceFull(newCode, labelSlideDragState.origin);
 
-    // Real-time re-render via JS interpreter
+    // Real-time re-render in the background renderer
     if (window.AsyInterp && AsyInterp.canInterpret(newCode)) {
-      try {
-        const previewEl = document.getElementById('preview-container');
-        const dims = getPreviewDimensions();
-        const result = AsyInterp.render(newCode, { containerW: dims.w, containerH: dims.h });
-        swapPreviewToLiveSvg(previewEl, result.svg);
-        showStaleBadge(false);
-        lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
-        applyCanvasTransform();
-        setupSvgInteractivityDirect(newCode, result.commandMap);
-        applyLabelSlideOverlay();
-        return;
-      } catch (err) { /* fall through */ }
+      liveRender(newCode, () => applyLabelSlideOverlay());
+      return;
     }
 
     // Fallback: move label elements via SVG transform

@@ -3194,50 +3194,75 @@ function createInterpreter() {
   const _isCallableBinding = (v) =>
     typeof v === 'function' || (v && (v._tag === 'func' || v._tag === 'overload'));
 
-  function createEnv(parent) {
-    const vars = new Map();
+  // Lexical scope. Hot path: every identifier read walks this chain, so
+  // lookups are iterative, one Map probe per level, and maps are allocated
+  // only when a scope actually binds something.
+  const _EMPTY_VARS = new Map();
+  function Env(parent) {
+    this.parent = parent;
+    this.vars = _EMPTY_VARS;
     // Asymptote keeps variables and functions of the same name in separate
     // overload sets — e.g. `pair r(pair,pair,real)` and `real r = .4;` coexist,
     // resolved by usage (call-site → function, value-site → variable). When a
     // non-callable variable is declared over a same-named callable in this
     // scope, stash the callable here so call resolution can still find it.
-    const shadowedFuncs = new Map();
-    return {
-      parent,
-      get(name) {
-        if (vars.has(name)) return vars.get(name);
-        if (parent) return parent.get(name);
-        return undefined;
-      },
-      getFunc(name) {
-        if (vars.has(name) && _isCallableBinding(vars.get(name))) return vars.get(name);
-        if (shadowedFuncs.has(name)) return shadowedFuncs.get(name);
-        if (parent && parent.getFunc) return parent.getFunc(name);
-        return undefined;
-      },
-      set(name, val) {
-        const cur = vars.get(name);
-        if (cur !== undefined && _isCallableBinding(cur) && !_isCallableBinding(val)) {
-          shadowedFuncs.set(name, cur);
-        } else if (_isCallableBinding(val)) {
-          shadowedFuncs.delete(name);
-        }
-        vars.set(name, val);
-      },
-      has(name) { return vars.has(name) || (parent && parent.has(name)); },
-      update(name, val) {
-        if (vars.has(name)) {
-          const cur = vars.get(name);
-          if (cur !== undefined && _isCallableBinding(cur) && !_isCallableBinding(val)) {
-            shadowedFuncs.set(name, cur);
-          }
-          vars.set(name, val); return true;
-        }
-        if (parent && parent.update(name, val)) return true;
-        vars.set(name, val); return true;
-      },
-    };
+    this.shadowedFuncs = null;
   }
+  Env.prototype.get = function (name) {
+    let e = this;
+    do {
+      const v = e.vars.get(name);
+      if (v !== undefined) return v;
+      if (e.vars.has(name)) return undefined;
+      e = e.parent;
+    } while (e);
+    return undefined;
+  };
+  Env.prototype.getFunc = function (name) {
+    for (let e = this; e; e = e.parent) {
+      const v = e.vars.get(name);
+      if (v !== undefined && _isCallableBinding(v)) return v;
+      if (e.shadowedFuncs && e.shadowedFuncs.has(name)) return e.shadowedFuncs.get(name);
+    }
+    return undefined;
+  };
+  Env.prototype.set = function (name, val) {
+    if (this.vars === _EMPTY_VARS) this.vars = new Map();
+    const cur = this.vars.get(name);
+    if (cur !== undefined && _isCallableBinding(cur) && !_isCallableBinding(val)) {
+      (this.shadowedFuncs || (this.shadowedFuncs = new Map())).set(name, cur);
+    } else if (this.shadowedFuncs && _isCallableBinding(val)) {
+      this.shadowedFuncs.delete(name);
+    }
+    this.vars.set(name, val);
+  };
+  Env.prototype.has = function (name) {
+    for (let e = this; e; e = e.parent) if (e.vars.has(name)) return true;
+    return false;
+  };
+  // Assign to the nearest scope that binds `name`; an unbound name lands in
+  // the outermost scope. Defers to an overridden update() on an ancestor
+  // (globalEnv wraps it to remember shadowed builtins).
+  Env.prototype.update = function (name, val) {
+    let e = this;
+    for (;;) {
+      if (e.vars.has(name)) {
+        const cur = e.vars.get(name);
+        if (cur !== undefined && _isCallableBinding(cur) && !_isCallableBinding(val)) {
+          (e.shadowedFuncs || (e.shadowedFuncs = new Map())).set(name, cur);
+        }
+        e.vars.set(name, val); return true;
+      }
+      const p = e.parent;
+      if (!p) {
+        if (e.vars === _EMPTY_VARS) e.vars = new Map();
+        e.vars.set(name, val); return true;
+      }
+      if (p.update !== Env.prototype.update) return p.update(name, val);
+      e = p;
+    }
+  };
+  function createEnv(parent) { return new Env(parent); }
 
   const globalEnv = createEnv(null);
   // _builtinFuncs: preserves built-in functions so that user variable
@@ -3325,9 +3350,12 @@ function createInterpreter() {
       case 'ForEachStmt': return evalForEach(node, env);
       case 'WhileStmt': return evalWhile(node, env);
       case 'DoWhileStmt': return evalDoWhile(node, env);
-      case 'ReturnStmt': throw ReturnSig(node.value ? evalNode(node.value,env) : null);
-      case 'BreakStmt': throw BREAK_SIG;
-      case 'ContinueStmt': throw CONTINUE_SIG;
+      // Control flow travels back up as a returned signal (evalBlock, the
+      // loops and the function-call paths check for it); throwing it cost a
+      // catch-and-rethrow at every enclosing block.
+      case 'ReturnStmt': return ReturnSig(node.value ? evalNode(node.value,env) : null);
+      case 'BreakStmt': return BREAK_SIG;
+      case 'ContinueStmt': return CONTINUE_SIG;
       case 'FuncDecl': return evalFuncDecl(node, env);
       case 'ImportStmt': return evalImport(node, env);
       case 'FromAccessStmt': return evalFromAccess(node, env);
@@ -3386,8 +3414,17 @@ function createInterpreter() {
     return result;
   }
 
+  // Statement types that never bind a name in the enclosing block's scope.
+  const _SCOPE_FREE_STMTS = new Set(['ExprStmt', 'Assignment', 'IfStmt', 'ForStmt',
+    'ForEachStmt', 'WhileStmt', 'DoWhileStmt', 'ReturnStmt', 'BreakStmt',
+    'ContinueStmt', 'Block']);
   function evalBlock(node, env) {
-    const local = createEnv(env);
+    // A block that declares nothing needs no scope of its own (loop bodies
+    // are the common case, re-entered every iteration).
+    if (node._scopeFree === undefined) {
+      node._scopeFree = node.stmts.every(st => st && _SCOPE_FREE_STMTS.has(st.type));
+    }
+    const local = node._scopeFree ? env : createEnv(env);
     for (const s of node.stmts) {
       const r = evalNode(s, local);
       if (r && r._sig) return r;
@@ -3401,6 +3438,10 @@ function createInterpreter() {
       // Might be a function name used as identifier
       return null;
     }
+    // `newframe` is a fresh empty frame at every use in asy; handing out the
+    // one stored object made every "new" frame the same frame (12942 drew
+    // each icon into all of them and ran out of memory).
+    if (v && v._isNewframe) return { _tag:'mframe', strokes: [], fills: [] };
     return v;
   }
 
@@ -3432,6 +3473,32 @@ function createInterpreter() {
         case T.GE: return left >= right;
         case T.AND: return left !== 0 && right !== 0;
         case T.OR: return left !== 0 || right !== 0;
+      }
+    }
+    // Fast path: pair/real complex arithmetic. Mirrors the pair branches
+    // further down exactly; anything else falls through to them.
+    const lp = left !== null && typeof left === 'object' && left._tag === 'pair';
+    const rp = right !== null && typeof right === 'object' && right._tag === 'pair';
+    if (lp && rp) {
+      switch (op) {
+        case T.PLUS: return makePair(left.x+right.x, left.y+right.y);
+        case T.MINUS: return makePair(left.x-right.x, left.y-right.y);
+        case T.STAR: return makePair(left.x*right.x - left.y*right.y, left.x*right.y + left.y*right.x);
+        case T.EQ: return left.x===right.x && left.y===right.y;
+        case T.NEQ: return left.x!==right.x || left.y!==right.y;
+      }
+    } else if (lp && typeof right === 'number') {
+      switch (op) {
+        case T.STAR: return makePair(left.x*right, left.y*right);
+        case T.SLASH: return right?makePair(left.x/right, left.y/right):makePair(0,0);
+        case T.PLUS: return makePair(left.x+right, left.y);
+        case T.MINUS: return makePair(left.x-right, left.y);
+      }
+    } else if (rp && typeof left === 'number') {
+      switch (op) {
+        case T.STAR: return makePair(left*right.x, left*right.y);
+        case T.PLUS: return makePair(left+right.x, right.y);
+        case T.MINUS: return makePair(left-right.x, -right.y);
       }
     }
 
@@ -4228,6 +4295,7 @@ function createInterpreter() {
     return out;
   }
 
+  const _DRAW_FUNCS = new Set(['draw','fill','filldraw','clip','unfill','label','dot']);
   function evalFuncCall(node, env) {
     // operator--(p1, p2, ...) / operator..(p1, p2, ...) — build a path connecting
     // the supplied points/paths with the given join. Mirrors Asymptote's
@@ -4280,8 +4348,7 @@ function createInterpreter() {
     }
 
     // Draw commands: evaluate args with line info
-    const drawFuncs = new Set(['draw','fill','filldraw','clip','unfill','label','dot']);
-    if (drawFuncs.has(calleeName)) {
+    if (_DRAW_FUNCS.has(calleeName)) {
       const hasSpread = node.args.some(a => a && a.type === 'SpreadArg');
       const hasNamed = node.args.some(a => a && a.type === 'NamedArg');
       const args = (hasSpread || hasNamed) ? evalArgList(node.args, env) : node.args.map(a => evalNode(a, env));
@@ -4471,14 +4538,10 @@ function createInterpreter() {
         }
       }
     }
-    try {
-      evalNode(func.body, local);
-    } catch(e) {
-      if (e && e._sig === 'return') { _callDepth--; return e.value; }
-      _callDepth--; throw e;
-    }
-    _callDepth--;
-    return null;
+    let r;
+    try { r = evalNode(func.body, local); }
+    finally { _callDepth--; }
+    return (r && r._sig === 'return') ? r.value : null;
   }
 
   // Call a user-defined function with already-evaluated argument values
@@ -4514,14 +4577,10 @@ function createInterpreter() {
         local.set(params[i].name, null);
       }
     }
-    try {
-      evalNode(func.body, local);
-    } catch(e) {
-      if (e && e._sig === 'return') { _callDepth--; return e.value; }
-      _callDepth--; throw e;
-    }
-    _callDepth--;
-    return null;
+    let r;
+    try { r = evalNode(func.body, local); }
+    finally { _callDepth--; }
+    return (r && r._sig === 'return') ? r.value : null;
   }
 
   // Helper to invoke either a native JS function or user-defined func with values
@@ -6624,12 +6683,10 @@ function createInterpreter() {
     while (true) {
       if (node.cond && !toBool(evalNode(node.cond, local))) break;
       if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
-      try {
-        if (node.body) evalNode(node.body, local);
-      } catch(e) {
-        if (e === BREAK_SIG) break;
-        if (e === CONTINUE_SIG) { /* continue */ }
-        else throw e;
+      const r = node.body ? evalNode(node.body, local) : null;
+      if (r && r._sig) {
+        if (r === BREAK_SIG) break;
+        if (r !== CONTINUE_SIG) return r;
       }
       if (node.update) evalNode(node.update, local);
     }
@@ -6640,12 +6697,10 @@ function createInterpreter() {
     let iters = 0;
     while (toBool(evalNode(node.cond, env))) {
       if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
-      try {
-        if (node.body) evalNode(node.body, env);
-      } catch(e) {
-        if (e === BREAK_SIG) break;
-        if (e === CONTINUE_SIG) continue;
-        throw e;
+      const r = node.body ? evalNode(node.body, env) : null;
+      if (r && r._sig) {
+        if (r === BREAK_SIG) break;
+        if (r !== CONTINUE_SIG) return r;
       }
     }
     return null;
@@ -6655,12 +6710,10 @@ function createInterpreter() {
     let iters = 0;
     do {
       if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
-      try {
-        if (node.body) evalNode(node.body, env);
-      } catch(e) {
-        if (e === BREAK_SIG) break;
-        if (e === CONTINUE_SIG) continue;
-        throw e;
+      const r = node.body ? evalNode(node.body, env) : null;
+      if (r && r._sig) {
+        if (r === BREAK_SIG) break;
+        if (r !== CONTINUE_SIG) return r;
       }
     } while (toBool(evalNode(node.cond, env)));
     return null;
@@ -6684,12 +6737,10 @@ function createInterpreter() {
     for (const item of iterVal) {
       if (++iters > iterationLimit) throw new Error('Loop iteration limit exceeded');
       local.set(node.elemName, item);
-      try {
-        if (node.body) evalNode(node.body, local);
-      } catch(e) {
-        if (e === BREAK_SIG) break;
-        if (e === CONTINUE_SIG) continue;
-        throw e;
+      const r = node.body ? evalNode(node.body, local) : null;
+      if (r && r._sig) {
+        if (r === BREAK_SIG) break;
+        if (r !== CONTINUE_SIG) return r;
       }
     }
     return null;
@@ -7925,7 +7976,7 @@ function createInterpreter() {
     env.set('circlebarframe', (...args) => _circlebarframeImpl(args));
     env.set('dotframe', (...args) => _dotframeImpl(args));
 
-    env.set('newframe', _newFrame());
+    env.set('newframe', Object.assign(_newFrame(), { _isNewframe: true }));
 
     // Sizing factor accessors (real-returning), in case a corpus diagram
     // references them directly.
@@ -8583,18 +8634,19 @@ function createInterpreter() {
         const destFrame = frames[0];
         const srcFrame = frames[1];
         const offset = framePairs.length > 0 ? framePairs[0] : {x:0, y:0};
-        // Copy srcFrame's strokes/fills to destFrame with offset applied
-        for (const s of (srcFrame.strokes || [])) {
+        // Copy srcFrame's strokes/fills to destFrame with offset applied.
+        // Snapshot first: add(f, f) must double f once, not loop forever.
+        for (const s of (srcFrame.strokes || []).slice()) {
           const newPts = s.pts.map(p => ({x: p.x + offset.x, y: p.y + offset.y}));
           destFrame.strokes.push({pts: newPts, closed: s.closed, pen: s.pen});
         }
-        for (const f of (srcFrame.fills || [])) {
+        for (const f of (srcFrame.fills || []).slice()) {
           const newPts = f.pts.map(p => ({x: p.x + offset.x, y: p.y + offset.y}));
           destFrame.fills.push({pts: newPts, pen: f.pen});
         }
         if (srcFrame.labels) {
           if (!destFrame.labels) destFrame.labels = [];
-          for (const L of srcFrame.labels) {
+          for (const L of srcFrame.labels.slice()) {
             destFrame.labels.push({
               text: L.text,
               pos: makePair(L.pos.x + offset.x, L.pos.y + offset.y),
@@ -9489,6 +9541,12 @@ function createInterpreter() {
       while ((m = re.exec(s))) { b = grabBraced(s, m.index + m[0].length); if (b != null) _texMacros['\\' + m[1]] = '\\operatorname{' + b + '}'; }
       try { if (typeof katexSvg !== 'undefined' && katexSvg.setMacros) katexSvg.setMacros(_texMacros); } catch (e) {}
     });
+
+    // plain.asy's newframe: a fresh empty frame at each use (evalIdent sees
+    // _isNewframe). It was only defined by `import markers`, so elsewhere it
+    // evaluated to null and add(f, newframe, z) added f to the page instead
+    // (12942's cross-stitch grid ran out of memory that way).
+    env.set('newframe', { _tag:'mframe', strokes: [], fills: [], _isNewframe: true });
 
     // Dot sizing
     env.set('dotfactor', 6);
@@ -35684,11 +35742,11 @@ function pathToD(path, minX, maxY, scaleX, scaleY) {
 
     // Emit M at start or when there's a gap (^^ path concatenation)
     if (i === 0) {
-      d += `M${fmt(p0x)} ${fmt(p0y)}`;
+      d += `M${fmtStr(p0x)} ${fmtStr(p0y)}`;
     } else {
       const prev = segs[i-1];
       const gap = Math.abs(s.p0.x - prev.p3.x) + Math.abs(s.p0.y - prev.p3.y);
-      if (gap > 1e-9) d += ` M${fmt(p0x)} ${fmt(p0y)}`;
+      if (gap > 1e-9) d += ` M${fmtStr(p0x)} ${fmtStr(p0y)}`;
     }
     // Check if it's basically a line. The _linear flag (set by lineSegment)
     // forces L emission regardless of cp1/cp2 — needed because cp1/cp2 are
@@ -35697,9 +35755,9 @@ function pathToD(path, minX, maxY, scaleX, scaleY) {
     // control points stale (which would otherwise render as spurious cubic
     // bulges).
     if (s._linear || isLinear(s)) {
-      d += ` L${fmt(p3x)} ${fmt(p3y)}`;
+      d += ` L${fmtStr(p3x)} ${fmtStr(p3y)}`;
     } else {
-      d += ` C${fmt(cp1x)} ${fmt(cp1y)} ${fmt(cp2x)} ${fmt(cp2y)} ${fmt(p3x)} ${fmt(p3y)}`;
+      d += ` C${fmtStr(cp1x)} ${fmtStr(cp1y)} ${fmtStr(cp2x)} ${fmtStr(cp2y)} ${fmtStr(p3x)} ${fmtStr(p3y)}`;
     }
     // Emit Z after this segment if it's a close boundary (^^ with closed subpath)
     if (closeSet && closeSet.has(i)) {
@@ -38753,7 +38811,44 @@ function extractTexArg(s) {
   return {content: s[i], consumed: i + 1};
 }
 
-function fmt(n) { return Number(n.toFixed(4)); }
+// Round to 4 decimals for SVG output. Equals Number(n.toFixed(4)) bit for bit
+// (checked on 3M values: refactor/fmt-check.js) but skips the slow exact
+// decimal conversion except near a rounding tie; big 3D renders call this
+// millions of times.
+function fmt(n) {
+  if (n === 0) return 0;
+  const m = n * 1e4;
+  if (m < 1e9 && m > -1e9) {
+    const f = m - Math.floor(m);
+    if (f < 0.499999 || f > 0.500001) return Math.round(m) / 1e4;
+  }
+  return Number(n.toFixed(4));
+}
+// fmt() as a string: String(fmt(n)) digit for digit (refactor/fmtstr-check.js),
+// built from the rounded integer instead of the slow shortest-double printer.
+// Used where path data is emitted, the hottest output loop.
+function fmtStr(n) {
+  if (n === 0) return '0';
+  const m = n * 1e4;
+  if (m < 1e9 && m > -1e9) {
+    const f = m - Math.floor(m);
+    if (f < 0.499999 || f > 0.500001) {
+      let k = Math.round(m);
+      if (k === 0) return '0';
+      const neg = k < 0;
+      if (neg) k = -k;
+      const q = Math.floor(k / 10000), r = k - q * 10000;
+      let out = neg ? '-' + q : '' + q;
+      if (r !== 0) {
+        let fr = String(r + 10000).slice(1);
+        while (fr.charCodeAt(fr.length - 1) === 48) fr = fr.slice(0, -1);
+        out += '.' + fr;
+      }
+      return out;
+    }
+  }
+  return String(Number(n.toFixed(4)));
+}
 function opacityAttr(o) { return (o !== undefined && o !== 1) ? ` opacity="${fmt(o)}"` : ''; }
 function escSvg(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
