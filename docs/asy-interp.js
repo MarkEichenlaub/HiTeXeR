@@ -8534,7 +8534,7 @@ function createInterpreter() {
   // Internal helper for path point evaluation (avoids env.get shadowing issues)
   function _pointOnPath(p, t) {
     if (!isPath(p)) return makePair(0,0);
-    if (p.segs.length === 0) return makePair(0,0);
+    if (p.segs.length === 0) return p._singlePoint && !isTriple(p._singlePoint) ? makePair(p._singlePoint.x, p._singlePoint.y) : makePair(0,0);
     let time = toNumber(t);
     // Closed (cyclic) path: wrap t mod length, matching Asymptote.
     if (p.closed) {
@@ -9984,6 +9984,21 @@ function createInterpreter() {
       for (let i = 1; i <= k; i++) r = r * (n - k + i) / i;
       return Math.round(r);
     });
+    // Bounds of a single path or path[] argument, else null.
+    const _pqBoundsArg = (args) => {
+      if (args.length !== 1) return null;
+      const a = args[0];
+      const list = isPath(a) ? [a] : (isArray(a) && a.length && a.every(isPath)) ? a : null;
+      if (!list) return null;
+      let r = null;
+      for (const p of list) {
+        const b = _pqBounds(p);
+        if (!b) continue;
+        if (!r) r = b;
+        else r = {minX: Math.min(r.minX, b.minX), minY: Math.min(r.minY, b.minY), maxX: Math.max(r.maxX, b.maxX), maxY: Math.max(r.maxY, b.maxY)};
+      }
+      return r || {minX: 0, minY: 0, maxX: 0, maxY: 0};
+    };
     env.set('min', (...args) => {
       if (args.length===1 && args[0] && args[0]._tag === 'picture') {
         const p = args[0];
@@ -10003,6 +10018,10 @@ function createInterpreter() {
         }
         return makePair(minX, minY);
       }
+      // min(path) / min(path[]): lower-left bounding-box corner including
+      // Bezier extrema (it used to fall through to Math.min and return 0).
+      const _mb = _pqBoundsArg(args);
+      if (_mb) return makePair(_mb.minX, _mb.minY);
       if (args.length===1 && isArray(args[0])) {
         // min(real[][]) is the global elementwise minimum in asy. Flatten
         // nested numeric arrays (12760's palette levels came from min/max of
@@ -10034,6 +10053,8 @@ function createInterpreter() {
         }
         return makePair(maxX, maxY);
       }
+      const _mb = _pqBoundsArg(args);
+      if (_mb) return makePair(_mb.maxX, _mb.maxY);
       if (args.length===1 && isArray(args[0])) {
         // See min(): flatten nested numeric arrays, reduce not spread.
         const flat = args[0].flat(3);
@@ -10094,8 +10115,9 @@ function createInterpreter() {
           const len = Math.sqrt(t.x*t.x + t.y*t.y + t.z*t.z);
           return len > 0 ? makeTriple(t.x/len, t.y/len, t.z/len) : makeTriple(0,0,0);
         }
+        // dir(path) is dir(p, length(p)) in plain_paths.asy.
         if (isPath(args[0])) {
-          return _dirOnPath(args[0], 0);
+          return _dirOnPath(args[0], args[0].segs.length);
         }
         if (isPair(args[0])) {
           const p = args[0];
@@ -10106,6 +10128,14 @@ function createInterpreter() {
         return makePair(Math.cos(a*Math.PI/180), Math.sin(a*Math.PI/180));
       }
       if (args.length >= 2) {
+        // dir(path p, path q) = unit(dir(p) + dir(q)) (plain_paths.asy), the
+        // bisector idiom drawline(A, A+dir(A--D, A--C)) (12900); it used to read
+        // q as a time and return dir(p, 0).
+        if (isPath(args[0]) && isPath(args[1])) {
+          const u = _dirOnPath(args[0], args[0].segs.length), v = _dirOnPath(args[1], args[1].segs.length);
+          const x = u.x + v.x, y = u.y + v.y, l = Math.hypot(x, y);
+          return l > 0 ? makePair(x / l, y / l) : makePair(0, 0);
+        }
         // dir(path, time)
         if (isPath(args[0])) {
           return _dirOnPath(args[0], toNumber(args[1]));
@@ -10148,7 +10178,7 @@ function createInterpreter() {
       return len > 0 ? makePair(pp.x/len, pp.y/len) : makePair(0,0);
     });
     env.set('length', (v) => {
-      if (isPath(v)) return v.segs.length;
+      if (isPath(v)) return _pqLength(v);
       if (isArray(v)) return v.length;
       if (isString(v)) return v.length;
       if (isPair(v)) return Math.sqrt(v.x*v.x + v.y*v.y);
@@ -10750,20 +10780,7 @@ function createInterpreter() {
     // Internal helper: unit tangent direction on path at given time
     function _dirOnPath(p, t) {
       if (!isPath(p) || p.segs.length === 0) return makePair(0,0);
-      const time = toNumber(t);
-      // Clamp time to valid range
-      const maxT = p.segs.length;
-      const clamped = Math.max(0, Math.min(maxT, time));
-      let i = Math.floor(clamped);
-      let frac = clamped - i;
-      if (i >= p.segs.length) { i = p.segs.length - 1; frac = 1; }
-      const seg = p.segs[i];
-      // Cubic Bezier derivative: B'(t) = 3(1-t)^2(cp1-p0) + 6(1-t)t(cp2-cp1) + 3t^2(p3-cp2)
-      const u = 1 - frac;
-      const dx = 3*u*u*(seg.cp1.x-seg.p0.x) + 6*u*frac*(seg.cp2.x-seg.cp1.x) + 3*frac*frac*(seg.p3.x-seg.cp2.x);
-      const dy = 3*u*u*(seg.cp1.y-seg.p0.y) + 6*u*frac*(seg.cp2.y-seg.cp1.y) + 3*frac*frac*(seg.p3.y-seg.cp2.y);
-      const len = Math.sqrt(dx*dx + dy*dy);
-      return len > 0 ? makePair(dx/len, dy/len) : makePair(0,0);
+      return _pqDir(p, toNumber(t));
     }
 
     env.set('point', (...args) => {
@@ -11006,11 +11023,20 @@ function createInterpreter() {
       // General subpicture attach (non-legend) - not implemented yet
     });
 
+    // relpoint/reltime/waypoint/midpoint go through ARC LENGTH, not path time
+    // (plain_paths.asy: relpoint(p,l) = point(p, arctime(p, l*arclength(p)))),
+    // so midpoint((0,0)--(4,0)--(4,3)) is (3.5,0), not the node (4,0).
     env.set('relpoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
-      const time = toNumber(t) * _pathTimeSpan(p);
-      return _pointOnPath(p, time);
+      return _pointOnPath(p, _pqRelTime(p, toNumber(t)));
     });
+    env.set('reldir', (p, t) => {
+      if (!isPath(p)) return makePair(0,0);
+      return _pqDir(p, _pqRelTime(p, toNumber(t)));
+    });
+    env.set('arctime', (p, L) => isPath(p) ? _pqArcTime(p, toNumber(L)) : 0);
+    env.set('arcpoint', (p, L) => isPath(p) ? _pointOnPath(p, _pqArcTime(p, toNumber(L))) : makePair(0,0));
+    env.set('arcdir', (p, L) => isPath(p) ? _pqDir(p, _pqArcTime(p, toNumber(L))) : makePair(0,0));
 
     // roundedpath(path A, real R, real S=1): round the corners of a polygonal
     // path. At each interior vertex, cut back distance R (clamped to half the
@@ -11090,25 +11116,28 @@ function createInterpreter() {
       return makePath(out, true);
     });
 
-    // waypoint(path p, real r): point at arclength fraction r on p.
-    // For simple paths (straight segments) this matches relpoint; for curved paths
-    // it should use arclength but we approximate with time parametrization which is
-    // sufficient for typical usage like waypoint(A--B, 0.5).
+    // waypoint(path p, real r) (olympiad.asy) = point(p, reltime(p, r)).
     env.set('waypoint', (p, t) => {
       if (!isPath(p)) return makePair(0,0);
-      const time = toNumber(t) * _pathTimeSpan(p);
-      return _pointOnPath(p, time);
+      return _pointOnPath(p, _pqRelTime(p, toNumber(t)));
     });
+    // WP(path P, real t=0.5) (cse5.asy): waypoint with t clamped to [0,1].
+    env.set('WP', (p, t) => {
+      if (!isPath(p)) return makePair(0,0);
+      const r = t === undefined ? 0.5 : Math.max(0, Math.min(1, toNumber(t)));
+      return _pointOnPath(p, _pqRelTime(p, r));
+    });
+    env.set('WayPoint', (...a) => invokeFunc(env.get('WP'), a));
 
-    // reltime(path, frac): convert arclength fraction [0,1] to path time [0,N]
+    // reltime(path, frac) = arctime(p, frac*arclength(p))
     env.set('reltime', (p, t) => {
       if (!isPath(p) || p.segs.length === 0) return 0;
-      return toNumber(t) * _pathTimeSpan(p);
+      return _pqRelTime(p, toNumber(t));
     });
 
-    // length(path): number of segments (for path time parameterization)
+    // length(path): number of segments; nullpath (no nodes at all) is -1.
     env.set('length', (v) => {
-      if (isPath(v)) return v.segs.length;
+      if (isPath(v)) return _pqLength(v);
       if (Array.isArray(v)) return v.length;
       if (typeof v === 'string') return v.length;
       return 0;
@@ -11117,7 +11146,7 @@ function createInterpreter() {
     env.set('midpoint', (...args) => {
       if (args.length === 1 && isPath(args[0])) {
         const p = args[0];
-        return _pointOnPath(p, p.segs.length/2);
+        return _pointOnPath(p, _pqRelTime(p, 0.5));
       }
       // midpoint of two pairs
       if (args.length === 2) {
@@ -11129,9 +11158,7 @@ function createInterpreter() {
 
     env.set('arclength', (p) => {
       if (!isPath(p)) return 0;
-      let len = 0;
-      for (const s of p.segs) len += bezierArcLength(s);
-      return len;
+      return _pqArcLength(p);
     });
 
     env.set('reverse', (p) => {
@@ -11409,81 +11436,7 @@ function createInterpreter() {
     // Find all intersections between two paths, returning {pt, t1, t2}.
     function _bcIntersections(p1, p2) {
       const out = [];
-      for (let i = 0; i < p1.segs.length; i++) {
-        for (let j = 0; j < p2.segs.length; j++) {
-          const ips = _bcSegSegAll(p1.segs[i], p2.segs[j]);
-          for (const ip of ips) {
-            const t1 = i + ip.u;
-            const t2 = j + ip.v;
-            // Dedup
-            let dup = false;
-            for (const e of out) {
-              if (Math.abs(e.t1 - t1) < 1e-3 && Math.abs(e.t2 - t2) < 1e-3) { dup = true; break; }
-              if (Math.abs(e.pt.x - ip.pt.x) < 1e-4 && Math.abs(e.pt.y - ip.pt.y) < 1e-4) { dup = true; break; }
-            }
-            if (!dup) out.push({ pt: ip.pt, t1, t2 });
-          }
-        }
-      }
-      return out;
-    }
-    // Bezier-bezier intersection that returns parameters u in [0,1] on s1 and
-    // v in [0,1] on s2 along with the point.
-    function _bcSegSegAll(s1, s2) {
-      function bbox(seg) {
-        const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
-        const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
-        return {
-          minX: Math.min.apply(null, xs), maxX: Math.max.apply(null, xs),
-          minY: Math.min.apply(null, ys), maxY: Math.max.apply(null, ys),
-        };
-      }
-      function overlap(a, b, tol) {
-        return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
-               a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
-      }
-      function subdivide(seg, t) {
-        const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
-        const u = 1 - t;
-        const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
-        const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
-        const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
-        const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
-        const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
-        const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
-        return [makeSeg(p0, q0, r0, s0), makeSeg(s0, r1, q2, p3)];
-      }
-      function size(seg) {
-        return Math.abs(seg.p3.x - seg.p0.x) + Math.abs(seg.p3.y - seg.p0.y);
-      }
-      const tol = 1e-4;
-      const out = [];
-      function rec(a, b, u0, u1, v0, v1, depth) {
-        if (!overlap(bbox(a), bbox(b), tol)) return;
-        if (depth > 40 || (size(a) < tol && size(b) < tol)) {
-          const um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
-          const px = (a.p0.x + a.p3.x + b.p0.x + b.p3.x) / 4;
-          const py = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
-          for (const e of out) {
-            if (Math.abs(e.u - um) < 5e-3 && Math.abs(e.v - vm) < 5e-3) return;
-            if (Math.abs(e.pt.x - px) < 1e-3 && Math.abs(e.pt.y - py) < 1e-3) return;
-          }
-          out.push({ u: um, v: vm, pt: makePair(px, py) });
-          return;
-        }
-        if (size(a) >= size(b)) {
-          const sp = subdivide(a, 0.5);
-          const um = (u0 + u1) / 2;
-          rec(sp[0], b, u0, um, v0, v1, depth + 1);
-          rec(sp[1], b, um, u1, v0, v1, depth + 1);
-        } else {
-          const sp = subdivide(b, 0.5);
-          const vm = (v0 + v1) / 2;
-          rec(a, sp[0], u0, u1, v0, vm, depth + 1);
-          rec(a, sp[1], u0, u1, vm, v1, depth + 1);
-        }
-      }
-      rec(s1, s2, 0, 1, 0, 1, 0);
+      for (const h of _pqHits(p1, p2)) out.push({ pt: makePair(h.z.x, h.z.y), t1: h.s, t2: h.t });
       return out;
     }
     // Walk subpath of p from parameter ta to tb. If "wrap" is true, go the
@@ -11588,20 +11541,24 @@ function createInterpreter() {
       return a / 2;
     }
 
+    // subpath(path p, real a, real b), asy path::subpath: a > b gives the
+    // reversed piece; open paths clamp to [0,length]; cyclic paths wrap (so
+    // subpath(cyc, 3, 5) runs through the join); a == b is a single point.
+    // The result is never cyclic.
     env.set('subpath', (p, a, b) => {
       p = geoToPath(p);
       if (!isPath(p) || p.segs.length === 0) return p;
-      const ta = toNumber(a), tb = toNumber(b);
+      let ta = toNumber(a), tb = toNumber(b);
+      if (ta > tb) return _pqReverse(invokeFunc(env.get('subpath'), [p, tb, ta]));
       const n = p.segs.length;
-      // Clamp
-      const tStart = Math.max(0, Math.min(n, ta));
-      const tEnd = Math.max(0, Math.min(n, tb));
-      if (tStart >= tEnd) return makePath([], false);
-      const iStart = Math.floor(tStart);
-      const iEnd = Math.floor(tEnd);
-      const fracStart = tStart - iStart;
-      const fracEnd = tEnd - iEnd;
-      // de Casteljau split
+      if (!p.closed) { ta = Math.max(0, Math.min(n, ta)); tb = Math.max(0, Math.min(n, tb)); }
+      if (ta === tb) {
+        const r = makePath([], false);
+        r._singlePoint = _pointOnPath(p, ta);
+        return r;
+      }
+      // de Casteljau split (keeps the old splitter so straight pieces render
+      // unchanged)
       function splitSeg(seg, t) {
         const u = 1 - t;
         const a1 = {x: u*seg.p0.x + t*seg.cp1.x, y: u*seg.p0.y + t*seg.cp1.y};
@@ -11616,31 +11573,15 @@ function createInterpreter() {
         ];
       }
       const segs = [];
-      if (iStart === iEnd && iStart < n) {
-        // Both start and end within the same segment
-        let seg = p.segs[iStart];
-        if (fracStart > 1e-12) seg = splitSeg(seg, fracStart)[1];
-        // Remap fracEnd within remaining portion
-        const remapped = fracStart > 1e-12 ? (fracEnd - fracStart) / (1 - fracStart) : fracEnd;
+      const k0 = Math.floor(ta);
+      for (let k = k0; k < tb; k++) {
+        const lo = Math.max(ta, k) - k, hi = Math.min(tb, k + 1) - k;
+        if (hi - lo <= 1e-12 && tb - ta > 1e-12) continue;
+        let seg = p.segs[((k % n) + n) % n];
+        if (lo > 1e-12) seg = splitSeg(seg, lo)[1];
+        const remapped = lo > 1e-12 ? (hi - lo) / (1 - lo) : hi;
         if (remapped < 1 - 1e-12) seg = splitSeg(seg, remapped)[0];
         segs.push(seg);
-      } else {
-        // First (partial) segment
-        if (iStart < n) {
-          let seg = p.segs[iStart];
-          if (fracStart > 1e-12) seg = splitSeg(seg, fracStart)[1];
-          segs.push(seg);
-        }
-        // Full middle segments
-        for (let i = iStart + 1; i < Math.min(iEnd, n); i++) {
-          segs.push(p.segs[i]);
-        }
-        // Last (partial) segment
-        if (iEnd < n && fracEnd > 1e-12) {
-          let seg = p.segs[iEnd];
-          seg = splitSeg(seg, fracEnd)[0];
-          segs.push(seg);
-        }
       }
       return makePath(segs, false);
     });
@@ -11854,6 +11795,11 @@ function createInterpreter() {
       if (args.length >= 1) { unitScale = toNumber(args[0]); hasUnitScale = true; _globalUnitSize = unitScale; }
     });
     env.set('size', (...args) => {
+      // size(path): number of nodes (cyclic paths don't repeat the first).
+      // (a pair standing in for a path is one node; path[] sums its paths)
+      const _nodes = (p) => isPair(p) ? 1 : p.segs.length ? p.segs.length + (p.closed ? 0 : 1) : (p._singlePoint ? 1 : 0);
+      if (args.length === 1 && isPath(args[0])) return _nodes(args[0]);
+      if (args.length === 1 && isArray(args[0]) && args[0].length && args[0].every(isPath)) return args[0].reduce((a, p) => a + _nodes(p), 0);
       // size(frame f): query — return the frame's bbox dimensions as a pair
       // (12866 clockarray: pair size=size(f)+(xmargin,ymargin) drives the
       // grid spacing; falling through to the global size-setter returned
@@ -12389,99 +12335,30 @@ function createInterpreter() {
       const p=toPair(P),q=toPair(Q),r=toPair(R),s=toPair(S);
       const d1x=q.x-p.x, d1y=q.y-p.y, d2x=s.x-r.x, d2y=s.y-r.y;
       const cross = d1x*d2y - d1y*d2x;
-      if (Math.abs(cross) < 1e-12) return makePair(0,0);
+      // asy returns (infinity,infinity) for exactly parallel lines (the old
+      // (0,0) drew such lines to the origin).
+      if (cross === 0) return makePair(_ASY_INFINITY, _ASY_INFINITY);
       const t = ((r.x-p.x)*d2y - (r.y-p.y)*d2x) / cross;
       return makePair(p.x + t*d1x, p.y + t*d1y);
     });
 
-    // times(path, real) — return sorted array of time values where path.x == val
-    // (intersections with the vertical line x = val)
+    // times(path p, real x): times where p meets the vertical line through
+    // (x,0); times(path p, explicit pair z): the HORIZONTAL line through
+    // (0,z.y) (plain_paths.asy).
     env.set('times', (p, val) => {
       p = geoToPath(p);
       if (!isPath(p)) return [];
+      if (isPair(val)) return _pqLineTimes(p, {x: 0, y: val.y}, {x: 1, y: val.y});
       const x0 = toNumber(val);
-      const results = [];
-      const tol = 1e-8;
-      for (let i = 0; i < p.segs.length; i++) {
-        const seg = p.segs[i];
-        // Solve cubic Bezier x(t) = x0
-        const a = seg.p0.x, b = seg.cp1.x, c = seg.cp2.x, d = seg.p3.x;
-        const A = -a + 3*b - 3*c + d;
-        const B = 3*a - 6*b + 3*c;
-        const C = -3*a + 3*b;
-        const D = a - x0;
-        const roots = solveCubicReal(A, B, C, D);
-        for (const t of roots) {
-          if (t >= -tol && t <= 1 + tol) {
-            const tc = Math.max(0, Math.min(1, t));
-            results.push(i + tc);
-          }
-        }
-      }
-      results.sort((a, b) => a - b);
-      return results;
+      return _pqLineTimes(p, {x: x0, y: 0}, {x: x0, y: 1});
     });
 
-    // Solve At^3 + Bt^2 + Ct + D = 0 for real roots
-    function solveCubicReal(A, B, C, D) {
-      const eps = 1e-12;
-      if (Math.abs(A) < eps) {
-        // Quadratic or linear
-        if (Math.abs(B) < eps) {
-          // Linear
-          if (Math.abs(C) < eps) return [];
-          return [-D / C];
-        }
-        const disc = C * C - 4 * B * D;
-        if (disc < 0) return [];
-        const sq = Math.sqrt(disc);
-        return [(-C + sq) / (2 * B), (-C - sq) / (2 * B)];
-      }
-      // Normalize: t^3 + pt^2 + qt + r = 0
-      const p = B / A, q = C / A, r = D / A;
-      // Depressed cubic substitution t = u - p/3
-      const p3 = p / 3;
-      const Q = (3 * q - p * p) / 9;
-      const R = (9 * p * q - 27 * r - 2 * p * p * p) / 54;
-      const disc = Q * Q * Q + R * R;
-      if (disc > eps) {
-        // One real root
-        const sqD = Math.sqrt(disc);
-        const S = Math.cbrt(R + sqD);
-        const T = Math.cbrt(R - sqD);
-        return [S + T - p3];
-      } else if (Math.abs(disc) <= eps) {
-        // Three real roots, at least two equal
-        const S = Math.cbrt(R);
-        const r1 = 2 * S - p3;
-        const r2 = -S - p3;
-        return [r1, r2];
-      } else {
-        // Three distinct real roots (casus irreducibilis)
-        const theta = Math.acos(R / Math.sqrt(-Q * Q * Q));
-        const sqQ = 2 * Math.sqrt(-Q);
-        return [
-          sqQ * Math.cos(theta / 3) - p3,
-          sqQ * Math.cos((theta + 2 * Math.PI) / 3) - p3,
-          sqQ * Math.cos((theta + 4 * Math.PI) / 3) - p3,
-        ];
-      }
-    }
-
+    // real[] intersect(path p, path q, real fuzz=-1): [s,t] of one hit, or {}.
     env.set('intersect', (p1, p2, fuzz) => {
-      // Asymptote: real[] intersect(path g, path h, real fuzz=-1)
-      // Returns [t1, t2] for the first intersection (path-times into g and h),
-      // or empty array {} if no intersection.
+      p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
-      const segs1 = p1.segs || [];
-      const segs2 = p2.segs || [];
-      for (let i1 = 0; i1 < segs1.length; i1++) {
-        for (let i2 = 0; i2 < segs2.length; i2++) {
-          const tp = bezierBezierIntersectFirstT(segs1[i1], segs2[i2]);
-          if (tp) return [i1 + tp[0], i2 + tp[1]];
-        }
-      }
-      return [];
+      const h = _pqIntersect(p1, p2);
+      return h ? [h.s, h.t] : [];
     });
 
     // Convert geometry types (geoCircle, geoLine, etc.) to drawable paths
@@ -12509,14 +12386,8 @@ function createInterpreter() {
     env.set('intersectionpoint', (p1, p2) => {
       p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return makePair(0,0);
-      // Basic: try to find actual intersection
-      for (const s1 of p1.segs) {
-        for (const s2 of p2.segs) {
-          const ip = bezierBezierIntersect(s1, s2);
-          if (ip) return ip;
-        }
-      }
-      return makePair(0,0);
+      const h = _pqIntersect(p1, p2);
+      return h ? makePair(h.z.x, h.z.y) : makePair(0,0);
     });
 
     env.set('intersectionpoints', (p1, p2) => {
@@ -12608,71 +12479,33 @@ function createInterpreter() {
         }
         return pts3;
       }
-      // 2D path × path
+      // 2D path × path, sorted by time on the first path. path[] operands
+      // append pairwise, as plain_paths.asy's path[] overload does.
+      if (isArray(p1) || isArray(p2)) {
+        const A = isArray(p1) ? p1 : [p1], B = isArray(p2) ? p2 : [p2];
+        const out = [];
+        for (const a of A) for (const b of B) {
+          const r = invokeFunc(env.get('intersectionpoints'), [a, b]);
+          if (isArray(r)) out.push(...r);
+        }
+        return out;
+      }
       p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
-      const ptsWithT = [];
-      for (let segIdx = 0; segIdx < p1.segs.length; segIdx++) {
-        const s1 = p1.segs[segIdx];
-        for (const s2 of p2.segs) {
-          const ips = bezierBezierAllIntersections(s1, s2);
-          for (const ip of ips) {
-            // Compute approximate t along segment s1 for sorting
-            // For linear: t = projection onto line segment
-            const dx = s1.p3.x - s1.p0.x, dy = s1.p3.y - s1.p0.y;
-            const len2 = dx*dx + dy*dy;
-            let t = 0;
-            if (len2 > 1e-12) {
-              t = ((ip.x - s1.p0.x)*dx + (ip.y - s1.p0.y)*dy) / len2;
-            }
-            // Global time = segment index + t within segment
-            let globalT = segIdx + Math.max(0, Math.min(1, t));
-            // Seam handling for closed paths: an interior crossing that lands
-            // on the start/closing node is reported at the END of the path by
-            // Asymptote (time == length), not the beginning (time 0). Remap
-            // it so the ordering of intersectionpoints matches Asymptote.
-            // Exception: when the seam coincides with an *endpoint* of the
-            // second path, Asymptote keeps the seam at time 0 (first) — so
-            // skip the remap there (e.g. 00752, where a segment starts at the
-            // circle's (1,0) seam).
-            // Exception 2: this remap is only correct for non-circular closed
-            // paths (e.g. the rotated `ellipse` in 12640, whose seam crossing
-            // Asymptote genuinely reports at time==length). For a true CIRCLE
-            // path (Circle(c,r), tagged `_circle`) Asymptote reports the seam
-            // crossing at time ~0 (FIRST) regardless of node count or whether
-            // the second path is open/closed — verified against local asy 3.05
-            // for Circle×Circle and Circle×line. Applying the remap to circles
-            // wrongly swaps the two intersection points (10827: B and E, where
-            // the O1×O3 crossing lands exactly on O1's (1,0) seam).
-            if (p1.closed && p1.segs.length > 0 && !p1._circle) {
-              const sn = p1.segs[0].p0;
-              const ndist = Math.hypot(ip.x - sn.x, ip.y - sn.y);
-              const ntol = 1e-3 * Math.max(1, Math.hypot(sn.x, sn.y));
-              if (ndist < ntol) {
-                const e0 = p2.segs[0].p0;
-                const eN = p2.segs[p2.segs.length - 1].p3;
-                const atP2End =
-                  Math.hypot(ip.x - e0.x, ip.y - e0.y) < ntol ||
-                  Math.hypot(ip.x - eN.x, ip.y - eN.y) < ntol;
-                if (!atP2End) globalT = p1.segs.length;
-              }
-            }
-            // Deduplicate across segments
-            let dup = false;
-            for (const p of ptsWithT) {
-              if (Math.abs(p.pt.x - ip.x) < 0.001 && Math.abs(p.pt.y - ip.y) < 0.001) { dup = true; break; }
-            }
-            if (!dup) ptsWithT.push({pt: ip, t: globalT});
-          }
-        }
-      }
-      // Sort by position along first path
-      ptsWithT.sort((a, b) => a.t - b.t);
-      return ptsWithT.map(x => x.pt);
+      return _pqHits(p1, p2).map(h => makePair(h.z.x, h.z.y));
     });
 
     // Aliases for intersectionpoint(s) — cse5/olympiad shorthand
-    env.set('IP', (p1, p2) => invokeFunc(env.get('intersectionpoint'), [p1, p2]));
+    // cse5 OP(A, B) = IP(A, B, 1); commonpoints(A, B) = IPs(A, B).
+    env.set('OP', (p1, p2) => invokeFunc(env.get('IP'), [p1, p2, 1]));
+    env.set('commonpoints', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+    // cse5 IP(A, B, m=0): the m-th common point, walking along A.
+    env.set('IP', (p1, p2, m) => {
+      if (m === undefined) return invokeFunc(env.get('intersectionpoint'), [p1, p2]);
+      const pts = invokeFunc(env.get('intersectionpoints'), [p1, p2]);
+      const k = Math.round(toNumber(m));
+      return (isArray(pts) && k >= 0 && k < pts.length) ? pts[k] : makePair(0,0);
+    });
     env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
     // cse5 capitalized aliases: IntersectionPoint(path,path) → pair, etc.
     env.set('IntersectionPoint', (...args) => invokeFunc(env.get('intersectionpoint'), args));
@@ -12685,109 +12518,135 @@ function createInterpreter() {
     // sorted by t_g (time along the first path) — matching Asymptote so that
     // intersections(g,h)[k][0] / [k][1] index the k-th crossing's times.
     // Used by the Venn-diagram idiom: subpath(g, intersections(g,h)[i][0], ...).
-    env.set('intersections', (p1, p2 /*, fuzz */) => {
+    env.set('intersections', (p1, p2, a3, a4) => {
+      // intersections(path p, pair a, pair b[, fuzz]): times where p meets the
+      // infinite line through a and b.
+      if (isPair(p2) && isPair(a3)) {
+        p1 = geoToPath(p1);
+        return isPath(p1) ? _pqLineTimes(p1, p2, a3) : [];
+      }
       p1 = geoToPath(p1); p2 = geoToPath(p2);
       if (!isPath(p1) || !isPath(p2)) return [];
-      if (!p1.segs || !p2.segs || p1.segs.length === 0 || p2.segs.length === 0) return [];
-      // Accurate path-time of point pt on a single bezier segment: coarse scan
-      // then golden-section refine. Chord projection (used by intersectionpoints)
-      // is only correct for straight segments; ellipse arcs need the true param.
-      const localT = (seg, pt) => {
-        const evalB = (t) => {
-          const u = 1 - t;
-          return {
-            x: u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x,
-            y: u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y,
-          };
-        };
-        const N = 64;
-        let bestT = 0, bestD = Infinity;
-        for (let i = 0; i <= N; i++) {
-          const t = i / N, b = evalB(t);
-          const d = (b.x-pt.x)*(b.x-pt.x) + (b.y-pt.y)*(b.y-pt.y);
-          if (d < bestD) { bestD = d; bestT = t; }
-        }
-        let lo = Math.max(0, bestT - 1/N), hi = Math.min(1, bestT + 1/N);
-        for (let it = 0; it < 40; it++) {
-          const m1 = lo + (hi-lo)/3, m2 = hi - (hi-lo)/3;
-          const b1 = evalB(m1), b2 = evalB(m2);
-          const d1 = (b1.x-pt.x)*(b1.x-pt.x) + (b1.y-pt.y)*(b1.y-pt.y);
-          const d2 = (b2.x-pt.x)*(b2.x-pt.x) + (b2.y-pt.y)*(b2.y-pt.y);
-          if (d1 < d2) hi = m2; else lo = m1;
-        }
-        return (lo + hi) / 2;
-      };
-      const found = [];
-      const tolPt = Math.max(1e-3, 1e-3 * Math.max(
-        Math.abs(p1.segs[0].p0.x) + Math.abs(p1.segs[0].p0.y), 1));
-      for (let i = 0; i < p1.segs.length; i++) {
-        const s1 = p1.segs[i];
-        for (let j = 0; j < p2.segs.length; j++) {
-          const s2 = p2.segs[j];
-          const ips = bezierBezierAllIntersections(s1, s2);
-          for (const ip of ips) {
-            let dup = false;
-            for (const f of found) {
-              if (Math.abs(f.pt.x - ip.x) < tolPt && Math.abs(f.pt.y - ip.y) < tolPt) { dup = true; break; }
-            }
-            if (dup) continue;
-            found.push({ pt: ip, t1: i + localT(s1, ip), t2: j + localT(s2, ip) });
-          }
-        }
-      }
-      found.sort((a, b) => a.t1 - b.t1);
-      return found.map(f => [f.t1, f.t2]);
+      return _pqIntersections(p1, p2);
     });
 
-    // inside(path, pair) — returns true if pair is inside the closed path (2D)
-    // Uses ray-crossing algorithm: cast a horizontal ray from the point and count crossings.
-    // inside(path g, path p) — Asymptote overload: returns 1 if p is inside g,
-    //   -1 if g is inside p, and 0 otherwise (used by 02434 to pixel-fill the
-    //   moon region: `if (inside(cursquare, P) == -1) fill(cursquare, green)`).
-    const _pointInPath = (path, px, py) => {
-      let crossings = 0;
-      for (const seg of path.segs) {
-        const N = seg._linear ? 2 : 16;
-        let prevY = seg.p0.y, prevX = seg.p0.x;
-        for (let i = 1; i <= N; i++) {
-          const t = i / N, u = 1 - t;
-          const x = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
-          const y = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
-          // Test if segment (prevX,prevY)->(x,y) crosses the horizontal ray from (px, py) going right
-          if ((prevY > py) !== (y > py)) {
-            // Compute x-coordinate of intersection with y=py line
-            const xInt = prevX + (y === prevY ? 0 : (py - prevY) * (x - prevX) / (y - prevY));
-            if (xInt > px) crossings++;
-          }
-          prevX = x; prevY = y;
-        }
-      }
-      return (crossings % 2) === 1;
-    };
-    // True if every sampled point of `inner` lies inside `outer`.
-    const _pathAllInside = (outer, inner) => {
-      for (const seg of inner.segs) {
-        const N = seg._linear ? 2 : 16;
-        for (let i = 0; i <= N; i++) {
-          const t = i / N, u = 1 - t;
-          const x = u*u*u*seg.p0.x + 3*u*u*t*seg.cp1.x + 3*u*t*t*seg.cp2.x + t*t*t*seg.p3.x;
-          const y = u*u*u*seg.p0.y + 3*u*u*t*seg.cp1.y + 3*u*t*t*seg.cp2.y + t*t*t*seg.p3.y;
-          if (!_pointInPath(outer, x, y)) return false;
-        }
-      }
-      return true;
-    };
-    env.set('inside', (path, arg) => {
+    // inside(path p, pair z, pen fillrule=currentpen): winding number under
+    // the pen's fill rule (nonzero by default); a point ON the path counts as
+    // inside. inside(path p, path q) (plain_paths.asy): 0 if they intersect,
+    // 1 if cyclic p contains q's start, -1 if cyclic q contains p's start.
+    const _pqInterior = (w, pen) => w === _PQ_UNDEF_WINDING ||
+      ((pen && pen.fillrule === 'evenodd') ? (w % 2 !== 0) : w !== 0);
+    env.set('inside', (path, arg, fillrule) => {
       if (!isPath(path) || !path.segs || path.segs.length === 0) return false;
+      const pen = isPen(fillrule) ? fillrule : null;
       if (isPath(arg) && arg.segs && arg.segs.length > 0) {
-        // path-path overload: 1 if arg inside path, -1 if path inside arg, 0 otherwise
-        if (_pathAllInside(path, arg)) return 1;
-        if (_pathAllInside(arg, path)) return -1;
+        if (_pqIntersect(path, arg)) return 0;
+        if (path.closed && _pqInterior(_pqWinding(path, arg.segs[0].p0), pen)) return 1;
+        if (arg.closed && _pqInterior(_pqWinding(arg, path.segs[0].p0), pen)) return -1;
         return 0;
       }
       const p = toPair(arg);
-      return _pointInPath(path, p.x, p.y);
+      return _pqInterior(_pqWinding(path, p), pen);
     });
+    env.set('windingnumber', (p, z) => {
+      p = geoToPath(p);
+      return isPath(p) ? _pqWinding(p, toPair(z)) : 0;
+    });
+
+    // Path queries from plain_paths.asy / path.cc that had no binding.
+    env.set('cyclic', (...a) => {
+      // olympiad.asy cyclic(A,B,C,D): circumcenters of ABC and ABD agree to 1e-5.
+      if (a.length === 4 && a.every(isPair)) {
+        const cc = (A, B, C) => {
+          const d = 2 * (A.x*(B.y - C.y) + B.x*(C.y - A.y) + C.x*(A.y - B.y));
+          const a2 = A.x*A.x + A.y*A.y, b2 = B.x*B.x + B.y*B.y, c2 = C.x*C.x + C.y*C.y;
+          return { x: (a2*(B.y - C.y) + b2*(C.y - A.y) + c2*(A.y - B.y)) / d,
+                   y: (a2*(C.x - B.x) + b2*(A.x - C.x) + c2*(B.x - A.x)) / d };
+        };
+        const u = cc(a[0], a[1], a[2]), v = cc(a[0], a[1], a[3]);
+        return Math.abs(u.x - v.x) < 1e-5 && Math.abs(u.y - v.y) < 1e-5;
+      }
+      if (isPath(a[0])) return !!a[0].closed;
+      if (isArray(a[0])) return !!a[0]._cyclic;
+      return false;
+    });
+    env.set('beginpoint', (p) => {
+      const S = _pqSegsOf(p);
+      return S.length ? makePair(S[0].p0.x, S[0].p0.y) : makePair(0,0);
+    });
+    env.set('endpoint', (p) => {
+      const S = _pqSegsOf(p);
+      return S.length ? makePair(S[S.length-1].p3.x, S[S.length-1].p3.y) : makePair(0,0);
+    });
+    // precontrol/postcontrol(path, t): the control points on either side of
+    // time t (a node's own control points, or those of a split at t).
+    const _pqControl = (p, t, post) => {
+      const n = isPath(p) ? p.segs.length : 0;
+      const S = _pqSegsOf(p);
+      if (!S.length) return makePair(0,0);
+      if (!n) return makePair(S[0].p0.x, S[0].p0.y);
+      t = toNumber(t);
+      if (p.closed) t = ((t % n) + n) % n;
+      else {
+        if (t <= 0) { const q = post ? p.segs[0].cp1 : p.segs[0].p0; return makePair(q.x, q.y); }
+        if (t >= n) { const q = post ? p.segs[n-1].p3 : p.segs[n-1].cp2; return makePair(q.x, q.y); }
+      }
+      const i = Math.floor(t), f = t - i;
+      if (f === 0) {
+        const q = post ? p.segs[i].cp1 : p.segs[(i - 1 + n) % n].cp2;
+        return makePair(q.x, q.y);
+      }
+      const [l, r] = _pqSplit(p.segs[i], f);
+      const q = post ? r.cp1 : l.cp2;
+      return makePair(q.x, q.y);
+    };
+    env.set('precontrol', (p, t) => _pqControl(p, t, false));
+    env.set('postcontrol', (p, t) => _pqControl(p, t, true));
+    env.set('accel', (p, t) => isPath(p) ? _pqAccel(p, toNumber(t)) : makePair(0,0));
+    // radius(path p, real t): radius of curvature (0 where straight), path.cc.
+    env.set('radius', (p, t) => {
+      if (isGeoCircle(p)) return p.r;
+      if (!isPath(p) || !p.segs.length) return 0;
+      const v = _pqDir(p, toNumber(t), false), a = _pqAccel(p, toNumber(t));
+      const d = a.x*v.x + a.y*v.y, v2 = v.x*v.x + v.y*v.y, a2 = a.x*a.x + a.y*a.y;
+      const den = v2*a2 - d*d;
+      // (a straight piece leaves only roundoff in den)
+      return den > 1e-12 * v2 * a2 ? v2*Math.sqrt(v2) / Math.sqrt(den) : 0;
+    });
+    // dirtime(path p, pair z): first time at which dir(p,t) points along z.
+    env.set('dirtime', (p, z) => {
+      if (!isPath(p) || !p.segs.length) return -1;
+      const u = _pqUnit(toPair(z));
+      if (u.x === 0 && u.y === 0) return 0;
+      const n = p.segs.length;
+      for (let i = 0; i < n; i++) {
+        const s = p.segs[i];
+        // cross(B'(t), u) is a quadratic in t (Bernstein coefficients c0..c2).
+        const c = [[s.p0, s.cp1], [s.cp1, s.cp2], [s.cp2, s.p3]].map(([A, B]) => (B.x - A.x)*u.y - (B.y - A.y)*u.x);
+        const m = Math.max(Math.abs(c[0]), Math.abs(c[1]), Math.abs(c[2]));
+        const same = t => { const d = _pqD1(s, t); return d.x*u.x + d.y*u.y > 0; };
+        const scale = Math.hypot(s.p3.x - s.p0.x, s.p3.y - s.p0.y, s.cp1.x - s.p0.x, s.cp1.y - s.p0.y);
+        if (m <= 1e-12 * scale) { if (same(0.5)) return i; continue; }
+        const ts = _pqQuad(c[0] - 2*c[1] + c[2], 2*(c[1] - c[0]), c[0]).filter(t => t >= -1e-12 && t <= 1 + 1e-12).map(t => Math.min(1, Math.max(0, t))).sort((x, y) => x - y);
+        for (const t of ts) if (same(t)) return i + t;
+        if (i + 1 < n || p.closed) {
+          const d = _pqDir(p, i + 1);
+          if (Math.abs(d.x*u.y - d.y*u.x) <= 1e-12 && d.x*u.x + d.y*u.y > 0) return i + 1;
+        }
+      }
+      return -1;
+    });
+    const _pqStraightSeg = (p, i) => {
+      const n = isPath(p) ? p.segs.length : 0;
+      if (!n) return false;
+      if (p.closed) i = ((i % n) + n) % n;
+      else if (i < 0 || i >= n) return false;
+      return _pqIsLine(p.segs[i]);
+    };
+    env.set('straight', (p, i) => _pqStraightSeg(p, Math.floor(toNumber(i))));
+    env.set('piecewisestraight', (p) => isPath(p) && p.segs.every(_pqIsLine));
+    env.set('mintimes', (p) => _pqExtremeTimes(p, false));
+    env.set('maxtimes', (p) => _pqExtremeTimes(p, true));
 
     // CR(center, r) — cse5 shorthand for "Circle with Radius": returns a circle path.
     // CR(center, r, theta1, theta2[, direction]) — cse5 arc form, equivalent to
@@ -13257,25 +13116,19 @@ function createInterpreter() {
       const markscalefactor = 0.03;
       const tickPen = clonePen(pen);
       const nT = Math.max(1, Math.round(n));
-      const N = g.segs.length;
-      let l = 0;
-      for (const seg of g.segs) l += bezierArcLength(seg);
+      const l = _pqArcLength(g);
       if (!(l > 0)) return pic;
       const sVal = sizeBp > 0 ? sizeBp : 8;       // olympiad default s=8
       const halftick = sVal * markscalefactor / 2;     // user units
       const space = spacingBp * markscalefactor;       // user units along arclength
-      const spaceFrac = space / l;                     // fraction of arclength
-      // direct = unit tangent at r (computed once, like olympiad.asy)
-      const rc = Math.max(0, Math.min(1, r));
-      const ctan = _dirOnPath(g, rc * N);
+      // direct = unit(dir(g, arctime(g, r*l))) (computed once, like olympiad.asy)
+      const ctan = _pqDir(g, _pqArcTime(g, r * l));
       const ctlen = Math.sqrt(ctan.x*ctan.x + ctan.y*ctan.y) || 1;
       const ux = ctan.x / ctlen, uy = ctan.y / ctlen;  // unit tangent
       const perpX = -uy, perpY = ux;                   // unit perpendicular (i·direct)
       for (let k = 0; k < nT; k++) {
-        let frac = r + (k - (nT - 1) / 2) * spaceFrac;
-        if (frac < 0) frac = 0;
-        if (frac > 1) frac = 1;
-        const pt = _pointOnPath(g, frac * N);
+        // B = point(g, arctime(g, r*l-(n-1)/2*space+i*space)); arctime clamps.
+        const pt = _pointOnPath(g, _pqArcTime(g, r * l + (k - (nT - 1) / 2) * space));
         const b = makePair(pt.x + perpX * halftick, pt.y + perpY * halftick);
         const c = makePair(pt.x - perpX * halftick, pt.y - perpY * halftick);
         const tp = makePath([lineSegment(b, c)], false);
@@ -18961,9 +18814,13 @@ const _HTX_DATA_FILES = {
     env.set('coordsys', coordsysFunc);
     _builtinFuncs.set('coordsys', coordsysFunc);
 
-    // drawline(picture pic, pair A, pair B, pen p)
-    // Draws an infinite line through two points
+    // drawline(picture pic, pair A, pair B, pen p) comes from math.asy
+    // (geometry.asy doesn't redefine it): an infinite line clipped to the
+    // final picture, not a 400-unit segment that inflated the bbox and shrank
+    // the figure (12900). Reuse the stdlib version when it's bound.
+    const _mathDrawline = env.get('drawline');
     env.set('drawline', (...args) => {
+      if (typeof _mathDrawline === 'function') return _mathDrawline(...args);
       let target = currentPic;
       if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
         target = args[0]; args = args.slice(1);
@@ -18977,7 +18834,6 @@ const _HTX_DATA_FILES = {
       }
       if (!A || !B) return;
       if (!pen) pen = clonePen(defaultPen);
-      // Extend the line far in both directions
       const dx = B.x - A.x, dy = B.y - A.y;
       const len = Math.sqrt(dx*dx + dy*dy) || 1;
       const far = 200;
@@ -20041,7 +19897,7 @@ const _HTX_DATA_FILES = {
         return Math.sqrt(d.x*d.x + d.y*d.y);
       }
       if (typeof existingLength === 'function') return existingLength(...args);
-      if (isPath(v)) return v.segs.length;
+      if (isPath(v)) return _pqLength(v);
       if (isArray(v)) return v.length;
       if (isString(v)) return v.length;
       return 0;
@@ -27302,7 +27158,7 @@ const _HTX_DATA_FILES = {
   }
 
   // plain circle(c,r) = shift(c)*scale(r)*unitcircle: 4 Bezier segments.
-  // `_circle` records the geometry (intersection seam ordering uses it).
+  // `_circle` records the geometry.
   function makeBezierCirclePath(center, r) {
     const p = makePath(_bezierCircleSegs(center.x, center.y, r, r), true);
     p._circle = { cx: center.x, cy: center.y, r };
@@ -28131,209 +27987,582 @@ const _HTX_DATA_FILES = {
     }
   }
 
-  function bezierArcLength(seg) {
-    // Approximate arc length by sampling
-    let len = 0;
-    const N = 16;
-    let prev = seg.p0;
-    for (let i = 1; i <= N; i++) {
-      const t = i/N;
-      const pt = bezierPoint(seg, t);
-      len += Math.sqrt((pt.x-prev.x)*(pt.x-prev.x) + (pt.y-prev.y)*(pt.y-prev.y));
-      prev = pt;
-    }
-    return len;
-  }
+  // ── Accurate path queries (asy path.cc semantics) ────────────────────────
+  // asy's intersect()/intersections() converge to ~1e-15 and keep one hit per
+  // point on the first path (hits closer than sqrt(Fuzz2), Fuzz2=1000*DBL_EPSILON,
+  // merge), so a tangency or a crossing through a shared node is reported once.
+  // Straight segments are solved analytically (a line vs a cubic is a cubic
+  // root problem; collinear overlap reports the overlap's end points, as asy
+  // does). Two curved segments are subdivided until flat, then Newton-polished.
+  // The old box recursion stopped at 1e-4 and returned box midpoints, and a line
+  // lying along a box edge made it explode (02437 spent ~5 s there).
+  const _PQ_FUZZ = Math.sqrt(1000 * Number.EPSILON);
+  // asy's windingnumber() "undefined" (point on the path) sentinel.
+  const _PQ_UNDEF_WINDING = 9223372036854775805;
 
-  function bezierBezierIntersect(s1, s2) {
-    // Recursive subdivision approach for robust Bezier-Bezier intersection
-    function bbox(seg) {
-      const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
-      const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
-      return {
-        minX: Math.min(...xs), maxX: Math.max(...xs),
-        minY: Math.min(...ys), maxY: Math.max(...ys),
-      };
-    }
-    function bboxOverlap(a, b, tol) {
-      return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
-             a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
-    }
-    function subdivide(seg, t) {
-      const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
-      const u = 1 - t;
-      const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
-      const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
-      const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
-      const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
-      const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
-      const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
-      return [
-        makeSeg(p0, q0, r0, s0),
-        makeSeg(s0, r1, q2, p3),
-      ];
-    }
-    function segSize(seg) {
-      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
-      return Math.abs(dx) + Math.abs(dy);
-    }
-    const tol = 1e-4;
-    const results = [];
-    function recurse(a, b, depth) {
-      if (results.length > 0) return; // only need first intersection
-      const ba = bbox(a), bb = bbox(b);
-      if (!bboxOverlap(ba, bb, tol)) return;
-      if (depth > 40) {
-        // Converged — report midpoint
-        const mx = (a.p0.x + a.p3.x + b.p0.x + b.p3.x) / 4;
-        const my = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
-        results.push(makePair(mx, my));
-        return;
-      }
-      if (segSize(a) < tol && segSize(b) < tol) {
-        const mx = (a.p0.x + b.p0.x) / 2;
-        const my = (a.p0.y + b.p0.y) / 2;
-        results.push(makePair(mx, my));
-        return;
-      }
-      // Subdivide the larger segment
-      if (segSize(a) >= segSize(b)) {
-        const [a1, a2] = subdivide(a, 0.5);
-        recurse(a1, b, depth + 1);
-        recurse(a2, b, depth + 1);
-      } else {
-        const [b1, b2] = subdivide(b, 0.5);
-        recurse(a, b1, depth + 1);
-        recurse(a, b2, depth + 1);
-      }
-    }
-    recurse(s1, s2, 0);
-    return results.length > 0 ? results[0] : null;
+  function _pqPt(s, t) {
+    const u = 1 - t;
+    return {
+      x: u*u*u*s.p0.x + 3*u*u*t*s.cp1.x + 3*u*t*t*s.cp2.x + t*t*t*s.p3.x,
+      y: u*u*u*s.p0.y + 3*u*u*t*s.cp1.y + 3*u*t*t*s.cp2.y + t*t*t*s.p3.y,
+    };
   }
-
-  // Returns [t1, t2] sub-segment parameters for first intersection, or null.
-  function bezierBezierIntersectFirstT(s1, s2) {
-    function bbox(seg) {
-      const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
-      const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
-      return {
-        minX: Math.min(...xs), maxX: Math.max(...xs),
-        minY: Math.min(...ys), maxY: Math.max(...ys),
-      };
-    }
-    function bboxOverlap(a, b, tol) {
-      return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
-             a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
-    }
-    function subdivide(seg, t) {
-      const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
-      const u = 1 - t;
-      const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
-      const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
-      const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
-      const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
-      const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
-      const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
-      return [makeSeg(p0, q0, r0, s0), makeSeg(s0, r1, q2, p3)];
-    }
-    function segSize(seg) {
-      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
-      return Math.abs(dx) + Math.abs(dy);
-    }
-    const tol = 1e-4;
-    let best = null; // {t1, t2} of smallest t1 found so far
-    function recurse(a, b, t1lo, t1hi, t2lo, t2hi, depth) {
-      if (best && t1lo > best.t1) return;
-      const ba = bbox(a), bb = bbox(b);
-      if (!bboxOverlap(ba, bb, tol)) return;
-      if (depth > 40 || (segSize(a) < tol && segSize(b) < tol)) {
-        const t1 = (t1lo + t1hi) / 2;
-        const t2 = (t2lo + t2hi) / 2;
-        if (!best || t1 < best.t1) best = {t1, t2};
-        return;
-      }
-      if (segSize(a) >= segSize(b)) {
-        const [a1, a2] = subdivide(a, 0.5);
-        const t1mid = (t1lo + t1hi) / 2;
-        recurse(a1, b, t1lo, t1mid, t2lo, t2hi, depth + 1);
-        recurse(a2, b, t1mid, t1hi, t2lo, t2hi, depth + 1);
-      } else {
-        const [b1, b2] = subdivide(b, 0.5);
-        const t2mid = (t2lo + t2hi) / 2;
-        recurse(a, b1, t1lo, t1hi, t2lo, t2mid, depth + 1);
-        recurse(a, b2, t1lo, t1hi, t2mid, t2hi, depth + 1);
-      }
-    }
-    recurse(s1, s2, 0, 1, 0, 1, 0);
-    return best ? [best.t1, best.t2] : null;
+  function _pqD1(s, t) {
+    const u = 1 - t;
+    return {
+      x: 3*(u*u*(s.cp1.x-s.p0.x) + 2*u*t*(s.cp2.x-s.cp1.x) + t*t*(s.p3.x-s.cp2.x)),
+      y: 3*(u*u*(s.cp1.y-s.p0.y) + 2*u*t*(s.cp2.y-s.cp1.y) + t*t*(s.p3.y-s.cp2.y)),
+    };
   }
-
-  function bezierBezierAllIntersections(s1, s2) {
-    // Find ALL intersections between two Bezier segments
-    function bbox(seg) {
-      const xs = [seg.p0.x, seg.cp1.x, seg.cp2.x, seg.p3.x];
-      const ys = [seg.p0.y, seg.cp1.y, seg.cp2.y, seg.p3.y];
-      return {
-        minX: Math.min(...xs), maxX: Math.max(...xs),
-        minY: Math.min(...ys), maxY: Math.max(...ys),
-      };
+  function _pqD2(s, t) {
+    if (_pqIsLine(s)) return {x: 0, y: 0};  // exact: no roundoff curvature
+    const u = 1 - t;
+    return {
+      x: 6*(u*(s.cp2.x-2*s.cp1.x+s.p0.x) + t*(s.p3.x-2*s.cp2.x+s.cp1.x)),
+      y: 6*(u*(s.cp2.y-2*s.cp1.y+s.p0.y) + t*(s.p3.y-2*s.cp2.y+s.cp1.y)),
+    };
+  }
+  function _pqD3(s) {
+    return { x: 6*(s.p3.x-3*s.cp2.x+3*s.cp1.x-s.p0.x), y: 6*(s.p3.y-3*s.cp2.y+3*s.cp1.y-s.p0.y) };
+  }
+  // Straight segment with the uniform parameterization of `--` (so its Bezier
+  // time is the chord fraction).
+  function _pqIsLine(s) {
+    if (s._linear) return true;
+    const dx = s.p3.x - s.p0.x, dy = s.p3.y - s.p0.y;
+    const tol = 1e-12 * (Math.abs(dx) + Math.abs(dy) + Math.abs(s.p0.x) + Math.abs(s.p0.y) + 1e-300);
+    return Math.abs(s.cp1.x - (s.p0.x + dx/3)) <= tol && Math.abs(s.cp1.y - (s.p0.y + dy/3)) <= tol &&
+           Math.abs(s.cp2.x - (s.p0.x + 2*dx/3)) <= tol && Math.abs(s.cp2.y - (s.p0.y + 2*dy/3)) <= tol;
+  }
+  function _pqBBox(s) {
+    return {
+      minX: Math.min(s.p0.x, s.cp1.x, s.cp2.x, s.p3.x), maxX: Math.max(s.p0.x, s.cp1.x, s.cp2.x, s.p3.x),
+      minY: Math.min(s.p0.y, s.cp1.y, s.cp2.y, s.p3.y), maxY: Math.max(s.p0.y, s.cp1.y, s.cp2.y, s.p3.y),
+    };
+  }
+  function _pqSplit(s, t) {
+    const u = 1 - t, L = (a, b) => ({x: u*a.x + t*b.x, y: u*a.y + t*b.y});
+    const q0 = L(s.p0, s.cp1), q1 = L(s.cp1, s.cp2), q2 = L(s.cp2, s.p3);
+    const r0 = L(q0, q1), r1 = L(q1, q2), m = L(r0, r1);
+    return [makeSeg(s.p0, q0, r0, m), makeSeg(m, r1, q2, s.p3)];
+  }
+  // The piece of segment s between local times a < b.
+  function _pqSubSeg(s, a, b) {
+    let seg = s;
+    if (a > 0) seg = _pqSplit(seg, a)[1];
+    const r = a > 0 ? (b - a) / (1 - a) : b;
+    if (r < 1) seg = _pqSplit(seg, r)[0];
+    return seg;
+  }
+  // Real roots in [0,1] of ((A t + B) t + C) t + D; `tol` catches double roots
+  // (tangencies), where the cubic only touches zero at a critical point.
+  function _pqQuad(a, b, c) {
+    const sc = Math.max(Math.abs(a), Math.abs(b), Math.abs(c));
+    if (sc === 0) return [];
+    if (Math.abs(a) <= 1e-14 * sc) return Math.abs(b) > 0 ? [-c / b] : [];
+    const disc = b*b - 4*a*c;
+    if (disc < 0) return [];
+    const q = -0.5 * (b + (b >= 0 ? 1 : -1) * Math.sqrt(disc));
+    const r = [q / a];
+    if (q !== 0) r.push(c / q);
+    return r;
+  }
+  function _pqCubicRoots01(A, B, C, D, tol) {
+    const f = t => ((A*t + B)*t + C)*t + D;
+    const cuts = [0];
+    for (const c of _pqQuad(3*A, 2*B, C).sort((x, y) => x - y)) if (c > 0 && c < 1) cuts.push(c);
+    cuts.push(1);
+    const roots = [];
+    const add = t => { for (const r of roots) if (Math.abs(r - t) <= 1e-13) return; roots.push(t); };
+    for (let k = 0; k + 1 < cuts.length; k++) {
+      const a = cuts[k], b = cuts[k+1], fa = f(a), fb = f(b);
+      const za = Math.abs(fa) <= tol, zb = Math.abs(fb) <= tol;
+      if (za) add(a);
+      if (zb) add(b);
+      if (za || zb || (fa < 0) === (fb < 0)) continue;
+      let lo = a, hi = b, flo = fa;
+      for (let it = 0; it < 64 && hi - lo > 1e-16; it++) {
+        const m = 0.5 * (lo + hi), fm = f(m);
+        if (fm === 0) { lo = hi = m; break; }
+        if ((fm < 0) === (flo < 0)) { lo = m; flo = fm; } else hi = m;
+      }
+      add(0.5 * (lo + hi));
     }
-    function bboxOverlap(a, b, tol) {
-      return a.minX - tol <= b.maxX && a.maxX + tol >= b.minX &&
-             a.minY - tol <= b.maxY && a.maxY + tol >= b.minY;
+    return roots.sort((x, y) => x - y);
+  }
+  function _pqBernRoots(f0, f1, f2, f3, tol) {
+    return _pqCubicRoots01(-f0 + 3*f1 - 3*f2 + f3, 3*f0 - 6*f1 + 3*f2, 3*(f1 - f0), f0, tol);
+  }
+  // Hits of segment s with the line a + u*d: [{t, u}] (t = time on s, u = line
+  // parameter). If s lies ON the line, returns {collinear:true, g:[...]} where
+  // g are the Bernstein coefficients of u(t).
+  function _pqSegLine(s, a, d) {
+    const dd = d.x*d.x + d.y*d.y;
+    const P = [s.p0, s.cp1, s.cp2, s.p3];
+    let m = 0;
+    for (const q of P) m = Math.max(m, Math.abs(q.x - a.x), Math.abs(q.y - a.y));
+    const f = P.map(q => d.x*(q.y - a.y) - d.y*(q.x - a.x));
+    const tol = 1e-12 * Math.sqrt(dd) * m;
+    const g = P.map(q => ((q.x - a.x)*d.x + (q.y - a.y)*d.y) / dd);
+    if (Math.max(Math.abs(f[0]), Math.abs(f[1]), Math.abs(f[2]), Math.abs(f[3])) <= tol) return {collinear: true, g};
+    const line = _pqIsLine(s);
+    const out = [];
+    for (const t of _pqBernRoots(f[0], f[1], f[2], f[3], tol)) {
+      const u = line ? g[0] + t*(g[3] - g[0]) : (() => { const q = _pqPt(s, t); return ((q.x - a.x)*d.x + (q.y - a.y)*d.y) / dd; })();
+      out.push({t, u});
     }
-    function subdivide(seg, t) {
-      const p0 = seg.p0, p1 = seg.cp1, p2 = seg.cp2, p3 = seg.p3;
-      const u = 1 - t;
-      const q0 = {x: u*p0.x + t*p1.x, y: u*p0.y + t*p1.y};
-      const q1 = {x: u*p1.x + t*p2.x, y: u*p1.y + t*p2.y};
-      const q2 = {x: u*p2.x + t*p3.x, y: u*p2.y + t*p3.y};
-      const r0 = {x: u*q0.x + t*q1.x, y: u*q0.y + t*q1.y};
-      const r1 = {x: u*q1.x + t*q2.x, y: u*q1.y + t*q2.y};
-      const s0 = {x: u*r0.x + t*r1.x, y: u*r0.y + t*r1.y};
-      return [
-        makeSeg(p0, q0, r0, s0),
-        makeSeg(s0, r1, q2, p3),
-      ];
+    return out;
+  }
+  // Hits of segment s with the SEGMENT a--b: [{t, u}], u in [0,1].
+  function _pqSegSeg(s, a, b) {
+    const d = {x: b.x - a.x, y: b.y - a.y};
+    const eps = 1e-10;
+    if (d.x === 0 && d.y === 0) return _pqSegPoint(s, a).map(t => ({t, u: 0}));
+    const r = _pqSegLine(s, a, d);
+    const out = [];
+    const push = (t, u) => {
+      if (t < -eps || t > 1 + eps || u < -eps || u > 1 + eps) return;
+      t = Math.min(1, Math.max(0, t)); u = Math.min(1, Math.max(0, u));
+      for (const o of out) if (Math.abs(o.t - t) <= 1e-12) return;
+      out.push({t, u});
+    };
+    if (r.collinear) {
+      // Overlap: the end points of the common piece.
+      const g = r.g;
+      const ga = g[0], gb = g[3];
+      if (ga >= -eps && ga <= 1 + eps) push(0, ga);
+      if (gb >= -eps && gb <= 1 + eps) push(1, gb);
+      const lin = _pqIsLine(s);
+      for (const U of [0, 1]) {
+        const ts = lin ? (gb !== ga ? [(U - ga) / (gb - ga)] : [])
+                       : _pqBernRoots(g[0] - U, g[1] - U, g[2] - U, g[3] - U, 1e-12);
+        for (const t of ts) push(t, U);
+      }
+      return out.sort((x, y) => x.t - y.t);
     }
-    function segSize(seg) {
-      const dx = seg.p3.x - seg.p0.x, dy = seg.p3.y - seg.p0.y;
-      return Math.abs(dx) + Math.abs(dy);
-    }
-    const tol = 1e-4;
-    // Dedup tolerance must scale with the coordinate magnitude of the inputs:
-    // the subdivision solver's residual noise is proportional to segment size,
-    // so a fixed absolute threshold lets near-duplicate estimates of the SAME
-    // crossing slip through on large-coordinate paths (e.g. a circle-path of
-    // radius 7 crossing a line yields two estimates ~1e-3 apart per arc) while
-    // being needlessly coarse on tiny-coordinate diagrams.
-    const dedupTol = Math.max(Math.max(segSize(s1), segSize(s2)) * 2e-3, 1e-4);
-    const results = [];
-    function recurse(a, b, depth) {
-      const ba = bbox(a), bb = bbox(b);
-      if (!bboxOverlap(ba, bb, tol)) return;
-      if (depth > 40 || (segSize(a) < tol && segSize(b) < tol)) {
-        const mx = (a.p0.x + a.p3.x + b.p0.x + b.p3.x) / 4;
-        const my = (a.p0.y + a.p3.y + b.p0.y + b.p3.y) / 4;
-        // Deduplicate: skip if too close to existing result
-        for (const r of results) {
-          if (Math.abs(r.x - mx) < dedupTol && Math.abs(r.y - my) < dedupTol) return;
+    for (const h of r) push(h.t, h.u);
+    return out;
+  }
+  // Times on s where it passes through point z.
+  function _pqSegPoint(s, z) {
+    const bb = _pqBBox(s);
+    const m = Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY, Math.abs(z.x), Math.abs(z.y), 1e-300);
+    const tol = 1e-9 * m;
+    if (z.x < bb.minX - tol || z.x > bb.maxX + tol || z.y < bb.minY - tol || z.y > bb.maxY + tol) return [];
+    if (bb.maxX - bb.minX <= tol && bb.maxY - bb.minY <= tol) return [0];
+    const dir = (bb.maxX - bb.minX >= bb.maxY - bb.minY) ? {x: 0, y: 1} : {x: 1, y: 0};
+    const r = _pqSegLine(s, z, dir);
+    const ts = r.collinear ? [] : r.map(h => h.t);
+    return ts.filter(t => { const q = _pqPt(s, t); return Math.hypot(q.x - z.x, q.y - z.y) <= tol; });
+  }
+  // Two curved segments: subdivide until flat, intersect the chords, polish
+  // with Newton on A(s)-B(t). Recursion is budgeted so overlapping curves
+  // can't blow up.
+  function _pqCurveCurve(A, B) {
+    // Identical (or reversed) segments coincide everywhere; report the ends,
+    // as asy does for overlapping straight pieces.
+    const eq = (X, Y) => X.x === Y.x && X.y === Y.y;
+    if (eq(A.p0, B.p0) && eq(A.cp1, B.cp1) && eq(A.cp2, B.cp2) && eq(A.p3, B.p3)) return [{s: 0, t: 0}, {s: 1, t: 1}];
+    if (eq(A.p0, B.p3) && eq(A.cp1, B.cp2) && eq(A.cp2, B.cp1) && eq(A.p3, B.p0)) return [{s: 0, t: 1}, {s: 1, t: 0}];
+    const ba = _pqBBox(A), bb = _pqBBox(B);
+    const M = Math.max(ba.maxX - ba.minX, ba.maxY - ba.minY, bb.maxX - bb.minX, bb.maxY - bb.minY, 1e-300);
+    const pad = 1e-12 * M;
+    const cand = [];
+    let budget = 4000;
+    const flat = (s) => {
+      const dx = s.p3.x - s.p0.x, dy = s.p3.y - s.p0.y, L = Math.hypot(dx, dy);
+      const dev = (q) => L > 0 ? Math.abs(dx*(q.y - s.p0.y) - dy*(q.x - s.p0.x)) / L : Math.hypot(q.x - s.p0.x, q.y - s.p0.y);
+      return Math.max(dev(s.cp1), dev(s.cp2)) <= Math.max(1e-3 * L, 1e-10 * M);
+    };
+    const size = (b) => Math.max(b.maxX - b.minX, b.maxY - b.minY);
+    const rec = (a, s0, s1, b, t0, t1, depth) => {
+      const x = _pqBBox(a), y = _pqBBox(b);
+      if (x.maxX + pad < y.minX || y.maxX + pad < x.minX || x.maxY + pad < y.minY || y.maxY + pad < x.minY) return;
+      if (--budget <= 0 || depth > 60) { cand.push([(s0 + s1) / 2, (t0 + t1) / 2, true]); return; }
+      if (flat(a) && flat(b)) {
+        const da = {x: a.p3.x - a.p0.x, y: a.p3.y - a.p0.y}, db = {x: b.p3.x - b.p0.x, y: b.p3.y - b.p0.y};
+        const den = da.x*db.y - da.y*db.x;
+        const na = Math.hypot(da.x, da.y), nb = Math.hypot(db.x, db.y);
+        if (Math.abs(den) > 1e-9 * na * nb) {
+          const wx = b.p0.x - a.p0.x, wy = b.p0.y - a.p0.y;
+          const u = (wx*db.y - wy*db.x) / den, v = (wx*da.y - wy*da.x) / den;
+          if (u >= -0.1 && u <= 1.1 && v >= -0.1 && v <= 1.1)
+            cand.push([s0 + (s1 - s0) * Math.min(1, Math.max(0, u)), t0 + (t1 - t0) * Math.min(1, Math.max(0, v)), false]);
+          return;
         }
-        results.push(makePair(mx, my));
-        return;
+        // Parallel flat pieces (a tangency or an overlap): keep splitting
+        // until tiny, then take the midpoint.
+        if (size(x) + size(y) <= 1e-9 * M) { cand.push([(s0 + s1) / 2, (t0 + t1) / 2, true]); return; }
       }
-      if (segSize(a) >= segSize(b)) {
-        const [a1, a2] = subdivide(a, 0.5);
-        recurse(a1, b, depth + 1);
-        recurse(a2, b, depth + 1);
+      if (size(x) >= size(y)) {
+        const [a1, a2] = _pqSplit(a, 0.5), sm = (s0 + s1) / 2;
+        rec(a1, s0, sm, b, t0, t1, depth + 1);
+        rec(a2, sm, s1, b, t0, t1, depth + 1);
       } else {
-        const [b1, b2] = subdivide(b, 0.5);
-        recurse(a, b1, depth + 1);
-        recurse(a, b2, depth + 1);
+        const [b1, b2] = _pqSplit(b, 0.5), tm = (t0 + t1) / 2;
+        rec(a, s0, s1, b1, t0, tm, depth + 1);
+        rec(a, s0, s1, b2, tm, t1, depth + 1);
+      }
+    };
+    rec(A, 0, 1, B, 0, 1, 0);
+    // Partially overlapping curves leave a long run of candidates; thin them
+    // so the Newton pass stays bounded.
+    cand.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    let kept = cand.filter((c, k) => k === 0 || Math.abs(c[0] - cand[k-1][0]) > 1e-9 || Math.abs(c[1] - cand[k-1][1]) > 1e-9);
+    if (kept.length > 64) { const step = kept.length / 64; kept = Array.from({length: 64}, (_, k) => kept[Math.floor(k * step)]); }
+    const out = [];
+    for (const [s0, t0, loose] of kept) {
+      let s = s0, t = t0, res = Infinity;
+      for (let it = 0; it < 50; it++) {
+        const P = _pqPt(A, s), Q = _pqPt(B, t);
+        const fx = P.x - Q.x, fy = P.y - Q.y;
+        res = Math.hypot(fx, fy);
+        if (res <= 1e-15 * M) break;
+        const a = _pqD1(A, s), b = _pqD1(B, t);
+        const det = b.x*a.y - a.x*b.y;
+        if (!(Math.abs(det) > 1e-300)) break;
+        const ns = s + (fx*b.y - b.x*fy) / det, nt = t + (a.y*fx - a.x*fy) / det;
+        if (!isFinite(ns) || !isFinite(nt)) break;
+        s = Math.min(1.5, Math.max(-0.5, ns)); t = Math.min(1.5, Math.max(-0.5, nt));
+      }
+      const ok = res <= 1e-9 * M && s >= -1e-9 && s <= 1 + 1e-9 && t >= -1e-9 && t <= 1 + 1e-9;
+      if (!ok) {
+        if (!loose) continue;
+        s = s0; t = t0;
+        const P = _pqPt(A, s), Q = _pqPt(B, t);
+        if (Math.hypot(P.x - Q.x, P.y - Q.y) > 1e-6 * M) continue;
+      }
+      s = Math.min(1, Math.max(0, s)); t = Math.min(1, Math.max(0, t));
+      out.push({s, t});
+    }
+    return out;
+  }
+  // Segments of a path for intersection purposes (a single-point path is a
+  // zero-length segment).
+  function _pqSegsOf(p) {
+    if (!isPath(p)) return [];
+    if (p.segs.length) return p.segs;
+    if (p._singlePoint) { const z = p._singlePoint; return [makeSeg(z, z, z, z)]; }
+    return [];
+  }
+  function _pqPathScale(segs) {
+    let m = 0;
+    for (const s of segs) for (const q of [s.p0, s.cp1, s.cp2, s.p3]) m = Math.max(m, Math.abs(q.x), Math.abs(q.y));
+    return m;
+  }
+  // All hits of paths p and q as [{s, t, z}] sorted by s (times on p.segs /
+  // q.segs, z the point), one hit per point of p (asy's intersections()).
+  function _pqHits(p, q) {
+    const P = _pqSegsOf(p), Q = _pqSegsOf(q);
+    if (!P.length || !Q.length) return [];
+    const np = p.segs.length ? P.length : 0, nq = q.segs.length ? Q.length : 0;
+    const boxes = Q.map(_pqBBox);
+    const M = Math.max(_pqPathScale(P), _pqPathScale(Q), 1e-300);
+    const pad = 1e-10 * M;
+    const dedup = Math.max(_PQ_FUZZ, 1e-10 * M);
+    const hits = [];
+    const add = (s, t) => {
+      if (p.closed && np > 0 && s >= np - 1e-12) s = 0;
+      if (q.closed && nq > 0 && t >= nq - 1e-12) t = 0;
+      const i = Math.min(Math.floor(s), P.length - 1);
+      const z = _pqPt(P[i], s - i);
+      for (const h of hits) if (Math.abs(h.z.x - z.x) <= dedup && Math.abs(h.z.y - z.y) <= dedup) return;
+      hits.push({s, t, z});
+    };
+    for (let i = 0; i < P.length; i++) {
+      const A = P[i], ba = _pqBBox(A), la = _pqIsLine(A);
+      for (let j = 0; j < Q.length; j++) {
+        const bq = boxes[j];
+        if (ba.maxX + pad < bq.minX || bq.maxX + pad < ba.minX || ba.maxY + pad < bq.minY || bq.maxY + pad < ba.minY) continue;
+        const B = Q[j], lb = _pqIsLine(B);
+        if (lb) for (const h of _pqSegSeg(A, B.p0, B.p3)) add(i + h.t, j + h.u);
+        else if (la) for (const h of _pqSegSeg(B, A.p0, A.p3)) add(i + h.u, j + h.t);
+        else for (const h of _pqCurveCurve(A, B)) add(i + h.s, j + h.t);
       }
     }
-    recurse(s1, s2, 0);
-    return results;
+    hits.sort((a, b) => a.s - b.s || a.t - b.t);
+    return hits;
+  }
+  // real[][] intersections(path p, path q)
+  function _pqIntersections(p, q) {
+    return _pqHits(p, q).map(h => [h.s, h.t]);
+  }
+  // real[] intersect(path p, path q): asy's single-hit search. With p one
+  // straight segment asy scans q, so it returns the hit earliest on q;
+  // otherwise the hit earliest on p. Returns {s, t, z} or null.
+  function _pqIntersect(p, q) {
+    const all = _pqHits(p, q);
+    if (!all.length) return null;
+    const P = _pqSegsOf(p), Q = _pqSegsOf(q);
+    if (P.length === 1 && _pqIsLine(P[0]) && !(Q.length === 1 && _pqIsLine(Q[0]))) {
+      let best = all[0];
+      for (const h of all) if (h.t < best.t) best = h;
+      return best;
+    }
+    return all[0];
+  }
+  // real[] intersections(path p, pair a, pair b): times where p meets the
+  // infinite line through a and b. A segment lying on the line contributes
+  // its end times.
+  function _pqLineTimes(p, a, b) {
+    const S = _pqSegsOf(p);
+    const d = {x: b.x - a.x, y: b.y - a.y};
+    if (!S.length || (d.x === 0 && d.y === 0)) return [];
+    const n = p.segs.length ? S.length : 0;
+    const M = Math.max(_pqPathScale(S), Math.abs(a.x), Math.abs(a.y), 1e-300);
+    const dedup = Math.max(_PQ_FUZZ, 1e-10 * M);
+    const hits = [];
+    const add = (s) => {
+      if (p.closed && n > 0 && s >= n - 1e-12) s = 0;
+      const i = Math.min(Math.floor(s), S.length - 1);
+      const z = _pqPt(S[i], s - i);
+      for (const h of hits) if (Math.abs(h.z.x - z.x) <= dedup && Math.abs(h.z.y - z.y) <= dedup) return;
+      hits.push({s, z});
+    };
+    for (let i = 0; i < S.length; i++) {
+      const r = _pqSegLine(S[i], a, d);
+      if (r.collinear) { add(i); add(i + 1); continue; }
+      for (const h of r) add(i + h.t);
+    }
+    return hits.map(h => h.s).sort((x, y) => x - y);
+  }
+
+  // Arc length: adaptive 5-point Gauss-Legendre on |B'(t)| (asy integrates
+  // to ~1e-15; the old 16-chord sum was short by ~2e-4 on a unit circle).
+  const _GL5X = [-0.9061798459386640, -0.5384693101056831, 0, 0.5384693101056831, 0.9061798459386640];
+  const _GL5W = [0.2369268850561891, 0.4786286704993665, 0.5688888888888889, 0.4786286704993665, 0.2369268850561891];
+  // Speed |B'(t)|, including z for path3 segments.
+  function _pqSpeed(s, t) {
+    const d = _pqD1(s, t);
+    if (typeof s.p0.z !== 'number' && typeof s.p3.z !== 'number') return Math.hypot(d.x, d.y);
+    const u = 1 - t, z = (q) => (q && q.z) || 0;
+    const dz = 3*(u*u*(z(s.cp1)-z(s.p0)) + 2*u*t*(z(s.cp2)-z(s.cp1)) + t*t*(z(s.p3)-z(s.cp2)));
+    return Math.hypot(d.x, d.y, dz);
+  }
+  function _pqGL(s, a, b) {
+    const h = (b - a) / 2, c = (a + b) / 2;
+    let sum = 0;
+    for (let k = 0; k < 5; k++) sum += _GL5W[k] * _pqSpeed(s, c + h*_GL5X[k]);
+    return sum * h;
+  }
+  function _pqSegLen(s, a, b) {
+    if (a === undefined) { a = 0; b = 1; }
+    if (b <= a) return 0;
+    if (_pqIsLine(s) && typeof s.p0.z !== 'number' && typeof s.p3.z !== 'number') return Math.hypot(s.p3.x - s.p0.x, s.p3.y - s.p0.y) * (b - a);
+    const rec = (lo, hi, whole, depth) => {
+      const m = (lo + hi) / 2, l = _pqGL(s, lo, m), r = _pqGL(s, m, hi);
+      if (depth >= 24 || Math.abs(l + r - whole) <= 1e-15 * Math.max(1e-300, l + r) + 1e-300) return l + r;
+      return rec(lo, m, l, depth + 1) + rec(m, hi, r, depth + 1);
+    };
+    return rec(a, b, _pqGL(s, a, b), 0);
+  }
+  function _pqArcLength(p) {
+    let L = 0;
+    for (const s of (isPath(p) ? p.segs : [])) L += _pqSegLen(s);
+    return L;
+  }
+  // Local time on s at which the arc length from 0 reaches goal (0 < goal < len).
+  function _pqSegArcTime(s, goal, len) {
+    if (_pqIsLine(s) && typeof s.p0.z !== 'number' && typeof s.p3.z !== 'number') return len > 0 ? goal / len : 0;
+    let lo = 0, hi = 1, t = goal / len;
+    for (let it = 0; it < 60; it++) {
+      const diff = _pqSegLen(s, 0, t) - goal;
+      if (Math.abs(diff) <= 1e-15 * len) break;
+      if (diff > 0) hi = t; else lo = t;
+      const sp = _pqSpeed(s, t);
+      let tn = sp > 0 ? t - diff / sp : NaN;
+      if (!(tn > lo && tn < hi)) tn = (lo + hi) / 2;
+      if (hi - lo < 1e-16) break;
+      t = tn;
+    }
+    return t;
+  }
+  function _pqReverse(p) {
+    const r = makePath(p.segs.slice().reverse().map(s => makeSeg(s.p3, s.cp2, s.cp1, s.p0)), p.closed);
+    if (p._singlePoint) r._singlePoint = p._singlePoint;
+    return r;
+  }
+  // real arctime(path p, real L), asy's path::arctime: cyclic paths wrap
+  // (loops*length + ...), negative L runs backwards; open paths clamp.
+  function _pqArcTime(p, goal) {
+    if (!isPath(p) || !p.segs.length) return 0;
+    const n = p.segs.length, lens = p.segs.map(s => _pqSegLen(s));
+    const L = lens.reduce((a, b) => a + b, 0);
+    if (p.closed) {
+      if (goal === 0 || L === 0) return 0;
+      if (goal < 0) return -_pqArcTime(_pqReverse(p), -goal);
+      if (goal >= L) { const loops = Math.floor(goal / L); return loops * n + _pqArcTime(p, goal - loops * L); }
+    } else {
+      if (goal <= 0) return 0;
+      if (goal >= L) return n;
+    }
+    let acc = 0;
+    for (let i = 0; i < n; i++) {
+      if (acc + lens[i] >= goal) return i + _pqSegArcTime(p.segs[i], goal - acc, lens[i]);
+      acc += lens[i];
+    }
+    return n;
+  }
+  // reltime(p, l) = arctime(p, l*arclength(p)).
+  function _pqRelTime(p, l) {
+    return _pqArcTime(p, l * _pqArcLength(p));
+  }
+
+  // length(path): nullpath has no nodes and length -1; a single point is 0.
+  function _pqLength(p) {
+    return p.segs.length || (p._singlePoint ? 0 : -1);
+  }
+
+  // Direction on a path at a node / time (asy path::predir/postdir/dir): a
+  // vanishing first derivative falls back to the second, then the third.
+  function _pqUnit(v) { const l = Math.hypot(v.x, v.y); return l > 0 ? {x: v.x / l, y: v.y / l} : {x: 0, y: 0}; }
+  function _pqPostDir(p, i, normalize) {
+    const n = p.segs.length;
+    if (!p.closed && i >= n) return {x: 0, y: 0};
+    const s = p.segs[((i % n) + n) % n];
+    const d = {x: 3*(s.cp1.x - s.p0.x), y: 3*(s.cp1.y - s.p0.y)};
+    if (!normalize) return d;
+    const eps = 1000 * Number.EPSILON * ((s.p3.x - s.p0.x)**2 + (s.p3.y - s.p0.y)**2);
+    if (d.x*d.x + d.y*d.y > eps) return _pqUnit(d);
+    const d2 = {x: s.cp2.x - 2*s.cp1.x + s.p0.x, y: s.cp2.y - 2*s.cp1.y + s.p0.y};
+    if (d2.x*d2.x + d2.y*d2.y > eps) return _pqUnit(d2);
+    return _pqUnit(_pqD3(s));
+  }
+  function _pqPreDir(p, i, normalize) {
+    const n = p.segs.length;
+    if (!p.closed && i <= 0) return {x: 0, y: 0};
+    const s = p.segs[(((i - 1) % n) + n) % n];
+    const d = {x: 3*(s.p3.x - s.cp2.x), y: 3*(s.p3.y - s.cp2.y)};
+    if (!normalize) return d;
+    const eps = 1000 * Number.EPSILON * ((s.p3.x - s.p0.x)**2 + (s.p3.y - s.p0.y)**2);
+    if (d.x*d.x + d.y*d.y > eps) return _pqUnit(d);
+    const d2 = {x: 2*s.cp2.x - s.cp1.x - s.p3.x, y: 2*s.cp2.y - s.cp1.y - s.p3.y};
+    if (d2.x*d2.x + d2.y*d2.y > eps) return _pqUnit(d2);
+    return _pqUnit(_pqD3(s));
+  }
+  // pair dir(path p, real t, bool normalize=true). At a node asy averages the
+  // incoming and outgoing directions; open paths use only the outgoing one at
+  // t<=0 and the incoming one at t>=length; cyclic paths wrap t.
+  function _pqDir(p, t, normalize) {
+    if (normalize === undefined) normalize = true;
+    const n = isPath(p) ? p.segs.length : 0;
+    if (!n) return makePair(0, 0);
+    const out = (v) => makePair(v.x, v.y);
+    if (!p.closed) {
+      if (t <= 0) return out(_pqPostDir(p, 0, normalize));
+      if (t >= n) return out(_pqPreDir(p, n, normalize));
+    } else {
+      t = ((t % n) + n) % n;
+    }
+    const i = Math.floor(t), f = t - i;
+    if (f === 0) {
+      const a = _pqPreDir(p, i, normalize), b = _pqPostDir(p, i, normalize);
+      const v = {x: a.x + b.x, y: a.y + b.y};
+      return out(normalize ? _pqUnit(v) : {x: 0.5*v.x, y: 0.5*v.y});
+    }
+    const s = p.segs[i];
+    const d = _pqD1(s, f);
+    if (!normalize) return out(d);
+    if (d.x !== 0 || d.y !== 0) return out(_pqUnit(d));
+    const d2 = _pqD2(s, f);
+    if (d2.x !== 0 || d2.y !== 0) return out(_pqUnit(d2));
+    return out(_pqUnit(_pqD3(s)));
+  }
+  // pair accel(path p, real t): second derivative, averaged at a node. The
+  // ends of an open path average with a zero neighbour (asy gives half).
+  function _pqAccel(p, t) {
+    const n = isPath(p) ? p.segs.length : 0;
+    if (!n) return makePair(0, 0);
+    const pre = (i) => (!p.closed && i <= 0) ? {x: 0, y: 0} : _pqD2(p.segs[(((i - 1) % n) + n) % n], 1);
+    const post = (i) => (!p.closed && i >= n) ? {x: 0, y: 0} : _pqD2(p.segs[((i % n) + n) % n], 0);
+    if (!p.closed) t = Math.max(0, Math.min(n, t));
+    else t = ((t % n) + n) % n;
+    const i = Math.floor(t), f = t - i;
+    if (f === 0 || i === n) { const a = pre(i), b = post(i); return makePair(0.5*(a.x + b.x), 0.5*(a.y + b.y)); }
+    const v = _pqD2(p.segs[i], f);
+    return makePair(v.x, v.y);
+  }
+  // Bounding box of a path including Bezier extrema (asy min(path)/max(path)).
+  function _pqBounds(p) {
+    const S = _pqSegsOf(p);
+    if (!S.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const see = (q) => { if (q.x < minX) minX = q.x; if (q.x > maxX) maxX = q.x; if (q.y < minY) minY = q.y; if (q.y > maxY) maxY = q.y; };
+    for (const s of S) {
+      see(s.p0); see(s.p3);
+      for (const k of ['x', 'y']) {
+        const a = s.p0[k], b = s.cp1[k], c = s.cp2[k], d = s.p3[k];
+        for (const t of _pqQuad(3*(-a + 3*b - 3*c + d), 6*(a - 2*b + c), 3*(b - a))) if (t > 0 && t < 1) see(_pqPt(s, t));
+      }
+    }
+    return {minX, minY, maxX, maxY};
+  }
+  // mintimes/maxtimes: times of the extreme x and y. Candidates are visited in
+  // time order; asy keeps the LAST tie for a minimum and the FIRST for a maximum.
+  function _pqExtremeTimes(p, wantMax) {
+    const n = isPath(p) ? p.segs.length : 0;
+    if (!n) return [0, 0];
+    const res = [];
+    for (const k of ['x', 'y']) {
+      let best = null, bt = 0;
+      const see = (v, t) => {
+        if (best === null || (wantMax ? v > best : v <= best)) { best = v; bt = t; }
+      };
+      for (let i = 0; i < n; i++) {
+        const s = p.segs[i];
+        see(s.p0[k], i);
+        const a = s.p0[k], b = s.cp1[k], c = s.cp2[k], d = s.p3[k];
+        const ts = _pqQuad(3*(-a + 3*b - 3*c + d), 6*(a - 2*b + c), 3*(b - a)).filter(t => t > 1e-9 && t < 1 - 1e-9).sort((x, y) => x - y);
+        for (const t of ts) see(_pqPt(s, t)[k], i + t);
+      }
+      see(p.segs[n - 1].p3[k], n);
+      res.push(bt);
+    }
+    return res;
+  }
+  // int windingnumber(path p, pair z): nonzero-rule crossing count of a
+  // rightward ray, each segment split into y-monotone pieces with a half-open
+  // rule so node crossings count once. A point on the path is "undefined".
+  function _pqWinding(p, z) {
+    const S = _pqSegsOf(p);
+    if (!S.length) return 0;
+    const M = Math.max(_pqPathScale(S), Math.abs(z.x), Math.abs(z.y), 1e-300);
+    const tol = 1e-10 * M;
+    const segs = S.slice();
+    if (!p.closed) { const a = S[S.length - 1].p3, b = S[0].p0; if (a.x !== b.x || a.y !== b.y) segs.push(lineSegment(a, b)); }
+    let w = 0;
+    for (const s of segs) {
+      const a = s.p0.y, b = s.cp1.y, c = s.cp2.y, d = s.p3.y;
+      const cuts = [0];
+      for (const t of _pqQuad(3*(-a + 3*b - 3*c + d), 6*(a - 2*b + c), 3*(b - a)).sort((x, y) => x - y)) if (t > 0 && t < 1) cuts.push(t);
+      cuts.push(1);
+      for (let k = 0; k + 1 < cuts.length; k++) {
+        const t0 = cuts[k], t1 = cuts[k+1];
+        const P0 = _pqPt(s, t0), P1 = _pqPt(s, t1);
+        const y0 = P0.y, y1 = P1.y;
+        if (Math.abs(y1 - y0) <= tol && Math.abs(y0 - z.y) <= tol) {
+          // Horizontal piece on the ray's line: only matters if z is on it.
+          const bb = _pqBBox(_pqSubSeg(s, t0, t1));
+          if (z.x >= bb.minX - tol && z.x <= bb.maxX + tol) return _PQ_UNDEF_WINDING;
+          continue;
+        }
+        if (z.y < Math.min(y0, y1) - tol || z.y > Math.max(y0, y1) + tol) continue;
+        // x where the monotone piece crosses y = z.y
+        let lo = t0, hi = t1;
+        const up = y1 > y0;
+        for (let it = 0; it < 80 && hi - lo > 1e-16; it++) {
+          const m = 0.5 * (lo + hi), ym = _pqPt(s, m).y;
+          if ((ym < z.y) === up) lo = m; else hi = m;
+        }
+        const x = _pqPt(s, 0.5 * (lo + hi)).x;
+        if (Math.abs(x - z.x) <= tol) return _PQ_UNDEF_WINDING;
+        if (x > z.x) {
+          if (up && y0 < z.y && z.y <= y1) w++;
+          else if (!up && y1 < z.y && z.y <= y0) w--;
+        }
+      }
+    }
+    return w;
   }
 
   // Main execution
