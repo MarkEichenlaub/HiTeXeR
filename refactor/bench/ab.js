@@ -1,7 +1,7 @@
 // node refactor/bench/ab.js [rounds] — interleaved A/B: HEAD interpreter vs working tree.
 const cp=require('child_process'),fs=require('fs'),path=require('path');
-const ROOT=path.resolve(__dirname,'../..');const snap=path.join(ROOT,'refactor/.gate/snap-bench');fs.mkdirSync(snap,{recursive:true});
-for(const f of ['asy-interp.js','katex-svg.js'])fs.writeFileSync(path.join(snap,f),cp.execFileSync('git',['show','HEAD:'+f],{cwd:ROOT,maxBuffer:1<<28}));
+const ROOT=path.resolve(__dirname,'../..');const REV=process.env.REV||'HEAD';const snap=path.join(ROOT,'refactor/.gate/snap-bench-'+REV.replace(/[^w]/g,'_'));fs.mkdirSync(snap,{recursive:true});
+for(const f of ['asy-interp.js','katex-svg.js'])fs.writeFileSync(path.join(snap,f),cp.execFileSync('git',['show',REV+':'+f],{cwd:ROOT,maxBuffer:1<<28}));
 fs.copyFileSync(path.join(ROOT,'katex-glyphs.json'),path.join(snap,'katex-glyphs.json'));
 const files=fs.readdirSync(__dirname).filter(f=>f.endsWith('.asy'));
 const script=(interp,file)=>`const fs=require('fs');global.window={};global.katex=require(${JSON.stringify(require.resolve('katex'))});console.log=console.warn=()=>{};require(${JSON.stringify(interp)});

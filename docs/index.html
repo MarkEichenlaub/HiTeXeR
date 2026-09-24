@@ -726,7 +726,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.109</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.110</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -2767,7 +2767,9 @@ const CropTool = (() => {
 
   // ── Code insertion / removal ────────────────────────────────
   function insertClipCode(x1, y1, x2, y2) {
-    const code = editor.getValue();
+    // Replace any earlier crop: clips intersect, so stacking them could only
+    // ever shrink the diagram.
+    const code = editor.getValue().replace(/^[^\n]*\/\/ @htx-clip\r?\n?/gm, '');
     const clipLine = `clip(box((${fmt(x1)},${fmt(y1)}),(${fmt(x2)},${fmt(y2)}))); // @htx-clip`;
     let newCode;
     if (code.includes('[/asy]')) {
@@ -3595,6 +3597,7 @@ async function renderDocument(code, gen) {
   const previewEl = document.getElementById('preview-container');
   const statusEl = document.getElementById('status');
 
+  lastRenderInfo = null;  // doc-mode SVGs carry no single-diagram scale
   // Reset single-diagram view transform state so a stray transform from a prior
   // single render can't linger (doc-mode SVGs are data-perm and ignored by it).
   inFitMode = true; canvasZoom = 1.0; canvasPanX = 0; canvasPanY = 0; canvasRotate = 0;
@@ -3670,21 +3673,41 @@ async function renderDocument(code, gen) {
   document.dispatchEvent(new CustomEvent('hitexer-rendered', { detail: { code } }));
 
   // Resolve any server-fallback diagrams asynchronously and patch them in place.
+  // Slot ids restart at 0 on every render, so a late reply must check that its
+  // render is still current and that the slot is still waiting for it.
+  const pendingSlot = (job) => {
+    if (stale()) return null;
+    const slot = docEl.querySelector('#' + job.id);
+    return (slot && slot.classList.contains('htx-diagram-loading')) ? slot : null;
+  };
   for (const job of asyJobs) {
     compileAsyToSvg(job.asyCode).then(svg => {
-      const slot = docEl.querySelector('#' + job.id);
-      if (!slot) return;   // a newer render replaced the document
+      const slot = pendingSlot(job);
+      if (!slot) return;
       if (svg) {
-        slot.outerHTML = `<span class="htx-diagram" id="${job.id}">${svg.replace(/<svg\b/g, '<svg data-perm="htx-doc"')}</span>`;
+        // dvisvgm reuses glyph/clip ids in every file; scope them per block.
+        const scoped = scopeSvgIds(svg, job.id);
+        slot.outerHTML = `<span class="htx-diagram" id="${job.id}">${scoped.replace(/<svg\b/g, '<svg data-perm="htx-doc"')}</span>`;
       } else {
         slot.outerHTML = `<span class="htx-diagram-error" id="${job.id}">[diagram failed to render]</span>`;
       }
     }).catch(() => {
-      const slot = docEl.querySelector('#' + job.id);
+      const slot = pendingSlot(job);
       if (slot) slot.outerHTML = `<span class="htx-diagram-error" id="${job.id}">[diagram failed to render]</span>`;
     });
   }
   return true;
+}
+
+// Suffix every id an SVG defines (and its url(#...) / href="#..." references)
+// so several SVGs can share one page without resolving each other's defs.
+function scopeSvgIds(svg, suffix) {
+  const ids = new Set();
+  for (const m of svg.matchAll(/ id="([^"]+)"/g)) ids.add(m[1]);
+  if (!ids.size) return svg;
+  const esc = [...ids].map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const re = new RegExp('( id="|url\\(#|href="#)(' + esc + ')(?=[")])', 'g');
+  return svg.replace(re, (m, pre, id) => pre + id + '-' + suffix);
 }
 
 // Compile a single [asy] block via the server, returning the SVG string or null.
@@ -3738,7 +3761,12 @@ function faithfulModeActive() {
             (typeof labelSlideActive !== 'undefined' && labelSlideActive));
 }
 
+// Bumped by each applyFaithfulRaster() call: a call that resumes after its
+// image loads must not park the SVG if a newer call (a mode switch, the View
+// toggle, a newer render) has run since.
+let rasterSeq = 0;
 async function applyFaithfulRaster() {
+  const my = ++rasterSeq;
   const previewEl = document.getElementById('preview-container');
   if (!previewEl) return;
   const svgs = previewEl.classList.contains('htx-doc-mode')
@@ -3769,7 +3797,10 @@ async function applyFaithfulRaster() {
       if (/href="https?:/.test(xml)) continue;
       const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
       const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      try {
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      } finally { URL.revokeObjectURL(url); }
+      if (my !== rasterSeq || !svg.isConnected || !faithfulRasterOn || faithfulModeActive()) return;
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(cssW * 2));   // 240-DPI raster
       canvas.height = Math.max(1, Math.round(cssH * 2));
@@ -3777,7 +3808,6 @@ async function applyFaithfulRaster() {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
       // Emit an <img>, not the canvas: explicit width+height styles distort
       // under max-width/max-height clamping (the grid squashed spheres into
       // ellipses); an img with only a width attribute keeps its intrinsic
@@ -3904,6 +3934,7 @@ async function doRender() {
       setupSvgInteractivityDirect(code, result.commandMap);
       applyGhostStyles(code, result.commandMap);
       await applyFaithfulRaster();
+      if (gen !== renderGen) return;
       lastRenderInfo = { pxPerUnit: result.pxPerUnit, pxPerUnitX: result.pxPerUnitX, pxPerUnitY: result.pxPerUnitY, minX: result.minX, minY: result.minY, maxX: result.maxX, maxY: result.maxY, displayPercent: result.displayPercent };
       updateZoomLabel();
       statusEl.textContent = 'Rendered'; statusEl.style.color = '#2ecc71';
@@ -3969,7 +4000,9 @@ async function doRender() {
         }
         return;
       }
-      // Server success
+      // Server success. The JS render's scale info doesn't describe this SVG;
+      // crop and slide mode fall back to the viewBox when it's null.
+      lastRenderInfo = null;
       const svgEl = previewEl.querySelector('svg:not([data-perm])');
       const placeholder = previewEl.querySelector('.placeholder');
       if (svgEl) svgEl.remove();
@@ -6476,6 +6509,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function applySlideOverlay() {
+    // Deferred callers (render .then chains) can land after the mode is off.
+    if (!slideActive) return;
     const code = editor.getValue();
     const freePoints = findFreePoints(code);
     const freeReals = findFreeReals(code);
@@ -7041,6 +7076,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function applyLabelSlideOverlay() {
+    if (!labelSlideActive) return;  // mode was turned off while a render was pending
     const code = editor.getValue();
     const lines = code.split('\n');
     const svg = document.querySelector('#preview-container svg:not([data-perm])');
@@ -7645,14 +7681,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const re = new RegExp('(\\b' + gifSelectedVar.varName + '\\s*=\\s*)[-\\d.eE+]+', '');
     const newLine = lines[lineIdx].replace(re, `$1${value}`);
     if (newLine === lines[lineIdx]) return; // no change
+    const oldLen = lines[lineIdx].length;
     lines[lineIdx] = newLine;
     const newCode = lines.join('\n');
-    const cursor = editor.getCursor();
-    const scrollInfo = editor.getScrollInfo();
+    // Edit just this line under a '*' origin: CodeMirror merges each '*'
+    // change into the previous one of the same origin, so a whole preview run
+    // is one undo step instead of ~25 per second pushing real edits out of
+    // the 200-step history.
     suppressAutoRender = true;
-    editor.setValue(newCode);
-    editor.setCursor(cursor);
-    editor.scrollTo(scrollInfo.left, scrollInfo.top);
+    editor.replaceRange(newLine, { line: lineIdx, ch: 0 }, { line: lineIdx, ch: oldLen }, '*gif-preview');
     suppressAutoRender = false;
     if (autoRenderTimer) { clearTimeout(autoRenderTimer); autoRenderTimer = null; }
 
@@ -7695,21 +7732,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const code = editor.getValue();
       const lines = code.split('\n');
       let changed = false;
+      suppressAutoRender = true;
       for (const { lineIdx, varName, value } of Object.values(gifAllOriginalValues)) {
         if (lineIdx >= 0 && lineIdx < lines.length) {
           const re = new RegExp('(\\b' + varName + '\\s*=\\s*)[-\\d.eE+]+', '');
           const newLine = lines[lineIdx].replace(re, `$1${value}`);
-          if (newLine !== lines[lineIdx]) { lines[lineIdx] = newLine; changed = true; }
+          if (newLine !== lines[lineIdx]) {
+            // Same '*gif-preview' origin: folds into the preview's undo step.
+            editor.replaceRange(newLine, { line: lineIdx, ch: 0 }, { line: lineIdx, ch: lines[lineIdx].length }, '*gif-preview');
+            lines[lineIdx] = newLine; changed = true;
+          }
         }
       }
+      suppressAutoRender = false;
       if (changed) {
-        const cursor = editor.getCursor();
-        const scrollInfo = editor.getScrollInfo();
-        suppressAutoRender = true;
-        editor.setValue(lines.join('\n'));
-        editor.setCursor(cursor);
-        editor.scrollTo(scrollInfo.left, scrollInfo.top);
-        suppressAutoRender = false;
         doRender();
       } else {
         // Values already at their originals, but the live preview left a crisp
@@ -7772,7 +7808,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // has changed (e.g. Copy GIF followed immediately by Save GIF) instead of
     // re-rendering every frame and re-encoding from scratch. The live preview
     // loop continuously rewrites the animated variable's line in the editor
-    // (gifUpdateVariable -> editor.setValue), so that one line is a moving
+    // (gifUpdateVariable), so that one line is a moving
     // target between clicks even when nothing the user controls has changed;
     // blank it out before fingerprinting so the key is stable across ticks.
     const codeLinesForKey = code.split('\n');
@@ -8355,6 +8391,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const aiProgressAccept = document.getElementById('ai-progress-accept');
   let aiAbortController = null;
 
+  // The AI takes seconds and the editor stays live, so the user may have kept
+  // typing. Replacing the code would silently drop those edits: ask first,
+  // and make Revert restore what was in the editor at apply time.
+  function applyAiCode(requestCode, newCode) {
+    const now = editor.getValue();
+    if (now !== requestCode &&
+        !confirm('You changed the code while the AI was working. Replace your changes with the AI version?')) {
+      return false;
+    }
+    aiRevertCode = now;
+    editor.setValue(newCode);
+    return true;
+  }
+
   async function doAiRefactor() {
     const code = editor.getValue();
     aiRevertCode = code;
@@ -8373,7 +8423,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (data.code) {
-        editor.setValue(data.code);
+        if (!applyAiCode(code, data.code)) { hideAiProgress(); return; }
         if (data.imageMatch) {
           showAiResult('Refactoring Complete', 'Code refactored successfully. Image verified identical.', true);
         } else {
@@ -8498,7 +8548,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (data.code) {
-        editor.setValue(data.code);
+        if (!applyAiCode(code, data.code)) { hideAiProgress(); return; }
         showAiResult('AI Edit Complete', data.message || 'Code updated. Accept or revert?', true);
         doRender();
       }
@@ -9268,14 +9318,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let finalRect = updateSel(e.clientX, e.clientY);
 
     function onMove(ev) { finalRect = updateSel(ev.clientX, ev.clientY); }
+    // Listen on document: the overlay only covers the diagram, and a drag
+    // released past its edge would otherwise never end.
     function onUp() {
-      overlay.removeEventListener('mousemove', onMove);
-      overlay.removeEventListener('mouseup', onUp);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
       cancelScreenshot();
       if (finalRect.w * finalRect.h > 25) _ssFinish(finalRect, svgRect, format);
     }
-    overlay.addEventListener('mousemove', onMove);
-    overlay.addEventListener('mouseup', onUp);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   async function _ssFinish(selRect, svgRect, format) {
@@ -9652,6 +9704,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const err = lintErrors.find(e => e.line === asyLine);
     if (!err) return;
 
+    // Track the line by handle, not number: lines can be added or removed
+    // above it while the request runs or before Accept is clicked.
+    const handle = cm.getLineHandle(line);
+    const origText = handle.text;
     // Request AI fix
     fetch(`${SERVER_URL}/ai`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -9666,10 +9722,14 @@ document.addEventListener('DOMContentLoaded', () => {
         `<div style="margin-top:6px;display:flex;gap:6px;">` +
         `<button style="background:#2ecc71;color:#fff;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" class="fix-accept">Accept</button>` +
         `<button style="background:#555;color:#eee;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" class="fix-dismiss">Dismiss</button></div>`;
-      const lineWidget = cm.addLineWidget(line, widget, { coverGutter: false });
+      if (cm.getLineNumber(handle) == null) return;  // the line was deleted
+      const lineWidget = cm.addLineWidget(handle, widget, { coverGutter: false });
       widget.querySelector('.fix-accept').addEventListener('click', () => {
+        const ln = cm.getLineNumber(handle);
+        // Deleted, or edited since the fix was requested: the fix is stale.
+        if (ln == null || cm.getLine(ln) !== origText) { lineWidget.clear(); return; }
         const cursor = cm.getCursor();
-        cm.replaceRange(data.fixedLine, { line, ch: 0 }, { line, ch: cm.getLine(line).length });
+        cm.replaceRange(data.fixedLine, { line: ln, ch: 0 }, { line: ln, ch: origText.length });
         cm.setCursor(cursor);
         lineWidget.clear();
         doRender();
