@@ -1,14 +1,14 @@
 # HiTeXeR language/library conformance report
 
-Generated 2026-09-24T18:28:15.713Z by `node refactor/conformance/build-report.js` from the results of
+Generated 2026-09-24T20:59:52.243Z by `node refactor/conformance/build-report.js` from the results of
 `node refactor/conformance/run.js` (write() output diff against real Asymptote 3.06) and
 `node refactor/conformance/colors-check.js`.
 
-Interpreter under test: `refactor/conformance/.snapshot/7f7c84cf/asy-interp.js` (git HEAD at the time of the run; the working-tree asy-interp.js was
+Interpreter under test: `asy-interp.js` (git HEAD at the time of the run; the working-tree asy-interp.js was
 being edited concurrently and at one point failed to load; a later `--working` run against it gave identical totals).
 Line numbers below (Lnnnn) refer to the HEAD snapshot.
 
-**45 test files, 1370 write() checks: 483 real mismatches (149 of them "HiTeXeR printed nothing"), 109 numerical-noise mismatches (agree to 1e-9), 8 format-only.**
+**47 test files, 1466 write() checks: 431 real mismatches (140 of them "HiTeXeR printed nothing"), 203 numerical-noise mismatches (agree to 1e-9), 8 format-only.**
 
 Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) that call the construct
 (`corpus-counts.json`). Categories are ordered by the most-used construct in each.
@@ -17,9 +17,9 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 
 | # | Root cause | real mismatches (+noise/format) | most-used constructs (corpus files) |
 |---|---|---|---|
-| 1 | [circle()/Circle()/arc()/Arc()/ellipse() construction and parameterization](#circlearc) | 41 (+0) | Circle 2036, arc 1700, circle 903, circumcircle 668, incircle 169, Arc 102, ellipse 57, CR 4, point(circle 82 |
-| 2 | [graph module: graph(), Circle/Arc sampling, interpolation](#graph) | 16 (+2) | graph 1161, Circle 2036, Arc 102, polargraph 32 |
-| 3 | [Built-in constants and misc builtins](#constants) | 18 (+6) | Npt 1573, Degrees 0, hypot 2 |
+| 1 | [circle()/Circle()/arc()/Arc()/ellipse() construction and parameterization](#circlearc) | 26 (+0) | Circle 2036, arc 1700, circle 903, circumcircle 668, incircle 169, Arc 102, ellipse 57, CR 4, point(circle 82 |
+| 2 | [graph module: graph(), Circle/Arc sampling, interpolation](#graph) | 0 (+1) | graph 1161, Circle 2036, Arc 102, polargraph 32 |
+| 3 | [Built-in constants and misc builtins](#constants) | 18 (+5) | Npt 1573, Degrees 0, hypot 2 |
 | 4 | [extension() of parallel lines (non-parallel extension() is exact)](#extension) | 1 (+1) | extension 1449 |
 | 5 | [Path intersections are only accurate to ~1e-4](#intersect) | 52 (+0) | intersectionpoint 670, intersectionpoints 825, IP 20, IPs 61, intersect 14, buildcycle 51 |
 | 6 | [Strings: string()/format() number formatting and string functions](#strings) | 23 (+9) | string 622, format( 21, string(real,n) 0 |
@@ -27,20 +27,20 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 | 8 | [Operators: bool ^, compound #= %= ^=, prefix --](#operators) | 7 (+0) | # 14, % 295 |
 | 9 | [Path queries: subpath/reverse edge cases, missing path builtins](#subpath) | 44 (+9) | point 226, reverse 143, subpath 13, inside 4, windingnumber 0, beginpoint 0, endpoint 0, precontrol 0 |
 | 10 | [Pair functions](#pairs) | 6 (+4) | cross 201, minbound 0, maxbound 0, abs2 0 |
-| 11 | [Arclength-based functions: arclength, arctime, relpoint, reltime, midpoint, waypoint](#arclen) | 25 (+3) | midpoint 186, relpoint 165, arclength 96, arctime 0, reltime 2, waypoint 10, WP 0 |
+| 11 | [Arclength-based functions: arclength, arctime, relpoint, reltime, midpoint, waypoint](#arclen) | 24 (+3) | midpoint 186, relpoint 165, arclength 96, arctime 0, reltime 2, waypoint 10, WP 0 |
 | 12 | [Integer casts, rounding, int/real distinction](#casts) | 23 (+4) | round 6, floor 50, ceil 2, (int) 182, pair=number 3 |
 | 13 | [Arrays: methods, whole-array arithmetic, sort/search, matrix ops](#arrays) | 34 (+0) | array append/insert/delete 11, sort 2, reverse 143, search 0, concat 0 |
 | 14 | [min()/max() of paths and pictures return 0](#minmax) | 20 (+0) | min/max(ident) 142 |
-| 15 | [olympiad.asy helpers](#olympiad) | 8 (+3) | anglemark 134, tangent 35, collinear 0, cyclic 1, concurrent 0 |
-| 16 | [Parse errors: constructs HiTeXeR cannot parse (whole program aborts)](#syntax) | 34 (+0) | struct 6, operator 125, tension 3, :: 4, curl 1, for comma 0, rest args 1 |
-| 17 | [Path construction: Hobby spline solver, tension, direction specifiers, ---](#hobby) | 11 (+0) | ..cycle 67, --- 27, tension 3, {dir} 17, curl 1, controls 4 |
+| 15 | [olympiad.asy helpers](#olympiad) | 7 (+6) | anglemark 134, tangent 35, collinear 0, cyclic 1, concurrent 0 |
+| 16 | [Parse errors: constructs HiTeXeR cannot parse (whole program aborts)](#syntax) | 25 (+0) | struct 6, operator 125, tension 3, :: 4, curl 1, for comma 0, rest args 1 |
+| 17 | [Path construction: Hobby spline solver, tension, direction specifiers, ---](#hobby) | 1 (+27) | ..cycle 67, --- 27, tension 3, {dir} 17, curl 1, controls 4 |
 | 18 | [Pens: attribute getters and color functions](#pens) | 64 (+0) | pen getter 3, cmyk 1, colors 22 |
-| 19 | [cse5.asy helpers](#cse5) | 5 (+0) | CR 4, IP 20, CP 0, OP 0, WP 0, L 8, d 20 |
+| 19 | [cse5.asy helpers](#cse5) | 5 (+3) | CR 4, IP 20, CP 0, OP 0, WP 0, L 8, d 20 |
 | 20 | [dir(path, t) / dir(path)](#dirpath) | 8 (+5) | dir(path,t) 11 |
 | 21 | [Structs](#structs) | 10 (+0) | struct 6, struct method 4 |
-| 22 | [transform values: inverse, ==, field access, shiftless](#transform) | 14 (+5) | inverse 1, shiftless 0 |
+| 22 | [transform values: inverse, ==, field access, shiftless](#transform) | 14 (+6) | inverse 1, shiftless 0 |
 | 23 | [write() output format (debug-only; affects nothing drawn)](#write) | 12 (+2) | write( 5 |
-| 24 | [Numerical noise (agrees to 1e-9 but not to the last digit)](#epsilon) | 0 (+64) |  |
+| 24 | [Numerical noise (agrees to 1e-9 but not to the last digit)](#epsilon) | 0 (+126) |  |
 
 ## Constructs where HiTeXeR throws or returns nothing but asy works
 
@@ -53,15 +53,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 | func_restargs.asy | Error: Parse error line 3: expected IDENT, got ... '...' | `write(sumall(1, 2, 3.5));` |
 | func_var_decl.asy | Error: Parse error line 3: expected ), got IDENT 'x' | `write(sq(1.5));` |
 | operator_overload.asy | Error: Parse error line 5: expected ), got IDENT 'a' | `write(q.x);` |
-| path_syntax_01.asy | Error: Parse error line 16: expected .., got NUMBER '1.5' | `wpath((0,0)..tension atleast 1.5..(1,1));` |
-| path_syntax_02.asy | Error: Parse error line 16: expected .., got NUMBER '3' | `wpath((0,0)..tension 1 and 3 ..(2,1));` |
-| path_syntax_03.asy | Error: Parse error line 16: expected ), got : ':' | `wpath((0,0)::(1,1)::(2,0));` |
-| path_syntax_04.asy | Error: Parse error line 16: expected ), got { '{' | `wpath((0,0){curl 0}..(1,1)..{curl 0}(2,0));` |
-| path_syntax_05.asy | Error: Parse error line 16: expected ), got { '{' | `wpath((0,0){curl 2}..(1,1)..(2,0));` |
-| path_syntax_11.asy | Error: Parse error line 16: expected ), got { '{' | `wpath((0,0){curl 0}..(1,1));` |
-| path_syntax_12.asy | Error: Parse error line 16: expected ), got { '{' | `wpath((0,0)..(1,1){curl 1}..(2,0));` |
-| path_syntax_13.asy | Error: Parse error line 16: expected ), got : ':' | `wpath((0,0)::(1,0)::(2,1)::(3,1));` |
-| path_syntax_14.asy | Error: Parse error line 16: expected ), got : ':' | `wpath((0,0){down}::(1,-1)::{up}(2,0));` |
 | struct_init.asy | Error: unexpected } | `write(p.x);` |
 | struct_static.asy | Error: unexpected } | `write(Stat.count);` |
 
@@ -93,7 +84,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 | `commonpoints` | 0 | mod_cse5.asy:31 |
 | `concat` | 0 | arrays.asy:65 |
 | `concurrent` | 0 | mod_olympiad.asy:42 |
-| `CP` | 0 | mod_cse5.asy:21 |
 | `determinant` | 0 | arrays.asy:93 |
 | `dirtime` | 0 | path_basic.asy:105, path_curves.asy:68 |
 | `endpoint` | 0 | circles_arcs.asy:29, path_basic.asy:36 |
@@ -200,22 +190,16 @@ Corpus usage: `Circle` 2036, `arc` 1700, `circle` 903, `circumcircle` 668, `inci
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| circles_arcs.asy:19 | `write(arclength(unitcircle));` | `6.28406679229544` | `6.28153984748023` | value |
-| circles_arcs.asy:20 | `wpath(circle((1,2), 3));` | `len=4 / (4,2) / (4,3.65685424949238) / (2.65685424949238,5) / (1,5) / (-0.65685424949238,5) / (-2,3.6568542494 ...` | `len=4 / (4,2) / (4.0000000005637,2.01570796327149) / (3.99987662797204,2.03141592652527) / (3.99962989744498,2 ...` | value |
-| circles_arcs.asy:21 | `write(point(circle((1,2), 3), 1.5));` | `(-1.12132034355964,4.12132034355964)` | `(3.999167290654,2.07067929450083)` | value |
-| circles_arcs.asy:22 | `write(arclength(circle((0,0), 2)));` | `12.5681335845909` | `12.5630796949605` | value |
-| circles_arcs.asy:25 | `wpath(arc((0,0), 1, 0, 90));` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-2.45263698164597e-16,1) / (-4.905273 ...` | `len=1 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1)` | value |
+| circles_arcs.asy:19 | `write(arclength(unitcircle));` | `6.28406679229544` | `6.2815398475337` | value |
+| circles_arcs.asy:22 | `write(arclength(circle((0,0), 2)));` | `12.5681335845909` | `12.5630796950674` | value |
+| circles_arcs.asy:25 | `wpath(arc((0,0), 1, 0, 90));` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-2.45263698164597e-16,1) / (-4.905273 ...` | `len=1 / (1,0) / (1,0.552284749830793) / (0.552284749830793,1) / (0,1)` | value |
 | circles_arcs.asy:26 | `write(length(arc((0,0), 1, 0, 90)));` | `2` | `1` | value |
 | circles_arcs.asy:27 | `write(arclength(arc((0,0), 1, 0, 90)));` | `1.57101669807386` | `1.57038496188343` | value |
 | circles_arcs.asy:29 | `write(endpoint(arc((0,0), 2, 0, 90)));` | `(-1.47158218898758e-15,2)` | `` | missing |
-| circles_arcs.asy:30 | `wpath(arc((0,0), 1, 90, 0));` | `len=2 / (-6.66133814775094e-16,1) / (-4.44089209850063e-16,1) / (-2.22044604925031e-16,1) / (0,1) / (0.5522847 ...` | `len=1 / (0,1) / (0.552284749830794,1) / (1,0.552284749830794) / (1,0)` | value |
-| circles_arcs.asy:35 | `wpath(arc((0,0), 1, 30, 150));` | `len=2 / (0.866169630634359,0.500083269410626) / (0.6932530716149,0.798938033457256) / (0.370106805057161,0.999 ...` | `len=2 / (0.863470685147584,0.504719148072945) / (0.689904333258131,0.801015444369242) / (0.368189833220529,1)  ...` | value |
-| circles_arcs.asy:36 | `wpath(arc((1,1), 2, 200, 340));` | `len=2 / (-0.879896714441805,0.315773552448351) / (-0.600442669548219,-0.451835104887175) / (0.135763279562424, ...` | `len=2 / (-0.874874949206548,0.302135208641281) / (-0.591703036920055,-0.458319820782935) / (0.140890389152099, ...` | value |
-| circles_arcs.asy:40 | `wpath(arc((0,0), (1,0), (0,1)));` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-2.45263698164597e-16,1) / (-4.905273 ...` | `len=1 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1)` | value |
+| circles_arcs.asy:30 | `wpath(arc((0,0), 1, 90, 0));` | `len=2 / (-6.66133814775094e-16,1) / (-4.44089209850063e-16,1) / (-2.22044604925031e-16,1) / (0,1) / (0.5522847 ...` | `len=1 / (0,1) / (0.552284749830793,1) / (1,0.552284749830793) / (1,0)` | value |
+| circles_arcs.asy:40 | `wpath(arc((0,0), (1,0), (0,1)));` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-2.45263698164597e-16,1) / (-4.905273 ...` | `len=1 / (1,0) / (1,0.552284749830793) / (0.552284749830793,1) / (0,1)` | value |
 | circles_arcs.asy:42 | `wpath(arc((0,0), (2,0), (0,1)));` | `len=2 / (2,0) / (2,1.10456949966159) / (1.10456949966159,2) / (0,2) / (-4.90527396329193e-16,2) / (-9.81054792 ...` | `len=1 / (2,0) / (2,1.10456949966159) / (1.10456949966159,2) / (0,2)` | value |
-| circles_arcs.asy:44 | `wpath(arc((0,0), 1, 0, 10));` | `len=1 / (1,0) / (1,0.0592364764765686) / (0.994849442728453,0.117269975845119) / (0.984971734298905,0.17367709 ...` | `len=1 / (1,0) / (1,0.0613649722034215) / (0.994472651232478,0.121438962929539) / (0.983888661174127,0.17975126 ...` | value |
-| circles_arcs.asy:49 | `write(arclength(ellipse((0,0), 2, 1)));` | `9.68983198640407` | `9.68588854833015` | value |
-| circles_arcs.asy:51 | `wpath(circle((0,0), 0.5));` | `len=4 / (0.5,0) / (0.5,0.276142374915397) / (0.276142374915397,0.5) / (0,0.5) / (-0.276142374915397,0.5) / (-0 ...` | `len=4 / (0.5,0) / (0.500000000093949,0.0026179938785818) / (0.49997943799534,0.00523598775421205) / (0.4999383 ...` | value |
+| circles_arcs.asy:49 | `write(arclength(ellipse((0,0), 2, 1)));` | `9.68983198640407` | `9.68588854839714` | value |
 | circles_arcs.asy:60 | `write(size(circle((0,0), 1)));` | `4` | `` | missing |
 | circles_arcs.asy:61 | `write(cyclic(circle((0,0), 1)));` | `true` | `` | missing |
 | circles_arcs.asy:62 | `write(cyclic(arc((0,0), 1, 0, 360)));` | `false` | `` | missing |
@@ -224,23 +208,14 @@ Corpus usage: `Circle` 2036, `arc` 1700, `circle` 903, `circumcircle` 668, `inci
 | circles_arcs.asy:71 | `write(arctime(unitcircle, pi/2));` | `0.999866990818271` | `` | missing |
 | circles_arcs.asy:72 | `write(arctime(circle((0,0),2), pi));` | `0.999866990818271` | `` | missing |
 | circles_arcs.asy:73 | `write(reltime(unitcircle, 0.3));` | `1.19532577752826` | `1.2` | value |
-| circles_arcs.asy:77 | `wpath(arc((0,0), 1, 350, 10));` | `len=4 / (0.984971734298905,-0.173677091992108) / (0.902755718499729,-0.6431754969515) / (0.493048273354224,-0. ...` | `len=4 / (0.983888661174128,-0.179751264701663) / (0.899216740707317,-0.646249678878652) / (0.490919777627372,- ...` | value |
-| circles_arcs.asy:78 | `wpath(arc((0,0), 1, 10, 350));` | `len=4 / (0.984971734298905,0.173677091992107) / (0.902755718499729,0.6431754969515) / (0.493048273354225,0.999 ...` | `len=4 / (0.983888661174127,0.179751264701663) / (0.899216740707317,0.646249678878652) / (0.490919777627372,1)  ...` | value |
-| circles_arcs.asy:79 | `wpath(arc((0,0), 1, 45, 45));` | `len=5 / (0.707106781186548,0.707106781186547) / (0.526142374915397,0.888071187457698) / (0.276142374915397,1)  ...` | `len=0 / (0,0)` | value |
-| circles_arcs.asy:80 | `wpath(arc((2,0), 1, 180, 360));` | `len=3 / (1,6.66133814775094e-16) / (1,4.44089209850063e-16) / (1,2.22044604925031e-16) / (1,0) / (1,-0.5522847 ...` | `len=2 / (1,0) / (1,-0.552284749830794) / (1.44771525016921,-1) / (2,-1) / (2.55228474983079,-1) / (3,-0.552284 ...` | value |
+| circles_arcs.asy:80 | `wpath(arc((2,0), 1, 180, 360));` | `len=3 / (1,6.66133814775094e-16) / (1,4.44089209850063e-16) / (1,2.22044604925031e-16) / (1,0) / (1,-0.5522847 ...` | `len=2 / (1,0) / (1,-0.552284749830793) / (1.44771525016921,-1) / (2,-1) / (2.55228474983079,-1) / (3,-0.552284 ...` | value |
 | misc_builtins.asy:29 | `write(min(unitcircle));` | `(-1,-1)` | `0` | value |
 | misc_builtins.asy:30 | `write(max(circle((2,3), 1)));` | `(3,4)` | `0` | value |
-| mod_cse5.asy:19 | `wpath(CR(A, 2));` | `len=400 / (2,0) / (2,0.0104720293426395) / (1.99991775245111,0.0209438971892738) / (1.99975326496332,0.0314146 ...` | `len=4 / (2,0) / (2.0000000003758,0.0104719755143272) / (1.99991775198136,0.0209439510168482) / (1.999753264963 ...` | value |
-| mod_cse5.asy:20 | `wpath(CR((1,1), 1, 0, 90));` | `len=400 / (2,1) / (2,1.00130899735955) / (1.99999742978887,1.00261799345744) / (1.99999228938147,1.00392698072 ...` | `len=1 / (2,1) / (2,1.55228474983079) / (1.55228474983079,2) / (1,2)` | value |
-| mod_cse5.asy:21 | `wpath(CP(A, B));` | `len=400 / (4,0) / (4,0.020944058685279) / (3.99983550490221,0.0418877943785477) / (3.99950652992664,0.06282926 ...` | `len=0 / (0,0)` | value |
 | mod_cse5.asy:28 | `write(OP(CR(A, 2), (-3,1)--(3,1)));` | `(-1.73205052195628,1.00000049469536)` | `` | missing |
 | mod_geometry.asy:9 | `write(circumcircle(t).r);` | `2.23606797749979` | `` | missing |
 | mod_geometry.asy:10 | `write(incircle(t).r);` | `1.05217763377095` | `` | missing |
 | mod_geometry.asy:11 | `write((pair)circumcircle(t).C);` | `(2,1)` | `(0,0)` | value |
-| mod_olympiad.asy:33 | `wpath(circumcircle(A, B, C));` | `len=400 / (5.41547594742265,1.5) / (5.41547594742266,1.51526547483459) / (5.41535605204738,1.53053071425031) / ...` | `len=4 / (5.41547594742265,1.5) / (5.41547594797047,1.51526539636701) / (5.41535605136261,1.53053079271681) / ( ...` | value |
-| mod_olympiad.asy:34 | `wpath(incircle(A, B, C));` | `len=400 / (3.08630933463537,1.35318364657273) / (3.08630933463537,1.36026893599917) / (3.0862536866163,1.36735 ...` | `len=4 / (3.08630933463537,1.35318364657273) / (3.08630933488963,1.36026889957938) / (3.08625368629847,1.367354 ...` | value |
-| mod_olympiad.asy:64 | `write(length(circumcircle(A, B, C)));` | `400` | `4` | value |
-| mod_olympiad.asy:68 | `write(arclength(circumcircle(A, B, C)));` | `18.3184756362815` | `18.3136783381056` | value |
+| mod_olympiad.asy:68 | `write(arclength(circumcircle(A, B, C)));` | `18.3184756362815` | `18.3184749006203` | value |
 
 <a id="graph"></a>
 ### 2. graph module: graph(), Circle/Arc sampling, interpolation
@@ -251,24 +226,7 @@ Corpus usage: `graph` 1161, `Circle` 2036, `Arc` 102, `polargraph` 32.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| mod_graph.asy:13 | `write(point(g2, 1.5));` | `(-0.25,0.125)` | `(-0.25,0.0625)` | value |
-| mod_graph.asy:16 | `write(point(g3, 50.5));` | `(0.505012499347058,0.255037623868531)` | `(0.505,0.255025)` | value |
-| mod_graph.asy:20 | `write(point(g4, 2.5));` | `(0.785398163397448,0.69840112333371)` | `(0.785398163397448,0.706946669333543)` | value |
 | mod_graph.asy:24 | `write(point(pg, 2));` | `(0.707106781186548,0.707106781186548)` | `(0.707106781186548,0.707106781186547)` | epsilon |
-| mod_graph.asy:25 | `write(point(pg, 2.5));` | `(0.544895106775819,0.815493156848917)` | `(0.555264524340841,0.831012086932214)` | value |
-| mod_graph.asy:28 | `write(point(pg2, 1.5));` | `(0.38268343236509,0.923879532511287)` | `(0.379441738241592,0.916053390593274)` | value |
-| mod_graph.asy:30 | `write(length(c1));` | `400` | `4` | value |
-| mod_graph.asy:34 | `write(length(c2));` | `8` | `4` | value |
-| mod_graph.asy:35 | `write(point(c2, 1));` | `(2.41421356237309,2.41421356237309)` | `(2.99975326496332,1.03141463462364)` | value |
-| mod_graph.asy:36 | `write(point(c2, 1.5));` | `(1.76536686473018,2.84775906502257)` | `(2.999444860436,1.04711952966722)` | value |
-| mod_graph.asy:38 | `write(length(a1));` | `400` | `1` | value |
-| mod_graph.asy:39 | `write(point(a1, length(a1)));` | `(6.12323399573677e-17,1)` | `(0,1)` | epsilon |
-| mod_graph.asy:40 | `write(point(a1, 200.5));` | `(0.705717018101517,0.708493818153626)` | `(0,1)` | value |
-| mod_graph.asy:42 | `write(length(a2));` | `3` | `1` | value |
-| mod_graph.asy:43 | `write(point(a2, 1));` | `(1.73205080756888,1)` | `(0,2)` | value |
-| mod_graph.asy:44 | `write(point(a2, 1.5));` | `(1.4142135623731,1.41421356237309)` | `(0,2)` | value |
-| mod_graph.asy:49 | `write(point(gd, 1.5));` | `(1.5,2.5)` | `(1.5,2.25)` | value |
-| mod_graph.asy:56 | `write(point(pol, 2.5));` | `(-0.103553390593274,0.603553390593274)` | `(-0.191941738241592,0.603553390593274)` | value |
 
 <a id="constants"></a>
 ### 3. Built-in constants and misc builtins
@@ -292,7 +250,6 @@ Corpus usage: `Npt` 1573, `Degrees` 0, `hypot` 2.
 | math_funcs.asy:82 | `write(Jn(0,1));` | `0.765197686557966` | `` | missing |
 | math_funcs.asy:83 | `write(Yn(0,1));` | `0.0882569642156769` | `` | missing |
 | misc_builtins.asy:16 | `write(point(cyc2, 0));` | `(1.32444396573649e-31,0)` | `(0,0)` | epsilon |
-| misc_builtins.asy:17 | `write(point(cyc2, 1.5));` | `(3.41421356237309,1.41421356237309)` | `(3.4142135623731,1.41421356237309)` | epsilon |
 | misc_builtins.asy:37 | `write(NE);` | `(0.707106781186547,0.707106781186547)` | `(0.707106781186548,0.707106781186548)` | epsilon |
 | misc_builtins.asy:38 | `write(SW);` | `(-0.707106781186547,-0.707106781186547)` | `(-0.707106781186548,-0.707106781186548)` | epsilon |
 | misc_builtins.asy:46 | `write(realEpsilon > 0);` | `true` | `false` | value |
@@ -325,12 +282,12 @@ Corpus usage: `intersectionpoint` 670, `intersectionpoints` 825, `IP` 20, `IPs` 
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| circles_arcs.asy:57 | `write(intersectionpoint(unitcircle, (0,0)--(2,2)));` | `(0.707106781186548,0.707106781186547)` | `(0.707070324198885,0.707037188626457)` | value |
+| circles_arcs.asy:57 | `write(intersectionpoint(unitcircle, (0,0)--(2,2)));` | `(0.707106781186548,0.707106781186547)` | `(0.707070324204659,0.707037188632231)` | value |
 | intersections.asy:17 | `write(intersectionpoint(a, b));` | `(2,2)` | `(1.99992370605469,1.99995422363281)` | value |
 | intersections.asy:18 | `wr(intersect(a, b));` | `n=2 / 0.5 / 0.5` | `n=2 / 0.499973297119141 / 0.499996185302734` | value |
 | intersections.asy:20 | `write(intersectionpoints(a, b)[0]);` | `(2,2)` | `(1.99993896484375,1.99995422363281)` | value |
-| intersections.asy:25 | `write(ip[0]);` | `(1.73243560947757,1)` | `(1.73244803877787,0.9999534500348)` | value |
-| intersections.asy:26 | `write(ip[1]);` | `(-1.73243560947757,1)` | `(-1.73243476546067,1.00005552810805)` | value |
+| intersections.asy:25 | `write(ip[0]);` | `(1.73243560947757,1)` | `(1.7324480387846,0.999953450048485)` | value |
+| intersections.asy:26 | `write(ip[1]);` | `(-1.73243560947757,1)` | `(-1.73243476546741,1.00005552812173)` | value |
 | intersections.asy:27 | `wr(intersect(c, l));` | `n=2 / 0.329800110886399 / 0.788739268246261` | `n=2 / 0.329765319824219 / 0.788734436035156` | value |
 | intersections.asy:28 | `wr(intersect(l, c));` | `n=2 / 0.788739268246261 / 0.329800110886399` | `n=2 / 0.788703918457031 / 0.329841613769531` | value |
 | intersections.asy:31 | `write(t[0][0]);` | `0.329800110886399` | `0.329785062932663` | value |
@@ -339,10 +296,10 @@ Corpus usage: `intersectionpoint` 670, `intersectionpoints` 825, `IP` 20, `IPs` 
 | intersections.asy:34 | `write(t[1][1]);` | `0.211260731753739` | `0.211260871789651` | value |
 | intersections.asy:35 | `write(intersections(l, c)[0][0]);` | `0.211260731753739` | `0.211260871789651` | value |
 | intersections.asy:36 | `write(intersections(l, c)[1][0]);` | `0.788739268246261` | `0.788741340428552` | value |
-| intersections.asy:40 | `write(cc[0]);` | `(1.00000000001482,1.73243560946899)` | `(1.00010207807325,1.73243041166041)` | value |
-| intersections.asy:41 | `write(cc[1]);` | `(0.999999999985617,-1.73243560948589)` | `(0.99989792192675,-1.73243041166041)` | value |
-| intersections.asy:42 | `write(intersectionpoint(c, c2));` | `(1.00000000001482,1.73243560946899)` | `(1.00012249368788,1.73243041049203)` | value |
-| intersections.asy:46 | `wr(times(c, (1,0)));` | `n=2 / 0 / 2` | `n=2 / 0.670199889103374 / 3.32980011089663` | value |
+| intersections.asy:40 | `write(cc[0]);` | `(1.00000000001482,1.73243560946899)` | `(1.00010207807325,1.73243041167388)` | value |
+| intersections.asy:41 | `write(cc[1]);` | `(0.999999999985617,-1.73243560948589)` | `(0.99989792192675,-1.73243041167388)` | value |
+| intersections.asy:42 | `write(intersectionpoint(c, c2));` | `(1.00000000001482,1.73243560946899)` | `(1.00012249368788,1.7324304105055)` | value |
+| intersections.asy:46 | `wr(times(c, (1,0)));` | `n=2 / 0 / 2` | `n=2 / 0.670199889113602 / 3.3298001108864` | value |
 | intersections.asy:49 | `wr(times((0,0)--(4,0)--(4,4), (0,1)));` | `n=1 / 1.25` | `n=1 / 0.25` | value |
 | intersections.asy:54 | `write(sd[0]);` | `(0,0)` | `(1.99994659423828,1.99983978271484)` | value |
 | intersections.asy:55 | `write(sd[1]);` | `(2,2)` | `(-0.0000381469726562778,-0.0000534057617187778)` | value |
@@ -350,19 +307,19 @@ Corpus usage: `intersectionpoint` 670, `intersectionpoints` 825, `IP` 20, `IPs` 
 | intersections.asy:58 | `write(intersections(sq, (1,-1)--(1,3))[1][0]);` | `2.5` | `2.49997711143677` | value |
 | intersections.asy:59 | `write(intersections(sq, (-1,1), (1,0)).length);` | `2` | `0` | value |
 | intersections.asy:60 | `write(intersections(sq, (-1,1), (1,0))[0]);` | `0.5` | `` | missing |
-| intersections.asy:61 | `write(intersectionpoints(unitcircle, (0,0)--(1,1))[0]);` | `(0.707106781186548,0.707106781186547)` | `(0.707069669893193,0.707053102106978)` | value |
-| intersections.asy:62 | `write(intersectionpoint(unitcircle, (0,0)--(dir(30)*2)));` | `(0.866169630634358,0.500083269410626)` | `(0.866158544034217,0.499997087900234)` | value |
-| intersections.asy:65 | `write(ci[0]);` | `(1,1.50690016152302e-12)` | `(0.999962077668255,0.0000126422853115652)` | value |
-| intersections.asy:66 | `write(ci[1]);` | `(7.53450080760992e-12,1)` | `(0.0000379235826271542,1.00003792045542)` | value |
+| intersections.asy:61 | `write(intersectionpoints(unitcircle, (0,0)--(1,1))[0]);` | `(0.707106781186548,0.707106781186547)` | `(0.707069669898966,0.707053102112752)` | value |
+| intersections.asy:62 | `write(intersectionpoint(unitcircle, (0,0)--(dir(30)*2)));` | `(0.866169630634358,0.500083269410626)` | `(0.866158544037584,0.499997087907076)` | value |
+| intersections.asy:65 | `write(ci[0]);` | `(1,1.50690016152302e-12)` | `(0.999962077668253,0.0000126422853122698)` | value |
+| intersections.asy:66 | `write(ci[1]);` | `(7.53450080760992e-12,1)` | `(0.0000379235826292683,1.00003792045542)` | value |
 | intersections.asy:68 | `write(intersectionpoint(s, (0,1)--(3,1)));` | `(2.96055656145023,1)` | `(2.9604346633686,1.00006001321912)` | value |
 | intersections.asy:71 | `wr(intersect(s, (0,1)--(3,1)));` | `n=2 / 1.71060947578771 / 0.986852187150076` | `n=2 / 1.71057891845703 / 0.986801147460938` | value |
 | intersections.asy:77 | `write(intersectionpoints(arc((0,0),1,0,180), (-2,0.5)--(2,0. ...` | `(0.866217804738783,0.5)` | `(0.866227335443187,0.499951204023119)` | value |
 | intersections.asy:78 | `write(intersectionpoints(arc((0,0),1,0,180), (-2,0.5)--(2,0. ...` | `(-0.866217804738783,0.5)` | `(-0.866198803337059,0.500053282096241)` | value |
 | intersections.asy:80 | `write(intersectionpoints(circle((0,0),1), (1,-1)--(1,1)).len ...` | `1` | `8` | value |
-| intersections.asy:81 | `write(intersectionpoints(circle((0,0),1), (1,-1)--(1,1))[0]) ...` | `(1,0)` | `(0.999999999687277,-0.000033135645481467)` | value |
-| intersections.asy:82 | `write(intersectionpoints(circle((0,0),3), circle((4,0),2))[0 ...` | `(2.62541007938696,1.45276342822314)` | `(2.62546417570109,1.45274908670976)` | value |
-| intersections.asy:83 | `write(intersectionpoints(circle((0,0),3), circle((4,0),2))[1 ...` | `(2.62541007937878,-1.45276342823791)` | `(2.62536160004274,-1.45279367470105)` | value |
-| intersections.asy:84 | `write(intersectionpoint(circle((0,0),3), (0,0)--(5,5)));` | `(2.12132034355964,2.12132034355964)` | `(2.12132922821189,2.12122982149461)` | value |
+| intersections.asy:81 | `write(intersectionpoints(circle((0,0),1), (1,-1)--(1,1))[0]) ...` | `(1,0)` | `(0.999999999687277,-0.0000331356454807622)` | value |
+| intersections.asy:82 | `write(intersectionpoints(circle((0,0),3), circle((4,0),2))[0 ...` | `(2.62541007938696,1.45276342822314)` | `(2.62546417569871,1.45274908674137)` | value |
+| intersections.asy:83 | `write(intersectionpoints(circle((0,0),3), circle((4,0),2))[1 ...` | `(2.62541007937878,-1.45276342823791)` | `(2.62536160004036,-1.45279367473266)` | value |
+| intersections.asy:84 | `write(intersectionpoint(circle((0,0),3), (0,0)--(5,5)));` | `(2.12132034355964,2.12132034355964)` | `(2.12132922822921,2.12122982151193)` | value |
 | intersections.asy:85 | `write(intersectionpoint((0,0)--(10,3), (5,-5)--(5,5)));` | `(5,1.5)` | `(4.99992370605469,1.49987030029297)` | value |
 | intersections.asy:86 | `write(intersectionpoints((0,0)..(2,2)..(4,0), (0,1)--(4,1))[ ...` | `(0.267564390522435,1)` | `(0.267468037875555,0.999953450048485)` | value |
 | intersections.asy:87 | `write(intersectionpoints((0,0)..(2,2)..(4,0), (0,1)--(4,1))[ ...` | `(3.73243560947757,1)` | `(3.73232032454944,1.00005552812173)` | value |
@@ -370,13 +327,13 @@ Corpus usage: `intersectionpoint` 670, `intersectionpoints` 825, `IP` 20, `IPs` 
 | misc_builtins.asy:11 | `write(point(cyc, 1));` | `(3,0)` | `(2.99986267089844,0)` | value |
 | misc_builtins.asy:12 | `write(point(cyc, 2));` | `(3,2)` | `(3,1.99990844726562)` | value |
 | misc_builtins.asy:13 | `write(point(cyc, 3));` | `(0,2)` | `(0.0000991821289061945,2)` | value |
-| mod_cse5.asy:25 | `wp(IPs(CR(A, 2), (-3,1)--(3,1)));` | `n=2 / (1.73205028227203,1.00000090984028) / (-1.73205052195628,1.00000049469536)` | `n=2 / (1.73244803877787,0.9999534500348) / (-1.73243476546067,1.00005552810805)` | value |
-| mod_cse5.asy:26 | `write(IP(CR(A, 2), (-3,1)--(3,1)));` | `(1.73205028227203,1.00000090984028)` | `(1.73243105497851,0.999943241847258)` | value |
-| mod_cse5.asy:27 | `write(IP(CR(A, 2), (-3,1)--(3,1), 1));` | `(-1.73205052195628,1.00000049469536)` | `(1.73243105497851,0.999943241847258)` | value |
+| mod_cse5.asy:25 | `wp(IPs(CR(A, 2), (-3,1)--(3,1)));` | `n=2 / (1.73205028227203,1.00000090984028) / (-1.73205052195628,1.00000049469536)` | `n=2 / (1.73201772281908,0.999969007305735) / (-1.73215505192064,0.999969007305735)` | value |
+| mod_cse5.asy:26 | `write(IP(CR(A, 2), (-3,1)--(3,1)));` | `(1.73205028227203,1.00000090984028)` | `(1.73200250405104,0.9999557223904)` | value |
+| mod_cse5.asy:27 | `write(IP(CR(A, 2), (-3,1)--(3,1), 1));` | `(-1.73205052195628,1.00000049469536)` | `(1.73200250405104,0.9999557223904)` | value |
 | mod_cse5.asy:31 | `wp(commonpoints(CR(A,2), CR(B,3)));` | `n=2 / (1.37500130047038,1.45236752363331) / (1.37499886370046,-1.45236983059497)` | `n=null` | value |
-| mod_olympiad.asy:61 | `wp(intersectionpoints(circumcircle(A,B,C), (-10,1)--(10,1))) ...` | `n=2 / (-0.372281323269014,1) / (5.37228132326901,0.999999999999999)` | `n=2 / (-0.372834062628567,1.0000437163864) / (5.37270141205643,0.999938357662705)` | value |
-| mod_olympiad.asy:69 | `write(intersectionpoint(circumcircle(A,B,C), C--(10,10)));` | `(0.999999999999915,3.99999999999995)` | `(1.00702231552157,4.00469812725458)` | value |
-| path_ops.asy:70 | `write(intersectionpoint(A..B..C, (2,-5)--(2,5)));` | `(2,-1.28676366023651)` | `(1.99992633239204,-1.28684496248709)` | value |
+| mod_olympiad.asy:61 | `wp(intersectionpoints(circumcircle(A,B,C), (-10,1)--(10,1))) ...` | `n=2 / (-0.372281323269014,1) / (5.37228132326901,0.999999999999999)` | `n=2 / (-0.37236282300152,1.0000443198387) / (5.37223304222553,0.999956198969159)` | value |
+| mod_olympiad.asy:69 | `write(intersectionpoint(circumcircle(A,B,C), C--(10,10)));` | `(0.999999999999915,3.99999999999995)` | `(1.00114341208629,4.00072132073524)` | value |
+| path_ops.asy:70 | `write(intersectionpoint(A..B..C, (2,-5)--(2,5)));` | `(2,-1.28676366023651)` | `(1.99992633239204,-1.2868449624871)` | value |
 
 <a id="strings"></a>
 ### 6. Strings: string()/format() number formatting and string functions
@@ -463,8 +420,8 @@ Corpus usage: `point` 226, `reverse` 143, `subpath` 13, `inside` 4, `windingnumb
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| circles_arcs.asy:66 | `wpath(reverse(unitcircle));` | `len=4 / (1,0) / (1,-0.552284749830794) / (0.552284749830794,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | `len=4 / (1,0) / (1,-0.552284749799999) / (0.552284749799999,-1) / (0,-1) / (-0.5522847498,-1) / (-0.9999999999 ...` | epsilon |
-| circles_arcs.asy:74 | `wpath(subpath(unitcircle, 1, 3));` | `len=2 / (0,1) / (-0.552284749830794,1) / (-1,0.552284749830794) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | `len=2 / (0,1) / (-0.5522847498,1) / (-1,0.5522847498) / (-1,0) / (-1,-0.5522847498) / (-0.552284749800001,-1)  ...` | epsilon |
+| circles_arcs.asy:66 | `wpath(reverse(unitcircle));` | `len=4 / (1,0) / (1,-0.552284749830794) / (0.552284749830794,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | `len=4 / (1,0) / (1,-0.552284749830792) / (0.552284749830792,-1) / (0,-1) / (-0.552284749830793,-0.999999999999 ...` | epsilon |
+| circles_arcs.asy:74 | `wpath(subpath(unitcircle, 1, 3));` | `len=2 / (0,1) / (-0.552284749830794,1) / (-1,0.552284749830794) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | `len=2 / (0,1) / (-0.552284749830793,1) / (-1,0.552284749830793) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | epsilon |
 | misc_builtins.asy:75 | `write(fontsize(currentpen));` | `11.9551681195517` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":0,"opacity":1,"linecap":` | value |
 | mod_olympiad.asy:38 | `write(cyclic((1,0), (0,1), (-1,0), (0,-1)));` | `true` | `` | missing |
 | mod_olympiad.asy:39 | `write(cyclic((1,0), (0,1), (-1,0), (0,-2)));` | `false` | `` | missing |
@@ -506,7 +463,7 @@ Corpus usage: `point` 226, `reverse` 143, `subpath` 13, `inside` 4, `windingnumb
 | path_curves.asy:20 | `write(precontrol(c, 2));` | `(2,0.552284749830793)` | `` | missing |
 | path_curves.asy:62 | `write(accel(s, 1.5));` | `(0.822354133952562,-2.41267888949128)` | `` | missing |
 | path_curves.asy:63 | `write(radius(s, 1.0));` | `4.7543563797429` | `` | missing |
-| path_curves.asy:64 | `wpath(subpath(s, 0.5, 2.5));` | `len=3 / (0.396715740508432,1.05164212974578) / (0.564271377029993,1.38675340278891) / (0.766255100048741,1.704 ...` | `len=3 / (0.396715740508432,1.05164212974578) / (0.564271377029993,1.38675340278891) / (0.766255100048742,1.704 ...` | epsilon |
+| path_curves.asy:64 | `wpath(subpath(s, 0.5, 2.5));` | `len=3 / (0.396715740508432,1.05164212974578) / (0.564271377029993,1.38675340278891) / (0.766255100048741,1.704 ...` | `len=3 / (0.396715740508432,1.05164212974578) / (0.564271377029993,1.3867534027889) / (0.766255100048742,1.7046 ...` | epsilon |
 | path_curves.asy:65 | `wpath(reverse(s));` | `len=3 / (4,1) / (4.38985880052925,1.83315973581335) / (3.90044306896823,2.81199119893539) / (3,3) / (2.2185355 ...` | `len=3 / (4,1) / (4.38985880052925,1.83315973581335) / (3.90044306896823,2.81199119893539) / (3,3) / (2.2185355 ...` | epsilon |
 | path_curves.asy:68 | `write(dirtime(s, (1,0)));` | `1.87443273208354` | `` | missing |
 | path_curves.asy:69 | `write(dirtime(s, (0,-1)));` | `2.76340106451067` | `` | missing |
@@ -546,13 +503,12 @@ Corpus usage: `midpoint` 186, `relpoint` 165, `arclength` 96, `arctime` 0, `relt
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| circles_arcs.asy:23 | `write(relpoint(circle((0,0), 1), 0.125));` | `(0.707106781186547,0.707106781186548)` | `(0.707106781186548,0.707106781186547)` | epsilon |
+| circles_arcs.asy:23 | `write(relpoint(circle((0,0), 1), 0.125));` | `(0.707106781186547,0.707106781186548)` | `(0.707106781186548,0.707106781186548)` | epsilon |
 | circles_arcs.asy:28 | `write(midpoint(arc((0,0), 1, 0, 90)));` | `(0.707106781186547,0.707106781186548)` | `(0.707106781186548,0.707106781186548)` | epsilon |
 | circles_arcs.asy:43 | `write(midpoint(arc((0,0), (2,0), (-2,0))));` | `(3.67895547246895e-16,2)` | `(0,2)` | epsilon |
 | mod_cse5.asy:29 | `write(WP(A--B--C));` | `(3.9142135623731,0.0857864376269046)` | `` | missing |
 | mod_cse5.asy:30 | `write(WP(A--B--C, 0.25));` | `(2.06066017177982,0)` | `` | missing |
 | mod_geometry.asy:36 | `write((pair)midpoint(t.AB));` | `(2,0)` | `(0,0)` | value |
-| mod_graph.asy:9 | `write(arclength(g));` | `4.64675142433393` | `4.64678282501141` | value |
 | mod_olympiad.asy:30 | `write(midpoint(A--B--C));` | `(4.76776695296637,0.232233047033631)` | `(5,0)` | value |
 | mod_olympiad.asy:32 | `write(waypoint(A--B--C, 0.25));` | `(2.66421356237309,0)` | `(2.5,0)` | value |
 | path_basic.asy:27 | `write(arctime(p, 5));` | `1.33333333333333` | `` | missing |
@@ -591,7 +547,7 @@ Corpus usage: `round` 6, `floor` 50, `ceil` 2, `(int)` 182, `pair=number` 3.
 | arith_int_real.asy:89 | `write(Ceil(2.1));` | `3` | `` | missing |
 | arith_int_real.asy:90 | `write(Round(2.5));` | `3` | `` | missing |
 | arith_int_real.asy:91 | `write(Floor(-2.7));` | `-3` | `` | missing |
-| circles_arcs.asy:67 | `wpath(shift(1,1)*unitcircle);` | `len=4 / (2,1) / (2,1.5522847498308) / (1.55228474983079,2) / (1,2) / (0.447715250169207,2) / (2.46716227694479 ...` | `len=4 / (2,1) / (2,1.5522847498) / (1.5522847498,2) / (1,2) / (0.447715250200001,2) / (6.90805437544542e-16,1. ...` | epsilon |
+| circles_arcs.asy:67 | `wpath(shift(1,1)*unitcircle);` | `len=4 / (2,1) / (2,1.5522847498308) / (1.55228474983079,2) / (1,2) / (0.447715250169207,2) / (2.46716227694479 ...` | `len=4 / (2,1) / (2,1.55228474983079) / (1.55228474983079,2) / (1,2) / (0.447715250169207,2) / (7.4014868308343 ...` | epsilon |
 | control_flow.asy:45 | `write(t(1));` | `int` | `real` | value |
 | control_flow.asy:50 | `write(t(1#2));` | `int` | `real` | value |
 | control_flow.asy:89 | `write(ri(-2.9));` | `-2` | `-3` | value |
@@ -696,6 +652,8 @@ Corpus usage: `anglemark` 134, `tangent` 35, `collinear` 0, `cyclic` 1, `concurr
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
 | mod_olympiad.asy:25 | `write(foot(B, C, A));` | `(0.294117647058824,1.17647058823529)` | `(0.294117647058823,1.17647058823529)` | epsilon |
+| mod_olympiad.asy:33 | `wpath(circumcircle(A, B, C));` | `len=400 / (5.41547594742265,1.5) / (5.41547594742266,1.51526547483459) / (5.41535605204738,1.53053071425031) / ...` | `len=400 / (5.41547594742265,1.5) / (5.41547594742265,1.51526547483458) / (5.41535605204738,1.53053071425031) / ...` | epsilon |
+| mod_olympiad.asy:34 | `wpath(incircle(A, B, C));` | `len=400 / (3.08630933463537,1.35318364657273) / (3.08630933463537,1.36026893599917) / (3.0862536866163,1.36735 ...` | `len=400 / (3.08630933463537,1.35318364657273) / (3.08630933463537,1.36026893599917) / (3.0862536866163,1.36735 ...` | epsilon |
 | mod_olympiad.asy:35 | `write(tangent((5,0), (0,0), 3));` | `(1.79981261143508,2.40014053000409)` | `(1.8,2.4)` | value |
 | mod_olympiad.asy:36 | `write(tangent((5,0), (0,0), 3, 2));` | `(1.79981261142835,-2.40014052999514)` | `(1.8,-2.4)` | value |
 | mod_olympiad.asy:37 | `write(tangent((0,5), (1,1), 2, 1));` | `(-0.932254877806244,1.51613088191364)` | `(-0.932024129630113,1.51699396759247)` | value |
@@ -704,7 +662,7 @@ Corpus usage: `anglemark` 134, `tangent` 35, `collinear` 0, `cyclic` 1, `concurr
 | mod_olympiad.asy:42 | `write(concurrent((0,0),(2,2),(0,2),(2,0),(1,0),(1,2)));` | `true` | `` | missing |
 | mod_olympiad.asy:43 | `wpath(rightanglemark(A, B, C));` | `len=2 / (4.76,0) / (4.70343145750508,0.0565685424949237) / (4.64686291501015,0.113137084989848) / (4.590294372 ...` | `len=2 / (4.76,0) / (4.70343145750508,0.0565685424949238) / (4.64686291501015,0.113137084989848) / (4.590294372 ...` | epsilon |
 | mod_olympiad.asy:45 | `wpath(anglemark(A, B, C));` | `len=7 / (4.76,3.19744231092045e-16) / (4.76,2.1316282072803e-16) / (4.76,1.06581410364015e-16) / (4.76,0) / (4 ...` | `len=6 / (4.76,0) / (4.76,-0.13254833995939) / (4.86745166004061,-0.24) / (5,-0.24) / (5.13254833995939,-0.24)  ...` | value |
-| mod_olympiad.asy:46 | `wpath(anglemark(B, A, C, 20));` | `len=3 / (0.6,0) / (0.6,0.281173975409359) / (0.406591847129114,0.517175056286899) / (0.145555756803993,0.58222 ...` | `len=3 / (0.6,0) / (0.6,0.279690828483491) / (0.408626858771254,0.514684064871573) / (0.149680861909019,0.58117 ...` | value |
+| mod_olympiad.asy:46 | `wpath(anglemark(B, A, C, 20));` | `len=3 / (0.6,0) / (0.6,0.281173975409359) / (0.406591847129114,0.517175056286899) / (0.145555756803993,0.58222 ...` | `len=3 / (0.6,0) / (0.6,0.281173975409359) / (0.406591847129115,0.517175056286899) / (0.145555756803993,0.58222 ...` | epsilon |
 | mod_olympiad.asy:50 | `write(orthocenter(D, E, F));` | `(4.85714285714286,0.142857142857142)` | `(4.85714285714286,0.142857142857143)` | epsilon |
 
 <a id="syntax"></a>
@@ -733,15 +691,6 @@ Corpus usage: `struct` 6, `operator` 125, `tension` 3, `::` 4, `curl` 1, `for co
 | operator_overload.asy:12 | `write(mkv(1,2) == mkv(1,3));` | `false` | `` | missing |
 | operator_overload.asy:14 | `write((1,0) ^ (0,1));` | `1` | `` | missing |
 | operator_overload.asy:15 | `write((1,1)*2);` | `(2,2)` | `` | missing |
-| path_syntax_01.asy:15 | `wpath((0,0)..tension atleast 1.5..(1,1));` | `len=1 / (0,0) / (0.222222222222222,0.222222222222222) / (0.777777777777778,0.777777777777778) / (1,1)` | `` | missing |
-| path_syntax_02.asy:15 | `wpath((0,0)..tension 1 and 3 ..(2,1));` | `len=1 / (0,0) / (0.666666666666667,0.333333333333333) / (1.77777777777778,0.888888888888889) / (2,1)` | `` | missing |
-| path_syntax_03.asy:15 | `wpath((0,0)::(1,1)::(2,0));` | `len=2 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `` | missing |
-| path_syntax_04.asy:15 | `wpath((0,0){curl 0}..(1,1)..{curl 0}(2,0));` | `len=2 / (0,0) / (0.202917052435201,0.489885100025833) / (0.491934610090815,1) / (1,1) / (1.50806538990918,1) / ...` | `` | missing |
-| path_syntax_05.asy:15 | `wpath((0,0){curl 2}..(1,1)..(2,0));` | `len=2 / (0,0) / (-0.189589714996342,0.541816276586293) / (0.345911476779887,1.07369807686613) / (1,1) / (1.525 ...` | `` | missing |
-| path_syntax_11.asy:15 | `wpath((0,0){curl 0}..(1,1));` | `len=1 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1)` | `` | missing |
-| path_syntax_12.asy:15 | `wpath((0,0)..(1,1){curl 1}..(2,0));` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | `` | missing |
-| path_syntax_13.asy:15 | `wpath((0,0)::(1,0)::(2,1)::(3,1));` | `len=3 / (0,0) / (0.308415690042212,-0.182273213578306) / (0.691584309957788,-0.182273213578306) / (1,0) / (1.4 ...` | `` | missing |
-| path_syntax_14.asy:15 | `wpath((0,0){down}::(1,-1)::{up}(2,0));` | `len=2 / (0,0) / (0,-0.552284749830794) / (0.447715250169206,-1) / (1,-1) / (1.55228474983079,-1) / (2,-0.55228 ...` | `` | missing |
 | struct_init.asy:7 | `write(p.x);` | `3` | `` | missing |
 | struct_init.asy:8 | `write(p.y);` | `4` | `` | missing |
 | struct_init.asy:10 | `write(pts[1].y);` | `2` | `` | missing |
@@ -760,17 +709,34 @@ Corpus usage: `..cycle` 67, `---` 27, `tension` 3, `{dir}` 17, `curl` 1, `contro
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| path_basic.asy:69 | `wpath((0,0)---(1,1)---(2,0));` | `len=2 / (0,0) / (0,0) / (1,1) / (1,1) / (1,1) / (2,3.94745964311167e-16) / (2,0)` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | value |
-| path_curves.asy:46 | `wpath((0,0)..(1,1)..(1,1)..(2,0));` | `len=3 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1,1)  ...` | `len=3 / (0,0) / (0.158930584160946,0.471174892072122) / (0.528825107927878,0.841069415839054) / (1,1) / (1,1)  ...` | value |
-| path_curves.asy:51 | `wpath((0,0){left}..(1,0));` | `len=1 / (0,0) / (-4,4.89858719658941e-16) / (5,4.89858719658941e-16) / (1,0)` | `len=1 / (0,0) / (0,0) / (0,0) / (0,0)` | value |
-| path_curves.asy:53 | `wpath((0,0)..(1,0){up}..{left}(0,1)..cycle);` | `len=3 / (0,0) / (0.429101089842611,-0.429101089842611) / (1,-0.363197426537715) / (1,0) / (1,0.552284749830793 ...` | `len=3 / (0,0) / (0.378372267567485,-0.504900455900204) / (0.999999999999999,-0.381219643246431) / (1,0) / (1,0 ...` | value |
-| path_curves.asy:54 | `wpath((0,0)..(1,0)..{left}cycle);` | `len=2 / (0,0) / (-1.0609731522961,9.86864910777917e-17) / (0.570046772368916,-0.429953227631083) / (1,0) / (1. ...` | `len=1 / (0,0) / (1.97372982155583e-16,0) / (1.5,0) / (0,0)` | value |
-| path_curves.asy:55 | `wpath((0,0){right}..(1,1)..cycle);` | `len=2 / (0,0) / (0.673550607385265,0) / (1.20809576981973,0.497612370228728) / (1,1) / (0.17292454674425,2.996 ...` | `len=1 / (0,0) / (0.21895141649746,-0.333333333333333) / (1.83333333333333,1.28104858350254) / (0,0)` | value |
+| guide_solver.asy:15 | `wpath((0,0){curl 2}..(1,1)..(2,0));` | `len=2 / (0,0) / (-0.189589714996342,0.541816276586293) / (0.345911476779887,1.07369807686613) / (1,1) / (1.525 ...` | `len=2 / (0,0) / (-0.189589714996342,0.541816276586292) / (0.345911476779887,1.07369807686613) / (1,1) / (1.525 ...` | epsilon |
+| guide_solver.asy:16 | `wpath((0,0)..{curl 2}(1,1)..(2,0));` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | epsilon |
+| guide_solver.asy:17 | `wpath((0,0)..(1,1){curl 1}..(2,0));` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | epsilon |
+| guide_solver.asy:18 | `wpath((0,0){curl 0}..(1,1)..(2,0)..(3,1){curl 0}..(4,0));` | `len=4 / (0,0) / (0.154977086083976,0.578382359274374) / (0.498140265743973,1.1344729105076) / (1,1) / (1.48803 ...` | `len=4 / (0,0) / (0.154977086083976,0.578382359274374) / (0.498140265743973,1.1344729105076) / (1,1) / (1.48803 ...` | epsilon |
+| guide_solver.asy:21 | `wpath((0,0)::(1,0)::(2,1)::(3,1));` | `len=3 / (0,0) / (0.308415690042212,-0.182273213578306) / (0.691584309957788,-0.182273213578306) / (1,0) / (1.4 ...` | `len=3 / (0,0) / (0.308415690042211,-0.182273213578306) / (0.691584309957789,-0.182273213578306) / (1,0) / (1.4 ...` | epsilon |
+| guide_solver.asy:23 | `wpath((0,0)..controls (0,1)..(3,0)..(4,1)..cycle);` | `len=3 / (0,0) / (0,1) / (0,1) / (3,0) / (3.71580466328403,-0.238601554428009) / (4.31811361278417,0.4482456963 ...` | `len=3 / (0,0) / (1.28292438401129e-15,1) / (-1.82570008493915e-15,1) / (3,0) / (3.71580466328403,-0.2386015544 ...` | epsilon |
+| guide_solver.asy:24 | `wpath((0,0)..controls (1,1) and (2,1)..(3,0)..cycle);` | `len=2 / (0,0) / (1,1) / (2,1) / (3,0) / (7.82842712474619,-4.82842712474619) / (-4.82842712474619,-4.828427124 ...` | `len=2 / (0,0) / (1,1) / (2,1) / (3,0) / (7.82842712474619,-4.82842712474618) / (-4.82842712474619,-4.828427124 ...` | epsilon |
+| guide_solver.asy:25 | `wpath((0,0)..(1,1)..controls (2,2) and (3,2)..(4,0)..cycle);` | `len=3 / (0,0) / (0.202790296139467,0.435657213015315) / (0.662873499051513,0.662873499051513) / (1,1) / (2,2)  ...` | `len=3 / (0,0) / (0.202790296139468,0.435657213015316) / (0.662873499051513,0.662873499051512) / (1,1) / (2,2)  ...` | epsilon |
+| guide_solver.asy:45 | `wpath((0,0)..tension 2 ..(1,1)..tension 1 and 3 ..(3,0)..(4, ...` | `len=3 / (0,0) / (0.129956958117108,0.199725625051839) / (0.800274374948161,0.870043041882892) / (1,1) / (1.688 ...` | `len=3 / (0,0) / (0.129956958117108,0.199725625051839) / (0.800274374948161,0.870043041882892) / (1,1) / (1.688 ...` | epsilon |
+| guide_solver.asy:47 | `wpath((0,0)..tension 1.2 and 1.4 ..(1,1)..tension 2 and 1 .. ...` | `len=3 / (0,0) / (0.00983212508908387,0.476906274983855) / (0.609444805299114,1.0350374677664) / (1,1) / (1.272 ...` | `len=3 / (0,0) / (0.00983212508908456,0.476906274983856) / (0.609444805299114,1.0350374677664) / (1,1) / (1.272 ...` | epsilon |
+| guide_solver.asy:48 | `wpath((0,0)..(1,1)..tension 1.5 ..cycle);` | `len=2 / (0,0) / (-0.553062756644175,-4.43693007151768) / (5.43693007151768,1.55306275664417) / (1,1) / (0.6513 ...` | `len=2 / (0,0) / (-0.553062756644172,-4.43693007151768) / (5.43693007151768,1.55306275664417) / (1,1) / (0.6513 ...` | epsilon |
+| guide_solver.asy:49 | `wpath((0,0)..(1,0)..(1,1)..tension atleast 1 ..cycle);` | `len=3 / (0,0) / (0.241416508325913,-0.307728760126676) / (0.709441253967361,-0.290558746032639) / (1,0) / (1.2 ...` | `len=3 / (0,0) / (0.241416508325914,-0.307728760126676) / (0.709441253967361,-0.290558746032639) / (1,0) / (1.2 ...` | epsilon |
+| guide_solver.asy:50 | `wpath((0,0)..(3,0)..(3,1)..(0,1)..tension 3 ..cycle);` | `len=4 / (0,0) / (0.0425082545420672,-1.46091395291697) / (2.39032774801431,-1.83988729384212) / (3,0) / (3.107 ...` | `len=4 / (0,0) / (0.0425082545420621,-1.46091395291697) / (2.39032774801432,-1.83988729384212) / (3,0) / (3.107 ...` | epsilon |
+| guide_solver.asy:51 | `wpath((0,0)..(1,0)..tension atleast 3 ..(1,1)..(0,1)..cycle) ...` | `len=4 / (0,0) / (0.316758913854051,-0.511583211371069) / (0.96225594816794,-0.407323188356686) / (1,0) / (1.01 ...` | `len=4 / (0,0) / (0.31675891385405,-0.511583211371068) / (0.962255948167942,-0.407323188356686) / (1,0) / (1.01 ...` | epsilon |
+| guide_solver.asy:53 | `wpath((0,0)--(1,0)---(2,1)..(3,0));` | `len=3 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0) / (2,1) / (2,1) / (2.66666666666 ...` | `len=3 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,-1.97372982155583e-16) / (2,1) / (2 ...` | epsilon |
+| guide_solver.asy:54 | `wpath((0,0)---(1,0)---(1,1)---cycle);` | `len=3 / (0,0) / (0,-5.72991187421378e-104) / (1,-5.32865796914054e-104) / (1,0) / (1,0) / (1,1) / (1,1) / (0.9 ...` | `len=3 / (0,0) / (7.89491928622333e-16,-5.72991187421378e-104) / (0.999999999999999,-5.32865796914054e-104) / ( ...` | epsilon |
+| guide_solver.asy:55 | `wpath((0,0)..(1,0)::(1,1)..(0,1)..cycle);` | `len=4 / (0,0) / (0.276142374915397,-0.276142374915397) / (0.723857625084603,-0.276142374915397) / (1,0) / (1.2 ...` | `len=4 / (0,0) / (0.276142374915395,-0.276142374915397) / (0.723857625084605,-0.276142374915397) / (1,0) / (1.2 ...` | epsilon |
+| guide_solver.asy:56 | `wpath((0,0)..(5,0){curl 0.5}..(5,3)..(0,3)..cycle);` | `len=4 / (0,0) / (1.14308557951203,-1.55382149632319) / (3.47715165581569,-1.41648721305774) / (5,0) / (5.44741 ...` | `len=4 / (0,0) / (1.14308557951203,-1.55382149632319) / (3.4771516558157,-1.41648721305774) / (5,0) / (5.447418 ...` | epsilon |
+| guide_solver.asy:57 | `wpath((0,0)..tension 0.75 ..(1,1)..(2,0));` | `len=2 / (0,0) / (-0.516649780362899,0.86705020518658) / (0.13294979481342,1.5166497803629) / (1,1) / (1.411254 ...` | `len=2 / (0,0) / (-0.516649780362899,0.86705020518658) / (0.13294979481342,1.5166497803629) / (1,1) / (1.411254 ...` | epsilon |
 | path_ops.asy:32 | `wpath(subpath(tri, 2.5, 0.5));` | `len=3 / (0.5,1.5) / (0.666666666666667,2) / (0.833333333333333,2.5) / (1,3) / (2,2) / (3,1) / (4,0) / (3.33333 ...` | `len=0 / (0,0)` | value |
-| path_syntax_00.asy:15 | `wpath((0,0)..tension 2 ..(1,1)..(2,0));` | `len=2 / (0,0) / (0.136228067783766,0.194553843467716) / (0.805446156532284,0.863771932216233) / (1,1) / (1.658 ...` | `len=2 / (0,0) / (-1.97372982155583e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079, ...` | value |
-| path_syntax_08.asy:15 | `wpath((0,0)..(1,1)---(2,1)..(3,0));` | `len=3 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1,1) / (2,1) / (2,1) / (2.55228474983 ...` | `len=3 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | value |
-| path_syntax_09.asy:15 | `wpath((0,0)..tension 0.75..(1,1)..(2,0));` | `len=2 / (0,0) / (-0.516649780362899,0.86705020518658) / (0.13294979481342,1.5166497803629) / (1,1) / (1.411254 ...` | `len=2 / (0,0) / (-1.97372982155583e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079, ...` | value |
-| path_syntax_10.asy:15 | `wpath((0,0)..tension infinity..(1,1));` | `len=1 / (0,0) / (0,0) / (1,1) / (1,1)` | `len=1 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1)` | value |
+| path_syntax_03.asy:15 | `wpath((0,0)::(1,1)::(2,0));` | `len=2 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `len=2 / (0,0) / (9.86864910777917e-17,0.552284749830793) / (0.447715250169207,1) / (1,1) / (1.55228474983079,1 ...` | epsilon |
+| path_syntax_04.asy:15 | `wpath((0,0){curl 0}..(1,1)..{curl 0}(2,0));` | `len=2 / (0,0) / (0.202917052435201,0.489885100025833) / (0.491934610090815,1) / (1,1) / (1.50806538990918,1) / ...` | `len=2 / (0,0) / (0.2029170524352,0.489885100025833) / (0.491934610090816,1) / (1,1) / (1.50806538990918,1) / ( ...` | epsilon |
+| path_syntax_05.asy:15 | `wpath((0,0){curl 2}..(1,1)..(2,0));` | `len=2 / (0,0) / (-0.189589714996342,0.541816276586293) / (0.345911476779887,1.07369807686613) / (1,1) / (1.525 ...` | `len=2 / (0,0) / (-0.189589714996342,0.541816276586292) / (0.345911476779887,1.07369807686613) / (1,1) / (1.525 ...` | epsilon |
+| path_syntax_08.asy:15 | `wpath((0,0)..(1,1)---(2,1)..(3,0));` | `len=3 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1,1) / (2,1) / (2,1) / (2.55228474983 ...` | `len=3 / (0,0) / (9.86864910777917e-17,0.552284749830793) / (0.447715250169207,1) / (1,1) / (1,1) / (2,1) / (2, ...` | epsilon |
+| path_syntax_09.asy:15 | `wpath((0,0)..tension 0.75..(1,1)..(2,0));` | `len=2 / (0,0) / (-0.516649780362899,0.86705020518658) / (0.13294979481342,1.5166497803629) / (1,1) / (1.411254 ...` | `len=2 / (0,0) / (-0.516649780362899,0.86705020518658) / (0.13294979481342,1.5166497803629) / (1,1) / (1.411254 ...` | epsilon |
+| path_syntax_12.asy:15 | `wpath((0,0)..(1,1){curl 1}..(2,0));` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | epsilon |
+| path_syntax_13.asy:15 | `wpath((0,0)::(1,0)::(2,1)::(3,1));` | `len=3 / (0,0) / (0.308415690042212,-0.182273213578306) / (0.691584309957788,-0.182273213578306) / (1,0) / (1.4 ...` | `len=3 / (0,0) / (0.308415690042211,-0.182273213578306) / (0.691584309957789,-0.182273213578306) / (1,0) / (1.4 ...` | epsilon |
+| path_syntax_14.asy:15 | `wpath((0,0){down}::(1,-1)::{up}(2,0));` | `len=2 / (0,0) / (0,-0.552284749830794) / (0.447715250169206,-1) / (1,-1) / (1.55228474983079,-1) / (2,-0.55228 ...` | `len=2 / (0,0) / (0,-0.552284749830793) / (0.447715250169206,-1) / (1,-1) / (1.55228474983079,-1) / (2,-0.55228 ...` | epsilon |
 
 <a id="pens"></a>
 ### 18. Pens: attribute getters and color functions
@@ -857,6 +823,9 @@ Corpus usage: `CR` 4, `IP` 20, `CP` 0, `OP` 0, `WP` 0, `L` 8, `d` 20.
 |---|---|---|---|---|
 | mod_cse5.asy:17 | `write(d(A, B));` | `4` | `` | missing |
 | mod_cse5.asy:18 | `write(d(A, C));` | `3.16227766016838` | `` | missing |
+| mod_cse5.asy:19 | `wpath(CR(A, 2));` | `len=400 / (2,0) / (2,0.0104720293426395) / (1.99991775245111,0.0209438971892738) / (1.99975326496332,0.0314146 ...` | `len=400 / (2,0) / (2,0.0104720293426368) / (1.99991775245111,0.0209438971892765) / (1.99975326496332,0.0314146 ...` | epsilon |
+| mod_cse5.asy:20 | `wpath(CR((1,1), 1, 0, 90));` | `len=400 / (2,1) / (2,1.00130899735955) / (1.99999742978887,1.00261799345744) / (1.99999228938147,1.00392698072 ...` | `len=400 / (2,1) / (2,1.00130899735955) / (1.99999742978887,1.00261799345744) / (1.99999228938147,1.00392698072 ...` | epsilon |
+| mod_cse5.asy:21 | `wpath(CP(A, B));` | `len=400 / (4,0) / (4,0.020944058685279) / (3.99983550490221,0.0418877943785477) / (3.99950652992664,0.06282926 ...` | `len=400 / (4,0) / (4,0.0209440586852736) / (3.99983550490221,0.0418877943785531) / (3.99950652992664,0.0628292 ...` | epsilon |
 | mod_cse5.asy:22 | `wpath(L(A, B));` | `len=1 / (-2.4,0) / (0.533333333333332,0) / (3.46666666666667,0) / (6.4,0)` | `len=0 / (0,0)` | value |
 | mod_cse5.asy:23 | `wpath(L(A, B, 0.5, 1));` | `len=1 / (-2,0) / (1.33333333333333,0) / (4.66666666666667,0) / (8,0)` | `len=0 / (0,0)` | value |
 | mod_cse5.asy:24 | `wpath(L(1, A, B));` | `len=1 / (-0.6,0) / (1.13333333333333,0) / (2.86666666666667,0) / (4.6,0)` | `len=0 / (0,0)` | value |
@@ -878,8 +847,8 @@ Corpus usage: `dir(path,t)` 11.
 | path_basic.asy:43 | `write(dir(p));` | `(0,1)` | `(1,0)` | value |
 | path_basic.asy:61 | `write(dir(q, 0));` | `(0.707106781186547,-0.707106781186547)` | `(1,0)` | value |
 | path_basic.asy:62 | `write(dir(q, 4));` | `(0.707106781186547,-0.707106781186547)` | `(0,-1)` | value |
-| path_curves.asy:23 | `write(dir(c, 0));` | `(2.0102366124817e-16,1)` | `(-3.82856869892695e-16,1)` | epsilon |
-| path_curves.asy:24 | `write(dir(c, 1));` | `(1,1.00511830624085e-16)` | `(1,-4.0204732249634e-16)` | epsilon |
+| path_curves.asy:23 | `write(dir(c, 0));` | `(2.0102366124817e-16,1)` | `(7.85046229341888e-17,1)` | epsilon |
+| path_curves.asy:24 | `write(dir(c, 1));` | `(1,1.00511830624085e-16)` | `(1,0)` | epsilon |
 | path_ops.asy:24 | `write(dir(tri, 1));` | `(0.38268343236509,0.923879532511287)` | `(-0.707106781186548,0.707106781186548)` | value |
 | path_ops.asy:25 | `write(dir(tri, 0));` | `(0.584710284663765,-0.811242185175561)` | `(1,0)` | value |
 | path_ops.asy:26 | `write(dir(tri, 3));` | `(0.584710284663765,-0.811242185175561)` | `(-0.316227766016838,-0.948683298050514)` | value |
@@ -922,13 +891,14 @@ Corpus usage: `inverse` 1, `shiftless` 0.
 | transforms.asy:46 | `write(rotate(90).xy);` | `-1` | `` | missing |
 | transforms.asy:47 | `write(rotate(90).yx);` | `1` | `` | missing |
 | transforms.asy:48 | `write(scale(2,5).yy);` | `5` | `` | missing |
-| transforms.asy:51 | `wpath(scale(2)*((0,0)..(1,1)..(2,0)));` | `len=2 / (0,0) / (5.9211894646675e-16,1.10456949966159) / (0.895430500338413,2) / (2,2) / (3.10456949966159,2)  ...` | `len=2 / (0,0) / (-3.94745964311167e-16,1.10456949966159) / (0.895430500338413,2) / (2,2) / (3.10456949966158,2 ...` | epsilon |
+| transforms.asy:51 | `wpath(scale(2)*((0,0)..(1,1)..(2,0)));` | `len=2 / (0,0) / (5.9211894646675e-16,1.10456949966159) / (0.895430500338413,2) / (2,2) / (3.10456949966159,2)  ...` | `len=2 / (0,0) / (1.97372982155583e-16,1.10456949966159) / (0.895430500338413,2) / (2,2) / (3.10456949966159,2) ...` | epsilon |
 | transforms.asy:53 | `write(rotate(45, (1,0))*(2,0));` | `(1.70710678118655,0.707106781186548)` | `(1.70710678118655,0.707106781186547)` | epsilon |
 | transforms.asy:58 | `write(U == T);` | `false` | `{"_tag":"transform","a":-1,"b":6.123233995736766e-17,"c":-1,"d":3,"e":1,"f":6.123233995736766e-17}` | value |
 | transforms.asy:66 | `write(inverse(rotate(45)*scale(2))*(1,1));` | `(0.707106781186547,0)` | `0` | value |
 | transforms.asy:67 | `wpath(scale(0.5)*unitsquare);` | `len=4 / (0,0) / (0.166666666666667,0) / (0.333333333333333,0) / (0.5,0) / (0.5,0.166666666666667) / (0.5,0.333 ...` | `len=4 / (0,0) / (0.166666666666666,0) / (0.333333333333334,0) / (0.5,0) / (0.5,0.166666666666667) / (0.5,0.333 ...` | epsilon |
 | transforms.asy:68 | `wpath(rotate(45)*unitsquare);` | `len=4 / (0,0) / (0.235702260395516,0.235702260395516) / (0.471404520791032,0.471404520791032) / (0.70710678118 ...` | `len=4 / (0,0) / (0.235702260395515,0.235702260395515) / (0.471404520791033,0.471404520791033) / (0.70710678118 ...` | epsilon |
 | transforms.asy:69 | `wpath(slant(0.5)*unitsquare);` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1.16666666666667,0.333333333333333) / ...` | `len=4 / (0,0) / (0.333333333333332,0) / (0.666666666666668,0) / (1,0) / (1.16666666666667,0.333333333333333) / ...` | epsilon |
+| transforms.asy:70 | `wpath(xscale(-1)*((1,0)..(2,1)..(3,0)));` | `len=2 / (-1,0) / (-1,0.552284749830794) / (-1.44771525016921,1) / (-2,1) / (-2.55228474983079,1) / (-3,0.55228 ...` | `len=2 / (-1,0) / (-1,0.552284749830793) / (-1.44771525016921,1) / (-2,1) / (-2.55228474983079,1) / (-3,0.55228 ...` | epsilon |
 | transforms.asy:74 | `write(scale(2)*rotate(90));` | `(0,0,1.22464679914735e-16,-2,2,1.22464679914735e-16)` | `{"_tag":"transform","a":0,"b":1.2246467991473532e-16,"c":-2,"d":0,"e":2,"f":1.2246467991473532e-16}` | value |
 | transforms.asy:75 | `write(rotate(90)*scale(2,1));` | `(0,0,1.22464679914735e-16,-1,2,6.12323399573677e-17)` | `{"_tag":"transform","a":0,"b":1.2246467991473532e-16,"c":-1,"d":0,"e":2,"f":6.123233995736766e-17}` | value |
 | transforms.asy:81 | `write(inverse(S)*(S*(3,4)));` | `(3,4)` | `0` | value |
@@ -964,20 +934,83 @@ Corpus usage: `write(` 5.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| circles_arcs.asy:15 | `wpath(unitcircle);` | `len=4 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=4 / (1,0) / (1,0.552284749799999) / (0.552284749799999,1) / (0,1) / (-0.5522847498,1) / (-0.99999999999999 ...` | epsilon |
-| circles_arcs.asy:17 | `write(point(unitcircle, 0.5));` | `(0.707106781186547,0.707106781186547)` | `(0.707106781175,0.707106781175)` | epsilon |
-| circles_arcs.asy:31 | `wpath(arc((0,0), 1, 0, 270));` | `len=3 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=3 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | epsilon |
-| circles_arcs.asy:34 | `wpath(arc((0,0), 1, -45, 45));` | `len=2 / (0.707106781186547,-0.707106781186547) / (0.888071187457699,-0.526142374915397) / (1,-0.27614237491539 ...` | `len=2 / (0.707106781186548,-0.707106781186548) / (0.888071187457699,-0.526142374915397) / (1,-0.27614237491539 ...` | epsilon |
-| circles_arcs.asy:38 | `wpath(arc((0,0), 1, 90, 0, CCW));` | `len=3 / (-7.3579109449379e-16,1) / (-0.552284749830794,1) / (-0.999999999999999,0.552284749830793) / (-1,0) /  ...` | `len=3 / (0,1) / (-0.552284749830794,1) / (-1,0.552284749830794) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | epsilon |
-| circles_arcs.asy:45 | `wpath(arc((0,0), 1, 0, 180));` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | epsilon |
+| circle_arc_graph.asy:7 | `wpath(unitcircle);` | `len=4 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=4 / (1,0) / (1,0.552284749830792) / (0.552284749830792,1) / (0,1) / (-0.552284749830793,0.999999999999999) ...` | epsilon |
+| circle_arc_graph.asy:8 | `wpath(circle((1,-2), 0.5));` | `len=4 / (1.5,-2) / (1.5,-1.7238576250846) / (1.2761423749154,-1.5) / (1,-1.5) / (0.723857625084603,-1.5) / (0. ...` | `len=4 / (1.5,-2) / (1.5,-1.7238576250846) / (1.2761423749154,-1.5) / (1,-1.5) / (0.723857625084604,-1.5) / (0. ...` | epsilon |
+| circle_arc_graph.asy:9 | `wpath(ellipse((1,1), 3, 1));` | `len=4 / (4,1) / (4,1.5522847498308) / (2.65685424949238,2) / (1,2) / (-0.65685424949238,2) / (-2,1.55228474983 ...` | `len=4 / (4,1) / (4,1.55228474983079) / (2.65685424949238,2) / (1,2) / (-0.656854249492379,2) / (-2,1.552284749 ...` | epsilon |
+| circle_arc_graph.asy:10 | `write(point(circle((0,0), 2), 2.5));` | `(-1.41421356237309,-1.41421356237309)` | `(-1.4142135623731,-1.4142135623731)` | epsilon |
+| circle_arc_graph.asy:11 | `wpath(arc((0,0), 1, 30, 150));` | `len=2 / (0.866169630634359,0.500083269410626) / (0.6932530716149,0.798938033457256) / (0.370106805057161,0.999 ...` | `len=2 / (0.866169630634359,0.500083269410626) / (0.693253071614901,0.798938033457256) / (0.370106805057161,1)  ...` | epsilon |
+| circle_arc_graph.asy:13 | `wpath(arc((1,1), 2, 200, 340));` | `len=2 / (-0.879896714441805,0.315773552448351) / (-0.600442669548219,-0.451835104887175) / (0.135763279562424, ...` | `len=2 / (-0.879896714441805,0.315773552448352) / (-0.60044266954822,-0.451835104887175) / (0.135763279562424,- ...` | epsilon |
+| circle_arc_graph.asy:14 | `wpath(arc((0,0), 1, 45, 45));` | `len=5 / (0.707106781186548,0.707106781186547) / (0.526142374915397,0.888071187457698) / (0.276142374915397,1)  ...` | `len=5 / (0.707106781186547,0.707106781186547) / (0.526142374915397,0.888071187457698) / (0.276142374915397,1)  ...` | epsilon |
+| circle_arc_graph.asy:15 | `wpath(arc((0,0), 1, 45, 45, CW));` | `len=5 / (0.707106781186548,0.707106781186547) / (0.888071187457699,0.526142374915397) / (1,0.276142374915396)  ...` | `len=5 / (0.707106781186547,0.707106781186547) / (0.888071187457698,0.526142374915397) / (1,0.276142374915397)  ...` | epsilon |
+| circle_arc_graph.asy:16 | `wpath(arc((0,0), 1, 10, 350, CW));` | `len=2 / (0.984971734298905,0.173677091992107) / (0.994849442728454,0.117269975845119) / (0.999999999999999,0.0 ...` | `len=2 / (0.984971734298906,0.173677091992106) / (0.994849442728454,0.117269975845119) / (1,0.0592364764765682) ...` | epsilon |
+| circle_arc_graph.asy:17 | `wpath(arc((0,0), 1, 350, 10, CCW));` | `len=2 / (0.984971734298905,-0.173677091992108) / (0.994849442728454,-0.11726997584512) / (0.999999999999999,-0 ...` | `len=2 / (0.984971734298905,-0.173677091992108) / (0.994849442728454,-0.11726997584512) / (1,-0.059236476476568 ...` | epsilon |
+| circle_arc_graph.asy:18 | `wpath(arc((0,0), -1, 30, 60));` | `len=1 / (-0.866169630634359,-0.500083269410626) / (-0.77836791659763,-0.651832533218169) / (-0.651832533218169 ...` | `len=1 / (-0.866169630634359,-0.500083269410626) / (-0.77836791659763,-0.651832533218169) / (-0.651832533218169 ...` | epsilon |
+| circle_arc_graph.asy:19 | `wpath(arc((0,0), 1, 30, 400));` | `len=1 / (0.866169630634359,0.500083269410626) / (0.836929738020272,0.550619095808538) / (0.803394142880822,0.5 ...` | `len=1 / (0.866169630634359,0.500083269410626) / (0.836929738020273,0.550619095808537) / (0.803394142880822,0.5 ...` | epsilon |
+| circle_arc_graph.asy:20 | `wpath(arc((1,0), (3,1), (0,2)));` | `len=2 / (3.00043750796096,1.00021875398048) / (2.63332503631678,1.73301534028776) / (1.87540963762419,2.236067 ...` | `len=2 / (3.00043750796096,1.00021875398048) / (2.63332503631678,1.73301534028775) / (1.87540963762419,2.236067 ...` | epsilon |
+| circle_arc_graph.asy:21 | `wpath(arc((1,0), (3,1), (0,2), CW));` | `len=4 / (3.00043750796096,1.00021875398048) / (3.15121306077436,0.699254284139912) / (3.23606797749979,0.35953 ...` | `len=4 / (3.00043750796096,1.00021875398048) / (3.15121306077436,0.699254284139911) / (3.23606797749979,0.35953 ...` | epsilon |
+| circle_arc_graph.asy:29 | `wpath(Circle((1,2), 3, 3));` | `len=3 / (4,2) / (4,4.3094010767585) / (1.5,5.75277674973257) / (-0.499999999999999,4.59807621135332) / (-2.5,3 ...` | `len=3 / (4,2) / (4,4.30940107675851) / (1.5,5.75277674973256) / (-0.499999999999999,4.59807621135332) / (-2.5, ...` | epsilon |
+| circle_arc_graph.asy:30 | `wpath(Circle((0,0), 1, 8));` | `len=8 / (1,0) / (1,0.265216489839544) / (0.894643159634582,0.519570402738513) / (0.707106781186548,0.707106781 ...` | `len=8 / (1,0) / (1,0.265216489839546) / (0.894643159634583,0.519570402738511) / (0.707106781186548,0.707106781 ...` | epsilon |
+| circle_arc_graph.asy:35 | `wpath(Arc((0,0), 2, 10, 100, 4));` | `len=4 / (1.96961550602442,0.347296355333861) / (1.92400789880087,0.605949949017029) / (1.82790127149066,0.8530 ...` | `len=4 / (1.96961550602442,0.347296355333861) / (1.92400789880087,0.605949949017029) / (1.82790127149066,0.8530 ...` | epsilon |
+| circle_arc_graph.asy:36 | `wpath(Arc((0,0), 2, 100, 10, 3));` | `len=3 / (-0.347296355333861,1.96961550602442) / (-0.00155662112722485,2.03057874946802) / (0.35413927200891,1. ...` | `len=3 / (-0.347296355333861,1.96961550602442) / (-0.00155662112722475,2.03057874946802) / (0.35413927200891,1. ...` | epsilon |
+| circle_arc_graph.asy:37 | `wpath(Arc((0,0), 2, 10, 100, CW, 3));` | `len=3 / (1.96961550602442,0.347296355333861) / (2.16142198674713,-0.740492251673686) / (1.43508496234141,-1.77 ...` | `len=3 / (1.96961550602442,0.347296355333861) / (2.16142198674712,-0.740492251673686) / (1.43508496234141,-1.77 ...` | epsilon |
+| circle_arc_graph.asy:38 | `wpath(Arc((0,0), (2,0), (0,2), 2));` | `len=2 / (2,0) / (2,0.530432979679088) / (1.78928631926916,1.03914080547703) / (1.4142135623731,1.4142135623731 ...` | `len=2 / (2,0) / (2,0.530432979679088) / (1.78928631926916,1.03914080547703) / (1.4142135623731,1.4142135623730 ...` | epsilon |
+| circle_arc_graph.asy:41 | `wpath(g1);` | `len=4 / (-1,1) / (-0.833333333333334,0.75) / (-0.666666666666667,0.5) / (-0.5,0.25) / (-0.333333333333333,0.16 ...` | `len=4 / (-1,1) / (-0.833333333333333,0.750000000000001) / (-0.666666666666667,0.5) / (-0.5,0.25) / (-0.3333333 ...` | epsilon |
+| circle_arc_graph.asy:43 | `wpath(g2);` | `len=4 / (-1,1) / (-0.890403344924809,0.716330670190084) / (-0.719696052487926,0.46026973153476) / (-0.5,0.25)  ...` | `len=4 / (-1,1) / (-0.890403344924809,0.716330670190084) / (-0.719696052487926,0.46026973153476) / (-0.5,0.25)  ...` | epsilon |
+| circle_arc_graph.asy:49 | `wpath(pg);` | `len=4 / (1,0) / (1.08748904948545,0.420822382818782) / (1.1749780989709,0.841644765637562) / (1.26246714845634 ...` | `len=4 / (1,0) / (1.08748904948545,0.420822382818781) / (1.1749780989709,0.841644765637562) / (1.26246714845634 ...` | epsilon |
+| circle_arc_graph.asy:55 | `wpath(graph(z, operator ..));` | `len=3 / (0,0) / (-1.31788263678351,0.671783657078845) / (-0.32815650773318,2.6512359151795) / (1,2) / (1.43496 ...` | `len=3 / (0,0) / (-1.31788263678351,0.671783657078845) / (-0.32815650773318,2.6512359151795) / (1,2) / (1.43496 ...` | epsilon |
+| circles_arcs.asy:15 | `wpath(unitcircle);` | `len=4 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=4 / (1,0) / (1,0.552284749830792) / (0.552284749830792,1) / (0,1) / (-0.552284749830793,0.999999999999999) ...` | epsilon |
+| circles_arcs.asy:17 | `write(point(unitcircle, 0.5));` | `(0.707106781186547,0.707106781186547)` | `(0.707106781186548,0.707106781186548)` | epsilon |
+| circles_arcs.asy:20 | `wpath(circle((1,2), 3));` | `len=4 / (4,2) / (4,3.65685424949238) / (2.65685424949238,5) / (1,5) / (-0.65685424949238,5) / (-2,3.6568542494 ...` | `len=4 / (4,2) / (4,3.65685424949237) / (2.65685424949238,5.00000000000001) / (1,5) / (-0.656854249492379,5) /  ...` | epsilon |
+| circles_arcs.asy:31 | `wpath(arc((0,0), 1, 0, 270));` | `len=3 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=3 / (1,0) / (1,0.552284749830793) / (0.552284749830793,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | epsilon |
+| circles_arcs.asy:33 | `wpath(arc((0,0), 1, 0, 360));` | `len=4 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=4 / (1,0) / (1,0.552284749830793) / (0.552284749830793,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | epsilon |
+| circles_arcs.asy:34 | `wpath(arc((0,0), 1, -45, 45));` | `len=2 / (0.707106781186547,-0.707106781186547) / (0.888071187457699,-0.526142374915397) / (1,-0.27614237491539 ...` | `len=2 / (0.707106781186547,-0.707106781186547) / (0.888071187457698,-0.526142374915397) / (1,-0.27614237491539 ...` | epsilon |
+| circles_arcs.asy:35 | `wpath(arc((0,0), 1, 30, 150));` | `len=2 / (0.866169630634359,0.500083269410626) / (0.6932530716149,0.798938033457256) / (0.370106805057161,0.999 ...` | `len=2 / (0.866169630634359,0.500083269410626) / (0.693253071614901,0.798938033457256) / (0.370106805057161,1)  ...` | epsilon |
+| circles_arcs.asy:36 | `wpath(arc((1,1), 2, 200, 340));` | `len=2 / (-0.879896714441805,0.315773552448351) / (-0.600442669548219,-0.451835104887175) / (0.135763279562424, ...` | `len=2 / (-0.879896714441805,0.315773552448352) / (-0.60044266954822,-0.451835104887175) / (0.135763279562424,- ...` | epsilon |
+| circles_arcs.asy:37 | `wpath(arc((0,0), 1, 0, 90, CW));` | `len=3 / (1,0) / (1,-0.552284749830794) / (0.552284749830794,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | `len=3 / (1,0) / (1,-0.552284749830793) / (0.552284749830793,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | epsilon |
+| circles_arcs.asy:38 | `wpath(arc((0,0), 1, 90, 0, CCW));` | `len=3 / (-7.3579109449379e-16,1) / (-0.552284749830794,1) / (-0.999999999999999,0.552284749830793) / (-1,0) /  ...` | `len=3 / (0,1) / (-0.552284749830793,1) / (-1,0.552284749830793) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | epsilon |
+| circles_arcs.asy:41 | `wpath(arc((0,0), (1,0), (0,1), CW));` | `len=3 / (1,0) / (1,-0.552284749830794) / (0.552284749830794,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | `len=3 / (1,0) / (1,-0.552284749830793) / (0.552284749830793,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | epsilon |
+| circles_arcs.asy:44 | `wpath(arc((0,0), 1, 0, 10));` | `len=1 / (1,0) / (1,0.0592364764765686) / (0.994849442728453,0.117269975845119) / (0.984971734298905,0.17367709 ...` | `len=1 / (1,0) / (1,0.0592364764765683) / (0.994849442728453,0.117269975845119) / (0.984971734298905,0.17367709 ...` | epsilon |
+| circles_arcs.asy:45 | `wpath(arc((0,0), 1, 0, 180));` | `len=2 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=2 / (1,0) / (1,0.552284749830793) / (0.552284749830793,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | epsilon |
 | circles_arcs.asy:46 | `wpath(arc((0,0), 3, 45, 135));` | `len=2 / (2.12132034355964,2.12132034355964) / (1.57842712474619,2.66421356237309) / (0.828427124746191,3) / (0 ...` | `len=2 / (2.12132034355964,2.12132034355964) / (1.57842712474619,2.6642135623731) / (0.82842712474619,3) / (0,3 ...` | epsilon |
-| circles_arcs.asy:47 | `wpath(ellipse((0,0), 2, 1));` | `len=4 / (2,0) / (2,0.552284749830794) / (1.10456949966159,1) / (0,1) / (-1.10456949966159,1) / (-2,0.552284749 ...` | `len=4 / (2,0) / (2,0.552284749799999) / (1.1045694996,1) / (0,1) / (-1.1045694996,1) / (-2,0.552284749800002)  ...` | epsilon |
-| circles_arcs.asy:50 | `wpath(ellipse((1,1), 3, 1));` | `len=4 / (4,1) / (4,1.5522847498308) / (2.65685424949238,2) / (1,2) / (-0.65685424949238,2) / (-2,1.55228474983 ...` | `len=4 / (4,1) / (4,1.5522847498) / (2.65685424939999,2) / (1,2) / (-0.656854249399998,2) / (-2,1.5522847498) / ...` | epsilon |
-| circles_arcs.asy:68 | `wpath(scale(2)*unitcircle);` | `len=4 / (2,0) / (2,1.10456949966159) / (1.10456949966159,2) / (0,2) / (-1.10456949966159,2) / (-2,1.1045694996 ...` | `len=4 / (2,0) / (2,1.1045694996) / (1.1045694996,2) / (0,2) / (-1.1045694996,2) / (-2,1.1045694996) / (-2,0) / ...` | epsilon |
-| circles_arcs.asy:69 | `wpath(xscale(2)*unitcircle);` | `len=4 / (2,0) / (2,0.552284749830794) / (1.10456949966159,1) / (0,1) / (-1.10456949966159,1) / (-2,0.552284749 ...` | `len=4 / (2,0) / (2,0.552284749799999) / (1.1045694996,1) / (0,1) / (-1.1045694996,1) / (-2,0.552284749800002)  ...` | epsilon |
-| circles_arcs.asy:75 | `write(point(unitcircle, 0.33333));` | `(0.863473288631751,0.504714703621202)` | `(0.863473288624908,0.504714703607517)` | epsilon |
+| circles_arcs.asy:47 | `wpath(ellipse((0,0), 2, 1));` | `len=4 / (2,0) / (2,0.552284749830794) / (1.10456949966159,1) / (0,1) / (-1.10456949966159,1) / (-2,0.552284749 ...` | `len=4 / (2,0) / (2,0.552284749830792) / (1.10456949966158,1) / (0,1) / (-1.10456949966159,0.999999999999999) / ...` | epsilon |
+| circles_arcs.asy:50 | `wpath(ellipse((1,1), 3, 1));` | `len=4 / (4,1) / (4,1.5522847498308) / (2.65685424949238,2) / (1,2) / (-0.65685424949238,2) / (-2,1.55228474983 ...` | `len=4 / (4,1) / (4,1.55228474983079) / (2.65685424949238,2) / (1,2) / (-0.656854249492379,2) / (-2,1.552284749 ...` | epsilon |
+| circles_arcs.asy:51 | `wpath(circle((0,0), 0.5));` | `len=4 / (0.5,0) / (0.5,0.276142374915397) / (0.276142374915397,0.5) / (0,0.5) / (-0.276142374915397,0.5) / (-0 ...` | `len=4 / (0.5,0) / (0.500000000000001,0.276142374915396) / (0.276142374915396,0.500000000000001) / (0,0.5) / (- ...` | epsilon |
+| circles_arcs.asy:68 | `wpath(scale(2)*unitcircle);` | `len=4 / (2,0) / (2,1.10456949966159) / (1.10456949966159,2) / (0,2) / (-1.10456949966159,2) / (-2,1.1045694996 ...` | `len=4 / (2,0) / (2,1.10456949966158) / (1.10456949966158,2) / (0,2) / (-1.10456949966159,2) / (-2,1.1045694996 ...` | epsilon |
+| circles_arcs.asy:69 | `wpath(xscale(2)*unitcircle);` | `len=4 / (2,0) / (2,0.552284749830794) / (1.10456949966159,1) / (0,1) / (-1.10456949966159,1) / (-2,0.552284749 ...` | `len=4 / (2,0) / (2,0.552284749830792) / (1.10456949966158,1) / (0,1) / (-1.10456949966159,0.999999999999999) / ...` | epsilon |
+| circles_arcs.asy:75 | `write(point(unitcircle, 0.33333));` | `(0.863473288631751,0.504714703621202)` | `(0.863473288631751,0.504714703621203)` | epsilon |
+| circles_arcs.asy:76 | `wpath(arc((0,0), 1, 0, -90));` | `len=1 / (1,0) / (1,-0.552284749830794) / (0.552284749830794,-1) / (0,-1)` | `len=1 / (1,0) / (1,-0.552284749830793) / (0.552284749830793,-1) / (0,-1)` | epsilon |
+| circles_arcs.asy:77 | `wpath(arc((0,0), 1, 350, 10));` | `len=4 / (0.984971734298905,-0.173677091992108) / (0.902755718499729,-0.6431754969515) / (0.493048273354224,-0. ...` | `len=4 / (0.984971734298905,-0.173677091992108) / (0.90275571849973,-0.6431754969515) / (0.493048273354224,-1)  ...` | epsilon |
+| circles_arcs.asy:78 | `wpath(arc((0,0), 1, 10, 350));` | `len=4 / (0.984971734298905,0.173677091992107) / (0.902755718499729,0.6431754969515) / (0.493048273354225,0.999 ...` | `len=4 / (0.984971734298905,0.173677091992106) / (0.90275571849973,0.643175496951499) / (0.493048273354225,1) / ...` | epsilon |
+| circles_arcs.asy:79 | `wpath(arc((0,0), 1, 45, 45));` | `len=5 / (0.707106781186548,0.707106781186547) / (0.526142374915397,0.888071187457698) / (0.276142374915397,1)  ...` | `len=5 / (0.707106781186547,0.707106781186547) / (0.526142374915397,0.888071187457698) / (0.276142374915397,1)  ...` | epsilon |
 | circles_arcs.asy:84 | `write(point(arc((0,0), 1, 0, 120), 0.5));` | `(0.707106781186547,0.707106781186547)` | `(0.707106781186548,0.707106781186548)` | epsilon |
-| intersections.asy:45 | `wr(times(c, 1));` | `n=2 / 0.670199889113601 / 3.3298001108864` | `n=2 / 0.670199889103374 / 3.32980011089663` | epsilon |
+| guide_solver.asy:11 | `wpath((0,0)--(1,0){up}..(2,1));` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0.552284749830793) / (1.44771525016 ...` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (0.999999999999999,0.552284749830793)  ...` | epsilon |
+| guide_solver.asy:12 | `wpath((0,0)..(1,1){up}--(2,0));` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | `len=2 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.333 ...` | epsilon |
+| guide_solver.asy:13 | `wpath((0,0)..{up}(1,1)--(2,0));` | `len=2 / (0,0) / (0.552284749830794,0) / (1,0.447715250169206) / (1,1) / (1.33333333333333,0.666666666666667) / ...` | `len=2 / (0,0) / (0.552284749830793,9.86864910777917e-17) / (1,0.447715250169207) / (1,1) / (1.33333333333333,0 ...` | epsilon |
+| guide_solver.asy:27 | `wpath((0,0){1,2}..(1,0));` | `len=1 / (0,0) / (0.206011329583298,0.412022659166597) / (0.793988670416702,0.412022659166597) / (1,0)` | `len=1 / (0,0) / (0.206011329583298,0.412022659166597) / (0.793988670416702,0.412022659166596) / (1,0)` | epsilon |
+| guide_solver.asy:29 | `wpath((0,0){dir(45)}..(2,0)..{dir(45)}(4,0));` | `len=2 / (0,0) / (0.508065389909184,0.508065389909184) / (1.30719784753897,0.286968047590633) / (2,0) / (2.6928 ...` | `len=2 / (0,0) / (0.508065389909184,0.508065389909184) / (1.30719784753897,0.286968047590633) / (2,0) / (2.6928 ...` | epsilon |
+| guide_solver.asy:30 | `wpath((0,0)..(1,0){up}..{left}(0,1)..cycle);` | `len=3 / (0,0) / (0.429101089842611,-0.429101089842611) / (1,-0.363197426537715) / (1,0) / (1,0.552284749830793 ...` | `len=3 / (0,0) / (0.429101089842612,-0.429101089842611) / (0.999999999999999,-0.363197426537715) / (1,0) / (0.9 ...` | epsilon |
+| guide_solver.asy:31 | `wpath((0,0)..(1,0)..{left}cycle);` | `len=2 / (0,0) / (-1.0609731522961,9.86864910777917e-17) / (0.570046772368916,-0.429953227631083) / (1,0) / (1. ...` | `len=2 / (0,0) / (-1.06097315229609,-9.86864910777917e-17) / (0.570046772368915,-0.429953227631083) / (1,0) / ( ...` | epsilon |
+| guide_solver.asy:32 | `wpath((0,0){right}..(1,1)..cycle);` | `len=2 / (0,0) / (0.673550607385265,0) / (1.20809576981973,0.497612370228728) / (1,1) / (0.17292454674425,2.996 ...` | `len=2 / (0,0) / (0.673550607385266,6.90805437544542e-16) / (1.20809576981973,0.497612370228727) / (1,1) / (0.1 ...` | epsilon |
+| guide_solver.asy:33 | `wpath((0,0)..(2,0)..(2,3)..(0,2)..cycle);` | `len=4 / (0,0) / (0.512585033035272,-0.540507211712258) / (1.3700005805511,-0.461247115103959) / (2,0) / (3.187 ...` | `len=4 / (0,0) / (0.512585033035268,-0.540507211712257) / (1.3700005805511,-0.461247115103959) / (2,0) / (3.187 ...` | epsilon |
+| guide_solver.asy:34 | `wpath((0,0)..(2,0)..(2,3){up}..(0,2)..cycle);` | `len=4 / (0,0) / (0.472426986912932,-0.680784458534323) / (1.48367047259485,-0.67465825605524) / (2,0) / (2.651 ...` | `len=4 / (0,0) / (0.472426986912929,-0.680784458534322) / (1.48367047259485,-0.67465825605524) / (2,0) / (2.651 ...` | epsilon |
+| guide_solver.asy:35 | `wpath((0,0)..(1,0){up}..(1,1)..(0,1)..cycle);` | `len=4 / (0,0) / (0.341502436694636,-0.543498014515744) / (1,-0.399254316873441) / (1,0) / (1,0.342726866377027 ...` | `len=4 / (0,0) / (0.341502436694634,-0.543498014515743) / (1,-0.399254316873441) / (1,0) / (0.999999999999999,0 ...` | epsilon |
+| guide_solver.asy:36 | `wpath((0,0){up}..(1,0)..(1,1)..(0,1)..cycle);` | `len=4 / (0,0) / (9.86864910777917e-17,0.542899514347643) / (0.640247243459457,-0.0405344007165918) / (1,0) / ( ...` | `len=4 / (0,0) / (-1.57898385724467e-15,0.542899514347643) / (0.64024724345946,-0.0405344007165923) / (1,0) / ( ...` | epsilon |
+| guide_solver.asy:37 | `wpath((0,0)..{up}(1,0){left}..(0,1));` | `len=2 / (0,0) / (0,-0.666666666666667) / (1,-0.666666666666667) / (1,0) / (0.447715250169207,4.93432455388958e ...` | `len=2 / (0,0) / (9.86864910777917e-17,-0.666666666666667) / (1,-0.666666666666667) / (1,0) / (0.44771525016920 ...` | epsilon |
+| guide_solver.asy:38 | `wpath((0,0){up}..{down}(1,0)..(3,0));` | `len=2 / (0,0) / (0,0.666666666666667) / (1,0.666666666666667) / (1,0) / (1,-1.33333333333333) / (3,-1.33333333 ...` | `len=2 / (0,0) / (9.86864910777917e-17,0.666666666666667) / (1,0.666666666666667) / (1,0) / (0.999999999999999, ...` | epsilon |
+| guide_solver.asy:39 | `wpath((0,0)..(1,1)--(2,0)..cycle);` | `len=3 / (0,0) / (-0.114450754151778,0.593284156767974) / (0.406715843232026,1.11445075415178) / (1,1) / (1.333 ...` | `len=3 / (0,0) / (-0.114450754151777,0.593284156767974) / (0.406715843232025,1.11445075415178) / (1,1) / (1.333 ...` | epsilon |
+| guide_solver.asy:40 | `wpath((0,0)--(1,1)..(2,0)..cycle);` | `len=3 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.593 ...` | `len=3 / (0,0) / (0.333333333333334,0.333333333333334) / (0.666666666666666,0.666666666666666) / (1,1) / (1.593 ...` | epsilon |
+| guide_solver.asy:41 | `wpath((0,0)..(1,1)..(2,0)--cycle);` | `len=3 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `len=3 / (0,0) / (7.40148683083438e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,0 ...` | epsilon |
+| guide_solver.asy:42 | `wpath((0,0)..(1,1)..(2,0)..(0,0)..cycle);` | `len=4 / (0,0) / (0.0247634729078621,0.54169598535101) / (0.45830401464899,0.975236527092138) / (1,1) / (1.5864 ...` | `len=4 / (0,0) / (0.0247634729078607,0.541695985351009) / (0.458304014648991,0.975236527092139) / (1,1) / (1.58 ...` | epsilon |
+| guide_solver.asy:43 | `wpath((0,0)..(1,1)..(2,0)..{up}(0,0)..cycle);` | `len=4 / (0,0) / (0.0191609281454007,0.544150478161483) / (0.455849521838517,0.980839071854599) / (1,1) / (1.57 ...` | `len=4 / (0,0) / (0.0191609281453992,0.544150478161481) / (0.455849521838519,0.980839071854601) / (1,1) / (1.57 ...` | epsilon |
+| guide_solver.asy:44 | `wpath((0,0)..(1,0)..(1,0)..(2,1)..cycle);` | `len=4 / (0,0) / (0.265066120818068,-0.301700099470242) / (0.734933879181932,-0.301700099470242) / (1,0) / (1,0 ...` | `len=4 / (0,0) / (0.265066120818066,-0.301700099470242) / (0.734933879181934,-0.301700099470242) / (1,0) / (1,0 ...` | epsilon |
+| guide_solver.asy:58 | `wpath((0,0)..(1,2)..(2,-1)..(3,3)..(4,0)..(5,1));` | `len=5 / (0,0) / (-1.72976672723737,0.514027623764615) / (-0.449082135354115,3.07539680753113) / (1,2) / (1.810 ...` | `len=5 / (0,0) / (-1.72976672723737,0.514027623764615) / (-0.449082135354115,3.07539680753113) / (1,2) / (1.810 ...` | epsilon |
+| guide_solver.asy:59 | `wpath((0,0)..(4,0)..(4.1,0.1)..(0,1));` | `len=3 / (0,0) / (1.13009591602082,-1.04112097872121) / (2.86990408397918,-1.04112097872121) / (4,0) / (4.03468 ...` | `len=3 / (0,0) / (1.13009591602082,-1.04112097872121) / (2.86990408397918,-1.04112097872121) / (4,0) / (4.03468 ...` | epsilon |
+| guide_solver.asy:60 | `wpath((0,0)..(1,0)..(0,0.01)..(-1,0));` | `len=3 / (0,0) / (-0.399234646657704,-0.988310329124772) / (1.3992346466577,-0.988310329124773) / (1,0) / (0.86 ...` | `len=3 / (0,0) / (-0.399234646657704,-0.988310329124773) / (1.3992346466577,-0.988310329124773) / (1,0) / (0.86 ...` | epsilon |
+| guide_solver.asy:62 | `wpath(p..(3,1)..(4,0));` | `len=4 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `len=4 / (0,0) / (9.86864910777917e-17,0.552284749830793) / (0.447715250169207,1) / (1,1) / (1.55228474983079,1 ...` | epsilon |
+| guide_solver.asy:64 | `wpath(s..(2,0)..(3,1));` | `len=3 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.503 ...` | `len=3 / (0,0) / (0.333333333333333,0.333333333333333) / (0.666666666666667,0.666666666666667) / (1,1) / (1.503 ...` | epsilon |
+| guide_solver.asy:66 | `wpath((0,0)..(1,1)..q);` | `len=4 / (0,0) / (-1.10161570603317,0.636018124421771) / (0.363981875578229,2.10161570603317) / (1,1) / (1.4175 ...` | `len=4 / (0,0) / (-1.10161570603317,0.636018124421771) / (0.363981875578229,2.10161570603317) / (1,1) / (1.4175 ...` | epsilon |
+| guide_solver.asy:68 | `wpath(g);` | `len=3 / (0,0) / (-0.260939989336762,0.629964861222303) / (0.370035138777697,1.26093998933676) / (1,1) / (1.452 ...` | `len=3 / (0,0) / (-0.260939989336762,0.629964861222303) / (0.370035138777697,1.26093998933676) / (1,1) / (1.452 ...` | epsilon |
+| intersections.asy:45 | `wr(times(c, 1));` | `n=2 / 0.670199889113601 / 3.3298001108864` | `n=2 / 0.670199889113602 / 3.3298001108864` | epsilon |
 | path_basic.asy:49 | `wpath(p);` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,1) / (4,2) / (4,3)` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,0.999999999999999) / (4,2) / (4,3)` | epsilon |
 | path_basic.asy:51 | `wpath(q);` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0.333333333333333) / (1,0.666666666 ...` | `len=4 / (0,0) / (0.333333333333332,0) / (0.666666666666668,0) / (1,0) / (1,0.333333333333333) / (1,0.666666666 ...` | epsilon |
 | path_basic.asy:67 | `wpath(p--(0,0));` | `len=3 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,1) / (4,2) / (4,3) / (2.6666666666666 ...` | `len=3 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,0.999999999999999) / (4,2) / (4,3) /  ...` | epsilon |
@@ -988,25 +1021,26 @@ Corpus usage: `write(` 5.
 | path_basic.asy:80 | `wpath(polygon(3));` | `len=3 / (0.866025403784439,-0.5) / (0.577350269189626,-1.48029736616688e-16) / (0.288675134594813,0.5) / (6.12 ...` | `len=3 / (0.866025403784439,-0.5) / (0.577350269189625,9.86864910777917e-16) / (0.288675134594814,0.49999999999 ...` | epsilon |
 | path_basic.asy:108 | `wpath((0,0)--(1,0)--cycle);` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (0.666666666666667,0) / (0.33333333333 ...` | `len=2 / (0,0) / (0.333333333333334,0) / (0.666666666666666,0) / (1,0) / (0.666666666666667,0) / (0.33333333333 ...` | epsilon |
 | path_basic.asy:116 | `wpath(p--cycle);` | `len=3 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,1) / (4,2) / (4,3) / (2.6666666666666 ...` | `len=3 / (0,0) / (1.33333333333334,0) / (2.66666666666666,0) / (4,0) / (4,1) / (4,2) / (4,3) / (2.6666666666666 ...` | epsilon |
-| path_curves.asy:16 | `wpath(c);` | `len=2 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `len=2 / (0,0) / (-1.97372982155583e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079, ...` | epsilon |
-| path_curves.asy:21 | `write(point(c, 0.5));` | `(0.292893218813452,0.707106781186547)` | `(0.292893218813452,0.707106781186548)` | epsilon |
-| path_curves.asy:31 | `wpath((0,0)..(1,1)..(2,0)..cycle);` | `len=3 / (0,0) / (-0.0663122518007629,0.549145268452589) / (0.418882507934723,1) / (1,1) / (1.58111749206528,1) ...` | `len=3 / (0,0) / (-0.0663122518007619,0.54914526845259) / (0.418882507934722,1) / (1,1) / (1.58111749206528,0.9 ...` | epsilon |
+| path_curves.asy:16 | `wpath(c);` | `len=2 / (0,0) / (2.96059473233375e-16,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1 ...` | `len=2 / (0,0) / (9.86864910777917e-17,0.552284749830793) / (0.447715250169207,1) / (1,1) / (1.55228474983079,1 ...` | epsilon |
+| path_curves.asy:21 | `write(point(c, 0.5));` | `(0.292893218813452,0.707106781186547)` | `(0.292893218813453,0.707106781186547)` | epsilon |
+| path_curves.asy:31 | `wpath((0,0)..(1,1)..(2,0)..cycle);` | `len=3 / (0,0) / (-0.0663122518007629,0.549145268452589) / (0.418882507934723,1) / (1,1) / (1.58111749206528,1) ...` | `len=3 / (0,0) / (-0.0663122518007623,0.54914526845259) / (0.418882507934722,1) / (1,1) / (1.58111749206528,0.9 ...` | epsilon |
 | path_curves.asy:32 | `wpath((0,0)..(2,0)..(2,2)..(0,2)..cycle);` | `len=4 / (0,0) / (0.552284749830794,-0.552284749830793) / (1.44771525016921,-0.552284749830793) / (2,0) / (2.55 ...` | `len=4 / (0,0) / (0.55228474983079,-0.552284749830793) / (1.44771525016921,-0.552284749830793) / (2,0) / (2.552 ...` | epsilon |
 | path_curves.asy:33 | `wpath((0,0){up}..(1,1)..{down}(2,0));` | `len=2 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1) / (2,0.5522847498 ...` | `len=2 / (0,0) / (0,0.552284749830793) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1) / (2,0.5522847498 ...` | epsilon |
-| path_curves.asy:35 | `wpath((0,0){right}..{left}(1,1));` | `len=1 / (0,0) / (1.16299600217377,0) / (1.63438325698407,1) / (1,1)` | `len=1 / (0,0) / (1.16299600217377,-1.97372982155583e-16) / (1.63438325698407,1) / (1,1)` | epsilon |
-| path_curves.asy:36 | `wpath((0,0)--(1,0)..(2,1)..(3,0)--(4,0));` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0.552284749830793) / (1.44771525016 ...` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0.552284749830793) / (1.44771525016 ...` | epsilon |
-| path_curves.asy:38 | `wpath((0,0){up}..{right}(1,1)--(2,1));` | `len=2 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.33333333333333,1) / (1.666666666666 ...` | `len=2 / (0,0) / (0,0.552284749830793) / (0.447715250169206,1) / (1,1) / (1.33333333333333,1) / (1.666666666666 ...` | epsilon |
-| path_curves.asy:39 | `wpath((0,0)..(1,2)..(3,3)..(4,1)..(6,0));` | `len=4 / (0,0) / (0.24906806216455,0.705572076676586) / (0.584983175957461,1.37740230426241) / (1,2) / (1.49613 ...` | `len=4 / (0,0) / (0.24906806216455,0.705572076676586) / (0.584983175957461,1.37740230426241) / (1,2) / (1.49613 ...` | epsilon |
-| path_curves.asy:40 | `wpath((0,0)..(5,1)..(6,5)..(2,3)..cycle);` | `len=4 / (0,0) / (0.596019913515811,-1.75867745151187) / (3.15089772915731,-0.997929231980625) / (5,1) / (6.239 ...` | `len=4 / (0,0) / (0.596019913515802,-1.75867745151187) / (3.15089772915732,-0.997929231980622) / (5,1) / (6.239 ...` | epsilon |
+| path_curves.asy:35 | `wpath((0,0){right}..{left}(1,1));` | `len=1 / (0,0) / (1.16299600217377,0) / (1.63438325698407,1) / (1,1)` | `len=1 / (0,0) / (1.16299600217377,9.86864910777917e-17) / (1.63438325698407,1) / (1,1)` | epsilon |
+| path_curves.asy:36 | `wpath((0,0)--(1,0)..(2,1)..(3,0)--(4,0));` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0.552284749830793) / (1.44771525016 ...` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (0.999999999999999,0.552284749830793)  ...` | epsilon |
+| path_curves.asy:38 | `wpath((0,0){up}..{right}(1,1)--(2,1));` | `len=2 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.33333333333333,1) / (1.666666666666 ...` | `len=2 / (0,0) / (9.86864910777917e-17,0.552284749830793) / (0.447715250169207,1) / (1,1) / (1.33333333333333,1 ...` | epsilon |
+| path_curves.asy:39 | `wpath((0,0)..(1,2)..(3,3)..(4,1)..(6,0));` | `len=4 / (0,0) / (0.24906806216455,0.705572076676586) / (0.584983175957461,1.37740230426241) / (1,2) / (1.49613 ...` | `len=4 / (0,0) / (0.24906806216455,0.705572076676585) / (0.584983175957461,1.37740230426241) / (1,2) / (1.49613 ...` | epsilon |
+| path_curves.asy:40 | `wpath((0,0)..(5,1)..(6,5)..(2,3)..cycle);` | `len=4 / (0,0) / (0.596019913515811,-1.75867745151187) / (3.15089772915731,-0.997929231980625) / (5,1) / (6.239 ...` | `len=4 / (0,0) / (0.596019913515804,-1.75867745151187) / (3.15089772915732,-0.997929231980623) / (5,1) / (6.239 ...` | epsilon |
 | path_curves.asy:41 | `wpath((0,0)..(1,0)..(1,1)..(0,1)..cycle);` | `len=4 / (0,0) / (0.276142374915397,-0.276142374915397) / (0.723857625084603,-0.276142374915397) / (1,0) / (1.2 ...` | `len=4 / (0,0) / (0.276142374915395,-0.276142374915397) / (0.723857625084605,-0.276142374915397) / (1,0) / (1.2 ...` | epsilon |
-| path_curves.asy:43 | `wpath((0,0)..(1,1){right}..(2,0));` | `len=2 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1) / (2,0.5522847498 ...` | `len=2 / (0,0) / (0,0.552284749830793) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1) / (2,0.5522847498 ...` | epsilon |
-| path_curves.asy:44 | `wpath((0,0)..{up}(1,1){down}..(2,0));` | `len=2 / (0,0) / (0.552284749830794,0) / (1,0.447715250169206) / (1,1) / (1,0.447715250169207) / (1.44771525016 ...` | `len=2 / (0,0) / (0.552284749830793,0) / (1,0.447715250169206) / (1,1) / (0.999999999999999,0.447715250169207)  ...` | epsilon |
+| path_curves.asy:43 | `wpath((0,0)..(1,1){right}..(2,0));` | `len=2 / (0,0) / (0,0.552284749830794) / (0.447715250169206,1) / (1,1) / (1.55228474983079,1) / (2,0.5522847498 ...` | `len=2 / (0,0) / (9.86864910777917e-17,0.552284749830793) / (0.447715250169207,1) / (1,1) / (1.55228474983079,1 ...` | epsilon |
+| path_curves.asy:44 | `wpath((0,0)..{up}(1,1){down}..(2,0));` | `len=2 / (0,0) / (0.552284749830794,0) / (1,0.447715250169206) / (1,1) / (1,0.447715250169207) / (1.44771525016 ...` | `len=2 / (0,0) / (0.552284749830793,9.86864910777917e-17) / (1,0.447715250169207) / (1,1) / (0.999999999999999, ...` | epsilon |
 | path_curves.asy:45 | `wpath((1,0)..(0,1)..(-1,0)..(0,-1)..cycle);` | `len=4 / (1,0) / (1,0.552284749830794) / (0.552284749830794,1) / (0,1) / (-0.552284749830793,1) / (-1,0.5522847 ...` | `len=4 / (1,0) / (1,0.552284749830792) / (0.552284749830792,1) / (0,1) / (-0.552284749830793,1) / (-0.999999999 ...` | epsilon |
-| path_curves.asy:47 | `wpath((0,0)..(0,0)..(1,0));` | `len=2 / (0,0) / (0,0) / (0,0) / (0,0) / (0.333333333333333,0) / (0.666666666666666,0) / (1,0)` | `len=2 / (0,0) / (0,0) / (0,0) / (0,0) / (0.333333333333334,-1.09564014614029e-32) / (0.666666666666666,4.08215 ...` | epsilon |
 | path_curves.asy:49 | `wpath((0,0){up}..(2,0));` | `len=1 / (0,0) / (0,1.33333333333333) / (2,1.33333333333333) / (2,0)` | `len=1 / (0,0) / (1.97372982155583e-16,1.33333333333333) / (2,1.33333333333333) / (2,0)` | epsilon |
 | path_curves.asy:50 | `wpath((0,0){up}..{up}(2,0));` | `len=1 / (0,0) / (0,1.33333333333333) / (2,-1.33333333333333) / (2,0)` | `len=1 / (0,0) / (1.97372982155583e-16,1.33333333333333) / (2,-1.33333333333333) / (2,0)` | epsilon |
 | path_curves.asy:52 | `wpath((0,0)--(1,0){up}..(2,1));` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1,0.552284749830793) / (1.44771525016 ...` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (0.999999999999999,0.552284749830793)  ...` | epsilon |
-| path_curves.asy:56 | `wpath((0,0)..(1,0)..(2,0));` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1.33333333333333,0) / (1.666666666666 ...` | `len=2 / (0,0) / (0.333333333333333,0) / (0.666666666666667,4.08215599715784e-17) / (1,0) / (1.33333333333333,- ...` | epsilon |
+| path_curves.asy:53 | `wpath((0,0)..(1,0){up}..{left}(0,1)..cycle);` | `len=3 / (0,0) / (0.429101089842611,-0.429101089842611) / (1,-0.363197426537715) / (1,0) / (1,0.552284749830793 ...` | `len=3 / (0,0) / (0.429101089842612,-0.429101089842611) / (0.999999999999999,-0.363197426537715) / (1,0) / (0.9 ...` | epsilon |
+| path_curves.asy:54 | `wpath((0,0)..(1,0)..{left}cycle);` | `len=2 / (0,0) / (-1.0609731522961,9.86864910777917e-17) / (0.570046772368916,-0.429953227631083) / (1,0) / (1. ...` | `len=2 / (0,0) / (-1.06097315229609,-9.86864910777917e-17) / (0.570046772368915,-0.429953227631083) / (1,0) / ( ...` | epsilon |
+| path_curves.asy:55 | `wpath((0,0){right}..(1,1)..cycle);` | `len=2 / (0,0) / (0.673550607385265,0) / (1.20809576981973,0.497612370228728) / (1,1) / (0.17292454674425,2.996 ...` | `len=2 / (0,0) / (0.673550607385266,6.90805437544542e-16) / (1.20809576981973,0.497612370228727) / (1,1) / (0.1 ...` | epsilon |
 | path_ops.asy:29 | `wpath(tri);` | `len=3 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,1) / (2,2) / (1,3) / (0.6666666666666 ...` | `len=3 / (0,0) / (1.33333333333334,0) / (2.66666666666666,0) / (4,0) / (3,1) / (2,2) / (1,3) / (0.6666666666666 ...` | epsilon |
 | path_ops.asy:34 | `wpath(rotate(90)*tri);` | `len=3 / (0,0) / (8.16431199431569e-17,1.33333333333333) / (1.63286239886314e-16,2.66666666666667) / (2.4492935 ...` | `len=3 / (0,0) / (8.1643119943157e-17,1.33333333333334) / (1.63286239886314e-16,2.66666666666666) / (2.44929359 ...` | epsilon |
 | path_ops.asy:35 | `wpath(scale(2)*tri);` | `len=3 / (0,0) / (2.66666666666667,0) / (5.33333333333333,0) / (8,0) / (6,2) / (4,4) / (2,6) / (1.3333333333333 ...` | `len=3 / (0,0) / (2.66666666666667,0) / (5.33333333333333,0) / (8,0) / (6,2) / (4.00000000000001,3.999999999999 ...` | epsilon |
@@ -1015,19 +1049,17 @@ Corpus usage: `write(` 5.
 | path_ops.asy:45 | `wpath(open--cycle);` | `len=3 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,1) / (2,2) / (1,3) / (0.6666666666666 ...` | `len=3 / (0,0) / (1.33333333333334,0) / (2.66666666666666,0) / (4,0) / (3,1) / (2,2) / (1,3) / (0.6666666666666 ...` | epsilon |
 | path_ops.asy:46 | `wpath(A--B..C);` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,1) / (2,2) / (1,3)` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,0.999999999999999) / (2,2) / (1,3)` | epsilon |
 | path_ops.asy:47 | `wpath(A..B--C);` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,1) / (2,2) / (1,3)` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,0.999999999999999) / (2,2) / (1,3)` | epsilon |
-| path_ops.asy:48 | `wpath(A..B..C);` | `len=2 / (0,0) / (0.781413094231582,-1.71568488031534) / (3.21858690576842,-1.71568488031535) / (4,0) / (4.8681 ...` | `len=2 / (0,0) / (0.781413094231583,-1.71568488031534) / (3.21858690576842,-1.71568488031534) / (4,0) / (4.8681 ...` | epsilon |
-| path_ops.asy:49 | `wpath(A..B..C..cycle);` | `len=3 / (0,0) / (0.898147333916374,-1.64554948324355) / (3.23357988572633,-1.62386472338343) / (4,0) / (4.8787 ...` | `len=3 / (0,0) / (0.898147333916376,-1.64554948324355) / (3.23357988572633,-1.62386472338343) / (4,0) / (4.8787 ...` | epsilon |
+| path_ops.asy:48 | `wpath(A..B..C);` | `len=2 / (0,0) / (0.781413094231582,-1.71568488031534) / (3.21858690576842,-1.71568488031535) / (4,0) / (4.8681 ...` | `len=2 / (0,0) / (0.781413094231582,-1.71568488031534) / (3.21858690576842,-1.71568488031534) / (4,0) / (4.8681 ...` | epsilon |
+| path_ops.asy:49 | `wpath(A..B..C..cycle);` | `len=3 / (0,0) / (0.898147333916374,-1.64554948324355) / (3.23357988572633,-1.62386472338343) / (4,0) / (4.8787 ...` | `len=3 / (0,0) / (0.898147333916375,-1.64554948324355) / (3.23357988572633,-1.62386472338343) / (4,0) / (4.8787 ...` | epsilon |
 | path_ops.asy:50 | `wpath(A{up}..B);` | `len=1 / (0,0) / (0,2.66666666666667) / (4,2.66666666666667) / (4,0)` | `len=1 / (0,0) / (3.94745964311167e-16,2.66666666666667) / (4,2.66666666666667) / (4,0)` | epsilon |
 | path_ops.asy:51 | `wpath(A..{down}B);` | `len=1 / (0,0) / (0,2.66666666666667) / (4,2.66666666666667) / (4,0)` | `len=1 / (0,0) / (3.94745964311167e-16,2.66666666666667) / (4,2.66666666666667) / (4,0)` | epsilon |
-| path_ops.asy:53 | `wpath(A{N}..B..{S}C);` | `len=2 / (0,0) / (3.94745964311167e-16,2.24984145781261) / (2.62999493641725,-0.231575246027697) / (4,0) / (11. ...` | `len=2 / (0,0) / (3.94745964311167e-16,2.24984145781261) / (2.62999493641725,-0.231575246027696) / (4,0) / (11. ...` | epsilon |
-| path_ops.asy:54 | `wpath(C..A{right}..B);` | `len=2 / (1,3) / (-1.46653490972941,4.84990118229706) / (-3.08316863716176,0) / (0,0) / (1.33333333333333,0) /  ...` | `len=2 / (1,3) / (-1.46653490972941,4.84990118229706) / (-3.08316863716176,7.89491928622333e-16) / (0,0) / (1.3 ...` | epsilon |
-| path_ops.asy:55 | `wpath((0,0)..(1,1)..(2,0)..(3,1));` | `len=3 / (0,0) / (-0.260939989336762,0.629964861222303) / (0.370035138777697,1.26093998933676) / (1,1) / (1.452 ...` | `len=3 / (0,0) / (-0.260939989336763,0.629964861222303) / (0.370035138777697,1.26093998933676) / (1,1) / (1.452 ...` | epsilon |
+| path_ops.asy:54 | `wpath(C..A{right}..B);` | `len=2 / (1,3) / (-1.46653490972941,4.84990118229706) / (-3.08316863716176,0) / (0,0) / (1.33333333333333,0) /  ...` | `len=2 / (1,3) / (-1.46653490972941,4.84990118229706) / (-3.08316863716176,-7.89491928622333e-16) / (0,0) / (1. ...` | epsilon |
+| path_ops.asy:55 | `wpath((0,0)..(1,1)..(2,0)..(3,1));` | `len=3 / (0,0) / (-0.260939989336762,0.629964861222303) / (0.370035138777697,1.26093998933676) / (1,1) / (1.452 ...` | `len=3 / (0,0) / (-0.260939989336762,0.629964861222303) / (0.370035138777697,1.26093998933676) / (1,1) / (1.452 ...` | epsilon |
 | path_ops.asy:56 | `wpath((0,0)..(1,1)..(2,0)..(3,1)..cycle);` | `len=4 / (0,0) / (-0.42101782277864,0.544477724156273) / (0.240517122752603,1.36294820085202) / (1,1) / (1.4378 ...` | `len=4 / (0,0) / (-0.421017822778641,0.544477724156272) / (0.240517122752604,1.36294820085203) / (1,1) / (1.437 ...` | epsilon |
-| path_ops.asy:57 | `wpath((0,0)..(2,1)..(4,0)..(2,-1)..cycle);` | `len=4 / (0,0) / (-1.97372982155583e-16,0.822526843640285) / (1.04238740385266,1) / (2,1) / (2.95761259614734,1 ...` | `len=4 / (0,0) / (-2.96059473233375e-15,0.822526843640283) / (1.04238740385266,1) / (2,1) / (2.95761259614734,0 ...` | epsilon |
-| path_ops.asy:60 | `wpath((0,0)--(1,0)..(2,1)--(3,1));` | `len=3 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1.33333333333333,0.333333333333333) / ...` | `len=3 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1.33333333333333,0.333333333333334) / ...` | epsilon |
-| path_ops.asy:61 | `wpath((0,0)..(1,0)..(2,0)..(2,1));` | `len=3 / (0,0) / (0.330099814488245,0.0656609355714428) / (0.669900185511754,0.0656609355714428) / (1,0) / (1.3 ...` | `len=3 / (0,0) / (0.330099814488246,0.0656609355714428) / (0.669900185511754,0.0656609355714428) / (1,0) / (1.3 ...` | epsilon |
+| path_ops.asy:57 | `wpath((0,0)..(2,1)..(4,0)..(2,-1)..cycle);` | `len=4 / (0,0) / (-1.97372982155583e-16,0.822526843640285) / (1.04238740385266,1) / (2,1) / (2.95761259614734,1 ...` | `len=4 / (0,0) / (-2.56584876802258e-15,0.822526843640283) / (1.04238740385266,1) / (2,1) / (2.95761259614734,0 ...` | epsilon |
+| path_ops.asy:58 | `wpath((-1,0)..(0,1)..(1,0));` | `len=2 / (-1,0) / (-1,0.552284749830794) / (-0.552284749830794,1) / (0,1) / (0.552284749830793,1) / (1,0.552284 ...` | `len=2 / (-1,0) / (-1,0.552284749830793) / (-0.552284749830793,1) / (0,1) / (0.552284749830793,1) / (1,0.552284 ...` | epsilon |
 | path_ops.asy:63 | `wpath(A--B--C..cycle);` | `len=3 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (3,1) / (2,2) / (1,3) / (0.6666666666666 ...` | `len=3 / (0,0) / (1.33333333333334,0) / (2.66666666666666,0) / (4,0) / (3,1) / (2,2) / (1,3) / (0.6666666666666 ...` | epsilon |
-| path_ops.asy:64 | `wpath(A..B..C--cycle);` | `len=3 / (0,0) / (0.781413094231582,-1.71568488031534) / (3.21858690576842,-1.71568488031535) / (4,0) / (4.8681 ...` | `len=3 / (0,0) / (0.781413094231584,-1.71568488031534) / (3.21858690576842,-1.71568488031534) / (4,0) / (4.8681 ...` | epsilon |
+| path_ops.asy:64 | `wpath(A..B..C--cycle);` | `len=3 / (0,0) / (0.781413094231582,-1.71568488031534) / (3.21858690576842,-1.71568488031535) / (4,0) / (4.8681 ...` | `len=3 / (0,0) / (0.781413094231584,-1.71568488031535) / (3.21858690576842,-1.71568488031535) / (4,0) / (4.8681 ...` | epsilon |
 
 ## Named pen colors (colors-check.js)
 
@@ -1046,46 +1078,48 @@ Corpus usage: `write(` 5.
 | arith_int_real.asy | 93 | 7 | 0 | 2 |  |
 | arrays.asy | 106 | 34 | 0 | 0 |  |
 | bool_compare.asy | 41 | 7 | 0 | 0 |  |
-| circles_arcs.asy | 66 | 29 | 22 | 0 |  |
+| circle_arc_graph.asy | 39 | 0 | 24 | 0 |  |
+| circles_arcs.asy | 66 | 20 | 34 | 0 |  |
 | control_flow.asy | 63 | 3 | 0 | 0 |  |
 | control_for_comma.asy | 1 | 1 | 0 | 0 | yes |
 | control_incr_in_cond.asy | 3 | 3 | 0 | 0 | yes |
 | func_restargs.asy | 5 | 5 | 0 | 0 | yes |
 | func_var_decl.asy | 1 | 1 | 0 | 0 | yes |
+| guide_solver.asy | 57 | 0 | 46 | 0 |  |
 | intersections.asy | 59 | 41 | 1 | 0 |  |
 | math_funcs.asy | 82 | 10 | 2 | 0 |  |
-| misc_builtins.asy | 73 | 22 | 4 | 0 |  |
-| mod_cse5.asy | 15 | 15 | 0 | 0 |  |
+| misc_builtins.asy | 73 | 22 | 3 | 0 |  |
+| mod_cse5.asy | 15 | 12 | 3 | 0 |  |
 | mod_geometry.asy | 35 | 11 | 0 | 0 |  |
-| mod_graph.asy | 39 | 17 | 2 | 0 |  |
-| mod_olympiad.asy | 52 | 19 | 4 | 0 |  |
+| mod_graph.asy | 39 | 0 | 1 | 0 |  |
+| mod_olympiad.asy | 52 | 15 | 7 | 0 |  |
 | operator_overload.asy | 7 | 7 | 0 | 0 | yes |
 | pairs.asy | 72 | 6 | 4 | 0 |  |
-| path_basic.asy | 100 | 46 | 14 | 0 |  |
-| path_curves.asy | 57 | 26 | 23 | 0 |  |
-| path_ops.asy | 53 | 13 | 23 | 0 |  |
-| path_syntax_00.asy | 1 | 1 | 0 | 0 |  |
-| path_syntax_01.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_02.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_03.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_04.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_05.asy | 1 | 1 | 0 | 0 | yes |
+| path_basic.asy | 100 | 45 | 14 | 0 |  |
+| path_curves.asy | 57 | 21 | 24 | 0 |  |
+| path_ops.asy | 53 | 13 | 21 | 0 |  |
+| path_syntax_00.asy | 1 | 0 | 0 | 0 |  |
+| path_syntax_01.asy | 1 | 0 | 0 | 0 |  |
+| path_syntax_02.asy | 1 | 0 | 0 | 0 |  |
+| path_syntax_03.asy | 1 | 0 | 1 | 0 |  |
+| path_syntax_04.asy | 1 | 0 | 1 | 0 |  |
+| path_syntax_05.asy | 1 | 0 | 1 | 0 |  |
 | path_syntax_06.asy | 1 | 0 | 0 | 0 |  |
 | path_syntax_07.asy | 1 | 0 | 0 | 0 |  |
-| path_syntax_08.asy | 1 | 1 | 0 | 0 |  |
-| path_syntax_09.asy | 1 | 1 | 0 | 0 |  |
-| path_syntax_10.asy | 1 | 1 | 0 | 0 |  |
-| path_syntax_11.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_12.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_13.asy | 1 | 1 | 0 | 0 | yes |
-| path_syntax_14.asy | 1 | 1 | 0 | 0 | yes |
+| path_syntax_08.asy | 1 | 0 | 1 | 0 |  |
+| path_syntax_09.asy | 1 | 0 | 1 | 0 |  |
+| path_syntax_10.asy | 1 | 0 | 0 | 0 |  |
+| path_syntax_11.asy | 1 | 0 | 0 | 0 |  |
+| path_syntax_12.asy | 1 | 0 | 1 | 0 |  |
+| path_syntax_13.asy | 1 | 0 | 1 | 0 |  |
+| path_syntax_14.asy | 1 | 0 | 1 | 0 |  |
 | pens.asy | 68 | 67 | 0 | 0 |  |
 | strings.asy | 67 | 26 | 3 | 6 |  |
 | struct_fields.asy | 16 | 5 | 0 | 0 |  |
 | struct_init.asy | 4 | 4 | 0 | 0 | yes |
 | struct_methods.asy | 5 | 5 | 0 | 0 |  |
 | struct_static.asy | 4 | 4 | 0 | 0 | yes |
-| transforms.asy | 64 | 22 | 5 | 0 |  |
+| transforms.asy | 64 | 22 | 6 | 0 |  |
 | types_casting.asy | 84 | 2 | 2 | 0 |  |
 | write_format.asy | 20 | 12 | 0 | 0 |  |
 
