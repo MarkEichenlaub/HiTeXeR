@@ -126,25 +126,20 @@ returns the exact f value. Polar/parametric graphs behave the same way. Circle(c
   {id: 'olympiad', title: 'olympiad.asy helpers',
    keys: ['anglemark', 'tangent', 'collinear', 'cyclic', 'concurrent'],
    match: m => m.file === 'mod_olympiad.asy',
-   cause: `The core point functions (circumcenter, incenter, orthocenter, centroid, foot, bisectorpoint, circumradius,
-inradius) all match to 1e-15. Differences: anglemark (L12863) produces 6 segments where asy's produces 7 (asy's
-arc has the degenerate tail segment, see circle category) and different control points for the larger radius
-form; tangent (L12766) computes the exact tangent point, while asy's olympiad tangent intersects with the
-400-gon Circle and returns (1.79981,2.40014) - HiTeXeR is "more correct" but differs by 2e-4; cyclic/collinear/
-concurrent are missing (unknown call); midpoint/waypoint are arclength-based in olympiad (see arclength);
-circumcircle/incircle have length 400 in asy (graph's Circle).`},
+   cause: `The core point functions and cyclic/collinear/concurrent match. Remaining: anglemark produces 6
+segments where asy's produces 7 (asy's arc has a degenerate tail segment, see circle category) and slightly
+different control points for the larger radius form. tangent follows olympiad's construction (Bezier circle and 400-node Arc
+intersections), so it matches asy's (1.79981,2.40014) rather than the exact (1.8,2.4).`},
   {id: 'cse5', title: 'cse5.asy helpers',
    keys: ['CR', 'IP', 'CP', 'OP', 'WP', 'L', 'd'],
    match: m => m.file === 'mod_cse5.asy',
-   cause: `d(), CP(), L(), OP(), WP(), commonpoints() are missing (unknown call). CR (L12487) returns a 4-segment
-circle / 1-segment arc (asy: graph Circle/Arc with 400 segments). IP(a, b, n) (L12367) ignores the index n.`},
+   cause: `d, CP, L, OP, WP (arclength-based), commonpoints and IP(a, b, n) are implemented; what remains is
+intersection-point noise against the 400-node CR circles (see intersections).`},
   {id: 'geometry', title: 'geometry.asy module (point/line/circle/triangle structs)',
    keys: ['import geometry'],
    match: m => m.file === 'mod_geometry.asy',
-   cause: `The geometry-module structs are emulated (installGeometry around L18500-L20900): circle.r,
-circumcircle(t).r / .C, triangle side methods t.a()/b()/c(), t.alpha(), foot(t.VC), midpoint(t.AB) return
-nothing or (0,0). Point-returning free functions (circumcenter/incenter/orthocentercenter/centroid/projection/
-intersectionpoints(line,circle)) match.`},
+   cause: `circle.C/.r, triangle A/B/C, VA/VB/VC (vertices, usable by foot()), AB/BC/CA (segments), t.a()/b()/c()
+and t.alpha()/beta()/gamma(), circumcircle(t)/incircle(t) all match. Only 1e-15 noise remains.`},
   {id: 'casts', title: 'Integer casts, rounding, int/real distinction',
    keys: ['round', 'floor', 'ceil', '(int)', 'pair=number'],
    match: m => /\(int\)|round\(|Round|Floor|Ceil|ri\(|t\(1|pair z = |write\(z\)|write\(w\)/.test(m.src) || (m.file === 'types_casting.asy'),
@@ -163,54 +158,45 @@ Prefix \`--k\` (parse L1612) returns the old value / does not decrement (write(-
   {id: 'transform', title: 'transform values: inverse, ==, field access, shiftless',
    keys: ['inverse', 'shiftless'],
    match: m => m.file === 'transforms.asy',
-   cause: `Applying transforms to pairs and paths and composing them all match. Missing: inverse(transform)
-(unknown call - returns 0, so inverse(T)*z is 0), shiftless(), transform fields t.x t.y t.xx t.xy t.yx t.yy.
-\`T == S\` on transforms evaluates to a transform (looks like it falls into the multiply path in evalBinary
-L3399) instead of bool. write(transform) prints the internal object (asy prints (x,y,xx,xy,yx,yy)).`},
+   cause: `inverse(transform), shiftless(), ==/!= and the x y xx xy yx yy fields match, and write(transform)
+prints asy's (x,y,xx,xy,yx,yy). Remaining differences are last-digit noise.`},
   {id: 'strings', title: 'Strings: string()/format() number formatting and string functions',
    keys: ['string', 'format(', 'string(real,n)'],
    match: m => m.file === 'strings.asy',
-   cause: `_asyStringReal (L13042) formats with toPrecision(9); asy's string(real) uses 15 significant digits
-(string(1/3) = 0.333333333333333) and switches to e-notation like C's %g (1e-05, 1e+20). string(x, digits)
-(L13054) ignores the precision argument (string(pi,3) should be 3.14). \`(string)x\` cast (evalCast L5766) uses
-JS String() (16-17 digits). format() (L13059): no width/zero padding ("%5.2f", "%03d"), no %i/%x, %e exponent
-has one digit (e+4 vs e+04), rounding is JS toFixed not C (format("%.1f",2.25) = 2.2 in asy, "%.0f" of 2.5 = 2),
-and format(real) with no format string must produce asy's default TeX-ready string ("$3.142$",
-"$1\\!\\times\\!10^{-7}$"). find(s, t, start) ignores start; replace() only replaces the first occurrence;
-reverse(string) is a no-op; rfind, insert, erase, downcase, upcase, stripsuffix are missing.`},
+   cause: `string(real[, digits]), the (string) cast and format() go through a C printf emulation (exact
+round-half-even ties, %g/%e/%f/%d/%i/%x/%o, flags and width) plus asy's format() post-processing (trailing-zero
+and spurious-sign removal, TeX exponent "\\!\\times\\!10^{e}" after a '$'); format(real) uses "$%.4g$".
+find(s,t,pos), rfind, replace (all occurrences), reverse, insert, erase, downcase, upcase, stripsuffix match.
+Remaining: write(1, 2) separates its arguments with a tab (write category).`},
   {id: 'arrays', title: 'Arrays: methods, whole-array arithmetic, sort/search, matrix ops',
    keys: ['array append/insert/delete', 'sort', 'reverse', 'search', 'concat'],
    match: m => m.file === 'arrays.asy',
-   cause: `evalMethodCall (L4549-4552) implements only push, pop, initialized: a.append(b), a.insert(i,x),
-a.delete(...) silently do nothing, and new int[4] reports initialized(0) = true. reverse(array) (L10829) is a
-no-op for arrays and reverse(int n) is missing. sort (L13301) sorts strings wrong (b,A,a), ignores a comparison
-function, and doesn't sort 2D arrays lexicographically. Missing: search, findall, concat, all, determinant,
-solve, inverse(real[][]), identity(n), dot(real[],real[]), uniform, abs(real[]), index-by-int-array
-a[sequence(0,2)], elementwise max(a,b). Whole-array ops: a == b returns 0s (should be bool[]), -a,
-pair[]*scalar, pair[]+pair, real[][]*real[][] and real[][]*real[] return null.`},
+   cause: `Array methods append/insert/delete, reverse(T[])/reverse(int), sort (strings, less predicate, 2D rows),
+search, findall, concat, all, identity(n), determinant, solve, inverse(real[][]), dot(real[],real[]), uniform,
+abs(real[]), a[int[]], element-wise min/max, bool[] results of comparisons, bool[] & |, bool[] ? a : b, unary
+minus, pair[] arithmetic and matrix products match. Remaining: new int[4] reports initialized(0) = true (arrays
+are allocated with values).`},
   {id: 'pens', title: 'Pens: attribute getters and color functions',
    keys: ['pen getter', 'cmyk', 'colors'],
    match: m => m.file === 'pens.asy',
-   cause: `linewidth(pen) (L11439) and fontsize(pen) (L11453) always build a new pen; asy overloads them as
-getters (linewidth(p) returns real). colors(), colorspace(), linetype(pen), linecap/linejoin getters are
-missing, so nothing about a pen can be read back. See also the named-color table below: named colors match
-asy (within 8-bit quantization) except cmyk(pen) (L11518) turns red into white and interp(pen,pen,t) (L9922)
-returns 0.`},
+   cause: `linewidth/fontsize/opacity/linetype/linecap/linejoin read the value back from a pen; colors() and
+colorspace() track gray/rgb/cmyk/invisible; cmyk(pen), gray(pen), rgb(pen) and interp(pen,pen,t) convert as
+asy does, and named colors carry plain_pens.asy's exact fractions. Remaining: fontsize(defaultpen) is 12 (asy:
+12pt = 11.955bp; the default is kept at 12 because every label is calibrated to it) and rgb("ff8000") gives
+0x80/255 where asy uses byteinv (0x80/256).`},
   {id: 'pairs', title: 'Pair functions',
    keys: ['cross', 'minbound', 'maxbound', 'abs2'],
    match: m => m.file === 'pairs.asy',
-   cause: `cross(pair,pair) (L9938) returns a triple (0,0,z); asy's 2D cross returns the real z. exp(pair) and
-log(pair) (L9545/L9544) treat the pair as a real (complex exp/log expected). abs2, minbound, maxbound missing.
-sqrt((-4,0)) and similar give 1e-16 noise instead of exact 0 (asy special-cases the branch).`},
+   cause: `cross(pair,pair), complex exp/log, abs2, minbound, maxbound match. Remaining: sqrt((-4,0)) and similar give
+1e-16 noise instead of exact 0 (asy special-cases the branch).`},
   {id: 'constants', title: 'Built-in constants and misc builtins',
    keys: ['Npt', 'Degrees', 'hypot'],
    match: m => m.file === 'misc_builtins.asy' || m.file === 'math_funcs.asy',
-   cause: `pt is 1 (L9384) but asy's pt = 72/72.27 = 0.99626400996264 (bp is 1): every "12pt" length is 0.4% too big.
-intMax (L8386) is 2^31-1; asy is 64-bit (9223372036854775805). realEpsilon is only defined when the geometry
-module installs (L20441). Missing: arrowlength, arrowangle, labelmargin, legendmargin, log1p, expm1, fabs,
-hypot, erf, Jn, Yn. identity(real) returns the identity transform. Degrees(x) (L9756) returns x unchanged
-instead of degrees in [0,360). dir(45) == (sqrt(2)/2, sqrt(2)/2) is false in HiTeXeR because dir computes
-cos(a*pi/180) instead of asy's exactly-rounded degree sin/cos.`},
+   cause: `pt = 72/72.27, realEpsilon/realMin, arrowlength, arrowangle, legendmargin, log1p, expm1, fabs, hypot,
+erf, Jn, Yn, identity(real), Degrees() match. Remaining: intMax is 2^31-1 (asy's 64-bit 9223372036854775805 is
+not representable as a JS number); labelmargin is only the function labelmargin(pen), not also the variable;
+dir(45) == (sqrt(2)/2, sqrt(2)/2) is false because dir computes cos(a*pi/180) instead of asy's
+exactly-rounded degree sin/cos.`},
   {id: 'structs', title: 'Structs',
    keys: ['struct', 'struct method'],
    match: m => /^struct_|^operator_|^func_|^control_/.test(m.file),

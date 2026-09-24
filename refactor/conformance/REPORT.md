@@ -1,6 +1,6 @@
 # HiTeXeR language/library conformance report
 
-Generated 2026-09-24T22:39:39.169Z by `node refactor/conformance/build-report.js` from the results of
+Generated 2026-09-24T23:29:45.039Z by `node refactor/conformance/build-report.js` from the results of
 `node refactor/conformance/run.js` (write() output diff against real Asymptote 3.06) and
 `node refactor/conformance/colors-check.js`.
 
@@ -8,7 +8,7 @@ Interpreter under test: `asy-interp.js` (git HEAD at the time of the run; the wo
 being edited concurrently and at one point failed to load; a later `--working` run against it gave identical totals).
 Line numbers below (Lnnnn) refer to the HEAD snapshot.
 
-**49 test files, 1586 write() checks: 222 real mismatches (52 of them "HiTeXeR printed nothing"), 244 numerical-noise mismatches (agree to 1e-9), 8 format-only.**
+**50 test files, 1712 write() checks: 35 real mismatches (2 of them "HiTeXeR printed nothing"), 249 numerical-noise mismatches (agree to 1e-9), 6 format-only.**
 
 Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) that call the construct
 (`corpus-counts.json`). Categories are ordered by the most-used construct in each.
@@ -17,26 +17,26 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 
 | # | Root cause | real mismatches (+noise/format) | most-used constructs (corpus files) |
 |---|---|---|---|
-| 1 | [circle()/Circle()/arc()/Arc()/ellipse() construction and parameterization](#circlearc) | 11 (+0) | Circle 2036, arc 1700, circle 903, circumcircle 668, incircle 169, Arc 102, ellipse 57, CR 4, point(circle 82 |
+| 1 | [circle()/Circle()/arc()/Arc()/ellipse() construction and parameterization](#circlearc) | 8 (+0) | Circle 2036, arc 1700, circle 903, circumcircle 668, incircle 169, Arc 102, ellipse 57, CR 4, point(circle 82 |
 | 2 | [graph module: graph(), Circle/Arc sampling, interpolation](#graph) | 0 (+1) | graph 1161, Circle 2036, Arc 102, polargraph 32 |
-| 3 | [Built-in constants and misc builtins](#constants) | 17 (+6) | Npt 1573, Degrees 0, hypot 2 |
+| 3 | [Built-in constants and misc builtins](#constants) | 3 (+8) | Npt 1573, Degrees 0, hypot 2 |
 | 4 | [extension() of parallel lines (non-parallel extension() is exact)](#extension) | 0 (+1) | extension 1449 |
 | 5 | [Path intersections are only accurate to ~1e-4](#intersect) | 4 (+0) | intersectionpoint 670, intersectionpoints 825, IP 20, IPs 61, intersect 14, buildcycle 51 |
-| 6 | [Strings: string()/format() number formatting and string functions](#strings) | 23 (+9) | string 622, format( 21, string(real,n) 0 |
-| 7 | [geometry.asy module (point/line/circle/triangle structs)](#geometry) | 7 (+0) | import geometry 339 |
+| 6 | [Strings: string()/format() number formatting and string functions](#strings) | 1 (+0) | string 622, format( 21, string(real,n) 0 |
+| 7 | [geometry.asy module (point/line/circle/triangle structs)](#geometry) | 0 (+1) | import geometry 339 |
 | 8 | [Operators: bool ^, compound #= %= ^=, prefix --](#operators) | 1 (+0) | # 14, % 295 |
-| 9 | [Path queries: subpath/reverse edge cases, missing path builtins](#subpath) | 5 (+18) | point 226, reverse 143, subpath 13, inside 4, windingnumber 0, beginpoint 0, endpoint 0, precontrol 0 |
-| 10 | [Pair functions](#pairs) | 6 (+4) | cross 201, minbound 0, maxbound 0, abs2 0 |
-| 11 | [Arclength-based functions: arclength, arctime, relpoint, reltime, midpoint, waypoint](#arclen) | 1 (+19) | midpoint 186, relpoint 165, arclength 96, arctime 0, reltime 2, waypoint 10, WP 0 |
-| 12 | [Integer casts, rounding, int/real distinction](#casts) | 11 (+4) | round 6, floor 50, ceil 2, (int) 182, pair=number 3 |
-| 13 | [Arrays: methods, whole-array arithmetic, sort/search, matrix ops](#arrays) | 34 (+0) | array append/insert/delete 11, sort 2, reverse 143, search 0, concat 0 |
-| 14 | [olympiad.asy helpers](#olympiad) | 7 (+8) | anglemark 134, tangent 35, collinear 0, cyclic 1, concurrent 0 |
+| 9 | [Path queries: subpath/reverse edge cases, missing path builtins](#subpath) | 3 (+18) | point 226, reverse 143, subpath 13, inside 4, windingnumber 0, beginpoint 0, endpoint 0, precontrol 0 |
+| 10 | [Pair functions](#pairs) | 0 (+4) | cross 201, minbound 0, maxbound 0, abs2 0 |
+| 11 | [Arclength-based functions: arclength, arctime, relpoint, reltime, midpoint, waypoint](#arclen) | 0 (+19) | midpoint 186, relpoint 165, arclength 96, arctime 0, reltime 2, waypoint 10, WP 0 |
+| 12 | [Integer casts, rounding, int/real distinction](#casts) | 0 (+4) | round 6, floor 50, ceil 2, (int) 182, pair=number 3 |
+| 13 | [Arrays: methods, whole-array arithmetic, sort/search, matrix ops](#arrays) | 1 (+1) | array append/insert/delete 11, sort 2, reverse 143, search 0, concat 0 |
+| 14 | [olympiad.asy helpers](#olympiad) | 1 (+11) | anglemark 134, tangent 35, collinear 0, cyclic 1, concurrent 0 |
 | 15 | [Path construction: Hobby spline solver, tension, direction specifiers, ---](#hobby) | 0 (+29) | ..cycle 67, --- 27, tension 3, {dir} 17, curl 1, controls 4 |
-| 16 | [Pens: attribute getters and color functions](#pens) | 64 (+0) | pen getter 3, cmyk 1, colors 22 |
-| 17 | [cse5.asy helpers](#cse5) | 5 (+3) | CR 4, IP 20, CP 0, OP 0, WP 0, L 8, d 20 |
+| 16 | [Pens: attribute getters and color functions](#pens) | 1 (+0) | pen getter 3, cmyk 1, colors 22 |
+| 17 | [cse5.asy helpers](#cse5) | 0 (+4) | CR 4, IP 20, CP 0, OP 0, WP 0, L 8, d 20 |
 | 18 | [dir(path, t) / dir(path)](#dirpath) | 0 (+5) | dir(path,t) 11 |
-| 19 | [transform values: inverse, ==, field access, shiftless](#transform) | 14 (+6) | inverse 1, shiftless 0 |
-| 20 | [write() output format (debug-only; affects nothing drawn)](#write) | 12 (+2) | write( 5 |
+| 19 | [transform values: inverse, ==, field access, shiftless](#transform) | 0 (+7) | inverse 1, shiftless 0 |
+| 20 | [write() output format (debug-only; affects nothing drawn)](#write) | 12 (+5) | write( 5 |
 | 21 | [Numerical noise (agrees to 1e-9 but not to the last digit)](#epsilon) | 0 (+137) |  |
 
 ## Constructs where HiTeXeR throws or returns nothing but asy works
@@ -50,38 +50,6 @@ Corpus counts are the number of diagrams in comparison/asy_src (13,002 files) th
 
 | function | corpus files | where tested |
 |---|---|---|
-| `colors` | 22 | pens.asy:24 |
-| `d` | 20 | mod_cse5.asy:17 |
-| `L` | 8 | mod_cse5.asy:22 |
-| `uniform` | 4 | arrays.asy:124 |
-| `hypot` | 2 | math_funcs.asy:54 |
-| `solve` | 2 | arrays.asy:95 |
-| `downcase` | 1 | strings.asy:47 |
-| `erase` | 1 | strings.asy:46 |
-| `insert` | 1 | strings.asy:45 |
-| `inverse` | 1 | arrays.asy:94, transforms.asy:34 |
-| `abs2` | 0 | pairs.asy:15 |
-| `all` | 0 | arrays.asy:77 |
-| `collinear` | 0 | mod_olympiad.asy:40 |
-| `colorspace` | 0 | pens.asy:53 |
-| `concat` | 0 | arrays.asy:65 |
-| `concurrent` | 0 | mod_olympiad.asy:42 |
-| `determinant` | 0 | arrays.asy:93 |
-| `erf` | 0 | math_funcs.asy:68 |
-| `expm1` | 0 | math_funcs.asy:13 |
-| `fabs` | 0 | math_funcs.asy:51 |
-| `findall` | 0 | arrays.asy:64 |
-| `Jn` | 0 | math_funcs.asy:82 |
-| `linejoin` | 0 | pens.asy:74 |
-| `log1p` | 0 | math_funcs.asy:12 |
-| `maxbound` | 0 | arrays.asy:126, pairs.asy:56 |
-| `minbound` | 0 | arrays.asy:125, pairs.asy:55 |
-| `rfind` | 0 | strings.asy:42 |
-| `search` | 0 | arrays.asy:58 |
-| `shiftless` | 0 | transforms.asy:42 |
-| `stripsuffix` | 0 | strings.asy:68 |
-| `upcase` | 0 | strings.asy:48 |
-| `Yn` | 0 | math_funcs.asy:83 |
 
 ### Returns nothing without a diagnostic
 
@@ -89,31 +57,8 @@ Many of these are repeat calls of a builtin listed above (HiTeXeR warns once per
 
 | file:line | source | asy |
 |---|---|---|
-| arrays.asy:59 | `write(search(new int[]{1, 3, 5, 7}, 0));` | `-1` |
-| arrays.asy:60 | `write(search(new real[]{1, 3, 5, 7}, 7));` | `3` |
-| arrays.asy:122 | `write(dot(new real[]{1,2,3}, new real[]{4,5,6}));` | `32` |
-| misc_builtins.asy:58 | `write(arrowlength);` | `21.259842519685` |
-| misc_builtins.asy:59 | `write(arrowangle);` | `15` |
 | misc_builtins.asy:73 | `write(labelmargin);` | `0.28` |
-| misc_builtins.asy:74 | `write(legendmargin);` | `10` |
-| mod_cse5.asy:18 | `write(d(A, C));` | `3.16227766016838` |
-| mod_geometry.asy:9 | `write(circumcircle(t).r);` | `2.23606797749979` |
-| mod_geometry.asy:10 | `write(incircle(t).r);` | `1.05217763377095` |
-| mod_geometry.asy:17 | `write(c.r);` | `2` |
-| mod_geometry.asy:25 | `write(t.a());` | `4.24264068711928` |
-| mod_geometry.asy:26 | `write(t.b());` | `3.16227766016838` |
-| mod_geometry.asy:27 | `write(t.c());` | `4` |
-| mod_geometry.asy:34 | `write(t.alpha());` | `71.565051177078` |
-| mod_olympiad.asy:41 | `write(collinear((0,0), (1,1), (3,3.1)));` | `false` |
 | path_basic.asy:72 | `write(size(pp));` | `1` |
-| pens.asy:54 | `write(colorspace(gray(0.3)));` | `gray` |
-| pens.asy:55 | `write(colorspace(cmyk(red)));` | `cmyk` |
-| transforms.asy:43 | `write(shift(1,2).x);` | `1` |
-| transforms.asy:44 | `write(shift(1,2).y);` | `2` |
-| transforms.asy:45 | `write(scale(3).xx);` | `3` |
-| transforms.asy:46 | `write(rotate(90).xy);` | `-1` |
-| transforms.asy:47 | `write(rotate(90).yx);` | `1` |
-| transforms.asy:48 | `write(scale(2,5).yy);` | `5` |
 
 ## Mismatches by root cause
 
@@ -134,9 +79,6 @@ Corpus usage: `Circle` 2036, `arc` 1700, `circle` 903, `circumcircle` 668, `inci
 | circles_arcs.asy:70 | `wpath(rotate(90)*arc((0,0),1,0,90));` | `len=2 / (6.12323399573677e-17,1) / (-0.552284749830793,1) / (-1,0.552284749830794) / (-1,6.12323399573677e-17) ...` | `len=1 / (6.12323399573677e-17,1) / (-0.552284749830793,1) / (-1,0.552284749830794) / (-1,6.12323399573677e-17)` | value |
 | circles_arcs.asy:80 | `wpath(arc((2,0), 1, 180, 360));` | `len=3 / (1,6.66133814775094e-16) / (1,4.44089209850063e-16) / (1,2.22044604925031e-16) / (1,0) / (1,-0.5522847 ...` | `len=2 / (1,0) / (1,-0.552284749830793) / (1.44771525016921,-1) / (2,-1) / (2.55228474983079,-1) / (3,-0.552284 ...` | value |
 | mod_cse5.asy:28 | `write(OP(CR(A, 2), (-3,1)--(3,1)));` | `(-1.73205052195628,1.00000049469536)` | `(-1.73205080756888,1)` | value |
-| mod_geometry.asy:9 | `write(circumcircle(t).r);` | `2.23606797749979` | `` | missing |
-| mod_geometry.asy:10 | `write(incircle(t).r);` | `1.05217763377095` | `` | missing |
-| mod_geometry.asy:11 | `write((pair)circumcircle(t).C);` | `(2,1)` | `(0,0)` | value |
 
 <a id="graph"></a>
 ### 2. graph module: graph(), Circle/Arc sampling, interpolation
@@ -154,32 +96,20 @@ Corpus usage: `graph` 1161, `Circle` 2036, `Arc` 102, `polargraph` 32.
 
 Corpus usage: `Npt` 1573, `Degrees` 0, `hypot` 2.
 
-**Likely cause.** pt is 1 (L9384) but asy's pt = 72/72.27 = 0.99626400996264 (bp is 1): every "12pt" length is 0.4% too big. intMax (L8386) is 2^31-1; asy is 64-bit (9223372036854775805). realEpsilon is only defined when the geometry module installs (L20441). Missing: arrowlength, arrowangle, labelmargin, legendmargin, log1p, expm1, fabs, hypot, erf, Jn, Yn. identity(real) returns the identity transform. Degrees(x) (L9756) returns x unchanged instead of degrees in [0,360). dir(45) == (sqrt(2)/2, sqrt(2)/2) is false in HiTeXeR because dir computes cos(a*pi/180) instead of asy's exactly-rounded degree sin/cos.
+**Likely cause.** pt = 72/72.27, realEpsilon/realMin, arrowlength, arrowangle, legendmargin, log1p, expm1, fabs, hypot, erf, Jn, Yn, identity(real), Degrees() match. Remaining: intMax is 2^31-1 (asy's 64-bit 9223372036854775805 is not representable as a JS number); labelmargin is only the function labelmargin(pen), not also the variable; dir(45) == (sqrt(2)/2, sqrt(2)/2) is false because dir computes cos(a*pi/180) instead of asy's exactly-rounded degree sin/cos.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| math_funcs.asy:12 | `write(log1p(0.5));` | `0.405465108108164` | `` | missing |
-| math_funcs.asy:13 | `write(expm1(0.5));` | `0.648721270700128` | `` | missing |
 | math_funcs.asy:33 | `write(Cos(90));` | `0` | `6.12323399573677e-17` | epsilon |
 | math_funcs.asy:34 | `write(Sin(180));` | `0` | `1.22464679914735e-16` | epsilon |
-| math_funcs.asy:51 | `write(fabs(-2.5));` | `2.5` | `` | missing |
-| math_funcs.asy:54 | `write(hypot(3,4));` | `5` | `` | missing |
-| math_funcs.asy:65 | `write(identity(4.5));` | `4.5` | `{"_tag":"transform","a":0,"b":1,"c":0,"d":0,"e":0,"f":1}` | value |
-| math_funcs.asy:68 | `write(erf(1));` | `0.842700792949715` | `` | missing |
-| math_funcs.asy:80 | `write(Degrees(-pi/2));` | `270` | `-1.5707963267949` | value |
-| math_funcs.asy:81 | `write(Degrees(3*pi/2));` | `270` | `4.71238898038469` | value |
-| math_funcs.asy:82 | `write(Jn(0,1));` | `0.765197686557966` | `` | missing |
-| math_funcs.asy:83 | `write(Yn(0,1));` | `0.0882569642156769` | `` | missing |
+| math_funcs.asy:82 | `write(Jn(0,1));` | `0.765197686557966` | `0.765197686557967` | epsilon |
+| math_funcs.asy:83 | `write(Yn(0,1));` | `0.0882569642156769` | `0.0882569642156771` | epsilon |
 | misc_builtins.asy:13 | `write(point(cyc, 3));` | `(0,2)` | `(-5.55111512312578e-16,2)` | epsilon |
 | misc_builtins.asy:16 | `write(point(cyc2, 0));` | `(1.32444396573649e-31,0)` | `(0,0)` | epsilon |
 | misc_builtins.asy:37 | `write(NE);` | `(0.707106781186547,0.707106781186547)` | `(0.707106781186548,0.707106781186548)` | epsilon |
 | misc_builtins.asy:38 | `write(SW);` | `(-0.707106781186547,-0.707106781186547)` | `(-0.707106781186548,-0.707106781186548)` | epsilon |
 | misc_builtins.asy:48 | `write(intMax);` | `9223372036854775805` | `2147483647` | value |
-| misc_builtins.asy:53 | `write(pt);` | `0.99626400996264` | `1` | value |
-| misc_builtins.asy:58 | `write(arrowlength);` | `21.259842519685` | `` | missing |
-| misc_builtins.asy:59 | `write(arrowangle);` | `15` | `` | missing |
 | misc_builtins.asy:73 | `write(labelmargin);` | `0.28` | `` | missing |
-| misc_builtins.asy:74 | `write(legendmargin);` | `10` | `` | missing |
 | misc_builtins.asy:77 | `write(dir(45) == (sqrt(2)/2, sqrt(2)/2));` | `true` | `false` | value |
 
 <a id="extension"></a>
@@ -212,59 +142,22 @@ Corpus usage: `intersectionpoint` 670, `intersectionpoints` 825, `IP` 20, `IPs` 
 
 Corpus usage: `string` 622, `format(` 21, `string(real,n)` 0.
 
-**Likely cause.** _asyStringReal (L13042) formats with toPrecision(9); asy's string(real) uses 15 significant digits (string(1/3) = 0.333333333333333) and switches to e-notation like C's %g (1e-05, 1e+20). string(x, digits) (L13054) ignores the precision argument (string(pi,3) should be 3.14). `(string)x` cast (evalCast L5766) uses JS String() (16-17 digits). format() (L13059): no width/zero padding ("%5.2f", "%03d"), no %i/%x, %e exponent has one digit (e+4 vs e+04), rounding is JS toFixed not C (format("%.1f",2.25) = 2.2 in asy, "%.0f" of 2.5 = 2), and format(real) with no format string must produce asy's default TeX-ready string ("$3.142$", "$1\!\times\!10^{-7}$"). find(s, t, start) ignores start; replace() only replaces the first occurrence; reverse(string) is a no-op; rfind, insert, erase, downcase, upcase, stripsuffix are missing.
+**Likely cause.** string(real[, digits]), the (string) cast and format() go through a C printf emulation (exact round-half-even ties, %g/%e/%f/%d/%i/%x/%o, flags and width) plus asy's format() post-processing (trailing-zero and spurious-sign removal, TeX exponent "\!\times\!10^{e}" after a '$'); format(real) uses "$%.4g$". find(s,t,pos), rfind, replace (all occurrences), reverse, insert, erase, downcase, upcase, stripsuffix match. Remaining: write(1, 2) separates its arguments with a tab (write category).
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| strings.asy:4 | `write("x" + string(1/3));` | `x0.333333333333333` | `x0.333333333` | epsilon |
-| strings.asy:6 | `write("x" + string(1e-5));` | `x1e-05` | `x0.00001` | format |
-| strings.asy:8 | `write("x" + string(1e20));` | `x1e+20` | `x100000000000000000000` | format |
-| strings.asy:9 | `write("x" + string(pi));` | `x3.14159265358979` | `x3.14159265` | value |
-| strings.asy:13 | `write(string(pi, 3));` | `3.14` | `3.14159265` | value |
-| strings.asy:14 | `write(string(pi, 10));` | `3.141592654` | `3.14159265` | value |
-| strings.asy:15 | `write(string(1234.5678, 2));` | `1.2e+03` | `1234.5678` | value |
-| strings.asy:16 | `write(string(0.000123456, 2));` | `0.00012` | `0.000123456` | value |
-| strings.asy:19 | `write(format("%5.2f", pi));` | ` 3.14` | `3.14` | value |
-| strings.asy:21 | `write(format("%e", 12345.678));` | `1.234568e+04` | `1.234568e+4` | format |
-| strings.asy:23 | `write(format("$%.1f$", 2.25));` | `$2.2$` | `$2.3$` | value |
-| strings.asy:24 | `write(format("%i", 7));` | `7` | `%i` | value |
-| strings.asy:25 | `write(format("%03d", 7));` | `007` | `7` | format |
-| strings.asy:27 | `write(format("%f", 1.0));` | `1` | `1.000000` | format |
-| strings.asy:28 | `write(format("%.0f", 2.5));` | `2` | `3` | value |
-| strings.asy:29 | `write(format(3.14159));` | `$3.142$` | `3.14159` | value |
-| strings.asy:32 | `write(format(-2.5));` | `$-2.5$` | `-2.5` | value |
-| strings.asy:34 | `write(format("%x", 255));` | `ff` | `%x` | value |
-| strings.asy:41 | `write(find("hello", "l", 3));` | `3` | `2` | value |
-| strings.asy:42 | `write(rfind("hello", "l"));` | `3` | `` | missing |
-| strings.asy:43 | `write(replace("hello world", "o", "0"));` | `hell0 w0rld` | `hell0 world` | value |
-| strings.asy:44 | `write(reverse("abc"));` | `cba` | `abc` | value |
-| strings.asy:45 | `write(insert("abc", 1, "XY"));` | `aXYbc` | `` | missing |
-| strings.asy:46 | `write(erase("abcdef", 1, 2));` | `adef` | `` | missing |
-| strings.asy:47 | `write(downcase("HeLLo"));` | `hello` | `` | missing |
-| strings.asy:48 | `write(upcase("HeLLo"));` | `HELLO` | `` | missing |
 | strings.asy:62 | `write(1, 2);` | `1	2` | `12` | value |
-| strings.asy:64 | `write("$" + string(sqrt(2), 4) + "$");` | `$1.414$` | `$1.41421356$` | value |
-| strings.asy:65 | `write("$" + (string)(1/3) + "$");` | `$0.333333333333333$` | `$0.3333333333333333$` | epsilon |
-| strings.asy:68 | `write(stripsuffix("hello.txt", ".txt"));` | `hello` | `` | missing |
-| strings.asy:74 | `write(string(-1e-10));` | `-1e-10` | `-1.00000000e-10` | format |
-| strings.asy:76 | `write(string(sqrt(3)/2));` | `0.866025403784439` | `0.866025404` | epsilon |
 
 <a id="geometry"></a>
 ### 7. geometry.asy module (point/line/circle/triangle structs)
 
 Corpus usage: `import geometry` 339.
 
-**Likely cause.** The geometry-module structs are emulated (installGeometry around L18500-L20900): circle.r, circumcircle(t).r / .C, triangle side methods t.a()/b()/c(), t.alpha(), foot(t.VC), midpoint(t.AB) return nothing or (0,0). Point-returning free functions (circumcenter/incenter/orthocentercenter/centroid/projection/ intersectionpoints(line,circle)) match.
+**Likely cause.** circle.C/.r, triangle A/B/C, VA/VB/VC (vertices, usable by foot()), AB/BC/CA (segments), t.a()/b()/c() and t.alpha()/beta()/gamma(), circumcircle(t)/incircle(t) all match. Only 1e-15 noise remains.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| mod_geometry.asy:17 | `write(c.r);` | `2` | `` | missing |
-| mod_geometry.asy:25 | `write(t.a());` | `4.24264068711928` | `` | missing |
-| mod_geometry.asy:26 | `write(t.b());` | `3.16227766016838` | `` | missing |
-| mod_geometry.asy:27 | `write(t.c());` | `4` | `` | missing |
-| mod_geometry.asy:33 | `write(degrees(t.alpha()));` | `4100.37539308431` | `0` | value |
-| mod_geometry.asy:34 | `write(t.alpha());` | `71.565051177078` | `` | missing |
-| mod_geometry.asy:35 | `write((pair)foot(t.VC));` | `(1,0)` | `(0,0)` | value |
+| mod_geometry.asy:25 | `write(t.a());` | `4.24264068711928` | `4.24264068711929` | epsilon |
 
 <a id="operators"></a>
 ### 8. Operators: bool ^, compound #= %= ^=, prefix --
@@ -289,7 +182,7 @@ Corpus usage: `point` 226, `reverse` 143, `subpath` 13, `inside` 4, `windingnumb
 | circles_arcs.asy:29 | `write(endpoint(arc((0,0), 2, 0, 90)));` | `(-1.47158218898758e-15,2)` | `(0,2)` | epsilon |
 | circles_arcs.asy:66 | `wpath(reverse(unitcircle));` | `len=4 / (1,0) / (1,-0.552284749830794) / (0.552284749830794,-1) / (0,-1) / (-0.552284749830793,-1) / (-1,-0.55 ...` | `len=4 / (1,0) / (1,-0.552284749830792) / (0.552284749830792,-1) / (0,-1) / (-0.552284749830793,-0.999999999999 ...` | epsilon |
 | circles_arcs.asy:74 | `wpath(subpath(unitcircle, 1, 3));` | `len=2 / (0,1) / (-0.552284749830794,1) / (-1,0.552284749830794) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | `len=2 / (0,1) / (-0.552284749830793,1) / (-1,0.552284749830793) / (-1,0) / (-1,-0.552284749830793) / (-0.55228 ...` | epsilon |
-| misc_builtins.asy:75 | `write(fontsize(currentpen));` | `11.9551681195517` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":0,"opacity":1,"linecap":` | value |
+| misc_builtins.asy:75 | `write(fontsize(currentpen));` | `11.9551681195517` | `12` | value |
 | path_basic.asy:63 | `wpath(reverse(p));` | `len=2 / (4,3) / (4,2) / (4,1) / (4,0) / (2.66666666666667,0) / (1.33333333333333,0) / (0,0)` | `len=2 / (4,3) / (4,2) / (4,0.999999999999999) / (4,0) / (2.66666666666667,0) / (1.33333333333333,0) / (0,0)` | epsilon |
 | path_basic.asy:64 | `wpath(subpath(p, 0.5, 1.5));` | `len=2 / (2,0) / (2.66666666666667,0) / (3.33333333333333,0) / (4,0) / (4,0.5) / (4,0.999999999999999) / (4,1.5 ...` | `len=2 / (2,0) / (2.66666666666667,0) / (3.33333333333333,0) / (4,0) / (4,0.5) / (4,1) / (4,1.5)` | epsilon |
 | path_basic.asy:65 | `wpath(subpath(p, 2, 1));` | `len=1 / (4,3) / (4,2) / (4,1) / (4,0)` | `len=1 / (4,3) / (4,2) / (4,0.999999999999999) / (4,0)` | epsilon |
@@ -306,29 +199,21 @@ Corpus usage: `point` 226, `reverse` 143, `subpath` 13, `inside` 4, `windingnumb
 | path_queries.asy:47 | `write(accel((0,0)..(1,1)..(2,0), 0));` | `(1.34314575050762,-0.313708498984761)` | `(1.34314575050762,-0.31370849898476)` | epsilon |
 | path_queries.asy:78 | `wpath(subpath(p, -1, 1.5));` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,0.5) / (4,0.999999999999999) / (4,1.5 ...` | `len=2 / (0,0) / (1.33333333333333,0) / (2.66666666666667,0) / (4,0) / (4,0.5) / (4,1) / (4,1.5)` | epsilon |
 | path_queries.asy:79 | `wpath(subpath(q, 4.5, 1.5));` | `len=4 / (0.5,0) / (0.333333333333333,0) / (0.166666666666667,0) / (0,0) / (0,0.333333333333333) / (0,0.6666666 ...` | `len=4 / (0.5,0) / (0.333333333333334,0) / (0.166666666666667,0) / (0,0) / (0,0.333333333333334) / (0,0.6666666 ...` | epsilon |
-| pens.asy:21 | `write(fontsize(fontsize(12)));` | `12` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":0,"opacity":1,"linecap":` | value |
-| pens.asy:22 | `write(fontsize(defaultpen));` | `11.9551681195517` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":0,"opacity":1,"linecap":` | value |
-| pens.asy:23 | `write(fontsize(currentpen + fontsize(8)));` | `8` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":0,"opacity":1,"linecap":` | value |
+| pens.asy:22 | `write(fontsize(defaultpen));` | `11.9551681195517` | `12` | value |
 
 <a id="pairs"></a>
 ### 10. Pair functions
 
 Corpus usage: `cross` 201, `minbound` 0, `maxbound` 0, `abs2` 0.
 
-**Likely cause.** cross(pair,pair) (L9938) returns a triple (0,0,z); asy's 2D cross returns the real z. exp(pair) and log(pair) (L9545/L9544) treat the pair as a real (complex exp/log expected). abs2, minbound, maxbound missing. sqrt((-4,0)) and similar give 1e-16 noise instead of exact 0 (asy special-cases the branch).
+**Likely cause.** cross(pair,pair), complex exp/log, abs2, minbound, maxbound match. Remaining: sqrt((-4,0)) and similar give 1e-16 noise instead of exact 0 (asy special-cases the branch).
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| pairs.asy:15 | `write(abs2(z));` | `25` | `` | missing |
-| pairs.asy:26 | `write(cross(z, w));` | `-10` | `(0,0,-10)` | value |
 | pairs.asy:34 | `write(dir(-45));` | `(0.707106781186548,-0.707106781186548)` | `(0.707106781186548,-0.707106781186547)` | epsilon |
 | pairs.asy:40 | `write(rotate(45)*(1,0));` | `(0.707106781186548,0.707106781186548)` | `(0.707106781186548,0.707106781186547)` | epsilon |
 | pairs.asy:42 | `write(sqrt((0,1)));` | `(0.707106781186547,0.707106781186548)` | `(0.707106781186548,0.707106781186547)` | epsilon |
 | pairs.asy:43 | `write(sqrt((-4,0)));` | `(0,2)` | `(1.22464679914735e-16,2)` | epsilon |
-| pairs.asy:52 | `write(exp((0,pi)));` | `(-1,1.22464679914735e-16)` | `23.1406926327793` | value |
-| pairs.asy:53 | `write(log(z));` | `(1.6094379124341,0.927295218001612)` | `1.6094379124341` | value |
-| pairs.asy:55 | `write(minbound(z, w));` | `(1,-2)` | `` | missing |
-| pairs.asy:56 | `write(maxbound(z, w));` | `(3,4)` | `` | missing |
 
 <a id="arclen"></a>
 ### 11. Arclength-based functions: arclength, arctime, relpoint, reltime, midpoint, waypoint
@@ -348,7 +233,6 @@ Corpus usage: `midpoint` 186, `relpoint` 165, `arclength` 96, `arctime` 0, `relt
 | circles_arcs.asy:71 | `write(arctime(unitcircle, pi/2));` | `0.999866990818271` | `0.999866990818244` | epsilon |
 | circles_arcs.asy:72 | `write(arctime(circle((0,0),2), pi));` | `0.999866990818271` | `0.999866990818244` | epsilon |
 | mod_cse5.asy:29 | `write(WP(A--B--C));` | `(3.9142135623731,0.0857864376269046)` | `(3.91421356237309,0.0857864376269053)` | epsilon |
-| mod_geometry.asy:36 | `write((pair)midpoint(t.AB));` | `(2,0)` | `(0,0)` | value |
 | path_curves.asy:25 | `write(arclength(c));` | `3.14203339614772` | `3.14203339614771` | epsilon |
 | path_curves.asy:26 | `write(arctime(c, 1));` | `0.639485364166238` | `0.639485364166236` | epsilon |
 | path_curves.asy:58 | `write(arclength(s));` | `7.17938746487277` | `7.17938746487276` | epsilon |
@@ -371,17 +255,6 @@ Corpus usage: `round` 6, `floor` 50, `ceil` 2, `(int)` 182, `pair=number` 3.
 |---|---|---|---|---|
 | circles_arcs.asy:67 | `wpath(shift(1,1)*unitcircle);` | `len=4 / (2,1) / (2,1.5522847498308) / (1.55228474983079,2) / (1,2) / (0.447715250169207,2) / (2.46716227694479 ...` | `len=4 / (2,1) / (2,1.55228474983079) / (1.55228474983079,2) / (1,2) / (0.447715250169207,2) / (7.4014868308343 ...` | epsilon |
 | path_ops.asy:33 | `wpath(shift(1,1)*tri);` | `len=3 / (1,1) / (2.33333333333333,1) / (3.66666666666667,1) / (5,1) / (4,2) / (3,3) / (2,4) / (1.6666666666666 ...` | `len=3 / (1,1) / (2.33333333333334,1) / (3.66666666666666,1) / (5,1) / (4,2) / (3,3) / (2,4) / (1.6666666666666 ...` | epsilon |
-| strings.asy:30 | `write(format(1/3));` | `$0.3333$` | `0.3333333333333333` | value |
-| strings.asy:31 | `write(format(10));` | `$10$` | `10` | value |
-| strings.asy:33 | `write(format(1e-7));` | `$1\!\times\!10^{-7}$` | `1e-7` | value |
-| transforms.asy:35 | `write(inverse(shift(1,2))*(0,0));` | `(-1,-2)` | `0` | value |
-| transforms.asy:38 | `write(shift(1,2));` | `(1,2,1,0,0,1)` | `{"_tag":"transform","a":1,"b":1,"c":0,"d":2,"e":0,"f":1}` | value |
-| transforms.asy:41 | `write(shift(1,2)*scale(3));` | `(1,2,3,0,0,3)` | `{"_tag":"transform","a":1,"b":3,"c":0,"d":2,"e":0,"f":3}` | value |
-| transforms.asy:42 | `write(shiftless(shift(1,2)*scale(3)));` | `(0,0,3,0,0,3)` | `` | missing |
-| transforms.asy:43 | `write(shift(1,2).x);` | `1` | `` | missing |
-| transforms.asy:44 | `write(shift(1,2).y);` | `2` | `` | missing |
-| transforms.asy:59 | `write(T == shift(1,2));` | `true` | `{"_tag":"transform","a":2,"b":1,"c":0,"d":4,"e":0,"f":1}` | value |
-| transforms.asy:76 | `write(shift(1,0)*reflect((0,0),(0,1)));` | `(1,0,-1,0,0,1)` | `{"_tag":"transform","a":1,"b":-1,"c":0,"d":0,"e":0,"f":1}` | value |
 | types_casting.asy:67 | `write(2^52 + 1);` | `4503599627370497` | `4.5035996273705e+15` | epsilon |
 | types_casting.asy:68 | `write(2^62);` | `4611686018427387904` | `4.61168601842739e+18` | epsilon |
 
@@ -390,63 +263,28 @@ Corpus usage: `round` 6, `floor` 50, `ceil` 2, `(int)` 182, `pair=number` 3.
 
 Corpus usage: `array append/insert/delete` 11, `sort` 2, `reverse` 143, `search` 0, `concat` 0.
 
-**Likely cause.** evalMethodCall (L4549-4552) implements only push, pop, initialized: a.append(b), a.insert(i,x), a.delete(...) silently do nothing, and new int[4] reports initialized(0) = true. reverse(array) (L10829) is a no-op for arrays and reverse(int n) is missing. sort (L13301) sorts strings wrong (b,A,a), ignores a comparison function, and doesn't sort 2D arrays lexicographically. Missing: search, findall, concat, all, determinant, solve, inverse(real[][]), identity(n), dot(real[],real[]), uniform, abs(real[]), index-by-int-array a[sequence(0,2)], elementwise max(a,b). Whole-array ops: a == b returns 0s (should be bool[]), -a, pair[]*scalar, pair[]+pair, real[][]*real[][] and real[][]*real[] return null.
+**Likely cause.** Array methods append/insert/delete, reverse(T[])/reverse(int), sort (strings, less predicate, 2D rows), search, findall, concat, all, identity(n), determinant, solve, inverse(real[][]), dot(real[],real[]), uniform, abs(real[]), a[int[]], element-wise min/max, bool[] results of comparisons, bool[] & |, bool[] ? a : b, unary minus, pair[] arithmetic and matrix products match. Remaining: new int[4] reports initialized(0) = true (arrays are allocated with values).
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| arrays.asy:43 | `wi(a);` | `n=7 / 3 / 42 / 4 / 1 / 5 / 7 / 8` | `n=5 / 3 / 42 / 4 / 1 / 5` | value |
-| arrays.asy:45 | `wi(a);` | `n=8 / 3 / 100 / 42 / 4 / 1 / 5 / 7 / 8` | `n=5 / 3 / 42 / 4 / 1 / 5` | value |
-| arrays.asy:47 | `wi(a);` | `n=7 / 100 / 42 / 4 / 1 / 5 / 7 / 8` | `n=5 / 3 / 42 / 4 / 1 / 5` | value |
-| arrays.asy:49 | `wi(a);` | `n=5 / 100 / 1 / 5 / 7 / 8` | `n=5 / 3 / 42 / 4 / 1 / 5` | value |
-| arrays.asy:51 | `write(a.length);` | `0` | `5` | value |
-| arrays.asy:55 | `wi(reverse(d));` | `n=4 / 1 / 8 / 3 / 5` | `n=4 / 5 / 3 / 8 / 1` | value |
-| arrays.asy:57 | `ws(sort(new string[]{"b", "A", "a"}));` | `n=3 / A / a / b` | `n=3 / b / A / a` | value |
-| arrays.asy:58 | `write(search(new int[]{1, 3, 5, 7}, 4));` | `1` | `` | missing |
-| arrays.asy:59 | `write(search(new int[]{1, 3, 5, 7}, 0));` | `-1` | `` | missing |
-| arrays.asy:60 | `write(search(new real[]{1, 3, 5, 7}, 7));` | `3` | `` | missing |
-| arrays.asy:64 | `wi(findall(new bool[]{true, false, true}));` | `n=2 / 0 / 2` | `n=null` | value |
-| arrays.asy:65 | `wi(concat(new int[]{1,2}, new int[]{3}));` | `n=3 / 1 / 2 / 3` | `n=null` | value |
-| arrays.asy:76 | `wb(new int[]{1,2,3} == new int[]{1,5,3});` | `n=3 / true / false / true` | `n=3 / 0 / 0 / 0` | value |
-| arrays.asy:77 | `write(all(new int[]{1,2,3} == new int[]{1,2,3}));` | `true` | `` | missing |
-| arrays.asy:78 | `wi(-new int[]{1,-2});` | `n=2 / -1 / 2` | `n=null` | value |
-| arrays.asy:82 | `wp(new pair[]{(1,0),(0,1)} * 2);` | `n=2 / (2,0) / (0,2)` | `n=null` | value |
-| arrays.asy:83 | `wp(new pair[]{(1,0),(0,1)} + (1,1));` | `n=2 / (2,1) / (1,2)` | `n=null` | value |
-| arrays.asy:90 | `wr2(identity(3));` | `rows=3 / n=3 / 1 / 0 / 0 / n=3 / 0 / 1 / 0 / n=3 / 0 / 0 / 1` | `rows=null` | value |
-| arrays.asy:91 | `wr2(new real[][]{{1,2},{3,4}} * new real[][]{{0,1},{1,0}});` | `rows=2 / n=2 / 2 / 1 / n=2 / 4 / 3` | `rows=null` | value |
-| arrays.asy:92 | `wr(new real[][]{{1,2},{3,4}} * new real[]{1,1});` | `n=2 / 3 / 7` | `n=null` | value |
-| arrays.asy:93 | `write(determinant(new real[][]{{1,2},{3,4}}));` | `-2` | `` | missing |
-| arrays.asy:94 | `wr2(inverse(new real[][]{{2,0},{0,4}}));` | `rows=2 / n=2 / 0.5 / -0 / n=2 / -0 / 0.25` | `rows=null` | value |
-| arrays.asy:95 | `wr(solve(new real[][]{{2,1},{1,3}}, new real[]{3,5}));` | `n=2 / 0.8 / 1.4` | `n=null` | value |
+| arrays.asy:94 | `wr2(inverse(new real[][]{{2,0},{0,4}}));` | `rows=2 / n=2 / 0.5 / -0 / n=2 / -0 / 0.25` | `rows=2 / n=2 / 0.5 / 0 / n=2 / 0 / 0.25` | format |
 | arrays.asy:111 | `write(big.initialized(0));` | `false` | `true` | value |
-| arrays.asy:120 | `wi(reverse(4));` | `n=4 / 3 / 2 / 1 / 0` | `n=null` | value |
-| arrays.asy:122 | `write(dot(new real[]{1,2,3}, new real[]{4,5,6}));` | `32` | `` | missing |
-| arrays.asy:123 | `wr(abs(new real[]{-1, 2}));` | `n=2 / 1 / 2` | `n=null` | value |
-| arrays.asy:124 | `wr(uniform(0, 1, 5));` | `n=6 / 0 / 0.2 / 0.4 / 0.6 / 0.8 / 1` | `n=null` | value |
-| arrays.asy:125 | `write(minbound(new pair[]{(0,1),(2,-1)}));` | `(0,-1)` | `` | missing |
-| arrays.asy:126 | `write(maxbound(new pair[]{(0,1),(2,-1)}));` | `(2,1)` | `` | missing |
-| arrays.asy:128 | `wi2(sort(new int[][]{{2,1},{1,5},{1,2}}));` | `rows=3 / n=2 / 1 / 2 / n=2 / 1 / 5 / n=2 / 2 / 1` | `rows=3 / n=2 / 2 / 1 / n=2 / 1 / 5 / n=2 / 1 / 2` | value |
-| arrays.asy:137 | `wi(h[sequence(0,2)]);` | `n=3 / 1 / 2 / 3` | `n=null` | value |
-| arrays.asy:149 | `wi(max(new int[]{1,5,2}, new int[]{4,0,3}));` | `n=3 / 4 / 5 / 3` | `n=null` | value |
-| arrays.asy:151 | `wi(sort(new int[]{3,1,2}, new bool(int a, int b) {return a > ...` | `n=3 / 3 / 2 / 1` | `n=3 / 1 / 2 / 3` | value |
 
 <a id="olympiad"></a>
 ### 14. olympiad.asy helpers
 
 Corpus usage: `anglemark` 134, `tangent` 35, `collinear` 0, `cyclic` 1, `concurrent` 0.
 
-**Likely cause.** The core point functions (circumcenter, incenter, orthocenter, centroid, foot, bisectorpoint, circumradius, inradius) all match to 1e-15. Differences: anglemark (L12863) produces 6 segments where asy's produces 7 (asy's arc has the degenerate tail segment, see circle category) and different control points for the larger radius form; tangent (L12766) computes the exact tangent point, while asy's olympiad tangent intersects with the 400-gon Circle and returns (1.79981,2.40014) - HiTeXeR is "more correct" but differs by 2e-4; cyclic/collinear/ concurrent are missing (unknown call); midpoint/waypoint are arclength-based in olympiad (see arclength); circumcircle/incircle have length 400 in asy (graph's Circle).
+**Likely cause.** The core point functions and cyclic/collinear/concurrent match. Remaining: anglemark produces 6 segments where asy's produces 7 (asy's arc has a degenerate tail segment, see circle category) and slightly different control points for the larger radius form. tangent follows olympiad's construction (Bezier circle and 400-node Arc intersections), so it matches asy's (1.79981,2.40014) rather than the exact (1.8,2.4).
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
 | mod_olympiad.asy:25 | `write(foot(B, C, A));` | `(0.294117647058824,1.17647058823529)` | `(0.294117647058823,1.17647058823529)` | epsilon |
 | mod_olympiad.asy:33 | `wpath(circumcircle(A, B, C));` | `len=400 / (5.41547594742265,1.5) / (5.41547594742266,1.51526547483459) / (5.41535605204738,1.53053071425031) / ...` | `len=400 / (5.41547594742265,1.5) / (5.41547594742265,1.51526547483458) / (5.41535605204738,1.53053071425031) / ...` | epsilon |
 | mod_olympiad.asy:34 | `wpath(incircle(A, B, C));` | `len=400 / (3.08630933463537,1.35318364657273) / (3.08630933463537,1.36026893599917) / (3.0862536866163,1.36735 ...` | `len=400 / (3.08630933463537,1.35318364657273) / (3.08630933463537,1.36026893599917) / (3.0862536866163,1.36735 ...` | epsilon |
-| mod_olympiad.asy:35 | `write(tangent((5,0), (0,0), 3));` | `(1.79981261143508,2.40014053000409)` | `(1.8,2.4)` | value |
-| mod_olympiad.asy:36 | `write(tangent((5,0), (0,0), 3, 2));` | `(1.79981261142835,-2.40014052999514)` | `(1.8,-2.4)` | value |
-| mod_olympiad.asy:37 | `write(tangent((0,5), (1,1), 2, 1));` | `(-0.932254877806244,1.51613088191364)` | `(-0.932024129630113,1.51699396759247)` | value |
-| mod_olympiad.asy:40 | `write(collinear((0,0), (1,1), (3,3)));` | `true` | `` | missing |
-| mod_olympiad.asy:41 | `write(collinear((0,0), (1,1), (3,3.1)));` | `false` | `` | missing |
-| mod_olympiad.asy:42 | `write(concurrent((0,0),(2,2),(0,2),(2,0),(1,0),(1,2)));` | `true` | `` | missing |
+| mod_olympiad.asy:35 | `write(tangent((5,0), (0,0), 3));` | `(1.79981261143508,2.40014053000409)` | `(1.79981261143016,2.40014052999755)` | epsilon |
+| mod_olympiad.asy:36 | `write(tangent((5,0), (0,0), 3, 2));` | `(1.79981261142835,-2.40014052999514)` | `(1.79981261143016,-2.40014052999755)` | epsilon |
+| mod_olympiad.asy:37 | `write(tangent((0,5), (1,1), 2, 1));` | `(-0.932254877806244,1.51613088191364)` | `(-0.932254877789102,1.51613088190906)` | epsilon |
 | mod_olympiad.asy:43 | `wpath(rightanglemark(A, B, C));` | `len=2 / (4.76,0) / (4.70343145750508,0.0565685424949237) / (4.64686291501015,0.113137084989848) / (4.590294372 ...` | `len=2 / (4.76,0) / (4.70343145750508,0.0565685424949238) / (4.64686291501015,0.113137084989848) / (4.590294372 ...` | epsilon |
 | mod_olympiad.asy:45 | `wpath(anglemark(A, B, C));` | `len=7 / (4.76,3.19744231092045e-16) / (4.76,2.1316282072803e-16) / (4.76,1.06581410364015e-16) / (4.76,0) / (4 ...` | `len=6 / (4.76,0) / (4.76,-0.13254833995939) / (4.86745166004061,-0.24) / (5,-0.24) / (5.13254833995939,-0.24)  ...` | value |
 | mod_olympiad.asy:46 | `wpath(anglemark(B, A, C, 20));` | `len=3 / (0.6,0) / (0.6,0.281173975409359) / (0.406591847129114,0.517175056286899) / (0.145555756803993,0.58222 ...` | `len=3 / (0.6,0) / (0.6,0.281173975409359) / (0.406591847129115,0.517175056286899) / (0.145555756803993,0.58222 ...` | epsilon |
@@ -498,92 +336,25 @@ Corpus usage: `..cycle` 67, `---` 27, `tension` 3, `{dir}` 17, `curl` 1, `contro
 
 Corpus usage: `pen getter` 3, `cmyk` 1, `colors` 22.
 
-**Likely cause.** linewidth(pen) (L11439) and fontsize(pen) (L11453) always build a new pen; asy overloads them as getters (linewidth(p) returns real). colors(), colorspace(), linetype(pen), linecap/linejoin getters are missing, so nothing about a pen can be read back. See also the named-color table below: named colors match asy (within 8-bit quantization) except cmyk(pen) (L11518) turns red into white and interp(pen,pen,t) (L9922) returns 0.
+**Likely cause.** linewidth/fontsize/opacity/linetype/linecap/linejoin read the value back from a pen; colors() and colorspace() track gray/rgb/cmyk/invisible; cmyk(pen), gray(pen), rgb(pen) and interp(pen,pen,t) convert as asy does, and named colors carry plain_pens.asy's exact fractions. Remaining: fontsize(defaultpen) is 12 (asy: 12pt = 11.955bp; the default is kept at 12 because every label is calibrated to it) and rgb("ff8000") gives 0x80/255 where asy uses byteinv (0x80/256).
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| pens.asy:15 | `write(linewidth(defaultpen));` | `0.5` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:16 | `write(linewidth(linewidth(2)));` | `2` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:17 | `write(linewidth(red + 3));` | `3` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:18 | `write(linewidth(red + linewidth(0.5)));` | `0.5` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:19 | `write(linewidth(black + 1.5bp));` | `1.5` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:20 | `write(linewidth(currentpen));` | `0.5` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:24 | `wr(colors(red));` | `n=3 / 1 / 0 / 0` | `n=null` | value |
-| pens.asy:25 | `wr(colors(green));` | `n=3 / 0 / 1 / 0` | `n=null` | value |
-| pens.asy:26 | `wr(colors(blue));` | `n=3 / 0 / 0 / 1` | `n=null` | value |
-| pens.asy:27 | `wr(colors(gray(0.5)));` | `n=1 / 0.5` | `n=null` | value |
-| pens.asy:28 | `wr(colors(rgb(0.1, 0.2, 0.3)));` | `n=3 / 0.1 / 0.2 / 0.3` | `n=null` | value |
-| pens.asy:29 | `wr(colors(0.5*red));` | `n=3 / 0.5 / 0 / 0` | `n=null` | value |
-| pens.asy:30 | `wr(colors(red + blue));` | `n=3 / 1 / 0 / 1` | `n=null` | value |
-| pens.asy:31 | `wr(colors(red + green));` | `n=3 / 1 / 1 / 0` | `n=null` | value |
-| pens.asy:32 | `wr(colors(0.5*red + 0.5*blue));` | `n=3 / 0.5 / 0 / 0.5` | `n=null` | value |
-| pens.asy:33 | `wr(colors(white));` | `n=1 / 1` | `n=null` | value |
-| pens.asy:34 | `wr(colors(black));` | `n=1 / 0` | `n=null` | value |
-| pens.asy:35 | `wr(colors(lightgray));` | `n=1 / 0.9` | `n=null` | value |
-| pens.asy:36 | `wr(colors(darkgreen));` | `n=3 / 0 / 0.25 / 0` | `n=null` | value |
-| pens.asy:37 | `wr(colors(orange));` | `n=3 / 1 / 0.5 / 0` | `n=null` | value |
-| pens.asy:38 | `wr(colors(purple));` | `n=3 / 0.5 / 0 / 1` | `n=null` | value |
-| pens.asy:39 | `wr(colors(cyan));` | `n=3 / 0 / 1 / 1` | `n=null` | value |
-| pens.asy:40 | `wr(colors(magenta));` | `n=3 / 1 / 0 / 1` | `n=null` | value |
-| pens.asy:41 | `wr(colors(yellow));` | `n=3 / 1 / 1 / 0` | `n=null` | value |
-| pens.asy:42 | `wr(colors(brown));` | `n=3 / 0.5 / 0 / 0` | `n=null` | value |
-| pens.asy:43 | `wr(colors(pink));` | `n=3 / 1 / 0.75 / 1` | `n=null` | value |
-| pens.asy:44 | `wr(colors(lightblue));` | `n=3 / 0.5 / 0.5 / 1` | `n=null` | value |
-| pens.asy:45 | `wr(colors(heavyblue));` | `n=3 / 0 / 0 / 0.75` | `n=null` | value |
-| pens.asy:46 | `wr(colors(mediumgray));` | `n=1 / 0.75` | `n=null` | value |
-| pens.asy:47 | `wr(colors(RGB(255, 128, 0)));` | `n=3 / 1 / 0.501960784313725 / 0` | `n=null` | value |
-| pens.asy:48 | `wr(colors(rgb("ff8000")));` | `n=3 / 1 / 0.5 / 0` | `n=null` | value |
-| pens.asy:49 | `wr(colors(cmyk(red)));` | `n=4 / 0 / 1 / 1 / 0` | `n=null` | value |
-| pens.asy:50 | `wr(colors(interp(red, blue, 0.25)));` | `n=3 / 0.75 / 0 / 0.25` | `n=null` | value |
-| pens.asy:51 | `wr(colors(gray));` | `n=1 / 0.5` | `n=null` | value |
-| pens.asy:53 | `write(colorspace(red));` | `rgb` | `` | missing |
-| pens.asy:54 | `write(colorspace(gray(0.3)));` | `gray` | `` | missing |
-| pens.asy:55 | `write(colorspace(cmyk(red)));` | `cmyk` | `` | missing |
-| pens.asy:56 | `wr(colors(mediumblue));` | `n=3 / 0.25 / 0.25 / 1` | `n=null` | value |
-| pens.asy:57 | `wr(colors(olive));` | `n=3 / 0.5 / 0.5 / 0` | `n=null` | value |
-| pens.asy:58 | `wr(colors(royalblue));` | `n=3 / 0 / 0.5 / 1` | `n=null` | value |
-| pens.asy:59 | `wr(colors(deepgreen));` | `n=3 / 0 / 0.5 / 0` | `n=null` | value |
-| pens.asy:60 | `wr(colors(palered));` | `n=3 / 1 / 0.75 / 0.75` | `n=null` | value |
-| pens.asy:61 | `wr(colors(lightred));` | `n=3 / 1 / 0.5 / 0.5` | `n=null` | value |
-| pens.asy:62 | `wr(colors(green + red + blue));` | `n=3 / 1 / 1 / 1` | `n=null` | value |
-| pens.asy:63 | `wr(colors(red*0.3 + green));` | `n=3 / 0.3 / 1 / 0` | `n=null` | value |
-| pens.asy:64 | `write(opacity(opacity(0.4)));` | `0.4` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":12,"opacity":0,"linecap"` | value |
-| pens.asy:65 | `write(opacity(red));` | `1` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":12,"opacity":0,"linecap"` | value |
-| pens.asy:66 | `write(linewidth(1 + red));` | `1` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:67 | `write(linewidth(2 + linewidth(3)));` | `3` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0,"linestyle":null,"fontsize":12,"opacity":1,"linecap":n` | value |
-| pens.asy:68 | `wr(linetype(dashed));` | `n=2 / 8 / 8` | `n=null` | value |
-| pens.asy:69 | `wr(linetype(dotted));` | `n=2 / 0 / 4` | `n=null` | value |
-| pens.asy:70 | `write(linetype(solid));` | `` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":"dashed","fontsize":12,"opacity":1,"line` | extra |
-| pens.asy:71 | `wr(linetype(dashdotted));` | `n=4 / 8 / 8 / 0 / 8` | `n=null` | value |
-| pens.asy:72 | `wr(linetype(longdashed));` | `n=2 / 24 / 8` | `n=null` | value |
-| pens.asy:73 | `write(linecap(squarecap));` | `0` | `{"_tag":"pen","r":0,"g":0,"b":0,"linewidth":0.5,"linestyle":null,"fontsize":12,"opacity":1,"linecap"` | value |
-| pens.asy:74 | `write(linejoin(roundjoin));` | `1` | `` | missing |
-| pens.asy:75 | `wr(colors(rgb(red)));` | `n=3 / 1 / 0 / 0` | `n=null` | value |
-| pens.asy:76 | `wr(colors(gray(red)));` | `n=1 / 0.299` | `n=null` | value |
-| pens.asy:77 | `wr(colors(lightgreen));` | `n=3 / 0.5 / 1 / 0.5` | `n=null` | value |
-| pens.asy:78 | `wr(colors(darkblue));` | `n=3 / 0 / 0 / 0.25` | `n=null` | value |
-| pens.asy:79 | `wr(colors(darkgray));` | `n=1 / 0.05` | `n=null` | value |
-| pens.asy:80 | `wr(colors(lightyellow));` | `n=3 / 1 / 1 / 0.5` | `n=null` | value |
-| pens.asy:81 | `wr(colors(red + 0.5*green));` | `n=3 / 1 / 0.5 / 0` | `n=null` | value |
-| pens.asy:82 | `wr(colors(1.5*gray(0.4)));` | `n=1 / 0.6` | `n=null` | value |
+| pens.asy:48 | `wr(colors(rgb("ff8000")));` | `n=3 / 1 / 0.5 / 0` | `n=3 / 1 / 0.501960784313725 / 0` | value |
 
 <a id="cse5"></a>
 ### 17. cse5.asy helpers
 
 Corpus usage: `CR` 4, `IP` 20, `CP` 0, `OP` 0, `WP` 0, `L` 8, `d` 20.
 
-**Likely cause.** d(), CP(), L(), OP(), WP(), commonpoints() are missing (unknown call). CR (L12487) returns a 4-segment circle / 1-segment arc (asy: graph Circle/Arc with 400 segments). IP(a, b, n) (L12367) ignores the index n.
+**Likely cause.** d, CP, L, OP, WP (arclength-based), commonpoints and IP(a, b, n) are implemented; what remains is intersection-point noise against the 400-node CR circles (see intersections).
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| mod_cse5.asy:17 | `write(d(A, B));` | `4` | `` | missing |
-| mod_cse5.asy:18 | `write(d(A, C));` | `3.16227766016838` | `` | missing |
 | mod_cse5.asy:19 | `wpath(CR(A, 2));` | `len=400 / (2,0) / (2,0.0104720293426395) / (1.99991775245111,0.0209438971892738) / (1.99975326496332,0.0314146 ...` | `len=400 / (2,0) / (2,0.0104720293426368) / (1.99991775245111,0.0209438971892765) / (1.99975326496332,0.0314146 ...` | epsilon |
 | mod_cse5.asy:20 | `wpath(CR((1,1), 1, 0, 90));` | `len=400 / (2,1) / (2,1.00130899735955) / (1.99999742978887,1.00261799345744) / (1.99999228938147,1.00392698072 ...` | `len=400 / (2,1) / (2,1.00130899735955) / (1.99999742978887,1.00261799345744) / (1.99999228938147,1.00392698072 ...` | epsilon |
 | mod_cse5.asy:21 | `wpath(CP(A, B));` | `len=400 / (4,0) / (4,0.020944058685279) / (3.99983550490221,0.0418877943785477) / (3.99950652992664,0.06282926 ...` | `len=400 / (4,0) / (4,0.0209440586852736) / (3.99983550490221,0.0418877943785531) / (3.99950652992664,0.0628292 ...` | epsilon |
-| mod_cse5.asy:22 | `wpath(L(A, B));` | `len=1 / (-2.4,0) / (0.533333333333332,0) / (3.46666666666667,0) / (6.4,0)` | `len=0 / (0,0)` | value |
-| mod_cse5.asy:23 | `wpath(L(A, B, 0.5, 1));` | `len=1 / (-2,0) / (1.33333333333333,0) / (4.66666666666667,0) / (8,0)` | `len=0 / (0,0)` | value |
-| mod_cse5.asy:24 | `wpath(L(1, A, B));` | `len=1 / (-0.6,0) / (1.13333333333333,0) / (2.86666666666667,0) / (4.6,0)` | `len=0 / (0,0)` | value |
+| mod_cse5.asy:22 | `wpath(L(A, B));` | `len=1 / (-2.4,0) / (0.533333333333332,0) / (3.46666666666667,0) / (6.4,0)` | `len=1 / (-2.4,0) / (0.533333333333333,0) / (3.46666666666667,0) / (6.4,0)` | epsilon |
 
 <a id="dirpath"></a>
 ### 18. dir(path, t) / dir(path)
@@ -605,30 +376,17 @@ Corpus usage: `dir(path,t)` 11.
 
 Corpus usage: `inverse` 1, `shiftless` 0.
 
-**Likely cause.** Applying transforms to pairs and paths and composing them all match. Missing: inverse(transform) (unknown call - returns 0, so inverse(T)*z is 0), shiftless(), transform fields t.x t.y t.xx t.xy t.yx t.yy. `T == S` on transforms evaluates to a transform (looks like it falls into the multiply path in evalBinary L3399) instead of bool. write(transform) prints the internal object (asy prints (x,y,xx,xy,yx,yy)).
+**Likely cause.** inverse(transform), shiftless(), ==/!= and the x y xx xy yx yy fields match, and write(transform) prints asy's (x,y,xx,xy,yx,yy). Remaining differences are last-digit noise.
 
 | file:line | source | asy (expected) | HiTeXeR (got) | kind |
 |---|---|---|---|---|
-| transforms.asy:34 | `write(inverse(R)*R*(1,2));` | `(1,2)` | `(0,0)` | value |
-| transforms.asy:36 | `write(inverse(scale(2))*(4,4));` | `(2,2)` | `0` | value |
-| transforms.asy:37 | `write(R);` | `(0,0,0.866025403784439,-0.5,0.5,0.866025403784439)` | `{"_tag":"transform","a":0,"b":0.8660254037844387,"c":-0.49999999999999994,"d":0,"e":0.49999999999999` | value |
-| transforms.asy:39 | `write(scale(2));` | `(0,0,2,0,0,2)` | `{"_tag":"transform","a":0,"b":2,"c":0,"d":0,"e":0,"f":2}` | value |
-| transforms.asy:40 | `write(identity());` | `(0,0,1,0,0,1)` | `{"_tag":"transform","a":0,"b":1,"c":0,"d":0,"e":0,"f":1}` | value |
-| transforms.asy:45 | `write(scale(3).xx);` | `3` | `` | missing |
-| transforms.asy:46 | `write(rotate(90).xy);` | `-1` | `` | missing |
-| transforms.asy:47 | `write(rotate(90).yx);` | `1` | `` | missing |
-| transforms.asy:48 | `write(scale(2,5).yy);` | `5` | `` | missing |
 | transforms.asy:51 | `wpath(scale(2)*((0,0)..(1,1)..(2,0)));` | `len=2 / (0,0) / (5.9211894646675e-16,1.10456949966159) / (0.895430500338413,2) / (2,2) / (3.10456949966159,2)  ...` | `len=2 / (0,0) / (1.97372982155583e-16,1.10456949966159) / (0.895430500338413,2) / (2,2) / (3.10456949966159,2) ...` | epsilon |
 | transforms.asy:53 | `write(rotate(45, (1,0))*(2,0));` | `(1.70710678118655,0.707106781186548)` | `(1.70710678118655,0.707106781186547)` | epsilon |
-| transforms.asy:58 | `write(U == T);` | `false` | `{"_tag":"transform","a":-1,"b":6.123233995736766e-17,"c":-1,"d":3,"e":1,"f":6.123233995736766e-17}` | value |
-| transforms.asy:66 | `write(inverse(rotate(45)*scale(2))*(1,1));` | `(0.707106781186547,0)` | `0` | value |
+| transforms.asy:66 | `write(inverse(rotate(45)*scale(2))*(1,1));` | `(0.707106781186547,0)` | `(0.707106781186547,5.55111512312578e-17)` | epsilon |
 | transforms.asy:67 | `wpath(scale(0.5)*unitsquare);` | `len=4 / (0,0) / (0.166666666666667,0) / (0.333333333333333,0) / (0.5,0) / (0.5,0.166666666666667) / (0.5,0.333 ...` | `len=4 / (0,0) / (0.166666666666666,0) / (0.333333333333334,0) / (0.5,0) / (0.5,0.166666666666667) / (0.5,0.333 ...` | epsilon |
 | transforms.asy:68 | `wpath(rotate(45)*unitsquare);` | `len=4 / (0,0) / (0.235702260395516,0.235702260395516) / (0.471404520791032,0.471404520791032) / (0.70710678118 ...` | `len=4 / (0,0) / (0.235702260395515,0.235702260395515) / (0.471404520791033,0.471404520791033) / (0.70710678118 ...` | epsilon |
 | transforms.asy:69 | `wpath(slant(0.5)*unitsquare);` | `len=4 / (0,0) / (0.333333333333333,0) / (0.666666666666667,0) / (1,0) / (1.16666666666667,0.333333333333333) / ...` | `len=4 / (0,0) / (0.333333333333332,0) / (0.666666666666668,0) / (1,0) / (1.16666666666667,0.333333333333333) / ...` | epsilon |
 | transforms.asy:70 | `wpath(xscale(-1)*((1,0)..(2,1)..(3,0)));` | `len=2 / (-1,0) / (-1,0.552284749830794) / (-1.44771525016921,1) / (-2,1) / (-2.55228474983079,1) / (-3,0.55228 ...` | `len=2 / (-1,0) / (-1,0.552284749830793) / (-1.44771525016921,1) / (-2,1) / (-2.55228474983079,1) / (-3,0.55228 ...` | epsilon |
-| transforms.asy:74 | `write(scale(2)*rotate(90));` | `(0,0,1.22464679914735e-16,-2,2,1.22464679914735e-16)` | `{"_tag":"transform","a":0,"b":1.2246467991473532e-16,"c":-2,"d":0,"e":2,"f":1.2246467991473532e-16}` | value |
-| transforms.asy:75 | `write(rotate(90)*scale(2,1));` | `(0,0,1.22464679914735e-16,-1,2,6.12323399573677e-17)` | `{"_tag":"transform","a":0,"b":1.2246467991473532e-16,"c":-1,"d":0,"e":2,"f":6.123233995736766e-17}` | value |
-| transforms.asy:81 | `write(inverse(S)*(S*(3,4)));` | `(3,4)` | `0` | value |
 
 <a id="write"></a>
 ### 20. write() output format (debug-only; affects nothing drawn)
@@ -641,6 +399,9 @@ Corpus usage: `write(` 5.
 |---|---|---|---|---|
 | arith_int_real.asy:48 | `write(-0.0);` | `-0` | `0` | format |
 | arith_int_real.asy:54 | `write(1e-5);` | `1e-05` | `0.00001` | format |
+| lib_builtins.asy:65 | `write(determinant(new real[][]{{2, 0, 1}, {1, 3, 2}, {1, 1,  ...` | `-0` | `0` | format |
+| lib_builtins.asy:70 | `wp(-new pair[]{(1, 2), (-3, 0)});` | `n=2 / (-1,-2) / (3,-0)` | `n=2 / (-1,-2) / (3,0)` | format |
+| lib_builtins.asy:102 | `write(inverse(shift(4, 5)));` | `(-4,-5,1,-0,-0,1)` | `(-4,-5,1,0,0,1)` | format |
 | write_format.asy:2 | `write(new int[]{3, 1, 4});` | `0:	3 / 1:	1 / 2:	4` | `3 / 1 / 4` | value |
 | write_format.asy:3 | `write(new real[]{1.5, 2});` | `0:	1.5 / 1:	2` | `1.5 / 2` | value |
 | write_format.asy:4 | `write(new pair[]{(0,0), (1,2)});` | `0:	(0,0) / 1:	(1,2)` | `(0,0) / (1,2)` | value |
@@ -814,7 +575,7 @@ Corpus usage: `write(` 5.
 | file | checks | value/missing | epsilon | format | HiTeXeR threw |
 |---|---|---|---|---|---|
 | arith_int_real.asy | 93 | 0 | 0 | 2 |  |
-| arrays.asy | 106 | 34 | 0 | 0 |  |
+| arrays.asy | 106 | 1 | 0 | 1 |  |
 | bool_compare.asy | 41 | 1 | 0 | 0 |  |
 | circle_arc_graph.asy | 39 | 0 | 24 | 0 |  |
 | circles_arcs.asy | 66 | 7 | 41 | 0 |  |
@@ -826,14 +587,15 @@ Corpus usage: `write(` 5.
 | guide_solver.asy | 57 | 0 | 46 | 0 |  |
 | intersections.asy | 59 | 0 | 10 | 0 |  |
 | lang_core.asy | 50 | 0 | 0 | 0 |  |
-| math_funcs.asy | 82 | 10 | 2 | 0 |  |
-| misc_builtins.asy | 73 | 8 | 4 | 0 |  |
-| mod_cse5.asy | 15 | 10 | 4 | 0 |  |
-| mod_geometry.asy | 35 | 11 | 0 | 0 |  |
+| lib_builtins.asy | 126 | 0 | 0 | 3 |  |
+| math_funcs.asy | 82 | 0 | 4 | 0 |  |
+| misc_builtins.asy | 73 | 4 | 4 | 0 |  |
+| mod_cse5.asy | 15 | 5 | 5 | 0 |  |
+| mod_geometry.asy | 35 | 0 | 1 | 0 |  |
 | mod_graph.asy | 39 | 0 | 1 | 0 |  |
-| mod_olympiad.asy | 52 | 7 | 9 | 0 |  |
+| mod_olympiad.asy | 52 | 1 | 12 | 0 |  |
 | operator_overload.asy | 7 | 0 | 0 | 0 |  |
-| pairs.asy | 72 | 6 | 4 | 0 |  |
+| pairs.asy | 72 | 0 | 4 | 0 |  |
 | path_basic.asy | 100 | 1 | 15 | 0 |  |
 | path_curves.asy | 57 | 0 | 32 | 0 |  |
 | path_ops.asy | 53 | 0 | 22 | 0 |  |
@@ -853,13 +615,13 @@ Corpus usage: `write(` 5.
 | path_syntax_12.asy | 1 | 0 | 1 | 0 |  |
 | path_syntax_13.asy | 1 | 0 | 1 | 0 |  |
 | path_syntax_14.asy | 1 | 0 | 1 | 0 |  |
-| pens.asy | 68 | 67 | 0 | 0 |  |
-| strings.asy | 67 | 26 | 3 | 6 |  |
+| pens.asy | 68 | 2 | 0 | 0 |  |
+| strings.asy | 67 | 1 | 0 | 0 |  |
 | struct_fields.asy | 16 | 0 | 0 | 0 |  |
 | struct_init.asy | 4 | 0 | 0 | 0 |  |
 | struct_methods.asy | 5 | 0 | 0 | 0 |  |
 | struct_static.asy | 4 | 0 | 0 | 0 |  |
-| transforms.asy | 64 | 22 | 6 | 0 |  |
+| transforms.asy | 64 | 0 | 7 | 0 |  |
 | types_casting.asy | 84 | 0 | 2 | 0 |  |
 | write_format.asy | 20 | 12 | 0 | 0 |  |
 

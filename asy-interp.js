@@ -2024,8 +2024,10 @@ function mergePens(a,b) {
       r.b = a.b + b.b;
       const sat = Math.max(r.r, r.g, r.b);
       if (sat > 1) { const s = 1 / sat; r.r *= s; r.g *= s; r.b *= s; }
+      r._cs = a._cs === b._cs ? a._cs : (a._cs === 'rgb' || b._cs === 'rgb') ? 'rgb' : undefined; r._cmyk = null;
     } else {
       r.r = b.r; r.g = b.g; r.b = b.b;
+      r._cs = b._cs; r._cmyk = b._cmyk;
     }
   }
   if (b.linewidth !== 0.5) r.linewidth = b.linewidth;
@@ -3378,7 +3380,21 @@ function createInterpreter() {
         if (e < s) e = s;
         return obj.slice(s, e);
       }
-      case 'TernaryOp': return toBool(evalNode(node.cond,env)) ? evalNode(node.then,env) : evalNode(node.else,env);
+      case 'TernaryOp': {
+        const c = evalNode(node.cond, env);
+        // bool[] ? T[] : T[] selects element-wise; a null branch drops those
+        // elements (stats idiom `t = rho > 0 ? t : null`).
+        if (Array.isArray(c)) {
+          const a = evalNode(node.then, env), b = evalNode(node.else, env), out = [];
+          for (let i = 0; i < c.length; i++) {
+            const src = toBool(c[i]) ? a : b;
+            if (src == null) continue;
+            out.push(Array.isArray(src) ? src[i] : src);
+          }
+          return out;
+        }
+        return toBool(c) ? evalNode(node.then,env) : evalNode(node.else,env);
+      }
       case 'CastExpr': return evalCast(node, env);
       case 'NamedArg': return evalNode(node.value, env);
       case 'PathExpr': return evalPathExpr(node, env);
@@ -3578,6 +3594,24 @@ function createInterpreter() {
                      for (const it of right) _colAddItem(s, it); return s; })();
         return _colSetOp(opStr, left, rSet);
       }
+    }
+
+    // bool[] & bool[] / bool[] | bool[] are element-wise.
+    const _isBoolish = v => Array.isArray(v) ? v.every(e => typeof e === 'boolean') : typeof v === 'boolean';
+    if ((op === T.AND || op === T.OR) && (Array.isArray(left) || Array.isArray(right)) && _isBoolish(left) && _isBoolish(right)) {
+      const la = Array.isArray(left), ra = Array.isArray(right);
+      const n = la && ra ? Math.min(left.length, right.length) : la ? left.length : right.length, out = [];
+      for (let i = 0; i < n; i++) {
+        const x = toBool(la ? left[i] : left), y = toBool(ra ? right[i] : right);
+        out.push(op === T.AND ? x && y : x || y);
+      }
+      return out;
+    }
+
+    // transform == / != compare all six components.
+    if ((op === T.EQ || op === T.NEQ) && isTransform(left) && isTransform(right)) {
+      const eq = ['a','b','c','d','e','f'].every(k => left[k] === right[k]);
+      return op === T.EQ ? eq : !eq;
     }
 
     // Pen + pen composition
@@ -3834,6 +3868,50 @@ function createInterpreter() {
     // left to the per-element op semantics.
     {
       const _isNumArr = a => Array.isArray(a) && (a.length === 0 || a.every(v => typeof v === 'number'));
+      // Element-wise comparisons give bool[] (a == b is NOT a whole-array test).
+      const _cmp = (L, R) => op === T.EQ ? L === R : op === T.NEQ ? L !== R : op === T.LT ? L < R
+        : op === T.GT ? L > R : op === T.LE ? L <= R : op === T.GE ? L >= R : undefined;
+      const _isCmpOp = op === T.EQ || op === T.NEQ || op === T.LT || op === T.GT || op === T.LE || op === T.GE;
+      if (_isCmpOp && (_isNumArr(left) || _isNumArr(right)) && (Array.isArray(left) || isNumber(left)) && (Array.isArray(right) || isNumber(right))) {
+        const la = Array.isArray(left), ra = Array.isArray(right);
+        const n = la && ra ? Math.min(left.length, right.length) : la ? left.length : right.length;
+        const out = new Array(n);
+        for (let i = 0; i < n; ++i) out[i] = _cmp(la ? left[i] : left, ra ? right[i] : right);
+        return out;
+      }
+      // Matrix products: real[][] * real[][] and real[][] * real[] (math, not element-wise).
+      const _isMat = a => Array.isArray(a) && a.length > 0 && a.every(r => _isNumArr(r) && Array.isArray(r));
+      if (op === T.STAR && _isMat(left) && (_isMat(right) || (_isNumArr(right) && right.length > 0))) {
+        if (_isMat(right)) {
+          const m = right[0].length;
+          return left.map(row => { const o = new Array(m).fill(0); for (let k = 0; k < row.length; k++) for (let j = 0; j < m; j++) o[j] += row[k] * ((right[k] || [])[j] || 0); return o; });
+        }
+        return left.map(row => { let t = 0; for (let k = 0; k < row.length; k++) t += row[k] * (right[k] || 0); return t; });
+      }
+      // pair[] with pair / real / pair[] (element-wise).
+      const _isPairArr = a => Array.isArray(a) && a.length > 0 && a.every(v => isPair(v));
+      if ((_isPairArr(left) || _isPairArr(right)) && (op === T.PLUS || op === T.MINUS || op === T.STAR || op === T.SLASH || _isCmpOp)) {
+        const la = Array.isArray(left), ra = Array.isArray(right);
+        const okL = la ? left.every(v => isPair(v) || isNumber(v)) : (isPair(left) || isNumber(left));
+        const okR = ra ? right.every(v => isPair(v) || isNumber(v)) : (isPair(right) || isNumber(right));
+        if (okL && okR) {
+          const n = la && ra ? Math.min(left.length, right.length) : la ? left.length : right.length;
+          const out = new Array(n);
+          // Reals act as (r,0) complex numbers, as in the scalar pair ops above.
+          const _pairOp = (a, b) => {
+            const A = isPair(a) ? a : makePair(a, 0), B = isPair(b) ? b : makePair(b, 0);
+            if (op === T.PLUS) return makePair(A.x + B.x, A.y + B.y);
+            if (op === T.MINUS) return makePair(A.x - B.x, A.y - B.y);
+            if (op === T.STAR) return makePair(A.x * B.x - A.y * B.y, A.x * B.y + A.y * B.x);
+            if (op === T.SLASH) { const d = B.x * B.x + B.y * B.y; return d ? makePair((A.x * B.x + A.y * B.y) / d, (A.y * B.x - A.x * B.y) / d) : makePair(0, 0); }
+            if (op === T.EQ) return A.x === B.x && A.y === B.y;
+            if (op === T.NEQ) return A.x !== B.x || A.y !== B.y;
+            return false;
+          };
+          for (let i = 0; i < n; ++i) out[i] = _pairOp(la ? left[i] : left, ra ? right[i] : right);
+          return out;
+        }
+      }
       if (_isNumArr(left) && _isNumArr(right)) {
         const n = Math.min(left.length, right.length);
         const out = new Array(n);
@@ -4270,6 +4348,11 @@ function createInterpreter() {
       if (r !== _NO_USER_OP) return r;
     }
     if (node.op === '-') {
+      if (Array.isArray(v)) { // element-wise negation of T[] / T[][]
+        const neg = (a) => Array.isArray(a) ? a.map(neg) : isTriple(a) ? makeTriple(-a.x, -a.y, -a.z)
+          : isPair(a) ? makePair(-a.x, -a.y) : typeof a === 'number' ? -a : a;
+        return neg(v);
+      }
       if (isPoint(v)) return makePoint(v.coordsys, makePair(-v.x, -v.y), v.m);
       if (isGeoVector(v)) return makeGeoVector(v.v.coordsys, makePair(-v.v.x, -v.v.y));
       if (isTriple(v)) return makeTriple(-v.x, -v.y, -v.z);
@@ -4438,8 +4521,10 @@ function createInterpreter() {
     if (calleeName === 'gray' && isPen(callee)) {
       const args = node.args.map(a => evalNode(a, env));
       if (args.length >= 1) {
-        const v = toNumber(args[0]);
-        return makePen({r:v,g:v,b:v});
+        // gray(pen) converts with the NTSC weights (asy: 0.299r + 0.587g + 0.114b).
+        const v = isPen(args[0]) ? 0.299 * args[0].r + 0.587 * args[0].g + 0.114 * args[0].b : toNumber(args[0]);
+        return isPen(args[0]) ? makePen(Object.assign({}, args[0], {r:v, g:v, b:v, _cs:'gray', _cmyk:null}))
+          : makePen({r:v,g:v,b:v,_cs:'gray'});
       }
       return callee;
     }
@@ -4713,9 +4798,36 @@ function createInterpreter() {
       if (method === 'push') { obj.push(args[0]); return null; }
       if (method === 'pop') return obj.pop();
       if (method === 'reverse') return obj.slice().reverse();
+      // asy array methods: append(T[]), insert(int i ... T[] x),
+      // delete() / delete(i) / delete(i, j) (inclusive range).
+      if (method === 'append') { if (isArray(args[0])) obj.push(...args[0]); return null; }
+      if (method === 'insert') {
+        const i = Math.trunc(toNumber(args[0]));
+        const vals = args.length === 2 && isArray(args[1]) && !isArray(obj[0]) ? args[1] : args.slice(1);
+        obj.splice(i, 0, ...vals); return null;
+      }
+      if (method === 'delete') {
+        if (!args.length) obj.length = 0;
+        else {
+          const i = Math.trunc(toNumber(args[0])), j = args.length > 1 ? Math.trunc(toNumber(args[1])) : i;
+          obj.splice(i, j - i + 1);
+        }
+        return null;
+      }
       if (method === 'initialized') return args[0] < obj.length && obj[args[0]] !== undefined;
     }
 
+    // geometry.asy triangle side lengths / angles (degrees).
+    if (isTriangleGeo(obj) && /^(a|b|c|alpha|beta|gamma)$/.test(method)) {
+      const A = locatePoint(obj.A), B = locatePoint(obj.B), C = locatePoint(obj.C);
+      const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+      const a = dist(B, C), b = dist(C, A), c = dist(A, B);
+      if (method === 'a') return a;
+      if (method === 'b') return b;
+      if (method === 'c') return c;
+      const ang = (x, y, z) => Math.acos(Math.max(-1, Math.min(1, (y * y + z * z - x * x) / (2 * y * z)))) * 180 / Math.PI;
+      return method === 'alpha' ? ang(a, b, c) : method === 'beta' ? ang(b, c, a) : ang(c, a, b);
+    }
     if (isString(obj)) {
       if (method === 'length') return obj.length;
       if (method === 'substr') return obj.substr(args[0], args[1]);
@@ -5779,9 +5891,22 @@ function createInterpreter() {
     }
     if (isTransform(obj)) {
       if ('abcdef'.includes(m) && m.length === 1) return obj[m];
+      // asy field names: (x, y, xx, xy, yx, yy) map (u,v) to (x + xx*u + xy*v, y + yx*u + yy*v).
+      const _tf = {x:'a', y:'d', xx:'b', xy:'c', yx:'e', yy:'f'}[m];
+      if (_tf) return obj[_tf];
     }
     if (isPath(obj)) {
       if (m === 'length') return obj.segs.length;
+    }
+    // geometry.asy structs: circle {C, r}; triangle {A, B, C, VA..VC, AB..CA}.
+    if (isGeoCircle(obj) && (m === 'C' || m === 'r')) return obj[m];
+    if (isTriangleGeo(obj)) {
+      if (m === 'A' || m === 'B' || m === 'C') return obj[m];
+      if (m === 'VA' || m === 'VB' || m === 'VC') {
+        // vertex: behaves as its point; _vertex lets foot()/... find the triangle.
+        return Object.assign({}, obj[m[1]], {_vertex: {t: obj, n: 'ABC'.indexOf(m[1])}});
+      }
+      if (/^(AB|BC|CA|BA|CB|AC)$/.test(m)) return makeSegment(obj[m[0]], obj[m[1]]);
     }
     if (isArray(obj)) {
       if (m === 'length') return obj.length;
@@ -5887,7 +6012,16 @@ function createInterpreter() {
     if (obj && obj._tag === 'collection' && (obj.kind === 'map' || obj.kind === 'btreemap')) {
       return _mapGet(obj, evalNode(node.index, env));
     }
-    const idx = toNumber(evalNode(node.index, env));
+    const idxVal = evalNode(node.index, env);
+    // a[int[] k] selects {a[k[0]], a[k[1]], ...}.
+    if (isArray(obj) && isArray(idxVal)) {
+      return idxVal.map(k => {
+        let i = Math.floor(toNumber(k));
+        if (obj._cyclic && obj.length > 0) i = ((i % obj.length) + obj.length) % obj.length;
+        return obj[i];
+      });
+    }
+    const idx = toNumber(idxVal);
     if (isArray(obj)) {
       let i = Math.floor(idx);
       if (obj._cyclic && obj.length > 0) i = ((i % obj.length) + obj.length) % obj.length;
@@ -5922,14 +6056,164 @@ function createInterpreter() {
     return makePair(x, y);
   }
 
+  // ---- C printf number formatting (asy's string()/format() go through
+  // snprintf / ostream). Rounding is done exactly on the binary value with
+  // round-half-even ties, as glibc/MSVC do: JS toFixed/toPrecision round
+  // exact ties away from zero (format("%.1f",2.25) is "2.2" in asy, not 2.3).
+  function _cRoundScaled(x, d) { // round(|x| * 10^d), half-even, as BigInt
+    const dv = new DataView(new ArrayBuffer(8)); dv.setFloat64(0, Math.abs(x));
+    const hi = dv.getUint32(0), bexp = (hi >>> 20) & 0x7ff;
+    let m = (BigInt(hi & 0xfffff) << 32n) | BigInt(dv.getUint32(4)), e;
+    if (bexp === 0) e = -1074; else { m |= 1n << 52n; e = bexp - 1075; }
+    let num = m, den = 1n;
+    if (e >= 0) num <<= BigInt(e); else den <<= BigInt(-e);
+    if (d >= 0) num *= 10n ** BigInt(d); else den *= 10n ** BigInt(-d);
+    const q = num / den, r2 = (num % den) * 2n;
+    return (r2 > den || (r2 === den && (q & 1n))) ? q + 1n : q;
+  }
+  function _cFixed(x, prec) { // |x| as %.{prec}f
+    const s = _cRoundScaled(x, prec).toString().padStart(prec + 1, '0');
+    return prec > 0 ? s.slice(0, -prec) + '.' + s.slice(-prec) : s;
+  }
+  function _cExpDigits(x, prec) { // |x| as %.{prec}e: [prec+1 digit string, exponent]
+    if (x === 0) return ['0'.repeat(prec + 1), 0];
+    let E = Math.floor(Math.log10(Math.abs(x)));
+    const lim = 10n ** BigInt(prec + 1);
+    let q = _cRoundScaled(x, prec - E);
+    if (q >= lim) { E++; q = _cRoundScaled(x, prec - E); }
+    else if (q * 10n < lim) { E--; q = _cRoundScaled(x, prec - E); }
+    return [q.toString(), E];
+  }
+  // One printf conversion: flags (-+ #0), width, precision (null = default).
+  function _cPrintf(flags, width, prec, conv, x) {
+    x = Number(x);
+    let body, neg;
+    const alt = flags.includes('#');
+    const expStr = (E) => (E < 0 ? '-' : '+') + String(Math.abs(E)).padStart(2, '0');
+    const isInt = 'diouxXc'.includes(conv);
+    if (isInt) {
+      let n = Math.trunc(x); neg = n < 0; n = Math.abs(n);
+      body = conv === 'x' ? n.toString(16) : conv === 'X' ? n.toString(16).toUpperCase()
+        : conv === 'o' ? n.toString(8) : String(n);
+      if (prec != null) body = body.padStart(prec, '0');
+    } else if (!Number.isFinite(x)) {
+      neg = x < 0; body = Number.isNaN(x) ? 'nan' : 'inf';
+    } else {
+      neg = x < 0 || Object.is(x, -0);
+      const p = prec == null ? 6 : prec, lc = conv.toLowerCase();
+      if (lc === 'f') {
+        body = _cFixed(x, p); if (alt && p === 0) body += '.';
+      } else if (lc === 'e') {
+        const [dg, E] = _cExpDigits(x, p);
+        body = dg[0] + (p > 0 || alt ? '.' + dg.slice(1) : '') + 'e' + expStr(E);
+      } else { // g
+        const P = p === 0 ? 1 : p;
+        const [dg, E] = _cExpDigits(x, P - 1);
+        if (E < -4 || E >= P) {
+          let mant = dg[0] + (P > 1 || alt ? '.' + dg.slice(1) : '');
+          if (!alt && mant.includes('.')) mant = mant.replace(/\.?0+$/, '');
+          body = mant + 'e' + expStr(E);
+        } else {
+          body = _cFixed(x, P - 1 - E);
+          if (!alt && body.includes('.')) body = body.replace(/\.?0+$/, '');
+        }
+      }
+      if (conv !== lc) body = body.toUpperCase();
+    }
+    const sign = neg ? '-' : flags.includes('+') ? '+' : flags.includes(' ') ? ' ' : '';
+    const w = width || 0, padN = w - sign.length - body.length;
+    if (padN <= 0) return sign + body;
+    if (flags.includes('-')) return sign + body + ' '.repeat(padN);
+    if (flags.includes('0') && !(isInt && prec != null) && Number.isFinite(x)) return sign + '0'.repeat(padN) + body;
+    return ' '.repeat(padN) + sign + body;
+  }
+  // asy string(real x, int digits=realDigits): ostream with precision digits,
+  // i.e. %.{digits}g (string(1e-5) = "1e-05", string(pi,3) = "3.14").
+  function _asyRealToString(x, digits) {
+    const n = Number(x);
+    if (digits == null && Number.isInteger(n) && Math.abs(n) < 1e15) return String(n);
+    return _cPrintf('', 0, digits == null ? 15 : Math.max(1, Math.trunc(digits)), 'g', n);
+  }
+  // asy format(string fmt, real x) (runtime.in): one conversion only, then
+  // trailing zeros / decimal point are stripped (unless '#'), a spurious sign
+  // on a zero value is dropped, and with a '$' before the conversion an
+  // exponent is typeset as \!\times\!10^{e}. Integer conversions (%d %i %x ...)
+  // are the int overload: plain snprintf.
+  function _asyFormat(fmt, x) {
+    fmt = String(fmt);
+    let out = '', i = 0, texify = false, prev = '', start = -1;
+    while (i < fmt.length) {
+      const c = fmt[i];
+      if (c === '$' && prev !== '\\') texify = true;
+      prev = c;
+      if (c === '%') { i++; if (fmt[i] !== '%') { start = i - 1; break; } }
+      out += fmt[i++];
+    }
+    if (start < 0) return out;
+    let j = i;
+    for (; j < fmt.length; j++) {
+      const c = fmt[j];
+      if (c === '*' || c === '$') return out;
+      if (/[A-Za-z]/.test(c)) { j++; break; }
+    }
+    const spec = fmt.slice(start, j), rest = fmt.slice(j);
+    const m = spec.match(/^%([-+ #0]*)(\d*)(?:\.(\d*))?[hlLqjzt]*([a-zA-Z])$/);
+    if (!m) return out + rest;
+    const flags = m[1], width = m[2] ? parseInt(m[2]) : 0;
+    const prec = m[3] !== undefined ? (m[3] === '' ? 0 : parseInt(m[3])) : null, conv = m[4];
+    if (conv === 's') return out + String(x) + rest;
+    if ('diouxXc'.includes(conv)) return out + _cPrintf(flags, width, prec, conv, x) + rest;
+    const buf = _cPrintf(flags, width, prec, conv, x);
+    const trailingzero = flags.includes('#'), plus = flags.includes('+'), space = flags.includes(' ');
+    const phantom = '\\phantom{+}';
+    let q = 0;
+    if (buf[q] === ' ' && texify) { out += phantom; q++; }
+    if (buf[q] === '-' || buf[q] === '+') {
+      let k = q + 1, zero = true;
+      for (; k < buf.length; k++) {
+        const ch = buf[k];
+        if (!/[0-9.]/.test(ch)) break;
+        if (/[1-9]/.test(ch)) { zero = false; break; }
+      }
+      if (zero) { q++; if ((plus || space) && texify) out += phantom; }
+    }
+    const p0 = q;
+    let r = q, dp = false;
+    while (r < buf.length && /[\s0-9.+\-]/.test(buf[r])) { if (buf[r] === '.') dp = true; r++; }
+    if (dp) {
+      r--;
+      let n = 0;
+      while (r > q && buf[r] === '0') { r--; n++; }
+      if (buf[r] === '.') { r--; n++; }
+      while (q <= r) out += buf[q++];
+      if (!trailingzero) q += n;
+    }
+    const zero = r === p0 && buf[r] === '0' && !trailingzero;
+    while (q < buf.length) {
+      if (texify && (buf[q] === 'e' || buf[q] === 'E') && (buf[q + 1] === '+' || buf[q + 1] === '-')) {
+        if (!zero) out += '\\!\\times\\!10^{';
+        q++;
+        if (buf[q] === '+') q++;
+        if (buf[q] === '-') out += buf[q++];
+        while (buf[q] === '0' && (zero || /[0-9]/.test(buf[q + 1] || ''))) q++;
+        while (q < buf.length && /[0-9]/.test(buf[q])) out += buf[q++];
+        if (!zero) out += '}';
+        break;
+      }
+      out += buf[q++];
+    }
+    return out + rest;
+  }
+
   function evalCast(node, env) {
     const val = evalNode(node.expr, env);
     switch(node.targetType) {
       case 'int': return Math.trunc(toNumber(val)); // (int)-3.7 == -3 in asy
       case 'real': return toNumber(val);
       case 'string':
-        if (isPair(val)) return '(' + val.x + ',' + val.y + ')';
-        if (isTriple(val)) return '(' + val.x + ',' + val.y + ',' + val.z + ')';
+        if (isPair(val)) return '(' + _asyRealToString(val.x) + ',' + _asyRealToString(val.y) + ')';
+        if (isTriple(val)) return '(' + _asyRealToString(val.x) + ',' + _asyRealToString(val.y) + ',' + _asyRealToString(val.z) + ')';
+        if (typeof val === 'number') return _asyRealToString(val);
         return String(val);
       case 'bool': return toBool(val);
       case 'pair': return toPair(val);
@@ -8149,7 +8433,7 @@ function createInterpreter() {
       // explicit width). Only a pen with NO explicit linewidth falls back to
       // dotfactor*linewidth. So `dotframe(red+linewidth(4bp))` => 4 bp dot,
       // `dotframe(red+linewidth(0.8bp))` => 0.8 bp dot — both direct.
-      const useDirectDiameter = a.pen && (a.pen._lwDirect || (a.pen._lwExplicit && lw >= 1));
+      const useDirectDiameter = a.pen && (a.pen._lwDirect || (a.pen._lwExplicit && lw >= 0.99));  // 0.99: 1pt = 0.996bp
       const r = useDirectDiameter ? lw / 2 : (1 + lw * 6) / 2;
       const f = _newFrame();
       const N = 24;
@@ -8632,21 +8916,26 @@ function createInterpreter() {
       salmon:'#ff8080',  // = lightred
       // Grey aliases (British spelling)
       grey:'#808080',
-      lightgrey:'#cccccc',
+      lightgrey:'#e6e6e6',   // = lightgray (plain_pens.asy)
       mediumgrey:'#bfbfbf',
       heavygrey:'#404040',
       deepgrey:'#1a1a1a',
       darkgrey:'#0d0d0d',
       palegrey:'#f2f2f2',
     };
+    // The hex table is 8-bit; plain_pens.asy defines these colors with exact
+    // fractions (orange = rgb(1,0.5,0), lightgray = gray(0.9)), so snap each
+    // byte back to the fraction it quantizes (same bytes in the SVG output).
+    const _exactLevels = [0, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1];
+    const _snapByte = (byte) => { const q = _exactLevels.find(v => Math.round(v * 255) === byte); return q !== undefined ? q : byte / 255; };
     for (const [name, hex] of Object.entries(ASY_COLORS)) {
-      const r = parseInt(hex.substr(1,2),16)/255;
-      const g = parseInt(hex.substr(3,2),16)/255;
-      const b = parseInt(hex.substr(5,2),16)/255;
+      const r = _snapByte(parseInt(hex.substr(1,2),16));
+      const g = _snapByte(parseInt(hex.substr(3,2),16));
+      const b = _snapByte(parseInt(hex.substr(5,2),16));
       // Pale-family colors are flagged so 3D surface fills painted in
       // them render at partial opacity, matching Asymptote's PRC default
       // translucency for `palegreen` etc.
-      const props = {r, g, b};
+      const props = {r, g, b, _cs: (r === g && g === b) ? 'gray' : 'rgb'};
       if (/^pale(red|green|blue|cyan|magenta|yellow)$/.test(name) || name === 'pink') {
         props._pale = true;
       }
@@ -8696,12 +8985,16 @@ function createInterpreter() {
     env.set('intMax', 2147483647);
     env.set('intMin', -2147483648);
     env.set('realMax', Number.MAX_VALUE);
-    env.set('realMin', Number.MIN_VALUE);
+    env.set('realMin', 2.2250738585072014e-308);  // DBL_MIN (normalized), not the denormal MIN_VALUE
     // Core plain constants (not just three's): 12940's Newton loop stops at
     // `epsilon = 500*realEpsilon`; with realEpsilon unset it never stopped.
     env.set('realEpsilon', Number.EPSILON);
     env.set('sqrtEpsilon', Math.sqrt(Number.EPSILON));
     env.set('mantissaBits', 53);
+    // plain_arrows.asy / plain_Label.asy defaults (arrowlength = 0.75cm).
+    env.set('arrowlength', 0.75 * 72 / 2.54);
+    env.set('arrowangle', 15);
+    env.set('legendmargin', 10);
     env.set('I', makePair(0,1));
     env.set('origin', makePair(0,0));
     // Direction constants are set ONCE at the top of installStdlib (the
@@ -8716,7 +9009,7 @@ function createInterpreter() {
     env.set('Aspect', true);
     env.set('IgnoreAspect', false);
     env.set('nullpath', makePath([],false));
-    env.set('nullpen', makePen({opacity:0}));
+    env.set('nullpen', makePen({opacity:0, _cs:'invisible'}));
     env.set('currentpen', makePen({}));
     env.set('pathpen', makePen({r:0, g:0, b:1}));
     env.set('pointpen', makePen({}));
@@ -9589,7 +9882,7 @@ function createInterpreter() {
         }
       }
     });
-    env.set('invisible', makePen({opacity:0}));
+    env.set('invisible', makePen({opacity:0, _cs:'invisible'}));
     env.set('solid', makePen({linestyle:'solid'}));
 
     // Unit circle: 4 cubic Bezier segments approximating a circle
@@ -9697,7 +9990,8 @@ function createInterpreter() {
 
     // Units
     env.set('bp', 1);
-    env.set('pt', 1);
+    // plain_constants.asy: pt = 72/72.27 bp (a TeX point), so "12pt" is 11.955 bp.
+    env.set('pt', 72 / 72.27);
     env.set('cm', 72 / 2.54);
     env.set('mm', 72 / 25.4);
     env.set('inch', 72);
@@ -9801,6 +10095,7 @@ function createInterpreter() {
     env.set('acosh', _broadcast1(Math.acosh));
     env.set('atanh', _broadcast1(Math.atanh));
     env.set('abs', (x) => {
+      if (Array.isArray(x)) return x.map(v => env.get('abs')(v));
       if (isTriple(x)) return Math.sqrt(x.x*x.x + x.y*x.y + x.z*x.z);
       if (isPair(x)) return Math.sqrt(x.x*x.x + x.y*x.y);
       return Math.abs(toNumber(x));
@@ -9863,8 +10158,10 @@ function createInterpreter() {
       const segs = hobbySpline(knots, false, dirs);
       return makePath(segs, false);
     });
-    env.set('log', _broadcast1(Math.log));
-    env.set('exp', _broadcast1(Math.exp));
+    // exp/log of a pair are the complex functions.
+    { const _rLog = _broadcast1(Math.log), _rExp = _broadcast1(Math.exp);
+      env.set('log', (x) => isPair(x) ? makePair(Math.log(Math.hypot(x.x, x.y)), Math.atan2(x.y, x.x)) : _rLog(x));
+      env.set('exp', (x) => { if (!isPair(x)) return _rExp(x); const r = Math.exp(x.x); return makePair(r * Math.cos(x.y), r * Math.sin(x.y)); }); }
     env.set('log10', _broadcast1(Math.log10));
     env.set('log2', _broadcast1(Math.log2));
     env.set('pow', _broadcast2(Math.pow));
@@ -10036,6 +10333,13 @@ function createInterpreter() {
         for (const v of flat) { const n = toNumber(v); if (isFinite(n) && n < m) m = n; }
         return isFinite(m) ? m : 0;
       }
+      // min(T[] a, T[] b) / min(T[] a, T b): element-wise.
+      if (args.length === 2 && (isArray(args[0]) || isArray(args[1]))) {
+        const [a, b] = args, la = isArray(a), n = la ? a.length : b.length;
+        const out = [];
+        for (let i = 0; i < n; i++) { const x = toNumber(la ? a[i] : a), y = toNumber(isArray(b) ? b[i] : b); out.push(x < y ? x : y); }
+        return out;
+      }
       return Math.min(...args.map(toNumber));
     });
     env.set('max', (...args) => {
@@ -10065,6 +10369,13 @@ function createInterpreter() {
         let m = -Infinity;
         for (const v of flat) { const n = toNumber(v); if (isFinite(n) && n > m) m = n; }
         return isFinite(m) ? m : 0;
+      }
+      // max(T[] a, T[] b) / max(T[] a, T b): element-wise.
+      if (args.length === 2 && (isArray(args[0]) || isArray(args[1]))) {
+        const [a, b] = args, la = isArray(a), n = la ? a.length : b.length;
+        const out = [];
+        for (let i = 0; i < n; i++) { const x = toNumber(la ? a[i] : a), y = toNumber(isArray(b) ? b[i] : b); out.push(x > y ? x : y); }
+        return out;
       }
       return Math.max(...args.map(toNumber));
     });
@@ -10103,7 +10414,12 @@ function createInterpreter() {
       return toNumber(x) * 180 / Math.PI;
     });
     env.set('radians', (x) => toNumber(x) * Math.PI / 180);
-    env.set('Degrees', (x) => toNumber(x));  // already in degrees in Asymptote context
+    // Degrees(real radians) / Degrees(pair): degrees normalized to [0,360).
+    env.set('Degrees', (x) => {
+      let d = isPair(x) ? Math.atan2(x.y, x.x) * 180 / Math.PI : toNumber(x) * 180 / Math.PI;
+      d %= 360; if (d < 0) d += 360;
+      return d;
+    });
     env.set('Sin', _broadcast1(v => Math.sin(v*Math.PI/180)));
     env.set('Cos', _broadcast1(v => Math.cos(v*Math.PI/180)));
     env.set('Tan', _broadcast1(v => Math.tan(v*Math.PI/180)));
@@ -10280,6 +10596,12 @@ function createInterpreter() {
     env.set('zpart', (p) => isTriple(p) ? p.z : 0);
     env.set('interp', (a, b, t) => {
       const frac = toNumber(t);
+      // interp(pen a, pen b, t) = (1-t)*a + t*b: the colors blend.
+      if (isPen(a) && isPen(b)) {
+        const mix = (u, v) => u * (1 - frac) + v * frac;
+        const cs = (a._cs === 'rgb' || b._cs === 'rgb' || a.r !== a.g || a.g !== a.b || b.r !== b.g || b.g !== b.b) ? 'rgb' : a._cs;
+        return makePen(Object.assign({}, a, {r: mix(a.r, b.r), g: mix(a.g, b.g), b: mix(a.b, b.b), _cs: cs, _cmyk: null}));
+      }
       if (isTriple(a) || isTriple(b)) {
         const u = toTriple(a), v = toTriple(b);
         return makeTriple(u.x*(1-frac)+v.x*frac, u.y*(1-frac)+v.y*frac, u.z*(1-frac)+v.z*frac);
@@ -10312,6 +10634,8 @@ function createInterpreter() {
         }
         return makePath(segs, false);
       }
+      // cross(pair, pair) is the real z-component (math.asy), not a triple.
+      if (isPair(args[0]) && isPair(args[1])) return args[0].x*args[1].y - args[0].y*args[1].x;
       // cross(triple, triple) — 3D vector cross product
       const u = toTriple(args[0]), v = toTriple(args[1]);
       return makeTriple(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
@@ -11166,6 +11490,10 @@ function createInterpreter() {
     });
 
     env.set('reverse', (p) => {
+      // reverse(T[]) copy, reverse(string), reverse(int n) = {n-1,...,0}.
+      if (isArray(p)) return p.slice().reverse();
+      if (typeof p === 'string') return Array.from(p).reverse().join('');
+      if (typeof p === 'number') { const out = []; for (let i = Math.trunc(p) - 1; i >= 0; i--) out.push(i); return out; }
       if (!isPath(p)) return p;
       const rev = p.segs.slice().reverse().map(s => makeSeg(s.p3,s.cp2,s.cp1,s.p0));
       return makePath(rev, p.closed);
@@ -11663,10 +11991,19 @@ function createInterpreter() {
     // identity() — the 2D identity transform. Without this, `transform t = identity();`
     // leaves t undefined and `t*pair` collapses to (0,0), silently dropping non-rotated
     // geometry (e.g. 04422 drawHexAndTriangle with rotated=false). See attempt history.
-    env.set('identity', () => makeTransform(0,1,0,0,0,1));
+    // identity() transform; identity(int n) the n x n matrix; identity(real x) = x.
+    env.set('identity', (n) => {
+      if (typeof n !== 'number') return makeTransform(0,1,0,0,0,1);
+      if (!Number.isInteger(n)) return n;
+      const out = [];
+      for (let i = 0; i < n; i++) { const r = new Array(n).fill(0); r[i] = 1; out.push(r); }
+      return out;
+    });
 
     // Pen constructors
     env.set('rgb', (...args) => {
+      // rgb(pen): the same color in the rgb colorspace.
+      if (args.length === 1 && isPen(args[0])) return makePen(Object.assign({}, args[0], {_cs: 'rgb', _cmyk: null}));
       // rgb(r,g,b) with floats, or rgb("hexstring")
       if (args.length === 1 && isString(args[0])) {
         let hex = args[0].replace(/^#/,'');
@@ -11674,7 +12011,7 @@ function createInterpreter() {
         const ri = parseInt(hex.substr(0,2),16)/255;
         const gi = parseInt(hex.substr(2,2),16)/255;
         const bi = parseInt(hex.substr(4,2),16)/255;
-        return makePen({r:isNaN(ri)?0:ri, g:isNaN(gi)?0:gi, b:isNaN(bi)?0:bi});
+        return makePen({r:isNaN(ri)?0:ri, g:isNaN(gi)?0:gi, b:isNaN(bi)?0:bi, _cs:'rgb'});
       }
       let r = toNumber(args[0]), g = toNumber(args[1]), b = toNumber(args[2]);
       // Asymptote's rgb() officially expects 0-1 reals, but corpus diagrams
@@ -11686,10 +12023,14 @@ function createInterpreter() {
       if (r > 1 && g > 1 && b > 1 && r <= 255 && g <= 255 && b <= 255) {
         r /= 255; g /= 255; b /= 255;
       }
-      return makePen({r, g, b});
+      return makePen({r, g, b, _cs:'rgb'});
     });
-    env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255}));
-    env.set('linewidth', (w) => makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
+    env.set('RGB', (r,g,b) => makePen({r:toNumber(r)/255,g:toNumber(g)/255,b:toNumber(b)/255,_cs:'rgb'}));
+    // linewidth(pen)/fontsize(pen)/opacity(pen)/... are getters in asy;
+    // the real-argument forms build modifier pens.
+    // A bare `defaultpen` argument evaluates to the defaultpen() setter here.
+    const _getterPen = (v) => isPen(v) ? v : (typeof v === 'function' && v === env.get('defaultpen')) ? defaultPen : null;
+    env.set('linewidth', (w) => _getterPen(w) ? _getterPen(w).linewidth : makePen({linewidth:toNumber(w), _lwExplicit:true, _lwDirect:true}));
     // Asymptote thick()/Thick() thicken the stroke. For ordinary draws we still
     // treat them as a no-op (the corpus matched TeXeR with the default width),
     // but we tag the pen with `_thick` so a surface meshpen built from
@@ -11703,7 +12044,9 @@ function createInterpreter() {
       if (!isPath(pathArg)) return makePen({});
       return makePen({_nibPath: pathArg, _lwExplicit: true});
     });
-    env.set('fontsize', (s) => makePen({fontsize:toNumber(s), _fzExplicit:true}));
+    // fontsize is in bp like every other length, so fontsize(10pt) = 9.963.
+    // (The default pen keeps 12 where asy has 12pt = 11.955bp.)
+    env.set('fontsize', (s) => _getterPen(s) ? _getterPen(s).fontsize : makePen({fontsize:toNumber(s), _fzExplicit:true}));
     // Asymptote labelmargin(p) returns the small text padding used to push
     // labels off their anchor point. The renderer (see comment near line
     // ~21513) approximates Asymptote's value as 0.28*fontsize + 0.5*linewidth.
@@ -11726,17 +12069,43 @@ function createInterpreter() {
       return 15 * lw;
     });
     env.set('linetype', (...args) => {
+      // linetype(pen) getter: the dash pattern as real[] (plain_pens.asy values).
+      if (args.length === 1 && isPen(args[0])) {
+        const ls = args[0].linestyle;
+        const named = {dashed:[8,8], dotted:[0,4], longdashed:[24,8], dashdotted:[8,8,0,8], longdashdotted:[24,8,0,8], solid:[]};
+        if (!ls) return [];
+        if (named[ls]) return named[ls].slice();
+        return String(ls).trim().split(/\s+/).map(Number).filter(Number.isFinite);
+      }
       // linetype("dash pattern") or linetype(real[])
       let pattern = null;
       if (args.length >= 1 && isString(args[0])) pattern = args[0];
       return makePen({linestyle: pattern || 'dashed'});
     });
     env.set('linecap', (n) => {
+      if (isPen(n)) return {butt:0, round:1, square:2}[n.linecap] ?? 1;  // default roundcap
       const v = toNumber(n);
       const caps = ['butt','round','square'];
       return makePen({linecap: caps[v] || 'round'});
     });
-    env.set('opacity', (a) => makePen({opacity:toNumber(a)}));
+    env.set('opacity', (a) => isPen(a) ? a.opacity : makePen({opacity:toNumber(a)}));
+    env.set('linejoin', (n) => {
+      if (isPen(n)) return {miter:0, round:1, bevel:2}[n.linejoin] ?? 1;  // default roundjoin
+      return makePen({linejoin: ['miter','round','bevel'][toNumber(n)] || 'round'});
+    });
+    // colors(pen) / colorspace(pen). Pens carry an explicit _cs when made by
+    // gray()/rgb()/cmyk(); otherwise gray iff r == g == b (named grays, black,
+    // white, defaultpen), matching plain_pens.asy.
+    const _penCS = (p) => p._cs || (p.r === p.g && p.g === p.b ? 'gray' : 'rgb');
+    env.set('colorspace', (p) => isPen(p) ? _penCS(p) : '');
+    env.set('colors', (p) => {
+      if (!isPen(p)) return [];
+      const cs = _penCS(p);
+      if (cs === 'invisible') return [];
+      if (cs === 'cmyk' && p._cmyk) return p._cmyk.slice();
+      if (cs === 'gray') return [p.r];
+      return [p.r, p.g, p.b];
+    });
     env.set('Pen', (n) => makePen({}));
     env.set('Symbol', (...args) => null);
     env.set('fontcommand', (...args) => makePen({}));
@@ -11769,8 +12138,14 @@ function createInterpreter() {
       }
     }
     env.set('cmyk', (c,m,y,k) => {
+      // cmyk(pen): convert (k = 1 - max(r,g,b)); was toNumber(pen) = 0, i.e. white.
+      if (isPen(c)) {
+        const kk = 1 - Math.max(c.r, c.g, c.b), d = 1 - kk;
+        const cm = d > 0 ? [(1 - c.r - kk) / d, (1 - c.g - kk) / d, (1 - c.b - kk) / d, kk] : [0, 0, 0, 1];
+        return makePen(Object.assign({}, c, {_cs:'cmyk', _cmyk: cm}));
+      }
       const cc=toNumber(c),mm=toNumber(m),yy=toNumber(y),kk=toNumber(k);
-      return makePen({r:(1-cc)*(1-kk),g:(1-mm)*(1-kk),b:(1-yy)*(1-kk)});
+      return makePen({r:(1-cc)*(1-kk),g:(1-mm)*(1-kk),b:(1-yy)*(1-kk), _cs:'cmyk', _cmyk:[cc,mm,yy,kk]});
     });
     // gray is set as a pen constant from ASY_COLORS above.
     // gray(number) is handled specially in the function call evaluator.
@@ -12511,6 +12886,29 @@ function createInterpreter() {
       return (isArray(pts) && k >= 0 && k < pts.length) ? pts[k] : makePair(0,0);
     });
     env.set('IPs', (p1, p2) => invokeFunc(env.get('intersectionpoints'), [p1, p2]));
+    // cse5 d(A,B) = distance; CP(A, B, a=0, b=360) = CR(A, d(A,B), a, b); L = Line.
+    env.set('d', (A, B) => { const a = toPair(A), b = toPair(B); return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); });
+    env.set('CP', (A, B, ...rest) => {
+      const a = toPair(A), b = toPair(B);
+      return invokeFunc(env.get('CR'), [A, Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2), ...rest]);
+    });
+    env.set('L', (...args) => invokeFunc(env.get('Line'), args));
+    // olympiad.asy collinear/concurrent (same 1e-5 tolerances as olympiad).
+    env.set('collinear', (...args) => {
+      if (args.length < 3) return false;
+      const [A, B, C] = args.map(toPair);
+      const eq = (p, q) => p.x === q.x && p.y === q.y;
+      if (eq(A, B) || eq(B, C) || eq(A, C)) return true;
+      const u = (p, q) => { const dx = q.x - p.x, dy = q.y - p.y, l = Math.hypot(dx, dy); return makePair(dx / l, dy / l); };
+      const v = u(A, B), w = u(A, C);
+      return Math.hypot(v.x - w.x, v.y - w.y) < 1e-5 || Math.hypot(v.x + w.x, v.y + w.y) < 1e-5;
+    });
+    env.set('concurrent', (...args) => {
+      if (args.length < 6) return false;
+      const P = args.map(toPair), ext = env.get('extension');
+      const X = toPair(invokeFunc(ext, [P[0], P[1], P[2], P[3]])), Y = toPair(invokeFunc(ext, [P[2], P[3], P[4], P[5]]));
+      return Math.abs(X.x - Y.x) < 1e-5 && Math.abs(X.y - Y.y) < 1e-5;
+    });
     // cse5 capitalized aliases: IntersectionPoint(path,path) → pair, etc.
     env.set('IntersectionPoint', (...args) => invokeFunc(env.get('intersectionpoint'), args));
     env.set('IntersectionPoints', (...args) => invokeFunc(env.get('intersectionpoints'), args));
@@ -12659,11 +13057,6 @@ function createInterpreter() {
     env.set('CR', (...args) => {
       if (args.length >= 4) return invokeFunc(env.get('Arc'), args);
       return makeCirclePath(toPair(args[0]), toNumber(args[1]));
-    });
-    // CP(center, point) — cse5: Circle through `point`.
-    env.set('CP', (C, P) => {
-      const c = toPair(C), p = toPair(P);
-      return makeCirclePath(c, Math.hypot(p.x - c.x, p.y - c.y));
     });
 
     // MP (Marked Point) — cse5/olympiad: draws a dot + label, returns the pair
@@ -12952,14 +13345,19 @@ function createInterpreter() {
         }
       }
       if (!P || !Cc || r === null) return makePair(0, 0);
-      const Dx = P.x - Cc.x, Dy = P.y - Cc.y;
-      const d2 = Dx*Dx + Dy*Dy;
-      if (d2 <= r*r + 1e-12) return makePair(P.x, P.y);
-      const t = Math.sqrt(d2 - r*r);
-      const factor = r*r / d2, pf = r * t / d2;
-      const bx = Cc.x + factor * Dx, by = Cc.y + factor * Dy;
-      // perp(D) = (-Dy, Dx); n=1 uses +perp, n=2 uses -perp
-      return n === 2 ? makePair(bx + Dy*pf, by - Dx*pf) : makePair(bx - Dy*pf, by + Dx*pf);
+      // olympiad.asy verbatim: X = circle(O,r) ∩ O--P, then T = circle(P,R) ∩
+      // the graph Arc(O, r, deg(X-O), +180) (n=1) or (+180, +360) (n=2). The
+      // 4-Bezier circle and the 400-node Arc put T ~2e-4 off the exact tangent
+      // point, and that is where asy draws it.
+      const d = Math.hypot(P.x - Cc.x, P.y - Cc.y);
+      if (d < r) return makePair(Cc.x, Cc.y);
+      if (n !== 1 && n !== 2) return makePair(Cc.x, Cc.y);
+      const R = Math.sqrt(d*d - r*r);
+      const ip = env.get('intersectionpoint');
+      const bez = (c, rad) => makePath(_bezierCircleSegs(c.x, c.y, rad, rad), true);
+      const X = toPair(invokeFunc(ip, [bez(Cc, r), makePath([lineSegment(Cc, P)], false)]));
+      const a0 = Math.atan2(X.y - Cc.y, X.x - Cc.x) * 180 / Math.PI + (n === 2 ? 180 : 0);
+      return invokeFunc(ip, [bez(P, R), makeGraphArcPath(Cc, r, a0, a0 + 180, true)]);
     });
 
     // bisectorpoint(A, B): a point on the perpendicular bisector of segment AB.
@@ -13206,57 +13604,23 @@ function createInterpreter() {
     });
 
     // String functions
-    // Asymptote's `string(real)` uses defaultformat = "%.9g" which strips
-    // trailing zeros and the trailing decimal point. JS's String() prints
-    // the shortest faithful decimal, so values like 7/5*1.65 come out as
-    // "2.3099999999999996" instead of "2.31" (04083 axis tick labels).
-    const _asyStringReal = (x) => {
-      const n = Number(x);
-      if (!Number.isFinite(n)) return String(n);
-      if (Number.isInteger(n)) return String(n);
-      let s = n.toPrecision(9);
-      if (s.includes('e') || s.includes('E')) return s;
-      if (s.includes('.')) {
-        s = s.replace(/0+$/, '');
-        s = s.replace(/\.$/, '');
-      }
-      return s;
-    };
-    env.set('string', (x) => {
-      if (isPair(x)) return `(${_asyStringReal(x.x)},${_asyStringReal(x.y)})`;
-      if (typeof x === 'number') return _asyStringReal(x);
+    // asy string(real x, int digits=15) is %.{digits}g (see _asyRealToString);
+    // 15 digits also turns 7/5*1.65 = 2.3099999999999996 into "2.31" (04083).
+    env.set('string', (x, digits) => {
+      const dg = typeof digits === 'number' ? digits : undefined;
+      if (isPair(x)) return `(${_asyRealToString(x.x, dg)},${_asyRealToString(x.y, dg)})`;
+      if (typeof x === 'number') return _asyRealToString(x, dg);
       return String(x);
     });
+    // format(string fmt, real x) / format(real x) = format("$%.4g$", x)
+    // (plain.asy defaultformat). asy takes exactly one value.
     env.set('format', (fmt, ...vals) => {
-      let s = String(fmt);
-      let vi = 0;
-      // Match optional flags (-, +, 0, #, space), optional width, optional .prec, then type
-      s = s.replace(/%[-+0# ]*[0-9]*\.?[0-9]*[dfegs]/g, (spec) => {
-        if (vi >= vals.length) return spec;
-        const v = vals[vi++];
-        const type = spec[spec.length - 1];
-        if (type === 's') return String(v);
-        const n = toNumber(v);
-        const m = spec.match(/^%[-+0# ]*[0-9]*\.?([0-9]*)([dfegs])$/);
-        const prec = m && m[1] !== '' ? parseInt(m[1]) : undefined;
-        const altForm = spec.includes('#');
-        if (type === 'f') return n.toFixed(prec !== undefined ? prec : 6);
-        if (type === 'e') return n.toExponential(prec !== undefined ? prec : 6);
-        if (type === 'd') return String(Math.trunc(n));
-        if (type === 'g') {
-          const p = prec !== undefined ? (prec === 0 ? 1 : prec) : 6;
-          let r = n.toPrecision(p);
-          // %#g keeps trailing zeros; plain %g strips them
-          if (!altForm && r.includes('.') && !r.includes('e') && !r.includes('E'))
-            r = r.replace(/\.?0+$/, '');
-          return r;
-        }
-        return String(n);
-      });
-      return s;
+      if (typeof fmt === 'number' && !isString(vals[0])) return _asyFormat('$%.4g$', fmt);
+      if (!vals.length) return String(fmt);
+      return _asyFormat(fmt, vals[0]);
     });
     env.set('substr', (s, start, len) => String(s).substr(toNumber(start), len !== undefined ? toNumber(len) : undefined));
-    env.set('find', (s, sub) => {
+    env.set('find', (s, sub, pos) => {
       // find(bool[] a, int n=1): index of the nth true value (n<0 counts from
       // the end), or -1 if there are fewer than |n| true values. Distinct from
       // the string overload find(string, string) → indexOf.
@@ -13276,9 +13640,30 @@ function createInterpreter() {
         }
         return -1;
       }
-      return String(s).indexOf(String(sub));
+      return String(s).indexOf(String(sub), typeof pos === 'number' ? Math.max(0, pos) : 0);
     });
-    env.set('replace', (s, from, to) => String(s).replace(String(from), String(to)));
+    // replace(s, before, after) replaces every occurrence; replace(s, string[][])
+    // applies each {before, after} row.
+    env.set('replace', (s, from, to) => {
+      s = String(s);
+      if (isArray(from)) {
+        for (const row of from) if (isArray(row) && row.length >= 2 && String(row[0]) !== '') s = s.split(String(row[0])).join(String(row[1]));
+        return s;
+      }
+      return String(from) === '' ? s : s.split(String(from)).join(String(to));
+    });
+    // rfind(s, t, pos=-1): last occurrence starting at or before pos.
+    env.set('rfind', (s, t, pos) => {
+      s = String(s);
+      return typeof pos === 'number' && pos >= 0 ? s.lastIndexOf(String(t), pos) : s.lastIndexOf(String(t));
+    });
+    // insert(s, pos, t): asy only inserts when pos < length(s).
+    env.set('insert', (s, pos, t) => { s = String(s); const i = Math.trunc(toNumber(pos)); return i >= 0 && i < s.length ? s.slice(0, i) + String(t) + s.slice(i) : s; });
+    env.set('erase', (s, pos, n) => { s = String(s); const i = Math.trunc(toNumber(pos)); return n === undefined || toNumber(n) < 0 ? s.slice(0, i) : s.slice(0, i) + s.slice(i + Math.trunc(toNumber(n))); });
+    env.set('downcase', (s) => String(s).toLowerCase());
+    env.set('upcase', (s) => String(s).toUpperCase());
+    env.set('stripsuffix', (s, suf) => { s = String(s); suf = suf === undefined ? '' : String(suf); return suf && s.endsWith(suf) ? s.slice(0, s.length - suf.length) : s; });
+    env.set('stripprefix', (s, pre) => { s = String(s); pre = pre === undefined ? '' : String(pre); return pre && s.startsWith(pre) ? s.slice(pre.length) : s; });
     env.set('split', (s, delim) => String(s).split(delim !== undefined ? String(delim) : ','));
     env.set('minipage', (...args) => {
       let textArg = '';
@@ -13469,10 +13854,184 @@ const _HTX_DATA_FILES = {
       if (f && f._tag === 'func') return arr.map(v => callUserFuncValues(f, [v]));
       return [];
     });
-    env.set('sort', (arr) => {
+    // sort(T[] a): ascending with T's <; strings compare bytewise and T[][]
+    // rows lexicographically. sort(T[] a, bool less(T,T)) uses the predicate.
+    env.set('sort', (arr, less) => {
       if (!isArray(arr)) return arr;
-      return arr.slice().sort((a,b) => toNumber(a) - toNumber(b));
+      if (less && (typeof less === 'function' || less._tag === 'func' || less._tag === 'overload')) {
+        const lt = (a, b) => toBool(invokeFunc(less, [a, b]));
+        return arr.slice().sort((a, b) => lt(a, b) ? -1 : lt(b, a) ? 1 : 0);
+      }
+      const cmp = (a, b) => {
+        if (isArray(a) && isArray(b)) {
+          for (let i = 0; i < Math.min(a.length, b.length); i++) { const c = cmp(a[i], b[i]); if (c) return c; }
+          return a.length - b.length;
+        }
+        if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
+        return toNumber(a) - toNumber(b);
+      };
+      return arr.slice().sort(cmp);
     });
+    // search(T[] a, T key[, less]): index of the last element <= key in the
+    // sorted array a, -1 if key < a[0].
+    env.set('search', (a, key, less) => {
+      if (!isArray(a)) return -1;
+      const lt = less ? (x, y) => toBool(invokeFunc(less, [x, y]))
+        : (x, y) => (typeof x === 'string' ? x < y : toNumber(x) < toNumber(y));
+      let lo = 0, hi = a.length;  // first index with key < a[i]
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (lt(key, a[mid])) hi = mid; else lo = mid + 1; }
+      return lo - 1;
+    });
+    // stats.asy leastsquares(x, y[, w]) -> linefit {m, b, dm, db, r} (a plain
+    // object, so generic struct field access reads it).
+    env.set('leastsquares', (x, y, w) => {
+      const L = {m: 0, b: 0, dm: 0, db: 0, r: 0};
+      if (!isArray(x) || !isArray(y) || x.length < 2) return L;
+      const n = x.length, X = x.map(toNumber), Y = y.map(toNumber);
+      const W = isArray(w) ? w.map(toNumber) : X.map(() => 1);
+      let sx = 0, sy = 0, sw = 0, sxx0 = 0, sxy0 = 0, syy0 = 0;
+      for (let i = 0; i < n; i++) { sx += W[i]*X[i]; sy += W[i]*Y[i]; sw += W[i]; sxx0 += W[i]*X[i]*X[i]; sxy0 += W[i]*X[i]*Y[i]; syy0 += W[i]*Y[i]*Y[i]; }
+      const N = isArray(w) ? sw : n;
+      const sxx = N*sxx0 - sx*sx, sxy = N*sxy0 - sx*sy;
+      L.m = sxy / sxx; L.b = (sy - L.m*sx) / N;
+      if (n > 2) {
+        const syy = N*syy0 - sy*sy;
+        if (sxx === 0 || syy === 0) return L;
+        L.r = sxy / Math.sqrt(sxx*syy);
+        const arg = syy - sxy*sxy/sxx;
+        if (arg <= 0) return L;
+        const s = Math.sqrt(arg/(n-2));
+        L.dm = s*Math.sqrt(1/sxx);
+        L.db = s*Math.sqrt(1 + sx*sx/sxx)/N;
+      }
+      return L;
+    });
+    env.set('findall', (a) => { const out = []; if (isArray(a)) a.forEach((v, i) => { if (toBool(v)) out.push(i); }); return out; });
+    env.set('concat', (...arrs) => { const out = []; for (const a of arrs) if (isArray(a)) out.push(...a); return out; });
+    env.set('all', (a) => isArray(a) ? a.every(toBool) : toBool(a));
+    env.set('any', (a) => isArray(a) ? a.some(toBool) : toBool(a));
+    env.set('uniform', (a, b, n) => {
+      const A = toNumber(a), B = toNumber(b), N = Math.max(0, Math.round(toNumber(n)));
+      const out = [];
+      if (N === 0) { out.push(A); return out; }
+      for (let i = 0; i <= N; i++) out.push(A + (B - A) * (i / N));
+      return out;
+    });
+    // Dense linear algebra (math: determinant, inverse, solve) by Gaussian
+    // elimination with partial pivoting.
+    const _matSolve = (M, B) => { // M n x n, B n x m; X with M X = B, or null if singular
+      const n = M.length, m = B[0].length;
+      const A = M.map((r, i) => r.map(toNumber).concat(B[i].map(toNumber)));
+      for (let c = 0; c < n; c++) {
+        let p = c;
+        for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+        if (A[p][c] === 0) return null;
+        [A[c], A[p]] = [A[p], A[c]];
+        for (let r = 0; r < n; r++) {
+          if (r === c) continue;
+          const f = A[r][c] / A[c][c];
+          if (f) for (let k = c; k < n + m; k++) A[r][k] -= f * A[c][k];
+        }
+      }
+      return A.map((r, i) => r.slice(n).map(v => v / A[i][i]));
+    };
+    // inverse(transform) / inverse(real[][]).
+    env.set('inverse', (M) => {
+      if (isTransform(M)) {
+        const det = M.b * M.f - M.c * M.e;
+        if (!det) return makeTransform(0, 1, 0, 0, 0, 1);
+        const b = M.f / det, c = -M.c / det, e = -M.e / det, f = M.b / det;
+        return makeTransform(-(b * M.a + c * M.d), b, c, -(e * M.a + f * M.d), e, f);
+      }
+      if (!isArray(M) || !M.length) return M;
+      return _matSolve(M, M.map((r, i) => M.map((_, j) => i === j ? 1 : 0))) || M;
+    });
+    // shiftless(transform): the linear part (x = y = 0).
+    env.set('shiftless', (t) => isTransform(t) ? makeTransform(0, t.b, t.c, 0, t.e, t.f) : t);
+    env.set('determinant', (M) => {
+      if (!isArray(M) || !M.length) return 0;
+      const n = M.length, A = M.map(r => r.map(toNumber));
+      let det = 1;
+      for (let c = 0; c < n; c++) {
+        let p = c;
+        for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+        if (A[p][c] === 0) return 0;
+        if (p !== c) { [A[c], A[p]] = [A[p], A[c]]; det = -det; }
+        det *= A[c][c];
+        for (let r = c + 1; r < n; r++) { const f = A[r][c] / A[c][c]; for (let k = c; k < n; k++) A[r][k] -= f * A[c][k]; }
+      }
+      return det;
+    });
+    env.set('solve', (M, b) => {
+      if (!isArray(M) || !isArray(b) || !M.length) return b;
+      const vec = !isArray(b[0]);
+      const X = _matSolve(M, vec ? b.map(v => [v]) : b);
+      if (!X) return vec ? b.map(() => 0) : b;
+      return vec ? X.map(r => r[0]) : X;
+    });
+    env.set('abs2', (z) => isTriple(z) ? z.x*z.x + z.y*z.y + z.z*z.z : isPair(z) ? z.x*z.x + z.y*z.y : toNumber(z) ** 2);
+    // minbound/maxbound(pair a, pair b) and (pair[] a): component-wise bounds.
+    for (const [nm, f] of [['minbound', Math.min], ['maxbound', Math.max]]) {
+      env.set(nm, (...args) => {
+        const pts = args.length === 1 && isArray(args[0]) ? args[0].flat(2) : args;
+        if (!pts.length) return makePair(0, 0);
+        if (pts.some(isTriple)) { const t = pts.map(toTriple); return makeTriple(f(...t.map(v => v.x)), f(...t.map(v => v.y)), f(...t.map(v => v.z))); }
+        const q = pts.map(toPair);
+        return makePair(f(...q.map(v => v.x)), f(...q.map(v => v.y)));
+      });
+    }
+    env.set('hypot', (x, y) => Math.hypot(toNumber(x), toNumber(y)));
+    // byte(real) / byteinv(int): asy's 8-bit color quantization pair.
+    env.set('byte', (x) => { x = toNumber(x); return x >= 1 ? 255 : x <= 0 ? 0 : Math.floor(256 * x); });
+    env.set('byteinv', (b) => { b = Math.trunc(toNumber(b)); return b >= 255 ? 1 : b / 256; });
+    env.set('fabs', _broadcast1(Math.abs));
+    env.set('log1p', _broadcast1(Math.log1p));
+    env.set('expm1', _broadcast1(Math.expm1));
+    // erf / Bessel J_n, Y_n (integer order): power series, adequate for the
+    // moderate arguments diagrams use.
+    const _erf = (x) => {
+      const ax = Math.abs(x);
+      if (ax > 6) return Math.sign(x);
+      if (ax < 3) {
+        let term = x, sum = x;
+        for (let k = 1; k < 200; k++) { term *= -x * x / k; const d = term / (2 * k + 1); sum += d; if (Math.abs(d) < 1e-17 * Math.abs(sum)) break; }
+        return 2 / Math.sqrt(Math.PI) * sum;
+      }
+      // erfc continued fraction (modified Lentz) for 3 <= |x| <= 6
+      let f = ax, C = ax, D = 0;
+      for (let k = 1; k < 300; k++) {
+        const a = k / 2;
+        D = ax + a * D; D = 1 / D; C = ax + a / C; const delta = C * D; f *= delta;
+        if (Math.abs(delta - 1) < 1e-16) break;
+      }
+      return Math.sign(x) * (1 - Math.exp(-ax * ax) / (f * Math.sqrt(Math.PI)));
+    };
+    env.set('erf', _broadcast1(_erf));
+    env.set('erfc', _broadcast1(x => 1 - _erf(x)));
+    const _fact = (n) => { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; };
+    const _besselJ = (n, x) => {
+      n = Math.trunc(n); const sgn = n < 0 && (n & 1) ? -1 : 1; n = Math.abs(n);
+      let term = Math.pow(x / 2, n) / _fact(n), sum = term;
+      for (let k = 1; k < 300; k++) { term *= -(x * x / 4) / (k * (n + k)); sum += term; if (Math.abs(term) < 1e-17 * Math.abs(sum) && k > x) break; }
+      return sgn * sum;
+    };
+    const _besselY = (n, x) => {
+      n = Math.trunc(n); const sgn = n < 0 && (n & 1) ? -1 : 1; n = Math.abs(n);
+      const h = x / 2, EG = 0.5772156649015329;
+      let s1 = 0;
+      for (let k = 0; k < n; k++) s1 += _fact(n - k - 1) / _fact(k) * Math.pow(h, 2 * k - n);
+      let Hk = 0, Hnk = 0;
+      for (let j = 1; j <= n; j++) Hnk += 1 / j;
+      let s2 = 0, term = Math.pow(h, n) / _fact(n);
+      for (let k = 0; k < 300; k++) {
+        if (k > 0) { term *= -(h * h) / (k * (n + k)); Hk += 1 / k; Hnk += 1 / (n + k); }
+        const d = (Hk + Hnk - 2 * EG) * term; s2 += d;
+        if (k > x && Math.abs(d) < 1e-17 * Math.abs(s2)) break;
+      }
+      return sgn * (-s1 / Math.PI + 2 / Math.PI * Math.log(h) * _besselJ(n, x) - s2 / Math.PI);
+    };
+    env.set('Jn', (n, x) => _besselJ(toNumber(n), toNumber(x)));
+    env.set('Yn', (n, x) => _besselY(toNumber(n), toNumber(x)));
 
     // unityroot(n, k) — k-th nth root of unity (from math module)
     env.set('unityroot', (n, k) => {
@@ -13625,6 +14184,7 @@ const _HTX_DATA_FILES = {
       if (typeof a === 'boolean') return a ? 'true ' : 'false ';
       if (a && a._tag === 'triple') return `(${_fmtAsyNum(a.x)},${_fmtAsyNum(a.y)},${_fmtAsyNum(a.z)})`;
       if (a && a._tag === 'pair') return `(${_fmtAsyNum(a.x)},${_fmtAsyNum(a.y)})`;
+      if (a && a._tag === 'transform') return '(' + [a.a, a.d, a.b, a.c, a.e, a.f].map(_fmtAsyNum).join(',') + ')';
       if (Array.isArray(a)) return a.map(_fmtAsyVal).join('\n');
       if (a && a._tag === 'collection') {
         const items = _collectionIterItems(a);
@@ -14849,7 +15409,8 @@ const _HTX_DATA_FILES = {
         const xs = coreArgs[0], ys = coreArgs[1];
         const pts = [];
         for (let i = 0; i < Math.min(xs.length, ys.length); i++) {
-          pts.push({x: toNumber(xs[i]), y: toNumber(ys[i])});
+          // Per-picture scale (Log) applies here too, as in the pair[] form.
+          pts.push({x: _xT(toNumber(xs[i])), y: _yT(toNumber(ys[i]))});
         }
         return buildGraphPath(pts, smooth);
       }
@@ -18985,7 +19546,8 @@ const _HTX_DATA_FILES = {
     env.set('circumcircle', (...args) => {
       const pts = [];
       for (const a of args) {
-        if (isPoint(a)) pts.push(locatePoint(a));
+        if (isTriangleGeo(a)) pts.push(locatePoint(a.A), locatePoint(a.B), locatePoint(a.C));  // circumcircle(triangle t)
+        else if (isPoint(a)) pts.push(locatePoint(a));
         else if (isPair(a)) pts.push(a);
       }
       if (pts.length < 3) return null;
@@ -19005,7 +19567,8 @@ const _HTX_DATA_FILES = {
     env.set('incircle', (...args) => {
       const pts = [];
       for (const a of args) {
-        if (isPoint(a)) pts.push(locatePoint(a));
+        if (isTriangleGeo(a)) pts.push(locatePoint(a.A), locatePoint(a.B), locatePoint(a.C));  // incircle(triangle t)
+        else if (isPoint(a)) pts.push(locatePoint(a));
         else if (isPair(a)) pts.push(a);
       }
       if (pts.length < 3) return null;
@@ -19299,6 +19862,10 @@ const _HTX_DATA_FILES = {
     // foot(point P, point A, point B) — foot of perpendicular from P to line AB
     env.set('foot', (...args) => {
       const pts = [];
+      if (args.length === 1 && args[0] && args[0]._vertex) {
+        const {t, n} = args[0]._vertex, k = 'ABC';
+        args = [t[k[n]], t[k[(n + 1) % 3]], t[k[(n + 2) % 3]]];
+      }
       for (const a of args) {
         if (isPoint(a)) pts.push(a);
         else if (isPair(a)) {
@@ -20763,6 +21330,8 @@ const _HTX_DATA_FILES = {
         }
         return makePath(segs, false);
       }
+      // cross(pair, pair) is the real z-component (math.asy), not a triple.
+      if (isPair(args[0]) && isPair(args[1])) return args[0].x*args[1].y - args[0].y*args[1].x;
       // cross(triple, triple) — 3D vector cross product
       const u = toTriple(args[0]), v = toTriple(args[1]);
       return makeTriple(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
@@ -26712,6 +27281,12 @@ const _HTX_DATA_FILES = {
     if (args.length === 2 && isPair(args[0]) && isPair(args[1])) {
       return args[0].x*args[1].x + args[0].y*args[1].y;
     }
+    // dot(real[] a, real[] b) is the inner product.
+    if (args.length === 2 && isArray(args[0]) && isArray(args[1]) && args[0].length > 0 &&
+        args[0].every(v => typeof v === 'number') && args[1].every(v => typeof v === 'number')) {
+      let t = 0; for (let i = 0; i < Math.min(args[0].length, args[1].length); i++) t += args[0][i] * args[1][i];
+      return t;
+    }
     // Extract target picture if first arg is a picture
     let target = currentPic;
     if (args.length > 0 && args[0] && args[0]._tag === 'picture') {
@@ -31069,7 +31644,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd !== 'dot' || !dc.pos || typeof dc.pos.x !== 'number') continue;
       const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-      const direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
+      const direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 0.99));  // 0.99: 1pt = 0.996bp
       const dR = (direct ? 0.5 : dotfactor / 2) * dotLw;
       xs.push({ u: dc.pos.x, lo: -dR, hi: dR });
       ys.push({ u: dc.pos.y, lo: -dR, hi: dR });
@@ -31135,7 +31710,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot' && dc.pos && typeof dc.pos.x === 'number') {
         const dotLw = (dc.pen && dc.pen.linewidth) || 0.5;
-        const _direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
+        const _direct = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 0.99));  // 0.99: 1pt = 0.996bp
         const dR = (_direct ? 0.5 : dotfactor / 2) * dotLw;
         const dx = dc.pos.x * sx, dy = dc.pos.y * sy;
         if (dx - dR < bMinX) bMinX = dx - dR;
@@ -33044,7 +33619,7 @@ function renderSVG(result, opts) {
     for (const dc of drawCommands) {
       if (dc.cmd === 'dot') {
         const dotLw = dc.pen ? dc.pen.linewidth : 0.5;
-        const _useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
+        const _useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 0.99));  // 0.99: 1pt = 0.996bp
         // Add 0.5 bp safety margin to ensure dots at viewBox edges aren't clipped
         // due to floating-point rounding or the _autoScaledStrokeBoost applied at render time.
         const dotR = (_useDirectDiameter ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel + 0.5 * bpCSSPixel;
@@ -34450,7 +35025,7 @@ function renderSVG(result, opts) {
     const dc = drawCommands[ci];
     if (dc.cmd !== 'dot' || !dc.pos) continue;
     const dotLw = dc.pen.linewidth;
-    const _useDirectDiameter_lpush = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
+    const _useDirectDiameter_lpush = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 0.99));  // 0.99: 1pt = 0.996bp
     const dR = (_useDirectDiameter_lpush ? 0.5 : dotfactor / 2) * dotLw * bpCSSPixel;
     const key = `${dc.pos.x.toFixed(6)},${dc.pos.y.toFixed(6)}`;
     const prev = dotRadiusAtPos.get(key) || 0;
@@ -34977,7 +35552,7 @@ function renderSVG(result, opts) {
       //     w >= 1 (08663 `3+black`, 09162 `black+3`, 06256 `red+6`); when w < 1 the
       //     dotfactor*w/2 branch applies so the mark stays visible — 05891/05895
       //     `dp=black+0.75` render a ~4.5bp dot in TeXeR (measured), not 0.75bp.
-      const useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 1));
+      const useDirectDiameter = dc.pen && (dc.pen._lwDirect || (dc.pen._lwExplicit && dotLw >= 0.99));  // 0.99: 1pt = 0.996bp
       // Dot size on AUTO-SCALED diagrams: TeXeR's 600-DPI EPS pipeline renders
       // default-pen dots ~1.67x their nominal bp. Measured against the texer
       // references, auto-scaled dots are CONSISTENTLY ~1.7x native (09210 and
