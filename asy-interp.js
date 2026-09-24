@@ -3147,6 +3147,10 @@ function createInterpreter() {
   // Lexical scope. Hot path: every identifier read walks this chain, so
   // lookups are iterative, one Map probe per level, and maps are allocated
   // only when a scope actually binds something.
+  // Surfaces built from a profile curve sample each Bezier segment 12-16
+  // times; a long curve (graph() gives ~100 segments) then made 100 MB SVGs
+  // (12780, 12819). Keep the samples along one curve to about this many.
+  const _MAX_PROFILE_SAMPLES = 240;
   const _EMPTY_VARS = new Map();
   function Env(parent) {
     this.parent = parent;
@@ -21078,7 +21082,7 @@ const _HTX_DATA_FILES = {
         const axis = pos[2];
         // Sample the generator path into a list of triples (subdividing Beziers).
         const verts = [];
-        const SUB = 16;
+        const SUB = Math.max(2, Math.min(16, Math.ceil(_MAX_PROFILE_SAMPLES / Math.max(1, (g.segs || []).length))));
         const toT = (p) => {
           if (!p) return makeTriple(0,0,0);
           if (isTriple(p)) return p;
@@ -21256,7 +21260,7 @@ const _HTX_DATA_FILES = {
         if (pathArr) {
           const sampleLoop = (pth) => {
             const segs = pth.segs || [];
-            const SUB = 12;
+            const SUB = Math.max(2, Math.min(12, Math.ceil(_MAX_PROFILE_SAMPLES / Math.max(1, segs.length))));
             const out = [];
             const toT = (p) => isTriple(p) ? p : (isPair(p) ? makeTriple(p.x, p.y, 0) : makeTriple(p.x||0, p.y||0, p.z||0));
             if (segs.length === 0) return out;
@@ -21897,7 +21901,7 @@ const _HTX_DATA_FILES = {
           const segs = pth.segs || [];
           const out = [];
           const nodeIdx = []; // sample indices that correspond to original path NODES
-          const SUB = 12;
+          const SUB = Math.max(2, Math.min(12, Math.ceil(_MAX_PROFILE_SAMPLES / Math.max(1, segs.length))));
           const toT = (p) => {
             if (!p) return makeTriple(0,0,0);
             if (isTriple(p)) return p;
@@ -22014,7 +22018,7 @@ const _HTX_DATA_FILES = {
         const segs = pth.segs || [];
         if (segs.length === 0) continue;
         const pts = [];
-        const SUB = 12; // samples per Bezier segment
+        const SUB = Math.max(2, Math.min(12, Math.ceil(_MAX_PROFILE_SAMPLES / Math.max(1, segs.length)))); // samples per Bezier segment
         const isLinear = (s) => {
           // control points colinear with endpoints ⇒ straight segment
           const ax = s.p3.x - s.p0.x, ay = s.p3.y - s.p0.y;
