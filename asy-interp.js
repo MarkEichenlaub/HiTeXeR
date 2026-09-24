@@ -25602,7 +25602,10 @@ const _HTX_DATA_FILES = {
           // interpolation of position (for smooth silhouette) + bilinear-slerp
           // of corner normals (for smooth shading).
           // Use higher subdivision for palette-colored surfaces to reduce banding
-          const K = hasColors ? 8 : 4;
+          // ...but only as finely as a budget of ~60k sub-faces allows: a
+          // 12k-face surface split 8x8 made 770k paths (100 MB SVG, 12819).
+          const K = Math.max(1, Math.min(hasColors ? 8 : 4,
+            Math.floor(Math.sqrt(60000 / Math.max(1, mesh.faces.length)))));
           const lerp = (a, b, t) => a + (b - a) * t;
           const lerpN = (A, B, t) => ({x: lerp(A.x, B.x, t), y: lerp(A.y, B.y, t), z: lerp(A.z, B.z, t)});
           const norm = (v) => { const l = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z) || 1; return {x: v.x/l, y: v.y/l, z: v.z/l}; };
