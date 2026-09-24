@@ -12068,7 +12068,7 @@ function createInterpreter() {
       return {
         _tag: 'graphic', path: pathStr, options,
         width_bp: cached.width_bp, height_bp: cached.height_bp,
-        png_b64: cached.png_b64, transform: null
+        png_b64: cached.png_b64, href: cached.href || null, transform: null
       };
     });
 
@@ -34291,7 +34291,10 @@ function renderSVG(result, opts) {
         }
         // Dedupe identical image payloads via <symbol> + <use> in defs.
         let imgEl;
-        if (g._placeholder || !g.png_b64) {
+        if (!g._placeholder && !g.png_b64 && g.href) {
+          // A PNG served straight from the AoPS CDN (hosted page, no server).
+          imgEl = `<image x="${fmt(sx + dx)}" y="${fmt(sy + dy)}" width="${fmt(imgW)}" height="${fmt(imgH)}" href="${g.href}" preserveAspectRatio="none"/>`;
+        } else if (g._placeholder || !g.png_b64) {
           // Placeholder for unavailable images: render as a light gray rectangle with a diagonal cross
           const rx = sx + dx, ry = sy + dy;
           imgEl = `<g>` +

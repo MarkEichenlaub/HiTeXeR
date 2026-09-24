@@ -354,14 +354,14 @@ def _confirm_uploaded(filename, expected_size):
     return None
 
 
-def _post_upload(cookie_header, filename, eps_bytes):
+def _post_upload(cookie_header, filename, eps_bytes, content_type='application/postscript'):
     """One multipart POST.  Returns (cdn_url, status) where status is one of
     'ok', 'auth' (session stale), or 'exists'."""
     import requests
     resp = requests.post(
         AJAX_URL,
         headers={'Cookie': cookie_header},
-        files={'file': (filename, eps_bytes, 'application/postscript')},
+        files={'file': (filename, eps_bytes, content_type)},
         data={'a': 'upload_collection_file', 'collection_id': str(COLLECTION_ID)},
         timeout=120,
     )
@@ -518,6 +518,15 @@ def upload_image(data, filename, project_root=None):
         raise UploadError('AoPS did not accept the upload.')
 
     asy_path = _asy_path_from_url(url)
+
+    # A PNG copy next to the EPS lets the hosted HiTeXeR page, which has no
+    # server to rasterize EPS, show the picture (see htx-aops-upload.js).
+    if os.path.splitext(filename or '')[1].lower() in RASTER_EXTS | {'.svg'}:
+        try:
+            png, _size = _normalise_raster(data)
+            _post_upload(cookie_header, upload_name[:-4] + '.png', png, 'image/png')
+        except Exception:
+            pass
 
     png_b64 = None
     if project_root:

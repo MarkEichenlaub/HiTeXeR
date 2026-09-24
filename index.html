@@ -727,7 +727,7 @@ body {
 <body>
 
 <div id="toolbar">
-  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.104</span></h1>
+  <h1>HiTeXeR <span style="font-size:0.675em;font-weight:normal;opacity:0.6">v9.105</span></h1>
   <div class="menu-bar">
     <div class="menu-item" id="menu-file">
       <span>File</span>
@@ -1093,6 +1093,7 @@ label("$C$", C, N);
      pipeline, blink comparator, and its render workers load, so document
      segmentation has one source of truth across every surface. -->
 <script src="htx-doc-render.js?v=9.52"></script>
+<script src="htx-aops-upload.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/clike/clike.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
@@ -2979,6 +2980,13 @@ async function prefetchGraphicImages(code) {
       }
     }
   }
+  // No server (the hosted page): images uploaded from the hosted page have a
+  // PNG copy next to the EPS on the AoPS CDN, so show that instead.
+  const still = matches.filter(p => !window._graphicCache[p] || window._graphicCache[p].error);
+  if (still.length > 0 && window.HTXAopsUpload) {
+    const found = await Promise.all(still.map(p => HTXAopsUpload.companionPng(p)));
+    still.forEach((p, i) => { if (found[i]) window._graphicCache[p] = found[i]; });
+  }
   return window._graphicCache;
 }
 
@@ -3615,6 +3623,10 @@ async function applyFaithfulRaster() {
     if (!(cssW > 0 && cssH > 0)) continue;
     try {
       const xml = new XMLSerializer().serializeToString(svg);
+      // An SVG drawn as an <img> never loads external files, so a diagram
+      // showing a picture straight off the AoPS CDN would lose it. Leave
+      // that one as the live SVG.
+      if (/href="https?:/.test(xml)) continue;
       const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
       const img = new Image();
       await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
@@ -8602,6 +8614,20 @@ document.addEventListener('DOMContentLoaded', () => {
     statusEl.style.color = '#e9c46a';
     showWarnBadge('');
 
+    // The hosted page has no server to upload through, so it relays the
+    // upload through an AoPS tab signed in as the user (htx-aops-upload.js).
+    if (location.protocol === 'https:' && !HITEXER_EMBEDDED && window.HTXAopsUpload) {
+      let hosted;
+      try {
+        hosted = await HTXAopsUpload.upload(blob, shortName, (t) => { statusEl.textContent = t; });
+      } catch (e) {
+        statusEl.textContent = 'Image upload failed'; statusEl.style.color = '#e94560';
+        showWarnBadge(e.message);
+        return false;
+      }
+      return finishImageInsert(hosted);
+    }
+
     let data_b64;
     try {
       data_b64 = await blobToBase64(blob);
@@ -8662,7 +8688,11 @@ document.addEventListener('DOMContentLoaded', () => {
       showWarnBadge(lastErr);
       return false;
     }
+    return finishImageInsert(info);
+  }
 
+  function finishImageInsert(info) {
+    const statusEl = document.getElementById('status');
     // Seed the render cache so the first render draws the picture without
     // waiting on the CDN, which lags a fresh upload by a few seconds.
     window._graphicCache = window._graphicCache || {};
