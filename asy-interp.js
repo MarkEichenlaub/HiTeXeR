@@ -1762,6 +1762,27 @@ function parse(tokens) {
       if (STRUCT_NAMES.has(aType) && !at(T.LPAREN) && !at(T.LBRACKET) && !at(T.LBRACE)) {
         return {type:'NewStruct', name: aType, line: ln};
       }
+      // Anonymous function returning an array: new type[](params){ body }
+      // (syzygy.asy: bp.draw=new guide[] (picture pic, guide[] ins) {...}).
+      if (at(T.LBRACKET) && peekType(1) === T.RBRACKET) {
+        const saved = pos;
+        while (at(T.LBRACKET) && peekType(1) === T.RBRACKET) pos += 2;
+        if (at(T.LPAREN)) {
+          const afterBr = pos;
+          pos++;
+          let depth = 1;
+          while (depth > 0 && !at(T.EOF)) {
+            if (at(T.LPAREN)) depth++;
+            if (at(T.RPAREN)) depth--;
+            if (depth > 0) pos++;
+          }
+          if (at(T.RPAREN)) pos++;
+          const isFunc = at(T.LBRACE);
+          pos = afterBr;
+          if (isFunc) return parseFuncDeclBody(aType + '[]', '', ln);
+        }
+        pos = saved;
+      }
       // Anonymous function: new type(params){ body }
       if (at(T.LPAREN)) {
         const saved = pos;
@@ -2243,6 +2264,80 @@ function _buildCubeMesh() {
     _mkFace([c,g,h,d]),   // back    (normal +Y)
     _mkFace([d,h,e,a]),   // left    (normal -X)
   ]};
+}
+
+// asy `patch`: a bicubic Bezier patch (P is 4x4) or a cubic Bezier triangle
+// (triangular; P[i] has i+1 control points).
+function _makePatch(P, triangular) {
+  return {_tag:'patch', P, triangular: !!triangular, straight: false};
+}
+// patch.external(): the boundary path3 (three_surface.asy external() /
+// externaltriangular()).
+function _patchExternal(pt) {
+  const P = pt.P;
+  const segs = pt.triangular
+    ? [makeSeg(P[0][0], P[1][0], P[2][0], P[3][0]),
+       makeSeg(P[3][0], P[3][1], P[3][2], P[3][3]),
+       makeSeg(P[3][3], P[2][2], P[1][1], P[0][0])]
+    : [makeSeg(P[0][0], P[1][0], P[2][0], P[3][0]),
+       makeSeg(P[3][0], P[3][1], P[3][2], P[3][3]),
+       makeSeg(P[3][3], P[2][3], P[1][3], P[0][3]),
+       makeSeg(P[0][3], P[0][2], P[0][1], P[0][0])];
+  return makePath(segs, true);
+}
+// Point of a patch: P(u,v) = sum B_i(u) B_j(v) P[i][j]; a Bezier triangle at
+// barycentric (a,b,c) weights P[i][j] by 3!/(p!q!r!) a^p b^q c^r with
+// p=3-i, q=i-j, r=j (P[0][0], P[3][0], P[3][3] are the corners).
+function _patchPoint(pt, u, v) {
+  const P = pt.P;
+  let x = 0, y = 0, z = 0;
+  if (pt.triangular) {
+    const A = 1 - u, B = u - v, C = v, F = [1, 1, 2, 6];
+    for (let i = 0; i < 4; i++) for (let j = 0; j <= i; j++) {
+      const p = 3 - i, q = i - j, r = j;
+      const w = 6 / (F[p] * F[q] * F[r]) * Math.pow(A, p) * Math.pow(B, q) * Math.pow(C, r);
+      x += w * P[i][j].x; y += w * P[i][j].y; z += w * P[i][j].z;
+    }
+  } else {
+    const bern = t => { const s = 1 - t; return [s*s*s, 3*s*s*t, 3*s*t*t, t*t*t]; };
+    const bu = bern(u), bv = bern(v);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+      const w = bu[i] * bv[j];
+      x += w * P[i][j].x; y += w * P[i][j].y; z += w * P[i][j].z;
+    }
+  }
+  return makeTriple(x, y, z);
+}
+// surface(patch...) — tessellate each patch into flat faces; keep the patches
+// for s.s[k].
+function _patchSurface(patches, N) {
+  N = N || 16;
+  const faces = [];
+  for (const pt of patches) {
+    const G = [];
+    for (let i = 0; i <= N; i++) {
+      const row = [];
+      // Triangle: u runs corner P[0][0] -> edge P[3][*]; v in [0,u].
+      for (let j = 0; j <= (pt.triangular ? i : N); j++) {
+        row.push(_patchPoint(pt, i / N, j / N));
+      }
+      G.push(row);
+    }
+    const add = (vs) => { const fc = {vertices: vs}; fc.normal = faceNormal(fc); faces.push(fc); };
+    for (let i = 0; i < N; i++) {
+      if (pt.triangular) {
+        for (let j = 0; j <= i; j++) {
+          add([G[i][j], G[i+1][j], G[i+1][j+1]]);
+          if (j < i) add([G[i][j], G[i+1][j+1], G[i][j+1]]);
+        }
+      } else {
+        for (let j = 0; j < N; j++) add([G[i][j], G[i+1][j], G[i+1][j+1], G[i][j+1]]);
+      }
+    }
+  }
+  const mesh = makeMesh(faces);
+  mesh._patchSurf = true;
+  return {_tag:'surface', mesh, _patches: patches};
 }
 
 function _buildSphereMesh(nLon, nLat) {
@@ -2749,6 +2844,8 @@ function createInterpreter() {
   // Truesize frame content must NOT be rescaled by a picture-level size() — in
   // Asymptote a frame added via add(frame) keeps its absolute bp dimensions.
   let _trueSizeFrame = false;
+  // installGraphPackage's label-box estimator, for pic.fit() frame bounds.
+  let _labelBoxUHook = null;
   // Set when the diagram composes sub-pictures via add(picture) or reassigns
   // currentpicture — these composites carry their own fixed scale and TeXeR does
   // NOT fit them to the path-label ~400bp default (e.g. 06064 stays near literal).
@@ -4152,6 +4249,19 @@ function createInterpreter() {
       // NOTE: slot metadata (_sizeW/_fitSx/_fitMin*) deliberately NOT carried
       // onto transformed copies — both carry variants regressed 12862's
       // mirror-tile layout (0.544->0.03); the raw-content path wins there.
+      // Exception: a pure SHIFT of an unsized fitted frame (12713's
+      // f1p=shift(...)*f1p) keeps its source commands, moved by the shift,
+      // so add() still re-emits rotated axis titles, dots and arrowheads,
+      // and its label-inclusive bounds move with it.
+      const _pureShift = t.b === 1 && t.c === 0 && t.e === 0 && t.f === 1;
+      if (_pureShift && right._srcCommands && !right._sizeW && !right._sizeH && right._fitSx && right._fitSy) {
+        out._srcCommands = right._srcCommands;
+        out._fitSx = right._fitSx; out._fitSy = right._fitSy;
+        out._fitMinX = right._fitMinX - t.a / right._fitSx;
+        out._fitMinY = right._fitMinY - t.d / right._fitSy;
+        out.dots = (right.dots || []).map(D => Object.assign({}, D, { pos: makePair(D.pos.x + t.a, D.pos.y + t.d) }));
+        if (right._bbox) out._bbox = { minX: right._bbox.minX + t.a, maxX: right._bbox.maxX + t.a, minY: right._bbox.minY + t.d, maxY: right._bbox.maxY + t.d };
+      }
       return out;
     }
     // Transform ^ integer: repeated composition. t^0 = identity, t^n = t*t*…*t
@@ -4448,6 +4558,17 @@ function createInterpreter() {
     if (_DRAW_FUNCS.has(calleeName)) {
       const hasSpread = node.args.some(a => a && a.type === 'SpreadArg');
       const hasNamed = node.args.some(a => a && a.type === 'NamedArg');
+      // A struct member named draw/dot/... (syzygy's Braid.draw) is called
+      // when its signature fits; otherwise the builtin below runs.
+      if (callee && callee._tag === 'overload' && callee._member && !hasSpread && !hasNamed) {
+        const posVals = node.args.map(a => evalNode(a, env));
+        const picked = overloadSelect(callee, posVals, node.args.map(isIntExpr));
+        if (picked && typeof picked !== 'function') return callUserFuncValues(picked, posVals);
+        posVals._line = node._sourceLine || node.line || 0;
+        if (calleeName === 'label') return evalLabel(posVals);
+        if (calleeName === 'dot') return evalDot(posVals);
+        return evalDraw(calleeName, posVals);
+      }
       const args = (hasSpread || hasNamed) ? evalArgList(node.args, env) : node.args.map(a => evalNode(a, env));
       args._line = node._sourceLine || node.line || 0;
       if (calleeName === 'label') return evalLabel(args);
@@ -4556,6 +4677,9 @@ function createInterpreter() {
       if (!Array.isArray(val)) return false;
       const baseType = paramType.slice(0, -2);
       if (val.length === 0) return true;  // empty array matches any array type
+      // asy casts pair[] to guide[]/path[] (syzygy: Braid.draw(pic, pair[] ins)
+      // calls draw(picture, guide[], real)).
+      if ((baseType === 'guide' || baseType === 'path') && isPair(val[0])) return true;
       return argMatchesParamType(val[0], baseType);
     }
     switch (paramType) {
@@ -4776,6 +4900,10 @@ function createInterpreter() {
       return _asyHashValue(obj);
     }
 
+    if (obj && obj._tag === 'patch') {
+      if (method === 'external') return _patchExternal(obj);
+      if (method === 'point' && args.length >= 2) return _patchPoint(obj, toNumber(args[0]), toNumber(args[1]));
+    }
     if (obj && obj._tag === 'file') {
       // Mode setters return the file itself (input(f).line().csv() chains).
       if (method === 'line') { obj.lineMode = args.length ? !!toBool(args[0]) : true; return obj; }
@@ -5030,6 +5158,26 @@ function createInterpreter() {
           targetH = obj._sizeH || 0;
           if (obj._sizeAniso) keepAspect = false;
         }
+        // Per-axis unitsize picture (size(pic,x,y,min,max)): its scale is
+        // known now, so re-cut each tick mark to its true bp length (asy
+        // draws ticks at truesize; they were cut at draw time with a guessed
+        // scale, before size() was even called).
+        if (!targetW && !targetH && obj._unitSizeFromBox && obj._unitScaleX > 0 && obj._unitScaleY > 0) {
+          for (const dc of obj.commands) {
+            const ti = dc && dc._isTickMark && dc._tickIntent;
+            if (!ti || !(ti.lenBp > 0) || !dc.path || dc.path.segs.length !== 1) continue;
+            const sg = dc.path.segs[0];
+            const dx = sg.p3.x - sg.p0.x, dy = sg.p3.y - sg.p0.y;
+            if (Math.abs(dx) > 1e-12 && Math.abs(dy) > 1e-12) continue;  // axis-aligned only
+            const horiz = Math.abs(dx) > 0;
+            const len = ti.lenBp / (horiz ? obj._unitScaleX : obj._unitScaleY);
+            const sgn = horiz ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
+            const ax = sg.p0.x + ti.t * dx, ay = sg.p0.y + ti.t * dy;
+            const a = makePair(ax - (horiz ? sgn * ti.t * len : 0), ay - (horiz ? 0 : sgn * ti.t * len));
+            const b = makePair(ax + (horiz ? sgn * (1 - ti.t) * len : 0), ay + (horiz ? 0 : sgn * (1 - ti.t) * len));
+            dc.path = makePath([lineSegment(a, b)], false);
+          }
+        }
         // Compute user-coord bbox of the picture's geometry
         const gb = getGeoBbox(obj.commands);
         const userW = (gb.maxX - gb.minX) || 1;
@@ -5037,12 +5185,18 @@ function createInterpreter() {
         // A single-dim size (W,0)/(0,H) leaves the zero dimension FREE: the
         // constrained axis alone sets the scale (Infinity never wins the
         // keepAspect min()). Only with NO size at all fall back to 1:1.
+        // A per-picture unitsize (unitsize(pic,x,y) or size(pic,x,y,min,max))
+        // with no size: fit() just scales user coords, labels stay put.
+        const _unitFit = !targetW && !targetH && obj._unitSizeFromBox &&
+          obj._unitScaleX > 0 && obj._unitScaleY > 0;
         if (!targetW && !targetH) { targetW = userW; targetH = userH; }
         else { if (!targetW) targetW = Infinity; if (!targetH) targetH = Infinity; }
         // Compute scale to fit within target size
         let sx = targetW / userW;
         let sy = targetH / userH;
-        if (keepAspect) {
+        if (_unitFit) {
+          sx = obj._unitScaleX; sy = obj._unitScaleY;
+        } else if (keepAspect) {
           let s = Math.min(sx, sy);
           // Asymptote's size(pic, W) fits the ENTIRE picture bbox — including
           // label text extents — into W bp, not just the drawn geometry. Label
@@ -5227,6 +5381,21 @@ function createInterpreter() {
         // Store fitted size for min()/max() computations
         frame._fitW = userW * sx;
         frame._fitH = userH * sy;
+        // Label-inclusive frame bounds (asy's min(frame)/max(frame) include
+        // every label's box): 12713 stacks its Bode panels with
+        // shift(0, min(f1).y - max(f1p).y - margin), so the tick labels and
+        // axis titles must count or the panels overlap.
+        if (_unitFit) {
+          let bx0 = 0, by0 = 0, bx1 = frame._fitW, by1 = frame._fitH;
+          for (const dc of obj.commands) {
+            if (!dc || dc.cmd !== 'label' || !dc.pos) continue;
+            const box = _labelBoxUHook ? _labelBoxUHook(dc, sx, sy) : null;
+            if (!box) continue;
+            bx0 = Math.min(bx0, (box.lx - gb.minX) * sx); bx1 = Math.max(bx1, (box.rx - gb.minX) * sx);
+            by0 = Math.min(by0, (box.by - gb.minY) * sy); by1 = Math.max(by1, (box.ty - gb.minY) * sy);
+          }
+          frame._bbox = { minX: bx0, minY: by0, maxX: bx1, maxY: by1 };
+        }
         // Retain the original (unflattened) picture commands + the user→bp fit
         // transform so that add(picture dest, frame, position, align) can re-emit
         // them with full fidelity (arrowheads, dots-as-dots, bezier curves, pen
@@ -5920,10 +6089,11 @@ function createInterpreter() {
     }
     if (obj && obj._tag === 'surface') {
       // s.s → array of surface "patches" (for s.s[0].uequals(...) etc.)
-      if (m === 's') return [obj];
+      if (m === 's') return obj._patches ? obj._patches.slice() : [obj];
       if (m === 'mesh') return obj.mesh;
     }
     if (obj && obj._tag === 'revolution' && m === 'mesh') return obj.mesh;
+    if (obj && obj._tag === 'patch' && (m === 'P' || m === 'triangular' || m === 'straight')) return obj[m];
     if (obj && obj._tag === 'bounds') {
       if (m === 'min') return obj.min;
       if (m === 'max') return obj.max;
@@ -6322,6 +6492,8 @@ function createInterpreter() {
     let cycleDirIn = null; // direction spec before 'cycle' (e.g. ..{W}cycle)
     let cycleControlsIn = null; // explicit in-control before 'cycle' (e.g. ..controls P and Q..cycle)
     let cycleCurlIn = null; // ..{curl c}cycle
+    // ..controls c0 and c1.. keeps triples for path3 (12818's link tubes lost z).
+    const _ctlPt = v => isTriple(v) ? v : toPair(v);
 
     for (let i = 0; i < node.nodes.length; i++) {
       const n = node.nodes[i];
@@ -6329,14 +6501,14 @@ function createInterpreter() {
         hasCycle = true;
         if (n.dirIn) cycleDirIn = evalDirSpec(n.dirIn, env);
         if (n.dirIn && n.dirIn.curl) cycleCurlIn = toNumber(evalNode(n.dirIn.curl, env));
-        if (n.controlsIn) cycleControlsIn = toPair(evalNode(n.controlsIn, env));
+        if (n.controlsIn) cycleControlsIn = _ctlPt(evalNode(n.controlsIn, env));
         continue;
       }
       const val = evalNode(n.point, env);
       const eDirIn = evalDirSpec(n.dirIn, env);
       const eDirOut = evalDirSpec(n.dirOut, env);
-      const eControlsOut = n.controlsOut ? toPair(evalNode(n.controlsOut, env)) : null;
-      const eControlsIn = n.controlsIn ? toPair(evalNode(n.controlsIn, env)) : null;
+      const eControlsOut = n.controlsOut ? _ctlPt(evalNode(n.controlsOut, env)) : null;
+      const eControlsIn = n.controlsIn ? _ctlPt(evalNode(n.controlsIn, env)) : null;
       const nElems = elements.length;
       if (isPath(val) && val.segs.length > 0) {
         elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn, _origPath: val, _inlineCycle: _astHasInlineCycle(n.point)});
@@ -7220,10 +7392,27 @@ function createInterpreter() {
       if (existing && existing._tag === 'func') {
         env.set(node.name, {_tag:'overload', alts:[existing, func], name:node.name});
       } else if (existing && existing._tag === 'overload') {
-        env.set(node.name, {_tag:'overload', alts:[...existing.alts, func], name:node.name});
+        const ov = {_tag:'overload', alts:[...existing.alts, func], name:node.name};
+        if (existing._member) { ov.builtin = existing.builtin; ov._member = true; }
+        env.set(node.name, ov);
       } else if (typeof existing === 'function') {
         // User function overloading a builtin — preserve builtin as a fallback alt.
         env.set(node.name, {_tag:'overload', alts:[func], name:node.name, builtin:existing});
+      } else if (env._isObjEnv && !existing && typeof env.getFunc(node.name) === 'function') {
+        // A struct method named like a builtin (syzygy's Braid.draw) only
+        // overloads it: asy resolves draw(pic, guide) inside the struct to the
+        // global draw, since no member signature accepts a guide.
+        env.set(node.name, {_tag:'overload', alts:[func], name:node.name, builtin:env.getFunc(node.name), _member:true});
+      } else if (env._isObjEnv && !existing && env.getFunc(node.name)) {
+        // Likewise a method only overloads an outer user function: inside
+        // Syzygy, apply(r, b, step, place) is the global 4-arg apply, not the
+        // 3-arg member.
+        const outer = env.getFunc(node.name);
+        if (outer._tag === 'func' || outer._tag === 'overload') {
+          const ov = {_tag:'overload', alts:[...(outer._tag === 'func' ? [outer] : outer.alts), func], name:node.name, _member:true};
+          if (outer.builtin) ov.builtin = outer.builtin;
+          env.set(node.name, ov);
+        } else env.set(node.name, func);
       } else {
         env.set(node.name, func);
       }
@@ -7271,7 +7460,7 @@ function createInterpreter() {
     // real `exp(real)`: when called with a real, the builtin should win. Same
     // when the best user alt has an argument of an incompatible type: 12903's
     // `picture box(string s, pair z)` calls the builtin `box(pair, pair)`.
-    if (overload.builtin && (bestScore <= 0 || bestBad > 0)) return overload.builtin;
+    if (overload.builtin && (bestScore <= 0 || bestBad > 0) && !(overload._member && best && posVals.length === 0)) return overload.builtin;
     return best || alts[alts.length - 1];
   }
 
@@ -7290,6 +7479,812 @@ function createInterpreter() {
     }
     return null;
   }
+
+  // Source of Asymptote's syzygy.asy (see evalImport).
+  const _SYZYGY_ASY = String.raw`struct Component {
+
+  int in;
+  int out;
+
+  int[] connections;
+
+  string symbol;
+  string lsym;
+  string codename;
+
+  guide[] draw(picture pic, guide[] ins);
+}
+
+pair[] endpoints(guide[] a) {
+  pair[] z;
+  for (int i=0; i<a.length; ++i)
+    z.push(endpoint(a[i]));
+  return z;
+}
+
+pair min(pair[] z) {
+  pair m=(infinity, infinity);
+  for (int i=0; i<z.length; ++i) {
+    if (z[i].x < m.x)
+      m=(z[i].x,m.y);
+    if (z[i].y < m.y)
+      m=(m.x,z[i].y);
+  }
+  return m;
+}
+
+pair max(pair[] z) {
+  pair M=(-infinity, -infinity);
+  for (int i=0; i<z.length; ++i) {
+    if (z[i].x > M.x)
+      M=(z[i].x,M.y);
+    if (z[i].y > M.y)
+      M=(M.x,z[i].y);
+  }
+  return M;
+}
+
+real hwratio=1.4;
+real gapfactor=6;
+
+Component bp=new Component;
+bp.in=2; bp.out=2;
+bp.connections=new int[] {1,0};
+bp.symbol="B^+"; bp.lsym="b^+"; bp.codename="bp";
+bp.draw=new guide[] (picture pic, guide[] ins) {
+  pair[] z=endpoints(ins);
+  pair m=min(z), M=max(z);
+  real w=M.x-m.x, h=hwratio*w;
+  pair centre=(0.5(m.x+M.x),M.y+h/2);
+
+  real offset=gapfactor*linewidth(currentpen);
+  draw(pic, ins[1]..(centre-offset*NW){NW});
+  return new guide[] {(centre+offset*NW){NW}..z[0]+h*N,
+                                                ins[0]..centre{NE}..z[1]+h*N};
+};
+
+Component bm=new Component;
+bm.in=2; bm.out=2;
+bm.connections=new int[] {1,0};
+bm.symbol="B^-"; bm.lsym="b^-"; bm.codename="bm";
+bm.draw=new guide[] (picture pic, guide[] ins) {
+  pair[] z=endpoints(ins);
+  pair m=min(z), M=max(z);
+  real w=M.x-m.x, h=hwratio*w;
+  pair centre=(0.5(m.x+M.x),M.y+h/2);
+
+  real offset=gapfactor*linewidth(currentpen);
+  draw(pic, ins[0]..(centre-offset*NE){NE});
+  return new guide[] {ins[1]..centre{NW}..z[0]+h*N,
+                                            (centre+offset*NE){NE}..z[1]+h*N};
+};
+
+Component phi=new Component;
+phi.in=2; phi.out=1;
+phi.connections=new int[] {0,0};
+phi.symbol="\Phi"; phi.lsym="\phi"; phi.codename="phi";
+phi.draw=new guide[] (picture pic, guide[] ins) {
+  pair[] z=endpoints(ins);
+  pair m=min(z), M=max(z);
+  real w=M.x-m.x, h=hwratio*w;
+  pair centre=(0.5(m.x+M.x),M.y+h/2);
+
+  draw(pic, ins[0]..centre{NE});
+  draw(pic, ins[1]..centre{NW});
+  draw(pic, centre,linewidth(5*linewidth(currentpen)));
+  dot(pic, centre);
+  return new guide[] {centre..centre+0.5h*N};
+};
+
+Component wye=new Component;
+wye.in=1; wye.out=2;
+wye.connections=null;
+wye.symbol="Y"; wye.lsym="y"; wye.codename="wye";
+wye.draw=new guide[] (picture pic, guide[] ins) {
+  pair z=endpoint(ins[0]);
+  real w=10, h=hwratio*w;
+  pair centre=(z.x,z.y+h/2);
+
+  draw(pic, ins[0]..centre);
+  draw(pic, centre,linewidth(5*linewidth(currentpen)));
+  return new guide[] {centre{NW}..centre+(-0.5w,0.5h),
+                                    centre{NE}..centre+(0.5w,0.5h)};
+};
+
+struct Braid {
+
+  int n;
+
+  struct Placement {
+    Component c;
+    int place;
+
+    Placement copy() {
+      Placement p=new Placement;
+      p.c=this.c; p.place=this.place;
+      return p;
+    }
+  }
+  Placement[] places;
+
+  void add(Component c, int place) {
+    Placement p=new Placement;
+    p.c=c; p.place=place;
+    places.push(p);
+  }
+
+  void add(Braid sub, int place) {
+    for (int i=0; i<sub.places.length; ++i)
+      add(sub.places[i].c,sub.places[i].place+place);
+  }
+
+  guide[] drawStep(picture pic, Placement p, guide[] ins) {
+    int i=0,j=0;
+
+    Component c=p.c;
+
+    guide[] couts=c.draw(pic, ins[sequence(c.in)+p.place]);
+
+    pair M=max(endpoints(couts));
+
+    guide[] outs;
+    pair[] z=endpoints(ins);
+    while (i<p.place) {
+      outs.push(ins[i]..(z[i].x,M.y));
+      ++i;
+    }
+
+    outs.append(couts);
+    i+=c.in;
+
+    while (i<ins.length) {
+      outs.push(ins[i]..(z[i].x,M.y));
+      ++i;
+    }
+
+    return outs;
+  }
+
+  void drawEnd(picture pic, guide[] ins, real minheight=0) {
+    pair[] z=endpoints(ins);
+    for (int i=0; i<ins.length; ++i) {
+      draw(pic, z[i].y >= minheight ? ins[i] : ins[i]..(z[i].x,minheight));
+    }
+  }
+
+  void draw(picture pic, guide[] ins, real minheight=0) {
+    int steps=places.length;
+
+    guide[] nodes=ins;
+    for (int i=0; i<steps; ++i) {
+      Placement p=places[i];
+      nodes=drawStep(pic, places[i], nodes);
+    }
+
+    drawEnd(pic, nodes, minheight);
+  }
+
+  void draw(picture pic=currentpicture, real spacing=15,
+            real minheight=2hwratio*spacing) {
+    pair[] ins;
+    for (int i=0; i<n; ++i)
+      ins.push((spacing*i,0));
+
+    draw(pic, ins, minheight);
+  }
+
+  int in() {
+    return n;
+  }
+  int out() {
+    int steps=places.length;
+    int num=n;
+
+    for (int i=0; i<steps; ++i) {
+      Placement p=places[i];
+      int nextNum=num-p.c.in+p.c.out;
+      num=nextNum;
+    }
+    return num;
+  }
+
+  Braid copy() {
+    Braid b=new Braid;
+    b.n=this.n;
+    for (int i=0; i<this.places.length; ++i)
+      b.add(this.places[i].c,this.places[i].place);
+    return b;
+  }
+
+  static bool swapable(Placement p, Placement q) {
+    return  p.place + p.c.out <= q.place ||
+      q.place + q.c.in <= p.place;
+  }
+
+  Braid swap(int i, int j) {
+    if (i>j)
+      return swap(j,i);
+    else {
+      assert(j==i+1); assert(swapable(places[i],places[j]));
+
+      Placement p=places[i].copy();
+      Placement q=places[j].copy();
+
+      if (q.place + q.c.in <= p.place)
+
+        p.place+=q.c.out-q.c.in;
+      else if (p.place + p.c.out <= q.place)
+
+        q.place+=p.c.in-p.c.out;
+      else
+
+        assert(false, "swapable");
+
+      Braid b=this.copy();
+      b.places[i]=q;
+      b.places[j]=p;
+      return b;
+    }
+  }
+
+  bool moveable(int start, int end) {
+    assert(start<places.length); assert(end<places.length);
+    if (start==end)
+      return true;
+    else if (end<start)
+      return moveable(end,start);
+    else {
+      assert(start<end);
+      Placement p=places[start].copy();
+      for (int step=start; step<end; ++step) {
+        Placement q=places[step+1];
+        if (q.place + q.c.in <= p.place)
+
+          p.place+=q.c.out-q.c.in;
+        else if (p.place + p.c.out <= q.place)
+
+          continue;
+        else
+
+          return false;
+      }
+      return true;
+    }
+  }
+
+  bool matchComponent(Braid sub, int subindex, int place, int step) {
+    int i=subindex;
+    return sub.places[i].c == this.places[step].c &&
+      sub.places[i].place + place == this.places[step].place;
+  }
+
+  bool exactMatch(Braid sub, int place, int step) {
+    for (int i=0; i<sub.places.length; ++i) {
+      if (!matchComponent(sub, i, place, i+step)) {
+        write("match failed at iteration: ", i);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool tryMatch(Braid sub, int place, int size, int[] acc) {
+
+    if (acc.length >= sub.places.length)
+      return true;
+
+    Placement p=sub.places[acc.length];
+
+    for (int step=acc[acc.length-1]+1; step<this.places.length; ++step) {
+      Placement q=this.places[step];
+
+      if (q.place + q.c.in > place && q.place < place + size) {
+
+        if (p.c==q.c && p.place+place==q.place) {
+
+          acc.push(step);
+          return tryMatch(sub, place, size, acc);
+        }
+        else
+          return false;
+      }
+
+    }
+
+    return false;
+  }
+
+  int[] match(Braid sub, int place) {
+    for (int i=0; i<=this.places.length-sub.places.length; ++i) {
+
+      if (matchComponent(sub, 0, place, i)) {
+        int[] result;
+        result.push(i);
+        if (tryMatch(sub,place,sub.n,result))
+          return result;
+      }
+    }
+    return null;
+  }
+
+  static int advancePast(Placement p, int place) {
+
+    return place<p.place ? place :
+
+      p.place+p.c.in <= place ? place - p.c.in + p.c.out :
+
+      p.place + p.c.connections[place-p.place];
+  }
+
+  int advanceToStep(int step, int place) {
+    assert(place>=0 && place<n);
+    assert(step>=0 && step<places.length);
+
+    for (int i=0; i<step; ++i)
+      place=advancePast(places[i], place);
+
+    return place;
+  }
+
+  int pullbackWindowPlace(int step, int place,
+                          int w_place, int w_size) {
+    place=advanceToStep(step,place);
+    return place < w_place           ? 1 :
+      w_place + w_size <= place ? 0 :
+      place-w_place+2;
+  }
+
+  int pullbackPlace(int step, int place) {
+
+    Placement p=places[step];
+    return pullbackWindowPlace(step,place, p.place, p.c.in);
+
+  }
+
+  int[] pullbackWindow(int step, int w_place, int w_size) {
+    int[] a={1};
+    for (int place=0; place<n; ++place)
+      a.push(pullbackWindowPlace(step, place, w_place, w_size));
+    return a;
+  }
+
+  int[] pullback(int step) {
+    Placement p=places[step];
+    return pullbackWindow(step, p.place, p.c.in);
+
+  }
+
+  string stepToFormula(int step) {
+
+    string s="(1";
+    for (int place=0; place<n; ++place)
+
+      s+=(string)pullbackPlace(step, place);
+    s+=")^\star "+places[step].c.symbol;
+    return s;
+  }
+
+  string toFormula() {
+    if (places.length==0)
+      return "1";
+    else {
+      string s;
+      for (int step=0; step<places.length; ++step) {
+        if (step>0)
+          s+=" ";
+        s+=stepToFormula(step);
+      }
+      return s;
+    }
+  }
+
+  string windowToLinear(int step, int w_place, int w_size) {
+    int[] a=pullbackWindow(step, w_place, w_size);
+    string s="(";
+    for (int arg=1; arg<=w_size+1; ++arg) {
+      if (arg>1)
+        s+=",";
+      bool first=true;
+      for (int var=0; var<a.length; ++var) {
+        if (a[var]==arg) {
+          if (first)
+            first=false;
+          else
+            s+="+";
+          s+="x_"+(string)(var+1);
+        }
+      }
+    }
+    return s+")";
+  }
+
+  string windowToCode(int step, int w_place, int w_size) {
+    int[] a=pullbackWindow(step, w_place, w_size);
+    string s="[";
+    for (int arg=1; arg<=w_size+1; ++arg) {
+      if (arg>1)
+        s+=", ";
+      bool first=true;
+      for (int var=0; var<a.length; ++var) {
+        if (a[var]==arg) {
+          if (first)
+            first=false;
+          else
+            s+=" + ";
+          s+="x"+(string)(var+1);
+        }
+      }
+    }
+    return s+"]";
+  }
+
+  string stepToLinear(int step) {
+
+    Placement p=places[step];
+    return p.c.lsym+windowToLinear(step, p.place, p.c.in);
+
+  }
+
+  string stepToCode(int step) {
+    Placement p=places[step];
+    return p.c.codename+windowToCode(step, p.place, p.c.in);
+  }
+
+  string toLinear(bool subtract=false) {
+    if (places.length==0)
+      return subtract ? "0" : "";
+    else {
+      string s = subtract ? " - " : "";
+      for (int step=0; step<places.length; ++step) {
+        if (step>0)
+          s+= subtract ? " - " : " + ";
+        s+=stepToLinear(step);
+      }
+      return s;
+    }
+  }
+
+  string toCode(bool subtract=false) {
+    if (places.length==0)
+      return subtract ? "0" : "";
+    else {
+      string s = subtract ? " - " : "";
+      for (int step=0; step<places.length; ++step) {
+        if (step>0)
+          s+= subtract ? " - " : " + ";
+        s+=stepToCode(step);
+      }
+      return s;
+    }
+  }
+}
+
+struct Relation {
+  Braid lhs, rhs;
+
+  string lsym, codename;
+  bool inverted=false;
+
+  string toFormula() {
+    return lhs.toFormula() + " = " + rhs.toFormula();
+  }
+
+  string linearName() {
+    assert(lhs.n==rhs.n);
+    assert(lsym!="");
+
+    string s=(inverted ? "-" : "") + lsym+"(";
+    for (int i=1; i<=lhs.n+1; ++i) {
+      if (i>1)
+        s+=",";
+      s+="x_"+(string)i;
+    }
+    return s+")";
+  }
+
+  string fullCodeName() {
+    assert(lhs.n==rhs.n);
+    assert(codename!="");
+
+    string s=(inverted ? "minus" : "") + codename+"[";
+    for (int i=1; i<=lhs.n+1; ++i) {
+      if (i>1)
+        s+=", ";
+      s+="x"+(string)i+"_";
+    }
+    return s+"]";
+  }
+
+  string toLinear() {
+    return linearName() + " = " + lhs.toLinear() + rhs.toLinear(true);
+  }
+
+  string toCode() {
+    return fullCodeName() + " :> " + lhs.toCode() + rhs.toCode(true);
+  }
+
+  void draw(picture pic=currentpicture) {
+    picture left; lhs.draw(left);
+    frame l=left.fit();
+    picture right; rhs.draw(right);
+    frame r=right.fit();
+
+    real xpad=30;
+
+    add(pic, l);
+    label(pic, "=", (max(l).x + 0.5xpad, 0.25(max(l).y+max(r).y)));
+    add(pic, r, (max(l).x+xpad,0));
+  }
+}
+
+Relation operator- (Relation r) {
+  Relation opposite;
+  opposite.lhs=r.rhs;
+  opposite.rhs=r.lhs;
+  opposite.lsym=r.lsym;
+  opposite.codename=r.codename;
+  opposite.inverted=!r.inverted;
+  return opposite;
+}
+
+Braid apply(Relation r, Braid b, int step, int place) {
+  bool valid=b.exactMatch(r.lhs,place,step);
+  if (valid) {
+    Braid result=new Braid;
+    result.n=b.n;
+    for (int i=0; i<step; ++i)
+      result.places.push(b.places[i]);
+    result.add(r.rhs,place);
+    for (int i=step+r.lhs.places.length; i<b.places.length; ++i)
+      result.places.push(b.places[i]);
+    return result;
+  }
+  else {
+    write("Invalid match!");
+    return null;
+  }
+}
+
+picture tableau(frame[] cards, bool number=false) {
+  int n=cards.length;
+
+  pair M=(0,0);
+  for (int i=0; i<n; ++i) {
+    pair z=max(cards[i]);
+    if (z.x > M.x)
+      M=(z.x,M.y);
+    if (z.y > M.y)
+      M=(M.x,z.y);
+  }
+
+  picture pic;
+  real xpad=2.0, ypad=1.3;
+  void place(int index, real row, real column) {
+    pair z=((M.x*xpad)*column,(M.y*ypad)*row);
+    add(pic, cards[index], z);
+    if (number) {
+      label(pic,(string)index, z+(0.5M.x,0), S);
+    }
+  }
+
+  if (n<=4) {
+    for (int i=0; i<n; ++i)
+      place(i,0,i);
+  }
+  else {
+    int rows=quotient(n-1,2), columns=3;
+
+    place(0,rows-1,1);
+
+    for (int i=1; i<rows; ++i)
+      place(i, rows-i,2);
+
+    if (n%2==0) {
+      place(rows,0,2);
+      place(rows+1,0,1);
+      place(rows+2,0,0);
+    }
+    else {
+      place(rows,0,1.5);
+      place(rows+1,0,0.5);
+    }
+
+    for (int i=1; i<rows; ++i)
+      place(i+n-rows,i,0);
+  }
+
+  return pic;
+}
+
+struct Syzygy {
+
+  Braid initial=null;
+  bool cyclic=true;
+  bool showall=false;
+  bool number=false;
+
+  string lsym, codename;
+
+  bool watched=false;
+  bool uptodate=true;
+
+  struct Move {
+    Braid action(Braid);
+    Relation rel;
+    int place, step;
+  }
+
+  Move[] moves;
+
+  void apply(Relation r, int step, int place) {
+    Move m=new Move;
+    m.rel=r;
+    m.place=place; m.step=step;
+    m.action=new Braid (Braid b) {
+      return apply(r, b, step, place);
+    };
+    moves.push(m);
+
+    uptodate = false;
+  }
+
+  void swap(int i, int j) {
+    Move m=new Move;
+    m.rel=null;
+    m.action=new Braid (Braid b) {
+      return b.swap(i, j);
+    };
+    moves.push(m);
+
+    uptodate = false;
+  }
+
+  picture[] drawMoves() {
+    picture[] pics;
+
+    assert(initial!=null, "must set initial braid");
+    Braid b=initial;
+
+    picture pic;
+    b.draw(pic);
+    pics.push(pic);
+
+    for (int i=0; i<moves.length; ++i) {
+      b=moves[i].action(b);
+      if (showall || moves[i].rel != null) {
+        picture pic;
+        b.draw(pic);
+        pics.push(pic);
+      }
+    }
+
+    if (this.cyclic)
+      pics.pop();
+
+    return pics;
+  }
+
+  void draw(picture pic=currentpicture) {
+    pic.add(tableau(fit(drawMoves()), this.number));
+  }
+
+  void updatefunction() {
+    if (!uptodate) {
+      picture pic; this.draw(pic);
+      shipout(pic);
+      uptodate = true;
+    }
+  }
+
+  void oldupdatefunction() = null;
+
+  void watch() {
+    if (!watched) {
+      watched = true;
+      oldupdatefunction = atupdate();
+      atupdate(this.updatefunction);
+      uptodate = false;
+    }
+  }
+
+  void unwatch() {
+    assert(watched == true);
+    atupdate(oldupdatefunction);
+    uptodate = false;
+  }
+
+  string linearName() {
+    assert(lsym!="");
+
+    string s=lsym+"(";
+    for (int i=1; i<=initial.n+1; ++i) {
+      if (i>1)
+        s+=",";
+      s+="x_"+(string)i;
+    }
+    return s+")";
+  }
+
+  string fullCodeName() {
+    assert(codename!="");
+
+    string s=codename+"[";
+    for (int i=1; i<=initial.n+1; ++i) {
+      if (i>1)
+        s+=", ";
+      s+="x"+(string)i+"_";
+    }
+    return s+"]";
+  }
+
+  string toLinear() {
+    string s=linearName()+" = ";
+
+    Braid b=initial;
+    bool first=true;
+    for (int i=0; i<moves.length; ++i) {
+      Move m=moves[i];
+      if (m.rel != null) {
+        if (first) {
+          first=false;
+          if (m.rel.inverted)
+            s+=" - ";
+        }
+        else
+          s+=m.rel.inverted ? " - " : " + ";
+        s+=m.rel.lsym+b.windowToLinear(m.step, m.place, m.rel.lhs.n);
+      }
+      b=m.action(b);
+    }
+
+    return s;
+  }
+
+  string toCode() {
+    string s=fullCodeName()+" :> ";
+
+    Braid b=initial;
+    bool first=true;
+    for (int i=0; i<moves.length; ++i) {
+      Move m=moves[i];
+      if (m.rel != null) {
+        if (first) {
+          first=false;
+          if (m.rel.inverted)
+            s+=" - ";
+        }
+        else
+          s+=m.rel.inverted ? " - " : " + ";
+        s+=m.rel.codename+b.windowToCode(m.step, m.place, m.rel.lhs.n);
+      }
+      b=m.action(b);
+    }
+
+    return s;
+  }
+
+}
+
+Relation r3;
+r3.lhs.n=3;
+r3.lsym="\rho_3"; r3.codename="rho3";
+r3.lhs.add(bp,0); r3.lhs.add(bp,1); r3.lhs.add(bp,0);
+r3.rhs.n=3;
+r3.rhs.add(bp,1); r3.rhs.add(bp,0); r3.rhs.add(bp,1);
+
+Relation r4a;
+r4a.lhs.n=3;
+r4a.lsym="\rho_{4a}"; r4a.codename="rho4a";
+r4a.lhs.add(bp,0); r4a.lhs.add(bp,1); r4a.lhs.add(phi,0);
+r4a.rhs.n=3;
+r4a.rhs.add(phi,1); r4a.rhs.add(bp,0);
+
+Relation r4b;
+r4b.lhs.n=3;
+r4b.lsym="\rho_{4b}"; r4b.codename="rho4b";
+r4b.lhs.add(bp,1); r4b.lhs.add(bp,0); r4b.lhs.add(phi,1);
+r4b.rhs.n=3;
+r4b.rhs.add(phi,0); r4b.rhs.add(bp,0);`;
 
   function evalImport(node, env) {
     const mod = node.module.toLowerCase();
@@ -7420,6 +8415,13 @@ function createInterpreter() {
       ].join('\n');
       try { evalNode(parse(lex(_SPRING_ASY)), env); } catch (e) {
         try { console.warn('[HTX] spring module install failed: ' + (e && e.message)); } catch (e2) {}
+      }
+    }
+    if (mod === 'syzygy' || mod.endsWith('/syzygy')) {
+      // syzygy.asy (Andy Hammerlindl's braid/relation/syzygy drawer, 12890):
+      // the module source verbatim, comments stripped.
+      try { evalNode(parse(lex(_SYZYGY_ASY)), env); } catch (e) {
+        try { console.warn('[HTX] syzygy module install failed: ' + (e && e.message)); } catch (e2) {}
       }
     }
     return null;
@@ -10289,7 +11291,10 @@ function createInterpreter() {
     const _pqBoundsArg = (args) => {
       if (args.length !== 1) return null;
       const a = args[0];
-      const list = isPath(a) ? [a] : (isArray(a) && a.length && a.every(isPath)) ? a : null;
+      // A pair[] casts to path[] in asy, so max(z) of a pair[] is its
+      // upper-right corner, not a numeric max (syzygy's endpoints()).
+      const _asP = v => isPair(v) ? {_tag:'path', segs: [], closed: false, _singlePoint: v} : v;
+      const list = isPath(a) ? [a] : (isArray(a) && a.length && a.every(v => isPath(v) || isPair(v))) ? a.map(_asP) : null;
       if (!list) return null;
       let r = null;
       for (const p of list) {
@@ -10310,6 +11315,7 @@ function createInterpreter() {
       if (args.length===1 && args[0] && args[0]._tag === 'mframe') {
         // min(frame) — return (0, 0) as frames are origin-normalized by fit()
         const f = args[0];
+        if (f._bbox) return makePair(f._bbox.minX, f._bbox.minY);
         let minX = 0, minY = 0;
         for (const s of (f.strokes || [])) {
           for (const p of s.pts) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; }
@@ -10352,6 +11358,7 @@ function createInterpreter() {
       if (args.length===1 && args[0] && args[0]._tag === 'mframe') {
         // max(frame) — compute max corner from frame's strokes/fills
         const f = args[0];
+        if (f._bbox) return makePair(f._bbox.maxX, f._bbox.maxY);
         let maxX = f._fitW || 0, maxY = f._fitH || 0;
         for (const s of (f.strokes || [])) {
           for (const p of s.pts) { if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
@@ -11130,7 +12137,9 @@ function createInterpreter() {
           minY = pic._picLimits.ymin; maxY = pic._picLimits.ymax;
         }
         if (minX === undefined || minY === undefined) {
-          const gb = getGeoBbox(pic.commands);
+          // Tick marks are truesize (frame) decorations in asy, outside the
+          // user bounds point() reads (12713: they widened pic2 by 1.67 units).
+          const gb = getGeoBbox(pic.commands.filter(dc => !(dc && dc._isTickMark)));
           if (minX === undefined) { minX = gb.minX; maxX = gb.maxX; }
           if (minY === undefined) { minY = gb.minY; maxY = gb.maxY; }
         }
@@ -12214,6 +13223,18 @@ function createInterpreter() {
           }
           return makePair(bb.max.x - bb.min.x, bb.max.y - bb.min.y);
         }
+        // size(pic, x, y, pair min, pair max) is plain_picture.asy's
+        //   pair size=max-min; pic.unitsize(xsize/size.x, ysize/size.y);
+        // i.e. a per-axis unitsize, NOT a fit of the whole picture (labels
+        // and tick labels included) into x by y (12713's four Bode panels).
+        if (pairArgs.length >= 2 && numArgs.length >= 1) {
+          const xs = toNumber(numArgs[0]), ys = numArgs.length >= 2 ? toNumber(numArgs[1]) : xs;
+          const d = { x: pairArgs[1].x - pairArgs[0].x, y: pairArgs[1].y - pairArgs[0].y };
+          pic._unitScaleX = d.x !== 0 ? xs / d.x : 0;
+          pic._unitScaleY = d.y !== 0 ? ys / d.y : 0;
+          pic._unitSizeFromBox = true;
+          return;
+        }
         if (numArgs.length >= 1) pic._sizeW = toNumber(numArgs[0]);
         if (numArgs.length >= 2) pic._sizeH = toNumber(numArgs[1]);
         else if (numArgs.length === 1) pic._sizeH = pic._sizeW;
@@ -12244,6 +13265,36 @@ function createInterpreter() {
         // 3rd positional arg is keepAspect (e.g. size(w, h, IgnoreAspect))
         if (pos.length >= 3 && typeof pos[2] === 'boolean') keepAspect = pos[2];
       }
+    });
+    // fit(picture[] pictures): plain_arrows.asy fits every picture with the
+    // FIRST picture's sizing and pads each frame to the common bbox of all of
+    // them (fit2 draws m and M into each frame with nullpen), so every frame
+    // has the same min/max. Frames here are min-normalized, so shift each
+    // one's content by its own min minus the common min and record the
+    // common extent (max(frame) reads _fitW/_fitH). syzygy's tableau() lays
+    // its cards out from max(cards[i]).
+    env.set('fit', (...args) => {
+      const pics = args.find(a => Array.isArray(a) && a.every(p => p && p._tag === 'picture'));
+      if (!pics) return null;
+      if (!pics.length) return [];
+      const frames = pics.map(p => evalMethodCall(p, 'fit', [], env));
+      let mX = Infinity, mY = Infinity, MX = -Infinity, MY = -Infinity;
+      for (const f of frames) {
+        const x0 = f._fitMinX * f._fitSx, y0 = f._fitMinY * f._fitSy;
+        if (x0 < mX) mX = x0; if (y0 < mY) mY = y0;
+        if (x0 + f._fitW > MX) MX = x0 + f._fitW; if (y0 + f._fitH > MY) MY = y0 + f._fitH;
+      }
+      for (const f of frames) {
+        const dx = f._fitMinX * f._fitSx - mX, dy = f._fitMinY * f._fitSy - mY;
+        const mv = p => { p.x += dx; p.y += dy; };
+        for (const s of f.strokes) s.pts.forEach(mv);
+        for (const s of f.fills) s.pts.forEach(mv);
+        for (const L of f.labels) L.pos = makePair(L.pos.x + dx, L.pos.y + dy);
+        for (const D of f.dots) D.pos = makePair(D.pos.x + dx, D.pos.y + dy);
+        f._fitMinX = mX / f._fitSx; f._fitMinY = mY / f._fitSy;
+        f._fitW = MX - mX; f._fitH = MY - mY;
+      }
+      return frames;
     });
     env.set('defaultpen', (p) => {
       if (isPen(p)) {
@@ -12973,10 +14024,12 @@ function createInterpreter() {
       return false;
     });
     env.set('beginpoint', (p) => {
+      if (isPair(p)) return makePair(p.x, p.y);  // a pair casts to a one-node path
       const S = _pqSegsOf(p);
       return S.length ? makePair(S[0].p0.x, S[0].p0.y) : makePair(0,0);
     });
     env.set('endpoint', (p) => {
+      if (isPair(p)) return makePair(p.x, p.y);
       const S = _pqSegsOf(p);
       return S.length ? makePair(S[S.length-1].p3.x, S[S.length-1].p3.y) : makePair(0,0);
     });
@@ -12986,19 +14039,28 @@ function createInterpreter() {
       const n = isPath(p) ? p.segs.length : 0;
       const S = _pqSegsOf(p);
       if (!S.length) return makePair(0,0);
-      if (!n) return makePair(S[0].p0.x, S[0].p0.y);
+      // path3 controls stay triples (12818's tubes read precontrol(p3,1)).
+      const _o = q => isTriple(q) ? makeTriple(q.x, q.y, q.z) : makePair(q.x, q.y);
+      if (!n) return _o(S[0].p0);
       t = toNumber(t);
       if (p.closed) t = ((t % n) + n) % n;
       else {
-        if (t <= 0) { const q = post ? p.segs[0].cp1 : p.segs[0].p0; return makePair(q.x, q.y); }
-        if (t >= n) { const q = post ? p.segs[n-1].p3 : p.segs[n-1].cp2; return makePair(q.x, q.y); }
+        if (t <= 0) { const q = post ? p.segs[0].cp1 : p.segs[0].p0; return _o(q); }
+        if (t >= n) { const q = post ? p.segs[n-1].p3 : p.segs[n-1].cp2; return _o(q); }
       }
       const i = Math.floor(t), f = t - i;
       if (f === 0) {
         const q = post ? p.segs[i].cp1 : p.segs[(i - 1 + n) % n].cp2;
-        return makePair(q.x, q.y);
+        return _o(q);
       }
-      const [l, r] = _pqSplit(p.segs[i], f);
+      const sg = p.segs[i];
+      if (isTriple(sg.p0)) {
+        // de Casteljau in 3D: left cp2 = lerp(lerp01,lerp12), right cp1 = lerp(lerp12,lerp23)
+        const L = (a, b) => makeTriple(a.x + f*(b.x - a.x), a.y + f*(b.y - a.y), (a.z||0) + f*((b.z||0) - (a.z||0)));
+        const a1 = L(sg.p0, sg.cp1), a2 = L(sg.cp1, sg.cp2), a3 = L(sg.cp2, sg.p3);
+        return post ? L(a2, a3) : L(a1, a2);
+      }
+      const [l, r] = _pqSplit(sg, f);
       const q = post ? r.cp1 : l.cp2;
       return makePair(q.x, q.y);
     };
@@ -15706,6 +16768,7 @@ const _HTX_DATA_FILES = {
     // physical length as axis ticks instead of being treated as data-unit lengths.
     function _perpBpPerUnit(extDir, pic) {
       if (!pic) pic = currentPic;
+      if (pic._unitSizeFromBox) return extDir === 'x' ? pic._unitScaleX : pic._unitScaleY;
       const _gb = getGeoBbox(pic.commands);
       let rX = (_gb && isFinite(_gb.maxX - _gb.minX) && _gb.maxX > _gb.minX) ? Math.abs(_gb.maxX - _gb.minX) : 1;
       let rY = (_gb && isFinite(_gb.maxY - _gb.minY) && _gb.maxY > _gb.minY) ? Math.abs(_gb.maxY - _gb.minY) : 1;
@@ -15758,7 +16821,9 @@ const _HTX_DATA_FILES = {
         rY = Math.abs(_axisLimits.ymax - _axisLimits.ymin);
       }
       let alongBpPerUnit = 0;
-      if (sizeW > 0 || sizeH > 0) {
+      if (pic._unitSizeFromBox) {
+        alongBpPerUnit = dir === 'x' ? pic._unitScaleX : pic._unitScaleY;
+      } else if (sizeW > 0 || sizeH > 0) {
         let swA, shA;
         if (sizeW > 0 && sizeH > 0) { swA = sizeW; shA = sizeH; }
         else if (sizeW > 0) { swA = sizeW; shA = (rX > 0 && rY > 0) ? sizeW * (rY / rX) : sizeW; }
@@ -15871,6 +16936,8 @@ const _HTX_DATA_FILES = {
     // instrumented stock-asy runs show e.g. 00066's 150bp fit gives only
     // ~10.1bp/unit over 11.7 units (≈(150-32)/11.7), not 150/11.7.
     function _alongAxisBpPerUnit(axisDir, pic, min, max, overheadBp, spanOverride) {
+      // size(pic,x,y,min,max): a per-axis unitsize on this picture.
+      if (pic && pic._unitSizeFromBox) return axisDir === 'x' ? pic._unitScaleX : pic._unitScaleY;
       const oh = overheadBp || 0;
       const range = Math.abs(max - min) || 1;
       const _gb = getGeoBbox(pic.commands);
@@ -16064,6 +17131,7 @@ const _HTX_DATA_FILES = {
     // Estimated glyph box of a label command in user units (sX/sY = bp per
     // user unit). Width via CM advance widths; height ≈ 0.75em (calibrated:
     // 00111's "n" SE label puts TeXeR's frame bottom at -(0.75em+margin)).
+    _labelBoxUHook = (dc, sX, sY) => _labelBoxU(dc, sX, sY);
     function _labelBoxU(dc, sX, sY) {
       const t = dc.text || '';
       const clean = stripLaTeX(typeof t === 'string' ? t : '');
@@ -16335,6 +17403,9 @@ const _HTX_DATA_FILES = {
           } else {
             if (rX > 0) bpPerUnit = sw / rX;
           }
+        } else if (pic && pic._unitSizeFromBox) {
+          // size(pic,x,y,min,max): a per-axis unitsize on this picture.
+          bpPerUnit = _isXAxis ? pic._unitScaleY : pic._unitScaleX;
         } else if (hasUnitScale) {
           bpPerUnit = unitScale;
         } else {
@@ -16367,7 +17438,7 @@ const _HTX_DATA_FILES = {
           // marks at 0,2), so the 0.12*0.4=0.048 cap crushed 2mm ticks to ~0.5mm,
           // far shorter than TeXeR's. With a physical scale the 2mm tick is exactly
           // what Asymptote draws regardless of data range.
-          const scaleIsPhysical = (sizeW > 0 || sizeH > 0 || hasUnitScale);
+          const scaleIsPhysical = (sizeW > 0 || sizeH > 0 || hasUnitScale || !!(pic && pic._unitSizeFromBox));
           if (!scaleIsPhysical) {
             const cap = perpAxisRange * 0.12;
             if (defaultTickSize > cap) defaultTickSize = cap;
@@ -16432,6 +17503,8 @@ const _HTX_DATA_FILES = {
         } else {
           if (rX2 > 0) _ticksBpPerUnit = sw2 / rX2;
         }
+      } else if (pic && pic._unitSizeFromBox) {
+        _ticksBpPerUnit = _isXAxis ? pic._unitScaleY : pic._unitScaleX;
       } else if (hasUnitScale) {
         _ticksBpPerUnit = unitScale;
       } else {
@@ -16463,7 +17536,7 @@ const _HTX_DATA_FILES = {
       // (12995: 9.3bp vs TeXeR's 11.8bp total straddle; 06494: 4.5 vs 5.67).
       // Each tick command carries its intent so the renderer can rebuild it
       // at the FINAL scale (see the tick-truesize pass next to the Bar one).
-      const _scaleIsPhysicalT = (sizeW > 0 || sizeH > 0 || hasUnitScale);
+      const _scaleIsPhysicalT = (sizeW > 0 || sizeH > 0 || hasUnitScale || !!(pic && pic._unitSizeFromBox));
       const _majorSizeBp = ticks.sizeExplicit ? ticks.size : 5.669291339;
       const _minorSizeBp = ticks.subSizeExplicit ? ticks.subSize
         : (ticks.sizeExplicit ? 2.834645669 : _majorSizeBp * 0.5);
@@ -16733,13 +17806,13 @@ const _HTX_DATA_FILES = {
           const pp1 = isX ? {x:v, y:primaryOffset + inward*sz} : {x:primaryOffset + inward*sz, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(pp0, pp1)], false),
                              pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true,
-                             _tickTruesizeBp: _tts(0, szBp)});
+                             _tickTruesizeBp: _tts(0, szBp), _tickIntent: { t: 0, lenBp: szBp }});
           // Mirror axis tick (pointing inward, opposite direction)
           const mp0 = isX ? {x:v, y:mirrorOffset} : {x:mirrorOffset, y:v};
           const mp1 = isX ? {x:v, y:mirrorOffset - inward*sz} : {x:mirrorOffset - inward*sz, y:v};
           pic.commands.push({cmd:'draw', path: makePath([lineSegment(mp0, mp1)], false),
                              pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true,
-                             _tickTruesizeBp: _tts(0, szBp)});
+                             _tickTruesizeBp: _tts(0, szBp), _tickIntent: { t: 0, lenBp: szBp }});
           return;
         }
         // Asymptote semantics: LeftTicks/RightTicks name the hand side of the
@@ -16772,7 +17845,8 @@ const _HTX_DATA_FILES = {
         }
         const tickPath = makePath([lineSegment(p0, p1)], false);
         pic.commands.push({cmd:'draw', path:tickPath, pen:tickPen, arrow:null, line:0, above: above ? 1 : 0, _axisPrepend: !above, _isTickMark: true,
-                           _tickTruesizeBp: _tts(_anchorT, _anchorT === 0.5 ? 2 * szBp : szBp)});
+                           _tickTruesizeBp: _tts(_anchorT, _anchorT === 0.5 ? 2 * szBp : szBp),
+                           _tickIntent: { t: _anchorT, lenBp: _anchorT === 0.5 ? 2 * szBp : szBp }});
       }
 
       // Draw major ticks (skip when size was explicitly set to near-zero, or
@@ -17332,9 +18406,12 @@ const _HTX_DATA_FILES = {
         const lo = Math.ceil(xmin - 1e-9);
         const hi = Math.floor(xmax + 1e-9);
         for (let k = lo; k <= hi; k++) positions.push(k);
+        // Ticks(N=k) on a log axis: a major tick every decade, a label every
+        // k-th one starting from the first (graph.asy: `i += N` over Ticks).
+        const _labN = (ticks.logN > 1) ? ticks.logN : 1;
         xTicks = Object.assign({}, ticks, {
           positions: positions,
-          labelFunc: (v) => '$10^{' + Math.round(v) + '}$',
+          labelFunc: (v) => ((Math.round(v) - lo) % _labN === 0) ? '$10^{' + Math.round(v) + '}$' : '',
           step: 1,
         });
         if (typeof process !== 'undefined' && process.env && process.env.HTX_SCALE_DBG) {
@@ -18022,7 +19099,7 @@ const _HTX_DATA_FILES = {
         const baseStr = yLogBase === Math.E ? 'e' : String(Math.round(yLogBase));
         yTicks = Object.assign({}, ticks, {
           positions: positions,
-          labelFunc: (v) => '$' + baseStr + '^{' + Math.round(v) + '}$',
+          labelFunc: (v) => ((Math.round(v) - lo) % ((ticks.logN > 1) ? ticks.logN : 1) === 0) ? '$' + baseStr + '^{' + Math.round(v) + '}$' : '',
           step: 1,
         });
       }
@@ -18713,6 +19790,9 @@ const _HTX_DATA_FILES = {
         else if (a && a._tag === 'label') { t.labels = true; t.explicitLabelArg = true; if (a.text) t.format = a.text; if (a.pen) t.labelPen = a.pen; if (a.align) t.labelAlign = a.align; if (a.filltype) t.labelFill = a.filltype; }
         else if (a && a._tag === 'tickmod') { if (a.noZero) t.noZero = true; if (a.noZeroLabel) t.noZeroLabel = true; }
         else if (a && typeof a === 'object' && a._named) {
+          // N= on a log axis is the label stride in decades (graph.asy
+          // generateticks); kept apart from `step` for that use only.
+          if ('N' in a && typeof a.N === 'number') t.logN = Math.round(a.N);
           if ('format' in a && typeof a.format === 'string') { t.format = a.format; t.labels = true; }
           else if ('format' in a && a.format && a.format._tag === 'label') {
             // format = Label(...) named arg. The blank-label idiom Label(" ")
@@ -19289,7 +20369,7 @@ const _HTX_DATA_FILES = {
       // SW=(-1,-1)→(minX,minY), NE=(1,1)→(maxX,maxY), etc.
       if (args.length >= 2 && args[0] && args[0]._tag === 'picture' && isPair(args[1])) {
         const pic = args[0], d = args[1];
-        const gb = getGeoBbox(pic.commands);
+        const gb = getGeoBbox(pic.commands.filter(dc => !(dc && dc._isTickMark)));
         const cx = (gb.minX + gb.maxX) / 2;
         const cy = (gb.minY + gb.maxY) / 2;
         const hx = (gb.maxX - gb.minX) / 2;
@@ -21640,6 +22720,11 @@ const _HTX_DATA_FILES = {
     // surface(): wrap mesh, capture boundary path, or tessellate parametric f
     env.set('surface', (...args) => {
       const pos = args.filter(a => !(a && a._named));
+      // surface(patch...) / surface(patch[]) — the patches themselves.
+      {
+        const flat = pos.flat ? pos.flat() : pos;
+        if (flat.length && flat.every(a => a && a._tag === 'patch')) return _patchSurface(flat);
+      }
       // surface(triple c, path3 g, triple axis) — surface of revolution of g
       // around the line through c with direction `axis`. Translate g by -c,
       // build a revolution about `axis`, then translate back by +c. The
@@ -22315,11 +23400,29 @@ const _HTX_DATA_FILES = {
     env.set('tube', (...args) => {
       const p = args.find(a => isPath(a));
       if (!p) return {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: makePath([], false)};
-      // Build a thin tubular mesh: sample path, at each sample make a small circular ring
-      const r = args.find(a => typeof a === 'number') || 0.1;
+      // Build a thin tubular mesh: sample path, at each sample make a small circular ring.
+      // three_tube.asy: tube(path3 p, real width) has radius r=0.5*width.
+      const _w = args.find(a => typeof a === 'number');
+      const r = _w ? 0.5 * _w : 0.1;
       const samples = [];
       if (p.segs) {
-        for (const s of p.segs) if (s.p0 && isTriple(s.p0)) samples.push(s.p0);
+        // Sample each Bezier segment (not just its nodes) so a curved center
+        // line gives a smooth tube rather than a polyline of cylinders.
+        const _sub = Math.max(1, Math.min(6, Math.ceil(240 / Math.max(1, p.segs.length))));
+        for (const s of p.segs) {
+          if (!(s.p0 && isTriple(s.p0))) continue;
+          const straight = [s.cp1, s.cp2].every((c, j) => c && Math.abs(c.x - (s.p0.x + (j + 1) / 3 * (s.p3.x - s.p0.x))) < 1e-9 &&
+            Math.abs(c.y - (s.p0.y + (j + 1) / 3 * (s.p3.y - s.p0.y))) < 1e-9 && Math.abs(c.z - (s.p0.z + (j + 1) / 3 * (s.p3.z - s.p0.z))) < 1e-9);
+          const nS = straight ? 1 : _sub;
+          samples.push(s.p0);
+          for (let k = 1; k < nS; k++) {
+            const t = k / nS, u = 1 - t;
+            const w0 = u*u*u, w1 = 3*u*u*t, w2 = 3*u*t*t, w3 = t*t*t;
+            samples.push(makeTriple(w0*s.p0.x + w1*s.cp1.x + w2*s.cp2.x + w3*s.p3.x,
+                                    w0*s.p0.y + w1*s.cp1.y + w2*s.cp2.y + w3*s.p3.y,
+                                    w0*(s.p0.z||0) + w1*(s.cp1.z||0) + w2*(s.cp2.z||0) + w3*(s.p3.z||0)));
+          }
+        }
         const lastSeg = p.segs[p.segs.length-1];
         if (lastSeg && lastSeg.p3 && isTriple(lastSeg.p3)) samples.push(lastSeg.p3);
       }
@@ -22433,6 +23536,38 @@ const _HTX_DATA_FILES = {
       return {_tag: 'surface'};
     });
     // Primitive meshes (higher resolution for smoother shading)
+    // octant1 (three_surface.asy): the first-octant piece of the unit sphere
+    // as asy builds it, a bicubic patch plus a Bezier triangle capping the
+    // pole. The control points are asy 3.06's octant1(0.95), computed once
+    // (the construction needs hsplit and a normal-matching solve).
+    {
+      const T = (x, y, z) => makeTriple(x, y, z);
+      const a = 0.55228474983079345, b = 0.52467051233925377, c = 0.59593698672229112,
+        d = 0.95496705123392533, e = 0.082015548008343736, f = 0.9966850288425444,
+        g = 0.32912690962683738, h = 0.045295936414023547, k = 0.054967051233925424,
+        l = 0.99888071187457694, m = 0.040501718658684925, n = 0.027614237491539698;
+      const P0 = [
+        [T(1,0,0), T(1,0,b), T(c,0,d), T(e,0,f)],
+        [T(1,a,0), T(1,a,b), T(c,g,d), T(e,h,f)],
+        [T(a,1,0), T(a,1,b), T(g,c,d), T(h,e,f)],
+        [T(0,1,0), T(0,1,b), T(0,c,d), T(0,e,f)],
+      ];
+      const P1 = [
+        [T(e,0,f)],
+        [T(e,h,f), T(k,0,l)],
+        [T(h,e,f), T(m,m,1), T(n,0,1)],
+        [T(0,e,f), T(0,k,l), T(0,n,1), T(0,0,1)],
+      ];
+      env.set('octant1', _patchSurface([_makePatch(P0, false), _makePatch(P1, true)]));
+      // octant1x: the degenerate single-patch first octant (a^2 = 0.3050...).
+      const a2 = 0.3050184448956621;
+      env.set('octant1x', _makePatch([
+        [T(1,0,0), T(1,0,a), T(a,0,1), T(0,0,1)],
+        [T(1,a,0), T(1,a,a), T(a,a2,1), T(0,0,1)],
+        [T(a,1,0), T(a,1,a), T(a2,a,1), T(0,0,1)],
+        [T(0,1,0), T(0,1,a), T(0,a,1), T(0,0,1)],
+      ], false));
+    }
     env.set('unitsphere', _buildSphereMesh(48, 24));
     env.set('unitdisk', _buildDiskMesh(48));
     env.set('unitplane', _buildSquareMesh());
@@ -28254,6 +29389,51 @@ const _HTX_DATA_FILES = {
           { off: 100, c: _mkStop(0.28, 0.00) },
         ];
       }
+      // Default Headlamp, bare pen: shade the ball with a camera-relative
+      // diffuse law fitted to TeXeR (constants below). The calibrated profile
+      // above sat the focal ~0.55 of the way in and floored the shadow at
+      // 0.28, so lower-left rims came out twice as bright as TeXeR's
+      // near-black ones (06801 left edge 0.60 vs 0.29, 10297 lower-left 0.43
+      // vs 0.19). The gradient runs from the lit pole (the focal) through the
+      // centre to the dark pole; stops sample the law along that diameter.
+      // The white specular spot at the half-vector is a separate translucent
+      // overlay (below).
+      let _specSpot = null, _gradC = { x: ccx, y: ccy, r: radius };
+      if (_isHeadlamp && !_useEmissiveModel) {
+        // Fitted to TeXeR's 06801 balls (rms 0.014 over nine samples):
+        // I = 1.40 (n.L) - 0.38 with the lit pole at 0.30 right, 0.34 up,
+        // 0.89 toward the viewer — higher and less to the right than
+        // Headlamp's nominal dir(42,48), with a harder terminator than bare
+        // Lambert (00475's balls read the same way).
+        const LA = -0.38, LB = 1.40;
+        const Lr = 0.30, Lu = 0.34, Lv = 0.89;
+        const wLx = Lr*rxScreen + Lu*upx + Lv*vx, wLy = Lr*ryScreen + Lu*upy + Lv*vy, wLz = Lr*rzScreen + Lu*upz + Lv*vz;
+        const rho = Math.min(0.92, Math.hypot(Lr, Lu));
+        const pL = projectTriple(makeTriple(sc.x + sr*wLx, sc.y + sr*wLy, sc.z + sr*wLz));
+        const pdx = pL.x - ccx, pdy = pL.y - ccy, pd = Math.hypot(pdx, pdy) || 1;
+        hp = { x: ccx + pdx / pd * rho * radius, y: ccy + pdy / pd * rho * radius };
+        // Gradient circle centred ON the lit pole, reaching the dark pole:
+        // n.L falls off roughly with distance from the pole, so the rim near
+        // the light stays bright and only the far rim goes black (a circle
+        // on the silhouette would force every rim point to the last stop).
+        _gradC = { x: hp.x, y: hp.y, r: (1 + rho) * radius };
+        const rhoL = Math.hypot(Lr, Lu);
+        sphereStops = [];
+        for (let o = 0; o <= 100; o += 10) {
+          const s = rho - (o / 100) * (rho + 1);  // signed position on the L axis
+          const z = Math.sqrt(Math.max(0, 1 - s*s));
+          const I = Math.max(0, Math.min(1, LA + LB * (s * rhoL + z * Lv)));
+          sphereStops.push({ off: o, c: { r:_cl01(br*I), g:_cl01(bg*I), b:_cl01(bb*I) } });
+        }
+        // Half-vector H = normalize(L + V): a soft white spot, ~0.3 at its
+        // centre fading out by 0.45r (10297/00475's lit spot; 06801's is
+        // fainter still).
+        let hx = wLx + vx, hy = wLy + vy, hz = wLz + vz;
+        const hl = Math.sqrt(hx*hx + hy*hy + hz*hz) || 1;
+        const pH = projectTriple(makeTriple(sc.x + sr*hx/hl, sc.y + sr*hy/hl, sc.z + sr*hz/hl));
+        _specSpot = { cx: pH.x, cy: pH.y, fx: pH.x, fy: pH.y, r: 0.45 * radius,
+          stops: [{ off: 0, c: {r:1,g:1,b:1}, o: 0.2 }, { off: 45, c: {r:1,g:1,b:1}, o: 0.08 }, { off: 100, c: {r:1,g:1,b:1}, o: 0 }] };
+      }
       const lit = sphereStops[0].c;
       const mid = sphereStops[Math.floor(sphereStops.length/2)].c;
       const dark = sphereStops[sphereStops.length-1].c;
@@ -28275,10 +29455,16 @@ const _HTX_DATA_FILES = {
         cmd: 'fill', path: sphPath, pen: sphPen, line, _from3d: true,
         _faceDepth: 1e9,
         _sphereGradient: {
-          cx: ccx, cy: ccy, r: radius, fx: hp.x, fy: hp.y,
+          cx: _gradC.x, cy: _gradC.y, r: _gradC.r, fx: hp.x, fy: hp.y,
           stops: sphereStops,
         },
       });
+      if (_specSpot) {
+        target.commands.push({
+          cmd: 'fill', path: sphPath, pen: clonePen(sphPen), line, _from3d: true,
+          _faceDepth: 1e9, _sphereGradient: _specSpot,
+        });
+      }
       return;
     }
 
@@ -28364,6 +29550,19 @@ const _HTX_DATA_FILES = {
       }
       if (!(mesh && mesh._closed)) ambientFloor = Math.max(ambientFloor, _openMeshMinFloor);
       let intensity = nolight ? 1.0 : (ambientFloor + (1 - ambientFloor) * dot);
+      // Bezier-patch surfaces (octant1/octant1x, surface(patch)): TeXeR's
+      // default-light shading of 12777's green octant fits
+      //   I = 0.33 + 0.54 max(n.L, 0)
+      // (rms 0.02 over the patch) with a camera-relative light
+      // L = 0.23 right + 0.75 up + 0.62 toward-viewer; the open-mesh 0.70
+      // floor above washed the whole octant out to one bright green.
+      if (!nolight && mesh && mesh._patchSurf && !(ambPen || (face.pen || basePen)._emissivePen)) {
+        let px = 0.23*rxScreen + 0.75*upx + 0.62*vx, py = 0.23*ryScreen + 0.75*upy + 0.62*vy, pz = 0.23*rzScreen + 0.75*upz + 0.62*vz;
+        const pl = Math.sqrt(px*px + py*py + pz*pz) || 1;
+        let d = (n.x*px + n.y*py + n.z*pz) / pl;
+        if (n.x*vx + n.y*vy + n.z*vz < 0) d = -d;
+        intensity = 0.33 + 0.54 * Math.max(0, d);
+      }
       // Box (unitcube/box) shading: TeXeR's PRC raster renders a material()
       // cube — e.g. material(gray(0.5),black,gray(0.2)) in 03698 — much brighter
       // than a plain Lambert. Faces read ~0.78–0.85 grey, lit fairly uniformly
@@ -28531,6 +29730,16 @@ const _HTX_DATA_FILES = {
       // colors range from (28,28,57) deep-shadow to (95,95,191) lit,
       // all consistent with lightblue × intensity at α=1).
       if (mesh && mesh._closed && typeof shaded.opacity === 'number' && shaded.opacity < 1) {
+        shaded.opacity = 1;
+      }
+      // The same holds for LIT open surfaces: TeXeR's raster draws
+      // green+opacity(0.5) (12777/12778 octants) and gray+opacity(0.5)
+      // (12779 paraboloid) fully opaque, hiding the axes behind them.
+      // nolight surfaces (08431's translucent planes, 04618) keep theirs.
+      // (invisible/nullpen surfaces — opacity 0, e.g. 00080's
+      // surfacepen=invisible cylinder — stay invisible.)
+      if (!nolight && typeof base.opacity === 'number' && base.opacity > 0 && base._cs !== 'invisible' &&
+          base.opacity < 1 && typeof shaded.opacity === 'number' && shaded.opacity < 1) {
         shaded.opacity = 1;
       }
       const segs = [];
@@ -34797,7 +36006,7 @@ function renderSVG(result, opts) {
         const _rgb = c => `rgb(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)})`;
         const gid = `_sg${++_svgDefSeq}`;
         const _stopEls = (sg.stops && sg.stops.length)
-          ? sg.stops.map(s => `<stop offset="${s.off}%" stop-color="${_rgb(s.c)}"/>`).join('')
+          ? sg.stops.map(s => `<stop offset="${s.off}%" stop-color="${_rgb(s.c)}"${s.o != null ? ` stop-opacity="${fmt(s.o)}"` : ''}/>`).join('')
           : `<stop offset="0%" stop-color="${_rgb(sg.lit)}"/>` +
             `<stop offset="4%" stop-color="${_rgb(sg.litMid)}"/>` +
             `<stop offset="45%" stop-color="${_rgb(sg.mid)}"/>` +
