@@ -27,6 +27,15 @@
   copy of the last 9. A full backup as of that day is
   `texer_pngs-2026-09-24.zip` in the same folder.
 
+## Deliberate departures from TeXeR
+
+AoPS TeXeR runs Asymptote 2.69 (render `label(VERSION);` to check; reported
+as Linear SRV-1366). Where 2.69 is simply wrong, HiTeXeR follows current
+asy instead, by Mark's decision (2026-09-25). Don't "fix" these toward
+their TeXeR images, and ignore their SSIM:
+- 12890 (gallery knots.asy, syzygy): TeXeR piles the six braid cards into
+  one block; asy 3.x lays them out 3x2, and so does HiTeXeR.
+
 ## Renders must not depend on earlier renders
 
 The editor renders many diagrams in one page, and the corpus harness renders
