@@ -23,7 +23,9 @@
   the junctions and deletes the MAIN checkout's `comparison/asy_src`,
   `comparison/texer_pngs` and `node_modules`. That happened on 2026-09-24;
   the PNGs came back from `G:\My Drive\ClaudeSync\transfers\HiTeXeR\
-  texer_pngs.zip` (June 25) plus a refetch of the gallery ids changed since.
+  texer_pngs.zip` (June 25), a refetch of gallery ids, and the work laptop's
+  copy of the last 9. A full backup as of that day is
+  `texer_pngs-2026-09-24.zip` in the same folder.
 
 ## Renders must not depend on earlier renders
 
