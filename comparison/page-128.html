@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page 128/130</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.38/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}
@@ -44,517 +44,16 @@ h1{text-align:center;font-size:1.7em;font-weight:700;color:#1a1a2e;margin-bottom
 <h1>HiTeXeR vs Asymptote</h1>
 <p class="sub">12926 diagrams sorted by combined score (worst first) — Page 128 of 130</p>
 <div class="stats">
-<b style="background:#2d8a4e">12350 Good</b>
-<b style="background:#c0820a">444 Fair</b>
-<b style="background:#c0392b">132 Poor</b>
+<b style="background:#2d8a4e">12358 Good</b>
+<b style="background:#c0820a">438 Fair</b>
+<b style="background:#c0392b">130 Poor</b>
 
 </div>
 <div class="pag"><a href="page-127.html">&laquo; Prev</a><a href="index.html">1</a><span class="dots">…</span><a href="page-116.html">116</a><a href="page-117.html">117</a><a href="page-118.html">118</a><a href="page-119.html">119</a><a href="page-120.html">120</a><a href="page-121.html">121</a><a href="page-122.html">122</a><a href="page-123.html">123</a><a href="page-124.html">124</a><a href="page-125.html">125</a><a href="page-126.html">126</a><a href="page-127.html">127</a><span class="cur">128</span><a href="page-129.html">129</a><a href="page-130.html">130</a><a href="page-129.html">Next &raquo;</a></div>
 
 <div class="card" id="pair-12701">
   <div class="card-header">
-    <h2>#12701 &mdash; c539_L5_script_29.asy</h2>
-    <span class="badge" style="background:#2d8a4e">Combined 0.9988 &middot; Good</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9989</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px" title="Pixel-wise SSIM (no blur)">Raw 0.9846</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px" title="SSIM after Gaussian blur (shift-tolerant)">Soft 0.9989</span>
-    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9999</span>
-  </div>
-  <div class="card-body" style="grid-template-columns:35% 35% 30%">
-    <div class="render-col">
-      <h3>Asymptote (Reference)</h3>
-      <div class="img-wrap"><em class="na">Not rendered</em></div>
-    </div>
-    <div class="render-col">
-      <h3>HiTeXeR</h3>
-      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/09013.svg"></div></div>
-    </div>
-    <div class="render-col col-source">
-      <h3>Source</h3>
-      <div class="code-box"><code>//source: mirror_coin_reflection
-import markers;
-unitsize(0.4 cm);
-
-// =============================================================
-// CONFIGURATION — all &quot;magic numbers&quot; and toggleable options
-// =============================================================
-
-// Origin (0,0) is the center of the mirror line.
-// +y is upward (above mirror = real space), -y is below (virtual).
-// Scale: 1 unit ~ 0.45 cm; diagram spans roughly 20 x 22 units.
-
-// --- Geometry parameters ---
-real mirrorHalf   = 10;   // half-width of mirror line
-real coinRadius   = 0.7;  // radius of the coin circle
-real coinHeight   = 5;    // coin center height above mirror
-real coinX         = 1.2;  // coin horizontal offset (0 = centered between eyes)
-real eyeHeight    = 10;   // eye center height above mirror
-real eyeSpread    = 4.5;  // half-distance between eyes (50% wider than ref image)
-real eyeRx        = 0.9;  // eye ellipse semi-axis (horizontal)
-real eyeRy        = 1.2;  // eye ellipse semi-axis (vertical)
-real irisR        = 0.45; // iris radius
-real pupilR       = 0.22; // pupil radius
-real normalLen    = 4.0;  // half-length of vertical normals above/below mirror
-real angleMarkR   = 1.5;  // arc radius for angle markers
-real angleLabelR  = 2.3;  // placement radius for angle labels
-
-// --- Pen styles ---
-pen mirrorPen     = gray(0.3) + linewidth(1.8);
-pen rayPen        = orange + linewidth(1.0);
-pen dashRayPen    = orange + linewidth(1.0) + linetype(&quot;6 6&quot;);
-pen normalPen     = gray(0.5) + linewidth(0.7) + linetype(&quot;3 3&quot;);
-pen coinPen       = gray(0.45) + linewidth(1.0);
-pen coinFill      = gray(0.75);
-pen eyeWhite      = white;
-pen irisPen       = heavygreen;
-pen pupilPen      = black;
-pen anglePenI     = blue + linewidth(0.9);   // incidence angle arc
-pen anglePenR     = red  + linewidth(0.9);   // reflection angle arc
-
-// --- Toggle switches ---
-bool showLabels       = true;
-bool showNormals      = true;
-bool showAngleMarks   = true;
-
-// =============================================================
-// DEFINE OBJECTS — key points
-// =============================================================
-
-pair leftEye  = (-eyeSpread, eyeHeight);
-pair rightEye = ( eyeSpread, eyeHeight);
-
-pair coinReal    = (coinX, coinHeight);
-pair coinVirtual = (coinX, -coinHeight);
-
-pair mirrorL = (-mirrorHalf, 0);
-pair mirrorR = ( mirrorHalf, 0);
-
-// =============================================================
-// ASSIGN VALUES — reflection points on the mirror
-// =============================================================
-// Flat-mirror law: the reflection point for each eye is where
-// the line from the virtual image to that eye crosses y = 0.
-
-real tL = -coinVirtual.y / (leftEye.y - coinVirtual.y);
-pair reflL = coinVirtual + tL * (leftEye - coinVirtual);
-
-real tR = -coinVirtual.y / (rightEye.y - coinVirtual.y);
-pair reflR = coinVirtual + tR * (rightEye - coinVirtual);
-
-// =============================================================
-// HELPER — draw a stylised eye
-// =============================================================
-void drawEye(pair center) {
-pair pL = center + (-eyeRx, 0);
-pair pR = center + ( eyeRx, 0);
-pair pT = center + (0,  eyeRy * 0.65);
-pair pB = center + (0, -eyeRy * 0.55);
-path almondTop = pL{up}..pT..{down}pR;
-path almondBot = pR{down}..pB..{up}pL;
-filldraw(almondTop &amp; almondBot &amp; cycle, eyeWhite, black + linewidth(0.8));
-filldraw(circle(center, irisR), irisPen, irisPen);
-fill(circle(center, pupilR), pupilPen);
-}
-
-// =============================================================
-// HELPER — draw incidence/reflection angle arcs at one
-//          reflection point, with labels on opposite sides
-// =============================================================
-// refl : point on mirror (y=0)
-// coin : real coin position (source of incoming ray)
-// eye  : eye that receives the reflected ray
-// side : +1 if eye is to the RIGHT of normal, -1 if to the LEFT
-void drawAngleMarksAtRefl(pair refl, pair coin, pair eye, int side, string angleLabel) {
-// Normal direction is straight up: 90 degrees
-real angNorm = 90;
-
-// Incoming ray travels from coin to refl; the reversed direction
-// (pointing away from mirror back toward coin) is what we measure from
-pair dInRev = unit(coin - refl);
-real angIn  = degrees(dInRev);
-
-// Reflected ray goes from refl toward eye
-pair dRef   = unit(eye - refl);
-real angRef = degrees(dRef);
-
-// Draw incidence arc (blue): between normal and incoming-ray direction
-real a1 = min(angNorm, angIn);
-real a2 = max(angNorm, angIn);
-draw(arc(refl, angleMarkR, a1, a2), anglePenI);
-
-// Draw reflection arc (red): between normal and reflected-ray direction
-real b1 = min(angNorm, angRef);
-real b2 = max(angNorm, angRef);
-draw(arc(refl, angleMarkR, b1, b2), anglePenR);
-
-// Labels — place incidence label on the coin side, reflection on the eye side
-if (showLabels) {
-// Incidence label: midpoint of incidence arc, offset toward coin side
-pair posI = refl + angleLabelR * dir((a1 + a2) / 2);
-// Reflection label: midpoint of reflection arc, offset toward eye side
-pair posR = refl + angleLabelR * dir((b1 + b2) / 2);
-
-// Nudge labels apart horizontally to avoid overlap
-pair nudge = (side * 0.1, 0);
-label(&quot;$&quot; + angleLabel + &quot;$&quot;, posI - nudge, fontsize(10));
-label(&quot;$&quot; + angleLabel + &quot;$&quot;, posR + nudge, fontsize(10));
-}
-}
-
-// =============================================================
-// DRAW — mirror line with hatching
-// =============================================================
-draw(mirrorL -- mirrorR, mirrorPen);
-int nHatch = 35;
-for (int i = 0; i &lt; nHatch; ++i) {
-real x = mirrorL.x + (mirrorR.x - mirrorL.x) * (i + 0.5) / nHatch;
-draw((x, 0) -- (x - 0.45, -0.7), gray(0.5) + linewidth(0.4));
-}
-
-// =============================================================
-// DRAW — solid light rays (above mirror, real paths)
-// =============================================================
-// Coin to mirror (incoming rays)
-draw(coinReal -- reflL, rayPen, EndArrow(size=5));
-draw(coinReal -- reflR, rayPen, EndArrow(size=5));
-// Mirror to eyes (reflected rays)
-draw(reflL -- leftEye,  rayPen, EndArrow(size=5));
-draw(reflR -- rightEye, rayPen, EndArrow(size=5));
-
-// =============================================================
-// DRAW — dashed virtual rays (below mirror)
-// =============================================================
-draw(reflL -- coinVirtual, dashRayPen);
-draw(reflR -- coinVirtual, dashRayPen);
-
-// =============================================================
-// DRAW — vertical dotted normals at reflection points
-// =============================================================
-if (showNormals) {
-draw((reflL.x, -normalLen) -- (reflL.x, normalLen), normalPen);
-draw((reflR.x, -normalLen) -- (reflR.x, normalLen), normalPen);
-}
-
-// =============================================================
-// DRAW — angle markers at each reflection point
-// =============================================================
-if (showAngleMarks) {
-// Left reflection: eye is to the LEFT of normal =&gt; side = -1
-drawAngleMarksAtRefl(reflL, coinReal, leftEye,  -1, &quot;a&quot;);
-// Right reflection: eye is to the RIGHT of normal =&gt; side = +1
-drawAngleMarksAtRefl(reflR, coinReal, rightEye,  1, &quot;b&quot;);
-
-// Green arc: angle between left normal and left dashed ray (below mirror)
-// This is the angle on the LEFT side, between the downward normal and the
-// dashed line from reflL to coinVirtual, measured inside the mirror region.
-real angDown = 270;  // downward normal direction
-pair dVirt = unit(coinVirtual - reflL);  // direction toward virtual image
-real angVirt = degrees(dVirt);
-// angVirt will be somewhere between 180 and 270 (pointing down-right into mirror)
-// We want the arc on the LEFT side of the normal, sweeping from angVirt to angDown
-draw(arc(reflL, angleMarkR, angDown, angVirt), red + linewidth(0.9));
-// Label
-pair posC = reflL + angleLabelR * dir((angVirt + angDown) / 2);
-label(&quot;$a$&quot;, posC, fontsize(10));
-
-// Red arc on the RIGHT: angle between right normal (below mirror) and right dashed ray
-pair dVirtR = unit(coinVirtual - reflR);
-real angVirtR = degrees(dVirtR);
-// angVirtR points down-left from reflR (between 180 and 270)
-// Normal below mirror is 270. Arc from angVirtR to 270.
-draw(arc(reflR, angleMarkR, angVirtR, 270), red + linewidth(0.9));
-pair posBvirt = reflR + angleLabelR * dir((angVirtR + 270) / 2);
-label(&quot;$b$&quot;, posBvirt, fontsize(10));
-
-// Green arc d: angle between mirror surface and incoming solid ray at reflL
-// Surface direction to the RIGHT at reflL is 0 degrees
-// Direction from reflL toward coinReal is up-right
-pair dCoinL = unit(coinReal - reflL);
-real angCoinL = degrees(dCoinL);
-// d sweeps from 0 to angCoinL (above the surface on the right side)
-draw(arc(reflL, angleMarkR * 0.5, 0, angCoinL), heavygreen + linewidth(0.9));
-pair posD = reflL + angleLabelR * 0.5 * dir(angCoinL / 2);
-label(&quot;$d$&quot;, posD, fontsize(10));
-
-// Green arc e: mirror image of d, between surface and dashed line below
-// Direction from reflL toward coinVirtual is down-right
-// angVirt was already computed above (pointing down-right, between 270 and 360)
-// e sweeps from angVirt up to 360 (=0, the surface direction)
-draw(arc(reflL, angleMarkR * 0.5, angVirt, 360), heavygreen + linewidth(0.9));
-pair posE = reflL + angleLabelR * 0.5 * dir((angVirt + 360) / 2);
-label(&quot;$e$&quot;, posE, fontsize(10));
-}
-
-// =============================================================
-// DRAW — coins (real and virtual image)
-// =============================================================
-filldraw(circle(coinReal, coinRadius), coinFill, coinPen);
-filldraw(circle(coinVirtual, coinRadius),
-coinFill + opacity(0.5), coinPen + linetype(&quot;4 4&quot;));
-
-// =============================================================
-// DRAW — eyes
-// =============================================================
-drawEye(leftEye);
-drawEye(rightEye);
-
-// =============================================================
-// LABELS
-// =============================================================
-//if (showLabels) {
-//label(&quot;Mirror&quot;, (mirrorR.x - 1.8, 0), 1.5*N, fontsize(9));
-//label(&quot;Coin&quot;, coinReal, 3.2*E, fontsize(9));
-//label(&quot;Virtual image&quot;, coinVirtual + (0, -coinRadius - 0.9), S,
-//    fontsize(9));
-//}</code></div>
-      <div class="link-row">
-        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2Fsource%3A%20mirror_coin_reflection%0D%0Aimport%20markers%3B%0D%0Aunitsize(0.4%20cm)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20CONFIGURATION%20%E2%80%94%20all%20%22magic%20numbers%22%20and%20toggleable%20options%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0A%2F%2F%20Origin%20(0%2C0)%20is%20the%20center%20of%20the%20mirror%20line.%0D%0A%2F%2F%20%2By%20is%20upward%20(above%20mirror%20%3D%20real%20space)%2C%20-y%20is%20below%20(virtual).%0D%0A%2F%2F%20Scale%3A%201%20unit%20~%200.45%20cm%3B%20diagram%20spans%20roughly%2020%20x%2022%20units.%0D%0A%0D%0A%2F%2F%20---%20Geometry%20parameters%20---%0D%0Areal%20mirrorHalf%20%20%20%3D%2010%3B%20%20%20%2F%2F%20half-width%20of%20mirror%20line%0D%0Areal%20coinRadius%20%20%20%3D%200.7%3B%20%20%2F%2F%20radius%20of%20the%20coin%20circle%0D%0Areal%20coinHeight%20%20%20%3D%205%3B%20%20%20%20%2F%2F%20coin%20center%20height%20above%20mirror%0D%0Areal%20coinX%20%20%20%20%20%20%20%20%20%3D%201.2%3B%20%20%2F%2F%20coin%20horizontal%20offset%20(0%20%3D%20centered%20between%20eyes)%0D%0Areal%20eyeHeight%20%20%20%20%3D%2010%3B%20%20%20%2F%2F%20eye%20center%20height%20above%20mirror%0D%0Areal%20eyeSpread%20%20%20%20%3D%204.5%3B%20%20%2F%2F%20half-distance%20between%20eyes%20(50%25%20wider%20than%20ref%20image)%0D%0Areal%20eyeRx%20%20%20%20%20%20%20%20%3D%200.9%3B%20%20%2F%2F%20eye%20ellipse%20semi-axis%20(horizontal)%0D%0Areal%20eyeRy%20%20%20%20%20%20%20%20%3D%201.2%3B%20%20%2F%2F%20eye%20ellipse%20semi-axis%20(vertical)%0D%0Areal%20irisR%20%20%20%20%20%20%20%20%3D%200.45%3B%20%2F%2F%20iris%20radius%0D%0Areal%20pupilR%20%20%20%20%20%20%20%3D%200.22%3B%20%2F%2F%20pupil%20radius%0D%0Areal%20normalLen%20%20%20%20%3D%204.0%3B%20%20%2F%2F%20half-length%20of%20vertical%20normals%20above%2Fbelow%20mirror%0D%0Areal%20angleMarkR%20%20%20%3D%201.5%3B%20%20%2F%2F%20arc%20radius%20for%20angle%20markers%0D%0Areal%20angleLabelR%20%20%3D%202.3%3B%20%20%2F%2F%20placement%20radius%20for%20angle%20labels%0D%0A%0D%0A%2F%2F%20---%20Pen%20styles%20---%0D%0Apen%20mirrorPen%20%20%20%20%20%3D%20gray(0.3)%20%2B%20linewidth(1.8)%3B%0D%0Apen%20rayPen%20%20%20%20%20%20%20%20%3D%20orange%20%2B%20linewidth(1.0)%3B%0D%0Apen%20dashRayPen%20%20%20%20%3D%20orange%20%2B%20linewidth(1.0)%20%2B%20linetype(%226%206%22)%3B%0D%0Apen%20normalPen%20%20%20%20%20%3D%20gray(0.5)%20%2B%20linewidth(0.7)%20%2B%20linetype(%223%203%22)%3B%0D%0Apen%20coinPen%20%20%20%20%20%20%20%3D%20gray(0.45)%20%2B%20linewidth(1.0)%3B%0D%0Apen%20coinFill%20%20%20%20%20%20%3D%20gray(0.75)%3B%0D%0Apen%20eyeWhite%20%20%20%20%20%20%3D%20white%3B%0D%0Apen%20irisPen%20%20%20%20%20%20%20%3D%20heavygreen%3B%0D%0Apen%20pupilPen%20%20%20%20%20%20%3D%20black%3B%0D%0Apen%20anglePenI%20%20%20%20%20%3D%20blue%20%2B%20linewidth(0.9)%3B%20%20%20%2F%2F%20incidence%20angle%20arc%0D%0Apen%20anglePenR%20%20%20%20%20%3D%20red%20%20%2B%20linewidth(0.9)%3B%20%20%20%2F%2F%20reflection%20angle%20arc%0D%0A%0D%0A%2F%2F%20---%20Toggle%20switches%20---%0D%0Abool%20showLabels%20%20%20%20%20%20%20%3D%20true%3B%0D%0Abool%20showNormals%20%20%20%20%20%20%3D%20true%3B%0D%0Abool%20showAngleMarks%20%20%20%3D%20true%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DEFINE%20OBJECTS%20%E2%80%94%20key%20points%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%0D%0Apair%20leftEye%20%20%3D%20(-eyeSpread%2C%20eyeHeight)%3B%0D%0Apair%20rightEye%20%3D%20(%20eyeSpread%2C%20eyeHeight)%3B%0D%0A%0D%0Apair%20coinReal%20%20%20%20%3D%20(coinX%2C%20coinHeight)%3B%0D%0Apair%20coinVirtual%20%3D%20(coinX%2C%20-coinHeight)%3B%0D%0A%0D%0Apair%20mirrorL%20%3D%20(-mirrorHalf%2C%200)%3B%0D%0Apair%20mirrorR%20%3D%20(%20mirrorHalf%2C%200)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20ASSIGN%20VALUES%20%E2%80%94%20reflection%20points%20on%20the%20mirror%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Flat-mirror%20law%3A%20the%20reflection%20point%20for%20each%20eye%20is%20where%0D%0A%2F%2F%20the%20line%20from%20the%20virtual%20image%20to%20that%20eye%20crosses%20y%20%3D%200.%0D%0A%0D%0Areal%20tL%20%3D%20-coinVirtual.y%20%2F%20(leftEye.y%20-%20coinVirtual.y)%3B%0D%0Apair%20reflL%20%3D%20coinVirtual%20%2B%20tL%20*%20(leftEye%20-%20coinVirtual)%3B%0D%0A%0D%0Areal%20tR%20%3D%20-coinVirtual.y%20%2F%20(rightEye.y%20-%20coinVirtual.y)%3B%0D%0Apair%20reflR%20%3D%20coinVirtual%20%2B%20tR%20*%20(rightEye%20-%20coinVirtual)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20HELPER%20%E2%80%94%20draw%20a%20stylised%20eye%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Avoid%20drawEye(pair%20center)%20%7B%0D%0Apair%20pL%20%3D%20center%20%2B%20(-eyeRx%2C%200)%3B%0D%0Apair%20pR%20%3D%20center%20%2B%20(%20eyeRx%2C%200)%3B%0D%0Apair%20pT%20%3D%20center%20%2B%20(0%2C%20%20eyeRy%20*%200.65)%3B%0D%0Apair%20pB%20%3D%20center%20%2B%20(0%2C%20-eyeRy%20*%200.55)%3B%0D%0Apath%20almondTop%20%3D%20pL%7Bup%7D..pT..%7Bdown%7DpR%3B%0D%0Apath%20almondBot%20%3D%20pR%7Bdown%7D..pB..%7Bup%7DpL%3B%0D%0Afilldraw(almondTop%20%26%20almondBot%20%26%20cycle%2C%20eyeWhite%2C%20black%20%2B%20linewidth(0.8))%3B%0D%0Afilldraw(circle(center%2C%20irisR)%2C%20irisPen%2C%20irisPen)%3B%0D%0Afill(circle(center%2C%20pupilR)%2C%20pupilPen)%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20HELPER%20%E2%80%94%20draw%20incidence%2Freflection%20angle%20arcs%20at%20one%0D%0A%2F%2F%20%20%20%20%20%20%20%20%20%20reflection%20point%2C%20with%20labels%20on%20opposite%20sides%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20refl%20%3A%20point%20on%20mirror%20(y%3D0)%0D%0A%2F%2F%20coin%20%3A%20real%20coin%20position%20(source%20of%20incoming%20ray)%0D%0A%2F%2F%20eye%20%20%3A%20eye%20that%20receives%20the%20reflected%20ray%0D%0A%2F%2F%20side%20%3A%20%2B1%20if%20eye%20is%20to%20the%20RIGHT%20of%20normal%2C%20-1%20if%20to%20the%20LEFT%0D%0Avoid%20drawAngleMarksAtRefl(pair%20refl%2C%20pair%20coin%2C%20pair%20eye%2C%20int%20side%2C%20string%20angleLabel)%20%7B%0D%0A%2F%2F%20Normal%20direction%20is%20straight%20up%3A%2090%20degrees%0D%0Areal%20angNorm%20%3D%2090%3B%0D%0A%0D%0A%2F%2F%20Incoming%20ray%20travels%20from%20coin%20to%20refl%3B%20the%20reversed%20direction%0D%0A%2F%2F%20(pointing%20away%20from%20mirror%20back%20toward%20coin)%20is%20what%20we%20measure%20from%0D%0Apair%20dInRev%20%3D%20unit(coin%20-%20refl)%3B%0D%0Areal%20angIn%20%20%3D%20degrees(dInRev)%3B%0D%0A%0D%0A%2F%2F%20Reflected%20ray%20goes%20from%20refl%20toward%20eye%0D%0Apair%20dRef%20%20%20%3D%20unit(eye%20-%20refl)%3B%0D%0Areal%20angRef%20%3D%20degrees(dRef)%3B%0D%0A%0D%0A%2F%2F%20Draw%20incidence%20arc%20(blue)%3A%20between%20normal%20and%20incoming-ray%20direction%0D%0Areal%20a1%20%3D%20min(angNorm%2C%20angIn)%3B%0D%0Areal%20a2%20%3D%20max(angNorm%2C%20angIn)%3B%0D%0Adraw(arc(refl%2C%20angleMarkR%2C%20a1%2C%20a2)%2C%20anglePenI)%3B%0D%0A%0D%0A%2F%2F%20Draw%20reflection%20arc%20(red)%3A%20between%20normal%20and%20reflected-ray%20direction%0D%0Areal%20b1%20%3D%20min(angNorm%2C%20angRef)%3B%0D%0Areal%20b2%20%3D%20max(angNorm%2C%20angRef)%3B%0D%0Adraw(arc(refl%2C%20angleMarkR%2C%20b1%2C%20b2)%2C%20anglePenR)%3B%0D%0A%0D%0A%2F%2F%20Labels%20%E2%80%94%20place%20incidence%20label%20on%20the%20coin%20side%2C%20reflection%20on%20the%20eye%20side%0D%0Aif%20(showLabels)%20%7B%0D%0A%2F%2F%20Incidence%20label%3A%20midpoint%20of%20incidence%20arc%2C%20offset%20toward%20coin%20side%0D%0Apair%20posI%20%3D%20refl%20%2B%20angleLabelR%20*%20dir((a1%20%2B%20a2)%20%2F%202)%3B%0D%0A%2F%2F%20Reflection%20label%3A%20midpoint%20of%20reflection%20arc%2C%20offset%20toward%20eye%20side%0D%0Apair%20posR%20%3D%20refl%20%2B%20angleLabelR%20*%20dir((b1%20%2B%20b2)%20%2F%202)%3B%0D%0A%0D%0A%2F%2F%20Nudge%20labels%20apart%20horizontally%20to%20avoid%20overlap%0D%0Apair%20nudge%20%3D%20(side%20*%200.1%2C%200)%3B%0D%0Alabel(%22%24%22%20%2B%20angleLabel%20%2B%20%22%24%22%2C%20posI%20-%20nudge%2C%20fontsize(10))%3B%0D%0Alabel(%22%24%22%20%2B%20angleLabel%20%2B%20%22%24%22%2C%20posR%20%2B%20nudge%2C%20fontsize(10))%3B%0D%0A%7D%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20mirror%20line%20with%20hatching%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Adraw(mirrorL%20--%20mirrorR%2C%20mirrorPen)%3B%0D%0Aint%20nHatch%20%3D%2035%3B%0D%0Afor%20(int%20i%20%3D%200%3B%20i%20%3C%20nHatch%3B%20%2B%2Bi)%20%7B%0D%0Areal%20x%20%3D%20mirrorL.x%20%2B%20(mirrorR.x%20-%20mirrorL.x)%20*%20(i%20%2B%200.5)%20%2F%20nHatch%3B%0D%0Adraw((x%2C%200)%20--%20(x%20-%200.45%2C%20-0.7)%2C%20gray(0.5)%20%2B%20linewidth(0.4))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20solid%20light%20rays%20(above%20mirror%2C%20real%20paths)%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20Coin%20to%20mirror%20(incoming%20rays)%0D%0Adraw(coinReal%20--%20reflL%2C%20rayPen%2C%20EndArrow(size%3D5))%3B%0D%0Adraw(coinReal%20--%20reflR%2C%20rayPen%2C%20EndArrow(size%3D5))%3B%0D%0A%2F%2F%20Mirror%20to%20eyes%20(reflected%20rays)%0D%0Adraw(reflL%20--%20leftEye%2C%20%20rayPen%2C%20EndArrow(size%3D5))%3B%0D%0Adraw(reflR%20--%20rightEye%2C%20rayPen%2C%20EndArrow(size%3D5))%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20dashed%20virtual%20rays%20(below%20mirror)%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Adraw(reflL%20--%20coinVirtual%2C%20dashRayPen)%3B%0D%0Adraw(reflR%20--%20coinVirtual%2C%20dashRayPen)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20vertical%20dotted%20normals%20at%20reflection%20points%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aif%20(showNormals)%20%7B%0D%0Adraw((reflL.x%2C%20-normalLen)%20--%20(reflL.x%2C%20normalLen)%2C%20normalPen)%3B%0D%0Adraw((reflR.x%2C%20-normalLen)%20--%20(reflR.x%2C%20normalLen)%2C%20normalPen)%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20angle%20markers%20at%20each%20reflection%20point%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Aif%20(showAngleMarks)%20%7B%0D%0A%2F%2F%20Left%20reflection%3A%20eye%20is%20to%20the%20LEFT%20of%20normal%20%3D%3E%20side%20%3D%20-1%0D%0AdrawAngleMarksAtRefl(reflL%2C%20coinReal%2C%20leftEye%2C%20%20-1%2C%20%22a%22)%3B%0D%0A%2F%2F%20Right%20reflection%3A%20eye%20is%20to%20the%20RIGHT%20of%20normal%20%3D%3E%20side%20%3D%20%2B1%0D%0AdrawAngleMarksAtRefl(reflR%2C%20coinReal%2C%20rightEye%2C%20%201%2C%20%22b%22)%3B%0D%0A%0D%0A%2F%2F%20Green%20arc%3A%20angle%20between%20left%20normal%20and%20left%20dashed%20ray%20(below%20mirror)%0D%0A%2F%2F%20This%20is%20the%20angle%20on%20the%20LEFT%20side%2C%20between%20the%20downward%20normal%20and%20the%0D%0A%2F%2F%20dashed%20line%20from%20reflL%20to%20coinVirtual%2C%20measured%20inside%20the%20mirror%20region.%0D%0Areal%20angDown%20%3D%20270%3B%20%20%2F%2F%20downward%20normal%20direction%0D%0Apair%20dVirt%20%3D%20unit(coinVirtual%20-%20reflL)%3B%20%20%2F%2F%20direction%20toward%20virtual%20image%0D%0Areal%20angVirt%20%3D%20degrees(dVirt)%3B%0D%0A%2F%2F%20angVirt%20will%20be%20somewhere%20between%20180%20and%20270%20(pointing%20down-right%20into%20mirror)%0D%0A%2F%2F%20We%20want%20the%20arc%20on%20the%20LEFT%20side%20of%20the%20normal%2C%20sweeping%20from%20angVirt%20to%20angDown%0D%0Adraw(arc(reflL%2C%20angleMarkR%2C%20angDown%2C%20angVirt)%2C%20red%20%2B%20linewidth(0.9))%3B%0D%0A%2F%2F%20Label%0D%0Apair%20posC%20%3D%20reflL%20%2B%20angleLabelR%20*%20dir((angVirt%20%2B%20angDown)%20%2F%202)%3B%0D%0Alabel(%22%24a%24%22%2C%20posC%2C%20fontsize(10))%3B%0D%0A%0D%0A%2F%2F%20Red%20arc%20on%20the%20RIGHT%3A%20angle%20between%20right%20normal%20(below%20mirror)%20and%20right%20dashed%20ray%0D%0Apair%20dVirtR%20%3D%20unit(coinVirtual%20-%20reflR)%3B%0D%0Areal%20angVirtR%20%3D%20degrees(dVirtR)%3B%0D%0A%2F%2F%20angVirtR%20points%20down-left%20from%20reflR%20(between%20180%20and%20270)%0D%0A%2F%2F%20Normal%20below%20mirror%20is%20270.%20Arc%20from%20angVirtR%20to%20270.%0D%0Adraw(arc(reflR%2C%20angleMarkR%2C%20angVirtR%2C%20270)%2C%20red%20%2B%20linewidth(0.9))%3B%0D%0Apair%20posBvirt%20%3D%20reflR%20%2B%20angleLabelR%20*%20dir((angVirtR%20%2B%20270)%20%2F%202)%3B%0D%0Alabel(%22%24b%24%22%2C%20posBvirt%2C%20fontsize(10))%3B%0D%0A%0D%0A%2F%2F%20Green%20arc%20d%3A%20angle%20between%20mirror%20surface%20and%20incoming%20solid%20ray%20at%20reflL%0D%0A%2F%2F%20Surface%20direction%20to%20the%20RIGHT%20at%20reflL%20is%200%20degrees%0D%0A%2F%2F%20Direction%20from%20reflL%20toward%20coinReal%20is%20up-right%0D%0Apair%20dCoinL%20%3D%20unit(coinReal%20-%20reflL)%3B%0D%0Areal%20angCoinL%20%3D%20degrees(dCoinL)%3B%0D%0A%2F%2F%20d%20sweeps%20from%200%20to%20angCoinL%20(above%20the%20surface%20on%20the%20right%20side)%0D%0Adraw(arc(reflL%2C%20angleMarkR%20*%200.5%2C%200%2C%20angCoinL)%2C%20heavygreen%20%2B%20linewidth(0.9))%3B%0D%0Apair%20posD%20%3D%20reflL%20%2B%20angleLabelR%20*%200.5%20*%20dir(angCoinL%20%2F%202)%3B%0D%0Alabel(%22%24d%24%22%2C%20posD%2C%20fontsize(10))%3B%0D%0A%0D%0A%2F%2F%20Green%20arc%20e%3A%20mirror%20image%20of%20d%2C%20between%20surface%20and%20dashed%20line%20below%0D%0A%2F%2F%20Direction%20from%20reflL%20toward%20coinVirtual%20is%20down-right%0D%0A%2F%2F%20angVirt%20was%20already%20computed%20above%20(pointing%20down-right%2C%20between%20270%20and%20360)%0D%0A%2F%2F%20e%20sweeps%20from%20angVirt%20up%20to%20360%20(%3D0%2C%20the%20surface%20direction)%0D%0Adraw(arc(reflL%2C%20angleMarkR%20*%200.5%2C%20angVirt%2C%20360)%2C%20heavygreen%20%2B%20linewidth(0.9))%3B%0D%0Apair%20posE%20%3D%20reflL%20%2B%20angleLabelR%20*%200.5%20*%20dir((angVirt%20%2B%20360)%20%2F%202)%3B%0D%0Alabel(%22%24e%24%22%2C%20posE%2C%20fontsize(10))%3B%0D%0A%7D%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20coins%20(real%20and%20virtual%20image)%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0Afilldraw(circle(coinReal%2C%20coinRadius)%2C%20coinFill%2C%20coinPen)%3B%0D%0Afilldraw(circle(coinVirtual%2C%20coinRadius)%2C%0D%0AcoinFill%20%2B%20opacity(0.5)%2C%20coinPen%20%2B%20linetype(%224%204%22))%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20DRAW%20%E2%80%94%20eyes%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0AdrawEye(leftEye)%3B%0D%0AdrawEye(rightEye)%3B%0D%0A%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2F%20LABELS%0D%0A%2F%2F%20%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%3D%0D%0A%2F%2Fif%20(showLabels)%20%7B%0D%0A%2F%2Flabel(%22Mirror%22%2C%20(mirrorR.x%20-%201.8%2C%200)%2C%201.5*N%2C%20fontsize(9))%3B%0D%0A%2F%2Flabel(%22Coin%22%2C%20coinReal%2C%203.2*E%2C%20fontsize(9))%3B%0D%0A%2F%2Flabel(%22Virtual%20image%22%2C%20coinVirtual%20%2B%20(0%2C%20-coinRadius%20-%200.9)%2C%20S%2C%0D%0A%2F%2F%20%20%20%20fontsize(9))%3B%0D%0A%2F%2F%7D%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
-        <button class="btn texer-btn" data-code="[asy]
-//source: mirror_coin_reflection
-import markers;
-unitsize(0.4 cm);
-
-// =============================================================
-// CONFIGURATION — all &quot;magic numbers&quot; and toggleable options
-// =============================================================
-
-// Origin (0,0) is the center of the mirror line.
-// +y is upward (above mirror = real space), -y is below (virtual).
-// Scale: 1 unit ~ 0.45 cm; diagram spans roughly 20 x 22 units.
-
-// --- Geometry parameters ---
-real mirrorHalf   = 10;   // half-width of mirror line
-real coinRadius   = 0.7;  // radius of the coin circle
-real coinHeight   = 5;    // coin center height above mirror
-real coinX         = 1.2;  // coin horizontal offset (0 = centered between eyes)
-real eyeHeight    = 10;   // eye center height above mirror
-real eyeSpread    = 4.5;  // half-distance between eyes (50% wider than ref image)
-real eyeRx        = 0.9;  // eye ellipse semi-axis (horizontal)
-real eyeRy        = 1.2;  // eye ellipse semi-axis (vertical)
-real irisR        = 0.45; // iris radius
-real pupilR       = 0.22; // pupil radius
-real normalLen    = 4.0;  // half-length of vertical normals above/below mirror
-real angleMarkR   = 1.5;  // arc radius for angle markers
-real angleLabelR  = 2.3;  // placement radius for angle labels
-
-// --- Pen styles ---
-pen mirrorPen     = gray(0.3) + linewidth(1.8);
-pen rayPen        = orange + linewidth(1.0);
-pen dashRayPen    = orange + linewidth(1.0) + linetype(&quot;6 6&quot;);
-pen normalPen     = gray(0.5) + linewidth(0.7) + linetype(&quot;3 3&quot;);
-pen coinPen       = gray(0.45) + linewidth(1.0);
-pen coinFill      = gray(0.75);
-pen eyeWhite      = white;
-pen irisPen       = heavygreen;
-pen pupilPen      = black;
-pen anglePenI     = blue + linewidth(0.9);   // incidence angle arc
-pen anglePenR     = red  + linewidth(0.9);   // reflection angle arc
-
-// --- Toggle switches ---
-bool showLabels       = true;
-bool showNormals      = true;
-bool showAngleMarks   = true;
-
-// =============================================================
-// DEFINE OBJECTS — key points
-// =============================================================
-
-pair leftEye  = (-eyeSpread, eyeHeight);
-pair rightEye = ( eyeSpread, eyeHeight);
-
-pair coinReal    = (coinX, coinHeight);
-pair coinVirtual = (coinX, -coinHeight);
-
-pair mirrorL = (-mirrorHalf, 0);
-pair mirrorR = ( mirrorHalf, 0);
-
-// =============================================================
-// ASSIGN VALUES — reflection points on the mirror
-// =============================================================
-// Flat-mirror law: the reflection point for each eye is where
-// the line from the virtual image to that eye crosses y = 0.
-
-real tL = -coinVirtual.y / (leftEye.y - coinVirtual.y);
-pair reflL = coinVirtual + tL * (leftEye - coinVirtual);
-
-real tR = -coinVirtual.y / (rightEye.y - coinVirtual.y);
-pair reflR = coinVirtual + tR * (rightEye - coinVirtual);
-
-// =============================================================
-// HELPER — draw a stylised eye
-// =============================================================
-void drawEye(pair center) {
-pair pL = center + (-eyeRx, 0);
-pair pR = center + ( eyeRx, 0);
-pair pT = center + (0,  eyeRy * 0.65);
-pair pB = center + (0, -eyeRy * 0.55);
-path almondTop = pL{up}..pT..{down}pR;
-path almondBot = pR{down}..pB..{up}pL;
-filldraw(almondTop &amp; almondBot &amp; cycle, eyeWhite, black + linewidth(0.8));
-filldraw(circle(center, irisR), irisPen, irisPen);
-fill(circle(center, pupilR), pupilPen);
-}
-
-// =============================================================
-// HELPER — draw incidence/reflection angle arcs at one
-//          reflection point, with labels on opposite sides
-// =============================================================
-// refl : point on mirror (y=0)
-// coin : real coin position (source of incoming ray)
-// eye  : eye that receives the reflected ray
-// side : +1 if eye is to the RIGHT of normal, -1 if to the LEFT
-void drawAngleMarksAtRefl(pair refl, pair coin, pair eye, int side, string angleLabel) {
-// Normal direction is straight up: 90 degrees
-real angNorm = 90;
-
-// Incoming ray travels from coin to refl; the reversed direction
-// (pointing away from mirror back toward coin) is what we measure from
-pair dInRev = unit(coin - refl);
-real angIn  = degrees(dInRev);
-
-// Reflected ray goes from refl toward eye
-pair dRef   = unit(eye - refl);
-real angRef = degrees(dRef);
-
-// Draw incidence arc (blue): between normal and incoming-ray direction
-real a1 = min(angNorm, angIn);
-real a2 = max(angNorm, angIn);
-draw(arc(refl, angleMarkR, a1, a2), anglePenI);
-
-// Draw reflection arc (red): between normal and reflected-ray direction
-real b1 = min(angNorm, angRef);
-real b2 = max(angNorm, angRef);
-draw(arc(refl, angleMarkR, b1, b2), anglePenR);
-
-// Labels — place incidence label on the coin side, reflection on the eye side
-if (showLabels) {
-// Incidence label: midpoint of incidence arc, offset toward coin side
-pair posI = refl + angleLabelR * dir((a1 + a2) / 2);
-// Reflection label: midpoint of reflection arc, offset toward eye side
-pair posR = refl + angleLabelR * dir((b1 + b2) / 2);
-
-// Nudge labels apart horizontally to avoid overlap
-pair nudge = (side * 0.1, 0);
-label(&quot;$&quot; + angleLabel + &quot;$&quot;, posI - nudge, fontsize(10));
-label(&quot;$&quot; + angleLabel + &quot;$&quot;, posR + nudge, fontsize(10));
-}
-}
-
-// =============================================================
-// DRAW — mirror line with hatching
-// =============================================================
-draw(mirrorL -- mirrorR, mirrorPen);
-int nHatch = 35;
-for (int i = 0; i &lt; nHatch; ++i) {
-real x = mirrorL.x + (mirrorR.x - mirrorL.x) * (i + 0.5) / nHatch;
-draw((x, 0) -- (x - 0.45, -0.7), gray(0.5) + linewidth(0.4));
-}
-
-// =============================================================
-// DRAW — solid light rays (above mirror, real paths)
-// =============================================================
-// Coin to mirror (incoming rays)
-draw(coinReal -- reflL, rayPen, EndArrow(size=5));
-draw(coinReal -- reflR, rayPen, EndArrow(size=5));
-// Mirror to eyes (reflected rays)
-draw(reflL -- leftEye,  rayPen, EndArrow(size=5));
-draw(reflR -- rightEye, rayPen, EndArrow(size=5));
-
-// =============================================================
-// DRAW — dashed virtual rays (below mirror)
-// =============================================================
-draw(reflL -- coinVirtual, dashRayPen);
-draw(reflR -- coinVirtual, dashRayPen);
-
-// =============================================================
-// DRAW — vertical dotted normals at reflection points
-// =============================================================
-if (showNormals) {
-draw((reflL.x, -normalLen) -- (reflL.x, normalLen), normalPen);
-draw((reflR.x, -normalLen) -- (reflR.x, normalLen), normalPen);
-}
-
-// =============================================================
-// DRAW — angle markers at each reflection point
-// =============================================================
-if (showAngleMarks) {
-// Left reflection: eye is to the LEFT of normal =&gt; side = -1
-drawAngleMarksAtRefl(reflL, coinReal, leftEye,  -1, &quot;a&quot;);
-// Right reflection: eye is to the RIGHT of normal =&gt; side = +1
-drawAngleMarksAtRefl(reflR, coinReal, rightEye,  1, &quot;b&quot;);
-
-// Green arc: angle between left normal and left dashed ray (below mirror)
-// This is the angle on the LEFT side, between the downward normal and the
-// dashed line from reflL to coinVirtual, measured inside the mirror region.
-real angDown = 270;  // downward normal direction
-pair dVirt = unit(coinVirtual - reflL);  // direction toward virtual image
-real angVirt = degrees(dVirt);
-// angVirt will be somewhere between 180 and 270 (pointing down-right into mirror)
-// We want the arc on the LEFT side of the normal, sweeping from angVirt to angDown
-draw(arc(reflL, angleMarkR, angDown, angVirt), red + linewidth(0.9));
-// Label
-pair posC = reflL + angleLabelR * dir((angVirt + angDown) / 2);
-label(&quot;$a$&quot;, posC, fontsize(10));
-
-// Red arc on the RIGHT: angle between right normal (below mirror) and right dashed ray
-pair dVirtR = unit(coinVirtual - reflR);
-real angVirtR = degrees(dVirtR);
-// angVirtR points down-left from reflR (between 180 and 270)
-// Normal below mirror is 270. Arc from angVirtR to 270.
-draw(arc(reflR, angleMarkR, angVirtR, 270), red + linewidth(0.9));
-pair posBvirt = reflR + angleLabelR * dir((angVirtR + 270) / 2);
-label(&quot;$b$&quot;, posBvirt, fontsize(10));
-
-// Green arc d: angle between mirror surface and incoming solid ray at reflL
-// Surface direction to the RIGHT at reflL is 0 degrees
-// Direction from reflL toward coinReal is up-right
-pair dCoinL = unit(coinReal - reflL);
-real angCoinL = degrees(dCoinL);
-// d sweeps from 0 to angCoinL (above the surface on the right side)
-draw(arc(reflL, angleMarkR * 0.5, 0, angCoinL), heavygreen + linewidth(0.9));
-pair posD = reflL + angleLabelR * 0.5 * dir(angCoinL / 2);
-label(&quot;$d$&quot;, posD, fontsize(10));
-
-// Green arc e: mirror image of d, between surface and dashed line below
-// Direction from reflL toward coinVirtual is down-right
-// angVirt was already computed above (pointing down-right, between 270 and 360)
-// e sweeps from angVirt up to 360 (=0, the surface direction)
-draw(arc(reflL, angleMarkR * 0.5, angVirt, 360), heavygreen + linewidth(0.9));
-pair posE = reflL + angleLabelR * 0.5 * dir((angVirt + 360) / 2);
-label(&quot;$e$&quot;, posE, fontsize(10));
-}
-
-// =============================================================
-// DRAW — coins (real and virtual image)
-// =============================================================
-filldraw(circle(coinReal, coinRadius), coinFill, coinPen);
-filldraw(circle(coinVirtual, coinRadius),
-coinFill + opacity(0.5), coinPen + linetype(&quot;4 4&quot;));
-
-// =============================================================
-// DRAW — eyes
-// =============================================================
-drawEye(leftEye);
-drawEye(rightEye);
-
-// =============================================================
-// LABELS
-// =============================================================
-//if (showLabels) {
-//label(&quot;Mirror&quot;, (mirrorR.x - 1.8, 0), 1.5*N, fontsize(9));
-//label(&quot;Coin&quot;, coinReal, 3.2*E, fontsize(9));
-//label(&quot;Virtual image&quot;, coinVirtual + (0, -coinRadius - 0.9), S,
-//    fontsize(9));
-//}
-[/asy]">Copy &amp; TeXeR</button>
-      </div>
-      <textarea class="feedback-box" data-rank="12701" data-id="09013" data-file="c539_L5_script_29.asy" placeholder="Notes about this pair..."></textarea>
-    </div>
-  </div>
-</div>
-<div class="card" id="pair-12702">
-  <div class="card-header">
-    <h2>#12702 &mdash; c191_L1_script_11.asy</h2>
+    <h2>#12701 &mdash; c191_L1_script_11.asy</h2>
     <span class="badge" style="background:#2d8a4e">Combined 0.9988 &middot; Good</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9989</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px" title="Pixel-wise SSIM (no blur)">Raw 0.9885</span>
@@ -649,13 +148,13 @@ label(&quot;$b$&quot;,(center + contact + (0,l))*.5,NE);
 label(&quot;$R$&quot;,(center - (0,.1)),W);
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="12702" data-id="03701" data-file="c191_L1_script_11.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="12701" data-id="03701" data-file="c191_L1_script_11.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
-<div class="card" id="pair-12703">
+<div class="card" id="pair-12702">
   <div class="card-header">
-    <h2>#12703 &mdash; c463_L6_script_43.asy</h2>
+    <h2>#12702 &mdash; c463_L6_script_43.asy</h2>
     <span class="badge" style="background:#2d8a4e">Combined 0.9988 &middot; Good</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9988</span>
     <span class="badge" style="background:#2d8a4e;margin-left:4px" title="Pixel-wise SSIM (no blur)">Raw 0.9970</span>
@@ -750,7 +249,100 @@ label(&quot;$T$&quot;, T, N);
 label(&quot;$BD \parallel TK?$&quot;, (3.5,1));
 [/asy]">Copy &amp; TeXeR</button>
       </div>
-      <textarea class="feedback-box" data-rank="12703" data-id="08197" data-file="c463_L6_script_43.asy" placeholder="Notes about this pair..."></textarea>
+      <textarea class="feedback-box" data-rank="12702" data-id="08197" data-file="c463_L6_script_43.asy" placeholder="Notes about this pair..."></textarea>
+    </div>
+  </div>
+</div>
+<div class="card" id="pair-12703">
+  <div class="card-header">
+    <h2>#12703 &mdash; c400_L2_script_6.asy</h2>
+    <span class="badge" style="background:#2d8a4e">Combined 0.9988 &middot; Good</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Content 0.9989</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px" title="Pixel-wise SSIM (no blur)">Raw 0.9949</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px" title="SSIM after Gaussian blur (shift-tolerant)">Soft 0.9989</span>
+    <span class="badge" style="background:#2d8a4e;margin-left:4px">Size 0.9999</span>
+  </div>
+  <div class="card-body" style="grid-template-columns:35% 35% 30%">
+    <div class="render-col">
+      <h3>Asymptote (Reference)</h3>
+      <div class="img-wrap"><em class="na">Not rendered</em></div>
+    </div>
+    <div class="render-col">
+      <h3>HiTeXeR</h3>
+      <div class="img-wrap"><div class="htx-svg" data-svg="htx_svgs/05210.svg"></div></div>
+    </div>
+    <div class="render-col col-source">
+      <h3>Source</h3>
+      <div class="code-box"><code>//TeXeR source: https://artofproblemsolving.com/texer/ncilnqmo
+
+unitsize(2cm);
+
+picture brush(){
+
+picture b;
+fill(b,box((-.1,0),(.1,.6)));
+fill(b,box((-.3,.6),(.3,1.2)));
+
+for(int k = 0; k&lt;6; ++k){
+draw(b,(k/6*.6-.25,1.2)--(k/6*.6-.25,.7), white+linewidth(.5 pt) );
+}
+
+return b;
+}
+
+draw(xscale(.3)*unitcircle);
+draw((0,1)--(-1,1));
+draw((0,-1)--(-1,-1));
+draw(shift(-1,0)*xscale(.3)*arc((0,0),1,90,270));
+label(&quot;A&quot;,(-.5,-1),S);
+draw((0,0)--(1.5,0), arrow = Arrow(6));
+
+draw(shift(3,0)*xscale(.3)*unitcircle);
+draw((3,1)--(4,1));
+draw((3,-1)--(4,-1));
+draw(shift(4,0)*xscale(.3)*arc((0,0),1,-90,90));
+label(&quot;$B$&quot;,(3.5,-1),S);
+
+add(shift(-.5,1)*scale(.4)*brush());
+add(shift(3.5,1)*scale(.4)*brush());</code></div>
+      <div class="link-row">
+        <a class="btn" href="../index.html#code=%5Basy%5D%0A%2F%2FTeXeR%20source%3A%20https%3A%2F%2Fartofproblemsolving.com%2Ftexer%2Fncilnqmo%0D%0A%0D%0Aunitsize(2cm)%3B%0D%0A%0D%0Apicture%20brush()%7B%0D%0A%0D%0Apicture%20b%3B%0D%0Afill(b%2Cbox((-.1%2C0)%2C(.1%2C.6)))%3B%0D%0Afill(b%2Cbox((-.3%2C.6)%2C(.3%2C1.2)))%3B%0D%0A%0D%0Afor(int%20k%20%3D%200%3B%20k%3C6%3B%20%2B%2Bk)%7B%0D%0Adraw(b%2C(k%2F6*.6-.25%2C1.2)--(k%2F6*.6-.25%2C.7)%2C%20white%2Blinewidth(.5%20pt)%20)%3B%0D%0A%7D%0D%0A%0D%0Areturn%20b%3B%0D%0A%7D%0D%0A%0D%0Adraw(xscale(.3)*unitcircle)%3B%0D%0Adraw((0%2C1)--(-1%2C1))%3B%0D%0Adraw((0%2C-1)--(-1%2C-1))%3B%0D%0Adraw(shift(-1%2C0)*xscale(.3)*arc((0%2C0)%2C1%2C90%2C270))%3B%0D%0Alabel(%22A%22%2C(-.5%2C-1)%2CS)%3B%0D%0Adraw((0%2C0)--(1.5%2C0)%2C%20arrow%20%3D%20Arrow(6))%3B%0D%0A%0D%0Adraw(shift(3%2C0)*xscale(.3)*unitcircle)%3B%0D%0Adraw((3%2C1)--(4%2C1))%3B%0D%0Adraw((3%2C-1)--(4%2C-1))%3B%0D%0Adraw(shift(4%2C0)*xscale(.3)*arc((0%2C0)%2C1%2C-90%2C90))%3B%0D%0Alabel(%22%24B%24%22%2C(3.5%2C-1)%2CS)%3B%0D%0A%0D%0Aadd(shift(-.5%2C1)*scale(.4)*brush())%3B%0D%0Aadd(shift(3.5%2C1)*scale(.4)*brush())%3B%0A%5B%2Fasy%5D" target="_blank">Open in HiTeXeR</a>
+        <button class="btn texer-btn" data-code="[asy]
+//TeXeR source: https://artofproblemsolving.com/texer/ncilnqmo
+
+unitsize(2cm);
+
+picture brush(){
+
+picture b;
+fill(b,box((-.1,0),(.1,.6)));
+fill(b,box((-.3,.6),(.3,1.2)));
+
+for(int k = 0; k&lt;6; ++k){
+draw(b,(k/6*.6-.25,1.2)--(k/6*.6-.25,.7), white+linewidth(.5 pt) );
+}
+
+return b;
+}
+
+draw(xscale(.3)*unitcircle);
+draw((0,1)--(-1,1));
+draw((0,-1)--(-1,-1));
+draw(shift(-1,0)*xscale(.3)*arc((0,0),1,90,270));
+label(&quot;A&quot;,(-.5,-1),S);
+draw((0,0)--(1.5,0), arrow = Arrow(6));
+
+draw(shift(3,0)*xscale(.3)*unitcircle);
+draw((3,1)--(4,1));
+draw((3,-1)--(4,-1));
+draw(shift(4,0)*xscale(.3)*arc((0,0),1,-90,90));
+label(&quot;$B$&quot;,(3.5,-1),S);
+
+add(shift(-.5,1)*scale(.4)*brush());
+add(shift(3.5,1)*scale(.4)*brush());
+[/asy]">Copy &amp; TeXeR</button>
+      </div>
+      <textarea class="feedback-box" data-rank="12703" data-id="05210" data-file="c400_L2_script_6.asy" placeholder="Notes about this pair..."></textarea>
     </div>
   </div>
 </div>
