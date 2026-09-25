@@ -1,7 +1,9 @@
 'use strict';
 // What Mark sees in the Blink Comparator, as one image per diagram.
 //   node refactor/view.js <id> [<id> ...]   -> refactor/view/<id>.png
-// Needs fix-server.js running on :7842 (it serves the page + corpus).
+// Needs a server for this checkout's index.html: fix-server.js on :7842, or
+// set HTX_VIEW_URL (e.g. `python -m http.server 8790` in a worktree, then
+// HTX_VIEW_URL=http://127.0.0.1:8790/index.html).
 //
 // Panels, all at the SAME scale (2 image px per CSS px, i.e. the 240-DPI
 // bitmaps before the comparator halves them for display; nothing resized):
@@ -36,7 +38,7 @@ async function inkBox(buf) {
   const ids = process.argv.slice(2);
   const b = await puppeteer.launch({ headless: 'new' });
   const p = await b.newPage();
-  await p.goto('http://127.0.0.1:7842/index.html', { waitUntil: 'load' });
+  await p.goto(process.env.HTX_VIEW_URL || 'http://127.0.0.1:7842/index.html', { waitUntil: 'load' });
   await p.waitForFunction(() => window.katexSvg && katexSvg.ready(), { timeout: 60000 });
   for (const id of ids) {
     const src = fs.readFileSync(path.join(ROOT, 'comparison/asy_src', id + '.asy'), 'utf8');
