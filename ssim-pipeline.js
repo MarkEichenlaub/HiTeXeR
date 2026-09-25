@@ -120,11 +120,11 @@ async function _ssimWorker() {
           sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
         }
         const MAX = 400;
-        const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } }).trim({ threshold: 20 })
+        const trimRef = await sharp(await sharp(path.join(TEXER_DIR, id + '.png')).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer())
+          .trim({ threshold: 20 })
           .toBuffer({ resolveWithObject: true });
-        const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
-          .flatten({ background: { r: 255, g: 255, b: 255 } }).trim({ threshold: 20 })
+        const trimHtx = await sharp(await sharp(path.join(HTX_DIR, id + '.png')).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer())
+          .trim({ threshold: 20 })
           .toBuffer({ resolveWithObject: true });
         const maxW = Math.max(trimRef.info.width, trimHtx.info.width);
         const maxH = Math.max(trimRef.info.height, trimHtx.info.height);
@@ -862,7 +862,7 @@ async function main() {
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiTeXeR vs Asymptote — Page ${pageNum}/${totalPages}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.38/dist/katex.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;padding:20px;color:#333}

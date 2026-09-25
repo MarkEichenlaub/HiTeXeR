@@ -84,8 +84,8 @@ function rgbToRgba(buf, w, h) {
 // Trim + resize-to-fill, identical to render-and-score.js, returning both the
 // raw RGB buffers (for SSIM) and the trimmed PNG buffers (for cropping).
 async function prep(refPng, htxPng) {
-  const trimRef = await sharp(refPng).flatten({background:{r:255,g:255,b:255}}).trim({threshold:20}).png().toBuffer({resolveWithObject:true});
-  const trimHtx = await sharp(htxPng).flatten({background:{r:255,g:255,b:255}}).trim({threshold:20}).png().toBuffer({resolveWithObject:true});
+  const trimRef = await sharp(await sharp(refPng).flatten({background:{r:255,g:255,b:255}}).png().toBuffer()).trim({threshold:20}).png().toBuffer({resolveWithObject:true});
+  const trimHtx = await sharp(await sharp(htxPng).flatten({background:{r:255,g:255,b:255}}).png().toBuffer()).trim({threshold:20}).png().toBuffer({resolveWithObject:true});
   const maxW = Math.max(trimRef.info.width, trimHtx.info.width);
   const maxH = Math.max(trimRef.info.height, trimHtx.info.height);
   const scale = Math.min(MAX/maxW, MAX/maxH, 1);

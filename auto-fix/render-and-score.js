@@ -223,8 +223,8 @@ async function scoreOne(id, A, fontCSS, opts) {
     }
 
     const MAX=400;
-    const trimRef = await sharp(refPng).flatten({background:{r:255,g:255,b:255}}).trim({threshold:20}).toBuffer({resolveWithObject:true});
-    const trimHtx = await sharp(htxPng).flatten({background:{r:255,g:255,b:255}}).trim({threshold:20}).toBuffer({resolveWithObject:true});
+    const trimRef = await sharp(await sharp(refPng).flatten({background:{r:255,g:255,b:255}}).png().toBuffer()).trim({threshold:20}).toBuffer({resolveWithObject:true});
+    const trimHtx = await sharp(await sharp(htxPng).flatten({background:{r:255,g:255,b:255}}).png().toBuffer()).trim({threshold:20}).toBuffer({resolveWithObject:true});
     const maxW = Math.max(trimRef.info.width, trimHtx.info.width);
     const maxH = Math.max(trimRef.info.height, trimHtx.info.height);
     const scale = Math.min(MAX/maxW, MAX/maxH, 1);

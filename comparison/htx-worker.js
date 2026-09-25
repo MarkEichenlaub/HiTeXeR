@@ -23,7 +23,7 @@ function boot() {
   if (booted) return;
   booted = true;
   try {
-    importScripts('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js');
+    importScripts('https://cdn.jsdelivr.net/npm/katex@0.16.38/dist/katex.min.js');
     importScripts('../katex-svg.js');
     importScripts('../asy-interp.js');
     // Multi-[asy] document composition — the SAME module node's pipeline and

@@ -58,11 +58,11 @@ async function scoreOne(id) {
       sizeScore = Math.exp(-((maxRatio - 1) ** 2) / (2 * SIGMA * SIGMA));
     }
     const MAX = 400;
-    const trimRef = await sharp(path.join(TEXER_DIR, id + '.png'))
-      .flatten({ background: { r: 255, g: 255, b: 255 } }).trim({ threshold: 20 })
+    const trimRef = await sharp(await sharp(path.join(TEXER_DIR, id + '.png')).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer())
+      .trim({ threshold: 20 })
       .toBuffer({ resolveWithObject: true });
-    const trimHtx = await sharp(path.join(HTX_DIR, id + '.png'))
-      .flatten({ background: { r: 255, g: 255, b: 255 } }).trim({ threshold: 20 })
+    const trimHtx = await sharp(await sharp(path.join(HTX_DIR, id + '.png')).flatten({ background: { r: 255, g: 255, b: 255 } }).png().toBuffer())
+      .trim({ threshold: 20 })
       .toBuffer({ resolveWithObject: true });
     const maxW = Math.max(trimRef.info.width, trimHtx.info.width);
     const maxH = Math.max(trimRef.info.height, trimHtx.info.height);

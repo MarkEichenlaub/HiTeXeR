@@ -31053,7 +31053,7 @@ function renderSVG(result, opts) {
             && typeof text === 'string' && text.indexOf('\n') === -1) {
           try {
             const _mm = _mjxMeasureBp(text, fontSize);
-            if (process.env.HTX_LBL_DBG) { try { process.stderr.write('[lblmeas] '+JSON.stringify(text)+' base='+textWidthBpBase.toFixed(1)+' mm='+(_mm?_mm.wBp.toFixed(1):'null')+String.fromCharCode(10)); } catch(e){} }
+            if (typeof process !== 'undefined' && process.env && process.env.HTX_LBL_DBG) { try { process.stderr.write('[lblmeas] '+JSON.stringify(text)+' base='+textWidthBpBase.toFixed(1)+' mm='+(_mm?_mm.wBp.toFixed(1):'null')+String.fromCharCode(10)); } catch(e){} }
             if (_mm && _mm.wBp > 0) {
               textWidthBpBase = _mm.wBp;
               // Real rendered height too: \frac{b}{\sqrt{3}} and \dfrac run
@@ -31158,7 +31158,7 @@ function renderSVG(result, opts) {
             && typeof text === 'string' && text.indexOf('\n') === -1) {
           try {
             const _hm = _mjxMeasureBp(text, fontSize);
-            if (process.env.HTX_LBL_DBG) { try { process.stderr.write('[hfloor] ' + JSON.stringify(text) + ' fs=' + fontSize.toFixed(1) + ' raw=' + _heightBpRaw.toFixed(1) + ' meas=' + (_hm ? _hm.hBp.toFixed(1) : 'null') + String.fromCharCode(10)); } catch (e2) {} }
+            if (typeof process !== 'undefined' && process.env && process.env.HTX_LBL_DBG) { try { process.stderr.write('[hfloor] ' + JSON.stringify(text) + ' fs=' + fontSize.toFixed(1) + ' raw=' + _heightBpRaw.toFixed(1) + ' meas=' + (_hm ? _hm.hBp.toFixed(1) : 'null') + String.fromCharCode(10)); } catch (e2) {} }
             if (_hm && _hm.hBp > _heightBpRaw * 1.3) _mjxHBpFloor = _hm.hBp;
           } catch (e) { /* keep heuristic */ }
         }

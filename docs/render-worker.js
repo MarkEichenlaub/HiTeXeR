@@ -16,7 +16,7 @@ let ready = false;
 let loadError = null;
 try {
   importScripts(
-    'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js',
+    'https://cdn.jsdelivr.net/npm/katex@0.16.38/dist/katex.min.js',
     'katex-svg.js',
     'asy-interp.js'
   );

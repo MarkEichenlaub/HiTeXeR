@@ -45,8 +45,8 @@ async function score(pngBuf, id) {
   const refMeta = await sharp(refPng).metadata(), htxMeta = await sharp(pngBuf).metadata();
   const aw = refMeta.width || 1, ah = refMeta.height || 1, hw = htxMeta.width || 1, hh = htxMeta.height || 1;
   const sizeScore = (aw < 100 && ah < 100) ? 1 : Math.exp(-((Math.max(hw, hh) / Math.max(aw, ah) - 1) ** 2) / (2 * 0.15 * 0.15));
-  const trimRef = await sharp(refPng).flatten({ background: '#fff' }).trim({ threshold: 20 }).toBuffer({ resolveWithObject: true });
-  const trimHtx = await sharp(pngBuf).flatten({ background: '#fff' }).trim({ threshold: 20 }).toBuffer({ resolveWithObject: true });
+  const trimRef = await sharp(await sharp(refPng).flatten({ background: '#fff' }).png().toBuffer()).trim({ threshold: 20 }).toBuffer({ resolveWithObject: true });
+  const trimHtx = await sharp(await sharp(pngBuf).flatten({ background: '#fff' }).png().toBuffer()).trim({ threshold: 20 }).toBuffer({ resolveWithObject: true });
   const maxW = Math.max(trimRef.info.width, trimHtx.info.width), maxH = Math.max(trimRef.info.height, trimHtx.info.height);
   const sc = Math.min(400 / maxW, 400 / maxH, 1);
   const W = Math.max(Math.round(maxW * sc), 11), H = Math.max(Math.round(maxH * sc), 11);
