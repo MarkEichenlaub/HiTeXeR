@@ -2045,6 +2045,7 @@ function mergePens(a,b) {
   if (b.fontFamily) r.fontFamily = b.fontFamily;
   if (b._nibPath) r._nibPath = b._nibPath;
   if (a._nibPath && !b._nibPath) r._nibPath = a._nibPath;
+  if (b._basealign !== undefined) r._basealign = b._basealign;
   if (b._fillPattern) r._fillPattern = b._fillPattern;
   return r;
 }
@@ -2061,6 +2062,191 @@ function applyTransformPath(t, path) {
   const out = makePath(path.segs.map(tseg), path.closed);
   // Compact drawing form of a many-node circle (see makeCirclePath).
   if (path._drawSegs) out._drawSegs = path._drawSegs.map(tseg);
+  return out;
+}
+
+// ── makepen() nib drawing (plain_filldraw.asy makedraw) ─────────────────────
+// Everything here works on plain {x,y} points in FRAME bp, like asy's
+// makedraw (which runs on t*g inside a frame drawer).
+function _nibLerp(a, b, t) { return {x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t}; }
+// Restrict a cubic to its parameter interval [u,v] (de Casteljau).
+function _nibSegRange(s, u, v) {
+  const split = (sg, t) => {
+    const a = _nibLerp(sg.p0, sg.cp1, t), b = _nibLerp(sg.cp1, sg.cp2, t), c = _nibLerp(sg.cp2, sg.p3, t);
+    const d = _nibLerp(a, b, t), e = _nibLerp(b, c, t), m = _nibLerp(d, e, t);
+    return [{p0: sg.p0, cp1: a, cp2: d, p3: m, _linear: sg._linear}, {p0: m, cp1: e, cp2: c, p3: sg.p3, _linear: sg._linear}];
+  };
+  let sg = s;
+  if (v < 1) sg = split(sg, v)[0];
+  if (u > 0) sg = split(sg, v > 0 ? u / v : 0)[1];
+  return sg;
+}
+// asy subpath(g,a,b) for 0 <= a < b <= length(g).
+function _nibSubpath(segs, a, b) {
+  const out = [];
+  const i0 = Math.max(0, Math.floor(a)), i1 = Math.min(segs.length, Math.ceil(b));
+  for (let i = i0; i < i1; i++) {
+    const u = Math.max(0, a - i), v = Math.min(1, b - i);
+    if (v - u <= 0) continue;
+    out.push(u === 0 && v === 1 ? segs[i] : _nibSegRange(segs[i], u, v));
+  }
+  return out;
+}
+function _nibIsStraight(s) {
+  if (!s) return false;
+  if (s._linear) return true;
+  const dx = s.p3.x - s.p0.x, dy = s.p3.y - s.p0.y, L = Math.hypot(dx, dy);
+  if (L === 0) return Math.hypot(s.cp1.x - s.p0.x, s.cp1.y - s.p0.y) === 0 && Math.hypot(s.cp2.x - s.p0.x, s.cp2.y - s.p0.y) === 0;
+  const off = p => Math.abs((p.x - s.p0.x) * dy - (p.y - s.p0.y) * dx) / L;
+  return off(s.cp1) <= 1e-9 * L && off(s.cp2) <= 1e-9 * L;
+}
+// Tangent direction leaving (side=+1) or entering (side=-1) a segment end.
+function _nibSegDir(s, atEnd) {
+  const pts = atEnd ? [s.p3, s.cp2, s.cp1, s.p0] : [s.p0, s.cp1, s.cp2, s.p3];
+  for (let k = 1; k < 4; k++) {
+    const dx = pts[k].x - pts[0].x, dy = pts[k].y - pts[0].y;
+    if (dx * dx + dy * dy > 1e-24) return atEnd ? {x: -dx, y: -dy} : {x: dx, y: dy};
+  }
+  return null;
+}
+// asy dirtime(g,z): first time the path has direction z, counting sharp
+// corners (probe-verified on asy 3.06: dirtime((0,0)--(1,0)--(1,1),(1,1))=1,
+// and a cyclic path's node-0 corner is reported at t=length, not 0). -1 if never.
+function _nibDirtime(segs, closed, z) {
+  const zl = Math.hypot(z.x, z.y);
+  if (!(zl > 0)) return 0;
+  const zx = z.x / zl, zy = z.y / zl;
+  const n = segs.length;
+  for (let i = 0; i < n; i++) {
+    const s = segs[i];
+    // B'(t)/3 = A(1-t)^2 + 2B t(1-t) + C t^2
+    const A = {x: s.cp1.x - s.p0.x, y: s.cp1.y - s.p0.y};
+    const B = {x: s.cp2.x - s.cp1.x, y: s.cp2.y - s.cp1.y};
+    const C = {x: s.p3.x - s.cp2.x, y: s.p3.y - s.cp2.y};
+    const cr = v => v.x * zy - v.y * zx, dt = v => v.x * zx + v.y * zy;
+    const a0 = cr(A), b0 = cr(B), c0 = cr(C);
+    // cross(t) = a0(1-t)^2 + 2 b0 t(1-t) + c0 t^2 = qa t^2 + qb t + qc
+    const qa = a0 - 2 * b0 + c0, qb = 2 * (b0 - a0), qc = a0;
+    const scale = Math.max(Math.abs(a0), Math.abs(b0), Math.abs(c0), 1e-300);
+    const roots = [];
+    const lenScale = Math.max(Math.hypot(A.x, A.y), Math.hypot(B.x, B.y), Math.hypot(C.x, C.y));
+    if (scale <= 1e-12 * lenScale) {
+      roots.push(0); // parallel throughout (straight along z or -z)
+    } else if (Math.abs(qa) <= 1e-12 * scale) {
+      if (Math.abs(qb) > 1e-15 * scale) roots.push(-qc / qb);
+    } else {
+      const disc = qb * qb - 4 * qa * qc;
+      if (disc >= 0) {
+        const sq = Math.sqrt(disc);
+        const q = -0.5 * (qb + (qb >= 0 ? sq : -sq));
+        roots.push(q / qa);
+        if (q !== 0) roots.push(qc / q);
+      }
+    }
+    roots.sort((p, q) => p - q);
+    for (let t of roots) {
+      if (t < -1e-12 || t > 1 + 1e-12) continue;
+      t = Math.min(1, Math.max(0, t));
+      const u = 1 - t;
+      const d = {x: A.x * u * u + 2 * B.x * t * u + C.x * t * t, y: A.y * u * u + 2 * B.y * t * u + C.y * t * t};
+      let dd = dt(d);
+      if (Math.hypot(d.x, d.y) <= 1e-12 * lenScale) {
+        // degenerate derivative (coincident control point): use the chord
+        const dir = _nibSegDir(s, t > 0.5);
+        dd = dir ? dt(dir) : 0;
+      }
+      if (dd > 0) return i + t;
+    }
+    // sharp corner at node i+1
+    if (i + 1 < n || closed) {
+      const din = _nibSegDir(s, true), dout = _nibSegDir(segs[(i + 1) % n], false);
+      if (din && dout) {
+        const ain = Math.atan2(din.y, din.x);
+        let turn = Math.atan2(dout.y, dout.x) - ain;
+        while (turn > Math.PI) turn -= 2 * Math.PI;
+        while (turn <= -Math.PI) turn += 2 * Math.PI;
+        let ph = Math.atan2(zy, zx) - ain;
+        while (ph > Math.PI) ph -= 2 * Math.PI;
+        while (ph <= -Math.PI) ph += 2 * Math.PI;
+        const e = 1e-12;
+        if (Math.abs(turn) > e && ((turn > 0 && ph >= -e && ph <= turn + e) || (turn < 0 && ph <= e && ph >= turn - e))) return i + 1;
+      }
+    }
+  }
+  return -1;
+}
+// Exact bbox of a cubic path (segs), or of a single point.
+function _nibPathBBox(segs, singlePt) {
+  let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+  const add = (x, y) => { if (x < mnX) mnX = x; if (x > mxX) mxX = x; if (y < mnY) mnY = y; if (y > mxY) mxY = y; };
+  if (singlePt) add(singlePt.x, singlePt.y);
+  for (const s of segs || []) {
+    add(s.p0.x, s.p0.y); add(s.p3.x, s.p3.y);
+    for (const ax of ['x', 'y']) {
+      const p0 = s.p0[ax], p1 = s.cp1[ax], p2 = s.cp2[ax], p3 = s.p3[ax];
+      const a = -p0 + 3 * p1 - 3 * p2 + p3, b = 2 * (p0 - 2 * p1 + p2), c = p1 - p0;
+      const ts = [];
+      if (Math.abs(a) < 1e-14) { if (Math.abs(b) > 1e-14) ts.push(-c / b); }
+      else { const D = b * b - 4 * a * c; if (D >= 0) { const q = Math.sqrt(D); ts.push((-b + q) / (2 * a), (-b - q) / (2 * a)); } }
+      for (const t of ts) {
+        if (!(t > 0 && t < 1)) continue;
+        const u = 1 - t;
+        const pt = {x: u*u*u*s.p0.x + 3*u*u*t*s.cp1.x + 3*u*t*t*s.cp2.x + t*t*t*s.p3.x,
+                    y: u*u*u*s.p0.y + 3*u*u*t*s.cp1.y + 3*u*t*t*s.cp2.y + t*t*t*s.p3.y};
+        add(pt.x, pt.y);
+      }
+    }
+  }
+  return isFinite(mnX) ? {minX: mnX, maxX: mxX, minY: mnY, maxY: mxY} : null;
+}
+// makedraw(f,g,p): returns the closed fill paths (arrays of segs, nonzero
+// rule) that asy fills for path g (segs, bp) drawn with nib path `nib` (bp).
+function _nibMakedrawBp(segs, closed, singlePt, nib, depth, out) {
+  out = out || [];
+  if (depth === undefined) depth = 53;
+  if (depth === 0) return out;
+  --depth;
+  const shiftSegs = (ss, v) => ss.map(s => ({p0: {x: s.p0.x + v.x, y: s.p0.y + v.y}, cp1: {x: s.cp1.x + v.x, y: s.cp1.y + v.y},
+    cp2: {x: s.cp2.x + v.x, y: s.cp2.y + v.y}, p3: {x: s.p3.x + v.x, y: s.p3.y + v.y}, _linear: s._linear}));
+  const nodes = [];
+  if (!segs.length) { if (singlePt) nodes.push(singlePt); }
+  else {
+    for (const s of segs) nodes.push(s.p0);
+    if (!closed) nodes.push(segs[segs.length - 1].p3);
+  }
+  for (const p of nodes) out.push(shiftSegs(nib.segs, p));
+  const L = segs.length;
+  if (L === 0) return out;
+  const eps = 1000 * 2.220446049250313e-16, stop = L - eps;
+  const N = nib.segs.length;
+  const nibPt = i => i < N ? nib.segs[i].p0 : (nib.closed ? nib.segs[0].p0 : nib.segs[N - 1].p3);
+  const tryT = (t) => {
+    const k = Math.trunc(t);
+    if (k >= 0 && k < L && _nibIsStraight(segs[k])) t = Math.ceil(t);
+    return (t > eps && t < stop) ? t : null;
+  };
+  for (let i = 0; i < N; i++) {
+    const n0 = nibPt(i), n1 = nibPt(i + 1);
+    const dl = Math.hypot(n1.x - n0.x, n1.y - n0.y);
+    if (!(dl > 0)) continue;
+    const dir = {x: (n1.x - n0.x) / dl, y: (n1.y - n0.y) / dl};
+    for (const sg of [-1, 1]) {
+      const dtm = _nibDirtime(segs, closed, {x: sg * dir.x, y: sg * dir.y});
+      const t = tryT(sg < 0 ? dtm - eps : dtm);
+      if (t !== null) {
+        _nibMakedrawBp(_nibSubpath(segs, 0, t), false, null, nib, depth, out);
+        _nibMakedrawBp(_nibSubpath(segs, t, L), false, null, nib, depth, out);
+        return out;
+      }
+    }
+  }
+  const rev = segs.slice().reverse().map(s => ({p0: s.p3, cp1: s.cp2, cp2: s.cp1, p3: s.p0, _linear: s._linear}));
+  const line = (a, b) => ({p0: a, cp1: _nibLerp(a, b, 1 / 3), cp2: _nibLerp(a, b, 2 / 3), p3: b, _linear: true});
+  for (let i = 0; i < N; i++) {
+    const n0 = nibPt(i), n1 = nibPt(i + 1);
+    const A = shiftSegs(segs, n0), Bv = shiftSegs(rev, n1);
+    out.push(A.concat([line(A[A.length - 1].p3, Bv[0].p0)], Bv, [line(Bv[Bv.length - 1].p3, A[0].p0)]));
+  }
   return out;
 }
 
@@ -2171,6 +2357,9 @@ function applyTransform3Path(t, path) {
       np._singlePoint = path._singlePoint;
     }
   }
+  // An unresolved 3D Hobby guide (graph(...,operator ..)) keeps its knots so
+  // a later &cycle can re-solve it as a closed spline (transforms are affine).
+  if (path._hobbyKnots3) np._hobbyKnots3 = path._hobbyKnots3.map(k => applyTransform3Triple(t, k));
   return np;
 }
 
@@ -2598,6 +2787,61 @@ function _vunit3(a){ const l=_vlen3(a)||1; return {x:a.x/l,y:a.y/l,z:a.z/l}; }
 // case: a circular/parabolic arc lying in an axis plane) this is exact; for
 // genuinely non-planar runs it is a reasonable approximation (and far better
 // than the old behaviour, which dropped z entirely and produced loops).
+// Hobby spline through DENSE 3D samples (graph(...,operator ..)). Knot
+// directions are the circle tangents through each knot's neighbours (what
+// Hobby's mock-curvature equations converge to on a smoothly sampled curve;
+// open ends use the end tangent of that circle, i.e. curl 1), and controls
+// use Hobby's velocity function at tension 1. hobbySpline3's best-fit-plane
+// projection bends a non-planar space curve such as 12836's torus knot.
+function _hobbyDense3(knots, closed) {
+  const n = knots.length;
+  const P = knots.map(k => ({x: k.x || 0, y: k.y || 0, z: k.z || 0}));
+  const sub = (a, b) => ({x: a.x - b.x, y: a.y - b.y, z: a.z - b.z});
+  const addv = (a, b) => ({x: a.x + b.x, y: a.y + b.y, z: a.z + b.z});
+  const mul = (a, k) => ({x: a.x * k, y: a.y * k, z: a.z * k});
+  const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+  const cross = (a, b) => ({x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x});
+  const len = a => Math.sqrt(dot(a, a));
+  const unit = a => { const l = len(a); return l > 0 ? mul(a, 1 / l) : a; };
+  const nSeg = closed ? n : n - 1;
+  const D = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const hasPrev = closed || i > 0, hasNext = closed || i < n - 1;
+    if (hasPrev && hasNext) {
+      const a = sub(P[i], P[(i - 1 + n) % n]), b = sub(P[(i + 1) % n], P[i]);
+      D[i] = unit(addv(mul(a, dot(b, b)), mul(b, dot(a, a))));
+    }
+  }
+  if (!closed) {
+    if (n === 2) { D[0] = D[1] = unit(sub(P[1], P[0])); }
+    else {
+      const c0 = unit(sub(P[1], P[0])); D[0] = unit(sub(mul(c0, 2 * dot(c0, D[1])), D[1]));
+      const c1 = unit(sub(P[n - 1], P[n - 2])); D[n - 1] = unit(sub(mul(c1, 2 * dot(c1, D[n - 2])), D[n - 2]));
+    }
+  }
+  const segs = [];
+  const r5 = Math.sqrt(5), r2 = Math.SQRT2;
+  for (let i = 0; i < nSeg; i++) {
+    const z0 = P[i], z1 = P[(i + 1) % n];
+    const ch = sub(z1, z0), L = len(ch);
+    const d0 = D[i], d1 = D[(i + 1) % n];
+    let f0 = 1 / 3, f1 = 1 / 3;
+    if (L > 0) {
+      const cu = mul(ch, 1 / L);
+      const th = Math.acos(Math.max(-1, Math.min(1, dot(cu, d0))));
+      let ph = Math.acos(Math.max(-1, Math.min(1, dot(cu, d1))));
+      const nrm = cross(cu, d0);
+      if (len(nrm) > 1e-12 && dot(cross(d1, cu), nrm) < 0) ph = -ph;
+      const vel = (t, p) => (2 + r2 * (Math.sin(t) - Math.sin(p) / 16) * (Math.sin(p) - Math.sin(t) / 16) * (Math.cos(t) - Math.cos(p)))
+        / (3 * (1 + 0.5 * (r5 - 1) * Math.cos(t) + 0.5 * (3 - r5) * Math.cos(p)));
+      f0 = vel(th, ph); f1 = vel(ph, th);
+    }
+    const mk = v => makeTriple(v.x, v.y, v.z);
+    segs.push(makeSeg(mk(z0), mk(addv(z0, mul(d0, L * f0))), mk(sub(z1, mul(d1, L * f1))), mk(z1)));
+  }
+  return segs;
+}
+
 function hobbySpline3(knots, closed, directions) {
   const n = knots.length;
   if (n < 2) return [];
@@ -2680,7 +2924,8 @@ function _projectTripleRaw(v, proj, _preApplied) {
   const dx = cx-tx, dy = cy-ty, dz = cz-tz;
   const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
   const fw = {x:dx/dist, y:dy/dist, z:dz/dist};
-  const ux = proj.ux || 0, uy = proj.uy || 0, uz = proj.uz || 1;
+  // up=Y/-Y has uz === 0: `|| 1` turned it into (0,±1,1) and tilted the view.
+  const ux = proj.ux || 0, uy = proj.uy || 0, uz = (proj.uz == null) ? 1 : proj.uz;
   let rx = uy*fw.z - uz*fw.y, ry = uz*fw.x - ux*fw.z, rz = ux*fw.y - uy*fw.x;
   const rlen = Math.sqrt(rx*rx + ry*ry + rz*rz) || 1;
   rx /= rlen; ry /= rlen; rz /= rlen;
@@ -3629,14 +3874,12 @@ function createInterpreter() {
     if (op === T.STAR && isPen(left) && isNumber(right)) {
       return makePen(Object.assign({}, left, {r:right*left.r, g:right*left.g, b:right*left.b}));
     }
-    // transform * pen: if pen has _nibPath, transform the nib path
-    // Note: scale(10)*makepen(path) should scale the nib, but the result can
-    // cause large overlapping strokes. For now, make the pen invisible to
-    // avoid visual artifacts until proper Minkowski sum handling is implemented.
+    // transform * pen: a makepen() nib is transformed as a path, shift
+    // included (asy 3.06: nib(shift(3,4)*makepen(polygon(8))) is the shifted
+    // octagon); the linewidth is left alone.
     if (op === T.STAR && isTransform(left) && isPen(right)) {
       if (right._nibPath) {
-        // Make pen invisible (nullpen-like) since we can't properly render the scaled nib
-        return makePen(Object.assign({}, right, {_nibPath: null, _nullpen: true, opacity: 0}));
+        return makePen(Object.assign({}, right, {_nibPath: applyTransformPath(left, right._nibPath)}));
       }
       // scale(s)*pen scales the (round) nib — i.e. the linewidth — by the
       // transform's scale magnitude (Asymptote's `operator *(transform,pen)`).
@@ -4279,6 +4522,15 @@ function createInterpreter() {
           if (isRightCycle) {
             if (!left.segs.length) return left;
             if (left.closed) return left; // already cyclic
+            // graph(...,operator ..) is a GUIDE in asy: g&cycle re-solves the
+            // Hobby spline as a closed one (a repeated end knot merges), so
+            // the seam is smooth (probe: 12836's knot has symmetric controls at 0).
+            if (left._hobbyKnots3 && left._hobbyKnots3.length >= 3) {
+              let kn = left._hobbyKnots3.slice();
+              const f0 = kn[0], fl = kn[kn.length - 1];
+              if (Math.abs(f0.x - fl.x) + Math.abs(f0.y - fl.y) + Math.abs((f0.z||0) - (fl.z||0)) <= 1e-9) kn = kn.slice(0, -1);
+              if (kn.length >= 3) return makePath(_hobbyDense3(kn, true), true);
+            }
             const n = left.segs.length;
             const first = left.segs[0].p0;
             const lastSeg = left.segs[n - 1];
@@ -5964,7 +6216,7 @@ function createInterpreter() {
       }
       if (m === 'camera') return makeTriple(obj.cx || 0, obj.cy || 0, obj.cz || 0);
       if (m === 'target') return makeTriple(obj.tx || 0, obj.ty || 0, obj.tz || 0);
-      if (m === 'up')     return makeTriple(obj.ux || 0, obj.uy || 0, obj.uz || 1);
+      if (m === 'up')     return makeTriple(obj.ux || 0, obj.uy || 0, obj.uz == null ? 1 : obj.uz);
       // `infinity` is true for parallel (orthographic) projections, false for
       // perspective — matches Asymptote's projection struct. User-defined
       // back-face cullers (c582_L14 polyhedron helpers) read this to decide
@@ -6320,6 +6572,9 @@ function createInterpreter() {
     const elements = []; // {type:'pair',pt,join} or {type:'path',segs,join}
     let hasCycle = false;
     let cycleDirIn = null; // direction spec before 'cycle' (e.g. ..{W}cycle)
+    // ..controls on a path3 stay triples (toPair projected them eagerly, so
+    // tube()/subpath saw screen-space controls: 12818's link tubes).
+    const _ctrlPt = (v) => isTriple(v) ? v : toPair(v);
     let cycleControlsIn = null; // explicit in-control before 'cycle' (e.g. ..controls P and Q..cycle)
     let cycleCurlIn = null; // ..{curl c}cycle
 
@@ -6329,14 +6584,14 @@ function createInterpreter() {
         hasCycle = true;
         if (n.dirIn) cycleDirIn = evalDirSpec(n.dirIn, env);
         if (n.dirIn && n.dirIn.curl) cycleCurlIn = toNumber(evalNode(n.dirIn.curl, env));
-        if (n.controlsIn) cycleControlsIn = toPair(evalNode(n.controlsIn, env));
+        if (n.controlsIn) cycleControlsIn = _ctrlPt(evalNode(n.controlsIn, env));
         continue;
       }
       const val = evalNode(n.point, env);
       const eDirIn = evalDirSpec(n.dirIn, env);
       const eDirOut = evalDirSpec(n.dirOut, env);
-      const eControlsOut = n.controlsOut ? toPair(evalNode(n.controlsOut, env)) : null;
-      const eControlsIn = n.controlsIn ? toPair(evalNode(n.controlsIn, env)) : null;
+      const eControlsOut = n.controlsOut ? _ctrlPt(evalNode(n.controlsOut, env)) : null;
+      const eControlsIn = n.controlsIn ? _ctrlPt(evalNode(n.controlsIn, env)) : null;
       const nElems = elements.length;
       if (isPath(val) && val.segs.length > 0) {
         elements.push({type:'path', segs:val.segs, join:n.join, dirIn:eDirIn, dirOut:eDirOut, controlsOut:eControlsOut, controlsIn:eControlsIn, _origPath: val, _inlineCycle: _astHasInlineCycle(n.point)});
@@ -7293,6 +7548,7 @@ function createInterpreter() {
 
   function evalImport(node, env) {
     const mod = node.module.toLowerCase();
+    if (mod === 'fontsize') _texScalableFonts = true;
     if (mod.includes('geometry')) {
       installGeometryPackage(env);
     }
@@ -9766,7 +10022,9 @@ function createInterpreter() {
       if (dest === currentPic && !src._sizeW && !src._sizeH && cmds.length) {
         const _anch = pairs.length ? toPair(pairs[0]) : makePair(0, 0);
         (currentPic._addPanels || (currentPic._addPanels = [])).push({
-          px: _anch.x, py: _anch.y, start: dest.commands.length, count: cmds.length });
+          px: _anch.x, py: _anch.y, start: dest.commands.length, count: cmds.length,
+          // add(pic,pos) fits pic to a truesize frame; plain add(pic) does not
+          _hasPos: pairs.length > 0 || (!pairs.length && args.some(a => isTriple(a) && !a.x && !a.y && !a.z)) });
       }
       // Plain add(picture) does NOT propagate the sub-picture's inexact bounds
       // to the destination (Asymptote picture.add: only transform*currentpicture
@@ -10989,7 +11247,41 @@ function createInterpreter() {
     // through points on the true circle. 3D forms stay with arc().
     const _arcBuiltin = env.get('arc');
     env.set('Arc', (...args) => {
-      if (args.some(a => isTriple(a))) return _arcBuiltin(...args);
+      if (args.some(a => isTriple(a))) {
+        // graph3.asy Arc(c,v1,v2[,normal,direction],int n): n segments of a
+        // `..` polargraph through n+1 equally spaced points of the circle.
+        // With an explicit n the segment count matters (reltime/subpath on
+        // 12826's Arc(O,A,B,4) arcs), so build it exactly.
+        const _p3 = args.filter(a => !(a && a._named));
+        const _tr = _p3.filter(isTriple);
+        const _nExp = _namedN(args) != null ? _namedN(args) : (_p3.length > 3 && typeof _p3[_p3.length - 1] === 'number' ? _p3[_p3.length - 1] : null);
+        if (_tr.length >= 3 && _nExp != null && _nExp >= 1 && _nExp <= 2000 && isTriple(_p3[0])) {
+          const c = _tr[0];
+          const d1 = {x: _tr[1].x - c.x, y: _tr[1].y - c.y, z: _tr[1].z - c.z};
+          const d2 = {x: _tr[2].x - c.x, y: _tr[2].y - c.y, z: _tr[2].z - c.z};
+          const r = Math.hypot(d1.x, d1.y, d1.z), r2 = Math.hypot(d2.x, d2.y, d2.z);
+          let nrm = _tr[3] || {x: d1.y * d2.z - d1.z * d2.y, y: d1.z * d2.x - d1.x * d2.z, z: d1.x * d2.y - d1.y * d2.x};
+          const nl = Math.hypot(nrm.x, nrm.y, nrm.z);
+          if (r > 0 && r2 > 0 && nl > 0) {
+            let ccw = true;
+            for (const a of _p3) if (typeof a === 'boolean') ccw = a;
+            for (const a of args) if (a && a._named && 'direction' in a) ccw = !!a.direction;
+            const N = {x: nrm.x / nl, y: nrm.y / nl, z: nrm.z / nl};
+            const u = {x: d1.x / r, y: d1.y / r, z: d1.z / r};
+            const w = {x: N.y * u.z - N.z * u.y, y: N.z * u.x - N.x * u.z, z: N.x * u.y - N.y * u.x};
+            const e2 = {x: d2.x / r2, y: d2.y / r2, z: d2.z / r2};
+            let phi = Math.atan2(e2.x * w.x + e2.y * w.y + e2.z * w.z, e2.x * u.x + e2.y * u.y + e2.z * u.z);
+            if (ccw) { if (phi <= 0) phi += 2 * Math.PI; } else if (phi >= 0) phi -= 2 * Math.PI;
+            const nn = Math.round(_nExp), pts = [];
+            for (let k = 0; k <= nn; k++) {
+              const a = phi * k / nn, ca = Math.cos(a), sa = Math.sin(a);
+              pts.push(makeTriple(c.x + r * (ca * u.x + sa * w.x), c.y + r * (ca * u.y + sa * w.y), c.z + r * (ca * u.z + sa * w.z)));
+            }
+            return makePath(_hobbyDense3(pts, false), false);
+          }
+        }
+        return _arcBuiltin(...args);
+      }
       let dir, n = _namedN(args);
       for (const a of args) if (a && a._named && 'direction' in a) dir = !!a.direction;
       const pos = args.filter(a => !(a && a._named));
@@ -11893,12 +12185,19 @@ function createInterpreter() {
       // unchanged)
       function splitSeg(seg, t) {
         const u = 1 - t;
-        const a1 = {x: u*seg.p0.x + t*seg.cp1.x, y: u*seg.p0.y + t*seg.cp1.y};
-        const a2 = {x: u*seg.cp1.x + t*seg.cp2.x, y: u*seg.cp1.y + t*seg.cp2.y};
-        const a3 = {x: u*seg.cp2.x + t*seg.p3.x, y: u*seg.cp2.y + t*seg.p3.y};
-        const b1 = {x: u*a1.x + t*a2.x, y: u*a1.y + t*a2.y};
-        const b2 = {x: u*a2.x + t*a3.x, y: u*a2.y + t*a3.y};
-        const c1 = {x: u*b1.x + t*b2.x, y: u*b1.y + t*b2.y};
+        // path3: keep the split points triples (they were flattened to 2D
+        // pairs, which projectTriple then left unprojected — 12826's
+        // subpath(Arc(...)) pieces became long stray chords).
+        const is3 = isTriple(seg.p0) || isTriple(seg.p3);
+        const L = (P, Q) => is3
+          ? makeTriple(u*P.x + t*Q.x, u*P.y + t*Q.y, u*(P.z||0) + t*(Q.z||0))
+          : {x: u*P.x + t*Q.x, y: u*P.y + t*Q.y};
+        const a1 = L(seg.p0, seg.cp1);
+        const a2 = L(seg.cp1, seg.cp2);
+        const a3 = L(seg.cp2, seg.p3);
+        const b1 = L(a1, a2);
+        const b2 = L(a2, a3);
+        const c1 = L(b1, b2);
         return [
           makeSeg(seg.p0, a1, b1, c1),
           makeSeg(c1, b2, a3, seg.p3)
@@ -12044,6 +12343,9 @@ function createInterpreter() {
       if (!isPath(pathArg)) return makePen({});
       return makePen({_nibPath: pathArg, _lwExplicit: true});
     });
+    env.set('basealign', makePen({_basealign: true}));
+    env.set('nobasealign', makePen({_basealign: false}));
+    env.set('nib', (p) => (isPen(p) && p._nibPath) ? p._nibPath : makePath([], false));
     // fontsize is in bp like every other length, so fontsize(10pt) = 9.963.
     // (The default pen keeps 12 where asy has 12pt = 11.955bp.)
     env.set('fontsize', (s) => _getterPen(s) ? _getterPen(s).fontsize : makePen({fontsize:toNumber(s), _fzExplicit:true}));
@@ -12054,7 +12356,10 @@ function createInterpreter() {
     // like `label(a,"$a$",(0,-2labelmargin()))` placed labels right at the
     // anchor instead of just outside it (12899 line 16).
     env.set('labelmargin', (...args) => {
-      const p = args.find(a => isPen(a)) || env.get('currentpen') || defaultPen;
+      // Default argument is currentpen, which layers over defaultpen():
+      // after defaultpen(fontsize(100pt)) asy gives 28.15, not 3.6 (12858).
+      const _cp = env.get('currentpen');
+      const p = args.find(a => isPen(a)) || (isPen(_cp) ? mergePens(defaultPen, _cp) : defaultPen);
       const fs = (p && typeof p.fontsize === 'number' && p.fontsize > 0) ? p.fontsize : 12;
       const lw = (p && typeof p.linewidth === 'number' && p.linewidth > 0) ? p.linewidth : 0.5;
       return 0.28 * fs + 0.5 * lw;
@@ -15453,6 +15758,9 @@ const _HTX_DATA_FILES = {
           } catch(e) {}
         }
         if (pts.length < 2) return makePath([], false);
+        // join=operator .. runs a 3D Hobby spline through the samples (12836's
+        // torus-knot spine); the default operator -- joins them by chords.
+        if (smooth === 'hobby') { const _hp = makePath(_hobbyDense3(pts, false), false); _hp._hobbyKnots3 = pts; return _hp; }
         const segs = [];
         for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
         return makePath(segs, false);
@@ -15487,6 +15795,7 @@ const _HTX_DATA_FILES = {
             } catch(e) {}
           }
           if (pts.length < 2) return makePath([], false);
+          if (smooth === 'hobby') { const _hp = makePath(_hobbyDense3(pts, false), false); _hp._hobbyKnots3 = pts; return _hp; }
           const segs = [];
           for (let i = 0; i < pts.length - 1; i++) segs.push(lineSegment(pts[i], pts[i+1]));
           return makePath(segs, false);
@@ -21507,7 +21816,8 @@ const _HTX_DATA_FILES = {
       // rendering (12751), pass x/y through to the 2D handler.
       if (pos.length >= 3 && pos.every(a => a && a._tag === 'scaleT')) {
         currentPic._zLogScale = pos[2].type === 'log';
-        if (origScale) return origScale(pos[0], pos[1]);
+        // pass z too: image()/palette() read pic._zScale (12737 Log colours)
+        if (origScale) return origScale(pos[0], pos[1], pos[2]);
         return null;
       }
       // Picture-form and scaleT-form are handled by origScale
@@ -22312,7 +22622,170 @@ const _HTX_DATA_FILES = {
       return makePath(segs, false);
     });
     // tube(path3 p, real r): stub returning {s: surface around path, center: path}
+    // tube.asy coloredpath(path p, pen[] pens, int colortype): a 2D tube
+    // section whose nodes (coloredNodes) or segments (coloredSegments) carry pens.
+    env.set('coloredNodes', 1);
+    env.set('coloredSegments', 2);
+    env.set('coloredpath', (...args) => {
+      const pos = args.filter(a => !(a && a._named));
+      const named = args.find(a => a && a._named) || {};
+      const p = pos.find(a => isPath(a)) || makePath([], false);
+      const pensArg = pos.find(a => Array.isArray(a));
+      const pens = pensArg ? pensArg.filter(isPen) : (pos.find(isPen) ? [pos.find(isPen)] : null);
+      let colortype = 2;
+      const ints = pos.filter(a => typeof a === 'number');
+      if (ints.length) colortype = ints[0];
+      if (typeof named.colortype === 'number') colortype = named.colortype;
+      return {_tag: 'coloredpath', p, pens: pens && pens.length ? pens : null, colortype};
+    });
+    // tube(path3 g, coloredpath section, ...) from tube.asy: sweep the 2D
+    // section along g on rotation-minimizing frames (three_tube.asy rmf,
+    // double reflection), rotated back into register on a cyclic spine,
+    // coloured per section node/segment. Returns a surface.
+    const _tubeSweep = (g, cp) => {
+      const segs = g.segs || [];
+      const n = segs.length;
+      const sec = cp.p;
+      const L = sec.segs ? sec.segs.length : 0;
+      if (!n || !L) return {_tag: 'surface', mesh: makeMesh([])};
+      if (typeof process !== 'undefined' && process.env && process.env.HTX_TUBE_DBG) {
+        try { const b = _nibPathBBox(sec.segs, null); process.stderr.write('[tube] n=' + n + ' L=' + L + ' closed=' + g.closed + ' sec=' + JSON.stringify(b) + (process.env.HTX_TUBE_DBG === '2' ? ' g=' + JSON.stringify(segs) : '') + '\n'); } catch (e) {}
+      }
+      const T3 = (v) => ({x: v.x || 0, y: v.y || 0, z: v.z || 0});
+      const S3 = segs.map(s => ({p0: T3(s.p0), c1: T3(s.cp1), c2: T3(s.cp2), p3: T3(s.p3)}));
+      const add = (a, b) => ({x: a.x + b.x, y: a.y + b.y, z: a.z + b.z});
+      const sub = (a, b) => ({x: a.x - b.x, y: a.y - b.y, z: a.z - b.z});
+      const mul = (a, k) => ({x: a.x * k, y: a.y * k, z: a.z * k});
+      const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+      const cross = (a, b) => ({x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x});
+      const len = (a) => Math.sqrt(dot(a, a));
+      const unit = (a) => { const l = len(a); return l > 0 ? mul(a, 1 / l) : a; };
+      const bez = (s, t) => { const u = 1 - t;
+        return add(add(mul(s.p0, u * u * u), mul(s.c1, 3 * u * u * t)), add(mul(s.c2, 3 * u * t * t), mul(s.p3, t * t * t))); };
+      const bezD = (s, t) => { const u = 1 - t;
+        let d = add(add(mul(sub(s.c1, s.p0), u * u), mul(sub(s.c2, s.c1), 2 * u * t)), mul(sub(s.p3, s.c2), t * t));
+        if (len(d) < 1e-14) d = sub(s.p3, s.p0);
+        return unit(d); };
+      const pointAt = (t) => { const i = Math.min(n - 1, Math.floor(t)); return bez(S3[i], t - i); };
+      const dirAt = (t) => {
+        const i = Math.floor(t);
+        if (Math.abs(t - i) < 1e-12 && (i > 0 || g.closed) && (i < n || g.closed)) {
+          const din = bezD(S3[(i - 1 + n) % n], 1), dout = bezD(S3[i % n], 0);
+          return unit(add(din, dout));
+        }
+        const k = Math.min(n - 1, i); return bezD(S3[k], t - k);
+      };
+      // sample(): asy splits each segment down to near machine flatness; one
+      // step per ~6 degrees of turning is visually identical at diagram scale
+      // and keeps the mesh (and the SVG) a sane size.
+      const ts = [];
+      for (let i = 0; i < n; i++) {
+        const d0 = bezD(S3[i], 0), d1 = bezD(S3[i], 1), dm = bezD(S3[i], 0.5);
+        const ang = (Math.acos(Math.max(-1, Math.min(1, dot(d0, dm)))) + Math.acos(Math.max(-1, Math.min(1, dot(dm, d1))))) * 180 / Math.PI;
+        const K = Math.max(1, Math.min(12, Math.ceil(ang / 6)));
+        for (let k = 0; k < K; k++) ts.push(i + k / K);
+      }
+      ts.push(n);
+      // rmf(g,t)
+      const T0 = dirAt(0);
+      let Tp = cross(T0, {x: 0, y: 1, z: 0});
+      if (len(Tp) <= 1.5e-8 * len(T0)) { Tp = cross(T0, {x: 0, y: 0, z: 1}); if (len(Tp) <= 1.5e-8 * len(T0)) Tp = {x: 1, y: 0, z: 0}; }
+      Tp = unit(Tp);
+      const R = [{p: pointAt(0), r: Tp, t: T0}];
+      for (let i = 1; i < ts.length; i++) {
+        const Ri = R[i - 1];
+        const p = pointAt(ts[i]);
+        const v1 = sub(p, Ri.p);
+        if (len(v1) > 0) {
+          const u1 = unit(v1);
+          const tp = sub(Ri.t, mul(u1, 2 * dot(u1, Ri.t)));
+          const ti = dirAt(ts[i]);
+          let rp = sub(Ri.r, mul(u1, 2 * dot(u1, Ri.r)));
+          const u2 = unit(sub(ti, tp));
+          if (len(sub(ti, tp)) > 0) rp = sub(rp, mul(u2, 2 * dot(u2, rp)));
+          R.push({p, r: unit(rp), t: unit(ti)});
+        } else R.push(Ri);
+      }
+      let adjust = 0;
+      if (g.closed && R.length > 1) {
+        const a = R[0], b = R[R.length - 1];
+        let d = Math.acos(Math.max(-1, Math.min(1, dot(a.r, b.r)))) * 180 / Math.PI;
+        const dt = dot(cross(a.r, b.r), a.t);
+        d = dt > 0 ? d : 360 - d;
+        d = d % 360;
+        adjust = -d / (R.length - 1);
+      }
+      // Section samples: curved segments split so the shading stays smooth.
+      const secPts = [];   // {x,y, j, u}
+      for (let j = 0; j < L; j++) {
+        const s = sec.segs[j];
+        const m = _nibIsStraight(s) ? 1 : 2;
+        for (let k = 0; k < m; k++) {
+          const u = k / m, w = 1 - u;
+          secPts.push({x: w*w*w*s.p0.x + 3*w*w*u*s.cp1.x + 3*w*u*u*s.cp2.x + u*u*u*s.p3.x,
+                       y: w*w*w*s.p0.y + 3*w*w*u*s.cp1.y + 3*w*u*u*s.cp2.y + u*u*u*s.p3.y, j, u});
+        }
+      }
+      const lastS = sec.segs[L - 1];
+      secPts.push({x: lastS.p3.x, y: lastS.p3.y, j: L - 1, u: 1});
+      const ring = (i) => {
+        const Ri = R[i];
+        const s = i === 0 ? cross(Ri.t, Ri.r) : cross(Ri.t, Ri.r);
+        const ang = i * adjust * Math.PI / 180, ca = Math.cos(ang), sa = Math.sin(ang);
+        return secPts.map(q => {
+          const x = ca * q.x - sa * q.y, y = sa * q.x + ca * q.y;
+          return makeTriple(Ri.p.x + x * Ri.r.x + y * s.x, Ri.p.y + x * Ri.r.y + y * s.y, Ri.p.z + x * Ri.r.z + y * s.z);
+        });
+      };
+      const pens = cp.pens;
+      const penAt = (q) => {
+        if (!pens) return null;
+        const P = (k) => pens[((k % pens.length) + pens.length) % pens.length];
+        if (cp.colortype === 2) return P(q.j);
+        const a = P(q.j), b = P(q.j + 1), u = q.u;
+        return {r: a.r + (b.r - a.r) * u, g: a.g + (b.g - a.g) * u, b: a.b + (b.b - a.b) * u};
+      };
+      const facePens = [];
+      for (let k = 0; k + 1 < secPts.length; k++) {
+        if (!pens) { facePens.push(null); continue; }
+        const q0 = secPts[k], q1 = secPts[k + 1];
+        const mid = cp.colortype === 2 ? penAt(q0)
+          : penAt({j: q0.j, u: (q0.u + (q1.j === q0.j ? q1.u : 1)) / 2});
+        const base = pens[0];
+        facePens.push(makePen(Object.assign({}, base, {r: mid.r, g: mid.g, b: mid.b, _cs: 'rgb', _cmyk: null})));
+      }
+      // Orient every quad outward (a closed section swept along the spine is
+      // a closed surface) so the renderer can back-face cull: frame (r,s,t)
+      // is right-handed; with this vertex order a CW section gives outward
+      // Newell normals (checked against the renderer's view-axis cull).
+      let _area = 0;
+      for (let k = 0; k + 1 < secPts.length; k++) _area += secPts[k].x * secPts[k + 1].y - secPts[k + 1].x * secPts[k].y;
+      const _secClosed = !!sec.closed;
+      const _flip = _area > 0;
+      const faces = [];
+      let prev = ring(0);
+      for (let i = 1; i < R.length; i++) {
+        const cur = ring(i);
+        for (let k = 0; k + 1 < secPts.length; k++) {
+          const face = {vertices: _flip ? [prev[k], cur[k], cur[k + 1], prev[k + 1]] : [prev[k], prev[k + 1], cur[k + 1], cur[k]], _gi: i - 1, _gj: k};
+          face.normal = faceNormal(face);
+          if (facePens[k]) face.pen = facePens[k];
+          faces.push(face);
+        }
+        prev = cur;
+      }
+      const mesh = makeMesh(faces);
+      if (_secClosed && g.closed) mesh._closed = true;
+      return {_tag: 'surface', mesh};
+    };
     env.set('tube', (...args) => {
+      const _secArg = args.find(a => a && a._tag === 'coloredpath');
+      const _g3 = args.find(a => isPath(a));
+      if (_secArg && _g3) return _tubeSweep(_g3, _secArg);
+      // tube(path3, path section): operator cast(path) → uncoloured section
+      const _paths = args.filter(a => isPath(a));
+      if (_paths.length >= 2 && _paths[1].segs && _paths[1].segs.length && !isTriple(_paths[1].segs[0].p0))
+        return _tubeSweep(_paths[0], {p: _paths[1], pens: null, colortype: 2});
       const p = args.find(a => isPath(a));
       if (!p) return {_tag:'tube', s: {_tag:'surface', mesh: makeMesh([])}, center: makePath([], false)};
       // Build a thin tubular mesh: sample path, at each sample make a small circular ring
@@ -22548,6 +23021,15 @@ const _HTX_DATA_FILES = {
       let profile = pos[0];
       let axis = makeTriple(0, 0, 1);
       if (pos.length >= 2 && isTriple(pos[1])) axis = pos[1];
+      // string/Label profile: three.asy extrude(Label L, triple axis) =
+      // extrude(texpath(L), axis) — the glyph outlines (12809).
+      if (typeof profile === 'string' || (profile && profile._tag === 'label')) {
+        try {
+          const _tp = env.get('texpath');
+          const _gl = typeof _tp === 'function' ? _tp(profile) : null;
+          if (Array.isArray(_gl) && _gl.some(p => p && p.segs && p.segs.length)) profile = _gl.filter(p => p && p.segs && p.segs.length);
+        } catch (e) {}
+      }
       // string profile → render a flat billboard rectangle as placeholder
       if (typeof profile === 'string') {
         const w = Math.max(1, profile.length * 0.15);
@@ -23131,6 +23613,22 @@ const _HTX_DATA_FILES = {
     // Full (use full data extent including any clipped values), or Range(a,b)
     // (explicit override). Asymptote represents these as a `bounds` struct
     // with .min and .max plus a 'kind' flag; we encode them as plain objects.
+    // pic.scale.{x,y,z}.T / Tinv for image() and the palette() colorbar
+    // (palette.asy runs every coordinate through Scale(pic,...) and every
+    // data value through pic.scale.z.T).
+    const _picScaleFns = (sc) => {
+      const isLog = !!(sc && (sc.type === 'log' || sc.type === 'custom-log'));
+      const call = (f, v) => typeof f === 'function' ? f(v) : toNumber(callUserFuncValues(f, [v]));
+      const T = (v) => {
+        if (sc && sc.forward) { if (isLog && v <= 0) return -Infinity; return call(sc.forward, v); }
+        return isLog ? (v > 0 ? Math.log10(v) : -Infinity) : v;
+      };
+      const Ti = (v) => {
+        if (sc && sc.inverse) return call(sc.inverse, v);
+        return isLog ? Math.pow(sc && sc.logBase ? sc.logBase : 10, v) : v;
+      };
+      return { T, Ti, isLog };
+    };
     const _Automatic = {_tag:'imageRange', kind:'automatic'};
     const _Full      = {_tag:'imageRange', kind:'full'};
     env.set('Automatic', _Automatic);
@@ -23247,10 +23745,22 @@ const _HTX_DATA_FILES = {
           if (!final)   { final = a; continue; }
         }
         if (a && a._tag === 'axisextent') { axisSide = a.type || 'Right'; continue; }
+        // bare Top/Right/... are callables that build the axisextent
+        if (typeof a === 'function') {
+          const _nm = ['Top','Bottom','Left','Right','TopBottom','BottomTop','LeftRight','RightLeft'].find(k => env.get(k) === a);
+          if (_nm) { axisSide = _nm; continue; }
+        }
         if (Array.isArray(a) && a.length > 0 && isPen(a[0]) && !pens) { pens = a; continue; }
         if (a && a._tag === 'ticks' && !ticks) { ticks = a; continue; }
       }
       if (!br || !initial || !final || !pens || pens.length === 0) return null;
+      // palette.asy: initial=Scale(pic,initial); final=Scale(pic,final) — a
+      // Log y axis puts 12737's (0,200)--(100,250) bar just above the plot.
+      if (target._xScale || target._yScale) {
+        const _lx = _picScaleFns(target._xScale), _ly = _picScaleFns(target._yScale);
+        initial = makePair(_lx.T(initial.x), _ly.T(initial.y));
+        final = makePair(_lx.T(final.x), _ly.T(final.y));
+      }
       const vmin = toNumber(br.min), vmax = toNumber(br.max);
       const span = (vmax - vmin) || 1;
       const x0 = Math.min(initial.x, final.x), x1 = Math.max(initial.x, final.x);
@@ -23300,11 +23810,12 @@ const _HTX_DATA_FILES = {
       const fmt  = T.format || '%g';
       const tickPen = T.pen ? clonePen(T.pen) : clonePen(defaultPen);
       const subPen = T.subPen ? clonePen(T.subPen) : clonePen(tickPen);
-      // Tick mark length: use ~3% of the legend short edge.
-      const shortEdge = vertical ? (x1 - x0) : (y1 - y0);
-      const longEdge  = vertical ? (y1 - y0) : (x1 - x0);
-      const tickLen   = Math.max(shortEdge * 0.25, longEdge * 0.02);
-      // Axis side determines tick direction and label anchor.
+      // palette.asy draws the ticks with axis(pic,L,g,g2,...): g and g2 are the
+      // two long edges of the bar, so every tick runs ACROSS the bar from one
+      // edge to the other (12726's lines through the colour bands, 12737's
+      // decade lines), and the tick labels sit labelmargin outside the edge
+      // on the axis side. Everything here is in user coords except the
+      // label offsets, which are truesize (align * labelmargin).
       const sideRight  = axisSide === 'Right'  || axisSide === 'LeftRight';
       const sideLeft   = axisSide === 'Left';
       const sideTop    = axisSide === 'Top'    || axisSide === 'BottomTop';
@@ -23315,77 +23826,78 @@ const _HTX_DATA_FILES = {
       // palette_2's 10^-3..10^2) — not at even linear value steps.
       const _zsc = target._zScale;
       const _zLog = !!(_zsc && (_zsc.type === 'log' || _zsc.type === 'custom-log')) && vmin > 0 && vmax > 0;
-      const majorTicks = [];
+      const majorTicks = [], minorTs = [];
       if (_zLog) {
         const lmin = Math.log10(vmin), lmax = Math.log10(vmax);
         const lspan = (lmax - lmin) || 1;
         const k0 = Math.ceil(lmin - 1e-9), k1 = Math.floor(lmax + 1e-9);
         for (let k = k0; k <= k1; k++) majorTicks.push({ t: (k - lmin) / lspan, text: '$10^{' + k + '}$' });
+        // log minor ticks at m*10^k, m = 2..9
+        for (let k = Math.floor(lmin) ; k <= Math.ceil(lmax); k++) {
+          for (let m = 2; m <= 9; m++) {
+            const lv = k + Math.log10(m);
+            if (lv > lmin + 1e-9 && lv < lmax - 1e-9) minorTs.push((lv - lmin) / lspan);
+          }
+        }
       } else {
         for (let k = 0; k <= Nmaj; k++) {
           const t = k / Nmaj;
           majorTicks.push({ t, text: _formatPaletteTick(fmt, vmin + t * (vmax - vmin)) });
         }
+        if (nSub > 1) for (let k = 0; k < Nmaj; k++) for (let s2 = 1; s2 < nSub; s2++) minorTs.push((k + s2 / nSub) / Nmaj);
       }
+      const across = (t) => vertical
+        ? makePath([lineSegment(makePair(x0, y0 + t * (y1 - y0)), makePair(x1, y0 + t * (y1 - y0)))], false)
+        : makePath([lineSegment(makePair(x0 + t * (x1 - x0), y0), makePair(x0 + t * (x1 - x0), y1))], false);
+      for (const t of minorTs) target.commands.push({cmd:'draw', path: across(t), pen: subPen, line, _paletteLegend:true});
+      const lblPen = clonePen(defaultPen);
+      let maxLblW = 0, maxLblH = 0;
       for (const mt of majorTicks) {
         const t = mt.t;
-        let p0, p1, lp, align;
+        if (t > 1e-9 && t < 1 - 1e-9) target.commands.push({cmd:'draw', path: across(t), pen: tickPen, line, _paletteLegend:true});
+        let lp, align;
         if (vertical) {
           const y = y0 + t * (y1 - y0);
-          if (sideLeft)  { p0 = makePair(x0, y); p1 = makePair(x0 - tickLen, y); lp = makePair(x0 - tickLen, y); align = makePair(-1, 0); }
-          else            { p0 = makePair(x1, y); p1 = makePair(x1 + tickLen, y); lp = makePair(x1 + tickLen, y); align = makePair( 1, 0); }
+          if (sideLeft) { lp = makePair(x0, y); align = makePair(-1, 0); }
+          else          { lp = makePair(x1, y); align = makePair( 1, 0); }
         } else {
           const x = x0 + t * (x1 - x0);
-          if (sideTop)   { p0 = makePair(x, y1); p1 = makePair(x, y1 + tickLen); lp = makePair(x, y1 + tickLen); align = makePair(0,  1); }
-          else            { p0 = makePair(x, y0); p1 = makePair(x, y0 - tickLen); lp = makePair(x, y0 - tickLen); align = makePair(0, -1); }
+          if (sideBottom) { lp = makePair(x, y0); align = makePair(0, -1); }
+          else            { lp = makePair(x, y1); align = makePair(0,  1); }
         }
-        target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: tickPen, line, _paletteLegend:true});
-        target.commands.push({cmd:'label', text: mt.text, pos: lp, align, pen: clonePen(defaultPen), line, _paletteLegend:true});
+        target.commands.push({cmd:'label', text: mt.text, pos: lp, align, pen: clonePen(lblPen), line, _paletteLegend:true});
+        let w = 0, h = 0;
+        try { const m = _mjxMeasureBp(mt.text, lblPen.fontsize || 12); if (m) { w = m.wBp || 0; h = m.hBp || 0; } } catch (e) {}
+        if (!(w > 0)) w = String(mt.text).replace(/[${}\\^]/g, '').length * 6;
+        if (!(h > 0)) h = 10;
+        if (w > maxLblW) maxLblW = w;
+        if (h > maxLblH) maxLblH = h;
       }
-      // Minor ticks: nSub subdivisions per major interval.
-      if (nSub > 1) {
-        for (let k = 0; k < Nmaj; k++) {
-          for (let s = 1; s < nSub; s++) {
-            const t = (k + s / nSub) / Nmaj;
-            let p0, p1;
-            const sublen = tickLen * 0.5;
-            if (vertical) {
-              const y = y0 + t * (y1 - y0);
-              if (sideLeft) { p0 = makePair(x0, y); p1 = makePair(x0 - sublen, y); }
-              else           { p0 = makePair(x1, y); p1 = makePair(x1 + sublen, y); }
-            } else {
-              const x = x0 + t * (x1 - x0);
-              if (sideTop)  { p0 = makePair(x, y1); p1 = makePair(x, y1 + sublen); }
-              else           { p0 = makePair(x, y0); p1 = makePair(x, y0 - sublen); }
-            }
-            target.commands.push({cmd:'draw', path: makePath([lineSegment(p0, p1)], false), pen: subPen, line, _paletteLegend:true});
-          }
-        }
-      }
-      // Axis label (if provided). Place it past the tick labels, not just past
-      // the tick marks. Tick labels (e.g. "+1.0") have non-trivial pixel width
-      // that translates to a few user-space units depending on the scale.
-      // Estimate label-text extent as ~max(shortEdge*1.5, longEdge*0.12) so
-      // the legend caption clears all numeric labels comfortably.
+      // Axis title (asy: axis label at relative position 0.5, aligned to the
+      // axis side, pushed out past the tick labels). Its offset is truesize:
+      // express it through the align magnitude (renderer push = |align| *
+      // labelmargin), so it holds under IgnoreAspect scaling too.
       if (label) {
-        const labelOffset = Math.max(shortEdge * 1.8, longEdge * 0.14, tickLen * 8);
+        const lm = 0.28 * (lblPen.fontsize || 12) + 0.25;
         let lp, align, lt;
         // 90° CCW rotation matrix (a,b,c,d,e,f) using the renderer's convention
         // where angle = atan2(e, b). e=1, b=0 → +90°; rendered SVG transform is
         // rotate(-90) so the text reads bottom-to-top, matching texer.
         const rot90ccw = {a:0, b:0, c:-1, d:0, e:1, f:0};
         if (vertical) {
-          // Vertical legend: rotate the caption 90° (reads bottom-to-top), placed
-          // outside the colorbar past the tick labels. The reference (12726.png)
-          // shows "f(x,y)" rotated this way on the right side.
+          // Rotated caption: keep the user-unit offset calibrated on 12726
+          // (a rotated label's align push does not follow |align| here).
+          const shortEdge = x1 - x0, longEdge = y1 - y0;
+          const labelOffset = Math.max(shortEdge * 1.8, longEdge * 0.14, Math.max(shortEdge * 0.25, longEdge * 0.02) * 8);
           const yc = (y0 + y1) / 2;
           if (sideLeft) { lp = makePair(x0 - labelOffset, yc); align = makePair(-1, 0); }
-          else           { lp = makePair(x1 + labelOffset, yc); align = makePair( 1, 0); }
+          else          { lp = makePair(x1 + labelOffset, yc); align = makePair( 1, 0); }
           lt = rot90ccw;
         } else {
+          const k = 1 + (maxLblH + lm) / lm;
           const xc = (x0 + x1) / 2;
-          if (sideTop)  { lp = makePair(xc, y1 + labelOffset); align = makePair(0,  1); }
-          else           { lp = makePair(xc, y0 - labelOffset); align = makePair(0, -1); }
+          if (sideBottom) { lp = makePair(xc, y0); align = makePair(0, -k); }
+          else            { lp = makePair(xc, y1); align = makePair(0,  k); }
         }
         target.commands.push({cmd:'label', text: label, pos: lp, align, pen: clonePen(defaultPen), labelTransform: lt, line, _paletteLegend:true});
       }
@@ -23539,6 +24051,7 @@ const _HTX_DATA_FILES = {
       let fnSampler = null;       // real f(real, real) — sample on N×N grid
       let gridN = null;           // grid resolution for function form
       let rangeArg = null;        // Automatic/Full/Range(...) for fn form
+      let gridNy = null;
       for (const a of pos) {
         if (a && a._tag === 'picture' && target === currentPic) { target = a; continue; }
         if ((typeof a === 'function' || (a && a._tag === 'func')) && !fnSampler) { fnSampler = a; continue; }
@@ -23562,24 +24075,30 @@ const _HTX_DATA_FILES = {
           if ('pic' in a && a.pic && a.pic._tag === 'picture') target = a.pic;
           if ('N' in a && typeof a.N === 'number') gridN = Math.round(a.N);
           if ('n' in a && typeof a.n === 'number' && gridN === null) gridN = Math.round(a.n);
+          if ('nx' in a && typeof a.nx === 'number') gridN = Math.round(a.nx);
+          if ('ny' in a && typeof a.ny === 'number') gridNy = Math.round(a.ny);
         }
       }
+      const _sx = _picScaleFns(target._xScale), _sy = _picScaleFns(target._yScale), _sz = _picScaleFns(target._zScale);
+      const _scaled = !!(target._xScale || target._yScale || target._zScale);
       // Function form: image(real f(real,real), range, pair a, pair b, int N, pen[] palette).
       // Sample f on an (N+1)×(N+1) grid (so each cell-corner value can shade
       // the cell to its NE).  We build a data[i][j] matrix and fall through
       // to the existing rendering loop below.
       if (fnSampler && data === null && initial && final) {
         const N = gridN || 200;
+        const Ny = gridNy || N;
         data = [];
-        const dx = (final.x - initial.x) / N;
-        const dy = (final.y - initial.y) / N;
+        // palette.asy: sample at bin centres of the SCALED range, mapped back
+        // through Tinv (a Log y axis samples y geometrically).
+        const X0 = _sx.T(initial.x), X1 = _sx.T(final.x), Y0 = _sy.T(initial.y), Y1 = _sy.T(final.y);
         for (let i = 0; i < N; i++) {
           const row = [];
           // Sample at cell centers so the cell-fill color matches the function
           // value at the centroid (same convention contour() uses).
-          const xc = initial.x + (i + 0.5) * dx;
-          for (let j = 0; j < N; j++) {
-            const yc = initial.y + (j + 0.5) * dy;
+          const xc = _sx.Ti(X0 + (i + 0.5) * (X1 - X0) / N);
+          for (let j = 0; j < Ny; j++) {
+            const yc = _sy.Ti(Y0 + (j + 0.5) * (Y1 - Y0) / Ny);
             let v = 0;
             try {
               v = typeof fnSampler === 'function'
@@ -23622,10 +24141,21 @@ const _HTX_DATA_FILES = {
       if (rangeArg && rangeArg.kind === 'range') {
         vmin = toNumber(rangeArg.min);
         vmax = toNumber(rangeArg.max);
+      } else if (rangeArg && rangeArg.kind === 'automatic' && _sz.isLog && vmin > 0 && vmax > 0) {
+        // Range(true,true) under a Log z scale: autoscale in exponent space
+        // (12737: data 0.009..90 -> bounds 10^-3..10^2, the colorbar ticks).
+        vmin = _sz.Ti(Math.floor(_sz.T(vmin) + 1e-9));
+        vmax = _sz.Ti(Math.ceil(_sz.T(vmax) - 1e-9));
       }
+      // Colour = position of T(v) within [T(min),T(max)] (palette.asy crops the
+      // palette to the data inside the bounds; same mapping).
+      const _zT = (v) => _sz.T(Math.min(Math.max(v, vmin), vmax));
+      const _zlo = _zT(vmin), _zhi = _zT(vmax);
       const span = vmax - vmin;
-      const x0 = initial.x, y0 = initial.y;
-      const x1 = final.x, y1 = final.y;
+      const _ini = _scaled ? makePair(_sx.T(initial.x), _sy.T(initial.y)) : initial;
+      const _fin = _scaled ? makePair(_sx.T(final.x), _sy.T(final.y)) : final;
+      const x0 = _ini.x, y0 = _ini.y;
+      const x1 = _fin.x, y1 = _fin.y;
       const dx = (x1 - x0) / nx;
       const dy = (y1 - y0) / ny;
       const line = args._line || 0;
@@ -23637,7 +24167,8 @@ const _HTX_DATA_FILES = {
         for (let j = 0; j < ny; j++) {
           const v = toNumber(row[j]);
           if (!isFinite(v)) continue;
-          const t = span > 0 ? (v - vmin) / span : 0;
+          const t = _sz.isLog ? ((_zhi - _zlo) > 0 ? (_zT(v) - _zlo) / (_zhi - _zlo) : 0)
+                              : (span > 0 ? (v - vmin) / span : 0);
           const pen = _interpolatePens(pens, t);
           const cy0 = y0 + j * dy;
           const cy1 = y0 + (j + 1) * dy;
@@ -23794,14 +24325,21 @@ const _HTX_DATA_FILES = {
     // texpath(label|string) — produces path outline of rasterized TeX output.
     // Uses MathJax to extract real glyph paths when available.
     env.set('texpath', (...args) => {
-      let s = '';
+      let s = '', _tpL = null;
       for (const a of args) {
         if (typeof a === 'string') { s = a; break; }
-        if (a && a._tag === 'Label' && typeof a.text === 'string') { s = a.text; break; }
+        if (a && (a._tag === 'label' || a._tag === 'Label') && typeof a.text === 'string') { s = a.text; _tpL = a; break; }
       }
       if (!s) return [makePath([], false)];
-      // Try MathJax path extraction
-      const mjxPaths = _texpathViaMathJax(s);
+      // texpath(Label|string, pen p=currentpen): glyph outlines in bp at
+      // fontsize(p), placed like the label (position + align).
+      const _tpPen = args.find(a => isPen(a)) || (_tpL && isPen(_tpL.pen) ? _tpL.pen : null);
+      const _tpFs = _tpPen && _tpPen._fzExplicit && _tpPen.fontsize > 0 ? _tpPen.fontsize : 11.955;
+      const _tpPos = _tpL && _tpL.position && isPair(_tpL.position) ? _tpL.position : (_tpL && _tpL.pos && isPair(_tpL.pos) ? _tpL.pos : null);
+      const _tpAl = _tpL && _tpL.align && isPair(_tpL.align) ? _tpL.align : null;
+      // KaTeX emitter first (available everywhere), MathJax as a node fallback.
+      const mjxPaths = _texpathViaKatex(s, { fontsize: _tpFs, pos: _tpPos, align: _tpAl })
+        || _texpathViaMathJax(s, { fontsize: _tpFs, pos: _tpPos, align: _tpAl });
       if (mjxPaths && mjxPaths.length > 0) return mjxPaths;
       // Fallback: rectangle approximation
       const core = s.replace(/\$|\\displaystyle|\\text[a-z]*|\\mathrm|\\mathbf|\\hbox|\\emph|\\tt|\\frac|\\sqrt|\\pi|\\alpha|\\infty|\\,|\\\\|[{}_^\\]/g, '');
@@ -23895,7 +24433,10 @@ const _HTX_DATA_FILES = {
     env.set('currentlight', _currentlight);
     env.set('nolight', {_tag:'light'});
     env.set('Headlamp', {_tag:'light', _headlamp: true});
-    env.set('White', {_tag:'light'});
+    // White is a real 3-source light (three_light.asy), NOT nolight: a bare
+    // {_tag:'light'} is the nolight sentinel, so tag it (12836's tube was
+    // rendered unlit and rim-culled to slivers).
+    env.set('White', {_tag:'light', _white: true});
 
     // material stubs
     // material(pen diffusepen=..., pen ambientpen=..., pen emissivepen=..., pen specularpen=..., ...)
@@ -26966,118 +27507,16 @@ const _HTX_DATA_FILES = {
     if (!pen) pen = clonePen(defaultPen);
     // filldraw with one pen: fill with that pen, stroke with default pen (black)
     if (cmd === 'filldraw' && !drawPen) drawPen = clonePen(defaultPen);
-    // Handle makepen strokes: pens with _nibPath need special expansion
-    if (pathArg && pen && pen._nibPath && pen._nibPath.segs && pen._nibPath.segs.length > 0) {
-      const nibPath = pen._nibPath;
-      const nibPts = [];
-      for (const seg of nibPath.segs) {
-        nibPts.push(seg.p0);
-      }
-      if (nibPath.closed && nibPts.length > 0) {
-        const last = nibPath.segs[nibPath.segs.length - 1];
-        if (Math.abs(last.p3.x - nibPts[0].x) > 1e-9 || Math.abs(last.p3.y - nibPts[0].y) > 1e-9) {
-          nibPts.push(last.p3);
-        }
-      }
-      // Create a thin stroke pen for outlines (makepen creates outlined strokes, not fills)
-      const strokePen = clonePen(pen);
-      strokePen.linewidth = 0.5;
-      delete strokePen._nibPath;
-
-      // Convex hull helper
-      const convexHull = (pts) => {
-        if (pts.length < 3) return pts;
-        pts = pts.slice().sort((a,b) => a.x - b.x || a.y - b.y);
-        const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-        const lower = [];
-        for (const p of pts) {
-          while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
-          lower.push(p);
-        }
-        const upper = [];
-        for (let i = pts.length - 1; i >= 0; i--) {
-          while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], pts[i]) <= 0) upper.pop();
-          upper.push(pts[i]);
-        }
-        lower.pop(); upper.pop();
-        return lower.concat(upper);
-      };
-
-      // Check if nib is convex (for non-convex, use simplified handling)
-      const nibHull = convexHull(nibPts.slice());
-      const nibIsConvex = nibHull.length === nibPts.length;
-
-      if (pathArg._singlePoint) {
-        // Draw a single nib outline at the point
-        const pos = pathArg._singlePoint;
-        const outlinePts = nibPts.map(p => makePair(pos.x + p.x, pos.y + p.y));
-        const outlineSegs = [];
-        for (let i = 0; i < outlinePts.length; i++) {
-          outlineSegs.push(lineSegment(outlinePts[i], outlinePts[(i+1) % outlinePts.length]));
-        }
-        target.commands.push({cmd:'draw', path: makePath(outlineSegs, true), pen: strokePen, arrow: null, line: args._line || 0});
-        return;
-      } else if (pathArg.segs && pathArg.segs.length > 0) {
-        // Minkowski sum: sweep nib along path to create outlined stroke region.
-        const samplePath = (segs, nSamples) => {
-          const pts = [];
-          for (let si = 0; si < segs.length; si++) {
-            const s = segs[si];
-            const steps = Math.ceil(nSamples / segs.length);
-            for (let i = 0; i <= steps; i++) {
-              const t = i / steps;
-              const b = 1 - t;
-              pts.push({
-                x: b*b*b*s.p0.x + 3*b*b*t*s.cp1.x + 3*b*t*t*s.cp2.x + t*t*t*s.p3.x,
-                y: b*b*b*s.p0.y + 3*b*b*t*s.cp1.y + 3*b*t*t*s.cp2.y + t*t*t*s.p3.y
-              });
-            }
-          }
-          return pts;
-        };
-        const pathPts = samplePath(pathArg.segs, 64);
-
-        // For non-convex nibs, use simpler boundary tracing
-        const useNibPts = nibIsConvex ? nibPts : nibHull;
-
-        // Outer boundary: path + positive nib offsets
-        const outerPts = [];
-        for (const pos of pathPts) {
-          for (const nibPt of useNibPts) {
-            outerPts.push({x: pos.x + nibPt.x, y: pos.y + nibPt.y});
-          }
-        }
-        const outerHull = convexHull(outerPts);
-        if (outerHull.length >= 3) {
-          const outerSegs = [];
-          for (let i = 0; i < outerHull.length; i++) {
-            outerSegs.push(lineSegment(outerHull[i], outerHull[(i+1) % outerHull.length]));
-          }
-          target.commands.push({cmd:'draw', path: makePath(outerSegs, true), pen: strokePen, arrow: null, line: args._line || 0});
-        }
-
-        // Inner boundaries: for closed paths, create nested rings at different contractions
-        if (pathArg.closed) {
-          const contractLevels = [0.33, 0.67, 1.0];
-          for (const level of contractLevels) {
-            const innerPts = [];
-            for (const pos of pathPts) {
-              for (const nibPt of useNibPts) {
-                innerPts.push({x: pos.x - nibPt.x * level, y: pos.y - nibPt.y * level});
-              }
-            }
-            const innerHull = convexHull(innerPts);
-            if (innerHull.length >= 3) {
-              const innerSegs = [];
-              for (let i = 0; i < innerHull.length; i++) {
-                innerSegs.push(lineSegment(innerHull[i], innerHull[(i+1) % innerHull.length]));
-              }
-              target.commands.push({cmd:'draw', path: makePath(innerSegs, true), pen: strokePen, arrow: null, line: args._line || 0});
-            }
-          }
-        }
-        return;
-      }
+    // makepen(path) pens: real asy draws with a polygonal nib via
+    // plain_filldraw.asy makedraw() at FRAME level (the nib is in bp). The
+    // path is kept as one draw command tagged _nibPath; renderSVG expands it
+    // into makedraw's fills once the final bp-per-unit scale is known (see
+    // _nibMakedrawBp) and feeds the nib's bbox into the size() fit. fill()
+    // and the fill half of filldraw ignore the nib, as in asy.
+    if (cmd === 'draw' && !frameTarget && pathArg && pen && pen._nibPath && pen._nibPath.segs && pen._nibPath.segs.length > 0) {
+      projectPathTriples(pathArg);
+      target.commands.push({cmd:'draw', path: pathArg, pen, arrow: null, line: args._line || 0, _nibPath: pen._nibPath});
+      return;
     }
     if (pathArg) {
       projectPathTriples(pathArg);
@@ -28016,7 +28455,7 @@ const _HTX_DATA_FILES = {
     // mimics Asymptote's default Viewport light's off-axis components.
     let upx = 0, upy = 0, upz = 1;
     if (proj) {
-      upx = proj.ux || 0; upy = proj.uy || 0; upz = proj.uz || 1;
+      upx = proj.ux || 0; upy = proj.uy || 0; upz = proj.uz == null ? 1 : proj.uz;
       // Re-orthogonalize up against view to get a stable "screen up"
       const vu = upx*vx + upy*vy + upz*vz;
       upx -= vu*vx; upy -= vu*vy; upz -= vu*vz;
@@ -29458,6 +29897,30 @@ const _HTX_DATA_FILES = {
         }
       }
       if (isFinite(_lx0) && (_lx1 - _lx0) < 1e-6 && (_ly1 - _ly0) < 1e-6) {
+        _trueSizeFrame = true;
+        hasUnitScale = true; unitScale = 1;
+      }
+    }
+    // Same rule when the picture also holds dots and add(pic,pos) panels:
+    // dots and labels are truesize marks at a user anchor and each panel is
+    // a truesize frame at its anchor, so if every anchor coincides the
+    // scaling LP is unbounded and asy ships at natural scale (12858: dot(O),
+    // labels at O and two add(pic,O) panels of dots at ±labelmargin() bp —
+    // TeXeR keeps them 28bp out, HTX had stretched them to the 400 box).
+    if (!hasUnitScale && sizeW === 0 && sizeH === 0 && !_trueSizeFrame
+        && currentPic._addPanels && currentPic._addPanels.length && currentPic.commands.length > 0) {
+      const _pIdx = new Set();
+      for (const p of currentPic._addPanels) for (let i = p.start; i < p.start + p.count; i++) _pIdx.add(i);
+      const _anc = currentPic._addPanels.map(p => ({x: p.px, y: p.py}));
+      let _ok = true;
+      for (let i = 0; i < currentPic.commands.length && _ok; i++) {
+        if (_pIdx.has(i)) continue;
+        const c = currentPic.commands[i];
+        if (!c) continue;
+        if ((c.cmd === 'label' || c.cmd === 'dot') && c.pos && isFinite(c.pos.x) && isFinite(c.pos.y)) _anc.push(c.pos);
+        else _ok = false;
+      }
+      if (_ok && currentPic._addPanels.every(p => p._hasPos) && _anc.every(a => Math.abs(a.x - _anc[0].x) < 1e-9 && Math.abs(a.y - _anc[0].y) < 1e-9)) {
         _trueSizeFrame = true;
         hasUnitScale = true; unitScale = 1;
       }
@@ -31609,6 +32072,16 @@ function renderSVG(result, opts) {
     _invisLabels.push({ x: pos.x, y: pos.y, w, h, offX, offY });
   }
 
+  // makepen() draws: user-space path bbox + the nib's bp bbox (see the LP).
+  const _nibDcBounds = [];
+  for (const dc of drawCommands) {
+    if (!dc || !dc._nibPath || !dc.path) continue;
+    const pb = _nibPathBBox(dc.path.segs, dc.path._singlePoint);
+    const nbb = _nibPathBBox(dc._nibPath.segs, null);
+    if (!pb || !nbb) continue;
+    _nibDcBounds.push({ minX: pb.minX, maxX: pb.maxX, minY: pb.minY, maxY: pb.maxY,
+      nMinX: nbb.minX, nMaxX: nbb.maxX, nMinY: nbb.minY, nMaxY: nbb.maxY });
+  }
   const _fitW = li => (li._fitWBp !== undefined ? li._fitWBp : li.widthBp);
   const _fitOffX = li => (li._fitOffXBp !== undefined ? li._fitOffXBp : li.alignOffsetXBp);
   const _fitOffY = li => (li._fitOffYBp !== undefined ? li._fitOffYBp : li.alignOffsetYBp);
@@ -31648,6 +32121,12 @@ function renderSVG(result, opts) {
       const dR = (direct ? 0.5 : dotfactor / 2) * dotLw;
       xs.push({ u: dc.pos.x, lo: -dR, hi: dR });
       ys.push({ u: dc.pos.y, lo: -dR, hi: dR });
+    }
+    // makepen() nibs: asy addPath(g,p) pairs min(g) with min(p) and max(g)
+    // with max(p), where a nib pen's min/max are the nib's bbox in bp.
+    for (const nb of _nibDcBounds) {
+      xs.push({ u: nb.minX, lo: nb.nMinX, hi: nb.nMinX }, { u: nb.maxX, lo: nb.nMaxX, hi: nb.nMaxX });
+      ys.push({ u: nb.minY, lo: nb.nMinY, hi: nb.nMinY }, { u: nb.maxY, lo: nb.nMaxY, hi: nb.nMaxY });
     }
     return { xs, ys };
   };
@@ -31749,6 +32228,10 @@ function renderSVG(result, opts) {
           if (vy + r > bMaxY) bMaxY = vy + r;
         }
       }
+    }
+    for (const nb of _nibDcBounds) {
+      bMinX = Math.min(bMinX, nb.minX * sx + nb.nMinX); bMaxX = Math.max(bMaxX, nb.maxX * sx + nb.nMaxX);
+      bMinY = Math.min(bMinY, nb.minY * sy + nb.nMinY); bMaxY = Math.max(bMaxY, nb.maxY * sy + nb.nMaxY);
     }
     return { w: bMaxX - bMinX, h: bMaxY - bMinY };
   };
@@ -33336,6 +33819,33 @@ function renderSVG(result, opts) {
   // For IgnoreAspect, geometry is scaled to fill exactly size(W, H); labels extend
   // outside and don't change the base display aspect ratio. Use geometry-only bbox for
   // naturalW/H calculation. For keepAspect or no-size, use the label-expanded bbox.
+  // makepen() draws: now that the bp-per-unit scale is final, run asy's
+  // makedraw in bp and replace each nib draw by its fills (user coords),
+  // folding their extent into the canvas.
+  if (_nibDcBounds.length && pxPerUnitX > 0 && pxPerUnitY > 0) {
+    for (let k = drawCommands.length - 1; k >= 0; k--) {
+      const dc = drawCommands[k];
+      if (!dc || !dc._nibPath || !dc.path) continue;
+      const toBp = p => ({x: p.x * pxPerUnitX, y: p.y * pxPerUnitY});
+      const segsBp = (dc.path.segs || []).map(s => ({p0: toBp(s.p0), cp1: toBp(s.cp1), cp2: toBp(s.cp2), p3: toBp(s.p3), _linear: s._linear}));
+      const sp = dc.path._singlePoint ? toBp(dc.path._singlePoint) : null;
+      const fills = _nibMakedrawBp(segsBp, !!dc.path.closed, sp, dc._nibPath);
+      const fpen = Object.assign({}, dc.pen);
+      delete fpen._nibPath;
+      fpen.fillrule = null;
+      const toU = p => makePair(p.x / pxPerUnitX, p.y / pxPerUnitY);
+      const repl = fills.map(fs => {
+        const segs = fs.map(s => makeSeg(toU(s.p0), toU(s.cp1), toU(s.cp2), toU(s.p3)));
+        const fb = _nibPathBBox(segs, null);
+        if (fb) {
+          if (fb.minX < minX) minX = fb.minX; if (fb.maxX > maxX) maxX = fb.maxX;
+          if (fb.minY < minY) minY = fb.minY; if (fb.maxY > maxY) maxY = fb.maxY;
+        }
+        return {cmd: 'fill', path: makePath(segs, true), pen: fpen, arrow: null, line: dc.line, _nibFill: true};
+      });
+      drawCommands.splice(k, 1, ...repl);
+    }
+  }
   const _isIgnoreAspect2 = !keepAspect && sizeW > 0 && sizeH > 0;
   // IgnoreAspect: the iterative solver above already shrinks pxPerUnitX/Y so
   // that geometry + truesize labels together fit within size(W,H). The canvas
@@ -33950,7 +34460,11 @@ function renderSVG(result, opts) {
                   // measured ink here shrank canvases corpus-wide (A/B net
                   // −0.11: 09775 −0.022, 03151 −0.024, 10675, 05949...).
                   // 01700-class over-tall tiny figures are the smaller error.
-                  H = Math.max(H, m.hBp * bpCSSPixel);
+                  // The floor was calibrated on <=25pt labels; for the
+                  // uncapped big fonts `import fontsize` allows, a 1em line
+                  // box grossly over-reserves (12858's 100pt "acg": 100bp vs
+                  // a 62bp glyph box), so trust the measured box there.
+                  H = fontSize > 25 ? m.hBp * bpCSSPixel * 1.06 : Math.max(H, m.hBp * bpCSSPixel);
                 }
               }
             } else {
@@ -34779,6 +35293,9 @@ function renderSVG(result, opts) {
 
     if (dc.cmd === 'fill' || dc.cmd === 'unfill') {
       fill = dc.cmd === 'unfill' ? '#ffffff' : css.fill;
+      // makepen() fills abut edge to edge; a hairline in the fill colour
+      // hides the anti-aliasing seams between them (Ghostscript shows none).
+      if (dc._nibFill && !(css.opacity < 1)) { stroke = css.fill; strokeW = 0.3; }
       // patterns module: hatch/crosshatch fill (see emitHatchFill).
       if (dc.cmd === 'fill' && dc.pen && dc.pen._fillPattern !== undefined) {
         fill = emitHatchFill(dc.pen._fillPattern);
@@ -35726,6 +36243,8 @@ function renderSVG(result, opts) {
       let anchor = 'middle';
       let baseline = 'central';
       let _labelHEst = 0, _labelAyN = 0;
+      // basealign pen: align on the baseline box (height only, no depth).
+      const _lblBaseAlign = !!(dc.pen && dc.pen._basealign);
 
       // Pre-compute label width (used for both alignment and UnFill background)
       // This uses MathJax measurement when available, falling back to heuristic.
@@ -36562,9 +37081,9 @@ function renderSVG(result, opts) {
         // inside text mode (verified: \text{{\color{blue}5 meters}} → upright,
         // spaced, blue). Mirrors the math-mode KaTeX routing just below.
         const _txtInput = '\\text{' + displayText + '}';
-        labelEl = renderLabelKatexSvg(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+        labelEl = renderLabelKatexSvg(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign)
           || ((opts && opts.labelOutput === 'svg-native')
-                ? renderLabelMathJaxSVG(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+                ? renderLabelMathJaxSVG(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign)
                 : renderLabelKaTeX(_txtInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS));
       } else if ((typeof katex !== 'undefined' || svgNativeMode) && hasMath && !unicodeSafe) {
         // NOTE: the `|| svgNativeMode` matters — in node `katex` is undefined, so
@@ -36579,12 +37098,12 @@ function renderSVG(result, opts) {
         // — also <path>, also librsvg-rasterizable — when the emitter can't
         // render the input or its glyphs aren't loaded.
         if (opts && opts.labelOutput === 'svg-native') {
-          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
-            || renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign)
+            || renderLabelMathJaxSVG(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign);
         } else {
           // KaTeX SVG emitter first (real glyph paths, exact box); HTML
           // foreignObject only as fallback when the emitter is unavailable.
-          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
+          labelEl = renderLabelKatexSvg(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign)
             || renderLabelKaTeX(displayText, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS);
         }
       } else if (opts && opts.labelOutput === 'svg-native' && (wasStrippedMath || (hasMath && unicodeSafe))) {
@@ -36603,8 +37122,8 @@ function renderSVG(result, opts) {
         const mjxEscaped = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
         const mjxInput = wasStrippedMath ? '$' + mjxEscaped + '$' : mjxEscaped;
         // KaTeX emitter first (matches the live app), MathJax fallback.
-        labelEl = renderLabelKatexSvg(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
-          || renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        labelEl = renderLabelKatexSvg(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign)
+          || renderLabelMathJaxSVG(mjxInput, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign);
       } else if (opts && opts.labelOutput === 'svg-native' && !hasMath && !hasLaTeX && !wasStrippedMath && !(dc.pen && dc.pen.fontFamily) && displayText && /[A-Za-z0-9]/.test(displayText) && !/[_^]/.test(displayText)) {
         // [0-9] included: digit-only plain labels (12148's "22"/"9"/"40")
         // otherwise fell to the <text> fallback, which Blink rasterizes in
@@ -36624,8 +37143,8 @@ function renderSVG(result, opts) {
           else esc += c;
         }
         // KaTeX emitter first (matches the live app), MathJax fallback.
-        labelEl = renderLabelKatexSvg('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN)
-          || renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+        labelEl = renderLabelKatexSvg('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign)
+          || renderLabelMathJaxSVG('\\text{' + esc + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign);
       } else {
         // Render with superscript/subscript support using tspan.
         // If the label was originally $...$ math (wasStrippedMath or unicodeSafe) AND
@@ -36646,7 +37165,7 @@ function renderSVG(result, opts) {
           if (_isMathLbl) {
             const _esc = wasStrippedMath ? displayText.replace(/%/g, '\\%') : displayText;
             const _input = wasStrippedMath ? '$' + _esc + '$' : _esc;
-            _ksEl = renderLabelKatexSvg(_input, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+            _ksEl = renderLabelKatexSvg(_input, fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign);
           } else if (!hasMath && !hasLaTeX && /[A-Za-z0-9]/.test(displayText) && !/[_^]/.test(displayText)) {
             let _esc2 = '';
             for (let i = 0; i < displayText.length; i++) {
@@ -36656,7 +37175,7 @@ function renderSVG(result, opts) {
           else if ('\\{}$&#^_%'.indexOf(c) !== -1) _esc2 += '\\' + c;
               else _esc2 += c;
             }
-            _ksEl = renderLabelKatexSvg('\\text{' + _esc2 + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN);
+            _ksEl = renderLabelKatexSvg('\\text{' + _esc2 + '}', fmt(sx+dx), fmt(sy+dy), effectiveFontSize, css.fill, anchor, baseline, css.opacity, effectiveFontSizeCSS, _labelHEst, _labelAyN, _lblBaseAlign);
           }
         }
         if (_ksEl) {
@@ -37964,7 +38483,7 @@ function preprocessLatexForKatex(src, forMathJax, emForHspace) {
 // come from the emitter itself, so no estW/flex-centering guesswork.
 // Returns null when the emitter or its glyph table isn't available (or KaTeX
 // errors on the input) — callers fall back to renderLabelKaTeX/foreignObject.
-function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS, hEst, ayN) {
+function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, opacity, fontSizeCSS, hEst, ayN, baseAlign) {
   if (typeof katexSvg === 'undefined' || !katexSvg.ready()) return null;
   if (fontSizeCSS === undefined) fontSizeCSS = fontSize;
   let math = (rawText || '').trim();
@@ -37994,8 +38513,12 @@ function renderLabelKatexSvg(rawText, x, y, fontSize, fill, anchor, baseline, op
   let fx = parseFloat(x), fy = parseFloat(y);
   if (anchor === 'middle') fx -= svgW / 2;
   else if (anchor === 'end') fx -= svgW;
-  fy -= svgH / 2; // center the box vertically on y (mirrors the MathJax path)
-  if (hEst) fy += ayN * (hEst - svgH);
+  // basealign (asy pen attribute): the alignment box runs from the baseline
+  // to the height, so descenders hang below it and "acg"/"ace" share a
+  // baseline under the same align (12858).
+  const alignH = baseAlign ? hPx : svgH;
+  fy -= alignH / 2; // center the box vertically on y (mirrors the MathJax path)
+  if (hEst) fy += ayN * (hEst - alignH);
   const baselineY = fy + hPx;
   const op = opacity != null && opacity < 1 ? ` opacity="${opacity}"` : '';
   const flip = reflectX ? `translate(${fmt(2 * (fx + svgW / 2))},0) scale(-1,1) ` : '';
@@ -38208,10 +38731,90 @@ function _ensureMathJax() {
   }
 }
 
+// SVG path-data → asy segments; mapPt(x,y) gives the asy pair.
+function _svgDToSegs(d, mapPt) {
+  const segs = [];
+  let cx = 0, cy = 0, sx0 = 0, sy0 = 0, lastCmd = '', lcx = 0, lcy = 0;
+  const tokens = [];
+  const re = /([MmLlHhVvCcSsQqTtAaZz])|([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/g;
+  let m;
+  while ((m = re.exec(d)) !== null) tokens.push(m[1] ? {c: m[1]} : {n: parseFloat(m[2])});
+  let i = 0;
+  const num = () => { while (i < tokens.length && tokens[i].c) i++; return i < tokens.length ? tokens[i++].n : 0; };
+  const P = mapPt;
+  while (i < tokens.length) {
+    if (tokens[i].c) lastCmd = tokens[i++].c;
+    const cmd = lastCmd, rel = cmd === cmd.toLowerCase(), C = cmd.toUpperCase();
+    const before = i;
+    if (C === 'M') { let x = num(), y = num(); if (rel) { x += cx; y += cy; } cx = x; cy = y; sx0 = x; sy0 = y; lastCmd = rel ? 'l' : 'L'; }
+    else if (C === 'L') { let x = num(), y = num(); if (rel) { x += cx; y += cy; } segs.push(lineSegment(P(cx, cy), P(x, y))); cx = x; cy = y; }
+    else if (C === 'H') { let x = num(); if (rel) x += cx; segs.push(lineSegment(P(cx, cy), P(x, cy))); cx = x; }
+    else if (C === 'V') { let y = num(); if (rel) y += cy; segs.push(lineSegment(P(cx, cy), P(cx, y))); cy = y; }
+    else if (C === 'C') { let x1 = num(), y1 = num(), x2 = num(), y2 = num(), x = num(), y = num(); if (rel) { x1 += cx; y1 += cy; x2 += cx; y2 += cy; x += cx; y += cy; } segs.push(makeSeg(P(cx, cy), P(x1, y1), P(x2, y2), P(x, y))); lcx = x2; lcy = y2; cx = x; cy = y; }
+    else if (C === 'S') { const c1x = 2 * cx - lcx, c1y = 2 * cy - lcy; let x2 = num(), y2 = num(), x = num(), y = num(); if (rel) { x2 += cx; y2 += cy; x += cx; y += cy; } segs.push(makeSeg(P(cx, cy), P(c1x, c1y), P(x2, y2), P(x, y))); lcx = x2; lcy = y2; cx = x; cy = y; }
+    else if (C === 'Q') { let x1 = num(), y1 = num(), x = num(), y = num(); if (rel) { x1 += cx; y1 += cy; x += cx; y += cy; } segs.push(makeSeg(P(cx, cy), P(cx + 2 / 3 * (x1 - cx), cy + 2 / 3 * (y1 - cy)), P(x + 2 / 3 * (x1 - x), y + 2 / 3 * (y1 - y)), P(x, y))); lcx = x1; lcy = y1; cx = x; cy = y; }
+    else if (C === 'T') { const qx = 2 * cx - lcx, qy = 2 * cy - lcy; let x = num(), y = num(); if (rel) { x += cx; y += cy; } segs.push(makeSeg(P(cx, cy), P(cx + 2 / 3 * (qx - cx), cy + 2 / 3 * (qy - cy)), P(x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y)), P(x, y))); lcx = qx; lcy = qy; cx = x; cy = y; }
+    else if (C === 'Z') { if (Math.abs(cx - sx0) > 1e-6 || Math.abs(cy - sy0) > 1e-6) segs.push(lineSegment(P(cx, cy), P(sx0, sy0))); cx = sx0; cy = sy0; segs.push(null); }
+    else if (C === 'A') { num(); num(); num(); num(); num(); let x = num(), y = num(); if (rel) { x += cx; y += cy; } segs.push(lineSegment(P(cx, cy), P(x, y))); cx = x; cy = y; }
+    if (i === before && !tokens[i - 1]?.c && C !== 'Z') i++;
+  }
+  // split into subpaths at each Z (null marker)
+  const out = [];
+  let cur = [];
+  for (const g of segs) { if (g === null) { if (cur.length) out.push(cur); cur = []; } else cur.push(g); }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+// texpath() outlines from the KaTeX SVG emitter — the same engine that draws
+// labels, and the only one the browser (page and worker) has. Each glyph is
+// '<path transform="translate(tx,ty) scale(s,-s)" d=...>' in px (y down,
+// baseline 0) at emPx; fraction/overline rules are <rect>s. Every closed
+// subpath becomes one path, like asy's texpath (one path per contour).
+function _texpathViaKatex(rawText, placement) {
+  if (typeof katexSvg === 'undefined' || !katexSvg.ready || !katexSvg.ready()) return null;
+  let math = (rawText || '').trim();
+  const isDollar = math.startsWith('$') && math.endsWith('$') && math.length > 1;
+  if (isDollar) math = math.slice(1, -1);
+  else if (!/\$/.test(math)) math = '\\text{' + math + '}';
+  else math = _reconstructMixedLabel(math);
+  math = preprocessLatexForKatex(math, true, 12);
+  const fsBp = (placement && placement.fontsize > 0) ? placement.fontsize : 11.955;
+  let r = null;
+  try { r = katexSvg.render(math, { emPx: fsBp, color: '#000000' }); } catch (e) { return null; }
+  if (!r || !r.svg) return null;
+  const paths = [];
+  const elRe = /<path\s+transform="translate\(([-\d.e]+),([-\d.e]+)\)\s*scale\(([-\d.e]+),([-\d.e]+)\)"\s+d="([^"]+)"|<rect\s+x="([-\d.e]+)"\s+y="([-\d.e]+)"\s+width="([-\d.e]+)"\s+height="([-\d.e]+)"/g;
+  let m;
+  while ((m = elRe.exec(r.svg)) !== null) {
+    if (m[5]) {
+      const tx = +m[1], ty = +m[2], sx = +m[3], sy = +m[4];
+      for (const sub of _svgDToSegs(m[5], (x, y) => makePair(tx + sx * x, -(ty + sy * y)))) paths.push(makePath(sub, true));
+    } else {
+      const x = +m[6], y = +m[7], w = +m[8], h = +m[9];
+      const a = makePair(x, -y), b = makePair(x + w, -y), c = makePair(x + w, -(y + h)), d = makePair(x, -(y + h));
+      paths.push(makePath([lineSegment(a, b), lineSegment(b, c), lineSegment(c, d), lineSegment(d, a)], true));
+    }
+  }
+  // Stretchy radicals: <svg x y width height viewBox="0 0 400000 H"
+  // preserveAspectRatio="xMinYMin slice"><path d=.../></svg>. The surd path
+  // runs 400000 units right and is clipped to the box; clamp x to the box
+  // width instead (the vinculum is the only part past it).
+  const svgRe = /<svg\s+x="([-\d.e]+)"\s+y="([-\d.e]+)"\s+width="([-\d.e]+)"\s+height="([-\d.e]+)"\s+viewBox="0 0 ([\d.e]+) ([\d.e]+)"[^>]*>\s*<path\s+d="([^"]+)"/g;
+  while ((m = svgRe.exec(r.svg)) !== null) {
+    const x = +m[1], y = +m[2], w = +m[3], h = +m[4], vh = +m[6];
+    const k = vh > 0 ? h / vh : 0;
+    if (!(k > 0)) continue;
+    for (const sub of _svgDToSegs(m[7], (px, py) => makePair(x + Math.min(px * k, w), -(y + py * k)))) paths.push(makePath(sub, true));
+  }
+  if (!paths.length) return null;
+  return _texpathPlace(paths, placement, fsBp);
+}
+
 // Extract glyph paths from MathJax SVG output for texpath().
 // MathJax structure: <defs> contain <path id="..." d="...">, and <use> elements
 // inside nested <g transform="translate(x,y)"> reference those paths.
-function _texpathViaMathJax(rawText) {
+function _texpathViaMathJax(rawText, placement) {
   const state = _ensureMathJax();
   if (!state) return null;
   let math = (rawText || '').trim();
@@ -38277,20 +38880,11 @@ function _texpathViaMathJax(rawText) {
     }
   }
   if (usages.length === 0) return null;
-  // Center text around origin
-  const txs = usages.map(u => u.tx);
-  const tys = usages.map(u => u.ty);
-  const centerX = (Math.min(...txs) + Math.max(...txs)) / 2;
-  const centerY = (Math.min(...tys) + Math.max(...tys)) / 2;
-  const rangeX = Math.max(...txs) - Math.min(...txs);
-  const rangeY = Math.max(...tys) - Math.min(...tys);
-  // Compress Y to make formula more horizontal (subscripts/superscripts)
-  for (const u of usages) {
-    u.tx -= centerX;
-    u.ty = (u.ty - centerY) * 0.05;
-  }
-  // Parse SVG path d-string into Asymptote path segments
-  const svgScale = 0.005;
+  // Glyph outlines in bp at the pen's fontsize: MathJax works in 1000 units
+  // per em, and asy's texpath returns the outline at fontsize(p) (12pt =
+  // 11.955bp by default) — probe: texpath("$\pi$") spans ±3.148 x ±2.634bp.
+  const fsBp = (placement && placement.fontsize > 0) ? placement.fontsize : 11.955;
+  const svgScale = fsBp / 1000;
   function parseSvgD(d, tx, ty, ssx, ssy) {
     const segs = [];
     let cx=0, cy=0, sx0=0, sy0=0, lastCmd='', lcp2x=0, lcp2y=0;
@@ -38323,7 +38917,30 @@ function _texpathViaMathJax(rawText) {
     const segs = parseSvgD(u.d, u.tx, u.ty, u.sx, u.sy);
     if (segs.length > 0) paths.push(makePath(segs, true));
   }
-  return paths.length > 0 ? paths : null;
+  if (!paths.length) return null;
+  return _texpathPlace(paths, placement, fsBp);
+}
+
+// texpath() placement, shared by the KaTeX and MathJax outline sources.
+function _texpathPlace(paths, placement, fsBp) {
+  // Place like a label (plain_Label.asy): the ink box is centred at the
+  // position, then pushed out by align*labelmargin plus half the box along
+  // the L-inf-normalised align (probe: texpath(Label("A",align=E)) starts at
+  // x = labelmargin = 3.347bp; the default align centres the ink at 0).
+  let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
+  for (const p of paths) { const b = _nibPathBBox(p.segs, null); if (!b) continue;
+    mnX = Math.min(mnX, b.minX); mxX = Math.max(mxX, b.maxX); mnY = Math.min(mnY, b.minY); mxY = Math.max(mxY, b.maxY); }
+  if (!isFinite(mnX)) return paths;
+  const W = mxX - mnX, H = mxY - mnY;
+  const pos = (placement && placement.pos) || {x: 0, y: 0};
+  const al = (placement && placement.align) || {x: 0, y: 0};
+  const aInf = Math.max(Math.abs(al.x), Math.abs(al.y));
+  const lm = 0.28 * fsBp + 0.25;
+  const cx = pos.x + al.x * lm + (aInf > 0 ? 0.5 * al.x / aInf * W : 0);
+  const cy = pos.y + al.y * lm + (aInf > 0 ? 0.5 * al.y / aInf * H : 0);
+  const dx = cx - (mnX + mxX) / 2, dy = cy - (mnY + mxY) / 2;
+  const sh = q => makePair(q.x + dx, q.y + dy);
+  return paths.map(p => makePath(p.segs.map(g => makeSeg(sh(g.p0), sh(g.cp1), sh(g.cp2), sh(g.p3))), true));
 }
 
 const _mjxCache = new Map();
@@ -38342,8 +38959,12 @@ const _mjxCache = new Map();
 // makes label-only diagrams (e.g. unitsize(1cm) + fontsize(60) physics
 // equations) come out 2–3× wider than the TeXeR reference.  Apply the same
 // cap before using fontsize for measurement / SVG rendering / bbox math.
+// `import fontsize;` loads type1cm (fontsize.asy: usepackage("type1cm")), whose
+// scalable CM fonts lift the cap: fontsize(100pt) really is 100pt (12858).
+// Per-render flag, reset in render().
+let _texScalableFonts = false;
 function _texCapFontSize(n) {
-  if (typeof n !== 'number' || !isFinite(n) || n <= 25) return n;
+  if (typeof n !== 'number' || !isFinite(n) || n <= 25 || _texScalableFonts) return n;
   return 24.88;
 }
 
@@ -38403,7 +39024,7 @@ function _fit2SaturatingSpanBp(cmds, unitScale) {
     if (!dc || dc.cmd !== 'label' || !dc.pos || typeof dc.pos.x !== 'number') continue;
     const t = typeof dc.text === 'string' ? dc.text : (typeof dc.label === 'string' ? dc.label : '');
     if (!t) continue;
-    const fs = (dc.pen && typeof dc.pen.fontsize === 'number' && dc.pen.fontsize > 0) ? Math.min(dc.pen.fontsize, 25) : 12;
+    const fs = (dc.pen && typeof dc.pen.fontsize === 'number' && dc.pen.fontsize > 0) ? _texCapFontSize(dc.pen.fontsize) : 12;
     let wBp = 0, hBp = 0.72 * fs;
     try {
       const m = _mjxMeasureBp(t, fs);
@@ -40226,6 +40847,7 @@ function render(code, opts) {
   // it so a render never depends on what was rendered before it.
   _colRandState = 0x9e3779b9;
   _svgDefSeq = 0;
+  _texScalableFonts = false;
   opts = opts || {};
   if (opts.labelOutput === undefined) opts = Object.assign({}, opts, { labelOutput: 'svg-native' });
   const interp = createInterpreter();
