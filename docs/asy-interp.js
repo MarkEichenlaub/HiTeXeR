@@ -3119,6 +3119,7 @@ function createInterpreter() {
   let keepAspect = true;
   let defaultPen = makePen({});
   let _defaultpenLwSet = false; // whether defaultpen() explicitly set a linewidth
+  let _texerSizeTextMatchEval = false; // TeXeR's size-regex hit on the source (set per execute)
   let _legendEntries = [];    // collected {text, pen} entries for legend()
   const patternRegistry = {}; // name -> {_tag:'pattern',...} from patterns module
   // One deterministic budget of evaluation steps per render. Real asy has no
@@ -17328,7 +17329,7 @@ const _HTX_DATA_FILES = {
     // each label's glyph extent (converted bp→user via the fitted-scale
     // model). This approximates Asymptote's min(t)/max(t) frame bounds that
     // deferred extend=true axes span (graph.asy xaxisAt: tinv*(lb.x,...)).
-    function _estimateFrameBoundsU(pic, excludeCmds) {
+    function _estimateFrameBoundsU(pic, excludeCmds, noArrowBoxes) {
       let mnX = Infinity, mxX = -Infinity, mnY = Infinity, mxY = -Infinity;
       for (const dc of pic.commands) {
         if (dc.cmd === 'clip') continue;
@@ -17363,6 +17364,55 @@ const _HTX_DATA_FILES = {
         try { process.stderr.write('  [fb] geo=' + mnX.toFixed(3) + '..' + mxX.toFixed(3) + ' / ' + mnY.toFixed(3) + '..' + mxY.toFixed(3) + ' sX=' + sX.toFixed(1) + ' sY=' + sY.toFixed(1) + String.fromCharCode(10)); } catch (e) {}
       }
       const geoMinX = mnX, geoMaxX = mxX, geoMinY = mnY, geoMaxY = mxY;
+      // Arrowheads contribute their truesize box (plain_arrows.asy addArrow):
+      // a DefaultHead of the UNCLAMPED size arrowsize(p)=15*lw (not the
+      // 0.5*arclength drawing clamp) behind the tip, half-width size*tan15,
+      // FillDraw-outlined by lw/2. On slopefields this box is what pokes
+      // extend=true axes past the field (00269: x-axis tail -3.48, not the
+      // field edge -3.14). lw is TeXeR's effective width: 0.8bp for a default
+      // pen in the 150bp auto regime (see _autoLwRatio in renderSVG).
+      // (The endpoint-title anchor passes noArrowBoxes: asy seats the title at
+      // the axis's USER bound, which truesize heads don't move.)
+      if (!noArrowBoxes) {
+        const _autoRegime = !hasUnitScale && !(sizeW > 0) && !(sizeH > 0) && !_texerSizeTextMatchEval;
+        for (const dc of pic.commands) {
+          if (dc.cmd !== 'draw' || !dc.arrow || !dc.path || !dc.path.segs || !dc.path.segs.length) continue;
+          if (excludeCmds && excludeCmds.has(dc)) continue;
+          const ar = dc.arrow, st = ar.style || '';
+          if (ar.texHead || ar.hookHead || ar.headKind === 'SimpleHead' || ar.position !== undefined) continue;
+          if (!/^(Arrow|Arrows|EndArrow|BeginArrow)$/.test(st)) continue;
+          let lw = (dc.pen && typeof dc.pen.linewidth === 'number') ? dc.pen.linewidth : 0.5;
+          if (_autoRegime && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet) lw *= 1.6;
+          const size = ar.sizeExplicit ? (ar.size || 6) : 15 * lw;
+          if (!(sX > 0) || !(sY > 0)) continue;
+          const segs = dc.path.segs, s0 = segs[0], sL = segs[segs.length - 1];
+          const ends = [];
+          if (st !== 'BeginArrow') {
+            let dx = sL.p3.x - sL.cp2.x, dy = sL.p3.y - sL.cp2.y;
+            if (Math.abs(dx) + Math.abs(dy) < 1e-12) { dx = sL.p3.x - sL.p0.x; dy = sL.p3.y - sL.p0.y; }
+            ends.push([sL.p3, dx, dy]);
+          }
+          if (st === 'BeginArrow' || st === 'Arrows') {
+            let dx = s0.p0.x - s0.cp1.x, dy = s0.p0.y - s0.cp1.y;
+            if (Math.abs(dx) + Math.abs(dy) < 1e-12) { dx = s0.p0.x - s0.p3.x; dy = s0.p0.y - s0.p3.y; }
+            ends.push([s0.p0, dx, dy]);
+          }
+          const hw = size * Math.tan(15 * Math.PI / 180), pad = lw / 2;
+          for (const [z, dxU, dyU] of ends) {
+            if (!isFinite(z.x) || !isFinite(z.y)) continue;
+            let ux = dxU * sX, uy = dyU * sY; const L = Math.hypot(ux, uy); if (!(L > 0)) continue;
+            ux /= L; uy /= L;
+            const pts = [[0, 0], [-size * ux + hw * -uy, -size * uy + hw * ux], [-size * ux - hw * -uy, -size * uy - hw * ux]];
+            for (const [bx, by] of pts) {
+              for (const [ex, ey] of [[-pad, -pad], [pad, pad]]) {
+                const X = z.x + (bx + ex) / sX, Y = z.y + (by + ey) / sY;
+                if (X < mnX) mnX = X; if (X > mxX) mxX = X;
+                if (Y < mnY) mnY = Y; if (Y > mxY) mxY = Y;
+              }
+            }
+          }
+        }
+      }
       // Dot marks contribute their truesize radius to the frame (00111's
       // frame top is the dot edge at y=1+r, per Asymptote's pen bounds).
       for (const dc of pic.commands) {
@@ -18928,20 +18978,9 @@ const _HTX_DATA_FILES = {
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
           _xRideLo = 0; _xRideHi = 0;
-          // Two-half slopefield diagrams (e.g. 00269: two add(slopefield)
-          // regions with a central gap): TeXeR extends the axes past the
-          // field box edges. Keep the SSIM-tuned pokes from the legacy
-          // finalize pass (deeper on the tail side) instead of the title
-          // ride.
-          const _xTwoHalfSF = new Set(pic.commands.filter(dc => dc && dc._slopefield).map(dc => dc._sfRegion)).size >= 2;
-          if (_xTwoHalfSF) {
-            // Emulate the legacy SSIM-tuned behavior exactly: content
-            // extents + poke, ignoring label glyph boxes.
-            const _rng = fb.geoMaxX - fb.geoMinX;
-            fb.minX = fb.geoMinX; fb.maxX = fb.geoMaxX;
-            _xRideLo = _rng * 0.07;
-            _xRideHi = _rng * 0.035;
-          }
+          // (Two-half slopefields like 00269 used SSIM-tuned 7%/3.5% pokes
+          // here; the arrowhead truesize boxes in _estimateFrameBoundsU now
+          // extend the frame the way asy's addArrow does.)
           // Self-title model (instrumented asy: 00101/00026/00115 labelaxis
           // probes): asy rebuilds the frame iteratively, so the endpoint
           // title's bounds contribution is anchored at the frame edge OF THE
@@ -18952,9 +18991,9 @@ const _HTX_DATA_FILES = {
           // called last (00026) anchor at the full static edge — the title
           // protrudes past everything (the old additive "ride").
           let _xTitleLo = Infinity, _xTitleHi = -Infinity;
-          if (!_xTwoHalfSF) {
+          {
             const _afterSet = new Set(pic.commands.filter(c => !_xPrefixSet.has(c)));
-            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
+            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet, true);
             // The title's first placement is at the axis end as FIRST drawn:
             // the prefix frame edge, or a USER-set limit (xlimits pins the
             // end even with nothing drawn there — 00115/00101). Autoscale
@@ -19646,18 +19685,11 @@ const _HTX_DATA_FILES = {
           const fb = _estimateFrameBoundsU(pic, _selfNoLineNoTitle);
           if (!fb) return;
           _yRideLo = 0; _yRideHi = 0;
-          const _yTwoHalfSF = new Set(pic.commands.filter(dc => dc && dc._slopefield).map(dc => dc._sfRegion)).size >= 2;
-          if (_yTwoHalfSF) {
-            const _rng = fb.geoMaxY - fb.geoMinY;
-            fb.minY = fb.geoMinY; fb.maxY = fb.geoMaxY;
-            _yRideLo = _rng * 0.07;
-            _yRideHi = _rng * 0.035;
-          }
           // Self-title anchored at the prefix frame edge — see x-job note.
           let _yTitleLo = Infinity, _yTitleHi = -Infinity;
-          if (!_yTwoHalfSF) {
+          {
             const _afterSet = new Set(pic.commands.filter(c => !_yPrefixSet.has(c)));
-            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet);
+            const afb = _afterSet.size === pic.commands.length ? null : _estimateFrameBoundsU(pic, _afterSet, true);
             let _aLo = Math.min(afb ? afb.minY : Infinity, _yUserLo != null ? _yUserLo : Infinity);
             let _aHi = Math.max(afb ? afb.maxY : -Infinity, _yUserHi != null ? _yUserHi : -Infinity);
             // See x-job: anchor an early/no-prefix endpoint title to the live
@@ -30798,6 +30830,7 @@ const _HTX_DATA_FILES = {
   // Main execution
   function execute(code, opts) {
     opts = opts || {};
+    _texerSizeTextMatchEval = /size\w*\s*[(=]\s*[\d.]/.test(code);
     _imageCache = opts.imageCache || {};
     // Reset state
     drawCommands.length = 0;
@@ -36436,8 +36469,8 @@ function renderSVG(result, opts) {
       // the effective default linewidth is the boosted one (e.g. 04315).
       // Flat-banner number lines are the exception: their heads are native-size
       // in TeXeR (see _flatBanner / _geoFlatBanner notes), so don't boost them.
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
-        ? _autoScaledStrokeBoost : 1.0;
+      const _arrowBoost = (_autoArrowBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+        ? _autoArrowBoost : 1.0;
       let baseSize;
       if (dc.arrow.texHead && !dc.arrow.sizeExplicit) {
         const lw = (dc.pen && dc.pen.linewidth) || 0.5;
@@ -36641,8 +36674,8 @@ function renderSVG(result, opts) {
 
     // Arrow heads
     if (dc.arrow && dc.cmd === 'draw') {
-      const _arrowBoost = (_autoScaledStrokeBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
-        ? _autoScaledStrokeBoost : 1.0;
+      const _arrowBoost = (_autoArrowBoost > 1 && !_flatBanner && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet)
+        ? _autoArrowBoost : 1.0;
       const arrowEl = generateArrowHead(dc, minX, maxY, pxPerUnitX, pxPerUnitY, bpCSSPixel, css, _arrowBoost, _isNarrowFewDots1D);
       if (arrowEl) {
         // Apply same clip-path to arrowhead as the path itself
@@ -36772,6 +36805,18 @@ function renderSVG(result, opts) {
   // 5× boost was empirically calibrated to match REF for those.
   let _autoScaledStrokeBoost = 1.0;
   let _autoStrokeFloorBoost = 1.0;
+  // TeXeR's AUTO-SCALED regime (no size()/unitsize()) draws the DEFAULT pen at
+  // an effective linewidth of 0.8bp, not asy's 0.5bp (measured: a local asy
+  // run with size(150)+defaultpen(linewidth(0.8)) reproduces 00269's TeXeR
+  // PNG, and across the corpus default strokes are 3.27px there vs 2.27px
+  // in size()'d diagrams; default dots 5bp = 6*0.8+fringe). Everything asy
+  // derives from the pen's linewidth scales with it: arrowhead size
+  // (arrowsize = 15*lw), the head's FillDraw outline, and dash patterns.
+  // _autoLwRatio = 0.8/0.5 wherever that regime applies (not flat banners,
+  // whose heads measure native; not 1D-degenerate geometry, which keeps its
+  // own tuned ramp — see CLAUDE.md dot rules).
+  let _autoLwRatio = 1.0;
+  let _autoArrowBoost = 1.0;
   // Flat-banner number lines (minDim<5, maxDim>50, e.g. 05883/05891) get a 2×
   // STROKE boost to survive SSIM trim+resize, but their ArcArrows/Arrows heads
   // are truesize filled glyphs that TeXeR renders at NATIVE size (measured: REF
@@ -36880,16 +36925,19 @@ function renderSVG(result, opts) {
       // TeXeR shows. gs truth for a default pen is 2.27px at 240 DPI; the
       // 1.67 floor (2.78px) is the tuned survivable weight.
       _autoScaledStrokeBoost = Math.min(1.67, 1.0 + (_aspect - 1) * (4.0 / 9.0));
-      // STROKE-only floor: TeXeR's 240-DPI rasterization renders default
-      // 0.5bp strokes ~1.8× heavier than our nominal (measured 3px vs
-      // 1.67px on 07413's axes). Dots and arrowheads are truesize and
-      // already match — they keep the unfloored ramp value.
-      // Pure-stroke-art diagrams (no dots/arrows/labels) get a heavier 2.0×
-      // floor toward TeXeR's device-snapped default-stroke weight; this is the
-      // SSIM-optimal value for 12970 and is canary-clean (the only diagrams that
-      // regressed at 2.0 were labeled, and labels are now excluded above).
-      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, _pureStrokeArt ? 2.0 : 1.5);
+      // STROKE floor = TeXeR's real auto-regime default pen (0.8bp, see
+      // _autoLwRatio) through the same gs staircase the explicit-pen
+      // quantizer below models: 0.8bp = 2.67px -> 3 device px + 0.27px AA
+      // fringe = 3.27px = 0.98bp = 1.96 x 0.5bp. Measured over ~120 unsized
+      // TeXeR refs with default pens: 3.27px median (p25..p75 3.27..3.27);
+      // the old 1.5 floor rendered 2.5px. The size-text (400bp) regime keeps
+      // asy's 0.5bp default (TeXeR 2.1-2.3px there), so it stays at 1.5.
+      // Pure-stroke-art diagrams (no dots/arrows/labels) keep their tuned
+      // 2.0x (12970), which is the same weight within a rounding.
+      _autoStrokeFloorBoost = Math.max(_autoScaledStrokeBoost, _pureStrokeArt ? 2.0 : (_texerSizeTextMatch ? 1.5 : 1.96));
     }
+    if (!geoIs1D && !_isFlatBanner) _autoLwRatio = 1.6;
+    _autoArrowBoost = geoIs1D ? _autoScaledStrokeBoost : _autoLwRatio;
   }
   // The auto-scaled boost compensates default-pen STROKES for SSIM trim+resize
   // compression. It only applies to non-explicit pens; if every stroked command
@@ -37001,7 +37049,12 @@ function renderSVG(result, opts) {
     // which are a rendering-weight compensation rather than a real linewidth
     // change. Using the boosted width inflated dash lengths ~1.5× and dropped a
     // segment vs TeXeR (e.g. 00101's x=1 dashed line: 2 dashes instead of 3).
-    const _nominalStrokeWidth = css.strokeWidth;
+    let _nominalStrokeWidth = css.strokeWidth;
+    // ...but in TeXeR's auto-scaled regime the default pen's REAL linewidth is
+    // 0.8bp (see _autoLwRatio), so its dots/dashes are spaced for 0.8bp: a
+    // `dotted` line at the heavier weight otherwise closes up into dashes.
+    const _autoLwPen = _autoLwRatio > 1 && !_geoFlatBanner && !_texerSizeTextMatch && dc.pen && !dc.pen._lwExplicit && !_defaultpenLwSet;
+    if (_autoLwPen) _nominalStrokeWidth *= _autoLwRatio;
     // Gridlines (extend=true tick marks, above:-1) should not get the
     // explicit-size stroke boost — they already have a dedicated 1.4×
     // boost below and combining both makes them too thick (03901).
@@ -37065,7 +37118,7 @@ function renderSVG(result, opts) {
       // across the 058xx number-line family (+51% arc ink at display scale).
       if (_devPxQ >= 0.995) css.strokeWidth = (Math.ceil(_devPxQ - 0.5) + 0.27) * 0.3 * bpCSSPixel;
     }
-    let dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth);
+    let dashArray = linestyleToDasharray(dc.pen ? dc.pen.linestyle : null, css.strokeWidth, _nominalStrokeWidth, _autoLwPen);
     // Asymptote linetype(..., adjust=true) — the DEFAULT — rescales the dash
     // period per path so the stroke begins AND ends with a full dash:
     // L = n*(on+off) + on, n = nearest non-negative integer, then the whole
@@ -38620,7 +38673,7 @@ function isLinear(seg) {
   return true;
 }
 
-function linestyleToDasharray(style, strokeWidth, nominalWidth) {
+function linestyleToDasharray(style, strokeWidth, nominalWidth, trueDotPeriod) {
   if (!style || style === 'solid') return null;
   const w = strokeWidth || 0.5;
   // Dash/gap LENGTHS scale with the nominal (pre-boost) Asymptote linewidth, the
@@ -38644,7 +38697,14 @@ function linestyleToDasharray(style, strokeWidth, nominalWidth) {
   // librsvg and matches TeXeR's dotted weight.
   switch(style) {
     case 'dashed': return `${8*dw} ${8*dw}`;
-    case 'dotted': return `${1*w} ${3*w}`;
+    case 'dotted':
+      // Auto-regime default pen (nominalWidth = TeXeR's real 0.8bp): asy's
+      // {0,4} period is 4*lw (TeXeR 12203: 4px dots every 11px at 240dpi).
+      // The w-wide round caps already make the dot, so keep only a short
+      // on-length; the old 1w+3w (period 4 x rendered width) ran the dots
+      // together into dashes once default strokes got their real weight.
+      if (trueDotPeriod) { const on = 0.25 * w; return `${on} ${Math.max(4 * dw - on, 0.5 * w)}`; }
+      return `${1*w} ${3*w}`;
     case 'longdashed': return `${24*dw} ${8*dw}`;
     case 'dashdotted': return `${8*dw} ${8*dw} 0.01 ${8*dw}`;
     case 'longdashdotted': return `${24*dw} ${8*dw} 0.01 ${8*dw}`;
@@ -38913,12 +38973,16 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
 
     // Asymptote's plain_arrows.asy uses arrowangle = 15° as the half-angle
     // between the axis and each side of the (filled) arrowhead triangle.
+    // DefaultHead's base sits `size` back ALONG THE PATH (arctime(r,size)),
+    // so the head's axial length is s and each side is s/cos(15°) (asy EPS:
+    // Arrow on linewidth(2) = tip 100, base at 70, half-width 8.04 = 30·tan15).
     const headAngle = 15 * Math.PI / 180;
-    const lx = tipX - s*Math.cos(screenAngle - headAngle);
-    const ly = tipY - s*Math.sin(screenAngle - headAngle);
-    const rx = tipX - s*Math.cos(screenAngle + headAngle);
-    const ry = tipY - s*Math.sin(screenAngle + headAngle);
-    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled};
+    const sSide = s / Math.cos(headAngle);
+    const lx = tipX - sSide*Math.cos(screenAngle - headAngle);
+    const ly = tipY - sSide*Math.sin(screenAngle - headAngle);
+    const rx = tipX - sSide*Math.cos(screenAngle + headAngle);
+    const ry = tipY - sSide*Math.sin(screenAngle + headAngle);
+    return {d: `M${fmt(lx)} ${fmt(ly)} L${fmt(tipX)} ${fmt(tipY)} L${fmt(rx)} ${fmt(ry)} Z`, filled, defaultHead: true};
   }
 
   // Shared helper: arrowhead at fractional arc-length position `frac` (0=begin, 1=end).
@@ -39127,7 +39191,14 @@ function generateArrowHead(dc, minX, maxY, scaleX, scaleY, bpCSSPixel, css, arro
     // defaultfilltype is Fill only (plain_arrows.asy:162) — stroking the
     // thin TeX glyph turns it into a solid blob (03351).
     if (isTexHead) return `<path d="${d}" fill="${fillAttr}" stroke="none"/>`;
-    return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linejoin="miter"/>`;
+    // The outline is stroked with the arrow's own pen, whose join is round by
+    // default (asy EPS: `1 setlinejoin` before the head's stroke). On the
+    // DefaultHead triangle a miter join on the 30° tip pokes a spike
+    // 3.9×lw/2 past the tip, which made HTX heads read long and needle-thin
+    // next to TeXeR's blunt ones. (The ArcArrow/Hook shapes are tuned
+    // approximations whose calibration includes the miter; left as is.)
+    const _join = arrowParts[0].defaultHead ? ((dc.pen && dc.pen.linejoin) || 'round') : 'miter';
+    return `<path d="${d}" fill="${fillAttr}" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linejoin="${_join}"/>`;
   }
   return `<path d="${d}" fill="none" stroke="${css.stroke}" stroke-width="${fmt(css.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
