@@ -1,4 +1,5 @@
-"""Batch-tag the diagram library via the Anthropic Messages Batches API.
+"""Batch-tag the diagram library. Use the 'cli' command (claude -p, subscription).
+The API modes (submit/poll/merge) are disabled: no API credits.
 
 For each record in library/manifest.json, this sends Haiku 4.5 a multimodal
 request: the WebP thumbnail + the .asy source + surrounding context.
@@ -39,7 +40,7 @@ VOCAB_PATH = os.path.join(LIB_DIR, 'vocab.json')
 JSONL_PATH = os.path.join(LIB_DIR, 'batch_requests.jsonl')
 STATE_PATH = os.path.join(LIB_DIR, '.batch_state.json')
 
-MODEL = 'claude-haiku-4-5-20251001'
+MODEL = 'haiku'
 
 # Cap the .asy source we send so a runaway 1000-line script doesn't blow up
 # the per-request token budget. 99% of corpus is under 60 lines.
